@@ -1130,7 +1130,35 @@ input, textarea, select { font-family: inherit; }
      Script (placeholder for future tasks)
      ============================================ -->
 <script>
-// 后续任务将在此添加 JavaScript 逻辑
+// ============================================================
+// 模块：导航与页面路由
+// ============================================================
+
+(function() {
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('nav-toggle');
+    const navItems = document.querySelectorAll('#sidebar .nav-item');
+    const pageTitle = document.getElementById('page-title');
+    const pageTitles = { home: '首页', script: '剧本生成', agent: 'Agent 工作区' };
+
+    // 导航收起/展开
+    toggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('collapsed');
+    });
+
+    // 页面切换
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const pageName = item.dataset.page;
+            navItems.forEach(n => n.classList.remove('active'));
+            item.classList.add('active');
+            document.querySelectorAll('.page-container').forEach(p => p.classList.remove('active'));
+            const targetPage = document.getElementById('page-' + pageName);
+            if (targetPage) targetPage.classList.add('active');
+            pageTitle.textContent = pageTitles[pageName] || pageName;
+        });
+    });
+})();
 </script>
 
 </body>
