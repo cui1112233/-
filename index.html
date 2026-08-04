@@ -274,6 +274,27 @@ input, textarea, select { font-family: inherit; }
   flex-shrink: 0;
 }
 
+#progress-bar .step {
+  flex: 1;
+  height: 100%;
+  background: var(--border);
+  transition: background 0.3s ease;
+}
+
+#progress-bar .step.done {
+  background: var(--accent);
+}
+
+#progress-bar .step.active {
+  background: var(--accent);
+  animation: stepPulse 1s ease-in-out infinite;
+}
+
+@keyframes stepPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* ============================================
    Page Container
    ============================================ */
@@ -1873,6 +1894,170 @@ const ScriptGenerator = (function() {
         a.click();
         URL.revokeObjectURL(url);
         showToast('导出成功', 'success');
+    });
+})();
+
+// ============================================================
+// 模块：一键生成流水线
+// ============================================================
+
+(function() {
+    const btnGenerate = document.getElementById('btn-generate');
+    const novelInput = document.getElementById('novel-input');
+    const loadingStatus = document.getElementById('loading-status');
+    const progressBar = document.getElementById('progress-bar');
+    const step1El = document.getElementById('step1');
+    const step2El = document.getElementById('step2');
+
+    function setLoading(msg) {
+        loadingStatus.style.display = '';
+        loadingStatus.innerHTML = '<div class="loading-overlay"><div class="spinner"></div><span>' + msg + '</span></div>';
+    }
+
+    function clearLoading() {
+        loadingStatus.style.display = 'none';
+        loadingStatus.innerHTML = '';
+    }
+
+    function setProgress(step) {
+        progressBar.style.display = '';
+        step1El.className = 'step';
+        step2El.className = 'step';
+        if (step >= 1) step1El.className = 'step done';
+        if (step >= 2) step2El.className = 'step done';
+        if (step === 1.5) step2El.className = 'step active';
+    }
+
+    function hideProgress() {
+        progressBar.style.display = 'none';
+    }
+
+    function resetUI() {
+        const outputArea = document.getElementById('output-area');
+        outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">粘贴小说后点击"一键生成"</div><div class="empty-sub">自动提取人物、场景，生成可视化剧本</div></div>';
+        ScriptGenerator.hideActionButtons();
+        document.getElementById('char-section').style.display = 'none';
+        document.getElementById('scene-section').style.display = 'none';
+        hideProgress();
+    }
+
+    btnGenerate.addEventListener('click', async () => {
+        const novelText = novelInput.value.trim();
+        if (!novelText) {
+            showToast('请先粘贴小说内容', 'error');
+            return;
+        }
+        if (novelText.length < 100) {
+            showToast('内容太短，请至少输入100字', 'error');
+            return;
+        }
+
+        btnGenerate.disabled = true;
+        btnGenerate.textContent = '处理中...';
+        hideProgress();
+
+        try {
+            // 第1步：提取人物和场景
+            setLoading('提取人物和场景中...');
+            setProgress(1);
+            const data = await Extraction.extract(novelText);
+            Extraction.renderCards(data);
+            step1El.className = 'step done';
+
+            // 第2步：生成剧本
+            setLoading('剧本生成中...');
+            setProgress(1.5);
+            const format = ScriptGenerator.getCurrentFormat();
+            await ScriptGenerator.generate(novelText, format);
+            setProgress(2);
+
+            clearLoading();
+            showToast('生成完成！', 'success');
+        } catch (e) {
+            clearLoading();
+            showToast('生成失败：' + e.message, 'error');
+            console.error(e);
+        } finally {
+            btnGenerate.disabled = false;
+            btnGenerate.textContent = '🚀 一键生成';
+        }
+    });
+})();
+
+// ============================================================
+// 模块：重新生成
+// ============================================================
+
+(function() {
+    const modal = document.getElementById('regenerate-modal');
+    const btnOpen = document.getElementById('btn-regenerate');
+    const btnClose = document.getElementById('btn-close-regenerate');
+    const btnConfirm = document.getElementById('btn-confirm-regenerate');
+
+    btnOpen.addEventListener('click', () => { modal.style.display = 'flex'; });
+    btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+
+    btnConfirm.addEventListener('click', async () => {
+        const selected = document.querySelector('input[name="regenerate-option"]:checked');
+        if (!selected) return;
+        modal.style.display = 'none';
+
+        const btnGenerate = document.getElementById('btn-generate');
+        btnGenerate.disabled = true;
+        btnGenerate.textContent = '重新生成中...';
+
+        const loadingStatus = document.getElementById('loading-status');
+        const progressBar = document.getElementById('progress-bar');
+        const step1El = document.getElementById('step1');
+        const step2El = document.getElementById('step2');
+
+        function setLoading(msg) {
+            loadingStatus.style.display = '';
+            loadingStatus.innerHTML = '<div class="loading-overlay"><div class="spinner"></div><span>' + msg + '</span></div>';
+        }
+        function clearLoading() { loadingStatus.style.display = 'none'; loadingStatus.innerHTML = ''; }
+
+        try {
+            const novelText = ScriptGenerator.getCurrentNovelText();
+
+            if (selected.value === 'all') {
+                progressBar.style.display = '';
+                setLoading('提取人物和场景中...');
+                step1El.className = 'step done';
+                const data = await Extraction.extract(novelText);
+                Extraction.renderCards(data);
+                setLoading('剧本生成中...');
+                step2El.className = 'step active';
+                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat());
+                step2El.className = 'step done';
+                clearLoading();
+                showToast('全部重新生成完成', 'success');
+            } else if (selected.value === 'extract-only') {
+                setLoading('提取人物和场景中...');
+                progressBar.style.display = '';
+                step1El.className = 'step done';
+                const data = await Extraction.extract(novelText);
+                Extraction.renderCards(data);
+                clearLoading();
+                showToast('人物和场景已更新', 'success');
+            } else {
+                setLoading('剧本生成中...');
+                progressBar.style.display = '';
+                step2El.className = 'step active';
+                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat());
+                step2El.className = 'step done';
+                clearLoading();
+                showToast('剧本已重新生成', 'success');
+            }
+        } catch (e) {
+            clearLoading();
+            showToast('重新生成失败：' + e.message, 'error');
+            console.error(e);
+        } finally {
+            btnGenerate.disabled = false;
+            btnGenerate.textContent = '🚀 一键生成';
+        }
     });
 })();
 </script>
