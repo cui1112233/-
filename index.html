@@ -1159,6 +1159,148 @@ input, textarea, select { font-family: inherit; }
         });
     });
 })();
+
+// ============================================================
+// 模块：API 设置
+// ============================================================
+
+const ApiConfig = (function() {
+    const STORAGE_KEY = 'novel2script_api_config';
+    const defaultConfig = {
+        provider: 'custom',
+        apiKey: '',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o'
+    };
+    const providerDefaults = {
+        openai:   { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
+        deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+        qwen:     { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+        claude:   { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-3-5-sonnet-20241022' },
+        custom:   { baseUrl: '', model: '' }
+    };
+
+    function load() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) return { ...defaultConfig, ...JSON.parse(raw) };
+        } catch (e) {}
+        return { ...defaultConfig };
+    }
+
+    function save(cfg) { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }
+    function get() { return load(); }
+
+    async function testConnection(cfg) {
+        const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + cfg.apiKey
+        };
+        if (cfg.provider === 'claude') {
+            headers['x-api-key'] = cfg.apiKey;
+            delete headers['Authorization'];
+        }
+        const body = JSON.stringify({
+            model: cfg.model,
+            messages: [{ role: 'user', content: 'Hi' }],
+            max_tokens: 5
+        });
+        const resp = await fetch(url, { method: 'POST', headers, body });
+        if (!resp.ok) {
+            const errText = await resp.text();
+            throw new Error('HTTP ' + resp.status + ': ' + errText.slice(0, 200));
+        }
+        return true;
+    }
+
+    return { load, save, get, testConnection, providerDefaults };
+})();
+
+// ============================================================
+// 模块：设置 UI 交互
+// ============================================================
+
+(function() {
+    const modal = document.getElementById('settings-modal');
+    const btnOpen = document.querySelector('.btn-open-settings');
+    const btnClose = document.getElementById('btn-close-settings');
+    const btnSave = document.getElementById('btn-save-settings');
+    const btnTest = document.getElementById('btn-test-connection');
+    const providerSelect = document.getElementById('settings-provider');
+    const apiKeyInput = document.getElementById('settings-apikey');
+    const baseUrlInput = document.getElementById('settings-baseurl');
+    const modelInput = document.getElementById('settings-model');
+
+    btnOpen.addEventListener('click', () => {
+        const cfg = ApiConfig.get();
+        providerSelect.value = cfg.provider;
+        apiKeyInput.value = cfg.apiKey;
+        baseUrlInput.value = cfg.baseUrl;
+        modelInput.value = cfg.model;
+        modal.style.display = 'flex';
+    });
+
+    btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+
+    providerSelect.addEventListener('change', () => {
+        const defaults = ApiConfig.providerDefaults[providerSelect.value];
+        if (defaults && defaults.baseUrl) baseUrlInput.value = defaults.baseUrl;
+        if (defaults && defaults.model) modelInput.value = defaults.model;
+        if (providerSelect.value === 'custom') { baseUrlInput.value = ''; modelInput.value = ''; }
+    });
+
+    btnSave.addEventListener('click', () => {
+        const cfg = {
+            provider: providerSelect.value,
+            apiKey: apiKeyInput.value.trim(),
+            baseUrl: baseUrlInput.value.trim(),
+            model: modelInput.value.trim()
+        };
+        if (!cfg.apiKey) { showToast('请输入 API Key', 'error'); return; }
+        if (!cfg.baseUrl) { showToast('请输入 Base URL', 'error'); return; }
+        if (!cfg.model) { showToast('请输入模型名称', 'error'); return; }
+        ApiConfig.save(cfg);
+        modal.style.display = 'none';
+        showToast('设置已保存', 'success');
+    });
+
+    btnTest.addEventListener('click', async () => {
+        const cfg = {
+            provider: providerSelect.value,
+            apiKey: apiKeyInput.value.trim(),
+            baseUrl: baseUrlInput.value.trim(),
+            model: modelInput.value.trim()
+        };
+        if (!cfg.apiKey || !cfg.baseUrl || !cfg.model) { showToast('请先填写完整配置', 'error'); return; }
+        btnTest.disabled = true;
+        btnTest.textContent = '测试中...';
+        try {
+            await ApiConfig.testConnection(cfg);
+            showToast('连接成功！', 'success');
+        } catch (e) {
+            showToast('连接失败：' + e.message, 'error');
+        } finally {
+            btnTest.disabled = false;
+            btnTest.textContent = '🔌 测试连接';
+        }
+    });
+})();
+
+// ============================================================
+// 工具：Toast 提示
+// ============================================================
+
+function showToast(message, type) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + (type || '');
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.remove(); }, 3000);
+}
 </script>
 
 </body>
