@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Novel2Script — 小说转可视化剧本</title>
+<style>
+/* ============================================
+   CSS Custom Properties — Dark Theme
+   ============================================ */
+:root {
+  --bg-primary: #0f0f14;
+  --bg-secondary: #16161e;
+  --bg-panel: #1a1a24;
+  --bg-card: #1e1e2a;
+  --bg-card-hover: #242433;
+  --bg-input: #12121a;
+  --bg-modal: #1a1a28;
+  --bg-overlay: rgba(0, 0, 0, 0.65);
+  --text-primary: #e8e8f0;
+  --text-secondary: #9090a8;
+  --text-muted: #5a5a72;
+  --accent: #e94560;
+  --accent-hover: #ff5a75;
+  --accent-dim: rgba(233, 69, 96, 0.15);
+  --border: #2a2a3a;
+  --border-light: #333348;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #60a5fa;
+  --sidebar-width: 200px;
+  --sidebar-collapsed: 56px;
+  --topbar-height: 52px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================
+   Global Reset
+   ============================================ */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  display: flex;
+}
+
+a { color: var(--accent); text-decoration: none; }
+button { cursor: pointer; font-family: inherit; }
+input, textarea, select { font-family: inherit; }
+
+/* ============================================
+   Scrollbar Styling
+   ============================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ============================================
+   Sidebar
+   ============================================ */
+#sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-collapsed);
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: width var(--transition);
+  overflow: hidden;
+  z-index: 100;
+}
+
+#sidebar.collapsed {
+  width: var(--sidebar-collapsed);
+}
+
+.nav-header {
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#nav-toggle {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+
+#nav-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+.nav-header .nav-brand {
+  margin-left: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity var(--transition);
+}
+
+#sidebar.collapsed .nav-brand {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#nav-list {
+  list-style: none;
+  padding: 8px;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.nav-item:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.nav-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-text {
+  margin-left: 10px;
+  opacity: 1;
+  transition: opacity var(--transition);
+}
+
+#sidebar.collapsed .nav-text {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ============================================
+   Main Area
+   ============================================ */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ============================================
+   Top Bar
+   ============================================ */
+#topbar {
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+#page-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.btn-open-settings {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.btn-open-settings:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+  border-color: var(--border-light);
+}
+
+/* ============================================
+   Progress Bar
+   ============================================ */
+#progress-bar {
+  height: 3px;
+  background: var(--border);
+  display: none;
+  flex-shrink: 0;
+}
+
+#progress-bar.visible {
+  display: flex;
+}
+
+#progress-bar .step1 {
+  flex: 1;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.5s ease;
+  width: 0;
+}
+
+#progress-bar .step2 {
+  flex: 1;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.5s ease;
+  width: 0;
+}
+
+#progress-bar .step-divider {
+  width: 2px;
+  height: 100%;
+  background: var(--bg-primary);
+  flex-shrink: 0;
+}
+
+/* ============================================
+   Page Container
+   ============================================ */
+.page-container {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+}
+
+.page-container.active {
+  display: flex;
+}
+
+/* ============================================
+   Home Page (placeholder)
+   ============================================ */
+#page-home {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  gap: 16px;
+}
+
+#page-home .placeholder-icon {
+  font-size: 64px;
+  opacity: 0.4;
+}
+
+#page-home .placeholder-text {
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+#page-home .placeholder-sub {
+  font-size: 13px;
+  opacity: 0.4;
+}
+
+/* ============================================
+   Script Page — Left Panel
+   ============================================ */
+#page-script {
+  flex-direction: row;
+}
+
+.left-panel {
+  width: 35%;
+  min-width: 280px;
+  max-width: 420px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.left-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Input area */
+.novel-input {
+  width: 100%;
+  min-height: 180px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.novel-input:focus {
+  border-color: var(--accent);
+}
+
+.novel-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Generate button */
+.btn-generate {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background var(--transition), opacity var(--transition);
+}
+
+.btn-generate:hover {
+  background: var(--accent-hover);
+}
+
+.btn-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Loading status */
+.loading-status {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.loading-status.visible {
+  display: flex;
+}
+
+/* Spinner */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Card sections */
+.card-section {
+  margin-top: 4px;
+}
+
+.card-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.card-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-section-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-light);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color var(--transition);
+}
+
+.card-edit-btn:hover {
+  color: var(--text-primary);
+}
+
+.card-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ============================================
+   Script Page — Right Panel
+   ============================================ */
+.right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Format tabs */
+.format-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+
+.format-tab {
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+
+.format-tab:hover {
+  color: var(--text-primary);
+}
+
+.format-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Output area */
+.output-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.output-area .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+.output-area .empty-state .empty-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+.output-area .empty-state .empty-text {
+  font-size: 14px;
+  opacity: 0.5;
+}
+
+.output-content {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Action bar */
+.action-bar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.action-bar.visible {
+  display: flex;
+}
+
+.btn-action {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.btn-action:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-light);
+}
+
+.btn-action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-action.primary:hover {
+  background: var(--accent-hover);
+}
+
+/* ============================================
+   Agent Page (placeholder)
+   ============================================ */
+#page-agent {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  gap: 16px;
+}
+
+#page-agent .placeholder-icon {
+  font-size: 64px;
+  opacity: 0.4;
+}
+
+#page-agent .placeholder-text {
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+#page-agent .placeholder-sub {
+  font-size: 13px;
+  opacity: 0.4;
+}
+
+/* ============================================
+   Modal Overlay
+   ============================================ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--bg-overlay);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay.visible {
+  display: flex;
+}
+
+.modal {
+  background: var(--bg-modal);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.form-input,
+.form-select {
+  padding: 9px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.form-input:focus,
+.form-select:focus {
+  border-color: var(--accent);
+}
+
+.form-select {
+  cursor: pointer;
+}
+
+.btn {
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.btn-secondary {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-card-hover);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+/* Settings modal test feedback */
+.test-result {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  display: none;
+}
+
+.test-result.success {
+  display: block;
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--success);
+}
+
+.test-result.error {
+  display: block;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--error);
+}
+
+/* Edit modal */
+#edit-modal .modal {
+  width: 480px;
+}
+
+#edit-modal .form-textarea {
+  width: 100%;
+  min-height: 200px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+
+#edit-modal .form-textarea:focus {
+  border-color: var(--accent);
+}
+
+/* Regenerate modal */
+.regenerate-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.regenerate-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.regenerate-option:hover {
+  border-color: var(--border-light);
+  background: var(--bg-card-hover);
+}
+
+.regenerate-option input[type="radio"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+.regenerate-option .option-label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.regenerate-option .option-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ============================================
+   Toast Notifications
+   ============================================ */
+#toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  max-width: 360px;
+}
+
+.toast.success {
+  background: #1a7f3f;
+  border: 1px solid var(--success);
+}
+
+.toast.error {
+  background: #8b1a2b;
+  border: 1px solid var(--error);
+}
+
+.toast.info {
+  background: #1a4a7a;
+  border: 1px solid var(--info);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(40px); }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================
+     Sidebar
+     ============================================ -->
+<nav id="sidebar">
+  <div class="nav-header">
+    <button id="nav-toggle" type="button" title="收起/展开导航">☰</button>
+    <span class="nav-brand">Novel2Script</span>
+  </div>
+  <ul id="nav-list">
+    <li class="nav-item" data-page="home">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-text">首页</span>
+    </li>
+    <li class="nav-item active" data-page="script">
+      <span class="nav-icon">📝</span>
+      <span class="nav-text">剧本生成</span>
+    </li>
+    <li class="nav-item" data-page="agent">
+      <span class="nav-icon">🤖</span>
+      <span class="nav-text">Agent工作区</span>
+    </li>
+  </ul>
+</nav>
+
+<!-- ============================================
+     Main Area
+     ============================================ -->
+<div id="main">
+
+  <!-- Topbar -->
+  <div id="topbar">
+    <span id="page-title">剧本生成</span>
+    <button class="btn-open-settings" type="button" title="设置">⚙️</button>
+  </div>
+
+  <!-- Progress Bar -->
+  <div id="progress-bar">
+    <div class="step1"></div>
+    <div class="step-divider"></div>
+    <div class="step2"></div>
+  </div>
+
+  <!-- Page: Home -->
+  <div id="page-home" class="page-container">
+    <div class="placeholder-icon">🏠</div>
+    <div class="placeholder-text">欢迎使用 Novel2Script</div>
+    <div class="placeholder-sub">将小说章节转化为可视化剧本</div>
+  </div>
+
+  <!-- Page: Script -->
+  <div id="page-script" class="page-container active">
+    <!-- Left Panel -->
+    <div class="left-panel">
+      <div class="left-panel-scroll">
+        <textarea
+          id="novel-input"
+          class="novel-input"
+          placeholder="在此粘贴小说章节内容..."
+        ></textarea>
+
+        <button id="btn-generate" class="btn-generate" type="button">
+          🚀 一键生成
+        </button>
+
+        <div id="loading-status" class="loading-status">
+          <div class="spinner"></div>
+          <span id="loading-text">提取人物和场景中...</span>
+        </div>
+
+        <!-- Character Section -->
+        <div id="char-section" class="card-section">
+          <div class="card-section-header">
+            <span class="card-section-title">👤 人物 <span id="char-count" class="card-section-count">0</span></span>
+          </div>
+          <div id="char-list" class="card-list">
+            <!-- dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Scene Section -->
+        <div id="scene-section" class="card-section">
+          <div class="card-section-header">
+            <span class="card-section-title">🎬 场景 <span id="scene-count" class="card-section-count">0</span></span>
+          </div>
+          <div id="scene-list" class="card-list">
+            <!-- dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div class="right-panel">
+      <!-- Format Tabs -->
+      <div class="format-tabs">
+        <button class="format-tab" data-format="screenplay">影视剧本</button>
+        <button class="format-tab" data-format="storyboard">分镜脚本</button>
+        <button class="format-tab active" data-format="shortdrama">短视频脚本</button>
+        <button class="format-tab" data-format="all">四合一</button>
+      </div>
+
+      <!-- Output Area -->
+      <div id="output-area" class="output-area">
+        <div class="empty-state">
+          <div class="empty-icon">📄</div>
+          <div class="empty-text">粘贴小说内容，点击"一键生成"开始</div>
+        </div>
+        <div id="output-content" class="output-content" style="display: none;"></div>
+      </div>
+
+      <!-- Action Bar -->
+      <div id="action-bar" class="action-bar">
+        <button id="btn-regenerate" class="btn-action" type="button">🔄 重新生成</button>
+        <button id="btn-copy" class="btn-action" type="button">📋 复制</button>
+        <button id="btn-export" class="btn-action" type="button">📥 导出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page: Agent -->
+  <div id="page-agent" class="page-container">
+    <div class="placeholder-icon">🤖</div>
+    <div class="placeholder-text">Agent 工作区</div>
+    <div class="placeholder-sub">多 Agent 协作写作，即将上线</div>
+  </div>
+</div>
+
+<!-- ============================================
+     Settings Modal
+     ============================================ -->
+<div id="settings-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">⚙️ API 设置</div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">API 提供商</label>
+        <select id="settings-provider" class="form-select">
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="qwen">通义千问</option>
+          <option value="custom">自定义</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Key</label>
+        <input id="settings-apikey" class="form-input" type="password" placeholder="输入你的 API Key">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Base URL</label>
+        <input id="settings-baseurl" class="form-input" type="text" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="form-group">
+        <label class="form-label">模型名称</label>
+        <input id="settings-model" class="form-input" type="text" placeholder="gpt-4o">
+      </div>
+      <div id="test-result" class="test-result"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-test-connection" class="btn btn-secondary" type="button">🔌 测试连接</button>
+      <button id="btn-save-settings" class="btn btn-primary" type="button">保存</button>
+      <button id="btn-close-settings" class="btn btn-secondary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Edit Modal (character / scene)
+     ============================================ -->
+<div id="edit-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title" id="edit-modal-title">编辑</div>
+    <div class="modal-body">
+      <textarea id="edit-modal-textarea" class="form-textarea" placeholder="编辑内容..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-save-edit" class="btn btn-primary" type="button">保存</button>
+      <button id="btn-close-edit" class="btn btn-secondary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Regenerate Modal
+     ============================================ -->
+<div id="regenerate-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">🔄 重新生成</div>
+    <div class="modal-body">
+      <div class="regenerate-options">
+        <label class="regenerate-option">
+          <input type="radio" name="regenerate-option" value="script-only">
+          <div>
+            <div class="option-label">仅重新生成剧本</div>
+            <div class="option-desc">保留人物和场景数据</div>
+          </div>
+        </label>
+        <label class="regenerate-option">
+          <input type="radio" name="regenerate-option" value="extract-only">
+          <div>
+            <div class="option-label">仅重新提取人物 + 场景</div>
+            <div class="option-desc">保留已生成的剧本</div>
+          </div>
+        </label>
+        <label class="regenerate-option">
+          <input type="radio" name="regenerate-option" value="all" checked>
+          <div>
+            <div class="option-label">全部重新生成</div>
+            <div class="option-desc">从零开始，覆盖所有内容</div>
+          </div>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-confirm-regenerate" class="btn btn-primary" type="button">确认</button>
+      <button id="btn-close-regenerate" class="btn btn-secondary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Toast Container
+     ============================================ -->
+<div id="toast-container"></div>
+
+<!-- ============================================
+     Script (placeholder for future tasks)
+     ============================================ -->
+<script>
+// 后续任务将在此添加 JavaScript 逻辑
+</script>
+
+</body>
+</html>
