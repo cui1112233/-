@@ -2620,24 +2620,29 @@ const ScriptGenerator = (function() {
 // ============================================================
 
 (function() {
-    document.getElementById('btn-copy').addEventListener('click', async () => {
-        const text = ScriptGenerator.getCurrentOutput();
-        if (!text) return;
-        try {
-            await navigator.clipboard.writeText(text);
-            showToast('已复制到剪贴板', 'success');
-        } catch (e) {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            showToast('已复制到剪贴板', 'success');
-        }
-    });
+    var btnCopy = document.getElementById('btn-copy');
+    if (btnCopy) {
+        btnCopy.addEventListener('click', async () => {
+            const text = ScriptGenerator.getCurrentOutput();
+            if (!text) return;
+            try {
+                await navigator.clipboard.writeText(text);
+                showToast('已复制到剪贴板', 'success');
+            } catch (e) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                showToast('已复制到剪贴板', 'success');
+            }
+        });
+    }
 
-    document.getElementById('btn-export').addEventListener('click', () => {
+    var btnExport = document.getElementById('btn-export');
+    if (btnExport) {
+        btnExport.addEventListener('click', () => {
         const text = ScriptGenerator.getCurrentOutput();
         if (!text) return;
         const names = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
@@ -2651,6 +2656,7 @@ const ScriptGenerator = (function() {
         URL.revokeObjectURL(url);
         showToast('导出成功', 'success');
     });
+    }
 })();
 
 // ============================================================
