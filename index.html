@@ -495,8 +495,8 @@ input, textarea, select { font-family: inherit; }
 
 .left-panel {
   width: 35%;
-  min-width: 280px;
-  max-width: 420px;
+  min-width: 200px;
+  max-width: 60%;
   background: var(--bg-panel);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -766,6 +766,36 @@ input, textarea, select { font-family: inherit; }
 /* ============================================
    Script Page — Right Panel
    ============================================ */
+/* Resize handle */
+.resize-handle {
+  width: 6px;
+  cursor: col-resize;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: background var(--transition);
+  position: relative;
+}
+.resize-handle:hover,
+.resize-handle.active {
+  background: var(--accent);
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  border-radius: 1px;
+  background: var(--text-muted);
+  transition: background var(--transition);
+}
+.resize-handle:hover::after,
+.resize-handle.active::after {
+  background: #fff;
+}
+
 .right-panel {
   flex: 1;
   display: flex;
@@ -773,6 +803,95 @@ input, textarea, select { font-family: inherit; }
   overflow: hidden;
   min-width: 0;
   background: var(--bg-primary);
+}
+
+/* Canvas wrapper — 卡片式画布容器 */
+.output-canvas-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.output-canvas {
+  width: 100%;
+  max-width: 800px;
+  height: 100%;
+  max-height: calc(100vh - var(--topbar-height) - 120px);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.canvas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  flex-shrink: 0;
+}
+
+.canvas-toolbar .canvas-mode-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.canvas-toolbar .canvas-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.canvas-toolbar .canvas-action-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.canvas-toolbar .canvas-action-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+  border-color: var(--border);
+}
+
+.canvas-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.canvas-content .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+}
+
+.canvas-content .empty-state .empty-icon {
+  font-size: 40px;
+  opacity: 0.5;
+}
+
+.canvas-content .empty-state .empty-text {
+  font-size: 14px;
+  color: var(--text-secondary);
 }
 
 /* Format tabs */
@@ -1431,30 +1550,33 @@ input, textarea, select { font-family: inherit; }
         </div>
       </div>
     </div>
-
+    <div class="resize-handle" id="resize-handle"></div>
     <!-- Right Panel -->
     <div class="right-panel">
-      <!-- Format Tabs -->
       <div id="format-tabs" class="format-tabs">
-        <button class="format-tab" data-format="screenplay">影视剧本</button>
-        <button class="format-tab" data-format="storyboard">分镜脚本</button>
-        <button class="format-tab active" data-format="shortdrama">短视频脚本</button>
+        <button class="format-tab" data-format="screenplay">剧情模式</button>
+        <button class="format-tab" data-format="storyboard">画布模式</button>
+        <button class="format-tab active" data-format="shortdrama">剧本模式</button>
       </div>
 
-      <!-- Output Area -->
-      <div id="output-area" class="output-area">
-        <div class="empty-state">
-          <div class="empty-icon">📄</div>
-          <div class="empty-text">粘贴小说内容，点击"一键生成"开始</div>
+      <div class="output-canvas-wrapper">
+        <div class="output-canvas" id="output-canvas">
+          <div class="canvas-toolbar" id="canvas-toolbar">
+            <span class="canvas-mode-name" id="canvas-mode-name">剧本模式</span>
+            <div class="canvas-actions">
+              <button class="canvas-action-btn" id="canvas-btn-duration" style="display:none;">10s ▼</button>
+              <button class="canvas-action-btn" id="canvas-btn-regenerate" style="display:none;">🔄 重新生成</button>
+              <button class="canvas-action-btn" id="canvas-btn-copy" style="display:none;">📋 复制</button>
+              <button class="canvas-action-btn" id="canvas-btn-export" style="display:none;">💾 导出</button>
+            </div>
+          </div>
+          <div class="canvas-content" id="output-area">
+            <div class="empty-state">
+              <div class="empty-icon">📄</div>
+              <div class="empty-text">粘贴小说内容，点击"一键生成"开始</div>
+            </div>
+          </div>
         </div>
-        <div id="output-content" class="output-content" style="display: none;"></div>
-      </div>
-
-      <!-- Action Bar -->
-      <div id="action-bar" class="action-bar">
-        <button id="btn-regenerate" class="btn-action" type="button">🔄 重新生成</button>
-        <button id="btn-copy" class="btn-action" type="button">📋 复制</button>
-        <button id="btn-export" class="btn-action" type="button">📥 导出</button>
       </div>
     </div>
   </div>
@@ -1568,7 +1690,7 @@ input, textarea, select { font-family: inherit; }
     <div class="modal-title">切换格式</div>
     <div class="modal-body">
       <p style="margin:0;line-height:1.6;color:var(--text-secondary);">
-        切换到 <strong id="switch-format-name" style="color:var(--accent);">影视剧本</strong> 格式，将重新生成剧本。
+        切换到 <strong id="switch-format-name" style="color:var(--accent);">剧情模式</strong> 格式，将重新生成剧本。
       </p>
       <p style="margin:8px 0 0;line-height:1.6;color:var(--text-secondary);">
         当前格式的剧本内容已缓存，不会丢失。
@@ -2329,18 +2451,42 @@ const ScriptGenerator = (function() {
         document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) { t.classList.remove('active'); });
         var targetTab = document.querySelector('#format-tabs .format-tab[data-format="' + format + '"]');
         if (targetTab) targetTab.classList.add('active');
+        // 同步画布工具栏
+        var modeName = document.getElementById('canvas-mode-name');
+        if (modeName) {
+            var names = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+            modeName.textContent = names[format] || '剧本模式';
+        }
     }
 
     function showActionButtons() {
         document.getElementById('btn-regenerate').style.display = '';
         document.getElementById('btn-copy').style.display = '';
         document.getElementById('btn-export').style.display = '';
+        // Canvas toolbar
+        var btnDuration = document.getElementById('canvas-btn-duration');
+        var btnRegen = document.getElementById('canvas-btn-regenerate');
+        var btnCopy = document.getElementById('canvas-btn-copy');
+        var btnExport = document.getElementById('canvas-btn-export');
+        var currentFmt = currentFormat;
+        if (btnDuration) btnDuration.style.display = (currentFmt === 'screenplay' || currentFmt === 'storyboard') ? '' : 'none';
+        if (btnRegen) btnRegen.style.display = '';
+        if (btnCopy) btnCopy.style.display = '';
+        if (btnExport) btnExport.style.display = '';
     }
 
     function hideActionButtons() {
         document.getElementById('btn-regenerate').style.display = 'none';
         document.getElementById('btn-copy').style.display = 'none';
         document.getElementById('btn-export').style.display = 'none';
+        var btnDuration = document.getElementById('canvas-btn-duration');
+        var btnRegen = document.getElementById('canvas-btn-regenerate');
+        var btnCopy = document.getElementById('canvas-btn-copy');
+        var btnExport = document.getElementById('canvas-btn-export');
+        if (btnDuration) btnDuration.style.display = 'none';
+        if (btnRegen) btnRegen.style.display = 'none';
+        if (btnCopy) btnCopy.style.display = 'none';
+        if (btnExport) btnExport.style.display = 'none';
     }
 
     return { generate: generate, getCurrentFormat: getCurrentFormat, setCurrentFormat: setCurrentFormat, getCurrentOutput: getCurrentOutput, getCurrentNovelText: getCurrentNovelText, setCurrentNovelText: setCurrentNovelText, showActionButtons: showActionButtons, hideActionButtons: hideActionButtons, switchToFormat: switchToFormat, hasOutput: hasOutput };
@@ -2357,7 +2503,7 @@ const ScriptGenerator = (function() {
     var btnCancel = document.getElementById('btn-cancel-switch');
     var switchMsg = document.getElementById('switch-format-name');
 
-    var formatNames = { screenplay: '影视剧本', storyboard: '分镜脚本', shortdrama: '短视频脚本' };
+    var formatNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
 
     document.querySelectorAll('#format-tabs .format-tab').forEach(function(tab) {
         tab.addEventListener('click', function() {
@@ -2455,7 +2601,7 @@ const ScriptGenerator = (function() {
     document.getElementById('btn-export').addEventListener('click', () => {
         const text = ScriptGenerator.getCurrentOutput();
         if (!text) return;
-        const names = { screenplay: '影视剧本', storyboard: '分镜脚本', shortdrama: '短视频脚本' };
+        const names = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
         const name = names[ScriptGenerator.getCurrentFormat()] || '剧本';
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -2627,6 +2773,42 @@ const ScriptGenerator = (function() {
             btnGenerate.disabled = false;
             btnGenerate.textContent = '🚀 一键生成';
         }
+    });
+})();
+
+// ============================================================
+// 面板拖拽
+// ============================================================
+(function() {
+    var handle = document.getElementById('resize-handle');
+    var leftPanel = document.querySelector('.left-panel');
+    if (!handle || !leftPanel) return;
+    
+    var isDragging = false;
+    
+    handle.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        handle.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        var container = leftPanel.parentElement;
+        var rect = container.getBoundingClientRect();
+        var pct = ((e.clientX - rect.left) / rect.width) * 100;
+        pct = Math.max(20, Math.min(60, pct));
+        leftPanel.style.width = pct + '%';
+    });
+    
+    document.addEventListener('mouseup', function() {
+        if (!isDragging) return;
+        isDragging = false;
+        handle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
     });
 })();
 </script>
