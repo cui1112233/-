@@ -1450,6 +1450,44 @@ input, textarea, select { font-family: inherit; }
   display: block;
   opacity: 1;
 }
+/* Context menu */
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-modal);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  min-width: 160px;
+  display: none;
+}
+.context-menu.visible { display: block; }
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+.context-menu-item:hover { background: var(--bg-card-hover); }
+.context-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+.context-menu-item .checkmark {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 700;
+}
 </style>
 </head>
 <body>
@@ -2406,7 +2444,8 @@ const ScriptGenerator = (function() {
     function getCurrentNovelText() { return currentNovelText; }
     function setCurrentNovelText(t) { currentNovelText = t; }
 
-    async function generate(novelText, format) {
+    async function generate(novelText, format, duration) {
+        duration = duration || '10s';
         setCurrentNovelText(novelText);
         currentFormat = format;
         outputs[format] = '';
@@ -2422,7 +2461,7 @@ const ScriptGenerator = (function() {
         const data = Extraction.getData();
         const charsJson = JSON.stringify(data.characters, null, 2);
         const scenesJson = JSON.stringify(data.scenes, null, 2);
-        const messages = PromptTemplates.scriptPrompt(novelText, charsJson, scenesJson, format);
+        const messages = await PromptTemplates.scriptPrompt(novelText, charsJson, scenesJson, format, duration);
         const response = await AIClient.callStream(messages, (chunk) => {
             contentDiv.textContent += chunk;
             outputArea.scrollTop = outputArea.scrollHeight;
@@ -2552,7 +2591,7 @@ const ScriptGenerator = (function() {
 
         try {
             var novelText = ScriptGenerator.getCurrentNovelText();
-            await ScriptGenerator.generate(novelText, format);
+            await ScriptGenerator.generate(novelText, format, StoryDuration.get());
             showToast('生成完成！', 'success');
         } catch (e) {
             showToast('生成失败：' + e.message, 'error');
@@ -2684,7 +2723,7 @@ const ScriptGenerator = (function() {
             setLoading('剧本生成中...');
             setProgress(1.5);
             const format = ScriptGenerator.getCurrentFormat();
-            await ScriptGenerator.generate(novelText, format);
+            await ScriptGenerator.generate(novelText, format, StoryDuration.get());
             setProgress(2);
 
             clearLoading();
@@ -2744,7 +2783,7 @@ const ScriptGenerator = (function() {
                 Extraction.renderCards(data);
                 setLoading('剧本生成中...');
                 step2El.className = 'step2 step active';
-                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat());
+                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat(), StoryDuration.get());
                 step2El.className = 'step2 step done';
                 clearLoading();
                 showToast('全部重新生成完成', 'success');
@@ -2760,7 +2799,7 @@ const ScriptGenerator = (function() {
                 setLoading('剧本生成中...');
                 progressBar.style.display = 'flex';
                 step2El.className = 'step2 step active';
-                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat());
+                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat(), StoryDuration.get());
                 step2El.className = 'step2 step done';
                 clearLoading();
                 showToast('剧本已重新生成', 'success');
@@ -2811,7 +2850,145 @@ const ScriptGenerator = (function() {
         document.body.style.userSelect = '';
     });
 })();
+
+// ============================================================
+// 模块：10s/15s 时长管理
+// ============================================================
+var StoryDuration = (function() {
+    var duration = '10s';
+    
+    function get() { return duration; }
+    function set(d) { duration = d; updateUI(); }
+    
+    function updateUI() {
+        var check10 = document.getElementById('check-10s');
+        var check15 = document.getElementById('check-15s');
+        if (check10) check10.textContent = duration === '10s' ? '✓' : '';
+        if (check15) check15.textContent = duration === '15s' ? '✓' : '';
+        
+        var btnDuration = document.getElementById('canvas-btn-duration');
+        if (btnDuration) btnDuration.textContent = duration + ' ▼';
+        
+        var currentFormat = ScriptGenerator.getCurrentFormat();
+        var showDuration = currentFormat === 'screenplay' || currentFormat === 'storyboard';
+        var divider = document.getElementById('ctx-divider-duration');
+        var item10 = document.querySelector('[data-action="duration-10s"]');
+        var item15 = document.querySelector('[data-action="duration-15s"]');
+        if (divider) divider.style.display = showDuration ? '' : 'none';
+        if (item10) item10.style.display = showDuration ? '' : 'none';
+        if (item15) item15.style.display = showDuration ? '' : 'none';
+        if (btnDuration) btnDuration.style.display = showDuration ? '' : 'none';
+    }
+    
+    return { get: get, set: set, updateUI: updateUI };
+})();
+
+// ============================================================
+// 模块：右键菜单
+// ============================================================
+(function() {
+    var menu = document.getElementById('context-menu');
+    var canvas = document.getElementById('output-canvas');
+    if (!menu || !canvas) return;
+    
+    canvas.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        StoryDuration.updateUI();
+        menu.style.display = 'block';
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
+        menu.classList.add('visible');
+    });
+    
+    document.addEventListener('click', function(e) {
+        if (!menu.contains(e.target)) {
+            menu.classList.remove('visible');
+            menu.style.display = 'none';
+        }
+    });
+    
+    menu.addEventListener('click', function(e) {
+        var item = e.target.closest('.context-menu-item');
+        if (!item) return;
+        var action = item.dataset.action;
+        
+        menu.classList.remove('visible');
+        menu.style.display = 'none';
+        
+        switch (action) {
+            case 'duration-10s':
+                StoryDuration.set('10s');
+                break;
+            case 'duration-15s':
+                StoryDuration.set('15s');
+                break;
+            case 'regenerate':
+                document.getElementById('btn-regenerate').click();
+                break;
+            case 'copy':
+                document.getElementById('canvas-btn-copy').click();
+                break;
+            case 'export':
+                document.getElementById('canvas-btn-export').click();
+                break;
+            case 'fullscreen':
+                if (canvas.requestFullscreen) { canvas.requestFullscreen(); }
+                else if (canvas.webkitRequestFullscreen) { canvas.webkitRequestFullscreen(); }
+                break;
+        }
+    });
+    
+    // 工具栏时长按钮切换
+    var btnDuration = document.getElementById('canvas-btn-duration');
+    if (btnDuration) {
+        btnDuration.addEventListener('click', function() {
+            StoryDuration.set(StoryDuration.get() === '10s' ? '15s' : '10s');
+        });
+    }
+    
+    // 工具栏复制按钮
+    var btnCopy = document.getElementById('canvas-btn-copy');
+    if (btnCopy) {
+        btnCopy.addEventListener('click', function() {
+            var text = ScriptGenerator.getCurrentOutput();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(function() {
+                showToast('已复制', 'success');
+            });
+        });
+    }
+    
+    // 工具栏导出按钮
+    var btnExport = document.getElementById('canvas-btn-export');
+    if (btnExport) {
+        btnExport.addEventListener('click', function() {
+            document.getElementById('btn-export').click();
+        });
+    }
+    
+    // 工具栏重新生成按钮
+    var btnRegen = document.getElementById('canvas-btn-regenerate');
+    if (btnRegen) {
+        btnRegen.addEventListener('click', function() {
+            document.getElementById('btn-regenerate').click();
+        });
+    }
+})();
 </script>
 
+<div class="context-menu" id="context-menu">
+  <div class="context-menu-item" data-action="duration-10s">
+    <span>⏱ 10秒模式</span><span class="checkmark" id="check-10s">✓</span>
+  </div>
+  <div class="context-menu-item" data-action="duration-15s">
+    <span>⏱ 15秒模式</span><span class="checkmark" id="check-15s"></span>
+  </div>
+  <div class="context-menu-divider" id="ctx-divider-duration"></div>
+  <div class="context-menu-item" data-action="regenerate">🔄 重新生成</div>
+  <div class="context-menu-item" data-action="copy">📋 复制</div>
+  <div class="context-menu-item" data-action="export">💾 导出</div>
+  <div class="context-menu-divider"></div>
+  <div class="context-menu-item" data-action="fullscreen">📺 全屏</div>
+</div>
 </body>
 </html>
