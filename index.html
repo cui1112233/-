@@ -277,8 +277,6 @@ input, textarea, select { font-family: inherit; }
 #progress-bar .step {
   flex: 1;
   height: 100%;
-  background: var(--border);
-  transition: background 0.3s ease;
 }
 
 #progress-bar .step.done {
@@ -2201,10 +2199,9 @@ const ScriptGenerator = (function() {
         try {
             // 第1步：提取人物和场景
             setLoading('提取人物和场景中...');
-            setProgress(1);
             const data = await Extraction.extract(novelText);
             Extraction.renderCards(data);
-            step1El.className = 'step done';
+            step1El.className = 'step1 step done';
 
             // 第2步：生成剧本
             setLoading('剧本生成中...');
