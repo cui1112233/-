@@ -802,33 +802,14 @@ input, textarea, select { font-family: inherit; }
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-  background: var(--bg-primary);
-}
-
-/* Canvas wrapper — 卡片式画布容器 */
-.output-canvas-wrapper {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  overflow: hidden;
-}
-
-.output-canvas {
-  width: 100%;
-  max-width: 800px;
-  height: 100%;
-  max-height: calc(100vh - var(--topbar-height) - 120px);
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-xl);
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+  margin: 12px 12px 12px 0;
   box-shadow: var(--shadow-lg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
 }
 
+/* 画布工具栏 */
 .canvas-toolbar {
   display: flex;
   align-items: center;
@@ -869,13 +850,14 @@ input, textarea, select { font-family: inherit; }
   border-color: var(--border);
 }
 
-.canvas-content {
+/* Output area */
+.output-area {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
 }
 
-.canvas-content .empty-state {
+.output-area .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -884,12 +866,12 @@ input, textarea, select { font-family: inherit; }
   gap: 12px;
 }
 
-.canvas-content .empty-state .empty-icon {
+.output-area .empty-state .empty-icon {
   font-size: 40px;
   opacity: 0.5;
 }
 
-.canvas-content .empty-state .empty-text {
+.output-area .empty-state .empty-text {
   font-size: 14px;
   color: var(--text-secondary);
 }
@@ -929,34 +911,6 @@ input, textarea, select { font-family: inherit; }
   background: var(--gradient-accent);
   border-color: transparent;
   box-shadow: 0 2px 8px var(--accent-glow);
-}
-
-/* Output area */
-.output-area {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 28px;
-}
-
-.output-area .empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--text-muted);
-  gap: 14px;
-}
-
-.output-area .empty-state .empty-icon {
-  font-size: 56px;
-  opacity: 0.2;
-  animation: floatIcon 4s ease-in-out infinite;
-}
-
-.output-area .empty-state .empty-text {
-  font-size: 14px;
-  opacity: 0.45;
 }
 
 .output-content {
@@ -1597,23 +1551,20 @@ input, textarea, select { font-family: inherit; }
         <button class="format-tab active" data-format="shortdrama">剧本模式</button>
       </div>
 
-      <div class="output-canvas-wrapper">
-        <div class="output-canvas" id="output-canvas">
-          <div class="canvas-toolbar" id="canvas-toolbar">
-            <span class="canvas-mode-name" id="canvas-mode-name">剧本模式</span>
-            <div class="canvas-actions">
-              <button class="canvas-action-btn" id="canvas-btn-duration" style="display:none;">10s ▼</button>
-              <button class="canvas-action-btn" id="canvas-btn-regenerate" style="display:none;">🔄 重新生成</button>
-              <button class="canvas-action-btn" id="canvas-btn-copy" style="display:none;">📋 复制</button>
-              <button class="canvas-action-btn" id="canvas-btn-export" style="display:none;">💾 导出</button>
-            </div>
-          </div>
-          <div class="canvas-content" id="output-area">
-            <div class="empty-state">
-              <div class="empty-icon">📄</div>
-              <div class="empty-text">粘贴小说内容，点击"一键生成"开始</div>
-            </div>
-          </div>
+      <div class="canvas-toolbar" id="canvas-toolbar">
+        <span class="canvas-mode-name" id="canvas-mode-name">剧本模式</span>
+        <div class="canvas-actions">
+          <button class="canvas-action-btn" id="canvas-btn-duration" style="display:none;">10s ▼</button>
+          <button class="canvas-action-btn" id="canvas-btn-regenerate" style="display:none;">🔄 重新生成</button>
+          <button class="canvas-action-btn" id="canvas-btn-copy" style="display:none;">📋 复制</button>
+          <button class="canvas-action-btn" id="canvas-btn-export" style="display:none;">💾 导出</button>
+        </div>
+      </div>
+
+      <div id="output-area" class="output-area">
+        <div class="empty-state">
+          <div class="empty-icon">📄</div>
+          <div class="empty-text">粘贴小说内容，点击"一键生成"开始</div>
         </div>
       </div>
     </div>
@@ -2899,7 +2850,7 @@ var StoryDuration = (function() {
 // ============================================================
 (function() {
     var menu = document.getElementById('context-menu');
-    var canvas = document.getElementById('output-canvas');
+    var canvas = document.querySelector('.right-panel');
     if (!menu || !canvas) return;
     
     canvas.addEventListener('contextmenu', function(e) {
