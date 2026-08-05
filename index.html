@@ -1802,7 +1802,7 @@ const Extraction = (function() {
                 var app = c.appearance || {};
                 return '<div class="card" data-type="char" data-index="' + i + '">'
                     + '<button class="btn-edit" data-type="char" data-index="' + i + '">✏️</button>'
-                    + '<div class="card-name">' + escapeHtml(c.name) || '未命名' + (c.role ? ' · ' + escapeHtml(c.role) : '') + '</div>'
+                    + '<div class="card-name">' + (escapeHtml(c.name) || '未命名') + (c.role ? ' · ' + escapeHtml(c.role) : '') + '</div>'
                     + '<div class="card-detail">' + escapeHtml(c.identity) + '</div>'
                     + (app.body ? '<div class="card-detail">体征：' + escapeHtml(app.body) + '</div>' : '')
                     + (app.face ? '<div class="card-detail">五官：' + escapeHtml(app.face) + '</div>' : '')
