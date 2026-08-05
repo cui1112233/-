@@ -538,6 +538,26 @@ input, textarea, select { font-family: inherit; }
   margin-top: 2px;
 }
 
+.card-body-collapsed {
+  max-height: 60px;
+  overflow: hidden;
+  position: relative;
+}
+.card-body-expanded {
+  max-height: none;
+  overflow: visible;
+}
+.card-expand-hint {
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+  margin-top: 4px;
+  user-select: none;
+}
+.card-expand-hint:hover {
+  text-decoration: underline;
+}
+
 .card-info {
   font-size: 12px;
   color: var(--text-secondary);
@@ -1800,16 +1820,20 @@ const Extraction = (function() {
             charCount.textContent = '(' + data.characters.length + ')';
             charList.innerHTML = data.characters.map((c, i) => {
                 var app = c.appearance || {};
-                return '<div class="card" data-type="char" data-index="' + i + '">'
-                    + '<button class="btn-edit" data-type="char" data-index="' + i + '">✏️</button>'
-                    + '<div class="card-name">' + (escapeHtml(c.name) || '未命名') + (c.role ? ' · ' + escapeHtml(c.role) : '') + '</div>'
-                    + '<div class="card-detail">' + escapeHtml(c.identity) + '</div>'
+                var details = ''
                     + (app.body ? '<div class="card-detail">体征：' + escapeHtml(app.body) + '</div>' : '')
                     + (app.face ? '<div class="card-detail">五官：' + escapeHtml(app.face) + '</div>' : '')
                     + (app.hair ? '<div class="card-detail">发型：' + escapeHtml(app.hair) + '</div>' : '')
                     + (app.clothing ? '<div class="card-detail">服饰：' + escapeHtml(app.clothing) + '</div>' : '')
                     + (c.speechStyle ? '<div class="card-detail">说话：' + escapeHtml(c.speechStyle) + '</div>' : '')
-                    + (c.relations ? '<div class="card-detail">关系：' + escapeHtml(c.relations) + '</div>' : '')
+                    + (c.relations ? '<div class="card-detail">关系：' + escapeHtml(c.relations) + '</div>' : '');
+                var hasDetails = !!(app.body || app.face || app.hair || app.clothing || c.speechStyle || c.relations);
+                return '<div class="card" data-type="char" data-index="' + i + '">'
+                    + '<button class="btn-edit" data-type="char" data-index="' + i + '">✏️</button>'
+                    + '<div class="card-name">' + (escapeHtml(c.name) || '未命名') + (c.role ? ' · ' + escapeHtml(c.role) : '') + '</div>'
+                    + '<div class="card-detail">' + escapeHtml(c.identity) + '</div>'
+                    + (hasDetails ? '<div class="card-body-collapsed" data-char-body="' + i + '">' + details + '</div>' : '')
+                    + (hasDetails ? '<div class="card-expand-hint" data-char-expand="' + i + '">展开全部 ▼</div>' : '')
                     + '</div>';
             }).join('');
         } else { charSection.style.display = 'none'; }
@@ -1832,6 +1856,31 @@ const Extraction = (function() {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    // 人物卡片展开/收起事件委托
+    (function() {
+        var charList = document.getElementById('char-list');
+        if (!charList) return;
+        charList.removeEventListener('click', handleCardExpand);
+        charList.addEventListener('click', handleCardExpand);
+    })();
+
+    function handleCardExpand(e) {
+        var hint = e.target.closest('[data-char-expand]');
+        if (!hint) return;
+        var idx = hint.dataset.charExpand;
+        var body = document.querySelector('[data-char-body="' + idx + '"]');
+        if (!body) return;
+        if (body.classList.contains('card-body-collapsed')) {
+            body.classList.remove('card-body-collapsed');
+            body.classList.add('card-body-expanded');
+            hint.textContent = '收起 ▲';
+        } else {
+            body.classList.remove('card-body-expanded');
+            body.classList.add('card-body-collapsed');
+            hint.textContent = '展开全部 ▼';
+        }
     }
 
     return { extract, renderCards, getData, setData, escapeHtml };
