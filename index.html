@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Novel2Script — 小说转可视化剧本</title>
+<title>一战晟铭 — 小说转可视化剧本</title>
 <style>
 /* ============================================
    CSS Custom Properties — Dark Theme
@@ -516,6 +516,28 @@ input, textarea, select { font-family: inherit; }
   color: var(--text-primary);
 }
 
+/* Also support btn-edit class used in JS rendering */
+.btn-edit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.btn-edit:hover { color: var(--text-primary); background: var(--border); }
+
+.card-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
 .card-info {
   font-size: 12px;
   color: var(--text-secondary);
@@ -928,7 +950,7 @@ input, textarea, select { font-family: inherit; }
 <nav id="sidebar">
   <div class="nav-header">
     <button id="nav-toggle" type="button" title="收起/展开导航">☰</button>
-    <span class="nav-brand">Novel2Script</span>
+    <span class="nav-brand">一战晟铭</span>
   </div>
   <ul id="nav-list">
     <li class="nav-item" data-page="home">
@@ -967,7 +989,7 @@ input, textarea, select { font-family: inherit; }
   <!-- Page: Home -->
   <div id="page-home" class="page-container">
     <div class="placeholder-icon">🏠</div>
-    <div class="placeholder-text">欢迎使用 Novel2Script</div>
+    <div class="placeholder-text">欢迎使用 一战晟铭</div>
     <div class="placeholder-sub">将小说章节转化为可视化剧本</div>
   </div>
 
@@ -1020,7 +1042,6 @@ input, textarea, select { font-family: inherit; }
         <button class="format-tab" data-format="screenplay">影视剧本</button>
         <button class="format-tab" data-format="storyboard">分镜脚本</button>
         <button class="format-tab active" data-format="shortdrama">短视频脚本</button>
-        <button class="format-tab" data-format="all">四合一</button>
       </div>
 
       <!-- Output Area -->
@@ -1143,6 +1164,27 @@ input, textarea, select { font-family: inherit; }
 </div>
 
 <!-- ============================================
+     Format Switch Confirmation Modal
+     ============================================ -->
+<div id="format-switch-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">切换格式</div>
+    <div class="modal-body">
+      <p style="margin:0;line-height:1.6;color:var(--text-secondary);">
+        切换到 <strong id="switch-format-name" style="color:var(--accent);">影视剧本</strong> 格式，将重新生成剧本。
+      </p>
+      <p style="margin:8px 0 0;line-height:1.6;color:var(--text-secondary);">
+        当前格式的剧本内容已缓存，不会丢失。
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-confirm-switch" class="btn btn-primary" type="button">确认切换</button>
+      <button id="btn-cancel-switch" class="btn btn-secondary" type="button">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
      Toast Container
      ============================================ -->
 <div id="toast-container"></div>
@@ -1186,13 +1228,7 @@ input, textarea, select { font-family: inherit; }
 // ============================================================
 
 const ApiConfig = (function() {
-    const STORAGE_KEY = 'novel2script_api_config';
-    const defaultConfig = {
-        provider: 'custom',
-        apiKey: '',
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-4o'
-    };
+    const API_BASE = 'http://127.0.0.1:3000';
     const providerDefaults = {
         openai:   { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
         deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -1201,41 +1237,38 @@ const ApiConfig = (function() {
         custom:   { baseUrl: '', model: '' }
     };
 
-    function load() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) return { ...defaultConfig, ...JSON.parse(raw) };
-        } catch (e) {}
-        return { ...defaultConfig };
+    async function get() {
+        const resp = await fetch(API_BASE + '/api/config');
+        if (!resp.ok) throw new Error('获取配置失败 (HTTP ' + resp.status + ')');
+        return resp.json();
     }
 
-    function save(cfg) { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }
-    function get() { return load(); }
+    async function save(cfg) {
+        const resp = await fetch(API_BASE + '/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cfg)
+        });
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.error || '保存配置失败 (HTTP ' + resp.status + ')');
+        }
+    }
 
     async function testConnection(cfg) {
-        const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + cfg.apiKey
-        };
-        if (cfg.provider === 'claude') {
-            headers['x-api-key'] = cfg.apiKey;
-            delete headers['Authorization'];
-        }
-        const body = JSON.stringify({
-            model: cfg.model,
-            messages: [{ role: 'user', content: 'Hi' }],
-            max_tokens: 5
+        const resp = await fetch(API_BASE + '/api/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cfg)
         });
-        const resp = await fetch(url, { method: 'POST', headers, body });
-        if (!resp.ok) {
-            const errText = await resp.text();
-            throw new Error('HTTP ' + resp.status + ': ' + errText.slice(0, 200));
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) {
+            throw new Error(data.error || '测试连接失败 (HTTP ' + resp.status + ')');
         }
         return true;
     }
 
-    return { load, save, get, testConnection, providerDefaults };
+    return { get, save, testConnection, providerDefaults };
 })();
 
 // ============================================================
@@ -1252,14 +1285,29 @@ const ApiConfig = (function() {
     const apiKeyInput = document.getElementById('settings-apikey');
     const baseUrlInput = document.getElementById('settings-baseurl');
     const modelInput = document.getElementById('settings-model');
+    const testResult = document.getElementById('test-result');
 
-    btnOpen.addEventListener('click', () => {
-        const cfg = ApiConfig.get();
-        providerSelect.value = cfg.provider;
-        apiKeyInput.value = cfg.apiKey;
-        baseUrlInput.value = cfg.baseUrl;
-        modelInput.value = cfg.model;
-        modal.style.display = 'flex';
+    let backendHasKey = false;
+
+    btnOpen.addEventListener('click', async () => {
+        try {
+            const cfg = await ApiConfig.get();
+            providerSelect.value = cfg.provider || 'custom';
+            baseUrlInput.value = cfg.baseUrl || '';
+            modelInput.value = cfg.model || '';
+            backendHasKey = cfg.hasApiKey;
+            apiKeyInput.value = '';
+            if (cfg.hasApiKey) {
+                apiKeyInput.placeholder = '已保存，留空则不修改';
+            } else {
+                apiKeyInput.placeholder = '输入你的 API Key';
+            }
+            testResult.className = 'test-result';
+            testResult.textContent = '';
+            modal.style.display = 'flex';
+        } catch (e) {
+            showToast('获取配置失败：' + e.message, 'error');
+        }
     });
 
     btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
@@ -1272,35 +1320,61 @@ const ApiConfig = (function() {
         if (providerSelect.value === 'custom') { baseUrlInput.value = ''; modelInput.value = ''; }
     });
 
-    btnSave.addEventListener('click', () => {
+    btnSave.addEventListener('click', async () => {
+        const apiKey = apiKeyInput.value.trim();
         const cfg = {
             provider: providerSelect.value,
-            apiKey: apiKeyInput.value.trim(),
             baseUrl: baseUrlInput.value.trim(),
             model: modelInput.value.trim()
         };
-        if (!cfg.apiKey) { showToast('请输入 API Key', 'error'); return; }
+        if (apiKey) {
+            cfg.apiKey = apiKey;
+        } else if (!backendHasKey) {
+            showToast('请输入 API Key', 'error');
+            return;
+        } else {
+            cfg.apiKey = '';
+        }
         if (!cfg.baseUrl) { showToast('请输入 Base URL', 'error'); return; }
         if (!cfg.model) { showToast('请输入模型名称', 'error'); return; }
-        ApiConfig.save(cfg);
-        modal.style.display = 'none';
-        showToast('设置已保存', 'success');
+        try {
+            await ApiConfig.save(cfg);
+            modal.style.display = 'none';
+            showToast('设置已保存', 'success');
+        } catch (e) {
+            showToast('保存失败：' + e.message, 'error');
+        }
     });
 
     btnTest.addEventListener('click', async () => {
+        const apiKey = apiKeyInput.value.trim();
         const cfg = {
             provider: providerSelect.value,
-            apiKey: apiKeyInput.value.trim(),
             baseUrl: baseUrlInput.value.trim(),
             model: modelInput.value.trim()
         };
-        if (!cfg.apiKey || !cfg.baseUrl || !cfg.model) { showToast('请先填写完整配置', 'error'); return; }
+        if (apiKey) {
+            cfg.apiKey = apiKey;
+        } else if (!backendHasKey) {
+            showToast('请先填写完整配置', 'error');
+            return;
+        } else {
+            cfg.apiKey = '';
+        }
+        if (!cfg.baseUrl || !cfg.model) { showToast('请先填写完整配置', 'error'); return; }
         btnTest.disabled = true;
         btnTest.textContent = '测试中...';
+        testResult.className = 'test-result';
+        testResult.textContent = '';
         try {
+            await ApiConfig.save(cfg);
             await ApiConfig.testConnection(cfg);
+            testResult.className = 'test-result success';
+            testResult.textContent = '✓ 连接成功！';
             showToast('连接成功！', 'success');
         } catch (e) {
+            testResult.className = 'test-result error';
+            testResult.textContent = '✗ 连接失败：' + e.message;
             showToast('连接失败：' + e.message, 'error');
         } finally {
             btnTest.disabled = false;
@@ -1338,6 +1412,7 @@ const PromptTemplates = (function() {
 严格按以下 JSON 结构输出，不要输出其他任何内容：
 
 {
+  "时代背景": "",
   "人物": [
     {
       "姓名": "",
@@ -1346,7 +1421,12 @@ const PromptTemplates = (function() {
       "身份标签": "",
       "性别": "",
       "大致年龄": "",
-      "外貌要点": "",
+      "外貌描述": {
+        "基本体征": "",
+        "五官与妆容": "",
+        "发型与发饰": "",
+        "服饰与配饰": ""
+      },
       "性格关键词": [],
       "关系网络": "",
       "说话风格": "",
@@ -1367,14 +1447,48 @@ const PromptTemplates = (function() {
 }
 
 # 人物提取规则
+
+## 基本规则
 1. 提取所有有名字或可单独识别的角色，包括动物角色
 2. "别名"：填写文中其他称呼，多个用逗号分隔。同一人物的不同叫法必须合并，不重复输出
 3. "角色定位"：主角/反派/重要配角/配角/龙套
 4. "身份标签"：说明角色身份，如"女主·咖啡师·单亲妈妈"
-5. "外貌要点"：仅提取原文明确提到的外貌特征，用1-2句话概括
-6. "关系网络"：梳理该角色与其他角色的关系，如"苏晚晚的闺蜜""陆砚的前女友"
-7. "说话风格"：用一句话概括，如"语气清冷，句子简短""话多嘴碎，习惯反问"
-8. 若原文未提供某项信息，字段留空字符串 ""
+5. "关系网络"：梳理该角色与其他角色的关系，如"苏晚晚的闺蜜""陆砚的前女友"
+6. "说话风格"：用一句话概括，如"语气清冷，句子简短""话多嘴碎，习惯反问"
+7. 若原文未提供某项信息，字段留空字符串 ""
+
+## 外貌描述规则（四模块）
+按以下四个模块提取外貌信息，用自然语言串联成流畅段落，不要只写关键词：
+
+**模块一：基本体征** — 年龄、性别、身高、体型、肤色
+示例：一位22岁的女性，身高165cm身形修长，肤色白皙。
+
+**模块二：五官与妆容** — 脸型、眉形、眼型与眼色、鼻型、唇型与唇色、妆容风格、眼神气质
+示例：鹅蛋脸，细长柳叶眉，灰褐色杏眼，高挺鼻梁，薄唇涂豆沙色哑光口红，清透底妆淡粉腮红，眼神清冷疏离。
+
+**模块三：发型与发饰** — 发色、发型（长度/造型/刘海）、发饰（按主到次描述）
+示例：纯黑长发高髻盘起，前额中分，鬓角垂两缕细发，插一支金蝶发簪坠珍珠流苏。
+
+**模块四：服饰与配饰** — 描述顺序：由外到内、从上到下。外搭→内搭→下装→鞋履→颈部/耳部/手部/腰部配饰
+示例：外搭灰绿色半透大袖衫带细闪金粉，内穿烟青色对襟短衫，下身穿墨绿齐腰襦裙，腰间系红棕革带配流苏，脚穿浅米色绣花鞋。
+
+**完整示例（四模块串联）：**
+一位22岁左右的女性，身高168cm身材纤细，高颜值，肤色白皙。
+五官：鹅蛋脸，细长柳叶眉，灰褐色杏眼，高挺鼻梁，薄唇涂豆沙色哑光口红，清透底妆淡粉腮红，眼神清冷疏离。
+发型：纯黑长发高髻盘起，前额中分，鬓角垂两缕细发，插一支金蝶发簪坠珍珠流苏，耳侧垂珍珠耳坠。
+服饰：外搭灰绿色半透大袖衫带细闪金粉，内穿烟青色对襟短衫，下身穿墨绿齐腰襦裙裙摆垂坠飘逸，腰间系红棕革带配流苏，脚穿浅米色绣花鞋。
+
+## 原文不足时的补全策略
+当原文未提供详细信息时，按以下优先级从人物性格和身份反推补全：
+① 人物性格 → 五官特征、妆容风格、眼神气质
+② 人物身份 → 服装形制、配饰档次、整体质感
+③ 时代背景 → 约束匹配，确保不发生时代错位
+- 禁止使用"外貌未具体描述""特征不明"等敷衍表述
+- 禁止超出剧情常识的夸张设定
+
+## 时代背景判定
+先判定"时代背景"字段，人物外貌和场景描述均需与时代背景匹配。
+可选值：唐代/宋代/明代/清代/架空古代&仙侠/民国/现代都市/未来科幻/架空奇幻&西方
 
 # 场景提取规则
 1. 按地点和时间变化拆分，一个连续时空中发生的事件为一个场景
@@ -1393,71 +1507,79 @@ const PromptTemplates = (function() {
         const formatNames = {
             'screenplay': '影视剧本',
             'storyboard': '分镜脚本',
-            'shortdrama': '短视频脚本',
-            'all': '四合一格式（同一内容，依次输出：影视剧本 → 分镜脚本 → 短视频脚本）'
+            'shortdrama': '短视频脚本'
         };
 
         const formatRules = {
             'screenplay': `# 影视剧本格式
-【场景X：场景标题】
-地点：XXX  时间：XXX
-出场人物：XXX
+【场景标题】
 
-[动作描写段落]
+△动作描写 / 画面描述。
 
-　　角色名：（表情/动作提示）台词内容
+　　角色名（表情/动作/声音状态）：台词。
 
-[动作描写段落]
-
-　　角色名：台词内容`,
+△动作描写。`,
             'storyboard': `# 分镜脚本格式
-【镜号1】景别：XXX | 运镜：XXX
+【镜号1】景别：XXX | 运镜：XXX | 时长：Xs
 画面：XXX
-对白/音效：XXX
+对白：XXX
 
-【镜号2】景别：XXX | 运镜：XXX
+【镜号2】景别：XXX | 运镜：XXX | 时长：Xs
 画面：XXX`,
             'shortdrama': `# 短视频脚本格式
 X-1 场景名 时间/内/外
 人物：xxx、xxx
 
-△只写镜头能看到的动作、表情、道具、互动、站位，不写心理和环境描写。
+△画面描述。
 
-人物A（关键句写具体表情/动作/身体状态；普通句可简写或省略）：台词。
-人物B（按台词功能决定括号详略）：台词。
+人物A（关键句写具体表情/动作；普通句可简写或省略）：台词。
 
-△动作或道具特写。
-
-【字幕：地点或关键信息】
+【字幕：关键信息】
 
 【本集结尾卡点】
 △画面描述。
-人物A（具体表情/动作描写）：最后一句卡点台词。`,
-            'all': `# 四合一格式
-同一内容，依次按以下四种格式输出，每种格式之间用"---"分隔：
-
-## 影视剧本
-[影视剧本格式内容]
-
----
-
-## 分镜脚本
-[分镜脚本格式内容]
-
----
-
-## 短视频脚本
-[短视频脚本格式内容]`
+人物A（具体表情/动作）：最后一句卡点台词。`
         };
 
-        const systemPrompt = `你是一位专业的影视编剧，擅长将小说转化为可拍摄的视觉化剧本。你的核心原则是：**一切心理活动都必须转化为可见的动作、表情、镜头语言**。
+        const systemPrompt = `你是一位专业的短剧编剧，擅长将微小说转化为30秒的爆量前贴。你的核心原则是：**一切心理活动都必须转化为可见的动作、表情、镜头语言**。你的目标是：**用镜头吸引观众点进小说全文**。
 
 # 任务
 根据以下信息，将小说章节转化为${formatNames[format]}。
 
-# 核心转化规则
+# 核心规则
 
-## 规则1：心理描写视觉化（最重要）
+## 规则1：时长约束
+- 目标 30s，上限 60s
+- 30s 对应约 8-12 个镜头/画面单元
+- 宁可少写一镜，不要超时堆砌
+
+## 规则2：炸雷前置（Hook First）
+30s 前贴的叙事顺序不必遵循小说原文时间线。优先从全章中选取最爆炸、最痛、最反转的画面作为开场第 0-5s，然后通过时间标注桥接回正常叙事。
+
+**方式一：场景跳切**
+开场直接切到全章最炸裂的画面（如：对峙、崩溃、打脸），用一个镜头建立冲突，然后通过【字幕：X小时前/X天前】回到故事起点。
+
+**方式二：人物冲突前置**
+从全章中选取一段冲突最强的对话作为开场。不交代前因后果，直接用对话把观众扔进冲突中心，后续再补原因。
+
+**前提条件：**
+- 炸雷画面必须来自小说原文，不能编造
+- 时间标注（字幕）必须准确，不能误导观众
+- 回到正常叙事时，必须保证情节完整衔接
+
+## 规则3：三幕式结构（默认）
+- 第一幕 0-5s：钩子。最炸裂的画面、冲突、反转开场（优先使用炸雷前置）
+- 第二幕 5-20s：冲突升级。桥接回小说真实情节，推进情绪
+- 第三幕 20-30s：反转卡点。停在关键冲突点，不解决，吸引点进小说
+
+特殊章节（情绪流强、无明显事件推进）可自动选择单爆点一镜到底。
+
+## 规则4：情节保真
+- 钩子可以适度强化（闪回、冲突前置），但必须能在小说里找到落点
+- 禁止编造小说不存在的人物关系、核心事件
+- 瞎编的镜头，最终要能用小说原文解释
+
+## 规则5：心理描写视觉化（最重要）
 所有心理活动必须转化为AI视频平台可识别的中观以上粒度动作。
 
 - ✅ 身体姿态变化、大幅度肢体动作、明显面部表情变化、物体交互
@@ -1476,7 +1598,7 @@ X-1 场景名 时间/内/外
 - "犹豫" → "手伸出去又缩回来，拿起东西又放下"
 - "恐惧" → "脸色刷白，后退两步，手抖得拿不稳东西"
 
-## 规则2：对白括号 A/B/C 分级
+## 规则6：对白括号 A/B/C 分级
 人物括号不是每句都写满，按台词功能分级：
 
 **A级：关键爆点，必须写具体括号**
@@ -1498,12 +1620,16 @@ X-1 场景名 时间/内/外
 - 不要为了具体而具体，导致对白节奏变慢
 - 不要在普通报数、接话、群众口号里塞复杂表演
 
-## 规则3：△ 画面描述规则
+## 规则7：△画面描述规则
 - 只写镜头能看到的：动作、表情、道具、站位、互动
 - 不写心理描写、环境描写、抽象形容
 - 每个△段落是一个独立的画面单元
 
-## 规则4：转化要求
+## 规则8：结尾卡点
+- 必须停在"观众想知道接下来发生什么"的位置
+- 不能给答案，不能给完整结局
+
+## 规则9：转化要求
 - 逐段完整转化，不遗漏任何情节
 - 过渡性叙述也要转化为视觉化动作或空镜
 - 对白前必须有动作描写，不能只有台词
@@ -1525,27 +1651,20 @@ ${formatRules[format]}`;
 // ============================================================
 
 const AIClient = (function() {
+    const API_BASE = 'http://127.0.0.1:3000';
+
     async function call(messages, options = {}) {
-        const cfg = ApiConfig.get();
-        if (!cfg.apiKey || !cfg.baseUrl || !cfg.model) {
-            throw new Error('请先在设置中配置 API');
-        }
-        const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + cfg.apiKey
-        };
-        if (cfg.provider === 'claude') {
-            headers['x-api-key'] = cfg.apiKey;
-            delete headers['Authorization'];
-        }
         const body = JSON.stringify({
-            model: cfg.model,
             messages: messages,
             max_tokens: options.maxTokens || 4096,
-            temperature: options.temperature ?? 0.7
+            temperature: options.temperature ?? 0.7,
+            stream: false
         });
-        const resp = await fetch(url, { method: 'POST', headers, body });
+        const resp = await fetch(API_BASE + '/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
         if (!resp.ok) {
             const errText = await resp.text();
             throw new Error('API 请求失败 (HTTP ' + resp.status + '): ' + errText.slice(0, 300));
@@ -1558,27 +1677,17 @@ const AIClient = (function() {
     }
 
     async function callStream(messages, onChunk, options = {}) {
-        const cfg = ApiConfig.get();
-        if (!cfg.apiKey || !cfg.baseUrl || !cfg.model) {
-            throw new Error('请先在设置中配置 API');
-        }
-        const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + cfg.apiKey
-        };
-        if (cfg.provider === 'claude') {
-            headers['x-api-key'] = cfg.apiKey;
-            delete headers['Authorization'];
-        }
         const body = JSON.stringify({
-            model: cfg.model,
             messages: messages,
             max_tokens: options.maxTokens || 4096,
             temperature: options.temperature ?? 0.7,
             stream: true
         });
-        const resp = await fetch(url, { method: 'POST', headers, body });
+        const resp = await fetch(API_BASE + '/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
         if (!resp.ok) {
             const errText = await resp.text();
             throw new Error('API 请求失败 (HTTP ' + resp.status + '): ' + errText.slice(0, 300));
@@ -1634,7 +1743,7 @@ function extractJSON(text) {
 // ============================================================
 
 const Extraction = (function() {
-    let currentData = { characters: [], scenes: [] };
+    let currentData = { era: '', characters: [], scenes: [] };
 
     function getData() { return currentData; }
     function setData(data) { currentData = data; }
@@ -1643,19 +1752,28 @@ const Extraction = (function() {
         const messages = PromptTemplates.extractPrompt(novelText);
         const response = await AIClient.call(messages, { maxTokens: 4096, temperature: 0.3 });
         const data = extractJSON(response);
-        const characters = (data.人物 || data.characters || []).map(c => ({
-            name: c.姓名 || c.name || '',
-            alias: c.别名 || c.alias || '',
-            role: c.角色定位 || c.role || '',
-            identity: c.身份标签 || c.identity || '',
-            gender: c.性别 || c.gender || '',
-            age: c.大致年龄 || c.age || '',
-            appearance: c.外貌要点 || c.appearance || '',
-            personality: c.性格关键词 || c.personality || [],
-            relations: c.关系网络 || c.relations || '',
-            speechStyle: c.说话风格 || c.speechStyle || '',
-            function: c.在章节中的功能 || c.function || ''
-        }));
+        const era = data.时代背景 || data.era || '';
+        const characters = (data.人物 || data.characters || []).map(c => {
+            const app = c.外貌描述 || c.appearance || {};
+            return {
+                name: c.姓名 || c.name || '',
+                alias: c.别名 || c.alias || '',
+                role: c.角色定位 || c.role || '',
+                identity: c.身份标签 || c.identity || '',
+                gender: c.性别 || c.gender || '',
+                age: c.大致年龄 || c.age || '',
+                appearance: {
+                    body: app.基本体征 || app.body || '',
+                    face: app.五官与妆容 || app.face || '',
+                    hair: app.发型与发饰 || app.hair || '',
+                    clothing: app.服饰与配饰 || app.clothing || ''
+                },
+                personality: c.性格关键词 || c.personality || [],
+                relations: c.关系网络 || c.relations || '',
+                speechStyle: c.说话风格 || c.speechStyle || '',
+                function: c.在章节中的功能 || c.function || ''
+            };
+        });
         const scenes = (data.场景 || data.scenes || []).map(s => ({
             number: s.场景编号 || s.number || 0,
             location: s.地点 || s.location || '',
@@ -1665,7 +1783,7 @@ const Extraction = (function() {
             mood: s.情绪基调 || s.mood || '',
             conflictType: s.冲突类型 || s.conflictType || ''
         }));
-        currentData = { characters, scenes };
+        currentData = { era, characters, scenes };
         return currentData;
     }
 
@@ -1680,14 +1798,20 @@ const Extraction = (function() {
         if (data.characters.length > 0) {
             charSection.style.display = '';
             charCount.textContent = '(' + data.characters.length + ')';
-            charList.innerHTML = data.characters.map((c, i) => `
-                <div class="card" data-type="char" data-index="${i}">
-                    <button class="btn-edit" data-type="char" data-index="${i}">✏️</button>
-                    <div class="card-name">${escapeHtml(c.name) || '未命名'} ${c.role ? '· ' + escapeHtml(c.role) : ''}</div>
-                    <div class="card-detail">${escapeHtml(c.identity)}</div>
-                    ${c.speechStyle ? '<div class="card-detail">说话：' + escapeHtml(c.speechStyle) + '</div>' : ''}
-                    ${c.relations ? '<div class="card-detail">关系：' + escapeHtml(c.relations) + '</div>' : ''}
-                </div>`).join('');
+            charList.innerHTML = data.characters.map((c, i) => {
+                var app = c.appearance || {};
+                return '<div class="card" data-type="char" data-index="' + i + '">'
+                    + '<button class="btn-edit" data-type="char" data-index="' + i + '">✏️</button>'
+                    + '<div class="card-name">' + escapeHtml(c.name) || '未命名' + (c.role ? ' · ' + escapeHtml(c.role) : '') + '</div>'
+                    + '<div class="card-detail">' + escapeHtml(c.identity) + '</div>'
+                    + (app.body ? '<div class="card-detail">体征：' + escapeHtml(app.body) + '</div>' : '')
+                    + (app.face ? '<div class="card-detail">五官：' + escapeHtml(app.face) + '</div>' : '')
+                    + (app.hair ? '<div class="card-detail">发型：' + escapeHtml(app.hair) + '</div>' : '')
+                    + (app.clothing ? '<div class="card-detail">服饰：' + escapeHtml(app.clothing) + '</div>' : '')
+                    + (c.speechStyle ? '<div class="card-detail">说话：' + escapeHtml(c.speechStyle) + '</div>' : '')
+                    + (c.relations ? '<div class="card-detail">关系：' + escapeHtml(c.relations) + '</div>' : '')
+                    + '</div>';
+            }).join('');
         } else { charSection.style.display = 'none'; }
 
         if (data.scenes.length > 0) {
@@ -1736,7 +1860,7 @@ const Extraction = (function() {
         if (editTarget.type === 'char') {
             const c = data.characters[editTarget.index];
             editTitle.textContent = '编辑人物：' + (c.name || '未命名');
-            editContent.value = JSON.stringify({ name: c.name, alias: c.alias, role: c.role, identity: c.identity, gender: c.gender, age: c.age, appearance: c.appearance, personality: c.personality, relations: c.relations, speechStyle: c.speechStyle, function: c.function }, null, 2);
+            editContent.value = JSON.stringify({ name: c.name, alias: c.alias, role: c.role, identity: c.identity, gender: c.gender, age: c.age, appearance: c.appearance || { body: '', face: '', hair: '', clothing: '' }, personality: c.personality, relations: c.relations, speechStyle: c.speechStyle, function: c.function }, null, 2);
         } else {
             const s = data.scenes[editTarget.index];
             editTitle.textContent = '编辑场景' + s.number;
@@ -1772,62 +1896,61 @@ const Extraction = (function() {
 
 const ScriptGenerator = (function() {
     let currentFormat = 'shortdrama';
-    let currentOutput = '';
+    let outputs = { screenplay: '', storyboard: '', shortdrama: '' };
     let currentNovelText = '';
 
     function getCurrentFormat() { return currentFormat; }
     function setCurrentFormat(f) { currentFormat = f; }
-    function getCurrentOutput() { return currentOutput; }
+    function getCurrentOutput() { return outputs[currentFormat] || ''; }
+    function hasOutput(format) { return !!outputs[format]; }
     function getCurrentNovelText() { return currentNovelText; }
     function setCurrentNovelText(t) { currentNovelText = t; }
 
     async function generate(novelText, format) {
         setCurrentNovelText(novelText);
+        currentFormat = format;
+        outputs[format] = '';
+
+        // 清空输出区，准备流式写入
+        const outputArea = document.getElementById('output-area');
+        outputArea.innerHTML = '';
+        const contentDiv = document.createElement('div');
+        contentDiv.style.whiteSpace = 'pre-wrap';
+        contentDiv.style.lineHeight = '1.8';
+        outputArea.appendChild(contentDiv);
+
         const data = Extraction.getData();
         const charsJson = JSON.stringify(data.characters, null, 2);
         const scenesJson = JSON.stringify(data.scenes, null, 2);
         const messages = PromptTemplates.scriptPrompt(novelText, charsJson, scenesJson, format);
         const response = await AIClient.callStream(messages, (chunk) => {
-            appendToOutput(chunk);
+            contentDiv.textContent += chunk;
+            outputArea.scrollTop = outputArea.scrollHeight;
         }, { maxTokens: 8192, temperature: 0.7 });
-        currentOutput = response;
-        markOutputComplete();
+        outputs[format] = response;
         showActionButtons();
         return response;
     }
 
-    function renderOutput(text) {
+    function switchToFormat(format) {
+        currentFormat = format;
         const outputArea = document.getElementById('output-area');
         outputArea.innerHTML = '';
-        const div = document.createElement('div');
-        div.style.whiteSpace = 'pre-wrap';
-        div.style.lineHeight = '1.8';
-        div.textContent = text;
-        outputArea.appendChild(div);
-        currentOutput = text;
-        showActionButtons();
-    }
-
-    function appendToOutput(chunk) {
-        const outputArea = document.getElementById('output-area');
-        const emptyState = outputArea.querySelector('.empty-state');
-        if (emptyState) outputArea.innerHTML = '';
-        let contentDiv = outputArea.querySelector('div');
-        if (!contentDiv) {
-            contentDiv = document.createElement('div');
-            contentDiv.style.whiteSpace = 'pre-wrap';
-            contentDiv.style.lineHeight = '1.8';
-            outputArea.appendChild(contentDiv);
+        if (outputs[format]) {
+            const div = document.createElement('div');
+            div.style.whiteSpace = 'pre-wrap';
+            div.style.lineHeight = '1.8';
+            div.textContent = outputs[format];
+            outputArea.appendChild(div);
+            showActionButtons();
+        } else {
+            outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">点击"一键生成"生成此格式的剧本</div></div>';
+            hideActionButtons();
         }
-        contentDiv.textContent += chunk;
-        outputArea.scrollTop = outputArea.scrollHeight;
-    }
-
-    function markOutputComplete() {
-        const outputArea = document.getElementById('output-area');
-        if (!outputArea.querySelector('div') && currentOutput) {
-            renderOutput(currentOutput);
-        }
+        // 同步 tab 激活状态
+        document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) { t.classList.remove('active'); });
+        var targetTab = document.querySelector('#format-tabs .format-tab[data-format="' + format + '"]');
+        if (targetTab) targetTab.classList.add('active');
     }
 
     function showActionButtons() {
@@ -1842,7 +1965,7 @@ const ScriptGenerator = (function() {
         document.getElementById('btn-export').style.display = 'none';
     }
 
-    return { generate, renderOutput, getCurrentFormat, setCurrentFormat, getCurrentOutput, getCurrentNovelText, setCurrentNovelText, showActionButtons, hideActionButtons };
+    return { generate: generate, getCurrentFormat: getCurrentFormat, setCurrentFormat: setCurrentFormat, getCurrentOutput: getCurrentOutput, getCurrentNovelText: getCurrentNovelText, setCurrentNovelText: setCurrentNovelText, showActionButtons: showActionButtons, hideActionButtons: hideActionButtons, switchToFormat: switchToFormat, hasOutput: hasOutput };
 })();
 
 // ============================================================
@@ -1850,12 +1973,82 @@ const ScriptGenerator = (function() {
 // ============================================================
 
 (function() {
-    document.querySelectorAll('#format-tabs .format-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('#format-tabs .format-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            ScriptGenerator.setCurrentFormat(tab.dataset.format);
+    var pendingFormat = null;
+    var switchModal = document.getElementById('format-switch-modal');
+    var btnConfirm = document.getElementById('btn-confirm-switch');
+    var btnCancel = document.getElementById('btn-cancel-switch');
+    var switchMsg = document.getElementById('switch-format-name');
+
+    var formatNames = { screenplay: '影视剧本', storyboard: '分镜脚本', shortdrama: '短视频脚本' };
+
+    document.querySelectorAll('#format-tabs .format-tab').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+            var newFormat = tab.dataset.format;
+            if (newFormat === ScriptGenerator.getCurrentFormat()) return;
+
+            // 如果当前格式没有生成过内容，且目标也没有缓存 → 直接切换
+            if (!ScriptGenerator.getCurrentOutput() && !ScriptGenerator.hasOutput(newFormat)) {
+                ScriptGenerator.switchToFormat(newFormat);
+                return;
+            }
+
+            // 如果目标格式已有缓存内容 → 直接切换显示
+            if (ScriptGenerator.hasOutput(newFormat)) {
+                ScriptGenerator.switchToFormat(newFormat);
+                return;
+            }
+
+            // 当前格式有内容，目标格式无缓存 → 弹窗确认
+            pendingFormat = newFormat;
+            switchMsg.textContent = formatNames[newFormat];
+            switchModal.style.display = 'flex';
         });
+    });
+
+    btnConfirm.addEventListener('click', async function() {
+        if (!pendingFormat) return;
+        switchModal.style.display = 'none';
+        var format = pendingFormat;
+        pendingFormat = null;
+
+        // 切换 tab 激活状态
+        document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) { t.classList.remove('active'); });
+        var targetTab = document.querySelector('#format-tabs .format-tab[data-format="' + format + '"]');
+        if (targetTab) targetTab.classList.add('active');
+
+        ScriptGenerator.setCurrentFormat(format);
+
+        var btnGenerate = document.getElementById('btn-generate');
+        btnGenerate.disabled = true;
+        btnGenerate.textContent = '生成中...';
+
+        var loadingStatus = document.getElementById('loading-status');
+        loadingStatus.style.display = 'flex';
+        loadingStatus.innerHTML = '<div class="spinner"></div><span>剧本生成中...</span>';
+
+        try {
+            var novelText = ScriptGenerator.getCurrentNovelText();
+            await ScriptGenerator.generate(novelText, format);
+            showToast('生成完成！', 'success');
+        } catch (e) {
+            showToast('生成失败：' + e.message, 'error');
+        } finally {
+            btnGenerate.disabled = false;
+            btnGenerate.textContent = '一键生成';
+            loadingStatus.style.display = 'none';
+            loadingStatus.innerHTML = '';
+        }
+    });
+
+    btnCancel.addEventListener('click', function() {
+        switchModal.style.display = 'none';
+        pendingFormat = null;
+    });
+    switchModal.addEventListener('click', function(e) {
+        if (e.target === switchModal) {
+            switchModal.style.display = 'none';
+            pendingFormat = null;
+        }
     });
 })();
 
@@ -1884,7 +2077,7 @@ const ScriptGenerator = (function() {
     document.getElementById('btn-export').addEventListener('click', () => {
         const text = ScriptGenerator.getCurrentOutput();
         if (!text) return;
-        const names = { screenplay: '影视剧本', storyboard: '分镜脚本', shortdrama: '短视频脚本', all: '四合一' };
+        const names = { screenplay: '影视剧本', storyboard: '分镜脚本', shortdrama: '短视频脚本' };
         const name = names[ScriptGenerator.getCurrentFormat()] || '剧本';
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -1910,8 +2103,8 @@ const ScriptGenerator = (function() {
     const step2El = document.getElementById('step2');
 
     function setLoading(msg) {
-        loadingStatus.style.display = '';
-        loadingStatus.innerHTML = '<div class="loading-overlay"><div class="spinner"></div><span>' + msg + '</span></div>';
+        loadingStatus.style.display = 'flex';
+        loadingStatus.innerHTML = '<div class="spinner"></div><span>' + msg + '</span>';
     }
 
     function clearLoading() {
@@ -1920,12 +2113,12 @@ const ScriptGenerator = (function() {
     }
 
     function setProgress(step) {
-        progressBar.style.display = '';
-        step1El.className = 'step';
-        step2El.className = 'step';
-        if (step >= 1) step1El.className = 'step done';
-        if (step >= 2) step2El.className = 'step done';
-        if (step === 1.5) step2El.className = 'step active';
+        progressBar.style.display = 'flex';
+        step1El.className = 'step1 step';
+        step2El.className = 'step2 step';
+        if (step >= 1) step1El.className = 'step1 step done';
+        if (step >= 2) step2El.className = 'step2 step done';
+        if (step === 1.5) step2El.className = 'step2 step active';
     }
 
     function hideProgress() {
@@ -2013,8 +2206,8 @@ const ScriptGenerator = (function() {
         const step2El = document.getElementById('step2');
 
         function setLoading(msg) {
-            loadingStatus.style.display = '';
-            loadingStatus.innerHTML = '<div class="loading-overlay"><div class="spinner"></div><span>' + msg + '</span></div>';
+            loadingStatus.style.display = 'flex';
+            loadingStatus.innerHTML = '<div class="spinner"></div><span>' + msg + '</span>';
         }
         function clearLoading() { loadingStatus.style.display = 'none'; loadingStatus.innerHTML = ''; }
 
@@ -2022,31 +2215,31 @@ const ScriptGenerator = (function() {
             const novelText = ScriptGenerator.getCurrentNovelText();
 
             if (selected.value === 'all') {
-                progressBar.style.display = '';
+                progressBar.style.display = 'flex';
                 setLoading('提取人物和场景中...');
-                step1El.className = 'step done';
+                step1El.className = 'step1 step done';
                 const data = await Extraction.extract(novelText);
                 Extraction.renderCards(data);
                 setLoading('剧本生成中...');
-                step2El.className = 'step active';
+                step2El.className = 'step2 step active';
                 await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat());
-                step2El.className = 'step done';
+                step2El.className = 'step2 step done';
                 clearLoading();
                 showToast('全部重新生成完成', 'success');
             } else if (selected.value === 'extract-only') {
                 setLoading('提取人物和场景中...');
-                progressBar.style.display = '';
-                step1El.className = 'step done';
+                progressBar.style.display = 'flex';
+                step1El.className = 'step1 step done';
                 const data = await Extraction.extract(novelText);
                 Extraction.renderCards(data);
                 clearLoading();
                 showToast('人物和场景已更新', 'success');
             } else {
                 setLoading('剧本生成中...');
-                progressBar.style.display = '';
-                step2El.className = 'step active';
+                progressBar.style.display = 'flex';
+                step2El.className = 'step2 step active';
                 await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat());
-                step2El.className = 'step done';
+                step2El.className = 'step2 step done';
                 clearLoading();
                 showToast('剧本已重新生成', 'success');
             }
