@@ -1951,7 +1951,7 @@ const ApiConfig = (function() {
             modal.classList.remove('visible');
             showToast('设置已保存', 'success');
         } catch (e) {
-            showToast('保存失败：' + e.message, 'error');
+            showToast('保存出了点小状况：' + e.message, 'error');
         }
     });
 
@@ -2576,10 +2576,10 @@ const ScriptGenerator = (function() {
     if (btnCopy) {
         btnCopy.addEventListener('click', async () => {
             const text = ScriptGenerator.getCurrentOutput();
-            if (!text) { showToast('暂无生成内容，请先生成', 'warning'); return; }
+            if (!text) { showToast('还没生成内容呢，先去点"一键生成"吧~', 'warning'); return; }
             try {
                 await navigator.clipboard.writeText(text);
-                showToast('已复制到剪贴板', 'success');
+                showToast('复制成功，快去粘贴吧~', 'success');
             } catch (e) {
                 const ta = document.createElement('textarea');
                 ta.value = text;
@@ -2587,7 +2587,7 @@ const ScriptGenerator = (function() {
                 ta.select();
                 document.execCommand('copy');
                 document.body.removeChild(ta);
-                showToast('已复制到剪贴板', 'success');
+                showToast('复制成功，快去粘贴吧~', 'success');
             }
         });
     }
@@ -2659,11 +2659,11 @@ const ScriptGenerator = (function() {
     btnGenerate.addEventListener('click', async () => {
         const novelText = novelInput.value.trim();
         if (!novelText) {
-            showToast('请先粘贴小说内容', 'error');
+            showToast('先粘贴小说内容再点我哦~', 'error');
             return;
         }
         if (novelText.length < 100) {
-            showToast('内容太短，请至少输入100字', 'error');
+            showToast('再写多一点吧，至少100个字才能施展魔法~', 'error');
             return;
         }
 
@@ -2673,7 +2673,7 @@ const ScriptGenerator = (function() {
 
         try {
             // 第1步：仅提取人物和场景
-            setLoading('提取人物和场景中...');
+            setLoading('正在挖掘小说里的人物和场景...');
             const data = await Extraction.extract(novelText);
             Extraction.renderCards(data);
             // 保存小说文本，供后续生成使用
@@ -2688,11 +2688,11 @@ const ScriptGenerator = (function() {
             document.getElementById('gen-controls').style.display = 'flex';
             var outputArea = document.getElementById('output-area');
             outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">🎯</div><div class="empty-text">人物与场景提取完成</div><div class="empty-sub">选好格式后点击"一键生成"</div></div>';
-            showToast('提取完成！请选择生成模式', 'success');
+            showToast('人物和场景提取好啦，选个模式一键生成吧！', 'success');
             btnGenerate.textContent = '🔄 重新提取';
         } catch (e) {
             clearLoading();
-            showToast('提取失败：' + e.message, 'error');
+            showToast('哎呀，人物提取出了点小状况，再试试？', 'error');
             console.error(e);
         } finally {
             btnGenerate.disabled = false;
@@ -2722,13 +2722,13 @@ const ScriptGenerator = (function() {
 
     async function reExtract() {
         var novelText = ScriptGenerator.getCurrentNovelText();
-        if (!novelText) { showToast('请先输入小说内容', 'warning'); return; }
-        setLoading('提取人物和场景中...');
+        if (!novelText) { showToast('先粘贴小说内容再点我哦~', 'warning'); return; }
+        setLoading('正在挖掘小说里的人物和场景...');
         try {
             var data = await Extraction.extract(novelText);
             Extraction.renderCards(data);
             showToast('人物和场景已更新', 'success');
-        } catch (e) { showToast('提取失败：' + e.message, 'error'); }
+        } catch (e) { showToast('哎呀，人物提取出了点小状况，再试试？', 'error'); }
         finally { clearLoading(); }
     }
 
@@ -2740,13 +2740,13 @@ const ScriptGenerator = (function() {
     if (btnRegen) {
         btnRegen.addEventListener('click', async function() {
             var novelText = ScriptGenerator.getCurrentNovelText();
-            if (!novelText) { showToast('请先输入小说内容', 'warning'); return; }
+            if (!novelText) { showToast('先粘贴小说内容再点我哦~', 'warning'); return; }
             var fmt = ScriptGenerator.getCurrentFormat();
-            setLoading('剧本生成中...');
+            setLoading('正在施展魔法，剧本即将出现...');
             try {
                 await ScriptGenerator.generate(novelText, fmt, StoryDuration.get());
-                showToast('剧本已重新生成', 'success');
-            } catch (e) { showToast('生成失败：' + e.message, 'error'); }
+                showToast('剧本已重新出炉！', 'success');
+            } catch (e) { showToast('啊哦，网络悄悄跑到外星球去了~', 'error'); }
             finally { clearLoading(); }
         });
     }
@@ -2774,10 +2774,10 @@ const ScriptGenerator = (function() {
     btnExec.addEventListener('click', async function() {
         var format = genFormatSelect.value;
         var novelText = ScriptGenerator.getCurrentNovelText();
-        if (!novelText) { showToast('请先提取人物与场景', 'warning'); return; }
+        if (!novelText) { showToast('先提取人物与场景再生成哦~', 'warning'); return; }
 
         btnExec.disabled = true;
-        btnExec.textContent = '生成中...';
+        btnExec.textContent = '魔法吟唱中...';
 
         ScriptGenerator.setCurrentFormat(format);
         document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) {
@@ -2787,12 +2787,12 @@ const ScriptGenerator = (function() {
         if (modeName) modeName.textContent = fNames[format];
         StoryDuration.updateUI();
 
-        setLoading(fNames[format] + '生成中...');
+        setLoading('正在施展魔法，' + fNames[format] + '即将出现...');
         try {
             await ScriptGenerator.generate(novelText, format, StoryDuration.get());
-            showToast(fNames[format] + '生成完成！', 'success');
+            showToast(fNames[format] + '出炉啦，趁热看看！', 'success');
         } catch (e) {
-            showToast('生成失败：' + e.message, 'error');
+            showToast('啊哦，网络悄悄跑到外星球去了~', 'error');
         } finally {
             clearLoading();
             btnExec.disabled = false;
@@ -2902,9 +2902,9 @@ var StoryDuration = (function() {
     if (btnCopy) {
         btnCopy.addEventListener('click', function() {
             var text = ScriptGenerator.getCurrentOutput();
-            if (!text) { showToast('暂无生成内容，请先生成', 'warning'); return; }
+            if (!text) { showToast('还没生成内容呢，先去点"一键生成"吧~', 'warning'); return; }
             navigator.clipboard.writeText(text).then(function() {
-                showToast('已复制', 'success');
+                showToast('复制成功，快去粘贴吧~', 'success');
             }).catch(function() {
                 var ta = document.createElement('textarea');
                 ta.value = text;
@@ -2912,7 +2912,7 @@ var StoryDuration = (function() {
                 ta.select();
                 document.execCommand('copy');
                 document.body.removeChild(ta);
-                showToast('已复制', 'success');
+                showToast('复制成功，快去粘贴吧~', 'success');
             });
         });
     }
