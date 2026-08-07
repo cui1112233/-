@@ -577,6 +577,57 @@ input, textarea, select { font-family: inherit; }
   box-shadow: none;
 }
 
+/* Generate controls (format selector + execute button) */
+#gen-controls {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.gen-format-select {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8ba0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.gen-format-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.btn-exec-generate {
+  padding: 10px 24px;
+  background: var(--gradient-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition);
+}
+.btn-exec-generate:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+.btn-exec-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 /* Loading status */
 .loading-status {
   display: none;
@@ -594,6 +645,12 @@ input, textarea, select { font-family: inherit; }
 
 .loading-status.visible {
   display: flex;
+  animation: loadingPulse 2s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 /* Spinner */
@@ -621,6 +678,27 @@ input, textarea, select { font-family: inherit; }
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.card-section-regen {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.card-section-regen:hover {
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border-color: var(--border-light);
 }
 
 .card-section-title {
@@ -913,6 +991,81 @@ input, textarea, select { font-family: inherit; }
   box-shadow: 0 2px 8px var(--accent-glow);
 }
 
+.format-tabs-spacer {
+  flex: 1;
+}
+
+/* Mode switch (toggle) */
+.mode-switch {
+  position: relative;
+  display: flex;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 2px;
+  border: 1px solid var(--border);
+  margin-right: 6px;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+}
+
+.mode-switch-label {
+  position: relative;
+  z-index: 1;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: var(--radius-xl);
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.mode-switch-label.active {
+  color: #fff;
+}
+
+.mode-switch-slider {
+  position: absolute;
+  top: 2px;
+  height: calc(100% - 4px);
+  width: calc(50% - 2px);
+  background: var(--gradient-accent);
+  border-radius: var(--radius-xl);
+  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 0;
+}
+
+.mode-switch-slider.left { left: 2px; }
+.mode-switch-slider.right { left: calc(50% + 0px); }
+
+/* Duration toggle in format tabs */
+.duration-toggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 2px;
+  border: 1px solid var(--border);
+}
+
+.duration-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.duration-btn.active {
+  color: #fff;
+  background: var(--gradient-accent);
+}
+
 .output-content {
   font-size: 14px;
   line-height: 1.85;
@@ -1158,51 +1311,6 @@ input, textarea, select { font-family: inherit; }
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-/* Regenerate modal */
-.regenerate-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.regenerate-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: border-color var(--transition), background var(--transition), transform var(--transition-fast);
-}
-
-.regenerate-option:hover {
-  border-color: var(--border-light);
-  background: var(--bg-card-hover);
-  transform: translateX(2px);
-}
-
-.regenerate-option input[type="radio"] {
-  accent-color: var(--accent);
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.regenerate-option .option-label {
-  font-size: 14px;
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.regenerate-option .option-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 3px;
-}
-
 /* ============================================
    Toast Notifications
    ============================================ */
@@ -1404,44 +1512,7 @@ input, textarea, select { font-family: inherit; }
   display: block;
   opacity: 1;
 }
-/* Context menu */
-.context-menu {
-  position: fixed;
-  z-index: 1000;
-  background: var(--bg-modal);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  padding: 6px;
-  min-width: 160px;
-  display: none;
-}
-.context-menu.visible { display: block; }
-.context-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-  white-space: nowrap;
-}
-.context-menu-item:hover { background: var(--bg-card-hover); }
-.context-menu-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 8px;
-}
-.context-menu-item .checkmark {
-  margin-left: auto;
-  color: var(--accent);
-  font-weight: 700;
-}
+
 </style>
 </head>
 <body>
@@ -1513,8 +1584,17 @@ input, textarea, select { font-family: inherit; }
         ></textarea>
 
         <button id="btn-generate" class="btn-generate" type="button">
-          🚀 一键生成
+          🔍 提取人物与场景
         </button>
+
+        <div id="gen-controls" style="display:none;">
+          <select id="gen-format-select" class="gen-format-select">
+            <option value="storyboard" selected>画布模式</option>
+            <option value="shortdrama">剧本模式</option>
+            <option value="screenplay">剧情模式</option>
+          </select>
+          <button id="btn-exec-generate" class="btn-exec-generate" type="button">▶ 一键生成</button>
+        </div>
 
         <div id="loading-status" class="loading-status">
           <div class="spinner"></div>
@@ -1525,6 +1605,7 @@ input, textarea, select { font-family: inherit; }
         <div id="char-section" class="card-section">
           <div class="card-section-header">
             <span class="card-section-title">👤 人物 <span id="char-count" class="card-section-count">0</span></span>
+            <button class="card-section-regen" id="btn-regen-chars" style="display:none;" title="重新提取人物">🔄</button>
           </div>
           <div id="char-list" class="card-list">
             <!-- dynamically populated -->
@@ -1535,11 +1616,13 @@ input, textarea, select { font-family: inherit; }
         <div id="scene-section" class="card-section">
           <div class="card-section-header">
             <span class="card-section-title">🎬 场景 <span id="scene-count" class="card-section-count">0</span></span>
+            <button class="card-section-regen" id="btn-regen-scenes" style="display:none;" title="重新提取场景">🔄</button>
           </div>
           <div id="scene-list" class="card-list">
             <!-- dynamically populated -->
           </div>
         </div>
+
       </div>
     </div>
     <div class="resize-handle" id="resize-handle"></div>
@@ -1549,22 +1632,33 @@ input, textarea, select { font-family: inherit; }
         <button class="format-tab" data-format="screenplay">剧情模式</button>
         <button class="format-tab" data-format="storyboard">画布模式</button>
         <button class="format-tab active" data-format="shortdrama">剧本模式</button>
+        <div class="format-tabs-spacer"></div>
+        <div class="mode-switch" id="mode-switch" title="连续开头 / 爆款开头">
+          <span class="mode-switch-label left active" data-mode="continuous">连续开头</span>
+          <span class="mode-switch-label right" data-mode="hook">爆款开头</span>
+          <span class="mode-switch-slider left"></span>
+        </div>
+        <div class="duration-toggle" id="duration-toggle">
+          <button class="duration-btn active" data-dur="10s">10s</button>
+          <button class="duration-btn" data-dur="15s">15s</button>
+        </div>
       </div>
 
       <div class="canvas-toolbar" id="canvas-toolbar">
         <span class="canvas-mode-name" id="canvas-mode-name">剧本模式</span>
-        <div class="canvas-actions">
-          <button class="canvas-action-btn" id="canvas-btn-duration" style="display:none;">10s ▼</button>
-          <button class="canvas-action-btn" id="canvas-btn-regenerate" style="display:none;">🔄 重新生成</button>
-          <button class="canvas-action-btn" id="canvas-btn-copy" style="display:none;">📋 复制</button>
-          <button class="canvas-action-btn" id="canvas-btn-export" style="display:none;">💾 导出</button>
+        <div class="canvas-actions" style="display:none;">
+          <button class="canvas-action-btn" id="canvas-btn-duration">10s ▼</button>
+          <button class="canvas-action-btn" id="canvas-btn-regenerate">🔄 重新生成</button>
+          <button class="canvas-action-btn" id="canvas-btn-copy">📋 复制</button>
+          <button class="canvas-action-btn" id="canvas-btn-export">💾 导出</button>
+          <button class="canvas-action-btn" id="canvas-btn-fullscreen">📺 全屏</button>
         </div>
       </div>
 
       <div id="output-area" class="output-area">
         <div class="empty-state">
           <div class="empty-icon">📄</div>
-          <div class="empty-text">粘贴小说内容，点击"一键生成"开始</div>
+          <div class="empty-text">粘贴小说内容，点击"提取人物与场景"开始</div>
         </div>
       </div>
     </div>
@@ -1638,64 +1732,6 @@ input, textarea, select { font-family: inherit; }
   </div>
 </div>
 
-<!-- ============================================
-     Regenerate Modal
-     ============================================ -->
-<div id="regenerate-modal" class="modal-overlay">
-  <div class="modal">
-    <div class="modal-title">🔄 重新生成</div>
-    <div class="modal-body">
-      <div class="regenerate-options">
-        <label class="regenerate-option">
-          <input type="radio" name="regenerate-option" value="script-only">
-          <div>
-            <div class="option-label">仅重新生成剧本</div>
-            <div class="option-desc">保留人物和场景数据</div>
-          </div>
-        </label>
-        <label class="regenerate-option">
-          <input type="radio" name="regenerate-option" value="extract-only">
-          <div>
-            <div class="option-label">仅重新提取人物 + 场景</div>
-            <div class="option-desc">保留已生成的剧本</div>
-          </div>
-        </label>
-        <label class="regenerate-option">
-          <input type="radio" name="regenerate-option" value="all" checked>
-          <div>
-            <div class="option-label">全部重新生成</div>
-            <div class="option-desc">从零开始，覆盖所有内容</div>
-          </div>
-        </label>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button id="btn-confirm-regenerate" class="btn btn-primary" type="button">确认</button>
-      <button id="btn-close-regenerate" class="btn btn-secondary" type="button">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============================================
-     Format Switch Confirmation Modal
-     ============================================ -->
-<div id="format-switch-modal" class="modal-overlay">
-  <div class="modal">
-    <div class="modal-title">切换格式</div>
-    <div class="modal-body">
-      <p style="margin:0;line-height:1.6;color:var(--text-secondary);">
-        切换到 <strong id="switch-format-name" style="color:var(--accent);">剧情模式</strong> 格式，将重新生成剧本。
-      </p>
-      <p style="margin:8px 0 0;line-height:1.6;color:var(--text-secondary);">
-        当前格式的剧本内容已缓存，不会丢失。
-      </p>
-    </div>
-    <div class="modal-footer">
-      <button id="btn-confirm-switch" class="btn btn-primary" type="button">确认切换</button>
-      <button id="btn-cancel-switch" class="btn btn-secondary" type="button">取消</button>
-    </div>
-  </div>
-</div>
 
 <!-- ============================================
      Toast Container
@@ -1711,6 +1747,16 @@ input, textarea, select { font-family: inherit; }
      Script
      ============================================ -->
 <script>
+// ============================================================
+// 鉴权辅助：所有 API 请求自动携带 X-Auth-Token
+// ============================================================
+function authFetch(url, options) {
+  options = options || {};
+  options.headers = options.headers || {};
+  options.headers['X-Auth-Token'] = window.__AUTH_TOKEN__ || '';
+  return fetch(url, options);
+}
+
 // ============================================================
 // 模块：主题切换
 // ============================================================
@@ -1788,7 +1834,7 @@ input, textarea, select { font-family: inherit; }
 // ============================================================
 
 const ApiConfig = (function() {
-    const API_BASE = 'http://127.0.0.1:3000';
+    const API_BASE = '';
     const providerDefaults = {
         openai:   { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
         deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -1798,13 +1844,13 @@ const ApiConfig = (function() {
     };
 
     async function get() {
-        const resp = await fetch(API_BASE + '/api/config');
+        const resp = await authFetch(API_BASE + '/api/config');
         if (!resp.ok) throw new Error('获取配置失败 (HTTP ' + resp.status + ')');
         return resp.json();
     }
 
     async function save(cfg) {
-        const resp = await fetch(API_BASE + '/api/config', {
+        const resp = await authFetch(API_BASE + '/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cfg)
@@ -1816,7 +1862,7 @@ const ApiConfig = (function() {
     }
 
     async function testConnection(cfg) {
-        const resp = await fetch(API_BASE + '/api/test', {
+        const resp = await authFetch(API_BASE + '/api/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(cfg)
@@ -1850,6 +1896,10 @@ const ApiConfig = (function() {
     let backendHasKey = false;
 
     btnOpen.addEventListener('click', async () => {
+        // 先打开弹窗
+        modal.classList.add('visible');
+        testResult.className = 'test-result';
+        testResult.textContent = '';
         try {
             const cfg = await ApiConfig.get();
             providerSelect.value = cfg.provider || 'custom';
@@ -1857,21 +1907,20 @@ const ApiConfig = (function() {
             modelInput.value = cfg.model || '';
             backendHasKey = cfg.hasApiKey;
             apiKeyInput.value = '';
-            if (cfg.hasApiKey) {
-                apiKeyInput.placeholder = '已保存，留空则不修改';
-            } else {
-                apiKeyInput.placeholder = '输入你的 API Key';
-            }
-            testResult.className = 'test-result';
-            testResult.textContent = '';
-            modal.style.display = 'flex';
+            apiKeyInput.placeholder = cfg.hasApiKey ? '已保存，留空则不修改' : '输入你的 API Key';
         } catch (e) {
-            showToast('获取配置失败：' + e.message, 'error');
+            // 加载失败也不影响弹窗，用默认值
+            providerSelect.value = 'custom';
+            baseUrlInput.value = '';
+            modelInput.value = '';
+            apiKeyInput.value = '';
+            apiKeyInput.placeholder = '输入你的 API Key';
+            showToast('获取配置失败，请检查后端是否启动', 'warning');
         }
     });
 
-    btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+    btnClose.addEventListener('click', () => { modal.classList.remove('visible'); });
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
 
     providerSelect.addEventListener('change', () => {
         const defaults = ApiConfig.providerDefaults[providerSelect.value];
@@ -2072,7 +2121,7 @@ const PromptTemplates = (function() {
 
     async function loadPrompt(fileName) {
         if (promptCache[fileName]) return promptCache[fileName];
-        var resp = await fetch('http://127.0.0.1:3000/api/prompt?file=' + encodeURIComponent(fileName));
+        var resp = await authFetch('/api/prompt?file=' + encodeURIComponent(fileName));
         if (!resp.ok) throw new Error('Failed to load prompt: ' + fileName + ' (status ' + resp.status + ')');
         var text = await resp.text();
         promptCache[fileName] = text;
@@ -2085,9 +2134,10 @@ const PromptTemplates = (function() {
         'shortdrama': '剧本模式'
     };
 
-    async function scriptPrompt(novelText, charsJson, scenesJson, format, duration) {
+    async function scriptPrompt(mode, novelText, charsJson, scenesJson, format, duration) {
         duration = duration || '10s';
-        var roleContent = await loadPrompt('角色设定.md');
+        var roleFile = mode === 'hook' ? '爆款开头.md' : '连续开头.md';
+        var roleContent = await loadPrompt(roleFile);
         var rulesContent = await loadPrompt('通用规则.md');
         var formatFile = formatFileMap[format] || '剧情模式.md';
         var formatContent = await loadPrompt(formatFile);
@@ -2116,7 +2166,7 @@ const PromptTemplates = (function() {
 // ============================================================
 
 const AIClient = (function() {
-    const API_BASE = 'http://127.0.0.1:3000';
+    const API_BASE = '';
 
     async function call(messages, options = {}) {
         const body = JSON.stringify({
@@ -2125,7 +2175,7 @@ const AIClient = (function() {
             temperature: options.temperature ?? 0.7,
             stream: false
         });
-        const resp = await fetch(API_BASE + '/api/chat', {
+        const resp = await authFetch(API_BASE + '/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: body
@@ -2148,7 +2198,7 @@ const AIClient = (function() {
             temperature: options.temperature ?? 0.7,
             stream: true
         });
-        const resp = await fetch(API_BASE + '/api/chat', {
+        const resp = await authFetch(API_BASE + '/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: body
@@ -2263,6 +2313,8 @@ const Extraction = (function() {
         if (data.characters.length > 0) {
             charSection.style.display = '';
             charCount.textContent = '(' + data.characters.length + ')';
+            var btnRegenChars = document.getElementById('btn-regen-chars');
+            if (btnRegenChars) btnRegenChars.style.display = '';
             charList.innerHTML = data.characters.map((c, i) => {
                 var app = c.appearance || {};
                 var details = ''
@@ -2286,6 +2338,8 @@ const Extraction = (function() {
         if (data.scenes.length > 0) {
             sceneSection.style.display = '';
             sceneCount.textContent = '(' + data.scenes.length + ')';
+            var btnRegenScenes = document.getElementById('btn-regen-scenes');
+            if (btnRegenScenes) btnRegenScenes.style.display = '';
             sceneList.innerHTML = data.scenes.map((s, i) => `
                 <div class="card" data-type="scene" data-index="${i}">
                     <button class="btn-edit" data-type="scene" data-index="${i}">✏️</button>
@@ -2392,6 +2446,7 @@ const ScriptGenerator = (function() {
     let currentFormat = 'shortdrama';
     let outputs = { screenplay: '', storyboard: '', shortdrama: '' };
     let currentNovelText = '';
+    let currentMode = 'continuous';
 
     function getCurrentFormat() { return currentFormat; }
     function setCurrentFormat(f) { currentFormat = f; }
@@ -2399,6 +2454,19 @@ const ScriptGenerator = (function() {
     function hasOutput(format) { return !!outputs[format]; }
     function getCurrentNovelText() { return currentNovelText; }
     function setCurrentNovelText(t) { currentNovelText = t; }
+
+    function getMode() { return currentMode; }
+    function setMode(mode) {
+        currentMode = mode;
+        var labels = document.querySelectorAll('#mode-switch .mode-switch-label');
+        var slider = document.querySelector('#mode-switch .mode-switch-slider');
+        labels.forEach(function(l) {
+            l.classList.toggle('active', l.dataset.mode === mode);
+        });
+        if (slider) {
+            slider.className = 'mode-switch-slider ' + (mode === 'hook' ? 'right' : 'left');
+        }
+    }
 
     async function generate(novelText, format, duration) {
         duration = duration || '10s';
@@ -2417,7 +2485,7 @@ const ScriptGenerator = (function() {
         const data = Extraction.getData();
         const charsJson = JSON.stringify(data.characters, null, 2);
         const scenesJson = JSON.stringify(data.scenes, null, 2);
-        const messages = await PromptTemplates.scriptPrompt(novelText, charsJson, scenesJson, format, duration);
+        const messages = await PromptTemplates.scriptPrompt(currentMode, novelText, charsJson, scenesJson, format, duration);
         const response = await AIClient.callStream(messages, (chunk) => {
             contentDiv.textContent += chunk;
             outputArea.scrollTop = outputArea.scrollHeight;
@@ -2429,29 +2497,31 @@ const ScriptGenerator = (function() {
 
     function switchToFormat(format) {
         currentFormat = format;
-        const outputArea = document.getElementById('output-area');
+        var outputArea = document.getElementById('output-area');
         outputArea.innerHTML = '';
+
+        var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+
+        // 同步 tab
+        document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) {
+            t.classList.toggle('active', t.dataset.format === format);
+        });
+
+        // 同步工具栏名
+        var modeName = document.getElementById('canvas-mode-name');
+        if (modeName) modeName.textContent = fNames[format] || '剧本模式';
+
         if (outputs[format]) {
-            const div = document.createElement('div');
+            var div = document.createElement('div');
             div.style.whiteSpace = 'pre-wrap';
             div.style.lineHeight = '1.8';
             div.textContent = outputs[format];
             outputArea.appendChild(div);
-            showActionButtons();
         } else {
-            outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">点击"一键生成"生成此格式的剧本</div></div>';
-            hideActionButtons();
+            outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">' + fNames[format] + '尚未生成</div><div class="empty-sub">在左侧选择格式后点击"一键生成"</div></div>';
         }
-        // 同步 tab 激活状态
-        document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) { t.classList.remove('active'); });
-        var targetTab = document.querySelector('#format-tabs .format-tab[data-format="' + format + '"]');
-        if (targetTab) targetTab.classList.add('active');
-        // 同步画布工具栏
-        var modeName = document.getElementById('canvas-mode-name');
-        if (modeName) {
-            var names = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
-            modeName.textContent = names[format] || '剧本模式';
-        }
+        showActionButtons();
+        StoryDuration.updateUI();
     }
 
     function showActionButtons() {
@@ -2459,115 +2529,41 @@ const ScriptGenerator = (function() {
         document.getElementById('btn-copy').style.display = '';
         document.getElementById('btn-export').style.display = '';
         // Canvas toolbar
+        var canvasActions = document.querySelector('.canvas-actions');
         var btnDuration = document.getElementById('canvas-btn-duration');
-        var btnRegen = document.getElementById('canvas-btn-regenerate');
-        var btnCopy = document.getElementById('canvas-btn-copy');
-        var btnExport = document.getElementById('canvas-btn-export');
         var currentFmt = currentFormat;
+        if (canvasActions) canvasActions.style.display = 'flex';
         if (btnDuration) btnDuration.style.display = (currentFmt === 'screenplay' || currentFmt === 'storyboard') ? '' : 'none';
-        if (btnRegen) btnRegen.style.display = '';
-        if (btnCopy) btnCopy.style.display = '';
-        if (btnExport) btnExport.style.display = '';
+        // 同步 duration-toggle
+        StoryDuration.updateUI();
     }
 
     function hideActionButtons() {
         document.getElementById('btn-regenerate').style.display = 'none';
         document.getElementById('btn-copy').style.display = 'none';
         document.getElementById('btn-export').style.display = 'none';
-        var btnDuration = document.getElementById('canvas-btn-duration');
-        var btnRegen = document.getElementById('canvas-btn-regenerate');
-        var btnCopy = document.getElementById('canvas-btn-copy');
-        var btnExport = document.getElementById('canvas-btn-export');
-        if (btnDuration) btnDuration.style.display = 'none';
-        if (btnRegen) btnRegen.style.display = 'none';
-        if (btnCopy) btnCopy.style.display = 'none';
-        if (btnExport) btnExport.style.display = 'none';
+        var canvasActions = document.querySelector('.canvas-actions');
+        if (canvasActions) canvasActions.style.display = 'none';
     }
 
-    return { generate: generate, getCurrentFormat: getCurrentFormat, setCurrentFormat: setCurrentFormat, getCurrentOutput: getCurrentOutput, getCurrentNovelText: getCurrentNovelText, setCurrentNovelText: setCurrentNovelText, showActionButtons: showActionButtons, hideActionButtons: hideActionButtons, switchToFormat: switchToFormat, hasOutput: hasOutput };
+    function clearOutputs() {
+        outputs = { screenplay: '', storyboard: '', shortdrama: '' };
+    }
+
+    return { generate: generate, getCurrentFormat: getCurrentFormat, setCurrentFormat: setCurrentFormat, getCurrentOutput: getCurrentOutput, getCurrentNovelText: getCurrentNovelText, setCurrentNovelText: setCurrentNovelText, getMode: getMode, setMode: setMode, showActionButtons: showActionButtons, hideActionButtons: hideActionButtons, switchToFormat: switchToFormat, hasOutput: hasOutput, clearOutputs: clearOutputs };
 })();
 
 // ============================================================
-// 模块：格式切换
+// 模块：格式切换（统一通过 switchToFormat）
 // ============================================================
 
 (function() {
-    var pendingFormat = null;
-    var switchModal = document.getElementById('format-switch-modal');
-    var btnConfirm = document.getElementById('btn-confirm-switch');
-    var btnCancel = document.getElementById('btn-cancel-switch');
-    var switchMsg = document.getElementById('switch-format-name');
-
-    var formatNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
-
     document.querySelectorAll('#format-tabs .format-tab').forEach(function(tab) {
         tab.addEventListener('click', function() {
             var newFormat = tab.dataset.format;
             if (newFormat === ScriptGenerator.getCurrentFormat()) return;
-
-            // 如果当前格式没有生成过内容，且目标也没有缓存 → 直接切换
-            if (!ScriptGenerator.getCurrentOutput() && !ScriptGenerator.hasOutput(newFormat)) {
-                ScriptGenerator.switchToFormat(newFormat);
-                return;
-            }
-
-            // 如果目标格式已有缓存内容 → 直接切换显示
-            if (ScriptGenerator.hasOutput(newFormat)) {
-                ScriptGenerator.switchToFormat(newFormat);
-                return;
-            }
-
-            // 当前格式有内容，目标格式无缓存 → 弹窗确认
-            pendingFormat = newFormat;
-            switchMsg.textContent = formatNames[newFormat];
-            switchModal.classList.add('visible');
+            ScriptGenerator.switchToFormat(newFormat);
         });
-    });
-
-    btnConfirm.addEventListener('click', async function() {
-        if (!pendingFormat) return;
-        switchModal.classList.remove('visible');
-        var format = pendingFormat;
-        pendingFormat = null;
-
-        // 切换 tab 激活状态
-        document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) { t.classList.remove('active'); });
-        var targetTab = document.querySelector('#format-tabs .format-tab[data-format="' + format + '"]');
-        if (targetTab) targetTab.classList.add('active');
-
-        ScriptGenerator.setCurrentFormat(format);
-
-        var btnGenerate = document.getElementById('btn-generate');
-        btnGenerate.disabled = true;
-        btnGenerate.textContent = '生成中...';
-
-        var loadingStatus = document.getElementById('loading-status');
-        loadingStatus.style.display = 'flex';
-        loadingStatus.innerHTML = '<div class="spinner"></div><span>剧本生成中...</span>';
-
-        try {
-            var novelText = ScriptGenerator.getCurrentNovelText();
-            await ScriptGenerator.generate(novelText, format, StoryDuration.get());
-            showToast('生成完成！', 'success');
-        } catch (e) {
-            showToast('生成失败：' + e.message, 'error');
-        } finally {
-            btnGenerate.disabled = false;
-            btnGenerate.textContent = '一键生成';
-            loadingStatus.style.display = 'none';
-            loadingStatus.innerHTML = '';
-        }
-    });
-
-    btnCancel.addEventListener('click', function() {
-        switchModal.classList.remove('visible');
-        pendingFormat = null;
-    });
-    switchModal.addEventListener('click', function(e) {
-        if (e.target === switchModal) {
-            switchModal.classList.remove('visible');
-            pendingFormat = null;
-        }
     });
 })();
 
@@ -2580,7 +2576,7 @@ const ScriptGenerator = (function() {
     if (btnCopy) {
         btnCopy.addEventListener('click', async () => {
             const text = ScriptGenerator.getCurrentOutput();
-            if (!text) return;
+            if (!text) { showToast('暂无生成内容，请先生成', 'warning'); return; }
             try {
                 await navigator.clipboard.writeText(text);
                 showToast('已复制到剪贴板', 'success');
@@ -2616,7 +2612,7 @@ const ScriptGenerator = (function() {
 })();
 
 // ============================================================
-// 模块：一键生成流水线
+// 模块：两步生成流水线（第1步：提取人物+场景 / 第2步：选择模式生成）
 // ============================================================
 
 (function() {
@@ -2652,10 +2648,11 @@ const ScriptGenerator = (function() {
 
     function resetUI() {
         const outputArea = document.getElementById('output-area');
-        outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">粘贴小说后点击"一键生成"</div><div class="empty-sub">自动提取人物、场景，生成可视化剧本</div></div>';
+        outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">粘贴小说后点击"提取人物与场景"</div><div class="empty-sub">提取完成后可选择生成模式</div></div>';
         ScriptGenerator.hideActionButtons();
         document.getElementById('char-section').style.display = 'none';
         document.getElementById('scene-section').style.display = 'none';
+        document.getElementById('gen-controls').style.display = 'none';
         hideProgress();
     }
 
@@ -2675,104 +2672,131 @@ const ScriptGenerator = (function() {
         hideProgress();
 
         try {
-            // 第1步：提取人物和场景
+            // 第1步：仅提取人物和场景
             setLoading('提取人物和场景中...');
             const data = await Extraction.extract(novelText);
             Extraction.renderCards(data);
-            step1El.className = 'step1 step done';
-
-            // 第2步：生成剧本
-            setLoading('剧本生成中...');
-            setProgress(1.5);
-            const format = ScriptGenerator.getCurrentFormat();
-            await ScriptGenerator.generate(novelText, format, StoryDuration.get());
-            setProgress(2);
+            // 保存小说文本，供后续生成使用
+            ScriptGenerator.setCurrentNovelText(novelText);
+            setProgress(1);
+            progressBar.style.display = 'flex';
 
             clearLoading();
-            showToast('生成完成！', 'success');
+            // 清空之前的剧本输出，显示工具栏生成按钮
+            ScriptGenerator.clearOutputs();
+            ScriptGenerator.hideActionButtons();
+            document.getElementById('gen-controls').style.display = 'flex';
+            var outputArea = document.getElementById('output-area');
+            outputArea.innerHTML = '<div class="empty-state"><div class="empty-icon">🎯</div><div class="empty-text">人物与场景提取完成</div><div class="empty-sub">选好格式后点击"一键生成"</div></div>';
+            showToast('提取完成！请选择生成模式', 'success');
+            btnGenerate.textContent = '🔄 重新提取';
         } catch (e) {
             clearLoading();
-            showToast('生成失败：' + e.message, 'error');
+            showToast('提取失败：' + e.message, 'error');
             console.error(e);
         } finally {
             btnGenerate.disabled = false;
-            btnGenerate.textContent = '🚀 一键生成';
         }
     });
 })();
 
 // ============================================================
-// 模块：重新生成
+// 模块：重新生成（人物 / 场景 / 剧本各自独立）
 // ============================================================
 
 (function() {
-    const modal = document.getElementById('regenerate-modal');
-    const btnOpen = document.getElementById('btn-regenerate');
-    const btnClose = document.getElementById('btn-close-regenerate');
-    const btnConfirm = document.getElementById('btn-confirm-regenerate');
+    function setLoading(msg) {
+        var loadingStatus = document.getElementById('loading-status');
+        loadingStatus.style.display = 'flex';
+        loadingStatus.innerHTML = '<div class="spinner"></div><span>' + msg + '</span>';
+    }
+    function clearLoading() {
+        var loadingStatus = document.getElementById('loading-status');
+        loadingStatus.style.display = 'none';
+        loadingStatus.innerHTML = '';
+    }
 
-    btnOpen.addEventListener('click', () => { modal.classList.add('visible'); });
-    btnClose.addEventListener('click', () => { modal.classList.remove('visible'); });
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
+    // --- 仅重新提取人物+场景 ---
+    var btnRegenChars = document.getElementById('btn-regen-chars');
+    var btnRegenScenes = document.getElementById('btn-regen-scenes');
 
-    btnConfirm.addEventListener('click', async () => {
-        const selected = document.querySelector('input[name="regenerate-option"]:checked');
-        if (!selected) return;
-        modal.classList.remove('visible');
-        const btnGenerate = document.getElementById('btn-generate');
-        btnGenerate.disabled = true;
-        btnGenerate.textContent = '重新生成中...';
-
-        const loadingStatus = document.getElementById('loading-status');
-        const progressBar = document.getElementById('progress-bar');
-        const step1El = document.getElementById('step1');
-        const step2El = document.getElementById('step2');
-
-        function setLoading(msg) {
-            loadingStatus.style.display = 'flex';
-            loadingStatus.innerHTML = '<div class="spinner"></div><span>' + msg + '</span>';
-        }
-        function clearLoading() { loadingStatus.style.display = 'none'; loadingStatus.innerHTML = ''; }
-
+    async function reExtract() {
+        var novelText = ScriptGenerator.getCurrentNovelText();
+        if (!novelText) { showToast('请先输入小说内容', 'warning'); return; }
+        setLoading('提取人物和场景中...');
         try {
-            const novelText = ScriptGenerator.getCurrentNovelText();
+            var data = await Extraction.extract(novelText);
+            Extraction.renderCards(data);
+            showToast('人物和场景已更新', 'success');
+        } catch (e) { showToast('提取失败：' + e.message, 'error'); }
+        finally { clearLoading(); }
+    }
 
-            if (selected.value === 'all') {
-                progressBar.style.display = 'flex';
-                setLoading('提取人物和场景中...');
-                step1El.className = 'step1 step done';
-                const data = await Extraction.extract(novelText);
-                Extraction.renderCards(data);
-                setLoading('剧本生成中...');
-                step2El.className = 'step2 step active';
-                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat(), StoryDuration.get());
-                step2El.className = 'step2 step done';
-                clearLoading();
-                showToast('全部重新生成完成', 'success');
-            } else if (selected.value === 'extract-only') {
-                setLoading('提取人物和场景中...');
-                progressBar.style.display = 'flex';
-                step1El.className = 'step1 step done';
-                const data = await Extraction.extract(novelText);
-                Extraction.renderCards(data);
-                clearLoading();
-                showToast('人物和场景已更新', 'success');
-            } else {
-                setLoading('剧本生成中...');
-                progressBar.style.display = 'flex';
-                step2El.className = 'step2 step active';
-                await ScriptGenerator.generate(novelText, ScriptGenerator.getCurrentFormat(), StoryDuration.get());
-                step2El.className = 'step2 step done';
-                clearLoading();
+    if (btnRegenChars) btnRegenChars.addEventListener('click', reExtract);
+    if (btnRegenScenes) btnRegenScenes.addEventListener('click', reExtract);
+
+    // --- 重新生成当前格式剧本 ---
+    var btnRegen = document.getElementById('btn-regenerate');
+    if (btnRegen) {
+        btnRegen.addEventListener('click', async function() {
+            var novelText = ScriptGenerator.getCurrentNovelText();
+            if (!novelText) { showToast('请先输入小说内容', 'warning'); return; }
+            var fmt = ScriptGenerator.getCurrentFormat();
+            setLoading('剧本生成中...');
+            try {
+                await ScriptGenerator.generate(novelText, fmt, StoryDuration.get());
                 showToast('剧本已重新生成', 'success');
-            }
+            } catch (e) { showToast('生成失败：' + e.message, 'error'); }
+            finally { clearLoading(); }
+        });
+    }
+})();
+
+// ============================================================
+// 模块：一键生成按钮
+// ============================================================
+
+(function() {
+    var btnExec = document.getElementById('btn-exec-generate');
+    var genFormatSelect = document.getElementById('gen-format-select');
+    var loadingStatus = document.getElementById('loading-status');
+    var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+
+    function setLoading(msg) {
+        loadingStatus.style.display = 'flex';
+        loadingStatus.innerHTML = '<div class="spinner"></div><span>' + msg + '</span>';
+    }
+    function clearLoading() {
+        loadingStatus.style.display = 'none';
+        loadingStatus.innerHTML = '';
+    }
+
+    btnExec.addEventListener('click', async function() {
+        var format = genFormatSelect.value;
+        var novelText = ScriptGenerator.getCurrentNovelText();
+        if (!novelText) { showToast('请先提取人物与场景', 'warning'); return; }
+
+        btnExec.disabled = true;
+        btnExec.textContent = '生成中...';
+
+        ScriptGenerator.setCurrentFormat(format);
+        document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) {
+            t.classList.toggle('active', t.dataset.format === format);
+        });
+        var modeName = document.getElementById('canvas-mode-name');
+        if (modeName) modeName.textContent = fNames[format];
+        StoryDuration.updateUI();
+
+        setLoading(fNames[format] + '生成中...');
+        try {
+            await ScriptGenerator.generate(novelText, format, StoryDuration.get());
+            showToast(fNames[format] + '生成完成！', 'success');
         } catch (e) {
-            clearLoading();
-            showToast('重新生成失败：' + e.message, 'error');
-            console.error(e);
+            showToast('生成失败：' + e.message, 'error');
         } finally {
-            btnGenerate.disabled = false;
-            btnGenerate.textContent = '🚀 一键生成';
+            clearLoading();
+            btnExec.disabled = false;
+            btnExec.textContent = '▶ 一键生成';
         }
     });
 })();
@@ -2823,83 +2847,48 @@ var StoryDuration = (function() {
     function set(d) { duration = d; updateUI(); }
     
     function updateUI() {
-        var check10 = document.getElementById('check-10s');
-        var check15 = document.getElementById('check-15s');
-        if (check10) check10.textContent = duration === '10s' ? '✓' : '';
-        if (check15) check15.textContent = duration === '15s' ? '✓' : '';
-        
-        var btnDuration = document.getElementById('canvas-btn-duration');
-        if (btnDuration) btnDuration.textContent = duration + ' ▼';
+        var toggle = document.getElementById('duration-toggle');
+        if (!toggle) return;
         
         var currentFormat = ScriptGenerator.getCurrentFormat();
         var showDuration = currentFormat === 'screenplay' || currentFormat === 'storyboard';
-        var divider = document.getElementById('ctx-divider-duration');
-        var item10 = document.querySelector('[data-action="duration-10s"]');
-        var item15 = document.querySelector('[data-action="duration-15s"]');
-        if (divider) divider.style.display = showDuration ? '' : 'none';
-        if (item10) item10.style.display = showDuration ? '' : 'none';
-        if (item15) item15.style.display = showDuration ? '' : 'none';
-        if (btnDuration) btnDuration.style.display = showDuration ? '' : 'none';
+        toggle.style.display = showDuration ? 'flex' : 'none';
+        
+        var btns = toggle.querySelectorAll('.duration-btn');
+        btns.forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.dur === duration);
+        });
     }
     
     return { get: get, set: set, updateUI: updateUI };
 })();
 
+// 时长切换按钮点击
+(function() {
+    var toggle = document.getElementById('duration-toggle');
+    if (!toggle) return;
+    toggle.addEventListener('click', function(e) {
+        var btn = e.target.closest('.duration-btn');
+        if (!btn) return;
+        StoryDuration.set(btn.dataset.dur);
+    });
+})();
+
+// 模式开关点击（点击整体切换）
+(function() {
+    var sw = document.getElementById('mode-switch');
+    if (!sw) return;
+    sw.addEventListener('click', function() {
+        var current = ScriptGenerator.getMode();
+        var next = current === 'hook' ? 'continuous' : 'hook';
+        ScriptGenerator.setMode(next);
+    });
+})();
+
 // ============================================================
-// 模块：右键菜单
+// 模块：工具栏按钮
 // ============================================================
 (function() {
-    var menu = document.getElementById('context-menu');
-    var canvas = document.querySelector('.right-panel');
-    if (!menu || !canvas) return;
-    
-    canvas.addEventListener('contextmenu', function(e) {
-        e.preventDefault();
-        StoryDuration.updateUI();
-        menu.style.display = 'block';
-        menu.style.left = e.clientX + 'px';
-        menu.style.top = e.clientY + 'px';
-        menu.classList.add('visible');
-    });
-    
-    document.addEventListener('click', function(e) {
-        if (!menu.contains(e.target)) {
-            menu.classList.remove('visible');
-            menu.style.display = 'none';
-        }
-    });
-    
-    menu.addEventListener('click', function(e) {
-        var item = e.target.closest('.context-menu-item');
-        if (!item) return;
-        var action = item.dataset.action;
-        
-        menu.classList.remove('visible');
-        menu.style.display = 'none';
-        
-        switch (action) {
-            case 'duration-10s':
-                StoryDuration.set('10s');
-                break;
-            case 'duration-15s':
-                StoryDuration.set('15s');
-                break;
-            case 'regenerate':
-                document.getElementById('btn-regenerate').click();
-                break;
-            case 'copy':
-                document.getElementById('canvas-btn-copy').click();
-                break;
-            case 'export':
-                document.getElementById('canvas-btn-export').click();
-                break;
-            case 'fullscreen':
-                if (canvas.requestFullscreen) { canvas.requestFullscreen(); }
-                else if (canvas.webkitRequestFullscreen) { canvas.webkitRequestFullscreen(); }
-                break;
-        }
-    });
-    
     // 工具栏时长按钮切换
     var btnDuration = document.getElementById('canvas-btn-duration');
     if (btnDuration) {
@@ -2913,8 +2902,16 @@ var StoryDuration = (function() {
     if (btnCopy) {
         btnCopy.addEventListener('click', function() {
             var text = ScriptGenerator.getCurrentOutput();
-            if (!text) return;
+            if (!text) { showToast('暂无生成内容，请先生成', 'warning'); return; }
             navigator.clipboard.writeText(text).then(function() {
+                showToast('已复制', 'success');
+            }).catch(function() {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
                 showToast('已复制', 'success');
             });
         });
@@ -2935,22 +2932,20 @@ var StoryDuration = (function() {
             document.getElementById('btn-regenerate').click();
         });
     }
+
+    // 工具栏全屏按钮
+    var btnFullscreen = document.getElementById('canvas-btn-fullscreen');
+    if (btnFullscreen) {
+        btnFullscreen.addEventListener('click', function() {
+            var canvas = document.querySelector('.right-panel');
+            if (canvas) {
+                if (canvas.requestFullscreen) { canvas.requestFullscreen(); }
+                else if (canvas.webkitRequestFullscreen) { canvas.webkitRequestFullscreen(); }
+            }
+        });
+    }
 })();
 </script>
 
-<div class="context-menu" id="context-menu">
-  <div class="context-menu-item" data-action="duration-10s">
-    <span>⏱ 10秒模式</span><span class="checkmark" id="check-10s">✓</span>
-  </div>
-  <div class="context-menu-item" data-action="duration-15s">
-    <span>⏱ 15秒模式</span><span class="checkmark" id="check-15s"></span>
-  </div>
-  <div class="context-menu-divider" id="ctx-divider-duration"></div>
-  <div class="context-menu-item" data-action="regenerate">🔄 重新生成</div>
-  <div class="context-menu-item" data-action="copy">📋 复制</div>
-  <div class="context-menu-item" data-action="export">💾 导出</div>
-  <div class="context-menu-divider"></div>
-  <div class="context-menu-item" data-action="fullscreen">📺 全屏</div>
-</div>
 </body>
 </html>
