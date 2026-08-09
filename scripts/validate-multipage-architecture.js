@@ -5,7 +5,14 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 
 function read(relPath) {
-  return fs.readFileSync(path.join(root, relPath), 'utf8');
+  const filePath = path.join(root, relPath);
+
+  assert(
+    fs.existsSync(filePath),
+    `Required file is missing: ${relPath}`
+  );
+
+  return fs.readFileSync(filePath, 'utf8');
 }
 
 function assertIncludes(text, needle, label) {
