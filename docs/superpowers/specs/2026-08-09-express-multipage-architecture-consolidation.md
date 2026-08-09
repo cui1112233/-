@@ -1,133 +1,133 @@
-# Express Multipage Architecture Consolidation
+# Express 多页面架构收口设计
 
-## Goal
+## 目标
 
-Stabilize the current `qiantie` application around the architecture the project is already moving toward:
+把当前 `qiantie` 项目稳定到已经确认的目标架构：
 
-- Backend uses Express.
-- Pages are served as separate routes.
-- The home page is not a single-page app shell.
-- Documentation describes the current architecture, not the older hand-written Node server.
+- 后端使用 Express。
+- 页面由 Express 按独立路由提供。
+- 首页不再作为单页面 SPA 容器。
+- 技术文档描述当前真实架构，而不是旧版手写 Node 服务。
 
-This design intentionally does not change prompt behavior. The known conflict between `通用规则.md` and `爆款开头.md` is out of scope for this pass.
+本设计不修改提示词行为。`通用规则.md` 与 `爆款开头.md` 的规则冲突本轮先忽略。
 
-## Current Problems
+## 当前问题
 
-The project is halfway through an architecture migration.
+项目正处在架构迁移的半完成状态。
 
-The current server is Express-based and routes pages through `routes/pages.js`, but `docs/技术文档.md` still describes a zero-dependency, hand-written Node server that uses `X-Auth-Token`.
+当前服务端已经基于 Express，并通过 `routes/pages.js` 提供页面路由；但 `docs/技术文档.md` 仍描述为“零依赖、手写 Node 路由、使用 X-Auth-Token”。
 
-The current UI has both real pages and SPA remnants. `/script`, `/agent`, and `/tts` are available as separate pages, but `index.html` still contains embedded `page-script` and `page-agent` sections and uses `data-page` navigation for in-page switching.
+当前前端同时存在真实多页面和 SPA 残留。`/script`、`/agent`、`/tts` 已经是独立页面，但 `index.html` 里还内嵌了 `page-script` 和 `page-agent`，并使用 `data-page` 做页面内切换。
 
-Login exists, but user data isolation is not complete. API configuration and generated history still use global files. This is documented as the next priority, not solved in this pass.
+登录已经存在，但用户数据隔离没有完成。API 配置和生成历史仍使用全局文件。本轮只记录为下一阶段优先问题，不在本轮实现。
 
-## Scope
+## 范围
 
-### In Scope
+### 本轮包含
 
-- Keep Express as the backend framework.
-- Make `/` a real home page only.
-- Keep `/script`, `/agent`, and `/tts` as separate pages.
-- Remove SPA-style page switching from the home page.
-- Make sidebar and quick actions navigate by URL instead of switching hidden sections.
-- Update technical documentation to match Express, route modules, Bearer auth, static assets, and page routes.
-- Add a short known-issues section for user-data isolation and stale test scripts.
+- 保留 Express 作为后端框架。
+- 将 `/` 收口为真正的首页。
+- 保留 `/script`、`/agent`、`/tts` 三个独立页面。
+- 从首页移除 SPA 式页面切换。
+- 首页侧边栏和快捷入口全部改为真实 URL 跳转。
+- 更新技术文档，使其匹配 Express、路由模块、Bearer 鉴权、静态资源和页面路由。
+- 增加已知问题记录：用户数据隔离未完成、测试脚本过期。
 
-### Out of Scope
+### 本轮不包含
 
-- Prompt architecture changes.
-- AI generation behavior changes.
-- Per-user config/history isolation implementation.
-- Authentication hardening beyond documenting current behavior.
-- Visual redesign.
-- TTS provider replacement.
+- 提示词架构调整。
+- AI 生成效果调整。
+- 用户级配置和历史隔离的实现。
+- 鉴权安全加固。
+- 视觉重设计。
+- TTS 服务商替换。
 
-## Target Page Architecture
+## 目标页面架构
 
-Express serves four user-facing pages:
+Express 提供四个用户页面：
 
-| Route | File | Purpose |
+| 路由 | 文件 | 用途 |
 | --- | --- | --- |
-| `/` | `index.html` | Home dashboard and navigation entry points |
-| `/script` | `views/script.html` | Novel extraction and script generation workflow |
-| `/agent` | `views/agent.html` | Agent workspace placeholder |
-| `/tts` | `views/tts.html` | Voice generation workspace |
+| `/` | `index.html` | 首页仪表盘和导航入口 |
+| `/script` | `views/script.html` | 小说提取与剧本生成工作流 |
+| `/agent` | `views/agent.html` | Agent 工作区占位页 |
+| `/tts` | `views/tts.html` | 配音工作区 |
 
-The home page must not contain `page-script` or `page-agent`. Those sections belong only in their dedicated view files.
+首页不得再包含 `page-script` 或 `page-agent`。这些内容只能存在于各自的独立页面文件中。
 
-Navigation uses real route changes:
+导航全部使用真实路由：
 
-- Home to script: `/script`
-- Home to agent: `/agent`
-- Home to TTS: `/tts`
-- Sidebar links use `data-href` consistently.
+- 首页到剧本生成：`/script`
+- 首页到 Agent：`/agent`
+- 首页到配音：`/tts`
+- 侧边栏统一使用 `data-href`
 
-## Shared Frontend Responsibilities
+## 前端公共职责
 
-`public/js/common.js` remains the shared browser script for:
+`public/js/common.js` 保留为公共浏览器脚本，负责：
 
-- Theme switching.
-- Sidebar collapse and mobile overlay behavior.
-- `data-href` navigation.
-- API settings modal.
-- Login state and Bearer token handling.
-- Toast messages.
+- 主题切换。
+- 侧边栏收起和移动端遮罩。
+- `data-href` 导航。
+- API 设置弹窗。
+- 登录状态和 Bearer token。
+- Toast 提示。
 
-`public/js/script.js` is only loaded by `views/script.html`.
+`public/js/script.js` 只由 `views/script.html` 加载。
 
-`public/js/tts.js` is only loaded by `views/tts.html`.
+`public/js/tts.js` 只由 `views/tts.html` 加载。
 
-The home page should not depend on script-generation DOM IDs such as `novel-input`, `output-area`, `char-list`, or `scene-list`.
+首页不应依赖剧本生成页面的 DOM ID，例如 `novel-input`、`output-area`、`char-list`、`scene-list`。
 
-## Backend Architecture
+## 后端架构
 
-The backend remains Express.
+后端继续使用 Express。
 
-`server.js` is the app composition root:
+`server.js` 作为应用组合入口：
 
-- Creates the Express app.
-- Applies JSON body parsing and static file serving.
-- Mounts route modules.
-- Starts the server.
+- 创建 Express app。
+- 挂载 JSON body 解析和静态资源服务。
+- 挂载各个路由模块。
+- 启动服务。
 
-Route modules keep their current responsibilities:
+路由模块保持当前职责：
 
-- `routes/pages.js`: HTML pages.
-- `routes/auth.js`: login.
-- `routes/config.js`: API configuration.
-- `routes/chat.js`: upstream AI proxy and test endpoint.
-- `routes/prompt.js`: prompt file loading.
-- `routes/history.js`: generated output history.
-- `routes/tts.js`: TTS proxy.
+- `routes/pages.js`：HTML 页面。
+- `routes/auth.js`：登录。
+- `routes/config.js`：API 配置。
+- `routes/chat.js`：上游 AI 代理和测试接口。
+- `routes/prompt.js`：提示词文件读取。
+- `routes/history.js`：生成历史。
+- `routes/tts.js`：TTS 代理。
 
-No return to the old hand-written HTTP router is planned.
+不回退到旧版手写 HTTP 路由。
 
-## Documentation Updates
+## 文档更新
 
-`docs/技术文档.md` should be updated to state:
+`docs/技术文档.md` 需要改为说明：
 
-- Backend uses Express.
-- `package.json` depends on Express.
-- Page routes are real server routes.
-- API auth uses `Authorization: Bearer <token>`.
-- Static assets live under `public/`.
-- View files live under `views/`.
-- Request body limit is currently `50mb`.
-- User data isolation is not yet complete.
+- 后端使用 Express。
+- `package.json` 依赖 Express。
+- 页面通过真实服务端路由提供。
+- API 鉴权使用 `Authorization: Bearer <token>`。
+- 静态资源位于 `public/`。
+- 页面文件位于 `views/`。
+- 当前请求体限制为 `50mb`。
+- 用户数据隔离尚未完成。
 
-The document must stop claiming:
+文档必须移除或改写以下旧说法：
 
-- Zero third-party dependencies.
-- No Express/Koa/Fastify.
-- `X-Auth-Token` auth.
-- Hand-written `routeRequest`.
-- Single-file SPA as the current frontend architecture.
+- 零第三方依赖。
+- 不使用 Express/Koa/Fastify。
+- 使用 `X-Auth-Token` 鉴权。
+- 手写 `routeRequest`。
+- 当前前端是单文件 SPA。
 
-## Known Issues Left For Next Pass
+## 下一阶段遗留问题
 
-### P0: User Data Isolation
+### P0：用户数据隔离
 
-Current login does not fully isolate users. `api-config.json`, `outputs/index.json`, and generated output files are global. The next pass should decide the storage layout, likely:
+当前登录没有真正隔离用户。`api-config.json`、`outputs/index.json` 和生成文件仍是全局共享。下一阶段应确认存储结构，建议方向：
 
 ```text
 data/users/<username>/api-config.json
@@ -135,34 +135,34 @@ data/users/<username>/outputs/index.json
 data/users/<username>/outputs/<id>.txt
 ```
 
-### P1: Stale Test Scripts
+### P1：测试脚本过期
 
-`test-gen.js` still uses old `X-Auth-Token` behavior and should be updated or removed in a later pass.
+`test-gen.js` 仍使用旧的 `X-Auth-Token` 行为，后续应更新或删除。
 
-### P1: Dirty Workspace Cleanup
+### P1：工作区清理
 
-Debug artifacts and generated binary/log files should be reviewed before committing implementation work.
+调试文件、二进制输出和日志文件需要在实现提交前统一检查，避免混入正式提交。
 
-## Verification
+## 验证方式
 
-After implementation, verify:
+实现后执行：
 
 - `node -c server.js`
 - `node -c public/js/common.js`
 - `node -c public/js/script.js`
-- Start the server with `npm start`.
-- `GET /` returns the home page.
-- `GET /script` returns the script page.
-- `GET /agent` returns the agent page.
-- `GET /tts` returns the TTS page.
-- Home page no longer contains `id="page-script"` or `id="page-agent"`.
-- `/script` still contains the script-generation workflow.
-- Anonymous `GET /api/config` returns `401`.
+- 使用 `npm start` 启动服务。
+- `GET /` 返回首页。
+- `GET /script` 返回剧本生成页。
+- `GET /agent` 返回 Agent 页。
+- `GET /tts` 返回配音页。
+- 首页不再包含 `id="page-script"` 或 `id="page-agent"`。
+- `/script` 仍包含剧本生成工作流。
+- 未登录访问 `GET /api/config` 返回 `401`。
 
-## Acceptance Criteria
+## 验收标准
 
-- The codebase has one clear page model: Express-served multipage pages.
-- `index.html` is no longer a SPA container for script and agent pages.
-- Navigation between major sections uses real routes.
-- Documentation matches the current Express implementation.
-- Remaining user-isolation and test-script issues are explicitly recorded for the next pass.
+- 代码库只有一种清晰页面模型：Express 提供的多页面。
+- `index.html` 不再是剧本页和 Agent 页的 SPA 容器。
+- 主要页面之间使用真实路由跳转。
+- 技术文档匹配当前 Express 实现。
+- 用户隔离和测试脚本问题被明确记录为下一阶段工作。
