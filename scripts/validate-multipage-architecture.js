@@ -58,8 +58,10 @@ assertIncludes(ttsPage, 'src="/js/tts.js"', 'views/tts.html');
 
 assertIncludes(pagesRouter, "router.get('/',", 'routes/pages.js');
 assertIncludes(pagesRouter, "router.get('/script'", 'routes/pages.js');
+assertIncludes(pagesRouter, "router.get('/history'", 'routes/pages.js');
 assertIncludes(pagesRouter, "router.get('/agent'", 'routes/pages.js');
 assertIncludes(pagesRouter, "router.get('/tts'", 'routes/pages.js');
+assertIncludes(pagesRouter, "router.get('/settings'", 'routes/pages.js');
 
 assertIncludes(commonJs, 'data-href', 'public/js/common.js');
 

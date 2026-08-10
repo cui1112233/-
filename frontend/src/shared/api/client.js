@@ -24,6 +24,7 @@ export async function apiRequest(path, options = {}) {
     const text = await response.text();
     throw new Error(text || `请求失败：${response.status}`);
   }
+  if (options.responseType === 'blob') return response.blob();
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) return response.json();
   return response.text();

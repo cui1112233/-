@@ -42,7 +42,9 @@ export function UserLayout({ children }) {
           items={[
             { key: '/', label: <Link href="/">首页</Link> },
             { key: '/script', label: <Link href="/script">剧本生成</Link> },
-            { key: '/tts', label: <Link href="/tts">配音</Link> }
+            { key: '/history', label: <Link href="/history">历史</Link> },
+            { key: '/tts', label: <Link href="/tts">配音</Link> },
+            { key: '/settings', label: <Link href="/settings">设置</Link> }
           ]}
         />
         {username ? (

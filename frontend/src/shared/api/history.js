@@ -4,6 +4,10 @@ export function listHistory() {
   return apiRequest('/api/history');
 }
 
+export function getHistory(id) {
+  return apiRequest(`/api/history/${encodeURIComponent(id)}`);
+}
+
 export function saveHistory(entry) {
   return apiRequest('/api/history', {
     method: 'POST',
