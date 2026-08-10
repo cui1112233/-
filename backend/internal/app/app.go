@@ -33,12 +33,14 @@ func New(cfg config.Config) (*App, error) {
 		db.Close()
 		return nil, err
 	}
+	configs := store.NewConfigs(db)
 	api := httpapi.New(httpapi.Dependencies{
 		DB:           db,
 		TokenSecret:  cfg.TokenSecret,
 		SeedUsername: cfg.SeedUsername,
 		SeedPassword: cfg.SeedPassword,
 		Users:        users,
+		Configs:      configs,
 	})
 	return &App{cfg: cfg, db: db, api: api}, nil
 }
