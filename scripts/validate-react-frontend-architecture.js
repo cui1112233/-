@@ -54,13 +54,16 @@ const globalCss = read('frontend/src/shared/styles/global.css');
 assert(globalCss.includes('.legacy-sidebar'), 'global CSS should style the restored sidebar');
 assert(globalCss.includes('.legacy-login-overlay'), 'global CSS should style the restored login overlay');
 assert(globalCss.includes('.login-modal'), 'global CSS should style the restored login modal');
-assert(globalCss.includes('.home-hero-banner'), 'global CSS should style the restored home hero');
+assert(globalCss.includes('.home-video-hero'), 'global CSS should style the fullscreen video hero');
 assert(globalCss.includes('.home-quick-actions'), 'global CSS should style the restored home quick actions');
 assert(globalCss.includes('.script-workbench'), 'global CSS should style the restored script workbench');
 assert(globalCss.includes('.tts-card-grid'), 'global CSS should style the restored TTS card layout');
 
 const homePage = read('frontend/src/user/pages/HomePage.jsx');
-assert(homePage.includes('home-hero-banner'), 'React home page should restore the old hero banner');
+assert(homePage.includes('home-video-hero'), 'React home page should use a fullscreen video hero');
+assert(homePage.includes('<video'), 'React home page should render a video background');
+assert(homePage.includes('home-hero-nav'), 'React home page should include a hero navigation bar');
+assert(homePage.includes('contact-button'), 'React home page should include a contact button');
 assert(homePage.includes('quick-action-card'), 'React home page should restore old quick action cards');
 assert(homePage.includes('home-recent-section'), 'React home page should restore old recent projects section');
 
