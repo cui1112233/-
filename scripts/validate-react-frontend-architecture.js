@@ -50,8 +50,15 @@ assert(userLayout.includes('legacy-sidebar'), 'user layout should restore the ol
 
 const globalCss = read('frontend/src/shared/styles/global.css');
 assert(globalCss.includes('.legacy-sidebar'), 'global CSS should style the restored sidebar');
+assert(globalCss.includes('.home-hero-banner'), 'global CSS should style the restored home hero');
+assert(globalCss.includes('.home-quick-actions'), 'global CSS should style the restored home quick actions');
 assert(globalCss.includes('.script-workbench'), 'global CSS should style the restored script workbench');
 assert(globalCss.includes('.tts-card-grid'), 'global CSS should style the restored TTS card layout');
+
+const homePage = read('frontend/src/user/pages/HomePage.jsx');
+assert(homePage.includes('home-hero-banner'), 'React home page should restore the old hero banner');
+assert(homePage.includes('quick-action-card'), 'React home page should restore old quick action cards');
+assert(homePage.includes('home-recent-section'), 'React home page should restore old recent projects section');
 
 const settingsPage = read('frontend/src/user/pages/SettingsPage.jsx');
 assert(settingsPage.includes('getConfig'), 'settings page should load API config');
