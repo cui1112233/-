@@ -20,6 +20,7 @@ export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [loading, setLoading] = useState(false);
   const pathname = window.location.pathname;
+  const isLoggedIn = Boolean(username);
 
   async function handleLogin(values) {
     setLoading(true);
@@ -60,26 +61,33 @@ export function UserLayout({ children }) {
         <header className="legacy-topbar">
           <span className="legacy-page-title">{pageTitle(pathname)}</span>
           <div className="legacy-userbar">
-            {username ? (
+            {isLoggedIn ? (
               <>
                 <span className="legacy-muted">{username}</span>
                 <Button size="small" onClick={handleLogout}>退出</Button>
               </>
-            ) : (
-              <Form className="legacy-login-form" onFinish={handleLogin}>
-                <Form.Item name="username" rules={[{ required: true, message: '请输入账号' }]} style={{ margin: 0 }}>
-                  <Input size="small" placeholder="账号" style={{ width: 130 }} />
-                </Form.Item>
-                <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]} style={{ margin: 0 }}>
-                  <Input.Password size="small" placeholder="密码" style={{ width: 130 }} />
-                </Form.Item>
-                <Button size="small" type="primary" htmlType="submit" loading={loading}>登录</Button>
-              </Form>
-            )}
+            ) : null}
           </div>
         </header>
         <section className="legacy-content">{children}</section>
       </main>
+      {!isLoggedIn && (
+        <div className="legacy-login-overlay">
+          <div className="login-modal legacy-panel-card">
+            <div className="login-title">🔐 登录</div>
+            <Form layout="vertical" onFinish={handleLogin}>
+              <Form.Item label="账号" name="username" rules={[{ required: true, message: '请输入账号' }]}>
+                <Input placeholder="请输入账号" autoComplete="username" />
+              </Form.Item>
+              <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
+                <Input.Password placeholder="请输入密码" autoComplete="current-password" />
+              </Form.Item>
+              <Button block type="primary" htmlType="submit" loading={loading}>登 录</Button>
+            </Form>
+            <p className="login-hint">提示：请联系管理员获取账号</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

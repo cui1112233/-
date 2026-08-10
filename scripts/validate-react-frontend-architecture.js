@@ -47,9 +47,13 @@ assert(userLayout.includes("href: '/settings'"), 'user navigation should include
 assert(userLayout.includes("href: '/history'"), 'user navigation should include history');
 assert(userLayout.includes('legacy-shell'), 'user layout should use legacy workspace shell');
 assert(userLayout.includes('legacy-sidebar'), 'user layout should restore the old sidebar navigation');
+assert(userLayout.includes('legacy-login-overlay'), 'user layout should restore the old login overlay');
+assert(userLayout.includes('login-modal'), 'user layout should render a login modal');
 
 const globalCss = read('frontend/src/shared/styles/global.css');
 assert(globalCss.includes('.legacy-sidebar'), 'global CSS should style the restored sidebar');
+assert(globalCss.includes('.legacy-login-overlay'), 'global CSS should style the restored login overlay');
+assert(globalCss.includes('.login-modal'), 'global CSS should style the restored login modal');
 assert(globalCss.includes('.home-hero-banner'), 'global CSS should style the restored home hero');
 assert(globalCss.includes('.home-quick-actions'), 'global CSS should style the restored home quick actions');
 assert(globalCss.includes('.script-workbench'), 'global CSS should style the restored script workbench');
