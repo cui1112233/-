@@ -1,34 +1,115 @@
-import { Button, Form, Input, Select, Segmented, Space, Typography } from 'antd';
+import { Button, Form, Input, Select, Segmented, Space, Typography, message } from 'antd';
+import { useState } from 'react';
+import { extractCharactersAndScenes, generateScript } from '../../shared/api/generation';
+import { saveHistory } from '../../shared/api/history';
+
+function extractJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const match = String(text || '').match(/```json\s*([\s\S]*?)```/);
+    if (match) return JSON.parse(match[1]);
+    throw error;
+  }
+}
+
+function aiText(response) {
+  return response?.choices?.[0]?.message?.content || '';
+}
+
+function normalizeExtraction(data) {
+  return {
+    characters: data?.人物 || data?.characters || [],
+    scenes: data?.场景 || data?.scenes || []
+  };
+}
 
 export function ScriptPage() {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [extractInfo, setExtractInfo] = useState({ characters: [], scenes: [] });
+  const [output, setOutput] = useState('');
+
+  async function handleGenerate(values) {
+    setLoading(true);
+    setOutput('');
+    try {
+      const extractResponse = await extractCharactersAndScenes(values.novelText);
+      const extraction = normalizeExtraction(extractJSON(aiText(extractResponse)));
+      setExtractInfo(extraction);
+
+      const scriptResponse = await generateScript({
+        mode: values.mode,
+        format: values.format,
+        duration: values.duration,
+        novelText: values.novelText,
+        characters: extraction.characters,
+        scenes: extraction.scenes
+      });
+      const nextOutput = aiText(scriptResponse);
+      setOutput(nextOutput);
+
+      await saveHistory({
+        id: 'react-' + Date.now().toString(36),
+        mode: values.mode,
+        format: values.format,
+        formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式' }[values.format] || '剧本',
+        duration: values.duration,
+        output: nextOutput
+      });
+      message.success('生成完成');
+    } catch (error) {
+      message.error(error.message || '生成失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Typography.Title level={3}>剧本生成</Typography.Title>
-      <Form layout="vertical">
-        <Form.Item label="小说原文">
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ mode: 'continuous', format: 'storyboard', duration: '10s' }}
+        onFinish={handleGenerate}
+      >
+        <Form.Item label="小说原文" name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
           <Input.TextArea rows={10} placeholder="粘贴小说原文" />
         </Form.Item>
         <Space wrap>
-          <Segmented
+          <Form.Item name="mode" noStyle>
+            <Segmented
             options={[
               { label: '连续开头', value: 'continuous' },
               { label: '爆款开头', value: 'hook' }
             ]}
-            defaultValue="continuous"
-          />
-          <Select
-            defaultValue="storyboard"
-            style={{ width: 140 }}
-            options={[
-              { label: '画布模式', value: 'storyboard' },
-              { label: '剧本模式', value: 'shortdrama' },
-              { label: '剧情模式', value: 'screenplay' }
-            ]}
-          />
-          <Segmented options={['10s', '15s']} defaultValue="10s" />
-          <Button type="primary">一键生成</Button>
+            />
+          </Form.Item>
+          <Form.Item name="format" noStyle>
+            <Select
+              style={{ width: 140 }}
+              options={[
+                { label: '画布模式', value: 'storyboard' },
+                { label: '剧本模式', value: 'shortdrama' },
+                { label: '剧情模式', value: 'screenplay' }
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="duration" noStyle>
+            <Segmented options={['10s', '15s']} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={loading}>一键生成</Button>
         </Space>
       </Form>
+      {(extractInfo.characters.length > 0 || extractInfo.scenes.length > 0) && (
+        <Typography.Text type="secondary">
+          已提取 {extractInfo.characters.length} 个人物，{extractInfo.scenes.length} 个场景。
+        </Typography.Text>
+      )}
+      {output && (
+        <Input.TextArea value={output} rows={16} readOnly />
+      )}
     </Space>
   );
 }
