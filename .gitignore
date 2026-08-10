@@ -11,6 +11,11 @@ data/users/
 frontend/node_modules/
 frontend/dist/
 
+# Go 后端本地产物
+backend/.env
+backend/qiantie
+backend/coverage.out
+
 # 本地鉴权与内部过程文件
 .auth-token
 .superpowers/
