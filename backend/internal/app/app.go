@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"net/http"
 
+	"qiantie/backend/internal/auth"
 	"qiantie/backend/internal/config"
 	"qiantie/backend/internal/httpapi"
 	"qiantie/backend/internal/legacy"
 	"qiantie/backend/internal/storage"
+	"qiantie/backend/internal/store"
 )
 
 type App struct {
@@ -26,11 +28,17 @@ func New(cfg config.Config) (*App, error) {
 		db.Close()
 		return nil, err
 	}
+	users := store.NewUsers(db)
+	if err := users.EnsureUser(context.Background(), cfg.SeedUsername, auth.HashPassword(cfg.SeedPassword)); err != nil {
+		db.Close()
+		return nil, err
+	}
 	api := httpapi.New(httpapi.Dependencies{
 		DB:           db,
 		TokenSecret:  cfg.TokenSecret,
 		SeedUsername: cfg.SeedUsername,
 		SeedPassword: cfg.SeedPassword,
+		Users:        users,
 	})
 	return &App{cfg: cfg, db: db, api: api}, nil
 }

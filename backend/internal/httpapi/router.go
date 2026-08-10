@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
+
+	"qiantie/backend/internal/store"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -13,6 +16,13 @@ type Dependencies struct {
 	TokenSecret  string
 	SeedUsername string
 	SeedPassword string
+	Users        UserStore
+}
+
+type UserStore interface {
+	EnsureUser(ctx context.Context, username string, passwordHash string) error
+	FindByUsername(ctx context.Context, username string) (store.User, error)
+	FindByID(ctx context.Context, id int64) (store.User, error)
 }
 
 type API struct {
@@ -57,18 +67,6 @@ func readJSON(r *http.Request, target any) error {
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
-func (api *API) handleLogin(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
-func (api *API) handleLogout(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (api *API) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
 func (api *API) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
 }
@@ -99,10 +97,4 @@ func (api *API) handleDeleteHistory(w http.ResponseWriter, r *http.Request) {
 
 func (api *API) handleClearHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
-func (api *API) requireAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
-	})
 }
