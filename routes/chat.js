@@ -37,6 +37,12 @@ function buildExtractMessages(body) {
   ];
 }
 
+function serializePromptSection(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value, null, 2);
+}
+
 function buildScriptMessages(body) {
   const mode = body.mode === 'hook' ? 'hook' : 'continuous';
   const roleFile = mode === 'hook' ? '爆款开头.md' : '连续开头.md';
@@ -61,8 +67,8 @@ function buildScriptMessages(body) {
     {
       role: 'user',
       content: '## 小说原文\n' + String(body.novelText || '') +
-        '\n\n## 人物信息\n' + String(body.characters || '') +
-        '\n\n## 场景信息\n' + String(body.scenes || '') +
+        '\n\n## 人物信息\n' + serializePromptSection(body.characters) +
+        '\n\n## 场景信息\n' + serializePromptSection(body.scenes) +
         '\n\n请将以上小说章节转化为' + formatName + '。'
     }
   ];
@@ -174,5 +180,11 @@ router.post('/chat', async (req, res) => {
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
+
+router._private = {
+  buildExtractMessages,
+  buildScriptMessages,
+  serializePromptSection
+};
 
 module.exports = router;
