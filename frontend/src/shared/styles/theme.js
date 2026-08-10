@@ -1,7 +1,9 @@
 export const theme = {
   token: {
-    colorPrimary: '#1677ff',
-    borderRadius: 6,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    colorPrimary: '#f07167',
+    borderRadius: 8,
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
+    colorText: '#e8e8f0',
+    colorBgContainer: 'rgba(30, 30, 54, 0.72)'
   }
 };

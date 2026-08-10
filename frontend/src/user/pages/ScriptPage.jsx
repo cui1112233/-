@@ -24,6 +24,11 @@ function normalizeExtraction(data) {
   };
 }
 
+function formatEntity(item) {
+  if (typeof item === 'string') return item;
+  return JSON.stringify(item, null, 2);
+}
+
 export function ScriptPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -66,26 +71,42 @@ export function ScriptPage() {
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Typography.Title level={3}>剧本生成</Typography.Title>
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{ mode: 'continuous', format: 'storyboard', duration: '10s' }}
-        onFinish={handleGenerate}
-      >
-        <Form.Item label="小说原文" name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
-          <Input.TextArea rows={10} placeholder="粘贴小说原文" />
-        </Form.Item>
-        <Space wrap>
+    <Form
+      className="script-workbench"
+      form={form}
+      initialValues={{ mode: 'continuous', format: 'storyboard', duration: '10s' }}
+      onFinish={handleGenerate}
+    >
+      <div className="script-left">
+        <div className="script-left-scroll">
+          <Form.Item name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
+            <Input.TextArea className="legacy-input" rows={12} placeholder="在此粘贴小说章节内容..." />
+          </Form.Item>
+          <Button type="primary" block htmlType="submit" loading={loading}>
+            {loading ? '生成中...' : '提取人物与场景并生成'}
+          </Button>
+
+          <EntitySection title="人物" count={extractInfo.characters.length} items={extractInfo.characters} />
+          <EntitySection title="场景" count={extractInfo.scenes.length} items={extractInfo.scenes} />
+        </div>
+      </div>
+      <div className="script-resize-handle" />
+      <div className="script-right">
+        <div className="script-tabs">
           <Form.Item name="mode" noStyle>
             <Segmented
-            options={[
-              { label: '连续开头', value: 'continuous' },
-              { label: '爆款开头', value: 'hook' }
-            ]}
+              options={[
+                { label: '连续开头', value: 'continuous' },
+                { label: '爆款开头', value: 'hook' }
+              ]}
             />
           </Form.Item>
+          <div style={{ flex: 1 }} />
+          <Form.Item name="duration" noStyle>
+            <Segmented options={['10s', '15s']} />
+          </Form.Item>
+        </div>
+        <div className="script-toolbar">
           <Form.Item name="format" noStyle>
             <Select
               style={{ width: 140 }}
@@ -96,20 +117,40 @@ export function ScriptPage() {
               ]}
             />
           </Form.Item>
-          <Form.Item name="duration" noStyle>
-            <Segmented options={['10s', '15s']} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={loading}>一键生成</Button>
-        </Space>
-      </Form>
-      {(extractInfo.characters.length > 0 || extractInfo.scenes.length > 0) && (
-        <Typography.Text type="secondary">
-          已提取 {extractInfo.characters.length} 个人物，{extractInfo.scenes.length} 个场景。
-        </Typography.Text>
-      )}
-      {output && (
-        <Input.TextArea value={output} rows={16} readOnly />
-      )}
-    </Space>
+          <Space>
+            <Button onClick={() => navigator.clipboard?.writeText(output || '')} disabled={!output}>复制</Button>
+            <Button disabled={!output}>导出</Button>
+          </Space>
+        </div>
+        <div className="script-output">
+          {output ? (
+            <Input.TextArea className="legacy-output" value={output} rows={24} readOnly />
+          ) : (
+            <div className="script-empty legacy-panel-card">
+              <div className="script-empty-icon">📄</div>
+              <div>粘贴小说内容，点击“提取人物与场景并生成”开始</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Form>
+  );
+}
+
+function EntitySection({ title, count, items }) {
+  return (
+    <div className="entity-section legacy-panel-card">
+      <div className="entity-section-header">
+        <Typography.Text strong>{title}</Typography.Text>
+        <span className="legacy-muted">{count}</span>
+      </div>
+      <div className="entity-list">
+        {items.length === 0 ? (
+          <div className="entity-card">生成后会显示{title}信息</div>
+        ) : (
+          items.map((item, index) => <div className="entity-card" key={index}>{formatEntity(item)}</div>)
+        )}
+      </div>
+    </div>
   );
 }

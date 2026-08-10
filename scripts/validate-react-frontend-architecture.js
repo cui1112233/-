@@ -43,8 +43,15 @@ assert(userApp.includes("pathname === '/settings'"), 'user app should route /set
 assert(userApp.includes("pathname === '/history'"), 'user app should route /history');
 
 const userLayout = read('frontend/src/shared/layouts/UserLayout.jsx');
-assert(userLayout.includes('href="/settings"'), 'user navigation should include settings');
-assert(userLayout.includes('href="/history"'), 'user navigation should include history');
+assert(userLayout.includes("href: '/settings'"), 'user navigation should include settings');
+assert(userLayout.includes("href: '/history'"), 'user navigation should include history');
+assert(userLayout.includes('legacy-shell'), 'user layout should use legacy workspace shell');
+assert(userLayout.includes('legacy-sidebar'), 'user layout should restore the old sidebar navigation');
+
+const globalCss = read('frontend/src/shared/styles/global.css');
+assert(globalCss.includes('.legacy-sidebar'), 'global CSS should style the restored sidebar');
+assert(globalCss.includes('.script-workbench'), 'global CSS should style the restored script workbench');
+assert(globalCss.includes('.tts-card-grid'), 'global CSS should style the restored TTS card layout');
 
 const settingsPage = read('frontend/src/user/pages/SettingsPage.jsx');
 assert(settingsPage.includes('getConfig'), 'settings page should load API config');

@@ -1,7 +1,8 @@
-export function Link({ href, children }) {
+export function Link({ href, children, className }) {
   return (
     <a
       href={href}
+      className={className}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         event.preventDefault();

@@ -1,13 +1,25 @@
-import { Button, Form, Input, Layout, Menu, Space, Typography, message } from 'antd';
+import { Button, Form, Input, message } from 'antd';
 import { useState } from 'react';
 import { Link } from '../components/Link';
 import { getCurrentUsername, login, logout } from '../api/auth';
 
-const { Header, Content } = Layout;
+const navItems = [
+  { href: '/', icon: '🏠', label: '首页' },
+  { href: '/script', icon: '📝', label: '剧本生成' },
+  { href: '/history', icon: '🗂', label: '历史' },
+  { href: '/tts', icon: '🎙', label: '配音' },
+  { href: '/settings', icon: '⚙', label: '设置' }
+];
+
+function pageTitle(pathname) {
+  const item = navItems.find(nav => nav.href === pathname);
+  return item ? item.label : '一战晟铭';
+}
 
 export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [loading, setLoading] = useState(false);
+  const pathname = window.location.pathname;
 
   async function handleLogin(values) {
     setLoading(true);
@@ -29,42 +41,45 @@ export function UserLayout({ children }) {
   }
 
   return (
-    <Layout className="page-shell">
-      <Header style={{ display: 'flex', alignItems: 'center' }}>
-        <Typography.Text style={{ color: '#fff', marginRight: 24, whiteSpace: 'nowrap' }}>
-          一战晟铭
-        </Typography.Text>
-        <Menu
-          theme="dark"
-          mode="horizontal"
-          selectable={false}
-          style={{ flex: 1 }}
-          items={[
-            { key: '/', label: <Link href="/">首页</Link> },
-            { key: '/script', label: <Link href="/script">剧本生成</Link> },
-            { key: '/history', label: <Link href="/history">历史</Link> },
-            { key: '/tts', label: <Link href="/tts">配音</Link> },
-            { key: '/settings', label: <Link href="/settings">设置</Link> }
-          ]}
-        />
-        {username ? (
-          <Space>
-            <Typography.Text style={{ color: '#fff' }}>{username}</Typography.Text>
-            <Button size="small" onClick={handleLogout}>退出</Button>
-          </Space>
-        ) : (
-          <Form layout="inline" onFinish={handleLogin} style={{ flexShrink: 0 }}>
-            <Form.Item name="username" rules={[{ required: true, message: '请输入账号' }]}>
-              <Input size="small" placeholder="账号" style={{ width: 130 }} />
-            </Form.Item>
-            <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-              <Input.Password size="small" placeholder="密码" style={{ width: 130 }} />
-            </Form.Item>
-            <Button size="small" type="primary" htmlType="submit" loading={loading}>登录</Button>
-          </Form>
-        )}
-      </Header>
-      <Content style={{ padding: 24 }}>{children}</Content>
-    </Layout>
+    <div className="legacy-shell">
+      <aside className="legacy-sidebar">
+        <div className="legacy-brand">
+          <span className="legacy-nav-icon">☰</span>
+          <span>一战晟铭</span>
+        </div>
+        <nav className="legacy-nav">
+          {navItems.map(item => (
+            <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
+              <span className="legacy-nav-icon">{item.icon}</span>
+              <span className="legacy-nav-label">{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+      </aside>
+      <main className="legacy-main">
+        <header className="legacy-topbar">
+          <span className="legacy-page-title">{pageTitle(pathname)}</span>
+          <div className="legacy-userbar">
+            {username ? (
+              <>
+                <span className="legacy-muted">{username}</span>
+                <Button size="small" onClick={handleLogout}>退出</Button>
+              </>
+            ) : (
+              <Form className="legacy-login-form" onFinish={handleLogin}>
+                <Form.Item name="username" rules={[{ required: true, message: '请输入账号' }]} style={{ margin: 0 }}>
+                  <Input size="small" placeholder="账号" style={{ width: 130 }} />
+                </Form.Item>
+                <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]} style={{ margin: 0 }}>
+                  <Input.Password size="small" placeholder="密码" style={{ width: 130 }} />
+                </Form.Item>
+                <Button size="small" type="primary" htmlType="submit" loading={loading}>登录</Button>
+              </Form>
+            )}
+          </div>
+        </header>
+        <section className="legacy-content">{children}</section>
+      </main>
+    </div>
   );
 }
