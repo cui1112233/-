@@ -60,6 +60,12 @@ node test-gen.js
 QIANTIE_USERNAME=choushiyiguai1 QIANTIE_PASSWORD=123456 node test-gen.js
 ```
 
+## Go + MySQL Backend Preview
+
+The repository includes a staged Go backend under `backend/`. It is not yet a replacement for the Express server. It provides the MySQL-backed foundation for login, API config, history, and legacy import.
+
+See `backend/README.md` for local commands.
+
 ## 注意
 
 本项目当前账号密码写在服务端代码中，适合本地或局域网临时使用，不适合直接公开部署。
