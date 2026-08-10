@@ -18,6 +18,7 @@ type Dependencies struct {
 	SeedPassword string
 	Users        UserStore
 	Configs      ConfigStore
+	Histories    HistoryStore
 }
 
 type UserStore interface {
@@ -66,24 +67,4 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 func readJSON(r *http.Request, target any) error {
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(target)
-}
-
-func (api *API) handleListHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
-func (api *API) handleSaveHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
-func (api *API) handleGetHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
-func (api *API) handleDeleteHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
-}
-
-func (api *API) handleClearHistory(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not implemented"})
 }

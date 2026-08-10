@@ -34,6 +34,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	configs := store.NewConfigs(db)
+	histories := store.NewHistories(db)
 	api := httpapi.New(httpapi.Dependencies{
 		DB:           db,
 		TokenSecret:  cfg.TokenSecret,
@@ -41,6 +42,7 @@ func New(cfg config.Config) (*App, error) {
 		SeedPassword: cfg.SeedPassword,
 		Users:        users,
 		Configs:      configs,
+		Histories:    histories,
 	})
 	return &App{cfg: cfg, db: db, api: api}, nil
 }
