@@ -52,7 +52,7 @@ func (a *App) Router() http.Handler {
 }
 
 func (a *App) ImportLegacy(ctx context.Context, sourceDir string) error {
-	return legacy.Import(ctx, a.db, sourceDir)
+	return legacy.Import(ctx, a.db, sourceDir, auth.HashPassword(a.cfg.SeedPassword))
 }
 
 func (a *App) Close() error {

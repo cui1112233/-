@@ -26,7 +26,7 @@ type entry struct {
 	CreatedAt  string `json:"createdAt"`
 }
 
-func Import(ctx context.Context, db *sql.DB, sourceDir string) error {
+func Import(ctx context.Context, db *sql.DB, sourceDir string, defaultPasswordHash string) error {
 	userDirs, err := os.ReadDir(sourceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -39,7 +39,7 @@ func Import(ctx context.Context, db *sql.DB, sourceDir string) error {
 			continue
 		}
 		username := userDir.Name()
-		userID, err := ensureUser(ctx, db, username)
+		userID, err := ensureUser(ctx, db, username, defaultPasswordHash)
 		if err != nil {
 			return err
 		}
@@ -53,12 +53,12 @@ func Import(ctx context.Context, db *sql.DB, sourceDir string) error {
 	return nil
 }
 
-func ensureUser(ctx context.Context, db *sql.DB, username string) (int64, error) {
+func ensureUser(ctx context.Context, db *sql.DB, username string, defaultPasswordHash string) (int64, error) {
 	_, err := db.ExecContext(ctx, `
 INSERT INTO users(username, password_hash)
 VALUES(?, ?)
-ON DUPLICATE KEY UPDATE username = username
-`, username, "")
+ON DUPLICATE KEY UPDATE password_hash = IF(password_hash = '', VALUES(password_hash), password_hash)
+`, username, defaultPasswordHash)
 	if err != nil {
 		return 0, err
 	}
