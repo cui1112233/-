@@ -45,7 +45,7 @@ export function HomePage() {
           playsInline
           poster="/assets/logo.jpg"
         >
-          <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
+          <source src="/assets/home-hero.mp4" type="video/mp4" />
         </video>
         <div className="home-video-overlay" />
 
