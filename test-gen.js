@@ -180,10 +180,10 @@ async function login() {
   return data.token;
 }
 
-function callAPI(token, messages, timeoutSec = 180) {
+function callAPI(token, requestPayload, timeoutSec = 180) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
-      messages: messages,
+      ...requestPayload,
       max_tokens: 4096,
       temperature: 0.7,
       stream: false
@@ -225,24 +225,21 @@ function callAPI(token, messages, timeoutSec = 180) {
 
 async function main() {
   const token = await login();
-  const rolePrompt = fs.readFileSync(path.join(__dirname, 'prompts', '爆款开头.md'), 'utf8');
-  const rulesPrompt = fs.readFileSync(path.join(__dirname, 'prompts', '通用规则.md'), 'utf8');
-  const canvasPrompt = fs.readFileSync(path.join(__dirname, 'prompts', '画布模式.md'), 'utf8');
-
-  let systemPrompt = rolePrompt + '\n\n---\n\n' + rulesPrompt + '\n\n---\n\n' + canvasPrompt;
-  systemPrompt = systemPrompt.replace(/\{10s或15s\}/g, '10s').replace(/\{X\}/g, '10').replace(/\{2X\}/g, '20');
-
   const charsJson = JSON.stringify(extractedData.人物, null, 2);
   const scenesJson = JSON.stringify(extractedData.场景, null, 2);
   
-  console.log('System prompt length:', systemPrompt.length);
   console.log('Chars JSON length:', charsJson.length);
   console.log('Scenes JSON length:', scenesJson.length);
 
-  const stage2Result = await callAPI(token, [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: '## 小说原文\n' + NOVEL_TEXT + '\n\n## 人物信息\n' + charsJson + '\n\n## 场景信息\n' + scenesJson + '\n\n请将以上小说章节转化为画布模式。' }
-  ], 300);
+  const stage2Result = await callAPI(token, {
+    promptType: 'script',
+    mode: 'hook',
+    format: 'storyboard',
+    duration: '10s',
+    novelText: NOVEL_TEXT,
+    characters: charsJson,
+    scenes: scenesJson
+  }, 300);
 
   console.log(stage2Result);
   fs.writeFileSync(path.join(__dirname, 'test-output.txt'), stage2Result, 'utf8');

@@ -1,9 +1,78 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { apiAuth, checkRateLimit } = require('../middleware/auth');
-const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
+const { ROOT_DIR, readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
 
 const router = express.Router();
 router.use(apiAuth);
+
+const FORMAT_FILE_MAP = {
+  screenplay: '剧情模式.md',
+  storyboard: '画布模式.md',
+  shortdrama: '剧本模式.md'
+};
+
+const FORMAT_NAME_MAP = {
+  screenplay: '剧情模式',
+  storyboard: '画布模式',
+  shortdrama: '剧本模式'
+};
+
+function readPromptFile(fileName) {
+  const promptsDir = path.join(ROOT_DIR, 'prompts');
+  const safeName = path.basename(fileName);
+  const filePath = path.join(promptsDir, safeName);
+  if (!filePath.startsWith(promptsDir + path.sep)) {
+    throw new Error('Invalid prompt file');
+  }
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function buildExtractMessages(body) {
+  const systemPrompt = readPromptFile('人物场景提取.md');
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: '请分析以下小说章节：\n\n' + String(body.novelText || '') }
+  ];
+}
+
+function buildScriptMessages(body) {
+  const mode = body.mode === 'hook' ? 'hook' : 'continuous';
+  const roleFile = mode === 'hook' ? '爆款开头.md' : '连续开头.md';
+  const format = FORMAT_FILE_MAP[body.format] ? body.format : 'screenplay';
+  const formatName = FORMAT_NAME_MAP[format] || '剧本';
+  const duration = body.duration === '15s' ? '15s' : '10s';
+  const secs = duration === '15s' ? '15' : '10';
+
+  let formatContent = readPromptFile(FORMAT_FILE_MAP[format]);
+  formatContent = formatContent.replace(/\{10s或15s\}/g, duration);
+  formatContent = formatContent.replace(/\{X\}/g, secs);
+  formatContent = formatContent.replace(/\{2X\}/g, String(parseInt(secs, 10) * 2));
+
+  const systemPrompt = [
+    readPromptFile(roleFile),
+    readPromptFile('通用规则.md'),
+    formatContent
+  ].join('\n\n---\n\n');
+
+  return [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: '## 小说原文\n' + String(body.novelText || '') +
+        '\n\n## 人物信息\n' + String(body.characters || '') +
+        '\n\n## 场景信息\n' + String(body.scenes || '') +
+        '\n\n请将以上小说章节转化为' + formatName + '。'
+    }
+  ];
+}
+
+function buildMessages(body) {
+  if (body.promptType === 'extract') return buildExtractMessages(body);
+  if (body.promptType === 'script') return buildScriptMessages(body);
+  return Array.isArray(body.messages) ? body.messages : [];
+}
 
 // POST /api/test — 测试连接
 router.post('/test', async (req, res) => {
@@ -57,7 +126,7 @@ router.post('/chat', async (req, res) => {
     const temperature = Number.isFinite(rawTemp) ? Math.min(Math.max(0, rawTemp), 2.0) : 0.7;
 
     const payload = {
-      messages: body.messages || [],
+      messages: buildMessages(body),
       max_tokens: maxTokens,
       temperature: temperature,
       model: config.model,
