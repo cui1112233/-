@@ -5,6 +5,7 @@ import { ScriptPage } from './pages/ScriptPage';
 import { TtsPage } from './pages/TtsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { NovelPanelPage } from './pages/NovelPanelPage';
 
 function usePathname() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -21,6 +22,7 @@ function usePathname() {
 function getPage(pathname) {
   if (pathname === '/script') return <ScriptPage />;
   if (pathname === '/history') return <HistoryPage />;
+  if (pathname === '/novel-panel') return <NovelPanelPage />;
   if (pathname === '/tts') return <TtsPage />;
   if (pathname === '/settings') return <SettingsPage />;
   return <HomePage />;
