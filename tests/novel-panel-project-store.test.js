@@ -117,7 +117,7 @@ test('rejects invalid usernames and traversal project ids before filesystem acce
   assert.equal(fs.existsSync(usersDir), false);
 });
 
-test('migration imports each V77 project/history source once for the primary user without changing source files', t => {
+test('migration deduplicates mirrored V77 project/history content while recording both sources', t => {
   const { usersDir, legacyDir } = createTempRoots(t);
   writeLegacyV77Project(legacyDir);
   const sourceBefore = treeFingerprint(legacyDir);
@@ -126,15 +126,16 @@ test('migration imports each V77 project/history source once for the primary use
   const first = store.migrateLegacyIfNeeded('choushiyiguai');
   const second = store.migrateLegacyIfNeeded('choushiyiguai');
 
-  assert.equal(first.imported, 2);
+  assert.equal(first.imported, 1);
   assert.match(first.sourceFingerprint, /^[a-f0-9]{64}$/);
   assert.equal(second.imported, 0);
-  assert.equal(store.listProjects('choushiyiguai').length, 2);
+  assert.equal(store.listProjects('choushiyiguai').length, 1);
   assert.equal(store.loadProject('choushiyiguai', 'legacy_one').data.novel_text, '旧项目原文');
   assert.equal(treeFingerprint(legacyDir), sourceBefore);
   const marker = JSON.parse(fs.readFileSync(path.join(usersDir, 'choushiyiguai', 'novel-panel', 'migration.json'), 'utf8'));
   assert.equal(marker.source_fingerprint, first.sourceFingerprint);
   assert.equal(Object.keys(marker.imported_sources).length, 2);
+  assert.deepEqual(new Set(Object.values(marker.imported_sources)), new Set(['legacy_one']));
 });
 
 test('migration is idempotent for a timestamp-free legacy record', t => {
