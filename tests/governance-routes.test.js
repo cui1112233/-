@@ -8,9 +8,9 @@ test('createApp returns an Express request handler without listening', () => {
   const originalListen = http.Server.prototype.listen;
   let listenCalls = 0;
 
-  http.Server.prototype.listen = function listen(...args) {
+  http.Server.prototype.listen = function listen() {
     listenCalls += 1;
-    return originalListen.apply(this, args);
+    return this;
   };
 
   try {
