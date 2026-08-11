@@ -19,6 +19,7 @@ backend/coverage.out
 # 本地鉴权与内部过程文件
 .auth-token
 .superpowers/
+.worktrees/
 
 # 依赖
 node_modules/
