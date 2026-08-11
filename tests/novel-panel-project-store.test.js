@@ -139,6 +139,33 @@ test('migration never imports legacy data for a non-owner', t => {
   assert.equal(fs.existsSync(path.join(usersDir, 'choushiyiguai1')), false);
 });
 
+test('fails closed before importing when the migration marker is malformed', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyV77Project(legacyDir);
+  const store = createNovelPanelStore({ usersDir, legacyDir });
+  const panelDir = path.join(usersDir, 'choushiyiguai', 'novel-panel');
+  const markerPath = path.join(panelDir, 'migration.json');
+  fs.mkdirSync(panelDir, { recursive: true });
+
+  const validFingerprint = 'a'.repeat(64);
+  const malformedMarkers = [
+    { version: 1, source_fingerprint: {}, imported_sources: {}, updated_at: '2026-08-11T00:00:00.000Z' },
+    { version: 1, source_fingerprint: '', imported_sources: {}, updated_at: '2026-08-11T00:00:00.000Z' },
+    { version: 1, source_fingerprint: 'not-a-sha256', imported_sources: {}, updated_at: '2026-08-11T00:00:00.000Z' },
+    { version: '1', source_fingerprint: validFingerprint, imported_sources: {}, updated_at: '2026-08-11T00:00:00.000Z' },
+    { version: 1, source_fingerprint: validFingerprint, imported_sources: [], updated_at: '2026-08-11T00:00:00.000Z' },
+    { version: 1, source_fingerprint: validFingerprint, imported_sources: {}, updated_at: {} }
+  ];
+
+  for (const marker of malformedMarkers) {
+    const before = JSON.stringify(marker);
+    fs.writeFileSync(markerPath, before);
+    assert.throws(() => store.migrateLegacyIfNeeded('choushiyiguai'), /Invalid novel-panel migration marker/);
+    assert.equal(fs.readFileSync(markerPath, 'utf8'), before);
+    assert.deepEqual(store.listProjects('choushiyiguai'), []);
+  }
+});
+
 test('fails closed when a stored project is malformed or contains prototype pollution keys', t => {
   const { usersDir, legacyDir } = createTempRoots(t);
   const store = createNovelPanelStore({ usersDir, legacyDir });
