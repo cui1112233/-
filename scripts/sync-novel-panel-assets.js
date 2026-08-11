@@ -27,7 +27,7 @@ const bridge = `(() => {
     ? navigator.sendBeacon.bind(navigator)
     : null;
   let channelPort = null;
-  let handshakeSent = false;
+  let handshakeRetryTimer = null;
 
   function apiPath(input) {
     try {
@@ -98,9 +98,20 @@ const bridge = `(() => {
   }
 
   function sendHandshake() {
-    if (handshakeSent || !nonce || window.parent === window) return;
-    handshakeSent = true;
+    if (!nonce || channelPort || window.parent === window) return;
     window.parent.postMessage({ type: 'qiantie-v77-handshake', nonce }, '*');
+  }
+
+  function stopHandshakeRetries() {
+    if (handshakeRetryTimer === null) return;
+    clearInterval(handshakeRetryTimer);
+    handshakeRetryTimer = null;
+  }
+
+  function startHandshakeRetries() {
+    if (!nonce || window.parent === window || handshakeRetryTimer !== null) return;
+    sendHandshake();
+    handshakeRetryTimer = setInterval(sendHandshake, 150);
   }
 
   window.addEventListener('message', event => {
@@ -109,6 +120,7 @@ const bridge = `(() => {
     const port = event.ports?.[0];
     if (!data || data.type !== 'qiantie-v77-port' || data.nonce !== nonce || !port) return;
     channelPort = port;
+    stopHandshakeRetries();
     channelPort.onmessage = message => {
       const response = message.data;
       if (!response || response.type !== 'novel-panel-api-response' || typeof response.id !== 'string') return;
@@ -123,13 +135,17 @@ const bridge = `(() => {
     for (const pending of pendingRequests.values()) postPendingRequest(pending);
   });
 
-  window.addEventListener('pagehide', () => {
+  function closeBridge() {
+    stopHandshakeRetries();
     channelPort?.close();
     channelPort = null;
     rejectPendingRequests();
-  });
+  }
 
-  sendHandshake();
+  window.addEventListener('pagehide', closeBridge);
+  window.addEventListener('beforeunload', closeBridge);
+
+  startHandshakeRetries();
 
   window.fetch = function novelPanelFetch(input, init = {}) {
     const path = apiPath(input);

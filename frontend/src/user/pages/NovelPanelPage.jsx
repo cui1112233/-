@@ -1,5 +1,5 @@
 import { Alert, Spin } from 'antd';
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { getToken } from '../../shared/api/client';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
@@ -42,7 +42,7 @@ export function NovelPanelPage() {
   const [error, setError] = useState(false);
   const workbenchSrc = `/novel-panel/workbench?nonce=${encodeURIComponent(sessionNonceRef.current)}`;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     function closePort() {
       if (!portRef.current) return;
       portRef.current.onmessage = null;

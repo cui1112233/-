@@ -196,6 +196,7 @@ test('qiantie navigation renders the V77 workbench in a same-origin iframe', () 
   assert.match(novelPanelPage, /event\.source\.postMessage\(\{ type: 'qiantie-v77-port'/);
   assert.match(novelPanelPage, /target\.postMessage\(\{ type: 'novel-panel-api-response', id, \.\.\.response \}\)/);
   assert.doesNotMatch(novelPanelPage, /target\.postMessage\(\{ type: 'novel-panel-api-response'[\s\S]{0,160}'\*'/);
+  assert.match(novelPanelPage, /useLayoutEffect/);
   assert.match(pagesRouter, /router\.get\('\/novel-panel'/);
 });
 
@@ -243,10 +244,14 @@ test('novel-panel API requires Bearer authentication and honestly reports pendin
   });
 });
 
-test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off window messages', async () => {
+test('bridge retries its nonce handshake, then keeps API bodies off window messages', async () => {
   const nativeFetchCalls = [];
   const handshakeMessages = [];
   const beaconCalls = [];
+  const windowListeners = { message: [], pagehide: [], beforeunload: [] };
+  const retryTimers = new Map();
+  const clearedTimers = [];
+  let nextTimerId = 1;
   const nativeFetch = (...args) => {
     nativeFetchCalls.push(args);
     return Promise.resolve({ ok: true });
@@ -279,11 +284,19 @@ test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off w
     },
     Promise,
     setTimeout,
-    clearTimeout
+    clearTimeout,
+    setInterval(callback, delay) {
+      const id = nextTimerId++;
+      retryTimers.set(id, { callback, delay });
+      return id;
+    },
+    clearInterval(id) {
+      clearedTimers.push(id);
+      retryTimers.delete(id);
+    }
   };
-  const messageListeners = [];
   context.window.addEventListener = (type, listener) => {
-    if (type === 'message') messageListeners.push(listener);
+    windowListeners[type]?.push(listener);
   };
   vm.createContext(context);
   const bridge = fs.readFileSync(path.join(workbenchRoot, 'bridge.js'), 'utf8');
@@ -292,6 +305,13 @@ test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off w
   assert.equal(handshakeMessages.length, 1);
   assert.equal(handshakeMessages[0][0].type, 'qiantie-v77-handshake');
   assert.equal(handshakeMessages[0][0].nonce, 'nonce-1');
+  assert.equal(retryTimers.size, 1);
+  const retry = [...retryTimers.values()][0];
+  assert.equal(retry.delay, 150);
+
+  // The initial handshake has no parent listener. The retry is the first one it receives.
+  retry.callback();
+  assert.equal(handshakeMessages.length, 2);
 
   const childPort = {
     posted: [],
@@ -299,7 +319,7 @@ test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off w
     close() { this.closed = true; },
     start() {}
   };
-  for (const listener of messageListeners) {
+  for (const listener of windowListeners.message) {
     listener({
       source: context.window.parent,
       data: { type: 'qiantie-v77-port', nonce: 'nonce-1' },
@@ -307,9 +327,11 @@ test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off w
     });
   }
   assert.equal(childPort.started, undefined);
+  assert.equal(retryTimers.size, 0);
+  assert.equal(clearedTimers.length, 1);
 
   const stalePort = { posted: [], postMessage(message) { this.posted.push(message); }, close() {}, start() {} };
-  for (const listener of messageListeners) {
+  for (const listener of windowListeners.message) {
     listener({
       source: context.window.parent,
       data: { type: 'qiantie-v77-port', nonce: 'nonce-1' },
@@ -350,5 +372,10 @@ test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off w
 
   assert.equal(navigator.sendBeacon('/telemetry', 'event'), false);
   assert.deepEqual(beaconCalls, [['/telemetry', 'event']]);
-  assert.equal(handshakeMessages.length, 1);
+  assert.equal(handshakeMessages.length, 2);
+  assert.equal(windowListeners.pagehide.length, 1);
+  assert.equal(windowListeners.beforeunload.length, 1);
+  windowListeners.pagehide[0]();
+  assert.equal(childPort.closed, true);
+  assert.equal(retryTimers.size, 0);
 });
