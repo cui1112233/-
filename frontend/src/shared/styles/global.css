@@ -208,8 +208,7 @@ select {
 }
 
 .legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip,
-.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip,
-.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip {
+.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip {
   opacity: 1;
   transform: scaleX(1);
 }
@@ -553,8 +552,7 @@ select {
   }
 
   .legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip,
-  .legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip,
-  .legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip {
+  .legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip {
     transition: none;
     transform: none;
   }
