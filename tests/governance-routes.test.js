@@ -173,3 +173,182 @@ test('enforces account review and scoped preset capabilities without a productio
   assert.equal(denied.status, 403);
   assert.deepEqual(denied.body, { error: 'Forbidden' });
 });
+
+test('accepts a safe account application but rejects weak and duplicate requests', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+
+  const created = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_01', password: 'secret-123', reason: '小说创作' }
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.status, 'pending');
+  assert.match(created.body.id, /^[0-9a-f-]{36}$/i);
+  assert.doesNotMatch(JSON.stringify(created.body), /secret-123|passwordHash/);
+
+  const status = await request(app, {
+    method: 'POST',
+    requestPath: `/api/applications/${created.body.id}/status`,
+    body: { username: 'writer_01', password: 'secret-123' }
+  });
+  assert.equal(status.status, 200);
+  assert.deepEqual(status.body.status, 'pending');
+  assert.doesNotMatch(JSON.stringify(status.body), /secret-123|passwordHash|audit/i);
+
+  const unauthorizedStatus = await request(app, {
+    method: 'POST',
+    requestPath: `/api/applications/${created.body.id}/status`,
+    body: { username: 'writer_01', password: 'wrong-password' }
+  });
+  assert.equal(unauthorizedStatus.status, 404);
+
+  const weak = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_02', password: 'short', reason: '小说创作' }
+  });
+  assert.equal(weak.status, 400);
+
+  const duplicate = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_01', password: 'another-secret', reason: '再次申请' }
+  });
+  assert.equal(duplicate.status, 400);
+
+  const withdrawn = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_03', password: 'secret-789', reason: '小说创作' }
+  });
+  const withdrawal = await request(app, {
+    method: 'POST',
+    requestPath: `/api/applications/${withdrawn.body.id}/withdraw`,
+    body: { username: 'writer_03', password: 'secret-789' }
+  });
+  assert.equal(withdrawal.status, 200);
+  assert.equal(withdrawal.body.status, 'withdrawn');
+  const withdrawnStatus = await request(app, {
+    method: 'POST',
+    requestPath: `/api/applications/${withdrawn.body.id}/status`,
+    body: { username: 'writer_03', password: 'secret-789' }
+  });
+  assert.equal(withdrawnStatus.body.status, 'withdrawn');
+});
+
+test('approved applicants can log in while pending applicants cannot', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  const submitted = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_01', password: 'secret-123', reason: '小说创作' }
+  });
+
+  assert.equal((await login(app, 'writer_01', 'secret-123')).status, 401);
+  const approval = await request(app, {
+    method: 'POST',
+    requestPath: `/api/admin/applications/${submitted.body.id}/approve`,
+    token: owner.body.token
+  });
+  assert.equal(approval.status, 200);
+  assert.equal(approval.body.application.status, 'approved');
+  assert.equal(approval.body.account.active, true);
+  assert.equal((await login(app, 'writer_01', 'secret-123')).status, 200);
+});
+
+test('account reviewers manage accounts but cannot manage grants or audit', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'account:review',
+    scope: '*'
+  });
+  const reviewer = await login(app, 'choushiyiguai1');
+  const submitted = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_01', password: 'secret-123', reason: '小说创作' }
+  });
+
+  assert.equal((await request(app, {
+    requestPath: '/api/admin/accounts', token: reviewer.body.token
+  })).status, 200);
+  assert.equal((await request(app, {
+    method: 'POST',
+    requestPath: `/api/admin/applications/${submitted.body.id}/approve`,
+    token: reviewer.body.token
+  })).status, 200);
+  assert.equal((await request(app, {
+    method: 'POST',
+    requestPath: '/api/admin/grants',
+    token: reviewer.body.token,
+    body: { subject: 'writer_01', capability: 'preset:draft', scope: 'novel-panel' }
+  })).status, 403);
+  assert.equal((await request(app, {
+    requestPath: '/api/admin/audit', token: reviewer.body.token
+  })).status, 403);
+
+  const grant = await request(app, {
+    method: 'POST',
+    requestPath: '/api/admin/grants',
+    token: owner.body.token,
+    body: { subject: 'writer_01', capability: 'preset:draft', scope: 'novel-panel' }
+  });
+  assert.equal(grant.status, 201);
+  const revoked = await request(app, {
+    method: 'DELETE',
+    requestPath: `/api/admin/grants/${grant.body.grant.id}`,
+    token: owner.body.token
+  });
+  assert.equal(revoked.status, 200);
+  const audit = await request(app, { requestPath: '/api/admin/audit', token: owner.body.token });
+  assert.equal(audit.status, 200);
+  assert.match(JSON.stringify(audit.body), /application\.submitted|application\.approved|grant\.created|grant\.revoked/);
+  assert.doesNotMatch(JSON.stringify(audit.body), /secret-123|passwordHash/);
+});
+
+test('reviewers can reject, disable, and reset passwords without crossing other permissions', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'account:review',
+    scope: '*'
+  });
+  const reviewer = await login(app, 'choushiyiguai1');
+  const rejected = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_02', password: 'secret-456', reason: '小说创作' }
+  });
+  assert.equal((await request(app, {
+    method: 'POST',
+    requestPath: `/api/admin/applications/${rejected.body.id}/reject`,
+    token: reviewer.body.token
+  })).status, 200);
+  assert.equal((await request(app, {
+    method: 'POST',
+    requestPath: '/api/admin/accounts/choushiyiguai2/status',
+    token: reviewer.body.token,
+    body: { active: false }
+  })).status, 200);
+  assert.equal((await request(app, {
+    method: 'POST',
+    requestPath: '/api/admin/accounts/choushiyiguai2/reset-password',
+    token: reviewer.body.token,
+    body: { password: 'new-secret-789' }
+  })).status, 200);
+  assert.equal((await login(app, 'choushiyiguai2', 'new-secret-789')).status, 401);
+  assert.equal((await request(app, {
+    method: 'POST',
+    requestPath: '/api/admin/accounts/choushiyiguai2/status',
+    token: owner.body.token,
+    body: { active: true }
+  })).status, 200);
+  assert.equal((await login(app, 'choushiyiguai2', 'new-secret-789')).status, 200);
+});

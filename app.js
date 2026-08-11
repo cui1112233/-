@@ -8,6 +8,8 @@ const frontendDist = path.join(__dirname, 'frontend', 'dist');
 // 路由模块
 const pagesRouter = require('./routes/pages');
 const { createAuthRouter } = require('./routes/auth');
+const { createApplicationsRouter } = require('./routes/applications');
+const { createAdminRouter } = require('./routes/admin');
 const configRouter = require('./routes/config');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -67,6 +69,8 @@ function createApp({ accountStore, tokenMap } = {}) {
 
   // 路由挂载
   app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
+  app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
+  app.use('/api/admin', createAdminRouter(authRuntime.accountStore));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
