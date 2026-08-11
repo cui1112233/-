@@ -2,20 +2,22 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const { PUBLIC_DIR } = require('./lib/shared');
+const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 
 // 路由模块
 const pagesRouter = require('./routes/pages');
-const authRouter = require('./routes/auth');
+const { createAuthRouter } = require('./routes/auth');
 const configRouter = require('./routes/config');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
 const historyRouter = require('./routes/history');
 
-function createApp() {
+function createApp({ accountStore, tokenMap } = {}) {
   const app = express();
+  const authRuntime = createAuthRuntime({ accountStore, tokenMap });
+  app.locals.authRuntime = authRuntime;
 
   // 请求日志
   app.use((req, res, next) => {
@@ -56,7 +58,7 @@ function createApp() {
 
   // 路由挂载
   app.use('/', pagesRouter); // 页面路由: /, /script, /agent, /tts
-  app.use('/api/login', authRouter); // POST /api/login
+  app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
