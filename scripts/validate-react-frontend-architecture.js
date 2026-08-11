@@ -97,6 +97,8 @@ const tooltipVisibilityRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed
 assert(tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip') && tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip') && !tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip') && tooltipVisibilityRule.includes('opacity: 1') && tooltipVisibilityRule.includes('transform: scaleX(1)'), 'collapsed navigation tooltip should reveal only for hover and keyboard focus, not the active route');
 const activeNavIconRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-icon');
 assert(activeNavIconRule.includes('background: linear-gradient'), 'active collapsed navigation icon should use the gradient treatment');
+const expandedActiveNavRule = readCssBlock(globalCss, '.legacy-sidebar:not(.collapsed) .legacy-nav a.active');
+assert(expandedActiveNavRule.includes('background: linear-gradient') && expandedActiveNavRule.includes('color: #fff'), 'active expanded navigation should retain the colored gradient treatment');
 const focusedNavLinkRule = readCssBlock(globalCss, '\n.legacy-sidebar.collapsed .legacy-nav a:focus-visible {');
 assert(focusedNavLinkRule.includes('outline:'), 'collapsed navigation links should retain a visible keyboard focus outline');
 const reducedMotionCss = readCssBlock(globalCss, '@media (prefers-reduced-motion: reduce)');

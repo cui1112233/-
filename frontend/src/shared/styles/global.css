@@ -253,6 +253,11 @@ select {
   color: var(--legacy-text);
 }
 
+.legacy-sidebar:not(.collapsed) .legacy-nav a.active {
+  color: #fff;
+  background: linear-gradient(110deg, #f07067, #d65386 50%, #5a8ed0);
+}
+
 .legacy-nav a.active::before {
   content: "";
   position: absolute;
