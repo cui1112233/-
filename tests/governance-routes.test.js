@@ -8,6 +8,7 @@ const express = require('express');
 
 const { createApp } = require('../app');
 const { createAccountStore } = require('../lib/account-store');
+const { createPresetStore } = require('../lib/preset-store');
 const { apiAuth, requireCapability, requireOwner } = require('../middleware/auth');
 
 function createTestRuntime(t) {
@@ -393,4 +394,88 @@ test('reviewers can reject, disable, and reset passwords without crossing other 
   assert.match(JSON.stringify(audit.body), /account\.status_changed/);
   assert.match(JSON.stringify(audit.body), /account\.password_reset/);
   assert.doesNotMatch(JSON.stringify(audit.body), /secret-456|new-secret-789|passwordHash/);
+});
+
+test('preset HTTP routes enforce scoped server-side permissions and never return protected fields', async t => {
+  const runtime = createTestRuntime(t);
+  const presetStore = createPresetStore({ systemDir: path.dirname(runtime.accountStore.files.audit) });
+  const app = createApp({ ...runtime, presetStore });
+  const owner = await login(app, 'choushiyiguai');
+  const writer = await login(app, 'choushiyiguai1');
+  const baseDraft = {
+    id: 'novel-base',
+    module: 'novel-panel',
+    name: 'Novel Base',
+    kind: 'base',
+    description: 'Base protocol',
+    compatibleBaseIds: [],
+    body: 'NEVER_EXPOSE_BASE_BODY',
+    protocolLock: { protected: true }
+  };
+
+  assert.equal((await request(app, {
+    method: 'POST', requestPath: '/api/admin/presets/draft', token: writer.body.token, body: baseDraft
+  })).status, 403);
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'preset:draft', scope: 'novel-panel'
+  });
+  const draftResponse = await request(app, {
+    method: 'POST', requestPath: '/api/admin/presets/draft', token: writer.body.token, body: baseDraft
+  });
+  assert.equal(draftResponse.status, 201);
+  assert.doesNotMatch(JSON.stringify(draftResponse.body), /NEVER_EXPOSE_BASE_BODY|protocolLock/);
+  assert.equal((await request(app, {
+    method: 'POST', requestPath: '/api/admin/presets/novel-base/publish', token: writer.body.token, body: { version: 1 }
+  })).status, 403);
+
+  const published = await request(app, {
+    method: 'POST', requestPath: '/api/admin/presets/novel-base/publish', token: owner.body.token, body: { version: 1 }
+  });
+  assert.equal(published.status, 200);
+  const catalog = await request(app, {
+    requestPath: '/api/presets?module=novel-panel', token: writer.body.token
+  });
+  assert.equal(catalog.status, 200);
+  assert.deepEqual(catalog.body.catalog, [{
+    id: 'novel-base', module: 'novel-panel', name: 'Novel Base', kind: 'base', description: 'Base protocol',
+    compatibleBaseIds: [], version: 1, status: 'published'
+  }]);
+  const resolved = await request(app, {
+    method: 'POST', requestPath: '/api/presets/resolve', token: writer.body.token,
+    body: { module: 'novel-panel', presetIds: ['novel-base'] }
+  });
+  assert.equal(resolved.status, 200);
+  assert.doesNotMatch(JSON.stringify({ catalog: catalog.body, resolved: resolved.body }), /NEVER_EXPOSE_BASE_BODY|protocolLock/);
+  assert.deepEqual(resolved.body.presets, catalog.body.catalog);
+});
+
+test('preset rollback derives its permission scope from the stored version', async t => {
+  const runtime = createTestRuntime(t);
+  const presetStore = createPresetStore({ systemDir: path.dirname(runtime.accountStore.files.audit) });
+  const app = createApp({ ...runtime, presetStore });
+  const owner = await login(app, 'choushiyiguai');
+  const writer = await login(app, 'choushiyiguai1');
+  const baseDraft = {
+    id: 'novel-base', module: 'novel-panel', name: 'Novel Base', kind: 'base', description: 'Base protocol',
+    compatibleBaseIds: [], body: 'ROLLED_BACK_BODY', protocolLock: { protected: true }
+  };
+  presetStore.createDraft('choushiyiguai', baseDraft);
+  presetStore.publish('choushiyiguai', 'novel-base', 1);
+  presetStore.createDraft('choushiyiguai', { ...baseDraft, name: 'Novel Base v2', body: 'CURRENT_BODY' });
+  presetStore.publish('choushiyiguai', 'novel-base', 2);
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'preset:publish', scope: 'other-panel'
+  });
+
+  assert.equal((await request(app, {
+    method: 'POST', requestPath: '/api/admin/presets/novel-base/rollback', token: writer.body.token,
+    body: { version: 1, module: 'other-panel' }
+  })).status, 403);
+  const restored = await request(app, {
+    method: 'POST', requestPath: '/api/admin/presets/novel-base/rollback', token: owner.body.token,
+    body: { version: 1 }
+  });
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.preset.version, 1);
+  assert.doesNotMatch(JSON.stringify(restored.body), /ROLLED_BACK_BODY|protocolLock/);
 });

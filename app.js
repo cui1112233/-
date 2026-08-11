@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
+const { createPresetStore } = require('./lib/preset-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 
 // 路由模块
@@ -10,6 +11,7 @@ const pagesRouter = require('./routes/pages');
 const { createAuthRouter } = require('./routes/auth');
 const { createApplicationsRouter } = require('./routes/applications');
 const { createAdminRouter } = require('./routes/admin');
+const { createPresetsRouter } = require('./routes/presets');
 const configRouter = require('./routes/config');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -18,10 +20,14 @@ const historyRouter = require('./routes/history');
 const novelPanelRouter = require('./routes/novel-panel-page');
 const novelPanelApiRouter = require('./routes/novel-panel');
 
-function createApp({ accountStore, tokenMap } = {}) {
+function createApp({ accountStore, tokenMap, presetStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap });
+  const resolvedPresetStore = presetStore || createPresetStore({
+    systemDir: path.dirname(authRuntime.accountStore.files.audit)
+  });
   app.locals.authRuntime = authRuntime;
+  app.locals.presetStore = resolvedPresetStore;
 
   // 请求日志
   app.use((req, res, next) => {
@@ -70,7 +76,8 @@ function createApp({ accountStore, tokenMap } = {}) {
   // 路由挂载
   app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
-  app.use('/api/admin', createAdminRouter(authRuntime.accountStore));
+  app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore));
+  app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat

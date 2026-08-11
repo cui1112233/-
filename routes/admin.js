@@ -8,10 +8,27 @@ function sendStoreError(res, error) {
   return res.status(400).json({ error: error?.message || 'Invalid request' });
 }
 
-function createAdminRouter(accountStore) {
+function createAdminRouter(accountStore, presetStore) {
   if (!accountStore) throw new Error('accountStore is required');
+  if (!presetStore) throw new Error('presetStore is required');
   const router = express.Router();
   router.use(apiAuth);
+
+  function requirePresetVersionCapability(capability) {
+    return (req, res, next) => {
+      try {
+        const preset = presetStore.getVersion(req.params.id, req.body?.version);
+        if (!preset) return res.status(404).json({ error: 'Not found' });
+        if (!accountStore.can(req.username, capability, preset.module)) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+        req.presetVersion = preset;
+        next();
+      } catch (error) {
+        sendStoreError(res, error);
+      }
+    };
+  }
 
   router.get('/accounts', requireCapability('account:review'), (req, res) => {
     try {
@@ -80,6 +97,30 @@ function createAdminRouter(accountStore) {
   router.get('/audit', requireOwner, (req, res) => {
     try {
       res.json({ audit: accountStore.listAudit() });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.post('/presets/draft', requireCapability('preset:draft', req => req.body?.module), (req, res) => {
+    try {
+      res.status(201).json({ preset: presetStore.createDraft(req.username, req.body) });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.post('/presets/:id/publish', requirePresetVersionCapability('preset:publish'), (req, res) => {
+    try {
+      res.json({ preset: presetStore.publish(req.username, req.params.id, req.body?.version) });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.post('/presets/:id/rollback', requirePresetVersionCapability('preset:publish'), (req, res) => {
+    try {
+      res.json({ preset: presetStore.rollback(req.username, req.params.id, req.body?.version) });
     } catch (error) {
       sendStoreError(res, error);
     }
