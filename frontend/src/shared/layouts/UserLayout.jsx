@@ -1,5 +1,6 @@
 import { Button, Form, Input, message } from 'antd';
 import { useEffect, useState } from 'react';
+import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
 import { getCurrentUsername, login, logout } from '../api/auth';
 
@@ -103,6 +104,7 @@ export function UserLayout({ children }) {
           >
             ☰
           </button>
+          <BrandLogo className="legacy-brand-logo" />
           <span className="legacy-brand-title">一战晟铭</span>
         </div>
         <nav className="legacy-nav">

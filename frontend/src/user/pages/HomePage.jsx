@@ -1,4 +1,5 @@
 import { Button } from 'antd';
+import { BrandLogo } from '../../shared/components/BrandLogo';
 import { Link } from '../../shared/components/Link';
 
 const quickActions = [
@@ -51,7 +52,7 @@ export function HomePage() {
 
         <nav className="home-hero-nav">
           <Link href="/" className="home-hero-brand">
-            <img src="/assets/logo-transparent.png" alt="一战晟铭 logo" />
+            <BrandLogo className="home-brand-logo" />
             <span>一战晟铭</span>
           </Link>
           <div className="home-hero-links">

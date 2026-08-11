@@ -40,10 +40,13 @@ exists('frontend/src/admin/main.jsx');
 exists('frontend/src/shared/api/client.js');
 exists('frontend/src/shared/api/generation.js');
 exists('frontend/src/shared/api/tts.js');
+exists('frontend/src/shared/components/BrandLogo.jsx');
 exists('frontend/src/shared/layouts/UserLayout.jsx');
 exists('frontend/src/shared/layouts/AdminLayout.jsx');
 exists('frontend/src/user/pages/SettingsPage.jsx');
 exists('frontend/src/user/pages/HistoryPage.jsx');
+exists('public/assets/brand-logo-black.png');
+exists('public/assets/brand-logo-white.png');
 
 const generationApi = read('frontend/src/shared/api/generation.js');
 assert(generationApi.includes("promptType: 'extract'"), 'generation API should use promptType extract');
@@ -63,6 +66,9 @@ assert(userApp.includes("pathname === '/settings'"), 'user app should route /set
 assert(userApp.includes("pathname === '/history'"), 'user app should route /history');
 
 const userLayout = read('frontend/src/shared/layouts/UserLayout.jsx');
+const brandLogo = read('frontend/src/shared/components/BrandLogo.jsx');
+assert(brandLogo.includes('/assets/brand-logo-black.png') && brandLogo.includes('/assets/brand-logo-white.png'), 'brand logo component should include both supplied logo variants');
+assert(userLayout.includes('<BrandLogo className="legacy-brand-logo" />'), 'feature-page sidebar should render the supplied brand logo');
 assert(userLayout.includes("href: '/settings'"), 'user navigation should include settings');
 assert(userLayout.includes("href: '/history'"), 'user navigation should include history');
 assert(userLayout.includes('legacy-shell'), 'user layout should use legacy workspace shell');
@@ -146,6 +152,7 @@ assert(/try\s*\{\s*await saveHistory\([\s\S]*?\);\s*\}\s*catch\s*\(error\)\s*\{\
 assert(/catch\s*\(error\)\s*\{\s*setOutput\(''\);\s*message\.error/.test(scriptPage), 'script page should clear output when generation fails');
 
 const homePage = read('frontend/src/user/pages/HomePage.jsx');
+assert(homePage.includes('<BrandLogo className="home-brand-logo" />'), 'home hero should render the supplied brand logo');
 assert(homePage.includes('home-video-hero'), 'React home page should use a fullscreen video hero');
 assert(homePage.includes('<video'), 'React home page should render a video background');
 assert(homePage.includes('home-hero-nav'), 'React home page should include a hero navigation bar');
