@@ -77,6 +77,25 @@ function spawnBlockedGrant({ systemDir, capability, readyPath, releasePath }) {
   });
 }
 
+function spawnLockHolder({ lockPath, readyPath }) {
+  const script = `
+    const fs = require('node:fs');
+    const { withJsonLock } = require(process.env.QIANTIE_SYSTEM_STORE);
+    withJsonLock(process.env.QIANTIE_LOCK_PATH, () => {
+      fs.writeFileSync(process.env.QIANTIE_READY, 'locked', 'utf8');
+      while (true) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    }, { timeoutMs: 5000 });
+  `;
+  return spawn(process.execPath, ['-e', script], {
+    env: {
+      ...process.env,
+      QIANTIE_SYSTEM_STORE: path.resolve(__dirname, '../lib/system-store'),
+      QIANTIE_LOCK_PATH: lockPath,
+      QIANTIE_READY: readyPath
+    }
+  });
+}
+
 test('seeds the owner once and never grants owner to another account', t => {
   const { store } = tempStore(t);
   seed(store);
@@ -352,4 +371,101 @@ test('keeps a renamed JSON replacement successful when directory sync fails', t 
     fs.fsyncSync = originalFsync;
   }
   assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), { durable: true });
+});
+
+test('reclaims a SIGKILLed holder lock and recovers its pending journal', async t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const grant = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    actor: 'choushiyiguai',
+    subject: 'choushiyiguai1',
+    capability: 'preset:draft',
+    scope: 'novel-panel'
+  };
+  const journalPath = path.join(systemDir, 'system-transaction.json');
+  fs.writeFileSync(journalPath, JSON.stringify({
+    version: 1,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    writes: [
+      { filePath: path.join(systemDir, 'grants.json'), value: [grant] },
+      {
+        filePath: path.join(systemDir, 'audit.json'),
+        value: [{
+          id: crypto.randomUUID(),
+          at: new Date().toISOString(),
+          actor: 'choushiyiguai',
+          action: 'grant.created',
+          target: 'choushiyiguai1',
+          before: null,
+          after: grant
+        }]
+      }
+    ]
+  }), 'utf8');
+
+  const lockPath = path.join(systemDir, 'system-store.lock');
+  const readyPath = path.join(systemDir, 'lock-holder-ready');
+  const holder = spawnLockHolder({ lockPath, readyPath });
+  t.after(() => {
+    if (holder.exitCode === null) holder.kill('SIGKILL');
+  });
+  await waitForFile(readyPath);
+  holder.kill('SIGKILL');
+  await new Promise(resolve => holder.once('exit', resolve));
+
+  const recovered = createAccountStore({ systemDir, lockTimeoutMs: 500 });
+  assert.equal(recovered.can('choushiyiguai1', 'preset:draft', 'novel-panel'), true);
+  assert.equal(fs.existsSync(journalPath), false);
+});
+
+test('does not reclaim a lock owned by a live process', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const lockPath = path.join(systemDir, 'system-store.lock');
+  fs.writeFileSync(lockPath, JSON.stringify({
+    token: crypto.randomUUID(),
+    pid: process.pid,
+    createdAt: new Date().toISOString()
+  }), { encoding: 'utf8', mode: 0o600 });
+
+  assert.throws(() => createAccountStore({ systemDir, lockTimeoutMs: 50, lockRetryMs: 5 }), /Timed out acquiring/);
+  assert.equal(fs.existsSync(lockPath), true);
+});
+
+test('rejects unallowlisted sensitive fields before public projections can leak them', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const accountsPath = path.join(systemDir, 'accounts.json');
+  const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+  accounts[1].apiKey = 'should-not-leak';
+  fs.writeFileSync(accountsPath, JSON.stringify(accounts), 'utf8');
+  assert.throws(() => store.getAccount('choushiyiguai1'), /Invalid account/);
+
+  const { store: grantStore, systemDir: grantDir } = tempStore(t);
+  seed(grantStore);
+  fs.writeFileSync(path.join(grantDir, 'grants.json'), JSON.stringify([{
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    actor: 'choushiyiguai',
+    subject: 'choushiyiguai1',
+    capability: 'preset:draft',
+    scope: 'novel-panel',
+    token: 'should-not-leak'
+  }]), 'utf8');
+  assert.throws(() => grantStore.listGrants(), /Invalid grant/);
+
+  const { store: auditStore, systemDir: auditDir } = tempStore(t);
+  seed(auditStore);
+  auditStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'preset:draft',
+    scope: 'novel-panel'
+  });
+  const auditPath = path.join(auditDir, 'audit.json');
+  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+  audit[0].before = { apiKey: 'should-not-leak' };
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+  assert.throws(() => auditStore.listAudit(), /Invalid audit/);
 });
