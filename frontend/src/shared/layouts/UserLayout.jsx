@@ -110,6 +110,7 @@ export function UserLayout({ children }) {
             <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
               <span className="legacy-nav-icon">{item.icon}</span>
               <span className="legacy-nav-label">{item.label}</span>
+              <span className="legacy-nav-tooltip" aria-hidden="true">{item.label}</span>
             </Link>
           ))}
         </nav>

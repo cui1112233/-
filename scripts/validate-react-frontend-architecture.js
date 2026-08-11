@@ -13,6 +13,25 @@ function read(relPath) {
   return fs.readFileSync(path.join(root, relPath), 'utf8');
 }
 
+function readCssBlock(source, marker) {
+  const markerIndex = source.indexOf(marker);
+  assert(markerIndex !== -1, `Missing CSS block marker: ${marker}`);
+
+  const blockStart = source.indexOf('{', markerIndex + marker.length);
+  assert(blockStart !== -1, `Missing CSS block opening brace: ${marker}`);
+
+  let depth = 0;
+  for (let index = blockStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(markerIndex, index + 1);
+    }
+  }
+
+  assert.fail(`Unclosed CSS block: ${marker}`);
+}
+
 exists('frontend/package.json');
 exists('frontend/index.html');
 exists('frontend/admin.html');
@@ -56,8 +75,41 @@ assert(userLayout.includes('THEME_STORAGE_KEY'), 'user layout should persist the
 assert(userLayout.includes('dataset.theme'), 'user layout should sync theme to the document root');
 assert(userLayout.includes('toggleTheme'), 'user layout should provide a theme toggle');
 assert(userLayout.includes('legacy-theme-toggle'), 'user layout should render the theme toggle control');
+assert(/navItems\.map\(item => \(\s*<Link\b(?:(?!<\/Link>)[\s\S])*?<span className="legacy-nav-icon">\{item\.icon\}<\/span>(?:(?!<\/Link>)[\s\S])*?<span className="legacy-nav-label">\{item\.label\}<\/span>(?:(?!<\/Link>)[\s\S])*?<span className="legacy-nav-tooltip" aria-hidden="true">\{item\.label\}<\/span>(?:(?!<\/Link>)[\s\S])*?<\/Link>/.test(userLayout), 'user navigation should render ordered decorative tooltip labels within each collapsed link');
 
 const globalCss = read('frontend/src/shared/styles/global.css');
+const defaultTooltipRule = readCssBlock(globalCss, '\n.legacy-nav-tooltip {');
+assert(defaultTooltipRule.includes('display: none'), 'expanded navigation tooltip labels should be hidden by default');
+const collapsedNavLabelCss = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav-label');
+assert(collapsedNavLabelCss.includes('position: absolute') && collapsedNavLabelCss.includes('width: 1px') && collapsedNavLabelCss.includes('height: 1px') && collapsedNavLabelCss.includes('overflow: hidden') && collapsedNavLabelCss.includes('clip: rect(0, 0, 0, 0)') && collapsedNavLabelCss.includes('white-space: nowrap'), 'collapsed navigation labels should remain visually hidden for screen readers');
+assert(!collapsedNavLabelCss.includes('display: none'), 'collapsed navigation labels should remain available to screen readers');
+assert(globalCss.includes('.legacy-sidebar.collapsed .legacy-nav-tooltip'), 'global CSS should style collapsed navigation tooltip labels');
+const collapsedNavLinkCss = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav a');
+assert(collapsedNavLinkCss.includes('width: 50px') && collapsedNavLinkCss.includes('min-height: 50px') && collapsedNavLinkCss.includes('border-radius: 50%'), 'collapsed navigation links should remain circular 50px controls');
+assert(collapsedNavLinkCss.includes('height: 50px'), 'collapsed navigation links should keep a 50px height');
+assert(/(?:^|[;{])\s*height:\s*50px\s*;/m.test(collapsedNavLinkCss), 'collapsed navigation links should keep a 50px height');
+const collapsedNavIconRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav-icon');
+assert(collapsedNavIconRule.includes('width: 50px') && collapsedNavIconRule.includes('height: 50px') && collapsedNavIconRule.includes('border-radius: 50%'), 'collapsed navigation icons should remain circular 50px controls');
+const collapsedTooltipRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav-tooltip');
+assert(collapsedTooltipRule.includes('opacity: 0') && collapsedTooltipRule.includes('transform: scaleX(0.35)') && collapsedTooltipRule.includes('pointer-events: auto'), 'collapsed navigation tooltip should be initially hidden but remain hoverable');
+assert(globalCss.includes('.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip'), 'collapsed navigation tooltip should be visible for keyboard focus');
+const tooltipVisibilityRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip');
+assert(tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip') && tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip') && tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip') && tooltipVisibilityRule.includes('opacity: 1') && tooltipVisibilityRule.includes('transform: scaleX(1)'), 'collapsed navigation tooltip hover, focus, and active states should reveal the label');
+const activeNavIconRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-icon');
+assert(activeNavIconRule.includes('background: linear-gradient'), 'active collapsed navigation icon should use the gradient treatment');
+const focusedNavLinkRule = readCssBlock(globalCss, '\n.legacy-sidebar.collapsed .legacy-nav a:focus-visible {');
+assert(focusedNavLinkRule.includes('outline:'), 'collapsed navigation links should retain a visible keyboard focus outline');
+const reducedMotionCss = readCssBlock(globalCss, '@media (prefers-reduced-motion: reduce)');
+const reducedMotionTooltipCss = readCssBlock(reducedMotionCss, '.legacy-sidebar.collapsed .legacy-nav-tooltip');
+assert(reducedMotionTooltipCss.includes('transition: none') && reducedMotionTooltipCss.includes('transform: none'), 'reduced motion CSS should disable collapsed navigation tooltip movement');
+const reducedMotionVisibleTooltipCss = readCssBlock(reducedMotionCss, '.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip');
+assert(reducedMotionVisibleTooltipCss.includes('transition: none') && reducedMotionVisibleTooltipCss.includes('transform: none'), 'reduced motion CSS should disable visible collapsed navigation tooltip movement');
+const compactCss = readCssBlock(globalCss, '@media (max-width: 900px)');
+const compactTooltipCss = readCssBlock(compactCss, '.legacy-sidebar.collapsed .legacy-nav-tooltip');
+assert(compactTooltipCss.includes('display: none'), 'compact navigation CSS should hide collapsed navigation tooltip labels');
+const compactNavLabelCss = readCssBlock(compactCss, '\n  .legacy-nav-label {');
+assert(compactNavLabelCss.includes('position: absolute') && compactNavLabelCss.includes('width: 1px') && compactNavLabelCss.includes('height: 1px') && compactNavLabelCss.includes('overflow: hidden') && compactNavLabelCss.includes('clip: rect(0, 0, 0, 0)') && compactNavLabelCss.includes('white-space: nowrap'), 'compact navigation labels should remain visually hidden for screen readers');
+assert(!compactNavLabelCss.includes('display: none'), 'compact navigation labels should remain available to screen readers');
 assert(globalCss.includes('.legacy-sidebar'), 'global CSS should style the restored sidebar');
 assert(globalCss.includes('.legacy-login-overlay'), 'global CSS should style the restored login overlay');
 assert(globalCss.includes('.login-modal'), 'global CSS should style the restored login modal');
