@@ -64,6 +64,13 @@ function writeLegacyV77Project(legacyDir) {
   }, null, 2));
 }
 
+function writeLegacyProjectFile(legacyDir, filename, record) {
+  const filePath = path.join(legacyDir, 'data', 'projects', filename);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(record, null, 2));
+  return filePath;
+}
+
 test('projects remain isolated by user and list only safe summaries', t => {
   const { usersDir, legacyDir } = createTempRoots(t);
   const store = createNovelPanelStore({ usersDir, legacyDir });
@@ -110,7 +117,7 @@ test('rejects invalid usernames and traversal project ids before filesystem acce
   assert.equal(fs.existsSync(usersDir), false);
 });
 
-test('migration imports V77 project and history formats once for the primary user without changing source files', t => {
+test('migration imports each V77 project/history source once for the primary user without changing source files', t => {
   const { usersDir, legacyDir } = createTempRoots(t);
   writeLegacyV77Project(legacyDir);
   const sourceBefore = treeFingerprint(legacyDir);
@@ -119,14 +126,106 @@ test('migration imports V77 project and history formats once for the primary use
   const first = store.migrateLegacyIfNeeded('choushiyiguai');
   const second = store.migrateLegacyIfNeeded('choushiyiguai');
 
-  assert.equal(first.imported, 1);
+  assert.equal(first.imported, 2);
   assert.match(first.sourceFingerprint, /^[a-f0-9]{64}$/);
   assert.equal(second.imported, 0);
-  assert.equal(store.listProjects('choushiyiguai').length, 1);
+  assert.equal(store.listProjects('choushiyiguai').length, 2);
   assert.equal(store.loadProject('choushiyiguai', 'legacy_one').data.novel_text, '旧项目原文');
   assert.equal(treeFingerprint(legacyDir), sourceBefore);
   const marker = JSON.parse(fs.readFileSync(path.join(usersDir, 'choushiyiguai', 'novel-panel', 'migration.json'), 'utf8'));
   assert.equal(marker.source_fingerprint, first.sourceFingerprint);
+  assert.equal(Object.keys(marker.imported_sources).length, 2);
+});
+
+test('migration is idempotent for a timestamp-free legacy record', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyProjectFile(legacyDir, 'no-times.json', project({
+    id: 'no_times',
+    created_at: undefined,
+    updated_at: undefined,
+    data: { ...project().data, novel_text: '没有时间字段的旧项目' }
+  }));
+  const store = createNovelPanelStore({ usersDir, legacyDir });
+
+  assert.equal(store.migrateLegacyIfNeeded('choushiyiguai').imported, 1);
+  assert.equal(store.migrateLegacyIfNeeded('choushiyiguai').imported, 0);
+  assert.equal(store.listProjects('choushiyiguai').length, 1);
+});
+
+test('rejects mixed valid and malformed legacy sources before writing projects or marker', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyProjectFile(legacyDir, 'valid.json', project({ id: 'valid_legacy' }));
+  const corruptPath = path.join(legacyDir, 'data', 'projects', 'corrupt.json');
+  fs.writeFileSync(corruptPath, '{not json');
+  const store = createNovelPanelStore({ usersDir, legacyDir });
+  const panelDir = path.join(usersDir, 'choushiyiguai', 'novel-panel');
+
+  assert.throws(() => store.migrateLegacyIfNeeded('choushiyiguai'), /Invalid legacy project source/);
+  assert.equal(fs.existsSync(path.join(panelDir, 'projects')), false);
+  assert.equal(fs.existsSync(path.join(panelDir, 'migration.json')), false);
+});
+
+test('rejects an unsupported legacy JSON record before writing projects or marker', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyProjectFile(legacyDir, 'valid.json', project({ id: 'valid_legacy' }));
+  fs.writeFileSync(path.join(legacyDir, 'unsupported.json'), JSON.stringify({ unsupported: true }));
+  const store = createNovelPanelStore({ usersDir, legacyDir });
+  const panelDir = path.join(usersDir, 'choushiyiguai', 'novel-panel');
+
+  assert.throws(() => store.migrateLegacyIfNeeded('choushiyiguai'), /Invalid legacy project source/);
+  assert.equal(fs.existsSync(path.join(panelDir, 'projects')), false);
+  assert.equal(fs.existsSync(path.join(panelDir, 'migration.json')), false);
+});
+
+test('recovers an interrupted migration transaction before the reopened store migrates again', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyProjectFile(legacyDir, 'interrupted.json', project({ id: 'interrupted_project' }));
+  const interruptedStore = createNovelPanelStore({
+    usersDir,
+    legacyDir,
+    transactionWriter(journalPath, writes) {
+      fs.writeFileSync(journalPath, JSON.stringify({
+        version: 1,
+        id: 'interrupted-migration',
+        createdAt: '2026-08-11T00:00:00.000Z',
+        writes
+      }));
+      throw new Error('simulated interruption');
+    }
+  });
+
+  assert.throws(() => interruptedStore.migrateLegacyIfNeeded('choushiyiguai'), /simulated interruption/);
+  const transactionPath = path.join(usersDir, 'choushiyiguai', 'novel-panel', 'migration-transaction.json');
+  assert.equal(fs.existsSync(transactionPath), true);
+
+  const reopenedStore = createNovelPanelStore({ usersDir, legacyDir });
+  assert.equal(fs.existsSync(transactionPath), false);
+  assert.equal(reopenedStore.loadProject('choushiyiguai', 'interrupted_project').name, 'V77 project');
+  assert.equal(fs.existsSync(path.join(usersDir, 'choushiyiguai', 'novel-panel', 'migration.json')), true);
+  assert.equal(reopenedStore.migrateLegacyIfNeeded('choushiyiguai').imported, 0);
+});
+
+test('a second store migration preserves an existing same-id user project with a stable conflict id', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyProjectFile(legacyDir, 'same-id.json', project({
+    id: 'same_id',
+    name: 'legacy project',
+    data: { ...project().data, novel_text: 'legacy source' }
+  }));
+  const savingStore = createNovelPanelStore({ usersDir, legacyDir });
+  const migratingStore = createNovelPanelStore({ usersDir, legacyDir });
+  savingStore.saveProject('choushiyiguai', project({
+    id: 'same_id',
+    name: 'user project',
+    data: { ...project().data, novel_text: 'user save' }
+  }));
+
+  assert.equal(migratingStore.migrateLegacyIfNeeded('choushiyiguai').imported, 1);
+  assert.equal(savingStore.loadProject('choushiyiguai', 'same_id').data.novel_text, 'user save');
+  const imported = migratingStore.listProjects('choushiyiguai').find(item => item.id !== 'same_id');
+  assert.match(imported.id, /^legacy_[a-f0-9]{64}$/);
+  assert.equal(migratingStore.loadProject('choushiyiguai', imported.id).data.novel_text, 'legacy source');
+  assert.equal(migratingStore.migrateLegacyIfNeeded('choushiyiguai').imported, 0);
 });
 
 test('migration never imports legacy data for a non-owner', t => {
