@@ -97,9 +97,18 @@ export function NovelPanelPage() {
       event.source.postMessage({ type: 'qiantie-v77-port', nonce: sessionNonceRef.current }, '*', [channel.port2]);
     }
 
+    function handlePageShow(event) {
+      if (!event.persisted) return;
+      closePort();
+      handshakeConsumedRef.current = false;
+      channelLoadAcknowledgedRef.current = false;
+    }
+
     window.addEventListener('message', handleHandshake);
+    window.addEventListener('pageshow', handlePageShow);
     return () => {
       window.removeEventListener('message', handleHandshake);
+      window.removeEventListener('pageshow', handlePageShow);
       closePort();
     };
   }, []);

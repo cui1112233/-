@@ -197,6 +197,8 @@ test('qiantie navigation renders the V77 workbench in a same-origin iframe', () 
   assert.match(novelPanelPage, /target\.postMessage\(\{ type: 'novel-panel-api-response', id, \.\.\.response \}\)/);
   assert.doesNotMatch(novelPanelPage, /target\.postMessage\(\{ type: 'novel-panel-api-response'[\s\S]{0,160}'\*'/);
   assert.match(novelPanelPage, /useLayoutEffect/);
+  assert.match(novelPanelPage, /window\.addEventListener\('pageshow', handlePageShow\)/);
+  assert.match(novelPanelPage, /handshakeConsumedRef\.current = false/);
   assert.match(pagesRouter, /router\.get\('\/novel-panel'/);
 });
 
@@ -248,7 +250,7 @@ test('bridge retries its nonce handshake, then keeps API bodies off window messa
   const nativeFetchCalls = [];
   const handshakeMessages = [];
   const beaconCalls = [];
-  const windowListeners = { message: [], pagehide: [], beforeunload: [] };
+  const windowListeners = { message: [], pagehide: [], pageshow: [], beforeunload: [] };
   const retryTimers = new Map();
   const clearedTimers = [];
   let nextTimerId = 1;
@@ -374,8 +376,37 @@ test('bridge retries its nonce handshake, then keeps API bodies off window messa
   assert.deepEqual(beaconCalls, [['/telemetry', 'event']]);
   assert.equal(handshakeMessages.length, 2);
   assert.equal(windowListeners.pagehide.length, 1);
+  assert.equal(windowListeners.pageshow.length, 1);
   assert.equal(windowListeners.beforeunload.length, 1);
-  windowListeners.pagehide[0]();
+  windowListeners.pagehide[0]({ persisted: true });
   assert.equal(childPort.closed, true);
+  assert.equal(retryTimers.size, 0);
+
+  windowListeners.pageshow[0]({ persisted: true });
+  assert.equal(handshakeMessages.length, 3);
+  assert.equal(retryTimers.size, 1);
+
+  const restoredPort = {
+    posted: [],
+    postMessage(message) { this.posted.push(message); },
+    close() { this.closed = true; },
+    start() {}
+  };
+  for (const listener of windowListeners.message) {
+    listener({
+      source: context.window.parent,
+      data: { type: 'qiantie-v77-port', nonce: 'nonce-1' },
+      ports: [restoredPort]
+    });
+  }
+  assert.equal(retryTimers.size, 0);
+  const restoredRequest = context.window.fetch('/api/analyze', { method: 'POST', body: '{}' });
+  assert.equal(restoredPort.posted[0].path, '/api/novel-panel/analyze');
+  restoredPort.onmessage({ data: { type: 'novel-panel-api-response', id: restoredPort.posted[0].id, status: 501, headers: {}, text: '' } });
+  assert.equal((await restoredRequest).status, 501);
+  assert.equal(childPort.posted.length, 4);
+
+  windowListeners.pagehide[0]({ persisted: false });
+  assert.equal(restoredPort.closed, true);
   assert.equal(retryTimers.size, 0);
 });

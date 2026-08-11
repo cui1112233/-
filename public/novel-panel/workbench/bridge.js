@@ -125,6 +125,11 @@
   }
 
   window.addEventListener('pagehide', closeBridge);
+  window.addEventListener('pageshow', event => {
+    if (!event.persisted) return;
+    closeBridge();
+    startHandshakeRetries();
+  });
   window.addEventListener('beforeunload', closeBridge);
 
   startHandshakeRetries();
