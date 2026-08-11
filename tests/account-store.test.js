@@ -465,7 +465,124 @@ test('rejects unallowlisted sensitive fields before public projections can leak 
   });
   const auditPath = path.join(auditDir, 'audit.json');
   const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
-  audit[0].before = { apiKey: 'should-not-leak' };
+  audit[0].before = { api_key: 'should-not-leak' };
   fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
   assert.throws(() => auditStore.listAudit(), /Invalid audit/);
+});
+
+test('recovers when a dead claimant left a unique stale claim behind', async t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const grant = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    actor: 'choushiyiguai',
+    subject: 'choushiyiguai1',
+    capability: 'preset:draft',
+    scope: 'novel-panel'
+  };
+  const journalPath = path.join(systemDir, 'system-transaction.json');
+  fs.writeFileSync(journalPath, JSON.stringify({
+    version: 1,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    writes: [
+      { filePath: path.join(systemDir, 'grants.json'), value: [grant] },
+      {
+        filePath: path.join(systemDir, 'audit.json'),
+        value: [{
+          id: crypto.randomUUID(),
+          at: new Date().toISOString(),
+          actor: 'choushiyiguai',
+          action: 'grant.created',
+          target: 'choushiyiguai1',
+          before: null,
+          after: grant
+        }]
+      }
+    ]
+  }), 'utf8');
+  const lockPath = path.join(systemDir, 'system-store.lock');
+  const readyPath = path.join(systemDir, 'orphan-claim-holder-ready');
+  const holder = spawnLockHolder({ lockPath, readyPath });
+  t.after(() => {
+    if (holder.exitCode === null) holder.kill('SIGKILL');
+  });
+  await waitForFile(readyPath);
+  holder.kill('SIGKILL');
+  await new Promise(resolve => holder.once('exit', resolve));
+
+  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  const nonce = lock.token;
+  const claimPath = `${lockPath}.${nonce}.stale-claim`;
+  const claimRefPath = `${claimPath}.ref`;
+  fs.writeFileSync(claimPath, JSON.stringify({
+    nonce,
+    pid: holder.pid,
+    createdAt: new Date().toISOString(),
+    lockToken: lock.token
+  }), 'utf8');
+  fs.linkSync(lockPath, claimRefPath);
+
+  const recovered = createAccountStore({ systemDir, lockTimeoutMs: 500 });
+  assert.equal(recovered.can('choushiyiguai1', 'preset:draft', 'novel-panel'), true);
+  assert.equal(fs.existsSync(journalPath), false);
+});
+
+test('reclaims an invalid empty lock before recovering a pending journal', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const grant = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    actor: 'choushiyiguai',
+    subject: 'choushiyiguai1',
+    capability: 'preset:draft',
+    scope: 'novel-panel'
+  };
+  const journalPath = path.join(systemDir, 'system-transaction.json');
+  fs.writeFileSync(journalPath, JSON.stringify({
+    version: 1,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    writes: [
+      { filePath: path.join(systemDir, 'grants.json'), value: [grant] },
+      {
+        filePath: path.join(systemDir, 'audit.json'),
+        value: [{
+          id: crypto.randomUUID(),
+          at: new Date().toISOString(),
+          actor: 'choushiyiguai',
+          action: 'grant.created',
+          target: 'choushiyiguai1',
+          before: null,
+          after: grant
+        }]
+      }
+    ]
+  }), 'utf8');
+  fs.writeFileSync(path.join(systemDir, 'system-store.lock'), '', 'utf8');
+
+  const recovered = createAccountStore({ systemDir, lockTimeoutMs: 500 });
+  assert.equal(recovered.can('choushiyiguai1', 'preset:draft', 'novel-panel'), true);
+  assert.equal(fs.existsSync(journalPath), false);
+});
+
+test('requires a null audit before value and an exact after grant projection', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  store.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'preset:draft',
+    scope: 'novel-panel'
+  });
+  const auditPath = path.join(systemDir, 'audit.json');
+  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+  audit[0].before = { harmless: true };
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+  assert.throws(() => store.listAudit(), /Invalid audit/);
+
+  audit[0].before = null;
+  audit[0].after.access_token = 'should-not-leak';
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+  assert.throws(() => store.listAudit(), /Invalid (grant|audit)/);
 });
