@@ -52,6 +52,18 @@ function treeFingerprint(directory) {
   return crypto.createHash('sha256').update(records.join('\n')).digest('hex');
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function legacySourceKey(relativePath, record) {
+  return crypto.createHash('sha256').update(`${relativePath}\n${stableJson(record)}`).digest('hex');
+}
+
 function writeLegacyV77Project(legacyDir) {
   fs.mkdirSync(path.join(legacyDir, 'data', 'projects'), { recursive: true });
   fs.writeFileSync(path.join(legacyDir, 'data', 'projects', 'legacy-one.json'), JSON.stringify(project({
@@ -136,6 +148,45 @@ test('migration deduplicates mirrored V77 project/history content while recordin
   assert.equal(marker.source_fingerprint, first.sourceFingerprint);
   assert.equal(Object.keys(marker.imported_sources).length, 2);
   assert.deepEqual(new Set(Object.values(marker.imported_sources)), new Set(['legacy_one']));
+});
+
+test('reconciles a legacy marker with divergent mirror mappings without deleting duplicate projects', t => {
+  const { usersDir, legacyDir } = createTempRoots(t);
+  writeLegacyV77Project(legacyDir);
+  const sourceBefore = treeFingerprint(legacyDir);
+  const record = project({
+    id: 'legacy_one',
+    name: '旧项目',
+    data: { ...project().data, novel_text: '旧项目原文' }
+  });
+  const dataKey = legacySourceKey(path.join('data', 'projects', 'legacy-one.json'), record);
+  const historyKey = legacySourceKey('history.json', record);
+  const seedingStore = createNovelPanelStore({ usersDir, legacyDir });
+  seedingStore.saveProject('choushiyiguai', record);
+  seedingStore.saveProject('choushiyiguai', project({
+    id: 'legacy_old',
+    name: '旧镜像副本',
+    data: { ...project().data, novel_text: '旧镜像副本原文' }
+  }));
+  const markerPath = path.join(usersDir, 'choushiyiguai', 'novel-panel', 'migration.json');
+  fs.writeFileSync(markerPath, JSON.stringify({
+    version: 1,
+    source_fingerprint: 'a'.repeat(64),
+    imported_sources: { [dataKey]: 'legacy_one', [historyKey]: 'legacy_old' },
+    updated_at: '2026-08-11T00:00:00.000Z'
+  }));
+  const store = createNovelPanelStore({ usersDir, legacyDir });
+
+  const result = store.migrateLegacyIfNeeded('choushiyiguai');
+
+  assert.equal(result.imported, 0);
+  assert.equal(result.reconciled, 1);
+  const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
+  assert.deepEqual(marker.imported_sources, { [dataKey]: 'legacy_one', [historyKey]: 'legacy_one' });
+  assert.equal(store.loadProject('choushiyiguai', 'legacy_one').name, '旧项目');
+  assert.equal(store.loadProject('choushiyiguai', 'legacy_old').name, '旧镜像副本');
+  assert.equal(store.listProjects('choushiyiguai').length, 2);
+  assert.equal(treeFingerprint(legacyDir), sourceBefore);
 });
 
 test('migration is idempotent for a timestamp-free legacy record', t => {
