@@ -49,6 +49,12 @@ assert(userLayout.includes('legacy-shell'), 'user layout should use legacy works
 assert(userLayout.includes('legacy-sidebar'), 'user layout should restore the old sidebar navigation');
 assert(userLayout.includes('legacy-login-overlay'), 'user layout should restore the old login overlay');
 assert(userLayout.includes('login-modal'), 'user layout should render a login modal');
+assert(userLayout.includes('sidebarCollapsed'), 'user layout should keep sidebar collapsed state');
+assert(userLayout.includes('toggleSidebar'), 'user layout should provide a sidebar collapse control');
+assert(userLayout.includes('THEME_STORAGE_KEY'), 'user layout should persist theme preference');
+assert(userLayout.includes('dataset.theme'), 'user layout should sync theme to the document root');
+assert(userLayout.includes('toggleTheme'), 'user layout should provide a theme toggle');
+assert(userLayout.includes('legacy-theme-toggle'), 'user layout should render the theme toggle control');
 
 const globalCss = read('frontend/src/shared/styles/global.css');
 assert(globalCss.includes('.legacy-sidebar'), 'global CSS should style the restored sidebar');
@@ -58,6 +64,15 @@ assert(globalCss.includes('.home-video-hero'), 'global CSS should style the full
 assert(globalCss.includes('.home-quick-actions'), 'global CSS should style the restored home quick actions');
 assert(globalCss.includes('.script-workbench'), 'global CSS should style the restored script workbench');
 assert(globalCss.includes('.tts-card-grid'), 'global CSS should style the restored TTS card layout');
+assert(globalCss.includes('.legacy-sidebar.collapsed'), 'global CSS should style collapsed sidebar state');
+assert(globalCss.includes('cursor: col-resize'), 'global CSS should expose the script resize affordance');
+assert(globalCss.includes("[data-theme='light']"), 'global CSS should define the light theme overrides');
+assert(globalCss.includes('flex: 0 0 32px'), 'collapsed navigation icons should keep a fixed visible hit area');
+assert(globalCss.includes('.legacy-sidebar.collapsed .legacy-nav-icon'), 'collapsed navigation icons should have dedicated alignment rules');
+
+const scriptPage = read('frontend/src/user/pages/ScriptPage.jsx');
+assert(scriptPage.includes('handleResizeStart'), 'script page should start resizing from the divider');
+assert(scriptPage.includes('onPointerDown={handleResizeStart}'), 'script divider should handle pointer dragging');
 
 const homePage = read('frontend/src/user/pages/HomePage.jsx');
 assert(homePage.includes('home-video-hero'), 'React home page should use a fullscreen video hero');
