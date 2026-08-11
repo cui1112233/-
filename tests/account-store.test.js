@@ -1,10 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const { createAccountStore } = require('../lib/account-store');
+const { writeJsonAtomic } = require('../lib/system-store');
 
 function tempStore(t) {
   const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-accounts-'));
@@ -16,6 +19,61 @@ function seed(store) {
   store.ensureSeedAccounts({
     choushiyiguai: '123456',
     choushiyiguai1: '123456'
+  });
+}
+
+function waitForFile(filePath, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const poll = () => {
+      if (fs.existsSync(filePath)) return resolve();
+      if (Date.now() >= deadline) return reject(new Error(`Timed out waiting for ${path.basename(filePath)}`));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
+function spawnBlockedGrant({ systemDir, capability, readyPath, releasePath }) {
+  const script = `
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const systemStore = require(path.join(process.env.QIANTIE_ROOT, 'lib/system-store'));
+    const originalWrite = systemStore.writeJsonTransaction;
+    systemStore.writeJsonTransaction = (...args) => {
+      fs.writeFileSync(process.env.QIANTIE_READY, 'ready', 'utf8');
+      const deadline = Date.now() + 5000;
+      while (!fs.existsSync(process.env.QIANTIE_RELEASE)) {
+        if (Date.now() >= deadline) throw new Error('barrier timeout');
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
+      return originalWrite(...args);
+    };
+    const { createAccountStore } = require(path.join(process.env.QIANTIE_ROOT, 'lib/account-store'));
+    const store = createAccountStore({ systemDir: process.env.QIANTIE_SYSTEM_DIR });
+    store.grant('choushiyiguai', 'choushiyiguai1', {
+      capability: process.env.QIANTIE_CAPABILITY,
+      scope: 'novel-panel'
+    });
+  `;
+  const child = spawn(process.execPath, ['-e', script], {
+    env: {
+      ...process.env,
+      QIANTIE_ROOT: path.resolve(__dirname, '..'),
+      QIANTIE_SYSTEM_DIR: systemDir,
+      QIANTIE_CAPABILITY: capability,
+      QIANTIE_READY: readyPath,
+      QIANTIE_RELEASE: releasePath
+    }
+  });
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  return new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('exit', code => {
+      if (code === 0) resolve();
+      else reject(new Error(`grant child exited ${code}: ${stderr}`));
+    });
   });
 }
 
@@ -177,4 +235,121 @@ test('stores system files without group or other read permissions on POSIX', t =
   const accountMode = fs.statSync(path.join(systemDir, 'accounts.json')).mode & 0o777;
   assert.equal(systemMode & 0o077, 0);
   assert.equal(accountMode & 0o044, 0);
+});
+
+test('serializes concurrent grants from separate store processes', async t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const releasePath = path.join(systemDir, 'release-grants');
+  const readyDraft = path.join(systemDir, 'ready-draft');
+  const readyPublish = path.join(systemDir, 'ready-publish');
+  const draft = spawnBlockedGrant({
+    systemDir,
+    capability: 'preset:draft',
+    readyPath: readyDraft,
+    releasePath
+  });
+
+  await waitForFile(readyDraft);
+  const publish = spawnBlockedGrant({
+    systemDir,
+    capability: 'preset:publish',
+    readyPath: readyPublish,
+    releasePath
+  });
+
+  try {
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(fs.existsSync(readyPublish), false);
+  } finally {
+    fs.writeFileSync(releasePath, 'release', 'utf8');
+    await Promise.all([draft, publish]);
+  }
+
+  const reloaded = createAccountStore({ systemDir });
+  assert.deepEqual(
+    new Set(reloaded.listGrants('choushiyiguai1').map(grant => grant.capability)),
+    new Set(['preset:draft', 'preset:publish'])
+  );
+  assert.deepEqual(
+    new Set(reloaded.listAudit().map(entry => entry.after.capability)),
+    new Set(['preset:draft', 'preset:publish'])
+  );
+});
+
+test('fails closed for forged grants and malformed account activity', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const grantsPath = path.join(systemDir, 'grants.json');
+  fs.writeFileSync(grantsPath, JSON.stringify([{
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    actor: 'choushiyiguai1',
+    subject: 'choushiyiguai1',
+    capability: 'preset:publish',
+    scope: 'novel-panel'
+  }]), 'utf8');
+
+  assert.throws(() => store.can('choushiyiguai1', 'preset:publish', 'novel-panel'), /Invalid grant/);
+
+  fs.unlinkSync(grantsPath);
+  const accountsPath = path.join(systemDir, 'accounts.json');
+  const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+  accounts[1].active = 'false';
+  fs.writeFileSync(accountsPath, JSON.stringify(accounts), 'utf8');
+  assert.throws(() => store.getAccount('choushiyiguai1'), /Invalid account/);
+});
+
+test('rejects semantically invalid journal writes before they reach grants', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const grantsPath = path.join(systemDir, 'grants.json');
+  const auditPath = path.join(systemDir, 'audit.json');
+  const journalPath = path.join(systemDir, 'system-transaction.json');
+  fs.writeFileSync(journalPath, JSON.stringify({
+    version: 1,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    writes: [
+      {
+        filePath: grantsPath,
+        value: [{
+          id: crypto.randomUUID(),
+          at: new Date().toISOString(),
+          actor: 'choushiyiguai1',
+          subject: 'choushiyiguai1',
+          capability: 'preset:publish',
+          scope: 'novel-panel'
+        }]
+      },
+      { filePath: auditPath, value: [] }
+    ]
+  }), 'utf8');
+
+  assert.throws(() => createAccountStore({ systemDir }), /Invalid grant/);
+  assert.equal(fs.existsSync(grantsPath), false);
+  assert.equal(fs.existsSync(journalPath), true);
+});
+
+test('keeps a renamed JSON replacement successful when directory sync fails', t => {
+  const { systemDir } = tempStore(t);
+  const filePath = path.join(systemDir, 'durability.json');
+  const originalFsync = fs.fsyncSync;
+  let calls = 0;
+  fs.fsyncSync = descriptor => {
+    calls += 1;
+    if (calls === 2) {
+      const error = new Error('injected directory sync failure');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalFsync(descriptor);
+  };
+
+  try {
+    assert.doesNotThrow(() => writeJsonAtomic(filePath, { durable: true }));
+  } finally {
+    fs.fsyncSync = originalFsync;
+  }
+  assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), { durable: true });
 });
