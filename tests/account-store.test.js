@@ -118,6 +118,34 @@ test('does not overwrite or append seed accounts after initial creation', t => {
   assert.equal(store.getAccount('lateraccount'), null);
 });
 
+test('persists custom seed sources across store reloads', t => {
+  const { store, systemDir } = tempStore(t);
+  store.ensureSeedAccounts({
+    choushiyiguai: '123456',
+    customseed: '123456'
+  });
+
+  const reopened = createAccountStore({ systemDir });
+  const customSeed = reopened.getAccount('customseed');
+  assert.equal(customSeed.active, true);
+  assert.equal(Object.hasOwn(customSeed, 'source'), false);
+  assert.equal(reopened.setActive('customseed', false).active, false);
+  assert.equal(reopened.createAccount({ username: 'writer_01', password: 'secret-123' }).username, 'writer_01');
+});
+
+test('accepts legacy built-in seeds without source markers', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const accountsPath = path.join(systemDir, 'accounts.json');
+  const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+  for (const account of accounts) delete account.source;
+  fs.writeFileSync(accountsPath, JSON.stringify(accounts), 'utf8');
+
+  const reopened = createAccountStore({ systemDir });
+  assert.equal(reopened.getAccount('choushiyiguai1').active, true);
+  assert.equal(reopened.setActive('choushiyiguai1', false).active, false);
+});
+
 test('keeps password hashes internal while verifying passwords securely', t => {
   const { store } = tempStore(t);
   seed(store);
