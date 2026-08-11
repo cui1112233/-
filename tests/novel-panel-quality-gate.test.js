@@ -227,6 +227,31 @@ test('blocks duplicate shots that explicitly cover only the first source line', 
   assert.deepEqual(report.blockingIssues.find(issue => issue.code === 'outline_missing_source_lines').missing_lines, [2]);
 });
 
+test('rejects source line metadata that disagrees with actual non-empty source lines', () => {
+  const report = gate.validateOutlineCoverage({ outline_shots: [
+    { source_lines: [1], prompt: '旧书店门口，沈星收起湿伞，抬头看向柜台深处的昏黄台灯。' },
+    { source_lines: [2], prompt: '柜台后的老板从账本夹层抽出旧票据，纸边擦过台灯光圈。' }
+  ] }, {
+    source_lines: ['沈星推开旧书店的门。', '', '老板把旧票据递给她。'],
+    source_line_count: 1
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.metrics.sourceLineCount, 2);
+  assert.equal(report.metrics.coveredSourceLineCount, 0);
+  assert.ok(codes(report).includes('invalid_source_reference'));
+});
+
+test('rejects oversized metadata without source text before coverage iteration', () => {
+  const startedAt = performance.now();
+  const report = gate.validateOutlineCoverage({ outline_shots: [{
+    source_lines: [1], prompt: '旧书店门口，沈星收起湿伞，抬头看向柜台深处的昏黄台灯。'
+  }] }, { source_line_count: 10001 });
+  assert.ok(performance.now() - startedAt < 100);
+  assert.equal(report.ok, false);
+  assert.equal(report.metrics.coveredSourceLineCount, 0);
+  assert.ok(codes(report).includes('invalid_source_reference'));
+});
+
 test('blocks unchanged regeneration through planned aliases', () => {
   const prompt = '沈星站在柜台前，低头看着票据上的红章。';
   const report = gate.validateRegenerationGuidance({ outline_shots: [{ prompt }] }, {
