@@ -147,6 +147,17 @@ test('creates an account with an atomic safe audit record', t => {
   assert.doesNotMatch(JSON.stringify(audit), /secret-123|passwordHash/);
 });
 
+test('keeps account creation audit valid after active state changes', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'writer_01', password: 'secret-123' });
+
+  assert.equal(store.setActive('writer_01', false).active, false);
+  const reopened = createAccountStore({ systemDir });
+  assert.equal(reopened.getAccount('writer_01').active, false);
+  assert.equal(reopened.setActive('writer_01', true).active, true);
+});
+
 test('recovers a direct account creation together with its audit record', t => {
   const { store, systemDir } = tempStore(t);
   seed(store);
