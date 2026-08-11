@@ -196,10 +196,6 @@ function CmLoader() {
             <stop stopColor="#973bed" />
             <stop offset="1" stopColor="#007cff" />
           </linearGradient>
-          <linearGradient id="cm-spin">
-            <stop stopColor="#ffc800" />
-            <stop offset="1" stopColor="#ff00ff" />
-          </linearGradient>
           <linearGradient id="cm-green">
             <stop stopColor="#00e0ed" />
             <stop offset="1" stopColor="#00da72" />
@@ -207,31 +203,25 @@ function CmLoader() {
         </defs>
       </svg>
       <div className="cm-loader-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64" aria-hidden="true">
+        <svg viewBox="0 0 64 64" data-letter="C" aria-hidden="true">
           <path
             className="cm-loader-dash"
             pathLength="360"
             stroke="url(#cm-blue)"
             strokeWidth="8"
-            d="M54.7 4H60C59 17 49.1 27.7 36.1 29.6V60h-6.5V31.6C16.6 29.7 6.7 17 5.7 4H9.3c1.2 11.6 11 20.6 22.7 20.7C43.8 24.8 53.7 15.7 54.7 4Z"
+            strokeLinecap="round"
+            d="M52 14C47.2 8.2 39.9 5 32 5C17.1 5 5 17.1 5 32s12.1 27 27 27c7.9 0 15.2-3.2 20-9"
           />
         </svg>
-        <svg viewBox="0 0 64 64" aria-hidden="true">
-          <path
-            className="cm-loader-spin"
-            pathLength="360"
-            stroke="url(#cm-spin)"
-            strokeWidth="10"
-            d="M32 32m0-27a27 27 0 1 1 0 54a27 27 0 1 1 0-54"
-          />
-        </svg>
-        <svg viewBox="0 0 64 64" aria-hidden="true">
+        <svg viewBox="0 0 64 64" data-letter="M" aria-hidden="true">
           <path
             className="cm-loader-dash"
             pathLength="360"
             stroke="url(#cm-green)"
             strokeWidth="8"
-            d="M4 4h4.6v25.9c0 11.9 9.8 21.6 21.8 21.3c11.6-.2 21-9.6 21.3-21.3V4h4.6v25.9c0 14.3-11.6 25.9-25.9 25.9C16 56.1 4 44.4 4 29.9Z"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M7 57V7l25 31L57 7v50"
           />
         </svg>
       </div>

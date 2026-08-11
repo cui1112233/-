@@ -80,6 +80,7 @@ assert(scriptPage.includes('utility-workbench'), 'script page should use the sha
 assert(/\bCmLoader\b/.test(scriptPage), 'script page should define the CM loader component');
 assert(scriptPage.includes('cm-loader'), 'script page should render the CM loader surface');
 assert(scriptPage.includes('role="status"'), 'CM loader should announce generation status');
+assert(scriptPage.includes('data-letter="C"') && scriptPage.includes('data-letter="M"'), 'CM loader should render C and M letter paths');
 assert(/output\s*\?\s*\([\s\S]*?\)\s*:\s*loading\s*\?\s*\(\s*<CmLoader\s*\/>\s*\)\s*:\s*\(/.test(scriptPage), 'script output should prioritize output, then CM loader, then empty state');
 
 assert(globalCss.includes('.cm-loader'), 'global CSS should style the CM loader');
