@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 
 const gate = require('../lib/novel-panel/quality-gate');
 
+// The Node gate is the authoritative pre-write boundary. It deliberately rejects
+// ambiguous or unbounded references that the unchanged browser V77 helper permits.
+
 function completeResult(overrides = {}) {
   return {
     outline_shots: [
@@ -141,7 +144,6 @@ test('blocks manual cast conflicts', () => {
   }] }, completeContext());
   assert.equal(report.ok, false);
   assert.ok(codes(report).includes('manual_cast_forbidden_character'));
-  assert.ok(codes(report).includes('manual_cast_missing_character'));
 });
 
 test('accepts V77 source and context aliases', () => {
@@ -153,13 +155,14 @@ test('accepts V77 source and context aliases', () => {
   assert.equal(report.metrics.coveredSourceLineCount, 2);
 });
 
-test('uses index fallback when shot and source counts agree', () => {
+test('blocks matching shot and source counts without explicit coverage', () => {
   const report = gate.validateOutlineCoverage({ outline_shots: [
     { prompt: '雨夜的旧书店门口，沈星收起湿伞，铜铃随着门缝晃动，她停在柜台前看向灯下账本。' },
     { prompt: '老板翻开账本夹层，指腹压住泛黄票据边缘，把红章一侧推到沈星面前。' }
   ] }, { sourceText: '沈星推开旧书店的门。\n老板把旧票据递给她。' });
-  assert.equal(report.ok, true);
-  assert.equal(report.metrics.usedIndexFallback, true);
+  assert.equal(report.ok, false);
+  assert.equal(report.metrics.usedIndexFallback, false);
+  assert.ok(codes(report).includes('outline_missing_source_lines'));
 });
 
 test('does not let short source_basis cover multiple lines', () => {
@@ -180,6 +183,50 @@ test('does not map a negative source_index to the first line', () => {
   assert.ok(codes(report).includes('outline_missing_source_lines'));
 });
 
+test('rejects an out-of-bounds range without expanding it', () => {
+  const startedAt = performance.now();
+  const report = gate.validateOutlineCoverage({ outline_shots: [{
+    source_lines: ['1-999999999'],
+    prompt: '旧书店门口，沈星收起湿伞，铜铃随着门缝轻轻晃动。'
+  }] }, { source_lines: ['沈星推开旧书店的门。'] });
+  assert.ok(performance.now() - startedAt < 100);
+  assert.equal(report.ok, false);
+  assert.ok(codes(report).includes('invalid_source_reference'));
+  assert.equal(report.metrics.coveredSourceLineCount, 0);
+});
+
+test('rejects deeply nested source references without recursive traversal', () => {
+  let sourceLines = 1;
+  for (let index = 0; index < 32; index += 1) sourceLines = [sourceLines];
+  const report = gate.validateOutlineCoverage({ outline_shots: [{
+    source_lines: sourceLines,
+    prompt: '旧书店门口，沈星收起湿伞，铜铃随着门缝轻轻晃动。'
+  }] }, { source_lines: ['沈星推开旧书店的门。'] });
+  assert.equal(report.ok, false);
+  assert.ok(codes(report).includes('invalid_source_reference'));
+  assert.equal(report.metrics.coveredSourceLineCount, 0);
+});
+
+test('does not cover duplicate source lines with an ambiguous source_basis', () => {
+  const report = gate.validateOutlineCoverage({ outline_shots: [{
+    source_basis: '雨落在门槛上。',
+    prompt: '雨水沿着旧书店门槛流下，沈星收起湿伞，抬头看向昏黄的柜台灯。'
+  }] }, { source_lines: ['雨落在门槛上。', '雨落在门槛上。'] });
+  assert.equal(report.ok, false);
+  assert.ok(codes(report).includes('ambiguous_source_basis'));
+  assert.equal(report.metrics.coveredSourceLineCount, 0);
+});
+
+test('blocks duplicate shots that explicitly cover only the first source line', () => {
+  const report = gate.validateOutlineCoverage({ outline_shots: [
+    { source_lines: [1], prompt: '旧书店门口，沈星收起湿伞，抬头看向柜台深处的昏黄台灯。' },
+    { source_lines: [1], prompt: '沈星站在旧书店柜台前，指尖停在泛黄账本边缘，窗外雨声不断。' }
+  ] }, { source_lines: ['沈星推开旧书店的门。', '老板把旧票据递给她。'] });
+  assert.equal(report.ok, false);
+  assert.ok(codes(report).includes('outline_missing_source_lines'));
+  assert.deepEqual(report.blockingIssues.find(issue => issue.code === 'outline_missing_source_lines').missing_lines, [2]);
+});
+
 test('blocks unchanged regeneration through planned aliases', () => {
   const prompt = '沈星站在柜台前，低头看着票据上的红章。';
   const report = gate.validateRegenerationGuidance({ outline_shots: [{ prompt }] }, {
@@ -189,12 +236,27 @@ test('blocks unchanged regeneration through planned aliases', () => {
   assert.ok(codes(report).includes('regenerate_unchanged'));
 });
 
-test('manual mode forbids unselected formal characters', () => {
+test('manual mode blocks an unlisted structured character by exact allowlist', () => {
   const report = gate.validateManualCastAuthority({ outline_shots: [{
-    characters: ['沈星', '林澈'], prompt: '沈星看着票据，林澈站在她身后伸手挡住门口光线。'
+    characters: ['沈星', '林澈'], prompt: '镜头掠过旧书店柜台和落在账本上的冷光。'
   }] }, { scene: { characters_mode: 'manual', characters: ['沈星'] }, allCharacterNames: ['沈星', '林澈', '老板'] });
   assert.equal(report.ok, false);
   assert.ok(codes(report).includes('manual_cast_forbidden_character'));
+});
+
+test('manual mode does not treat a partial prompt match as selected cast evidence', () => {
+  const report = gate.validateManualCastAuthority({ outline_shots: [{
+    characters: ['李明'], prompt: '李站在旧书店门口，雨水从伞尖滴到木地板上。'
+  }] }, { manual_cast_mode: true, manual_selected_characters: ['李'] });
+  assert.equal(report.ok, false);
+  assert.ok(codes(report).includes('manual_cast_forbidden_character'));
+});
+
+test('manual mode allows an environmental shot with no structured cast', () => {
+  const report = gate.validateManualCastAuthority({ outline_shots: [{
+    prompt: '空荡的旧书店里，柜台灯映在无人翻动的账本上，雨声隔着玻璃持续传来。'
+  }] }, { manual_cast_mode: true, manual_selected_characters: ['沈星'] });
+  assert.equal(report.ok, true);
 });
 
 test('blocks clearly generic prompts', () => {
