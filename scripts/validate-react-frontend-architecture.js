@@ -77,6 +77,16 @@ const scriptPage = read('frontend/src/user/pages/ScriptPage.jsx');
 assert(scriptPage.includes('handleResizeStart'), 'script page should start resizing from the divider');
 assert(scriptPage.includes('onPointerDown={handleResizeStart}'), 'script divider should handle pointer dragging');
 assert(scriptPage.includes('utility-workbench'), 'script page should use the shared workbench surface');
+assert(/\bCmLoader\b/.test(scriptPage), 'script page should define the CM loader component');
+assert(scriptPage.includes('cm-loader'), 'script page should render the CM loader surface');
+assert(scriptPage.includes('role="status"'), 'CM loader should announce generation status');
+assert(/output\s*\?\s*\([\s\S]*?\)\s*:\s*loading\s*\?\s*\(\s*<CmLoader\s*\/>\s*\)\s*:\s*\(/.test(scriptPage), 'script output should prioritize output, then CM loader, then empty state');
+
+assert(globalCss.includes('.cm-loader'), 'global CSS should style the CM loader');
+assert(/\.cm-loader-dash\s*\{[^}]*cm-loader-dash-array/.test(globalCss), 'global CSS should use CM-prefixed loader keyframes');
+assert(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.cm-loader-dash[\s\S]*?animation:\s*none/.test(globalCss), 'CM loader should respect reduced motion');
+assert(/try\s*\{\s*await saveHistory\([\s\S]*?\);\s*\}\s*catch\s*\(error\)\s*\{\s*message\.warning\('生成成功，但保存历史失败'\);\s*\}\s*setOutput\(nextOutput\)/.test(scriptPage), 'script page should preserve generated output when history saving fails');
+assert(/catch\s*\(error\)\s*\{\s*setOutput\(''\);\s*message\.error/.test(scriptPage), 'script page should clear output when generation fails');
 
 const homePage = read('frontend/src/user/pages/HomePage.jsx');
 assert(homePage.includes('home-video-hero'), 'React home page should use a fullscreen video hero');
