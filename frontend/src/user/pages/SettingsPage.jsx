@@ -49,7 +49,7 @@ export function SettingsPage() {
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%', maxWidth: 720 }}>
+    <Space className="utility-page settings-page" direction="vertical" size={16} style={{ width: '100%', maxWidth: 720 }}>
       <Typography.Title level={3}>API 设置</Typography.Title>
       <Form
         form={form}

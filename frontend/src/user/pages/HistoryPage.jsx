@@ -53,7 +53,7 @@ export function HistoryPage() {
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space className="utility-page history-page" direction="vertical" size={16} style={{ width: '100%' }}>
       <Space style={{ width: '100%', justifyContent: 'space-between' }}>
         <Typography.Title level={3} style={{ margin: 0 }}>生成历史</Typography.Title>
         <Popconfirm title="清空全部历史？" onConfirm={handleClear}>

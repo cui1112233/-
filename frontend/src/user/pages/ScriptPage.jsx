@@ -1,5 +1,5 @@
 import { Button, Form, Input, Select, Segmented, Space, Typography, message } from 'antd';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { extractCharactersAndScenes, generateScript } from '../../shared/api/generation';
 import { saveHistory } from '../../shared/api/history';
 
@@ -34,6 +34,37 @@ export function ScriptPage() {
   const [loading, setLoading] = useState(false);
   const [extractInfo, setExtractInfo] = useState({ characters: [], scenes: [] });
   const [output, setOutput] = useState('');
+  const [leftPanelWidth, setLeftPanelWidth] = useState(null);
+  const workbenchRef = useRef(null);
+
+  function handleResizeStart(event) {
+    if (event.button !== 0 || !workbenchRef.current) return;
+
+    event.preventDefault();
+    const workbench = workbenchRef.current;
+
+    function resize(moveEvent) {
+      const rect = workbench.getBoundingClientRect();
+      const minLeft = 320;
+      const minRight = 460;
+      const dividerWidth = 8;
+      const nextWidth = Math.min(
+        rect.width - minRight - dividerWidth,
+        Math.max(minLeft, moveEvent.clientX - rect.left)
+      );
+      setLeftPanelWidth(nextWidth);
+    }
+
+    function finishResize() {
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', finishResize);
+      document.body.classList.remove('is-resizing');
+    }
+
+    document.body.classList.add('is-resizing');
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', finishResize, { once: true });
+  }
 
   async function handleGenerate(values) {
     setLoading(true);
@@ -72,12 +103,17 @@ export function ScriptPage() {
 
   return (
     <Form
-      className="script-workbench"
+      className="script-workbench-form"
       form={form}
       initialValues={{ mode: 'continuous', format: 'storyboard', duration: '10s' }}
       onFinish={handleGenerate}
     >
-      <div className="script-left">
+      <div
+        ref={workbenchRef}
+        className="script-workbench utility-workbench"
+        style={leftPanelWidth ? { gridTemplateColumns: `${leftPanelWidth}px 8px minmax(460px, 1fr)` } : undefined}
+      >
+        <div className="script-left">
         <div className="script-left-scroll">
           <Form.Item name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
             <Input.TextArea className="legacy-input" rows={12} placeholder="在此粘贴小说章节内容..." />
@@ -90,8 +126,14 @@ export function ScriptPage() {
           <EntitySection title="场景" count={extractInfo.scenes.length} items={extractInfo.scenes} />
         </div>
       </div>
-      <div className="script-resize-handle" />
-      <div className="script-right">
+        <div
+          className="script-resize-handle"
+          role="separator"
+          aria-label="调整左右面板宽度"
+          aria-orientation="vertical"
+          onPointerDown={handleResizeStart}
+        />
+        <div className="script-right">
         <div className="script-tabs">
           <Form.Item name="mode" noStyle>
             <Segmented
@@ -131,6 +173,7 @@ export function ScriptPage() {
               <div>粘贴小说内容，点击“提取人物与场景并生成”开始</div>
             </div>
           )}
+        </div>
         </div>
       </div>
     </Form>

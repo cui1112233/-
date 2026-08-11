@@ -122,7 +122,7 @@ export function TtsPage() {
   }
 
   return (
-    <div className="tts-workbench">
+    <div className="tts-workbench utility-workbench">
       <div className="tts-toolbar">
         <Button type="primary" onClick={() => addCard()}>+ 添加卡片</Button>
         <Button>

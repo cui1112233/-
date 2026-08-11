@@ -37,6 +37,7 @@ assert(ttsApi.includes("apiRequest('/api/tts'"), 'TTS API should call /api/tts t
 const ttsPage = read('frontend/src/user/pages/TtsPage.jsx');
 assert(ttsPage.includes('textToSpeech'), 'React TTS page should submit text to the TTS API');
 assert(ttsPage.includes('<audio'), 'React TTS page should render an audio player for generated speech');
+assert(ttsPage.includes('utility-workbench'), 'TTS page should use the shared workbench surface');
 
 const userApp = read('frontend/src/user/App.jsx');
 assert(userApp.includes("pathname === '/settings'"), 'user app should route /settings');
@@ -69,10 +70,13 @@ assert(globalCss.includes('cursor: col-resize'), 'global CSS should expose the s
 assert(globalCss.includes("[data-theme='light']"), 'global CSS should define the light theme overrides');
 assert(globalCss.includes('flex: 0 0 32px'), 'collapsed navigation icons should keep a fixed visible hit area');
 assert(globalCss.includes('.legacy-sidebar.collapsed .legacy-nav-icon'), 'collapsed navigation icons should have dedicated alignment rules');
+assert(globalCss.includes('.utility-page'), 'global CSS should style utility pages');
+assert(globalCss.includes('.legacy-theme-toggle'), 'global CSS should style the theme switcher');
 
 const scriptPage = read('frontend/src/user/pages/ScriptPage.jsx');
 assert(scriptPage.includes('handleResizeStart'), 'script page should start resizing from the divider');
 assert(scriptPage.includes('onPointerDown={handleResizeStart}'), 'script divider should handle pointer dragging');
+assert(scriptPage.includes('utility-workbench'), 'script page should use the shared workbench surface');
 
 const homePage = read('frontend/src/user/pages/HomePage.jsx');
 assert(homePage.includes('home-video-hero'), 'React home page should use a fullscreen video hero');
@@ -85,10 +89,12 @@ assert(homePage.includes('home-recent-section'), 'React home page should restore
 const settingsPage = read('frontend/src/user/pages/SettingsPage.jsx');
 assert(settingsPage.includes('getConfig'), 'settings page should load API config');
 assert(settingsPage.includes('saveConfig'), 'settings page should save API config');
+assert(settingsPage.includes('utility-page settings-page'), 'settings page should use the shared utility page surface');
 
 const historyPage = read('frontend/src/user/pages/HistoryPage.jsx');
 assert(historyPage.includes('listHistory'), 'history page should list generation history');
 assert(historyPage.includes('deleteHistory'), 'history page should delete generation history');
+assert(historyPage.includes('utility-page history-page'), 'history page should use the shared utility page surface');
 
 const frontendFiles = [
   'frontend/src/user/main.jsx',

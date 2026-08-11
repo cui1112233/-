@@ -322,7 +322,7 @@ select {
 .legacy-panel-card {
   background: var(--legacy-card);
   border: 1px solid var(--legacy-border);
-  border-radius: 14px;
+  border-radius: 8px;
   box-shadow: var(--legacy-shadow);
 }
 
@@ -367,7 +367,7 @@ select {
 
 .script-left {
   border-right: 1px solid var(--legacy-border);
-  background: rgba(12, 12, 26, 0.38);
+  background: var(--legacy-panel);
 }
 
 .script-left-scroll {
@@ -395,7 +395,7 @@ select {
 }
 
 .script-right {
-  background: rgba(10, 10, 20, 0.28);
+  background: var(--legacy-bg);
 }
 
 .script-tabs,
@@ -459,9 +459,9 @@ select {
 
 .entity-card {
   border: 1px solid var(--legacy-border);
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px;
-  background: rgba(10, 10, 24, 0.42);
+  background: var(--legacy-input);
   color: var(--legacy-muted);
   font-size: 12px;
   line-height: 1.6;
@@ -505,7 +505,7 @@ select {
   align-items: center;
   padding: 12px 14px;
   border-bottom: 1px solid var(--legacy-border);
-  background: rgba(22, 22, 46, 0.62);
+  background: var(--legacy-panel);
 }
 
 .tts-card-body {
@@ -530,6 +530,78 @@ select {
   height: 100%;
   overflow: auto;
   padding: 24px;
+}
+
+.utility-page {
+  display: flex !important;
+  padding: 24px;
+  overflow: auto;
+}
+
+.utility-workbench {
+  background: var(--legacy-bg);
+}
+
+.script-tabs,
+.script-toolbar,
+.tts-toolbar {
+  background: var(--legacy-panel);
+}
+
+.script-empty,
+.tts-empty {
+  border: 1px dashed var(--legacy-border-strong);
+  border-radius: 8px;
+  background: var(--legacy-card);
+}
+
+.legacy-shell .ant-btn-default {
+  color: var(--legacy-text);
+  border-color: var(--legacy-border-strong);
+  background: transparent;
+}
+
+.legacy-shell .ant-btn-default:hover {
+  color: var(--legacy-accent) !important;
+  border-color: var(--legacy-accent) !important;
+}
+
+.legacy-shell .ant-segmented {
+  background: var(--legacy-input);
+}
+
+.legacy-shell .ant-segmented-item {
+  color: var(--legacy-muted);
+}
+
+.legacy-shell .ant-segmented-item-selected {
+  color: var(--legacy-text);
+  background: var(--legacy-card);
+}
+
+.legacy-shell .ant-table-wrapper .ant-table {
+  color: var(--legacy-text);
+  background: var(--legacy-card);
+}
+
+.legacy-shell .ant-table-wrapper .ant-table-thead > tr > th,
+.legacy-shell .ant-table-wrapper .ant-table-tbody > tr > td {
+  color: var(--legacy-text);
+  background: var(--legacy-card);
+  border-color: var(--legacy-border);
+}
+
+.legacy-shell .ant-modal-content {
+  color: var(--legacy-text);
+  background: var(--legacy-card);
+}
+
+.legacy-shell .ant-slider-rail {
+  background: var(--legacy-border-strong);
+}
+
+.legacy-shell .ant-slider-track {
+  background: var(--legacy-accent);
 }
 
 .home-page {
