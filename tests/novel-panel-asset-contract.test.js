@@ -166,6 +166,10 @@ test('sync keeps the existing workbench on source failure and produces stable ou
   assert.equal(runSync().status, 0);
   assert.deepEqual(readTree(targetRoot), first);
   assert.doesNotMatch(fs.readFileSync(path.join(targetRoot, 'index.html'), 'utf8'), /getRegistrations|caches\.keys/);
+
+  fs.writeFileSync(path.join(sourceRoot, 'templates', 'index.html'), '<script src="/static/app.js"></script>');
+  assert.notEqual(runSync().status, 0);
+  assert.deepEqual(readTree(targetRoot), first);
 });
 
 test('qiantie navigation renders the V77 workbench in a same-origin iframe', () => {
@@ -177,10 +181,21 @@ test('qiantie navigation renders the V77 workbench in a same-origin iframe', () 
   assert.match(userApp, /pathname === '\/novel-panel'/);
   assert.match(userLayout, /href: '\/novel-panel'/);
   assert.match(novelPanelPage, /<iframe/);
-  assert.match(novelPanelPage, /src="\/novel-panel\/workbench"/);
-  assert.match(novelPanelPage, /sandbox="allow-scripts allow-forms allow-downloads"/);
+  assert.match(novelPanelPage, /const workbenchSrc =/);
+  assert.match(novelPanelPage, /src=\{workbenchSrc\}/);
+  assert.match(novelPanelPage, /sandbox="allow-scripts allow-forms allow-downloads allow-modals"/);
   assert.match(novelPanelPage, /event\.source !== frameRef\.current\?\.contentWindow/);
   assert.match(novelPanelPage, /startsWith\('\/api\/novel-panel\/'\)/);
+  assert.match(novelPanelPage, /MessageChannel/);
+  assert.match(novelPanelPage, /handshakeConsumedRef/);
+  assert.match(novelPanelPage, /handshakeConsumedRef\.current \|\|/);
+  assert.match(novelPanelPage, /data\.nonce !== sessionNonceRef\.current/);
+  assert.match(novelPanelPage, /port1\.onmessage/);
+  assert.match(novelPanelPage, /portRef\.current\.close\(\)/);
+  assert.match(novelPanelPage, /port !== portRef\.current/);
+  assert.match(novelPanelPage, /event\.source\.postMessage\(\{ type: 'qiantie-v77-port'/);
+  assert.match(novelPanelPage, /target\.postMessage\(\{ type: 'novel-panel-api-response', id, \.\.\.response \}\)/);
+  assert.doesNotMatch(novelPanelPage, /target\.postMessage\(\{ type: 'novel-panel-api-response'[\s\S]{0,160}'\*'/);
   assert.match(pagesRouter, /router\.get\('\/novel-panel'/);
 });
 
@@ -195,7 +210,7 @@ test('workbench and direct index both receive the opaque-origin CSP and revalida
   ]);
   for (const response of [workbench, directIndex]) {
     assert.equal(response.status, 200);
-    assert.match(response.headers['content-security-policy'] || '', /sandbox allow-scripts allow-forms allow-downloads/);
+    assert.match(response.headers['content-security-policy'] || '', /sandbox allow-scripts allow-forms allow-downloads allow-modals/);
     assert.match(response.headers['cache-control'] || '', /no-store/);
   }
   assert.equal(stylesheet.status, 200);
@@ -228,9 +243,9 @@ test('novel-panel API requires Bearer authentication and honestly reports pendin
   });
 });
 
-test('bridge isolates child API access behind parent RPC and keeps non-API calls local', async () => {
+test('bridge uses a one-shot MessageChannel handshake and keeps API bodies off window messages', async () => {
   const nativeFetchCalls = [];
-  const rpcMessages = [];
+  const handshakeMessages = [];
   const beaconCalls = [];
   const nativeFetch = (...args) => {
     nativeFetchCalls.push(args);
@@ -244,9 +259,9 @@ test('bridge isolates child API access behind parent RPC and keeps non-API calls
   };
   const context = {
     window: {
-      location: { href: 'https://qiantie.test/novel-panel/workbench' },
+      location: { href: 'https://qiantie.test/novel-panel/workbench?nonce=nonce-1', search: '?nonce=nonce-1' },
       fetch: nativeFetch,
-      parent: { postMessage: (message, targetOrigin) => rpcMessages.push({ message, targetOrigin }) },
+      parent: { postMessage: (...args) => handshakeMessages.push(args) },
       addEventListener: () => {}
     },
     navigator,
@@ -256,6 +271,12 @@ test('bridge isolates child API access behind parent RPC and keeps non-API calls
     Request,
     Blob,
     Response,
+    MessageChannel: class MessageChannel {
+      constructor() {
+        this.port1 = { posted: [], close() { this.closed = true; }, start() {} };
+        this.port2 = { posted: [], close() { this.closed = true; }, start() {} };
+      }
+    },
     Promise,
     setTimeout,
     clearTimeout
@@ -268,28 +289,47 @@ test('bridge isolates child API access behind parent RPC and keeps non-API calls
   const bridge = fs.readFileSync(path.join(workbenchRoot, 'bridge.js'), 'utf8');
   assert.doesNotMatch(bridge, /auth_token|localStorage/);
   vm.runInContext(bridge, context);
+  assert.equal(handshakeMessages.length, 1);
+  assert.equal(handshakeMessages[0][0].type, 'qiantie-v77-handshake');
+  assert.equal(handshakeMessages[0][0].nonce, 'nonce-1');
 
-  function respond(message, body = '{"error":"pending"}', status = 501) {
-    for (const listener of messageListeners) {
-      listener({
-        source: context.window.parent,
-        data: { type: 'novel-panel-api-response', id: message.id, status, headers: { 'content-type': 'application/json' }, text: body }
-      });
-    }
+  const childPort = {
+    posted: [],
+    postMessage(message) { this.posted.push(message); },
+    close() { this.closed = true; },
+    start() {}
+  };
+  for (const listener of messageListeners) {
+    listener({
+      source: context.window.parent,
+      data: { type: 'qiantie-v77-port', nonce: 'nonce-1' },
+      ports: [childPort]
+    });
+  }
+  assert.equal(childPort.started, undefined);
+
+  const stalePort = { posted: [], postMessage(message) { this.posted.push(message); }, close() {}, start() {} };
+  for (const listener of messageListeners) {
+    listener({
+      source: context.window.parent,
+      data: { type: 'qiantie-v77-port', nonce: 'nonce-1' },
+      ports: [stalePort]
+    });
   }
 
   const apiRequest = context.window.fetch('/api/analyze', { method: 'POST', body: '{}' });
-  assert.equal(rpcMessages[0].message.path, '/api/novel-panel/analyze');
-  assert.equal(rpcMessages[0].message.method, 'POST');
-  respond(rpcMessages[0].message);
+  assert.equal(childPort.posted[0].path, '/api/novel-panel/analyze');
+  assert.equal(stalePort.posted.length, 0);
+  assert.equal(childPort.posted[0].method, 'POST');
+  childPort.onmessage({ data: { type: 'novel-panel-api-response', id: childPort.posted[0].id, status: 501, headers: { 'content-type': 'application/json' }, text: '{"error":"pending"}' } });
   const apiResponse = await apiRequest;
   assert.equal(apiResponse.status, 501);
   assert.equal(await apiResponse.text(), '{"error":"pending"}');
 
   const mappedRequest = context.window.fetch('/api/novel-panel/analyze', { method: 'POST', body: '{}' });
-  assert.equal(rpcMessages[1].message.path, '/api/novel-panel/analyze');
-  assert.doesNotMatch(rpcMessages[1].message.path, /novel-panel\/novel-panel/);
-  respond(rpcMessages[1].message);
+  assert.equal(childPort.posted[1].path, '/api/novel-panel/analyze');
+  assert.doesNotMatch(childPort.posted[1].path, /novel-panel\/novel-panel/);
+  childPort.onmessage({ data: { type: 'novel-panel-api-response', id: childPort.posted[1].id, status: 501, headers: {}, text: '' } });
   await mappedRequest;
 
   const nonApiOptions = { method: 'GET' };
@@ -299,15 +339,16 @@ test('bridge isolates child API access behind parent RPC and keeps non-API calls
 
   assert.equal(navigator.sendBeacon('/api/character-core/project-lease', JSON.stringify({ lease: true })), true);
   assert.equal(beaconCalls.length, 0);
-  assert.equal(rpcMessages[2].message.path, '/api/novel-panel/character-core/project-lease');
-  assert.equal(rpcMessages[2].message.method, 'POST');
-  respond(rpcMessages[2].message);
+  assert.equal(childPort.posted[2].path, '/api/novel-panel/character-core/project-lease');
+  assert.equal(childPort.posted[2].method, 'POST');
+  childPort.onmessage({ data: { type: 'novel-panel-api-response', id: childPort.posted[2].id, status: 501, headers: {}, text: '' } });
 
   assert.equal(navigator.sendBeacon('/api/novel-panel/already-routed', 'event'), true);
-  assert.equal(rpcMessages[3].message.path, '/api/novel-panel/already-routed');
-  respond(rpcMessages[3].message);
+  assert.equal(childPort.posted[3].path, '/api/novel-panel/already-routed');
+  childPort.onmessage({ data: { type: 'novel-panel-api-response', id: childPort.posted[3].id, status: 501, headers: {}, text: '' } });
   assert.equal(beaconCalls.length, 0);
 
   assert.equal(navigator.sendBeacon('/telemetry', 'event'), false);
   assert.deepEqual(beaconCalls, [['/telemetry', 'event']]);
+  assert.equal(handshakeMessages.length, 1);
 });

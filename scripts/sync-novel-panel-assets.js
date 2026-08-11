@@ -20,11 +20,14 @@ const bridge = `(() => {
   const apiPrefix = '/api/';
   const mountedApiPrefix = '/api/novel-panel/';
   const allowedHeaders = new Set(['content-type', 'cache-control', 'pragma', 'x-videoprompttool-session']);
+  const nonce = new URLSearchParams(window.location.search).get('nonce');
   const pendingRequests = new Map();
   const nativeFetch = window.fetch.bind(window);
   const nativeSendBeacon = typeof navigator.sendBeacon === 'function'
     ? navigator.sendBeacon.bind(navigator)
     : null;
+  let channelPort = null;
+  let handshakeSent = false;
 
   function apiPath(input) {
     try {
@@ -54,6 +57,10 @@ const bridge = `(() => {
     return \`v77-\${Date.now()}-\${Math.random().toString(36).slice(2)}\`;
   }
 
+  function postPendingRequest(pending) {
+    channelPort.postMessage({ type: 'novel-panel-api-request', id: pending.id, ...pending.request });
+  }
+
   function requestParentApi(request) {
     const id = nextRequestId();
     return new Promise((resolve, reject) => {
@@ -61,9 +68,18 @@ const bridge = `(() => {
         pendingRequests.delete(id);
         reject(new Error('Novel panel API bridge timed out.'));
       }, 30000);
-      pendingRequests.set(id, { resolve, reject, timer });
-      window.parent.postMessage({ type: 'novel-panel-api-request', id, ...request }, '*');
+      const pending = { id, request, resolve, reject, timer };
+      pendingRequests.set(id, pending);
+      if (channelPort) postPendingRequest(pending);
     });
+  }
+
+  function rejectPendingRequests() {
+    for (const pending of pendingRequests.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Novel panel API bridge closed.'));
+    }
+    pendingRequests.clear();
   }
 
   function beaconPayload(data) {
@@ -81,17 +97,39 @@ const bridge = `(() => {
     return { body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } };
   }
 
+  function sendHandshake() {
+    if (handshakeSent || !nonce || window.parent === window) return;
+    handshakeSent = true;
+    window.parent.postMessage({ type: 'qiantie-v77-handshake', nonce }, '*');
+  }
+
   window.addEventListener('message', event => {
-    if (event.source !== window.parent) return;
+    if (event.source !== window.parent || channelPort) return;
     const data = event.data;
-    if (!data || data.type !== 'novel-panel-api-response' || typeof data.id !== 'string') return;
-    const pending = pendingRequests.get(data.id);
-    if (!pending) return;
-    pendingRequests.delete(data.id);
-    clearTimeout(pending.timer);
-    const status = Number.isInteger(data.status) && data.status >= 200 && data.status <= 599 ? data.status : 500;
-    pending.resolve(new Response(typeof data.text === 'string' ? data.text : '', { status, headers: data.headers || {} }));
+    const port = event.ports?.[0];
+    if (!data || data.type !== 'qiantie-v77-port' || data.nonce !== nonce || !port) return;
+    channelPort = port;
+    channelPort.onmessage = message => {
+      const response = message.data;
+      if (!response || response.type !== 'novel-panel-api-response' || typeof response.id !== 'string') return;
+      const pending = pendingRequests.get(response.id);
+      if (!pending) return;
+      pendingRequests.delete(response.id);
+      clearTimeout(pending.timer);
+      const status = Number.isInteger(response.status) && response.status >= 200 && response.status <= 599 ? response.status : 500;
+      pending.resolve(new Response(typeof response.text === 'string' ? response.text : '', { status, headers: response.headers || {} }));
+    };
+    channelPort.start?.();
+    for (const pending of pendingRequests.values()) postPendingRequest(pending);
   });
+
+  window.addEventListener('pagehide', () => {
+    channelPort?.close();
+    channelPort = null;
+    rejectPendingRequests();
+  });
+
+  sendHandshake();
 
   window.fetch = function novelPanelFetch(input, init = {}) {
     const path = apiPath(input);
@@ -138,6 +176,23 @@ function rewriteHtml(html) {
     );
 }
 
+function validateTransformedHtml(html) {
+  const expectedReferences = [
+    '/novel-panel/workbench/style.css',
+    '/novel-panel/workbench/outline-quality-gate.js',
+    '/novel-panel/workbench/app.js',
+    '/novel-panel/workbench/character-core/character-core.js'
+  ];
+  for (const reference of expectedReferences) {
+    if (!html.includes(reference)) throw new Error(`Transformed V77 HTML is missing ${reference}.`);
+  }
+  const bridgeReferences = html.match(/src=["']\/novel-panel\/workbench\/bridge\.js["']/g) || [];
+  if (bridgeReferences.length !== 1) throw new Error('Transformed V77 HTML must include exactly one bridge script.');
+  if (/\{\{\s*asset_version\s*\}\}|navigator\.serviceWorker\.getRegistrations|caches\.keys/.test(html)) {
+    throw new Error('Transformed V77 HTML contains forbidden source-only markers.');
+  }
+}
+
 function copy(sourcePath, destinationPath) {
   fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
   fs.copyFileSync(sourcePath, destinationPath);
@@ -173,11 +228,13 @@ const verifiedSources = sourceFiles.map(([sourceRelativePath, destinationRelativ
   requiredSourcePath(sourceRelativePath),
   destinationRelativePath
 ]);
+const transformedHtml = rewriteHtml(fs.readFileSync(templatePath, 'utf8'));
+validateTransformedHtml(transformedHtml);
 const stagingRoot = `${workbenchRoot}.staging-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 try {
   fs.mkdirSync(stagingRoot, { recursive: true });
-  fs.writeFileSync(path.join(stagingRoot, 'index.html'), rewriteHtml(fs.readFileSync(templatePath, 'utf8')), 'utf8');
+  fs.writeFileSync(path.join(stagingRoot, 'index.html'), transformedHtml, 'utf8');
   for (const [sourcePath, destinationRelativePath] of verifiedSources) {
     copy(sourcePath, path.join(stagingRoot, destinationRelativePath));
   }

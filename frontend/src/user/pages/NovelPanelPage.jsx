@@ -20,17 +20,38 @@ function normalizeBridgeRequest(data) {
 }
 
 function postBridgeResponse(target, id, response) {
-  target.postMessage({ type: 'novel-panel-api-response', id, ...response }, '*');
+  target.postMessage({ type: 'novel-panel-api-response', id, ...response });
+}
+
+function createSessionNonce() {
+  const values = new Uint8Array(24);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(values);
+    return Array.from(values, value => value.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function NovelPanelPage() {
   const frameRef = useRef(null);
+  const sessionNonceRef = useRef(createSessionNonce());
+  const handshakeConsumedRef = useRef(false);
+  const portRef = useRef(null);
+  const channelLoadAcknowledgedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const workbenchSrc = `/novel-panel/workbench?nonce=${encodeURIComponent(sessionNonceRef.current)}`;
 
   useEffect(() => {
-    async function handleBridgeRequest(event) {
-      if (event.source !== frameRef.current?.contentWindow) return;
+    function closePort() {
+      if (!portRef.current) return;
+      portRef.current.onmessage = null;
+      portRef.current.close();
+      portRef.current = null;
+    }
+
+    async function handlePortRequest(port, event) {
+      if (port !== portRef.current) return;
       const request = normalizeBridgeRequest(event.data);
       if (!request) return;
 
@@ -45,13 +66,15 @@ export function NovelPanelPage() {
           headers,
           body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body
         });
-        postBridgeResponse(event.source, request.id, {
+        if (port !== portRef.current) return;
+        postBridgeResponse(port, request.id, {
           status: response.status,
           headers: Object.fromEntries(response.headers.entries()),
           text: await response.text()
         });
       } catch (_) {
-        postBridgeResponse(event.source, request.id, {
+        if (port !== portRef.current) return;
+        postBridgeResponse(port, request.id, {
           status: 502,
           headers: { 'content-type': 'application/json' },
           text: JSON.stringify({ error: 'Novel panel API bridge failed' })
@@ -59,9 +82,38 @@ export function NovelPanelPage() {
       }
     }
 
-    window.addEventListener('message', handleBridgeRequest);
-    return () => window.removeEventListener('message', handleBridgeRequest);
+    function handleHandshake(event) {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      const data = event.data;
+      if (handshakeConsumedRef.current || !data || data.type !== 'qiantie-v77-handshake' || data.nonce !== sessionNonceRef.current) return;
+
+      handshakeConsumedRef.current = true;
+      const channel = new MessageChannel();
+      const port1 = channel.port1;
+      portRef.current = port1;
+      channelLoadAcknowledgedRef.current = false;
+      port1.onmessage = event => { void handlePortRequest(port1, event); };
+      port1.start?.();
+      event.source.postMessage({ type: 'qiantie-v77-port', nonce: sessionNonceRef.current }, '*', [channel.port2]);
+    }
+
+    window.addEventListener('message', handleHandshake);
+    return () => {
+      window.removeEventListener('message', handleHandshake);
+      closePort();
+    };
   }, []);
+
+  function handleFrameLoad() {
+    setLoading(false);
+    if (!portRef.current) return;
+    if (!channelLoadAcknowledgedRef.current) {
+      channelLoadAcknowledgedRef.current = true;
+      return;
+    }
+    portRef.current.close();
+    portRef.current = null;
+  }
 
   return (
     <div className="novel-panel-page">
@@ -71,9 +123,9 @@ export function NovelPanelPage() {
         ref={frameRef}
         className="novel-panel-frame"
         title="小说面板"
-        src="/novel-panel/workbench"
-        sandbox="allow-scripts allow-forms allow-downloads"
-        onLoad={() => setLoading(false)}
+        src={workbenchSrc}
+        sandbox="allow-scripts allow-forms allow-downloads allow-modals"
+        onLoad={handleFrameLoad}
         onError={() => {
           setLoading(false);
           setError(true);

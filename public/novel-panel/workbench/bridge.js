@@ -2,11 +2,14 @@
   const apiPrefix = '/api/';
   const mountedApiPrefix = '/api/novel-panel/';
   const allowedHeaders = new Set(['content-type', 'cache-control', 'pragma', 'x-videoprompttool-session']);
+  const nonce = new URLSearchParams(window.location.search).get('nonce');
   const pendingRequests = new Map();
   const nativeFetch = window.fetch.bind(window);
   const nativeSendBeacon = typeof navigator.sendBeacon === 'function'
     ? navigator.sendBeacon.bind(navigator)
     : null;
+  let channelPort = null;
+  let handshakeSent = false;
 
   function apiPath(input) {
     try {
@@ -36,6 +39,10 @@
     return `v77-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
+  function postPendingRequest(pending) {
+    channelPort.postMessage({ type: 'novel-panel-api-request', id: pending.id, ...pending.request });
+  }
+
   function requestParentApi(request) {
     const id = nextRequestId();
     return new Promise((resolve, reject) => {
@@ -43,9 +50,18 @@
         pendingRequests.delete(id);
         reject(new Error('Novel panel API bridge timed out.'));
       }, 30000);
-      pendingRequests.set(id, { resolve, reject, timer });
-      window.parent.postMessage({ type: 'novel-panel-api-request', id, ...request }, '*');
+      const pending = { id, request, resolve, reject, timer };
+      pendingRequests.set(id, pending);
+      if (channelPort) postPendingRequest(pending);
     });
+  }
+
+  function rejectPendingRequests() {
+    for (const pending of pendingRequests.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Novel panel API bridge closed.'));
+    }
+    pendingRequests.clear();
   }
 
   function beaconPayload(data) {
@@ -63,17 +79,39 @@
     return { body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } };
   }
 
+  function sendHandshake() {
+    if (handshakeSent || !nonce || window.parent === window) return;
+    handshakeSent = true;
+    window.parent.postMessage({ type: 'qiantie-v77-handshake', nonce }, '*');
+  }
+
   window.addEventListener('message', event => {
-    if (event.source !== window.parent) return;
+    if (event.source !== window.parent || channelPort) return;
     const data = event.data;
-    if (!data || data.type !== 'novel-panel-api-response' || typeof data.id !== 'string') return;
-    const pending = pendingRequests.get(data.id);
-    if (!pending) return;
-    pendingRequests.delete(data.id);
-    clearTimeout(pending.timer);
-    const status = Number.isInteger(data.status) && data.status >= 200 && data.status <= 599 ? data.status : 500;
-    pending.resolve(new Response(typeof data.text === 'string' ? data.text : '', { status, headers: data.headers || {} }));
+    const port = event.ports?.[0];
+    if (!data || data.type !== 'qiantie-v77-port' || data.nonce !== nonce || !port) return;
+    channelPort = port;
+    channelPort.onmessage = message => {
+      const response = message.data;
+      if (!response || response.type !== 'novel-panel-api-response' || typeof response.id !== 'string') return;
+      const pending = pendingRequests.get(response.id);
+      if (!pending) return;
+      pendingRequests.delete(response.id);
+      clearTimeout(pending.timer);
+      const status = Number.isInteger(response.status) && response.status >= 200 && response.status <= 599 ? response.status : 500;
+      pending.resolve(new Response(typeof response.text === 'string' ? response.text : '', { status, headers: response.headers || {} }));
+    };
+    channelPort.start?.();
+    for (const pending of pendingRequests.values()) postPendingRequest(pending);
   });
+
+  window.addEventListener('pagehide', () => {
+    channelPort?.close();
+    channelPort = null;
+    rejectPendingRequests();
+  });
+
+  sendHandshake();
 
   window.fetch = function novelPanelFetch(input, init = {}) {
     const path = apiPath(input);

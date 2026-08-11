@@ -13,7 +13,7 @@ const assetCacheHeaders = {
   'Cache-Control': 'private, max-age=0, must-revalidate'
 };
 const workbenchCsp = [
-  'sandbox allow-scripts allow-forms allow-downloads',
+  'sandbox allow-scripts allow-forms allow-downloads allow-modals',
   "default-src 'self'",
   "base-uri 'none'",
   "object-src 'none'",
