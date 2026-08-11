@@ -14,6 +14,7 @@ const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
 const historyRouter = require('./routes/history');
 const novelPanelRouter = require('./routes/novel-panel-page');
+const novelPanelApiRouter = require('./routes/novel-panel');
 
 function createApp({ accountStore, tokenMap } = {}) {
   const app = express();
@@ -66,6 +67,7 @@ function createApp({ accountStore, tokenMap } = {}) {
 
   // 路由挂载
   app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
+  app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts

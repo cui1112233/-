@@ -1,14 +1,55 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createApp } = require('../app');
+const { createAccountStore } = require('../lib/account-store');
 
 const root = path.resolve(__dirname, '..');
 const workbenchRoot = path.join(root, 'public', 'novel-panel', 'workbench');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8');
+}
+
+function request(app, { method = 'GET', requestPath, body, token } = {}) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const finish = (error, response) => {
+      server.close(closeError => {
+        if (error || closeError) reject(error || closeError);
+        else resolve(response);
+      });
+    };
+
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const request = http.request({
+        hostname: '127.0.0.1',
+        port: server.address().port,
+        path: requestPath,
+        method,
+        headers: {
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
+      }, response => {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.on('end', () => finish(null, {
+          status: response.statusCode,
+          body: JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        }));
+      });
+      request.once('error', error => finish(error));
+      if (payload) request.write(payload);
+      request.end();
+    });
+  });
 }
 
 test('synced V77 workbench keeps its required controls and local assets', () => {
@@ -58,6 +99,32 @@ test('qiantie navigation renders the V77 workbench in a same-origin iframe', () 
   assert.match(pagesRouter, /router\.get\('\/novel-panel'/);
 });
 
+test('novel-panel API requires Bearer authentication and honestly reports pending handlers', async t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-novel-panel-api-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  const app = createApp({ accountStore: createAccountStore({ systemDir }), tokenMap: new Map() });
+  const login = await request(app, {
+    method: 'POST',
+    requestPath: '/api/login',
+    body: { username: 'choushiyiguai', password: '123456' }
+  });
+  assert.equal(login.status, 200);
+
+  const unauthenticated = await request(app, { method: 'POST', requestPath: '/api/novel-panel/analyze' });
+  assert.equal(unauthenticated.status, 401);
+
+  const pending = await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/analyze',
+    token: login.body.token
+  });
+  assert.equal(pending.status, 501);
+  assert.deepEqual(pending.body, {
+    error: 'Novel panel API is not available yet',
+    code: 'NOVEL_PANEL_API_PENDING'
+  });
+});
+
 test('bridge maps V77 fetch and lease beacons through the authenticated novel-panel API', async () => {
   const fetchCalls = [];
   const beaconCalls = [];
@@ -97,19 +164,27 @@ test('bridge maps V77 fetch and lease beacons through the authenticated novel-pa
   assert.doesNotMatch(fetchCalls[1][0], /novel-panel\/novel-panel/);
   assert.equal(fetchCalls[1][1].headers.get('Authorization'), 'Bearer test-token');
 
+  const nonApiOptions = { method: 'GET' };
+  await context.window.fetch('/static/x', nonApiOptions);
+  assert.equal(fetchCalls[2][0], '/static/x');
+  assert.equal(fetchCalls[2][1], nonApiOptions);
+
   assert.equal(navigator.sendBeacon('/api/character-core/project-lease', JSON.stringify({ lease: true })), true);
   await Promise.resolve();
   assert.equal(beaconCalls.length, 0);
-  assert.equal(fetchCalls[2][0], 'https://qiantie.test/api/novel-panel/character-core/project-lease');
-  assert.equal(fetchCalls[2][1].method, 'POST');
-  assert.equal(fetchCalls[2][1].keepalive, true);
-  assert.equal(fetchCalls[2][1].headers.get('Authorization'), 'Bearer test-token');
-  assert.equal(fetchCalls[2][1].headers.get('Content-Type'), 'application/json');
+  assert.equal(fetchCalls[3][0], 'https://qiantie.test/api/novel-panel/character-core/project-lease');
+  assert.equal(fetchCalls[3][1].method, 'POST');
+  assert.equal(fetchCalls[3][1].keepalive, true);
+  assert.equal(fetchCalls[3][1].headers.get('Authorization'), 'Bearer test-token');
+  assert.equal(fetchCalls[3][1].headers.get('Content-Type'), 'application/json');
 
-  assert.equal(navigator.sendBeacon('/api/novel-panel/already-routed', 'event'), false);
+  assert.equal(navigator.sendBeacon('/api/novel-panel/already-routed', 'event'), true);
+  await Promise.resolve();
+  assert.equal(fetchCalls[4][0], 'https://qiantie.test/api/novel-panel/already-routed');
+  assert.equal(fetchCalls[4][1].keepalive, true);
+  assert.equal(fetchCalls[4][1].headers.get('Authorization'), 'Bearer test-token');
+  assert.equal(beaconCalls.length, 0);
+
   assert.equal(navigator.sendBeacon('/telemetry', 'event'), false);
-  assert.deepEqual(beaconCalls, [
-    ['/api/novel-panel/already-routed', 'event'],
-    ['/telemetry', 'event']
-  ]);
+  assert.deepEqual(beaconCalls, [['/telemetry', 'event']]);
 });

@@ -17,15 +17,6 @@
     }
   }
 
-  function isMountedApiUrl(input) {
-    try {
-      const url = new URL(input, window.location.origin);
-      return url.origin === window.location.origin && url.pathname.startsWith(mountedApiPrefix);
-    } catch (_) {
-      return false;
-    }
-  }
-
   function withAuthorization(headers) {
     const token = localStorage.getItem('auth_token');
     if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
@@ -62,7 +53,7 @@
 
   navigator.sendBeacon = function novelPanelSendBeacon(endpoint, data) {
     const url = apiUrl(endpoint);
-    if (!url || isMountedApiUrl(endpoint)) return nativeSendBeacon(endpoint, data);
+    if (!url) return nativeSendBeacon(endpoint, data);
 
     const { body, contentType } = beaconPayload(data);
     const headers = withAuthorization(new Headers());
