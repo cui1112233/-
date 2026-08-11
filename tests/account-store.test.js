@@ -144,6 +144,7 @@ test('creates an account with an atomic safe audit record', t => {
   assert.equal(audit.target, 'writer_01');
   assert.equal(audit.before, null);
   assert.deepEqual(audit.after, { active: true, isOwner: false });
+  assert.equal(audit.at, account.createdAt);
   assert.doesNotMatch(JSON.stringify(audit), /secret-123|passwordHash/);
 });
 
@@ -156,6 +157,52 @@ test('keeps account creation audit valid after active state changes', t => {
   const reopened = createAccountStore({ systemDir });
   assert.equal(reopened.getAccount('writer_01').active, false);
   assert.equal(reopened.setActive('writer_01', true).active, true);
+});
+
+test('rejects an account creation audit reassigned to another account', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'writer_01', password: 'secret-123' });
+  store.createAccount({ username: 'writer_02', password: 'secret-456' });
+  const auditPath = path.join(systemDir, 'audit.json');
+  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+
+  audit.find(entry => entry.action === 'account.created' && entry.target === 'writer_01').target = 'writer_02';
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+
+  assert.throws(() => createAccountStore({ systemDir }), /Invalid audit store/);
+});
+
+test('rejects a modified account creation active snapshot', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'writer_01', password: 'secret-123' });
+  const auditPath = path.join(systemDir, 'audit.json');
+  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+
+  audit.find(entry => entry.action === 'account.created').after.active = false;
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+
+  assert.throws(() => createAccountStore({ systemDir }), /Invalid audit store/);
+});
+
+test('rejects forged owners and unsafe fields in account creation audits', t => {
+  for (const mutate of [
+    entry => { entry.after.isOwner = true; },
+    entry => { entry.after.passwordHash = 'should-not-leak'; },
+    entry => { entry.after.extra = true; }
+  ]) {
+    const { store, systemDir } = tempStore(t);
+    seed(store);
+    store.createAccount({ username: 'writer_01', password: 'secret-123' });
+    const auditPath = path.join(systemDir, 'audit.json');
+    const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+
+    mutate(audit.find(entry => entry.action === 'account.created'));
+    fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+
+    assert.throws(() => createAccountStore({ systemDir }), /Invalid audit store/);
+  }
 });
 
 test('recovers a direct account creation together with its audit record', t => {
