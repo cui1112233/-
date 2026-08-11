@@ -144,7 +144,6 @@ test('creates an account with an atomic safe audit record', t => {
   assert.equal(audit.target, 'writer_01');
   assert.equal(audit.before, null);
   assert.deepEqual(audit.after, { active: true, isOwner: false });
-  assert.equal(audit.at, account.createdAt);
   assert.doesNotMatch(JSON.stringify(audit), /secret-123|passwordHash/);
 });
 
@@ -184,6 +183,40 @@ test('rejects a modified account creation active snapshot', t => {
   fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
 
   assert.throws(() => createAccountStore({ systemDir }), /Invalid audit store/);
+});
+
+test('rejects a direct creation audit rewritten as an approved account', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'writer_01', password: 'secret-123' });
+  const application = store.submitApplication({
+    username: 'writer_02', password: 'secret-456', reason: '小说创作'
+  });
+  store.approveApplication('choushiyiguai', application.id);
+  const auditPath = path.join(systemDir, 'audit.json');
+  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+  const approved = store.getInternalAccount('writer_02');
+  const directCreation = audit.find(entry => entry.action === 'account.created' && entry.target === 'writer_01');
+
+  directCreation.target = 'writer_02';
+  directCreation.at = approved.createdAt;
+  directCreation.after = { active: true, isOwner: false };
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+
+  assert.throws(() => createAccountStore({ systemDir }), /Invalid audit store/);
+});
+
+test('accepts a legacy account creation audit with a different timestamp', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'writer_01', password: 'secret-123' });
+  const auditPath = path.join(systemDir, 'audit.json');
+  const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+
+  audit.find(entry => entry.action === 'account.created').at = '2026-01-01T00:00:00.000Z';
+  fs.writeFileSync(auditPath, JSON.stringify(audit), 'utf8');
+
+  assert.equal(createAccountStore({ systemDir }).getAccount('writer_01').active, true);
 });
 
 test('rejects forged owners and unsafe fields in account creation audits', t => {
