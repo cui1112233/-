@@ -640,8 +640,7 @@
     const instance = params.get("instance") || params.get("session") || `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
     const startedAt = Date.now();
     // V77 intentionally does not broadcast or retire other windows. Every browser profile/window is an independent instance.
-    if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then((items) => Promise.all(items.map((item) => item.unregister()))).catch(() => {});
-    if ("caches" in window) caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
+
     window.__VIDEO_PROMPT_TOOL_BUILD__ = { version: "v77-hotfix23", session: instance, instance, startedAt, cleanCache: true, multiInstance: true };
   })();
 </script>

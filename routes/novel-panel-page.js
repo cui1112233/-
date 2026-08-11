@@ -9,7 +9,11 @@ const noStoreHeaders = {
   Pragma: 'no-cache',
   Expires: '0'
 };
+const assetCacheHeaders = {
+  'Cache-Control': 'private, max-age=0, must-revalidate'
+};
 const workbenchCsp = [
+  'sandbox allow-scripts allow-forms allow-downloads',
   "default-src 'self'",
   "base-uri 'none'",
   "object-src 'none'",
@@ -23,6 +27,10 @@ const workbenchCsp = [
 
 function setNoStore(res) {
   res.set(noStoreHeaders);
+}
+
+function setAssetCache(res) {
+  res.set(assetCacheHeaders);
 }
 
 function sendWorkbenchHtml(req, res) {
@@ -52,11 +60,12 @@ function sendWorkbenchAsset(req, res) {
     return res.status(404).send('Not found');
   }
 
-  setNoStore(res);
+  setAssetCache(res);
   return res.sendFile(requestedPath, { root: workbenchRoot });
 }
 
 router.get('/workbench', sendWorkbenchHtml);
+router.get('/workbench/index.html', sendWorkbenchHtml);
 router.get(/^\/workbench\/(.*)$/, sendWorkbenchAsset);
 
 module.exports = router;

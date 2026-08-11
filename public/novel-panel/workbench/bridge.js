@@ -1,73 +1,97 @@
 (() => {
   const apiPrefix = '/api/';
   const mountedApiPrefix = '/api/novel-panel/';
+  const allowedHeaders = new Set(['content-type', 'cache-control', 'pragma', 'x-videoprompttool-session']);
+  const pendingRequests = new Map();
   const nativeFetch = window.fetch.bind(window);
-  const nativeSendBeacon = navigator.sendBeacon.bind(navigator);
+  const nativeSendBeacon = typeof navigator.sendBeacon === 'function'
+    ? navigator.sendBeacon.bind(navigator)
+    : null;
 
-  function apiUrl(input) {
+  function apiPath(input) {
     try {
-      const url = new URL(input, window.location.origin);
-      if (url.origin !== window.location.origin || !url.pathname.startsWith(apiPrefix)) return null;
+      const value = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      const currentUrl = new URL(window.location.href);
+      const url = new URL(value, currentUrl);
+      if (url.origin !== currentUrl.origin || !url.pathname.startsWith(apiPrefix)) return null;
       if (!url.pathname.startsWith(mountedApiPrefix)) {
         url.pathname = mountedApiPrefix + url.pathname.slice(apiPrefix.length);
       }
-      return url;
+      return url.pathname + url.search;
     } catch (_) {
       return null;
     }
   }
 
-  function withAuthorization(headers) {
-    const token = localStorage.getItem('auth_token');
-    if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
-    return headers;
+  function allowedRequestHeaders(headers) {
+    const result = {};
+    for (const [name, value] of new Headers(headers || {})) {
+      if (allowedHeaders.has(name.toLowerCase())) result[name] = value;
+    }
+    return result;
+  }
+
+  function nextRequestId() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    return `v77-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function requestParentApi(request) {
+    const id = nextRequestId();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRequests.delete(id);
+        reject(new Error('Novel panel API bridge timed out.'));
+      }, 30000);
+      pendingRequests.set(id, { resolve, reject, timer });
+      window.parent.postMessage({ type: 'novel-panel-api-request', id, ...request }, '*');
+    });
   }
 
   function beaconPayload(data) {
     if (typeof Blob !== 'undefined' && data instanceof Blob) {
-      return { body: data, contentType: data.type };
+      return { body: data, headers: data.type ? { 'Content-Type': data.type } : {} };
     }
     if (typeof data === 'string') {
       const trimmed = data.trim();
       return {
         body: data,
-        contentType: trimmed.startsWith('{') || trimmed.startsWith('[')
-          ? 'application/json'
-          : 'text/plain;charset=UTF-8'
+        headers: { 'Content-Type': trimmed.startsWith('{') || trimmed.startsWith('[') ? 'application/json' : 'text/plain;charset=UTF-8' }
       };
     }
-    if (data == null) return { body: '', contentType: 'text/plain;charset=UTF-8' };
-    return { body: JSON.stringify(data), contentType: 'application/json' };
+    if (data == null) return { body: '', headers: { 'Content-Type': 'text/plain;charset=UTF-8' } };
+    return { body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } };
   }
 
-  window.fetch = function novelPanelFetch(input, init = {}) {
-    const url = apiUrl(input instanceof Request ? input.url : input instanceof URL ? input.href : input);
-    if (!url) return nativeFetch(input, init);
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.type !== 'novel-panel-api-response' || typeof data.id !== 'string') return;
+    const pending = pendingRequests.get(data.id);
+    if (!pending) return;
+    pendingRequests.delete(data.id);
+    clearTimeout(pending.timer);
+    const status = Number.isInteger(data.status) && data.status >= 200 && data.status <= 599 ? data.status : 500;
+    pending.resolve(new Response(typeof data.text === 'string' ? data.text : '', { status, headers: data.headers || {} }));
+  });
 
-    const headers = new Headers(input instanceof Request ? input.headers : undefined);
-    for (const [name, value] of new Headers(init.headers || {})) headers.set(name, value);
-    withAuthorization(headers);
-    if (input instanceof Request) return nativeFetch(new Request(url.toString(), input), { ...init, headers });
-    return nativeFetch(url.toString(), { ...init, headers });
+  window.fetch = function novelPanelFetch(input, init = {}) {
+    const path = apiPath(input);
+    if (!path) return nativeFetch(input, init);
+    const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const headers = allowedRequestHeaders(init.headers || (input instanceof Request ? input.headers : undefined));
+    const hasBody = Object.prototype.hasOwnProperty.call(init, 'body');
+    if (input instanceof Request && !hasBody && method !== 'GET' && method !== 'HEAD') {
+      return input.clone().text().then(body => requestParentApi({ path, method, headers, body }));
+    }
+    return requestParentApi({ path, method, headers, body: hasBody ? init.body : undefined });
   };
 
   navigator.sendBeacon = function novelPanelSendBeacon(endpoint, data) {
-    const url = apiUrl(endpoint);
-    if (!url) return nativeSendBeacon(endpoint, data);
-
-    const { body, contentType } = beaconPayload(data);
-    const headers = withAuthorization(new Headers());
-    if (contentType) headers.set('Content-Type', contentType);
-    try {
-      Promise.resolve(nativeFetch(url.toString(), {
-        method: 'POST',
-        body,
-        headers,
-        keepalive: true
-      })).catch(() => {});
-    } catch (_) {
-      // Beacon delivery is best effort and must not break V77 unload handling.
-    }
+    const path = apiPath(endpoint);
+    if (!path) return nativeSendBeacon ? nativeSendBeacon(endpoint, data) : false;
+    const payload = beaconPayload(data);
+    requestParentApi({ path, method: 'POST', headers: payload.headers, body: payload.body }).catch(() => {});
     return true;
   };
 })();

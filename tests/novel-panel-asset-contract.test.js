@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
@@ -52,6 +53,57 @@ function request(app, { method = 'GET', requestPath, body, token } = {}) {
   });
 }
 
+function requestRaw(app, requestPath) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+    const finish = (error, response) => {
+      server.close(closeError => {
+        if (error || closeError) reject(error || closeError);
+        else resolve(response);
+      });
+    };
+
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      http.get({ hostname: '127.0.0.1', port: server.address().port, path: requestPath }, response => {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.on('end', () => finish(null, {
+          status: response.statusCode,
+          headers: response.headers,
+          body: Buffer.concat(chunks).toString('utf8')
+        }));
+      }).once('error', error => finish(error));
+    });
+  });
+}
+
+function writeFakeV77Source(sourceRoot) {
+  fs.mkdirSync(path.join(sourceRoot, 'templates'), { recursive: true });
+  fs.mkdirSync(path.join(sourceRoot, 'static', 'character-core'), { recursive: true });
+  fs.writeFileSync(path.join(sourceRoot, 'templates', 'index.html'), [
+    '<link rel="stylesheet" href="/static/style.css?v={{ asset_version }}" />',
+    '<script>if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then(() => {}).catch(() => {});\nif ("caches" in window) caches.keys().then(() => {}).catch(() => {});</script>',
+    '<script src="/static/outline-quality-gate.js?v={{ asset_version }}"></script>',
+    '<script src="/static/app.js?v={{ asset_version }}"></script>',
+    '<script src="/static/character-core/character-core.js?v={{ asset_version }}"></script>'
+  ].join('\n'));
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'style.css'), 'body{}');
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'app.js'), 'window.app = true;');
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'outline-quality-gate.js'), 'window.gate = true;');
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'character-core', 'character-core.js'), 'window.core = true;');
+}
+
+function readTree(rootPath) {
+  const entries = [];
+  for (const entry of fs.readdirSync(rootPath, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const filePath = path.join(rootPath, entry.name);
+    if (entry.isDirectory()) entries.push(...readTree(filePath).map(item => `${entry.name}/${item}`));
+    else entries.push(`${entry.name}:${fs.readFileSync(filePath, 'utf8')}`);
+  }
+  return entries;
+}
+
 test('synced V77 workbench keeps its required controls and local assets', () => {
   const html = fs.readFileSync(path.join(workbenchRoot, 'index.html'), 'utf8');
   const requiredIds = [
@@ -75,6 +127,7 @@ test('synced V77 workbench keeps its required controls and local assets', () => 
   }
   assert.match(html, /src=["']\/novel-panel\/workbench\/bridge\.js["']/);
   assert.doesNotMatch(html, /\{\{\s*asset_version\s*\}\}/);
+  assert.doesNotMatch(html, /getRegistrations|caches\.keys/);
 
   const bundle = [
     html,
@@ -84,6 +137,35 @@ test('synced V77 workbench keeps its required controls and local assets', () => 
     fs.readFileSync(path.join(workbenchRoot, 'character-core', 'character-core.js'), 'utf8')
   ].join('\n');
   assert.doesNotMatch(bundle, /127\.0\.0\.1|8818|\.exe(?:\s|["'`]|$)/i);
+});
+
+test('sync keeps the existing workbench on source failure and produces stable output', t => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-novel-panel-sync-'));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const sourceRoot = path.join(tempRoot, 'source');
+  const targetRoot = path.join(tempRoot, 'public', 'novel-panel', 'workbench');
+  const scriptPath = path.join(tempRoot, 'scripts', 'sync-novel-panel-assets.js');
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.copyFileSync(path.join(root, 'scripts', 'sync-novel-panel-assets.js'), scriptPath);
+  fs.mkdirSync(targetRoot, { recursive: true });
+  fs.writeFileSync(path.join(targetRoot, 'sentinel.txt'), 'retain-this-exactly');
+
+  const runSync = () => spawnSync(process.execPath, [scriptPath], {
+    cwd: tempRoot,
+    env: { ...process.env, NOVEL_PANEL_V77_SOURCE: sourceRoot },
+    encoding: 'utf8'
+  });
+
+  const failed = runSync();
+  assert.notEqual(failed.status, 0);
+  assert.equal(fs.readFileSync(path.join(targetRoot, 'sentinel.txt'), 'utf8'), 'retain-this-exactly');
+
+  writeFakeV77Source(sourceRoot);
+  assert.equal(runSync().status, 0);
+  const first = readTree(targetRoot);
+  assert.equal(runSync().status, 0);
+  assert.deepEqual(readTree(targetRoot), first);
+  assert.doesNotMatch(fs.readFileSync(path.join(targetRoot, 'index.html'), 'utf8'), /getRegistrations|caches\.keys/);
 });
 
 test('qiantie navigation renders the V77 workbench in a same-origin iframe', () => {
@@ -96,7 +178,28 @@ test('qiantie navigation renders the V77 workbench in a same-origin iframe', () 
   assert.match(userLayout, /href: '\/novel-panel'/);
   assert.match(novelPanelPage, /<iframe/);
   assert.match(novelPanelPage, /src="\/novel-panel\/workbench"/);
+  assert.match(novelPanelPage, /sandbox="allow-scripts allow-forms allow-downloads"/);
+  assert.match(novelPanelPage, /event\.source !== frameRef\.current\?\.contentWindow/);
+  assert.match(novelPanelPage, /startsWith\('\/api\/novel-panel\/'\)/);
   assert.match(pagesRouter, /router\.get\('\/novel-panel'/);
+});
+
+test('workbench and direct index both receive the opaque-origin CSP and revalidate assets', async t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-novel-panel-csp-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  const app = createApp({ accountStore: createAccountStore({ systemDir }), tokenMap: new Map() });
+  const [workbench, directIndex, stylesheet] = await Promise.all([
+    requestRaw(app, '/novel-panel/workbench'),
+    requestRaw(app, '/novel-panel/workbench/index.html'),
+    requestRaw(app, '/novel-panel/workbench/style.css')
+  ]);
+  for (const response of [workbench, directIndex]) {
+    assert.equal(response.status, 200);
+    assert.match(response.headers['content-security-policy'] || '', /sandbox allow-scripts allow-forms allow-downloads/);
+    assert.match(response.headers['cache-control'] || '', /no-store/);
+  }
+  assert.equal(stylesheet.status, 200);
+  assert.equal(stylesheet.headers['cache-control'], 'private, max-age=0, must-revalidate');
 });
 
 test('novel-panel API requires Bearer authentication and honestly reports pending handlers', async t => {
@@ -125,11 +228,12 @@ test('novel-panel API requires Bearer authentication and honestly reports pendin
   });
 });
 
-test('bridge maps V77 fetch and lease beacons through the authenticated novel-panel API', async () => {
-  const fetchCalls = [];
+test('bridge isolates child API access behind parent RPC and keeps non-API calls local', async () => {
+  const nativeFetchCalls = [];
+  const rpcMessages = [];
   const beaconCalls = [];
   const nativeFetch = (...args) => {
-    fetchCalls.push(args);
+    nativeFetchCalls.push(args);
     return Promise.resolve({ ok: true });
   };
   const navigator = {
@@ -140,49 +244,68 @@ test('bridge maps V77 fetch and lease beacons through the authenticated novel-pa
   };
   const context = {
     window: {
-      location: { origin: 'https://qiantie.test' },
-      fetch: nativeFetch
+      location: { href: 'https://qiantie.test/novel-panel/workbench' },
+      fetch: nativeFetch,
+      parent: { postMessage: (message, targetOrigin) => rpcMessages.push({ message, targetOrigin }) },
+      addEventListener: () => {}
     },
     navigator,
-    localStorage: { getItem: key => key === 'auth_token' ? 'test-token' : null },
     URL,
     URLSearchParams,
     Headers,
     Request,
     Blob,
-    Promise
+    Response,
+    Promise,
+    setTimeout,
+    clearTimeout
+  };
+  const messageListeners = [];
+  context.window.addEventListener = (type, listener) => {
+    if (type === 'message') messageListeners.push(listener);
   };
   vm.createContext(context);
-  vm.runInContext(fs.readFileSync(path.join(workbenchRoot, 'bridge.js'), 'utf8'), context);
+  const bridge = fs.readFileSync(path.join(workbenchRoot, 'bridge.js'), 'utf8');
+  assert.doesNotMatch(bridge, /auth_token|localStorage/);
+  vm.runInContext(bridge, context);
 
-  await context.window.fetch('/api/analyze', { method: 'POST', body: '{}' });
-  assert.equal(fetchCalls[0][0], 'https://qiantie.test/api/novel-panel/analyze');
-  assert.equal(fetchCalls[0][1].headers.get('Authorization'), 'Bearer test-token');
+  function respond(message, body = '{"error":"pending"}', status = 501) {
+    for (const listener of messageListeners) {
+      listener({
+        source: context.window.parent,
+        data: { type: 'novel-panel-api-response', id: message.id, status, headers: { 'content-type': 'application/json' }, text: body }
+      });
+    }
+  }
 
-  await context.window.fetch('/api/novel-panel/analyze', { method: 'POST', body: '{}' });
-  assert.equal(fetchCalls[1][0], 'https://qiantie.test/api/novel-panel/analyze');
-  assert.doesNotMatch(fetchCalls[1][0], /novel-panel\/novel-panel/);
-  assert.equal(fetchCalls[1][1].headers.get('Authorization'), 'Bearer test-token');
+  const apiRequest = context.window.fetch('/api/analyze', { method: 'POST', body: '{}' });
+  assert.equal(rpcMessages[0].message.path, '/api/novel-panel/analyze');
+  assert.equal(rpcMessages[0].message.method, 'POST');
+  respond(rpcMessages[0].message);
+  const apiResponse = await apiRequest;
+  assert.equal(apiResponse.status, 501);
+  assert.equal(await apiResponse.text(), '{"error":"pending"}');
+
+  const mappedRequest = context.window.fetch('/api/novel-panel/analyze', { method: 'POST', body: '{}' });
+  assert.equal(rpcMessages[1].message.path, '/api/novel-panel/analyze');
+  assert.doesNotMatch(rpcMessages[1].message.path, /novel-panel\/novel-panel/);
+  respond(rpcMessages[1].message);
+  await mappedRequest;
 
   const nonApiOptions = { method: 'GET' };
   await context.window.fetch('/static/x', nonApiOptions);
-  assert.equal(fetchCalls[2][0], '/static/x');
-  assert.equal(fetchCalls[2][1], nonApiOptions);
+  assert.equal(nativeFetchCalls[0][0], '/static/x');
+  assert.equal(nativeFetchCalls[0][1], nonApiOptions);
 
   assert.equal(navigator.sendBeacon('/api/character-core/project-lease', JSON.stringify({ lease: true })), true);
-  await Promise.resolve();
   assert.equal(beaconCalls.length, 0);
-  assert.equal(fetchCalls[3][0], 'https://qiantie.test/api/novel-panel/character-core/project-lease');
-  assert.equal(fetchCalls[3][1].method, 'POST');
-  assert.equal(fetchCalls[3][1].keepalive, true);
-  assert.equal(fetchCalls[3][1].headers.get('Authorization'), 'Bearer test-token');
-  assert.equal(fetchCalls[3][1].headers.get('Content-Type'), 'application/json');
+  assert.equal(rpcMessages[2].message.path, '/api/novel-panel/character-core/project-lease');
+  assert.equal(rpcMessages[2].message.method, 'POST');
+  respond(rpcMessages[2].message);
 
   assert.equal(navigator.sendBeacon('/api/novel-panel/already-routed', 'event'), true);
-  await Promise.resolve();
-  assert.equal(fetchCalls[4][0], 'https://qiantie.test/api/novel-panel/already-routed');
-  assert.equal(fetchCalls[4][1].keepalive, true);
-  assert.equal(fetchCalls[4][1].headers.get('Authorization'), 'Bearer test-token');
+  assert.equal(rpcMessages[3].message.path, '/api/novel-panel/already-routed');
+  respond(rpcMessages[3].message);
   assert.equal(beaconCalls.length, 0);
 
   assert.equal(navigator.sendBeacon('/telemetry', 'event'), false);
