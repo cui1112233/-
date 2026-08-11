@@ -91,7 +91,7 @@ assert(/(?:^|[;{])\s*height:\s*50px\s*;/m.test(collapsedNavLinkCss), 'collapsed 
 const collapsedNavIconRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav-icon');
 assert(collapsedNavIconRule.includes('width: 50px') && collapsedNavIconRule.includes('height: 50px') && collapsedNavIconRule.includes('border-radius: 50%'), 'collapsed navigation icons should remain circular 50px controls');
 const collapsedTooltipRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav-tooltip');
-assert(collapsedTooltipRule.includes('opacity: 0') && collapsedTooltipRule.includes('transform: scaleX(0.35)') && collapsedTooltipRule.includes('pointer-events: auto'), 'collapsed navigation tooltip should be initially hidden but remain hoverable');
+assert(collapsedTooltipRule.includes('opacity: 0') && collapsedTooltipRule.includes('transform: scaleX(0.35)') && collapsedTooltipRule.includes('pointer-events: none'), 'collapsed navigation tooltip should be initially hidden without intercepting work-area clicks');
 assert(globalCss.includes('.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip'), 'collapsed navigation tooltip should be visible for keyboard focus');
 const tooltipVisibilityRule = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip');
 assert(tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip') && tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a:focus-visible .legacy-nav-tooltip') && !tooltipVisibilityRule.includes('.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip') && tooltipVisibilityRule.includes('opacity: 1') && tooltipVisibilityRule.includes('transform: scaleX(1)'), 'collapsed navigation tooltip should reveal only for hover and keyboard focus, not the active route');
@@ -106,6 +106,8 @@ const reducedMotionTooltipCss = readCssBlock(reducedMotionCss, '.legacy-sidebar.
 assert(reducedMotionTooltipCss.includes('transition: none') && reducedMotionTooltipCss.includes('transform: none'), 'reduced motion CSS should disable collapsed navigation tooltip movement');
 const reducedMotionVisibleTooltipCss = readCssBlock(reducedMotionCss, '.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip');
 assert(reducedMotionVisibleTooltipCss.includes('transition: none') && reducedMotionVisibleTooltipCss.includes('transform: none') && !reducedMotionVisibleTooltipCss.includes('.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip'), 'reduced motion CSS should disable hover and focus tooltip movement without keeping active labels expanded');
+const desktopTooltipReserveCss = readCssBlock(globalCss, '@media (min-width: 901px)');
+assert(desktopTooltipReserveCss.includes('.legacy-shell:has(.legacy-sidebar.collapsed .legacy-nav a:hover) .legacy-main') && desktopTooltipReserveCss.includes('.legacy-shell:has(.legacy-sidebar.collapsed .legacy-nav a:focus-visible) .legacy-main') && desktopTooltipReserveCss.includes('margin-left: 132px'), 'desktop navigation tooltip should reserve space instead of covering the main work area');
 const compactCss = readCssBlock(globalCss, '@media (max-width: 900px)');
 const compactTooltipCss = readCssBlock(compactCss, '.legacy-sidebar.collapsed .legacy-nav-tooltip');
 assert(compactTooltipCss.includes('display: none'), 'compact navigation CSS should hide collapsed navigation tooltip labels');
