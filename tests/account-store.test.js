@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { createAccountStore } = require('../lib/account-store');
+const { USERS } = require('../lib/shared');
 const { writeJsonAtomic } = require('../lib/system-store');
 
 function tempStore(t) {
@@ -124,6 +125,10 @@ test('persists custom seed sources across store reloads', t => {
     choushiyiguai: '123456',
     customseed: '123456'
   });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(systemDir, 'seed-manifest.json'), 'utf8')), {
+    version: 1,
+    usernames: ['choushiyiguai', 'customseed']
+  });
 
   const reopened = createAccountStore({ systemDir });
   const customSeed = reopened.getAccount('customseed');
@@ -133,17 +138,120 @@ test('persists custom seed sources across store reloads', t => {
   assert.equal(reopened.createAccount({ username: 'writer_01', password: 'secret-123' }).username, 'writer_01');
 });
 
-test('accepts legacy built-in seeds without source markers', t => {
+test('does not trust private source fields without their manifest and audit sources', t => {
+  const direct = tempStore(t);
+  seed(direct.store);
+  direct.store.createAccount({ username: 'writer_01', password: 'secret-123' });
+  const directAccountsPath = path.join(direct.systemDir, 'accounts.json');
+  const directAuditPath = path.join(direct.systemDir, 'audit.json');
+  const directAccounts = JSON.parse(fs.readFileSync(directAccountsPath, 'utf8'));
+  const directAudit = JSON.parse(fs.readFileSync(directAuditPath, 'utf8'));
+  directAccounts.find(account => account.username === 'writer_01').source = 'seed';
+  fs.writeFileSync(directAccountsPath, JSON.stringify(directAccounts), 'utf8');
+  fs.writeFileSync(directAuditPath, JSON.stringify(directAudit.filter(entry => entry.action !== 'account.created')), 'utf8');
+  assert.throws(() => createAccountStore({ systemDir: direct.systemDir }), /Invalid audit store/);
+
+  const approved = tempStore(t);
+  seed(approved.store);
+  const application = approved.store.submitApplication({
+    username: 'writer_02', password: 'secret-456', reason: '小说创作'
+  });
+  approved.store.approveApplication('choushiyiguai', application.id);
+  const approvedAccountsPath = path.join(approved.systemDir, 'accounts.json');
+  const approvedAuditPath = path.join(approved.systemDir, 'audit.json');
+  const approvedAccounts = JSON.parse(fs.readFileSync(approvedAccountsPath, 'utf8'));
+  const approvedAudit = JSON.parse(fs.readFileSync(approvedAuditPath, 'utf8'));
+  approvedAccounts.find(account => account.username === 'writer_02').source = 'seed';
+  fs.writeFileSync(approvedAccountsPath, JSON.stringify(approvedAccounts), 'utf8');
+  fs.writeFileSync(approvedAuditPath, JSON.stringify(approvedAudit.filter(entry => entry.action !== 'application.approved')), 'utf8');
+  assert.throws(() => createAccountStore({ systemDir: approved.systemDir }), /Invalid audit store/);
+});
+
+test('requires explicit migration for legacy custom seed accounts', t => {
   const { store, systemDir } = tempStore(t);
-  seed(store);
+  store.ensureSeedAccounts({
+    choushiyiguai: '123456',
+    customseed: '123456'
+  });
   const accountsPath = path.join(systemDir, 'accounts.json');
   const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
   for (const account of accounts) delete account.source;
   fs.writeFileSync(accountsPath, JSON.stringify(accounts), 'utf8');
+  fs.unlinkSync(path.join(systemDir, 'seed-manifest.json'));
+
+  assert.throws(() => createAccountStore({ systemDir }), /Missing seed manifest/);
+  const migrated = createAccountStore({
+    systemDir,
+    legacySeedUsernames: ['choushiyiguai', 'customseed']
+  });
+  assert.equal(migrated.getAccount('customseed').active, true);
+  assert.equal(createAccountStore({ systemDir }).getAccount('customseed').active, true);
+});
+
+test('recovers an interrupted seed manifest initialization transaction', t => {
+  const { store, systemDir } = tempStore(t);
+  const manifestPath = path.join(systemDir, 'seed-manifest.json');
+  const originalRename = fs.renameSync;
+  fs.renameSync = function renameSync(source, destination) {
+    if (destination === manifestPath) {
+      const error = new Error('injected manifest write failure');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalRename.call(this, source, destination);
+  };
+
+  try {
+    assert.throws(() => store.ensureSeedAccounts({
+      choushiyiguai: '123456',
+      customseed: '123456'
+    }), /pending recovery/);
+    assert.equal(fs.existsSync(path.join(systemDir, 'system-transaction.json')), true);
+  } finally {
+    fs.renameSync = originalRename;
+  }
+
+  const recovered = createAccountStore({ systemDir });
+  assert.equal(recovered.getAccount('customseed').active, true);
+  assert.equal(fs.existsSync(manifestPath), true);
+  assert.equal(fs.existsSync(path.join(systemDir, 'system-transaction.json')), false);
+});
+
+test('accepts legacy built-in seeds without source markers', t => {
+  const { store, systemDir } = tempStore(t);
+  store.ensureSeedAccounts();
+  const accountsPath = path.join(systemDir, 'accounts.json');
+  const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+  for (const account of accounts) delete account.source;
+  fs.writeFileSync(accountsPath, JSON.stringify(accounts), 'utf8');
+  fs.unlinkSync(path.join(systemDir, 'seed-manifest.json'));
 
   const reopened = createAccountStore({ systemDir });
   assert.equal(reopened.getAccount('choushiyiguai1').active, true);
   assert.equal(reopened.setActive('choushiyiguai1', false).active, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(systemDir, 'seed-manifest.json'), 'utf8')), {
+    version: 1,
+    usernames: Object.keys(USERS)
+  });
+});
+
+test('accepts legacy direct and approved accounts after default seed initialization', t => {
+  const { store, systemDir } = tempStore(t);
+  store.ensureSeedAccounts();
+  store.createAccount({ username: 'writer_01', password: 'secret-123' });
+  const application = store.submitApplication({
+    username: 'writer_02', password: 'secret-456', reason: '小说创作'
+  });
+  store.approveApplication('choushiyiguai', application.id);
+  const accountsPath = path.join(systemDir, 'accounts.json');
+  const accounts = JSON.parse(fs.readFileSync(accountsPath, 'utf8'));
+  for (const account of accounts) delete account.source;
+  fs.writeFileSync(accountsPath, JSON.stringify(accounts), 'utf8');
+  fs.unlinkSync(path.join(systemDir, 'seed-manifest.json'));
+
+  const reopened = createAccountStore({ systemDir });
+  assert.equal(reopened.getAccount('writer_01').active, true);
+  assert.equal(reopened.getAccount('writer_02').active, true);
 });
 
 test('keeps password hashes internal while verifying passwords securely', t => {
