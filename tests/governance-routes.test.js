@@ -177,6 +177,7 @@ test('enforces account review and scoped preset capabilities without a productio
 test('accepts a safe account application but rejects weak and duplicate requests', async t => {
   const runtime = createTestRuntime(t);
   const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
 
   const created = await request(app, {
     method: 'POST',
@@ -211,6 +212,27 @@ test('accepts a safe account application but rejects weak and duplicate requests
   });
   assert.equal(weak.status, 400);
 
+  const missingReason = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'writer_04', password: 'secret-012' }
+  });
+  assert.equal(missingReason.status, 400);
+
+  const malformedUsername = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: '../writer_04', password: 'secret-012', reason: '小说创作' }
+  });
+  assert.equal(malformedUsername.status, 400);
+
+  const existingAccount = await request(app, {
+    method: 'POST',
+    requestPath: '/api/applications',
+    body: { username: 'choushiyiguai1', password: 'secret-012', reason: '小说创作' }
+  });
+  assert.equal(existingAccount.status, 400);
+
   const duplicate = await request(app, {
     method: 'POST',
     requestPath: '/api/applications',
@@ -236,6 +258,10 @@ test('accepts a safe account application but rejects weak and duplicate requests
     body: { username: 'writer_03', password: 'secret-789' }
   });
   assert.equal(withdrawnStatus.body.status, 'withdrawn');
+  const audit = await request(app, { requestPath: '/api/admin/audit', token: owner.body.token });
+  assert.equal(audit.status, 200);
+  assert.match(JSON.stringify(audit.body), /application\.withdrawn/);
+  assert.doesNotMatch(JSON.stringify(audit.body), /secret-(123|456|789|012)|passwordHash/);
 });
 
 test('approved applicants can log in while pending applicants cannot', async t => {
@@ -257,7 +283,17 @@ test('approved applicants can log in while pending applicants cannot', async t =
   assert.equal(approval.status, 200);
   assert.equal(approval.body.application.status, 'approved');
   assert.equal(approval.body.account.active, true);
+  assert.doesNotMatch(JSON.stringify(approval.body), /secret-123|passwordHash/);
   assert.equal((await login(app, 'writer_01', 'secret-123')).status, 200);
+
+  const audit = await request(app, { requestPath: '/api/admin/audit', token: owner.body.token });
+  assert.equal(audit.status, 200);
+  const applicantAudit = audit.body.audit.filter(entry => entry.target === 'writer_01');
+  assert.deepEqual(applicantAudit.map(entry => entry.action), [
+    'application.submitted',
+    'application.approved'
+  ]);
+  assert.doesNotMatch(JSON.stringify(audit.body), /secret-123|passwordHash/);
 });
 
 test('account reviewers manage accounts but cannot manage grants or audit', async t => {
@@ -351,4 +387,10 @@ test('reviewers can reject, disable, and reset passwords without crossing other 
     body: { active: true }
   })).status, 200);
   assert.equal((await login(app, 'choushiyiguai2', 'new-secret-789')).status, 200);
+  const audit = await request(app, { requestPath: '/api/admin/audit', token: owner.body.token });
+  assert.equal(audit.status, 200);
+  assert.match(JSON.stringify(audit.body), /application\.rejected/);
+  assert.match(JSON.stringify(audit.body), /account\.status_changed/);
+  assert.match(JSON.stringify(audit.body), /account\.password_reset/);
+  assert.doesNotMatch(JSON.stringify(audit.body), /secret-456|new-secret-789|passwordHash/);
 });

@@ -128,6 +128,55 @@ test('keeps password hashes internal while verifying passwords securely', t => {
   assert.equal(store.verifyPassword('choushiyiguai', 'wrong-password'), false);
 });
 
+test('creates an account with an atomic safe audit record', t => {
+  const { store } = tempStore(t);
+  seed(store);
+
+  const account = store.createAccount({
+    username: 'writer_01',
+    password: 'secret-123'
+  });
+
+  assert.equal(account.username, 'writer_01');
+  assert.equal(store.verifyPassword('writer_01', 'secret-123'), true);
+  const audit = store.listAudit().at(-1);
+  assert.equal(audit.action, 'account.created');
+  assert.equal(audit.target, 'writer_01');
+  assert.equal(audit.before, null);
+  assert.deepEqual(audit.after, { active: true, isOwner: false });
+  assert.doesNotMatch(JSON.stringify(audit), /secret-123|passwordHash/);
+});
+
+test('recovers a direct account creation together with its audit record', t => {
+  const { store, systemDir } = tempStore(t);
+  seed(store);
+  const auditPath = path.join(systemDir, 'audit.json');
+  const originalRename = fs.renameSync;
+
+  fs.renameSync = function renameSync(source, destination) {
+    if (destination === auditPath) {
+      const error = new Error('injected audit write failure');
+      error.code = 'EIO';
+      throw error;
+    }
+    return originalRename.call(this, source, destination);
+  };
+
+  try {
+    assert.throws(() => store.createAccount({
+      username: 'writer_01',
+      password: 'secret-123'
+    }), /pending recovery/);
+    assert.equal(fs.existsSync(path.join(systemDir, 'system-transaction.json')), true);
+  } finally {
+    fs.renameSync = originalRename;
+  }
+
+  const recovered = createAccountStore({ systemDir });
+  assert.equal(recovered.verifyPassword('writer_01', 'secret-123'), true);
+  assert.equal(recovered.listAudit().at(-1).action, 'account.created');
+});
+
 test('grants scoped capability and writes a sanitized audit record', t => {
   const { store } = tempStore(t);
   seed(store);
