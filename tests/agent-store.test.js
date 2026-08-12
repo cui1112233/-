@@ -12,6 +12,17 @@ function createUsersDir(t) {
   return usersDir;
 }
 
+function validTask(id, messages = []) {
+  return {
+    id,
+    title: `任务 ${id}`,
+    titleMode: 'manual',
+    createdAt: '2026-08-12T00:00:00.000Z',
+    updatedAt: '2026-08-12T00:00:00.000Z',
+    messages
+  };
+}
+
 test('migrates valid legacy history once into an account-local history task without deleting the source', t => {
   const usersDir = createUsersDir(t);
   const legacyDir = path.join(usersDir, 'writer_a');
@@ -167,6 +178,38 @@ test('preserves existing unreadable or schema-invalid task documents without mut
   for (const original of ['{ not valid JSON', JSON.stringify({ version: 99, tasks: [] })]) {
     fs.writeFileSync(taskFile, original);
     assert.throws(() => store.createTask('writer_a'), /Agent task data is unreadable/);
+    assert.equal(fs.readFileSync(taskFile, 'utf8'), original);
+  }
+});
+
+test('preserves valid task documents that exceed the hard task or message limit', t => {
+  const usersDir = createUsersDir(t);
+  const store = createAgentStore({ usersDir });
+  const userDir = path.join(usersDir, 'writer_a');
+  const taskFile = path.join(userDir, 'agent-tasks.json');
+  fs.mkdirSync(userDir, { recursive: true });
+  const documents = [
+    {
+      version: 1,
+      tasks: Array.from({ length: 101 }, (_, index) => validTask(`task-${index}`))
+    },
+    {
+      version: 1,
+      tasks: [validTask('message-task', Array.from({ length: 101 }, (_, index) => ({
+        role: 'user',
+        content: `消息 ${index}`,
+        createdAt: '2026-08-12T00:00:00.000Z'
+      })))]
+    }
+  ];
+
+  for (const document of documents) {
+    const original = JSON.stringify(document);
+    fs.writeFileSync(taskFile, original);
+    assert.throws(
+      () => store.renameTask('writer_a', document.tasks[0].id, '不应写入'),
+      /Agent task data exceeds supported limit/
+    );
     assert.equal(fs.readFileSync(taskFile, 'utf8'), original);
   }
 });
