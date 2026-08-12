@@ -3,16 +3,20 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
-	Addr          string
-	MySQLDSN      string
-	SeedUsername  string
-	SeedPassword  string
-	TokenSecret   string
-	LegacyDataDir string
-	Storage       StorageConfig
+	Addr             string
+	MySQLDSN         string
+	SeedUsername     string
+	SeedPassword     string
+	TokenSecret      string
+	BridgeSecret     string
+	LegacyDataDir    string
+	Storage          StorageConfig
+	RedisAddr        string
+	ModelCredentials map[string]string
 }
 
 type StorageConfig struct {
@@ -28,12 +32,15 @@ type StorageConfig struct {
 
 func Load() (Config, error) {
 	cfg := Config{
-		Addr:          getenv("QIANTIE_ADDR", "127.0.0.1:4000"),
-		MySQLDSN:      getenv("QIANTIE_MYSQL_DSN", ""),
-		SeedUsername:  getenv("QIANTIE_SEED_USERNAME", "choushiyiguai"),
-		SeedPassword:  getenv("QIANTIE_SEED_PASSWORD", "123456"),
-		TokenSecret:   getenv("QIANTIE_TOKEN_SECRET", "dev-token-secret-change-me"),
-		LegacyDataDir: getenv("QIANTIE_LEGACY_DATA_DIR", "../data/users"),
+		Addr:             getenv("QIANTIE_ADDR", "127.0.0.1:4000"),
+		MySQLDSN:         getenv("QIANTIE_MYSQL_DSN", ""),
+		SeedUsername:     getenv("QIANTIE_SEED_USERNAME", "choushiyiguai"),
+		SeedPassword:     getenv("QIANTIE_SEED_PASSWORD", "123456"),
+		TokenSecret:      getenv("QIANTIE_TOKEN_SECRET", "dev-token-secret-change-me"),
+		BridgeSecret:     getenv("QIANTIE_BRIDGE_SECRET", "dev-bridge-secret-change-me"),
+		LegacyDataDir:    getenv("QIANTIE_LEGACY_DATA_DIR", "../data/users"),
+		RedisAddr:        getenv("QIANTIE_REDIS_ADDR", ""),
+		ModelCredentials: parseCredentials(getenv("QIANTIE_MODEL_CREDENTIALS", "")),
 		Storage: StorageConfig{
 			Driver:        getenv("QIANTIE_STORAGE_DRIVER", "local"),
 			LocalDir:      getenv("QIANTIE_STORAGE_LOCAL_DIR", "../data/shuihuo-objects"),
@@ -51,6 +58,9 @@ func Load() (Config, error) {
 	if cfg.TokenSecret == "" {
 		return Config{}, fmt.Errorf("QIANTIE_TOKEN_SECRET is required")
 	}
+	if cfg.BridgeSecret == "" {
+		return Config{}, fmt.Errorf("QIANTIE_BRIDGE_SECRET is required")
+	}
 	if cfg.Storage.Driver != "local" && cfg.Storage.Driver != "tos" && cfg.Storage.Driver != "minio" {
 		return Config{}, fmt.Errorf("QIANTIE_STORAGE_DRIVER must be local, tos, or minio")
 	}
@@ -66,6 +76,25 @@ func Load() (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func (c Config) ModelCredential(reference string) (string, error) {
+	value := c.ModelCredentials[reference]
+	if reference == "" || value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("model credential %q is not configured", reference)
+}
+
+func parseCredentials(raw string) map[string]string {
+	result := map[string]string{}
+	for _, pair := range strings.Split(raw, ",") {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" {
+			result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		}
+	}
+	return result
 }
 
 func getenv(key string, fallback string) string {

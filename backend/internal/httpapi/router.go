@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	shuihuostorage "qiantie/backend/internal/shuihuo/storage"
+	shuihuotasks "qiantie/backend/internal/shuihuo/tasks"
 	"qiantie/backend/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -14,16 +16,21 @@ import (
 type Dependencies struct {
 	DB           *sql.DB
 	TokenSecret  string
+	BridgeSecret string
 	SeedUsername string
 	SeedPassword string
 	Users        UserStore
 	Configs      ConfigStore
 	Histories    HistoryStore
+	Objects      shuihuostorage.ObjectStorage
+	Queue        shuihuotasks.Queue
+	Health       ShuihuoHealth
 }
 
 type UserStore interface {
 	FindByUsername(ctx context.Context, username string) (store.User, error)
 	FindByID(ctx context.Context, id int64) (store.User, error)
+	EnsureBridgeUser(ctx context.Context, username string, isOwner bool) (store.User, error)
 }
 
 type API struct {
@@ -49,17 +56,40 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Get("/history/{id}", api.handleGetHistory)
 		r.With(api.requireAuth).Delete("/history/{id}", api.handleDeleteHistory)
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
-		r.With(api.requireAuth).Get("/shuihuo-production/projects", api.handleListShuihuoProjects)
-		r.With(api.requireAuth).Post("/shuihuo-production/projects", api.handleCreateShuihuoProject)
-		r.With(api.requireAuth).Get("/shuihuo-production/projects/{id}", api.handleGetShuihuoProject)
-		r.With(api.requireAuth).Get("/shuihuo-production/projects/{id}/assets", api.handleListShuihuoAssets)
-		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/assets", api.handleCreateShuihuoAsset)
-		r.With(api.requireAuth).Get("/shuihuo-production/models", api.handleListShuihuoModels)
-		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/fixed", api.handleFixedSegmentation)
-		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/import", api.handleImportSegmentation)
-		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/smart", api.handleSmartSegmentation)
-		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/confirm", api.handleConfirmSegmentation)
-		r.With(api.requireAuth, api.requireOwner).Get("/admin/models", api.handleListAdminModels)
+		r.Group(func(r chi.Router) {
+			r.Use(api.requirePlatformAuth)
+			r.Get("/shuihuo-production/health", api.handleShuihuoHealth)
+			r.Get("/shuihuo-production/projects", api.handleListShuihuoProjects)
+			r.Post("/shuihuo-production/projects", api.handleCreateShuihuoProject)
+			r.Get("/shuihuo-production/projects/{id}", api.handleGetShuihuoProject)
+			r.Delete("/shuihuo-production/projects/{id}", api.handleDeleteShuihuoProject)
+			r.Get("/shuihuo-production/projects/{id}/assets", api.handleListShuihuoAssets)
+			r.Post("/shuihuo-production/projects/{id}/assets", api.handleCreateShuihuoAsset)
+			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
+			r.Get("/shuihuo-production/projects/{id}/tasks", api.handleListShuihuoTasks)
+			r.Post("/shuihuo-production/projects/{id}/tasks", api.handleCreateShuihuoTask)
+			r.Post("/shuihuo-production/projects/{id}/segmentation/fixed", api.handleFixedSegmentation)
+			r.Post("/shuihuo-production/projects/{id}/segmentation/import", api.handleImportSegmentation)
+			r.Post("/shuihuo-production/projects/{id}/segmentation/smart", api.handleSmartSegmentation)
+			r.Post("/shuihuo-production/projects/{id}/segmentation/confirm", api.handleConfirmSegmentation)
+			r.Post("/shuihuo-production/projects/{id}/segments", api.handleCreateShuihuoSegment)
+			r.Put("/shuihuo-production/projects/{id}/segments/order", api.handleReorderShuihuoSegments)
+			r.Put("/shuihuo-production/segments/{segmentId}", api.handleUpdateShuihuoSegment)
+			r.Delete("/shuihuo-production/segments/{segmentId}", api.handleDeleteShuihuoSegment)
+			r.Get("/shuihuo-production/segments/{segmentId}/assets", api.handleListShuihuoSegmentAssets)
+			r.Put("/shuihuo-production/segments/{segmentId}/assets", api.handleReplaceShuihuoSegmentAssets)
+			r.Put("/shuihuo-production/assets/{assetId}", api.handleUpdateShuihuoAsset)
+			r.Delete("/shuihuo-production/assets/{assetId}", api.handleDeleteShuihuoAsset)
+			r.Post("/shuihuo-production/projects/{id}/media", api.handleUploadShuihuoMedia)
+			r.Put("/shuihuo-production/media/{mediaId}/segment", api.handleAttachShuihuoMedia)
+			r.Put("/shuihuo-production/media/{mediaId}/primary", api.handleSetShuihuoPrimaryMedia)
+			r.Delete("/shuihuo-production/media/{mediaId}", api.handleDeleteShuihuoMedia)
+			r.Get("/shuihuo-production/media/{mediaId}/download", api.handleDownloadShuihuoMedia)
+			r.Put("/shuihuo-production/tasks/{taskId}/cancel", api.handleCancelShuihuoTask)
+			r.Post("/shuihuo-production/tasks/{taskId}/retry", api.handleRetryShuihuoTask)
+			r.With(api.requireOwner).Get("/shuihuo-production/admin/models", api.handleAdminModelList)
+			r.With(api.requireOwner).Post("/shuihuo-production/admin/models", api.handleCreateAdminModel)
+		})
 	})
 	return r
 }
