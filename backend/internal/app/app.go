@@ -94,15 +94,22 @@ func New(cfg config.Config) (*App, error) {
 	if queue != nil {
 		workerCtx, cancel := context.WithCancel(context.Background())
 		application.workerCancel = cancel
+		vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
 		worker := shuihuotasks.Worker{
 			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db),
 			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
 			Adapter: shuihuomodels.AdapterRouter{
-				shuihuomodels.AdapterJimengImage: providers.NewJimeng(nil, cfg.ModelCredential),
-				shuihuomodels.AdapterGenericHTTP: shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
+				shuihuomodels.AdapterJimengImage:      providers.NewJimeng(nil, cfg.ModelCredential),
+				shuihuomodels.AdapterViduImageToVideo: vidu,
+				shuihuomodels.AdapterGenericHTTP:      shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
 			},
 		}
+		poller := shuihuotasks.Poller{
+			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Provider: vidu,
+			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
+		}
 		go func() { _ = worker.Run(workerCtx, queue) }()
+		go func() { _ = poller.Run(workerCtx) }()
 	}
 	return application, nil
 }

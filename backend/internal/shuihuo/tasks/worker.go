@@ -27,6 +27,10 @@ type WorkerTaskRepository interface {
 	SetOutput(context.Context, int64, string) error
 }
 
+type AsyncVideoTaskRepository interface {
+	SetProviderTask(context.Context, int64, string, time.Time) error
+}
+
 type WorkerModelRepository interface {
 	GetVersion(context.Context, int64, int64) (models.Definition, error)
 }
@@ -140,11 +144,14 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 		return fail("model_submit_failed", err)
 	}
 	if response.ProviderTaskID != "" && response.ResultURL == "" {
-		if err := w.Tasks.TransitionForWorker(ctx, task.ID, domain.TaskRunning, domain.TaskFailed, "该模型需要异步查询配置，当前尚未配置轮询或回调"); err != nil {
-			return err
+		asyncTasks, ok := w.Tasks.(AsyncVideoTaskRepository)
+		if !ok || task.Kind != "video" || model.AdapterKind != models.AdapterViduImageToVideo {
+			return fail("async_model_not_configured", errors.New("模型已返回上游任务 ID，但未配置受控视频轮询"))
 		}
-		_ = w.Tasks.SetFailure(ctx, task.ID, "async_model_not_configured", "模型已返回上游任务 ID，但未配置轮询或回调")
-		return errors.New("异步模型未配置轮询或回调")
+		if err := asyncTasks.SetProviderTask(ctx, task.ID, response.ProviderTaskID, time.Now().UTC()); err != nil {
+			return fail("save_provider_task_failed", err)
+		}
+		return nil
 	}
 	if response.ResultURL == "" {
 		return fail("empty_model_result", errors.New("模型未返回结果素材"))

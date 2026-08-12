@@ -277,6 +277,7 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 	{version: 8, sql: shuihuoGovernanceMigrationSQL, apply: applyShuihuoGovernanceSchema},
 	{version: 9, apply: addShuihuoAssetCategory},
 	{version: 10, sql: shuihuoAnalysisSnapshotsMigrationSQL, apply: seedShuihuoAnalysisPrompts},
+	{version: 11, apply: addShuihuoTaskPolling},
 }
 
 const shuihuoAnalysisSnapshotsMigrationSQL = `
@@ -384,6 +385,26 @@ func addShuihuoAssetCategory(ctx context.Context, conn *sql.Conn) error {
 	return err
 }
 
+func addShuihuoTaskPolling(ctx context.Context, conn *sql.Conn) error {
+	exists, err := mysqlColumnExists(ctx, conn, "shuihuo_tasks", "next_poll_at")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := conn.ExecContext(ctx, "ALTER TABLE shuihuo_tasks ADD COLUMN next_poll_at DATETIME NULL AFTER provider_task_id"); err != nil {
+			return err
+		}
+	}
+	indexExists, err := mysqlIndexExists(ctx, conn, "shuihuo_tasks", "idx_shuihuo_tasks_provider_status_poll")
+	if err != nil {
+		return err
+	}
+	if !indexExists {
+		_, err = conn.ExecContext(ctx, "CREATE INDEX idx_shuihuo_tasks_provider_status_poll ON shuihuo_tasks(provider, status, next_poll_at)")
+	}
+	return err
+}
+
 func seedShuihuoAnalysisPrompts(ctx context.Context, conn *sql.Conn) error {
 	if err := applySQLStatements(ctx, conn, shuihuoAnalysisSnapshotsMigrationSQL); err != nil {
 		return err
@@ -433,5 +454,15 @@ SELECT COUNT(*)
 FROM information_schema.columns
 WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
 `, table, column).Scan(&count)
+	return count > 0, err
+}
+
+func mysqlIndexExists(ctx context.Context, conn *sql.Conn, table, index string) (bool, error) {
+	var count int
+	err := conn.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM information_schema.statistics
+WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?
+`, table, index).Scan(&count)
 	return count > 0, err
 }
