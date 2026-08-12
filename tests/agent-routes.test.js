@@ -234,3 +234,37 @@ test('Agent chat bounds combined system, skill, page, and current-task history i
   assert.match(receivedMessages[0].content, /大技能/);
   assert.match(receivedMessages[0].content, /SKILL_BODY_MARKER/);
 });
+
+test('Agent chat preserves each bounded page-context field for script revision', async t => {
+  let receivedMessages;
+  const { app } = createFixture(t, {
+    responder: async ({ messages }) => {
+      receivedMessages = messages;
+      return '已按当前剧本修改。';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: {
+      taskId: task.id,
+      prompt: '请根据原文和人物关系修改当前短剧剧本',
+      context: {
+        page: '剧本生成',
+        novelText: 'NOVEL_PAYLOAD_MARKER' + 'N'.repeat(17900),
+        extracted: { marker: 'EXTRACTED_PAYLOAD_MARKER', bulk: 'E'.repeat(6000) },
+        scriptOutput: 'SCRIPT_PAYLOAD_MARKER' + 'S'.repeat(17900)
+      }
+    }
+  });
+
+  const responderInput = receivedMessages.map(message => message.content).join('\n');
+  assert.equal(result.status, 200);
+  assert.equal(result.body.assistant.content, '已按当前剧本修改。');
+  assert.ok(receivedMessages.reduce((total, message) => total + message.content.length, 0) <= MAX_AGENT_MESSAGE_CHARS);
+  assert.match(responderInput, /小说原文[\s\S]*NOVEL_PAYLOAD_MARKER/);
+  assert.match(responderInput, /人物与场景[\s\S]*EXTRACTED_PAYLOAD_MARKER/);
+  assert.match(responderInput, /当前剧本结果[\s\S]*SCRIPT_PAYLOAD_MARKER/);
+});

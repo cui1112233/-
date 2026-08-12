@@ -7,8 +7,11 @@ const MAX_CONTEXT_LENGTH = 18000;
 const HISTORY_WINDOW = 12;
 const MAX_AGENT_MESSAGE_CHARS = 48000;
 const MAX_PAGE_CONTEXT_CHARS = 12000;
+const MAX_PAGE_NOVEL_CHARS = 4500;
+const MAX_PAGE_EXTRACTED_CHARS = 2500;
+const MAX_PAGE_SCRIPT_CHARS = 4500;
 const MAX_SELECTED_SKILL_CHARS = 12000;
-const INTERNAL_DISCLOSURE_PATTERN = /(?:系统|开发者|平台)(?:提示词|指令)|内部(?:提示词|技能(?:正文|内容|规则)?|架构|信息|实现)|技能(?:正文|内容|规则)|源(?:码|文件)|项目(?:路径|目录)|文件(?:路径|目录)|(?:api[ _-]?)?key|密钥|token|令牌|密码|cookie|配置(?:文件|内容)?|环境变量|数据库(?:记录|内容)?/i;
+const INTERNAL_DISCLOSURE_PATTERN = /(?:系统|开发者|平台)(?:提示词|指令)|(?:平台(?:内置)?|内置|内部)技能(?:正文|内容|规则)?|内部(?:提示词|架构|信息|实现)|源(?:码|文件)|项目(?:路径|目录)|文件(?:路径|目录)|(?:api[ _-]?)?key|密钥|token|令牌|密码|cookie|配置(?:文件|内容)?|环境变量|数据库(?:记录|内容)?/i;
 const INTERNAL_DISCLOSURE_REPLY = '我不能提供或还原平台的内部提示、技能内容、开发资料、配置或凭据。我可以说明可见功能的使用方式，或继续协助你的创作任务。';
 const SYSTEM_INSTRUCTION = `你是前贴平台中的 CM 创作 Agent。用中文，直接、具体、可执行。你只能提出建议或给出候选修改，不能声称已经修改用户文件或启动外部任务。若用户要求修改当前剧本且提供了当前剧本结果，请先说明修改要点，再以“【修改稿】”开始输出一份完整、可直接替换的剧本文本；没有完整修改稿时不要使用该标记。
 
@@ -27,17 +30,23 @@ function selectedSkillContext(skills, limit) {
   return (header + skills.map((skill, index) => `${labels[index]}${cleanText(skill.body, bodyLimit)}`).join('')).slice(0, limit);
 }
 
-function buildAgentMessages({ history, prompt, context, skills = [] }) {
+function buildPageContext(context) {
   const page = cleanText(context?.page, 80) || '未知页面';
-  const novelText = cleanText(context?.novelText);
-  const scriptOutput = cleanText(context?.scriptOutput);
-  const extracted = context?.extracted ? JSON.stringify(context.extracted).slice(0, 6000) : '';
-  const pageContext = [
+  const novelText = cleanText(context?.novelText, MAX_PAGE_NOVEL_CHARS);
+  const scriptOutput = cleanText(context?.scriptOutput, MAX_PAGE_SCRIPT_CHARS);
+  const extracted = context?.extracted
+    ? JSON.stringify(context.extracted).slice(0, MAX_PAGE_EXTRACTED_CHARS)
+    : '';
+  return [
     `当前页面：${page}`,
     novelText ? `小说原文（仅用于本次回答）：\n${novelText}` : '',
     extracted ? `人物与场景（仅用于本次回答）：\n${extracted}` : '',
     scriptOutput ? `当前剧本结果（仅用于本次回答）：\n${scriptOutput}` : ''
   ].filter(Boolean).join('\n\n').slice(0, MAX_PAGE_CONTEXT_CHARS);
+}
+
+function buildAgentMessages({ history, prompt, context, skills = [] }) {
+  const pageContext = buildPageContext(context);
   const userContent = `${prompt}\n\n${pageContext}`;
   const skillBudget = Math.min(
     MAX_SELECTED_SKILL_CHARS,
@@ -121,6 +130,14 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
     const prompt = cleanText(req.body?.prompt, 6000);
     if (!prompt) return res.status(400).json({ error: '请输入要问 CM 的内容' });
 
+    let skills;
+    try {
+      skills = skillStore ? skillStore.resolveForChat(req.username, req.body?.skillIds) : [];
+    } catch (error) {
+      const status = error?.code === 'FORBIDDEN' ? 403 : 400;
+      return res.status(status).json({ error: error.message || '所选技能不合法' });
+    }
+
     const history = selectedTask.messages.slice(-HISTORY_WINDOW);
     const userMessage = agentStore.append(req.username, taskId, { role: 'user', content: prompt });
     if (!userMessage) return sendTaskNotFound(res);
@@ -131,7 +148,6 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
       return task ? res.json({ task, user: userMessage, assistant: assistantMessage }) : sendTaskNotFound(res);
     }
     try {
-      const skills = skillStore ? skillStore.resolveForChat(req.username, req.body?.skillIds) : [];
       const messages = buildAgentMessages({ history, prompt, context: req.body?.context, skills });
       let answer;
       if (respond) {
