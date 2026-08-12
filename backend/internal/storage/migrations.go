@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 const migrationLockName = "qiantie_schema_migrations"
@@ -13,6 +14,155 @@ type migration struct {
 	sql     string
 	apply   func(context.Context, *sql.Conn) error
 }
+
+const shuihuoProductionMigrationSQL = `
+CREATE TABLE IF NOT EXISTS shuihuo_projects (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  source_text MEDIUMTEXT NULL,
+  source_object_key VARCHAR(1024) NOT NULL DEFAULT '',
+  segmentation_status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  segmentation_version INT NOT NULL DEFAULT 0,
+  selected_text_model_id BIGINT NULL,
+  selected_image_model_id BIGINT NULL,
+  selected_video_model_id BIGINT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_projects_user_created (user_id, created_at),
+  CONSTRAINT fk_shuihuo_projects_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_segments (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  project_id BIGINT NOT NULL,
+  source_text MEDIUMTEXT NOT NULL,
+  subtitle_text MEDIUMTEXT NULL,
+  order_index INT NOT NULL,
+  confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+  manually_edited BOOLEAN NOT NULL DEFAULT FALSE,
+  image_prompt MEDIUMTEXT NOT NULL,
+  video_prompt MEDIUMTEXT NOT NULL,
+  image_prompt_locked BOOLEAN NOT NULL DEFAULT FALSE,
+  video_prompt_locked BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_shuihuo_segments_project_order (project_id, order_index),
+  KEY idx_shuihuo_segments_project_confirmed (project_id, confirmed),
+  CONSTRAINT fk_shuihuo_segments_project FOREIGN KEY (project_id) REFERENCES shuihuo_projects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_asset_types (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NULL,
+  name VARCHAR(128) NOT NULL,
+  category VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_shuihuo_asset_types_owner_name (user_id, name),
+  CONSTRAINT fk_shuihuo_asset_types_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_asset_templates (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NULL,
+  asset_type_id BIGINT NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  prompt MEDIUMTEXT NOT NULL,
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_asset_templates_type (asset_type_id),
+  KEY idx_shuihuo_asset_templates_user_created (user_id, created_at),
+  CONSTRAINT fk_shuihuo_asset_templates_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_asset_templates_type FOREIGN KEY (asset_type_id) REFERENCES shuihuo_asset_types(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_assets (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  project_id BIGINT NOT NULL,
+  asset_type_id BIGINT NULL,
+  name VARCHAR(255) NOT NULL,
+  prompt MEDIUMTEXT NOT NULL,
+  reference_object_key VARCHAR(1024) NOT NULL DEFAULT '',
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  manually_edited BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_assets_project_created (project_id, created_at),
+  KEY idx_shuihuo_assets_type (asset_type_id),
+  CONSTRAINT fk_shuihuo_assets_project FOREIGN KEY (project_id) REFERENCES shuihuo_projects(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_assets_type FOREIGN KEY (asset_type_id) REFERENCES shuihuo_asset_types(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_segment_assets (
+  segment_id BIGINT NOT NULL,
+  asset_id BIGINT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (segment_id, asset_id),
+  KEY idx_shuihuo_segment_assets_asset (asset_id),
+  CONSTRAINT fk_shuihuo_segment_assets_segment FOREIGN KEY (segment_id) REFERENCES shuihuo_segments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_segment_assets_asset FOREIGN KEY (asset_id) REFERENCES shuihuo_assets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_tasks (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  project_id BIGINT NOT NULL,
+  segment_id BIGINT NULL,
+  kind VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  provider VARCHAR(64) NOT NULL DEFAULT '',
+  provider_task_id VARCHAR(255) NULL,
+  model_id BIGINT NULL,
+  model_version_id BIGINT NULL,
+  prompt_version_id BIGINT NULL,
+  input_snapshot MEDIUMTEXT NULL,
+  output_snapshot MEDIUMTEXT NULL,
+  error_code VARCHAR(128) NOT NULL DEFAULT '',
+  error_message MEDIUMTEXT NULL,
+  retry_count INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_tasks_project_status (project_id, status),
+  KEY idx_shuihuo_tasks_segment_status (segment_id, status),
+  UNIQUE KEY uniq_shuihuo_tasks_provider_task (provider, provider_task_id),
+  CONSTRAINT fk_shuihuo_tasks_project FOREIGN KEY (project_id) REFERENCES shuihuo_projects(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_tasks_segment FOREIGN KEY (segment_id) REFERENCES shuihuo_segments(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_media (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  project_id BIGINT NOT NULL,
+  segment_id BIGINT NULL,
+  task_id BIGINT NULL,
+  kind VARCHAR(32) NOT NULL,
+  object_key VARCHAR(1024) NOT NULL,
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  manually_edited BOOLEAN NOT NULL DEFAULT FALSE,
+  width INT NULL,
+  height INT NULL,
+  duration_ms BIGINT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_media_project_created (project_id, created_at),
+  KEY idx_shuihuo_media_segment_kind (segment_id, kind),
+  KEY idx_shuihuo_media_task (task_id),
+  CONSTRAINT fk_shuihuo_media_project FOREIGN KEY (project_id) REFERENCES shuihuo_projects(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_media_segment FOREIGN KEY (segment_id) REFERENCES shuihuo_segments(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shuihuo_media_task FOREIGN KEY (task_id) REFERENCES shuihuo_tasks(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shuihuo_task_events (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  task_id BIGINT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  message MEDIUMTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_task_events_task_created (task_id, created_at),
+  CONSTRAINT fk_shuihuo_task_events_task FOREIGN KEY (task_id) REFERENCES shuihuo_tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
 
 var migrations = []migration{
 	{version: 1, sql: `
@@ -68,6 +218,7 @@ CREATE TABLE IF NOT EXISTS app_initializations (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `},
+	{version: 7, sql: shuihuoProductionMigrationSQL, apply: applyShuihuoProductionSchema},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
@@ -133,6 +284,19 @@ func addUserGovernanceColumns(ctx context.Context, conn *sql.Conn) error {
 			continue
 		}
 		if _, err := conn.ExecContext(ctx, "ALTER TABLE users ADD COLUMN "+column.name+" "+column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyShuihuoProductionSchema(ctx context.Context, conn *sql.Conn) error {
+	for _, statement := range strings.Split(shuihuoProductionMigrationSQL, ";") {
+		statement = strings.TrimSpace(statement)
+		if statement == "" {
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
 			return err
 		}
 	}
