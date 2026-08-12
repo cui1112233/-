@@ -19,6 +19,13 @@ func TestValidateDefinitionAcceptsConfiguredImageModel(t *testing.T) {
 	}
 }
 
+func TestJimengDoesNotRequireModelCredentialReference(t *testing.T) {
+	err := ValidateDefinition(Definition{Name: "即梦", Kind: KindImage, AdapterKind: AdapterJimengImage, Enabled: true})
+	if err != nil {
+		t.Fatalf("ValidateDefinition() error = %v", err)
+	}
+}
+
 func TestValidateDefinitionRejectsUnapprovedAdapter(t *testing.T) {
 	err := ValidateDefinition(Definition{Name: "x", Kind: KindImage, AdapterKind: "arbitrary_shell"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported") {

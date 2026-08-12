@@ -97,7 +97,10 @@ func New(cfg config.Config) (*App, error) {
 		worker := shuihuotasks.Worker{
 			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db),
 			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
-			Adapter: shuihuomodels.NewGenericHTTPAdapter(nil, func(reference string) (string, error) { return cfg.ModelCredential(reference) }),
+			Adapter: shuihuomodels.AdapterRouter{
+				shuihuomodels.AdapterJimengImage: providers.NewJimeng(nil, cfg.ModelCredential),
+				shuihuomodels.AdapterGenericHTTP: shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
+			},
 		}
 		go func() { _ = worker.Run(workerCtx, queue) }()
 	}

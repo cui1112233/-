@@ -78,6 +78,11 @@ func (model Definition) PubliclySelectable() bool {
 }
 
 func (model Definition) ProviderConfigured() bool {
+	if model.AdapterKind == AdapterJimengImage {
+		// Jimeng uses the platform's fixed Volcengine AK/SK pair. A model row
+		// must not carry, resolve, or reveal that provider credential name.
+		return true
+	}
 	if strings.TrimSpace(model.CredentialRef) == "" {
 		return false
 	}
