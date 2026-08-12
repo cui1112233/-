@@ -223,3 +223,17 @@
 .shuihuo-asset-visual.is-scene { background: linear-gradient(135deg, #345068, #162430); }
 .shuihuo-asset-visual.is-prop { background: linear-gradient(135deg, #69503b, #2c211a); }
 @media (max-width: 900px) { .shuihuo-production { grid-template-columns: 64px minmax(0, 1fr); } .shuihuo-sidebar { padding: 15px 7px; } .shuihuo-brand small, .shuihuo-brand span, .shuihuo-project-switch span, .shuihuo-project-switch strong, .shuihuo-side-label, .shuihuo-side-nav button { font-size: 0; } .shuihuo-side-nav button { justify-content: center; padding: 0; } .shuihuo-side-nav button span { width: auto; font-size: 18px; } .shuihuo-project-switch { min-height: 36px; padding: 0; } .shuihuo-sidebar-footer { display: none; } .shuihuo-topbar, .shuihuo-readiness-strip, .shuihuo-view { padding-left: 18px; padding-right: 18px; } .shuihuo-topbar { min-height: 80px; } .shuihuo-page-heading { flex-direction: column; } .shuihuo-actions { justify-content: flex-start; } .shuihuo-toolbar { grid-template-columns: 1fr; } }
+.shuihuo-production-scroll { margin-top: 20px; overflow-x: auto; border-top: 1px solid var(--sh-line); }
+.shuihuo-production-list { min-width: 1120px; display: grid; gap: 12px; padding: 12px 0; }
+.shuihuo-production-card { display: grid; grid-template-columns: minmax(160px, 1.1fr) minmax(120px, .8fr) minmax(170px, 1fr) minmax(170px, 1fr) minmax(170px, 1fr) minmax(170px, 1fr); border: 1px solid var(--sh-line); background: var(--sh-panel); font-size: 12px; }
+.shuihuo-production-column { min-width: 0; display: grid; align-content: start; gap: 8px; padding: 10px; border-right: 1px solid var(--sh-line); }
+.shuihuo-production-column:last-child { border-right: 0; }
+.shuihuo-production-column-title { color: var(--sh-muted); font-size: 11px; }
+.shuihuo-production-source, .shuihuo-production-prompt { margin: 0; white-space: pre-wrap; line-height: 1.6; }
+.shuihuo-production-prompt { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; color: var(--sh-muted); }
+.shuihuo-production-column small { color: var(--sh-muted); }
+.shuihuo-production-column-actions { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.shuihuo-production-media-list { display: grid; gap: 10px; }
+.shuihuo-production-media { display: grid; gap: 6px; }
+.shuihuo-production-media img, .shuihuo-production-media video { width: 100%; max-height: 128px; object-fit: cover; border: 1px solid var(--sh-line); background: var(--sh-panel-strong); }
+.shuihuo-production-media-actions { display: flex; flex-wrap: wrap; gap: 2px; }

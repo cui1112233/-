@@ -34,6 +34,17 @@ test('production API exposes a project-scoped batch task endpoint', () => {
   assert.match(api, /projects\/\$\{projectId\}\/tasks\/batch/);
 });
 
+test('segment production card preserves the six-column production layout', () => {
+  const productionCard = read('frontend/src/user/pages/shuihuo/SegmentProductionCard.jsx');
+  for (const label of ['内容', '角色', '图片提示词', '图片', '视频提示词', '视频']) {
+    assert.match(productionCard, new RegExp(`>${label}<`));
+  }
+  assert.match(productionCard, /imagePromptLocked/);
+  assert.match(productionCard, /videoPromptLocked/);
+  assert.match(productionCard, /setPrimaryMedia/);
+  assert.match(productionCard, /downloadMedia/);
+});
+
 test('task drawer presents backend task and provider states without fabricated progress', () => {
   for (const state of ['queued', 'running', 'succeeded', 'failed', 'cancelled']) {
     assert.match(drawer, new RegExp(state));

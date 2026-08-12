@@ -39,6 +39,9 @@ export function uploadMedia(projectId, payload) { return apiRequest(`${base}/pro
 export function attachMedia(mediaId, segmentId) { return apiRequest(`${base}/media/${mediaId}/segment`, { method: 'PUT', body: JSON.stringify({ segmentId }) }); }
 export function setPrimaryMedia(mediaId) { return apiRequest(`${base}/media/${mediaId}/primary`, { method: 'PUT' }); }
 export function deleteMedia(mediaId) { return apiRequest(`${base}/media/${mediaId}`, { method: 'DELETE' }); }
+export async function downloadMedia(mediaId) {
+  return apiRequest(`${base}/media/${mediaId}/download`, { responseType: 'blob' });
+}
 export function listModels() { return apiRequest(`${base}/models`); }
 export function listTasks(projectId) { return apiRequest(`${base}/projects/${projectId}/tasks`); }
 export function createTask(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(payload) }); }
