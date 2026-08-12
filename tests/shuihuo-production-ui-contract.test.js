@@ -43,6 +43,8 @@ test('batch task modal sends only selected eligible segments to the batch endpoi
   assert.match(batchModal, /segment\.confirmed/);
   assert.match(batchModal, /item\?\.kind === 'image' && item\.isPrimary === true/);
   assert.match(batchModal, /result\?\.error/);
+  assert.match(batchModal, /failed\.map\(result => result\.segmentId\)\.filter\(id => eligibleIdSet\.has\(id\)\)/);
+  assert.match(batchModal, /setSelectedSegmentIds\(failedSegmentIds\)/);
   assert.doesNotMatch(batchModal, /setInterval\(.*progress/i);
 });
 
@@ -105,6 +107,7 @@ test('task drawer submits one segment only and leaves batch work to the batch mo
   assert.doesNotMatch(drawer, /对全部已确认分段批量提交/);
   assert.doesNotMatch(drawer, /Promise\.allSettled/);
   assert.doesNotMatch(drawer, /targetSegments\.map/);
+  assert.match(drawer, /segments\.filter\(segment => segment\.confirmed\)\.map\(segment =>/);
 });
 
 test('admin catalog reports configuration safely without private provider fields', () => {

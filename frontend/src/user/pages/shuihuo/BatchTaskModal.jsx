@@ -67,6 +67,8 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, models:
       const failed = results.filter(result => result?.error);
       const succeeded = results.filter(result => result?.task).length;
       if (failed.length) {
+        const failedSegmentIds = failed.map(result => result.segmentId).filter(id => eligibleIdSet.has(id));
+        setSelectedSegmentIds(failedSegmentIds);
         setSubmissionSummary({ succeeded, failed });
         message.warning(`已提交 ${succeeded} 个任务，${failed.length} 个分段未提交`);
       } else {
