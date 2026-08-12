@@ -8,6 +8,7 @@ const path = require('node:path');
 const { createApp } = require('../app');
 const { createAccountStore } = require('../lib/account-store');
 const { createAgentStore } = require('../lib/agent-store');
+const { MAX_AGENT_MESSAGE_CHARS } = require('../routes/agent');
 
 function request(app, { method = 'GET', requestPath, body, token } = {}) {
   return new Promise((resolve, reject) => {
@@ -182,4 +183,54 @@ test('Agent chat requires an owned task ID and returns not found when it disappe
   };
   const vanished = await request(app, { method: 'POST', requestPath: '/api/agent/chat', token, body: { taskId: task.id, prompt: '任务会消失' } });
   assert.equal(vanished.status, 404);
+});
+
+test('Agent chat bounds combined system, skill, page, and current-task history input', async t => {
+  let receivedMessages;
+  const { app, agentStore } = createFixture(t, {
+    responder: async ({ messages }) => {
+      receivedMessages = messages;
+      return '正常完成';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const username = 'choushiyiguai1';
+  for (let index = 0; index < 8; index += 1) {
+    agentStore.append(username, task.id, {
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `历史-${index}-` + 'H'.repeat(11980)
+    });
+  }
+  app.locals.agentSkillStore.createPrivate(username, {
+    id: 'large-context-skill',
+    name: '大技能',
+    description: '',
+    category: '',
+    inputTemplate: '',
+    body: 'SKILL_BODY_MARKER' + 'K'.repeat(65000)
+  });
+  const prompt = 'CURRENT_PROMPT_MARKER' + 'P'.repeat(5980);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: {
+      taskId: task.id,
+      prompt,
+      skillIds: ['large-context-skill'],
+      context: {
+        page: '页面'.repeat(40),
+        novelText: 'N'.repeat(18000),
+        extracted: { entities: 'E'.repeat(7000) },
+        scriptOutput: 'S'.repeat(18000)
+      }
+    }
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.assistant.content, '正常完成');
+  assert.ok(receivedMessages.reduce((total, message) => total + message.content.length, 0) <= MAX_AGENT_MESSAGE_CHARS);
+  assert.ok(receivedMessages.some(message => message.content.includes('CURRENT_PROMPT_MARKER')));
+  assert.match(receivedMessages[0].content, /大技能/);
+  assert.match(receivedMessages[0].content, /SKILL_BODY_MARKER/);
 });
