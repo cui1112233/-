@@ -7,6 +7,8 @@ import { getCurrentUsername, login, logout } from '../api/auth';
 const navItems = [
   { href: '/', icon: '🏠', label: '首页' },
   { href: '/script', icon: '📝', label: '剧本生成' },
+  { href: '/novel-panel', icon: '📖', label: '小说面板' },
+  { href: '/agent', icon: '🤖', label: 'Agent 工作区' },
   { href: '/history', icon: '🗂', label: '历史' },
   { href: '/tts', icon: '🎙', label: '配音' },
   { href: '/settings', icon: '⚙', label: '设置' }
@@ -108,7 +110,12 @@ export function UserLayout({ children }) {
           <span className="legacy-brand-title">一战晟铭</span>
         </div>
         <nav className="legacy-nav">
-          {navItems.map(item => (
+          {navItems.map(item => item.href === '/agent' ? (
+            <a key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
+              <span className="legacy-nav-icon">{item.icon}</span>
+              <span className="legacy-nav-label">{item.label}</span>
+            </a>
+          ) : (
             <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
               <span className="legacy-nav-icon">{item.icon}</span>
               <span className="legacy-nav-label">{item.label}</span>

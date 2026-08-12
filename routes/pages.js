@@ -24,6 +24,7 @@ function serveReactEntry(entryFile, fallbackFile) {
 router.get('/', serveReactEntry('index.html', 'index.html'));
 router.get('/script', serveReactEntry('index.html', 'views/script.html'));
 router.get('/history', serveReactEntry('index.html', 'index.html'));
+router.get('/novel-panel', serveReactEntry('index.html', 'index.html'));
 router.get('/agent', (req, res) => { servePage('views/agent.html', req, res); });
 router.get('/tts', serveReactEntry('index.html', 'views/tts.html'));
 router.get('/settings', serveReactEntry('index.html', 'index.html'));

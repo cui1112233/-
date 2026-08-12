@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>视频画面提示词工具</title>
+  <link rel="stylesheet" href="/novel-panel/workbench/style.css" />
+</head>
+<body>
+<!-- V77 Hotfix19 production marker: CharacterCore 2.0 exclusively owns full analysis, character cards, relationships, outline readiness, scene casting and single-scene regeneration. -->
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <p class="eyebrow">9:16 · 小说短剧 · 整段时间轴生成 · 强制人物卡槽位唯一权威 · 同名不同阶段独立 · 独立可编辑人物关系图 · 称呼指代与对白解析 · 本镜人物语义匹配 · 当前界面修改即时生效 · 统一风格独立判断 · 强制名单人物卡独立生成 · CharacterCore 2.0全题材人物引擎 · 年龄阶段驱动外形重构 · 多窗口独立缓存 · 全链路V77原生语义层 Hotfix23 AI指令中心完整恢复与协议锁定</p>
+        <h1>视频画面提示词工具</h1>
+        <p class="subtitle">先独立判断内容类型与统一风格，再由强制名单按钮生成人物卡、AI人物关系图和本地关键词勾选，最后生成导演级时间轴；自动拦截复述原文、抽象空话和单句敷衍画面。</p>
+      </div>
+      <div class="top-actions">
+        <span id="aiStatus" class="status-pill">AI 通道加载中</span>
+        <label class="project-name"><span>项目名称</span><input id="projectName" value="未命名项目" maxlength="100" /></label>
+        <button id="saveProjectBtn" class="btn secondary">保存项目</button>
+        <button id="historyBtn" class="btn secondary">历史项目</button>
+        <button id="promptSettingsBtn" class="btn secondary prompt-settings-entry">AI 指令</button>
+        <button id="settingsBtn" class="btn primary">AI 设置</button>
+      </div>
+    </header>
+
+    <section class="panel source-panel">
+      <div class="section-head">
+        <div>
+          <p class="step">第 1 步</p>
+          <h2>整段原文</h2>
+        </div>
+        <div class="actions">
+          <button id="textCleanupBtn" type="button" class="btn secondary">文本处理</button>
+          <button id="downloadTtsBtn" type="button" class="btn secondary" disabled>下载配音</button>
+          <button id="generateTtsBtn" type="button" class="btn secondary">生成配音</button>
+          <button id="ttsSettingsBtn" type="button" class="btn secondary">配音设置</button>
+          <label class="inline-field">
+            <span>参考配音时长（秒）</span>
+            <input id="audioTotalSeconds" type="number" min="1" max="600" step="1" placeholder="可选，例如 68" />
+          </label>
+          <button id="outlineBtn" class="btn primary">按整段原文生成分镜/画面</button>
+        </div>
+      </div>
+        <textarea id="novelText" class="large-textarea" placeholder="粘贴整段原文。先到第2步判断内容类型和统一风格，再填写强制人物名单生成人物卡，最后生成总画面时间轴与原文分镜映射。编辑这里会自动清空旧分镜和时间轴，开始新的生成轮次。"></textarea>
+        <div id="sourceStateNotice" class="warning-box hidden"></div>
+        <div class="tts-status-row">
+          <div id="ttsStatus" class="tts-status">配音状态：未生成</div>
+          <audio id="ttsPreview" class="tts-preview hidden" controls preload="none"></audio>
+        </div>
+        <div class="character-reference-panel source-character-reference-panel">
+          <div class="field-head">
+            <strong>第 2 小步：按强制名单生成人物卡</strong>
+            <span id="characterStyleReadyState" class="lock-state">请先判断内容类型与统一风格</span>
+          </div>
+          <div class="prompt-constraint-grid">
+            <label class="prompt-constraint-field">人物卡强制名单（人物卡唯一来源）
+              <textarea id="characterGuideInput" class="compact-textarea" maxlength="10000" placeholder="人物之间可用换行、逗号、顿号、分号或竖线分隔；括号可写原文明示的姓名、别称、身份、阶段或其他约束。程序只负责解析槽位，不用固定称谓词表猜关系；关系和动态称呼由AI结合全文判断。写几个槽位就生成几张正式人物卡，名单外人物不会自动增加。"></textarea>
+            </label>
+            <label class="prompt-constraint-field">人物外形全局要求（高优先级）
+              <textarea id="appearanceReference" class="compact-textarea" maxlength="6000" placeholder="可填写所有人物都要共同遵守的外形要求，例如：整体偏真实电影感、避免网红脸、避免同款发型、儿童必须保留儿童体态、现代豪门穿搭要高级但人物彼此明显区分。这里只写全局方向、统一禁用项和整体要求，不要粘贴单个人物模板。"></textarea>
+            </label>
+          </div>
+          <p class="hint">先在下方点击“AI判断内容类型与统一风格”并确认当前原文题材。人物卡生成会一次读取已确认的内容类型、时代、统一风格、整段原文、当前强制名单、全局外形要求以及每张卡的高优先级细节意见；每张卡必须由AI一次性返回明确性别、一个剧情年龄阶段和一整段完整外形正文。</p>
+          <div class="inline-actions">
+            <button id="optimizeAllCharactersBtn" type="button" class="btn primary">按强制名单生成人物卡</button>
+            <button id="addCharacterBtn" type="button" class="btn secondary">+ 手动添加人物</button>
+            <span id="characterGenerationProgress" class="hint inline-hint">一次点击依次完成：强制名单槽位、AI人物事实与关系图、人物外形、项目关键词索引，以及现有分镜人物卡的本地关键词勾选。</span>
+          </div>
+        </div>
+        <div class="prompt-constraint-grid">
+          <label class="prompt-constraint-field">必须拍出的原文细节
+            <textarea id="mustCoverDetails" class="compact-textarea" maxlength="4590" placeholder="填写原文中绝对不能漏掉的关键人物、动作、道具、线索、场景变化或站位关系。这里只管拍什么，不能被概括掉。"></textarea>
+          </label>
+          <label class="prompt-constraint-field">镜头节奏与推进要求
+            <textarea id="shotRhythmRequirements" class="compact-textarea" maxlength="4590" placeholder="填写希望的节奏与镜头推进方式，例如快切、先铺场再反应、关键动作单独拆镜、同场景避免重复。这里只管怎么拆、怎么切、怎么推进。"></textarea>
+          </label>
+        </div>
+        <div class="prompt-focus-controls">
+          <label>画面描述模式
+            <select id="promptDensity">
+              <option value="strict" selected>导演级完整成品版（推荐）</option>
+              <option value="concise">通用小说精简版（Seedance 2.0 mini）</option>
+              <option value="balanced">通用小说标准版</option>
+              <option value="detailed">通用小说较细版</option>
+              <option value="example">案例学习增强版</option>
+              <option value="reference">样例对照转换版</option>
+            </select>
+          </label>
+          <span><strong>AI 自动 Skill 路由已开启，无需手动切换。</strong> 软件只根据当前原文挑选相关导演 Skill 并随同一次 AI 请求提交；最终画面仍由 AI 理解原文后生成，本地不会用固定模板覆盖 AI 结果。已覆盖系统、弹幕、聊天、文件、豪门、校园、宫斗、复仇、医院、庆功宴、家庭、法庭、婚礼、葬礼、警局、商战、认亲、热搜、直播、机场、车祸、火灾、军营、修仙、灵异、悬疑、末世、科幻、电竞等类型。</span>
+        </div>
+        <div id="promptExamplePanel" class="prompt-example-panel hidden">
+          <div class="prompt-example-head">
+            <div>
+              <strong>画面描述案例学习</strong>
+              <p class="hint">粘贴你认可的“原文 + 画面描述词”案例，先由 AI 提炼为通用拆镜逻辑。选择“案例学习增强版”或“样例对照转换版”时才叠加，不会影响精简版、标准版和高细节版。</p>
+            </div>
+            <button id="extractExampleLogicBtn" type="button" class="btn secondary">AI 提炼案例逻辑</button>
+          </div>
+          <div class="prompt-constraint-grid">
+            <label class="prompt-constraint-field">画面描述案例
+              <textarea id="promptExampleText" class="compact-textarea" maxlength="5000" placeholder="例如：原文分镜：……&#10;镜头画面描述提示词：00:00-00:04 | 远景 - 俯视 - 固定快推 - 硬切 | 在具体主场景的子场景，主体动作→环境构图强化→直接反应。"></textarea>
+            </label>
+            <label class="prompt-constraint-field">AI 提炼后的通用逻辑
+              <textarea id="promptExampleLogic" class="compact-textarea" maxlength="2400" placeholder="点击“AI 提炼案例逻辑”后生成；也可以手动修改。"></textarea>
+            </label>
+          </div>
+          <p id="promptExampleStatus" class="hint"></p>
+        </div>
+        <p class="hint">完整流程：先在第2步点击“AI判断内容类型与统一风格”；确认题材后回到第1步的第2小步填写强制人物名单并生成卡片；人物卡结果显示在第2步下方；最后点击“按整段原文生成分镜/画面”。</p>
+    </section>
+
+    <section class="panel style-panel">
+      <div class="section-head">
+        <div>
+          <p class="step">第 2 步</p>
+          <h2>内容类型与统一风格 / 强制名单人物卡结果</h2>
+        </div>
+        <div class="actions">
+          <button id="analyzeBtn" class="btn primary">AI判断内容类型与统一风格</button>
+        </div>
+      </div>
+      <div class="full-width-note global-analysis-advice-field">
+        <div class="field-head">
+          <label for="globalAnalysisAdvice">统一风格判断建议</label>
+        </div>
+        <textarea id="globalAnalysisAdvice" class="compact-textarea" maxlength="1800" placeholder="只用于当前原文的内容类型、时代、世界观和统一风格判断。人物卡将在下一步按强制名单单独生成。"></textarea>
+        <p class="hint">该建议只影响内容类型、时代和统一视觉，不参与人物姓名、性别、年龄阶段或人物外形判断。</p>
+      </div>
+      <div class="style-grid lock-grid">
+        <div class="lockable-field">
+          <div class="field-head">
+            <label for="genre">内容类型</label>
+            <div class="field-actions">
+              <span class="lock-state" data-lock-status="genre">未锁定</span>
+              <button type="button" class="btn secondary small-btn" data-lock-toggle="genre">确认锁定</button>
+            </div>
+          </div>
+          <input id="genre" maxlength="120" value="剧情情感短剧" />
+          <label for="genreNote" class="sub-label">内容类型修改意见</label>
+          <input id="genreNote" maxlength="200" placeholder="AI阅读整段原文后自由判断一个最准确的内容类型；这里可补充希望强调的核心关系、冲突或情绪方向，不提供固定标签词，也不强制短剧后缀" />
+          <div class="inline-actions">
+            <button type="button" class="btn secondary small-btn" data-optimize-style="genre">优化当前内容类型</button>
+          </div>
+        </div>
+        <div class="lockable-field">
+          <div class="field-head">
+            <label for="trailerStyle">统一风格附加视觉信息</label>
+            <div class="field-actions">
+              <span class="lock-state" data-lock-status="trailer_style">未锁定</span>
+              <button type="button" class="btn secondary small-btn" data-lock-toggle="trailer_style">确认锁定</button>
+            </div>
+          </div>
+          <input id="trailerStyle" maxlength="900" value="电视剧级现实情感短剧电影质感，35毫米胶片实拍，细腻自然胶片颗粒，中性暖灰柔光滤镜，35毫米与50毫米叙事镜头，轻微胶片噪点，中高对比度，低饱和度，自然侧光与清晰明暗层次，电影级生活化叙事构图，克制真实氛围感" />
+          <label for="trailerStyleNote" class="sub-label">风格附加视觉信息修改意见</label>
+          <input id="trailerStyleNote" maxlength="320" placeholder="按十一字段固定顺序输出；这里可要求更冷、更复古、光影更写实等，AI仍需完整保留十一项" />
+          <div class="inline-actions">
+            <button type="button" class="btn secondary small-btn" data-optimize-style="trailer_style">优化当前统一风格附加视觉信息</button>
+          </div>
+        </div>
+        <div class="lockable-field">
+          <div class="field-head">
+            <label for="negativePrompt">最终导出负面提示词（不参与 AI 拆镜）</label>
+            <div class="field-actions">
+              <span class="lock-state" data-lock-status="negative_prompt">未锁定</span>
+              <button type="button" class="btn secondary small-btn" data-lock-toggle="negative_prompt">确认锁定</button>
+            </div>
+          </div>
+          <input id="negativePrompt" maxlength="500" value="禁止字幕、禁止台词、禁止旁白字幕、禁止对白字卡、禁止气泡框文字（手机聊天记录界面内的消息气泡除外）、禁止水印、禁止Logo、禁止非手机聊天记录的可读文字；剧情明确需要时，允许清楚保留手机聊天记录文字" />
+        </div>
+        <div class="lockable-field">
+          <div class="field-head">
+            <label for="pictureLimitPrompt">最终导出画面限制（不参与 AI 拆镜）</label>
+            <div class="field-actions">
+              <span class="lock-state" data-lock-status="picture_limit_prompt">未锁定</span>
+              <button type="button" class="btn secondary small-btn" data-lock-toggle="picture_limit_prompt">确认锁定</button>
+            </div>
+          </div>
+          <textarea id="pictureLimitPrompt" class="compact-textarea" maxlength="500">禁止出现任何文字、横幅、漂浮UI元素。</textarea>
+        </div>
+        <div class="lockable-field">
+          <div class="field-head">
+            <label for="qualityConstraintPrompt">最终导出画质约束（不参与 AI 拆镜）</label>
+            <div class="field-actions">
+              <span class="lock-state" data-lock-status="quality_constraint_prompt">未锁定</span>
+              <button type="button" class="btn secondary small-btn" data-lock-toggle="quality_constraint_prompt">确认锁定</button>
+            </div>
+          </div>
+          <textarea id="qualityConstraintPrompt" class="compact-textarea" maxlength="800">4K超高清，浅景深，不生成字幕水印Logo。全程无任何内嵌字幕（无对白字幕、无标题、无说明文字）。</textarea>
+        </div>
+      </div>
+      <p class="hint">上面的负面提示词、画面限制、画质约束只在最终复制/导出时附加，不会作为小说内容、图片参考或画面参考发送给 AI，也不会参与拆镜。AI 生成阶段只接收一条精简边界：避免无关字幕、水印、Logo/UI，并保留剧情明确需要的系统、聊天、表格或监控界面。</p>
+      <div class="full-width-note lockable-field">
+        <div class="field-head">
+          <label for="remarkPrompt">最终输出首行提示</label>
+          <div class="field-actions">
+            <span class="lock-state" data-lock-status="remark_prompt">未锁定</span>
+            <button type="button" class="btn secondary small-btn" data-lock-toggle="remark_prompt">确认锁定</button>
+          </div>
+        </div>
+        <input id="remarkPrompt" maxlength="200" value="如果有疑似包含侵权/违规内容帮我修改。" />
+      </div>
+      <p class="hint"><strong>第 1 小步：</strong>点击“AI判断内容类型与统一风格”时只生成内容类型、时代、世界观和统一风格，不识别也不生成人物卡。人物卡、AI关系图和本地关键词索引由上方“按强制名单生成人物卡”独立完成。</p>
+      <div id="characters" class="character-grid"></div>
+      <p class="hint">人物图片或参考文字只用于提高强制人物卡外形质量。关系图负责称呼、代词、说话人、出镜状态和阶段卡选择，但对人物卡只有读取权限；用户修正关系后会保存，并优先于AI和本地自动判断。</p>
+
+      <section class="relationship-graph-panel" aria-label="人物关系图">
+        <div class="section-head relationship-head">
+          <div>
+            <p class="step">独立人物语义层</p>
+            <h3>人物关系图与分镜人物匹配</h3>
+            <p id="relationshipGraphStatus" class="hint">尚未由强制名单人物链路生成AI关系图。</p>
+          </div>
+          <div class="actions">
+            <button id="relationshipReanalyzeBtn" type="button" class="btn secondary">重新分析自动关系</button>
+            <button id="relationshipAddBtn" type="button" class="btn secondary">+ 添加关系</button>
+            <button id="relationshipAliasAddBtn" type="button" class="btn secondary">+ 添加称呼映射</button>
+            <button id="relationshipSaveBtn" type="button" class="btn primary">保存关系图</button>
+          </div>
+        </div>
+        <p class="hint">关系图只服务称呼/代词消解、对白说话人、出镜与仅提及判断、本镜人物勾选和正确阶段卡选择。它不能新增、删除、合并、改名、改阶段或改写人物卡外形。手动修改、确认和删除记录会保存，重新分析时不会被覆盖。</p>
+        <details open>
+          <summary>人物关系</summary>
+          <div id="relationshipGraphList" class="relationship-list"></div>
+        </details>
+        <details>
+          <summary>称呼、别称与指代映射</summary>
+          <div id="relationshipAliasList" class="relationship-list"></div>
+        </details>
+        <details>
+          <summary>待确认的模糊关系</summary>
+          <div id="relationshipPendingList" class="relationship-list"></div>
+        </details>
+      </section>
+
+      <div id="sceneOptions" class="character-grid hidden"></div>
+    </section>
+
+    <section class="workspace">
+      <section class="panel storyboard-panel">
+        <div class="section-head">
+          <div>
+            <p class="step">第 3 步</p>
+          <h2>原文分镜与对应时间片</h2>
+          </div>
+        </div>
+      <p class="hint">每张卡片显示：整段 AI 生成时确定的原文分镜、本镜人物、补充建议，以及当前命中的时间片。自动模式允许纯环境/纯道具镜头；手动勾选人物后点击“重新生成这一条”，所选人物必须真正写入画面正文。系统会结合上一分镜与当前原文自动补全省略的人物；勾选人物必须进入画面，判断不准时可手动勾选。这里显示的是整段 AI 生成时确定的原文分镜，改秒数不会改变它。`补充建议` 只在这条分镜不清晰时用于补充画面内容和导演调度意图，改完后点击 `重新生成这一条`，系统只重写当前分镜命中的镜头内容。</p>
+        <div id="scenes" class="scene-list"></div>
+      </section>
+
+      <aside class="panel output-panel">
+        <div class="section-head">
+          <div>
+            <p class="step">第 4 步</p>
+            <h2>AI 返回的总时间轴画面库</h2>
+          </div>
+          <div class="actions">
+            <button id="mergeBtn" class="btn secondary">按秒数分段并合并</button>
+          </div>
+        </div>
+        <div class="segment-controls">
+          <label>每段最大秒数<input id="segmentMaxSeconds" type="number" min="0" max="600" placeholder="例如 30" /></label>
+          <span id="durationSummary" class="duration-summary">总时长 0 秒</span>
+        </div>
+      <div id="durationTargetWarning" class="warning-box hidden"></div>
+      <p class="hint">这里展示的是整段总时间轴镜头卡，显示全局时间，并整理成 `00:00-00:02 | 景别 - 机位/角度 - 运镜 - 转场 | 自然嵌入主场景与子场景的画面描述提示词`。默认执行“一时段一视觉重点”：每个时段都带场景背景，正文重点写主体动作、直接反应和必要氛围；如原文有对白，可在对应时段下方补人物代号对白行。生成后的时间轴画面卡将作为最终分段的唯一来源；分段合并只调整段内相对时间，不会重新改写画面内容。</p>
+      <div id="timelineStateNotice" class="warning-box hidden"></div>
+        <div id="outputs" class="output-list empty-state">生成后会显示整段时间轴镜头卡。</div>
+      </aside>
+    </section>
+
+    <section class="panel final-panel">
+      <div class="section-head">
+        <div>
+          <p class="step">第 5 步</p>
+          <h2>最终分段提示词</h2>
+          <p class="final-subtitle">导出结构固定为：首行提示、统一风格、统一人物、镜头画面、负面提示词。镜头画面标准格式为：`00:00-00:02 | 景别 - 机位/角度 - 运镜 - 转场 | 自然嵌入主场景与子场景的画面描述提示词`；如果该时段有对白，则在下一行追加 `人物名+代号（说话状态）：“台词”`。最终复制/导出时才补上【画面限制】、【画质约束】；这两个字段不参与 AI 生成。</p>
+        </div>
+        <div class="actions">
+          <button id="copyAllBtn" class="btn primary">复制全部分段</button>
+          <button id="exportTxtBtn" class="btn secondary">导出 TXT</button>
+        </div>
+      </div>
+      <div id="mergeWarnings" class="warning-box hidden"></div>
+      <div id="segments" class="segments empty-state">先生成整段时间轴，再点击“按秒数分段并合并”。合并会直接复制当前画面卡内容，只调整段内相对时间，不会重新请求 AI 或改写镜头。</div>
+    </section>
+  </main>
+
+
+  <section id="instructionCenterPage" class="instruction-center-page" hidden>
+    <div class="instruction-center-shell">
+      <header class="instruction-center-topbar">
+        <div>
+          <p class="eyebrow">V77 Hotfix23 · 完整 AI 指令中心 · 协议锁定</p>
+          <h1>AI 指令中心</h1>
+          <p class="subtitle">只调整“AI应该怎样理解和生成内容”的语义要求；主功能输入字段、输出JSON结构、字段名、时间格式与接口协议由软件锁定，不能被这里或AI改写。</p>
+        </div>
+        <div class="instruction-center-top-actions">
+          <button id="instructionCenterRestoreAllBtn" type="button" class="btn danger-outline">恢复 Hotfix23 最新完整指令</button>
+          <button id="instructionCenterSaveProjectBtn" type="button" class="btn secondary">保存到当前项目</button>
+          <button id="instructionCenterSetDefaultBtn" type="button" class="btn primary">设为以后默认</button>
+          <button id="instructionCenterBackBtn" type="button" class="btn secondary">返回工具</button>
+        </div>
+      </header>
+
+      <div class="instruction-center-grid">
+        <aside class="instruction-center-sidebar">
+          <div class="instruction-center-sidebar-head">
+            <strong>功能 / 共享 Skill</strong>
+            <small>点击直接切换编辑</small>
+          </div>
+          <nav id="instructionCenterNav" class="instruction-center-nav"></nav>
+        </aside>
+
+        <main class="instruction-center-editor-panel">
+          <div class="instruction-center-editor-head">
+            <div>
+              <p id="instructionCenterGroup" class="step">当前功能</p>
+              <h2 id="instructionCenterTitle">AI 指令</h2>
+              <p id="instructionCenterDescription" class="hint"></p>
+            </div>
+            <div class="instruction-center-editor-actions">
+              <button id="instructionCenterRestoreCurrentBtn" type="button" class="btn secondary">恢复当前项最新默认</button>
+              <button id="instructionCenterSaveCurrentBtn" type="button" class="btn primary">保存当前修改</button>
+            </div>
+          </div>
+
+          <label class="instruction-center-editor-label">完整当前指令
+            <textarea id="instructionCenterEditor" class="instruction-center-editor" spellcheck="false" placeholder="这里显示当前功能实际使用的完整可编辑语义指令。"></textarea>
+          </label>
+
+          <section class="protocol-lock-card">
+            <div class="protocol-lock-head"><strong>🔒 输入 / 输出协议保护区</strong><span>不可修改</span></div>
+            <pre id="instructionCenterProtocolLock"></pre>
+          </section>
+
+          <section class="instruction-ai-helper">
+            <div class="instruction-ai-helper-head">
+              <div>
+                <strong>AI 帮忙修改指令</strong>
+                <p class="hint">描述实际输出问题或你希望怎样优化。AI只能改当前语义指令，不能改变主功能输入字段、JSON输出结构、字段名或时间格式。</p>
+              </div>
+              <div class="instruction-ai-helper-actions">
+                <button id="instructionCenterAiReviewBtn" type="button" class="btn secondary">AI 给修改意见</button>
+                <button id="instructionCenterAiRewriteBtn" type="button" class="btn primary">AI 按意见修改</button>
+                <button id="instructionCenterAiCorrectBtn" type="button" class="btn secondary">AI 纠正错误指令</button>
+              </div>
+            </div>
+            <textarea id="instructionCenterFeedback" class="instruction-center-feedback" placeholder="例如：临时人物经常漏出镜；对白镜头一直只拍说话人；同一个场景风格会跳；不要改变现有JSON输出协议。"></textarea>
+            <div id="instructionCenterAiStatus" class="settings-message"></div>
+            <label>AI 意见 / 修改结果
+              <textarea id="instructionCenterAiResult" class="instruction-center-result" readonly placeholder="AI分析结果会显示在这里。AI按意见修改时，安全校验通过后会直接写回上方当前指令编辑器，但仍需你点击“保存当前修改”。"></textarea>
+            </label>
+          </section>
+
+          <section class="instruction-preview-card">
+            <div class="instruction-preview-head">
+              <div>
+                <strong>实际发送给 AI 的可编辑语义指令预览</strong>
+                <p class="hint">查看当前功能最终实际叠加的“全局指令 + 当前功能指令 + 对应共享 Skill”。软件锁定的JSON协议、接口字段和当前小说/人物/分镜实时数据由运行层另外提交，不在此编辑。</p>
+              </div>
+              <button id="instructionCenterPreviewBtn" type="button" class="btn secondary">刷新实际发送预览</button>
+            </div>
+            <div id="instructionCenterPreviewMeta" class="hint"></div>
+            <textarea id="instructionCenterPreview" class="instruction-center-preview" readonly></textarea>
+          </section>
+        </main>
+      </div>
+    </div>
+  </section>
+
+
+  <dialog id="promptSettingsDialog" class="modal prompt-modal">
+    <section class="modal-card prompt-modal-card">
+      <div class="modal-head">
+        <div>
+          <p class="step">AI 指令管理</p>
+          <h2>每一步提交给 AI 的自定义指令</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="promptSettingsDialog" aria-label="关闭">×</button>
+      </div>
+      <p class="hint">这里的内容会随对应按钮一起提交给 AI，并保存在当前电脑和项目中。以后只改这里，不需要修改软件代码。全局总指令会叠加到下面每一步。</p>
+      <div class="prompt-instruction-list">
+        <label class="prompt-instruction-card">
+          <span><strong>全局总指令</strong><small>所有 AI 操作都会追加</small></span>
+          <textarea id="aiInstructionGlobal" maxlength="5000" placeholder="填写所有步骤共同遵守的要求"></textarea>
+        </label>
+        <label class="prompt-instruction-card">
+          <span><strong>第 2 步第一小步：判断内容类型与统一风格</strong><small>对应“AI判断内容类型与统一风格”</small></span>
+          <textarea id="aiInstructionAnalysis" maxlength="5000"></textarea>
+        </label>
+        <label class="prompt-instruction-card">
+          <span><strong>第 2 步：内容类型优化</strong><small>对应“优化当前内容类型”</small></span>
+          <textarea id="aiInstructionGenre" maxlength="5000"></textarea>
+        </label>
+        <label class="prompt-instruction-card">
+          <span><strong>第 2 步：统一视觉风格优化</strong><small>对应“优化当前统一风格附加视觉信息”</small></span>
+          <textarea id="aiInstructionVisualStyle" maxlength="5000"></textarea>
+        </label>
+        <label class="prompt-instruction-card">
+          <span><strong>第 2 步第二小步：单个人物优化</strong><small>严格按当前性别、剧情年龄阶段和题材优化完整外形段落</small></span>
+          <textarea id="aiInstructionSingleCharacter" maxlength="5000"></textarea>
+        </label>
+        <label class="prompt-instruction-card">
+          <span><strong>第 2 步第二小步：强制名单生成人物卡</strong><small>对应“按强制名单生成人物卡”</small></span>
+          <textarea id="aiInstructionAllCharacters" maxlength="5000"></textarea>
+        </label>
+        <label class="prompt-instruction-card emphasis">
+          <span><strong>第 3/4 步：通用小说原文转画面</strong><small>控制题材自适应、前后文连续性、简洁拆镜和画面重点</small></span>
+          <textarea id="aiInstructionOutline" maxlength="6000"></textarea>
+        </label>
+        <label class="prompt-instruction-card emphasis">
+          <span><strong>第 3 步：通用逻辑重生成当前一条</strong><small>结合上下文与人物卡重写，不套固定案例</small></span>
+          <textarea id="aiInstructionSceneRegenerate" maxlength="6000"></textarea>
+        </label>
+      </div>
+      <p id="promptSettingsMessage" class="settings-message"></p>
+      <div class="modal-actions">
+        <button type="button" id="resetPromptSettingsBtn" class="btn danger-outline">恢复默认指令</button>
+        <span class="grow"></span>
+        <button type="button" class="btn secondary" data-close-dialog="promptSettingsDialog">取消</button>
+        <button type="button" id="savePromptSettingsBtn" class="btn primary">保存 AI 指令</button>
+      </div>
+    </section>
+  </dialog>
+
+  <dialog id="settingsDialog" class="modal">
+    <form id="settingsForm" method="dialog" class="modal-card">
+      <div class="modal-head">
+        <div>
+          <p class="step">AI 设置</p>
+          <h2>中转站模型配置</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="settingsDialog" aria-label="关闭">×</button>
+      </div>
+      <p class="hint">支持 OpenAI Chat Completions 兼容中转站。API 地址可填 `https://地址/v1`，也可直接填到 `/chat/completions`。</p>
+      <div class="settings-grid">
+        <label>模式
+          <select id="settingsMode"><option value="remote">中转站模型</option><option value="local">本地规则草稿</option></select>
+        </label>
+        <label>模型名称<input id="settingsModel" maxlength="200" placeholder="例如 gpt-4.1-mini" /></label>
+        <label class="full">API 地址<input id="settingsBaseUrl" maxlength="500" placeholder="https://your-relay.example/v1" /></label>
+        <label>AI 最长等待（秒）
+          <input id="settingsAiTimeout" type="number" min="30" max="400" step="10" value="400" inputmode="numeric" />
+        </label>
+        <label>等待说明
+          <input value="30-400 秒；模型返回即结束" disabled />
+        </label>
+        <label class="full">API Key<input id="settingsApiKey" type="password" maxlength="1000" autocomplete="new-password" placeholder="留空则保留已保存的 Key" /></label>
+      </div>
+      <div class="modal-note">最长等待可调到 400 秒；这是上限，不会强制等待，AI 提前返回会立即完成。连接阶段仍会快速失败，生成等待才使用该上限。密钥和等待设置只保存在当前电脑的 <code>data/settings.json</code>；耗时摘要写入 <code>data/ai_performance.log</code>，完整请求/返回追踪写入 <code>data/ai_trace.log</code>，不会记录 API Key 或 Authorization。</div>
+      <p id="settingsMessage" class="settings-message"></p>
+      <div class="modal-actions">
+        <button type="button" id="clearKeyBtn" class="btn danger">清除已保存 Key</button>
+        <span class="grow"></span>
+        <button type="button" id="testSettingsBtn" class="btn secondary">测试连接</button>
+        <button type="button" id="saveSettingsBtn" class="btn primary">保存设置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="historyDialog" class="modal">
+    <section class="modal-card history-card">
+      <div class="modal-head">
+        <div><p class="step">本机草稿</p><h2>历史项目</h2></div>
+        <button type="button" class="icon-btn" data-close-dialog="historyDialog" aria-label="关闭">×</button>
+      </div>
+      <div id="projectList" class="project-list empty-state">加载中</div>
+    </section>
+  </dialog>
+
+  <dialog id="ttsDialog" class="modal">
+    <form method="dialog" class="modal-card">
+      <div class="modal-head">
+        <div>
+          <p class="step">配音设置</p>
+          <h2>整段原文配音参数</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="ttsDialog" aria-label="关闭">×</button>
+      </div>
+      <p class="hint">生成配音时会直接读取第 1 步里的整段原文，并按这里的语音、风格、语速和音调配置生成。</p>
+      <div class="settings-grid">
+        <label>语音选择
+          <select id="ttsVoice">
+            <option value="zh-CN-XiaoxiaoNeural">晓晓（女声·温柔）</option>
+            <option value="zh-CN-YunxiNeural">云希（男声·清朗）</option>
+            <option value="zh-CN-YunyangNeural">云扬（男声·阳光）</option>
+            <option value="zh-CN-XiaoyiNeural">晓伊（女声·甜美）</option>
+            <option value="zh-CN-YunjianNeural">云健（男声·稳重）</option>
+            <option value="zh-CN-XiaochenNeural">晓辰（女声·知性）</option>
+            <option value="zh-CN-XiaohanNeural">晓涵（女声·优雅）</option>
+            <option value="zh-CN-XiaomengNeural">晓梦（女声·梦幻）</option>
+            <option value="zh-CN-XiaomoNeural">晓墨（女声·文艺）</option>
+            <option value="zh-CN-XiaoqiuNeural">晓秋（女声·成熟）</option>
+            <option value="zh-CN-XiaoruiNeural">晓睿（女声·智慧）</option>
+            <option value="zh-CN-XiaoshuangNeural">晓双（女声·活泼）</option>
+            <option value="zh-CN-XiaoxuanNeural">晓萱（女声·清新）</option>
+            <option value="zh-CN-XiaoyanNeural">晓颜（女声·柔美）</option>
+            <option value="zh-CN-XiaoyouNeural">晓悠（女声·悠扬）</option>
+            <option value="zh-CN-XiaozhenNeural">晓甄（女声·端庄）</option>
+            <option value="zh-CN-YunfengNeural">云枫（男声·磁性）</option>
+            <option value="zh-CN-YunhaoNeural">云皓（男声·豪迈）</option>
+            <option value="zh-CN-YunxiaNeural">云夏（男声·热情）</option>
+            <option value="zh-CN-YunyeNeural">云野（男声·野性）</option>
+            <option value="zh-CN-YunzeNeural">云泽（男声·深沉）</option>
+          </select>
+        </label>
+        <label>说话风格
+          <select id="ttsStyle">
+            <option value="general">通用</option>
+            <option value="cheerful">开心</option>
+            <option value="sad">悲伤</option>
+            <option value="friendly">友好</option>
+            <option value="chat">聊天</option>
+          </select>
+        </label>
+        <label>语速
+          <input id="ttsSpeed" type="number" min="0.5" max="2" step="0.1" value="1" />
+        </label>
+        <label>音调
+          <input id="ttsPitch" type="number" min="-50" max="50" step="1" value="0" />
+        </label>
+      </div>
+      <div class="modal-note">当前采用临时下载模式：生成成功后本次会话内可试听和下载，关闭页面或重新打开项目后如需音频文件需要重新生成。</div>
+      <div class="modal-actions">
+        <span class="grow"></span>
+        <button type="button" class="btn secondary" data-close-dialog="ttsDialog">取消</button>
+        <button type="button" id="saveTtsSettingsBtn" class="btn primary">保存配音设置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="textCleanupDialog" class="modal">
+    <form method="dialog" class="modal-card">
+      <div class="modal-head">
+        <div>
+          <p class="step">文本处理</p>
+          <h2>章节清洗与空行处理</h2>
+        </div>
+        <button type="button" class="icon-btn" data-close-dialog="textCleanupDialog" aria-label="关闭">×</button>
+      </div>
+      <p class="hint">输入 ID 和完整内容后，一键按固定规则执行章节序号清洗与空行处理，并直接下载 TXT。</p>
+      <div class="settings-grid">
+        <label class="full">ID
+          <input id="textCleanupId" maxlength="120" placeholder="只作为 TXT 文件名，不参与内容处理" />
+        </label>
+        <label class="full">完整内容
+          <textarea id="textCleanupInput" class="large-textarea" placeholder="粘贴需要处理的完整原文内容"></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <span class="grow"></span>
+        <button type="button" class="btn secondary" data-close-dialog="textCleanupDialog">取消</button>
+        <button type="button" id="runTextCleanupBtn" class="btn primary">一键处理并下载 TXT</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="characterTemplate">
+    <article class="character-card">
+      <div class="card-top"><strong class="character-title"></strong><button type="button" class="icon-btn delete-character" title="删除人物">×</button></div>
+      <div class="character-fields">
+        <label>人物名字（支持括号别称）<input data-field="name" maxlength="60" placeholder="例如：我（女主）" /></label>
+        <label>性别<select data-field="gender"><option value="女">女</option><option value="男">男</option><option value="未定">未定</option></select></label>
+        <label class="full">人物外形细节修改意见（高优先级）<textarea data-field="appearanceNote" maxlength="4000" rows="4" placeholder="可直接写完整目标，例如：年轻亚洲女性，精致鹅蛋脸、小V脸、冷白细腻皮肤、清冷黑眸、中分黑色披肩长发、高挑优雅体态、黑色亮片修身晚礼服、白色轻纱披肩、多层珍珠项链和珍珠耳坠；也可写禁用项，例如：不要网红脸、不要高跟鞋、不要成熟体态。AI会结合当前人物事实与年龄阶段重写完整外形，不使用固定人物模板。"></textarea></label>
+        <label class="full">剧情年龄阶段<select data-field="ageStages"><option value="待AI判断">待AI判断</option><option value="女婴儿">女婴儿</option><option value="男婴儿">男婴儿</option><option value="小女孩">小女孩</option><option value="小男孩">小男孩</option><option value="少女">少女</option><option value="少年">少年</option><option value="年轻女性">年轻女性</option><option value="年轻男性">年轻男性</option><option value="中年女性">中年女性</option><option value="中年男性">中年男性</option><option value="老年女性">老年女性</option><option value="老年男性">老年男性</option></select></label>
+        <label class="full">外形细节<textarea data-field="appearance" maxlength="5000" rows="6" placeholder="AI根据当前小说、身份、种族、世界观、时间线和年龄阶段自由设计完整外形。"></textarea></label>
+      </div>
+    </article>
+  </template>
+
+  <template id="characterTemplateV2">
+    <article class="character-card">
+      <div class="card-top"><strong class="character-title"></strong><button type="button" class="icon-btn delete-character" title="删除人物">×</button></div>
+      <div class="character-fields">
+        <label>人物名字（支持括号别称）<input data-field="name" maxlength="60" placeholder="例如：我（女主）" /></label>
+        <label>性别<select data-field="gender"><option value="女">女</option><option value="男">男</option><option value="未定">未定</option></select></label>
+        <div class="character-actions">
+          <button type="button" class="btn secondary small-btn" data-field="optimizeCharacter">优化人物</button>
+        </div>
+        <label class="full">人物外形细节修改意见（高优先级）<textarea data-field="appearanceNote" maxlength="4000" rows="4" placeholder="可直接写完整目标，例如：年轻亚洲女性，精致鹅蛋脸、小V脸、冷白细腻皮肤、清冷黑眸、中分黑色披肩长发、高挑优雅体态、黑色亮片修身晚礼服、白色轻纱披肩、多层珍珠项链和珍珠耳坠；也可写禁用项，例如：不要网红脸、不要高跟鞋、不要成熟体态。AI会结合当前人物事实与年龄阶段重写完整外形，不使用固定人物模板。"></textarea></label>
+        <label class="full">剧情年龄阶段<select data-field="ageStages"><option value="待AI判断">待AI判断</option><option value="女婴儿">女婴儿</option><option value="男婴儿">男婴儿</option><option value="小女孩">小女孩</option><option value="小男孩">小男孩</option><option value="少女">少女</option><option value="少年">少年</option><option value="年轻女性">年轻女性</option><option value="年轻男性">年轻男性</option><option value="中年女性">中年女性</option><option value="中年男性">中年男性</option><option value="老年女性">老年女性</option><option value="老年男性">老年男性</option></select></label>
+        <label class="full">外形细节<textarea data-field="appearance" maxlength="5000" rows="6" placeholder="AI根据当前小说、身份、种族、世界观、时间线和年龄阶段自由设计完整外形。"></textarea></label>
+      </div>
+    </article>
+  </template>
+
+  <template id="sceneTemplate">
+    <article class="scene-card">
+      <div class="scene-head">
+        <strong class="scene-title"></strong>
+        <div class="scene-tools"><button type="button" class="move-up icon-btn" title="上移">↑</button><button type="button" class="move-down icon-btn" title="下移">↓</button></div>
+      </div>
+      <label>原文分镜
+        <textarea data-field="text" class="scene-text" maxlength="800" placeholder="整段生成后，这里会显示 AI 确定的原文分镜，只读显示"></textarea>
+      </label>
+      <div class="scene-bottom">
+        <div class="person-area"><span class="field-label">本镜人物</span><div class="scene-characters" data-field="characters"></div></div>
+      </div>
+      <label>补充建议（可选）
+        <textarea data-field="guidance" class="scene-text" placeholder="这条分镜不理想时，直接说你想怎么改。可以按原文、当前画面、本镜人物和补充意见重新修改当前分镜，允许增删、重排、重写当前 scene 内的画面与界面镜头拆法。如果是手机界面镜头，可明确要求保留白天、夜晚、雨天、室内、室外、公寓客厅等事实环境信息，但不要写光影、色调、质感这类风格化词。只影响生成，不会写进最终导出文本。"></textarea>
+      </label>
+      <p class="soft-warning hidden" data-field="sceneWarning"></p>
+      <div class="mapped-outline" data-field="mappedOutline"></div>
+      <div class="scene-actions"><button type="button" class="btn secondary generate-one">重新生成这一条</button></div>
+    </article>
+  </template>
+
+  <template id="outputTemplate">
+    <article class="output-card">
+      <div class="output-head"><strong class="output-title"></strong><label>秒数<input data-field="duration" type="number" min="1" max="60" /></label></div>
+      <p class="output-scene"></p>
+      <p class="output-guidance"></p>
+      <p class="output-source"></p>
+      <p class="output-meta"></p>
+      <textarea data-field="prompt" class="output-text" maxlength="1200" placeholder="AI 返回的整段时间轴镜头正文，可直接微调"></textarea>
+      <p class="format-preview"></p>
+    </article>
+  </template>
+
+  <template id="segmentTemplate">
+    <article class="segment-card">
+      <div class="segment-head">
+        <div><strong class="segment-title"></strong><span class="segment-meta"></span></div>
+        <div class="segment-head-actions">
+          <button type="button" class="btn secondary copy-segment">复制本段</button>
+        </div>
+      </div>
+      <textarea class="segment-text"></textarea>
+    </article>
+  </template>
+
+  <script>
+  (() => {
+    const params = new URLSearchParams(location.search);
+    const instance = params.get("instance") || params.get("session") || `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+    const startedAt = Date.now();
+    // V77 intentionally does not broadcast or retire other windows. Every browser profile/window is an independent instance.
+
+    window.__VIDEO_PROMPT_TOOL_BUILD__ = { version: "v77-hotfix23", session: instance, instance, startedAt, cleanCache: true, multiInstance: true };
+  })();
+</script>
+  <script src="/novel-panel/workbench/bridge.js"></script>
+  <script src="/novel-panel/workbench/outline-quality-gate.js"></script>
+  <script src="/novel-panel/workbench/app.js"></script>
+  <script src="/novel-panel/workbench/character-core/character-core.js"></script>
+</body>
+</html>
