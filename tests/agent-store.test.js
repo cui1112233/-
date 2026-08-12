@@ -107,6 +107,22 @@ test('renames, clears, and deletes only the requested task', t => {
   assert.equal(store.getTask('writer_a', first.id).id, first.id);
 });
 
+test('lists same-timestamp tasks deterministically with later insertion first', t => {
+  const usersDir = createUsersDir(t);
+  let sequence = 0;
+  const store = createAgentStore({
+    usersDir,
+    id: () => `task-${++sequence}`,
+    now: () => '2026-08-12T00:00:00.000Z'
+  });
+  const first = store.createTask('writer_a');
+  const second = store.createTask('writer_a');
+
+  assert.deepEqual(store.listTasks('writer_a').map(task => task.id), [second.id, first.id]);
+  store.renameTask('writer_a', first.id, '同时间更新');
+  assert.deepEqual(store.listTasks('writer_a').map(task => task.id), [second.id, first.id]);
+});
+
 test('rejects invalid messages and titles and enforces task and message limits', t => {
   const usersDir = createUsersDir(t);
   let sequence = 0;
