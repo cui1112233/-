@@ -81,8 +81,9 @@ CREATE TABLE IF NOT EXISTS shuihuo_asset_templates (
 CREATE TABLE IF NOT EXISTS shuihuo_assets (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   project_id BIGINT NOT NULL,
-  asset_type_id BIGINT NULL,
-  name VARCHAR(255) NOT NULL,
+	asset_type_id BIGINT NULL,
+	category VARCHAR(32) NOT NULL DEFAULT 'character',
+	name VARCHAR(255) NOT NULL,
   prompt MEDIUMTEXT NOT NULL,
   reference_object_key VARCHAR(1024) NOT NULL DEFAULT '',
   source VARCHAR(32) NOT NULL DEFAULT 'manual',
@@ -274,7 +275,28 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 `},
 	{version: 7, sql: shuihuoProductionMigrationSQL, apply: applyShuihuoProductionSchema},
 	{version: 8, sql: shuihuoGovernanceMigrationSQL, apply: applyShuihuoGovernanceSchema},
+	{version: 9, apply: addShuihuoAssetCategory},
+	{version: 10, sql: shuihuoAnalysisSnapshotsMigrationSQL, apply: seedShuihuoAnalysisPrompts},
 }
+
+const shuihuoAnalysisSnapshotsMigrationSQL = `
+CREATE TABLE IF NOT EXISTS shuihuo_prompt_snapshots (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  project_id BIGINT NOT NULL,
+  model_id BIGINT NOT NULL,
+  model_version_id BIGINT NOT NULL,
+  purpose VARCHAR(64) NOT NULL,
+  base_prompt_version_id BIGINT NOT NULL,
+  addon_prompt_version_ids JSON NULL,
+  rendered_prompt MEDIUMTEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_prompt_snapshots_project_created (project_id, created_at),
+  CONSTRAINT fk_shuihuo_prompt_snapshots_project FOREIGN KEY (project_id) REFERENCES shuihuo_projects(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_prompt_snapshots_model FOREIGN KEY (model_id) REFERENCES model_definitions(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_shuihuo_prompt_snapshots_model_version FOREIGN KEY (model_version_id) REFERENCES model_versions(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_shuihuo_prompt_snapshots_base_prompt FOREIGN KEY (base_prompt_version_id) REFERENCES prompt_versions(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
 	conn, err := db.Conn(ctx)
@@ -351,6 +373,44 @@ func applyShuihuoProductionSchema(ctx context.Context, conn *sql.Conn) error {
 
 func applyShuihuoGovernanceSchema(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, shuihuoGovernanceMigrationSQL)
+}
+
+func addShuihuoAssetCategory(ctx context.Context, conn *sql.Conn) error {
+	exists, err := mysqlColumnExists(ctx, conn, "shuihuo_assets", "category")
+	if err != nil || exists {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, "ALTER TABLE shuihuo_assets ADD COLUMN category VARCHAR(32) NOT NULL DEFAULT 'character' AFTER asset_type_id")
+	return err
+}
+
+func seedShuihuoAnalysisPrompts(ctx context.Context, conn *sql.Conn) error {
+	if err := applySQLStatements(ctx, conn, shuihuoAnalysisSnapshotsMigrationSQL); err != nil {
+		return err
+	}
+	for _, preset := range []struct{ purpose, name, body string }{
+		{"segmentation", "智能分段", "你是小说视频生产的分段分析服务。只依据输入原文，不得编造人物、情节、因果或结局。只返回 JSON 数组，不要 Markdown 或代码围栏。数组每项必须是 {\\\"text\\\":\\\"原文分段\\\"}。\\n\\n原文：{{novel_text}}"},
+		{"assets", "资产候选", "你是小说视频生产的资产分析服务。只依据输入原文，不得编造人物、场景、道具、关系或剧情。只返回 JSON 数组，不要 Markdown 或代码围栏。数组每项必须为 {\\\"category\\\":\\\"character|scene|prop\\\",\\\"name\\\":\\\"名称\\\",\\\"prompt\\\":\\\"可拍摄的视觉提示词\\\"}。\\n\\n原文：{{novel_text}}"},
+	} {
+		result, err := conn.ExecContext(ctx, `INSERT INTO prompt_definitions(module, purpose, name, enabled) VALUES('shuihuo-production', ?, ?, TRUE) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, preset.purpose, preset.name)
+		if err != nil {
+			return err
+		}
+		definitionID, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		var count int
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM prompt_versions WHERE prompt_definition_id = ?`, definitionID).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := conn.ExecContext(ctx, `INSERT INTO prompt_versions(prompt_definition_id, version_number, parameters_json, body) VALUES(?, 1, JSON_ARRAY('novel_text'), ?)`, definitionID, preset.body); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func applySQLStatements(ctx context.Context, conn *sql.Conn, script string) error {

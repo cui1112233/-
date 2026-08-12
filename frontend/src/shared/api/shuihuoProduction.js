@@ -9,6 +9,8 @@ export function deleteProject(id) { return apiRequest(`${base}/projects/${id}`, 
 export function createAsset(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function fixedSegmentation(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segmentation/fixed`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function importSegmentation(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segmentation/import`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function smartSegmentation(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segmentation/smart`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function analyzeAssets(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/analysis/assets`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function confirmSegmentation(projectId, candidates) { return apiRequest(`${base}/projects/${projectId}/segmentation/confirm`, { method: 'POST', body: JSON.stringify({ candidates }) }); }
 export function createSegment(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segments`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function updateSegment(segmentId, payload) { return apiRequest(`${base}/segments/${segmentId}`, { method: 'PUT', body: JSON.stringify(payload) }); }

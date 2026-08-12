@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"qiantie/backend/internal/shuihuo/models"
 	shuihuostorage "qiantie/backend/internal/shuihuo/storage"
 	shuihuotasks "qiantie/backend/internal/shuihuo/tasks"
 	"qiantie/backend/internal/store"
@@ -14,17 +15,23 @@ import (
 )
 
 type Dependencies struct {
-	DB           *sql.DB
-	TokenSecret  string
-	BridgeSecret string
-	SeedUsername string
-	SeedPassword string
-	Users        UserStore
-	Configs      ConfigStore
-	Histories    HistoryStore
-	Objects      shuihuostorage.ObjectStorage
-	Queue        shuihuotasks.Queue
-	Health       ShuihuoHealth
+	DB                *sql.DB
+	TokenSecret       string
+	BridgeSecret      string
+	SeedUsername      string
+	SeedPassword      string
+	Users             UserStore
+	Configs           ConfigStore
+	Histories         HistoryStore
+	Objects           shuihuostorage.ObjectStorage
+	Queue             shuihuotasks.Queue
+	Health            ShuihuoHealth
+	TextCompletion    TextCompletionProvider
+	TextModelEndpoint func(reference string) string
+}
+
+type TextCompletionProvider interface {
+	Complete(ctx context.Context, model models.Definition, renderedPrompt string) (string, error)
 }
 
 type UserStore interface {
@@ -71,6 +78,7 @@ func (api *API) Router() http.Handler {
 			r.Post("/shuihuo-production/projects/{id}/segmentation/fixed", api.handleFixedSegmentation)
 			r.Post("/shuihuo-production/projects/{id}/segmentation/import", api.handleImportSegmentation)
 			r.Post("/shuihuo-production/projects/{id}/segmentation/smart", api.handleSmartSegmentation)
+			r.Post("/shuihuo-production/projects/{id}/analysis/assets", api.handleShuihuoAssetAnalysis)
 			r.Post("/shuihuo-production/projects/{id}/segmentation/confirm", api.handleConfirmSegmentation)
 			r.Post("/shuihuo-production/projects/{id}/segments", api.handleCreateShuihuoSegment)
 			r.Put("/shuihuo-production/projects/{id}/segments/order", api.handleReorderShuihuoSegments)

@@ -17,6 +17,7 @@ type Config struct {
 	Storage          StorageConfig
 	RedisAddr        string
 	ModelCredentials map[string]string
+	ModelEndpoints   map[string]string
 }
 
 type StorageConfig struct {
@@ -41,6 +42,7 @@ func Load() (Config, error) {
 		LegacyDataDir:    getenv("QIANTIE_LEGACY_DATA_DIR", "../data/users"),
 		RedisAddr:        getenv("QIANTIE_REDIS_ADDR", ""),
 		ModelCredentials: parseCredentials(getenv("QIANTIE_MODEL_CREDENTIALS", "")),
+		ModelEndpoints:   parseCredentials(getenv("QIANTIE_MODEL_ENDPOINTS", "")),
 		Storage: StorageConfig{
 			Driver:        getenv("QIANTIE_STORAGE_DRIVER", "local"),
 			LocalDir:      getenv("QIANTIE_STORAGE_LOCAL_DIR", "../data/shuihuo-objects"),
@@ -84,6 +86,10 @@ func (c Config) ModelCredential(reference string) (string, error) {
 		return value, nil
 	}
 	return "", fmt.Errorf("model credential %q is not configured", reference)
+}
+
+func (c Config) ModelEndpoint(reference string) string {
+	return strings.TrimSpace(c.ModelEndpoints[reference])
 }
 
 func parseCredentials(raw string) map[string]string {

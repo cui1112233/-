@@ -37,3 +37,21 @@ func TestAssembleReplacesOnlyKnownVariables(t *testing.T) {
 		t.Fatalf("rendered = %q", got.Rendered)
 	}
 }
+
+func TestPromptSnapshotRecordsRenderedTextWithoutPublicLeak(t *testing.T) {
+	service := NewService(testRepo{base: Preset{ID: 10, VersionID: 20, Enabled: true, Body: "仅服务端预设：{{novel_text}}"}}, "shuihuo-production")
+	snapshot, err := service.Assemble(context.Background(), Selection{BaseID: 10}, AssembleInput{NovelText: "原文"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.BaseVersionID != 20 || snapshot.Rendered == "" {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	public, err := json.Marshal(snapshot.Public())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(public), "仅服务端预设") || strings.Contains(string(public), "原文") {
+		t.Fatalf("prompt body leaked: %s", public)
+	}
+}
