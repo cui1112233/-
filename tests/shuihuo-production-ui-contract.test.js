@@ -107,7 +107,11 @@ test('task drawer submits one segment only and leaves batch work to the batch mo
   assert.doesNotMatch(drawer, /对全部已确认分段批量提交/);
   assert.doesNotMatch(drawer, /Promise\.allSettled/);
   assert.doesNotMatch(drawer, /targetSegments\.map/);
-  assert.match(drawer, /segments\.filter\(segment => segment\.confirmed\)\.map\(segment =>/);
+  assert.match(drawer, /item\?\.media \|\| item/);
+  assert.match(drawer, /item\?\.kind === 'image' && item\.isPrimary === true/);
+  assert.match(drawer, /kind !== 'video' \|\| primaryImageSegmentIds\.has\(segment\.id\)/);
+  assert.match(drawer, /setSegmentId\(undefined\)/);
+  assert.match(drawer, /缺少主图片/);
 });
 
 test('admin catalog reports configuration safely without private provider fields', () => {

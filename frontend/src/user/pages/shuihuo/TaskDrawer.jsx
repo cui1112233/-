@@ -13,6 +13,15 @@ function completedMediaFor(task, media) {
 export function TaskDrawer({ open, project, segments, media = [], readiness, onClose, onCompleted }) {
   const [models, setModels] = useState([]); const [tasks, setTasks] = useState([]); const [modelId, setModelId] = useState(); const [segmentId, setSegmentId] = useState(); const [kind, setKind] = useState('image'); const [busy, setBusy] = useState(false);
   const availableModels = useMemo(() => models.filter(model => model.kind === kind), [models, kind]);
+  const primaryImageSegmentIds = useMemo(() => new Set(
+    media.map(item => item?.media || item)
+      .filter(item => item?.kind === 'image' && item.isPrimary === true && item.segmentId)
+      .map(item => item.segmentId)
+  ), [media]);
+  const eligibleSegments = useMemo(() => segments.filter(segment => (
+    segment.confirmed && (kind !== 'video' || primaryImageSegmentIds.has(segment.id))
+  )), [kind, primaryImageSegmentIds, segments]);
+  const eligibleSegmentIds = useMemo(() => new Set(eligibleSegments.map(segment => segment.id)), [eligibleSegments]);
   const enabledModelKinds = useMemo(() => new Set(readiness?.enabledModelKinds || []), [readiness]);
   const runtimeReady = Boolean(readiness?.database?.ready && readiness?.redis?.ready && readiness?.storage?.ready);
   const kindReady = runtimeReady && enabledModelKinds.has(kind);
@@ -24,8 +33,12 @@ export function TaskDrawer({ open, project, segments, media = [], readiness, onC
     return () => window.clearInterval(timer);
   }, [open, project?.id, tasks, onCompleted]);
   useEffect(() => { setModelId(undefined); }, [kind]);
+  useEffect(() => {
+    if (segmentId && !eligibleSegmentIds.has(segmentId)) setSegmentId(undefined);
+  }, [eligibleSegmentIds, segmentId]);
   async function submit() {
     if (!segmentId || !modelId) { message.warning(availableModels.length ? '请选择分段与模型' : '管理员尚未启用对应模型'); return; }
+    if (kind === 'video' && !primaryImageSegmentIds.has(segmentId)) { message.warning('该分段缺少主图片，不能提交图生视频任务'); return; }
     setBusy(true);
     try {
       await createTask(project.id, { segmentId, modelId, kind });
@@ -45,7 +58,7 @@ export function TaskDrawer({ open, project, segments, media = [], readiness, onC
   return <Drawer title="生成任务中心" open={open} onClose={onClose} width={520} extra={<Button type="primary" onClick={submit} loading={busy} disabled={!kindReady}>提交任务</Button>}>
     <div className="shuihuo-task-form">
       <Select value={kind} onChange={setKind} options={[{ value:'image', label:'生成图片' }, { value:'video', label:'图生视频' }, { value:'audio', label:'生成配音' }]} />
-      <Select placeholder="选择已确认分段" value={segmentId} onChange={setSegmentId} options={segments.filter(segment => segment.confirmed).map(segment => ({ value:segment.id, label:`#${segment.orderIndex} ${segment.sourceText.slice(0, 24)}` }))} />
+      <Select placeholder={kind === 'video' ? '选择已确认且有主图片的分段' : '选择已确认分段'} value={segmentId} onChange={setSegmentId} options={eligibleSegments.map(segment => ({ value:segment.id, label:`#${segment.orderIndex} ${segment.sourceText.slice(0, 24)}` }))} />
       <Select placeholder={availableModels.length ? '选择管理员启用的模型' : '管理员尚未启用此类模型'} value={modelId} onChange={setModelId} options={availableModels.map(model => ({ value:model.id, label:model.name }))} disabled={!availableModels.length || !kindReady} />
     </div>
     {kind === 'video' ? <Alert type="info" showIcon message="图生视频" description="每个分段必须先有一张主图片；任务会把这张图片作为视频模型的参考图。" /> : null}
