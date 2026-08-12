@@ -1,6 +1,6 @@
 const express = require('express');
 const { apiAuth, checkRateLimit } = require('../middleware/auth');
-const { USERS_DIR, readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
+const { USERS_DIR, safeUserName, readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
 const { createAgentStore } = require('../lib/agent-store');
 
 const MAX_CONTEXT_LENGTH = 18000;
@@ -84,6 +84,20 @@ function sendTaskNotFound(res) {
 
 function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR }), skillStore, respond } = {}) {
   const router = express.Router();
+  const taskOperations = new Map();
+
+  function enqueueTaskOperation(username, taskId, operation) {
+    const key = `${safeUserName(username)}:${taskId}`;
+    const previous = taskOperations.get(key) || Promise.resolve();
+    const queued = previous.catch(() => undefined).then(operation);
+    const tail = queued.catch(() => undefined);
+    taskOperations.set(key, tail);
+    tail.finally(() => {
+      if (taskOperations.get(key) === tail) taskOperations.delete(key);
+    });
+    return queued;
+  }
+
   router.use(apiAuth);
 
   router.get('/tasks', (req, res) => res.json({ tasks: agentStore.listTasks(req.username) }));
@@ -101,23 +115,35 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
     return task ? res.json({ task }) : sendTaskNotFound(res);
   });
 
-  router.patch('/tasks/:taskId', (req, res) => {
+  router.patch('/tasks/:taskId', async (req, res) => {
     if (!agentStore.getTask(req.username, req.params.taskId)) return sendTaskNotFound(res);
     try {
-      const task = agentStore.renameTask(req.username, req.params.taskId, req.body?.title);
+      const task = await enqueueTaskOperation(req.username, req.params.taskId, () => {
+        if (!agentStore.getTask(req.username, req.params.taskId)) return null;
+        return agentStore.renameTask(req.username, req.params.taskId, req.body?.title);
+      });
       return task ? res.json({ task }) : sendTaskNotFound(res);
     } catch (error) {
       return res.status(400).json({ error: error.message || '任务标题不合法' });
     }
   });
 
-  router.delete('/tasks/:taskId/messages', (req, res) => {
-    const task = agentStore.clearTaskMessages(req.username, req.params.taskId);
+  router.delete('/tasks/:taskId/messages', async (req, res) => {
+    const task = await enqueueTaskOperation(
+      req.username,
+      req.params.taskId,
+      () => agentStore.clearTaskMessages(req.username, req.params.taskId)
+    );
     return task ? res.status(204).end() : sendTaskNotFound(res);
   });
 
-  router.delete('/tasks/:taskId', (req, res) => {
-    return agentStore.deleteTask(req.username, req.params.taskId)
+  router.delete('/tasks/:taskId', async (req, res) => {
+    const deleted = await enqueueTaskOperation(
+      req.username,
+      req.params.taskId,
+      () => agentStore.deleteTask(req.username, req.params.taskId)
+    );
+    return deleted
       ? res.status(204).end()
       : sendTaskNotFound(res);
   });
@@ -125,9 +151,7 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
   router.post('/chat', async (req, res) => {
     const taskId = typeof req.body?.taskId === 'string' ? req.body.taskId.trim() : '';
     if (!taskId) return res.status(400).json({ error: '请选择一个任务' });
-    const selectedTask = agentStore.getTask(req.username, taskId);
-    if (!selectedTask) return sendTaskNotFound(res);
-
+    if (!agentStore.getTask(req.username, taskId)) return sendTaskNotFound(res);
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     if (!checkRateLimit(ip)) return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
 
@@ -142,40 +166,41 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
       return res.status(status).json({ error: error.message || '所选技能不合法' });
     }
 
-    const history = selectedTask.messages.slice(-HISTORY_WINDOW);
-    const userMessage = agentStore.append(req.username, taskId, { role: 'user', content: prompt });
-    if (!userMessage) return sendTaskNotFound(res);
-    if (INTERNAL_DISCLOSURE_PATTERN.test(prompt)) {
-      const assistantMessage = agentStore.append(req.username, taskId, { role: 'assistant', content: INTERNAL_DISCLOSURE_REPLY });
-      if (!assistantMessage) return sendTaskNotFound(res);
-      const task = agentStore.getTask(req.username, taskId);
-      return task ? res.json({ task, user: userMessage, assistant: assistantMessage }) : sendTaskNotFound(res);
-    }
     try {
-      const messages = buildAgentMessages({ history, prompt, context: req.body?.context, skills });
-      let answer;
-      if (respond) {
-        answer = await respond({ username: req.username, messages, context: req.body?.context, skills });
-      } else {
-        const config = readConfig(req.username);
-        ensureReadyConfig(config);
-        const upstream = await requestUpstream(config, {
-          model: config.model,
-          messages,
-          max_tokens: 8192,
-          temperature: 0.5,
-          stream: false
-        }, collectResponse);
-        if (upstream.statusCode >= 400) throw new Error(`上游模型服务错误（${upstream.statusCode}）`);
-        answer = extractAssistantText(upstream);
-      }
-      answer = cleanModelAnswer(answer);
-      if (!answer) throw new Error('Agent 没有返回可用内容');
-      if (INTERNAL_DISCLOSURE_PATTERN.test(answer)) answer = INTERNAL_DISCLOSURE_REPLY;
-      const assistantMessage = agentStore.append(req.username, taskId, { role: 'assistant', content: answer });
-      if (!assistantMessage) return sendTaskNotFound(res);
-      const task = agentStore.getTask(req.username, taskId);
-      return task ? res.json({ task, user: userMessage, assistant: assistantMessage }) : sendTaskNotFound(res);
+      const result = await enqueueTaskOperation(req.username, taskId, async () => {
+        const selectedTask = agentStore.getTask(req.username, taskId);
+        if (!selectedTask) return null;
+        const history = selectedTask.messages.slice(-HISTORY_WINDOW);
+        const userMessage = agentStore.append(req.username, taskId, { role: 'user', content: prompt });
+        if (!userMessage) return null;
+        let answer = INTERNAL_DISCLOSURE_PATTERN.test(prompt) ? INTERNAL_DISCLOSURE_REPLY : '';
+        if (!answer) {
+          const messages = buildAgentMessages({ history, prompt, context: req.body?.context, skills });
+          if (respond) {
+            answer = await respond({ username: req.username, messages, context: req.body?.context, skills });
+          } else {
+            const config = readConfig(req.username);
+            ensureReadyConfig(config);
+            const upstream = await requestUpstream(config, {
+              model: config.model,
+              messages,
+              max_tokens: 8192,
+              temperature: 0.5,
+              stream: false
+            }, collectResponse);
+            if (upstream.statusCode >= 400) throw new Error(`上游模型服务错误（${upstream.statusCode}）`);
+            answer = extractAssistantText(upstream);
+          }
+          answer = cleanModelAnswer(answer);
+          if (!answer) throw new Error('Agent 没有返回可用内容');
+          if (INTERNAL_DISCLOSURE_PATTERN.test(answer)) answer = INTERNAL_DISCLOSURE_REPLY;
+        }
+        const assistantMessage = agentStore.append(req.username, taskId, { role: 'assistant', content: answer });
+        if (!assistantMessage) return null;
+        const task = agentStore.getTask(req.username, taskId);
+        return task ? { task, user: userMessage, assistant: assistantMessage } : null;
+      });
+      return result ? res.json(result) : sendTaskNotFound(res);
     } catch (error) {
       return res.status(502).json({ error: error.message || 'Agent 请求失败' });
     }

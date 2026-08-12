@@ -77,6 +77,126 @@ function createFixture(t, { responder = async () => '候选答复' } = {}) {
   };
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function settlesWithin(promise, milliseconds) {
+  return Promise.race([
+    promise.then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), milliseconds))
+  ]);
+}
+
+test('Agent chat serializes concurrent messages for the same task', async t => {
+  const firstResponse = deferred();
+  const secondResponse = deferred();
+  const firstStarted = deferred();
+  const secondStarted = deferred();
+  let firstResolved = false;
+  let secondStartedBeforeFirstResolved = false;
+  const { app } = createFixture(t, {
+    responder: async ({ messages }) => {
+      const prompt = messages.at(-1).content;
+      if (prompt === '消息 A\n\n当前页面：未知页面') {
+        firstStarted.resolve();
+        await firstResponse.promise;
+        return '回答 A';
+      }
+      secondStarted.resolve();
+      if (!firstResolved) secondStartedBeforeFirstResolved = true;
+      await secondResponse.promise;
+      return '回答 B';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+
+  const firstChat = request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token, body: { taskId: task.id, prompt: '消息 A' }
+  });
+  await firstStarted.promise;
+  const secondChat = request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token, body: { taskId: task.id, prompt: '消息 B' }
+  });
+  assert.equal(await settlesWithin(secondStarted.promise, 300), false);
+  firstResolved = true;
+  firstResponse.resolve();
+  await secondStarted.promise;
+  secondResponse.resolve();
+
+  assert.equal((await firstChat).status, 200);
+  assert.equal((await secondChat).status, 200);
+  assert.equal(secondStartedBeforeFirstResolved, false);
+  const detail = await request(app, { requestPath: `/api/agent/tasks/${task.id}`, token });
+  assert.deepEqual(
+    detail.body.task.messages.map(message => [message.role, message.content]),
+    [['user', '消息 A'], ['assistant', '回答 A'], ['user', '消息 B'], ['assistant', '回答 B']]
+  );
+});
+
+test('Agent task clear waits for an in-flight chat before removing its messages', async t => {
+  const response = deferred();
+  const started = deferred();
+  const { app } = createFixture(t, {
+    responder: async () => {
+      started.resolve();
+      await response.promise;
+      return '完成回答';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+
+  const chat = request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token, body: { taskId: task.id, prompt: '等待清空' }
+  });
+  await started.promise;
+  const clear = request(app, { method: 'DELETE', requestPath: `/api/agent/tasks/${task.id}/messages`, token });
+  assert.equal(await settlesWithin(clear, 300), false);
+  response.resolve();
+
+  assert.equal((await chat).status, 200);
+  assert.equal((await clear).status, 204);
+  const detail = await request(app, { requestPath: `/api/agent/tasks/${task.id}`, token });
+  assert.deepEqual(detail.body.task.messages, []);
+});
+
+test('Agent task delete waits for an in-flight chat without recreating the task', async t => {
+  const response = deferred();
+  const started = deferred();
+  const { app } = createFixture(t, {
+    responder: async () => {
+      started.resolve();
+      await response.promise;
+      return '完成回答';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+
+  const chat = request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token, body: { taskId: task.id, prompt: '等待删除' }
+  });
+  await started.promise;
+  const deletion = request(app, { method: 'DELETE', requestPath: `/api/agent/tasks/${task.id}`, token });
+  assert.equal(await settlesWithin(deletion, 300), false);
+  response.resolve();
+
+  assert.equal((await chat).status, 200);
+  assert.equal((await deletion).status, 204);
+  assert.equal((await request(app, { requestPath: `/api/agent/tasks/${task.id}`, token })).status, 404);
+});
+
 test('Agent task endpoints create, read, rename, clear, and delete only the selected task', async t => {
   const { app } = createFixture(t);
   const owner = await login(app, 'choushiyiguai1');
