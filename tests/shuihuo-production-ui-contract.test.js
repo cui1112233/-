@@ -45,6 +45,16 @@ test('segment production card preserves the six-column production layout', () =>
   assert.match(productionCard, /downloadMedia/);
 });
 
+test('segment production card keeps audio playable and controls blob lifecycle safely', () => {
+  const productionCard = read('frontend/src/user/pages/shuihuo/SegmentProductionCard.jsx');
+  assert.match(productionCard, /audioMedia = media\.filter\(item => item\.kind === 'audio'\)/);
+  assert.match(productionCard, /<audio controls src=\{url\}/);
+  assert.match(productionCard, /<MediaContent kind="audio"/);
+  assert.match(productionCard, /message\.error\(error\.message \|\| '下载素材失败'\)/);
+  assert.match(productionCard, /let cancelled = false;/);
+  assert.match(productionCard, /if \(cancelled\) \{ URL\.revokeObjectURL\(nextURL\); return; \}/);
+});
+
 test('media preview opens a blank window before requesting the authenticated blob', () => {
   const preview = studio.match(/async function openMediaPreview\(media\) \{([\s\S]*?)\n  \}/)?.[1] || '';
   assert.match(preview, /const previewWindow = window\.open\('', '_blank'\);/);

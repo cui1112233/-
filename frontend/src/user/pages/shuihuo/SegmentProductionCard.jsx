@@ -1,21 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Button, Popconfirm, Tag } from 'antd';
+import { Button, Popconfirm, Tag, message } from 'antd';
 import { downloadMedia } from '../../../shared/api/shuihuoProduction';
 
 function MediaThumbnail({ media, label }) {
   const [url, setURL] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     let objectURL = '';
+    setURL('');
     downloadMedia(media.id).then(blob => {
-      objectURL = URL.createObjectURL(blob);
-      setURL(objectURL);
-    }).catch(() => setURL(''));
-    return () => { if (objectURL) URL.revokeObjectURL(objectURL); };
+      const nextURL = URL.createObjectURL(blob);
+      if (cancelled) { URL.revokeObjectURL(nextURL); return; }
+      objectURL = nextURL;
+      setURL(nextURL);
+    }).catch(() => { if (!cancelled) setURL(''); });
+    return () => { cancelled = true; if (objectURL) URL.revokeObjectURL(objectURL); };
   }, [media.id]);
 
   if (!url) return <span className="shuihuo-muted">读取素材...</span>;
   if (media.kind === 'image') return <img src={url} alt={label} />;
+  if (media.kind === 'audio') return <audio controls src={url} aria-label={label} />;
   return <video preload="metadata" src={url} aria-label={label} />;
 }
 
@@ -30,12 +35,14 @@ function PromptContent({ prompt, locked, onEdit }) {
 }
 
 function MediaContent({ kind, items, index, onSetPrimary, onDeleteMedia, onPreviewMedia, onDownloadMedia }) {
-  const label = kind === 'image' ? '图片' : '视频';
+  const label = kind === 'image' ? '图片' : kind === 'audio' ? '音频' : '视频';
   const setPrimaryMedia = mediaId => onSetPrimary(mediaId);
 
   async function handleDownload(media) {
-    const blob = await downloadMedia(media.id);
-    onDownloadMedia(media, blob);
+    try {
+      const blob = await downloadMedia(media.id);
+      onDownloadMedia(media, blob);
+    } catch (error) { message.error(error.message || '下载素材失败'); }
   }
 
   return <>
@@ -71,6 +78,7 @@ export function SegmentProductionCard({
   onDelete
 }) {
   const imageMedia = media.filter(item => item.kind === 'image');
+  const audioMedia = media.filter(item => item.kind === 'audio');
   const videoMedia = media.filter(item => item.kind === 'video');
 
   return <article className="shuihuo-production-card">
@@ -78,6 +86,7 @@ export function SegmentProductionCard({
       <span className="shuihuo-production-column-title">内容</span>
       <p className="shuihuo-production-source">{segment.sourceText || '未填写原文'}</p>
       <small>{segment.subtitleText || '未设置字幕'}</small>
+      <MediaContent kind="audio" items={audioMedia} index={index} onSetPrimary={onSetPrimary} onDeleteMedia={onDeleteMedia} onPreviewMedia={onPreviewMedia} onDownloadMedia={onDownloadMedia} />
       <div className="shuihuo-production-column-actions">
         <Button type="link" size="small" onClick={() => onEdit(segment)}>编辑分段</Button>
         {onMove ? <><Button type="link" size="small" onClick={() => onMove(-1)} disabled={index === 0}>上移</Button><Button type="link" size="small" onClick={() => onMove(1)}>下移</Button></> : null}
