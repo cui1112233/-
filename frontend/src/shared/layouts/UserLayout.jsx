@@ -1,5 +1,5 @@
 import { Button, Checkbox, ConfigProvider, Form, Input, message } from 'antd';
-import { cloneElement, isValidElement, useEffect, useState } from 'react';
+import { cloneElement, Fragment, isValidElement, useEffect, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
@@ -51,6 +51,7 @@ export function UserLayout({ children }) {
   const isHome = pathname === '/';
   const content = isValidElement(children) ? cloneElement(children, { theme }) : children;
 
+  const accountSessionKey = username || 'anonymous';
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -213,21 +214,23 @@ export function UserLayout({ children }) {
           ) : null}
         </div>
       </aside>
-      <main className="legacy-main">
-        <header className="legacy-topbar">
-          <span className="legacy-page-title">{pageTitle(pathname)}</span>
-          <div className="legacy-userbar">
-            {isLoggedIn ? (
-              <>
-                <span className="legacy-muted">{username}</span>
-                <Button size="small" onClick={handleLogout}>退出</Button>
-              </>
-            ) : null}
-          </div>
-        </header>
-        <section className="legacy-content">{content}</section>
-      </main>
-      <StackyPet />
+      <Fragment key={accountSessionKey}>
+        <main className="legacy-main">
+          <header className="legacy-topbar">
+            <span className="legacy-page-title">{pageTitle(pathname)}</span>
+            <div className="legacy-userbar">
+              {isLoggedIn ? (
+                <>
+                  <span className="legacy-muted">{username}</span>
+                  <Button size="small" onClick={handleLogout}>退出</Button>
+                </>
+              ) : null}
+            </div>
+          </header>
+          <section className="legacy-content">{content}</section>
+        </main>
+        <StackyPet />
+      </Fragment>
       {loginOverlay}
       </div>
     </ConfigProvider>

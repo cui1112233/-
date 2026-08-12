@@ -39,6 +39,7 @@ export function AgentPage() {
   const [selectedExpert, setSelectedExpert] = useState('CM 创作顾问');
   const [attachedFile, setAttachedFile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [taskDetailLoading, setTaskDetailLoading] = useState(false);
   const [asking, setAsking] = useState(false);
   const [skillEditorOpen, setSkillEditorOpen] = useState(false);
   const [editingSkillId, setEditingSkillId] = useState(null);
@@ -51,6 +52,9 @@ export function AgentPage() {
   const attachmentInputRef = useRef(null);
   const taskRequestRef = useRef(0);
   const activeTaskIdRef = useRef(null);
+  const taskDetailLoadingRef = useRef(false);
+  const composerTriggerRef = useRef(null);
+  const composerMenuId = 'agent-composer-menu';
 
   function activateTask(task) {
     activeTaskIdRef.current = task?.id || null;
@@ -75,6 +79,8 @@ export function AgentPage() {
     activeTaskIdRef.current = taskId;
     setActiveTaskId(taskId);
     setActiveTask(null);
+    taskDetailLoadingRef.current = true;
+    setTaskDetailLoading(true);
     try {
       const result = await getAgentTask(taskId);
       if (taskRequestRef.current === requestId) setActiveTask(result.task || null);
@@ -85,6 +91,11 @@ export function AgentPage() {
       setActiveTask(null);
       message.error(error.message || '读取任务失败');
       refreshTasks().catch(() => undefined);
+    } finally {
+      if (taskRequestRef.current === requestId) {
+        taskDetailLoadingRef.current = false;
+        setTaskDetailLoading(false);
+      }
     }
   }
 
@@ -94,6 +105,8 @@ export function AgentPage() {
       const task = result.task;
       if (!task) throw new Error('未能创建任务');
       taskRequestRef.current += 1;
+      taskDetailLoadingRef.current = false;
+      setTaskDetailLoading(false);
       activateTask(task);
       await refreshTasks();
       return task;
@@ -115,6 +128,18 @@ export function AgentPage() {
   }, []);
 
   useEffect(() => { dispatchPetSkills(selectedSkillIds); }, [selectedSkillIds]);
+  useEffect(() => {
+    function closeComposerMenu(event) {
+      if (event.key === 'Escape' && composerMenuOpen) {
+        setComposerMenuOpen(false);
+        setComposerPanel(null);
+        composerTriggerRef.current?.focus();
+      }
+    }
+
+    window.addEventListener('keydown', closeComposerMenu);
+    return () => window.removeEventListener('keydown', closeComposerMenu);
+  }, [composerMenuOpen]);
   useEffect(() => {
     historyRef.current?.scrollTo({ top: historyRef.current.scrollHeight, behavior: 'smooth' });
   }, [activeTask?.id, activeTask?.messages?.length]);
@@ -167,7 +192,7 @@ export function AgentPage() {
 
   async function sendQuestion() {
     const prompt = question.trim();
-    if (!prompt || asking) return;
+    if (!prompt || asking || taskDetailLoadingRef.current) return;
     let taskId = activeTask?.id || null;
     setAsking(true);
     setQuestion('');
@@ -211,6 +236,11 @@ export function AgentPage() {
     if (!activeTask) return;
     setRenameValue(activeTask.title);
     setRenameOpen(true);
+  }
+
+  function toggleComposerMenu() {
+    setComposerMenuOpen(current => !current);
+    setComposerPanel(null);
   }
 
   async function saveRename() {
@@ -307,6 +337,7 @@ export function AgentPage() {
         </header>
         <Button className="agent-task-new" icon={<MessageSquarePlus size={16} />} type="primary" block onClick={createTask}>新建聊天</Button>
         <div className="agent-task-list" aria-live="polite">
+          {loading ? <div className="agent-task-loading" role="status">正在读取任务列表...</div> : null}
           {!loading && tasks.length === 0 ? <div className="agent-task-empty">还没有任务<br />从一段新对话开始。</div> : null}
           {tasks.map(task => <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => selectTask(task.id)}>
             <strong>{task.title}</strong><span>{task.preview || '尚未开始对话'}</span><time>{formatTaskTime(task.updatedAt)}</time>
@@ -323,6 +354,7 @@ export function AgentPage() {
           </Space> : null}
         </header>
         <div ref={historyRef} className="agent-workbench-history" aria-live="polite">
+          {taskDetailLoading ? <div className="agent-workbench-loading" role="status">正在读取任务详情...</div> : null}
           {!loading && !activeTask ? <div className="agent-workbench-empty">新建聊天，开始一段独立的 CM 对话。</div> : null}
           {activeTask && messages.length === 0 ? <div className="agent-workbench-empty">在这里输入需求，CM 会围绕当前任务继续对话。</div> : null}
           {messages.map((entry, index) => <article key={`${entry.createdAt || index}-${entry.role}`} className={`agent-workbench-message agent-workbench-message--${entry.role}`}><strong>{entry.role === 'assistant' ? 'CM' : '你'}</strong><span>{entry.content}</span></article>)}
@@ -330,19 +362,19 @@ export function AgentPage() {
         <div className="agent-workbench-composer">
           <input ref={attachmentInputRef} className="agent-attachment-input" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={readAttachment} />
           <div className="agent-selected-skills">{selectedSkills.map(skill => <Tag closable key={skill.id} onClose={() => toggleSkill(skill.id)}>{skill.name}</Tag>)}{attachedFile ? <Tag closable onClose={() => setAttachedFile(null)}>附件：{attachedFile.name}</Tag> : null}</div>
-          <Input.TextArea value={question} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="今天想让 CM 帮你做什么？可引用内容、调用技能。" onChange={event => setQuestion(event.target.value)} onPressEnter={event => { if (event.nativeEvent.isComposing) return; if (!event.shiftKey) { event.preventDefault(); sendQuestion(); } }} />
+          <Input.TextArea value={question} disabled={taskDetailLoading} autoSize={{ minRows: 2, maxRows: 5 }} placeholder={taskDetailLoading ? '正在读取任务详情...' : '今天想让 CM 帮你做什么？可引用内容、调用技能。'} onChange={event => setQuestion(event.target.value)} onPressEnter={event => { if (event.nativeEvent.isComposing) return; if (!event.shiftKey) { event.preventDefault(); sendQuestion(); } }} />
           <div className="agent-composer-actions">
             <div className="agent-composer-plus-wrap">
-              <button className="agent-composer-plus" type="button" aria-label="添加上下文或调用能力" title="添加上下文或调用能力" onClick={() => { setComposerMenuOpen(current => !current); setComposerPanel(null); }}>+</button>
-              {composerMenuOpen ? <div className="agent-composer-menu" role="menu">
-                <button type="button" onClick={() => openComposerTool('file')}>⌇ <span>添加文件</span><i>›</i></button>
-                <button type="button" onClick={() => openComposerTool('mode')}>◌ <span>模式</span><i>›</i></button>
-                <button type="button" onClick={() => openComposerTool('expert')}>◉ <span>专家</span><i>›</i></button>
-                <button type="button" onClick={() => openComposerTool('skill')}>⌘ <span>技能</span><i>›</i></button>
-                <button type="button" onClick={() => openComposerTool('connector')}>⌁ <span>连接器</span><i>›</i></button>
+              <button ref={composerTriggerRef} className="agent-composer-plus" type="button" aria-label="添加上下文或调用能力" aria-expanded={composerMenuOpen} aria-controls={composerMenuId} title="添加上下文或调用能力" onClick={toggleComposerMenu}>+</button>
+              {composerMenuOpen ? <div id={composerMenuId} role="menu" className="agent-composer-menu">
+                <button role="menuitem" type="button" onClick={() => openComposerTool('file')}>⌇ <span>添加文件</span><i>›</i></button>
+                <button role="menuitem" type="button" onClick={() => openComposerTool('mode')}>◌ <span>模式</span><i>›</i></button>
+                <button role="menuitem" type="button" onClick={() => openComposerTool('expert')}>◉ <span>专家</span><i>›</i></button>
+                <button role="menuitem" type="button" onClick={() => openComposerTool('skill')}>⌘ <span>技能</span><i>›</i></button>
+                <button role="menuitem" type="button" onClick={() => openComposerTool('connector')}>⌁ <span>连接器</span><i>›</i></button>
               </div> : null}
             </div>
-            <Button type="primary" loading={asking} disabled={!question.trim()} onClick={sendQuestion}>发送</Button>
+            <Button type="primary" loading={asking} disabled={!question.trim() || taskDetailLoading} onClick={sendQuestion}>发送</Button>
           </div>
           {composerPanel === 'mode' ? <div className="agent-composer-context"><strong>模式</strong>{['创作助手', '分析拆解', '修改润色'].map(value => <button type="button" key={value} className={selectedMode === value ? 'active' : ''} onClick={() => { setSelectedMode(value); setComposerPanel(null); setComposerMenuOpen(false); }}>{value}</button>)}</div> : null}
           {composerPanel === 'expert' ? <div className="agent-composer-context"><strong>专家</strong>{['CM 创作顾问', '前贴片广告策划', '短剧编剧'].map(value => <button type="button" key={value} className={selectedExpert === value ? 'active' : ''} onClick={() => { setSelectedExpert(value); setComposerPanel(null); setComposerMenuOpen(false); }}>{value}</button>)}</div> : null}

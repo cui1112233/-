@@ -97,3 +97,26 @@ test('CM task workspace preserves active conversations and remains usable on nar
   assert.match(css, /@media \(max-width: 860px\) \{[\s\S]*?\.agent-page \{[^}]*min-height: 0;[^}]*overflow: auto;[^}]*overflow-x: hidden;[^}]*\}/);
   assert.match(css, /\[data-theme='light'\] \.stacky-agent-close[^}]*background: #ffffff;[^}]*color: var\(--legacy-text\);/);
 });
+
+test('CM task UI resets across accounts and protects the composer while task details load', () => {
+  const page = read('frontend/src/user/pages/AgentPage.jsx');
+  const layout = read('frontend/src/shared/layouts/UserLayout.jsx');
+  const css = read('frontend/src/shared/styles/global.css');
+
+  assert.match(layout, /const accountSessionKey = username \|\| 'anonymous';/);
+  assert.match(layout, /<Fragment key=\{accountSessionKey\}>[\s\S]*?<section className="legacy-content">\{content\}<\/section>[\s\S]*?<StackyPet \/>[\s\S]*?<\/Fragment>/);
+  assert.match(page, /const \[taskDetailLoading, setTaskDetailLoading\] = useState\(false\)/);
+  assert.match(page, /const taskDetailLoadingRef = useRef\(false\)/);
+  assert.match(page, /taskDetailLoadingRef\.current = true;/);
+  assert.match(page, /if \(!prompt \|\| asking \|\| taskDetailLoadingRef\.current\) return;/);
+  assert.match(page, /role="status">正在读取任务列表\.\.\.<\/div>/);
+  assert.match(page, /role="status">正在读取任务详情\.\.\.<\/div>/);
+  assert.match(page, /disabled=\{taskDetailLoading\}/);
+  assert.match(page, /aria-expanded=\{composerMenuOpen\}/);
+  assert.match(page, /aria-controls=\{composerMenuId\}/);
+  assert.match(page, /id=\{composerMenuId\} role="menu"/);
+  assert.match(page, /role="menuitem"/);
+  assert.match(page, /event\.key === 'Escape'/);
+  assert.match(page, /composerTriggerRef\.current\?\.focus\(\)/);
+  assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?\.stacky-agent-panel \{[^}]*right: 8px;[^}]*left: 8px;[^}]*width: auto;/);
+});
