@@ -290,3 +290,22 @@ test('Agent chat truncates overlong model responses before persistence', async t
   assert.ok(Array.from(persistedAssistant.content).length <= 12000);
   assert.equal(result.body.assistant.content, persistedAssistant.content);
 });
+
+test('Agent chat truncates model responses by Unicode code point', async t => {
+  const { app } = createFixture(t, { responder: async () => '😀'.repeat(12001) });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: { taskId: task.id, prompt: '请给我一段短剧建议' }
+  });
+
+  assert.equal(result.status, 200);
+  const detail = await request(app, { requestPath: `/api/agent/tasks/${task.id}`, token });
+  assert.equal(detail.body.task.messages.length, 2);
+  const assistant = detail.body.task.messages.at(-1).content;
+  assert.equal(Array.from(assistant).length, 12000);
+  assert.doesNotMatch(assistant.at(-1), /[\uD800-\uDBFF]/);
+  assert.equal(result.body.assistant.content, assistant);
+});
