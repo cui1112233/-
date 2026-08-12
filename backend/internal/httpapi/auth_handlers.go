@@ -34,6 +34,10 @@ func (api *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Login failed"})
 		return
 	}
+	if !user.IsActive {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "账号已停用"})
+		return
+	}
 	token, err := auth.NewToken(api.deps.TokenSecret, user.ID, user.Username)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Create token failed"})
@@ -73,8 +77,23 @@ func (api *API) requireAuth(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 			return
 		}
+		if !user.IsActive {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "账号已停用"})
+			return
+		}
 		ctx := context.WithValue(r.Context(), userContextKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (api *API) requireOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := currentUser(r)
+		if !ok || !user.IsOwner {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "无管理员权限"})
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

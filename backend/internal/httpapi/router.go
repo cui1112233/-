@@ -22,7 +22,6 @@ type Dependencies struct {
 }
 
 type UserStore interface {
-	EnsureUser(ctx context.Context, username string, passwordHash string) error
 	FindByUsername(ctx context.Context, username string) (store.User, error)
 	FindByID(ctx context.Context, id int64) (store.User, error)
 }
@@ -50,6 +49,8 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Get("/history/{id}", api.handleGetHistory)
 		r.With(api.requireAuth).Delete("/history/{id}", api.handleDeleteHistory)
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
+		r.With(api.requireAuth).Get("/shuihuo-production/projects", api.handleListShuihuoProjects)
+		r.With(api.requireAuth, api.requireOwner).Get("/admin/models", api.handleListAdminModels)
 	})
 	return r
 }

@@ -29,7 +29,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	users := store.NewUsers(db)
-	if err := users.EnsureUser(context.Background(), cfg.SeedUsername, auth.HashPassword(cfg.SeedPassword)); err != nil {
+	if err := users.EnsureSeedOwner(context.Background(), cfg.SeedUsername, auth.HashPassword(cfg.SeedPassword)); err != nil {
 		db.Close()
 		return nil, err
 	}
