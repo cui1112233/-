@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,12 +12,56 @@ import (
 	"qiantie/backend/internal/shuihuo/domain"
 	"qiantie/backend/internal/shuihuo/models"
 	shuihuostore "qiantie/backend/internal/shuihuo/store"
+	"qiantie/backend/internal/store"
 )
 
 type shuihuoTaskRequest struct {
 	SegmentID int64  `json:"segmentId"`
 	Kind      string `json:"kind"`
 	ModelID   int64  `json:"modelId"`
+}
+
+type shuihuoBatchTaskRequest struct {
+	SegmentIDs []int64 `json:"segmentIds"`
+	Kind       string  `json:"kind"`
+	ModelID    int64   `json:"modelId"`
+}
+
+type shuihuoBatchTaskResult struct {
+	SegmentID int64        `json:"segmentId"`
+	Task      *domain.Task `json:"task,omitempty"`
+	Error     string       `json:"error,omitempty"`
+}
+
+type shuihuoTaskCreationError struct {
+	message       string
+	singleMessage string
+}
+
+func (err shuihuoTaskCreationError) Error() string { return err.message }
+
+func taskCreationError(message string) error {
+	return shuihuoTaskCreationError{message: message, singleMessage: message}
+}
+
+func taskCreationErrorWithSingleMessage(message, singleMessage string) error {
+	return shuihuoTaskCreationError{message: message, singleMessage: singleMessage}
+}
+
+func taskCreationErrorMessage(err error) string {
+	var creationError shuihuoTaskCreationError
+	if errors.As(err, &creationError) {
+		return creationError.message
+	}
+	return "提交任务失败"
+}
+
+func singleTaskCreationErrorMessage(err error) string {
+	var creationError shuihuoTaskCreationError
+	if errors.As(err, &creationError) && creationError.singleMessage != "" {
+		return creationError.singleMessage
+	}
+	return taskCreationErrorMessage(err)
 }
 
 func (api *API) handleListShuihuoModels(w http.ResponseWriter, r *http.Request) {
@@ -61,79 +106,143 @@ func (api *API) handleCreateShuihuoTask(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
 		return
 	}
-	if req.SegmentID < 1 || req.ModelID < 1 || !validTaskKind(req.Kind) || req.Kind == "export" {
+	user, _ := currentUser(r)
+	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind)
+	if err != nil {
+		writeJSON(w, taskCreationStatus(err), map[string]string{"error": singleTaskCreationErrorMessage(err)})
+		return
+	}
+	writeJSON(w, http.StatusCreated, task)
+}
+
+func (api *API) handleCreateShuihuoBatchTasks(w http.ResponseWriter, r *http.Request) {
+	project, ok := api.shuihuoProjectForRequest(w, r)
+	if !ok {
+		return
+	}
+	var req shuihuoBatchTaskRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	if !validBatchTaskRequest(req) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "任务参数无效"})
 		return
 	}
-	if api.deps.Queue == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "任务队列未配置，无法提交生成任务"})
-		return
-	}
 	user, _ := currentUser(r)
-	segment, err := shuihuostore.NewSegments(api.deps.DB).GetSegment(r.Context(), user.ID, req.SegmentID)
+	results := make([]shuihuoBatchTaskResult, 0, len(req.SegmentIDs))
+	allSucceeded := true
+	for _, segmentID := range req.SegmentIDs {
+		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind)
+		result := shuihuoBatchTaskResult{SegmentID: segmentID}
+		if err != nil {
+			allSucceeded = false
+			result.Error = taskCreationErrorMessage(err)
+		} else {
+			result.Task = &task
+		}
+		results = append(results, result)
+	}
+	status := http.StatusCreated
+	if !allSucceeded {
+		status = http.StatusMultiStatus
+	}
+	writeJSON(w, status, map[string]any{"results": results})
+}
+
+func validBatchTaskRequest(req shuihuoBatchTaskRequest) bool {
+	if len(req.SegmentIDs) == 0 || len(req.SegmentIDs) > 50 || req.ModelID < 1 || !validTaskKind(req.Kind) || req.Kind == "export" {
+		return false
+	}
+	seen := make(map[int64]struct{}, len(req.SegmentIDs))
+	for _, segmentID := range req.SegmentIDs {
+		if segmentID < 1 {
+			return false
+		}
+		if _, duplicate := seen[segmentID]; duplicate {
+			return false
+		}
+		seen[segmentID] = struct{}{}
+	}
+	return true
+}
+
+func taskCreationStatus(err error) int {
+	switch taskCreationErrorMessage(err) {
+	case "任务参数无效", "模型类型与任务不匹配":
+		return http.StatusBadRequest
+	case "分段不存在":
+		return http.StatusNotFound
+	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先保存对应提示词":
+		return http.StatusConflict
+	case "该模型仅限所有者使用":
+		return http.StatusForbidden
+	case "任务队列未配置，无法提交生成任务", "任务队列不可用，未提交生成任务":
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string) (domain.Task, error) {
+	if segmentID < 1 || modelID < 1 || !validTaskKind(kind) || kind == "export" {
+		return domain.Task{}, taskCreationError("任务参数无效")
+	}
+	if api.deps.Queue == nil {
+		return domain.Task{}, taskCreationError("任务队列未配置，无法提交生成任务")
+	}
+	segment, err := shuihuostore.NewSegments(api.deps.DB).GetSegment(ctx, user.ID, segmentID)
 	if errors.Is(err, sql.ErrNoRows) || segment.ProjectID != project.ID {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "分段不存在"})
-		return
+		return domain.Task{}, taskCreationError("分段不存在")
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取分段失败"})
-		return
+		return domain.Task{}, taskCreationError("读取分段失败")
 	}
 	if !segment.Confirmed {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "请先确认分段"})
-		return
+		return domain.Task{}, taskCreationError("请先确认分段")
 	}
-	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(r.Context(), req.ModelID)
+	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(ctx, modelID)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "所选模型未启用或不存在"})
-		return
+		return domain.Task{}, taskCreationError("所选模型未启用或不存在")
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取模型失败"})
-		return
+		return domain.Task{}, taskCreationError("读取模型失败")
 	}
-	if !taskMatchesModel(req.Kind, model.Kind) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型类型与任务不匹配"})
-		return
+	if !taskMatchesModel(kind, model.Kind) {
+		return domain.Task{}, taskCreationError("模型类型与任务不匹配")
 	}
 	if !model.AvailableTo(user.IsOwner) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "该模型仅限所有者使用"})
-		return
+		return domain.Task{}, taskCreationError("该模型仅限所有者使用")
 	}
 	if !model.ProviderConfigured() {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数"})
-		return
+		return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
 	}
 	prompt := segment.ImagePrompt
-	if req.Kind == "video" || req.Kind == "audio" {
+	if kind == "video" || kind == "audio" {
 		prompt = segment.VideoPrompt
 	}
-	if req.Kind == "audio" && strings.TrimSpace(prompt) == "" {
+	if kind == "audio" && strings.TrimSpace(prompt) == "" {
 		prompt = segment.SubtitleText
 	}
 	if strings.TrimSpace(prompt) == "" {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "请先保存对应提示词"})
-		return
+		return domain.Task{}, taskCreationError("请先保存对应提示词")
 	}
 	input, _ := json.Marshal(map[string]any{"prompt": prompt, "segmentId": segment.ID, "model": model.Name})
-	modelID, versionID := model.ID, model.VersionID
-	task, err := shuihuostore.NewTasks(api.deps.DB).Create(r.Context(), user.ID, project.ID, domain.Task{SegmentID: &segment.ID, Kind: req.Kind, Status: domain.TaskDraft, Provider: model.AdapterKind, ModelID: &modelID, ModelVersionID: &versionID, Input: string(input)})
+	modelVersionID := model.VersionID
+	task, err := shuihuostore.NewTasks(api.deps.DB).Create(ctx, user.ID, project.ID, domain.Task{SegmentID: &segment.ID, Kind: kind, Status: domain.TaskDraft, Provider: model.AdapterKind, ModelID: &modelID, ModelVersionID: &modelVersionID, Input: string(input)})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "创建任务失败"})
-		return
+		return domain.Task{}, taskCreationError("创建任务失败")
 	}
 	tasks := shuihuostore.NewTasks(api.deps.DB)
-	if err := api.deps.Queue.Enqueue(r.Context(), task.ID); err != nil {
-		_ = tasks.Delete(r.Context(), user.ID, task.ID)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "任务队列不可用，未提交生成任务"})
-		return
+	if err := api.deps.Queue.Enqueue(ctx, task.ID); err != nil {
+		_ = tasks.Delete(ctx, user.ID, task.ID)
+		return domain.Task{}, taskCreationError("任务队列不可用，未提交生成任务")
 	}
-	if err := tasks.Transition(r.Context(), user.ID, task.ID, domain.TaskDraft, domain.TaskQueued, "已进入 Redis 队列"); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("更新任务状态失败: %v", err)})
-		return
+	if err := tasks.Transition(ctx, user.ID, task.ID, domain.TaskDraft, domain.TaskQueued, "已进入 Redis 队列"); err != nil {
+		return domain.Task{}, taskCreationErrorWithSingleMessage("更新任务状态失败", fmt.Sprintf("更新任务状态失败: %v", err))
 	}
 	task.Status = domain.TaskQueued
-	writeJSON(w, http.StatusCreated, task)
+	return task, nil
 }
 
 func (api *API) handleCancelShuihuoTask(w http.ResponseWriter, r *http.Request) {

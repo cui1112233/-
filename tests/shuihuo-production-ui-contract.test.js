@@ -29,6 +29,11 @@ test('production actions stay available only when their actual dependencies are 
   assert.match(studio, /disabled=\{!confirmed \|\| !taskReady\}/);
 });
 
+test('production API exposes a project-scoped batch task endpoint', () => {
+  assert.match(api, /export function createBatchTasks\(projectId, payload\)/);
+  assert.match(api, /projects\/\$\{projectId\}\/tasks\/batch/);
+});
+
 test('task drawer presents backend task and provider states without fabricated progress', () => {
   for (const state of ['queued', 'running', 'succeeded', 'failed', 'cancelled']) {
     assert.match(drawer, new RegExp(state));

@@ -42,6 +42,9 @@ export function deleteMedia(mediaId) { return apiRequest(`${base}/media/${mediaI
 export function listModels() { return apiRequest(`${base}/models`); }
 export function listTasks(projectId) { return apiRequest(`${base}/projects/${projectId}/tasks`); }
 export function createTask(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function createBatchTasks(projectId, payload) {
+  return apiRequest(`${base}/projects/${projectId}/tasks/batch`, { method: 'POST', body: JSON.stringify(payload) });
+}
 export function cancelTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/cancel`, { method: 'PUT' }); }
 export function retryTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/retry`, { method: 'POST' }); }
 export function listAdminModels() { return apiRequest(`${base}/admin/models`); }

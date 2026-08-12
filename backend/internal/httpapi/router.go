@@ -75,6 +75,7 @@ func (api *API) Router() http.Handler {
 			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
 			r.Get("/shuihuo-production/projects/{id}/tasks", api.handleListShuihuoTasks)
 			r.Post("/shuihuo-production/projects/{id}/tasks", api.handleCreateShuihuoTask)
+			r.Post("/shuihuo-production/projects/{id}/tasks/batch", api.handleCreateShuihuoBatchTasks)
 			r.Post("/shuihuo-production/projects/{id}/segmentation/fixed", api.handleFixedSegmentation)
 			r.Post("/shuihuo-production/projects/{id}/segmentation/import", api.handleImportSegmentation)
 			r.Post("/shuihuo-production/projects/{id}/segmentation/smart", api.handleSmartSegmentation)
