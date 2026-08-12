@@ -45,6 +45,16 @@ test('segment production card preserves the six-column production layout', () =>
   assert.match(productionCard, /downloadMedia/);
 });
 
+test('media preview opens a blank window before requesting the authenticated blob', () => {
+  const preview = studio.match(/async function openMediaPreview\(media\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+  assert.match(preview, /const previewWindow = window\.open\('', '_blank'\);/);
+  assert.match(preview, /previewWindow\.opener = null;/);
+  assert.match(preview, /const blob = await apiRequest\([\s\S]*?responseType: 'blob'/);
+  assert.ok(preview.indexOf('window.open') < preview.indexOf('await apiRequest'));
+  assert.match(preview, /previewWindow\.location\.replace\(objectURL\);/);
+  assert.match(preview, /previewWindow\.close\(\);/);
+});
+
 test('task drawer presents backend task and provider states without fabricated progress', () => {
   for (const state of ['queued', 'running', 'succeeded', 'failed', 'cancelled']) {
     assert.match(drawer, new RegExp(state));

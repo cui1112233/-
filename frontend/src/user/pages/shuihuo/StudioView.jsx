@@ -89,12 +89,15 @@ export function StudioView({ data, readiness, onRefresh, onAssets }) {
     } catch (error) { message.error(error.message || '素材操作失败'); }
   }
   async function openMediaPreview(media) {
+    const previewWindow = window.open('', '_blank');
+    if (!previewWindow) { message.error('浏览器阻止了预览窗口，请允许弹窗后重试'); return; }
+    previewWindow.opener = null;
     try {
       const blob = await apiRequest(`/api/shuihuo-production/media/${media.id}/download`, { responseType: 'blob' });
       const objectURL = URL.createObjectURL(blob);
-      window.open(objectURL, '_blank', 'noopener,noreferrer');
+      previewWindow.location.replace(objectURL);
       window.setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
-    } catch (error) { message.error(error.message || '读取素材失败'); }
+    } catch (error) { previewWindow.close(); message.error(error.message || '读取素材失败'); }
   }
   function downloadSegmentMedia(media, blob) {
     const objectURL = URL.createObjectURL(blob);
