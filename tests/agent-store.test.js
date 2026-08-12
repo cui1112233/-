@@ -64,6 +64,43 @@ test('migrates valid legacy history once into an account-local history task with
   });
 });
 
+test('migrates every valid legacy message beyond the normal task message limit', t => {
+  const usersDir = createUsersDir(t);
+  const legacyDir = path.join(usersDir, 'writer_a');
+  const legacyPath = path.join(legacyDir, 'agent-history.json');
+  const legacyMessages = Array.from({ length: 101 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `legacy-${index}`,
+    createdAt: `2026-08-12T00:${String(index).padStart(2, '0')}:00.000Z`
+  }));
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(legacyPath, JSON.stringify(legacyMessages));
+  const store = createAgentStore({ usersDir, id: () => 'legacy-task' });
+
+  const task = store.getTask('writer_a', 'legacy-task');
+  assert.equal(task.messages.length, 101);
+  assert.equal(task.messages[0].content, 'legacy-0');
+  assert.equal(task.messages.at(-1).content, 'legacy-100');
+
+  const migrated = JSON.parse(fs.readFileSync(path.join(legacyDir, 'agent-tasks.json'), 'utf8'));
+  assert.equal(migrated.tasks[0].messages.length, 101);
+  assert.equal(migrated.tasks[0].messages[0].content, 'legacy-0');
+  assert.equal(migrated.tasks[0].messages.at(-1).content, 'legacy-100');
+
+  assert.equal(store.renameTask('writer_a', task.id, '保留旧消息').messages.length, 101);
+  assert.throws(
+    () => store.append('writer_a', task.id, { role: 'user', content: '不会静默覆盖旧消息' }),
+    /Agent task data exceeds supported limit/
+  );
+  assert.equal(store.getTask('writer_a', task.id).messages.length, 101);
+  store.clearTaskMessages('writer_a', task.id);
+  assert.doesNotThrow(() => store.append('writer_a', task.id, { role: 'user', content: '清空后新消息' }));
+
+  const persisted = JSON.parse(fs.readFileSync(path.join(legacyDir, 'agent-tasks.json'), 'utf8'));
+  assert.equal(persisted.tasks[0].messages.length, 1);
+  assert.equal(persisted.tasks[0].messages[0].content, '清空后新消息');
+});
+
 test('keeps tasks isolated by account and names a new task from the first 20 Unicode characters', t => {
   const usersDir = createUsersDir(t);
   let sequence = 0;
