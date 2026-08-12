@@ -7,6 +7,10 @@ const MAX_CONTEXT_LENGTH = 18000;
 const HISTORY_WINDOW = 12;
 const MAX_AGENT_MESSAGE_CHARS = 48000;
 const MAX_PAGE_CONTEXT_CHARS = 12000;
+const MAX_PAGE_MODE_CHARS = 80;
+const MAX_PAGE_EXPERT_CHARS = 80;
+const MAX_ATTACHMENT_NAME_CHARS = 180;
+const MAX_ATTACHMENT_CONTENT_CHARS = 6000;
 const MAX_PAGE_NOVEL_CHARS = 4500;
 const MAX_PAGE_EXTRACTED_CHARS = 2500;
 const MAX_PAGE_SCRIPT_CHARS = 4500;
@@ -19,6 +23,11 @@ const SYSTEM_INSTRUCTION = `你是前贴平台中的 CM 创作 Agent。用中文
 
 function cleanText(value, limit = MAX_CONTEXT_LENGTH) {
   return String(value || '').trim().slice(0, limit);
+}
+
+function cleanAttachmentText(value, limit) {
+  if (typeof value !== 'string') return '';
+  return String(value).trim().slice(0, limit);
 }
 
 function cleanModelAnswer(value, limit = 12000) {
@@ -36,6 +45,10 @@ function selectedSkillContext(skills, limit) {
 
 function buildPageContext(context) {
   const page = cleanText(context?.page, 80) || '未知页面';
+  const mode = cleanText(context?.mode, MAX_PAGE_MODE_CHARS);
+  const expert = cleanText(context?.expert, MAX_PAGE_EXPERT_CHARS);
+  const attachmentName = cleanAttachmentText(context?.attachment?.name, MAX_ATTACHMENT_NAME_CHARS);
+  const attachmentContent = cleanAttachmentText(context?.attachment?.content, MAX_ATTACHMENT_CONTENT_CHARS);
   const novelText = cleanText(context?.novelText, MAX_PAGE_NOVEL_CHARS);
   const scriptOutput = cleanText(context?.scriptOutput, MAX_PAGE_SCRIPT_CHARS);
   const extracted = context?.extracted
@@ -43,6 +56,10 @@ function buildPageContext(context) {
     : '';
   return [
     `当前页面：${page}`,
+    mode ? `模式：${mode}` : '',
+    expert ? `专家：${expert}` : '',
+    attachmentName ? `附件名称：${attachmentName}` : '',
+    attachmentContent ? `附件内容（仅用于本次回答）：\n${attachmentContent}` : '',
     novelText ? `小说原文（仅用于本次回答）：\n${novelText}` : '',
     extracted ? `人物与场景（仅用于本次回答）：\n${extracted}` : '',
     scriptOutput ? `当前剧本结果（仅用于本次回答）：\n${scriptOutput}` : ''

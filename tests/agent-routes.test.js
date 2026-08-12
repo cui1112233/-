@@ -284,6 +284,45 @@ test('Agent chat keeps page context transient and sends only the selected task h
   assert.doesNotMatch(persisted, /临时原文|临时剧本/);
 });
 
+test('Agent chat includes bounded composer context only in the responder request', async t => {
+  let receivedMessages;
+  const { app, systemDir } = createFixture(t, {
+    responder: async ({ messages }) => {
+      receivedMessages = messages;
+      return '已收到创作要求。';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: {
+      taskId: task.id,
+      prompt: '请根据附件修改这一场戏',
+      context: {
+        page: 'Agent 工作区',
+        mode: '修改润色',
+        expert: '短剧编剧',
+        attachment: {
+          name: 'notes.md',
+          content: '附件中的剧情重点'
+        }
+      }
+    }
+  });
+
+  assert.equal(result.status, 200);
+  const responderInput = receivedMessages.map(message => message.content).join('\n');
+  assert.match(responderInput, /当前页面：Agent 工作区/);
+  assert.match(responderInput, /模式：修改润色/);
+  assert.match(responderInput, /专家：短剧编剧/);
+  assert.match(responderInput, /附件名称：notes\.md/);
+  assert.match(responderInput, /附件内容（仅用于本次回答）：[\s\S]*附件中的剧情重点/);
+  const persisted = fs.readFileSync(path.join(systemDir, 'users', 'choushiyiguai1', 'agent-tasks.json'), 'utf8');
+  assert.doesNotMatch(persisted, /修改润色|短剧编剧|notes\.md|附件中的剧情重点/);
+});
+
 test('Agent chat requires an owned task ID and returns not found when it disappears before an append', async t => {
   const { app, agentStore } = createFixture(t);
   const loginResult = await login(app, 'choushiyiguai1');
