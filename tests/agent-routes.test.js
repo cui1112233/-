@@ -268,3 +268,25 @@ test('Agent chat preserves each bounded page-context field for script revision',
   assert.match(responderInput, /人物与场景[\s\S]*EXTRACTED_PAYLOAD_MARKER/);
   assert.match(responderInput, /当前剧本结果[\s\S]*SCRIPT_PAYLOAD_MARKER/);
 });
+
+test('Agent chat truncates overlong model responses before persistence', async t => {
+  const overlongAnswer = `回复开头-${'😀'.repeat(12001)}`;
+  const { app } = createFixture(t, { responder: async () => overlongAnswer });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: { taskId: task.id, prompt: '请给我一段可用的短剧建议' }
+  });
+
+  assert.notEqual(result.status, 502);
+  assert.equal(result.status, 200);
+  const detail = await request(app, { requestPath: `/api/agent/tasks/${task.id}`, token });
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.task.messages.length, 2);
+  const persistedAssistant = detail.body.task.messages.at(-1);
+  assert.equal(persistedAssistant.role, 'assistant');
+  assert.ok(Array.from(persistedAssistant.content).length <= 12000);
+  assert.equal(result.body.assistant.content, persistedAssistant.content);
+});

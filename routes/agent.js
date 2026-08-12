@@ -165,7 +165,8 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
         if (upstream.statusCode >= 400) throw new Error(`上游模型服务错误（${upstream.statusCode}）`);
         answer = extractAssistantText(upstream);
       }
-      if (!cleanText(answer, 12000)) throw new Error('Agent 没有返回可用内容');
+      answer = cleanText(answer, 12000);
+      if (!answer) throw new Error('Agent 没有返回可用内容');
       if (INTERNAL_DISCLOSURE_PATTERN.test(answer)) answer = INTERNAL_DISCLOSURE_REPLY;
       const assistantMessage = agentStore.append(req.username, taskId, { role: 'assistant', content: answer });
       if (!assistantMessage) return sendTaskNotFound(res);
