@@ -58,6 +58,23 @@ curl -s http://127.0.0.1:4000/healthz
 See `../docs/shuihuo-production-operations.md` for readiness requirements,
 the live acceptance record, and the approved second-phase boundary.
 
+### Starting the local Go service
+
+Start required services and export server-side configuration in the current
+shell. Then start the qiantie Go process:
+
+```bash
+cd /Users/ming/Downloads/qiantie/backend
+./scripts/restart-qiantie-backend.sh
+curl -sS http://127.0.0.1:4000/healthz
+```
+
+The wrapper does not source `.env` or terminate an existing process. If its
+PID file identifies a running process, stop that process manually before using
+the wrapper again. The running binary must be built from this checkout. Verify
+the signed platform route separately after signing into qiantie; never place
+provider keys in browser storage, this README, or the scripts above.
+
 ## Import Legacy Data
 
 ```bash
