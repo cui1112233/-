@@ -1332,18 +1332,23 @@ select {
   padding: 24px;
 }
 
-.agent-page { display: grid; height: 100%; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 16px; padding: 24px; }
-.agent-page--skills-collapsed { grid-template-columns: 38px minmax(0, 1fr); }
-.agent-skill-library { display: flex; min-height: 520px; flex-direction: column; gap: 14px; padding: 18px; overflow: hidden; }
-.agent-page--skills-collapsed .agent-skill-library { display: none; }
-.agent-skill-library > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.agent-skill-library .ant-typography { margin: 0; color: var(--legacy-text); }
-.agent-skill-library-toggle, .agent-skill-library-restore { display: grid; place-items: center; border: 1px solid var(--legacy-border); border-radius: 6px; background: var(--legacy-input); color: var(--legacy-text); cursor: pointer; }
-.agent-skill-library-toggle { width: 28px; height: 28px; font-size: 20px; line-height: 1; }
-.agent-skill-library-restore { width: 38px; min-height: 120px; align-self: start; padding: 8px 0; font-size: 20px; }
-.agent-skill-library-restore span { margin-top: 8px; writing-mode: vertical-rl; font-size: 12px; }
-.agent-skill-library-toggle:hover, .agent-skill-library-toggle:focus-visible, .agent-skill-library-restore:hover, .agent-skill-library-restore:focus-visible { border-color: var(--legacy-accent); background: var(--legacy-accent-dim); outline: none; }
-.agent-skill-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; overflow-y: auto; padding-right: 2px; }
+.agent-page { display: grid; width: 100%; height: 100%; min-width: 0; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); gap: 16px; padding: 24px; }
+.agent-task-sidebar { display: flex; min-height: 520px; flex-direction: column; gap: 14px; padding: 16px; overflow: hidden; }
+.agent-task-sidebar-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.agent-task-sidebar-header .ant-typography { margin: 0; color: var(--legacy-text); }
+.agent-task-sidebar-header .ant-typography + .ant-typography { display: block; margin-top: 3px; color: var(--legacy-muted); font-size: 12px; }
+.agent-task-sidebar-header .ant-btn { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; }
+.agent-task-new { justify-content: flex-start; }
+.agent-task-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 6px; overflow-y: auto; padding-right: 2px; }
+.agent-task-row { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; border: 1px solid transparent; border-radius: 7px; padding: 11px; background: transparent; color: var(--legacy-text); cursor: pointer; font: inherit; text-align: left; }
+.agent-task-row:hover, .agent-task-row:focus-visible { border-color: var(--legacy-border-strong); background: var(--legacy-input); outline: none; }
+.agent-task-row.active { border-color: var(--legacy-accent); background: var(--legacy-accent-dim); box-shadow: inset 3px 0 0 var(--legacy-accent); }
+.agent-task-row strong, .agent-task-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-task-row strong { font-size: 13px; }
+.agent-task-row span { grid-column: 1 / -1; color: var(--legacy-muted); font-size: 12px; line-height: 1.45; }
+.agent-task-row time { align-self: center; color: var(--legacy-muted); font-size: 11px; white-space: nowrap; }
+.agent-task-empty { display: grid; min-height: 180px; place-items: center; border: 1px dashed var(--legacy-border); border-radius: 7px; color: var(--legacy-muted); font-size: 13px; line-height: 1.7; text-align: center; }
+.agent-skill-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .agent-skill-card { border: 1px solid var(--legacy-border); border-radius: 7px; padding: 12px; background: var(--legacy-input); }
 .agent-skill-card.selected { border-color: var(--legacy-accent); box-shadow: inset 0 0 0 1px var(--legacy-accent); }
 .agent-skill-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--legacy-text); }
@@ -1351,11 +1356,12 @@ select {
 
 .agent-workbench {
   display: flex;
-  width: min(900px, 100%);
+  width: 100%;
+  min-width: 0;
   height: 100%;
   min-height: 520px;
   flex-direction: column;
-  margin: 0 auto;
+  margin: 0;
   overflow: hidden;
   border: 1px solid var(--legacy-border);
   border-radius: 8px;
@@ -1366,6 +1372,8 @@ select {
 .agent-workbench-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px; border-bottom: 1px solid var(--legacy-border); }
 .agent-workbench-header .ant-typography { margin: 0; color: var(--legacy-text); }
 .agent-workbench-header .ant-typography-paragraph { margin-top: 6px; color: var(--legacy-muted); }
+.agent-task-actions .ant-btn { display: grid; place-items: center; color: var(--legacy-muted); }
+.agent-task-actions .ant-btn:hover { color: var(--legacy-text); background: var(--legacy-input); }
 .agent-workbench-history { display: flex; flex: 1; flex-direction: column; gap: 14px; overflow-y: auto; padding: 24px; }
 .agent-workbench-empty { display: grid; height: 100%; min-height: 260px; place-items: center; color: var(--legacy-muted); text-align: center; }
 .agent-workbench-message { display: flex; max-width: min(680px, 88%); flex-direction: column; gap: 5px; border: 1px solid var(--legacy-border); border-radius: 8px; padding: 12px 14px; color: var(--legacy-text); white-space: pre-wrap; }
@@ -1389,6 +1397,11 @@ select {
 .agent-composer-context strong { margin-right: 4px; color: var(--legacy-muted); font-size: 12px; }
 .agent-composer-context button { border: 1px solid var(--legacy-border); border-radius: 999px; padding: 5px 9px; background: var(--legacy-input); color: var(--legacy-text); cursor: pointer; font: inherit; font-size: 12px; }
 .agent-composer-context button.active { border-color: var(--legacy-accent); background: var(--legacy-accent-dim); color: var(--legacy-text); }
+.agent-skill-panel { display: flex; width: 100%; max-height: 330px; flex-direction: column; gap: 12px; overflow-y: auto; border-top: 1px solid var(--legacy-border); padding-top: 12px; }
+.agent-skill-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-skill-panel > header > div { display: flex; align-items: baseline; gap: 8px; }
+.agent-skill-panel > header strong { color: var(--legacy-text); }
+.agent-skill-panel > header span { color: var(--legacy-muted); font-size: 12px; }
 
 .cm-conversation-frame {
   position: relative;

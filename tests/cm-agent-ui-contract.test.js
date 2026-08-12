@@ -47,3 +47,35 @@ test('Agent frontend API exposes task conversation endpoints', () => {
   assert.match(agentApi, /JSON\.stringify\(\{ taskId, prompt, context, skillIds \}\)/);
   assert.doesNotMatch(agentApi, /getAgentHistory|clearAgentHistory/);
 });
+
+test('CM Agent renders account-scoped task conversations and keeps skills in the composer', () => {
+  const page = read('frontend/src/user/pages/AgentPage.jsx');
+  const pet = read('frontend/src/shared/pet/StackyPet.jsx');
+  const css = read('frontend/src/shared/styles/global.css');
+
+  assert.match(page, /listAgentTasks/);
+  assert.match(page, /createAgentTask/);
+  assert.match(page, /getAgentTask/);
+  assert.match(page, /renameAgentTask/);
+  assert.match(page, /clearAgentTask/);
+  assert.match(page, /deleteAgentTask/);
+  assert.match(page, /const \[tasks, setTasks\] = useState\(\[\]\)/);
+  assert.match(page, /const \[activeTaskId, setActiveTaskId\] = useState\(null\)/);
+  assert.match(page, /const \[activeTask, setActiveTask\] = useState\(null\)/);
+  assert.match(page, /新建聊天/);
+  assert.match(page, /agent-task-sidebar/);
+  assert.match(page, /agent-task-row/);
+  assert.match(page, /重命名任务/);
+  assert.match(page, /clearAgentTask\(activeTaskId\)/);
+  assert.match(page, /deleteAgentTask\(activeTaskId\)/);
+  assert.match(page, /composerPanel === 'skill'/);
+  assert.match(page, /新建我的技能/);
+  assert.doesNotMatch(page, /<aside className="agent-skill-library/);
+  assert.match(css, /\.agent-task-sidebar/);
+  assert.match(css, /\.agent-task-row/);
+  assert.doesNotMatch(pet, /getAgentHistory|clearAgentHistory/);
+  assert.match(pet, /listAgentTasks/);
+  assert.match(pet, /createAgentTask/);
+  assert.match(pet, /getAgentTask/);
+  assert.match(pet, /askAgent\(\{[\s\S]*?taskId/);
+});
