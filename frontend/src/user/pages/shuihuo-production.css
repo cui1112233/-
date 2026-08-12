@@ -151,6 +151,10 @@
 .shuihuo-breadcrumb a { color: inherit; }
 .shuihuo-topbar h1 { margin: 6px 0 0; font-size: 20px; letter-spacing: 0; }
 .shuihuo-status { padding: 5px 8px; color: var(--sh-accent); border: 1px solid var(--sh-accent-dark); border-radius: 4px; font-size: 11px; }
+.shuihuo-readiness-strip { display: flex; flex-wrap: wrap; gap: 7px 16px; align-items: center; min-height: 38px; padding: 8px 30px; color: var(--sh-muted); border-bottom: 1px solid var(--sh-line); background: var(--sh-panel); font-size: 12px; }
+.shuihuo-readiness-title { color: var(--sh-text); font-weight: 700; }
+.shuihuo-readiness-strip .ready { color: #60c995; }
+.shuihuo-readiness-strip .missing { color: var(--sh-danger); }
 .shuihuo-view { padding: 26px 30px 36px; }
 .shuihuo-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .shuihuo-page-heading h2 { margin: 0; font-size: 19px; }
@@ -218,4 +222,4 @@
 .shuihuo-asset-card-title, .shuihuo-asset-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .shuihuo-asset-visual.is-scene { background: linear-gradient(135deg, #345068, #162430); }
 .shuihuo-asset-visual.is-prop { background: linear-gradient(135deg, #69503b, #2c211a); }
-@media (max-width: 900px) { .shuihuo-production { grid-template-columns: 64px minmax(0, 1fr); } .shuihuo-sidebar { padding: 15px 7px; } .shuihuo-brand small, .shuihuo-brand span, .shuihuo-project-switch span, .shuihuo-project-switch strong, .shuihuo-side-label, .shuihuo-side-nav button { font-size: 0; } .shuihuo-side-nav button { justify-content: center; padding: 0; } .shuihuo-side-nav button span { width: auto; font-size: 18px; } .shuihuo-project-switch { min-height: 36px; padding: 0; } .shuihuo-sidebar-footer { display: none; } .shuihuo-topbar, .shuihuo-view { padding-left: 18px; padding-right: 18px; } .shuihuo-topbar { min-height: 80px; } .shuihuo-page-heading { flex-direction: column; } .shuihuo-actions { justify-content: flex-start; } .shuihuo-toolbar { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .shuihuo-production { grid-template-columns: 64px minmax(0, 1fr); } .shuihuo-sidebar { padding: 15px 7px; } .shuihuo-brand small, .shuihuo-brand span, .shuihuo-project-switch span, .shuihuo-project-switch strong, .shuihuo-side-label, .shuihuo-side-nav button { font-size: 0; } .shuihuo-side-nav button { justify-content: center; padding: 0; } .shuihuo-side-nav button span { width: auto; font-size: 18px; } .shuihuo-project-switch { min-height: 36px; padding: 0; } .shuihuo-sidebar-footer { display: none; } .shuihuo-topbar, .shuihuo-readiness-strip, .shuihuo-view { padding-left: 18px; padding-right: 18px; } .shuihuo-topbar { min-height: 80px; } .shuihuo-page-heading { flex-direction: column; } .shuihuo-actions { justify-content: flex-start; } .shuihuo-toolbar { grid-template-columns: 1fr; } }

@@ -54,8 +54,8 @@ export function ShuihuoModelCatalogPage() {
       { title: '能力', dataIndex: 'kind' },
       { title: '适配器', dataIndex: 'adapterKind' },
       { title: '状态', dataIndex: 'enabled', render: value => <Tag color={value ? 'green' : 'default'}>{value ? '已启用' : '已停用'}</Tag> },
-      { title: '凭据', dataIndex: 'credentialConfigured', render: value => value ? '已配置' : '未配置' },
-      { title: '提供方', dataIndex: 'providerConfigured', render: value => value ? '可用' : '待配置' }
+      { title: '凭据引用', dataIndex: 'credentialConfigured', render: value => <Tag color={value ? 'green' : 'gold'}>{value ? '已登记' : '未登记'}</Tag> },
+      { title: '运行配置', dataIndex: 'providerConfigured', render: value => <Tag color={value ? 'green' : 'gold'}>{value ? '模型记录完整' : '待完善'}</Tag> }
     ]} />
     <Drawer title="新增模型" open={open} onClose={() => setOpen(false)} width={560} extra={<Button type="primary" loading={saving} onClick={submit}>保存</Button>}>
       <Form form={form} layout="vertical" initialValues={{ kind: 'image', adapterKind: 'jimeng_image', enabled: false, parameterSchema: '{}' }}>

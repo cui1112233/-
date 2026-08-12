@@ -2,6 +2,22 @@ import { apiRequest } from './client';
 
 const base = '/api/shuihuo-production';
 
+export async function getProductionHealth() {
+  try {
+    return await apiRequest(`${base}/health`);
+  } catch (error) {
+    // The readiness endpoint deliberately returns 503 with the same safe
+    // snapshot when a runtime dependency is missing.
+    try {
+      const health = JSON.parse(error.message);
+      if (health && typeof health === 'object' && health.redis && health.storage) return health;
+    } catch (_) {
+      // Keep the original transport/authentication error below.
+    }
+    throw error;
+  }
+}
+
 export function listProjects() { return apiRequest(`${base}/projects`); }
 export function createProject(payload) { return apiRequest(`${base}/projects`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function getProject(id) { return apiRequest(`${base}/projects/${id}`); }

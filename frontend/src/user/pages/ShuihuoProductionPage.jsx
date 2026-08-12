@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Modal, Select, Spin, message } from 'antd';
 import { Link } from '../../shared/components/Link';
-import { createProject, deleteProject, getProject, listProjects } from '../../shared/api/shuihuoProduction';
+import { createProject, deleteProject, getProductionHealth, getProject, listProjects } from '../../shared/api/shuihuoProduction';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { StudioView } from './shuihuo/StudioView';
 import { AssetsView } from './shuihuo/AssetsView';
 import './shuihuo-production.css';
 
 const viewNames = { projects: '作品列表', studio: '分段生产台', assets: '人物场景预设' };
+const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型' };
+
+function readinessItems(health) {
+  const enabled = new Set(health?.enabledModelKinds || []);
+  return [
+    ['Redis', health?.redis],
+    ['存储', health?.storage],
+    ...Object.entries(modelNames).map(([kind, name]) => [name, { ready: enabled.has(kind), reason: enabled.has(kind) ? '' : `缺少已启用的${name}` }])
+  ];
+}
 
 export function ShuihuoProductionPage() {
   const [projects, setProjects] = useState([]);
@@ -18,6 +28,8 @@ export function ShuihuoProductionPage() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [sourceText, setSourceText] = useState('');
+  const [health, setHealth] = useState(null);
+  const [healthError, setHealthError] = useState('');
 
   useEffect(() => {
     document.body.classList.add('shuihuo-theme-active');
@@ -37,6 +49,15 @@ export function ShuihuoProductionPage() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    let active = true;
+    getProductionHealth().then(result => {
+      if (active) { setHealth(result); setHealthError(''); }
+    }).catch(error => {
+      if (active) setHealthError(error.message || '无法读取运行依赖状态');
+    });
+    return () => { active = false; };
+  }, []);
 
   async function openProject(project, nextView = 'studio') {
     try {
@@ -101,9 +122,14 @@ export function ShuihuoProductionPage() {
     </aside>
     <main className="shuihuo-main">
       <header className="shuihuo-topbar"><div><div className="shuihuo-breadcrumb"><Link href="/">一战晟铭</Link> / {viewNames[view]}</div><h1>{view === 'projects' ? '小说视频工坊' : project?.name || '水货生产'}</h1></div><span className="shuihuo-status">后端工作流</span></header>
+      <div className="shuihuo-readiness-strip" role="status" aria-live="polite">
+        <span className="shuihuo-readiness-title">生产依赖</span>
+        {readinessItems(health).map(([name, dependency]) => <span className={dependency?.ready ? 'ready' : 'missing'} key={name}>{name}：{dependency?.ready ? '已就绪' : dependency?.reason || '检测中'}</span>)}
+        {healthError ? <span className="missing">状态读取失败：{healthError}</span> : null}
+      </div>
       {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
       {!loading && view === 'projects' ? <ProjectsView projects={projects} onCreate={() => setCreateOpen(true)} onOpen={openProject} onDelete={handleDelete} /> : null}
-      {view === 'studio' && project ? <StudioView data={activeProject} onRefresh={() => openProject(project)} onAssets={() => setView('assets')} /> : null}
+      {view === 'studio' && project ? <StudioView data={activeProject} readiness={health} onRefresh={() => openProject(project)} onAssets={() => setView('assets')} /> : null}
       {view === 'assets' && project ? <AssetsView data={activeProject} onRefresh={() => openProject(project, 'assets')} /> : null}
     </main>
     <Modal title="创建作品" open={createOpen} onCancel={() => setCreateOpen(false)} onOk={handleCreate} okText="创建并进入生产台" confirmLoading={creating} width={720}>
