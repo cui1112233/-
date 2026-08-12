@@ -11,6 +11,7 @@ const page = read('frontend/src/user/pages/ShuihuoProductionPage.jsx');
 const studio = read('frontend/src/user/pages/shuihuo/StudioView.jsx');
 const drawer = read('frontend/src/user/pages/shuihuo/TaskDrawer.jsx');
 const admin = read('frontend/src/admin/pages/ShuihuoModelCatalogPage.jsx');
+const batchModal = read('frontend/src/user/pages/shuihuo/BatchTaskModal.jsx');
 
 test('production page loads the server readiness snapshot and renders its dependency strip', () => {
   assert.match(api, /export (?:async )?function getProductionHealth\([\s\S]*?\/health/);
@@ -32,6 +33,27 @@ test('production actions stay available only when their actual dependencies are 
 test('production API exposes a project-scoped batch task endpoint', () => {
   assert.match(api, /export function createBatchTasks\(projectId, payload\)/);
   assert.match(api, /projects\/\$\{projectId\}\/tasks\/batch/);
+});
+
+test('batch task modal sends only selected eligible segments to the batch endpoint', () => {
+  assert.match(batchModal, /createBatchTasks/);
+  assert.match(batchModal, /eligibleSegmentIds/);
+  assert.match(batchModal, /segmentIds/);
+  assert.match(batchModal, /主图片/);
+  assert.match(batchModal, /segment\.confirmed/);
+  assert.match(batchModal, /item\?\.kind === 'image' && item\.isPrimary === true/);
+  assert.match(batchModal, /result\?\.error/);
+  assert.doesNotMatch(batchModal, /setInterval\(.*progress/i);
+});
+
+test('production editor exposes only real batch operations in its phase toolbar', () => {
+  assert.match(studio, /className="shuihuo-editor-toolbar"/);
+  for (const label of ['调整分镜', '人物场景预设', '批量生成图片', '批量生成视频']) {
+    assert.match(studio, new RegExp(`>${label}<`));
+  }
+  assert.match(studio, /disabled title="阶段 4 接入导出任务">导出</);
+  assert.match(studio, /setBatchKind\('image'\)/);
+  assert.match(studio, /setBatchKind\('video'\)/);
 });
 
 test('segment production card preserves the six-column production layout', () => {

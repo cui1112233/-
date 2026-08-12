@@ -180,6 +180,11 @@
 .shuihuo-stepper .done::before { content: '✓'; border-color: var(--sh-accent-dark); background: var(--sh-accent-dark); }
 .shuihuo-stepper i { width: 45px; height: 1px; margin: 0 10px; background: var(--sh-line); }
 .shuihuo-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.shuihuo-editor-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding: 10px 0; border-bottom: 1px solid var(--sh-line); }
+.shuihuo-batch-segments { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; padding: 1px; }
+.shuihuo-batch-segment { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 9px; border: 1px solid var(--sh-line); border-radius: 5px; background: var(--sh-panel); }
+.shuihuo-batch-segment > span { flex: 0 0 auto; color: var(--sh-danger); font-size: 12px; }
+.shuihuo-batch-errors { margin: 0; padding-left: 18px; }
 .shuihuo-table { margin-top: 20px; overflow-x: auto; border-top: 1px solid var(--sh-line); }
 .shuihuo-table-head, .shuihuo-segment-row { min-width: 1080px; display: grid; grid-template-columns: 42px 240px 105px 180px 200px 115px 70px; gap: 11px; align-items: start; }
 .shuihuo-table-head { padding: 11px 8px; color: var(--sh-muted); font-size: 11px; }
