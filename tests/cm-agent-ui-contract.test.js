@@ -66,16 +66,34 @@ test('CM Agent renders account-scoped task conversations and keeps skills in the
   assert.match(page, /agent-task-sidebar/);
   assert.match(page, /agent-task-row/);
   assert.match(page, /重命名任务/);
-  assert.match(page, /clearAgentTask\(activeTaskId\)/);
-  assert.match(page, /deleteAgentTask\(activeTaskId\)/);
+  assert.match(page, /clearAgentTask\(taskId\)/);
+  assert.match(page, /deleteAgentTask\(taskId\)/);
   assert.match(page, /composerPanel === 'skill'/);
   assert.match(page, /新建我的技能/);
   assert.doesNotMatch(page, /<aside className="agent-skill-library/);
   assert.match(css, /\.agent-task-sidebar/);
   assert.match(css, /\.agent-task-row/);
   assert.doesNotMatch(pet, /getAgentHistory|clearAgentHistory/);
-  assert.match(pet, /listAgentTasks/);
   assert.match(pet, /createAgentTask/);
   assert.match(pet, /getAgentTask/);
   assert.match(pet, /askAgent\(\{[\s\S]*?taskId/);
+});
+
+test('CM task workspace preserves active conversations and remains usable on narrow screens', () => {
+  const page = read('frontend/src/user/pages/AgentPage.jsx');
+  const pet = read('frontend/src/shared/pet/StackyPet.jsx');
+  const css = read('frontend/src/shared/styles/global.css');
+
+  assert.match(page, /const activeTaskIdRef = useRef\(null\)/);
+  assert.match(page, /activeTaskIdRef\.current = taskId/);
+  assert.match(page, /if \(activeTaskIdRef\.current === taskId\) setActiveTask\(nextTask\)/);
+  assert.match(page, /if \(event\.nativeEvent\.isComposing\) return;/);
+  assert.match(pet, /const petTaskIdRef = useRef\(null\)/);
+  assert.match(pet, /async function loadPetTask\(taskId\)/);
+  assert.match(pet, /loadPetTask\(taskId\)\.catch\(\(\) => undefined\)/);
+  assert.doesNotMatch(pet, /listAgentTasks/);
+  assert.match(pet, /getAgentTask/);
+  assert.match(css, /\.agent-page \{[^}]*min-height: 0;[^}]*overflow: auto;[^}]*overflow-x: hidden;[^}]*\}/);
+  assert.match(css, /@media \(max-width: 860px\) \{[\s\S]*?\.agent-page \{[^}]*min-height: 0;[^}]*overflow: auto;[^}]*overflow-x: hidden;[^}]*\}/);
+  assert.match(css, /\[data-theme='light'\] \.stacky-agent-close[^}]*background: #ffffff;[^}]*color: var\(--legacy-text\);/);
 });

@@ -1332,7 +1332,7 @@ select {
   padding: 24px;
 }
 
-.agent-page { display: grid; width: 100%; height: 100%; min-width: 0; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); gap: 16px; padding: 24px; }
+.agent-page { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: auto; overflow-x: hidden; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); gap: 16px; padding: 24px; }
 .agent-task-sidebar { display: flex; min-height: 520px; flex-direction: column; gap: 14px; padding: 16px; overflow: hidden; }
 .agent-task-sidebar-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .agent-task-sidebar-header .ant-typography { margin: 0; color: var(--legacy-text); }
@@ -1467,6 +1467,9 @@ select {
 }
 
 [data-theme='light'] .cm-conversation-frame::before { opacity: 0.12; }
+[data-theme='light'] .stacky-agent-close { background: #ffffff; color: var(--legacy-text); }
+[data-theme='light'] .stacky-agent-close:hover,
+[data-theme='light'] .stacky-agent-close:focus-visible { background: var(--legacy-card-hover); color: var(--legacy-text); }
 
 .settings-page { height: 100%; overflow: auto; padding: 28px 32px; }
 .settings-workbench { width: min(1120px, 100%); margin: 0 auto; container-type: inline-size; }
@@ -1657,8 +1660,10 @@ select {
 
 @media (max-width: 860px) {
   .agent-page { grid-template-columns: 1fr; }
-  .agent-page--skills-collapsed { grid-template-columns: 32px minmax(0, 1fr); padding: 14px; gap: 10px; }
-  .agent-skill-library { min-height: 0; max-height: 360px; }
+  .agent-page { height: 100%; min-height: 0; overflow: auto; overflow-x: hidden; padding: 14px; gap: 12px; }
+  .agent-task-sidebar { min-height: 0; max-height: 300px; }
+  .agent-workbench { min-height: 560px; }
+  .agent-skill-list { grid-template-columns: 1fr; }
 }
 
 .stacky-pet-tuck,

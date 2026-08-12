@@ -50,6 +50,13 @@ export function AgentPage() {
   const historyRef = useRef(null);
   const attachmentInputRef = useRef(null);
   const taskRequestRef = useRef(0);
+  const activeTaskIdRef = useRef(null);
+
+  function activateTask(task) {
+    activeTaskIdRef.current = task?.id || null;
+    setActiveTaskId(task?.id || null);
+    setActiveTask(task || null);
+  }
 
   async function loadSkills() {
     const result = await listAgentSkills();
@@ -65,6 +72,7 @@ export function AgentPage() {
 
   async function selectTask(taskId) {
     const requestId = ++taskRequestRef.current;
+    activeTaskIdRef.current = taskId;
     setActiveTaskId(taskId);
     setActiveTask(null);
     try {
@@ -72,6 +80,7 @@ export function AgentPage() {
       if (taskRequestRef.current === requestId) setActiveTask(result.task || null);
     } catch (error) {
       if (taskRequestRef.current !== requestId) return;
+      activeTaskIdRef.current = null;
       setActiveTaskId(null);
       setActiveTask(null);
       message.error(error.message || '读取任务失败');
@@ -85,8 +94,7 @@ export function AgentPage() {
       const task = result.task;
       if (!task) throw new Error('未能创建任务');
       taskRequestRef.current += 1;
-      setActiveTaskId(task.id);
-      setActiveTask(task);
+      activateTask(task);
       await refreshTasks();
       return task;
     } catch (error) {
@@ -160,12 +168,14 @@ export function AgentPage() {
   async function sendQuestion() {
     const prompt = question.trim();
     if (!prompt || asking) return;
+    let taskId = activeTask?.id || null;
     setAsking(true);
     setQuestion('');
     dispatchPetState('working');
     try {
       const task = activeTask || await createTask();
       if (!task) return;
+      taskId = task.id;
       const result = await askAgent({
         taskId: task.id,
         prompt,
@@ -178,13 +188,19 @@ export function AgentPage() {
         skillIds: selectedSkillIds
       });
       const nextTask = result.task || { ...task, messages: [...(task.messages || []), result.user, result.assistant] };
-      taskRequestRef.current += 1;
-      setActiveTaskId(nextTask.id);
-      setActiveTask(nextTask);
+      if (activeTaskIdRef.current === taskId) setActiveTask(nextTask);
       await refreshTasks();
       dispatchPetState('success');
     } catch (error) {
       message.error(error.message || 'CM 暂时无法回答');
+      if (taskId && taskId === activeTaskIdRef.current) {
+        getAgentTask(taskId)
+          .then(result => {
+            if (activeTaskIdRef.current === taskId) setActiveTask(result.task || null);
+          })
+          .catch(() => undefined);
+      }
+      refreshTasks().catch(() => undefined);
       dispatchPetState('error');
     } finally {
       setAsking(false);
@@ -199,11 +215,12 @@ export function AgentPage() {
 
   async function saveRename() {
     if (!activeTaskId) return;
+    const taskId = activeTaskId;
     setRenaming(true);
     try {
-      const result = await renameAgentTask(activeTaskId, renameValue);
+      const result = await renameAgentTask(taskId, renameValue);
       const nextTask = result.task;
-      setActiveTask(nextTask);
+      if (activeTaskIdRef.current === taskId) setActiveTask(nextTask);
       setRenameOpen(false);
       await refreshTasks();
       message.success('任务已重命名');
@@ -216,9 +233,10 @@ export function AgentPage() {
 
   async function clearCurrentTask() {
     if (!activeTaskId) return;
+    const taskId = activeTaskId;
     try {
-      await clearAgentTask(activeTaskId);
-      setActiveTask(current => current ? { ...current, messages: [] } : current);
+      await clearAgentTask(taskId);
+      if (activeTaskIdRef.current === taskId) setActiveTask(current => current ? { ...current, messages: [] } : current);
       await refreshTasks();
       message.success('当前任务已清空');
     } catch (error) {
@@ -228,13 +246,16 @@ export function AgentPage() {
 
   async function deleteCurrentTask() {
     if (!activeTaskId) return;
+    const taskId = activeTaskId;
     try {
-      await deleteAgentTask(activeTaskId);
-      taskRequestRef.current += 1;
-      setActiveTaskId(null);
-      setActiveTask(null);
+      await deleteAgentTask(taskId);
+      const deletedActiveTask = activeTaskIdRef.current === taskId;
+      if (deletedActiveTask) {
+        taskRequestRef.current += 1;
+        activateTask(null);
+      }
       const nextTasks = await refreshTasks();
-      if (nextTasks[0]) await selectTask(nextTasks[0].id);
+      if (deletedActiveTask && nextTasks[0]) await selectTask(nextTasks[0].id);
       message.success('当前任务已删除');
     } catch (error) {
       message.error(error.message || '删除任务失败');
@@ -309,7 +330,7 @@ export function AgentPage() {
         <div className="agent-workbench-composer">
           <input ref={attachmentInputRef} className="agent-attachment-input" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={readAttachment} />
           <div className="agent-selected-skills">{selectedSkills.map(skill => <Tag closable key={skill.id} onClose={() => toggleSkill(skill.id)}>{skill.name}</Tag>)}{attachedFile ? <Tag closable onClose={() => setAttachedFile(null)}>附件：{attachedFile.name}</Tag> : null}</div>
-          <Input.TextArea value={question} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="今天想让 CM 帮你做什么？可引用内容、调用技能。" onChange={event => setQuestion(event.target.value)} onPressEnter={event => { if (!event.shiftKey) { event.preventDefault(); sendQuestion(); } }} />
+          <Input.TextArea value={question} autoSize={{ minRows: 2, maxRows: 5 }} placeholder="今天想让 CM 帮你做什么？可引用内容、调用技能。" onChange={event => setQuestion(event.target.value)} onPressEnter={event => { if (event.nativeEvent.isComposing) return; if (!event.shiftKey) { event.preventDefault(); sendQuestion(); } }} />
           <div className="agent-composer-actions">
             <div className="agent-composer-plus-wrap">
               <button className="agent-composer-plus" type="button" aria-label="添加上下文或调用能力" title="添加上下文或调用能力" onClick={() => { setComposerMenuOpen(current => !current); setComposerPanel(null); }}>+</button>

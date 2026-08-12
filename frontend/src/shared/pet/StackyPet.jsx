@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { askAgent, createAgentTask, getAgentTask, listAgentTasks } from '../api/agent';
+import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
 import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech } from './stacky';
 
 const resetDelayMs = 2400;
@@ -48,7 +48,7 @@ export function StackyPet() {
   const suppressClickRef = useRef(false);
   const contextRef = useRef({ page: window.location.pathname });
   const skillIdsRef = useRef([]);
-  const activeTaskIdRef = useRef(null);
+  const petTaskIdRef = useRef(null);
 
   useEffect(() => {
     function handlePetState(event) {
@@ -112,25 +112,25 @@ export function StackyPet() {
 
   async function openChat() {
     setChatOpen(true);
-    if (activeTaskIdRef.current) return;
+    if (!petTaskIdRef.current) return;
+    await loadPetTask(petTaskIdRef.current);
+  }
+
+  async function loadPetTask(taskId) {
     try {
-      const result = await listAgentTasks();
-      const taskId = result.tasks?.[0]?.id;
-      if (!taskId) return;
       const task = await getAgentTask(taskId);
-      activeTaskIdRef.current = task.task?.id || null;
-      setMessages(Array.isArray(task.task?.messages) ? task.task.messages : []);
+      if (petTaskIdRef.current === taskId) setMessages(Array.isArray(task.task?.messages) ? task.task.messages : []);
     } catch (error) {
       setReply('暂时无法读取聊天记录。');
     }
   }
 
   async function ensureTask() {
-    if (activeTaskIdRef.current) return activeTaskIdRef.current;
+    if (petTaskIdRef.current) return petTaskIdRef.current;
     const result = await createAgentTask();
     const taskId = result.task?.id;
     if (!taskId) throw new Error('未能创建聊天任务');
-    activeTaskIdRef.current = taskId;
+    petTaskIdRef.current = taskId;
     setMessages(Array.isArray(result.task.messages) ? result.task.messages : []);
     return taskId;
   }
@@ -150,11 +150,13 @@ export function StackyPet() {
         context: { ...contextRef.current, page: contextRef.current.page || window.location.pathname },
         skillIds: skillIdsRef.current
       });
-      activeTaskIdRef.current = result.task?.id || taskId;
-      setMessages(Array.isArray(result.task?.messages) ? result.task.messages : current => [...current, result.user, result.assistant]);
+      petTaskIdRef.current = result.task?.id || taskId;
+      if (petTaskIdRef.current === taskId) setMessages(Array.isArray(result.task?.messages) ? result.task.messages : current => [...current, result.user, result.assistant]);
       setReply('我整理好了。');
       dispatchPetState('success');
     } catch (error) {
+      const taskId = petTaskIdRef.current;
+      if (taskId) loadPetTask(taskId).catch(() => undefined);
       setReply(error.message || '这次没有连上 Agent。');
       dispatchPetState('error');
     } finally {
