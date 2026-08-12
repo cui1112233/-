@@ -51,6 +51,10 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
 		r.With(api.requireAuth).Get("/shuihuo-production/projects", api.handleListShuihuoProjects)
 		r.With(api.requireAuth).Get("/shuihuo-production/models", api.handleListShuihuoModels)
+		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/fixed", api.handleFixedSegmentation)
+		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/import", api.handleImportSegmentation)
+		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/smart", api.handleSmartSegmentation)
+		r.With(api.requireAuth).Post("/shuihuo-production/projects/{id}/segmentation/confirm", api.handleConfirmSegmentation)
 		r.With(api.requireAuth, api.requireOwner).Get("/admin/models", api.handleListAdminModels)
 	})
 	return r

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
@@ -30,6 +31,47 @@ func (s *Segments) Create(ctx context.Context, ownerID, projectID int64, segment
 	}
 	segment.ProjectID = projectID
 	return segment, nil
+}
+
+func (s *Segments) ReplaceConfirmed(ctx context.Context, ownerID, projectID int64, candidates []domain.Segment) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+UPDATE shuihuo_projects
+SET segmentation_status = 'candidate'
+WHERE id = ? AND user_id = ?
+`, projectID, ownerID)
+	if err != nil {
+		return err
+	}
+	if err := requireAffected(result); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE s FROM shuihuo_segments s JOIN shuihuo_projects p ON p.id = s.project_id WHERE s.project_id = ? AND p.user_id = ?`, projectID, ownerID); err != nil {
+		return err
+	}
+	for index, candidate := range candidates {
+		if candidate.SourceText == "" {
+			return fmt.Errorf("segment %d source text is required", index+1)
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO shuihuo_segments(project_id, source_text, subtitle_text, order_index, confirmed, manually_edited, image_prompt, video_prompt, image_prompt_locked, video_prompt_locked)
+VALUES(?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?)
+`, projectID, candidate.SourceText, candidate.SubtitleText, index+1, candidate.ManuallyEdited, candidate.ImagePrompt, candidate.VideoPrompt, candidate.ImagePromptLocked, candidate.VideoPromptLocked); err != nil {
+			return err
+		}
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE shuihuo_projects SET segmentation_status = 'confirmed', segmentation_version = segmentation_version + 1 WHERE id = ? AND user_id = ?`, projectID, ownerID)
+	if err != nil {
+		return err
+	}
+	if err := requireAffected(result); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Segments) GetSegment(ctx context.Context, ownerID, segmentID int64) (domain.Segment, error) {
