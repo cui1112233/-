@@ -148,6 +148,22 @@ test('rejects invalid messages and titles and enforces task and message limits',
   assert.deepEqual(store.getTask('writer_a', first.id).messages.map(message => message.content), ['b', 'c']);
 });
 
+test('counts agent message limits by Unicode code point while preserving ASCII limits', t => {
+  const usersDir = createUsersDir(t);
+  let sequence = 0;
+  const store = createAgentStore({ usersDir, id: () => `task-${++sequence}` });
+  const task = store.createTask('writer_a');
+  const emojiAtLimit = '😀'.repeat(12000);
+  const emojiOverLimit = '😀'.repeat(12001);
+  const asciiAtLimit = 'a'.repeat(12000);
+  const asciiOverLimit = 'a'.repeat(12001);
+
+  assert.doesNotThrow(() => store.append('writer_a', task.id, { role: 'user', content: emojiAtLimit }));
+  assert.throws(() => store.append('writer_a', task.id, { role: 'user', content: emojiOverLimit }), /Invalid agent message/);
+  assert.doesNotThrow(() => store.append('writer_a', task.id, { role: 'assistant', content: asciiAtLimit }));
+  assert.throws(() => store.append('writer_a', task.id, { role: 'assistant', content: asciiOverLimit }), /Invalid agent message/);
+});
+
 test('clamps injected task and message limits to the 100-entry persistence maximum', t => {
   const usersDir = createUsersDir(t);
   let sequence = 0;
