@@ -114,3 +114,5 @@ export function ShuihuoProductionPage() {
     </Modal>
   </div>;
 }
+
+export default ShuihuoProductionPage;

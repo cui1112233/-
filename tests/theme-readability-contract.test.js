@@ -35,6 +35,12 @@ test('layouts provide Ant Design with the current platform theme', () => {
   assert.doesNotMatch(read('frontend/src/admin/main.jsx'), /<ConfigProvider/);
 });
 
+test('water-production code is loaded only when its route is opened', () => {
+  const source = read('frontend/src/user/App.jsx');
+  assert.match(source, /lazy\(\(\) => import\('\.\/pages\/ShuihuoProductionPage'\)\)/);
+  assert.match(source, /<Suspense fallback=\{<div className="route-loading" role="status">正在加载水货生产<\/div>\}>/);
+});
+
 test('user and admin portal themes cover every floating surface', () => {
   const css = read('frontend/src/shared/styles/global.css');
   const floatingSurfaces = ['.ant-modal-content', '.ant-drawer-content', '.ant-select-dropdown', '.ant-popover-inner', '.ant-message-notice-content', '.ant-notification-notice', '.ant-tooltip-inner'];
