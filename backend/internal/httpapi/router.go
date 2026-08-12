@@ -50,6 +50,7 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Delete("/history/{id}", api.handleDeleteHistory)
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
 		r.With(api.requireAuth).Get("/shuihuo-production/projects", api.handleListShuihuoProjects)
+		r.With(api.requireAuth).Get("/shuihuo-production/models", api.handleListShuihuoModels)
 		r.With(api.requireAuth, api.requireOwner).Get("/admin/models", api.handleListAdminModels)
 	})
 	return r

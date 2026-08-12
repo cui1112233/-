@@ -164,6 +164,60 @@ CREATE TABLE IF NOT EXISTS shuihuo_task_events (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 
+const shuihuoGovernanceMigrationSQL = `
+CREATE TABLE IF NOT EXISTS prompt_definitions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  module VARCHAR(64) NOT NULL,
+  purpose VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_prompt_definition (module, purpose, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS prompt_versions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  prompt_definition_id BIGINT NOT NULL,
+  version_number INT NOT NULL,
+  parameters_json JSON NULL,
+  body MEDIUMTEXT NOT NULL,
+  created_by BIGINT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_prompt_version (prompt_definition_id, version_number),
+  CONSTRAINT fk_prompt_versions_definition FOREIGN KEY (prompt_definition_id) REFERENCES prompt_definitions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_prompt_versions_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS model_definitions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  kind VARCHAR(32) NOT NULL,
+  adapter_kind VARCHAR(64) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  allowed_roles_json JSON NULL,
+  parameter_schema_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_model_definition_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS model_versions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  model_definition_id BIGINT NOT NULL,
+  version_number INT NOT NULL,
+  credential_ref VARCHAR(255) NOT NULL DEFAULT '',
+  endpoint VARCHAR(1024) NOT NULL DEFAULT '',
+  request_template MEDIUMTEXT NULL,
+  response_mapping MEDIUMTEXT NULL,
+  created_by BIGINT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_model_version (model_definition_id, version_number),
+  CONSTRAINT fk_model_versions_definition FOREIGN KEY (model_definition_id) REFERENCES model_definitions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_model_versions_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
+
 var migrations = []migration{
 	{version: 1, sql: `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -219,6 +273,7 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `},
 	{version: 7, sql: shuihuoProductionMigrationSQL, apply: applyShuihuoProductionSchema},
+	{version: 8, sql: shuihuoGovernanceMigrationSQL, apply: applyShuihuoGovernanceSchema},
 }
 
 func RunMigrations(ctx context.Context, db *sql.DB) error {
@@ -291,7 +346,15 @@ func addUserGovernanceColumns(ctx context.Context, conn *sql.Conn) error {
 }
 
 func applyShuihuoProductionSchema(ctx context.Context, conn *sql.Conn) error {
-	for _, statement := range strings.Split(shuihuoProductionMigrationSQL, ";") {
+	return applySQLStatements(ctx, conn, shuihuoProductionMigrationSQL)
+}
+
+func applyShuihuoGovernanceSchema(ctx context.Context, conn *sql.Conn) error {
+	return applySQLStatements(ctx, conn, shuihuoGovernanceMigrationSQL)
+}
+
+func applySQLStatements(ctx context.Context, conn *sql.Conn, script string) error {
+	for _, statement := range strings.Split(script, ";") {
 		statement = strings.TrimSpace(statement)
 		if statement == "" {
 			continue

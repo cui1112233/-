@@ -11,3 +11,7 @@ func (api *API) handleListShuihuoProjects(w http.ResponseWriter, r *http.Request
 func (api *API) handleListAdminModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": []any{}})
 }
+
+func (api *API) handleListShuihuoModels(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"models": []any{}})
+}
