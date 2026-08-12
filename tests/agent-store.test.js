@@ -143,7 +143,35 @@ test('clamps injected task and message limits to the 100-entry persistence maxim
   assert.throws(() => store.createTask('writer_a'), /任务数量已达上限/);
 });
 
-test('replaces a stale predictable temporary file with a private task document', t => {
+test('initializes an absent task document and migrates an absent document from legacy history', t => {
+  const usersDir = createUsersDir(t);
+  const store = createAgentStore({ usersDir, id: () => 'initialized-task' });
+  const emptyTask = store.createTask('writer_a');
+  const legacyDir = path.join(usersDir, 'writer_b');
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyDir, 'agent-history.json'), JSON.stringify([
+    { role: 'user', content: '旧记录', createdAt: '2026-08-12T00:00:00.000Z' }
+  ]));
+
+  assert.equal(emptyTask.id, 'initialized-task');
+  assert.equal(store.listTasks('writer_b')[0].title, '历史聊天');
+});
+
+test('preserves existing unreadable or schema-invalid task documents without mutation', t => {
+  const usersDir = createUsersDir(t);
+  const store = createAgentStore({ usersDir });
+  const userDir = path.join(usersDir, 'writer_a');
+  const taskFile = path.join(userDir, 'agent-tasks.json');
+  fs.mkdirSync(userDir, { recursive: true });
+
+  for (const original of ['{ not valid JSON', JSON.stringify({ version: 99, tasks: [] })]) {
+    fs.writeFileSync(taskFile, original);
+    assert.throws(() => store.createTask('writer_a'), /Agent task data is unreadable/);
+    assert.equal(fs.readFileSync(taskFile, 'utf8'), original);
+  }
+});
+
+test('persists a mutated task document privately without relying on stale temporary files', t => {
   const usersDir = createUsersDir(t);
   const store = createAgentStore({ usersDir, id: () => 'predictable-task' });
   const task = store.createTask('writer_a');
@@ -156,5 +184,8 @@ test('replaces a stale predictable temporary file with a private task document',
 
   store.append('writer_a', task.id, { role: 'user', content: '更新状态' });
 
-  assert.equal(fs.statSync(path.join(userDir, 'agent-tasks.json')).mode & 0o777, 0o600);
+  const taskFile = path.join(userDir, 'agent-tasks.json');
+  assert.equal(fs.statSync(taskFile).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(taskFile, 'utf8')).tasks[0].messages.at(-1).content, '更新状态');
+  assert.equal(fs.readFileSync(predictableTemp, 'utf8'), 'stale');
 });
