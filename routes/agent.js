@@ -73,6 +73,7 @@ function createAgentRouter({ agentStore = createAgentStore({ usersDir: USERS_DIR
   });
 
   router.patch('/tasks/:taskId', (req, res) => {
+    if (!agentStore.getTask(req.username, req.params.taskId)) return sendTaskNotFound(res);
     try {
       const task = agentStore.renameTask(req.username, req.params.taskId, req.body?.title);
       return task ? res.json({ task }) : sendTaskNotFound(res);

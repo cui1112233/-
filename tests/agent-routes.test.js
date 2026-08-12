@@ -122,6 +122,8 @@ test('Agent task endpoints scope reads and mutations to the authenticated accoun
   assert.equal((await request(app, { method: 'DELETE', requestPath: `/api/agent/tasks/${taskId}/messages`, token: other.body.token })).status, 404);
   assert.equal((await request(app, { method: 'DELETE', requestPath: `/api/agent/tasks/${taskId}`, token: other.body.token })).status, 404);
   assert.equal((await request(app, { method: 'POST', requestPath: '/api/agent/chat', token: other.body.token, body: { taskId, prompt: '越权写入' } })).status, 404);
+  assert.equal((await request(app, { method: 'PATCH', requestPath: `/api/agent/tasks/${taskId}`, token: other.body.token, body: { title: ' ' } })).status, 404);
+  assert.equal((await request(app, { method: 'PATCH', requestPath: '/api/agent/tasks/unknown-task', token: owner.body.token, body: { title: ' ' } })).status, 404);
 });
 
 test('Agent chat keeps page context transient and sends only the selected task history to the responder', async t => {
