@@ -193,6 +193,7 @@ export function AgentPage() {
   async function sendQuestion() {
     const prompt = question.trim();
     if (!prompt || asking || taskDetailLoadingRef.current) return;
+    let requestId = taskRequestRef.current;
     let taskId = activeTask?.id || null;
     setAsking(true);
     setQuestion('');
@@ -201,6 +202,7 @@ export function AgentPage() {
       const task = activeTask || await createTask();
       if (!task) return;
       taskId = task.id;
+      requestId = taskRequestRef.current;
       const result = await askAgent({
         taskId: task.id,
         prompt,
@@ -213,15 +215,15 @@ export function AgentPage() {
         skillIds: selectedSkillIds
       });
       const nextTask = result.task || { ...task, messages: [...(task.messages || []), result.user, result.assistant] };
-      if (activeTaskIdRef.current === taskId) setActiveTask(nextTask);
+      if (taskRequestRef.current === requestId && activeTaskIdRef.current === taskId) setActiveTask(nextTask);
       await refreshTasks();
       dispatchPetState('success');
     } catch (error) {
       message.error(error.message || 'CM 暂时无法回答');
-      if (taskId && taskId === activeTaskIdRef.current) {
+      if (taskId && taskRequestRef.current === requestId && taskId === activeTaskIdRef.current) {
         getAgentTask(taskId)
           .then(result => {
-            if (activeTaskIdRef.current === taskId) setActiveTask(result.task || null);
+            if (taskRequestRef.current === requestId && activeTaskIdRef.current === taskId) setActiveTask(result.task || null);
           })
           .catch(() => undefined);
       }
@@ -264,6 +266,7 @@ export function AgentPage() {
   async function clearCurrentTask() {
     if (!activeTaskId) return;
     const taskId = activeTaskId;
+    taskRequestRef.current += 1;
     try {
       await clearAgentTask(taskId);
       if (activeTaskIdRef.current === taskId) setActiveTask(current => current ? { ...current, messages: [] } : current);

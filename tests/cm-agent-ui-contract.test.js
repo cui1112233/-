@@ -88,6 +88,10 @@ test('CM task workspace preserves active conversations and remains usable on nar
   assert.match(page, /activeTaskIdRef\.current = taskId/);
   assert.match(page, /if \(activeTaskIdRef\.current === taskId\) setActiveTask\(nextTask\)/);
   assert.match(page, /if \(event\.nativeEvent\.isComposing\) return;/);
+  assert.match(page, /let requestId = taskRequestRef\.current;/);
+  assert.match(page, /taskId = task\.id;\s*requestId = taskRequestRef\.current;/);
+  assert.match(page, /taskRequestRef\.current === requestId/);
+  assert.match(page, /async function clearCurrentTask\(\) \{[\s\S]*?taskRequestRef\.current \+= 1;[\s\S]*?await clearAgentTask\(taskId\)/);
   assert.match(pet, /const petTaskIdRef = useRef\(null\)/);
   assert.match(pet, /async function loadPetTask\(taskId\)/);
   assert.match(pet, /loadPetTask\(taskId\)\.catch\(\(\) => undefined\)/);
@@ -96,6 +100,14 @@ test('CM task workspace preserves active conversations and remains usable on nar
   assert.match(css, /\.agent-page \{[^}]*min-height: 0;[^}]*overflow: auto;[^}]*overflow-x: hidden;[^}]*\}/);
   assert.match(css, /@media \(max-width: 860px\) \{[\s\S]*?\.agent-page \{[^}]*min-height: 0;[^}]*overflow: auto;[^}]*overflow-x: hidden;[^}]*\}/);
   assert.match(css, /\[data-theme='light'\] \.stacky-agent-close[^}]*background: #ffffff;[^}]*color: var\(--legacy-text\);/);
+  assert.match(pet, /function getChatPanelLayout\(overlay, viewport\)/);
+  assert.match(pet, /const \[viewport, setViewport\] = useState\(getViewport\)/);
+  assert.match(pet, /setViewport\(getViewport\(\)\)/);
+  assert.match(pet, /stacky-agent-panel--opens-\$\{panelLayout\.side\}/);
+  assert.match(pet, /style=\{panelLayout\.style\}/);
+  assert.match(css, /\.stacky-agent-panel \{[^}]*position: fixed;[^}]*left: var\(--stacky-agent-panel-left\);[^}]*width: var\(--stacky-agent-panel-width\);/);
+  assert.match(css, /\.stacky-agent-panel--opens-right/);
+  assert.match(css, /\.stacky-agent-panel--opens-left/);
 });
 
 test('CM task UI resets across accounts and protects the composer while task details load', () => {
@@ -118,5 +130,5 @@ test('CM task UI resets across accounts and protects the composer while task det
   assert.match(page, /role="menuitem"/);
   assert.match(page, /event\.key === 'Escape'/);
   assert.match(page, /composerTriggerRef\.current\?\.focus\(\)/);
-  assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?\.stacky-agent-panel \{[^}]*right: 8px;[^}]*left: 8px;[^}]*width: auto;/);
+  assert.match(css, /@media \(max-width: 360px\) \{[\s\S]*?\.stacky-agent-panel \{[^}]*--stacky-agent-panel-left: 8px !important;[^}]*--stacky-agent-panel-width: calc\(100vw - 16px\) !important;/);
 });

@@ -62,8 +62,14 @@ assert(ttsPage.includes('<audio'), 'React TTS page should render an audio player
 assert(ttsPage.includes('utility-workbench'), 'TTS page should use the shared workbench surface');
 
 const userApp = read('frontend/src/user/App.jsx');
-assert(userApp.includes("pathname === '/settings'"), 'user app should route /settings');
-assert(userApp.includes("pathname === '/history'"), 'user app should route /history');
+assert(/const SettingsPage = lazy\([\s\S]*?\.\/pages\/SettingsPage/.test(userApp), 'user app should lazy load settings');
+assert(/const HistoryPage = lazy\([\s\S]*?\.\/pages\/HistoryPage/.test(userApp), 'user app should lazy load history');
+assert(/const AgentPage = lazy\([\s\S]*?\.\/pages\/AgentPage/.test(userApp), 'user app should lazy load agent');
+assert(/const routes = \{[\s\S]*?'\/agent': AgentPage/.test(userApp), 'user app should map /agent through the route map');
+assert(/const routes = \{[\s\S]*?'\/settings': SettingsPage/.test(userApp), 'user app should map /settings through the route map');
+assert(/const routes = \{[\s\S]*?'\/history': HistoryPage/.test(userApp), 'user app should map /history through the route map');
+assert(userApp.includes('const Page = routes[pathname];'), 'user app should resolve pages from the route map');
+assert(/<Suspense[\s\S]*?<Page \/>/.test(userApp), 'user app should render lazy routes through suspense');
 
 const userLayout = read('frontend/src/shared/layouts/UserLayout.jsx');
 const brandLogo = read('frontend/src/shared/components/BrandLogo.jsx');
@@ -112,8 +118,8 @@ const reducedMotionTooltipCss = readCssBlock(reducedMotionCss, '.legacy-sidebar.
 assert(reducedMotionTooltipCss.includes('transition: none') && reducedMotionTooltipCss.includes('transform: none'), 'reduced motion CSS should disable collapsed navigation tooltip movement');
 const reducedMotionVisibleTooltipCss = readCssBlock(reducedMotionCss, '.legacy-sidebar.collapsed .legacy-nav a:hover .legacy-nav-tooltip');
 assert(reducedMotionVisibleTooltipCss.includes('transition: none') && reducedMotionVisibleTooltipCss.includes('transform: none') && !reducedMotionVisibleTooltipCss.includes('.legacy-sidebar.collapsed .legacy-nav a.active .legacy-nav-tooltip'), 'reduced motion CSS should disable hover and focus tooltip movement without keeping active labels expanded');
-const desktopTooltipReserveCss = readCssBlock(globalCss, '@media (min-width: 901px)');
-assert(desktopTooltipReserveCss.includes('.legacy-shell:has(.legacy-sidebar.collapsed .legacy-nav a:hover) .legacy-main') && desktopTooltipReserveCss.includes('.legacy-shell:has(.legacy-sidebar.collapsed .legacy-nav a:focus-visible) .legacy-main') && desktopTooltipReserveCss.includes('margin-left: 132px'), 'desktop navigation tooltip should reserve space instead of covering the main work area');
+assert(!globalCss.includes('.legacy-shell:has(.legacy-sidebar.collapsed .legacy-nav a:hover) .legacy-main'), 'desktop navigation tooltip should not shift the main work area');
+assert(collapsedTooltipRule.includes('pointer-events: none'), 'desktop navigation tooltip should not intercept work-area clicks while hidden');
 const compactCss = readCssBlock(globalCss, '@media (max-width: 900px)');
 const compactTooltipCss = readCssBlock(compactCss, '.legacy-sidebar.collapsed .legacy-nav-tooltip');
 assert(compactTooltipCss.includes('display: none'), 'compact navigation CSS should hide collapsed navigation tooltip labels');

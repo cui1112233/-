@@ -6,6 +6,30 @@ const resetDelayMs = 2400;
 const overlayStorageKey = 'qiantie-stacky-overlay';
 const petWidth = 120;
 const petHeight = 130;
+const chatGap = 12;
+const chatWidth = 360;
+const viewportPadding = 8;
+
+function getViewport() {
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function getChatPanelLayout(overlay, viewport) {
+  const width = Math.max(0, Math.min(chatWidth, viewport.width - viewportPadding * 2));
+  const petLeft = overlay.left === null ? viewport.width - petWidth - 22 : overlay.left;
+  const opensRight = petLeft + petWidth + chatGap + width <= viewport.width - viewportPadding || petLeft < viewport.width / 2;
+  const unclampedLeft = opensRight ? petLeft + petWidth + chatGap : petLeft - chatGap - width;
+  const left = Math.max(viewportPadding, Math.min(viewport.width - viewportPadding - width, unclampedLeft));
+  const bottom = viewport.width <= 480 ? petHeight + 14 : viewportPadding;
+  return {
+    side: opensRight ? 'right' : 'left',
+    style: {
+      '--stacky-agent-panel-left': `${left}px`,
+      '--stacky-agent-panel-bottom': `${bottom}px`,
+      '--stacky-agent-panel-width': `${width}px`
+    }
+  };
+}
 
 function loadOverlay() {
   try {
@@ -39,6 +63,7 @@ export function StackyPet() {
   const [lookFrame, setLookFrame] = useState(null);
   const [reply, setReply] = useState('');
   const [overlay, setOverlay] = useState(loadOverlay);
+  const [viewport, setViewport] = useState(getViewport);
   const [chatOpen, setChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState('');
@@ -88,6 +113,7 @@ export function StackyPet() {
 
   useEffect(() => {
     function keepOverlayVisible() {
+      setViewport(getViewport());
       setOverlay(current => {
         const next = clampOverlayToViewport(current);
         if (next.left === current.left && next.top === current.top) return current;
@@ -199,6 +225,7 @@ export function StackyPet() {
   const positionStyle = overlay.left === null
     ? undefined
     : { left: overlay.left, top: overlay.top, right: 'auto', bottom: 'auto' };
+  const panelLayout = getChatPanelLayout(overlay, viewport);
 
   function updateOverlay(patch) {
     setOverlay(current => {
@@ -279,7 +306,7 @@ export function StackyPet() {
     <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 CM，${label}`}>
       <div className="stacky-pet-bubble">{reply || petSpeech(state)}</div>
       {chatOpen && (
-        <section className="stacky-agent-panel cm-conversation-frame" aria-label="CM 互动">
+        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.side} cm-conversation-frame`} style={panelLayout.style} aria-label="CM 互动">
           <button className="stacky-agent-close" type="button" aria-label="关闭 CM 对话" title="关闭对话" onClick={() => setChatOpen(false)}>×</button>
           <div className="stacky-agent-history">
             {messages.length === 0 ? <span>双击 CM 让它分析当前页面，或直接提问。</span> : messages.slice(-4).map((message, index) => (

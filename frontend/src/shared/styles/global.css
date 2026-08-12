@@ -1566,10 +1566,13 @@ select {
 }
 
 .stacky-agent-panel {
-  position: absolute;
-  right: 132px;
-  bottom: 0;
-  width: min(360px, calc(100vw - 170px));
+  position: fixed;
+  left: var(--stacky-agent-panel-left);
+  bottom: var(--stacky-agent-panel-bottom);
+  display: flex;
+  width: var(--stacky-agent-panel-width);
+  max-height: calc(100vh - var(--stacky-agent-panel-bottom) - 8px);
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--legacy-border-strong);
   border-radius: 8px;
@@ -1577,6 +1580,9 @@ select {
   box-shadow: var(--legacy-shadow);
   pointer-events: auto;
 }
+
+.stacky-agent-panel--opens-right { transform-origin: left bottom; }
+.stacky-agent-panel--opens-left { transform-origin: right bottom; }
 
 .stacky-agent-close {
   position: absolute;
@@ -1746,10 +1752,8 @@ select {
 
 @media (max-width: 360px) {
   .stacky-agent-panel {
-    right: 8px;
-    bottom: 100px;
-    left: 8px;
-    width: auto;
+    --stacky-agent-panel-left: 8px !important;
+    --stacky-agent-panel-width: calc(100vw - 16px) !important;
   }
 }
 
