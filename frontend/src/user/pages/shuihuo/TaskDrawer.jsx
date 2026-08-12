@@ -1,4 +1,4 @@
-import { Alert, Button, Checkbox, Drawer, Empty, Popconfirm, Select, Tag, message } from 'antd';
+import { Alert, Button, Drawer, Empty, Popconfirm, Select, Tag, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../../../shared/api/client';
 import { cancelTask, createTask, listModels, listTasks, retryTask } from '../../../shared/api/shuihuoProduction';
@@ -11,7 +11,7 @@ function completedMediaFor(task, media) {
 }
 
 export function TaskDrawer({ open, project, segments, media = [], readiness, onClose, onCompleted }) {
-  const [models, setModels] = useState([]); const [tasks, setTasks] = useState([]); const [modelId, setModelId] = useState(); const [segmentId, setSegmentId] = useState(); const [kind, setKind] = useState('image'); const [batch, setBatch] = useState(false); const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState([]); const [tasks, setTasks] = useState([]); const [modelId, setModelId] = useState(); const [segmentId, setSegmentId] = useState(); const [kind, setKind] = useState('image'); const [busy, setBusy] = useState(false);
   const availableModels = useMemo(() => models.filter(model => model.kind === kind), [models, kind]);
   const enabledModelKinds = useMemo(() => new Set(readiness?.enabledModelKinds || []), [readiness]);
   const runtimeReady = Boolean(readiness?.database?.ready && readiness?.redis?.ready && readiness?.storage?.ready);
@@ -25,17 +25,13 @@ export function TaskDrawer({ open, project, segments, media = [], readiness, onC
   }, [open, project?.id, tasks, onCompleted]);
   useEffect(() => { setModelId(undefined); }, [kind]);
   async function submit() {
-    const targetSegments = batch ? segments : segments.filter(segment => segment.id === segmentId);
-    if (!targetSegments.length || !modelId) { message.warning(availableModels.length ? '请选择分段与模型' : '管理员尚未启用对应模型'); return; }
+    if (!segmentId || !modelId) { message.warning(availableModels.length ? '请选择分段与模型' : '管理员尚未启用对应模型'); return; }
     setBusy(true);
     try {
-      const results = await Promise.allSettled(targetSegments.map(segment => createTask(project.id, { segmentId: segment.id, modelId, kind })));
-      const succeeded = results.filter(result => result.status === 'fulfilled').length;
-      const failed = results.length - succeeded;
+      await createTask(project.id, { segmentId, modelId, kind });
       await refresh();
-      if (succeeded) message.success(batch ? `已提交 ${succeeded} 个任务` : '任务已进入队列');
-      if (failed) message.error(`${failed} 个任务未提交，请检查提示词、主图片和模型配置`);
-    } finally { setBusy(false); }
+      message.success('任务已进入队列');
+    } catch (error) { message.error(error.message || '提交任务失败'); } finally { setBusy(false); }
   }
   async function operate(task, action) { setBusy(true); try { if (action === 'cancel') await cancelTask(task.id); else await retryTask(task.id); await refresh(); } catch (error) { message.error(error.message || '任务操作失败'); } finally { setBusy(false); } }
   async function openCompletedMedia(completedMedia) {
@@ -49,8 +45,7 @@ export function TaskDrawer({ open, project, segments, media = [], readiness, onC
   return <Drawer title="生成任务中心" open={open} onClose={onClose} width={520} extra={<Button type="primary" onClick={submit} loading={busy} disabled={!kindReady}>提交任务</Button>}>
     <div className="shuihuo-task-form">
       <Select value={kind} onChange={setKind} options={[{ value:'image', label:'生成图片' }, { value:'video', label:'图生视频' }, { value:'audio', label:'生成配音' }]} />
-      <Checkbox checked={batch} onChange={event => setBatch(event.target.checked)}>对全部已确认分段批量提交</Checkbox>
-      {!batch ? <Select placeholder="选择已确认分段" value={segmentId} onChange={setSegmentId} options={segments.map(segment => ({ value:segment.id, label:`#${segment.orderIndex} ${segment.sourceText.slice(0, 24)}` }))} /> : null}
+      <Select placeholder="选择已确认分段" value={segmentId} onChange={setSegmentId} options={segments.map(segment => ({ value:segment.id, label:`#${segment.orderIndex} ${segment.sourceText.slice(0, 24)}` }))} />
       <Select placeholder={availableModels.length ? '选择管理员启用的模型' : '管理员尚未启用此类模型'} value={modelId} onChange={setModelId} options={availableModels.map(model => ({ value:model.id, label:model.name }))} disabled={!availableModels.length || !kindReady} />
     </div>
     {kind === 'video' ? <Alert type="info" showIcon message="图生视频" description="每个分段必须先有一张主图片；任务会把这张图片作为视频模型的参考图。" /> : null}

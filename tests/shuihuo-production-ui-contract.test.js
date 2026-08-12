@@ -99,6 +99,14 @@ test('task drawer presents backend task and provider states without fabricated p
   assert.doesNotMatch(drawer, /百分比/);
 });
 
+test('task drawer submits one segment only and leaves batch work to the batch modal', () => {
+  assert.match(drawer, /createTask\(project\.id, \{ segmentId, modelId, kind \}\)/);
+  assert.match(drawer, /选择已确认分段/);
+  assert.doesNotMatch(drawer, /对全部已确认分段批量提交/);
+  assert.doesNotMatch(drawer, /Promise\.allSettled/);
+  assert.doesNotMatch(drawer, /targetSegments\.map/);
+});
+
 test('admin catalog reports configuration safely without private provider fields', () => {
   assert.match(admin, /credentialConfigured/);
   assert.match(admin, /providerConfigured/);
