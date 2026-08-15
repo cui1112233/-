@@ -18,6 +18,12 @@ test('classifies timeout, configuration, upstream, and unknown pet request failu
   assert.deepEqual(classifyPetRequestError({ status: 401, message: 'API key invalid' }), {
     message: '模型配置无法使用，请检查接口、模型名或密钥。', action: 'settings'
   });
+  assert.deepEqual(classifyPetRequestError({ status: 422, message: 'Base URL is required' }), {
+    message: '模型配置无法使用，请检查接口、模型名或密钥。', action: 'settings'
+  });
+  assert.deepEqual(classifyPetRequestError(new Error('Model is required')), {
+    message: '模型配置无法使用，请检查接口、模型名或密钥。', action: 'settings'
+  });
   assert.deepEqual(classifyPetRequestError({ status: 502, message: 'Upstream returned non-JSON response' }), {
     message: '模型返回内容异常，当前剧本未改动。', action: 'retry'
   });

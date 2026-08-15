@@ -432,6 +432,69 @@ test('Agent responder receives frontend-normalized CM script context only transi
   assert.doesNotMatch(persisted, /NOVEL_MARKER|SCRIPT_MARKER|角色A|场景A|authorization|credential|accessToken|apiKey|token|TOP_LEVEL_|ENTITY_|EXTRACTED_/i);
 });
 
+test('Agent chat sanitizes credential variants from direct POST context before responder and persistence', async t => {
+  let receivedContext;
+  let receivedMessages;
+  const { app, systemDir } = createFixture(t, {
+    responder: async ({ context, messages }) => {
+      receivedContext = context;
+      receivedMessages = messages;
+      return '安全答复';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: {
+      taskId: task.id,
+      prompt: '检查直接提交的上下文',
+      context: {
+        entities: {
+          authorization: 'ENTITY_AUTHORIZATION',
+          authorizationHeader: 'ENTITY_AUTHORIZATION_HEADER',
+          credential: 'ENTITY_CREDENTIAL',
+          accessToken: 'ENTITY_ACCESS_TOKEN',
+          scene: '场景A'
+        },
+        extracted: {
+          authorization: 'EXTRACTED_AUTHORIZATION',
+          authorizationHeader: 'EXTRACTED_AUTHORIZATION_HEADER',
+          credential: 'EXTRACTED_CREDENTIAL',
+          accessToken: 'EXTRACTED_ACCESS_TOKEN',
+          character: '角色A'
+        }
+      }
+    }
+  });
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(receivedContext.entities, { scene: '场景A' });
+  assert.deepEqual(receivedContext.extracted, { character: '角色A' });
+  const responderInput = JSON.stringify({ context: receivedContext, messages: receivedMessages });
+  assert.doesNotMatch(responderInput, /ENTITY_|EXTRACTED_|authorization|credential|accessToken/i);
+  const persisted = fs.readFileSync(path.join(systemDir, 'users', 'choushiyiguai1', 'agent-tasks.json'), 'utf8');
+  assert.doesNotMatch(persisted, /ENTITY_|EXTRACTED_|authorization|credential|accessToken/i);
+});
+
+test('Agent chat returns 422 for missing model configuration', async t => {
+  const { app, agentStore } = createProxyFixture(t, {
+    configReader: () => ({ baseUrl: '', apiKey: '', model: '' })
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: { taskId: task.id, prompt: '生成一段剧情' }
+  });
+
+  assert.equal(result.status, 422);
+  assert.match(result.body.error, /Base URL is required/);
+  assert.deepEqual(agentStore.getTask('choushiyiguai1', task.id).messages.map(message => message.role), ['user']);
+});
+
 test('Agent chat includes bounded CM page summaries transiently and tolerates unsafe context values', async t => {
   let receivedMessages;
   const { app, systemDir } = createFixture(t, {

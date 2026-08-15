@@ -20,7 +20,7 @@ const MAX_PAGE_ENTITIES_CHARS = 2500;
 const MAX_PAGE_ACTIONS = 6;
 const MAX_PAGE_ACTION_CHARS = 180;
 const AGENT_UPSTREAM_TIMEOUT_MS = 30_000;
-const SENSITIVE_CONTEXT_KEY = /token|key|secret|password/i;
+const SENSITIVE_CONTEXT_KEY = /authorization|credential|accessToken|token|key|secret|password/i;
 const MAX_SELECTED_SKILL_CHARS = 12000;
 const INTERNAL_DISCLOSURE_PATTERN = /(?:系统|开发者)(?:提示词|指令)|(?:本平台|前贴平台|平台内置|内置|内部)(?:提示词|指令|技能(?:正文|内容|规则)?)|内部(?:提示词|架构|信息|实现)|源(?:码|文件)|项目(?:路径|目录)|文件(?:路径|目录)|(?:api[ _-]?)?key|密钥|token|令牌|密码|cookie|配置(?:文件|内容)?|环境变量|数据库(?:记录|内容)?/i;
 const INTERNAL_DISCLOSURE_REPLY = '我不能提供或还原平台的内部提示、技能内容、开发资料、配置或凭据。我可以说明可见功能的使用方式，或继续协助你的创作任务。';
@@ -338,6 +338,9 @@ function createAgentRouter({
       if (clientAbortController.signal.aborted || error?.code === 'CLIENT_DISCONNECTED' || res.destroyed) return;
       if (error?.code === 'UPSTREAM_TIMEOUT') {
         return res.status(504).json({ error: '上游模型请求超时，请稍后重试' });
+      }
+      if (/^(?:Base URL|Model|API Key) is required$/.test(error?.message || '')) {
+        return res.status(422).json({ error: error.message });
       }
       return res.status(502).json({ error: error.message || 'Agent 请求失败' });
     } finally {
