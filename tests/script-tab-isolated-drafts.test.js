@@ -141,6 +141,18 @@ test('returns a usable in-memory tab id when session storage throws', async () =
   assert.equal(getScriptDraftTabId(broken, () => 'memory-tab'), 'memory-tab');
 });
 
+test('returns null without throwing when draft storage getItem fails', async () => {
+  const { loadScriptDraft } = await loadStorage();
+  const brokenStorage = memoryStorage();
+  brokenStorage.getItem = () => {
+    throw new Error('blocked');
+  };
+
+  assert.doesNotThrow(() => {
+    assert.equal(loadScriptDraft(brokenStorage, 'alice', 'tab-a'), null);
+  });
+});
+
 test('does not load or save a draft when tab id is empty', async () => {
   const { loadScriptDraft, saveScriptDraft } = await loadStorage();
   const local = memoryStorage();
