@@ -7,7 +7,7 @@ import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_APPLY_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
-import { loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
+import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
@@ -113,6 +113,7 @@ export function ScriptPage() {
   const workbenchRef = useRef(null);
   const draftReadyRef = useRef(false);
   const draftUsernameRef = useRef(getCurrentUsername());
+  const draftTabIdRef = useRef(getScriptDraftTabId(window.sessionStorage));
   const requestGenerationRef = useRef({ workflow: 0, narrate: 0 });
   const sourceGenerationRef = useRef(0);
   const mountedRef = useRef(true);
@@ -161,7 +162,7 @@ export function ScriptPage() {
 
   function persistDraft(values, overrides = {}) {
     if (!draftReadyRef.current) return;
-    saveScriptDraft(window.localStorage, draftUsernameRef.current, {
+    saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, {
       ...snapshotDraft(values),
       ...overrides
     });
@@ -184,7 +185,7 @@ export function ScriptPage() {
   }
 
   useEffect(() => {
-    const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current);
+    const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current);
     if (restoredDraft) {
       form.setFieldsValue(restoredDraft.values);
       setExtractInfo(normalizeExtractInfo(restoredDraft.extractInfo));
@@ -199,7 +200,7 @@ export function ScriptPage() {
     const readyTimer = window.setTimeout(() => {
       draftReadyRef.current = true;
       if (restoredDraft) {
-        saveScriptDraft(window.localStorage, draftUsernameRef.current, restoredDraft);
+        saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, restoredDraft);
       } else {
         persistDraft();
       }
