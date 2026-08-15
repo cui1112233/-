@@ -1237,7 +1237,70 @@ select {
   }
 }
 
-.script-empty,
+.script-empty {
+  width: min(100%, 420px);
+  min-height: 220px;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--legacy-muted);
+  text-align: center;
+}
+
+.script-empty-card {
+  position: relative;
+  width: 116px;
+  height: 76px;
+  overflow: hidden;
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(137, 177, 255, 0.16), rgba(115, 85, 184, 0.12));
+}
+
+.script-empty-dot,
+.script-empty-ray,
+.script-empty-line {
+  position: absolute;
+  display: block;
+}
+
+.script-empty-dot {
+  top: 17px;
+  left: 18px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9cc9ff;
+  box-shadow: 0 0 14px rgba(156, 201, 255, 0.82);
+  animation: script-empty-move-dot 3s ease-in-out infinite;
+}
+
+.script-empty-ray {
+  top: 22px;
+  left: 29px;
+  width: 54px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(156, 201, 255, 0.9), transparent);
+  transform: rotate(-24deg);
+  transform-origin: left center;
+}
+
+.script-empty-line {
+  left: 44px;
+  width: 46px;
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(230, 238, 255, 0.72);
+}
+
+.script-empty-line--top { top: 27px; }
+.script-empty-line--bottom { top: 40px; width: 33px; opacity: 0.58; }
+.script-empty-title { color: var(--legacy-text); font-weight: 700; }
+.script-empty-copy { font-size: 13px; line-height: 1.6; }
+
 .tts-empty {
   height: 100%;
   min-height: 260px;
@@ -1250,9 +1313,25 @@ select {
   gap: 8px;
 }
 
-.script-empty-icon,
 .tts-empty-icon {
   font-size: 40px;
+}
+
+@keyframes script-empty-move-dot {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(50px, 26px); }
+}
+
+[data-theme='light'] .script-empty-card {
+  border-color: #c9d7e8;
+  background: linear-gradient(145deg, #eef6ff, #f8f4ff);
+}
+
+[data-theme='light'] .script-empty-line { background: #7890ad; }
+[data-theme='light'] .script-empty-ray { background: linear-gradient(90deg, #79a8dc, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .script-empty-dot { animation: none; }
 }
 
 .entity-section {

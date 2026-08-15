@@ -1,5 +1,5 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
-import { AudioLines, Copy, Download, FileText, Pencil, Plus, RefreshCw, ScrollText, Settings2, Star, WandSparkles } from 'lucide-react';
+import { AudioLines, Copy, Download, FileText, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { saveHistory } from '../../shared/api/history';
@@ -840,8 +840,14 @@ export function ScriptPage() {
             <CmLoader />
           ) : (
             <div className="script-empty legacy-panel-card">
-              <div className="script-empty-icon"><ScrollText size={30} strokeWidth={1.6} aria-hidden="true" /></div>
-              <div>先提取人物与场景，确认后再生成剧本</div>
+              <div className="script-empty-card">
+                <span className="script-empty-dot" aria-hidden="true" />
+                <span className="script-empty-ray" aria-hidden="true" />
+                <span className="script-empty-line script-empty-line--top" aria-hidden="true" />
+                <span className="script-empty-line script-empty-line--bottom" aria-hidden="true" />
+              </div>
+              <div className="script-empty-title">准备创作</div>
+              <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
         </div>
