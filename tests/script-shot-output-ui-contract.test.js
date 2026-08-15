@@ -27,3 +27,14 @@ test('script page uses card output only for parsed non-shortdrama results', () =
   assert.match(page, /duration=\{form\.getFieldValue\('duration'\)\}/);
   assert.match(page, /onCopy=\{copyText\}/);
 });
+
+test('script page provides find and replace only for selected shot cards', () => {
+  const page = read('frontend/src/user/pages/ScriptPage.jsx');
+  assert.match(page, /查找替换/);
+  assert.match(page, /selectedShotIndexes\.size/);
+  assert.match(page, /getSelectedShotMatches/);
+  assert.match(page, /replaceSelectedShotMatch/);
+  assert.match(page, /replaceAllSelectedShotMatches/);
+  assert.match(page, /updateOutputDraft\(nextOutput\)/);
+  assert.match(page, /Modal/);
+});
