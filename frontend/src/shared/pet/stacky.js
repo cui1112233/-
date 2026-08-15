@@ -38,7 +38,7 @@ const MAX_ENTITY_NODES = 80;
 const MAX_NOVEL_TEXT_CHARS = 4500;
 const MAX_EXTRACTED_CHARS = 2500;
 const MAX_SCRIPT_OUTPUT_CHARS = 4500;
-const SENSITIVE_ENTITY_KEY = /token|key|secret|password/i;
+const SENSITIVE_ENTITY_KEY = /token|key|secret|password|authorization|credential/i;
 
 export function normalizePetState(state) {
   return PET_STATES.includes(state) ? state : 'idle';

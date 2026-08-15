@@ -67,7 +67,15 @@ test('retains bounded script context while redacting nested sensitive fields', (
     novelText: 'n'.repeat(5000),
     extracted: {
       character: '角色A',
-      nested: { scene: '场景A', apiKey: 'hidden', token: 'hidden' }
+      nested: {
+        scene: '场景A',
+        apiKey: 'hidden',
+        token: 'hidden',
+        authorization: 'hidden',
+        authorizationHeader: 'hidden',
+        credential: 'hidden',
+        accessToken: 'hidden'
+      }
     },
     scriptOutput: 's'.repeat(5000),
     apiKey: 'hidden'
