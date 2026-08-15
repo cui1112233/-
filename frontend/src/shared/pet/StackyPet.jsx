@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
-import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
+import { PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetPreview, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
+import { classifyPetRequestError, parseScriptRevision } from './scriptCollaboration';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
 
 const resetDelayMs = 2400;
@@ -230,7 +231,8 @@ export function StackyPet({ username, accountSessionKey }) {
           page: contextRef.current.page || window.location.pathname,
           pagePath: contextRef.current.pagePath || window.location.pathname
         },
-        skillIds: skillIdsRef.current
+        skillIds: skillIdsRef.current,
+        suppressGlobalError: true
       });
       if (!isCurrentConversationRequest(requestId, accountSessionGeneration)) return;
       petTaskIdRef.current = result.task?.id || taskId;
@@ -250,9 +252,9 @@ export function StackyPet({ username, accountSessionKey }) {
         dispatchConversationPetState(requestId, accountSessionGeneration, 'error');
         return;
       }
-      const message = error.message || '这次没有连上 Agent。';
-      setFailedRequest({ prompt: content, error: message });
-      setReply(message);
+      const recovery = classifyPetRequestError(error);
+      setFailedRequest({ prompt: content, ...recovery });
+      setReply(recovery.message);
       dispatchConversationPetState(requestId, accountSessionGeneration, 'error');
     } finally {
       if (isCurrentConversationRequest(requestId, accountSessionGeneration)) setAsking(false);
@@ -425,18 +427,24 @@ export function StackyPet({ username, accountSessionKey }) {
             </div>
           </header>
           <div className="stacky-agent-history" ref={historyRef}>
-            {messages.length === 0 ? <span>点击分析当前页面，或直接提问。</span> : messages.map((message, index) => (
-              <article key={`${message.createdAt || index}-${message.role}`} className={`stacky-agent-message stacky-agent-message--${message.role}`}>
-                <span>{message.content}</span>
-                {message.role === 'assistant' && message.content.includes('【修改稿】') && contextRef.current.scriptOutput ? (
-                  <button type="button" onClick={() => dispatchPetApply(message.content.split('【修改稿】').slice(1).join('【修改稿】').trim())}>应用到剧本</button>
-                ) : null}
-              </article>
-            ))}
+            {messages.length === 0 ? <span>点击分析当前页面，或直接提问。</span> : messages.map((message, index) => {
+              const revision = message.role === 'assistant' && contextRef.current.scriptOutput ? parseScriptRevision(message.content) : null;
+              return (
+                <article key={`${message.createdAt || index}-${message.role}`} className={`stacky-agent-message stacky-agent-message--${message.role}`}>
+                  <span>{message.content}</span>
+                  {revision ? <button type="button" onClick={() => dispatchPetPreview(revision)}>预览修改</button> : null}
+                </article>
+              );
+            })}
             {failedRequest ? (
-              <div className="stacky-agent-retry" role="alert">
-                <span>{failedRequest.error}</span>
-                <button type="button" onClick={() => sendQuestion(failedRequest.prompt)} disabled={asking}>重新发送</button>
+              <div className="stacky-agent-recovery" role="alert">
+                <span>{failedRequest.message}</span>
+                {failedRequest.action === 'retry' ? (
+                  <button type="button" onClick={() => sendQuestion(failedRequest.prompt)} disabled={asking}>重新发送</button>
+                ) : null}
+                {failedRequest.action === 'settings' ? (
+                  <button type="button" onClick={() => { window.location.href = '/settings'; }}>打开模型设置</button>
+                ) : null}
               </div>
             ) : null}
           </div>

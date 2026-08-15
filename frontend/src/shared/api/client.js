@@ -29,6 +29,13 @@ function notifyApiFailure({ path, method, status, message }) {
   }));
 }
 
+function attachApiError(error, { path, method, status }) {
+  error.status = status;
+  error.source = path;
+  error.method = method || 'GET';
+  return error;
+}
+
 export async function apiRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const token = getToken();
@@ -43,13 +50,13 @@ export async function apiRequest(path, options = {}) {
   } catch (error) {
     const failure = { kind: 'api-network', message: error?.message || 'Network request failed', stack: error?.stack, source: path, method: options.method || 'GET' };
     reportClientError(failure);
-    notifyApiFailure({ ...failure, path });
-    throw error;
+    if (!options.suppressGlobalError) notifyApiFailure({ ...failure, path });
+    throw attachApiError(error, { path, method: options.method });
   }
   if (response.status === 401 && path !== '/api/login') {
     const failure = { kind: 'api-response', message: '登录已失效，请重新登录', source: path, method: options.method || 'GET', status: response.status };
     reportClientError(failure);
-    notifyApiFailure({ ...failure, path });
+    if (!options.suppressGlobalError) notifyApiFailure({ ...failure, path });
     // A slow request from an older account must never erase a newer session.
     // Notify before clearing so the layout can compare the request token with
     // the session that is currently active.
@@ -58,7 +65,7 @@ export async function apiRequest(path, options = {}) {
       setToken('');
       localStorage.removeItem('auth_username');
     }
-    throw new Error('登录已失效，请重新登录');
+    throw attachApiError(new Error('登录已失效，请重新登录'), { path, method: options.method, status: response.status });
   }
   const allowedStatuses = Array.isArray(options.allowStatuses) ? options.allowStatuses : [];
   if (!response.ok && !allowedStatuses.includes(response.status)) {
@@ -66,8 +73,8 @@ export async function apiRequest(path, options = {}) {
     const error = new Error(errorMessage(text, `请求失败：${response.status}`));
     const failure = { kind: 'api-response', message: error.message, stack: error.stack, source: path, method: options.method || 'GET', status: response.status };
     reportClientError(failure);
-    notifyApiFailure({ ...failure, path });
-    throw error;
+    if (!options.suppressGlobalError) notifyApiFailure({ ...failure, path });
+    throw attachApiError(error, { path, method: options.method, status: response.status });
   }
   if (options.responseType === 'blob') return response.blob();
   const contentType = response.headers.get('content-type') || '';
