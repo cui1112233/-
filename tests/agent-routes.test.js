@@ -359,6 +359,60 @@ test('Agent chat keeps page context transient and sends only the selected task h
   assert.doesNotMatch(persisted, /临时原文|临时剧本/);
 });
 
+test('Agent responder receives complete restricted CM script context only transiently', async t => {
+  let receivedContext;
+  let receivedMessages;
+  const { app, systemDir } = createFixture(t, {
+    responder: async ({ context, messages }) => {
+      receivedContext = context;
+      receivedMessages = messages;
+      return '修改说明\n【修改稿】\n完整候选剧本';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: {
+      taskId: task.id,
+      prompt: '加强第三场冲突',
+      context: {
+        page: '剧本生成',
+        pagePath: '/script',
+        summary: '当前剧本已生成，等待修改。',
+        entities: { hasOutput: true },
+        actions: ['检查当前剧本', '生成剧本'],
+        mode: '',
+        expert: '',
+        attachment: { name: '', content: '' },
+        novelText: 'NOVEL_MARKER',
+        extracted: {
+          character: '角色A',
+          nested: { apiKey: 'EXTRACTED_CREDENTIAL', scene: '场景A' }
+        },
+        scriptOutput: 'SCRIPT_MARKER',
+        apiKey: 'TOP_LEVEL_CREDENTIAL',
+        token: 'TOP_LEVEL_TOKEN'
+      }
+    }
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.assistant.content, '修改说明\n【修改稿】\n完整候选剧本');
+  assert.equal(receivedContext.novelText, 'NOVEL_MARKER');
+  assert.equal(receivedContext.scriptOutput, 'SCRIPT_MARKER');
+  assert.deepEqual(receivedContext.extracted, {
+    character: '角色A',
+    nested: { scene: '场景A' }
+  });
+  const responderInput = JSON.stringify({ context: receivedContext, messages: receivedMessages });
+  assert.match(responderInput, /NOVEL_MARKER|SCRIPT_MARKER|角色A|场景A/);
+  assert.doesNotMatch(responderInput, /TOP_LEVEL_CREDENTIAL|TOP_LEVEL_TOKEN|EXTRACTED_CREDENTIAL|apiKey|token/i);
+  const persisted = fs.readFileSync(path.join(systemDir, 'users', 'choushiyiguai1', 'agent-tasks.json'), 'utf8');
+  assert.doesNotMatch(persisted, /NOVEL_MARKER|SCRIPT_MARKER|角色A|场景A|TOP_LEVEL_CREDENTIAL|TOP_LEVEL_TOKEN|EXTRACTED_CREDENTIAL|apiKey|token/i);
+});
+
 test('Agent chat includes bounded CM page summaries transiently and tolerates unsafe context values', async t => {
   let receivedMessages;
   const { app, systemDir } = createFixture(t, {
