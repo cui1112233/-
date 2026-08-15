@@ -9,6 +9,8 @@ import {
   petAtlasRow,
   petFrameCount,
   petLookFrame,
+  petPromptBubble,
+  petQuickActions,
   petSpeech,
   readCmTaskId,
   writeCmTaskId
@@ -40,6 +42,22 @@ test('maps pointer directions to original Stacky look frames', () => {
   assert.deepEqual(petLookFrame(0, 40), { row: 10, column: 0 });
   assert.deepEqual(petLookFrame(-40, 0), { row: 10, column: 4 });
   assert.equal(petLookFrame(4, 4), null);
+});
+
+test('uses a generated-script prompt and analysis actions when script output is ready', () => {
+  const context = { pagePath: '/script', summary: '剧本生成完成', entities: { scriptOutput: '片段' }, actions: [] };
+  assert.equal(petPromptBubble('success', context, () => 0), '剧本生成好了。要 CM 帮您检查哪里还能更好吗~');
+  assert.deepEqual(petQuickActions('success', context).map(action => action.id), [
+    'overall-quality', 'weakest-section', 'opening-ten-seconds', 'character-consistency',
+    'scene-visuals', 'conflict-reversal', 'rewrite-draft'
+  ]);
+});
+
+test('offers only advice actions while working and keeps conflict action from requesting a rewrite', () => {
+  assert.deepEqual(petQuickActions('working', { pagePath: '/script' }), []);
+  const conflict = petQuickActions('success', { pagePath: '/script', entities: { scriptOutput: '片段' } }).find(item => item.id === 'conflict-reversal');
+  assert.equal(conflict.mode, 'advice');
+  assert.match(conflict.prompt, /不要直接改写剧本或输出修改稿/);
 });
 
 test('normalizes context and scopes task key by account', () => {

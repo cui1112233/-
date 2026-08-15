@@ -52,6 +52,71 @@ export function petSpeech(state) {
   return speech[normalizePetState(state)];
 }
 
+const scriptReadyPrompts = [
+  '剧本生成好了。要 CM 帮您检查哪里还能更好吗~',
+  '这版已经完成啦，要不要看看节奏有没有拖沓？',
+  '我发现可以再检查一下开头钩子，要我看看吗？',
+  '想确认人物和场景有没有前后不一致吗？',
+  '要不要让我找找最值得优化的一段？',
+  '这一版可以继续打磨，我已经准备好帮您分析啦。'
+];
+
+const scriptReadyActions = [
+  { id: 'overall-quality', label: '分析整体质量', prompt: '请分析当前剧本的整体质量，检查节奏、冲突、钩子和逻辑完整性，按优先级给出可执行建议。', mode: 'advice' },
+  { id: 'weakest-section', label: '找出最弱的段落', prompt: '请找出当前剧本中最弱的段落，指出具体位置、问题原因和可执行的修改方向。', mode: 'advice' },
+  { id: 'opening-ten-seconds', label: '优化开头 10 秒', prompt: '请判断当前剧本开头 10 秒是否足够抓人，在不改变核心事件的前提下给出优化建议。', mode: 'advice' },
+  { id: 'character-consistency', label: '检查人物一致性', prompt: '请检查当前剧本中人物身份、性格、关系和称呼是否前后一致，列出证据和修正建议。', mode: 'advice' },
+  { id: 'scene-visuals', label: '检查场景与画面感', prompt: '请检查当前剧本的场景是否清晰、镜头是否可拍、空间与道具是否连续，并给出建议。', mode: 'advice' },
+  { id: 'conflict-reversal', label: '强化冲突与反转', prompt: '请只给出强化当前剧本冲突与反转的建议，不要直接改写剧本或输出修改稿。', mode: 'advice' },
+  { id: 'rewrite-draft', label: '生成修改稿', prompt: '请先分析当前剧本，再输出一份完整可替换版本。修改稿必须用【修改稿】作为唯一标题，且不改变核心事件。', mode: 'rewrite' }
+];
+
+const scriptInitialActions = [
+  { id: 'plan-characters-conflict', label: '规划人物与冲突', prompt: '请帮我规划当前剧本的人物和核心冲突，并给出可执行的起步建议。', mode: 'advice' },
+  { id: 'how-to-start', label: '如何开始', prompt: '请告诉我开始创作当前剧本的步骤和优先事项。', mode: 'advice' }
+];
+
+const scriptExtractedActions = [
+  { id: 'check-character-omissions', label: '检查人物遗漏', prompt: '请检查已提取的人物是否有遗漏，并给出补充建议。', mode: 'advice' },
+  { id: 'check-scene-omissions', label: '检查场景遗漏', prompt: '请检查已提取的场景是否有遗漏，并给出补充建议。', mode: 'advice' },
+  { id: 'check-character-relations', label: '检查人物关系', prompt: '请检查已提取人物之间的关系是否完整或存在冲突，并给出建议。', mode: 'advice' }
+];
+
+const scriptErrorActions = [
+  { id: 'analyze-failure', label: '分析失败原因', prompt: '请分析这次剧本处理可能失败的原因，并给出排查建议。', mode: 'advice' },
+  { id: 'check-settings', label: '检查当前设置', prompt: '请检查当前剧本生成相关设置可能存在的问题，并给出排查建议。', mode: 'advice' }
+];
+
+function scriptContext(context) {
+  const normalized = normalizePetContext(context);
+  const hasScriptOutput = Boolean(normalized.entities.scriptOutput);
+  return { normalized, hasScriptOutput };
+}
+
+export function petPromptBubble(state, context, random = Math.random) {
+  const normalizedState = normalizePetState(state);
+  const { normalized, hasScriptOutput } = scriptContext(context);
+  if (normalized.pagePath !== '/script') return petSpeech(normalizedState);
+  if (normalizedState === 'success' && hasScriptOutput) {
+    const index = Math.floor(Math.min(Math.max(Number(random()) || 0, 0), 0.999999) * scriptReadyPrompts.length);
+    return scriptReadyPrompts[index];
+  }
+  if (normalizedState === 'working') return '我在等结果，完成后可以帮您继续打磨。';
+  if (normalizedState === 'error') return '这次没有成功，要我帮您检查可能原因吗？';
+  if (normalized.entities.generationStage === 'extracted') return '要我检查人物有没有遗漏或冲突吗？';
+  return '需要我帮您规划人物和冲突吗？';
+}
+
+export function petQuickActions(state, context) {
+  const normalizedState = normalizePetState(state);
+  const { normalized, hasScriptOutput } = scriptContext(context);
+  if (normalized.pagePath !== '/script' || normalizedState === 'working') return [];
+  if (normalizedState === 'success' && hasScriptOutput) return scriptReadyActions;
+  if (normalizedState === 'error') return scriptErrorActions;
+  if (normalized.entities.generationStage === 'extracted') return scriptExtractedActions;
+  return scriptInitialActions;
+}
+
 export function petLookFrame(deltaX, deltaY) {
   if (Math.hypot(deltaX, deltaY) < lookDeadzone) return null;
   const radians = Math.atan2(deltaX, -deltaY);
