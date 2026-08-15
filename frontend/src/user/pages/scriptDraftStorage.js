@@ -55,10 +55,34 @@ function normalizeDraft(draft) {
 
 export function loadScriptDraft(storage, username, tabId) {
   if (!tabId) return null;
+
+  let tabRaw;
   try {
-    const raw = storage?.getItem(tabDraftKey(username, tabId));
-    if (!raw) return null;
-    return normalizeDraft(JSON.parse(raw));
+    tabRaw = storage?.getItem(tabDraftKey(username, tabId));
+  } catch {
+    return null;
+  }
+  if (tabRaw !== null && tabRaw !== undefined) {
+    try {
+      return normalizeDraft(JSON.parse(tabRaw));
+    } catch {
+      return null;
+    }
+  }
+
+  let legacyRaw;
+  try {
+    legacyRaw = storage?.getItem(usernameKey(username));
+  } catch {
+    return null;
+  }
+  if (!legacyRaw) return null;
+
+  try {
+    const legacyDraft = normalizeDraft(JSON.parse(legacyRaw));
+    if (!legacyDraft) return null;
+    saveScriptDraft(storage, username, tabId, legacyDraft);
+    return legacyDraft;
   } catch {
     return null;
   }

@@ -95,6 +95,52 @@ test('returns a stable tab id from the same session storage', async () => {
   assert.equal(randomCalls, 1);
 });
 
+test('migrates legacy account draft only when this tab has no draft', async () => {
+  const { loadScriptDraft, saveScriptDraft } = await loadStorage();
+  const local = memoryStorage();
+  const legacyKey = 'qiantie:script-draft:alice';
+  const tabAKey = `${legacyKey}:tab-a`;
+
+  local.setItem(legacyKey, JSON.stringify({ version: 3, values: { novelText: '旧小说', extractionPreset: 'standard' }, extractInfo: {}, constraints: {} }));
+
+  assert.equal(loadScriptDraft(local, 'alice', 'tab-a').values.novelText, '旧小说');
+  assert.equal(local.getItem(tabAKey) !== null, true);
+  assert.equal(local.getItem(legacyKey) !== null, true);
+
+  local.setItem(legacyKey, JSON.stringify({ version: 3, values: { novelText: '不应读取', extractionPreset: 'standard' }, extractInfo: {}, constraints: {} }));
+  assert.equal(loadScriptDraft(local, 'alice', 'tab-a').values.novelText, '旧小说');
+
+  assert.equal(saveScriptDraft(local, 'alice', 'tab-b', { values: { novelText: '新小说' } }), true);
+  assert.equal(loadScriptDraft(local, 'alice', 'tab-b').values.novelText, '新小说');
+});
+
+test('returns the legacy draft when migration storage write fails', async () => {
+  const { loadScriptDraft } = await loadStorage();
+  const legacyKey = 'qiantie:script-draft:alice';
+  const storage = {
+    getItem(key) {
+      return key === legacyKey
+        ? JSON.stringify({ version: 3, values: { novelText: '旧小说', extractionPreset: 'standard' }, extractInfo: {}, constraints: {} })
+        : null;
+    },
+    setItem() {
+      throw new Error('blocked');
+    }
+  };
+
+  assert.equal(loadScriptDraft(storage, 'alice', 'tab-a').values.novelText, '旧小说');
+});
+
+test('returns a usable in-memory tab id when session storage throws', async () => {
+  const { getScriptDraftTabId } = await loadStorage();
+  const broken = {
+    getItem() { throw new Error('blocked'); },
+    setItem() { throw new Error('blocked'); }
+  };
+
+  assert.equal(getScriptDraftTabId(broken, () => 'memory-tab'), 'memory-tab');
+});
+
 test('does not load or save a draft when tab id is empty', async () => {
   const { loadScriptDraft, saveScriptDraft } = await loadStorage();
   const local = memoryStorage();
