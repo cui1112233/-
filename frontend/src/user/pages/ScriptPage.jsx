@@ -6,7 +6,7 @@ import { saveHistory } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
-import { PET_APPLY_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
 import { loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
@@ -83,6 +83,8 @@ export function ScriptPage() {
   const [generationStage, setGenerationStage] = useState('idle');
   const [extractInfo, setExtractInfo] = useState(() => normalizeExtractInfo());
   const [output, setOutput] = useState('');
+  const [revisionPreview, setRevisionPreview] = useState({ open: false, summary: '', currentOutput: '', candidateOutput: '' });
+  const [previousOutput, setPreviousOutput] = useState('');
   const [editingOutput, setEditingOutput] = useState(false);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [activeEntity, setActiveEntity] = useState(null);
@@ -281,16 +283,19 @@ export function ScriptPage() {
   }, [extractInfo, output, generationStage]);
 
   useEffect(() => {
-    function applyAgentDraft(event) {
-      const nextOutput = String(event.detail?.content || '').trim();
-      if (!nextOutput) return;
-      updateOutputDraft(nextOutput);
-      setEditingOutput(true);
-      message.success('CM 的修改稿已写入当前剧本，请继续检查后保存。');
+    function openRevisionPreview(event) {
+      const candidateOutput = String(event.detail?.candidateOutput || '').trim();
+      if (!output.trim() || !candidateOutput) return;
+      setRevisionPreview({
+        open: true,
+        summary: String(event.detail?.summary || '').trim(),
+        currentOutput: output,
+        candidateOutput
+      });
     }
-    window.addEventListener(PET_APPLY_EVENT, applyAgentDraft);
-    return () => window.removeEventListener(PET_APPLY_EVENT, applyAgentDraft);
-  }, []);
+    window.addEventListener(PET_PREVIEW_EVENT, openRevisionPreview);
+    return () => window.removeEventListener(PET_PREVIEW_EVENT, openRevisionPreview);
+  }, [output]);
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -470,7 +475,6 @@ export function ScriptPage() {
       dispatchPetState('success');
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
-      setOutput('');
       setGenerationStage('error');
       message.error(error.message || '剧本生成失败');
       dispatchPetState('error');
@@ -486,6 +490,33 @@ export function ScriptPage() {
     } finally {
       setRegeneratingOutput(false);
     }
+  }
+
+  function closeRevisionPreview() {
+    setRevisionPreview({ open: false, summary: '', currentOutput: '', candidateOutput: '' });
+  }
+
+  function applyRevisionPreview() {
+    const nextOutput = revisionPreview.candidateOutput.trim();
+    if (!nextOutput) return;
+    if (revisionPreview.currentOutput !== output) {
+      closeRevisionPreview();
+      message.warning('当前剧本已变化，请重新让 CM 生成修改稿。');
+      return;
+    }
+    setPreviousOutput(output);
+    updateOutputDraft(nextOutput);
+    setEditingOutput(true);
+    closeRevisionPreview();
+    message.success('CM 的修改稿已应用，可撤销一次。');
+  }
+
+  function undoLastRevision() {
+    if (!previousOutput) return;
+    updateOutputDraft(previousOutput);
+    setEditingOutput(true);
+    setPreviousOutput('');
+    message.success('已撤销 CM 的本次修改。');
   }
 
   function invalidateEntityOutput(nextInfo) {
@@ -776,6 +807,7 @@ export function ScriptPage() {
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>
             <Button icon={<Copy size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => copyText(isShotCardView ? shotCards.join('\n\n') : output)} disabled={!output}>复制</Button>
             <Button icon={<Pencil size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => { setSelectedShotIndexes(new Set()); setEditingOutput(value => !value); }} disabled={!output}>{editingOutput ? '完成编辑' : '编辑'}</Button>
+            <Button onClick={undoLastRevision} disabled={!previousOutput}>撤销本次修改</Button>
             <Button
               aria-label="重新生成剧本"
               title="重新生成剧本"
@@ -815,6 +847,27 @@ export function ScriptPage() {
         </div>
         </div>
       </div>
+      <Modal
+        title="CM 修改预览"
+        open={revisionPreview.open}
+        onCancel={closeRevisionPreview}
+        onOk={applyRevisionPreview}
+        okText="应用修改"
+        cancelText="放弃修改"
+        width={1100}
+      >
+        {revisionPreview.summary ? <Typography.Paragraph>{revisionPreview.summary}</Typography.Paragraph> : null}
+        <div className="cm-revision-preview">
+          <section>
+            <Typography.Title level={5}>当前剧本</Typography.Title>
+            <Input.TextArea value={revisionPreview.currentOutput} rows={24} readOnly />
+          </section>
+          <section>
+            <Typography.Title level={5}>CM 修改稿</Typography.Title>
+            <Input.TextArea value={revisionPreview.candidateOutput} rows={24} readOnly />
+          </section>
+        </div>
+      </Modal>
       <Modal
         title="切换人物与场景提取指令"
         open={instructionModalOpen}

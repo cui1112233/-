@@ -71,6 +71,7 @@ test('CM revision preview and recovery own request failures', () => {
   const pet = read('frontend/src/shared/pet/StackyPet.jsx');
   const client = read('frontend/src/shared/api/client.js');
   const css = read('frontend/src/shared/styles/global.css');
+  const scriptPage = read('frontend/src/user/pages/ScriptPage.jsx');
 
   assert.match(pet, /parseScriptRevision/);
   assert.match(pet, /dispatchPetPreview\(revision\)/);
@@ -81,6 +82,15 @@ test('CM revision preview and recovery own request failures', () => {
   assert.match(pet, /suppressGlobalError: true/);
   assert.match(client, /if \(!options\.suppressGlobalError\) notifyApiFailure/);
   assert.match(css, /\.stacky-agent-recovery/);
+  assert.match(scriptPage, /PET_PREVIEW_EVENT/);
+  assert.match(scriptPage, /const \[revisionPreview, setRevisionPreview\] = useState/);
+  assert.match(scriptPage, /const \[previousOutput, setPreviousOutput\] = useState\(''\)/);
+  assert.match(scriptPage, /title="CM 修改预览"/);
+  assert.match(scriptPage, /onOk=\{applyRevisionPreview\}/);
+  assert.match(scriptPage, /撤销本次修改/);
+  assert.match(scriptPage, /function undoLastRevision\(\)/);
+  assert.doesNotMatch(scriptPage, /setOutput\(''\);\s*setGenerationStage\('error'\)/);
+  assert.match(css, /\.cm-revision-preview/);
 });
 
 test('Agent frontend API exposes task conversation endpoints', () => {
