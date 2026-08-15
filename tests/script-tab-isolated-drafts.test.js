@@ -9,6 +9,9 @@ function memoryStorage() {
     },
     setItem(key, value) {
       values.set(key, String(value));
+    },
+    keys() {
+      return [...values.keys()];
     }
   };
 }
@@ -27,6 +30,56 @@ test('stores independent drafts for the same user in different tabs', async () =
   assert.equal(saveScriptDraft(local, 'alice', 'tab-b', beta), true);
   assert.equal(loadScriptDraft(local, 'alice', 'tab-a').values.novelText, '小说 A');
   assert.equal(loadScriptDraft(local, 'alice', 'tab-b').values.novelText, '小说 B');
+});
+
+test('encodes usernames and tab ids in tab-scoped draft storage keys', async () => {
+  const { saveScriptDraft } = await loadStorage();
+  const local = memoryStorage();
+  const username = '张 三/测试';
+  const tabId = 'tab /草稿';
+
+  assert.equal(saveScriptDraft(local, username, tabId, { values: { novelText: '小说' } }), true);
+  assert.deepEqual(local.keys(), [
+    `qiantie:script-draft:${encodeURIComponent(username)}:${encodeURIComponent(tabId)}`
+  ]);
+});
+
+test('normalizes version 3 drafts when loading tab-scoped storage', async () => {
+  const { loadScriptDraft } = await loadStorage();
+  const local = memoryStorage();
+  const username = '张 三/测试';
+  const tabId = 'tab /草稿';
+  const key = `qiantie:script-draft:${encodeURIComponent(username)}:${encodeURIComponent(tabId)}`;
+
+  local.setItem(key, JSON.stringify({
+    version: 3,
+    values: { extractionPreset: 'standard' },
+    extractInfo: {
+      characters: [{ id: 'character-1', data: { name: '主角' } }],
+      scenes: [{ name: '庭院' }],
+      protagonistIds: ['character-1', 'missing']
+    },
+    constraints: {
+      enabled: true,
+      prefix: { customText: '前缀' }
+    }
+  }));
+
+  const draft = loadScriptDraft(local, username, tabId);
+
+  assert.equal(draft.values.extractionPreset, 'script-extract');
+  assert.deepEqual(draft.extractInfo, {
+    characters: [{ id: 'character-1', data: { name: '主角' } }],
+    scenes: [{ id: draft.extractInfo.scenes[0].id, data: { name: '庭院' } }],
+    protagonistIds: ['character-1']
+  });
+  assert.deepEqual(draft.constraints, {
+    enabled: true,
+    prefix: { enabled: true, source: 'draft', presetId: '', personalPromptId: '', body: '前缀' },
+    quality: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
+    restriction: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
+    negative: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' }
+  });
 });
 
 test('returns a stable tab id from the same session storage', async () => {
