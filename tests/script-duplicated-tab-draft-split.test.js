@@ -87,6 +87,52 @@ test('degrades without BroadcastChannel support', async () => {
   coordinator.cleanup();
 });
 
+test('degrades when constructing BroadcastChannel throws', async () => {
+  const { startScriptDraftTabCoordination } = await loadCoordinator();
+  class ThrowingBroadcastChannel {
+    constructor() {
+      throw new Error('unavailable');
+    }
+  }
+
+  const coordinator = startScriptDraftTabCoordination({
+    tabId: 'tab-a',
+    createTabId: () => 'tab-b',
+    setTabId: () => assert.fail('tab id must not change'),
+    BroadcastChannelClass: ThrowingBroadcastChannel
+  });
+
+  assert.deepEqual(await coordinator.ready, { tabId: 'tab-a', split: false });
+  coordinator.cleanup();
+});
+
+test('ignores unrelated or invalid occupancy messages', async () => {
+  FakeBroadcastChannel.reset();
+  const { startScriptDraftTabCoordination } = await loadCoordinator();
+  let probe;
+  const sender = new FakeBroadcastChannel('qiantie:script-draft-tabs');
+  sender.onmessage = event => {
+    if (event.data.type === 'probe') probe = event.data;
+  };
+  const writes = [];
+  const coordinator = startScriptDraftTabCoordination({
+    tabId: 'tab-a',
+    createTabId: () => 'tab-b',
+    setTabId: id => writes.push(id),
+    BroadcastChannelClass: FakeBroadcastChannel,
+    timeoutMs: 0
+  });
+
+  sender.postMessage({ type: 'unknown', tabId: 'tab-a', instanceId: probe.instanceId });
+  sender.postMessage({ type: 'occupied', tabId: 'tab-other', instanceId: probe.instanceId });
+  sender.postMessage({ type: 'occupied', tabId: 'tab-a', instanceId: 'different-instance' });
+
+  assert.deepEqual(await coordinator.ready, { tabId: 'tab-a', split: false });
+  assert.deepEqual(writes, []);
+  coordinator.cleanup();
+  sender.close();
+});
+
 test('cleanup closes the channel and stops an original page from reporting occupancy', async () => {
   FakeBroadcastChannel.reset();
   const { startScriptDraftTabCoordination } = await loadCoordinator();
