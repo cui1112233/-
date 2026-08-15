@@ -1725,6 +1725,26 @@ select {
 .stacky-agent-retry { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid color-mix(in srgb, #c85c6d 46%, var(--legacy-border)); border-radius: 6px; padding: 8px 10px; color: var(--legacy-text); }
 .stacky-agent-retry button { flex: 0 0 auto; margin: 0; }
 
+.stacky-agent-recovery {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #ffd6d6;
+  background: rgba(164, 55, 55, 0.2);
+}
+
+.stacky-agent-recovery button {
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 8px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+}
+
 .stacky-agent-input {
   display: flex;
   gap: 8px;
