@@ -1,6 +1,7 @@
 export const PET_EVENT = 'qiantie:pet-state';
 export const PET_CONTEXT_EVENT = 'qiantie:pet-context';
 export const PET_APPLY_EVENT = 'qiantie:pet-apply';
+export const PET_PREVIEW_EVENT = 'qiantie:pet-preview';
 export const PET_SKILLS_EVENT = 'qiantie:pet-skills';
 export const PET_STATES = ['idle', 'working', 'success', 'error'];
 
@@ -34,6 +35,9 @@ const MAX_ENTITY_ARRAY_ITEMS = 12;
 const MAX_ENTITY_OBJECT_KEYS = 12;
 const MAX_ENTITY_INSPECTED_KEYS = 24;
 const MAX_ENTITY_NODES = 80;
+const MAX_NOVEL_TEXT_CHARS = 4500;
+const MAX_EXTRACTED_CHARS = 2500;
+const MAX_SCRIPT_OUTPUT_CHARS = 4500;
 const SENSITIVE_ENTITY_KEY = /token|key|secret|password/i;
 
 export function normalizePetState(state) {
@@ -99,10 +103,10 @@ export function normalizePetContext(context = {}) {
       return fallback;
     }
   };
-  const text = value => {
+  const text = (value, cap = 1600) => {
     if (value === UNREADABLE) return '';
     try {
-      return String(value || '').trim().slice(0, 1600);
+      return String(value || '').trim().slice(0, cap);
     } catch {
       return '';
     }
@@ -200,6 +204,7 @@ export function normalizePetContext(context = {}) {
     )
       .map(([key, value]) => [key, entityText(value)]))
     : {};
+  const extracted = entityText(read(source, 'extracted', null)).slice(0, MAX_EXTRACTED_CHARS);
   const actionSource = read(source, 'actions', null);
   const actions = [];
   try {
@@ -218,6 +223,9 @@ export function normalizePetContext(context = {}) {
     page: text(read(source, 'page')),
     pagePath: text(read(source, 'pagePath')),
     summary: text(read(source, 'summary')),
+    novelText: text(read(source, 'novelText'), MAX_NOVEL_TEXT_CHARS),
+    extracted,
+    scriptOutput: text(read(source, 'scriptOutput'), MAX_SCRIPT_OUTPUT_CHARS),
     entities,
     actions
   };
@@ -238,6 +246,16 @@ export function dispatchPetContext(context) {
 export function dispatchPetApply(content) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(PET_APPLY_EVENT, { detail: { content } }));
+}
+
+export function dispatchPetPreview({ summary, candidateOutput } = {}) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(PET_PREVIEW_EVENT, {
+    detail: {
+      summary: String(summary || '').trim(),
+      candidateOutput: String(candidateOutput || '').trim()
+    }
+  }));
 }
 
 export function dispatchPetSkills(skillIds) {
