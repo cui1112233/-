@@ -7,7 +7,8 @@ import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_APPLY_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
-import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
+import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft, setScriptDraftTabId } from './scriptDraftStorage';
+import { startScriptDraftTabCoordination } from './scriptDraftTabCoordinator';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
@@ -106,6 +107,7 @@ export function ScriptPage() {
   const [extractionPresets, setExtractionPresets] = useState([]);
   const [loadingExtractionPresets, setLoadingExtractionPresets] = useState(true);
   const [extractionPresetError, setExtractionPresetError] = useState('');
+  const [draftTabReady, setDraftTabReady] = useState(false);
   const selectedFormat = Form.useWatch('format', form);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
@@ -161,7 +163,7 @@ export function ScriptPage() {
   }
 
   function persistDraft(values, overrides = {}) {
-    if (!draftReadyRef.current) return;
+    if (!draftReadyRef.current || !draftTabReady) return;
     saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, {
       ...snapshotDraft(values),
       ...overrides
@@ -185,30 +187,48 @@ export function ScriptPage() {
   }
 
   useEffect(() => {
-    const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current);
-    if (restoredDraft) {
-      form.setFieldsValue(restoredDraft.values);
-      setExtractInfo(normalizeExtractInfo(restoredDraft.extractInfo));
-      setOutput(typeof restoredDraft.output === 'string' ? restoredDraft.output : '');
-      setEditingOutput(Boolean(restoredDraft.editingOutput));
-      setGenerationStage(restoredDraft.generationStage || 'idle');
-      setConstraints(normalizeScriptConstraints(restoredDraft.constraints));
-      setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
-    }
-
-    // Wait for restored React state to commit before allowing auto-save.
-    const readyTimer = window.setTimeout(() => {
-      draftReadyRef.current = true;
-      if (restoredDraft) {
-        saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, restoredDraft);
-      } else {
-        persistDraft();
+    let active = true;
+    let readyTimer;
+    const coordinator = startScriptDraftTabCoordination({
+      tabId: draftTabIdRef.current,
+      createTabId: () => getScriptDraftTabId(null),
+      setTabId: nextTabId => {
+        setScriptDraftTabId(window.sessionStorage, nextTabId);
+        draftTabIdRef.current = nextTabId;
       }
-    }, 0);
+    });
+
+    coordinator.ready.then(({ tabId }) => {
+      if (!active) return;
+      draftTabIdRef.current = tabId;
+      const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current);
+      if (restoredDraft) {
+        form.setFieldsValue(restoredDraft.values);
+        setExtractInfo(normalizeExtractInfo(restoredDraft.extractInfo));
+        setOutput(typeof restoredDraft.output === 'string' ? restoredDraft.output : '');
+        setEditingOutput(Boolean(restoredDraft.editingOutput));
+        setGenerationStage(restoredDraft.generationStage || 'idle');
+        setConstraints(normalizeScriptConstraints(restoredDraft.constraints));
+        setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
+      }
+
+      setDraftTabReady(true);
+      readyTimer = window.setTimeout(() => {
+        if (!active) return;
+        draftReadyRef.current = true;
+        if (restoredDraft) {
+          saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, restoredDraft);
+        } else {
+          saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, snapshotDraft());
+        }
+      }, 0);
+    });
 
     return () => {
+      active = false;
       window.clearTimeout(readyTimer);
       draftReadyRef.current = false;
+      coordinator.cleanup();
     };
   }, [form]);
 

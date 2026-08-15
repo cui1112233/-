@@ -32,10 +32,14 @@ export function getScriptDraftTabId(sessionStorageLike, random = () => crypto.ra
   }
   tabId = tabId || createFallbackTabId();
 
+  setScriptDraftTabId(sessionStorageLike, tabId);
+  return tabId;
+}
+
+export function setScriptDraftTabId(sessionStorageLike, tabId) {
   try {
     sessionStorageLike?.setItem(tabStorageKey, tabId);
   } catch {}
-  return tabId;
 }
 
 function normalizeDraft(draft) {
