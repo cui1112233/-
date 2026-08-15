@@ -13,6 +13,7 @@ import { filterExtractionPresets, selectAvailableExtractionPreset } from './scri
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards } from './scriptShotOutput';
+import { getSelectedShotMatches, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
 function extractJSON(value) {
@@ -85,6 +86,10 @@ export function ScriptPage() {
   const [output, setOutput] = useState('');
   const [editingOutput, setEditingOutput] = useState(false);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
+  const [shotReplaceOpen, setShotReplaceOpen] = useState(false);
+  const [shotFindText, setShotFindText] = useState('');
+  const [shotReplaceText, setShotReplaceText] = useState('');
+  const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [activeEntity, setActiveEntity] = useState(null);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
@@ -109,6 +114,14 @@ export function ScriptPage() {
   const selectedFormat = Form.useWatch('format', form);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
+  const selectedShotMatches = useMemo(
+    () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
+    [output, shotCards, selectedShotIndexes, shotFindText]
+  );
+  const activeShotMatch = selectedShotMatches[shotMatchIndex] || null;
+  useEffect(() => {
+    setShotMatchIndex(index => selectedShotMatches.length ? Math.min(index, selectedShotMatches.length - 1) : 0);
+  }, [selectedShotMatches.length]);
   const isShotCardView = shotCards.length > 0 && !editingOutput;
   const workbenchRef = useRef(null);
   const draftReadyRef = useRef(false);
@@ -168,10 +181,26 @@ export function ScriptPage() {
     });
   }
 
-  function updateOutputDraft(nextOutput) {
+  function updateOutputDraft(nextOutput, preserveSelectedShots = false) {
     setOutput(nextOutput);
-    setSelectedShotIndexes(new Set());
+    if (!preserveSelectedShots) setSelectedShotIndexes(new Set());
+    else {
+      const nextCards = getShotCards(selectedFormat, nextOutput);
+      setSelectedShotIndexes(current => new Set([...current].filter(index => index < nextCards.length)));
+    }
     persistDraft(undefined, { output: nextOutput });
+  }
+
+  function replaceCurrentShotMatch() {
+    if (!activeShotMatch) return;
+    const nextOutput = replaceSelectedShotMatch(output, activeShotMatch, shotReplaceText);
+    updateOutputDraft(nextOutput, true);
+  }
+
+  function replaceAllShotMatches() {
+    if (!selectedShotMatches.length) return;
+    const nextOutput = replaceAllSelectedShotMatches(output, selectedShotMatches, shotReplaceText);
+    updateOutputDraft(nextOutput, true);
   }
 
   async function copyText(text) {
@@ -776,6 +805,7 @@ export function ScriptPage() {
           <Space>
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>
             <Button icon={<Copy size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => copyText(isShotCardView ? shotCards.join('\n\n') : output)} disabled={!output}>复制</Button>
+            <Button disabled={!isShotCardView || !selectedShotIndexes.size} onClick={() => setShotReplaceOpen(true)}>查找替换</Button>
             <Button icon={<Pencil size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => { setSelectedShotIndexes(new Set()); setEditingOutput(value => !value); }} disabled={!output}>{editingOutput ? '完成编辑' : '编辑'}</Button>
             <Button
               aria-label="重新生成剧本"
@@ -816,6 +846,27 @@ export function ScriptPage() {
         </div>
         </div>
       </div>
+      <Modal
+        title="替换已选分镜文字"
+        open={shotReplaceOpen}
+        onCancel={() => setShotReplaceOpen(false)}
+        footer={null}
+      >
+        <Typography.Paragraph>已选 {selectedShotIndexes.size} 条分镜</Typography.Paragraph>
+        <Form.Item label="查找内容">
+          <Input value={shotFindText} onChange={event => { setShotFindText(event.target.value); setShotMatchIndex(0); }} />
+        </Form.Item>
+        <Form.Item label="替换为">
+          <Input value={shotReplaceText} onChange={event => setShotReplaceText(event.target.value)} />
+        </Form.Item>
+        {!shotFindText ? <Typography.Text type="secondary">请输入查找内容</Typography.Text> : !selectedShotMatches.length ? <Typography.Text type="secondary">未找到匹配内容</Typography.Text> : <Typography.Text type="secondary">{shotMatchIndex + 1} / {selectedShotMatches.length}</Typography.Text>}
+        <Space wrap style={{ marginTop: 16 }}>
+          <Button disabled={!selectedShotMatches.length} onClick={() => setShotMatchIndex(index => (index - 1 + selectedShotMatches.length) % selectedShotMatches.length)}>上一个</Button>
+          <Button disabled={!selectedShotMatches.length} onClick={() => setShotMatchIndex(index => (index + 1) % selectedShotMatches.length)}>下一个</Button>
+          <Button disabled={!activeShotMatch} onClick={replaceCurrentShotMatch}>替换当前</Button>
+          <Button type="primary" disabled={!selectedShotMatches.length} onClick={replaceAllShotMatches}>全部替换</Button>
+        </Space>
+      </Modal>
       <Modal
         title="切换人物与场景提取指令"
         open={instructionModalOpen}
