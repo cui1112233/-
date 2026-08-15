@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { dispatchPetApply, dispatchPetContext, dispatchPetState } from './stacky.js';
+import { dispatchPetApply, dispatchPetContext, dispatchPetState, requestPetScriptOutput } from './stacky.js';
 import { cmDraftToApply, cmInteractionView } from './cmInteraction.js';
 import { applyCmDraft } from '../../user/pages/scriptPetInteractions.js';
 
@@ -41,6 +41,34 @@ test('CM context dispatch renders completed script bubble and seven quick action
       '分析整体质量', '找出最弱的段落', '优化开头 10 秒', '检查人物一致性',
       '检查场景与画面感', '强化冲突与反转', '生成修改稿'
     ]);
+  } finally {
+    restore();
+  }
+});
+
+test('CM keeps completed script interactions after success resets to idle and clears them when output is removed', () => {
+  const completed = { pagePath: '/script', entities: { hasOutput: true } };
+  const cleared = { pagePath: '/script', entities: { hasOutput: false } };
+
+  assert.equal(cmInteractionView('idle', completed, () => 0).bubbleText, '剧本生成好了。要 CM 帮您检查哪里还能更好吗~');
+  assert.equal(cmInteractionView('idle', completed).quickActions.length, 7);
+  assert.notEqual(cmInteractionView('idle', cleared, () => 0).bubbleText, '剧本生成好了。要 CM 帮您检查哪里还能更好吗~');
+  assert.equal(cmInteractionView('idle', cleared).quickActions.length, 2);
+});
+
+test('CM requests only a bounded current script output through the transient output event', () => {
+  const restore = installEventWindow();
+  let requests = 0;
+  window.addEventListener('qiantie:pet-script-output-request', event => {
+    requests += 1;
+    event.detail.provide(`SCRIPT_OUTPUT_MARKER${'S'.repeat(5000)}`);
+  });
+
+  try {
+    const output = requestPetScriptOutput();
+    assert.equal(requests, 1);
+    assert.equal(output.length, 4500);
+    assert.match(output, /^SCRIPT_OUTPUT_MARKER/);
   } finally {
     restore();
   }

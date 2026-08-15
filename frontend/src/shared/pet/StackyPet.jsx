@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
-import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, readCmTaskId, writeCmTaskId } from './stacky';
+import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, readCmTaskId, requestPetScriptOutput, writeCmTaskId } from './stacky';
 import { cmDraftToApply, cmInteractionView } from './cmInteraction';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
 
@@ -229,7 +229,8 @@ export function StackyPet({ username, accountSessionKey }) {
         context: {
           ...contextRef.current,
           page: contextRef.current.page || window.location.pathname,
-          pagePath: contextRef.current.pagePath || window.location.pathname
+          pagePath: contextRef.current.pagePath || window.location.pathname,
+          scriptOutput: requestPetScriptOutput()
         },
         skillIds: skillIdsRef.current
       });

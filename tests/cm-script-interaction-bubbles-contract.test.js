@@ -19,5 +19,8 @@ test('script completion keeps the pet success state and CM applies only marked d
   assert.match(scriptPage, /entities: \{[\s\S]*?hasOutput: Boolean\(output\.trim\(\)\)/);
   assert.doesNotMatch(scriptPage, /novelText: String\(novelText \|\| ''\)/);
   assert.doesNotMatch(scriptPage, /scriptOutput: output/);
+  assert.match(scriptPage, /PET_SCRIPT_OUTPUT_REQUEST_EVENT/);
+  assert.match(scriptPage, /event\.detail\?\.provide\(output\)/);
+  assert.match(pet, /scriptOutput: requestPetScriptOutput\(\)/);
   assert.doesNotMatch(pet, /sendQuestion\(action\.prompt\)[\s\S]*?dispatchPetApply/);
 });

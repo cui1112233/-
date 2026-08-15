@@ -2,6 +2,7 @@ export const PET_EVENT = 'qiantie:pet-state';
 export const PET_CONTEXT_EVENT = 'qiantie:pet-context';
 export const PET_APPLY_EVENT = 'qiantie:pet-apply';
 export const PET_SKILLS_EVENT = 'qiantie:pet-skills';
+export const PET_SCRIPT_OUTPUT_REQUEST_EVENT = 'qiantie:pet-script-output-request';
 export const PET_STATES = ['idle', 'working', 'success', 'error'];
 
 const atlasRows = {
@@ -97,7 +98,7 @@ export function petPromptBubble(state, context, random = Math.random) {
   const normalizedState = normalizePetState(state);
   const { normalized, hasScriptOutput } = scriptContext(context);
   if (normalized.pagePath !== '/script') return petSpeech(normalizedState);
-  if (normalizedState === 'success' && hasScriptOutput) {
+  if ((normalizedState === 'success' || normalizedState === 'idle') && hasScriptOutput) {
     const index = Math.floor(Math.min(Math.max(Number(random()) || 0, 0), 0.999999) * scriptReadyPrompts.length);
     return scriptReadyPrompts[index];
   }
@@ -111,7 +112,7 @@ export function petQuickActions(state, context) {
   const normalizedState = normalizePetState(state);
   const { normalized, hasScriptOutput } = scriptContext(context);
   if (normalized.pagePath !== '/script' || normalizedState === 'working') return [];
-  if (normalizedState === 'success' && hasScriptOutput) return scriptReadyActions;
+  if ((normalizedState === 'success' || normalizedState === 'idle') && hasScriptOutput) return scriptReadyActions;
   if (normalizedState === 'error') return scriptErrorActions;
   if (normalized.entities.generationStage === 'extracted') return scriptExtractedActions;
   return scriptInitialActions;
@@ -303,6 +304,15 @@ export function dispatchPetContext(context) {
 export function dispatchPetApply(content) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(PET_APPLY_EVENT, { detail: { content } }));
+}
+
+export function requestPetScriptOutput() {
+  if (typeof window === 'undefined') return '';
+  let output = '';
+  window.dispatchEvent(new CustomEvent(PET_SCRIPT_OUTPUT_REQUEST_EVENT, {
+    detail: { provide: value => { output = String(value || '').trim().slice(0, 4500); } }
+  }));
+  return output;
 }
 
 export function dispatchPetSkills(skillIds) {

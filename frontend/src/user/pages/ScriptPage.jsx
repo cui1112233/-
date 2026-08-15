@@ -6,7 +6,7 @@ import { saveHistory } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
-import { PET_APPLY_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { PET_APPLY_EVENT, PET_SCRIPT_OUTPUT_REQUEST_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
 import { applyCmDraft } from './scriptPetInteractions';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
@@ -288,6 +288,12 @@ export function ScriptPage() {
     window.addEventListener(PET_APPLY_EVENT, applyAgentDraft);
     return () => window.removeEventListener(PET_APPLY_EVENT, applyAgentDraft);
   }, []);
+
+  useEffect(() => {
+    const provideCurrentScriptOutput = event => event.detail?.provide(output);
+    window.addEventListener(PET_SCRIPT_OUTPUT_REQUEST_EVENT, provideCurrentScriptOutput);
+    return () => window.removeEventListener(PET_SCRIPT_OUTPUT_REQUEST_EVENT, provideCurrentScriptOutput);
+  }, [output]);
 
   useEffect(() => () => {
     mountedRef.current = false;
