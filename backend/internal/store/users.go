@@ -59,6 +59,22 @@ WHERE username = ?
 	return tx.Commit()
 }
 
+// EnsureBridgeUser creates the platform account in the Go database on its
+// first water-production request. Authentication remains owned by Node; this
+// record exists only to establish MySQL ownership and foreign-key relations.
+func (s *Users) EnsureBridgeUser(ctx context.Context, username string, isOwner bool) (User, error) {
+	if _, err := s.db.ExecContext(ctx, `
+INSERT INTO users(username, password_hash, is_owner, is_active)
+VALUES(?, 'bridge-managed-account', ?, TRUE)
+ON DUPLICATE KEY UPDATE
+  is_owner = VALUES(is_owner),
+  is_active = TRUE
+`, username, isOwner); err != nil {
+		return User{}, err
+	}
+	return s.FindByUsername(ctx, username)
+}
+
 func (s *Users) FindByUsername(ctx context.Context, username string) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx, `

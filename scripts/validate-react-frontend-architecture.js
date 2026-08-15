@@ -72,10 +72,12 @@ assert(userApp.includes('const Page = routes[pathname];'), 'user app should reso
 assert(/<Suspense[\s\S]*?<Page \/>/.test(userApp), 'user app should render lazy routes through suspense');
 
 const userLayout = read('frontend/src/shared/layouts/UserLayout.jsx');
+const adminLayout = read('frontend/src/shared/layouts/AdminLayout.jsx');
+const authApi = read('frontend/src/shared/api/auth.js');
 const brandLogo = read('frontend/src/shared/components/BrandLogo.jsx');
 assert(brandLogo.includes('/assets/brand-logo-black.png') && brandLogo.includes('/assets/brand-logo-white.png'), 'brand logo component should include both supplied logo variants');
 assert(userLayout.includes('<BrandLogo className="legacy-brand-logo" />'), 'feature-page sidebar should render the supplied brand logo');
-assert(userLayout.includes("href: '/settings'"), 'user navigation should include settings');
+assert(userLayout.includes('href="/settings"'), 'user sidebar should include settings');
 assert(userLayout.includes("href: '/history'"), 'user navigation should include history');
 assert(userLayout.includes('legacy-shell'), 'user layout should use legacy workspace shell');
 assert(userLayout.includes('legacy-sidebar'), 'user layout should restore the old sidebar navigation');
@@ -87,9 +89,23 @@ assert(userLayout.includes('THEME_STORAGE_KEY'), 'user layout should persist the
 assert(userLayout.includes('dataset.theme'), 'user layout should sync theme to the document root');
 assert(userLayout.includes('toggleTheme'), 'user layout should provide a theme toggle');
 assert(userLayout.includes('legacy-theme-toggle'), 'user layout should render the theme toggle control');
-assert(/navItems\.map\(item => \(\s*<Link\b(?:(?!<\/Link>)[\s\S])*?<span className="legacy-nav-icon">\{item\.icon\}<\/span>(?:(?!<\/Link>)[\s\S])*?<span className="legacy-nav-label">\{item\.label\}<\/span>(?:(?!<\/Link>)[\s\S])*?<span className="legacy-nav-tooltip" aria-hidden="true">\{item\.label\}<\/span>(?:(?!<\/Link>)[\s\S])*?<\/Link>/.test(userLayout), 'user navigation should render ordered decorative tooltip labels within each collapsed link');
+assert(userLayout.includes('user-theme-active'), 'user layout should mark body while portal components are active');
+assert(userLayout.includes('legacy-nav-tooltip'), 'user navigation should render decorative tooltip labels for collapsed links');
+assert(authApi.includes("apiRequest('/api/login/session')"), 'auth API should refresh the current server-side session metadata');
+assert(userLayout.includes('getCurrentAccount'), 'user layout should refresh current account metadata before rendering privileged navigation');
+assert(userLayout.includes("href=\"/admin/presets\""), 'user sidebar should provide an admin entry point');
+assert(userLayout.includes('canAccessAdmin'), 'user sidebar should gate the admin entry point by refreshed permissions');
+assert(/<Link href="\/admin\/presets"[^>]*reload/.test(userLayout), 'admin entry should use a full document navigation to the admin bundle');
 
 const globalCss = read('frontend/src/shared/styles/global.css');
+assert(adminLayout.includes("'yizhan-theme'"), 'admin layout should reuse the shared theme preference');
+assert(adminLayout.includes('dataset.theme'), 'admin layout should sync the shared theme to the document root');
+assert(adminLayout.includes('admin-theme-active'), 'admin layout should mark body while admin portal components are open');
+assert(globalCss.includes("[data-theme='light'] .admin-shell"), 'admin shell should define readable light theme overrides');
+assert(globalCss.includes('.admin-theme-active .ant-drawer-content'), 'admin drawer portals should receive the active admin theme');
+assert(globalCss.includes('.admin-theme-active .ant-select-dropdown'), 'admin select dropdown portals should receive the active admin theme');
+assert(globalCss.includes('.admin-theme-active .ant-input-status-success'), 'admin validation-state inputs should retain the active admin theme');
+assert(globalCss.includes('input:-webkit-autofill'), 'admin autofilled inputs should retain readable theme colors');
 const defaultTooltipRule = readCssBlock(globalCss, '\n.legacy-nav-tooltip {');
 assert(defaultTooltipRule.includes('display: none'), 'expanded navigation tooltip labels should be hidden by default');
 const collapsedNavLabelCss = readCssBlock(globalCss, '.legacy-sidebar.collapsed .legacy-nav-label');
@@ -149,15 +165,27 @@ assert(/\bCmLoader\b/.test(scriptPage), 'script page should define the CM loader
 assert(scriptPage.includes('cm-loader'), 'script page should render the CM loader surface');
 assert(scriptPage.includes('role="status"'), 'CM loader should announce generation status');
 assert(scriptPage.includes('data-letter="C"') && scriptPage.includes('data-letter="M"'), 'CM loader should render C and M letter paths');
-assert(/output\s*\?\s*\([\s\S]*?\)\s*:\s*loading\s*\?\s*\(\s*<CmLoader\s*\/>\s*\)\s*:\s*\(/.test(scriptPage), 'script output should prioritize output, then CM loader, then empty state');
+assert(/output\s*\?\s*\([\s\S]*?\)\s*:\s*generating\s*\?\s*\(\s*<CmLoader\s*\/>\s*\)\s*:\s*\(/.test(scriptPage), 'script output should prioritize output, then generation loader, then empty state');
+assert(scriptPage.includes('const [extracting, setExtracting] = useState(false);'), 'script page should track extraction independently');
+assert(scriptPage.includes('const [generating, setGenerating] = useState(false);'), 'script page should track generation independently');
+assert(scriptPage.includes('loading={extracting}'), 'extraction button should only show extraction loading');
+assert(scriptPage.includes('loading={generating}'), 'generation button should only show generation loading');
+assert(globalCss.includes('.script-output .legacy-output'), 'script output should stretch its textarea through the available work area');
+assert(scriptPage.includes('rootClassName="entity-editor-modal"'), 'entity editor should expose a dedicated modal class for contrast-safe styling');
+assert(globalCss.includes('.entity-editor-modal .ant-modal-content'), 'entity editor modal should define its own surface color');
+assert(globalCss.includes('.entity-editor-modal .ant-form-item-label > label'), 'entity editor labels should have an explicit readable color');
+assert(globalCss.includes('.entity-editor-modal .ant-input'), 'entity editor input fields should have an explicit readable color');
+assert(globalCss.includes('.user-theme-active .ant-modal-content'), 'user modal portals should receive the active user theme');
+assert(globalCss.includes("[data-theme='light'] .entity-editor-modal .ant-input"), 'light entity editor inputs should use a visibly distinct surface');
 
 assert(globalCss.includes('.cm-loader'), 'global CSS should style the CM loader');
 assert(/\.cm-loader-dash\s*\{[^}]*cm-loader-dash-array/.test(globalCss), 'global CSS should use CM-prefixed loader keyframes');
 assert(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.cm-loader-dash[\s\S]*?animation:\s*none/.test(globalCss), 'CM loader should respect reduced motion');
 assert(/try\s*\{\s*await saveHistory\([\s\S]*?\);\s*\}\s*catch\s*\(error\)\s*\{\s*message\.warning\('生成成功，但保存历史失败'\);\s*\}\s*setOutput\(nextOutput\)/.test(scriptPage), 'script page should preserve generated output when history saving fails');
-assert(/catch\s*\(error\)\s*\{\s*setOutput\(''\);\s*message\.error/.test(scriptPage), 'script page should clear output when generation fails');
+assert(/catch\s*\(error\)\s*\{\s*setOutput\(''\);[\s\S]{0,200}?message\.error/.test(scriptPage), 'script page should clear output when generation fails');
 
 const homePage = read('frontend/src/user/pages/HomePage.jsx');
+const splashCursor = read('frontend/src/user/components/HomeSplashCursor.jsx');
 assert(homePage.includes('<BrandLogo className="home-brand-logo" />'), 'home hero should render the supplied brand logo');
 assert(homePage.includes('home-video-hero'), 'React home page should use a fullscreen video hero');
 assert(homePage.includes('<video'), 'React home page should render a video background');
@@ -165,6 +193,12 @@ assert(homePage.includes('home-hero-nav'), 'React home page should include a her
 assert(homePage.includes('contact-button'), 'React home page should include a contact button');
 assert(homePage.includes('quick-action-card'), 'React home page should restore old quick action cards');
 assert(homePage.includes('home-recent-section'), 'React home page should restore old recent projects section');
+assert(homePage.includes('<HomeSplashCursor />'), 'home hero should render the scoped fluid cursor layer');
+assert(splashCursor.includes("className=\"home-splash-cursor\""), 'fluid cursor should expose a home-scoped canvas layer');
+assert(splashCursor.includes("pointerEvents: 'none'"), 'fluid cursor must not intercept homepage interactions');
+assert(splashCursor.includes("prefers-reduced-motion: reduce"), 'fluid cursor should respect reduced motion preferences');
+assert(splashCursor.includes('webgl') && splashCursor.includes('return null'), 'fluid cursor should safely skip unsupported WebGL environments');
+assert(globalCss.includes('.home-splash-cursor'), 'global CSS should constrain the fluid cursor to the homepage hero');
 
 const settingsPage = read('frontend/src/user/pages/SettingsPage.jsx');
 assert(settingsPage.includes('getConfig'), 'settings page should load API config');

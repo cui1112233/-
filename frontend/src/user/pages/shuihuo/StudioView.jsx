@@ -8,6 +8,9 @@ import { BatchTaskModal } from './BatchTaskModal';
 import { SegmentEditorModal } from './SegmentEditorModal';
 import { SegmentProductionCard } from './SegmentProductionCard';
 import { TaskDrawer } from './TaskDrawer';
+import { ProductionConfigModal } from './ProductionConfigModal';
+import { TemplateLibraryModal } from './TemplateLibraryModal';
+import { PromptCandidatesModal } from './PromptCandidatesModal';
 
 const blankSegment = { sourceText: '', subtitleText: '', imagePrompt: '', videoPrompt: '', imagePromptLocked: false, videoPromptLocked: false };
 
@@ -22,10 +25,14 @@ export function StudioView({ data, readiness, onRefresh, onAssets }) {
   const [assetSegment, setAssetSegment] = useState(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [mediaTarget, setMediaTarget] = useState({ kind: 'image', segmentId: undefined });
   const [tasksOpen, setTasksOpen] = useState(false);
   const [batchKind, setBatchKind] = useState('');
   const [textModels, setTextModels] = useState([]);
   const [textModelId, setTextModelId] = useState();
+  const [configOpen, setConfigOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [promptKind, setPromptKind] = useState('');
   const project = data.project;
   const confirmed = project.segmentationStatus === 'confirmed';
   const bindings = data.segmentAssetIDs || {};
@@ -72,6 +79,7 @@ export function StudioView({ data, readiness, onRefresh, onAssets }) {
     try { await deleteSegment(id); await onRefresh(); message.success('分段已删除'); } catch (error) { message.error(error.message || '删除分段失败'); }
   }
   function openAssets(segment) { setAssetSegment(segment); setSelectedAssetIds(bindings[segment.id] || []); }
+  function openSegmentMedia(segment, kind) { setMediaTarget({ kind, segmentId: segment.id }); setMediaOpen(true); }
   async function saveAssets() {
     if (!assetSegment) return;
     setBusy(true);
@@ -124,20 +132,27 @@ export function StudioView({ data, readiness, onRefresh, onAssets }) {
 
   return <section className="shuihuo-view">
     <div className="shuihuo-stepper"><span className="done">1 上传原文</span><i /><span className={confirmed ? 'done' : 'active'}>2 分段审核</span><i /><span className={confirmed ? 'active' : ''}>3 资产与提示词</span><i /><span>4 生成素材</span><i /><span>5 导出</span></div>
-    <div className="shuihuo-page-heading"><div><h2>{project.name}</h2><p>{confirmed ? `已确认 ${data.segments?.length || 0} 个分段。现在可以逐段编辑、绑定资产与上传素材。` : '请先完成分段审核；系统不会自动输出人物、场景或提示词。'}</p></div><div className="shuihuo-actions"><Button onClick={() => setSegmentOpen(true)}>分段设置</Button><Button onClick={() => setEditing({ ...blankSegment })} disabled={!confirmed}>新增分段</Button><Button onClick={onAssets} disabled={!confirmed}>人物场景预设</Button><Button onClick={() => setMediaOpen(true)} disabled={!confirmed}>上传素材</Button><Button onClick={() => setTasksOpen(true)} disabled={!confirmed || !taskReady} title={taskUnavailable}>任务中心</Button><Button type="primary" disabled title={taskUnavailable}>导出</Button></div></div>
+    <div className="shuihuo-page-heading"><div><h2>{project.name}</h2><p>{confirmed ? `已确认 ${data.segments?.length || 0} 个分段。现在可以逐段编辑、绑定资产与上传素材。` : '请先完成分段审核；系统不会自动输出人物、场景或提示词。'}</p></div><div className="shuihuo-actions"><Button onClick={() => setSegmentOpen(true)}>分段设置</Button><Button onClick={() => setEditing({ ...blankSegment })} disabled={!confirmed}>新增分段</Button><Button onClick={onAssets} disabled={!confirmed}>人物场景预设</Button><Button onClick={() => { setMediaTarget({ kind: 'image', segmentId: undefined }); setMediaOpen(true); }} disabled={!confirmed}>上传素材</Button><Button onClick={() => setTasksOpen(true)} disabled={!confirmed || !taskReady} title={taskUnavailable}>任务中心</Button><Button type="primary" disabled title={taskUnavailable}>导出</Button></div></div>
     {!confirmed ? <Alert showIcon type="info" message="请先确认分段" description="候选分段可反复编辑和重新生成；确认之前不会启动资产分析、提示词生成、图片、视频或导出任务。" /> : <Alert showIcon type="info" message="通过任务中心生成" description="当前可保存人工提示词、资产绑定和上传素材。任务中心只显示管理员已启用模型；没有模型时会明确阻止提交。" />}
     <div className="shuihuo-editor-toolbar">
       <Button onClick={() => setSegmentOpen(true)}>调整分镜</Button>
       <Button onClick={onAssets}>人物场景预设</Button>
+      <Button onClick={() => setTemplatesOpen(true)}>角色模板</Button>
+      <Button onClick={() => setConfigOpen(true)}>默认配置</Button>
+      <Button disabled={!textReady || !confirmed} title={!confirmed ? '请先确认分镜' : textUnavailable} onClick={() => setPromptKind('image')}>生成图片提示词</Button>
+      <Button disabled={!textReady || !confirmed} title={!confirmed ? '请先确认分镜' : textUnavailable} onClick={() => setPromptKind('video')}>生成视频提示词</Button>
       <Button disabled={!imageReady} title={imageReady ? '' : taskUnavailable} onClick={() => setBatchKind('image')}>批量生成图片</Button>
       <Button disabled={!videoReady} title={videoReady ? '' : taskUnavailable} onClick={() => setBatchKind('video')}>批量生成视频</Button>
       <Button disabled title="阶段 4 接入导出任务">导出</Button>
     </div>
-    <div className="shuihuo-production-scroll"><div className="shuihuo-production-list">{(data.segments || []).map((segment, index) => <SegmentProductionCard key={segment.id} index={index} segment={segment} assets={assetsFor(segment)} media={mediaFor(segment)} onEdit={item => setEditing({ ...item })} onBindAssets={openAssets} onSetPrimary={mediaId => changeMedia({ id: mediaId }, 'primary')} onDeleteMedia={mediaId => changeMedia({ id: mediaId }, 'delete')} onPreviewMedia={openMediaPreview} onDownloadMedia={downloadSegmentMedia} onMove={direction => moveSegment(segment, direction)} onDelete={() => removeSegment(segment.id)} />)}</div></div>
+    <div className="shuihuo-production-scroll"><div className="shuihuo-production-list">{(data.segments || []).map((segment, index) => <SegmentProductionCard key={segment.id} index={index} segment={segment} assets={assetsFor(segment)} media={mediaFor(segment)} onEdit={item => setEditing({ ...item })} onBindAssets={openAssets} onSetPrimary={mediaId => changeMedia({ id: mediaId }, 'primary')} onDeleteMedia={mediaId => changeMedia({ id: mediaId }, 'delete')} onPreviewMedia={openMediaPreview} onDownloadMedia={downloadSegmentMedia} onUploadMedia={openSegmentMedia} onMove={direction => moveSegment(segment, direction)} onDelete={() => removeSegment(segment.id)} />)}</div></div>
     <Modal title="分段审核" open={segmentOpen} onCancel={() => setSegmentOpen(false)} onOk={confirm} okText="确认分段" confirmLoading={busy} width={860}><Segmented value={mode} onChange={setMode} options={[{ value: 'fixed', label: '快速初分段' }, { value: 'import', label: '导入分段' }, { value: 'smart', label: '智能分段', disabled: !textReady }]} />{mode === 'fixed' ? <div className="shuihuo-modal-row"><Input type="number" value={lines} min={1} onChange={event => setLines(Number(event.target.value))} addonBefore="每段行数" /></div> : null}{mode === 'smart' ? <Select value={textModelId} onChange={setTextModelId} placeholder={textModels.length ? '选择文本分析模型' : '管理员尚未启用文本模型'} options={textModels.map(model => ({ value: model.id, label: model.name }))} disabled={!textReady} /> : null}{!textReady ? <Alert className="shuihuo-inline-alert" type="warning" showIcon message="智能分段暂不可用" description={textUnavailable} /> : null}<Input.TextArea value={text} onChange={event => setText(event.target.value)} rows={8} placeholder={mode === 'import' ? '粘贴 TXT、SRT 或 WebVTT 内容' : '留空时按项目原文分段'} /><Alert className="shuihuo-inline-alert" type="info" showIcon message="候选需要人工确认" description="分析只返回候选和预设版本，不会直接改写已确认分段、资产或提示词。" /><Button className="shuihuo-preview-button" onClick={preview} loading={busy} disabled={mode === 'smart' && !textReady}>生成候选</Button>{candidates.length ? <div className="shuihuo-candidates">{candidates.map((candidate, candidateIndex) => <Input.TextArea key={candidateIndex} value={candidate.text} onChange={event => setCandidates(items => items.map((item, itemIndex) => itemIndex === candidateIndex ? { ...item, text: event.target.value } : item))} rows={3} addonBefore={`#${candidateIndex + 1}`} />)}</div> : null}</Modal>
+    <PromptCandidatesModal open={promptKind === 'image' || promptKind === 'video'} projectId={project.id} kind={promptKind || 'image'} segments={data.segments || []} onClose={() => setPromptKind('')} onApplied={onRefresh} />
+    <TemplateLibraryModal open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
+    <ProductionConfigModal open={configOpen} onClose={() => setConfigOpen(false)} />
     <SegmentEditorModal open={Boolean(editing)} segment={editing} saving={busy} onCancel={() => setEditing(null)} onChange={setEditing} onSave={saveSegment} />
-    <SegmentAssetsModal open={Boolean(assetSegment)} segment={assetSegment} assets={data.assets || []} selectedIds={selectedAssetIds} saving={busy} onCancel={() => setAssetSegment(null)} onChange={setSelectedAssetIds} onSave={saveAssets} />
-    <MediaModal open={mediaOpen} projectId={project.id} segments={data.segments || []} saving={busy} onCancel={() => setMediaOpen(false)} onUpload={saveUpload} />
+    <SegmentAssetsModal open={Boolean(assetSegment)} segment={assetSegment} projectId={project.id} assets={data.assets || []} selectedIds={selectedAssetIds} saving={busy} onCancel={() => setAssetSegment(null)} onChange={setSelectedAssetIds} onSave={saveAssets} onCreated={onRefresh} />
+    <MediaModal open={mediaOpen} projectId={project.id} segments={data.segments || []} saving={busy} initialKind={mediaTarget.kind} initialSegmentId={mediaTarget.segmentId} onCancel={() => setMediaOpen(false)} onUpload={saveUpload} />
     <BatchTaskModal open={batchKind === 'image' || batchKind === 'video'} projectId={project.id} segments={data.segments || []} media={mediaItems} kind={batchKind || 'image'} onClose={() => setBatchKind('')} onSubmitted={handleBatchSubmitted} />
     <TaskDrawer open={tasksOpen} project={project} segments={data.segments || []} media={mediaItems} readiness={readiness} onClose={() => setTasksOpen(false)} onCompleted={onRefresh} />
   </section>;

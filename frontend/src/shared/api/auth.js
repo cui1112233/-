@@ -1,16 +1,24 @@
 import { apiRequest, setToken } from './client';
 
-export async function login(username, password) {
+export async function login(username, password, remember = true) {
   const data = await apiRequest('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({ username, password, remember })
   });
   setToken(data.token);
   localStorage.setItem('auth_username', data.username);
   return data;
 }
 
-export function logout() {
+export function getCurrentAccount() {
+  return apiRequest('/api/login/session');
+}
+
+export async function logout() {
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    await fetch('/api/login/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+  }
   setToken('');
   localStorage.removeItem('auth_username');
 }

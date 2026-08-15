@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,12 +10,54 @@ import (
 	"qiantie/backend/internal/shuihuo/models"
 	"qiantie/backend/internal/shuihuo/prompts"
 	"qiantie/backend/internal/shuihuo/providers"
+	shuihuostore "qiantie/backend/internal/shuihuo/store"
 )
 
 type assetAnalysisRequest struct {
 	ModelID         int64  `json:"modelId"`
 	Text            string `json:"text"`
 	OverwriteManual bool   `json:"overwriteManual"`
+}
+
+type assetCandidateApplyRequest struct {
+	Candidates []providers.AssetCandidate `json:"candidates"`
+}
+
+func (api *API) handleApplyShuihuoAssetCandidates(w http.ResponseWriter, r *http.Request) {
+	if !api.requireShuihuoDatabase(w) {
+		return
+	}
+	project, ok := api.shuihuoProjectForRequest(w, r)
+	if !ok {
+		return
+	}
+	var req assetCandidateApplyRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	if len(req.Candidates) == 0 || len(req.Candidates) > 50 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请提交 1 到 50 项资产候选"})
+		return
+	}
+	raw, _ := json.Marshal(req.Candidates)
+	candidates, err := providers.ParseAssetCandidates(string(raw))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "资产候选格式无效"})
+		return
+	}
+	user, _ := currentUser(r)
+	assets := shuihuostore.NewAssets(api.deps.DB)
+	created := make([]domain.Asset, 0, len(candidates))
+	for _, candidate := range candidates {
+		asset, createErr := assets.Create(r.Context(), user.ID, project.ID, domain.Asset{Category: candidate.Category, Name: candidate.Name, Prompt: candidate.Prompt, Source: "ai_candidate", ManuallyEdited: false})
+		if createErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "采纳资产候选失败"})
+			return
+		}
+		created = append(created, asset)
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"created": created})
 }
 
 func (api *API) handleShuihuoAssetAnalysis(w http.ResponseWriter, r *http.Request) {

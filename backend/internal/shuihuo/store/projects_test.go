@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
@@ -30,6 +31,26 @@ func TestProjectQueriesAreScopedToOwner(t *testing.T) {
 
 	if _, err := repo.GetProject(context.Background(), 12, project.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("foreign user read error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestProjectDeleteIsScopedToOwner(t *testing.T) {
+	repo, _ := newShuihuoRepositories(t)
+	project, err := repo.Create(context.Background(), 11, domain.Project{Name: "待删除项目"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := repo.Delete(context.Background(), 12, project.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("foreign Delete() error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := repo.GetProject(context.Background(), 11, project.ID); err != nil {
+		t.Fatalf("project disappeared after foreign delete: %v", err)
+	}
+	if err := repo.Delete(context.Background(), 11, project.ID); err != nil {
+		t.Fatalf("owner Delete() error = %v", err)
+	}
+	if _, err := repo.GetProject(context.Background(), 11, project.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("project still exists after Delete(): %v", err)
 	}
 }
 
@@ -73,6 +94,25 @@ func TestProjectSourceTextSurvivesReload(t *testing.T) {
 	}
 	if got.SourceText != project.SourceText || got.SegmentationVersion != project.SegmentationVersion {
 		t.Fatalf("project = %#v, want source text and segmentation version persisted", got)
+	}
+}
+
+func TestProjectListIncludesStableProjectTimestamps(t *testing.T) {
+	repo, _ := newShuihuoRepositories(t)
+	project, err := repo.Create(context.Background(), 11, domain.Project{Name: "时间项目"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	projects, err := repo.List(context.Background(), 11, 10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(projects) != 1 || projects[0].ID != project.ID {
+		t.Fatalf("projects = %#v, want the saved project", projects)
+	}
+	if projects[0].CreatedAt.IsZero() || projects[0].UpdatedAt.IsZero() {
+		t.Fatalf("listed project must expose created and updated timestamps: %#v", projects[0])
 	}
 }
 
@@ -170,6 +210,7 @@ func (shuihuoStoreTestConn) ExecContext(_ context.Context, query string, args []
 	case strings.HasPrefix(query, "INSERT INTO shuihuo_projects"):
 		shuihuoStoreTestState.nextProjectID++
 		id := shuihuoStoreTestState.nextProjectID
+		now := time.Now().UTC()
 		shuihuoStoreTestState.projects[id] = domain.Project{
 			ID:                  id,
 			UserID:              args[0].Value.(int64),
@@ -178,8 +219,18 @@ func (shuihuoStoreTestConn) ExecContext(_ context.Context, query string, args []
 			SourceObjectKey:     args[3].Value.(string),
 			SegmentationStatus:  args[4].Value.(string),
 			SegmentationVersion: int(args[5].Value.(int64)),
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		}
 		return shuihuoStoreResult{id: id, rows: 1}, nil
+	case strings.HasPrefix(query, "DELETE FROM shuihuo_projects WHERE id = ? AND user_id = ?"):
+		id, ownerID := args[0].Value.(int64), args[1].Value.(int64)
+		project, ok := shuihuoStoreTestState.projects[id]
+		if !ok || project.UserID != ownerID {
+			return shuihuoStoreResult{}, nil
+		}
+		delete(shuihuoStoreTestState.projects, id)
+		return shuihuoStoreResult{rows: 1}, nil
 	case strings.HasPrefix(query, "INSERT INTO shuihuo_segments"):
 		shuihuoStoreTestState.nextSegmentID++
 		id := shuihuoStoreTestState.nextSegmentID
@@ -211,12 +262,22 @@ func (shuihuoStoreTestConn) ExecContext(_ context.Context, query string, args []
 func (shuihuoStoreTestConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	query = compactSQL(query)
 	switch {
+	case strings.Contains(query, "FROM shuihuo_projects") && strings.Contains(query, "ORDER BY updated_at DESC"):
+		ownerID := args[0].Value.(int64)
+		rows := make([][]driver.Value, 0)
+		for _, project := range shuihuoStoreTestState.projects {
+			if project.UserID != ownerID {
+				continue
+			}
+			rows = append(rows, []driver.Value{project.ID, project.UserID, project.Name, project.SourceText, project.SourceObjectKey, project.SegmentationStatus, int64(project.SegmentationVersion), project.CreatedAt, project.UpdatedAt})
+		}
+		return &shuihuoStoreRows{columns: projectColumns, values: rows}, nil
 	case strings.Contains(query, "FROM shuihuo_projects WHERE id = ? AND user_id = ?"):
 		project, ok := shuihuoStoreTestState.projects[args[0].Value.(int64)]
 		if !ok || project.UserID != args[1].Value.(int64) {
 			return &shuihuoStoreRows{}, nil
 		}
-		return &shuihuoStoreRows{columns: projectColumns, values: [][]driver.Value{{project.ID, project.UserID, project.Name, project.SourceText, project.SourceObjectKey, project.SegmentationStatus, int64(project.SegmentationVersion)}}}, nil
+		return &shuihuoStoreRows{columns: projectColumns, values: [][]driver.Value{{project.ID, project.UserID, project.Name, project.SourceText, project.SourceObjectKey, project.SegmentationStatus, int64(project.SegmentationVersion), project.CreatedAt, project.UpdatedAt}}}, nil
 	case strings.Contains(query, "FROM shuihuo_segments s JOIN shuihuo_projects p"):
 		segment, ok := shuihuoStoreTestState.segments[args[0].Value.(int64)]
 		if !ok {
@@ -239,7 +300,7 @@ type shuihuoStoreResult struct{ id, rows int64 }
 func (r shuihuoStoreResult) LastInsertId() (int64, error) { return r.id, nil }
 func (r shuihuoStoreResult) RowsAffected() (int64, error) { return r.rows, nil }
 
-var projectColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version"}
+var projectColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version", "created_at", "updated_at"}
 var segmentColumns = []string{"id", "project_id", "source_text", "subtitle_text", "order_index", "confirmed", "manually_edited", "image_prompt", "video_prompt", "image_prompt_locked", "video_prompt_locked"}
 
 type shuihuoStoreRows struct {

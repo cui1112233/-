@@ -10,7 +10,8 @@ const navItems = [
   { href: '/admin/accounts', icon: '◎', label: '账号与授权' },
   { href: '/admin/presets', icon: '≡', label: '系统预设词' },
   { href: '/admin/agent-skills', icon: '◇', label: 'CM 平台技能' },
-  { href: '/admin/shuihuo-models', icon: '◇', label: '水货生产模型' }
+  { href: '/admin/shuihuo-models', icon: '◇', label: '水货生产模型' },
+  { href: '/admin/error-logs', icon: '!', label: '错误日志' }
 ];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';

@@ -135,6 +135,40 @@ test('rejects a saved session immediately after its account is disabled', async 
   assert.equal(response.status, 401);
 });
 
+test('session endpoint returns only current safe account metadata', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  const ordinary = await login(app, 'choushiyiguai1');
+
+  const unauthenticated = await request(app, { requestPath: '/api/login/session' });
+  assert.equal(unauthenticated.status, 401);
+
+  const initial = await request(app, {
+    requestPath: '/api/login/session', token: ordinary.body.token
+  });
+  assert.equal(initial.status, 200);
+  assert.deepEqual(initial.body, {
+    username: 'choushiyiguai1',
+    active: true,
+    isOwner: false,
+    effectivePermissions: []
+  });
+
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'preset:draft', scope: 'script'
+  });
+  const refreshed = await request(app, {
+    requestPath: '/api/login/session', token: ordinary.body.token
+  });
+  assert.equal(refreshed.status, 200);
+  assert.deepEqual(refreshed.body.effectivePermissions, [{
+    capability: 'preset:draft', scope: 'script'
+  }]);
+  assert.doesNotMatch(JSON.stringify(refreshed.body), /password|token|audit/i);
+  assert.equal(owner.status, 200);
+});
+
 test('enforces account review and scoped preset capabilities without a production admin route', async t => {
   const runtime = createTestRuntime(t);
   const app = createApp(runtime);
@@ -349,6 +383,47 @@ test('account reviewers manage accounts but cannot manage grants or audit', asyn
   assert.doesNotMatch(JSON.stringify(audit.body), /secret-123|passwordHash/);
 });
 
+test('only the owner can create accounts and list current grants', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'account:review', scope: '*'
+  });
+  const reviewer = await login(app, 'choushiyiguai1');
+
+  const reviewerCreate = await request(app, {
+    method: 'POST', requestPath: '/api/admin/accounts', token: reviewer.body.token,
+    body: { username: 'direct_writer', password: 'secret-789', active: true }
+  });
+  assert.equal(reviewerCreate.status, 403);
+  const reviewerGrants = await request(app, {
+    requestPath: '/api/admin/grants', token: reviewer.body.token
+  });
+  assert.equal(reviewerGrants.status, 403);
+
+  const created = await request(app, {
+    method: 'POST', requestPath: '/api/admin/accounts', token: owner.body.token,
+    body: { username: 'direct_writer', password: 'secret-789', active: true }
+  });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.account.username, 'direct_writer');
+  assert.doesNotMatch(JSON.stringify(created.body), /secret-789|passwordHash/);
+  assert.equal((await login(app, 'direct_writer', 'secret-789')).status, 200);
+
+  runtime.accountStore.grant('choushiyiguai', 'direct_writer', {
+    capability: 'preset:draft', scope: 'script'
+  });
+  const grants = await request(app, { requestPath: '/api/admin/grants', token: owner.body.token });
+  assert.equal(grants.status, 200);
+  assert.deepEqual(grants.body.grants.map(grant => ({
+    subject: grant.subject, capability: grant.capability, scope: grant.scope
+  })), [
+    { subject: 'choushiyiguai1', capability: 'account:review', scope: '*' },
+    { subject: 'direct_writer', capability: 'preset:draft', scope: 'script' }
+  ]);
+});
+
 test('reviewers can reject, disable, and reset passwords without crossing other permissions', async t => {
   const runtime = createTestRuntime(t);
   const app = createApp(runtime);
@@ -436,17 +511,17 @@ test('preset HTTP routes enforce scoped server-side permissions and never return
     requestPath: '/api/presets?module=novel-panel', token: writer.body.token
   });
   assert.equal(catalog.status, 200);
-  assert.deepEqual(catalog.body.catalog, [{
+  assert.deepEqual(catalog.body.catalog.find(preset => preset.id === 'novel-base'), {
     id: 'novel-base', module: 'novel-panel', name: 'Novel Base', kind: 'base', description: 'Base protocol',
     compatibleBaseIds: [], version: 1, status: 'published'
-  }]);
+  });
   const resolved = await request(app, {
     method: 'POST', requestPath: '/api/presets/resolve', token: writer.body.token,
     body: { module: 'novel-panel', presetIds: ['novel-base'] }
   });
   assert.equal(resolved.status, 200);
   assert.doesNotMatch(JSON.stringify({ catalog: catalog.body, resolved: resolved.body }), /NEVER_EXPOSE_BASE_BODY|protocolLock/);
-  assert.deepEqual(resolved.body.presets, catalog.body.catalog);
+  assert.deepEqual(resolved.body.presets, [catalog.body.catalog.find(preset => preset.id === 'novel-base')]);
 });
 
 test('preset rollback derives its permission scope from the stored version', async t => {
@@ -478,4 +553,50 @@ test('preset rollback derives its permission scope from the stored version', asy
   assert.equal(restored.status, 200);
   assert.equal(restored.body.preset.version, 1);
   assert.doesNotMatch(JSON.stringify(restored.body), /ROLLED_BACK_BODY|protocolLock/);
+});
+
+test('only scoped preset administrators can read a preset body', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  const writer = await login(app, 'choushiyiguai1');
+
+  const denied = await request(app, {
+    requestPath: '/api/admin/presets?module=script', token: writer.body.token
+  });
+  assert.equal(denied.status, 403);
+
+  runtime.accountStore.grant('choushiyiguai', 'choushiyiguai1', {
+    capability: 'preset:draft', scope: 'script'
+  });
+  const allowed = await request(app, {
+    requestPath: '/api/admin/presets?module=script', token: writer.body.token
+  });
+  assert.equal(allowed.status, 200);
+  assert.equal(typeof allowed.body.presets[0].body, 'string');
+  assert.equal(typeof allowed.body.presets[0].protocolLock, 'object');
+
+  const ownerDetail = await request(app, {
+    requestPath: `/api/admin/presets/${encodeURIComponent(allowed.body.presets[0].id)}/${allowed.body.presets[0].version}`,
+    token: owner.body.token
+  });
+  assert.equal(ownerDetail.status, 200);
+  assert.equal(ownerDetail.body.preset.body, allowed.body.presets[0].body);
+
+  const publicCatalog = await request(app, {
+    requestPath: '/api/presets?module=script', token: writer.body.token
+  });
+  assert.equal(publicCatalog.status, 200);
+  assert.doesNotMatch(JSON.stringify(publicCatalog.body), /body|protocolLock/);
+});
+
+test('published constraint preset text is readable without exposing other preset bodies', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const user = await login(app, 'choushiyiguai1');
+  const response = await request(app, { requestPath: '/api/presets/constraint-text?ids=script-constraint-prefix-2d,script-general', token: user.body.token });
+  assert.equal(response.status, 200);
+  assert.equal(typeof response.body.texts['script-constraint-prefix-2d'], 'string');
+  assert.match(response.body.texts['script-constraint-prefix-2d'], /高质量二维动画/);
+  assert.equal(Object.hasOwn(response.body.texts, 'script-general'), false);
 });

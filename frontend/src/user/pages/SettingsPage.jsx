@@ -1,6 +1,7 @@
-import { Button, Form, Input, Select, Space, Typography, message } from 'antd';
+import { AutoComplete, Button, Form, Input, Select, Typography, message } from 'antd';
+import { Cable, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getConfig, saveConfig } from '../../shared/api/config';
+import { getConfig, saveConfig, testConfig } from '../../shared/api/config';
 
 const providers = [
   { label: 'OpenAI', value: 'openai' },
@@ -10,10 +11,32 @@ const providers = [
   { label: '自定义', value: 'custom' }
 ];
 
+const providerDefaults = {
+  openai: { baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'] },
+  claude: { baseUrl: 'https://api.anthropic.com/v1', models: ['claude-3-5-sonnet-20241022', 'claude-3-7-sonnet-latest'] },
+  deepseek: { baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner'] },
+  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
+  custom: { baseUrl: '', models: [] }
+};
+
+const stackyPet = {
+  id: 'stacky',
+  displayName: 'CM',
+  description: 'CM，前贴的桌面宠物。',
+  spriteVersionNumber: 2,
+  spritesheetPath: '/pets/stacky/spritesheet.webp'
+};
+
+const petOptions = [
+  { label: 'CM', value: 'stacky' }
+];
+
 export function SettingsPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [provider, setProvider] = useState('openai');
 
   useEffect(() => {
     let alive = true;
@@ -25,8 +48,10 @@ export function SettingsPage() {
           provider: config.provider || 'openai',
           baseUrl: config.baseUrl || 'https://api.openai.com/v1',
           model: config.model || 'gpt-4o-mini',
-          apiKey: ''
+          apiKey: '',
+          petId: config.pet?.id || stackyPet.id
         });
+        setProvider(config.provider || 'openai');
       })
       .catch(error => message.error(error.message || '读取设置失败'))
       .finally(() => {
@@ -38,7 +63,13 @@ export function SettingsPage() {
   async function handleSave(values) {
     setSaving(true);
     try {
-      await saveConfig(values);
+      await saveConfig({
+        provider: values.provider,
+        baseUrl: values.baseUrl,
+        model: values.model,
+        apiKey: values.apiKey,
+        pet: values.petId === stackyPet.id ? stackyPet : undefined
+      });
       form.setFieldValue('apiKey', '');
       message.success('设置已保存');
     } catch (error) {
@@ -48,30 +79,99 @@ export function SettingsPage() {
     }
   }
 
+  function handleProviderChange(nextProvider) {
+    const preset = providerDefaults[nextProvider] || providerDefaults.custom;
+    setProvider(nextProvider);
+    form.setFieldsValue({
+      provider: nextProvider,
+      baseUrl: preset.baseUrl,
+      model: preset.models[0] || ''
+    });
+  }
+
+  async function handleTest() {
+    try {
+      const values = await form.validateFields(['provider', 'baseUrl', 'model']);
+      setTesting(true);
+      const result = await testConfig({ ...values, apiKey: form.getFieldValue('apiKey') });
+      message.success(result.message ? `连接成功：${result.message}` : '连接成功');
+    } catch (error) {
+      if (error?.errorFields) return;
+      message.error(error.message || '连接测试失败');
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const modelOptions = (providerDefaults[provider]?.models || []).map(model => ({ label: model, value: model }));
+
   return (
-    <Space className="utility-page settings-page" direction="vertical" size={16} style={{ width: '100%', maxWidth: 720 }}>
-      <Typography.Title level={3}>API 设置</Typography.Title>
+    <div className="utility-page settings-page">
+      <div className="settings-workbench">
+        <div className="settings-heading">
+          <div>
+            <Typography.Title level={3}>工作台设置</Typography.Title>
+            <Typography.Paragraph>配置模型服务与前贴桌面宠物。</Typography.Paragraph>
+          </div>
+          <span className="settings-status">本账号配置</span>
+        </div>
       <Form
+        className="settings-form"
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }}
+        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: stackyPet.id }}
         onFinish={handleSave}
       >
-        <Form.Item label="API 提供商" name="provider">
-          <Select options={providers} />
-        </Form.Item>
-        <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}>
-          <Input placeholder="https://api.openai.com/v1" />
-        </Form.Item>
-        <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请输入模型名称' }]}>
-          <Input placeholder="gpt-4o-mini" />
-        </Form.Item>
-        <Form.Item label="API Key" name="apiKey">
-          <Input.Password placeholder="留空表示不修改已保存的 Key" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" loading={saving}>保存设置</Button>
+        <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
+          <div>
+            <h2 id="settings-connection-title">连接配置</h2>
+            <p>选择模型服务并填写访问地址。</p>
+          </div>
+          <Form.Item label="API 提供商" name="provider">
+            <Select options={providers} onChange={handleProviderChange} />
+          </Form.Item>
+          <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}>
+            <Input placeholder="https://api.openai.com/v1" />
+          </Form.Item>
+          <Form.Item label="API Key" name="apiKey">
+            <Input.Password placeholder="留空表示不修改已保存的 Key" />
+          </Form.Item>
+        </section>
+
+        <section className="settings-section settings-model-section" aria-labelledby="settings-model-title">
+          <div>
+            <h2 id="settings-model-title">模型与助手</h2>
+            <p>指定默认模型，并确认当前桌面宠物。</p>
+          </div>
+          <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}>
+            <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption />
+          </Form.Item>
+          <Form.Item label="前贴宠物" name="petId">
+            <Select options={petOptions} />
+          </Form.Item>
+          <div className="settings-pet-preview" aria-label="当前前贴宠物 CM">
+            <div className="settings-pet-frame">
+              <img src={stackyPet.spritesheetPath} alt="CM" />
+            </div>
+            <div>
+              <Typography.Text strong>{stackyPet.displayName}</Typography.Text>
+              <Typography.Paragraph type="secondary">{stackyPet.description}</Typography.Paragraph>
+            </div>
+          </div>
+        </section>
+
+        <div className="settings-savebar">
+          <span>保存后仅更新当前账号的工作台连接配置。</span>
+          <div className="settings-savebar-actions">
+            <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTest} loading={testing}>测试连接</Button>
+            <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving}>保存设置</Button>
+          </div>
+        </div>
       </Form>
-    </Space>
+      </div>
+    </div>
   );
 }
+
+export default SettingsPage;

@@ -12,18 +12,23 @@ const noStoreHeaders = {
 const assetCacheHeaders = {
   'Cache-Control': 'private, max-age=0, must-revalidate'
 };
-const workbenchCsp = [
-  'sandbox allow-scripts allow-forms allow-downloads allow-modals',
-  "default-src 'self'",
-  "base-uri 'none'",
-  "object-src 'none'",
-  "frame-ancestors 'self'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline'",
-  "connect-src 'self'"
-].join('; ');
+function workbenchCsp(req) {
+  const origin = new URL(`${req.protocol}://${req.get('host')}`).origin;
+  const localSource = `'self' ${origin}`;
+
+  return [
+    'sandbox allow-scripts allow-forms allow-downloads allow-modals',
+    "default-src 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'self'",
+    `img-src ${localSource} data: blob:`,
+    `media-src ${localSource} data: blob:`,
+    `style-src 'self' 'unsafe-inline' ${origin}`,
+    `script-src 'self' 'unsafe-inline' ${origin}`,
+    `connect-src ${localSource}`
+  ].join('; ');
+}
 
 function setNoStore(res) {
   res.set(noStoreHeaders);
@@ -37,7 +42,7 @@ function sendWorkbenchHtml(req, res) {
   const indexPath = path.join(workbenchRoot, 'index.html');
   if (!fs.existsSync(indexPath)) return res.status(404).send('Novel panel workbench assets are not synced.');
   setNoStore(res);
-  res.set('Content-Security-Policy', workbenchCsp);
+  res.set('Content-Security-Policy', workbenchCsp(req));
   return res.sendFile('index.html', { root: workbenchRoot });
 }
 

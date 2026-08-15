@@ -54,7 +54,17 @@ func (p *TextCompletion) Complete(ctx context.Context, model models.Definition, 
 	if err != nil || strings.TrimSpace(credential) == "" {
 		return "", fmt.Errorf("resolve text model credential")
 	}
-	body, err := json.Marshal(map[string]string{"prompt": renderedPrompt})
+	upstreamModel, err := textUpstreamModel(model)
+	if err != nil {
+		return "", err
+	}
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/chat/completions"
+	endpoint.RawPath = ""
+	body, err := json.Marshal(map[string]any{
+		"model":       upstreamModel,
+		"messages":    []map[string]string{{"role": "user", "content": renderedPrompt}},
+		"temperature": 0.2,
+	})
 	if err != nil {
 		return "", fmt.Errorf("encode text model request: %w", err)
 	}
@@ -80,6 +90,28 @@ func (p *TextCompletion) Complete(ctx context.Context, model models.Definition, 
 		return "", fmt.Errorf("text model returned HTTP %d", response.StatusCode)
 	}
 	return ExtractTextCompletion(payload)
+}
+
+func textUpstreamModel(model models.Definition) (string, error) {
+	upstream := strings.TrimSpace(model.Name)
+	if known, ok := map[string]string{"GPT-4o 文本模型": "gpt-4o"}[upstream]; ok {
+		upstream = known
+	}
+	if strings.TrimSpace(model.ParameterSchema) != "" {
+		var schema struct {
+			UpstreamModel string `json:"upstreamModel"`
+		}
+		if err := json.Unmarshal([]byte(model.ParameterSchema), &schema); err != nil {
+			return "", fmt.Errorf("decode text model parameter schema: %w", err)
+		}
+		if strings.TrimSpace(schema.UpstreamModel) != "" {
+			upstream = strings.TrimSpace(schema.UpstreamModel)
+		}
+	}
+	if upstream == "" {
+		return "", fmt.Errorf("text model upstream name is required")
+	}
+	return upstream, nil
 }
 
 func ExtractTextCompletion(payload []byte) (string, error) {

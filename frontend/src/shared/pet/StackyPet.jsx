@@ -1,34 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
-import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech } from './stacky';
+import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
+import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
 
 const resetDelayMs = 2400;
 const overlayStorageKey = 'qiantie-stacky-overlay';
-const petWidth = 120;
-const petHeight = 130;
-const chatGap = 12;
-const chatWidth = 360;
-const viewportPadding = 8;
 
 function getViewport() {
   return { width: window.innerWidth, height: window.innerHeight };
-}
-
-function getChatPanelLayout(overlay, viewport) {
-  const width = Math.max(0, Math.min(chatWidth, viewport.width - viewportPadding * 2));
-  const petLeft = overlay.left === null ? viewport.width - petWidth - 22 : overlay.left;
-  const opensRight = petLeft + petWidth + chatGap + width <= viewport.width - viewportPadding || petLeft < viewport.width / 2;
-  const unclampedLeft = opensRight ? petLeft + petWidth + chatGap : petLeft - chatGap - width;
-  const left = Math.max(viewportPadding, Math.min(viewport.width - viewportPadding - width, unclampedLeft));
-  const bottom = viewport.width <= 480 ? petHeight + 14 : viewportPadding;
-  return {
-    side: opensRight ? 'right' : 'left',
-    style: {
-      '--stacky-agent-panel-left': `${left}px`,
-      '--stacky-agent-panel-bottom': `${bottom}px`,
-      '--stacky-agent-panel-width': `${width}px`
-    }
-  };
 }
 
 function loadOverlay() {
@@ -52,12 +32,17 @@ function clampOverlayToViewport(overlay) {
   if (overlay.left === null || overlay.top === null) return overlay;
   return {
     ...overlay,
-    left: Math.max(0, Math.min(Math.max(0, window.innerWidth - petWidth), overlay.left)),
-    top: Math.max(0, Math.min(Math.max(0, window.innerHeight - petHeight), overlay.top))
+    left: Math.max(0, Math.min(Math.max(0, window.innerWidth - PET_SIZE.width), overlay.left)),
+    top: Math.max(0, Math.min(Math.max(0, window.innerHeight - PET_SIZE.height), overlay.top))
   };
 }
 
-export function StackyPet() {
+function isMissingTask(error) {
+  const status = error?.status || error?.response?.status || error?.details?.status;
+  return status === 404 || /\b404\b|not found|不存在/i.test(String(error?.message || error || ''));
+}
+
+export function StackyPet({ username, accountSessionKey }) {
   const [state, setState] = useState('idle');
   const [frame, setFrame] = useState(0);
   const [lookFrame, setLookFrame] = useState(null);
@@ -68,12 +53,58 @@ export function StackyPet() {
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
+  const [failedRequest, setFailedRequest] = useState(null);
+  const [petTaskId, setPetTaskId] = useState(null);
   const spriteRef = useRef(null);
   const dragRef = useRef(null);
-  const suppressClickRef = useRef(false);
-  const contextRef = useRef({ page: window.location.pathname });
+  const dragListenersRef = useRef(null);
+  const draggedRef = useRef(false);
+  const contextRef = useRef(normalizePetContext({ pagePath: window.location.pathname }));
   const skillIdsRef = useRef([]);
   const petTaskIdRef = useRef(null);
+  const conversationRequestRef = useRef(0);
+  const accountSessionGenerationRef = useRef(0);
+  const historyRef = useRef(null);
+
+  function isCurrentConversationRequest(requestId, accountSessionGeneration) {
+    return conversationRequestRef.current === requestId
+      && accountSessionGenerationRef.current === accountSessionGeneration;
+  }
+
+  function dispatchConversationPetState(requestId, accountSessionGeneration, nextState) {
+    if (isCurrentConversationRequest(requestId, accountSessionGeneration)) {
+      dispatchPetState(nextState);
+    }
+  }
+
+  function clearPetTask(messageText = '', accountSessionGeneration = accountSessionGenerationRef.current) {
+    if (accountSessionGenerationRef.current !== accountSessionGeneration) return;
+    petTaskIdRef.current = null;
+    setPetTaskId(null);
+    writeCmTaskId(username, '');
+    setMessages([]);
+    setFailedRequest(null);
+    if (messageText) setReply(messageText);
+  }
+
+  useEffect(() => {
+    accountSessionGenerationRef.current += 1;
+    conversationRequestRef.current += 1;
+    const storedTaskId = readCmTaskId(username) || null;
+    petTaskIdRef.current = storedTaskId;
+    setPetTaskId(storedTaskId);
+    setMessages([]);
+    setQuestion('');
+    setReply('');
+    setFailedRequest(null);
+    setAsking(false);
+    return () => {
+      clearDragListeners();
+      dragRef.current = null;
+      accountSessionGenerationRef.current += 1;
+      conversationRequestRef.current += 1;
+    };
+  }, [accountSessionKey, username]);
 
   useEffect(() => {
     function handlePetState(event) {
@@ -105,7 +136,7 @@ export function StackyPet() {
 
   useEffect(() => {
     function handleContext(event) {
-      contextRef.current = { ...contextRef.current, ...(event.detail || {}) };
+      contextRef.current = normalizePetContext(event.detail);
     }
     window.addEventListener(PET_CONTEXT_EVENT, handleContext);
     return () => window.removeEventListener(PET_CONTEXT_EVENT, handleContext);
@@ -129,12 +160,17 @@ export function StackyPet() {
 
   useEffect(() => {
     function closeChatWithEscape(event) {
-      if (event.key === 'Escape') setChatOpen(false);
+      if (chatOpen && event.key === 'Escape') closeChat();
     }
 
     window.addEventListener('keydown', closeChatWithEscape);
     return () => window.removeEventListener('keydown', closeChatWithEscape);
-  }, []);
+  }, [chatOpen]);
+
+  useEffect(() => {
+    if (!chatOpen || !historyRef.current) return;
+    historyRef.current.scrollTop = historyRef.current.scrollHeight;
+  }, [chatOpen, messages, failedRequest]);
 
   async function openChat() {
     setChatOpen(true);
@@ -143,20 +179,33 @@ export function StackyPet() {
   }
 
   async function loadPetTask(taskId) {
+    const requestId = conversationRequestRef.current + 1;
+    const accountSessionGeneration = accountSessionGenerationRef.current;
+    conversationRequestRef.current = requestId;
     try {
       const task = await getAgentTask(taskId);
-      if (petTaskIdRef.current === taskId) setMessages(Array.isArray(task.task?.messages) ? task.task.messages : []);
+      if (petTaskIdRef.current === taskId && isCurrentConversationRequest(requestId, accountSessionGeneration)) {
+        setMessages(Array.isArray(task.task?.messages) ? task.task.messages : []);
+      }
     } catch (error) {
+      if (!isCurrentConversationRequest(requestId, accountSessionGeneration)) return;
+      if (isMissingTask(error)) {
+        clearPetTask('当前对话已失效，已为你准备新对话。', accountSessionGeneration);
+        return;
+      }
       setReply('暂时无法读取聊天记录。');
     }
   }
 
-  async function ensureTask() {
+  async function ensureTask(requestId, accountSessionGeneration) {
     if (petTaskIdRef.current) return petTaskIdRef.current;
     const result = await createAgentTask();
     const taskId = result.task?.id;
     if (!taskId) throw new Error('未能创建聊天任务');
+    if (!isCurrentConversationRequest(requestId, accountSessionGeneration)) return null;
     petTaskIdRef.current = taskId;
+    writeCmTaskId(username, taskId);
+    setPetTaskId(taskId);
     setMessages(Array.isArray(result.task.messages) ? result.task.messages : []);
     return taskId;
   }
@@ -164,29 +213,49 @@ export function StackyPet() {
   async function sendQuestion(prompt) {
     const content = String(prompt || '').trim();
     if (!content || asking) return;
+    const requestId = conversationRequestRef.current + 1;
+    const accountSessionGeneration = accountSessionGenerationRef.current;
+    conversationRequestRef.current = requestId;
     setAsking(true);
     setChatOpen(true);
-    setQuestion('');
-    dispatchPetState('working');
+    dispatchConversationPetState(requestId, accountSessionGeneration, 'working');
     try {
-      const taskId = await ensureTask();
+      const taskId = await ensureTask(requestId, accountSessionGeneration);
+      if (!taskId || !isCurrentConversationRequest(requestId, accountSessionGeneration)) return;
       const result = await askAgent({
         taskId,
         prompt: content,
-        context: { ...contextRef.current, page: contextRef.current.page || window.location.pathname },
+        context: {
+          ...contextRef.current,
+          page: contextRef.current.page || window.location.pathname,
+          pagePath: contextRef.current.pagePath || window.location.pathname
+        },
         skillIds: skillIdsRef.current
       });
+      if (!isCurrentConversationRequest(requestId, accountSessionGeneration)) return;
       petTaskIdRef.current = result.task?.id || taskId;
-      if (petTaskIdRef.current === taskId) setMessages(Array.isArray(result.task?.messages) ? result.task.messages : current => [...current, result.user, result.assistant]);
+      writeCmTaskId(username, petTaskIdRef.current);
+      if (petTaskIdRef.current === taskId) {
+        setPetTaskId(petTaskIdRef.current);
+        setMessages(Array.isArray(result.task?.messages) ? result.task.messages : current => [...current, result.user, result.assistant]);
+      }
+      setFailedRequest(null);
+      setQuestion(current => current === content ? '' : current);
       setReply('我整理好了。');
-      dispatchPetState('success');
+      dispatchConversationPetState(requestId, accountSessionGeneration, 'success');
     } catch (error) {
-      const taskId = petTaskIdRef.current;
-      if (taskId) loadPetTask(taskId).catch(() => undefined);
-      setReply(error.message || '这次没有连上 Agent。');
-      dispatchPetState('error');
+      if (!isCurrentConversationRequest(requestId, accountSessionGeneration)) return;
+      if (isMissingTask(error)) {
+        clearPetTask('当前对话已失效，已为你准备新对话。', accountSessionGeneration);
+        dispatchConversationPetState(requestId, accountSessionGeneration, 'error');
+        return;
+      }
+      const message = error.message || '这次没有连上 Agent。';
+      setFailedRequest({ prompt: content, error: message });
+      setReply(message);
+      dispatchConversationPetState(requestId, accountSessionGeneration, 'error');
     } finally {
-      setAsking(false);
+      if (isCurrentConversationRequest(requestId, accountSessionGeneration)) setAsking(false);
     }
   }
 
@@ -225,7 +294,19 @@ export function StackyPet() {
   const positionStyle = overlay.left === null
     ? undefined
     : { left: overlay.left, top: overlay.top, right: 'auto', bottom: 'auto' };
-  const panelLayout = getChatPanelLayout(overlay, viewport);
+  const petPosition = overlay.left === null || overlay.top === null
+    ? { left: Math.max(0, viewport.width - PET_SIZE.width - 22), top: Math.max(0, viewport.height - PET_SIZE.height - 18) }
+    : { left: overlay.left, top: overlay.top };
+  const panelLayout = getOverlayLayout({
+    viewport: { width: viewport.width, height: viewport.height, topInset: 56 },
+    pet: petPosition
+  }).panel;
+  const panelStyle = {
+    left: panelLayout.left,
+    top: panelLayout.top,
+    width: panelLayout.width,
+    height: panelLayout.height
+  };
 
   function updateOverlay(patch) {
     setOverlay(current => {
@@ -235,55 +316,77 @@ export function StackyPet() {
     });
   }
 
-  function handlePointerDown(event) {
+  function clearDragListeners() {
+    const listeners = dragListenersRef.current;
+    if (!listeners) return;
+    window.removeEventListener('pointermove', listeners.move);
+    window.removeEventListener('pointerup', listeners.end);
+    window.removeEventListener('pointercancel', listeners.end);
+    dragListenersRef.current = null;
+  }
+
+  function handleDragStart(event) {
     if (event.button !== 0) return;
-    suppressClickRef.current = false;
+    clearDragListeners();
     dragRef.current = {
       startX: event.clientX,
       startY: event.clientY,
       left: spriteRef.current.getBoundingClientRect().left,
       top: spriteRef.current.getBoundingClientRect().top,
-      moved: false
+      pointerId: event.pointerId,
+      target: event.currentTarget
     };
+    draggedRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
+    const move = nextEvent => handleDragMove(nextEvent);
+    const end = nextEvent => handleDragEnd(nextEvent);
+    dragListenersRef.current = { move, end };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   }
 
-  function handlePointerMove(event) {
+  function handleDragMove(event) {
     const drag = dragRef.current;
-    if (!drag) return;
-    const deltaX = event.clientX - drag.startX;
-    const deltaY = event.clientY - drag.startY;
-    if (Math.abs(deltaX) + Math.abs(deltaY) > 4) {
-      drag.moved = true;
-      suppressClickRef.current = true;
-    }
-    const nextLeft = Math.max(0, Math.min(window.innerWidth - petWidth, drag.left + deltaX));
-    const nextTop = Math.max(0, Math.min(window.innerHeight - petHeight, drag.top + deltaY));
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!didDrag({ x: drag.startX, y: drag.startY }, { x: event.clientX, y: event.clientY })) return;
+    draggedRef.current = true;
+    const nextLeft = Math.max(0, Math.min(window.innerWidth - PET_SIZE.width, drag.left + event.clientX - drag.startX));
+    const nextTop = Math.max(0, Math.min(window.innerHeight - PET_SIZE.height, drag.top + event.clientY - drag.startY));
     updateOverlay({ left: nextLeft, top: nextTop });
   }
 
-  function handlePointerUp(event) {
-    if (!dragRef.current) return;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+  function handleDragEnd(event) {
+    const drag = dragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (drag.target?.hasPointerCapture?.(event.pointerId)) drag.target.releasePointerCapture(event.pointerId);
     dragRef.current = null;
+    clearDragListeners();
   }
 
   function handlePetClick() {
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
+    if (draggedRef.current) {
+      draggedRef.current = false;
       return;
     }
     setLookFrame(null);
     openChat();
   }
 
-  function handlePetDoubleClick() {
-    const drag = dragRef.current;
-    dragRef.current = null;
-    if (drag?.moved) return;
-    setLookFrame(null);
-    openChat();
-    sendQuestion('请分析我当前页面的内容，指出下一步最值得处理的事项。');
+  function closeChat() {
+    conversationRequestRef.current += 1;
+    setChatOpen(false);
+    setAsking(false);
+    spriteRef.current?.focus();
+  }
+
+  function analyzeCurrentPage() {
+    sendQuestion('请分析当前页面的内容，指出下一步最值得处理的事项。');
+  }
+
+  function openInAgentWorkspace() {
+    const taskId = petTaskId;
+    if (taskId) window.location.href = `/agent?task=${encodeURIComponent(taskId)}`;
   }
 
   if (overlay.tucked) {
@@ -306,10 +409,23 @@ export function StackyPet() {
     <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 CM，${label}`}>
       <div className="stacky-pet-bubble">{reply || petSpeech(state)}</div>
       {chatOpen && (
-        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.side} cm-conversation-frame`} style={panelLayout.style} aria-label="CM 互动">
-          <button className="stacky-agent-close" type="button" aria-label="关闭 CM 对话" title="关闭对话" onClick={() => setChatOpen(false)}>×</button>
-          <div className="stacky-agent-history">
-            {messages.length === 0 ? <span>双击 CM 让它分析当前页面，或直接提问。</span> : messages.slice(-4).map((message, index) => (
+        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label="CM 互动">
+          <header className="stacky-agent-header">
+            <strong>CM</strong>
+            <div>
+              <button className="stacky-agent-icon" type="button" title="分析当前页面" aria-label="分析当前页面" onClick={analyzeCurrentPage} disabled={asking}>
+                <ScanSearch size={16} aria-hidden="true" />
+              </button>
+              <button className="stacky-agent-icon" type="button" title="在 Agent 工作区继续" aria-label="在 Agent 工作区继续" onClick={openInAgentWorkspace} disabled={!petTaskId}>
+                <ExternalLink size={16} aria-hidden="true" />
+              </button>
+              <button className="stacky-agent-close" type="button" aria-label="关闭 CM 对话" title="关闭对话" onClick={closeChat}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </header>
+          <div className="stacky-agent-history" ref={historyRef}>
+            {messages.length === 0 ? <span>点击分析当前页面，或直接提问。</span> : messages.map((message, index) => (
               <article key={`${message.createdAt || index}-${message.role}`} className={`stacky-agent-message stacky-agent-message--${message.role}`}>
                 <span>{message.content}</span>
                 {message.role === 'assistant' && message.content.includes('【修改稿】') && contextRef.current.scriptOutput ? (
@@ -317,6 +433,12 @@ export function StackyPet() {
                 ) : null}
               </article>
             ))}
+            {failedRequest ? (
+              <div className="stacky-agent-retry" role="alert">
+                <span>{failedRequest.error}</span>
+                <button type="button" onClick={() => sendQuestion(failedRequest.prompt)} disabled={asking}>重新发送</button>
+              </div>
+            ) : null}
           </div>
           <form className="stacky-agent-input" onSubmit={event => { event.preventDefault(); sendQuestion(question); }}>
             <input value={question} onChange={event => setQuestion(event.target.value)} placeholder="问问 CM..." aria-label="向 CM 提问" />
@@ -331,11 +453,8 @@ export function StackyPet() {
         role="button"
         tabIndex={0}
         aria-label="打开 CM 对话"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
+        onPointerDown={handleDragStart}
         onClick={handlePetClick}
-        onDoubleClick={handlePetDoubleClick}
         onKeyDown={event => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -345,6 +464,15 @@ export function StackyPet() {
       >
         <img src="/pets/stacky/spritesheet.webp" alt="" />
       </div>
+      <button
+        className="stacky-pet-drag-handle"
+        type="button"
+        title="拖动移动 CM"
+        aria-label="拖动移动 CM"
+        onPointerDown={handleDragStart}
+      >
+        <GripVertical size={14} aria-hidden="true" />
+      </button>
       <button
         className="stacky-pet-tuck"
         type="button"

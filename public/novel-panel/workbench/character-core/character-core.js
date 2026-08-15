@@ -3,7 +3,7 @@
   "use strict";
   const PROTOCOL = "character_core_2_all_genres_v77";
   const VERSION = 77;
-  const BUILD_VERSION = "v77-hotfix20";
+  const BUILD_VERSION = "v77-hotfix26";
   const FACTS_MARKER = "V77_CHARACTER_CORE_FACTS";
   const APPEARANCE_MARKER = "V77_CHARACTER_CORE_APPEARANCE";
   const REVISION_CHECK_MARKER = "V77_CHARACTER_CORE_REVISION_CHECK";
@@ -596,7 +596,7 @@
       manual_cast_count:manualCastCount,
       all_materials_gone:allMaterialsGone,
       source_replaced_and_data_cleared:sourceReplacedAndDataCleared,
-      can_generate:Boolean(snapshot.canonical_text&&!sourceReplacedAndDataCleared),
+      can_generate:Boolean(snapshot.canonical_text),
       warnings,
       diagnostics:revisionDiagnostics(snapshot),
     };
@@ -605,8 +605,9 @@
   function v77OutlineReadiness() {
     const snapshot=captureSourceSnapshot("outline_readiness");
     const usable=getOutlineUsableDataState(snapshot);
+    // Hotfix24: the only business prerequisite for outline/regeneration is source text.
+    // Missing style/cards/relations/revisions are degradation paths, never step gates.
     if(!usable.source_present)return {ok:false,message:"无法生成：当前整段原文为空。",hard_block:"source_empty",usable};
-    if(usable.source_replaced_and_data_cleared)return {ok:false,message:"无法生成：检测到整段原文已替换，当前没有可用的内容类型、人物卡或人物资料。请先完成前两步。",hard_block:"new_source_all_data_cleared",usable};
     return {ok:true,source:snapshot.canonical_text,source_hash:snapshot.source_hash,source_revision:snapshot.source_revision,slot_count:usable.slot_count,analysis_state:deepClone(analysisState()),usable,warnings:usable.warnings};
   }
 
@@ -1106,7 +1107,18 @@
     const button=options.button||q("#optimizeAllCharactersBtn"); if(typeof setButtonBusy==="function")setButtonBusy(button,true,options.onlySlotId?"按当前人物卡重写外形中":"强制名单人物链路生成中");
     try {
       const requestSnapshot=captureSourceSnapshot("forced_roster_request"),st=analysisState();
-      if(!st.style_ready||st.source_hash!==requestSnapshot.source_hash||Number(st.style_revision||0)!==Number(requestSnapshot.source_revision||0))throw new Error(`请先针对当前原文点击“AI判断内容类型与统一风格”。当前原文 revision ${requestSnapshot.source_revision}，统一风格 revision ${Number(st.style_revision||0)}。`);
+      const currentContentType=text(valueOf("#genre")||appState.characterAppearanceContext?.content_type||"");
+      const currentUnifiedStyle=text(valueOf("#trailerStyle")||appState.characterAppearanceContext?.trailer_style||appState.characterAppearanceContext?.unified_style||"");
+      const currentCameraStyle=text(valueOf("#camera")||appState.characterAppearanceContext?.camera||"");
+      const currentStyleUsable=Boolean(currentContentType||currentUnifiedStyle||currentCameraStyle);
+      if(!currentStyleUsable)throw new Error("当前内容类型与统一风格均为空，请先生成或手动填写后再生成人物卡。");
+      // Hotfix26: 页面当前已有内容类型/统一风格就是当前有效值。原文revision或旧style revision
+      // 只能作为诊断，不能要求用户重复生成风格；人物卡直接使用当前可见内容继续。
+      st.style_ready=true;
+      st.style_revision=Number(requestSnapshot.source_revision||st.style_revision||0);
+      st.source_hash=requestSnapshot.source_hash;
+      appState.characterAppearanceContext={...object(appState.characterAppearanceContext),content_type:currentContentType||text(appState.characterAppearanceContext?.content_type),trailer_style:currentUnifiedStyle||text(appState.characterAppearanceContext?.trailer_style),camera:currentCameraStyle||text(appState.characterAppearanceContext?.camera)};
+      console.info("[STYLE_REUSE_TRACE]",{source_hash:requestSnapshot.source_hash,source_revision:requestSnapshot.source_revision,style_revision:st.style_revision,content_type_present:Boolean(currentContentType),unified_style_present:Boolean(currentUnifiedStyle),camera_present:Boolean(currentCameraStyle),reused_current_style:true});
       const onlySlotId=options.onlySlotId||"";
       let parsed={slot_count:core().slots.length};
       if(!onlySlotId){
@@ -2021,13 +2033,13 @@
     if(addButton){addButton.disabled=false;addButton.textContent="+ 在强制名单添加";addButton.title="人物卡只能来自强制名单；点击后定位到名单输入框。";}
     cloneRebind("#relationshipAddBtn",addRelation);cloneRebind("#relationshipAliasAddBtn",addAlias);cloneRebind("#relationshipReanalyzeBtn",async()=>{await analyzeFactsAndRelations();rebuildKeywordIndex();refreshSceneBindings();renderAll();showAIStatusNotice("已由AI重新分析人物关系和动态称呼映射，本地关键词索引已同步重建；人工锁定关系未被覆盖。","ready",7000);});cloneRebind("#relationshipSaveBtn",()=>{try{rebuildKeywordIndex();refreshSceneBindings({preRequest:false,render:true});}catch(_){}scheduleDraftSave?.();showAIStatusNotice("人物关系已保存；本地关键词索引与每个分镜的本镜人物勾选已立即更新。","ready",6000);});
     const novel=q("#novelText");if(novel&&!novel.dataset.characterCoreSourceBound){novel.dataset.characterCoreSourceBound="true";novel.addEventListener("input",()=>{const c=core(),snapshot=captureSourceSnapshot("novel_input");if(!c.source_stale&&c.source_hash&&c.source_hash!==snapshot.source_hash){c.source_stale=true;c.character_revision+=1;c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];resetAnalysisState("整段原文实际内容已更换");appState.analysisComplete=false;appState.analysisSourceText="";appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();refreshSceneBindings();const p=q("#characterGenerationProgress");if(p)p.textContent=`检测到整段原文实际内容已变化：当前 revision ${snapshot.source_revision}。旧人物事实、外形、关系和分镜选角已隔离；强制名单保留，请重新生成。`;}});}
-    const guide=q("#characterGuideInput");if(guide){const fresh=guide.cloneNode(true);fresh.value=guide.value;guide.replaceWith(fresh);fresh.maxLength=10000;fresh.addEventListener("input",()=>{appState.character_guide_input=String(fresh.value||"");invalidateRosterStages("强制人物名单已修改；统一风格仍保留当前原文版本");appState.analysisComplete=false;appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();const p=q("#characterGenerationProgress");if(p)p.textContent="强制名单已修改；统一风格保持有效，只需重新点击“按强制名单生成人物卡”。";scheduleDraftSave?.();});}
-    const ref=q("#appearanceReference");if(ref)ref.maxLength=6000;
+    const guide=q("#characterGuideInput");if(guide){const fresh=guide.cloneNode(true);fresh.value=guide.value;guide.replaceWith(fresh);fresh.addEventListener("input",()=>{appState.character_guide_input=String(fresh.value||"");invalidateRosterStages("强制人物名单已修改；统一风格仍保留当前原文版本");appState.analysisComplete=false;appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();const p=q("#characterGenerationProgress");if(p)p.textContent="强制名单已修改；统一风格保持有效，只需重新点击“按强制名单生成人物卡”。";scheduleDraftSave?.();});}
+    const ref=q("#appearanceReference");
   }
 
   function installProjectAdapter(){
-    if(typeof getProjectData==="function"&&!getProjectData.__characterCoreV2){const prev=getProjectData;getProjectData=function(){const fullGuide=String(valueOf("#characterGuideInput",appState.character_guide_input||"")||"").slice(0,10000);const fullAppearanceReference=String(valueOf("#appearanceReference",appState.appearance_reference||"")||"").slice(0,6000);appState.character_guide_input=fullGuide;appState.appearance_reference=fullAppearanceReference;return{...prev(),character_guide_input:fullGuide,appearance_reference:fullAppearanceReference,character_core_v2:deepClone(core()),character_core_version:2,character_core_instance_id:currentInstance()};};getProjectData.__characterCoreV2=true;}
-    if(typeof applyProjectData==="function"&&!applyProjectData.__characterCoreV2){const prev=applyProjectData;applyProjectData=function(projectId,name,data={}){prev(projectId,name,data);const fullGuide=String(data.character_guide_input||"").slice(0,10000);const fullAppearanceReference=String(data.appearance_reference||"").slice(0,6000);if(fullGuide){appState.character_guide_input=fullGuide;setValue("#characterGuideInput",fullGuide);}if(fullAppearanceReference){appState.appearance_reference=fullAppearanceReference;setValue("#appearanceReference",fullAppearanceReference);}ensureProjectLease({interactive:false}).then(acquired=>{if(!acquired)showAIStatusNotice("该项目已在另一个窗口编辑；本窗口可以查看，但保存前需要取得编辑权。","warning",12000);}).catch(()=>{});const incoming=object(data.character_core_v2||data.character_core);if(Number(incoming.character_core_version)>=2){appState.characterCoreV2=deepClone(incoming);appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从项目恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();}else{postCore("/api/character-core/migrate-project",{project:data,guide_text:fullGuide||appState.character_guide_input||"",novel_text:currentNovel()}).then(result=>{appState.characterCoreV2=result.character_core;appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从项目恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();if(result.migrated)showAIStatusNotice("旧项目人物数据已迁移到CharacterCore 2.0。","ready",8000);}).catch(()=>{});}};applyProjectData.__characterCoreV2=true;}
+    if(typeof getProjectData==="function"&&!getProjectData.__characterCoreV2){const prev=getProjectData;getProjectData=function(){const fullGuide=String(valueOf("#characterGuideInput",appState.character_guide_input||"")||"");const fullAppearanceReference=String(valueOf("#appearanceReference",appState.appearance_reference||"")||"");appState.character_guide_input=fullGuide;appState.appearance_reference=fullAppearanceReference;return{...prev(),character_guide_input:fullGuide,appearance_reference:fullAppearanceReference,character_core_v2:deepClone(core()),character_core_version:2,character_core_instance_id:currentInstance()};};getProjectData.__characterCoreV2=true;}
+    if(typeof applyProjectData==="function"&&!applyProjectData.__characterCoreV2){const prev=applyProjectData;applyProjectData=function(projectId,name,data={}){prev(projectId,name,data);const fullGuide=String(data.character_guide_input||"");const fullAppearanceReference=String(data.appearance_reference||"");if(fullGuide){appState.character_guide_input=fullGuide;setValue("#characterGuideInput",fullGuide);}if(fullAppearanceReference){appState.appearance_reference=fullAppearanceReference;setValue("#appearanceReference",fullAppearanceReference);}ensureProjectLease({interactive:false}).then(acquired=>{if(!acquired)showAIStatusNotice("当前工作区不使用项目编辑锁。","warning",12000);}).catch(()=>{});const incoming=object(data.character_core_v2||data.character_core);if(Number(incoming.character_core_version)>=2){appState.characterCoreV2=deepClone(incoming);appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从历史/当前工作区恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();}else{postCore("/api/character-core/migrate-project",{project:data,guide_text:fullGuide||appState.character_guide_input||"",novel_text:currentNovel()}).then(result=>{appState.characterCoreV2=result.character_core;appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从历史/当前工作区恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();if(result.migrated)showAIStatusNotice("旧历史人物数据已迁移到CharacterCore 2.0运行结构。","ready",8000);}).catch(()=>{});}};applyProjectData.__characterCoreV2=true;}
   }
 
   async function init(){
@@ -2036,9 +2048,10 @@
       const response=await fetch(`/api/character-core/health?instance=${encodeURIComponent(currentInstance())}`,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
       const health=await response.json();
       if(text(health.app_version)!==BUILD_VERSION)runtimeBuildMismatch=`当前页面脚本为 ${BUILD_VERSION}，后端为 ${text(health.app_version)||"未知版本"}。请关闭旧进程并使用当前目录的 START_CLEAN.ps1 重新启动。`;
-    }catch(error){runtimeBuildMismatch=`无法验证Hotfix20后端版本：${error?.message||error}`;}
+    }catch(error){runtimeBuildMismatch=`无法验证当前后端版本：${error?.message||error}`;}
     installV77ExclusiveEntrypoints();bindUI();installProjectAdapter();installOutlineAdapter();
-    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V77 Hotfix20 最终分段人物卡同步与手动内容防回滚";badge.title=runtimeBuildMismatch||"手动人物阶段以当前界面值重新锁定并直通AI；整段正式人物只来自强制名单槽位";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
+    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V77 Hotfix26 当前风格保留版";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=globalThis.__V77_CURRENT_RUNTIME__?.buildId||"v77-hotfix26-style-reuse-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
+    if(!runtimeBuildMismatch) globalThis.__v77ApplyRuntimeBadge?.();
     if(runtimeBuildMismatch)showAIStatusNotice(runtimeBuildMismatch,"warning",20000);
     globalThis.addEventListener?.("beforeunload",releaseProjectLease,{once:true});
     globalThis.analyzeNovel=()=>runStyle(q("#analyzeBtn"),{silentStatus:false});globalThis.generateOutline=runOutlineV77;globalThis.regenerateSceneOutline=runSceneRegenerationV77;globalThis.optimizeAllCharacters=()=>runCharacters({button:q("#optimizeAllCharactersBtn")});globalThis.optimizeCharacterDescription=(index)=>{const slot=core().slots[index];return slot?runCharacters({onlySlotId:slot.slot_id,button:q(`[data-optimize-character="${index}"]`)}):null;};globalThis.renderCharacters=renderCharacters;

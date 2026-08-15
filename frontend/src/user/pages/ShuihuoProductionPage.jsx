@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Spin, message } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Modal, Select, Spin, message } from 'antd';
 import { Link } from '../../shared/components/Link';
 import { createProject, deleteProject, getProductionHealth, getProject, listProjects } from '../../shared/api/shuihuoProduction';
 import { ProjectsView } from './shuihuo/ProjectsView';
+import { ProjectFilesModal } from './shuihuo/ProjectFilesModal';
+import { CreateProjectModal } from './shuihuo/CreateProjectModal';
 import { StudioView } from './shuihuo/StudioView';
+import { ProductionGuide } from './shuihuo/ProductionGuide';
 import { AssetsView } from './shuihuo/AssetsView';
+import { dispatchPetContext } from '../../shared/pet/stacky';
 import './shuihuo-production.css';
 
-const viewNames = { projects: '作品列表', studio: '分段生产台', assets: '人物场景预设' };
+const viewNames = { projects: '作品列表', guide: '生产向导', studio: '分段生产台', assets: '人物场景预设' };
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型' };
 
 function readinessItems(health) {
@@ -26,25 +30,45 @@ export function ShuihuoProductionPage() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
-  const [sourceText, setSourceText] = useState('');
+  const [filesProject, setFilesProject] = useState(null);
   const [health, setHealth] = useState(null);
   const [healthError, setHealthError] = useState('');
+  const mountedRef = useRef(true);
+  const projectRequestRef = useRef(0);
+  const refreshRequestRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      projectRequestRef.current += 1;
+      refreshRequestRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     document.body.classList.add('shuihuo-theme-active');
     return () => document.body.classList.remove('shuihuo-theme-active');
   }, []);
 
+  useEffect(() => {
+    const projectId = new URLSearchParams(window.location.search).get('project');
+    if (!projectId) return;
+    openProject({ id: projectId });
+  }, []);
+
   const refresh = useCallback(async () => {
+    const requestId = ++refreshRequestRef.current;
     setLoading(true);
     try {
       const data = await listProjects();
+      if (!mountedRef.current || refreshRequestRef.current !== requestId) return null;
       setProjects(data.projects || []);
     } catch (error) {
+      if (!mountedRef.current || refreshRequestRef.current !== requestId) return null;
       message.error(error.message || '读取作品失败');
     } finally {
-      setLoading(false);
+      if (mountedRef.current && refreshRequestRef.current === requestId) setLoading(false);
     }
   }, []);
 
@@ -59,26 +83,27 @@ export function ShuihuoProductionPage() {
     return () => { active = false; };
   }, []);
 
-  async function openProject(project, nextView = 'studio') {
+  async function openProject(project, nextView = 'guide') {
+    if (!project?.id) return;
+    const requestId = ++projectRequestRef.current;
     try {
       const data = await getProject(project.id);
+      if (!mountedRef.current || projectRequestRef.current !== requestId) return;
       setActiveProject(data);
       setView(nextView);
     } catch (error) {
+      if (!mountedRef.current || projectRequestRef.current !== requestId) return;
       message.error(error.message || '读取作品失败');
     }
   }
 
-  async function handleCreate() {
-    if (!name.trim()) { message.warning('请填写作品名称'); return; }
+  async function handleCreate({ name, sourceText, dialogueMode }) {
     setCreating(true);
     try {
-      const created = await createProject({ name: name.trim(), sourceText });
+      const created = await createProject({ name, sourceText, dialogueMode });
       setCreateOpen(false);
-      setName('');
-      setSourceText('');
       await refresh();
-      await openProject(created, 'studio');
+      await openProject(created, 'guide');
     } catch (error) {
       message.error(error.message || '创建作品失败');
     } finally {
@@ -87,12 +112,15 @@ export function ShuihuoProductionPage() {
   }
 
   async function handleDelete(project) {
+    // A delayed project read must not restore an item after it has been deleted.
+    projectRequestRef.current += 1;
     try {
       await deleteProject(project.id);
       if (activeProject?.project?.id === project.id) {
         setActiveProject(null);
         setView('projects');
       }
+      if (filesProject?.id === project.id) setFilesProject(null);
       await refresh();
       message.success('作品已删除');
     } catch (error) {
@@ -101,6 +129,35 @@ export function ShuihuoProductionPage() {
   }
 
   const project = activeProject?.project;
+  useEffect(() => {
+    const segments = Array.isArray(activeProject?.segments) ? activeProject.segments : [];
+    const assets = Array.isArray(activeProject?.assets) ? activeProject.assets : [];
+    const tasks = Array.isArray(activeProject?.tasks) ? activeProject.tasks : [];
+    const taskStatus = tasks.length
+      ? `任务 ${tasks.filter(task => task?.status === 'completed' || task?.status === 'done').length}/${tasks.length} 已完成`
+      : '暂无任务';
+    const projectName = String(project?.name || '').trim().slice(0, 120);
+    const actionsByView = {
+      projects: ['检查作品列表', '创建或打开作品'],
+      guide: ['检查生产向导进度', '继续完成下一步'],
+      studio: ['检查分段生产进度', '继续编辑当前分段'],
+      assets: ['检查人物场景预设', '继续编辑当前项目']
+    };
+    dispatchPetContext({
+      page: '水货生产',
+      pagePath: '/shuihuo-production',
+      summary: `当前项目：${projectName || '未选择'}；已确认分段 ${segments.length} 个；资产 ${assets.length} 个；${taskStatus}；当前视图：${viewNames[view] || view}`,
+      entities: {
+        projectId: project?.id || '',
+        projectName,
+        segmentCount: segments.length,
+        assetCount: assets.length,
+        view
+      },
+      actions: actionsByView[view] || ['检查当前项目']
+    });
+  }, [project, activeProject, view, projects]);
+
   const projectSummary = useMemo(() => {
     if (!project) return '等待创建作品';
     return `${activeProject.segments?.length || 0} 个分段 · ${activeProject.assets?.length || 0} 个资产`;
@@ -115,6 +172,7 @@ export function ShuihuoProductionPage() {
       <div className="shuihuo-side-label">制作流程</div>
       <nav className="shuihuo-side-nav">
         <button className={view === 'projects' ? 'active' : ''} type="button" onClick={() => setView('projects')}><span>▦</span>作品列表</button>
+        <button className={view === 'guide' ? 'active' : ''} type="button" disabled={!project} onClick={() => setView('guide')}><span>◉</span>生产向导</button>
         <button className={view === 'studio' ? 'active' : ''} type="button" disabled={!project} onClick={() => setView('studio')}><span>▤</span>分段生产台</button>
         <button className={view === 'assets' ? 'active' : ''} type="button" disabled={!project} onClick={() => setView('assets')}><span>♧</span>人物场景预设</button>
       </nav>
@@ -128,16 +186,18 @@ export function ShuihuoProductionPage() {
         {healthError ? <span className="missing">状态读取失败：{healthError}</span> : null}
       </div>
       {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
-      {!loading && view === 'projects' ? <ProjectsView projects={projects} onCreate={() => setCreateOpen(true)} onOpen={openProject} onDelete={handleDelete} /> : null}
+      {!loading && view === 'projects' ? <ProjectsView projects={projects} onCreate={() => setCreateOpen(true)} onOpen={openProject} onDelete={handleDelete} onFiles={setFilesProject} /> : null}
+      {view === 'guide' && project ? <ProductionGuide data={activeProject} onOpenAssets={() => setView('assets')} onOpenStudio={() => setView('studio')} /> : null}
       {view === 'studio' && project ? <StudioView data={activeProject} readiness={health} onRefresh={() => openProject(project)} onAssets={() => setView('assets')} /> : null}
       {view === 'assets' && project ? <AssetsView data={activeProject} onRefresh={() => openProject(project, 'assets')} /> : null}
     </main>
-    <Modal title="创建作品" open={createOpen} onCancel={() => setCreateOpen(false)} onOk={handleCreate} okText="创建并进入生产台" confirmLoading={creating} width={720}>
-      <label className="shuihuo-form-label" htmlFor="shuihuo-name">作品名称</label>
-      <Input id="shuihuo-name" value={name} onChange={event => setName(event.target.value)} placeholder="例如：雨夜车站" maxLength={255} />
-      <label className="shuihuo-form-label" htmlFor="shuihuo-source">小说原文或已分段文本</label>
-      <Input.TextArea id="shuihuo-source" value={sourceText} onChange={event => setSourceText(event.target.value)} placeholder="上传文件接口将在对象存储接入后开放；此处可先粘贴文本。创建不会自动分析人物或生成提示词。" rows={12} />
-    </Modal>
+    <ProjectFilesModal open={Boolean(filesProject)} project={filesProject} onClose={() => setFilesProject(null)} />
+    <CreateProjectModal
+      open={createOpen}
+      loading={creating}
+      onClose={() => setCreateOpen(false)}
+      onCreate={handleCreate}
+    />
   </div>;
 }
 

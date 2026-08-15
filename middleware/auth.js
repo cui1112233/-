@@ -5,6 +5,7 @@ const {
   RATE_LIMIT_WINDOW,
   createAuthRuntime
 } = require('../lib/shared');
+const { getPersistentSession, revokePersistentSession } = require('../lib/session-store');
 
 function getRuntime(req) {
   return req.app?.locals?.authRuntime || createAuthRuntime();
@@ -22,29 +23,45 @@ function checkRateLimit(ip) {
   return true;
 }
 
-function apiAuth(req, res, next) {
+function authenticateRequest(req) {
   const authHeader = req.headers['authorization'] || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) {
-    return res.status(401).json({ error: 'Unauthorized — missing Bearer token' });
-  }
+  if (!match) return null;
   const runtime = getRuntime(req);
-  const session = runtime.tokenMap.get(match[1]);
-  if (!session || typeof session.username !== 'string' || typeof session.issuedAt !== 'number') {
-    return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
-  }
+  const token = match[1];
+  const storedSession = runtime.tokenMap.get(token);
+  const persistentSession = !storedSession ? getPersistentSession(runtime.sessionsPath, token) : null;
+  const username = storedSession?.username || persistentSession?.username;
+  if (typeof username !== 'string') return null;
 
   try {
-    const account = runtime.accountStore.getAccount(session.username);
+    const account = runtime.accountStore.getAccount(username);
     if (!account || !account.active || account.pending === true) {
-      return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+      runtime.tokenMap.delete(token);
+      revokePersistentSession(runtime.sessionsPath, token);
+      return null;
     }
-    const effectivePermissions = runtime.accountStore.effectivePermissions(account);
-    req.username = account.username;
-    req.auth = { username: account.username, account, effectivePermissions };
+    return { username: account.username, account, effectivePermissions: runtime.accountStore.effectivePermissions(account) };
   } catch (error) {
-    return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+    return null;
   }
+}
+
+function applyAuthentication(req, auth) {
+  req.username = auth.username;
+  req.auth = auth;
+}
+
+function apiAuth(req, res, next) {
+  const auth = authenticateRequest(req);
+  if (!auth) return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+  applyAuthentication(req, auth);
+  next();
+}
+
+function optionalApiAuth(req, res, next) {
+  const auth = authenticateRequest(req);
+  if (auth) applyAuthentication(req, auth);
   next();
 }
 
@@ -67,4 +84,4 @@ function requireOwner(req, res, next) {
   next();
 }
 
-module.exports = { checkRateLimit, apiAuth, requireCapability, requireOwner };
+module.exports = { checkRateLimit, apiAuth, optionalApiAuth, requireCapability, requireOwner };
