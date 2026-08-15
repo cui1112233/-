@@ -66,6 +66,13 @@ test('CM separates drag, open, and explicit page analysis actions', () => {
   assert.match(css, /\.cm-conversation-frame/);
   assert.match(css, /\.cm-conversation-frame::before/);
   assert.match(css, /linear-gradient\(to right, rgba\(160, 153, 216/);
+  assert.match(pet, /petPromptBubble/);
+  assert.match(pet, /petQuickActions/);
+  assert.match(pet, /className="stacky-pet-bubble stacky-pet-bubble--interactive"/);
+  assert.match(pet, /onClick=\{openChat\}/);
+  assert.match(pet, /className="stacky-agent-quick-actions"/);
+  assert.match(pet, /sendQuestion\(action\.prompt\)/);
+  assert.match(pet, /action\.mode === 'rewrite'/);
 });
 
 test('Agent frontend API exposes task conversation endpoints', () => {
@@ -187,7 +194,7 @@ test('CM task UI resets across accounts and protects the composer while task det
   assert.match(pet, /accountSessionGenerationRef\.current \+= 1;/);
   assert.match(pet, /function isCurrentConversationRequest\(requestId, accountSessionGeneration\) \{[\s\S]*?conversationRequestRef\.current === requestId[\s\S]*?accountSessionGenerationRef\.current === accountSessionGeneration;/);
   assert.match(pet, /function dispatchConversationPetState\(requestId, accountSessionGeneration, nextState\) \{[\s\S]*?isCurrentConversationRequest\(requestId, accountSessionGeneration\)[\s\S]*?dispatchPetState\(nextState\);/);
-  assert.match(pet, /return \(\) => \{[\s\S]*?accountSessionGenerationRef\.current \+= 1;[\s\S]*?conversationRequestRef\.current \+= 1;[\s\S]*?\};\n  \}, \[accountSessionKey, username\]\);/);
+  assert.match(pet, /return \(\) => \{[\s\S]*?accountSessionGenerationRef\.current \+= 1;[\s\S]*?conversationRequestRef\.current \+= 1;[\s\S]*?\};\r?\n  \}, \[accountSessionKey, username\]\);/);
   assert.match(pet, /const accountSessionGeneration = accountSessionGenerationRef\.current;/);
   assert.match(pet, /if \(!isCurrentConversationRequest\(requestId, accountSessionGeneration\)\) return null;/);
   assert.match(pet, /if \(!taskId \|\| !isCurrentConversationRequest\(requestId, accountSessionGeneration\)\) return;/);

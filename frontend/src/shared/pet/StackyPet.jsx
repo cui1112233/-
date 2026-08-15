@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
-import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
+import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petPromptBubble, petQuickActions, readCmTaskId, writeCmTaskId } from './stacky';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
 
 const resetDelayMs = 2400;
@@ -289,6 +289,8 @@ export function StackyPet({ username, accountSessionKey }) {
     error: '失败'
   }[state];
 
+  const bubbleText = petPromptBubble(state, contextRef.current);
+  const quickActions = petQuickActions(state, contextRef.current);
   const spriteRow = lookFrame && state === 'idle' ? lookFrame.row : petAtlasRow(state);
   const spriteFrame = lookFrame && state === 'idle' ? lookFrame.column : frame;
   const positionStyle = overlay.left === null
@@ -407,7 +409,9 @@ export function StackyPet({ username, accountSessionKey }) {
 
   return (
     <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 CM，${label}`}>
-      <div className="stacky-pet-bubble">{reply || petSpeech(state)}</div>
+      <button type="button" className="stacky-pet-bubble stacky-pet-bubble--interactive" onClick={openChat} title="打开 CM 对话">
+        {reply || bubbleText}
+      </button>
       {chatOpen && (
         <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label="CM 互动">
           <header className="stacky-agent-header">
@@ -440,6 +444,15 @@ export function StackyPet({ username, accountSessionKey }) {
               </div>
             ) : null}
           </div>
+          {quickActions.length ? <div className="stacky-agent-quick-actions" aria-label="CM 建议操作">
+            {quickActions.map(action => <button
+              key={action.id}
+              type="button"
+              className={action.mode === 'rewrite' ? 'stacky-agent-quick-action stacky-agent-quick-action--rewrite' : 'stacky-agent-quick-action'}
+              onClick={() => sendQuestion(action.prompt)}
+              disabled={asking}
+            >{action.label}</button>)}
+          </div> : null}
           <form className="stacky-agent-input" onSubmit={event => { event.preventDefault(); sendQuestion(question); }}>
             <input value={question} onChange={event => setQuestion(event.target.value)} placeholder="问问 CM..." aria-label="向 CM 提问" />
             <button type="submit" disabled={!question.trim() || asking}>{asking ? '...' : '↗'}</button>

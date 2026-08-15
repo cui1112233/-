@@ -1,0 +1,19 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+const root = path.resolve(__dirname, '..');
+const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+
+test('script completion keeps the pet success state and CM applies only marked drafts', () => {
+  const pet = read('frontend/src/shared/pet/StackyPet.jsx');
+  const scriptPage = read('frontend/src/user/pages/ScriptPage.jsx');
+
+  assert.match(scriptPage, /setGenerationStage\('complete'\);/);
+  assert.match(scriptPage, /dispatchPetState\('success'\);/);
+  assert.match(scriptPage, /PET_APPLY_EVENT/);
+  assert.match(pet, /message\.content\.includes\('【修改稿】'\)/);
+  assert.match(pet, /dispatchPetApply\(message\.content\.split\('【修改稿】'\)/);
+  assert.doesNotMatch(pet, /sendQuestion\(action\.prompt\)[\s\S]*?dispatchPetApply/);
+});

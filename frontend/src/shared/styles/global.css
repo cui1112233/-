@@ -1608,6 +1608,19 @@ select {
   box-shadow: var(--legacy-shadow);
 }
 
+.stacky-pet-bubble--interactive {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stacky-pet-bubble--interactive:hover,
+.stacky-pet-bubble--interactive:focus-visible {
+  border-color: var(--legacy-accent);
+  outline: 2px solid var(--legacy-accent);
+  outline-offset: 2px;
+}
+
 .stacky-agent-panel {
   position: fixed;
   display: flex;
@@ -1690,6 +1703,43 @@ select {
 .stacky-agent-message button { margin-top: 8px; border: 0; border-radius: 5px; padding: 5px 8px; background: var(--legacy-accent); color: #fff; cursor: pointer; font: inherit; }
 .stacky-agent-retry { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid color-mix(in srgb, #c85c6d 46%, var(--legacy-border)); border-radius: 6px; padding: 8px 10px; color: var(--legacy-text); }
 .stacky-agent-retry button { flex: 0 0 auto; margin: 0; }
+
+.stacky-agent-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--legacy-border);
+  background: var(--legacy-panel);
+}
+
+.stacky-agent-quick-action {
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: var(--legacy-input);
+  color: var(--legacy-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stacky-agent-quick-action:hover,
+.stacky-agent-quick-action:focus-visible {
+  border-color: var(--legacy-accent);
+  outline: 2px solid var(--legacy-accent);
+  outline-offset: 1px;
+}
+
+.stacky-agent-quick-action--rewrite {
+  background: var(--legacy-accent-dim);
+  color: var(--legacy-text);
+}
+
+.stacky-agent-quick-action:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
 
 .stacky-agent-input {
   display: flex;
