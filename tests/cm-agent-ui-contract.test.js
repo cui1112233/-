@@ -66,8 +66,8 @@ test('CM separates drag, open, and explicit page analysis actions', () => {
   assert.match(css, /\.cm-conversation-frame/);
   assert.match(css, /\.cm-conversation-frame::before/);
   assert.match(css, /linear-gradient\(to right, rgba\(160, 153, 216/);
-  assert.match(pet, /petPromptBubble/);
-  assert.match(pet, /petQuickActions/);
+  assert.match(pet, /cmInteractionView/);
+  assert.match(pet, /const \{ bubbleText, quickActions \}/);
   assert.match(pet, /className="stacky-pet-bubble stacky-pet-bubble--interactive"/);
   assert.match(pet, /onClick=\{openChat\}/);
   assert.match(pet, /className="stacky-agent-quick-actions"/);

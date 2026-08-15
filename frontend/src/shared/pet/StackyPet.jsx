@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
-import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petPromptBubble, petQuickActions, readCmTaskId, writeCmTaskId } from './stacky';
+import { PET_APPLY_EVENT, PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetApply, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, readCmTaskId, writeCmTaskId } from './stacky';
+import { cmDraftToApply, cmInteractionView } from './cmInteraction';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
 
 const resetDelayMs = 2400;
@@ -289,8 +290,7 @@ export function StackyPet({ username, accountSessionKey }) {
     error: '失败'
   }[state];
 
-  const bubbleText = petPromptBubble(state, contextRef.current);
-  const quickActions = petQuickActions(state, contextRef.current);
+  const { bubbleText, quickActions } = cmInteractionView(state, contextRef.current);
   const spriteRow = lookFrame && state === 'idle' ? lookFrame.row : petAtlasRow(state);
   const spriteFrame = lookFrame && state === 'idle' ? lookFrame.column : frame;
   const positionStyle = overlay.left === null
@@ -432,8 +432,8 @@ export function StackyPet({ username, accountSessionKey }) {
             {messages.length === 0 ? <span>点击分析当前页面，或直接提问。</span> : messages.map((message, index) => (
               <article key={`${message.createdAt || index}-${message.role}`} className={`stacky-agent-message stacky-agent-message--${message.role}`}>
                 <span>{message.content}</span>
-                {message.role === 'assistant' && message.content.includes('【修改稿】') && contextRef.current.entities.hasOutput ? (
-                  <button type="button" onClick={() => dispatchPetApply(message.content.split('【修改稿】').slice(1).join('【修改稿】').trim())}>应用到剧本</button>
+                {message.role === 'assistant' && cmDraftToApply(message.content, contextRef.current.entities.hasOutput) ? (
+                  <button type="button" onClick={() => dispatchPetApply(cmDraftToApply(message.content, contextRef.current.entities.hasOutput))}>应用到剧本</button>
                 ) : null}
               </article>
             ))}

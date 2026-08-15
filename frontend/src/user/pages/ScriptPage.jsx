@@ -7,6 +7,7 @@ import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_APPLY_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { applyCmDraft } from './scriptPetInteractions';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
@@ -279,13 +280,11 @@ export function ScriptPage() {
   }, [extractInfo, output, generationStage]);
 
   useEffect(() => {
-    function applyAgentDraft(event) {
-      const nextOutput = String(event.detail?.content || '').trim();
-      if (!nextOutput) return;
-      updateOutputDraft(nextOutput);
-      setEditingOutput(true);
-      message.success('CM 的修改稿已写入当前剧本，请继续检查后保存。');
-    }
+    const applyAgentDraft = event => applyCmDraft(event, {
+      updateOutputDraft,
+      setEditingOutput,
+      success: message.success
+    });
     window.addEventListener(PET_APPLY_EVENT, applyAgentDraft);
     return () => window.removeEventListener(PET_APPLY_EVENT, applyAgentDraft);
   }, []);
