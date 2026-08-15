@@ -23,6 +23,11 @@ test('script workbench restores and synchronously persists tab-isolated drafts',
   assert.match(page, /onValuesChange=\{\(changed, allValues\)/);
   assert.match(page, /onChange=\{event => updateOutputDraft\(event\.target\.value\)\}/);
   assert.match(page, /persistDraft\(undefined, \{ output: nextOutput \}\)/);
+  assert.match(page, /updateOutputDraft\(nextOutput\);/);
+  assert.doesNotMatch(page, /function openRevisionPreview[\s\S]*?updateOutputDraft\(candidateOutput\)/);
+  assert.match(page, /revisionPreview\.currentOutput !== output/);
+  assert.match(page, /setPreviousOutput\(output\);[\s\S]*?updateOutputDraft\(nextOutput\);/);
+  assert.match(page, /updateOutputDraft\(previousOutput\);[\s\S]*?setPreviousOutput\(''\);/);
   assert.match(page, /persistDraft\(\{ \.\.\.form\.getFieldsValue\(\), novelText \}\)/);
   assert.match(storage, /qiantie:script-draft:/);
   assert.match(storage, /JSON\.parse/);
