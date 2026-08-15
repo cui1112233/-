@@ -44,8 +44,8 @@ test('maps pointer directions to original Stacky look frames', () => {
   assert.equal(petLookFrame(4, 4), null);
 });
 
-test('uses a generated-script prompt and analysis actions when script output is ready', () => {
-  const context = { pagePath: '/script', summary: '剧本生成完成', entities: { scriptOutput: '片段' }, actions: [] };
+test('uses a generated-script prompt and analysis actions when the bounded output flag is ready', () => {
+  const context = { pagePath: '/script', summary: '剧本生成完成', entities: { hasOutput: true }, actions: [] };
   assert.equal(petPromptBubble('success', context, () => 0), '剧本生成好了。要 CM 帮您检查哪里还能更好吗~');
   assert.deepEqual(petQuickActions('success', context).map(action => action.id), [
     'overall-quality', 'weakest-section', 'opening-ten-seconds', 'character-consistency',
@@ -54,7 +54,7 @@ test('uses a generated-script prompt and analysis actions when script output is 
 });
 
 test('covers every completed-script prompt at random boundaries and clamps out-of-range values', () => {
-  const context = { pagePath: '/script', entities: { scriptOutput: '片段' } };
+  const context = { pagePath: '/script', entities: { hasOutput: true } };
   const prompts = [
     '剧本生成好了。要 CM 帮您检查哪里还能更好吗~',
     '这版已经完成啦，要不要看看节奏有没有拖沓？',
@@ -75,7 +75,7 @@ test('covers every completed-script prompt at random boundaries and clamps out-o
 
 test('returns all completed-script actions with their exact id, label, prompt, and mode', () => {
   assert.deepEqual(petQuickActions('success', {
-    pagePath: '/script', entities: { scriptOutput: '片段' }
+    pagePath: '/script', entities: { hasOutput: true }
   }), [
     { id: 'overall-quality', label: '分析整体质量', prompt: '请分析当前剧本的整体质量，检查节奏、冲突、钩子和逻辑完整性，按优先级给出可执行建议。', mode: 'advice' },
     { id: 'weakest-section', label: '找出最弱的段落', prompt: '请找出当前剧本中最弱的段落，指出具体位置、问题原因和可执行的修改方向。', mode: 'advice' },
@@ -111,7 +111,7 @@ test('shows the correct prompts and action sets before input, after extraction, 
 });
 
 test('falls back to status speech and no actions outside the script page', () => {
-  const context = { pagePath: '/dashboard', entities: { scriptOutput: '片段' } };
+  const context = { pagePath: '/dashboard', entities: { hasOutput: true } };
   for (const state of PET_STATES) {
     assert.equal(petPromptBubble(state, context), petSpeech(state));
     assert.deepEqual(petQuickActions(state, context), []);
@@ -132,23 +132,28 @@ test('normalizes context and scopes task key by account', () => {
   });
 });
 
-test('normalizes dirty pet context before deriving script interactions', () => {
+test('preserves only the bounded script output flag before deriving script interactions', () => {
   const normalized = normalizePetContext({
     page: '  剧本  ',
     pagePath: '  /script  ',
     summary: 42,
     actions: ['  开始  ', null, 7, ' ', '继续', '忽略', '超出上限'],
-    entities: { scriptOutput: '  片段  ', generationStage: ' extracted ', token: 'hidden' }
+    entities: { hasOutput: true, scriptOutput: '不应暴露', generationStage: ' extracted ', token: 'hidden' },
+    novelText: '不应暴露'
   });
 
   assert.deepEqual(normalized, {
     page: '剧本',
     pagePath: '/script',
     summary: '42',
-    entities: { scriptOutput: '  片段  ', generationStage: ' extracted ' },
+    entities: { hasOutput: true, generationStage: ' extracted ' },
     actions: ['开始', '7', '继续', '忽略']
   });
   assert.equal(petPromptBubble('success', normalized, () => 0), '剧本生成好了。要 CM 帮您检查哪里还能更好吗~');
+  assert.deepEqual(petQuickActions('success', normalized).map(action => action.id), [
+    'overall-quality', 'weakest-section', 'opening-ten-seconds', 'character-consistency',
+    'scene-visuals', 'conflict-reversal', 'rewrite-draft'
+  ]);
 });
 
 test('bounds, stringifies, and redacts entity context', () => {

@@ -89,7 +89,7 @@ const scriptErrorActions = [
 
 function scriptContext(context) {
   const normalized = normalizePetContext(context);
-  const hasScriptOutput = Boolean(normalized.entities.scriptOutput);
+  const hasScriptOutput = normalized.entities.hasOutput === true;
   return { normalized, hasScriptOutput };
 }
 
@@ -261,9 +261,9 @@ export function normalizePetContext(context = {}) {
     ? Object.fromEntries(takeOwnEntries(
       entitySource,
       ENTITY_KEY_LIMIT,
-      key => !SENSITIVE_ENTITY_KEY.test(key)
+      key => key === 'hasOutput' || (!SENSITIVE_ENTITY_KEY.test(key) && key !== 'scriptOutput')
     )
-      .map(([key, value]) => [key, entityText(value)]))
+      .map(([key, value]) => [key, key === 'hasOutput' ? value === true : entityText(value)]))
     : {};
   const actionSource = read(source, 'actions', null);
   const actions = [];

@@ -270,10 +270,7 @@ export function ScriptPage() {
       },
       actions: generationStage === 'extracted'
         ? ['检查人物与场景', '编辑人物与场景', '生成剧本']
-        : ['提取人物与场景', '检查当前剧本', '生成剧本'],
-      novelText: String(novelText || ''),
-      extracted: extractInfo,
-      scriptOutput: output
+        : ['提取人物与场景', '检查当前剧本', '生成剧本']
     });
   }
 

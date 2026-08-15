@@ -432,7 +432,7 @@ export function StackyPet({ username, accountSessionKey }) {
             {messages.length === 0 ? <span>点击分析当前页面，或直接提问。</span> : messages.map((message, index) => (
               <article key={`${message.createdAt || index}-${message.role}`} className={`stacky-agent-message stacky-agent-message--${message.role}`}>
                 <span>{message.content}</span>
-                {message.role === 'assistant' && message.content.includes('【修改稿】') && contextRef.current.scriptOutput ? (
+                {message.role === 'assistant' && message.content.includes('【修改稿】') && contextRef.current.entities.hasOutput ? (
                   <button type="button" onClick={() => dispatchPetApply(message.content.split('【修改稿】').slice(1).join('【修改稿】').trim())}>应用到剧本</button>
                 ) : null}
               </article>
