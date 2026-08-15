@@ -47,3 +47,28 @@ test('紧凑 JSON 中仅定位并替换已选分镜对象', async () => {
   assert.deepEqual(match, { cardIndex: 1, start: output.lastIndexOf('阿明'), end: output.lastIndexOf('阿明') + 2 });
   assert.equal(replaceSelectedShotMatch(output, match, '小明'), '{"shots":[{"text":"阿明"},{"text":"小明"}]}');
 });
+
+test('格式化 JSON 能定位第二个已选分镜对象', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = '{\n  "scenes": [\n    { "text": "阿明" },\n    {\n      "text": "阿明"\n    }\n  ]\n}';
+  const cards = getShotCards('storyboard', output);
+
+  assert.deepEqual(
+    getSelectedShotMatches(output, cards, new Set([1]), '阿明').map(match => match.cardIndex),
+    [1]
+  );
+});
+
+test('JSON 替换会转义引号和换行并保留未选分镜文本', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, replaceAllSelectedShotMatches } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = '{\n  "分镜": [\n    { "text": "阿明" },\n    { "text": "阿明与阿明" }\n  ]\n}';
+  const cards = getShotCards('storyboard', output);
+  const matches = getSelectedShotMatches(output, cards, new Set([1]), '阿明');
+  const replaced = replaceAllSelectedShotMatches(output, matches, '小"明\\新\n行');
+  const parsed = JSON.parse(replaced);
+
+  assert.equal(parsed.分镜[0].text, '阿明');
+  assert.equal(parsed.分镜[1].text, '小"明\\新\n行与小"明\\新\n行');
+});
