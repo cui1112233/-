@@ -1,10 +1,18 @@
 function cardRanges(output, cards) {
   let cursor = 0;
   return cards.map(card => {
-    const start = output.indexOf(card, cursor);
-    if (start < 0) return null;
-    cursor = start + card.length;
-    return { start, end: cursor };
+    const formats = [card];
+    try {
+      const compact = JSON.stringify(JSON.parse(card));
+      if (compact !== card) formats.push(compact);
+    } catch {}
+    const range = formats.reduce((found, format) => {
+      const start = output.indexOf(format, cursor);
+      return start >= 0 && (!found || start < found.start) ? { start, end: start + format.length } : found;
+    }, null);
+    if (!range) return null;
+    cursor = range.end;
+    return range;
   });
 }
 

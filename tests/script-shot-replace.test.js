@@ -36,3 +36,14 @@ test('空查询、空选择和找不到文本均不返回匹配项', async () =>
   assert.deepEqual(getSelectedShotMatches('分镜一', ['分镜一'], new Set(), '分镜'), []);
   assert.deepEqual(getSelectedShotMatches('分镜一', ['分镜一'], new Set([0]), '不存在'), []);
 });
+
+test('紧凑 JSON 中仅定位并替换已选分镜对象', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, replaceSelectedShotMatch } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = '{"shots":[{"text":"阿明"},{"text":"阿明"}]}';
+  const cards = getShotCards('storyboard', output);
+  const [match] = getSelectedShotMatches(output, cards, new Set([1]), '阿明');
+
+  assert.deepEqual(match, { cardIndex: 1, start: output.lastIndexOf('阿明'), end: output.lastIndexOf('阿明') + 2 });
+  assert.equal(replaceSelectedShotMatch(output, match, '小明'), '{"shots":[{"text":"阿明"},{"text":"小明"}]}');
+});
