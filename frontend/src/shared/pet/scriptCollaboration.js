@@ -13,7 +13,7 @@ export function classifyPetRequestError(error) {
   const status = Number(error?.status || error?.response?.status || 0);
   const source = String(error?.source || '');
   const detail = String(error?.message || error || '');
-  if (status === 401 || status === 403 || /api.?key|unauthori[sz]ed|forbidden|密钥|鉴权/i.test(detail)) {
+  if (status === 401 || status === 403 || status === 422 || /(?:base url|model|api key) is required|api.?key|unauthori[sz]ed|forbidden|密钥|鉴权/i.test(detail)) {
     return { message: '模型配置无法使用，请检查接口、模型名或密钥。', action: 'settings' };
   }
   if (status === 504 || /timeout|超时/i.test(detail)) {
