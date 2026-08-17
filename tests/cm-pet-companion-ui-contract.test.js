@@ -14,6 +14,7 @@ test('CM integrates proactive companion speech without interrupting chat or task
   assert.match(pet, /!chatOpen && !asking && !dragRef\.current/);
   assert.match(pet, /window\.setTimeout\(/);
   assert.match(pet, /window\.clearTimeout\(/);
+  assert.match(pet, /function handleVisibilityChange\(\) \{\s+if \(document\.visibilityState !== 'visible'\) clearCompanionSpeech\(\);\s+else scheduleCompanionSpeech\(\);\s+\}/);
   assert.match(pet, /priority >= current\.priority/);
   assert.match(pet, /getClickSpeech/);
   assert.match(pet, /if \(draggedRef\.current\)/);
