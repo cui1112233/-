@@ -26,6 +26,7 @@ function usePathname() {
 function getPage(pathname) {
   const routes = {
     '/script': ScriptPage,
+    '/novel-fetch': NovelFetchPage,
     '/history': HistoryPage,
     '/novel-panel': NovelPanelPage,
     '/agent': AgentPage,
