@@ -110,13 +110,14 @@ export function getShotMatchDisplayRange(output, card, cardIndex, cardStart, mat
   }
   const shot = getJsonShots(output)?.shots?.[cardIndex];
   if (shot == null) return null;
+  const serializedShot = JSON.stringify(shot, null, 2);
   const copy = structuredClone(shot);
   const value = getValueAtPath(copy, metadata.path);
   const markerBase = '__SHOT_MATCH_MARKER__';
   let markerIndex = 0;
   let startMarker = `${markerBase}${markerIndex}__START__`;
   let endMarker = `${markerBase}${markerIndex}__END__`;
-  while (value.includes(startMarker) || value.includes(endMarker)) {
+  while (serializedShot.includes(startMarker) || serializedShot.includes(endMarker)) {
     markerIndex += 1;
     startMarker = `${markerBase}${markerIndex}__START__`;
     endMarker = `${markerBase}${markerIndex}__END__`;

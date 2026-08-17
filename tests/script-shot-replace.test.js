@@ -107,6 +107,25 @@ test('JSON 显示区间在卡片含默认标记时仍高亮查找词', async () 
   assert.equal(cards[0].slice(range.start, range.end), '阿明');
 });
 
+test('JSON 显示区间避开同一分镜其他字段中的标记', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, getShotMatchDisplayRange } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = JSON.stringify({
+    shots: [
+      { text: '未选' },
+      {
+        note: '__SHOT_MATCH_MARKER__0__START__ 和 __SHOT_MATCH_MARKER__0__END__',
+        text: '阿明'
+      }
+    ]
+  });
+  const cards = getShotCards('storyboard', output);
+  const [match] = getSelectedShotMatches(output, cards, new Set([1]), '阿明');
+  const range = getShotMatchDisplayRange(output, cards[1], 1, null, match);
+
+  assert.equal(cards[1].slice(range.start, range.end), JSON.stringify('阿明').slice(1, -1));
+});
+
 test('JSON 显示区间覆盖序列化后转义的换行、引号和反斜杠', async () => {
   const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   const { getSelectedShotMatches, getShotMatchDisplayRange } = await import('../frontend/src/user/pages/scriptShotReplace.js');
