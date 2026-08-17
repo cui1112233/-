@@ -74,7 +74,7 @@ function buildRequiredShotHeader(characters, scenes) {
 
   for (const scene of Array.isArray(scenes) ? scenes : []) {
     if (!scene || typeof scene !== 'object' || Array.isArray(scene)) continue;
-    const location = shotHeaderValue(scene, ['地点场景名称', '地点', '场景', 'name', '名称']);
+    const location = shotHeaderValue(scene, ['场景名称', '地点', '场景', 'name', '名称', '地点场景名称']);
     const time = shotHeaderValue(scene, ['时间', '时段', 'time']);
     const atmosphere = shotHeaderValue(scene, ['情绪基调', '氛围', '氛围概述', 'atmosphere']);
     const details = [location, time, atmosphere].filter(Boolean);
@@ -90,9 +90,16 @@ function buildRequiredShotHeader(characters, scenes) {
 
 function enforceShotlistHeaders(output, requiredShotHeader) {
   const text = String(output);
-  const titlePattern = /^###\s*分镜[^\n]*$/gm;
+  const titlePattern = /^###\s*分镜[^\n]*（总时长：[^）]+）\s*$/gm;
   const titles = [...text.matchAll(titlePattern)];
   if (!titles.length) return text;
+  const headerNames = new Set();
+  for (const line of String(requiredShotHeader).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || /^(【基础设定】|统一人物：|场景环境：)/.test(trimmed)) continue;
+    const name = trimmed.split('：')[0];
+    if (name) headerNames.add(name);
+  }
   let result = '';
   let cursor = 0;
   for (let index = 0; index < titles.length; index += 1) {
@@ -110,7 +117,11 @@ function enforceShotlistHeaders(output, requiredShotHeader) {
     }
     const retained = prefix.split('\n').filter(line => {
       const trimmed = line.trim();
-      return trimmed && !/^(【基础设定】|统一人物：|场景环境：)/.test(trimmed);
+      if (!trimmed) return false;
+      if (/^(【基础设定】|统一人物：|场景环境：)/.test(trimmed)) return false;
+      const name = trimmed.split('：')[0];
+      if (headerNames.has(name)) return false;
+      return true;
     });
     result += text.slice(cursor, afterTitle);
     result += `\n${requiredShotHeader}\n\n`;
@@ -438,20 +449,20 @@ router.post('/chat', async (req, res) => {
       res.status(502).json({ error: describeUpstreamFailure(upstream), type: 'upstream_error' });
       return;
     }
+    let upstreamData;
     try {
-      JSON.parse(upstream.text);
+      upstreamData = JSON.parse(upstream.text);
     } catch (error) {
       res.status(502).json({ error: 'Upstream returned non-JSON response' });
       return;
     }
 
     if (body.promptType === 'entity_enrich') {
-      const content = JSON.parse(upstream.text)?.choices?.[0]?.message?.content;
+      const content = upstreamData?.choices?.[0]?.message?.content;
       return res.json({ enrichment: parseEntityEnrichment(content) });
     }
     if (selectedPersonalPromptIds.length) req.app.locals.scriptConstraintPromptStore?.markUsed(req.username, selectedPersonalPromptIds);
 
-    const upstreamData = JSON.parse(upstream.text);
     const messageContent = upstreamData?.choices?.[0]?.message?.content;
     if (body.promptType === 'script' && normalizeFormat(body.format) === 'shotlist' && typeof messageContent === 'string') {
       upstreamData.choices[0].message.content = enforceShotlistHeaders(messageContent, buildRequiredShotHeader(body.characters, body.scenes));

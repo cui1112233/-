@@ -7,7 +7,7 @@ const path = require('node:path');
 
 const { createApp } = require('../app');
 const { createAccountStore } = require('../lib/account-store');
-const { getUserConfigPath, writeConfig } = require('../lib/shared');
+const { getUserDir, writeConfig } = require('../lib/shared');
 
 const TEST_USERNAME = 'cmchatroute';
 const TEST_PASSWORD = '12345678';
@@ -87,7 +87,7 @@ function createChatFixture(t, upstreamBaseUrl) {
     apiKey: 'test-key'
   });
   t.after(() => {
-    fs.rmSync(getUserConfigPath(TEST_USERNAME), { force: true });
+    fs.rmSync(getUserDir(TEST_USERNAME), { recursive: true, force: true });
     fs.rmSync(systemDir, { recursive: true, force: true });
   });
   return { app };
@@ -104,7 +104,7 @@ const SHOTLIST_REQUEST = {
     { '姓名': '赵婷', '发型': '短发', '服装': '浅色衬衫与工牌' },
     { '名称': '陈建国', '外貌描述': '中年男性，灰色夹克' }
   ],
-  scenes: [{ '地点场景名称': '海关安检通道', '时间': '白天', '情绪基调': '紧张压迫' }],
+  scenes: [{ '场景名称': '海关安检通道', '时间': '白天', '情绪基调': '紧张压迫' }],
   protagonists: [],
   constraints: {}
 };
