@@ -33,6 +33,91 @@ const CONSTRAINT_CATEGORY_PREFIXES = {
   negative: 'script-constraint-negative-'
 };
 
+const REQUIRED_SHOT_BASE = '【基础设定】生成视频不带字幕 | 9:16';
+
+function shotHeaderText(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.trim().replace(/\s+/g, ' ');
+  return text && !/[{}\[\]]/.test(text) ? text : '';
+}
+
+function shotHeaderValue(entity, fields) {
+  for (const field of fields) {
+    const value = shotHeaderText(entity[field]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function buildRequiredShotHeader(characters, scenes) {
+  const lines = [REQUIRED_SHOT_BASE];
+  const names = new Set();
+  for (const character of Array.isArray(characters) ? characters : []) {
+    if (!character || typeof character !== 'object' || Array.isArray(character)) continue;
+    const name = shotHeaderValue(character, ['角色名称', '姓名', '名称', 'name', '人物']);
+    if (!name || names.has(name) || names.size === 3) continue;
+    const groups = [
+      ['基本体征', '体征', '身形', '年龄', '身份'],
+      ['五官与妆容', '五官', '妆容', '面容'],
+      ['发型与发饰', '发型', '发饰'],
+      ['服饰与配饰', '服饰', '服装', '配饰', '穿着']
+    ];
+    const details = groups.map(fields => shotHeaderValue(character, fields)).filter(Boolean);
+    if (!details.length) {
+      const description = shotHeaderValue(character, ['外貌描述', '外形', '外观描述', '描述']);
+      if (description) details.push(description);
+    }
+    if (!details.length) continue;
+    names.add(name);
+    lines.push(`${name}：${[...new Set(details)].join('，')}`);
+  }
+
+  for (const scene of Array.isArray(scenes) ? scenes : []) {
+    if (!scene || typeof scene !== 'object' || Array.isArray(scene)) continue;
+    const location = shotHeaderValue(scene, ['地点场景名称', '地点', '场景', 'name', '名称']);
+    const time = shotHeaderValue(scene, ['时间', '时段', 'time']);
+    const atmosphere = shotHeaderValue(scene, ['情绪基调', '氛围', '氛围概述', 'atmosphere']);
+    const details = [location, time, atmosphere].filter(Boolean);
+    const description = details.length ? '' : shotHeaderValue(scene, ['场景描述', '描述']);
+    if (details.length || description) lines.push(`场景环境：${details.length ? details.join('｜') : description}`);
+    break;
+  }
+  return lines.join('\n');
+}
+
+function enforceShotlistHeaders(output, requiredShotHeader) {
+  const text = String(output);
+  const titlePattern = /^###\s*分镜[^\n]*$/gm;
+  const titles = [...text.matchAll(titlePattern)];
+  if (!titles.length) return text;
+  let result = '';
+  let cursor = 0;
+  for (let index = 0; index < titles.length; index += 1) {
+    const title = titles[index];
+    const afterTitle = title.index + title[0].length;
+    const nextTitle = index + 1 < titles.length ? titles[index + 1].index : text.length;
+    const block = text.slice(afterTitle, nextTitle);
+    const pictureIndex = block.indexOf('镜头画面：');
+    const prefix = pictureIndex === -1 ? block : block.slice(0, pictureIndex);
+    const suffix = pictureIndex === -1 ? '' : block.slice(pictureIndex);
+    if (prefix.trim() === requiredShotHeader.trim()) {
+      result += text.slice(cursor, nextTitle);
+      cursor = nextTitle;
+      continue;
+    }
+    const retained = prefix.split('\n').filter(line => {
+      const trimmed = line.trim();
+      return trimmed && !/^(【基础设定】|统一人物：|场景环境：)/.test(trimmed);
+    });
+    result += text.slice(cursor, afterTitle);
+    result += `\n${requiredShotHeader}\n\n`;
+    if (retained.length) result += `${retained.join('\n')}\n`;
+    result += suffix;
+    cursor = nextTitle;
+  }
+  return result + text.slice(cursor);
+}
+
 function listPublishedExtractionPresets(presetStore) {
   return (presetStore?.listCatalog?.('script') || [])
     .filter(item => item.kind === 'base' && (item.protocolLock?.format === 'extract' || ['script-extract', 'script-extract-novel-panel'].includes(item.id)));
@@ -363,6 +448,8 @@ router.post('/chat', async (req, res) => {
 });
 
 router._private = {
+  buildRequiredShotHeader,
+  enforceShotlistHeaders,
   buildEntityEnrichmentMessages,
   buildExtractMessages,
   buildScriptMessages,
