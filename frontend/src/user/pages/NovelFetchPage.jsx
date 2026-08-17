@@ -1,7 +1,7 @@
 import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd';
-import { Copy, Download, Eye, RotateCcw } from 'lucide-react';
-import { useState } from 'react';
-import { fetchNovelContent } from '../../shared/api/novelFetch';
+import { Check, Copy, Download, Eye, RotateCcw, Wand2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent } from '../../shared/api/novelFetch';
 import './novel-fetch.css';
 
 const PLATFORMS = [
@@ -67,6 +67,25 @@ export function NovelFetchPage() {
   const [customWordCount, setCustomWordCount] = useState(false);
   const [preview, setPreview] = useState(null);
   const [retrying, setRetrying] = useState(false);
+  const [processPresets, setProcessPresets] = useState([]);
+  const [processMode, setProcessMode] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [processModal, setProcessModal] = useState(null); // { mode, results: [{bookId, status, report, text, error}] }
+
+  useEffect(() => {
+    let active = true;
+    // 处理类型来自系统预设：诱导排查(induce)、爆款优化(hook)
+    listNovelFetchProcessPresets()
+      .then(data => {
+        if (!active) return;
+        const available = (data && data.catalog || []).filter(item => item.processOperation === 'induce' || item.processOperation === 'hook');
+        const options = available.map(item => ({ value: item.processOperation, label: item.name }));
+        setProcessPresets(options);
+        if (options.length > 0) setProcessMode(options[0].value);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   async function handleFetch() {
     const bookIds = parseBookIds(form.getFieldValue('bookIdsText'));
@@ -153,6 +172,54 @@ export function NovelFetchPage() {
     chosen.forEach(row => downloadText(`${row.bookId}.txt`, row.data));
   }
 
+  async function handleProcess() {
+    const chosen = okRows().filter(row => selected.includes(row.bookId));
+    if (chosen.length === 0) { message.warning('请先选择要处理的书籍'); return; }
+    if (!processMode) { message.warning('暂无可用的处理类型'); return; }
+    setProcessing(true);
+    try {
+      const data = await processNovelContent({
+        mode: processMode,
+        items: chosen.map(row => ({ bookId: row.bookId, text: row.data }))
+      });
+      const results = data.results || [];
+      setRows(current => current.map(row => {
+        const result = results.find(item => item.bookId === row.bookId);
+        return result ? { ...row, induced: result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text } : null, processError: result.status === 'ok' ? null : result.error } : row;
+      }));
+      setProcessModal({ mode: processMode, results });
+      const failed = results.filter(item => item.status === 'error').length;
+      if (failed) message.error(`${failed} 本处理失败`);
+      else message.success('处理完成');
+    } catch (error) {
+      message.error(error.message || '处理失败');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handleProcessOne(row) {
+    if (!processMode) { message.warning('暂无可用的处理类型'); return; }
+    if (row.induced && row.induced.mode === processMode) {
+      setProcessModal({ mode: processMode, results: [{ bookId: row.bookId, status: 'ok', text: row.induced.text, report: row.induced.report, error: null }] });
+      return;
+    }
+    setProcessing(true);
+    try {
+      const data = await processNovelContent({ mode: processMode, items: [{ bookId: row.bookId, text: row.data }] });
+      const result = (data.results || [])[0];
+      setRows(current => current.map(item => item.bookId === row.bookId
+        ? { ...item, induced: result && result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text } : null, processError: result && result.status === 'ok' ? null : (result ? result.error : '处理失败') }
+        : item));
+      if (result && result.status === 'ok') setProcessModal({ mode: processMode, results: [result] });
+      else message.error((result && result.error) || '处理失败');
+    } catch (error) {
+      message.error(error.message || '处理失败');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   return (
     <Space className="novel-fetch-page" direction="vertical" size={16} style={{ width: '100%' }}>
       <Typography.Title level={3} style={{ margin: 0 }}>小说获取</Typography.Title>
@@ -206,6 +273,23 @@ export function NovelFetchPage() {
             </Checkbox>
             <Button size="small" icon={<Copy size={14} aria-hidden="true" />} onClick={handleBatchCopy}>批量复制</Button>
             <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={handleBatchDownload}>批量下载</Button>
+            <Select
+              size="small"
+              style={{ width: 120 }}
+              value={processMode}
+              onChange={setProcessMode}
+              options={processPresets}
+              placeholder="处理类型"
+              disabled={processPresets.length === 0 || processing}
+            />
+            <Button
+              size="small"
+              type="primary"
+              icon={<Wand2 size={14} aria-hidden="true" />}
+              loading={processing}
+              disabled={okRows().length === 0 || !processMode}
+              onClick={handleProcess}
+            >AI 处理</Button>
           </div>
           {rows.map(row => (
             <div key={row.bookId} className="novel-fetch-row">
@@ -227,6 +311,9 @@ export function NovelFetchPage() {
                   <>
                     <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setPreview(row)}>查看</Button>
                     <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${row.bookId}.txt`, row.data)}>下载</Button>
+                    <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={() => handleProcessOne(row)}>
+                      {row.induced ? '查看处理结果' : '诱导排查'}
+                    </Button>
                   </>
                 ) : row.status === 'error' ? (
                   <Button size="small" icon={<RotateCcw size={14} aria-hidden="true" />} loading={retrying} onClick={() => handleRetry(row)}>重试</Button>
@@ -256,6 +343,44 @@ export function NovelFetchPage() {
         onCancel={() => setPreview(null)}
       >
         <Input.TextArea value={preview ? preview.data : ''} rows={18} readOnly className="novel-fetch-preview" />
+      </Modal>
+
+      <Modal
+        title="AI 处理结果"
+        open={Boolean(processModal)}
+        width={880}
+        onCancel={() => setProcessModal(null)}
+        footer={[
+          <Button key="all" icon={<Download size={14} aria-hidden="true" />} onClick={() => {
+            (processModal?.results || []).filter(item => item.status === 'ok').forEach(item => downloadText(`${item.bookId}.txt`, item.text));
+          }}>全选下载</Button>,
+          <Button key="close" onClick={() => setProcessModal(null)}>关闭</Button>
+        ]}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%', maxHeight: '60vh', overflow: 'auto' }}>
+          {(processModal?.results || []).map(item => (
+            <div key={item.bookId} className="novel-fetch-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="novel-fetch-bookid">{item.bookId}</span>
+                {item.status === 'ok'
+                  ? <span style={{ color: '#389e0d' }}><Check size={14} /> 成功</span>
+                  : <span style={{ color: '#cf1322' }}>失败：{item.error}</span>}
+                {item.status === 'ok' ? (
+                  <>
+                    <Button size="small" icon={<Copy size={14} aria-hidden="true" />} onClick={async () => { await copyText(item.text); message.success('已复制'); }}>复制</Button>
+                    <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${item.bookId}.txt`, item.text)}>下载</Button>
+                  </>
+                ) : null}
+              </div>
+              {item.status === 'ok' && item.report ? (
+                <Typography.Paragraph type="secondary" style={{ margin: '4px 0' }}>{item.report}</Typography.Paragraph>
+              ) : null}
+              {item.status === 'ok' ? (
+                <Input.TextArea value={item.text} rows={10} readOnly className="novel-fetch-preview" />
+              ) : null}
+            </div>
+          ))}
+        </Space>
       </Modal>
     </Space>
   );
