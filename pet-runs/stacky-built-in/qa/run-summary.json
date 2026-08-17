@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "source": "Codex built-in Stacky extracted from ChatGPT.app app.asar",
+  "spriteVersionNumber": 2,
+  "run_dir": "/Users/ming/Downloads/qiantie/pet-runs/stacky-built-in",
+  "spritesheet": "/Users/ming/Downloads/qiantie/pet-runs/stacky-built-in/final/spritesheet-extended.webp",
+  "validation": "/Users/ming/Downloads/qiantie/pet-runs/stacky-built-in/final/validation-extended.json",
+  "contact_sheet": "/Users/ming/Downloads/qiantie/pet-runs/stacky-built-in/qa/contact-sheet-extended.png",
+  "direction_sheet": "/Users/ming/Downloads/qiantie/pet-runs/stacky-built-in/qa/look-directions.png",
+  "project_package": "/Users/ming/Downloads/qiantie/pets/stacky",
+  "codex_package": "/Users/ming/.codex/pets/qiantie-stacky"
+}
