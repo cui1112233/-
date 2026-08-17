@@ -859,7 +859,11 @@ export function ScriptPage() {
         <Form.Item label="替换为">
           <Input value={shotReplaceText} onChange={event => setShotReplaceText(event.target.value)} />
         </Form.Item>
-        {!shotFindText ? <Typography.Text type="secondary">请输入查找内容</Typography.Text> : !selectedShotMatches.length ? <Typography.Text type="secondary">未找到匹配内容</Typography.Text> : <Typography.Text type="secondary">{shotMatchIndex + 1} / {selectedShotMatches.length}</Typography.Text>}
+        {!shotFindText ? <Typography.Text type="secondary">请输入查找内容</Typography.Text> : !selectedShotMatches.length ? <Typography.Text type="secondary">未找到匹配内容</Typography.Text> : (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            找到内容：“{shotFindText}” · 分镜 {activeShotMatch.cardIndex + 1} · {shotMatchIndex + 1} / {selectedShotMatches.length}
+          </Typography.Paragraph>
+        )}
         <Space wrap style={{ marginTop: 16 }}>
           <Button disabled={!selectedShotMatches.length} onClick={() => setShotMatchIndex(index => (index - 1 + selectedShotMatches.length) % selectedShotMatches.length)}>上一个</Button>
           <Button disabled={!selectedShotMatches.length} onClick={() => setShotMatchIndex(index => (index + 1) % selectedShotMatches.length)}>下一个</Button>

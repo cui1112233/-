@@ -36,5 +36,7 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(page, /replaceSelectedShotMatch/);
   assert.match(page, /replaceAllSelectedShotMatches/);
   assert.match(page, /updateOutputDraft\(nextOutput\)/);
+  assert.match(page, /找到内容/);
+  assert.match(page, /分镜 \{activeShotMatch\.cardIndex \+ 1\}/);
   assert.match(page, /Modal/);
 });
