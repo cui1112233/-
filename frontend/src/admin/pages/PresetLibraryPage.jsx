@@ -4,7 +4,8 @@ import { createPresetDraft, listAdminPresets, publishPreset, rollbackPreset } fr
 
 const modules = [
   { label: '剧本生成', value: 'script' },
-  { label: '小说面板', value: 'novel-panel' }
+  { label: '小说面板', value: 'novel-panel' },
+  { label: '小说获取', value: 'novel-fetch' }
 ];
 
 const constraintCategories = [
