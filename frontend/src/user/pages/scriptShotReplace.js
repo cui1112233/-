@@ -110,20 +110,23 @@ export function getShotMatchDisplayRange(output, card, cardIndex, cardStart, mat
   }
   const shot = getJsonShots(output)?.shots?.[cardIndex];
   if (shot == null) return null;
-  const markerBase = '__SHOT_MATCH_MARKER__';
-  let marker = markerBase;
-  let markerIndex = 0;
-  while (card.includes(marker)) {
-    markerIndex += 1;
-    marker = `${markerBase}${markerIndex}__`;
-  }
   const copy = structuredClone(shot);
   const value = getValueAtPath(copy, metadata.path);
-  const markedValue = `${value.slice(0, metadata.offset)}${marker}${value.slice(metadata.offset + metadata.length)}`;
+  const markerBase = '__SHOT_MATCH_MARKER__';
+  let markerIndex = 0;
+  let startMarker = `${markerBase}${markerIndex}__START__`;
+  let endMarker = `${markerBase}${markerIndex}__END__`;
+  while (value.includes(startMarker) || value.includes(endMarker)) {
+    markerIndex += 1;
+    startMarker = `${markerBase}${markerIndex}__START__`;
+    endMarker = `${markerBase}${markerIndex}__END__`;
+  }
+  const markedValue = `${value.slice(0, metadata.offset)}${startMarker}${value.slice(metadata.offset, metadata.offset + metadata.length)}${endMarker}${value.slice(metadata.offset + metadata.length)}`;
   if (metadata.path.length) setValueAtPath(copy, metadata.path, markedValue);
   const marked = metadata.path.length ? JSON.stringify(copy, null, 2) : markedValue;
-  const start = marked.indexOf(marker);
-  return start < 0 ? null : { start, end: start + metadata.length };
+  const start = marked.indexOf(startMarker);
+  const end = marked.indexOf(endMarker, start + startMarker.length);
+  return start < 0 || end < 0 ? null : { start, end: end - startMarker.length };
 }
 
 function replaceJsonMatches(output, matches, replaceText) {

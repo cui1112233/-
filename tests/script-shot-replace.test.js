@@ -106,3 +106,18 @@ test('JSON 显示区间在卡片含默认标记时仍高亮查找词', async () 
 
   assert.equal(cards[0].slice(range.start, range.end), '阿明');
 });
+
+test('JSON 显示区间覆盖序列化后转义的换行、引号和反斜杠', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, getShotMatchDisplayRange } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const matchText = '换行\n"引号"\\反斜杠';
+  const output = JSON.stringify({ shots: [{ text: '未选' }, { text: `前缀${matchText}后缀` }] }, null, 2);
+  const cards = getShotCards('storyboard', output);
+
+  ['\n', '"', '\\', matchText].forEach(findText => {
+    const [match] = getSelectedShotMatches(output, cards, new Set([1]), findText);
+    const range = getShotMatchDisplayRange(output, cards[1], 1, null, match);
+
+    assert.equal(cards[1].slice(range.start, range.end), JSON.stringify(findText).slice(1, -1));
+  });
+});
