@@ -211,8 +211,8 @@ export function StackyPet({ username, accountSessionKey }) {
     }
 
     function handleVisibilityChange() {
-      clearCompanionTimer();
-      if (document.visibilityState === 'visible') scheduleCompanionSpeech();
+      if (document.visibilityState !== 'visible') clearCompanionSpeech();
+      else scheduleCompanionSpeech();
     }
 
     scheduleCompanionSpeech();
