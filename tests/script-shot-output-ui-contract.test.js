@@ -92,3 +92,71 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(cards, /shot-output-card-match/);
   assert.match(cards, /scrollIntoView/);
 });
+
+test('script source textarea clears without deleting prior results until extraction starts', () => {
+  const page = read('frontend/src/user/pages/ScriptPage.jsx');
+  const styles = read('frontend/src/shared/styles/global.css');
+  assert.match(page, /Form\.useWatch\('novelText', form\)/);
+  assert.match(page, /aria-label="清空小说原文"/);
+  assert.match(page, /form\.setFieldValue\('novelText', ''\)/);
+  assert.match(page, /persistDraft\(\{ \.\.\.form\.getFieldsValue\(\), novelText: '' \}\)/);
+  assert.match(page, /function handleExtract\(values\)[\s\S]*?setExtractInfo\(normalizeExtractInfo\(\)\)[\s\S]*?setOutput\(''\)/);
+  const sourceChange = page.match(/if \(Object\.hasOwn\(changed, 'novelText'\)\) \{([\s\S]*?)\n        \}/)?.[1] || '';
+  assert.doesNotMatch(sourceChange, /setExtractInfo\(normalizeExtractInfo\(\)\)/);
+  assert.doesNotMatch(sourceChange, /setOutput\(''\)/);
+  assert.match(styles, /script-source-input/);
+  assert.match(styles, /script-source-clear/);
+});
+
+test('rendered script page exposes the clear button only when source text exists', async () => {
+  const { createServer } = await import('../frontend/node_modules/vite/dist/node/index.js');
+  const React = await import('../frontend/node_modules/react/index.js');
+  const { renderToStaticMarkup } = await import('../frontend/node_modules/react-dom/server.node.js');
+  const server = await createServer({
+    root: path.join(root, 'frontend'),
+    server: { middlewareMode: true },
+    appType: 'custom',
+    plugins: [{
+      name: 'script-page-test-initial-source',
+      enforce: 'pre',
+      transform(code, id) {
+        if (id.includes('/src/user/pages/ScriptPage.jsx')) {
+          return {
+            code: code.replace(
+              "const novelText = Form.useWatch('novelText', form) || '';",
+              "const novelText = globalThis.__scriptPageTestSource || '';"
+            ),
+            map: null
+          };
+        }
+      }
+    }]
+  });
+  const previousWindow = global.window;
+  const previousLocalStorage = global.localStorage;
+  const previousDocument = global.document;
+  global.window = {
+    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    addEventListener() {},
+    removeEventListener() {}
+  };
+  global.localStorage = global.window.localStorage;
+  global.document = { body: { classList: { add() {}, remove() {} } } };
+
+  try {
+    const { ScriptPage } = await server.ssrLoadModule('/src/user/pages/ScriptPage.jsx');
+    global.__scriptPageTestSource = '原文内容';
+    const withSource = renderToStaticMarkup(React.createElement(ScriptPage));
+    global.__scriptPageTestSource = '';
+    const withoutSource = renderToStaticMarkup(React.createElement(ScriptPage));
+    assert.match(withSource, /<button type="button"[^>]*aria-label="清空小说原文"/);
+    assert.doesNotMatch(withoutSource, /aria-label="清空小说原文"/);
+  } finally {
+    delete global.__scriptPageTestSource;
+    global.window = previousWindow;
+    global.localStorage = previousLocalStorage;
+    global.document = previousDocument;
+    await server.close();
+  }
+});
