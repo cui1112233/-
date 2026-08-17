@@ -24,12 +24,7 @@ npm start
 http://127.0.0.1:3000
 ```
 
-默认测试账号：
-
-```text
-choushiyiguai / 123456
-choushiyiguai1 / 123456
-```
+登录账号请联系管理员获取。
 
 ## 配置与数据
 

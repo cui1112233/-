@@ -4,8 +4,8 @@ api-config.json
 # 生成输出
 outputs/
 
-# 用户运行时数据
-data/users/
+# 用户运行时数据（账号、草稿、历史、会话、可能的 API Key，不随包迁移）
+data/
 
 # React 前端构建产物
 frontend/node_modules/
