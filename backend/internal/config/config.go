@@ -36,7 +36,7 @@ func Load() (Config, error) {
 		Addr:             getenv("QIANTIE_ADDR", "127.0.0.1:4000"),
 		MySQLDSN:         getenv("QIANTIE_MYSQL_DSN", ""),
 		SeedUsername:     getenv("QIANTIE_SEED_USERNAME", "choushiyiguai"),
-		SeedPassword:     getenv("QIANTIE_SEED_PASSWORD", "123456"),
+		SeedPassword:     getenv("QIANTIE_SEED_PASSWORD", ""),
 		TokenSecret:      getenv("QIANTIE_TOKEN_SECRET", "dev-token-secret-change-me"),
 		BridgeSecret:     getenv("QIANTIE_BRIDGE_SECRET", "dev-bridge-secret-change-me"),
 		LegacyDataDir:    getenv("QIANTIE_LEGACY_DATA_DIR", "../data/users"),
@@ -56,6 +56,9 @@ func Load() (Config, error) {
 	}
 	if cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("QIANTIE_MYSQL_DSN is required")
+	}
+	if cfg.SeedPassword == "" {
+		return Config{}, fmt.Errorf("QIANTIE_SEED_PASSWORD is required")
 	}
 	if cfg.TokenSecret == "" {
 		return Config{}, fmt.Errorf("QIANTIE_TOKEN_SECRET is required")

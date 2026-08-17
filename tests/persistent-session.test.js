@@ -1,3 +1,4 @@
+process.env.QIANTIE_SEED_ACCOUNTS = JSON.stringify({ choushiyiguai: '123456', choushiyiguai1: '123456', choushiyiguai2: '123456', choushiyiguai3: '123456', choushiyiguai4: '123456', choushiyiguai5: '123456' });
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');

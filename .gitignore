@@ -15,6 +15,9 @@ frontend/dist/
 backend/.env
 backend/qiantie
 backend/coverage.out
+backend/.qiantie-backend.log
+backend/.qiantie-backend.pid
+backend/internal/shuihuo/uploads/
 
 # 本地鉴权与内部过程文件
 .auth-token

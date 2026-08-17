@@ -43,16 +43,16 @@ node -c routes/history.js
 node scripts/validate-multipage-architecture.js
 ```
 
-生成链路烟测脚本：
+生成链路烟测脚本（需通过环境变量提供密码）：
 
 ```bash
-node test-gen.js
+QIANTIE_PASSWORD=<你的密码> node test-gen.js
 ```
 
 也可以指定账号：
 
 ```bash
-QIANTIE_USERNAME=choushiyiguai1 QIANTIE_PASSWORD=123456 node test-gen.js
+QIANTIE_USERNAME=choushiyiguai1 QIANTIE_PASSWORD=<你的密码> node test-gen.js
 ```
 
 ## Go + MySQL Backend Preview
@@ -63,4 +63,4 @@ See `backend/README.md` for local commands.
 
 ## 注意
 
-本项目当前账号密码写在服务端代码中，适合本地或局域网临时使用，不适合直接公开部署。
+登录账号密码不写入源码，由环境变量 `QIANTIE_SEED_ACCOUNTS`（JSON，如 `{"choushiyiguai":"你的密码"}`）或 gitignored 的 `data/system/seed-accounts.json` 注入。未配置种子账号时服务不创建任何账号。部署到公网前请务必设置强随机密码，勿沿用示例账号密码。

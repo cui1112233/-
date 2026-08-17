@@ -4,7 +4,11 @@ const path = require('path');
 
 const API_BASE = 'http://127.0.0.1:3000';
 const USERNAME = process.env.QIANTIE_USERNAME || 'choushiyiguai';
-const PASSWORD = process.env.QIANTIE_PASSWORD || '123456';
+const PASSWORD = process.env.QIANTIE_PASSWORD;
+if (!PASSWORD) {
+  console.error('请通过环境变量 QIANTIE_PASSWORD 提供密码（源码不写默认密码）');
+  process.exit(1);
+}
 
 const NOVEL_TEXT = `码头那把狙击出现时，九岁的我挡下了子弹，倒在赌王爷爷怀中。只因前世我替爷爷挡完枪后，再醒来所有人都在贺喜。可爸爸拿走我的功劳后，第一件事就是解决我和我妈，然后把养在夜总会的母子接回贺家。意识最后消失前，我听见她在门外对爸爸说："终于解决了。"再睁眼，我又站在旧港码头。爷爷刚从黑色宾利上下来。远处货柜缝隙里，一截冰冷的枪管，慢慢探了出来。`;
 
