@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
-const { createNovelFetchRouter } = require('../routes/novel-fetch');
+const { createNovelFetchRouter, extractProcessContent } = require('../routes/novel-fetch');
 
 function request(app, { method = 'POST', requestPath, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -100,4 +100,22 @@ test('process truncates long novel text to 120000 chars', async () => {
     body: { mode: 'hook', items: [{ bookId: '1', text: '长'.repeat(130000) }] }
   });
   assert.equal(received.length, 120000);
+});
+
+test('extractProcessContent parses choices[0].message.content', () => {
+  const upstreamText = JSON.stringify({ choices: [{ message: { content: '优化后文本' } }] });
+  assert.equal(extractProcessContent(upstreamText, 200), '优化后文本');
+});
+
+test('extractProcessContent throws on upstream status >= 400', () => {
+  assert.throws(() => extractProcessContent(JSON.stringify({ error: 'bad' }), 400), /上游请求失败（400）/);
+});
+
+test('extractProcessContent throws on non-JSON upstream text', () => {
+  assert.throws(() => extractProcessContent('<html>not json</html>', 200), /上游返回非 JSON 数据/);
+});
+
+test('extractProcessContent throws when message content is missing', () => {
+  const upstreamText = JSON.stringify({ choices: [{ message: { role: 'assistant' } }] });
+  assert.throws(() => extractProcessContent(upstreamText, 200), /上游响应缺少内容/);
 });

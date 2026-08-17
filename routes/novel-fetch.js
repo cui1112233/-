@@ -58,6 +58,19 @@ function isProcessMode(value) {
   return Object.hasOwn(PROCESS_PRESET_IDS, value);
 }
 
+function extractProcessContent(upstreamText, statusCode) {
+  if (statusCode >= 400) throw new Error(`上游请求失败（${statusCode}）`);
+  let parsed;
+  try {
+    parsed = JSON.parse(upstreamText);
+  } catch (_) {
+    throw '上游返回非 JSON 数据';
+  }
+  const content = parsed.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') throw '上游响应缺少内容';
+  return content;
+}
+
 async function defaultProcessWithAI(username, systemPrompt, novelText) {
   const config = readConfig(username);
   ensureReadyConfig(config);
@@ -70,8 +83,8 @@ async function defaultProcessWithAI(username, systemPrompt, novelText) {
     max_tokens: 4096,
     temperature: 0.4
   };
-  const data = await requestUpstream(config, payload, collectResponse, { timeoutMs: 120000 });
-  return typeof data === 'string' ? data : '';
+  const upstream = await requestUpstream(config, payload, collectResponse, { timeoutMs: 120000 });
+  return extractProcessContent(upstream.text, upstream.statusCode);
 }
 
 function splitReportAndText(content) {
@@ -177,4 +190,4 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
   return router;
 }
 
-module.exports = { createNovelFetchRouter, PLATFORMS };
+module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent };
