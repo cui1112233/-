@@ -20,10 +20,10 @@ const frameCounts = {
 };
 
 const speech = {
-  idle: '我在，随时开工。',
-  working: '我在处理，稍等一下。',
-  success: '完成了。',
-  error: '这次没跑通，检查一下设置。'
+  idle: '',
+  working: '我去把灵感捞回来，别走开。',
+  success: '完成！这次故事有点意思。',
+  error: '这次灵感没接住，剧本还在，咱们再试试。'
 };
 
 const lookDeadzone = 12;

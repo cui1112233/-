@@ -32,9 +32,9 @@ test('exposes original Stacky animation lengths and status speech', () => {
   assert.equal(petFrameCount('working'), 6);
   assert.equal(petFrameCount('success'), 4);
   assert.equal(petFrameCount('error'), 8);
-  assert.equal(petSpeech('working'), '我在处理，稍等一下。');
-  assert.equal(petSpeech('success'), '完成了。');
-  assert.equal(petSpeech('error'), '这次没跑通，检查一下设置。');
+  assert.equal(petSpeech('working'), '我去把灵感捞回来，别走开。');
+  assert.equal(petSpeech('success'), '完成！这次故事有点意思。');
+  assert.equal(petSpeech('error'), '这次灵感没接住，剧本还在，咱们再试试。');
 });
 
 test('maps pointer directions to original Stacky look frames', () => {
