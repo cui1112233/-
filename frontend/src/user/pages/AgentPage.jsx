@@ -51,80 +51,164 @@ export function AgentPage() {
   const historyRef = useRef(null);
   const attachmentInputRef = useRef(null);
   const taskRequestRef = useRef(0);
+  const initializationRequestRef = useRef(0);
+  const skillsRequestRef = useRef(0);
   const activeTaskIdRef = useRef(null);
+  const mountedRef = useRef(false);
+  const tasksRef = useRef([]);
   const taskDetailLoadingRef = useRef(false);
   const composerTriggerRef = useRef(null);
   const composerMenuId = 'agent-composer-menu';
 
-  function activateTask(task) {
+  function syncTaskUrl(taskId, historyMode = 'replace') {
+    const nextUrl = taskId ? `/agent?task=${encodeURIComponent(taskId)}` : '/agent';
+    if (historyMode === 'none' || `${window.location.pathname}${window.location.search}` === nextUrl) return;
+    if (historyMode === 'push') {
+      window.history.pushState({}, '', nextUrl);
+    } else {
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }
+
+  function activateTask(task, { historyMode = 'replace' } = {}) {
     activeTaskIdRef.current = task?.id || null;
     setActiveTaskId(task?.id || null);
     setActiveTask(task || null);
+    syncTaskUrl(task?.id || null, historyMode);
   }
 
   async function loadSkills() {
+    const requestId = ++skillsRequestRef.current;
     const result = await listAgentSkills();
+    if (!mountedRef.current || skillsRequestRef.current !== requestId) return null;
     setSkills(Array.isArray(result.skills) ? result.skills : []);
+    return result;
   }
 
-  async function refreshTasks() {
+  async function refreshTasks(isCurrent = () => true) {
     const result = await listAgentTasks();
     const nextTasks = Array.isArray(result.tasks) ? result.tasks : [];
+    if (!mountedRef.current || !isCurrent()) return null;
+    tasksRef.current = nextTasks;
     setTasks(nextTasks);
     return nextTasks;
   }
 
-  async function selectTask(taskId) {
+  async function selectTask(taskId, { historyMode = 'replace' } = {}) {
+    syncTaskUrl(taskId, historyMode);
     const requestId = ++taskRequestRef.current;
     activeTaskIdRef.current = taskId;
+    setAsking(false);
     setActiveTaskId(taskId);
     setActiveTask(null);
     taskDetailLoadingRef.current = true;
     setTaskDetailLoading(true);
     try {
       const result = await getAgentTask(taskId);
-      if (taskRequestRef.current === requestId) setActiveTask(result.task || null);
+      if (mountedRef.current && taskRequestRef.current === requestId) activateTask(result.task || null, { historyMode: 'none' });
     } catch (error) {
-      if (taskRequestRef.current !== requestId) return;
-      activeTaskIdRef.current = null;
-      setActiveTaskId(null);
-      setActiveTask(null);
+      if (!mountedRef.current || taskRequestRef.current !== requestId) return;
+      activateTask(null, { historyMode: 'replace' });
       message.error(error.message || '读取任务失败');
-      refreshTasks().catch(() => undefined);
+      if (error?.status === 404 || /\b404\b|not found|不存在/i.test(String(error?.message || error || ''))) {
+        refreshTasks()
+          .then(nextTasks => {
+            if (mountedRef.current && taskRequestRef.current === requestId && nextTasks?.[0]) return selectTask(nextTasks[0].id, { historyMode: 'replace' });
+            return undefined;
+          })
+          .catch(() => undefined);
+      } else {
+        refreshTasks().catch(() => undefined);
+      }
     } finally {
-      if (taskRequestRef.current === requestId) {
+      if (mountedRef.current && taskRequestRef.current === requestId) {
         taskDetailLoadingRef.current = false;
         setTaskDetailLoading(false);
       }
     }
   }
 
-  async function createTask() {
+  async function createTask(expectedRequestId = taskRequestRef.current, { historyMode = 'push' } = {}) {
     try {
       const result = await createAgentTask();
       const task = result.task;
       if (!task) throw new Error('未能创建任务');
-      taskRequestRef.current += 1;
+      if (!mountedRef.current || taskRequestRef.current !== expectedRequestId) return null;
+      const requestId = ++taskRequestRef.current;
       taskDetailLoadingRef.current = false;
       setTaskDetailLoading(false);
-      activateTask(task);
-      await refreshTasks();
-      return task;
+      activateTask(task, { historyMode });
+      await refreshTasks(() => mountedRef.current && taskRequestRef.current === requestId && activeTaskIdRef.current === task.id);
+      if (!mountedRef.current || taskRequestRef.current !== requestId || activeTaskIdRef.current !== task.id) return null;
+      return { task, requestId };
     } catch (error) {
-      message.error(error.message || '新建聊天失败');
+      if (mountedRef.current && taskRequestRef.current === expectedRequestId) message.error(error.message || '新建聊天失败');
       return null;
     }
   }
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      taskRequestRef.current += 1;
+      initializationRequestRef.current += 1;
+      skillsRequestRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const initializationRequestId = ++initializationRequestRef.current;
+    const initialTaskRequestId = taskRequestRef.current;
     dispatchPetContext({ page: 'Agent 工作区' });
     Promise.all([refreshTasks(), loadSkills()])
       .then(([nextTasks]) => {
-        if (nextTasks[0]) return selectTask(nextTasks[0].id);
+        if (cancelled
+          || initializationRequestRef.current !== initializationRequestId
+          || taskRequestRef.current !== initialTaskRequestId) return undefined;
+        const requestedTaskId = new URLSearchParams(window.location.search).get('task');
+        const requestedTask = nextTasks.find(task => task.id === requestedTaskId);
+        if (requestedTask) return selectTask(requestedTask.id, { historyMode: 'replace' });
+        if (nextTasks[0]) return selectTask(nextTasks[0].id, { historyMode: 'replace' });
+        syncTaskUrl(null, 'replace');
         return undefined;
       })
-      .catch(error => message.error(error.message || '读取 Agent 工作区失败'))
-      .finally(() => setLoading(false));
+      .catch(error => {
+        if (!cancelled && initializationRequestRef.current === initializationRequestId) {
+          message.error(error.message || '读取 Agent 工作区失败');
+        }
+      })
+      .finally(() => {
+        if (!cancelled && initializationRequestRef.current === initializationRequestId) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      initializationRequestRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    function selectHistoryTask() {
+      if (!mountedRef.current) return;
+      const requestedTaskId = new URLSearchParams(window.location.search).get('task');
+      const requestedTask = tasksRef.current.find(task => task.id === requestedTaskId);
+      if (requestedTask) {
+        if (activeTaskIdRef.current !== requestedTask.id) selectTask(requestedTask.id, { historyMode: 'none' });
+        return;
+      }
+
+      if (activeTaskIdRef.current !== null || taskDetailLoadingRef.current) {
+        taskRequestRef.current += 1;
+        taskDetailLoadingRef.current = false;
+        setTaskDetailLoading(false);
+        setAsking(false);
+        activateTask(null, { historyMode: 'none' });
+      }
+    }
+
+    window.addEventListener('popstate', selectHistoryTask);
+    return () => window.removeEventListener('popstate', selectHistoryTask);
   }, []);
 
   useEffect(() => { dispatchPetSkills(selectedSkillIds); }, [selectedSkillIds]);
@@ -195,14 +279,18 @@ export function AgentPage() {
     if (!prompt || asking || taskDetailLoadingRef.current) return;
     let requestId = taskRequestRef.current;
     let taskId = activeTask?.id || null;
+    function isCurrentTaskRequest() {
+      return mountedRef.current && taskRequestRef.current === requestId && activeTaskIdRef.current === taskId;
+    }
     setAsking(true);
     setQuestion('');
     dispatchPetState('working');
     try {
-      const task = activeTask || await createTask();
-      if (!task) return;
+      const createdTask = activeTask ? { task: activeTask, requestId } : await createTask(requestId);
+      if (!createdTask) return;
+      const task = createdTask.task;
       taskId = task.id;
-      requestId = taskRequestRef.current;
+      requestId = createdTask.requestId;
       const result = await askAgent({
         taskId: task.id,
         prompt,
@@ -215,22 +303,24 @@ export function AgentPage() {
         skillIds: selectedSkillIds
       });
       const nextTask = result.task || { ...task, messages: [...(task.messages || []), result.user, result.assistant] };
-      if (taskRequestRef.current === requestId && activeTaskIdRef.current === taskId) setActiveTask(nextTask);
-      await refreshTasks();
-      dispatchPetState('success');
+      if (!isCurrentTaskRequest()) return;
+      setActiveTask(nextTask);
+      await refreshTasks(isCurrentTaskRequest);
+      if (isCurrentTaskRequest()) dispatchPetState('success');
     } catch (error) {
+      if (!isCurrentTaskRequest()) return;
       message.error(error.message || 'CM 暂时无法回答');
-      if (taskId && taskRequestRef.current === requestId && taskId === activeTaskIdRef.current) {
+      if (taskId) {
         getAgentTask(taskId)
           .then(result => {
-            if (taskRequestRef.current === requestId && activeTaskIdRef.current === taskId) setActiveTask(result.task || null);
+            if (isCurrentTaskRequest()) setActiveTask(result.task || null);
           })
           .catch(() => undefined);
       }
-      refreshTasks().catch(() => undefined);
-      dispatchPetState('error');
+      refreshTasks(isCurrentTaskRequest).catch(() => undefined);
+      if (isCurrentTaskRequest()) dispatchPetState('error');
     } finally {
-      setAsking(false);
+      if (isCurrentTaskRequest()) setAsking(false);
     }
   }
 
@@ -285,10 +375,10 @@ export function AgentPage() {
       const deletedActiveTask = activeTaskIdRef.current === taskId;
       if (deletedActiveTask) {
         taskRequestRef.current += 1;
-        activateTask(null);
+        activateTask(null, { historyMode: 'replace' });
       }
       const nextTasks = await refreshTasks();
-      if (deletedActiveTask && nextTasks[0]) await selectTask(nextTasks[0].id);
+      if (deletedActiveTask && nextTasks[0]) await selectTask(nextTasks[0].id, { historyMode: 'replace' });
       message.success('当前任务已删除');
     } catch (error) {
       message.error(error.message || '删除任务失败');
@@ -336,13 +426,13 @@ export function AgentPage() {
       <aside className="agent-task-sidebar cm-conversation-frame" aria-label="CM 任务列表">
         <header className="agent-task-sidebar-header">
           <div><Typography.Title level={4}>任务</Typography.Title><Typography.Text>当前账号的 CM 对话</Typography.Text></div>
-          <Tooltip title="新建聊天"><Button aria-label="新建聊天" icon={<MessageSquarePlus size={17} />} type="primary" onClick={createTask} /></Tooltip>
+          <Tooltip title="新建聊天"><Button aria-label="新建聊天" icon={<MessageSquarePlus size={17} />} type="primary" onClick={() => createTask()} /></Tooltip>
         </header>
-        <Button className="agent-task-new" icon={<MessageSquarePlus size={16} />} type="primary" block onClick={createTask}>新建聊天</Button>
+        <Button className="agent-task-new" icon={<MessageSquarePlus size={16} />} type="primary" block onClick={() => createTask()}>新建聊天</Button>
         <div className="agent-task-list" aria-live="polite">
           {loading ? <div className="agent-task-loading" role="status">正在读取任务列表...</div> : null}
           {!loading && tasks.length === 0 ? <div className="agent-task-empty">还没有任务<br />从一段新对话开始。</div> : null}
-          {tasks.map(task => <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => selectTask(task.id)}>
+          {tasks.map(task => <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => selectTask(task.id, { historyMode: 'push' })}>
             <strong>{task.title}</strong><span>{task.preview || '尚未开始对话'}</span><time>{formatTaskTime(task.updatedAt)}</time>
           </button>)}
         </div>

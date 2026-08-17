@@ -3,9 +3,11 @@ import { Table, Tag, Typography } from 'antd';
 const rows = [
   { key: 'continuous', name: '连续开头', type: '叙事策略', status: '启用' },
   { key: 'hook', name: '爆款开头', type: '叙事策略', status: '启用' },
+  { key: 'segmented', name: '分段开头', type: '叙事策略', status: '启用' },
   { key: 'screenplay', name: '剧情模式', type: '输出格式', status: '启用' },
   { key: 'storyboard', name: '画布模式', type: '输出格式', status: '启用' },
-  { key: 'shortdrama', name: '剧本模式', type: '输出格式', status: '启用' }
+  { key: 'shortdrama', name: '剧本模式', type: '输出格式', status: '启用' },
+  { key: 'shotlist', name: '分镜模式', type: '输出格式', status: '启用' }
 ];
 
 export function PromptStrategyPage() {

@@ -34,7 +34,15 @@ function PromptContent({ prompt, locked, onEdit }) {
   </>;
 }
 
-function MediaContent({ kind, items, index, onSetPrimary, onDeleteMedia, onPreviewMedia, onDownloadMedia }) {
+export function splitSegmentMedia(media) {
+  return {
+    images: media.filter(item => item.kind === 'image'),
+    videos: media.filter(item => item.kind === 'video'),
+    audio: media.filter(item => item.kind === 'audio')
+  };
+}
+
+function MediaContent({ kind, items, index, onSetPrimary, onDeleteMedia, onPreviewMedia, onDownloadMedia, onUpload }) {
   const label = kind === 'image' ? '图片' : kind === 'audio' ? '音频' : '视频';
   const setPrimaryMedia = mediaId => onSetPrimary(mediaId);
 
@@ -60,6 +68,7 @@ function MediaContent({ kind, items, index, onSetPrimary, onDeleteMedia, onPrevi
       </div>)}
       {!items.length ? <span className="shuihuo-muted">暂无{label}</span> : null}
     </div>
+    {kind !== 'audio' ? <Button type="link" size="small" onClick={() => onUpload(kind)}>上传{label}</Button> : null}
   </>;
 }
 
@@ -74,12 +83,11 @@ export function SegmentProductionCard({
   onDeleteMedia,
   onPreviewMedia,
   onDownloadMedia,
+  onUploadMedia,
   onMove,
   onDelete
 }) {
-  const imageMedia = media.filter(item => item.kind === 'image');
-  const audioMedia = media.filter(item => item.kind === 'audio');
-  const videoMedia = media.filter(item => item.kind === 'video');
+  const { images: imageMedia, audio: audioMedia, videos: videoMedia } = splitSegmentMedia(media);
 
   return <article className="shuihuo-production-card">
     <div className="shuihuo-production-column">
@@ -105,7 +113,7 @@ export function SegmentProductionCard({
     </div>
     <div className="shuihuo-production-column">
       <span className="shuihuo-production-column-title">图片</span>
-      <MediaContent kind="image" items={imageMedia} index={index} onSetPrimary={onSetPrimary} onDeleteMedia={onDeleteMedia} onPreviewMedia={onPreviewMedia} onDownloadMedia={onDownloadMedia} />
+      <MediaContent kind="image" items={imageMedia} index={index} onSetPrimary={onSetPrimary} onDeleteMedia={onDeleteMedia} onPreviewMedia={onPreviewMedia} onDownloadMedia={onDownloadMedia} onUpload={kind => onUploadMedia(segment, kind)} />
     </div>
     <div className="shuihuo-production-column">
       <span className="shuihuo-production-column-title">视频提示词</span>
@@ -113,7 +121,7 @@ export function SegmentProductionCard({
     </div>
     <div className="shuihuo-production-column">
       <span className="shuihuo-production-column-title">视频</span>
-      <MediaContent kind="video" items={videoMedia} index={index} onSetPrimary={onSetPrimary} onDeleteMedia={onDeleteMedia} onPreviewMedia={onPreviewMedia} onDownloadMedia={onDownloadMedia} />
+      <MediaContent kind="video" items={videoMedia} index={index} onSetPrimary={onSetPrimary} onDeleteMedia={onDeleteMedia} onPreviewMedia={onPreviewMedia} onDownloadMedia={onDownloadMedia} onUpload={kind => onUploadMedia(segment, kind)} />
     </div>
   </article>;
 }

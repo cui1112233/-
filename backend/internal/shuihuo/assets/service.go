@@ -1,10 +1,21 @@
 package assets
 
 import (
+	"fmt"
 	"strings"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
+
+func NormalizeCategory(category string) (string, error) {
+	category = strings.ToLower(strings.TrimSpace(category))
+	switch category {
+	case "character", "scene", "prop":
+		return category, nil
+	default:
+		return "", fmt.Errorf("unsupported asset category %q", category)
+	}
+}
 
 func MergeAssetCandidates(existing, candidates []domain.Asset, overwriteManual bool) []domain.Asset {
 	merged := append([]domain.Asset(nil), existing...)

@@ -4,6 +4,19 @@ const path = require('path');
 const { apiAuth } = require('../middleware/auth');
 const { getUserOutputsDir, ensureOutputsDir, readHistoryIndex, writeHistoryIndex } = require('../lib/shared');
 
+const MODE_NAME_MAP = {
+  continuous: '连续开头',
+  hook: '爆款开头',
+  segmented: '分段开头'
+};
+
+const FORMAT_NAME_MAP = {
+  screenplay: '剧情模式',
+  storyboard: '画布模式',
+  shortdrama: '剧本模式',
+  shotlist: '分镜模式'
+};
+
 const router = express.Router();
 router.use(apiAuth);
 
@@ -34,7 +47,9 @@ router.post('/', (req, res) => {
     // 保存脚本文件
     const filename = id + '.txt';
     const filePath = historyFilePath(req.username, filename);
-    const header = `格式：${formatName || format}\n模式：${mode === 'hook' ? '爆款开头' : '连续开头'}\n时长：${duration || '-'}\n生成时间：${new Date().toISOString()}\n${'='.repeat(40)}\n\n`;
+    const savedFormatName = FORMAT_NAME_MAP[format] || formatName || format;
+    const savedModeName = MODE_NAME_MAP[mode] || MODE_NAME_MAP.continuous;
+    const header = `格式：${savedFormatName}\n模式：${savedModeName}\n时长：${duration || '-'}\n生成时间：${new Date().toISOString()}\n${'='.repeat(40)}\n\n`;
     fs.writeFileSync(filePath, header + output, 'utf8');
 
     // 更新索引

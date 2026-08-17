@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { AdminLayout } from '../shared/layouts/AdminLayout';
 import { DashboardPage } from './pages/DashboardPage';
 import { PromptStrategyPage } from './pages/PromptStrategyPage';
+import { PresetLibraryPage } from './pages/PresetLibraryPage';
+import { ShuihuoModelCatalogPage } from './pages/ShuihuoModelCatalogPage';
+import { AccountGovernancePage } from './pages/AccountGovernancePage';
+import { AgentSkillLibraryPage } from './pages/AgentSkillLibraryPage';
+import { ErrorLogPage } from './pages/ErrorLogPage';
 
 function usePathname() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -16,7 +21,12 @@ function usePathname() {
 }
 
 function getPage(pathname) {
+  if (pathname === '/admin/accounts') return <AccountGovernancePage />;
+  if (pathname === '/admin/presets') return <PresetLibraryPage />;
+  if (pathname === '/admin/agent-skills') return <AgentSkillLibraryPage />;
   if (pathname === '/admin/prompts') return <PromptStrategyPage />;
+  if (pathname === '/admin/shuihuo-models') return <ShuihuoModelCatalogPage />;
+  if (pathname === '/admin/error-logs') return <ErrorLogPage />;
   return <DashboardPage />;
 }
 

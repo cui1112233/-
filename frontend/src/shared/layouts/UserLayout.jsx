@@ -1,20 +1,23 @@
-import { Button, Checkbox, ConfigProvider, Form, Input, message } from 'antd';
-import { cloneElement, Fragment, isValidElement, useEffect, useState } from 'react';
+import { Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
+import { AudioLines, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
 import { StackyPet } from '../pet/StackyPet';
+import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
 
 const navItems = [
-  { href: '/', icon: '🏠', label: '首页' },
-  { href: '/script', icon: '📝', label: '剧本生成' },
-  { href: '/novel-panel', icon: '📖', label: '小说面板' },
-  { href: '/shuihuo-production', icon: '🎞', label: '水货生产' },
-  { href: '/agent', icon: '🤖', label: 'Agent 工作区' },
-  { href: '/history', icon: '🗂', label: '历史' },
-  { href: '/tts', icon: '🎙', label: '配音' }
+  { href: '/', icon: Home, label: '首页' },
+  { href: '/script', icon: FilePenLine, label: '剧本生成' },
+  { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
+  { href: '/shuihuo-production', icon: Clapperboard, label: '水货生产' },
+  { href: '/agent', icon: Bot, label: 'Agent 工作区' },
+  { href: '/history', icon: FolderClock, label: '历史' },
+  { href: '/issues', icon: Bug, label: '问题日志' },
+  { href: '/tts', icon: AudioLines, label: '配音' }
 ];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
@@ -46,12 +49,19 @@ export function UserLayout({ children }) {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
+  const accountSessionGenerationRef = useRef(0);
   const pathname = window.location.pathname;
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
-  const content = isValidElement(children) ? cloneElement(children, { theme }) : children;
-
   const accountSessionKey = username || 'anonymous';
+  const content = isValidElement(children)
+    ? cloneElement(
+      children,
+      { theme },
+      isValidElement(children.props.children) ? cloneElement(children.props.children, { theme }) : children.props.children
+    )
+    : children;
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -63,24 +73,86 @@ export function UserLayout({ children }) {
   }, []);
 
   useEffect(() => {
-    function showLogin() {
+    let dialogOpen = false;
+    function showApiFailure(event) {
+      if (dialogOpen) return;
+      dialogOpen = true;
+      const { source, method, status, message: detail } = event.detail || {};
+      const sourceLabel = source ? `${method || 'GET'} ${source}` : '服务请求';
+      const statusLabel = status ? `（${status}）` : '';
+      Modal.error({
+        title: `${sourceLabel} 请求失败${statusLabel}`,
+        content: detail || '请求失败，请稍后重试。',
+        okText: '确定',
+        onOk: () => { dialogOpen = false; },
+        afterClose: () => { dialogOpen = false; }
+      });
+    }
+    window.addEventListener('qiantie:api-error', showApiFailure);
+    return () => window.removeEventListener('qiantie:api-error', showApiFailure);
+  }, []);
+
+  useEffect(() => {
+    dispatchPetContext({
+      page: pageTitle(pathname),
+      pagePath: pathname,
+      workspace: 'qiantie'
+    });
+  }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sessionGeneration = ++accountSessionGenerationRef.current;
+    const sessionToken = getToken();
+
+    function isCurrentSession() {
+      return !cancelled
+        && accountSessionGenerationRef.current === sessionGeneration
+        && getToken() === sessionToken;
+    }
+
+    function clearSession() {
       setUsername('');
       setAccount(null);
     }
 
+    function showLogin(event) {
+      const expiredToken = event?.detail?.token;
+      const currentToken = getToken();
+      // Modern clients dispatch the token used by the failed request. Accept
+      // only an event for the currently active session. Legacy clients do not
+      // carry a token and can only be accepted after they cleared this effect's
+      // still-current session.
+      if (expiredToken) {
+        if (!currentToken || expiredToken !== currentToken) return;
+      } else if (!sessionToken || currentToken || cancelled || accountSessionGenerationRef.current !== sessionGeneration) {
+        return;
+      }
+      accountSessionGenerationRef.current += 1;
+      clearSession();
+      setLoginExpanded(true);
+      setLoginDialogOpen(true);
+    }
+
     window.addEventListener('qiantie:auth-expired', showLogin);
-    if (!getToken()) {
-      showLogin();
+    if (!sessionToken) {
+      clearSession();
     } else {
       getCurrentAccount().then(currentAccount => {
+        if (!isCurrentSession()) return;
         setUsername(currentAccount.username);
         setAccount(currentAccount);
       }).catch(error => {
+        if (!isCurrentSession()) return;
         if (String(error.message).includes('登录已失效')) showLogin();
         else setAccount(null);
       });
     }
-    return () => window.removeEventListener('qiantie:auth-expired', showLogin);
+    return () => {
+      cancelled = true;
+      accountSessionGenerationRef.current += 1;
+      window.removeEventListener('qiantie:auth-expired', showLogin);
+    };
   }, []);
 
   useEffect(() => {
@@ -90,6 +162,7 @@ export function UserLayout({ children }) {
   }, [isLoggedIn, pathname]);
 
   async function handleLogin(values) {
+    accountSessionGenerationRef.current += 1;
     setLoading(true);
     try {
       const data = await login(values.username, values.password, values.remember);
@@ -105,10 +178,18 @@ export function UserLayout({ children }) {
   }
 
   async function handleLogout() {
+    accountSessionGenerationRef.current += 1;
     await logout();
     setUsername('');
     setAccount(null);
+    setLoginExpanded(true);
+    setLoginDialogOpen(true);
     message.success('已退出');
+  }
+
+  function openLoginDialog() {
+    setLoginExpanded(true);
+    setLoginDialogOpen(true);
   }
 
   function toggleSidebar() {
@@ -119,7 +200,7 @@ export function UserLayout({ children }) {
     setTheme(current => current === 'dark' ? 'light' : 'dark');
   }
 
-  const showLoginOverlay = !isLoggedIn && isHome && loginDialogOpen;
+  const showLoginOverlay = !isLoggedIn && loginDialogOpen;
   const loginOverlay = showLoginOverlay ? (
     <div className="legacy-login-overlay">
       <div className={`login-modal${loginExpanded ? ' is-expanded' : ''}`}>
@@ -158,7 +239,7 @@ export function UserLayout({ children }) {
     return (
       <ConfigProvider theme={createAntTheme(theme)}>
         <div className="home-shell">
-          {isValidElement(children) ? cloneElement(children, { theme, isLoggedIn, onOpenLogin: () => setLoginDialogOpen(true) }) : content}
+          {isValidElement(children) ? cloneElement(children, { theme, isLoggedIn, onOpenLogin: openLoginDialog }) : content}
           {loginOverlay}
         </div>
       </ConfigProvider>
@@ -177,19 +258,24 @@ export function UserLayout({ children }) {
             aria-expanded={!sidebarCollapsed}
             onClick={toggleSidebar}
           >
-            ☰
+            {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           </button>
-          <BrandLogo className="legacy-brand-logo" />
-          <span className="legacy-brand-title">一战晟铭</span>
+          <Link href="/" className="legacy-brand-link">
+            <BrandLogo className="legacy-brand-logo" />
+            <span className="legacy-brand-title">一战晟铭</span>
+          </Link>
         </div>
         <nav className="legacy-nav">
-          {navItems.map(item => (
-            <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
-              <span className="legacy-nav-icon">{item.icon}</span>
-              <span className="legacy-nav-label">{item.label}</span>
-              <span className="legacy-nav-tooltip" aria-hidden="true">{item.label}</span>
-            </Link>
-          ))}
+          {navItems.map(item => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
+                <span className="legacy-nav-icon"><Icon size={18} strokeWidth={1.8} aria-hidden="true" /></span>
+                <span className="legacy-nav-label">{item.label}</span>
+                <span className="legacy-nav-tooltip" aria-hidden="true">{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
         <div className="legacy-sidebar-tools">
           <button
@@ -199,16 +285,16 @@ export function UserLayout({ children }) {
             title={theme === 'dark' ? '切换至浅色主题' : '切换至深色主题'}
             onClick={toggleTheme}
           >
-            <span className="legacy-nav-icon">{theme === 'dark' ? '☀' : '☾'}</span>
+            <span className="legacy-nav-icon">{theme === 'dark' ? <Sun size={18} strokeWidth={1.8} aria-hidden="true" /> : <Moon size={18} strokeWidth={1.8} aria-hidden="true" />}</span>
             <span className="legacy-nav-label">主题</span>
           </button>
           <Link href="/settings" className="legacy-sidebar-tool" title="设置">
-            <span className="legacy-nav-icon">⚙</span>
+            <span className="legacy-nav-icon"><Settings2 size={18} strokeWidth={1.8} aria-hidden="true" /></span>
             <span className="legacy-nav-label">设置</span>
           </Link>
           {canAccessAdmin(account) ? (
             <Link href="/admin/presets" reload className="legacy-sidebar-tool" title="管理后台">
-              <span className="legacy-nav-icon">🛡</span>
+              <span className="legacy-nav-icon"><ShieldCheck size={18} strokeWidth={1.8} aria-hidden="true" /></span>
               <span className="legacy-nav-label">管理后台</span>
             </Link>
           ) : null}
@@ -229,7 +315,7 @@ export function UserLayout({ children }) {
           </header>
           <section className="legacy-content">{content}</section>
         </main>
-        <StackyPet />
+        <StackyPet username={username} accountSessionKey={accountSessionKey} />
       </Fragment>
       {loginOverlay}
       </div>

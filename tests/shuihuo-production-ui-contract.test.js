@@ -15,6 +15,8 @@ const batchModal = read('frontend/src/user/pages/shuihuo/BatchTaskModal.jsx');
 
 test('production page loads the server readiness snapshot and renders its dependency strip', () => {
   assert.match(api, /export (?:async )?function getProductionHealth\([\s\S]*?\/health/);
+  assert.match(api, /allowStatuses:\s*\[503\]/);
+  assert.match(read('frontend/src/shared/api/client.js'), /allowStatuses/);
   assert.match(page, /getProductionHealth/);
   assert.match(page, /shuihuo-readiness-strip/);
   for (const dependency of ['Redis', '存储', '文本模型', '图片模型', '视频模型']) {
@@ -71,7 +73,7 @@ test('segment production card preserves the six-column production layout', () =>
 
 test('segment production card keeps audio playable and controls blob lifecycle safely', () => {
   const productionCard = read('frontend/src/user/pages/shuihuo/SegmentProductionCard.jsx');
-  assert.match(productionCard, /audioMedia = media\.filter\(item => item\.kind === 'audio'\)/);
+  assert.match(productionCard, /audio:\s*media\.filter\(item => item\.kind === 'audio'\)/);
   assert.match(productionCard, /<audio controls src=\{url\}/);
   assert.match(productionCard, /<MediaContent kind="audio"/);
   assert.match(productionCard, /message\.error\(error\.message \|\| '下载素材失败'\)/);

@@ -1,3 +1,18 @@
+/* V77 Hotfix25: single runtime version/badge source. Legacy modules must not own the app badge. */
+(function(){
+  const runtime = Object.freeze({version:"v77-hotfix26", buildId:"v77-hotfix26-style-reuse-r1", label:"V77 Hotfix26 当前风格保留版", title:"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。"});
+  globalThis.__V77_CURRENT_RUNTIME__ = runtime;
+  globalThis.__v77ApplyRuntimeBadge = function(){
+    const badge = document.querySelector("#v77NativeBuildBadge");
+    if (!badge) return false;
+    badge.textContent = runtime.label;
+    badge.title = runtime.title;
+    badge.dataset.runtimeVersion = runtime.version;
+    badge.dataset.runtimeBuildId = runtime.buildId;
+    return true;
+  };
+})();
+
 const DEFAULT_STYLE = {
   genre: "剧情情感短剧",
   trailer_style: "电视剧级现实情感短剧电影质感，35毫米胶片实拍，细腻自然胶片颗粒，中性暖灰柔光滤镜，35毫米与50毫米叙事镜头，轻微胶片噪点，中高对比度、低饱和度，自然侧光与清晰明暗层次，电影级生活化叙事构图，克制真实氛围感",
@@ -928,7 +943,7 @@ function buildStyleContinuitySkill(style = {}, sourceText = "") {
   const automatic = buildProfessionalVisualStyleSkill(sourceText, 900);
   return [
     "【统一视觉连续性 Skill｜单条重生成也必须保持】",
-    confirmed ? `当前项目已确认统一视觉：${confirmed}` : automatic,
+    confirmed ? `当前工作区已确认统一视觉：${confirmed}` : automatic,
     "本次只把统一视觉作为成像、色彩、光线、焦段和材质连续性；不得把风格词重复塞进每个 prompt，也不得借风格新增剧情。",
   ].filter(Boolean).join("\n");
 }
@@ -2040,7 +2055,7 @@ function buildAnalysisNovelPayload(novelText = "") {
   return appendInstructionToNovel(merged, "analysis");
 }
 
-const API_CONSTRAINT_FIELD_LIMIT = 4590;
+const API_CONSTRAINT_FIELD_LIMIT = 1000000;
 
 function buildOutlineInstructionAppendix({
   mustCoverDetails = "",
@@ -2213,28 +2228,19 @@ function compactRegenerationShotsForAi(shots = []) {
   });
 }
 
-function trimApiConstraintText(value, maxLength = API_CONSTRAINT_FIELD_LIMIT) {
-  const source = String(value || "");
-  const limit = Math.max(200, Math.min(Number(maxLength) || API_CONSTRAINT_FIELD_LIMIT, API_CONSTRAINT_FIELD_LIMIT));
-  if (source.length <= limit) return source;
-  const marker = "\n\n【接口长度保护：已自动压缩中间重复规则】\n\n";
-  const available = Math.max(0, limit - marker.length);
-  const headLength = Math.floor(available * 0.68);
-  const tailLength = Math.max(0, available - headLength);
-  return `${source.slice(0, headLength)}${marker}${source.slice(-tailLength)}`.slice(0, limit);
+function trimApiConstraintText(value, _maxLength = API_CONSTRAINT_FIELD_LIMIT) {
+  // Hotfix24: user-editable semantic request text is not truncated by the app.
+  // Protocol/type checks remain server-side, but camera/must-cover/rhythm/instructions
+  // must reach the AI exactly as the current workspace contains them.
+  return String(value || "");
 }
 
-function mergeConstraintCorrection(baseValue, correctionValue, maxLength = API_CONSTRAINT_FIELD_LIMIT) {
+function mergeConstraintCorrection(baseValue, correctionValue, _maxLength = API_CONSTRAINT_FIELD_LIMIT) {
   const base = String(baseValue || "").trim();
   const correction = String(correctionValue || "").trim();
-  if (!correction) return trimApiConstraintText(base, maxLength);
-  const reservedCorrection = trimApiConstraintText(correction, Math.min(900, maxLength));
-  const separator = "\n\n";
-  const room = Math.max(0, Math.min(maxLength, API_CONSTRAINT_FIELD_LIMIT) - reservedCorrection.length - separator.length);
-  const safeBase = trimApiConstraintText(base, room);
-  return `${safeBase}${safeBase ? separator : ""}${reservedCorrection}`.slice(0, Math.min(maxLength, API_CONSTRAINT_FIELD_LIMIT));
+  if (!correction) return base;
+  return `${base}${base ? "\n\n" : ""}${correction}`;
 }
-
 
 function apiCompatibleCharacterRole(value = "", gender = "未定") {
   const source = text(value);
@@ -2270,27 +2276,16 @@ function sanitizeApiPayloadRecursively(value, parentKey = "") {
 
 function sanitizeApiRequestBody(body) {
   if (!body || typeof body !== "object") return body;
-  const next = sanitizeApiPayloadRecursively(body);
-  if (next && !Array.isArray(next)) {
-    ["must_cover_details", "shot_rhythm_requirements"].forEach((key) => {
-      if (typeof next[key] === "string") next[key] = trimApiConstraintText(next[key]);
-    });
-  }
-  return next;
+  return sanitizeApiPayloadRecursively(body);
 }
 
-function composeConstraintField(userValue, builtInRules, stepKey, maxLength = API_CONSTRAINT_FIELD_LIMIT, includeInstruction = true) {
-  const safeMaxLength = Math.min(Math.max(320, Number(maxLength) || API_CONSTRAINT_FIELD_LIMIT), API_CONSTRAINT_FIELD_LIMIT);
-  const base = text(userValue);
-  const builtIn = text(builtInRules);
-  const instruction = includeInstruction ? aiInstructionBlock(stepKey, 520) : "";
-  const fixed = [instruction, builtIn].filter(Boolean).join("\n\n");
-  if (!base) return trimApiConstraintText(fixed, safeMaxLength);
-  const safeBase = trimApiConstraintText(base, Math.min(1400, Math.max(360, Math.floor(safeMaxLength * 0.62))));
-  const remaining = Math.max(0, safeMaxLength - safeBase.length - 2);
-  const fixedPart = trimApiConstraintText(fixed, remaining);
-  return trimApiConstraintText(`${safeBase}${safeBase && fixedPart ? "\n\n" : ""}${fixedPart}`, safeMaxLength);
+function composeConstraintField(userValue, builtInRules, stepKey, _maxLength = API_CONSTRAINT_FIELD_LIMIT, includeInstruction = true) {
+  const base = String(userValue || "").trim();
+  const builtIn = String(builtInRules || "").trim();
+  const instruction = includeInstruction ? aiInstructionBlock(stepKey) : "";
+  return [base, instruction, builtIn].filter(Boolean).join("\n\n");
 }
+
 
 function characterNamesMentioned(value) {
   const source = String(value || "");
@@ -3474,7 +3469,7 @@ function repairUngroundedAndDuplicatePrompts(sceneId = "") {
   return changed;
 }
 
-const TTS_API_URL = "http://tts2.121w.com/v1/audio/speech";
+const TTS_API_URL = "/api/tts";
 const TTS_VOICE_OPTIONS = [
   { value: "zh-CN-XiaoxiaoNeural", label: "晓晓 (女声·温柔)" },
   { value: "zh-CN-YunxiNeural", label: "云希 (男声·清朗)" },
@@ -3697,17 +3692,17 @@ function markLatestUiEdit(target) {
 
 function commitLatestEditableUiState(reason = "manual") {
   try {
-    state.appearance_reference = String(readFieldValue("#appearanceReference", state.appearance_reference) || "").slice(0, 6000);
-    state.character_guide_input = String(readFieldValue("#characterGuideInput", state.character_guide_input) || "").slice(0, 10000);
-    state.global_analysis_advice = String(readFieldValue("#globalAnalysisAdvice", state.global_analysis_advice) || "").slice(0, 4000);
-    state.promptExampleText = String(readFieldValue("#promptExampleText", state.promptExampleText) || "").slice(0, 5000);
-    state.promptExampleLogic = String(readFieldValue("#promptExampleLogic", state.promptExampleLogic) || "").slice(0, 2400);
+    state.appearance_reference = String(readFieldValue("#appearanceReference", state.appearance_reference) || "");
+    state.character_guide_input = String(readFieldValue("#characterGuideInput", state.character_guide_input) || "");
+    state.global_analysis_advice = String(readFieldValue("#globalAnalysisAdvice", state.global_analysis_advice) || "");
+    state.promptExampleText = String(readFieldValue("#promptExampleText", state.promptExampleText) || "");
+    state.promptExampleLogic = String(readFieldValue("#promptExampleLogic", state.promptExampleLogic) || "");
     if (typeof readPromptDensity === "function") state.promptDensity = readPromptDensity();
 
     const instructionValues = {};
     for (const [key, selector] of Object.entries(AI_INSTRUCTION_FIELD_IDS || {})) {
       const node = document.querySelector(selector);
-      if (node) instructionValues[key] = String(node.value || "").slice(0, 6000);
+      if (node) instructionValues[key] = String(node.value || "");
     }
     if (Object.keys(instructionValues).length) {
       state.aiInstructions = normalizeAiInstructions({ ...normalizeAiInstructions(state.aiInstructions), ...instructionValues });
@@ -3744,7 +3739,7 @@ function commitLatestEditableUiState(reason = "manual") {
       if (!shot) return;
       const prompt = card.querySelector('[data-field="prompt"]');
       const duration = card.querySelector('[data-field="duration"]');
-      if (prompt) shot.prompt = String(prompt.value || "").slice(0, 12000);
+      if (prompt) shot.prompt = String(prompt.value || "");
       const seconds = Number(duration?.value);
       if (Number.isFinite(seconds) && seconds > 0) shot.duration = seconds;
     });
@@ -3790,11 +3785,11 @@ function commitLatestEditableUiState(reason = "manual") {
           slot.manual_values.visual_age_stage = slot.age.visual_age_stage;
         }
         if (note?.dataset.liveModified === "true") {
-          slot.appearance_revision_note = String(note.value || "").slice(0, 5000);
+          slot.appearance_revision_note = String(note.value || "");
           slot.manual_values.appearance_revision_note = slot.appearance_revision_note;
         }
         if (appearance?.dataset.liveModified === "true") {
-          slot.appearance = String(appearance.value || "").slice(0, 6000);
+          slot.appearance = String(appearance.value || "");
           slot.appearance_status = slot.appearance ? "ready" : "missing";
           slot.manual_values.appearance = slot.appearance;
         }
@@ -4315,7 +4310,7 @@ async function generateTtsAudio() {
       let message = "配音生成失败，请稍后重试。";
       try {
         const errorData = await response.json();
-        message = text(errorData?.error?.message) || text(errorData?.message) || message;
+        message = text(errorData?.error?.message) || text(errorData?.error) || text(errorData?.message) || message;
       } catch {}
       throw new Error(message);
     }
@@ -8803,7 +8798,7 @@ function hydrateScenesWithSourceText(rawScenes, novelText) {
         source_text: sourceScenes[index].source_text,
         source_index: sourceScenes[index].source_index,
       })),
-      compatibilityNotice: "当前项目缺少 AI 原文分镜文本，已按整段原文临时回填，请重新按整段原文生成分镜/画面确认。",
+      compatibilityNotice: "当前工作区缺少 AI 原文分镜文本，已按整段原文临时回填，请重新按整段原文生成分镜/画面确认。",
     };
   }
 
@@ -8814,7 +8809,7 @@ function hydrateScenesWithSourceText(rawScenes, novelText) {
       source_text: sourceTextFromScene(scene),
       source_index: normalizeSourceIndex(scene.source_index, index + 1),
     })),
-    compatibilityNotice: "当前项目缺少可恢复的 AI 原文分镜文本，需重新按整段原文生成分镜/画面对齐原文。",
+    compatibilityNotice: "当前工作区缺少可恢复的 AI 原文分镜文本，需重新按整段原文生成分镜/画面对齐原文。",
   };
 }
 
@@ -8943,7 +8938,7 @@ function getProjectData() {
     style_ai_suggestions: state.styleAiSuggestions,
     appearance_reference: state.appearance_reference,
     character_guide_input: state.character_guide_input,
-    global_analysis_advice: text(readFieldValue("#globalAnalysisAdvice", state.global_analysis_advice)).slice(0, 4000),
+    global_analysis_advice: String(readFieldValue("#globalAnalysisAdvice", state.global_analysis_advice) || ""),
     character_registry_source_hash: state.characterRegistrySourceHash,
     character_guide_source_hash: state.characterGuideSourceHash,
     deleted_character_keys: normalizeDeletedCharacterKeys(state.deletedCharacterKeys),
@@ -8951,8 +8946,8 @@ function getProjectData() {
     character_logic_version: state.characterLogicVersion || 2,
     ai_instructions: normalizeAiInstructions(state.aiInstructions),
     prompt_density: readPromptDensity(),
-    prompt_example_text: text(readFieldValue("#promptExampleText", state.promptExampleText)).slice(0, 5000),
-    prompt_example_logic: text(readFieldValue("#promptExampleLogic", state.promptExampleLogic)).slice(0, 2400),
+    prompt_example_text: String(readFieldValue("#promptExampleText", state.promptExampleText) || ""),
+    prompt_example_logic: String(readFieldValue("#promptExampleLogic", state.promptExampleLogic) || ""),
     characters: state.characters,
     tts: normalizeTtsState(state.tts),
     scene_options: [],
@@ -9069,13 +9064,12 @@ async function updateShotDuration(shotId, nextDuration, options = {}) {
 function setButtonBusy(button, busy, label = "处理中") {
   if (!button) return;
   if (busy) {
-    if (!button.dataset.originalText) button.dataset.originalText = button.textContent;
+    button.dataset.originalText = button.textContent;
     button.disabled = true;
     button.textContent = label;
   } else {
     button.disabled = false;
     button.textContent = button.dataset.originalText || button.textContent;
-    delete button.dataset.originalText;
   }
 }
 
@@ -9426,6 +9420,10 @@ function validateOptimizedCharacterBatch(currentCharacters = [], incomingCharact
 }
 
 async function optimizeAllCharacters() {
+  const characterCore = globalThis.__characterCoreV2Api;
+  if (characterCore && typeof characterCore.runCharacters === "function") {
+    return characterCore.runCharacters({button: $("#optimizeAllCharactersBtn")});
+  }
   const novelText = text(readFieldValue("#novelText"));
   if (!novelText) return apiError("请先粘贴整段原文。");
   if (!state.characters.length) return apiError("当前没有可重新生成的人物。");
@@ -9865,8 +9863,6 @@ function renderScenes() {
         const nameNode = document.createTextNode(characterDisplayName(person));
         const sourceTag = document.createElement("small");
         sourceTag.className = "cast-source-tag";
-        sourceTag.style.marginLeft = "4px";
-        sourceTag.style.color = "#64748b";
         sourceTag.textContent = castSourceLabel(scene, personSlotId);
         label.append(checkbox, nameNode, sourceTag);
         peopleBox.appendChild(label);
@@ -10787,6 +10783,15 @@ ${fullOutlineSkillAppendix}`,
       shot_rhythm_requirements: buildPriorityConstraintField(shotRhythmRequirements, "镜头节奏与推进要求"),
       characters: outlineCharactersV18,
     };
+    console.info("[OUTLINE_PAYLOAD_TRACE]", {
+      build: "v77-hotfix26",
+      camera_chars: String(outlinePayload.camera || "").length,
+      must_cover_chars: String(outlinePayload.must_cover_details || "").length,
+      rhythm_chars: String(outlinePayload.shot_rhythm_requirements || "").length,
+      generation_rules_chars: String(outlinePayload.generation_rules || "").length,
+      characters_count: Array.isArray(outlinePayload.characters) ? outlinePayload.characters.length : 0,
+      schema_length_blocking: false,
+    });
     // Hotfix16：请求期间保留当前有效结果。第一轮缺少分镜时只自动补齐缺失项，
     // 不清空成功内容、不回滚，也不使用事务式硬阻拦。
     const previousScenesV16 = cloneValueV16(state.scenes || []);
@@ -10812,29 +10817,10 @@ ${fullOutlineSkillAppendix}`,
     if (!displayabilityCheck.ok) {
       if (previousShotsV16.length) {
         showAIStatusNotice("本轮AI没有返回可用画面，已保留当前已有分镜；可再次点击整段生成或使用单条重生成。", "warning", 9000);
-        return { applied: false, reason: "outline_displayability_blocked" };
+        return;
       }
       throw new Error(`${displayabilityCheck.issues.join("；")}；接口没有返回任何可写入画面卡的数据。`);
     }
-    const outlineApplyGate = globalThis.__outlineQualityGateV77?.validateOutlineApplyGate?.(data, {
-      mode: "outline",
-      novelText,
-      previousScenes: previousScenesV16,
-      previousShots: previousShotsV16,
-      lineCharacterPlans,
-      allCharacterNames: (state.characters || []).map((item) => text(item.name || item.display_name)).filter(Boolean),
-    });
-    if (outlineApplyGate && !outlineApplyGate.ok) {
-      state.lastOutlineValidation = outlineApplyGate;
-      const gateMessage = globalThis.__outlineQualityGateV77?.summarizeOutlineGateIssues?.(outlineApplyGate)
-        || "AI返回结果未通过分镜验收。";
-      if (previousShotsV16.length) {
-        showAIStatusNotice(`AI返回结果未覆盖当前分镜：${gateMessage}`, "warning", 12000);
-        return { applied: false, reason: "outline_quality_gate_blocked" };
-      }
-      throw new Error(`${gateMessage}；接口没有返回可安全写入的画面卡。`);
-    }
-    state.lastOutlineValidation = outlineApplyGate || { ok: true, severity: "info", blockingIssues: [], warnings: [], metrics: {} };
     // 第二步“统一风格与人物”只允许在分析阶段被改写。
     // 点击“按整段原文生成分镜/画面”后，仅更新分镜与时间轴，不回写人物卡、人物修改意见、外形细节或统一风格字段。
     let lineCanonical = canonicalizeOutlineToSourceLines(data, novelText, lineCharacterPlans);
@@ -10866,12 +10852,11 @@ ${fullOutlineSkillAppendix}`,
     clearFinalSegments();
     const requestSeconds = Number(data.outline_request_seconds) || 0;
     if (durationNormalized?.applied) {
-      showAIStatusNotice(`本次整段生成用时 ${requestSeconds.toFixed(1)} 秒${supplementedCountV16 ? `；已自动补齐 ${supplementedCountV16} 条首轮缺失分镜` : ""}${coverageV16.missing.length ? `；仍有 ${coverageV16.missing.length} 条待单镜补齐，已保留现有有效结果` : ""}${supplementFailedV16 ? "；专项补齐请求未完成" : ""}；精简后输入约 ${Number(data.outline_payload_chars || 0)} 字符、人物 ${Number(data.outline_character_count || 0)} 个；已实际路由内容 Skill：${autoSkillRoute.names.join("、")}；运镜 Skill：${cameraSkillRoute.names.join("、")}，并完整携带复杂叙事理解、专业运镜与电视剧级风格画质Skill；第一步原文细节、镜头节奏和全局建议均作为最高优先级传达，并附带逐行人物白名单与通用导演标准化Skill；AI返回的画面正文已通过结构、覆盖和可用性验收后写入，不做模板重写。时间轴校正：${durationNormalized.previous_total} 秒 → ${durationNormalized.next_total} 秒（参考目标 ${durationNormalized.target} 秒）${durationNormalized.merged_count ? `，合并 ${durationNormalized.merged_count} 张过碎画面卡` : ""}${durationNormalized.target_limited ? "；为避免复制镜头、静止口型和无变化补时，本次未强行拉满参考秒数" : ""}。如内容不满意，可手动修改或单条重生成。`, "ready", 9000);
+      showAIStatusNotice(`本次整段生成用时 ${requestSeconds.toFixed(1)} 秒${supplementedCountV16 ? `；已自动补齐 ${supplementedCountV16} 条首轮缺失分镜` : ""}${coverageV16.missing.length ? `；仍有 ${coverageV16.missing.length} 条待单镜补齐，已保留现有有效结果` : ""}${supplementFailedV16 ? "；专项补齐请求未完成" : ""}；精简后输入约 ${Number(data.outline_payload_chars || 0)} 字符、人物 ${Number(data.outline_character_count || 0)} 个；已实际路由内容 Skill：${autoSkillRoute.names.join("、")}；运镜 Skill：${cameraSkillRoute.names.join("、")}，并完整携带复杂叙事理解、专业运镜与电视剧级风格画质Skill；第一步原文细节、镜头节奏和全局建议均作为最高优先级传达，并附带逐行人物白名单与通用导演标准化Skill；AI返回的画面正文已直接写入，不再经过本地质量拦截或模板重写。时间轴校正：${durationNormalized.previous_total} 秒 → ${durationNormalized.next_total} 秒（参考目标 ${durationNormalized.target} 秒）${durationNormalized.merged_count ? `，合并 ${durationNormalized.merged_count} 张过碎画面卡` : ""}${durationNormalized.target_limited ? "；为避免复制镜头、静止口型和无变化补时，本次未强行拉满参考秒数" : ""}。如内容不满意，可手动修改或单条重生成。`, "ready", 9000);
     } else {
-      showAIStatusNotice(`本次整段生成用时 ${requestSeconds.toFixed(1)} 秒${supplementedCountV16 ? `；已自动补齐 ${supplementedCountV16} 条首轮缺失分镜` : ""}${coverageV16.missing.length ? `；仍有 ${coverageV16.missing.length} 条待单镜补齐，已保留现有有效结果` : ""}${supplementFailedV16 ? "；专项补齐请求未完成" : ""}；精简后输入约 ${Number(data.outline_payload_chars || 0)} 字符、人物 ${Number(data.outline_character_count || 0)} 个；已实际路由内容 Skill：${autoSkillRoute.names.join("、")}；运镜 Skill：${cameraSkillRoute.names.join("、")}，并完整携带复杂叙事理解、专业运镜与电视剧级风格画质Skill；第一步原文细节、镜头节奏和全局建议均作为最高优先级传达，并附带逐行人物白名单与通用导演标准化Skill；AI返回的画面正文已通过结构、覆盖和可用性验收后写入，不做模板重写或自动重试。可手动修改、单条重生成，也可再次点击整段生成${temporaryIssuesV22.length ? `；临时人物有 ${temporaryIssuesV22.length} 个分镜需人工复核，可直接单条重生成` : ""}。`, "ready", 8200);
+      showAIStatusNotice(`本次整段生成用时 ${requestSeconds.toFixed(1)} 秒${supplementedCountV16 ? `；已自动补齐 ${supplementedCountV16} 条首轮缺失分镜` : ""}${coverageV16.missing.length ? `；仍有 ${coverageV16.missing.length} 条待单镜补齐，已保留现有有效结果` : ""}${supplementFailedV16 ? "；专项补齐请求未完成" : ""}；精简后输入约 ${Number(data.outline_payload_chars || 0)} 字符、人物 ${Number(data.outline_character_count || 0)} 个；已实际路由内容 Skill：${autoSkillRoute.names.join("、")}；运镜 Skill：${cameraSkillRoute.names.join("、")}，并完整携带复杂叙事理解、专业运镜与电视剧级风格画质Skill；第一步原文细节、镜头节奏和全局建议均作为最高优先级传达，并附带逐行人物白名单与通用导演标准化Skill；AI返回的画面正文已直接写入，不再经过本地质量拦截、模板重写或自动重试。可手动修改、单条重生成，也可再次点击整段生成${temporaryIssuesV22.length ? `；临时人物有 ${temporaryIssuesV22.length} 个分镜需人工复核，可直接单条重生成` : ""}。`, "ready", 8200);
     }
     scheduleDraftSave();
-    return { applied: true, reason: "outline_applied" };
   } catch (error) {
     setButtonBusy(button, false);
     const message = formatApiError(error);
@@ -11460,22 +11445,15 @@ async function regenerateSceneOutline(sceneId) {
       shot.temporary_characters = mergeTemporaryCharactersV22(sceneSnapshot.temporary_characters || [], shot.temporary_characters || [], sourceText, text(sceneSnapshot.temporary_scene_group || sceneSnapshot.source_key || `temp_scene_${sceneSnapshot.source_index || 1}`));
       return shot;
     });
-    const regenerateApplyGate = globalThis.__outlineQualityGateV77?.validateOutlineApplyGate?.({ outline_shots: refreshed }, {
-      mode: "regenerate",
-      novelText: sourceText,
-      scene: sceneSnapshot,
-      guidance: rawGuidance,
-      beforeShots: currentShots,
-      allCharacterNames: (state.characters || []).map((item) => text(item.name || item.display_name)).filter(Boolean),
-    });
-    if (regenerateApplyGate && !regenerateApplyGate.ok) {
-      state.lastOutlineValidation = regenerateApplyGate;
-      const gateMessage = globalThis.__outlineQualityGateV77?.summarizeOutlineGateIssues?.(regenerateApplyGate)
-        || "AI单条结果未通过验收。";
-      showAIStatusNotice(`当前分镜未覆盖：${gateMessage}`, "warning", 12000);
-      return { applied: false, reason: "regenerate_quality_gate_blocked" };
+    const directReturnAdvisories = [];
+    const supplementCheck = validateRegenerationSupplementApplied(rawGuidance, currentShots, refreshed);
+    if (!supplementCheck.ok) directReturnAdvisories.push(supplementCheck.reason);
+
+    const manualCharacterCheck = validateManualSceneCharacterAuthority(sceneSnapshot, refreshed);
+    if (!manualCharacterCheck.ok) directReturnAdvisories.push(manualCharacterCheck.reason);
+    if (directReturnAdvisories.length) {
+      console.warn("AI单条结果诊断（仅记录，不拦截）", directReturnAdvisories);
     }
-    state.lastOutlineValidation = regenerateApplyGate || { ok: true, severity: "info", blockingIssues: [], warnings: [], metrics: {} };
 
     state.outlineShots = state.outlineShots.filter((shot) => !(shot.parent_scene_ids || []).includes(sceneId) && shot.parent_scene_id !== sceneId);
     state.outlineShots.push(...refreshed);
@@ -11499,9 +11477,8 @@ async function regenerateSceneOutline(sceneId) {
 
     const seconds = Number(data.regenerate_request_seconds) || 0;
     const payloadChars = Number(data.regenerate_payload_chars) || 0;
-    showAIStatusNotice(`当前分镜已通过验收并按补充建议完成纯AI定向修改。软件发送“当前原文 + 补充建议 + 当前完整画面提示词 + 勾选人物 + 上一/下一分镜精简连续性参考 + 原文语义理解/导演/题材Skill”；AI返回的完整画面通过结构、人物和补充建议检查后写入。用时 ${seconds.toFixed(1)} 秒；输入约 ${payloadChars} 字符。`, "ready", 12000);
+    showAIStatusNotice(`当前分镜已按补充建议完成纯AI定向修改。软件发送“当前原文 + 补充建议 + 当前完整画面提示词 + 勾选人物 + 上一/下一分镜精简连续性参考 + 原文语义理解/导演/题材Skill”；AI返回的完整画面已直接写入，即使本地诊断认为时段数量、人物或建议落实程度可能不同，也不再阻止覆盖。用时 ${seconds.toFixed(1)} 秒；输入约 ${payloadChars} 字符。`, "ready", 12000);
     scheduleDraftSave();
-    return { applied: true, reason: "regenerate_applied" };
   } catch (error) {
     apiError(error.message);
   } finally {
@@ -11808,9 +11785,9 @@ function applyProjectData(projectId, name, data = {}) {
   writeFieldValue("#shotRhythmRequirements", data.shot_rhythm_requirements || "");
   writeStyle(data.style || {});
   writeStyleNotes(data.style_notes || {});
-  state.appearance_reference = text(data.appearance_reference).slice(0, 6000);
-  state.character_guide_input = text(data.character_guide_input).slice(0, 10000);
-  state.global_analysis_advice = text(data.global_analysis_advice).slice(0, 4000);
+  state.appearance_reference = String(data.appearance_reference || "");
+  state.character_guide_input = String(data.character_guide_input || "");
+  state.global_analysis_advice = String(data.global_analysis_advice || "");
   const loadedNovelText = text(data.novel_text || "");
   const loadedCharacterHash = buildCharacterSourceFingerprint(loadedNovelText);
   state.characterRegistrySourceHash = text(data.character_registry_source_hash) || loadedCharacterHash;
@@ -11837,8 +11814,8 @@ function applyProjectData(projectId, name, data = {}) {
   const savedPromptMode = normalizePromptDensity(data.prompt_density || "strict");
   // 旧项目的精简/标准模式自动迁移到强约束成品版，避免继续沿用旧的空泛镜头逻辑；用户主动选择的详细/案例模式保留。
   state.promptDensity = ["strict", "concise", "balanced", "detailed", "example", "reference"].includes(savedPromptMode) ? savedPromptMode : "strict";
-  state.promptExampleText = text(data.prompt_example_text).slice(0, 5000);
-  state.promptExampleLogic = text(data.prompt_example_logic).slice(0, 2400);
+  state.promptExampleText = String(data.prompt_example_text || "");
+  state.promptExampleLogic = String(data.prompt_example_logic || "");
   writeFieldValue("#promptDensity", state.promptDensity);
   writeFieldValue("#promptExampleText", state.promptExampleText);
   writeFieldValue("#promptExampleLogic", state.promptExampleLogic);
@@ -12198,7 +12175,13 @@ function initializeApp() {
     }
     return apiError("CharacterCore 2.0 V77尚未完成加载，请刷新页面后重试。");
   });
-  bindEvent("#optimizeAllCharactersBtn", "click", optimizeAllCharacters);
+  bindEvent("#optimizeAllCharactersBtn", "click", () => {
+    const characterCore = globalThis.__characterCoreV2Api;
+    if (characterCore && typeof characterCore.runCharacters === "function") {
+      return characterCore.runCharacters({button: $("#optimizeAllCharactersBtn")});
+    }
+    return optimizeAllCharacters();
+  });
   bindEvent("#extractExampleLogicBtn", "click", extractPromptExampleLogic);
   bindEvent("#promptDensity", "change", () => {
     state.promptDensity = readPromptDensity();
@@ -12207,25 +12190,25 @@ function initializeApp() {
     scheduleDraftSave();
   });
   bindEvent("#promptExampleText", "input", (event) => {
-    state.promptExampleText = text(event.target?.value).slice(0, 5000);
+    state.promptExampleText = String(event.target?.value || "");
     scheduleDraftSave();
   });
   bindEvent("#promptExampleLogic", "input", (event) => {
-    state.promptExampleLogic = text(event.target?.value).slice(0, 2400);
+    state.promptExampleLogic = String(event.target?.value || "");
     clearFinalSegments();
     scheduleDraftSave();
   });
   bindEvent("#appearanceReference", "input", (event) => {
-    state.appearance_reference = text(event.target?.value).slice(0, 1200);
+    state.appearance_reference = String(event.target?.value || "");
     scheduleDraftSave();
   });
   bindEvent("#globalAnalysisAdvice", "input", (event) => {
-    state.global_analysis_advice = text(event.target?.value).slice(0, 1800);
+    state.global_analysis_advice = String(event.target?.value || "");
     clearFinalSegments();
     scheduleDraftSave();
   });
   bindEvent("#characterGuideInput", "input", (event) => {
-    state.character_guide_input = text(event.target?.value).slice(0, 1200);
+    state.character_guide_input = String(event.target?.value || "");
     const novelText = readNovelTextRaw();
     state.characterGuideSourceHash = buildCharacterSourceFingerprint(novelText);
     const spec = parseCharacterGuideSpec(state.character_guide_input, novelText);
@@ -13684,6 +13667,13 @@ async function requestJSON(url, options = {}) {
       try { globalThis.__retireVideoPromptToolPage?.(data?.error || "旧页面会话已失效。"); } catch (_error) {}
     }
     let detail = formatApiError(data?.detail ?? data?.message ?? data?.error ?? data);
+    if (response.status === 422) {
+      try {
+        const rawDetail = Array.isArray(data?.detail) ? data.detail : [];
+        const lengthIssue = rawDetail.find((item) => String(item?.type || item?.msg || "").toLowerCase().includes("too_long") || String(item?.msg || "").toLowerCase().includes("at most"));
+        if (lengthIssue) console.error("[SCHEMA_MISMATCH_TRACE]", { build:"v77-hotfix26", field:(lengthIssue.loc||[]).join("."), message:lengthIssue.msg, ctx:lengthIssue.ctx||{}, current_camera_chars:String(state.compatCamera||"").length });
+      } catch (_error) {}
+    }
     if (data?.code === "V77_STAGE_PROTOCOL_ERROR" && data?.stage) detail = `V77阶段 ${data.stage} 返回协议未完成：${detail}`;
     const classifications = [
       ["[AI_OUTPUT_TRUNCATED]", "AI人物结果被输出长度截断"],
@@ -14442,7 +14432,6 @@ renderCharacters = function v43RenderCharacters() {
   if (state.characterAnalysisResultStatus === "stale" && (state.characters || []).length) {
     const banner = document.createElement("div");
     banner.className = "v43-character-result-banner";
-    banner.style.cssText = "margin:0 0 12px;padding:10px 12px;border:1px solid #f0b75a;border-radius:8px;background:#fff7e6;color:#8a4b00;font-size:13px;line-height:1.55;";
     banner.textContent = "当前显示的是上一次保存的人物卡，不是本次AI返回结果。本次人物分析未通过解析或事务校验，未写入任何新人物卡。";
     container.prepend(banner);
     [...container.querySelectorAll(".character-card")].forEach((cardNode) => {
@@ -14655,8 +14644,7 @@ renderCharacters = function v44RenderCharacters() {
     container.innerHTML = "";
     const banner = document.createElement("div");
     banner.className = "v44-character-isolation-banner";
-    banner.style.cssText = "padding:12px;border:1px solid #ef9f43;border-radius:8px;background:#fff7e6;color:#7a4300;font-size:13px;line-height:1.65;";
-    banner.textContent = "本次人物分析失败：旧版人物卡已隔离，不会作为当前人物卡显示，也不会参与分镜生成。请重新执行AI判断内容类型与统一风格。";
+    banner.textContent = "当前人物卡未生成或不可用；如页面已有内容类型与统一风格，可直接按强制名单生成人物卡，无需重复生成风格。";
     container.appendChild(banner);
   }
 };
@@ -19262,7 +19250,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
 
   function hf17SyncTopLevelFields(){
     state.appearance_reference = String(hf17Read("#appearanceReference", state.appearance_reference || "") || "").slice(0, 6000);
-    state.character_guide_input = String(hf17Read("#characterGuideInput", state.character_guide_input || "") || "").slice(0, 10000);
+    state.character_guide_input = String(hf17Read("#characterGuideInput", state.character_guide_input || "") || "");
     state.global_analysis_advice = String(hf17Read("#globalAnalysisAdvice", state.global_analysis_advice || "") || "").slice(0, 4000);
     state.promptExampleText = String(hf17Read("#promptExampleText", state.promptExampleText || "") || "").slice(0, 5000);
     state.promptExampleLogic = String(hf17Read("#promptExampleLogic", state.promptExampleLogic || "") || "").slice(0, 2400);
@@ -19284,7 +19272,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
       const latest = {};
       Object.entries(AI_INSTRUCTION_FIELD_IDS || {}).forEach(([key, selector]) => {
         const node = document.querySelector(selector);
-        if (node) latest[key] = String(node.value || "").slice(0, 6000);
+        if (node) latest[key] = String(node.value || "");
       });
       state.aiInstructions = normalizeAiInstructions({ ...normalizeAiInstructions(state.aiInstructions), ...latest });
     }
@@ -19331,9 +19319,9 @@ if (typeof buildAnalysisNovelPayload === "function") {
         slot.age.stage_locked = Boolean(selected);
         slot.age.stage_source = selected ? "current_ui" : "current_ui_empty";
       }
-      if (note) slot.appearance_revision_note = String(note.value || "").slice(0, 5000);
+      if (note) slot.appearance_revision_note = String(note.value || "");
       if (appearance) {
-        slot.appearance = String(appearance.value || "").slice(0, 6000);
+        slot.appearance = String(appearance.value || "");
         slot.appearance_status = slot.appearance ? "ready" : "missing";
       }
       if (chronologicalAge) slot.age.chronological_age = String(chronologicalAge.value || "").trim();
@@ -19443,7 +19431,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
       if (!shot) return;
       const prompt = card.querySelector('[data-field="prompt"]');
       const duration = card.querySelector('[data-field="duration"]');
-      if (prompt) shot.prompt = String(prompt.value || "").slice(0, 12000);
+      if (prompt) shot.prompt = String(prompt.value || "");
       const seconds = Number(duration?.value);
       if (Number.isFinite(seconds) && seconds > 0) shot.duration = seconds;
     });
@@ -20002,12 +19990,11 @@ if (typeof buildAnalysisNovelPayload === "function") {
     }
     const baseOutline = globalThis.__V77_HOTFIX19_BASE_OUTLINE__;
     const baseRegenerate = globalThis.__V77_HOTFIX19_BASE_REGENERATE__;
-    const shouldRunPostRequestSync = (result) => !(result && result.applied === false);
     if (typeof baseOutline === "function") {
       const outlineWrapper = async function(){
         await hf19SynchronizeCasting("before_outline", { preRequest: true, render: true });
         const result = await baseOutline.apply(this, arguments);
-        if (shouldRunPostRequestSync(result)) await hf19SynchronizeCasting("after_outline", { render: true });
+        await hf19SynchronizeCasting("after_outline", { render: true });
         return result;
       };
       outlineWrapper.__v77Hotfix19 = true;
@@ -20024,16 +20011,11 @@ if (typeof buildAnalysisNovelPayload === "function") {
       const regenerateWrapper = async function(sceneId){
         await hf19SynchronizeCasting("before_scene_regeneration", { preRequest: true, render: true });
         const result = await baseRegenerate.call(this, sceneId);
-        if (shouldRunPostRequestSync(result)) await hf19SynchronizeCasting("after_scene_regeneration", { render: true });
+        await hf19SynchronizeCasting("after_scene_regeneration", { render: true });
         return result;
       };
       regenerateWrapper.__v77Hotfix19 = true;
       globalThis.regenerateSceneOutline = regenerateWrapper;
-    }
-    const badge = document.querySelector("#v77NativeBuildBadge");
-    if (badge) {
-      badge.textContent = "V77 Hotfix19 人物卡修改后选角迁移";
-      badge.title = "人物卡修改后按person_id迁移当前slot_id，双通道重算并清理无证据历史人工排除";
     }
   }
 
@@ -20043,9 +20025,10 @@ if (typeof buildAnalysisNovelPayload === "function") {
     const coreBound = Boolean(document.querySelector("#v77NativeBuildBadge")) || hf19Text(outlineButton?.dataset?.handlerVersion).includes("v77-hotfix19");
     if (!apiReady || !coreBound) return false;
     hf19SynchronizeCasting("startup_migration", { render: true }).catch(() => {});
-    hf19InstallRequestWrappers();
-    setTimeout(hf19InstallRequestWrappers, 1000);
-    setTimeout(hf19InstallRequestWrappers, 2500);
+    if (!globalThis.__V77_HOTFIX19_WRAPPERS_INSTALLED__) {
+      hf19InstallRequestWrappers();
+      globalThis.__V77_HOTFIX19_WRAPPERS_INSTALLED__ = true;
+    }
     return true;
   }
 
@@ -20488,21 +20471,12 @@ if (typeof buildAnalysisNovelPayload === "function") {
     hf20ScheduleSync("character_slot_signature_changed");
   }, 650);
 
-  function hf20ApplyBadge(){
-    const badge = document.querySelector("#v77NativeBuildBadge");
-    if (badge) {
-      badge.textContent = "V77 Hotfix22 通用临时人物短期一致性";
-      badge.title = "最终分段统一人物只读取当前CharacterCore人物卡，其他手动内容不会回滚";
-    }
-  }
+  function hf20ApplyBadge(){ return globalThis.__v77ApplyRuntimeBadge?.() || false; }
   function hf20Init(){
     hf20Array(state?.segments).forEach((segment, index) => hf20EnsureSegment(segment, index));
     hf20SyncAllSegmentCharacters();
     try { renderSegments(); } catch (_error) {}
-    hf20ApplyBadge();
-    setTimeout(hf20ApplyBadge, 900);
-    setTimeout(hf20ApplyBadge, 2200);
-    setTimeout(hf20ApplyBadge, 3600);
+    globalThis.__v77ApplyRuntimeBadge?.();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(hf20Init, 420), { once: true });
   else setTimeout(hf20Init, 420);
@@ -20521,7 +20495,6 @@ if (typeof buildAnalysisNovelPayload === "function") {
   const V23_STORAGE_KEY = "video_prompt_tool_ai_instructions_v77_hotfix23_full_center";
   const V23_BACKUP_KEY = "video_prompt_tool_ai_instructions_v77_hotfix23_legacy_backup";
   const V23_VERSION = 23;
-  const V23_MAX_INSTRUCTION_CHARS = 60000;
   const V23_SHARED_BY_STEP = {
     outline: ["skill_source_to_visual","skill_scene_continuity","skill_temporary_characters","skill_shot_camera","skill_dialogue_coverage"],
     scene_regenerate: ["skill_source_to_visual","skill_scene_continuity","skill_temporary_characters","skill_shot_camera","skill_dialogue_coverage"],
@@ -20604,7 +20577,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
     V23_KEYS.forEach((key)=>{
       const raw=src[key];
       const fallback=V23_DEFAULTS[key] || "";
-      out[key]=String(raw===undefined || raw===null ? fallback : raw).slice(0,V23_MAX_INSTRUCTION_CHARS);
+      out[key]=String(raw===undefined || raw===null ? fallback : raw);
     });
     return out;
   }
@@ -20671,7 +20644,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
   aiInstructionBlock = function v23AiInstructionBlock(stepKey,_maxLength){
     const instruction=v23Compose(stepKey);
     if(!instruction) return "";
-    console.info("[AI_INSTRUCTION_TRACE]",{step:stepKey,instruction_revision:V23_VERSION,total_chars:instruction.length,instruction_hash:v23Hash(instruction),truncated:false,source:"Hotfix23_current"});
+    console.info("[AI_INSTRUCTION_TRACE]",{step:stepKey,instruction_revision:V23_VERSION,total_chars:instruction.length,instruction_hash:v23Hash(instruction),truncated:false,source:"Hotfix25_current"});
     return `【附加 AI 执行指令｜只改变内容语义，不属于小说原文｜协议锁定】\n${instruction}\n【附加 AI 指令结束】`;
   };
   appendInstructionToNovel = function v23AppendInstructionToNovel(novelText,stepKey,_maxLength){
@@ -20707,7 +20680,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
     if(!editor) return true;
     const loadedKey=String(editor.dataset.loadedKey||v23CurrentKey||"");
     if(!loadedKey) return true;
-    const nextValue=String(editor.value||"").slice(0,V23_MAX_INSTRUCTION_CHARS);
+    const nextValue=String(editor.value||"");
     const risk=v23ProtocolMutationRisk(nextValue);
     if(risk){
       const status=v23ById("instructionCenterAiStatus");
@@ -20793,7 +20766,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
       const risk=v23ProtocolMutationRisk(revised);
       if(!revised) throw new Error("AI没有返回完整修改后的指令。");
       if(risk){ if(resultBox)resultBox.value=`协议保护校验未通过，未应用AI修改。\n命中风险：${risk}\n\n${revised}`; if(status){status.className="settings-message error";status.textContent="AI修改触碰了协议保护区，已保留原指令。";} return; }
-      const editor=v23ById("instructionCenterEditor"); if(editor)editor.value=revised.slice(0,V23_MAX_INSTRUCTION_CHARS);
+      const editor=v23ById("instructionCenterEditor"); if(editor)editor.value=revised;
       if(resultBox)resultBox.value=[suggestions ? `AI修改说明：\n${suggestions}` : "",`\n修改后的完整指令已写入上方编辑器，尚未保存。`].filter(Boolean).join("\n");
       if(status){status.className="settings-message success";status.textContent="AI修改已通过协议保护校验并写入编辑器；确认后点击“保存当前修改”。";}
       v23RenderPreview();
@@ -20803,11 +20776,11 @@ if (typeof buildAnalysisNovelPayload === "function") {
     const btn=v23ById("promptSettingsBtn");
     if(btn && !btn.dataset.v23InstructionCenter){btn.dataset.v23InstructionCenter="1";btn.addEventListener("click",(event)=>{event.preventDefault();event.stopImmediatePropagation();v23OpenCenter();},true);}
     v23ById("instructionCenterBackBtn")?.addEventListener("click",v23CloseCenter);
-    v23ById("instructionCenterSaveCurrentBtn")?.addEventListener("click",()=>{if(v23SaveEditorToState()===false)return;const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="当前修改已写入当前项目草稿，下一次AI请求立即使用。";}v23RenderPreview();});
-    v23ById("instructionCenterSaveProjectBtn")?.addEventListener("click",()=>{if(v23SaveEditorToState()===false)return;try{scheduleDraftSave?.();}catch(_e){}const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="完整AI指令已保存到当前项目草稿。";}});
-    v23ById("instructionCenterSetDefaultBtn")?.addEventListener("click",()=>{if(v23SaveEditorToState()===false)return;v23PersistGlobal();const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="当前完整指令已设为以后新项目默认。";}});
+    v23ById("instructionCenterSaveCurrentBtn")?.addEventListener("click",()=>{if(v23SaveEditorToState()===false)return;const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="当前修改已写入当前工作区，下一次AI请求立即使用。";}v23RenderPreview();});
+    v23ById("instructionCenterSaveProjectBtn")?.addEventListener("click",()=>{if(v23SaveEditorToState()===false)return;try{scheduleDraftSave?.();}catch(_e){}const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="完整AI指令已保存到当前工作区。";}});
+    v23ById("instructionCenterSetDefaultBtn")?.addEventListener("click",()=>{if(v23SaveEditorToState()===false)return;v23PersistGlobal();const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="当前完整指令已设为软件以后默认。";}});
     v23ById("instructionCenterRestoreCurrentBtn")?.addEventListener("click",()=>{const editor=v23ById("instructionCenterEditor");if(editor)editor.value=V23_DEFAULTS[v23CurrentKey]||"";v23RenderPreview();});
-    v23ById("instructionCenterRestoreAllBtn")?.addEventListener("click",()=>{if(!window.confirm("恢复 Hotfix23 最新完整指令？当前项目中的自定义AI指令会被最新默认替换，旧版本已在浏览器本地备份。"))return;state.aiInstructions=v23DefaultSet();writeAiInstructionForm();v23PersistGlobal();try{scheduleDraftSave?.();}catch(_e){}v23LoadEditor(v23CurrentKey);const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="已恢复 Hotfix23 最新完整指令与最新共享Skill。";}});
+    v23ById("instructionCenterRestoreAllBtn")?.addEventListener("click",()=>{if(!window.confirm("恢复当前最新完整指令？当前自定义AI指令会被最新默认替换，旧版本已在浏览器本地备份。"))return;state.aiInstructions=v23DefaultSet();writeAiInstructionForm();v23PersistGlobal();try{scheduleDraftSave?.();}catch(_e){}v23LoadEditor(v23CurrentKey);const s=v23ById("instructionCenterAiStatus");if(s){s.className="settings-message success";s.textContent="已恢复当前最新完整指令与最新共享Skill。";}});
     v23ById("instructionCenterAiReviewBtn")?.addEventListener("click",()=>v23InstructionAssist("review"));
     v23ById("instructionCenterAiRewriteBtn")?.addEventListener("click",()=>v23InstructionAssist("rewrite"));
     v23ById("instructionCenterAiCorrectBtn")?.addEventListener("click",()=>v23InstructionAssist("correct"));
@@ -20830,10 +20803,225 @@ if (typeof buildAnalysisNovelPayload === "function") {
     const existing=state.aiInstructions;
     state.aiInstructions=(existing && Number(existing.__version)===V23_VERSION) ? v23Normalize(existing) : v23LoadGlobal();
     writeAiInstructionForm(); v23BindUi(); v23BuildNav();
-    const applyBadge=()=>{try{const badge=document.querySelector("#v77NativeBuildBadge");if(badge){badge.textContent="V77 Hotfix23 AI指令中心完整恢复";badge.title="完整AI指令、最新共享Skill、AI辅助修改与协议锁定";}}catch(_e){}};
-    applyBadge(); setTimeout(applyBadge,1300); setTimeout(applyBadge,2600); setTimeout(applyBadge,4300);
-    console.info("[V77 Hotfix23] instruction center loaded",{version:V23_VERSION,storage:V23_STORAGE_KEY});
+    globalThis.__v77ApplyRuntimeBadge?.();
+    console.info("[V77 Hotfix26] instruction center loaded",{version:V23_VERSION,storage:V23_STORAGE_KEY});
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>setTimeout(v23Init,520),{once:true});
   else setTimeout(v23Init,520);
+})();
+
+
+/* ========================================================================
+ * V77 Hotfix24 - manual history records / no project workflow / no step block
+ * - History files are created ONLY by explicit user save.
+ * - Loading a history restores a working snapshot and never restores API settings
+ *   or historical AI instructions.
+ * - Project leases and project IDs are disabled in the active workflow.
+ * ======================================================================== */
+(function(){
+  if(globalThis.__V77_HOTFIX24_HISTORY__) return;
+  globalThis.__V77_HOTFIX24_HISTORY__ = true;
+  const V24_BUILD = "v77-hotfix26";
+  const V24_INSTRUCTION_REVISION = 23;
+  const v24Text = (v)=>String(v ?? "").trim();
+  const v24Clone = (v)=>{ try{return JSON.parse(JSON.stringify(v));}catch(_e){return v;} };
+  state.currentHistoryId = state.currentHistoryId || null;
+  state.currentHistoryNote = state.currentHistoryNote || "";
+  state.projectId = null;
+
+  function v24CurrentAiInstructions(){ return v24Clone(state.aiInstructions || {}); }
+  function v24RestoreAiInstructions(value){
+    if(!value || typeof value!=="object") return;
+    state.aiInstructions=v24Clone(value);
+    try{writeAiInstructionForm?.();}catch(_e){}
+  }
+  function v24HistoryWorkspace(){
+    try{globalThis.__commitLatestEditableUiState?.("before_manual_history_save");}catch(_e){}
+    const data = (typeof getProjectData === "function" ? getProjectData() : {}) || {};
+    const workspace = v24Clone(data) || {};
+    // AI connection/settings are already outside project data. AI instructions are
+    // intentionally current-software settings and must not be restored by history.
+    delete workspace.ai_instructions;
+    // Preserve current full editable values even if a legacy serializer has a small slice.
+    const full = (id)=>String(document.querySelector(id)?.value ?? "");
+    workspace.novel_text = full("#novelText");
+    workspace.character_guide_input = full("#characterGuideInput");
+    workspace.appearance_reference = full("#appearanceReference");
+    workspace.global_analysis_advice = full("#globalAnalysisAdvice");
+    workspace.must_cover_details = full("#mustCoverDetails");
+    workspace.shot_rhythm_requirements = full("#shotRhythmRequirements");
+    workspace.prompt_example_text = full("#promptExampleText");
+    workspace.prompt_example_logic = full("#promptExampleLogic");
+    try{workspace.style = {...(workspace.style||{}), ...readStyle()};}catch(_e){}
+    return workspace;
+  }
+  function v24SummaryLabel(record={}){
+    const summary=record.summary||{};
+    const note=v24Text(record.note);
+    const preview=v24Text(summary.source_preview);
+    return note || preview || "未填写备注";
+  }
+  function v24SetHiddenExportName(record={}){
+    const node=document.querySelector("#projectName"); if(!node)return;
+    node.value=(v24SummaryLabel(record)||"视频画面提示词").slice(0,80);
+  }
+  function v24UpdateCurrentStateText(){
+    const node=document.querySelector("#historyCurrentState"); if(!node)return;
+    node.textContent=state.currentHistoryId ? `当前来源：${state.currentHistoryNote || state.currentHistoryId}` : "当前工作区尚未绑定历史记录";
+  }
+  async function v24LoadHistoryRecord(historyId){
+    const data=await requestJSON(`/api/history/${encodeURIComponent(historyId)}`);
+    const record=data?.record||{};
+    const workspace=v24Clone(record.workspace||{});
+    delete workspace.ai_instructions;
+    const currentAi=v24CurrentAiInstructions();
+    // Pass a null project id so CharacterCore's legacy project-lease wrapper is a no-op.
+    applyProjectData(null,"视频画面提示词",workspace);
+    state.projectId=null;
+    state.currentHistoryId=v24Text(record.history_id||historyId)||null;
+    state.currentHistoryNote=v24Text(record.note);
+    v24RestoreAiInstructions(currentAi);
+    v24SetHiddenExportName(record);
+    v24UpdateCurrentStateText();
+    try{scheduleDraftSave?.();}catch(_e){}
+    showAIStatusNotice?.("历史记录已恢复到当前工作区；可以直接继续所有功能，不需要重新完成前置步骤。","ready",8000);
+    return record;
+  }
+  async function v24ListHistory(){
+    const data=await requestJSON("/api/history");
+    return Array.isArray(data?.history)?data.history:[];
+  }
+  function v24OpenHistoryPage(){
+    document.body.classList.add("history-page-open");
+    const page=document.querySelector("#historyPage"); if(page)page.hidden=false;
+    v24UpdateCurrentStateText();
+    v24RenderHistory().catch((error)=>{const box=document.querySelector("#historyList");if(box){box.className="history-list empty-state";box.textContent=error?.message||String(error);}});
+    window.scrollTo(0,0);
+  }
+  function v24CloseHistoryPage(){
+    document.body.classList.remove("history-page-open");
+    const page=document.querySelector("#historyPage"); if(page)page.hidden=true;
+    window.scrollTo(0,0);
+  }
+  async function v24RenderHistory(){
+    const box=document.querySelector("#historyList"); if(!box)return;
+    box.className="history-list empty-state";box.textContent="加载中";
+    const query=v24Text(document.querySelector("#historySearchInput")?.value).toLowerCase();
+    const records=(await v24ListHistory()).filter((record)=>{
+      if(!query)return true;
+      const hay=`${record.note||""} ${record.summary?.source_preview||""}`.toLowerCase();
+      return hay.includes(query);
+    });
+    box.innerHTML="";
+    if(!records.length){box.className="history-list empty-state";box.textContent="还没有手动保存的历史记录。只有点击“保存当前记录”才会出现在这里。";return;}
+    box.className="history-list";
+    records.forEach((record)=>{
+      const row=document.createElement("article");row.className="history-record";
+      if(record.history_id===state.currentHistoryId)row.classList.add("current");
+      const info=document.createElement("div");info.className="history-record-info";
+      const title=document.createElement("strong");title.textContent=v24SummaryLabel(record);
+      const meta=document.createElement("div");meta.className="history-record-meta";
+      const summary=record.summary||{};
+      meta.textContent=`保存：${formatDate(record.updated_at||record.created_at)} · 人物卡 ${Number(summary.character_count||0)} · 分镜 ${Number(summary.scene_count||0)} · 镜头 ${Number(summary.shot_count||0)} · ${Number(summary.duration||0)} 秒${record.history_id===state.currentHistoryId?" · 正在使用":""}`;
+      const preview=document.createElement("p");preview.className="history-record-preview";preview.textContent=v24Text(summary.source_preview)||"无原文摘要";
+      info.append(title,meta,preview);
+      const actions=document.createElement("div");actions.className="history-record-actions";
+      const use=document.createElement("button");use.type="button";use.className="btn primary";use.textContent="使用";use.addEventListener("click",async()=>{try{await v24LoadHistoryRecord(record.history_id);v24CloseHistoryPage();}catch(error){apiError(error?.message||String(error));}});
+      const rename=document.createElement("button");rename.type="button";rename.className="btn secondary";rename.textContent="修改备注";rename.addEventListener("click",async()=>{const next=window.prompt("修改备注（可留空）：",String(record.note||""));if(next===null)return;try{await requestJSON(`/api/history/${encodeURIComponent(record.history_id)}/note`,{method:"PATCH",body:JSON.stringify({note:next})});if(record.history_id===state.currentHistoryId)state.currentHistoryNote=v24Text(next);await v24RenderHistory();v24UpdateCurrentStateText();}catch(error){apiError(error?.message||String(error));}});
+      const del=document.createElement("button");del.type="button";del.className="btn danger-outline";del.textContent="删除";del.addEventListener("click",async()=>{if(!window.confirm(`确定删除这条历史记录吗？\n${v24SummaryLabel(record)}`))return;try{await requestJSON(`/api/history/${encodeURIComponent(record.history_id)}`,{method:"DELETE"});if(state.currentHistoryId===record.history_id){state.currentHistoryId=null;state.currentHistoryNote="";try{scheduleDraftSave?.();}catch(_e){}}await v24RenderHistory();v24UpdateCurrentStateText();}catch(error){apiError(error?.message||String(error));}});
+      actions.append(use,rename,del);row.append(info,actions);box.appendChild(row);
+    });
+  }
+  function v24OpenSaveDialog(){
+    try{globalThis.__commitLatestEditableUiState?.("before_manual_history_save_dialog");}catch(_e){}
+    const dialog=document.querySelector("#historySaveDialog"); if(!dialog)return;
+    const note=document.querySelector("#historySaveNote"); if(note)note.value=state.currentHistoryId?state.currentHistoryNote||"":"";
+    const hint=document.querySelector("#historySaveModeHint");if(hint)hint.textContent=state.currentHistoryId?"当前工作区来自一条历史记录：可以覆盖原记录，也可以另存为新记录。":"当前工作区尚未绑定历史记录：保存时会创建一条新记录。";
+    const overwrite=document.querySelector("#historyOverwriteBtn");if(overwrite)overwrite.hidden=!state.currentHistoryId;
+    const status=document.querySelector("#historySaveStatus");if(status){status.textContent="";status.className="settings-message";}
+    dialog.showModal?.();
+  }
+  async function v24SaveHistory(mode="new"){
+    const note=v24Text(document.querySelector("#historySaveNote")?.value);
+    const status=document.querySelector("#historySaveStatus");
+    const payload={note,workspace:v24HistoryWorkspace(),instruction_revision:V24_INSTRUCTION_REVISION};
+    try{
+      let data;
+      if(mode==="overwrite"&&state.currentHistoryId){data=await requestJSON(`/api/history/${encodeURIComponent(state.currentHistoryId)}`,{method:"PUT",body:JSON.stringify(payload)});}
+      else{data=await requestJSON("/api/history",{method:"POST",body:JSON.stringify(payload)});}
+      const record=data?.record||{};
+      state.currentHistoryId=v24Text(record.history_id)||state.currentHistoryId;
+      state.currentHistoryNote=v24Text(record.note);
+      state.projectId=null;
+      v24SetHiddenExportName(record);
+      try{scheduleDraftSave?.();}catch(_e){}
+      if(status){status.className="settings-message success";status.textContent=mode==="overwrite"?"已覆盖当前历史记录。":"已保存为新的历史记录。";}
+      setTimeout(()=>document.querySelector("#historySaveDialog")?.close?.(),450);
+      v24UpdateCurrentStateText();
+      if(document.body.classList.contains("history-page-open"))await v24RenderHistory();
+    }catch(error){if(status){status.className="settings-message error";status.textContent=error?.message||String(error);}else apiError(error?.message||String(error));}
+  }
+
+  // Replace project entry points before initializeApp binds its click handlers.
+  saveProject = v24OpenSaveDialog;
+  openHistory = v24OpenHistoryPage;
+
+  // Current-workspace autosave remains a local browser draft only. It NEVER creates history files.
+  scheduleDraftSave = function v24ScheduleDraftSave(){
+    clearTimeout(persistTimer);
+    if(persistIdleHandle){if(typeof cancelIdleCallback==="function")cancelIdleCallback(persistIdleHandle);else clearTimeout(persistIdleHandle);persistIdleHandle=null;}
+    persistTimer=setTimeout(()=>{
+      const flush=()=>{persistIdleHandle=null;try{const serialized=JSON.stringify({currentHistoryId:state.currentHistoryId||null,currentHistoryNote:state.currentHistoryNote||"",data:getProjectData()});if(serialized===lastDraftSerialized)return;lastDraftSerialized=serialized;localStorage.setItem(DRAFT_KEY,serialized);}catch(error){console.warn("Could not save current workspace draft",error);}};
+      if(typeof requestIdleCallback==="function")persistIdleHandle=requestIdleCallback(flush,{timeout:1200});else persistIdleHandle=setTimeout(flush,0);
+    },420);
+  };
+  restoreLocalDraft = function v24RestoreLocalDraft(){
+    try{
+      const raw=[DRAFT_KEY,...LEGACY_DRAFT_KEYS].map((key)=>localStorage.getItem(key)).find(Boolean);
+      const saved=JSON.parse(raw||"null");
+      if(saved?.data){
+        // local draft is current workspace recovery, not a history record and not a project lease.
+        applyProjectData(null,"视频画面提示词",saved.data);
+        state.projectId=null;
+        state.currentHistoryId=v24Text(saved.currentHistoryId)||null;
+        state.currentHistoryNote=v24Text(saved.currentHistoryNote);
+        return;
+      }
+    }catch(error){console.warn("Could not restore current workspace draft",error);}
+    state.projectId=null;state.currentHistoryId=null;state.currentHistoryNote="";
+    state.characters=[];state.sceneOptions=[];state.scenes=[];state.outlineShots=[];state.outputs=[];state.segments=[];state.outlineSourceText="";state.analysisSourceText="";state.analysisComplete=false;state.sourceDirty=false;state.sourceCompatibilityNotice="";
+    try{clearTtsSessionAudio();state.tts=createDefaultTtsState();}catch(_e){}
+    state.styleLocks=createEmptyStyleLocks();state.styleAiSuggestions=createEmptyStyleSuggestions();state.characterAiSuggestions=createEmptyCharacterSuggestions();state.aiInstructions=loadGlobalAiInstructions();state.promptDensity="strict";state.promptExampleText="";state.promptExampleLogic="";state.appearance_reference="";state.character_guide_input="";state.global_analysis_advice="";state.characterRegistrySourceHash="";state.characterGuideSourceHash="";state.deletedCharacterKeys=[];state.lastNovelInputHash="";
+    ["#novelText","#appearanceReference","#characterGuideInput","#globalAnalysisAdvice","#mustCoverDetails","#shotRhythmRequirements","#promptExampleText","#promptExampleLogic"].forEach((id)=>writeFieldValue(id,""));
+    try{writeFieldValue("#promptDensity","strict");writeStyleNotes({});writeTtsSettings(state.tts);renderStyleLockState();renderCharacters();renderScenes();renderOutputs();renderSegments();renderSourceNotices();renderTtsState();}catch(_e){}
+  };
+
+  async function v24VerifyBackendBuild(){
+    const expectedVersion="v77-hotfix26", expectedBuild="v77-hotfix26-style-reuse-r1";
+    try{
+      const response=await fetch(`/api/build-info?_=${Date.now()}`,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
+      const info=response.ok?await response.json():{};
+      const ok=String(info?.app_version||"")===expectedVersion && String(info?.build_id||"")===expectedBuild;
+      console.info("[BUILD_HANDSHAKE_TRACE]",{ok,expected_version:expectedVersion,expected_build:expectedBuild,backend_version:info?.app_version||"",backend_build:info?.build_id||""});
+      if(!ok){
+        showAIStatusNotice?.(`检测到页面与后端版本不一致：页面 ${expectedVersion}/${expectedBuild}，后端 ${info?.app_version||"未知"}/${info?.build_id||"未知"}。请使用当前目录 RUN_TOOL.bat 或 START_CLEAN.ps1 重新打开，启动器会自动清理旧版后端。`,"warning",16000);
+      }
+      return ok;
+    }catch(error){
+      console.warn("[BUILD_HANDSHAKE_TRACE] build-info unavailable",error);
+      return false;
+    }
+  }
+  function v24Bind(){
+    v24VerifyBackendBuild();
+    document.querySelector("#historyBackBtn")?.addEventListener("click",v24CloseHistoryPage);
+    document.querySelector("#historySaveCurrentBtn")?.addEventListener("click",v24OpenSaveDialog);
+    document.querySelector("#historySearchInput")?.addEventListener("input",()=>v24RenderHistory().catch(()=>{}));
+    document.querySelector("#historySaveAsNewBtn")?.addEventListener("click",()=>v24SaveHistory("new"));
+    document.querySelector("#historyOverwriteBtn")?.addEventListener("click",()=>v24SaveHistory("overwrite"));
+    v24UpdateCurrentStateText();
+    try{globalThis.__v77ApplyRuntimeBadge?.();}catch(_e){}
+    console.info("[V77 Hotfix26] manual history runtime loaded",{build:V24_BUILD,manual_history_only:true,project_workflow:false});
+  }
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>setTimeout(v24Bind,760),{once:true});else setTimeout(v24Bind,760);
 })();

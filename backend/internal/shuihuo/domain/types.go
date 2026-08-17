@@ -10,81 +10,101 @@ var ErrInvalidTaskTransition = errors.New("invalid shuihuo task status transitio
 var ErrInvalidTaskStatus = errors.New("invalid shuihuo task status")
 
 type Project struct {
-	ID                  int64
-	UserID              int64
-	Name                string
-	SourceText          string
-	SourceObjectKey     string
-	SegmentationStatus  string
-	SegmentationVersion int
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                  int64     `json:"id"`
+	UserID              int64     `json:"userId"`
+	Name                string    `json:"name"`
+	SourceText          string    `json:"sourceText"`
+	SourceObjectKey     string    `json:"sourceObjectKey"`
+	SegmentationStatus  string    `json:"segmentationStatus"`
+	SegmentationVersion int       `json:"segmentationVersion"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+type UserProductionConfig struct {
+	UserID                 int64  `json:"-"`
+	CharacterPrefix        string `json:"characterPrefix"`
+	ImagePrefix            string `json:"imagePrefix"`
+	ImageSuffix            string `json:"imageSuffix"`
+	VideoPrefix            string `json:"videoPrefix"`
+	VideoSuffix            string `json:"videoSuffix"`
+	TextModelID            *int64 `json:"textModelId"`
+	ImageModelID           *int64 `json:"imageModelId"`
+	VideoModelID           *int64 `json:"videoModelId"`
+	JianyingDraftDirectory string `json:"jianyingDraftDirectory"`
 }
 
 type Segment struct {
-	ID                int64
-	ProjectID         int64
-	SourceText        string
-	SubtitleText      string
-	OrderIndex        int
-	Confirmed         bool
-	ManuallyEdited    bool
-	ImagePrompt       string
-	VideoPrompt       string
-	ImagePromptLocked bool
-	VideoPromptLocked bool
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                int64     `json:"id"`
+	ProjectID         int64     `json:"projectId"`
+	SourceText        string    `json:"sourceText"`
+	SubtitleText      string    `json:"subtitleText"`
+	OrderIndex        int       `json:"orderIndex"`
+	Confirmed         bool      `json:"confirmed"`
+	ManuallyEdited    bool      `json:"manuallyEdited"`
+	ImagePrompt       string    `json:"imagePrompt"`
+	VideoPrompt       string    `json:"videoPrompt"`
+	ImagePromptLocked bool      `json:"imagePromptLocked"`
+	VideoPromptLocked bool      `json:"videoPromptLocked"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type Asset struct {
-	ID                 int64
-	ProjectID          int64
-	AssetTypeID        *int64
-	Name               string
-	Prompt             string
-	ReferenceObjectKey string
-	Source             string
-	ManuallyEdited     bool
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                 int64     `json:"id"`
+	ProjectID          int64     `json:"projectId"`
+	AssetTypeID        *int64    `json:"assetTypeId"`
+	Category           string    `json:"category"`
+	Name               string    `json:"name"`
+	Prompt             string    `json:"prompt"`
+	ReferenceObjectKey string    `json:"referenceObjectKey"`
+	Source             string    `json:"source"`
+	ManuallyEdited     bool      `json:"manuallyEdited"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
+type SegmentAsset struct {
+	SegmentID int64 `json:"segmentId"`
+	AssetID   int64 `json:"assetId"`
 }
 
 type AssetType struct {
-	ID        int64
-	UserID    *int64
-	Name      string
-	Category  string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        int64     `json:"id"`
+	UserID    *int64    `json:"-"`
+	Name      string    `json:"name"`
+	Category  string    `json:"category"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type AssetTemplate struct {
-	ID          int64
-	UserID      *int64
-	AssetTypeID int64
-	Name        string
-	Prompt      string
-	Source      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID                 int64     `json:"id"`
+	UserID             *int64    `json:"-"`
+	AssetTypeID        int64     `json:"assetTypeId"`
+	Name               string    `json:"name"`
+	Prompt             string    `json:"prompt"`
+	ReferenceObjectKey string    `json:"referenceObjectKey"`
+	Source             string    `json:"source"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 type Media struct {
-	ID             int64
-	ProjectID      int64
-	SegmentID      *int64
-	TaskID         *int64
-	Kind           string
-	ObjectKey      string
-	Source         string
-	ManuallyEdited bool
-	Width          *int
-	Height         *int
-	DurationMS     *int64
-	IsPrimary      bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID             int64     `json:"id"`
+	ProjectID      int64     `json:"projectId"`
+	SegmentID      *int64    `json:"segmentId"`
+	TaskID         *int64    `json:"taskId"`
+	Kind           string    `json:"kind"`
+	ObjectKey      string    `json:"objectKey"`
+	Source         string    `json:"source"`
+	ManuallyEdited bool      `json:"manuallyEdited"`
+	Width          *int      `json:"width"`
+	Height         *int      `json:"height"`
+	DurationMS     *int64    `json:"durationMs"`
+	IsPrimary      bool      `json:"isPrimary"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type TaskStatus string
@@ -123,23 +143,24 @@ func ValidateTaskTransition(current, next TaskStatus) error {
 }
 
 type Task struct {
-	ID              int64
-	ProjectID       int64
-	SegmentID       *int64
-	Kind            string
-	Status          TaskStatus
-	Provider        string
-	ProviderTaskID  string
-	ModelID         *int64
-	ModelVersionID  *int64
-	PromptVersionID *int64
-	Input           string
-	Output          string
-	ErrorCode       string
-	ErrorMessage    string
-	RetryCount      int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID              int64      `json:"id"`
+	UserID          int64      `json:"-"`
+	ProjectID       int64      `json:"projectId"`
+	SegmentID       *int64     `json:"segmentId"`
+	Kind            string     `json:"kind"`
+	Status          TaskStatus `json:"status"`
+	Provider        string     `json:"provider"`
+	ProviderTaskID  string     `json:"providerTaskId"`
+	ModelID         *int64     `json:"modelId"`
+	ModelVersionID  *int64     `json:"modelVersionId"`
+	PromptVersionID *int64     `json:"promptVersionId"`
+	Input           string     `json:"input"`
+	Output          string     `json:"output"`
+	ErrorCode       string     `json:"errorCode"`
+	ErrorMessage    string     `json:"errorMessage"`
+	RetryCount      int        `json:"retryCount"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
 type TaskEvent struct {

@@ -10,3 +10,10 @@ export function saveConfig(config) {
     body: JSON.stringify(config)
   });
 }
+
+export function testConfig(config) {
+  return apiRequest('/api/test', {
+    method: 'POST',
+    body: JSON.stringify(config)
+  });
+}

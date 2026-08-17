@@ -8,7 +8,7 @@ function sendStoreError(res, error) {
   return res.status(400).json({ error: error?.message || 'Invalid request' });
 }
 
-function createAdminRouter(accountStore, presetStore) {
+function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogStore) {
   if (!accountStore) throw new Error('accountStore is required');
   if (!presetStore) throw new Error('presetStore is required');
   const router = express.Router();
@@ -33,6 +33,14 @@ function createAdminRouter(accountStore, presetStore) {
   router.get('/accounts', requireCapability('account:review'), (req, res) => {
     try {
       res.json({ accounts: accountStore.listAccounts() });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.post('/accounts', requireOwner, (req, res) => {
+    try {
+      res.status(201).json({ account: accountStore.createAccount(req.body) });
     } catch (error) {
       sendStoreError(res, error);
     }
@@ -86,6 +94,14 @@ function createAdminRouter(accountStore, presetStore) {
     }
   });
 
+  router.get('/grants', requireOwner, (req, res) => {
+    try {
+      res.json({ grants: accountStore.listGrants() });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
   router.delete('/grants/:id', requireOwner, (req, res) => {
     try {
       res.json({ grant: accountStore.revokeGrant(req.username, req.params.id) });
@@ -97,6 +113,37 @@ function createAdminRouter(accountStore, presetStore) {
   router.get('/audit', requireOwner, (req, res) => {
     try {
       res.json({ audit: accountStore.listAudit() });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.get('/error-logs', requireOwner, (req, res) => {
+    if (!errorLogStore) return res.json({ entries: [] });
+    return res.json({ entries: errorLogStore.list(req.query.limit) });
+  });
+
+  function canManagePreset(req, module) {
+    return accountStore.can(req.username, 'preset:draft', module)
+      || accountStore.can(req.username, 'preset:publish', module);
+  }
+
+  router.get('/presets', (req, res) => {
+    const module = req.query.module;
+    if (!canManagePreset(req, module)) return res.status(403).json({ error: 'Forbidden' });
+    try {
+      res.json({ presets: presetStore.listAll(module) });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.get('/presets/:id/:version', (req, res) => {
+    try {
+      const preset = presetStore.getVersion(req.params.id, Number(req.params.version));
+      if (!preset) return res.status(404).json({ error: 'Not found' });
+      if (!canManagePreset(req, preset.module)) return res.status(403).json({ error: 'Forbidden' });
+      res.json({ preset });
     } catch (error) {
       sendStoreError(res, error);
     }
@@ -123,6 +170,45 @@ function createAdminRouter(accountStore, presetStore) {
       res.json({ preset: presetStore.rollback(req.username, req.params.id, req.body?.version) });
     } catch (error) {
       sendStoreError(res, error);
+    }
+  });
+
+  router.get('/agent-skills', requireOwner, (req, res) => {
+    if (!agentSkillStore) return res.status(404).json({ error: 'Not found' });
+    return res.json({ skills: agentSkillStore.listSystem() });
+  });
+
+  router.get('/agent-skills/:id/:version', requireOwner, (req, res) => {
+    if (!agentSkillStore) return res.status(404).json({ error: 'Not found' });
+    const skill = agentSkillStore.getSystem(req.params.id, req.params.version);
+    if (!skill) return res.status(404).json({ error: 'Not found' });
+    return res.json({ skill });
+  });
+
+  router.post('/agent-skills/draft', requireOwner, (req, res) => {
+    if (!agentSkillStore) return res.status(404).json({ error: 'Not found' });
+    try {
+      return res.status(201).json({ skill: agentSkillStore.createSystemDraft(req.username, req.body) });
+    } catch (error) {
+      return sendStoreError(res, error);
+    }
+  });
+
+  router.post('/agent-skills/:id/publish', requireOwner, (req, res) => {
+    if (!agentSkillStore) return res.status(404).json({ error: 'Not found' });
+    try {
+      return res.json({ skill: agentSkillStore.setSystemStatus(req.username, req.params.id, req.body?.version, 'published') });
+    } catch (error) {
+      return sendStoreError(res, error);
+    }
+  });
+
+  router.post('/agent-skills/:id/archive', requireOwner, (req, res) => {
+    if (!agentSkillStore) return res.status(404).json({ error: 'Not found' });
+    try {
+      return res.json({ skill: agentSkillStore.setSystemStatus(req.username, req.params.id, req.body?.version, 'archived') });
+    } catch (error) {
+      return sendStoreError(res, error);
     }
   });
 

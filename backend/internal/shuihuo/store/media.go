@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
@@ -77,4 +78,72 @@ WHERE m.id = ? AND p.user_id = ?
 		return err
 	}
 	return requireAffected(result)
+}
+
+func (s *Media) Delete(ctx context.Context, ownerID, mediaID int64) error {
+	result, err := s.db.ExecContext(ctx, `
+DELETE m FROM shuihuo_media m
+JOIN shuihuo_projects p ON p.id = m.project_id
+WHERE m.id = ? AND p.user_id = ?
+`, mediaID, ownerID)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result)
+}
+
+func (s *Media) SetPrimary(ctx context.Context, ownerID, mediaID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var projectID int64
+	var segmentID *int64
+	var kind string
+	if err := tx.QueryRowContext(ctx, `
+SELECT m.project_id, m.segment_id, m.kind
+FROM shuihuo_media m
+JOIN shuihuo_projects p ON p.id = m.project_id
+WHERE m.id = ? AND p.user_id = ?
+`, mediaID, ownerID).Scan(&projectID, &segmentID, &kind); err != nil {
+		return err
+	}
+	if segmentID == nil {
+		return fmt.Errorf("only segment media can be primary")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE shuihuo_media SET is_primary = FALSE WHERE project_id = ? AND segment_id = ? AND kind = ?`, projectID, *segmentID, kind); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE shuihuo_media SET is_primary = TRUE WHERE id = ?`, mediaID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Media) PrimaryImage(ctx context.Context, projectID, segmentID int64) (domain.Media, error) {
+	var media domain.Media
+	err := s.db.QueryRowContext(ctx, `
+SELECT id, project_id, segment_id, task_id, kind, object_key, source, manually_edited, width, height, duration_ms, is_primary
+FROM shuihuo_media
+WHERE project_id = ? AND segment_id = ? AND kind = 'image' AND is_primary = TRUE
+ORDER BY updated_at DESC, id DESC
+LIMIT 1
+`, projectID, segmentID).Scan(&media.ID, &media.ProjectID, &media.SegmentID, &media.TaskID, &media.Kind, &media.ObjectKey, &media.Source, &media.ManuallyEdited, &media.Width, &media.Height, &media.DurationMS, &media.IsPrimary)
+	return media, err
+}
+
+func (s *Media) CreateGenerated(ctx context.Context, media domain.Media) (domain.Media, error) {
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO shuihuo_media(project_id, segment_id, task_id, kind, object_key, source, manually_edited, width, height, duration_ms, is_primary)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, media.ProjectID, media.SegmentID, media.TaskID, media.Kind, media.ObjectKey, media.Source, media.ManuallyEdited, media.Width, media.Height, media.DurationMS, media.IsPrimary)
+	if err != nil {
+		return domain.Media{}, err
+	}
+	media.ID, err = result.LastInsertId()
+	if err != nil {
+		return domain.Media{}, err
+	}
+	return media, nil
 }

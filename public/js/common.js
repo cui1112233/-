@@ -36,6 +36,33 @@ function authFetch(url, options) {
 })();
 
 // ============================================================
+// 模块：前贴宠物（旧版 Agent 页面）
+// ============================================================
+(function() {
+    if (document.body.dataset.activePage !== 'agent') return;
+
+    var eventName = 'qiantie:pet-state';
+    var stateRows = { idle: 0, working: 7, success: 3, error: 5 };
+    var pet = document.createElement('div');
+    pet.className = 'stacky-pet-legacy';
+    pet.setAttribute('role', 'img');
+    pet.setAttribute('aria-label', '前贴宠物 CM，空闲');
+
+    function setState(state) {
+        var nextState = Object.prototype.hasOwnProperty.call(stateRows, state) ? state : 'idle';
+        pet.className = 'stacky-pet-legacy stacky-pet-legacy--' + nextState;
+        pet.style.setProperty('--stacky-row', stateRows[nextState]);
+        pet.setAttribute('aria-label', '前贴宠物 CM，' + ({ idle: '空闲', working: '生成中', success: '完成', error: '失败' }[nextState]));
+    }
+
+    window.addEventListener(eventName, function(event) {
+        setState(event.detail && event.detail.state);
+    });
+    setState('idle');
+    document.body.appendChild(pet);
+})();
+
+// ============================================================
 // 模块：导航与页面路由
 // ============================================================
 
@@ -83,11 +110,58 @@ function authFetch(url, options) {
 })();
 
 // ============================================================
+// 模块：生成记录下拉框
+// ============================================================
+(function() {
+    var btnHistory = document.getElementById('btn-open-history');
+    var dropdown = document.getElementById('history-dropdown');
+    if (!btnHistory || !dropdown) return;
+
+    function closeDropdown() {
+        dropdown.style.display = 'none';
+    }
+
+    function openDropdown() {
+        var rect = btnHistory.getBoundingClientRect();
+        document.body.appendChild(dropdown);
+        dropdown.style.position = 'fixed';
+        dropdown.style.top = (rect.bottom + 4) + 'px';
+        dropdown.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
+        dropdown.style.right = 'auto';
+        dropdown.style.width = '320px';
+        dropdown.style.maxHeight = (window.innerHeight - rect.bottom - 20) + 'px';
+        dropdown.style.display = 'flex';
+    }
+
+    btnHistory.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (dropdown.style.display === 'flex' || dropdown.style.display === 'block') {
+            closeDropdown();
+            return;
+        }
+        openDropdown();
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!dropdown.contains(e.target) && e.target !== btnHistory) {
+            closeDropdown();
+        }
+    });
+})();
+
+// ============================================================
 // 模块：API 设置
 // ============================================================
 
 const ApiConfig = (function() {
     const API_BASE = '';
+    const defaultPet = {
+        id: 'stacky',
+        displayName: 'CM',
+        description: 'CM，前贴的桌面宠物。',
+        spriteVersionNumber: 2,
+        spritesheetPath: '/pets/stacky/spritesheet.webp'
+    };
     const providerDefaults = {
         openai:   { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
         deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -127,7 +201,7 @@ const ApiConfig = (function() {
         return true;
     }
 
-    return { get, save, testConnection, providerDefaults };
+    return { get, save, testConnection, providerDefaults, defaultPet };
 })();
 
 // ============================================================
@@ -150,9 +224,27 @@ const ApiConfig = (function() {
 
     let backendHasKey = false;
 
+    function ensurePetSettings() {
+        if (document.getElementById('settings-pet')) return;
+        const group = document.createElement('div');
+        group.className = 'form-group pet-settings-group';
+        group.innerHTML = [
+            '<label class="form-label" for="settings-pet">前贴宠物</label>',
+            '<select id="settings-pet" class="form-select">',
+            '<option value="stacky">CM</option>',
+            '</select>',
+            '<div class="pet-preview">',
+            '<div class="pet-preview-frame"><img src="' + ApiConfig.defaultPet.spritesheetPath + '" alt="CM"></div>',
+            '<div><strong>CM</strong><p>' + ApiConfig.defaultPet.description + '</p></div>',
+            '</div>'
+        ].join('');
+        testResult.parentNode.insertBefore(group, testResult);
+    }
+
     btnOpen.addEventListener('click', async () => {
         // 先打开弹窗
         modal.classList.add('visible');
+        ensurePetSettings();
         testResult.className = 'test-result';
         testResult.textContent = '';
         try {
@@ -160,6 +252,8 @@ const ApiConfig = (function() {
             providerSelect.value = cfg.provider || 'custom';
             baseUrlInput.value = cfg.baseUrl || '';
             modelInput.value = cfg.model || '';
+            const petSelect = document.getElementById('settings-pet');
+            if (petSelect) petSelect.value = cfg.pet && cfg.pet.id === 'stacky' ? 'stacky' : 'stacky';
             backendHasKey = cfg.hasApiKey;
             apiKeyInput.value = '';
             apiKeyInput.placeholder = cfg.hasApiKey ? '已保存，留空则不修改' : '输入你的 API Key';
@@ -186,11 +280,12 @@ const ApiConfig = (function() {
 
     btnSave.addEventListener('click', async () => {
         const apiKey = apiKeyInput.value.trim();
-        const cfg = {
-            provider: providerSelect.value,
-            baseUrl: baseUrlInput.value.trim(),
-            model: modelInput.value.trim()
-        };
+            const cfg = {
+                provider: providerSelect.value,
+                baseUrl: baseUrlInput.value.trim(),
+                model: modelInput.value.trim(),
+                pet: ApiConfig.defaultPet
+            };
         if (apiKey) {
             cfg.apiKey = apiKey;
         } else if (!backendHasKey) {
@@ -215,7 +310,8 @@ const ApiConfig = (function() {
         const cfg = {
             provider: providerSelect.value,
             baseUrl: baseUrlInput.value.trim(),
-            model: modelInput.value.trim()
+            model: modelInput.value.trim(),
+            pet: ApiConfig.defaultPet
         };
         if (apiKey) {
             cfg.apiKey = apiKey;

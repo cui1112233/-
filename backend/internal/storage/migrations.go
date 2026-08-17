@@ -278,7 +278,28 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 	{version: 9, apply: addShuihuoAssetCategory},
 	{version: 10, sql: shuihuoAnalysisSnapshotsMigrationSQL, apply: seedShuihuoAnalysisPrompts},
 	{version: 11, apply: addShuihuoTaskPolling},
+	{version: 12, sql: shuihuoUserConfigMigrationSQL},
+	{version: 13, apply: addShuihuoAssetTemplateReference},
+	{version: 14, apply: seedShuihuoPromptGenerationPrompts},
 }
+
+const shuihuoUserConfigMigrationSQL = `
+CREATE TABLE IF NOT EXISTS shuihuo_user_configs (
+  user_id BIGINT PRIMARY KEY,
+  character_prefix MEDIUMTEXT NOT NULL,
+  image_prefix MEDIUMTEXT NOT NULL,
+  image_suffix MEDIUMTEXT NOT NULL,
+  video_prefix MEDIUMTEXT NOT NULL,
+  video_suffix MEDIUMTEXT NOT NULL,
+  text_model_id BIGINT NULL,
+  image_model_id BIGINT NULL,
+  video_model_id BIGINT NULL,
+  jianying_draft_directory MEDIUMTEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_shuihuo_user_configs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
 
 const shuihuoAnalysisSnapshotsMigrationSQL = `
 CREATE TABLE IF NOT EXISTS shuihuo_prompt_snapshots (
@@ -376,6 +397,15 @@ func applyShuihuoGovernanceSchema(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, shuihuoGovernanceMigrationSQL)
 }
 
+func addShuihuoAssetTemplateReference(ctx context.Context, conn *sql.Conn) error {
+	exists, err := mysqlColumnExists(ctx, conn, "shuihuo_asset_templates", "reference_object_key")
+	if err != nil || exists {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, "ALTER TABLE shuihuo_asset_templates ADD COLUMN reference_object_key VARCHAR(1024) NOT NULL DEFAULT '' AFTER prompt")
+	return err
+}
+
 func addShuihuoAssetCategory(ctx context.Context, conn *sql.Conn) error {
 	exists, err := mysqlColumnExists(ctx, conn, "shuihuo_assets", "category")
 	if err != nil || exists {
@@ -403,6 +433,32 @@ func addShuihuoTaskPolling(ctx context.Context, conn *sql.Conn) error {
 		_, err = conn.ExecContext(ctx, "CREATE INDEX idx_shuihuo_tasks_provider_status_poll ON shuihuo_tasks(provider, status, next_poll_at)")
 	}
 	return err
+}
+
+func seedShuihuoPromptGenerationPrompts(ctx context.Context, conn *sql.Conn) error {
+	for _, preset := range []struct{ purpose, name, body string }{
+		{"image_prompt", "图片提示词生成", "你是小说分镜生图提示词服务。只依据分镜原文和可用资产，不得编造核心剧情。只返回 JSON 数组，不要 Markdown 或代码围栏。数组每项必须为 {\"prompt\":\"主体、场景、动作、构图、镜头、光线、风格的中文生图提示词\"}。\n\n分镜原文：{{segment_text}}\n\n资产设定：{{project_note}}"},
+		{"video_prompt", "视频提示词生成", "你是小说分镜图生视频提示词服务。只依据分镜原文和可用资产，不得编造核心剧情。只返回 JSON 数组，不要 Markdown 或代码围栏。数组每项必须为 {\"prompt\":\"主体动作、镜头运动、可执行短时动作、画面稳定性约束的中文视频提示词\"}。\n\n分镜原文：{{segment_text}}\n\n资产设定：{{project_note}}"},
+	} {
+		result, err := conn.ExecContext(ctx, `INSERT INTO prompt_definitions(module, purpose, name, enabled) VALUES('shuihuo-production', ?, ?, TRUE) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, preset.purpose, preset.name)
+		if err != nil {
+			return err
+		}
+		definitionID, err := result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		var count int
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM prompt_versions WHERE prompt_definition_id = ?`, definitionID).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := conn.ExecContext(ctx, `INSERT INTO prompt_versions(prompt_definition_id, version_number, parameters_json, body) VALUES(?, 1, JSON_ARRAY('segment_text', 'project_note'), ?)`, definitionID, preset.body); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func seedShuihuoAnalysisPrompts(ctx context.Context, conn *sql.Conn) error {

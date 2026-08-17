@@ -1,13 +1,15 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { UserLayout } from '../shared/layouts/UserLayout';
 import { HomePage } from './pages/HomePage';
-import { ScriptPage } from './pages/ScriptPage';
-import { TtsPage } from './pages/TtsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { HistoryPage } from './pages/HistoryPage';
-import { NovelPanelPage } from './pages/NovelPanelPage';
 
+const ScriptPage = lazy(() => import('./pages/ScriptPage'));
+const HistoryPage = lazy(() => import('./pages/HistoryPage'));
+const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
+const AgentPage = lazy(() => import('./pages/AgentPage').then(module => ({ default: module.AgentPage })));
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
+const TtsPage = lazy(() => import('./pages/TtsPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -22,14 +24,20 @@ function usePathname() {
 }
 
 function getPage(pathname) {
-  if (pathname === '/script') return <ScriptPage />;
-  if (pathname === '/history') return <HistoryPage />;
-  if (pathname === '/novel-panel') return <NovelPanelPage />;
-  if (pathname === '/shuihuo-production') {
-    return <Suspense fallback={<div className="route-loading" role="status">正在加载水货生产</div>}><ShuihuoProductionPage /></Suspense>;
+  const routes = {
+    '/script': ScriptPage,
+    '/history': HistoryPage,
+    '/novel-panel': NovelPanelPage,
+    '/agent': AgentPage,
+    '/shuihuo-production': ShuihuoProductionPage,
+    '/tts': TtsPage,
+    '/settings': SettingsPage,
+    '/issues': IssueLogPage
+  };
+  const Page = routes[pathname];
+  if (Page) {
+    return <Suspense fallback={<div className="route-loading" role="status">正在加载工作台</div>}><Page /></Suspense>;
   }
-  if (pathname === '/tts') return <TtsPage />;
-  if (pathname === '/settings') return <SettingsPage />;
   return <HomePage />;
 }
 

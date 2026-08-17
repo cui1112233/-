@@ -165,7 +165,17 @@ func (api *API) writeAnalysisError(w http.ResponseWriter, err error) {
 		return
 	}
 	if strings.Contains(err.Error(), "text completion") {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "文本模型调用失败，请检查管理员服务端配置"})
+		message := "文本模型调用失败，请检查管理员服务端配置"
+		if strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "HTTP 403") {
+			message = "文本模型鉴权失败，请管理员检查密钥和模型权限"
+		} else if strings.Contains(err.Error(), "HTTP 404") {
+			message = "文本模型地址或模型名称无效，请管理员检查模型配置"
+		} else if strings.Contains(err.Error(), "HTTP 429") {
+			message = "文本模型请求过于频繁或额度不足，请稍后重试"
+		} else if strings.Contains(err.Error(), "HTTP 5") {
+			message = "文本模型服务暂时不可用，请稍后重试"
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": message})
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存分析快照失败"})

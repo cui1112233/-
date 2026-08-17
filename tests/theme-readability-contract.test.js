@@ -35,10 +35,13 @@ test('layouts provide Ant Design with the current platform theme', () => {
   assert.doesNotMatch(read('frontend/src/admin/main.jsx'), /<ConfigProvider/);
 });
 
-test('water-production code is loaded only when its route is opened', () => {
+test('secondary user workspaces are loaded only when their routes are opened', () => {
   const source = read('frontend/src/user/App.jsx');
-  assert.match(source, /lazy\(\(\) => import\('\.\/pages\/ShuihuoProductionPage'\)\)/);
-  assert.match(source, /<Suspense fallback=\{<div className="route-loading" role="status">正在加载水货生产<\/div>\}>/);
+  for (const page of ['ScriptPage', 'HistoryPage', 'NovelPanelPage', 'ShuihuoProductionPage', 'TtsPage', 'SettingsPage']) {
+    assert.match(source, new RegExp(`lazy\\(\\(\\) => import\\('\\.\\/pages\\/${page}'`));
+  }
+  assert.match(source, /<Suspense fallback=\{<div className="route-loading" role="status">正在加载工作台<\/div>\}>/);
+  assert.match(read('frontend/src/shared/layouts/UserLayout.jsx'), /cloneElement\(children\.props\.children, \{ theme \}\)/);
 });
 
 test('user and admin portal themes cover every floating surface', () => {
@@ -59,6 +62,24 @@ test('shuihuo theme covers page states and floating surfaces', () => {
   for (const selector of ['.ant-alert', '.ant-alert-message', '.ant-alert-description', '.ant-table', '.ant-tag', '.ant-empty-description', '.ant-message-notice-content', '.ant-notification-notice', '.ant-tooltip-inner', '.ant-btn:disabled']) {
     assert.ok(source.includes(`.shuihuo-theme-active ${selector}`), `shuihuo must style ${selector}`);
   }
+});
+
+test('shuihuo production inherits the platform color system', () => {
+  const source = read('frontend/src/user/pages/shuihuo-production.css');
+  const root = cssBlock(source, '.shuihuo-production');
+  for (const mapping of [
+    '--sh-bg: var(--legacy-bg)',
+    '--sh-panel: var(--legacy-card)',
+    '--sh-panel-strong: var(--legacy-card-hover)',
+    '--sh-line: var(--legacy-border)',
+    '--sh-text: var(--legacy-text)',
+    '--sh-muted: var(--legacy-muted)',
+    '--sh-accent: var(--legacy-accent)',
+    '--sh-accent-dark: var(--legacy-accent-dim)',
+  ]) {
+    assert.ok(root.includes(mapping), `shuihuo must inherit ${mapping}`);
+  }
+  assert.doesNotMatch(source, /#(101617|171f20|1d2728|314143|e4eeea|aebcba|83dcc5|23554b|eef5f2|294941|182425|354f49|172726|264e45|c9eee3|e0f5ef|f6f9f8|157d67|d7f1e9)/i);
 });
 
 test('novel workbench core surfaces use semantic theme tokens', () => {
@@ -93,4 +114,32 @@ test('novel workbench advanced cards define their theme from semantic tokens', (
       `${selector} must define its own theme-aware surface`,
     );
   }
+});
+
+test('collapsed navigation tooltips never shift the page content', () => {
+  const css = read('frontend/src/shared/styles/global.css');
+  assert.doesNotMatch(css, /legacy-shell:has\(\.legacy-sidebar\.collapsed \.legacy-nav a:hover\) \.legacy-main/);
+  assert.doesNotMatch(css, /legacy-shell:has\(\.legacy-sidebar\.collapsed \.legacy-nav a:focus-visible\) \.legacy-main/);
+});
+
+test('novel workbench uses the platform history and settings entries', () => {
+  const html = read('public/novel-panel/workbench/index.html');
+  assert.match(html, /<button id="saveProjectBtn"[^>]*>保存项目<\/button>/);
+  assert.match(html, /<button id="promptSettingsBtn"[^>]*>AI 指令<\/button>/);
+  assert.doesNotMatch(html, /<button id="historyBtn"/);
+  assert.doesNotMatch(html, /<button id="settingsBtn"/);
+});
+
+test('login remains available after a logout from every user workspace', () => {
+  const source = read('frontend/src/shared/layouts/UserLayout.jsx');
+  assert.match(source, /const showLoginOverlay = !isLoggedIn && loginDialogOpen;/);
+  assert.match(source, /<Button size="small" onClick=\{handleLogout\}>退出<\/Button>/);
+  assert.doesNotMatch(source, /!isLoggedIn && isHome && loginDialogOpen/);
+});
+
+test('credential failures preserve the server login message', () => {
+  const source = read('frontend/src/shared/api/client.js');
+  assert.match(source, /if \(response\.status === 401 && path !== '\/api\/login'\)/);
+  assert.match(source, /const text = await response\.text\(\);/);
+  assert.doesNotMatch(source, /if \(response\.status === 401\) \{\s*setToken\(\);/);
 });

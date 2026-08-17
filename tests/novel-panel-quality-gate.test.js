@@ -195,6 +195,19 @@ test('rejects an out-of-bounds range without expanding it', () => {
   assert.equal(report.metrics.coveredSourceLineCount, 0);
 });
 
+test('keeps a valid source_index when optional source_lines from AI are invalid', () => {
+  const report = gate.validateOutlineCoverage({ outline_shots: [{
+    source_index: 1,
+    source_lines: ['1-999999999'],
+    source_basis: '沈星推开旧书店的门。',
+    prompt: '旧书店门口，沈星收起湿伞，铜铃随着门缝轻轻晃动，她推开玻璃门走进昏黄店内。'
+  }] }, { source_lines: ['沈星推开旧书店的门。'] });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.metrics.invalidSourceReferenceCount, 0);
+  assert.equal(report.metrics.coveredSourceLineCount, 1);
+});
+
 test('rejects deeply nested source references without recursive traversal', () => {
   let sourceLines = 1;
   for (let index = 0; index < 32; index += 1) sourceLines = [sourceLines];

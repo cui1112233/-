@@ -3,6 +3,10 @@
   const mountedApiPrefix = '/api/novel-panel/';
   const allowedHeaders = new Set(['content-type', 'cache-control', 'pragma', 'x-videoprompttool-session']);
   const nonce = new URLSearchParams(window.location.search).get('nonce');
+  // The workbench permits a configured AI request to run for up to 400 seconds.
+  // Keep the iframe bridge alive slightly longer so it cannot turn a valid
+  // long-running model request into a browser-level "Failed to fetch" error.
+  const API_BRIDGE_TIMEOUT_MS = 410000;
   const pendingRequests = new Map();
   const nativeFetch = window.fetch.bind(window);
   const nativeSendBeacon = typeof navigator.sendBeacon === 'function'
@@ -17,6 +21,9 @@
       const currentUrl = new URL(window.location.href);
       const url = new URL(value, currentUrl);
       if (url.origin !== currentUrl.origin || !url.pathname.startsWith(apiPrefix)) return null;
+      // TTS is a platform service, not a novel-panel business endpoint.
+      // Keep its path intact so the parent can attach the session token.
+      if (url.pathname === '/api/tts') return url.pathname + url.search;
       if (!url.pathname.startsWith(mountedApiPrefix)) {
         url.pathname = mountedApiPrefix + url.pathname.slice(apiPrefix.length);
       }
@@ -43,25 +50,65 @@
     channelPort.postMessage({ type: 'novel-panel-api-request', id: pending.id, ...pending.request });
   }
 
-  function requestParentApi(request) {
+  function base64ToBytes(value) {
+    const binary = atob(String(value || ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  function createAbortError(reason) {
+    if (reason) return reason;
+    return new DOMException('The operation was aborted.', 'AbortError');
+  }
+
+  function clearPending(pending) {
+    clearTimeout(pending.timer);
+    if (pending.abortSignal && pending.abortListener) {
+      pending.abortSignal.removeEventListener('abort', pending.abortListener);
+    }
+  }
+
+  function requestParentApi(request, signal, { cancelOnClose = true } = {}) {
     const id = nextRequestId();
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(createAbortError(signal.reason));
+        return;
+      }
       const timer = setTimeout(() => {
-        pendingRequests.delete(id);
-        reject(new Error('Novel panel API bridge timed out.'));
-      }, 30000);
-      const pending = { id, request, resolve, reject, timer };
+        cancelPendingRequest(id, new Error('Novel panel API bridge timed out.'));
+      }, API_BRIDGE_TIMEOUT_MS);
+      const pending = {
+        id,
+        request,
+        resolve,
+        reject,
+        timer,
+        abortSignal: signal,
+        abortListener: null,
+        cancelOnClose
+      };
+      pending.abortListener = () => cancelPendingRequest(id, createAbortError(signal.reason));
+      signal?.addEventListener?.('abort', pending.abortListener, { once: true });
       pendingRequests.set(id, pending);
       if (channelPort) postPendingRequest(pending);
     });
   }
 
+  function cancelPendingRequest(id, error) {
+    const pending = pendingRequests.get(id);
+    if (!pending) return;
+    pendingRequests.delete(id);
+    clearPending(pending);
+    if (channelPort) channelPort.postMessage({ type: 'novel-panel-api-cancel', id });
+    pending.reject(error || new Error('Novel panel API bridge closed.'));
+  }
+
   function rejectPendingRequests() {
-    for (const pending of pendingRequests.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('Novel panel API bridge closed.'));
+    for (const [id, pending] of pendingRequests) {
+      if (pending.cancelOnClose !== false) cancelPendingRequest(id, new Error('Novel panel API bridge closed.'));
     }
-    pendingRequests.clear();
   }
 
   function beaconPayload(data) {
@@ -97,6 +144,14 @@
   }
 
   window.addEventListener('message', event => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.type !== 'qiantie-theme-sync') return;
+    if (data.theme !== 'dark' && data.theme !== 'light') return;
+    document.documentElement.dataset.theme = data.theme;
+  });
+
+  window.addEventListener('message', event => {
     if (event.source !== window.parent || channelPort) return;
     const data = event.data;
     const port = event.ports?.[0];
@@ -109,9 +164,13 @@
       const pending = pendingRequests.get(response.id);
       if (!pending) return;
       pendingRequests.delete(response.id);
-      clearTimeout(pending.timer);
+      clearPending(pending);
       const status = Number.isInteger(response.status) && response.status >= 200 && response.status <= 599 ? response.status : 500;
-      pending.resolve(new Response(typeof response.text === 'string' ? response.text : '', { status, headers: response.headers || {} }));
+      const rawBody = typeof response.bodyBase64 === 'string'
+        ? base64ToBytes(response.bodyBase64)
+        : (typeof response.text === 'string' ? response.text : '');
+      const body = [204, 205, 304].includes(status) ? null : rawBody;
+      pending.resolve(new Response(body, { status, headers: response.headers || {} }));
     };
     channelPort.start?.();
     for (const pending of pendingRequests.values()) postPendingRequest(pending);
@@ -119,9 +178,13 @@
 
   function closeBridge() {
     stopHandshakeRetries();
+    // CharacterCore listens before this bridge closes so its lease release
+    // still travels through the authenticated parent-page channel.
+    const eventTarget = typeof globalThis.dispatchEvent === 'function' ? globalThis : window;
+    eventTarget.dispatchEvent?.(new Event('qiantie-v77-bridge-closing'));
+    rejectPendingRequests();
     channelPort?.close();
     channelPort = null;
-    rejectPendingRequests();
   }
 
   window.addEventListener('pagehide', closeBridge);
@@ -139,18 +202,23 @@
     if (!path) return nativeFetch(input, init);
     const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
     const headers = allowedRequestHeaders(init.headers || (input instanceof Request ? input.headers : undefined));
+    const signal = init.signal || (input instanceof Request ? input.signal : undefined);
     const hasBody = Object.prototype.hasOwnProperty.call(init, 'body');
     if (input instanceof Request && !hasBody && method !== 'GET' && method !== 'HEAD') {
-      return input.clone().text().then(body => requestParentApi({ path, method, headers, body }));
+      return input.clone().text().then(body => requestParentApi({ path, method, headers, body }, signal));
     }
-    return requestParentApi({ path, method, headers, body: hasBody ? init.body : undefined });
+    return requestParentApi({ path, method, headers, body: hasBody ? init.body : undefined }, signal);
   };
 
   navigator.sendBeacon = function novelPanelSendBeacon(endpoint, data) {
     const path = apiPath(endpoint);
     if (!path) return nativeSendBeacon ? nativeSendBeacon(endpoint, data) : false;
     const payload = beaconPayload(data);
-    requestParentApi({ path, method: 'POST', headers: payload.headers, body: payload.body }).catch(() => {});
+    requestParentApi(
+      { path, method: 'POST', headers: payload.headers, body: payload.body },
+      undefined,
+      { cancelOnClose: false }
+    ).catch(() => {});
     return true;
   };
 })();

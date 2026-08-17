@@ -30,6 +30,18 @@ type memoryUserStore struct {
 	users map[int64]store.User
 }
 
+func (s *memoryUserStore) EnsureBridgeUser(_ context.Context, username string, isOwner bool) (store.User, error) {
+	for _, user := range s.users {
+		if user.Username == username {
+			return user, nil
+		}
+	}
+	id := int64(len(s.users) + 100)
+	user := store.User{ID: id, Username: username, IsOwner: isOwner, IsActive: true}
+	s.users[id] = user
+	return user, nil
+}
+
 func (s *memoryUserStore) FindByUsername(_ context.Context, username string) (store.User, error) {
 	for _, user := range s.users {
 		if user.Username == username {
@@ -51,9 +63,24 @@ func newShuihuoTestAPI(t *testing.T, users map[int64]store.User) (*API, string) 
 	t.Helper()
 	const secret = "test-secret"
 	return New(Dependencies{
-		TokenSecret: secret,
-		Users:       &memoryUserStore{users: users},
+		TokenSecret:  secret,
+		BridgeSecret: "bridge-test-secret",
+		Users:        &memoryUserStore{users: users},
 	}), secret
+}
+
+func bridgeRequest(t *testing.T, method, requestPath, username string, isOwner bool) *http.Request {
+	t.Helper()
+	issuedAt := strconv.FormatInt(time.Now().Unix(), 10)
+	payload := strings.Join([]string{username, issuedAt, strconv.FormatBool(isOwner), method, requestPath}, "\n")
+	mac := hmac.New(sha256.New, []byte("bridge-test-secret"))
+	_, _ = mac.Write([]byte(payload))
+	req := httptest.NewRequest(method, requestPath, nil)
+	req.Header.Set("X-Qiantie-Username", username)
+	req.Header.Set("X-Qiantie-Is-Owner", strconv.FormatBool(isOwner))
+	req.Header.Set("X-Qiantie-Issued-At", issuedAt)
+	req.Header.Set("X-Qiantie-Signature", hex.EncodeToString(mac.Sum(nil)))
+	return req
 }
 
 func authorizedRequest(t *testing.T, secret string, user store.User, method, path string) *http.Request {
@@ -78,12 +105,35 @@ func TestShuihuoProjectsRequiresAuthentication(t *testing.T) {
 	}
 }
 
-func TestAdminModelsRejectsActiveNonOwner(t *testing.T) {
-	user := store.User{ID: 7, Username: "member", IsActive: true}
-	api, secret := newShuihuoTestAPI(t, map[int64]store.User{user.ID: user})
+func TestShuihuoProjectsAcceptPlatformGatewayIdentity(t *testing.T) {
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
 	response := httptest.NewRecorder()
 
-	api.Router().ServeHTTP(response, authorizedRequest(t, secret, user, http.MethodGet, "/api/admin/models"))
+	api.Router().ServeHTTP(response, bridgeRequest(t, http.MethodGet, "/api/shuihuo-production/projects", "producer", false))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET projects with gateway identity status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
+func TestShuihuoProjectsRejectBadPlatformGatewaySignature(t *testing.T) {
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
+	req := bridgeRequest(t, http.MethodGet, "/api/shuihuo-production/projects", "producer", false)
+	req.Header.Set("X-Qiantie-Signature", "bad")
+	response := httptest.NewRecorder()
+
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("GET projects with invalid gateway signature status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAdminModelsRejectsActiveNonOwner(t *testing.T) {
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
+	response := httptest.NewRecorder()
+
+	api.Router().ServeHTTP(response, bridgeRequest(t, http.MethodGet, "/api/shuihuo-production/admin/models", "member", false))
 
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("GET admin models status = %d, want %d", response.Code, http.StatusForbidden)
@@ -91,11 +141,10 @@ func TestAdminModelsRejectsActiveNonOwner(t *testing.T) {
 }
 
 func TestAdminModelsReturnsEmptyArrayForOwner(t *testing.T) {
-	user := store.User{ID: 8, Username: "owner", IsOwner: true, IsActive: true}
-	api, secret := newShuihuoTestAPI(t, map[int64]store.User{user.ID: user})
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
 	response := httptest.NewRecorder()
 
-	api.Router().ServeHTTP(response, authorizedRequest(t, secret, user, http.MethodGet, "/api/admin/models"))
+	api.Router().ServeHTTP(response, bridgeRequest(t, http.MethodGet, "/api/shuihuo-production/admin/models", "owner", true))
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET admin models status = %d, want %d", response.Code, http.StatusOK)
@@ -111,12 +160,40 @@ func TestAdminModelsReturnsEmptyArrayForOwner(t *testing.T) {
 	}
 }
 
+func TestAdminModelCreateRejectsUnapprovedAdapterBeforePersistence(t *testing.T) {
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
+	api.deps.DB = &sql.DB{}
+	response := httptest.NewRecorder()
+	req := bridgeRequest(t, http.MethodPost, "/api/shuihuo-production/admin/models", "owner", true)
+	req.Body = io.NopCloser(strings.NewReader(`{"name":"危险模型","kind":"image","adapterKind":"arbitrary_shell","credentialRef":"MODEL_KEY"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("POST unapproved model status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAdminModelWriteRejectsNonOwner(t *testing.T) {
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
+	response := httptest.NewRecorder()
+	req := bridgeRequest(t, http.MethodPost, "/api/shuihuo-production/admin/models", "member", false)
+	req.Body = io.NopCloser(strings.NewReader(`{"name":"图片模型","kind":"image","adapterKind":"generic_http"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("POST admin model status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
 func TestShuihuoProjectsReturnsEmptyArrayForCurrentUser(t *testing.T) {
-	user := store.User{ID: 9, Username: "producer", IsActive: true}
-	api, secret := newShuihuoTestAPI(t, map[int64]store.User{user.ID: user})
+	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
 	response := httptest.NewRecorder()
 
-	api.Router().ServeHTTP(response, authorizedRequest(t, secret, user, http.MethodGet, "/api/shuihuo-production/projects"))
+	api.Router().ServeHTTP(response, bridgeRequest(t, http.MethodGet, "/api/shuihuo-production/projects", "producer", false))
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("GET projects status = %d, want %d", response.Code, http.StatusOK)

@@ -26,3 +26,12 @@ func TestApplyPrefixSuffix(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestNormalizeCategoryUsesKnownProductionAssetTypes(t *testing.T) {
+	if got, err := NormalizeCategory(" scene "); err != nil || got != "scene" {
+		t.Fatalf("NormalizeCategory() = %q, %v", got, err)
+	}
+	if _, err := NormalizeCategory("costume"); err == nil {
+		t.Fatal("NormalizeCategory() accepted an unsupported category")
+	}
+}

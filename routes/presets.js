@@ -23,6 +23,22 @@ function createPresetsRouter(presetStore) {
     }
   });
 
+  router.get('/constraint-text', (req, res) => {
+    try {
+      const ids = String(req.query.ids || '').split(',').map(id => id.trim()).filter(Boolean).slice(0, 20);
+      const texts = {};
+      for (const id of ids) {
+        const preset = presetStore.getPublished(id);
+        if (preset?.module === 'script' && preset.kind === 'addon' && preset.protocolLock?.format === 'constraint') {
+          texts[id] = String(preset.body || '');
+        }
+      }
+      res.json({ texts });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
   router.post('/resolve', (req, res) => {
     try {
       const selection = presetStore.resolveSelection(req.body);

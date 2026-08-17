@@ -1,0 +1,86 @@
+.gradient-btn {
+  position: relative;
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 20px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(115deg, #f07067, #d65386 50%, #5a8ed0);
+  box-shadow: 0 10px 28px rgba(214, 83, 134, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  isolation: isolate;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.gradient-btn__text {
+  position: relative;
+  z-index: 2;
+  letter-spacing: 0.04em;
+}
+
+.gradient-btn__stars-container,
+.gradient-btn__glow {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.gradient-btn__stars {
+  position: absolute;
+  inset: -80% -50%;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(255, 241, 194, 0.86) 0 0.8px, transparent 1.4px),
+    radial-gradient(circle, rgba(219, 239, 255, 0.84) 0 0.8px, transparent 1.3px);
+  background-size: 32px 32px, 48px 48px, 64px 64px;
+  background-position: 0 0, 13px 18px, 22px 9px;
+  opacity: 0.48;
+  transform: translate3d(-12%, 10%, 0);
+  transition: opacity 0.2s ease, transform 0.45s ease;
+}
+
+.gradient-btn__circle {
+  position: absolute;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  filter: blur(17px);
+  opacity: 0.48;
+  background: rgba(255, 255, 255, 0.72);
+  transform: translate3d(-50%, -50%, 0) scale(0.65);
+  transition: transform 0.35s ease, opacity 0.35s ease;
+}
+
+.gradient-btn__circle:first-child { top: 0; left: 18%; }
+.gradient-btn__circle:last-child { right: 6%; bottom: -28px; background: rgba(144, 212, 255, 0.7); }
+
+.gradient-btn:hover {
+  color: #fff;
+  filter: brightness(1.1) saturate(1.08);
+  box-shadow: 0 14px 34px rgba(214, 83, 134, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.38);
+  transform: translateY(-2px);
+}
+
+.gradient-btn:hover .gradient-btn__stars {
+  opacity: 0.86;
+  transform: translate3d(12%, -8%, 0);
+}
+
+.gradient-btn:hover .gradient-btn__circle { opacity: 0.78; transform: translate3d(-50%, -50%, 0) scale(1.2); }
+
+.gradient-btn:active { transform: translateY(0) scale(0.98); }
+.gradient-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gradient-btn,
+  .gradient-btn__stars,
+  .gradient-btn__circle { transition: none; }
+}
