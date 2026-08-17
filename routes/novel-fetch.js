@@ -1,6 +1,7 @@
 const express = require('express');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
+const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
 
 const PLATFORMS = [
   { id: 1, name: '黑岩付费' },
@@ -49,8 +50,44 @@ function fetchUpstream(bookId, platform, maxTxt) {
   });
 }
 
-function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth } = {}) {
+const PROCESS_PRESET_IDS = { induce: 'novel-fetch-induce', hook: 'novel-fetch-hook' };
+const PROCESS_TEXT_LIMIT = 120000;
+const MAX_PROCESS_ITEMS = 50;
+
+function isProcessMode(value) {
+  return Object.hasOwn(PROCESS_PRESET_IDS, value);
+}
+
+async function defaultProcessWithAI(username, systemPrompt, novelText) {
+  const config = readConfig(username);
+  ensureReadyConfig(config);
+  const payload = {
+    model: config.model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: novelText }
+    ],
+    max_tokens: 4096,
+    temperature: 0.4
+  };
+  const data = await requestUpstream(config, payload, collectResponse, { timeoutMs: 120000 });
+  return typeof data === 'string' ? data : '';
+}
+
+function splitReportAndText(content) {
+  const text = String(content || '');
+  const reportMarkers = ['### 一、合规检测报告', '### 一、优化说明', '## 合规检测报告', '## 优化说明', '一、合规检测报告', '一、优化说明'];
+  const marker = reportMarkers.find(m => text.includes(m));
+  if (!marker) return { report: '', rest: text };
+  const index = text.indexOf(marker);
+  const secondSection = text.indexOf('### 二、优化后全文', index);
+  if (secondSection === -1) return { report: text.slice(0, index).trim(), rest: text.slice(index).trim() };
+  return { report: text.slice(0, secondSection).trim(), rest: text.slice(secondSection + '### 二、优化后全文'.length).trim() };
+}
+
+function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI } = {}) {
   const fetchOne = customFetch || fetchUpstream;
+  const processOne = processWithAI || defaultProcessWithAI;
   const router = express.Router();
   router.use(auth);
 
@@ -97,6 +134,40 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth } =
         }
       }));
 
+      return res.json({ results });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+  });
+
+  router.post('/process', async (req, res) => {
+    try {
+      const { mode, items } = req.body || {};
+      if (!isProcessMode(mode)) return res.status(400).json({ error: '无效的处理类型' });
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: '请选择要处理的书籍' });
+      if (items.length > MAX_PROCESS_ITEMS) return res.status(400).json({ error: `一次最多处理 ${MAX_PROCESS_ITEMS} 本` });
+      const normalized = [];
+      for (const item of items) {
+        const bookId = String(item && item.bookId || '').trim();
+        const text = String(item && item.text || '');
+        if (!isValidBookId(bookId)) return res.status(400).json({ error: `书籍 ID 格式不正确：${bookId}` });
+        if (!text) return res.status(400).json({ error: `书籍 ${bookId} 缺少正文` });
+        normalized.push({ bookId, text: text.slice(0, PROCESS_TEXT_LIMIT) });
+      }
+      const presetId = PROCESS_PRESET_IDS[mode];
+      const preset = presetStore && presetStore.getPublished(presetId);
+      if (!preset || preset.module !== 'novel-fetch' || preset.protocolLock?.format !== 'novel-fetch-process' || preset.protocolLock?.operation !== mode) {
+        return res.status(400).json({ error: '未发布该处理预设' });
+      }
+      const results = await Promise.all(normalized.map(async ({ bookId, text }) => {
+        try {
+          const processed = await processOne(req.username, preset.body, text);
+          const { report, rest } = splitReportAndText(processed);
+          return { bookId, status: 'ok', text: rest, report, error: null };
+        } catch (error) {
+          return { bookId, status: 'error', text: null, report: null, error: error.message || '处理失败' };
+        }
+      }));
       return res.json({ results });
     } catch (error) {
       return res.status(500).json({ error: error.message || 'Internal server error' });
