@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
-const { createNovelFetchRouter, extractProcessContent } = require('../routes/novel-fetch');
+const { createNovelFetchRouter, extractProcessContent, splitReportAndText } = require('../routes/novel-fetch');
 
 function request(app, { method = 'POST', requestPath, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -118,4 +118,52 @@ test('extractProcessContent throws on non-JSON upstream text', () => {
 test('extractProcessContent throws when message content is missing', () => {
   const upstreamText = JSON.stringify({ choices: [{ message: { role: 'assistant' } }] });
   assert.throws(() => extractProcessContent(upstreamText, 200), /上游响应缺少内容/);
+});
+
+test('extractProcessContent throws Error instance on non-JSON upstream text', () => {
+  assert.throws(() => extractProcessContent('<html>not json</html>', 200), err => {
+    assert.ok(err instanceof Error, 'should throw an Error instance');
+    assert.match(err.message, /上游返回非 JSON 数据/);
+    return true;
+  });
+});
+
+test('extractProcessContent throws Error instance when message content is missing', () => {
+  const upstreamText = JSON.stringify({ choices: [{ message: { role: 'assistant' } }] });
+  assert.throws(() => extractProcessContent(upstreamText, 200), err => {
+    assert.ok(err instanceof Error, 'should throw an Error instance');
+    assert.match(err.message, /上游响应缺少内容/);
+    return true;
+  });
+});
+
+test('splitReportAndText returns full text when no report marker', () => {
+  assert.deepEqual(splitReportAndText('纯文本内容'), { report: '', rest: '纯文本内容' });
+});
+
+test('splitReportAndText keeps rest from marker when no 二 section', () => {
+  const content = '前言\n### 一、合规检测报告\n报告内容';
+  assert.deepEqual(splitReportAndText(content), { report: '前言', rest: '### 一、合规检测报告\n报告内容' });
+});
+
+test('splitReportAndText splits at 二 section', () => {
+  const content = '### 一、优化说明\n说明\n### 二、优化后全文\n优化后的正文内容';
+  assert.deepEqual(splitReportAndText(content), { report: '### 一、优化说明\n说明', rest: '优化后的正文内容' });
+});
+
+test('splitReportAndText handles variant report marker', () => {
+  const content = '开头\n## 合规检测报告\n内容';
+  assert.deepEqual(splitReportAndText(content), { report: '开头', rest: '## 合规检测报告\n内容' });
+});
+
+test('process ok branch returns non-empty report field', async () => {
+  const processWithAI = async () => '### 一、合规检测报告\n问题：无\n### 二、优化后全文\n优化后的正文内容';
+  const result = await request(makeApp({ processWithAI }), {
+    requestPath: '/api/novel-fetch/process',
+    body: { mode: 'induce', items: [{ bookId: '1', text: '正文' }] }
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.results[0].status, 'ok');
+  assert.ok(result.body.results[0].report && result.body.results[0].report.length > 0, 'report should be non-empty');
+  assert.equal(result.body.results[0].text, '优化后的正文内容');
 });

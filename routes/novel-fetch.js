@@ -64,10 +64,10 @@ function extractProcessContent(upstreamText, statusCode) {
   try {
     parsed = JSON.parse(upstreamText);
   } catch (_) {
-    throw '上游返回非 JSON 数据';
+    throw new Error('上游返回非 JSON 数据');
   }
   const content = parsed.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') throw '上游响应缺少内容';
+  if (typeof content !== 'string') throw new Error('上游响应缺少内容');
   return content;
 }
 
@@ -190,4 +190,4 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
   return router;
 }
 
-module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent };
+module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent, splitReportAndText };
