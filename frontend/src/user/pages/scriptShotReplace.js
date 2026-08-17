@@ -73,6 +73,14 @@ function cardRanges(output, cards) {
   });
 }
 
+export function getShotCardStarts(output, cards) {
+  try {
+    JSON.parse(output);
+    return cards.map(() => null);
+  } catch {}
+  return cardRanges(output, cards).map(range => range?.start ?? null);
+}
+
 export function getSelectedShotMatches(output, cards, selectedIndexes, findText) {
   if (!findText || !selectedIndexes?.size) return [];
   const jsonMatches = getJsonSelectedShotMatches(output, selectedIndexes, findText);
@@ -90,6 +98,36 @@ export function getSelectedShotMatches(output, cards, selectedIndexes, findText)
     }
     return matches;
   });
+}
+
+export function getShotMatchDisplayRange(output, card, cardIndex, cardStart, match) {
+  if (!match || match.cardIndex !== cardIndex) return null;
+  const metadata = match[jsonMatchMetadata];
+  if (!metadata) {
+    const start = match.start - cardStart;
+    const end = match.end - cardStart;
+    return start >= 0 && end <= card.length && end > start ? { start, end } : null;
+  }
+  const shot = getJsonShots(output)?.shots?.[cardIndex];
+  if (shot == null) return null;
+  const serializedShot = JSON.stringify(shot, null, 2);
+  const copy = structuredClone(shot);
+  const value = getValueAtPath(copy, metadata.path);
+  const markerBase = '__SHOT_MATCH_MARKER__';
+  let markerIndex = 0;
+  let startMarker = `${markerBase}${markerIndex}__START__`;
+  let endMarker = `${markerBase}${markerIndex}__END__`;
+  while (serializedShot.includes(startMarker) || serializedShot.includes(endMarker)) {
+    markerIndex += 1;
+    startMarker = `${markerBase}${markerIndex}__START__`;
+    endMarker = `${markerBase}${markerIndex}__END__`;
+  }
+  const markedValue = `${value.slice(0, metadata.offset)}${startMarker}${value.slice(metadata.offset, metadata.offset + metadata.length)}${endMarker}${value.slice(metadata.offset + metadata.length)}`;
+  if (metadata.path.length) setValueAtPath(copy, metadata.path, markedValue);
+  const marked = metadata.path.length ? JSON.stringify(copy, null, 2) : markedValue;
+  const start = marked.indexOf(startMarker);
+  const end = marked.indexOf(endMarker, start + startMarker.length);
+  return start < 0 || end < 0 ? null : { start, end: end - startMarker.length };
 }
 
 function replaceJsonMatches(output, matches, replaceText) {

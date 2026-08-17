@@ -13,7 +13,7 @@ import { filterExtractionPresets, selectAvailableExtractionPreset } from './scri
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards } from './scriptShotOutput';
-import { getSelectedShotMatches, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
+import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
 function extractJSON(value) {
@@ -114,6 +114,7 @@ export function ScriptPage() {
   const selectedFormat = Form.useWatch('format', form);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
+  const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
     [output, shotCards, selectedShotIndexes, shotFindText]
@@ -834,6 +835,9 @@ export function ScriptPage() {
               onToggleAll={() => setSelectedShotIndexes(current => current.size === shotCards.length ? new Set() : new Set(shotCards.map((_, index) => index)))}
               onCopy={copyText}
               onCopySelected={() => copyText(joinShotCards(shotCards, selectedShotIndexes))}
+              output={output}
+              activeMatch={shotReplaceOpen ? activeShotMatch : null}
+              cardStarts={shotCardStarts}
             /> : <Input.TextArea className="legacy-output" value={output} rows={24} readOnly={!editingOutput} onChange={event => updateOutputDraft(event.target.value)} />
           ) : generating ? (
             <CmLoader />
