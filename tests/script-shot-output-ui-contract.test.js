@@ -92,3 +92,18 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(cards, /shot-output-card-match/);
   assert.match(cards, /scrollIntoView/);
 });
+
+test('script source textarea clears without deleting prior results until extraction starts', () => {
+  const page = read('frontend/src/user/pages/ScriptPage.jsx');
+  const styles = read('frontend/src/shared/styles/global.css');
+  assert.match(page, /Form\.useWatch\('novelText', form\)/);
+  assert.match(page, /aria-label="清空小说原文"/);
+  assert.match(page, /form\.setFieldValue\('novelText', ''\)/);
+  assert.match(page, /persistDraft\(\{ \.\.\.form\.getFieldsValue\(\), novelText: '' \}\)/);
+  assert.match(page, /function handleExtract\(values\)[\s\S]*?setExtractInfo\(normalizeExtractInfo\(\)\)[\s\S]*?setOutput\(''\)/);
+  const sourceChange = page.match(/if \(Object\.hasOwn\(changed, 'novelText'\)\) \{([\s\S]*?)\n        \}/)?.[1] || '';
+  assert.doesNotMatch(sourceChange, /setExtractInfo\(normalizeExtractInfo\(\)\)/);
+  assert.doesNotMatch(sourceChange, /setOutput\(''\)/);
+  assert.match(styles, /script-source-input/);
+  assert.match(styles, /script-source-clear/);
+});

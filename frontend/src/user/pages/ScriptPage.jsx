@@ -112,6 +112,7 @@ export function ScriptPage() {
   const [loadingExtractionPresets, setLoadingExtractionPresets] = useState(true);
   const [extractionPresetError, setExtractionPresetError] = useState('');
   const selectedFormat = Form.useWatch('format', form);
+  const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
@@ -149,6 +150,11 @@ export function ScriptPage() {
 
   function invalidateRequests() {
     sourceGenerationRef.current += 1;
+  }
+
+  function clearNovelText() {
+    form.setFieldValue('novelText', '');
+    persistDraft({ ...form.getFieldsValue(), novelText: '' });
   }
 
   function replaceSourceAudio(nextUrl) {
@@ -415,6 +421,10 @@ export function ScriptPage() {
 
   async function handleExtract(values) {
     const requestId = beginRequest('workflow');
+    setExtractInfo(normalizeExtractInfo());
+    setOutput('');
+    setSelectedShotIndexes(new Set());
+    setEditingOutput(false);
     setExtracting(true);
     setGenerationStage('extracting');
     dispatchPetState('working');
@@ -716,11 +726,6 @@ export function ScriptPage() {
           setRegeneratingOutput(false);
           setNarrating(false);
           syncPetContext(changed.novelText);
-          if (generationStage !== 'idle') {
-            setExtractInfo(normalizeExtractInfo());
-            setGenerationStage('idle');
-            setOutput('');
-          }
         }
       }}
     >
@@ -732,9 +737,20 @@ export function ScriptPage() {
         <div className="script-left">
         <div className="script-left-scroll">
           <div className="script-chat-shell">
-            <Form.Item name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
-              <Input.TextArea className="script-chat-textarea" rows={10} placeholder="粘贴小说原文，开始构思... ✦" />
-            </Form.Item>
+            <div className="script-source-input">
+              <Form.Item name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
+                <Input.TextArea className="script-chat-textarea" rows={10} placeholder="粘贴小说原文，开始构思... ✦" />
+              </Form.Item>
+              {novelText ? (
+                <button
+                  type="button"
+                  className="script-source-clear"
+                  aria-label="清空小说原文"
+                  title="清空小说原文"
+                  onClick={clearNovelText}
+                >×</button>
+              ) : null}
+            </div>
             <div className="script-chat-options">
               <div className="script-chat-tools">
                 <label className="script-file-button" title="添加 TXT 原文">
