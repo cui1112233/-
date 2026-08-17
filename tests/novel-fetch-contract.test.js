@@ -11,7 +11,7 @@ test('novel fetch backend route is wired and validates input', () => {
   const pages = read('routes/pages.js');
   const route = read('routes/novel-fetch.js');
 
-  assert.match(app, /app\.use\('\/api\/novel-fetch', createNovelFetchRouter\(\)\)/);
+  assert.match(app, /createNovelFetchRouter\(\{ presetStore: resolvedPresetStore \}\)/);
   assert.match(pages, /router\.get\('\/novel-fetch', serveReactEntry\('index\.html', 'index\.html'\)\)/);
   assert.match(route, /createNovelFetchRouter/);
   assert.match(route, /platformNameById/);
