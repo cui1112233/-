@@ -106,3 +106,81 @@ test('非分镜格式不注入强制基础设定协议', () => {
     assert.doesNotMatch(messages[0].content, /强制基础设定结构/);
   }
 });
+
+test('为每个多分镜补齐服务器固定头部', () => {
+  const header = buildRequiredShotHeader([{ name: '顾宁', '发型': '黑色长发' }], []);
+  const output = [
+    '### 分镜一（总时长：10s）',
+    '统一人物：乱写',
+    '镜头画面：第一幕。',
+    '',
+    '### 分镜二（总时长：10s）',
+    '镜头画面：第二幕。',
+    '',
+    '### 分镜三（总时长：10s）',
+    '镜头画面：第三幕。'
+  ].join('\n');
+
+  const result = enforceShotlistHeaders(output, header);
+  assert.equal((result.match(/### 分镜/g) || []).length, 3);
+  assert.equal((result.match(/【基础设定】生成视频不带字幕 \| 9:16/g) || []).length, 3);
+  assert.equal((result.match(/顾宁：黑色长发/g) || []).length, 3);
+  assert.doesNotMatch(result, /统一人物：乱写/);
+  assert.match(result, /### 分镜一（总时长：10s）\n【基础设定】生成视频不带字幕 \| 9:16\n顾宁：黑色长发\n\n镜头画面：第一幕。/);
+  assert.match(result, /### 分镜三（总时长：10s）\n【基础设定】生成视频不带字幕 \| 9:16\n顾宁：黑色长发\n\n镜头画面：第三幕。/);
+});
+
+test('模型头部缺少一行时补全为完整固定头部', () => {
+  const header = '【基础设定】生成视频不带字幕 | 9:16\n顾宁：黑色长发\n场景环境：雨夜巷口';
+  const output = [
+    '### 分镜一',
+    '【基础设定】生成视频不带字幕 | 9:16',
+    '场景环境：雨夜巷口',
+    '镜头画面：顾宁撑伞走过。'
+  ].join('\n');
+
+  const result = enforceShotlistHeaders(output, header);
+  assert.equal((result.match(/顾宁：黑色长发/g) || []).length, 1);
+  assert.match(result, /### 分镜一\n【基础设定】生成视频不带字幕 \| 9:16\n顾宁：黑色长发\n场景环境：雨夜巷口\n\n镜头画面：顾宁撑伞走过。/);
+});
+
+test('模型头部顺序错误时按固定顺序重建', () => {
+  const header = '【基础设定】生成视频不带字幕 | 9:16\n顾宁：黑色长发\n场景环境：雨夜巷口';
+  const output = [
+    '### 分镜一',
+    '场景环境：雨夜巷口',
+    '顾宁：黑色长发',
+    '【基础设定】生成视频不带字幕 | 9:16',
+    '镜头画面：顾宁撑伞走过。'
+  ].join('\n');
+
+  const result = enforceShotlistHeaders(output, header);
+  assert.match(result, /^### 分镜一\n【基础设定】生成视频不带字幕 \| 9:16\n顾宁：黑色长发\n场景环境：雨夜巷口\n\n/);
+  assert.doesNotMatch(result, /\n场景环境：雨夜巷口\n顾宁：黑色长发\n【基础设定】/);
+  assert.equal((result.match(/场景环境：雨夜巷口/g) || []).length, 1);
+  assert.equal((result.match(/【基础设定】生成视频不带字幕 \| 9:16/g) || []).length, 1);
+});
+
+test('约束行保留在补全头部之后镜头之前', () => {
+  const header = '【基础设定】生成视频不带字幕 | 9:16\n顾宁：黑色长发';
+  const output = [
+    '### 分镜一',
+    '负面提示词：不要字幕',
+    '【画面前缀】低角度',
+    '镜头画面：顾宁撑伞走过。'
+  ].join('\n');
+
+  const result = enforceShotlistHeaders(output, header);
+  assert.match(result, /负面提示词：不要字幕/);
+  assert.match(result, /【画面前缀】低角度/);
+  assert.match(result, /### 分镜一\n【基础设定】生成视频不带字幕 \| 9:16\n顾宁：黑色长发\n\n负面提示词：不要字幕\n【画面前缀】低角度\n镜头画面：顾宁撑伞走过。/);
+});
+
+test('无分镜标题的剧本与画布文本返回原样', () => {
+  const header = '【基础设定】生成视频不带字幕 | 9:16\n顾宁：黑色长发';
+  const screenplayOutput = '### 场景一\n【基础设定】生成视频不带字幕 | 9:16\n镜头画面：顾宁走过。';
+  const canvasOutput = '## 分镜画面\n镜头画面：顾宁走过。';
+
+  assert.equal(enforceShotlistHeaders(screenplayOutput, header), screenplayOutput);
+  assert.equal(enforceShotlistHeaders(canvasOutput, header), canvasOutput);
+});

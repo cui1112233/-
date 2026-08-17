@@ -450,6 +450,13 @@ router.post('/chat', async (req, res) => {
       return res.json({ enrichment: parseEntityEnrichment(content) });
     }
     if (selectedPersonalPromptIds.length) req.app.locals.scriptConstraintPromptStore?.markUsed(req.username, selectedPersonalPromptIds);
+
+    const upstreamData = JSON.parse(upstream.text);
+    const messageContent = upstreamData?.choices?.[0]?.message?.content;
+    if (body.promptType === 'script' && normalizeFormat(body.format) === 'shotlist' && typeof messageContent === 'string') {
+      upstreamData.choices[0].message.content = enforceShotlistHeaders(messageContent, buildRequiredShotHeader(body.characters, body.scenes));
+      upstream.text = JSON.stringify(upstreamData);
+    }
     res.writeHead(upstream.statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(upstream.text);
   } catch (error) {
