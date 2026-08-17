@@ -72,3 +72,26 @@ test('JSON 替换会转义引号和换行并保留未选分镜文本', async () 
   assert.equal(parsed.分镜[0].text, '阿明');
   assert.equal(parsed.分镜[1].text, '小"明\\新\n行与小"明\\新\n行');
 });
+
+test('JSON 匹配能返回格式化卡片内的显示区间', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, getShotMatchDisplayRange } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = '{\n  "shots": [\n    { "text": "阿明" },\n    {\n      "text": "阿明出场"\n    }\n  ]\n}';
+  const cards = getShotCards('storyboard', output);
+  const [match] = getSelectedShotMatches(output, cards, new Set([1]), '阿明');
+  const range = getShotMatchDisplayRange(output, cards[1], 1, null, match);
+
+  assert.equal(cards[1].slice(range.start, range.end), '阿明');
+});
+
+test('JSON 显示区间能定位同一字段中的第二次重复匹配', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, getShotMatchDisplayRange } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = '{"shots":[{"text":"阿明与阿明"},{"text":"未选"}]}';
+  const cards = getShotCards('storyboard', output);
+  const matches = getSelectedShotMatches(output, cards, new Set([0]), '阿明');
+  const range = getShotMatchDisplayRange(output, cards[0], 0, null, matches[1]);
+
+  assert.equal(cards[0].slice(range.start, range.end), '阿明');
+  assert.equal(range.start, cards[0].lastIndexOf('阿明'));
+});

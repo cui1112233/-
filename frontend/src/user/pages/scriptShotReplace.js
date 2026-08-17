@@ -92,6 +92,32 @@ export function getSelectedShotMatches(output, cards, selectedIndexes, findText)
   });
 }
 
+export function getShotMatchDisplayRange(output, card, cardIndex, cardStart, match) {
+  if (!match || match.cardIndex !== cardIndex) return null;
+  const metadata = match[jsonMatchMetadata];
+  if (!metadata) {
+    const start = match.start - cardStart;
+    const end = match.end - cardStart;
+    return start >= 0 && end <= card.length && end > start ? { start, end } : null;
+  }
+  const shot = getJsonShots(output)?.shots?.[cardIndex];
+  if (shot == null) return null;
+  const markerBase = '__SHOT_MATCH_MARKER__';
+  let marker = markerBase;
+  let markerIndex = 0;
+  while (card.includes(marker)) {
+    markerIndex += 1;
+    marker = `${markerBase}${markerIndex}__`;
+  }
+  const copy = structuredClone(shot);
+  const value = getValueAtPath(copy, metadata.path);
+  const markedValue = `${value.slice(0, metadata.offset)}${marker}${value.slice(metadata.offset + metadata.length)}`;
+  if (metadata.path.length) setValueAtPath(copy, metadata.path, markedValue);
+  const marked = metadata.path.length ? JSON.stringify(copy, null, 2) : markedValue;
+  const start = marked.indexOf(marker);
+  return start < 0 ? null : { start, end: start + metadata.length };
+}
+
 function replaceJsonMatches(output, matches, replaceText) {
   const json = getJsonShots(output);
   if (!json) return output;
