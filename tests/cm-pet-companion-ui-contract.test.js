@@ -20,3 +20,20 @@ test('CM integrates proactive companion speech without interrupting chat or task
   assert.match(pet, /if \(draggedRef\.current\)/);
   assert.match(pet, /reply \|\| petSpeech\(state\)/);
 });
+
+test('settings exposes a local CM proactive speech switch', () => {
+  const settings = read('frontend/src/user/pages/SettingsPage.jsx');
+  const pet = read('frontend/src/shared/pet/StackyPet.jsx');
+  assert.match(settings, /宠物主动说话/);
+  assert.match(settings, /Switch/);
+  assert.match(settings, /getCurrentUsername/);
+  assert.match(settings, /readCompanionSpeechState/);
+  assert.match(settings, /writeCompanionSpeechState/);
+  assert.match(settings, /PET_COMPANION_SETTINGS_EVENT/);
+  assert.match(settings, /nextIdleAt: 0/);
+  assert.match(settings, /new CustomEvent\(PET_COMPANION_SETTINGS_EVENT, \{ detail: \{ active: checked, username \} \}\)/);
+  assert.doesNotMatch(settings, /active: values\.active/);
+  assert.match(pet, /PET_COMPANION_SETTINGS_EVENT/);
+  assert.match(pet, /window\.addEventListener\(PET_COMPANION_SETTINGS_EVENT, handleCompanionSettings\)/);
+  assert.match(pet, /setCompanionActive\(active\);[\s\S]*?if \(!active\) clearCompanionSpeech\(\);/);
+});
