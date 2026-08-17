@@ -91,8 +91,21 @@ test('reschedules an expired idle when eligibility is restored', () => {
   const ineligibleAt = new Date('2026-08-16T02:00:00');
   getCompanionCandidate(candidateOptions({ now: ineligibleAt, username: 'ineligible-writer', storage: local, visible: false }));
 
+  assert.equal(readCompanionSpeechState('ineligible-writer', local).wasEligible, false);
   assert.equal(getCompanionCandidate(candidateOptions({ now: ineligibleAt, username: 'ineligible-writer', storage: local })), null);
   assert.equal(readCompanionSpeechState('ineligible-writer', local).nextIdleAt, ineligibleAt.getTime() + 2700000);
+});
+
+test('shows the first welcome immediately when the session becomes eligible', () => {
+  const local = storage();
+  const hiddenAt = new Date('2026-08-15T09:00:00');
+
+  assert.equal(getCompanionCandidate(candidateOptions({ now: hiddenAt, username: 'late-welcome-writer', storage: local, visible: false })), null);
+  const welcome = getCompanionCandidate(candidateOptions({ now: hiddenAt, username: 'late-welcome-writer', storage: local }));
+
+  assert.equal(welcome.kind, 'welcome');
+  assert.equal(readCompanionSpeechState('late-welcome-writer', local).welcomed, true);
+  assert.equal(getCompanionCandidate(candidateOptions({ now: hiddenAt, username: 'late-welcome-writer', storage: local })).kind, 'greeting');
 });
 
 test('keeps companion state isolated between usernames', () => {

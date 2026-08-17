@@ -135,18 +135,19 @@ export function getCompanionCandidate({
   }
 
   const nowMs = now.getTime();
+  if (!state.welcomed) {
+    state.welcomed = true;
+    state.wasEligible = true;
+    state.nextIdleAt = nextIdleSpeechAt(nowMs, random);
+    writeCompanionSpeechState(username, state, storage);
+    return candidate('welcome', pickSpeech(speeches.welcome, -1, random), state);
+  }
+
   if (!state.wasEligible) {
     state.wasEligible = true;
     state.nextIdleAt = nextIdleSpeechAt(nowMs, random);
     writeCompanionSpeechState(username, state, storage);
     return null;
-  }
-
-  if (!state.welcomed) {
-    state.welcomed = true;
-    state.nextIdleAt = nextIdleSpeechAt(nowMs, random);
-    writeCompanionSpeechState(username, state, storage);
-    return candidate('welcome', pickSpeech(speeches.welcome, -1, random), state);
   }
 
   const period = getGreetingPeriod(now);
