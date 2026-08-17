@@ -42,7 +42,8 @@ function normalizeState(state) {
     welcomed: source.welcomed === true,
     greetings: source.greetings && typeof source.greetings === 'object' ? source.greetings : {},
     lastIdleIndex: Number.isInteger(source.lastIdleIndex) ? source.lastIdleIndex : -1,
-    nextIdleAt: Number.isFinite(source.nextIdleAt) ? source.nextIdleAt : 0
+    nextIdleAt: Number.isFinite(source.nextIdleAt) ? source.nextIdleAt : 0,
+    wasEligible: source.wasEligible !== false
   };
 }
 
@@ -126,14 +127,24 @@ export function getCompanionCandidate({
 } = {}) {
   const state = readCompanionSpeechState(username, storage);
   if (typeof active === 'boolean') state.active = active;
-  if (!state.active || !visible || chatOpen || asking || dragging) {
+  const eligible = state.active && visible && !chatOpen && !asking && !dragging;
+  if (!eligible) {
+    state.wasEligible = false;
     writeCompanionSpeechState(username, state, storage);
     return null;
   }
 
   const nowMs = now.getTime();
+  if (!state.wasEligible) {
+    state.wasEligible = true;
+    state.nextIdleAt = nextIdleSpeechAt(nowMs, random);
+    writeCompanionSpeechState(username, state, storage);
+    return null;
+  }
+
   if (!state.welcomed) {
     state.welcomed = true;
+    state.nextIdleAt = nextIdleSpeechAt(nowMs, random);
     writeCompanionSpeechState(username, state, storage);
     return candidate('welcome', pickSpeech(speeches.welcome, -1, random), state);
   }
