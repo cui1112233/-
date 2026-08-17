@@ -2,6 +2,7 @@ import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Typog
 import { Copy, Download, Eye, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { fetchNovelContent } from '../../shared/api/novelFetch';
+import './novel-fetch.css';
 
 const PLATFORMS = [
   { id: 1, name: '黑岩付费' },
@@ -105,7 +106,8 @@ export function NovelFetchPage() {
       const maxTxt = resolveMaxTxt(form, customWordCount);
       const data = await fetchNovelContent({ platform: row.platform, bookIds: [row.bookId], maxTxt });
       const result = (data.results || [])[0];
-      setRows(rows.map(item => item.bookId === row.bookId
+      if (!result) { message.error('重试失败：无返回结果'); return; }
+      setRows(current => current.map(item => item.bookId === row.bookId
         ? { ...item, status: result.status, data: result.data, error: result.error, length: result.length }
         : item));
       message[result.status === 'ok' ? 'success' : 'error'](result.status === 'ok' ? '重试成功' : (result.error || '重试失败'));
@@ -240,7 +242,15 @@ export function NovelFetchPage() {
         open={Boolean(preview)}
         width={860}
         footer={[
-          <Button key="copy" icon={<Copy size={14} aria-hidden="true" />} onClick={() => { if (preview) copyText(preview.data); message.success('已复制到剪贴板'); }}>复制</Button>,
+          <Button key="copy" icon={<Copy size={14} aria-hidden="true" />} onClick={async () => {
+            if (!preview) return;
+            try {
+              await copyText(preview.data);
+              message.success('已复制到剪贴板');
+            } catch (_) {
+              message.error('复制失败');
+            }
+          }}>复制</Button>,
           <Button key="close" onClick={() => setPreview(null)}>关闭</Button>
         ]}
         onCancel={() => setPreview(null)}
