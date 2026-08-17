@@ -79,8 +79,11 @@ function buildRequiredShotHeader(characters, scenes) {
     const atmosphere = shotHeaderValue(scene, ['情绪基调', '氛围', '氛围概述', 'atmosphere']);
     const details = [location, time, atmosphere].filter(Boolean);
     const description = details.length ? '' : shotHeaderValue(scene, ['场景描述', '描述']);
-    if (details.length || description) lines.push(`场景环境：${details.length ? details.join('｜') : description}`);
-    break;
+    const sceneParts = details.length ? details : description ? [description] : [];
+    if (sceneParts.length) {
+      lines.push(`场景环境：${sceneParts.join('｜')}`);
+      break;
+    }
   }
   return lines.join('\n');
 }

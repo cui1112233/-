@@ -41,6 +41,20 @@ test('去重同名人物并忽略字符串实体', () => {
   assert.doesNotMatch(header, /红衣|无名描述|\{|未知|：\s*$/m);
 });
 
+test('跳过空场景并使用第一个有数据场景', () => {
+  const detailedHeader = buildRequiredShotHeader([], [
+    {},
+    { '地点': '废弃工厂', '时间': '深夜', '情绪基调': '压抑' }
+  ]);
+  const descriptionHeader = buildRequiredShotHeader([], [
+    {},
+    { '场景描述': '雨夜的旧码头' }
+  ]);
+
+  assert.equal(detailedHeader, '【基础设定】生成视频不带字幕 | 9:16\n场景环境：废弃工厂｜深夜｜压抑');
+  assert.equal(descriptionHeader, '【基础设定】生成视频不带字幕 | 9:16\n场景环境：雨夜的旧码头');
+});
+
 test('为每个分镜替换模型头部并补齐缺失头部', () => {
   const header = buildRequiredShotHeader([{ name: '顾宁', '发型': '黑色长发' }], []);
   const output = [
