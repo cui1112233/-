@@ -95,3 +95,14 @@ test('JSON 显示区间能定位同一字段中的第二次重复匹配', async 
   assert.equal(cards[0].slice(range.start, range.end), '阿明');
   assert.equal(range.start, cards[0].lastIndexOf('阿明'));
 });
+
+test('JSON 显示区间在卡片含默认标记时仍高亮查找词', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const { getSelectedShotMatches, getShotMatchDisplayRange } = await import('../frontend/src/user/pages/scriptShotReplace.js');
+  const output = '{"shots":[{"text":"__SHOT_MATCH_MARKER__阿明"},{"text":"未选"}]}';
+  const cards = getShotCards('storyboard', output);
+  const [match] = getSelectedShotMatches(output, cards, new Set([0]), '阿明');
+  const range = getShotMatchDisplayRange(output, cards[0], 0, null, match);
+
+  assert.equal(cards[0].slice(range.start, range.end), '阿明');
+});
