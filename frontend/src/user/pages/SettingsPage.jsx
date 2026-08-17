@@ -1,7 +1,9 @@
-import { AutoComplete, Button, Form, Input, Select, Typography, message } from 'antd';
+import { AutoComplete, Button, Form, Input, Select, Switch, Typography, message } from 'antd';
 import { Cable, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testConfig } from '../../shared/api/config';
+import { getCurrentUsername } from '../../shared/api/auth';
+import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 
 const providers = [
   { label: 'OpenAI', value: 'openai' },
@@ -37,6 +39,12 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [provider, setProvider] = useState('openai');
+  const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
+  const username = getCurrentUsername();
+
+  useEffect(() => {
+    setCompanionActive(readCompanionSpeechState(username).active);
+  }, [username]);
 
   useEffect(() => {
     let alive = true;
@@ -159,6 +167,13 @@ export function SettingsPage() {
               <Typography.Paragraph type="secondary">{stackyPet.description}</Typography.Paragraph>
             </div>
           </div>
+          <Form.Item label="宠物主动说话" valuePropName="checked">
+            <Switch checked={companionActive} onChange={checked => {
+              setCompanionActive(checked);
+              writeCompanionSpeechState(username, { ...readCompanionSpeechState(username), active: checked, nextIdleAt: 0 });
+              window.dispatchEvent(new CustomEvent(PET_COMPANION_SETTINGS_EVENT, { detail: { active: checked, username } }));
+            }} />
+          </Form.Item>
         </section>
 
         <div className="settings-savebar">
