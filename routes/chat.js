@@ -292,6 +292,12 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
   const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
+  const requiredShotHeader = format === 'shotlist'
+    ? buildRequiredShotHeader(body.characters, body.scenes)
+    : '';
+  const requiredShotHeaderProtocol = requiredShotHeader
+    ? `## 强制基础设定结构\n以下内容由服务器根据已提取人物和场景生成。每个 ### 分镜 标题后、镜头画面：前必须逐字使用服务器提供的固定头部；不得省略、改名、重排、写成 JSON、花括号占位符或共享前言。\n\n${requiredShotHeader}`
+    : '';
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
@@ -300,6 +306,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]),
     resolveSystemPresetBody(presetStore, 'script-general'),
     unitProtocol,
+    requiredShotHeaderProtocol,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');

@@ -82,3 +82,25 @@ test('保留正确头部及无分镜标题的模型原文', () => {
   assert.equal(enforceShotlistHeaders(correctOutput, header), correctOutput);
   assert.equal(enforceShotlistHeaders(noTitleOutput, header), noTitleOutput);
 });
+
+test('continuous、hook和segmented分镜提示词都要求服务器固定头部', () => {
+  const characters = [{ '角色名称': '顾宁', '基本体征': '年轻女性' }];
+  const scenes = [{ '地点场景名称': '海关通道', '时间': '白天', '情绪基调': '紧张' }];
+  for (const mode of ['continuous', 'hook', 'segmented']) {
+    const messages = require('../routes/chat')._private.buildScriptMessages({
+      mode, format: 'shotlist', duration: '10s', novelText: '测试原文', characters, scenes, protagonists: [], constraints: {}
+    }, { getPublished() { return null; }, listAll() { return []; } });
+    assert.match(messages[0].content, /强制基础设定结构/);
+    assert.match(messages[0].content, /【基础设定】生成视频不带字幕 \| 9:16/);
+    assert.match(messages[0].content, /必须逐字使用服务器提供的固定头部/);
+    assert.match(messages[0].content, /顾宁：年轻女性/);
+    assert.match(messages[0].content, /场景环境：海关通道｜白天｜紧张/);
+  }
+});
+
+test('非分镜格式不注入强制基础设定协议', () => {
+  const messages = require('../routes/chat')._private.buildScriptMessages({
+    mode: 'continuous', format: 'storyboard', duration: '10s', novelText: '测试原文', characters: [], scenes: [], protagonists: [], constraints: {}
+  }, { getPublished() { return null; }, listAll() { return []; } });
+  assert.doesNotMatch(messages[0].content, /强制基础设定结构/);
+});
