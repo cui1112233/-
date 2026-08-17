@@ -265,11 +265,12 @@ git commit -m "feat: add novel fetch AI process route"
 - Modify: `lib/system-preset-catalog.js`
 - Modify: `lib/preset-store.js`（`publicPreset`）
 - Modify: `frontend/src/admin/pages/PresetLibraryPage.jsx`
+- Modify: `app.js`（注入 `presetStore` 到 `createNovelFetchRouter`）
 - Test: `tests/novel-fetch-process-preset-contract.test.js`
 
 **Interfaces:**
 - Consumes: Task 1 预设 id `novel-fetch-induce` / `novel-fetch-hook`；`presetStore.getPublished` 返回含 `body`、`module`、`protocolLock` 的对象。
-- Produces: 系统种子新增两条已发布预设；`publicPreset` 新增字段 `processOperation`；管理后台 `modules` 新增 `novel-fetch`。前端可调用 `GET /api/presets?module=novel-fetch` 获得含 `id`、`name`、`processOperation` 的目录。
+- Produces: 系统种子新增两条已发布预设；`publicPreset` 新增字段 `processOperation`；管理后台 `modules` 新增 `novel-fetch`；`app.js` 的 `createNovelFetchRouter` 注入 `presetStore: resolvedPresetStore`。前端可调用 `GET /api/presets?module=novel-fetch` 获得含 `id`、`name`、`processOperation` 的目录。
 
 - [ ] **Step 1: 写失败契约测试**
 
@@ -303,6 +304,11 @@ test('admin preset library includes novel-fetch module', () => {
   const page = read('frontend/src/admin/pages/PresetLibraryPage.jsx');
   assert.match(page, /label: '小说获取'/);
   assert.match(page, /value: 'novel-fetch'/);
+});
+
+test('app wires novel-fetch router with presetStore', () => {
+  const app = read('app.js');
+  assert.match(app, /createNovelFetchRouter\(\{ presetStore: resolvedPresetStore \}\)/);
 });
 ```
 
@@ -443,6 +449,12 @@ const SYSTEM_PRESETS = Object.freeze([
 
 ```js
   { label: '小说获取', value: 'novel-fetch' }
+```
+
+**3d. `app.js`：** 将第 125 行的挂载改为注入预设存储（`resolvedPresetStore` 在本文件第 55 行已定义于 `app.locals.presetStore`）：
+
+```js
+  app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore }));
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
