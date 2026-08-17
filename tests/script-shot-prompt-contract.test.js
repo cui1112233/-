@@ -19,6 +19,7 @@ test('分镜模式要求服务器固定头部逐字出现在每个单元中', ()
   const content = fs.readFileSync(path.join(prompts, '分镜模式.md'), 'utf8');
   assert.match(content, /【基础设定】生成视频不带字幕 \| 9:16/);
   assert.match(content, /服务器提供/);
+  assert.doesNotMatch(content, /\{服务器提供/);
   assert.match(content, /不得输出.*JSON|JSON.*不得输出/);
   assert.match(content, /花括号/);
   assert.match(content, /逐字保留/);

@@ -99,8 +99,10 @@ test('continuous、hook和segmented分镜提示词都要求服务器固定头部
 });
 
 test('非分镜格式不注入强制基础设定协议', () => {
-  const messages = require('../routes/chat')._private.buildScriptMessages({
-    mode: 'continuous', format: 'storyboard', duration: '10s', novelText: '测试原文', characters: [], scenes: [], protagonists: [], constraints: {}
-  }, { getPublished() { return null; }, listAll() { return []; } });
-  assert.doesNotMatch(messages[0].content, /强制基础设定结构/);
+  for (const format of ['storyboard', 'screenplay', 'shortdrama']) {
+    const messages = require('../routes/chat')._private.buildScriptMessages({
+      mode: 'continuous', format, duration: '10s', novelText: '测试原文', characters: [], scenes: [], protagonists: [], constraints: {}
+    }, { getPublished() { return null; }, listAll() { return []; } });
+    assert.doesNotMatch(messages[0].content, /强制基础设定结构/);
+  }
 });
