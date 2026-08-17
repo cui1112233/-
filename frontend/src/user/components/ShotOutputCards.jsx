@@ -24,6 +24,8 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
       </div>
       {cards.map((card, index) => {
         const cardDuration = card.match(/总时长[：:]\s*(\d+s)/)?.[1] || duration;
+        const displayRange = getShotMatchDisplayRange(output, card, index, cardStarts[index], activeMatch);
+        const highlight = splitShotTextHighlight(card, displayRange);
         return <div className="shot-output-card" key={`${index}-${card.slice(0, 24)}`}>
           <div className="shot-output-card-header">
             <Checkbox checked={selectedIndexes.has(index)} onChange={() => onToggle(index)}>分镜 {index + 1} · {cardDuration}</Checkbox>

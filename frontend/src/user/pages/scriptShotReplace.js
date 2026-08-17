@@ -73,6 +73,14 @@ function cardRanges(output, cards) {
   });
 }
 
+export function getShotCardStarts(output, cards) {
+  try {
+    JSON.parse(output);
+    return cards.map(() => null);
+  } catch {}
+  return cardRanges(output, cards).map(range => range?.start ?? null);
+}
+
 export function getSelectedShotMatches(output, cards, selectedIndexes, findText) {
   if (!findText || !selectedIndexes?.size) return [];
   const jsonMatches = getJsonSelectedShotMatches(output, selectedIndexes, findText);

@@ -13,7 +13,7 @@ import { filterExtractionPresets, selectAvailableExtractionPreset } from './scri
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards } from './scriptShotOutput';
-import { getSelectedShotMatches, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
+import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
 function extractJSON(value) {
@@ -114,19 +114,7 @@ export function ScriptPage() {
   const selectedFormat = Form.useWatch('format', form);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
-  const shotCardStarts = useMemo(() => {
-    try {
-      JSON.parse(output);
-      return shotCards.map(() => null);
-    } catch {}
-    let cursor = 0;
-    return shotCards.map(card => {
-      const start = output.indexOf(card, cursor);
-      if (start < 0) return null;
-      cursor = start + card.length;
-      return start;
-    });
-  }, [output, shotCards]);
+  const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
     [output, shotCards, selectedShotIndexes, shotFindText]
