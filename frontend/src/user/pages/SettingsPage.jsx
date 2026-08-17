@@ -1,4 +1,4 @@
-import { AutoComplete, Button, Form, Input, Select, Switch, Typography, message } from 'antd';
+import { AutoComplete, Button, Form, Input, Select, Slider, Switch, Typography, message } from 'antd';
 import { Cable, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testConfig } from '../../shared/api/config';
@@ -41,6 +41,9 @@ export function SettingsPage() {
   const [provider, setProvider] = useState('openai');
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
+  const soundEnabled = Form.useWatch('soundEnabled', form);
+  const soundVolume = Form.useWatch('soundVolume', form);
+  const soundVolumePercent = Number.isFinite(soundVolume) ? Math.round(soundVolume) : 60;
 
   useEffect(() => {
     setCompanionActive(readCompanionSpeechState(username).active);
@@ -57,7 +60,10 @@ export function SettingsPage() {
           baseUrl: config.baseUrl || 'https://api.openai.com/v1',
           model: config.model || 'gpt-4o-mini',
           apiKey: '',
-          petId: config.pet?.id || stackyPet.id
+          petId: config.pet?.id || stackyPet.id,
+          soundEnabled: config.notifications?.soundEnabled !== false,
+          soundVolume: Number.isFinite(config.notifications?.soundVolume) ? config.notifications.soundVolume : 60,
+          petVisible: config.notifications?.petVisible !== false
         });
         setProvider(config.provider || 'openai');
       })
@@ -71,13 +77,19 @@ export function SettingsPage() {
   async function handleSave(values) {
     setSaving(true);
     try {
-      await saveConfig({
+      const saved = await saveConfig({
         provider: values.provider,
         baseUrl: values.baseUrl,
         model: values.model,
         apiKey: values.apiKey,
-        pet: values.petId === stackyPet.id ? stackyPet : undefined
+        pet: values.petId === stackyPet.id ? stackyPet : undefined,
+        notifications: {
+          soundEnabled: values.soundEnabled !== false,
+          soundVolume: Number.isFinite(values.soundVolume) ? values.soundVolume : 60,
+          petVisible: values.petVisible !== false
+        }
       });
+      window.dispatchEvent(new CustomEvent('qiantie:notifications-updated', { detail: saved.notifications }));
       form.setFieldValue('apiKey', '');
       message.success('设置已保存');
     } catch (error) {
@@ -128,7 +140,7 @@ export function SettingsPage() {
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: stackyPet.id }}
+        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: stackyPet.id, soundEnabled: true, soundVolume: 60, petVisible: true }}
         onFinish={handleSave}
       >
         <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
@@ -158,6 +170,22 @@ export function SettingsPage() {
           <Form.Item label="前贴宠物" name="petId">
             <Select options={petOptions} />
           </Form.Item>
+          <Form.Item label="提示音" name="soundEnabled" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Typography.Paragraph type="secondary">用于在剧本人物/场景提取完成、剧本生成完成时提醒；提取或生成失败（如网络、404、鉴权错误）时播放警示音。</Typography.Paragraph>
+          <Form.Item label="提示音音量">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Form.Item name="soundVolume" noStyle>
+                <Slider min={0} max={100} step={1} value={soundVolume} disabled={!soundEnabled} tooltip={{ formatter: value => `${value}%` }} style={{ flex: 1 }} />
+              </Form.Item>
+              <Typography.Text>{soundVolumePercent}%</Typography.Text>
+            </div>
+          </Form.Item>
+          <Form.Item label="显示 CM 宠物" name="petVisible" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Typography.Paragraph type="secondary">控制右下角 CM 助手是否显示，关闭后可减少界面干扰。</Typography.Paragraph>
           <div className="settings-pet-preview" aria-label="当前前贴宠物 CM">
             <div className="settings-pet-frame">
               <img src={stackyPet.spritesheetPath} alt="CM" />

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { saveHistory } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
+import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
@@ -79,6 +80,8 @@ export function ScriptPage() {
   const [form] = Form.useForm();
   const [extracting, setExtracting] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundVolume, setSoundVolume] = useState(60);
   const [regeneratingEntities, setRegeneratingEntities] = useState(false);
   const [regeneratingOutput, setRegeneratingOutput] = useState(false);
   const [generationStage, setGenerationStage] = useState('idle');
@@ -213,9 +216,21 @@ export function ScriptPage() {
   }
 
   async function copyText(text) {
-    if (!text || !navigator.clipboard?.writeText) return message.warning('当前环境不支持复制');
+    if (!text) return message.warning('没有可复制的内容');
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        if (!copied) throw new Error('copy failed');
+      }
       message.success('已复制');
     } catch {
       message.error('复制失败，请检查浏览器权限');
@@ -254,6 +269,26 @@ export function ScriptPage() {
     if (!draftReadyRef.current) return;
     persistDraft();
   }, [extractInfo, output, editingOutput, generationStage, constraints]);
+
+  useEffect(() => {
+    let active = true;
+    getConfig()
+      .then(config => {
+        if (!active) return;
+        setSoundEnabled(config.notifications?.soundEnabled !== false);
+        setSoundVolume(Number.isFinite(config.notifications?.soundVolume) ? config.notifications.soundVolume : 60);
+      })
+      .catch(() => {});
+    const handleNotificationsUpdated = event => {
+      setSoundEnabled(event.detail?.soundEnabled !== false);
+      setSoundVolume(Number.isFinite(event.detail?.soundVolume) ? event.detail.soundVolume : 60);
+    };
+    window.addEventListener('qiantie:notifications-updated', handleNotificationsUpdated);
+    return () => {
+      active = false;
+      window.removeEventListener('qiantie:notifications-updated', handleNotificationsUpdated);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -439,11 +474,13 @@ export function ScriptPage() {
       setExtractInfo(extraction);
       setGenerationStage('extracted');
       message.success(`已提取 ${extraction.characters.length} 个人物和 ${extraction.scenes.length} 个场景`);
+      playTaskSound('success', soundEnabled, soundVolume);
       dispatchPetState('success');
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
       message.error(error.message || '人物与场景提取失败');
+      playTaskSound('warning', soundEnabled, soundVolume);
       dispatchPetState('error');
     } finally {
       if (isCurrentRequest(requestId)) setExtracting(false);
@@ -513,11 +550,13 @@ export function ScriptPage() {
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
       message.success('生成完成');
+      playTaskSound('success', soundEnabled, soundVolume);
       dispatchPetState('success');
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
       message.error(error.message || '剧本生成失败');
+      playTaskSound('warning', soundEnabled, soundVolume);
       dispatchPetState('error');
     } finally {
       if (isCurrentRequest(requestId)) setGenerating(false);

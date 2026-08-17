@@ -18,6 +18,15 @@ function normalizePetConfig(value, fallback) {
   };
 }
 
+function normalizeNotifications(value, fallback = {}) {
+  const volume = Number(value?.soundVolume);
+  return {
+    soundEnabled: typeof value?.soundEnabled === 'boolean' ? value.soundEnabled : (fallback.soundEnabled ?? true),
+    petVisible: typeof value?.petVisible === 'boolean' ? value.petVisible : (fallback.petVisible ?? true),
+    soundVolume: Number.isFinite(volume) ? Math.min(100, Math.max(0, Math.round(volume))) : 60
+  };
+}
+
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')
     ? value.voice
@@ -40,6 +49,7 @@ router.get('/', (req, res) => {
   const config = readConfig(req.username);
   config.pet = normalizePetConfig(config.pet);
   config.tts = normalizeTtsConfig(config.tts);
+  config.notifications = normalizeNotifications(config.notifications);
   res.json(publicConfig(config));
 });
 
@@ -53,10 +63,12 @@ router.post('/', (req, res) => {
     model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
     apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
     pet: normalizePetConfig(body.pet, oldConfig.pet),
-    tts: normalizeTtsConfig(body.tts, oldConfig.tts)
+    tts: normalizeTtsConfig(body.tts, oldConfig.tts),
+    notifications: normalizeNotifications(body.notifications, oldConfig.notifications)
   };
   writeConfig(req.username, nextConfig);
   res.json(publicConfig(nextConfig));
 });
 
 module.exports = router;
+module.exports.normalizeNotifications = normalizeNotifications;

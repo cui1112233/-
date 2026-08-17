@@ -207,7 +207,8 @@ test('CM task UI resets across accounts and protects the composer while task det
   assert.match(layout, /const expiredToken = event\?\.detail\?\.token;[\s\S]*?const currentToken = getToken\(\);[\s\S]*?if \(expiredToken\) \{[\s\S]*?if \(!currentToken \|\| expiredToken !== currentToken\) return;[\s\S]*?\} else if \(!sessionToken \|\| currentToken \|\| cancelled \|\| accountSessionGenerationRef\.current !== sessionGeneration\) \{/);
   assert.match(layout, /if \(!isCurrentSession\(\)\) return;[\s\S]*?setUsername\(currentAccount\.username\);/);
   assert.match(layout, /cancelled = true;[\s\S]*?accountSessionGenerationRef\.current \+= 1;/);
-  assert.match(layout, /<Fragment key=\{accountSessionKey\}>[\s\S]*?<section className="legacy-content">\{content\}<\/section>[\s\S]*?<StackyPet username=\{username\} accountSessionKey=\{accountSessionKey\} \/>[\s\S]*?<\/Fragment>/);
+  assert.match(layout, /const isLoggedIn = Boolean\(username\);[\s\S]*?const isHome = pathname === '\/';/);
+  assert.match(layout, /\{isLoggedIn && pathname !== '\/' && petVisible \? <StackyPet username=\{username\} accountSessionKey=\{accountSessionKey\} \/> : null\}/);
   assert.match(pet, /export function StackyPet\(\{ username, accountSessionKey \}\)/);
   assert.match(pet, /const accountSessionGenerationRef = useRef\(0\)/);
   assert.match(pet, /accountSessionGenerationRef\.current \+= 1;/);

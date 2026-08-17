@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>配音 — 一战晟铭</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/tts.css">
+</head>
+<body data-active-page="tts">
+
+<!-- ============================================
+     Sidebar
+     ============================================ -->
+<nav id="sidebar">
+  <div class="nav-header">
+    <button id="nav-toggle" type="button" title="收起/展开导航">☰</button>
+    <div class="nav-brand-container">
+      <img class="nav-logo" src="/assets/logo-transparent.png" alt="一战晟铭 logo">
+      <span class="nav-brand">一战晟铭</span>
+    </div>
+  </div>
+  <ul id="nav-list">
+    <li class="nav-item" data-href="/">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-text">首页</span>
+    </li>
+    <li class="nav-item" data-href="/script">
+      <span class="nav-icon">📝</span>
+      <span class="nav-text">剧本生成</span>
+    </li>
+    <li class="nav-item" data-href="/agent">
+      <span class="nav-icon">🤖</span>
+      <span class="nav-text">Agent工作区</span>
+    </li>
+    <li class="nav-item active" data-href="/tts">
+      <span class="nav-icon">🎙️</span>
+      <span class="nav-text">配音</span>
+    </li>
+  </ul>
+  <div class="nav-footer">
+    <button id="theme-toggle" class="nav-item theme-toggle-btn" type="button" title="切换主题">
+      <span class="nav-icon" id="theme-icon">🌙</span>
+      <span class="nav-text">切换主题</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================================
+     Main Area
+     ============================================ -->
+<div id="main">
+
+  <!-- Topbar -->
+  <div id="topbar">
+    <span id="page-title">配音</span>
+    <button class="btn-open-settings" type="button" title="设置">⚙️</button>
+  </div>
+
+  <!-- Page: TTS -->
+  <div id="page-tts" class="page-container active">
+    <div class="tts-toolbar">
+      <button id="btn-add-card" class="btn btn-primary" type="button">+ 添加卡片</button>
+      <button id="btn-upload-novel" class="btn btn-secondary" type="button">📤 上传小说</button>
+      <button id="btn-generate-all" class="btn btn-primary" type="button">▶ 全部生成</button>
+      <input type="file" id="novel-file-input" accept=".txt">
+    </div>
+
+    <div id="tts-cards" class="tts-cards">
+      <div class="tts-empty">
+        <div class="tts-empty-icon">🎙️</div>
+        <div class="tts-empty-text">还没有配音卡片</div>
+        <div class="tts-empty-sub">点击"添加卡片"输入文本，或上传小说自动提取开篇</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Settings Modal
+     ============================================ -->
+<div id="settings-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">⚙️ API 设置</div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">API 提供商</label>
+        <select id="settings-provider" class="form-select">
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="qwen">通义千问</option>
+          <option value="custom">自定义</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Key</label>
+        <input id="settings-apikey" class="form-input" type="password" placeholder="输入你的 API Key">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Base URL</label>
+        <input id="settings-baseurl" class="form-input" type="text" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="form-group">
+        <label class="form-label">模型名称</label>
+        <input id="settings-model" class="form-input" type="text" placeholder="gpt-4o">
+      </div>
+      <div id="test-result" class="test-result"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-test-connection" class="btn btn-secondary" type="button">🔌 测试连接</button>
+      <button id="btn-save-settings" class="btn btn-primary" type="button">保存</button>
+      <button id="btn-close-settings" class="btn btn-secondary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Toast Container
+     ============================================ -->
+<div id="toast-container"></div>
+
+<!-- ============================================
+     Mobile Sidebar Overlay
+     ============================================ -->
+<div id="mobile-overlay"></div>
+
+<script src="/js/common.js"></script>
+<script src="/js/tts.js"></script>
+
+</body>
+</html>
