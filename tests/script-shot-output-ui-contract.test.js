@@ -29,6 +29,7 @@ test('script page uses card output only for parsed non-shortdrama results', () =
 });
 
 test('script page provides find and replace only for selected shot cards', () => {
+  const cards = read('frontend/src/user/components/ShotOutputCards.jsx');
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   assert.match(page, /查找替换/);
   assert.match(page, /selectedShotIndexes\.size/);
@@ -39,4 +40,9 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(page, /找到内容/);
   assert.match(page, /分镜 \{activeShotMatch\.cardIndex \+ 1\}/);
   assert.match(page, /Modal/);
+  assert.match(page, /activeMatch=\{shotReplaceOpen \? activeShotMatch : null\}/);
+  assert.match(cards, /getShotMatchDisplayRange/);
+  assert.match(cards, /splitShotTextHighlight/);
+  assert.match(cards, /shot-output-card-match/);
+  assert.match(cards, /scrollIntoView/);
 });

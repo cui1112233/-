@@ -114,6 +114,19 @@ export function ScriptPage() {
   const selectedFormat = Form.useWatch('format', form);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
+  const shotCardStarts = useMemo(() => {
+    try {
+      JSON.parse(output);
+      return shotCards.map(() => null);
+    } catch {}
+    let cursor = 0;
+    return shotCards.map(card => {
+      const start = output.indexOf(card, cursor);
+      if (start < 0) return null;
+      cursor = start + card.length;
+      return start;
+    });
+  }, [output, shotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
     [output, shotCards, selectedShotIndexes, shotFindText]
@@ -834,6 +847,9 @@ export function ScriptPage() {
               onToggleAll={() => setSelectedShotIndexes(current => current.size === shotCards.length ? new Set() : new Set(shotCards.map((_, index) => index)))}
               onCopy={copyText}
               onCopySelected={() => copyText(joinShotCards(shotCards, selectedShotIndexes))}
+              output={output}
+              activeMatch={shotReplaceOpen ? activeShotMatch : null}
+              cardStarts={shotCardStarts}
             /> : <Input.TextArea className="legacy-output" value={output} rows={24} readOnly={!editingOutput} onChange={event => updateOutputDraft(event.target.value)} />
           ) : generating ? (
             <CmLoader />
