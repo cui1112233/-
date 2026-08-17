@@ -25,3 +25,11 @@ test('novel fetch page renders process controls and results dialog', () => {
   assert.match(page, /全选下载/);
   assert.match(page, /processOperation/);
 });
+
+test('novel fetch page follows process mode label and renders process errors', () => {
+  const page = read('frontend/src/user/pages/NovelFetchPage.jsx');
+  assert.match(page, /find\(p => p\.value === processMode\)/);
+  assert.match(page, /row\.induced\.mode !== processMode/);
+  assert.match(page, /所选书籍均已处理/);
+  assert.match(page, /row\.processError \? row\.processError :/);
+});

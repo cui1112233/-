@@ -173,8 +173,8 @@ export function NovelFetchPage() {
   }
 
   async function handleProcess() {
-    const chosen = okRows().filter(row => selected.includes(row.bookId));
-    if (chosen.length === 0) { message.warning('请先选择要处理的书籍'); return; }
+    const chosen = okRows().filter(row => selected.includes(row.bookId) && (!row.induced || row.induced.mode !== processMode));
+    if (chosen.length === 0) { message.warning('所选书籍均已处理'); return; }
     if (!processMode) { message.warning('暂无可用的处理类型'); return; }
     setProcessing(true);
     try {
@@ -304,7 +304,7 @@ export function NovelFetchPage() {
                 {row.status === 'loading' ? '获取中…' : row.status === 'ok' ? '成功' : '失败'}
               </span>
               <span className="novel-fetch-length">
-                {row.status === 'ok' ? `${row.length} 字` : (row.error || '')}
+                {row.processError ? row.processError : (row.status === 'ok' ? `${row.length} 字` : (row.error || ''))}
               </span>
               <Space className="novel-fetch-actions">
                 {row.status === 'ok' ? (
@@ -312,7 +312,7 @@ export function NovelFetchPage() {
                     <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setPreview(row)}>查看</Button>
                     <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${row.bookId}.txt`, row.data)}>下载</Button>
                     <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={() => handleProcessOne(row)}>
-                      {row.induced ? '查看处理结果' : '诱导排查'}
+                      {row.induced ? '查看处理结果' : (processPresets.find(p => p.value === processMode)?.label || '处理')}
                     </Button>
                   </>
                 ) : row.status === 'error' ? (

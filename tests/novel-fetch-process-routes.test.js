@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
-const { createNovelFetchRouter, extractProcessContent, splitReportAndText } = require('../routes/novel-fetch');
+const routesModule = require('../routes/novel-fetch');
+const { createNovelFetchRouter, extractProcessContent, splitReportAndText } = routesModule;
 
 function request(app, { method = 'POST', requestPath, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -37,7 +38,13 @@ function preset(id, operation) {
 }
 
 function makeApp(overrides = {}) {
-  const store = { getPublished: id => overrides.missingPreset ? null : (id === 'novel-fetch-induce' ? preset(id, 'induce') : preset(id, 'hook')) };
+  const store = {
+    getPublished: id => {
+      if (overrides.missingPreset) return null;
+      if (overrides.customPreset) return overrides.customPreset(id);
+      return id === 'novel-fetch-induce' ? preset(id, 'induce') : preset(id, 'hook');
+    }
+  };
   const processWithAI = overrides.processWithAI || (async (username, systemPrompt, novelText) => `已处理：${systemPrompt}|${novelText.slice(0, 10)}`);
   return express()
     .use(express.json({ limit: '50mb' }))
@@ -166,4 +173,46 @@ test('process ok branch returns non-empty report field', async () => {
   assert.equal(result.body.results[0].status, 'ok');
   assert.ok(result.body.results[0].report && result.body.results[0].report.length > 0, 'report should be non-empty');
   assert.equal(result.body.results[0].text, '优化后的正文内容');
+});
+
+test('computeMaxTokens scales with input length', () => {
+  assert.equal(routesModule.computeMaxTokens(100), 4096);
+  assert.equal(routesModule.computeMaxTokens(3000), 4500);
+  assert.equal(routesModule.computeMaxTokens(5462), 8192);
+});
+
+test('splitReportAndText excludes third section from rest and merges into report', () => {
+  const content = '### 一、合规检测报告\n问题：无\n### 二、优化后全文\n优化后的正文\n### 三、关键修改说明（可选）\n修改了开头';
+  const { report, rest } = splitReportAndText(content);
+  assert.equal(rest, '优化后的正文');
+  assert.ok(!rest.includes('### 三'), 'rest must not contain third section');
+  assert.ok(report.includes('### 三、关键修改说明（可选）'), 'report should include third section');
+  assert.ok(report.includes('修改了开头'));
+});
+
+test('process rejects preset with mismatched module', async () => {
+  const result = await request(makeApp({ customPreset: () => ({ ...preset('novel-fetch-induce', 'induce'), module: 'not-novel-fetch' }) }), {
+    requestPath: '/api/novel-fetch/process',
+    body: { mode: 'induce', items: [{ bookId: '1', text: 'x' }] }
+  });
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /未发布该处理预设/);
+});
+
+test('process rejects preset with mismatched format', async () => {
+  const result = await request(makeApp({ customPreset: () => ({ ...preset('novel-fetch-induce', 'induce'), protocolLock: { format: 'other-format', operation: 'induce' } }) }), {
+    requestPath: '/api/novel-fetch/process',
+    body: { mode: 'induce', items: [{ bookId: '1', text: 'x' }] }
+  });
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /未发布该处理预设/);
+});
+
+test('process rejects preset with mismatched operation', async () => {
+  const result = await request(makeApp({ customPreset: () => ({ ...preset('novel-fetch-induce', 'induce'), protocolLock: { format: 'novel-fetch-process', operation: 'hook' } }) }), {
+    requestPath: '/api/novel-fetch/process',
+    body: { mode: 'induce', items: [{ bookId: '1', text: 'x' }] }
+  });
+  assert.equal(result.status, 400);
+  assert.match(result.body.error, /未发布该处理预设/);
 });

@@ -71,16 +71,21 @@ function extractProcessContent(upstreamText, statusCode) {
   return content;
 }
 
+function computeMaxTokens(novelLength) {
+  return Math.min(8192, Math.max(4096, Math.ceil(novelLength * 1.5)));
+}
+
 async function defaultProcessWithAI(username, systemPrompt, novelText) {
   const config = readConfig(username);
   ensureReadyConfig(config);
+  const maxTokens = computeMaxTokens(novelText.length);
   const payload = {
     model: config.model,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: novelText }
     ],
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     temperature: 0.4
   };
   const upstream = await requestUpstream(config, payload, collectResponse, { timeoutMs: 120000 });
@@ -95,7 +100,14 @@ function splitReportAndText(content) {
   const index = text.indexOf(marker);
   const secondSection = text.indexOf('### 二、优化后全文', index);
   if (secondSection === -1) return { report: text.slice(0, index).trim(), rest: text.slice(index).trim() };
-  return { report: text.slice(0, secondSection).trim(), rest: text.slice(secondSection + '### 二、优化后全文'.length).trim() };
+  const secondEnd = secondSection + '### 二、优化后全文'.length;
+  const thirdSectionPattern = /### 三、|## 关键修改说明|三、关键修改说明/;
+  const thirdMatch = text.slice(secondEnd).search(thirdSectionPattern);
+  if (thirdMatch === -1) return { report: text.slice(0, secondSection).trim(), rest: text.slice(secondEnd).trim() };
+  const thirdIndex = secondEnd + thirdMatch;
+  const rest = text.slice(secondEnd, thirdIndex).trim();
+  const report = `${text.slice(0, secondSection)}\n${text.slice(thirdIndex)}`.trim();
+  return { report, rest };
 }
 
 function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI } = {}) {
@@ -190,4 +202,4 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
   return router;
 }
 
-module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent, splitReportAndText };
+module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent, splitReportAndText, computeMaxTokens };
