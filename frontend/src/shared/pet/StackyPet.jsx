@@ -225,8 +225,19 @@ export function StackyPet({ username, accountSessionKey }) {
     }
 
     function handleVisibilityChange() {
-      if (document.visibilityState !== 'visible') clearCompanionSpeech();
-      else scheduleCompanionSpeech();
+      if (document.visibilityState !== 'visible') {
+        getCompanionCandidate({
+          now: new Date(),
+          username,
+          storage: window.localStorage,
+          active: companionActive,
+          visible: false,
+          chatOpen,
+          asking,
+          dragging: Boolean(dragRef.current)
+        });
+        clearCompanionSpeech();
+      } else scheduleCompanionSpeech();
     }
 
     scheduleCompanionSpeech();
@@ -475,7 +486,7 @@ export function StackyPet({ username, accountSessionKey }) {
       return;
     }
     setLookFrame(null);
-    if (!chatOpen) {
+    if (companionActive && !chatOpen) {
       const text = getClickSpeech(clickSpeechIndexRef.current);
       clickSpeechIndexRef.current = ['戳我干嘛，我有在认真陪你。', '再摸一下也不是不行。', '哼，注意力被你拿走啦。'].indexOf(text);
       showCompanionSpeech({ text, priority: COMPANION_SPEECH_PRIORITY.click });
