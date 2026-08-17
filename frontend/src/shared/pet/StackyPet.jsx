@@ -3,9 +3,11 @@ import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
 import { PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetPreview, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
 import { classifyPetRequestError, parseScriptRevision } from './scriptCollaboration';
+import { COMPANION_SPEECH_PRIORITY, getClickSpeech, getCompanionCandidate, readCompanionSpeechState } from './companionSpeech';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
 
 const resetDelayMs = 2400;
+const companionBubbleDurationMs = 7000;
 const overlayStorageKey = 'qiantie-stacky-overlay';
 
 function getViewport() {
@@ -48,6 +50,7 @@ export function StackyPet({ username, accountSessionKey }) {
   const [frame, setFrame] = useState(0);
   const [lookFrame, setLookFrame] = useState(null);
   const [reply, setReply] = useState('');
+  const [companionSpeech, setCompanionSpeech] = useState(null);
   const [overlay, setOverlay] = useState(loadOverlay);
   const [viewport, setViewport] = useState(getViewport);
   const [chatOpen, setChatOpen] = useState(false);
@@ -66,6 +69,42 @@ export function StackyPet({ username, accountSessionKey }) {
   const conversationRequestRef = useRef(0);
   const accountSessionGenerationRef = useRef(0);
   const historyRef = useRef(null);
+  const companionSpeechRef = useRef(null);
+  const companionTimerRef = useRef(null);
+  const clickSpeechIndexRef = useRef(-1);
+
+  function clearCompanionTimer(type) {
+    if (companionTimerRef.current && (!type || companionTimerRef.current.type === type)) {
+      window.clearTimeout(companionTimerRef.current.id);
+      companionTimerRef.current = null;
+    }
+  }
+
+  function clearCompanionSpeech() {
+    clearCompanionTimer();
+    companionSpeechRef.current = null;
+    setCompanionSpeech(null);
+  }
+
+  function showCompanionSpeech(candidate, onExpire) {
+    if (reply || candidate.priority < (companionSpeechRef.current?.priority || 0)) return false;
+    clearCompanionTimer();
+    const next = { text: candidate.text, priority: candidate.priority };
+    setCompanionSpeech(current => {
+      if (current && !(candidate.priority >= current.priority)) return current;
+      companionSpeechRef.current = next;
+      return next;
+    });
+    if (candidate.priority <= COMPANION_SPEECH_PRIORITY.click) {
+      companionTimerRef.current = { type: 'bubble', id: window.setTimeout(() => {
+        companionTimerRef.current = null;
+        companionSpeechRef.current = null;
+        setCompanionSpeech(null);
+        onExpire?.();
+      }, companionBubbleDurationMs) };
+    }
+    return true;
+  }
 
   function isCurrentConversationRequest(requestId, accountSessionGeneration) {
     return conversationRequestRef.current === requestId
@@ -97,9 +136,11 @@ export function StackyPet({ username, accountSessionKey }) {
     setMessages([]);
     setQuestion('');
     setReply('');
+    clearCompanionSpeech();
     setFailedRequest(null);
     setAsking(false);
     return () => {
+      clearCompanionSpeech();
       clearDragListeners();
       dragRef.current = null;
       accountSessionGenerationRef.current += 1;
@@ -109,7 +150,9 @@ export function StackyPet({ username, accountSessionKey }) {
 
   useEffect(() => {
     function handlePetState(event) {
-      setState(normalizePetState(event.detail?.state));
+      const nextState = normalizePetState(event.detail?.state);
+      if (nextState !== 'idle') clearCompanionSpeech();
+      setState(nextState);
       setReply('');
       setLookFrame(null);
     }
@@ -127,6 +170,10 @@ export function StackyPet({ username, accountSessionKey }) {
   }, []);
 
   useEffect(() => {
+    if (state !== 'idle') clearCompanionSpeech();
+  }, [state]);
+
+  useEffect(() => {
     if (state === 'idle' || state === 'working') return undefined;
     const timeoutId = window.setTimeout(() => {
       setState('idle');
@@ -134,6 +181,47 @@ export function StackyPet({ username, accountSessionKey }) {
     }, resetDelayMs);
     return () => window.clearTimeout(timeoutId);
   }, [state]);
+
+  useEffect(() => {
+    if (state !== 'idle') return undefined;
+
+    function scheduleCompanionSpeech() {
+      clearCompanionTimer('schedule');
+      const stored = readCompanionSpeechState(username);
+      const candidate = getCompanionCandidate({
+        now: new Date(),
+        username,
+        storage: window.localStorage,
+        active: stored.active,
+        visible: document.visibilityState === 'visible',
+        chatOpen,
+        asking,
+        dragging: Boolean(dragRef.current)
+      });
+      if (candidate) {
+        showCompanionSpeech(candidate, scheduleCompanionSpeech);
+        return;
+      }
+      if (!stored.active || document.visibilityState !== 'visible' || !chatOpen && !asking && !dragRef.current) {
+        const nextState = readCompanionSpeechState(username);
+        if (nextState.active && document.visibilityState === 'visible' && !chatOpen && !asking && !dragRef.current) {
+          companionTimerRef.current = { type: 'schedule', id: window.setTimeout(scheduleCompanionSpeech, Math.max(0, nextState.nextIdleAt - Date.now())) };
+        }
+      }
+    }
+
+    function handleVisibilityChange() {
+      clearCompanionTimer();
+      if (document.visibilityState === 'visible') scheduleCompanionSpeech();
+    }
+
+    scheduleCompanionSpeech();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearCompanionTimer('schedule');
+    };
+  }, [username, accountSessionKey, chatOpen, asking, state]);
 
   useEffect(() => {
     function handleContext(event) {
@@ -217,6 +305,7 @@ export function StackyPet({ username, accountSessionKey }) {
     const requestId = conversationRequestRef.current + 1;
     const accountSessionGeneration = accountSessionGenerationRef.current;
     conversationRequestRef.current = requestId;
+    clearCompanionSpeech();
     setAsking(true);
     setChatOpen(true);
     dispatchConversationPetState(requestId, accountSessionGeneration, 'working');
@@ -372,11 +461,17 @@ export function StackyPet({ username, accountSessionKey }) {
       return;
     }
     setLookFrame(null);
+    if (!chatOpen) {
+      const text = getClickSpeech(clickSpeechIndexRef.current);
+      clickSpeechIndexRef.current = ['戳我干嘛，我有在认真陪你。', '再摸一下也不是不行。', '哼，注意力被你拿走啦。'].indexOf(text);
+      showCompanionSpeech({ text, priority: COMPANION_SPEECH_PRIORITY.click });
+    }
     openChat();
   }
 
   function closeChat() {
     conversationRequestRef.current += 1;
+    clearCompanionSpeech();
     setChatOpen(false);
     setAsking(false);
     spriteRef.current?.focus();
@@ -409,7 +504,7 @@ export function StackyPet({ username, accountSessionKey }) {
 
   return (
     <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 CM，${label}`}>
-      <div className="stacky-pet-bubble">{reply || petSpeech(state)}</div>
+      <div className="stacky-pet-bubble">{reply || petSpeech(state) || companionSpeech?.text}</div>
       {chatOpen && (
         <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label="CM 互动">
           <header className="stacky-agent-header">
