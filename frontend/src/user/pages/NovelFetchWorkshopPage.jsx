@@ -1,8 +1,8 @@
 import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd';
-import { ArrowLeft, Download, Eye, RefreshCw, RotateCcw, Save, UploadCloud, Wand2 } from 'lucide-react';
+import { ArrowLeft, Download, Eye, RefreshCw, RotateCcw, Save, Trash2, UploadCloud, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
-  fetchWorkshopOriginal, generateWorkshopAi, getWorkshopConfig, getWorkshopTask,
+  deleteWorkshopTasks, fetchWorkshopOriginal, generateWorkshopAi, getWorkshopConfig, getWorkshopTask,
   listWorkshopTasks, processBatch, saveWorkshopConfig, testWorkshopAi
 } from '../../shared/api/novelFetchWorkshop';
 
@@ -103,6 +103,8 @@ export function NovelFetchWorkshopPage() {
   // 任务列表（处理 / 任务 两个 Tab 共享）
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  // 任务表格勾选（仅任务 Tab 使用，批量删除）
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   // 处理 Tab
   const [processing, setProcessing] = useState(false);
@@ -406,6 +408,28 @@ export function NovelFetchWorkshopPage() {
   }
 
   // ===== 任务表格（处理 / 任务 Tab 共用）=====
+  // 批量删除选中任务：确认后调 DELETE /tasks，成功后刷新列表并清空勾选
+  function handleDeleteSelected() {
+    const ids = selectedRowKeys;
+    if (!ids.length) return;
+    Modal.confirm({
+      title: '删除选中任务',
+      content: `确定删除选中的 ${ids.length} 个任务？将同时删除其原文、AI 版本与日志文件，且不可恢复。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const data = await deleteWorkshopTasks(ids);
+          message.success(`已删除 ${(data && data.deleted) || 0} 个任务`);
+          setSelectedRowKeys([]);
+          await loadTasks();
+        } catch (error) {
+          message.error(error.message || '删除失败');
+        }
+      }
+    });
+  }
+
   const actionColumn = {
     title: '操作',
     key: 'actions',
@@ -454,17 +478,31 @@ export function NovelFetchWorkshopPage() {
     actionColumn
   ];
 
-  function TaskTable({ withSelection }) {
+  function TaskTable({ withSelection, selectedRowKeys: keys, onSelectionChange }) {
     return (
-      <Table
-        size="small"
-        rowKey="bookId"
-        loading={tasksLoading}
-        dataSource={tasks}
-        columns={taskTableColumns}
-        pagination={{ pageSize: 20, showSizeChanger: false }}
-        rowSelection={withSelection ? { type: 'checkbox', selectedRowKeys: [] } : undefined}
-      />
+      <>
+        {withSelection ? (
+          <Space style={{ marginBottom: 8 }} wrap>
+            <Typography.Text type="secondary">已选 {keys.length} 项</Typography.Text>
+            <Button
+              danger
+              size="small"
+              icon={<Trash2 size={14} aria-hidden="true" />}
+              disabled={!keys.length}
+              onClick={handleDeleteSelected}
+            >删除选中</Button>
+          </Space>
+        ) : null}
+        <Table
+          size="small"
+          rowKey="bookId"
+          loading={tasksLoading}
+          dataSource={tasks}
+          columns={taskTableColumns}
+          pagination={{ pageSize: 20, showSizeChanger: false }}
+          rowSelection={withSelection ? { type: 'checkbox', selectedRowKeys: keys, onChange: onSelectionChange } : undefined}
+        />
+      </>
     );
   }
 
@@ -555,9 +593,9 @@ export function NovelFetchWorkshopPage() {
             children: (
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-                  一期后端未提供批量重试/删除接口，操作仅支持单本：查看、重新抓原文、生成AI、下载。
+                  支持勾选批量删除选中任务；批量重试一期未提供，单本操作：查看、重新抓原文、生成AI、下载。
                 </Typography.Paragraph>
-                <TaskTable withSelection />
+                <TaskTable withSelection selectedRowKeys={selectedRowKeys} onSelectionChange={setSelectedRowKeys} />
               </Space>
             )
           },

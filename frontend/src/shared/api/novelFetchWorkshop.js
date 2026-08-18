@@ -15,6 +15,14 @@ export function listWorkshopTasks() {
   return apiRequest('/api/novel-fetch-workshop/tasks');
 }
 
+// 批量删除任务（ids: bookId 数组）
+export function deleteWorkshopTasks(ids) {
+  return apiRequest('/api/novel-fetch-workshop/tasks', {
+    method: 'DELETE',
+    body: JSON.stringify({ ids })
+  });
+}
+
 // 任务详情（meta + 处理后原文 + 日志）
 export function getWorkshopTask(bookId) {
   return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}`);

@@ -72,6 +72,31 @@ test('GET /config 与 POST /ai/test', async () => {
   assert.ok(r1.body.appConfig);
 });
 
+test('DELETE /tasks 批量删除任务并返回最新列表', async () => {
+  let deletedIds = null;
+  const tasks = {
+    deleteTasks: (u, ids) => {
+      deletedIds = ids;
+      return {
+        requested: ids.length,
+        deleted: ids.length,
+        results: ids.map(id => ({ bookId: id, deleted: true }))
+      };
+    },
+    listTasks: async () => []
+  };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore });
+  const r = await req(app, { method: 'DELETE', path: '/api/novel-fetch-workshop/tasks', body: { ids: ['1', '2'] } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(deletedIds, ['1', '2']);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.requested, 2);
+  assert.equal(r.body.deleted, 2);
+  assert.deepEqual(r.body.results, [{ bookId: '1', deleted: true }, { bookId: '2', deleted: true }]);
+  assert.deepEqual(r.body.tasks, []);
+});
+
 test('POST /process 自动分类/抓取/改文 全链路（注入 mock）', async () => {
   const tasks = {
     saveTasks: async () => ({ saved: 1 }),

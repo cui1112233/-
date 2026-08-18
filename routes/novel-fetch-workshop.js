@@ -157,6 +157,25 @@ function createNovelFetchWorkshopRouter({
     }
   });
 
+  // DELETE /tasks：批量删除任务（body { ids: [] }），返回删除统计与最新任务列表
+  router.delete('/tasks', async (req, res) => {
+    try {
+      const username = req.username;
+      const ids = (req.body && Array.isArray(req.body.ids)) ? req.body.ids : [];
+      const result = await tasks.deleteTasks(username, ids);
+      const list = await tasks.listTasks(username);
+      return res.json({
+        ok: true,
+        requested: result.requested,
+        deleted: result.deleted,
+        results: (result && result.results) || [],
+        tasks: list || []
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error.message || '删除任务失败' });
+    }
+  });
+
   // GET /tasks/:bookId：任务详情（meta + 清洗后原文 + 原始备份存在性 + 日志）
   router.get('/tasks/:bookId', async (req, res) => {
     try {

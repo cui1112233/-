@@ -67,6 +67,24 @@ test('extractAiChangedText 纯文本兜底', () => {
   assert.equal(responseMode, 'plain');
 });
 
+test('extractAiChangedText error 对象视为空正文（不把 JSON 当成功正文）', () => {
+  const { text, responseMode } = extractAiChangedText(JSON.stringify({ error: { message: '上游鉴权失败' } }));
+  assert.equal(text, '');
+  assert.equal(responseMode, 'empty');
+});
+
+test('extractAiChangedText 空 changed_lines 视为空正文', () => {
+  const { text, responseMode } = extractAiChangedText(JSON.stringify({ id: '1', changed_lines: [] }));
+  assert.equal(text, '');
+  assert.equal(responseMode, 'empty');
+});
+
+test('extractAiChangedText 空数组视为空正文', () => {
+  const { text, responseMode } = extractAiChangedText('[]');
+  assert.equal(text, '');
+  assert.equal(responseMode, 'empty');
+});
+
 test('mergeChangedBlockWithOriginal 删前块插入改写块', () => {
   const out = mergeChangedBlockWithOriginal(['a','b','c','d','e'], ['A','B'], { processLineCount: 3 });
   assert.equal(out, 'A\nB\nd\ne');
