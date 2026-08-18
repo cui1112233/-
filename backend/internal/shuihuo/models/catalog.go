@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -22,59 +23,94 @@ const (
 )
 
 type Definition struct {
-	ID              int64     `json:"id"`
-	VersionID       int64     `json:"versionId"`
-	Name            string    `json:"name"`
-	Kind            Kind      `json:"kind"`
-	AdapterKind     string    `json:"adapterKind"`
-	Enabled         bool      `json:"enabled"`
-	AllowedRoles    []string  `json:"allowedRoles"`
-	ParameterSchema string    `json:"parameterSchema"`
-	CredentialRef   string    `json:"credentialRef"`
-	Endpoint        string    `json:"endpoint"`
-	RequestTemplate string    `json:"requestTemplate"`
-	ResponseMapping string    `json:"responseMapping"`
-	CreatedAt       time.Time `json:"createdAt"`
+	ID                int64     `json:"id"`
+	ModelID           string    `json:"modelId"`
+	VersionID         int64     `json:"versionId"`
+	Name              string    `json:"name"`
+	Kind              Kind      `json:"kind"`
+	AdapterKind       string    `json:"adapterKind"`
+	Enabled           bool      `json:"enabled"`
+	Hidden            bool      `json:"hidden"`
+	SortOrder         int       `json:"sortOrder"`
+	AdminNote         string    `json:"adminNote"`
+	AllowedRoles      []string  `json:"allowedRoles"`
+	ParameterSchema   string    `json:"parameterSchema"`
+	CredentialRef     string    `json:"credentialRef"`
+	Endpoint          string    `json:"endpoint"`
+	BaseDomain        string    `json:"baseDomain"`
+	BasePath          string    `json:"basePath"`
+	RequestTemplate   string    `json:"requestTemplate"`
+	ResponseMapping   string    `json:"responseMapping"`
+	PollingTemplate   string    `json:"pollingTemplate"`
+	ImageInputFormat  string    `json:"imageInputFormat"`
+	ImageRequestMode  string    `json:"imageRequestMode"`
+	RuntimePolicyJSON string    `json:"runtimePolicyJson"`
+	CreatedAt         time.Time `json:"createdAt"`
 }
 
 type PublicModel struct {
-	ID              int64    `json:"id"`
-	VersionID       int64    `json:"versionId"`
-	Name            string   `json:"name"`
-	Kind            Kind     `json:"kind"`
-	AdapterKind     string   `json:"adapterKind"`
-	ParameterSchema string   `json:"parameterSchema"`
-	AllowedRoles    []string `json:"allowedRoles"`
+	ID               int64    `json:"id"`
+	ModelID          string   `json:"modelId"`
+	VersionID        int64    `json:"versionId"`
+	Name             string   `json:"name"`
+	Kind             Kind     `json:"kind"`
+	AdapterKind      string   `json:"adapterKind"`
+	SortOrder        int      `json:"sortOrder"`
+	ParameterSchema  string   `json:"parameterSchema"`
+	ImageInputFormat string   `json:"imageInputFormat"`
+	ImageRequestMode string   `json:"imageRequestMode"`
+	AllowedRoles     []string `json:"allowedRoles"`
 }
 
-// AdminModel exposes operational configuration state without returning any
-// credential reference, endpoint, template, or response mapping.
+// AdminModel exposes operational configuration and credential reference IDs,
+// never credential values.
 type AdminModel struct {
 	PublicModel
-	Enabled              bool `json:"enabled"`
-	CredentialConfigured bool `json:"credentialConfigured"`
-	ProviderConfigured   bool `json:"providerConfigured"`
+	Enabled              bool   `json:"enabled"`
+	Hidden               bool   `json:"hidden"`
+	AdminNote            string `json:"adminNote"`
+	CredentialRef        string `json:"credentialRef"`
+	Endpoint             string `json:"endpoint"`
+	BaseDomain           string `json:"baseDomain"`
+	BasePath             string `json:"basePath"`
+	RequestTemplate      string `json:"requestTemplate"`
+	ResponseMapping      string `json:"responseMapping"`
+	PollingTemplate      string `json:"pollingTemplate"`
+	RuntimePolicyJSON    string `json:"runtimePolicyJson"`
+	CredentialConfigured bool   `json:"credentialConfigured"`
+	ProviderConfigured   bool   `json:"providerConfigured"`
 }
 
 func ToPublic(model Definition) PublicModel {
-	return PublicModel{ID: model.ID, VersionID: model.VersionID, Name: model.Name, Kind: model.Kind, AdapterKind: model.AdapterKind, ParameterSchema: model.ParameterSchema, AllowedRoles: append([]string(nil), model.AllowedRoles...)}
+	return PublicModel{
+		ID: model.ID, ModelID: model.ModelID, VersionID: model.VersionID, Name: model.Name,
+		Kind: model.Kind, AdapterKind: model.AdapterKind, SortOrder: model.SortOrder,
+		ParameterSchema: model.ParameterSchema, ImageInputFormat: model.ImageInputFormat,
+		ImageRequestMode: model.ImageRequestMode, AllowedRoles: append([]string(nil), model.AllowedRoles...),
+	}
 }
 
 func ToAdmin(model Definition) AdminModel {
 	return AdminModel{
 		PublicModel:          ToPublic(model),
 		Enabled:              model.Enabled,
+		Hidden:               model.Hidden,
+		AdminNote:            model.AdminNote,
+		CredentialRef:        model.CredentialRef,
+		Endpoint:             model.Endpoint,
+		BaseDomain:           model.BaseDomain,
+		BasePath:             model.BasePath,
+		RequestTemplate:      model.RequestTemplate,
+		ResponseMapping:      model.ResponseMapping,
+		PollingTemplate:      model.PollingTemplate,
+		RuntimePolicyJSON:    model.RuntimePolicyJSON,
 		CredentialConfigured: strings.TrimSpace(model.CredentialRef) != "",
 		ProviderConfigured:   model.ProviderConfigured(),
 	}
 }
 
-func (model Definition) OwnerOnly() bool {
-	return model.AdapterKind == AdapterGenericHTTP
-}
-
 func (model Definition) PubliclySelectable() bool {
-	return model.Enabled && !model.OwnerOnly()
+	return model.Enabled && !model.Hidden
 }
 
 func (model Definition) ProviderConfigured() bool {
@@ -92,8 +128,20 @@ func (model Definition) ProviderConfigured() bool {
 	return strings.TrimSpace(model.Endpoint) != "" && strings.TrimSpace(model.RequestTemplate) != "" && strings.TrimSpace(model.ResponseMapping) != ""
 }
 
-func (model Definition) AvailableTo(isOwner bool) bool {
-	return model.Enabled && (!model.OwnerOnly() || isOwner)
+func (model Definition) AvailableTo(role string, persistedReference bool) bool {
+	if !model.Enabled || (model.Hidden && !persistedReference) {
+		return false
+	}
+	if len(model.AllowedRoles) == 0 {
+		return true
+	}
+	role = strings.TrimSpace(role)
+	for _, allowedRole := range model.AllowedRoles {
+		if role != "" && role == strings.TrimSpace(allowedRole) {
+			return true
+		}
+	}
+	return false
 }
 
 func ValidateDefinition(model Definition) error {
@@ -105,8 +153,17 @@ func ValidateDefinition(model Definition) error {
 	} else if expectedKind != "" && model.Kind != expectedKind {
 		return fmt.Errorf("adapter %q requires %s model kind", model.AdapterKind, expectedKind)
 	}
-	if model.Kind != KindText && model.Kind != KindImage && model.Kind != KindVideo {
+	if model.Kind != KindText && model.Kind != KindImage && model.Kind != KindVideo && model.Kind != KindAudio {
 		return fmt.Errorf("unsupported model kind %q", model.Kind)
+	}
+	if strings.TrimSpace(model.ModelID) == "" {
+		// Rows created before the model-center migration have a numeric ID and
+		// may be validated while their stable model key is being backfilled.
+		if model.ID == 0 {
+			return fmt.Errorf("modelId is required for new definitions")
+		}
+	} else if err := ValidateModelID(model.ModelID); err != nil {
+		return err
 	}
 	if strings.TrimSpace(model.ParameterSchema) != "" {
 		var schema any
@@ -119,6 +176,16 @@ func ValidateDefinition(model Definition) error {
 	}
 	if model.Enabled && !model.ProviderConfigured() {
 		return fmt.Errorf("enabled model requires a credential reference and valid provider configuration")
+	}
+	return nil
+}
+
+var modelIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// ValidateModelID accepts immutable, globally unique lower-case kebab-case IDs.
+func ValidateModelID(value string) error {
+	if !modelIDPattern.MatchString(value) {
+		return fmt.Errorf("modelId must be lower-case kebab-case")
 	}
 	return nil
 }
