@@ -37,3 +37,13 @@ test('ai 配置独立保存（含 ai_presets 与 ai_assignments）', t => {
   assert.equal(reloaded.ai_assignments.classifier, 'p1');
   assert.equal(createWorkshopConfigStore({ systemDir: dir }).getConfig().ai.model, 'm1');
 });
+
+test('saveConfig 写入 ai 键后 getConfig 与 getAiConfig 读回一致（回归）', t => {
+  const dir = makeTempDir();
+  const store = createWorkshopConfigStore({ systemDir: dir });
+  const saved = store.saveConfig({ ai: { model: 'x' } });
+  assert.equal(saved.ai.model, 'x'); // saveConfig 返回值即时反映 ai 修改
+  const reloaded = createWorkshopConfigStore({ systemDir: dir });
+  assert.equal(reloaded.getConfig().ai.model, 'x');
+  assert.equal(reloaded.getAiConfig().ai.model, 'x');
+});
