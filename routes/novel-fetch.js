@@ -92,21 +92,55 @@ async function defaultProcessWithAI(username, systemPrompt, novelText) {
   return extractProcessContent(upstream.text, upstream.statusCode);
 }
 
+const STYLE_NAMES = [
+  '古风虐文','古风甜文','古风通用','年代虐文','年代甜文','年代通用',
+  '现代虐文','现代甜文','现代悬疑','现代通用','男频都市','现代女主',
+  '玄幻','历史','爆款BGM','家庭奇葩','家庭伤感','职场打脸'
+];
+
+function extractAnalysis(content) {
+  const text = String(content || '');
+  const headerIndex = text.search(/(?:^|\n)#{1,3}\s*[一二三四五六]?\s*[、\s]*分析结果/);
+  if (headerIndex === -1) return { gender: null, style: null, rest: text };
+  const headerStart = headerIndex === 0 ? 0 : headerIndex + 1;
+  const afterHeader = text.slice(headerStart);
+  const nextSection = afterHeader.search(/\n#{1,3}\s*[一二三四五六]?\s*[、\s]*(合规检测报告|优化说明|优化后全文|关键修改说明)/);
+  const sectionText = nextSection === -1 ? afterHeader : afterHeader.slice(0, nextSection);
+  const jsonMatch = sectionText.match(/\{"gender"\s*:\s*"([^"]+)"\s*,\s*"style"\s*:\s*"([^"]+)"\}/);
+  let gender = null;
+  let style = null;
+  if (jsonMatch) {
+    if (jsonMatch[1] === '男' || jsonMatch[1] === '女') gender = jsonMatch[1];
+    if (STYLE_NAMES.includes(jsonMatch[2])) style = jsonMatch[2];
+  }
+  const rest = nextSection === -1 ? text.slice(0, headerStart) : text.slice(0, headerStart) + afterHeader.slice(nextSection);
+  return { gender, style, rest };
+}
+
 function splitReportAndText(content) {
   const text = String(content || '');
-  const reportMarkers = ['### 一、合规检测报告', '### 一、优化说明', '## 合规检测报告', '## 优化说明', '一、合规检测报告', '一、优化说明'];
-  const marker = reportMarkers.find(m => text.includes(m));
-  if (!marker) return { report: '', rest: text };
-  const index = text.indexOf(marker);
-  const secondSection = text.indexOf('### 二、优化后全文', index);
-  if (secondSection === -1) return { report: text.slice(0, index).trim(), rest: text.slice(index).trim() };
-  const secondEnd = secondSection + '### 二、优化后全文'.length;
-  const thirdSectionPattern = /### 三、|## 关键修改说明|三、关键修改说明/;
-  const thirdMatch = text.slice(secondEnd).search(thirdSectionPattern);
-  if (thirdMatch === -1) return { report: text.slice(0, secondSection).trim(), rest: text.slice(secondEnd).trim() };
-  const thirdIndex = secondEnd + thirdMatch;
-  const rest = text.slice(secondEnd, thirdIndex).trim();
-  const report = `${text.slice(0, secondSection)}\n${text.slice(thirdIndex)}`.trim();
+  const reportPattern = /^#{1,3}\s*[一二三四五六]?\s*[、\s]*(合规检测报告|优化说明)/m;
+  const fullTextPattern = /^#{1,3}\s*[一二三四五六]?\s*[、\s]*优化后全文/m;
+  const thirdPattern = /^#{1,3}\s*[一二三四五六]?\s*[、\s]*关键修改说明/m;
+
+  const reportMatch = text.match(reportPattern);
+  if (!reportMatch) return { report: '', rest: text };
+  const reportIndex = reportMatch.index;
+
+  const fullTextMatch = text.slice(reportIndex).match(fullTextPattern);
+  if (!fullTextMatch) {
+    return { report: text.slice(0, reportIndex).trim(), rest: text.slice(reportIndex).trim() };
+  }
+  const fullTextIndex = reportIndex + fullTextMatch.index;
+  const afterFull = fullTextIndex + fullTextMatch[0].length;
+
+  const thirdMatch = text.slice(afterFull).match(thirdPattern);
+  if (!thirdMatch) {
+    return { report: text.slice(0, fullTextIndex).trim(), rest: text.slice(afterFull).trim() };
+  }
+  const thirdIndex = afterFull + thirdMatch.index;
+  const rest = text.slice(afterFull, thirdIndex).trim();
+  const report = `${text.slice(0, fullTextIndex)}\n${text.slice(thirdIndex)}`.trim();
   return { report, rest };
 }
 
@@ -202,4 +236,4 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
   return router;
 }
 
-module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent, splitReportAndText, computeMaxTokens };
+module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent, splitReportAndText, extractAnalysis, STYLE_NAMES, computeMaxTokens };
