@@ -144,7 +144,7 @@ function splitReportAndText(content) {
   return { report, rest };
 }
 
-function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI } = {}) {
+function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI, novelFetchStore } = {}) {
   const fetchOne = customFetch || fetchUpstream;
   const processOne = processWithAI || defaultProcessWithAI;
   const router = express.Router();
@@ -201,7 +201,12 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
 
   router.post('/process', async (req, res) => {
     try {
-      const { mode, items } = req.body || {};
+      const { mode, items, platform, platformName } = req.body || {};
+      let normalizedPlatform = null;
+      if (platform !== undefined) {
+        normalizedPlatform = Number(platform);
+        if (!Number.isInteger(normalizedPlatform)) return res.status(400).json({ error: '无效的平台 ID' });
+      }
       if (!isProcessMode(mode)) return res.status(400).json({ error: '无效的处理类型' });
       if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: '请选择要处理的书籍' });
       if (items.length > MAX_PROCESS_ITEMS) return res.status(400).json({ error: `一次最多处理 ${MAX_PROCESS_ITEMS} 本` });
@@ -221,16 +226,56 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
       const results = await Promise.all(normalized.map(async ({ bookId, text }) => {
         try {
           const processed = await processOne(req.username, preset.body, text);
-          const { report, rest } = splitReportAndText(processed);
-          return { bookId, status: 'ok', text: rest, report, error: null };
+          const { gender, style, rest: withoutAnalysis } = extractAnalysis(processed);
+          const { report, rest } = splitReportAndText(withoutAnalysis);
+          const analysis = gender && style ? { gender, style } : null;
+          if (novelFetchStore) {
+            try {
+              novelFetchStore.saveProcessed(req.username, {
+                bookId,
+                platform: normalizedPlatform,
+                platformName,
+                mode,
+                text: rest,
+                report,
+                gender,
+                style
+              });
+            } catch (saveError) {
+              // 落盘失败不阻断处理结果返回
+            }
+          }
+          return { bookId, status: 'ok', text: rest, report, analysis, error: null };
         } catch (error) {
-          return { bookId, status: 'error', text: null, report: null, error: error.message || '处理失败' };
+          return { bookId, status: 'error', text: null, report: null, analysis: null, error: error.message || '处理失败' };
         }
       }));
       return res.json({ results });
     } catch (error) {
       return res.status(500).json({ error: error.message || 'Internal server error' });
     }
+  });
+
+  router.post('/save', async (req, res) => {
+    try {
+      if (!novelFetchStore) return res.status(400).json({ error: '存储未启用' });
+      const { bookId, text, meta } = req.body || {};
+      const bid = String(bookId || '').trim();
+      if (!isValidBookId(bid)) return res.status(400).json({ error: '书籍 ID 格式不正确' });
+      if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: '正文不能为空' });
+      if (text.length > 120000) return res.status(400).json({ error: '正文过长' });
+      const existing = novelFetchStore.readMeta(req.username, bid);
+      if (!existing && !(meta && meta.mode)) return res.status(400).json({ error: '该书尚未处理，无法保存' });
+      const savedAt = novelFetchStore.saveEdited(req.username, bid, text, meta && meta.mode ? meta : undefined);
+      return res.json({ ok: true, savedAt });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || '保存失败' });
+    }
+  });
+
+  router.get('/saved', (req, res) => {
+    if (!novelFetchStore) return res.json({ books: [] });
+    return res.json({ books: novelFetchStore.list(req.username) });
   });
 
   return router;
