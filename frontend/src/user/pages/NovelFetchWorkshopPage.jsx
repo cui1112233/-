@@ -1,5 +1,5 @@
 import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd';
-import { ArrowLeft, Download, Eye, RefreshCw, RotateCcw, Save, Wand2 } from 'lucide-react';
+import { ArrowLeft, Download, Eye, RefreshCw, RotateCcw, Save, UploadCloud, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   fetchWorkshopOriginal, generateWorkshopAi, getWorkshopConfig, getWorkshopTask,
@@ -76,6 +76,20 @@ function downloadText(filename, content) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// 加入上传：把任务写入 sessionStorage 后跳转小说获取页，由其上传列表合并并选择版本
+function handleAddToUpload(row) {
+  const versions = ['edited'];
+  for (let i = 1; i <= (Number(row.aiGeneratedCount) || 0); i++) versions.push(`ai${i}`);
+  const existing = JSON.parse(sessionStorage.getItem('workshopUploadItems') || '[]');
+  existing.push({
+    source: 'workshop', bookId: String(row.bookId),
+    gender: row.gender || '', style: row.style || '',
+    version: 'edited', versions
+  });
+  sessionStorage.setItem('workshopUploadItems', JSON.stringify(existing));
+  window.location.href = '/novel-fetch';
 }
 
 export function NovelFetchWorkshopPage() {
@@ -395,7 +409,7 @@ export function NovelFetchWorkshopPage() {
   const actionColumn = {
     title: '操作',
     key: 'actions',
-    width: 300,
+    width: 380,
     render: (_, row) => (
       <Space size={4} wrap>
         <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => openDetail(row)}>查看</Button>
@@ -408,6 +422,7 @@ export function NovelFetchWorkshopPage() {
         >重新抓原文</Button>
         <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} onClick={() => setGenModal({ bookId: row.bookId, count: Number(row.aiCount) || 1 })}>生成AI</Button>
         <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => handleDownloadOriginal(row)}>下载</Button>
+        <Button size="small" icon={<UploadCloud size={14} aria-hidden="true" />} onClick={() => handleAddToUpload(row)}>加入上传</Button>
       </Space>
     )
   };

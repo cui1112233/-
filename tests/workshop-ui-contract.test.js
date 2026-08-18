@@ -26,3 +26,12 @@ test('改文工作台前端契约', () => {
   assert.match(api, /api\/novel-fetch-workshop\/tasks/);
   assert.match(api, /api\/novel-fetch-workshop\/config/);
 });
+
+test('工作台加入上传与版本选择契约', () => {
+  const page = read('frontend/src/user/pages/NovelFetchWorkshopPage.jsx');
+  assert.match(page, /加入上传/);
+  assert.match(page, /workshopUploadItems/);
+  const nf = read('frontend/src/user/pages/NovelFetchPage.jsx');
+  assert.match(nf, /workshopUploadItems/);
+  assert.match(nf, /version/);
+});

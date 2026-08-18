@@ -122,6 +122,27 @@ export function NovelFetchPage() {
         if (options.length > 0) setProcessMode(options[0].value);
       })
       .catch(() => {});
+    // 合并改文工作台"加入上传"的项（sessionStorage 传递），同 bookId+source 去重
+    try {
+      const incoming = JSON.parse(sessionStorage.getItem('workshopUploadItems') || '[]');
+      if (Array.isArray(incoming) && incoming.length > 0) {
+        setUploadItems(current => {
+          const seen = new Set(current.map(i => `${String(i.bookId)}:${i.source || ''}`));
+          const merged = [...current];
+          for (const item of incoming) {
+            if (!item || !item.bookId) continue;
+            const key = `${String(item.bookId)}:${item.source || ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(item);
+          }
+          return merged;
+        });
+      }
+    } catch (_) {
+      // 数据损坏时忽略并清空，避免阻塞页面
+    }
+    sessionStorage.removeItem('workshopUploadItems');
     return () => { active = false; };
   }, []);
 
@@ -322,13 +343,25 @@ export function NovelFetchPage() {
     if (oks.length === 0) { message.warning('请先对小说执行 AI 处理'); return; }
     const platformId = oks[0].platform;
     setUploadConfig({ platformId, advanced: { ...DEFAULT_UPLOAD_ADVANCED } });
-    setUploadItems(oks.map(r => ({
-      bookId: r.bookId,
-      gender: r.induced?.analysis?.gender || '',
-      style: r.induced?.analysis?.style || '',
-      overrideJieyaNum: null,
-      overrideGunpingNum: null
-    })));
+    // 保留工作台"加入上传"的项（source==='workshop'），再合并本页小说，同 bookId+source 去重
+    setUploadItems(current => {
+      const seen = new Set(current.map(i => `${String(i.bookId)}:${i.source || ''}`));
+      const merged = [...current];
+      for (const row of oks) {
+        const item = {
+          bookId: row.bookId,
+          gender: row.induced?.analysis?.gender || '',
+          style: row.induced?.analysis?.style || '',
+          overrideJieyaNum: null,
+          overrideGunpingNum: null
+        };
+        const key = `${String(item.bookId)}:${item.source || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+      }
+      return merged;
+    });
     let sessionOk = false;
     try {
       const session = await getUploadSession();
@@ -404,6 +437,8 @@ export function NovelFetchPage() {
           bookId: row.bookId,
           gender: row.gender,
           style: row.style,
+          source: row.source,
+          version: row.version,
           overrideJieyaNum: row.overrideJieyaNum,
           overrideGunpingNum: row.overrideGunpingNum
         }]
@@ -733,11 +768,23 @@ export function NovelFetchPage() {
           </Typography.Paragraph>
           <Table
             size="small"
-            rowKey="bookId"
+            rowKey={record => `${String(record.bookId)}:${record.source || ''}`}
             dataSource={uploadItems}
             pagination={false}
             columns={[
               { title: '书籍 ID', dataIndex: 'bookId', width: 180 },
+              {
+                title: '版本', dataIndex: 'version', width: 130,
+                render: (v, row) => row.source === 'workshop' ? (
+                  <Select
+                    size="small"
+                    style={{ width: 120 }}
+                    value={row.version || 'edited'}
+                    options={(row.versions || ['edited']).map(ver => ({ value: ver, label: ver }))}
+                    onChange={ver => setUploadItems(list => list.map(i => i.bookId === row.bookId && i.source === 'workshop' ? { ...i, version: ver } : i))}
+                  />
+                ) : <span>-</span>
+              },
               {
                 title: '性别', dataIndex: 'gender', width: 120,
                 render: (v, row) => <Select size="small" style={{ width: 110 }} value={v} options={GENDER_OPTIONS} onChange={g => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, gender: g } : i))} />
