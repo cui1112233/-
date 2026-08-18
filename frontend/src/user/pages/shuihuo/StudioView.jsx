@@ -120,6 +120,34 @@ export function StudioView({ data, readiness, onRefresh, onAssets }) {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectURL), 60000);
+    saveMediaToLocalFolder(blob, media);
+  }
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('读取素材失败'));
+      reader.readAsDataURL(blob);
+    });
+  }
+  function mediaExtension(blob) {
+    const type = String(blob?.type || '').split(';')[0].trim().toLowerCase();
+    return { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov', 'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/wav': '.wav' }[type] || '';
+  }
+  async function saveMediaToLocalFolder(blob, media) {
+    try {
+      const dataUrl = await blobToDataUrl(blob);
+      const result = await apiRequest('/api/storage/save-media', {
+        method: 'POST',
+        body: JSON.stringify({
+          projectName: project.name,
+          category: media.kind,
+          filename: `水货素材-${media.id}${mediaExtension(blob)}`,
+          dataUrl
+        })
+      });
+      if (result && result.saved === true) message.success(`已保存到 制作工程/${project.name}`);
+    } catch (_) { /* 静默：未配置本地存储文件夹或保存失败时保持原下载行为 */ }
   }
   function assetsFor(segment) { return (bindings[segment.id] || []).map(id => data.assets?.find(asset => asset.id === id)).filter(Boolean); }
   function mediaFor(segment) { return mediaItems.filter(item => item.media.segmentId === segment.id).map(item => item.media); }
