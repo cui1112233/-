@@ -35,3 +35,14 @@ test('工作台加入上传与版本选择契约', () => {
   assert.match(nf, /workshopUploadItems/);
   assert.match(nf, /version/);
 });
+
+test('上传路由注入 workshopTasks 且上传面板放开 workshop 门槛', () => {
+  const app = read('app.js');
+  assert.match(app, /createNovelFetchUploadRouter\(\{ store: resolvedNovelFetchStore, workshopTasks: resolvedWorkshopTasks \}\)/);
+  const nf = read('frontend/src/user/pages/NovelFetchPage.jsx');
+  // 对接上传按钮：本页无已处理小说但存在 workshop 项时仍可打开
+  assert.match(nf, /uploadItems\.every\(i => i\.source !== 'workshop'\)/);
+  assert.match(nf, /uploadItems\.some\(i => i\.source === 'workshop'\)/);
+  // 上传表格按 bookId+source 复合键匹配，避免同 bookId 双 source 行互相影响
+  assert.match(nf, /String\(i\.bookId\) === String\(row\.bookId\) && \(i\.source \|\| ''\) === \(row\.source \|\| ''\)/);
+});

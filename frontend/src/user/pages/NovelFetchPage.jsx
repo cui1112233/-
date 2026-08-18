@@ -340,8 +340,10 @@ export function NovelFetchPage() {
   async function openUploadPanel() {
     setUploadResults([]);
     const oks = okRows().filter(r => r.induced);
-    if (oks.length === 0) { message.warning('请先对小说执行 AI 处理'); return; }
-    const platformId = oks[0].platform;
+    const hasWorkshopItems = uploadItems.some(i => i.source === 'workshop');
+    if (oks.length === 0 && !hasWorkshopItems) { message.warning('请先对小说执行 AI 处理，或从改文工作台加入上传'); return; }
+    // 仅本页无已处理小说时（仅 workshop 项），回退使用默认平台 2（番茄付费）
+    const platformId = oks.length > 0 ? oks[0].platform : (uploadConfig.platformId || 2);
     setUploadConfig({ platformId, advanced: { ...DEFAULT_UPLOAD_ADVANCED } });
     // 保留工作台"加入上传"的项（source==='workshop'），再合并本页小说，同 bookId+source 去重
     setUploadItems(current => {
@@ -391,9 +393,9 @@ export function NovelFetchPage() {
 
   async function handleUploadBatch() {
     if (uploadItems.some(i => !i.gender || !i.style)) { message.warning('请为每本选择性别和风格'); return; }
-    // 跳过已经上传成功的书籍，避免重复上传
-    const okBookIds = new Set(uploadResults.filter(r => r.status === 'ok').map(r => String(r.bookId)));
-    const pendingItems = uploadItems.filter(i => !okBookIds.has(String(i.bookId)));
+    // 跳过已经上传成功的书籍，避免重复上传（按 bookId+source 复合键匹配）
+    const okKeys = new Set(uploadResults.filter(r => r.status === 'ok').map(r => `${String(r.bookId)}:${r.source || ''}`));
+    const pendingItems = uploadItems.filter(i => !okKeys.has(`${String(i.bookId)}:${i.source || ''}`));
     if (pendingItems.length === 0) { message.success('所选书籍均已上传成功'); return; }
     setUploading(true);
     try {
@@ -410,11 +412,16 @@ export function NovelFetchPage() {
         return;
       }
       const results = data.results || [];
+      // 后端结果不含 source，按 bookId 回填关联项 source，供 bookId+source 复合键匹配
+      const keyedResults = results.map(r => {
+        const srcItem = pendingItems.find(i => String(i.bookId) === String(r.bookId));
+        return { ...r, source: srcItem ? (srcItem.source || '') : '' };
+      });
       // 保留已有的成功结果，仅合并本次结果，避免成功标记丢失
       setUploadResults(current => {
-        const newIds = new Set(results.map(r => String(r.bookId)));
-        const keptOk = current.filter(r => r.status === 'ok' && !newIds.has(String(r.bookId)));
-        return [...keptOk, ...results];
+        const newKeys = new Set(keyedResults.map(r => `${String(r.bookId)}:${r.source || ''}`));
+        const keptOk = current.filter(r => r.status === 'ok' && !newKeys.has(`${String(r.bookId)}:${r.source || ''}`));
+        return [...keptOk, ...keyedResults];
       });
       const ok = results.filter(r => r.status === 'ok').length;
       const fail = results.filter(r => r.status === 'error').length;
@@ -452,8 +459,8 @@ export function NovelFetchPage() {
       }
       const result = (data.results || []).find(r => String(r.bookId) === String(row.bookId));
       if (result) {
-        // 仅更新该行对应的上传结果
-        setUploadResults(current => [...current.filter(x => String(x.bookId) !== String(row.bookId)), result]);
+        // 仅更新该行（bookId+source）对应的上传结果
+        setUploadResults(current => [...current.filter(x => !(String(x.bookId) === String(row.bookId) && (x.source || '') === (row.source || ''))), { ...result, source: row.source || '' }]);
         message[result.status === 'ok' ? 'success' : 'error'](result.status === 'ok' ? `重试上传成功：${row.bookId}` : `重试上传失败：${result.error || ''}`);
       } else {
         message.error('重试上传失败：无返回结果');
@@ -519,7 +526,7 @@ export function NovelFetchPage() {
             </Checkbox>
             <Button size="small" icon={<Copy size={14} aria-hidden="true" />} onClick={handleBatchCopy}>批量复制</Button>
             <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={handleBatchDownload}>批量下载</Button>
-            <Button size="small" icon={<UploadCloud size={14} aria-hidden="true" />} disabled={okRows().filter(r => r.induced).length === 0} onClick={openUploadPanel}>对接上传</Button>
+            <Button size="small" icon={<UploadCloud size={14} aria-hidden="true" />} disabled={okRows().filter(r => r.induced).length === 0 && uploadItems.every(i => i.source !== 'workshop')} onClick={openUploadPanel}>对接上传</Button>
             <Select
               size="small"
               style={{ width: 120 }}
@@ -787,24 +794,24 @@ export function NovelFetchPage() {
               },
               {
                 title: '性别', dataIndex: 'gender', width: 120,
-                render: (v, row) => <Select size="small" style={{ width: 110 }} value={v} options={GENDER_OPTIONS} onChange={g => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, gender: g } : i))} />
+                render: (v, row) => <Select size="small" style={{ width: 110 }} value={v} options={GENDER_OPTIONS} onChange={g => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, gender: g } : i))} />
               },
               {
                 title: '风格', dataIndex: 'style', width: 150,
-                render: (v, row) => <Select size="small" showSearch style={{ width: 140 }} value={v} options={STYLE_OPTIONS} onChange={s => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, style: s } : i))} />
+                render: (v, row) => <Select size="small" showSearch style={{ width: 140 }} value={v} options={STYLE_OPTIONS} onChange={s => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, style: s } : i))} />
               },
               {
                 title: '解压数量', dataIndex: 'overrideJieyaNum', width: 120,
-                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, overrideJieyaNum: n } : i))} />
+                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, overrideJieyaNum: n } : i))} />
               },
               {
                 title: '滚屏数量', dataIndex: 'overrideGunpingNum', width: 120,
-                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, overrideGunpingNum: n } : i))} />
+                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, overrideGunpingNum: n } : i))} />
               },
               {
                 title: '状态', dataIndex: 'status', width: 260,
                 render: (_, row) => {
-                  const r = uploadResults.find(x => x.bookId === row.bookId);
+                  const r = uploadResults.find(x => String(x.bookId) === String(row.bookId) && (x.source || '') === (row.source || ''));
                   if (!r) return <span>-</span>;
                   if (r.status === 'ok') {
                     return <span style={{ color: '#389e0d' }}><Check size={14} aria-hidden="true" /> 成功</span>;
