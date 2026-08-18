@@ -47,18 +47,27 @@ test('segmented opening replaces duration placeholders in its own preset body', 
   assert.match(content, /15s/);
 });
 
-test('segmented opening injects a unit count budget anchored to paragraph count', () => {
-  const paragraphs = ['第一段。', '第二段。', '第三段。', '第四段。', '第五段。'];
-  const messages = buildSegmentedShotlist(paragraphs.join('\n'), '10s');
+test('segmented opening switches to continuous timeline protocol (not per-unit 10s cards)', () => {
+  const messages = buildSegmentedShotlist('第一段。\n第二段。\n第三段。\n第四段。\n第五段。', '10s');
   const content = messages[0].content;
-  // 预算块存在，且锚定自然段数
-  assert.match(content, /单元数量预算/);
-  assert.match(content, /5 个非空自然段/);
-  assert.match(content, /3/); // 预算下限
-  assert.match(content, /7/); // 预算上限（5*1.4=7）
+  // 必须输出连续时间轴协议
+  assert.match(content, /连续时间轴/);
+  assert.match(content, /总时长/);
+  // 不再强制"每个单元从 ### 分镜一（总时长：10s）开始"的独立完整分镜协议
+  assert.doesNotMatch(content, /强制完整分镜协议/);
+  assert.doesNotMatch(content, /每个单元从 ### 分镜一/);
 });
 
-test('non-segmented mode does not inject unit budget', () => {
+test('segmented opening injects a total duration budget based on source length', () => {
+  // 332 字 → ceil(332/38)*2 = 18 秒左右
+  const novelText = '甲。'.repeat(166);
+  const messages = buildSegmentedShotlist(novelText, '10s');
+  const content = messages[0].content;
+  assert.match(content, /时间轴总时长预算/);
+  assert.match(content, /18/); // ceil(332/38)=9，9*2=18
+});
+
+test('non-segmented mode keeps the original per-unit complete shot protocol', () => {
   loadPresets();
   const presetStore = {
     getPublished(id) { return presets[id] || null; },
@@ -74,5 +83,6 @@ test('non-segmented mode does not inject unit budget', () => {
     protagonists: [],
     constraints: undefined
   }, presetStore);
-  assert.doesNotMatch(messages[0].content, /单元数量预算/);
+  assert.match(messages[0].content, /强制完整分镜协议/);
+  assert.doesNotMatch(messages[0].content, /时间轴总时长预算/);
 });
