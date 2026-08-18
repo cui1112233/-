@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { apiAuth } = require('../middleware/auth');
 const { getUserOutputsDir, ensureOutputsDir, readHistoryIndex, writeHistoryIndex } = require('../lib/shared');
+const { getStorageRoot, writeScriptResultMd } = require('../lib/storage-root');
 
 const MODE_NAME_MAP = {
   continuous: '连续开头',
@@ -76,6 +77,14 @@ router.post('/', (req, res) => {
     }
 
     writeHistoryIndex(req.username, data);
+
+    // 本地存储文件夹：额外写一份剧本结果 md 副本（失败不影响主流程）
+    try {
+      const historyRecord = data.entries[0];
+      const storageRoot = getStorageRoot(req.username);
+      if (storageRoot) writeScriptResultMd(storageRoot, historyRecord);
+    } catch (_) { /* 本地副本失败不影响主流程 */ }
+
     res.json({ ok: true, id: id });
   } catch (e) {
     console.error('保存历史记录失败:', e);
