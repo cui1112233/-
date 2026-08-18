@@ -11,10 +11,10 @@ export function listNovelFetchProcessPresets() {
   return apiRequest('/api/presets?module=novel-fetch');
 }
 
-export function processNovelContent({ mode, items, platform, platformName }) {
+export function processNovelContent({ mode, items, platform, platformName, saveToFolder }) {
   return apiRequest('/api/novel-fetch/process', {
     method: 'POST',
-    body: JSON.stringify({ mode, items, platform, platformName })
+    body: JSON.stringify({ mode, items, platform, platformName, saveToFolder })
   });
 }
 

@@ -244,7 +244,8 @@ export function NovelFetchPage() {
         mode: processMode,
         platform: chosen[0]?.platform,
         platformName: chosen[0]?.platformName,
-        items: chosen.map(row => ({ bookId: row.bookId, text: row.data }))
+        items: chosen.map(row => ({ bookId: row.bookId, text: row.data })),
+        saveToFolder: true
       });
       const results = data.results || [];
       setRows(current => current.map(row => {
@@ -258,6 +259,7 @@ export function NovelFetchPage() {
       setProcessModal({ mode: processMode, results });
       const failed = results.filter(item => item.status === 'error').length;
       if (failed) message.error(`${failed} 本处理失败`);
+      else if (results.length && results.every(item => item.savedToFolder)) message.success('处理完成，已保存到本地文件夹（改编小说）');
       else message.success('处理完成');
     } catch (error) {
       message.error(error.message || '处理失败');
@@ -274,12 +276,15 @@ export function NovelFetchPage() {
     }
     setProcessing(true);
     try {
-      const data = await processNovelContent({ mode: processMode, platform: row.platform, platformName: row.platformName, items: [{ bookId: row.bookId, text: row.data }] });
+      const data = await processNovelContent({ mode: processMode, platform: row.platform, platformName: row.platformName, items: [{ bookId: row.bookId, text: row.data }], saveToFolder: true });
       const result = (data.results || [])[0];
       setRows(current => current.map(item => item.bookId === row.bookId
         ? { ...item, induced: result && result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text, analysis: result.analysis || null } : null, processError: result && result.status === 'ok' ? null : (result ? result.error : '处理失败') }
         : item));
-      if (result && result.status === 'ok') setProcessModal({ mode: processMode, results: [result] });
+      if (result && result.status === 'ok') {
+        setProcessModal({ mode: processMode, results: [result] });
+        if (result.savedToFolder) message.success('已保存到本地文件夹（改编小说）');
+      }
       else message.error((result && result.error) || '处理失败');
     } catch (error) {
       message.error(error.message || '处理失败');
