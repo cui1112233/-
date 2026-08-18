@@ -8,7 +8,12 @@ const {
 const { getPersistentSession, revokePersistentSession } = require('../lib/session-store');
 
 function getRuntime(req) {
-  return req.app?.locals?.authRuntime || createAuthRuntime();
+  // 挂载的子应用（如 routes/storage.js 返回的 express() 子应用）内部 req.app 指向子应用自身，
+  // 其 locals 不含 authRuntime；沿 parent 链向上找到宿主 app 的运行时。
+  for (let app = req.app; app; app = app.parent) {
+    if (app.locals && app.locals.authRuntime) return app.locals.authRuntime;
+  }
+  return createAuthRuntime();
 }
 
 function checkRateLimit(ip) {

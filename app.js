@@ -22,6 +22,7 @@ const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
 const historyRouter = require('./routes/history');
 const { createShuihuoProductionRouter } = require('./routes/shuihuo-production');
+const { createStorageRouter } = require('./routes/storage');
 const { createPlatformProjectsRouter } = require('./routes/platform-projects');
 const novelPanelRouter = require('./routes/novel-panel-page');
 const novelPanelApiRouter = require('./routes/novel-panel');
@@ -143,6 +144,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: agentResponder }));
   app.use('/api/shuihuo-production', createShuihuoProductionRouter(shuihuoGateway));
+  // 本地存储文件夹：createStorageRouter 返回的子应用内部自带 /api/storage 前缀，
+  // 此处无前缀挂载，避免前缀叠加（见 routes/storage.js）。
+  app.use(createStorageRouter());
 
   // 404 处理
   app.use((req, res) => {
