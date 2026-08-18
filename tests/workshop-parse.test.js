@@ -29,7 +29,7 @@ test('normalizeGender 与 normalizeStyle', () => {
 
 test('重复书籍ID合并、空ID计数、非空值补齐', () => {
   const res = parseBooks({
-    inputText: '123\t书A\t\t\t\t\n123\t书B\t女频\t\t\t\n\t无名\t\t\t\t',
+    inputText: '123\t书A\t\t\t\t\n123\t书B\t\t女频\t\t\n\t无名\t\t\t\t',
     parseMode: 'smart', columnPresetId: 'sample_input', columnOrder: '', styles: STYLES
   });
   assert.equal(res.uniqueTasks, 1);
@@ -61,7 +61,7 @@ test('自定义列顺序与尾列吸收', () => {
 
 test('固定顺序模式 fixed_from_b', () => {
   const res = parseBooks({
-    inputText: '11111\t222222222222222222\t书名B\tS\t甲\t乙\t丙\t丁\t戊\t男频\t推荐理由B',
+    inputText: '11111\t222222222222222222\t书名B\tS\t甲\t乙\t丙\t丁\t男频\t推荐理由B',
     parseMode: 'fixed_from_b', columnPresetId: '', columnOrder: '', styles: STYLES
   });
   const task = res.tasks[0];
