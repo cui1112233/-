@@ -1,4 +1,4 @@
-import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd';
+import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Tabs, Typography, message } from 'antd';
 import { Check, Copy, Download, Eye, RotateCcw, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent } from '../../shared/api/novelFetch';
@@ -71,6 +71,7 @@ export function NovelFetchPage() {
   const [processMode, setProcessMode] = useState('');
   const [processing, setProcessing] = useState(false);
   const [processModal, setProcessModal] = useState(null); // { mode, results: [{bookId, status, report, text, error}] }
+  const [inducedModal, setInducedModal] = useState(null); // 单本改编查看：row（含 induced 与原文 data）
 
   useEffect(() => {
     let active = true;
@@ -314,6 +315,9 @@ export function NovelFetchPage() {
                     <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={() => handleProcessOne(row)}>
                       {row.induced ? '查看处理结果' : (processPresets.find(p => p.value === processMode)?.label || '处理')}
                     </Button>
+                    {row.induced ? (
+                      <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setInducedModal(row)}>查看改编</Button>
+                    ) : null}
                   </>
                 ) : row.status === 'error' ? (
                   <Button size="small" icon={<RotateCcw size={14} aria-hidden="true" />} loading={retrying} onClick={() => handleRetry(row)}>重试</Button>
@@ -381,6 +385,55 @@ export function NovelFetchPage() {
             </div>
           ))}
         </Space>
+      </Modal>
+
+      <Modal
+        title={inducedModal ? `${inducedModal.bookId} — ${processPresets.find(p => p.value === inducedModal.induced?.mode)?.label || '改编'}` : ''}
+        open={Boolean(inducedModal)}
+        width={880}
+        onCancel={() => setInducedModal(null)}
+        footer={[
+          <Button key="copy" icon={<Copy size={14} aria-hidden="true" />} onClick={async () => {
+            if (!inducedModal?.induced) return;
+            try {
+              await copyText(inducedModal.induced.text);
+              message.success('已复制改编全文');
+            } catch (_) {
+              message.error('复制失败');
+            }
+          }}>复制改编</Button>,
+          <Button key="dl" icon={<Download size={14} aria-hidden="true" />} onClick={() => {
+            if (!inducedModal?.induced) return;
+            downloadText(`${inducedModal.bookId}.txt`, inducedModal.induced.text);
+          }}>下载改编</Button>,
+          <Button key="close" onClick={() => setInducedModal(null)}>关闭</Button>
+        ]}
+      >
+        {inducedModal?.induced ? (
+          <Tabs
+            items={[
+              {
+                key: 'adapted',
+                label: '改编结果',
+                children: (
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    {inducedModal.induced.report ? (
+                      <Typography.Paragraph type="secondary" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{inducedModal.induced.report}</Typography.Paragraph>
+                    ) : null}
+                    <Input.TextArea value={inducedModal.induced.text} rows={16} readOnly className="novel-fetch-preview" />
+                  </Space>
+                )
+              },
+              {
+                key: 'original',
+                label: '原文',
+                children: (
+                  <Input.TextArea value={inducedModal.data} rows={16} readOnly className="novel-fetch-preview" />
+                )
+              }
+            ]}
+          />
+        ) : null}
       </Modal>
     </Space>
   );

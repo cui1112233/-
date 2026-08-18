@@ -33,3 +33,11 @@ test('novel fetch page follows process mode label and renders process errors', (
   assert.match(page, /所选书籍均已处理/);
   assert.match(page, /row\.processError \? row\.processError :/);
 });
+
+test('novel fetch page renders per-book adapted view with original comparison', () => {
+  const page = read('frontend/src/user/pages/NovelFetchPage.jsx');
+  assert.match(page, /查看改编/);
+  assert.match(page, /inducedModal/);
+  assert.match(page, /改编结果/);
+  assert.match(page, /原文/);
+});
