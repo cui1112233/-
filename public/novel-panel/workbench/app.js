@@ -11776,6 +11776,21 @@ function exportTxt() {
   URL.revokeObjectURL(url);
 }
 
+async function exportResult() {
+  if (!state.projectId) return apiError("请先保存项目，再导出结果。");
+  try {
+    const data = await requestJSON(`/api/novel-panel/${encodeURIComponent(state.projectId)}/export`, { method: "POST", timeoutMs: 30000, timeoutLabelSeconds: 30 });
+    if (data && data.saved) {
+      const projectName = text(readFieldValue("#projectName")) || "未命名项目";
+      alert(`已保存到 制作工程/${projectName}/输出结果.md`);
+    } else {
+      alert("未配置本地存储文件夹");
+    }
+  } catch (error) {
+    apiError(error.message);
+  }
+}
+
 function applyProjectData(projectId, name, data = {}) {
   state.projectId = projectId || null;
   writeFieldValue("#projectName", name || "未命名项目");
@@ -12315,6 +12330,7 @@ function initializeApp() {
   bindEvent("#mergeBtn", "click", mergeSegments);
   bindEvent("#copyAllBtn", "click", () => copyText(allEnhancedSegmentText(), $("#copyAllBtn")));
   bindEvent("#exportTxtBtn", "click", exportTxt);
+  bindEvent("#exportResultBtn", "click", exportResult);
   bindEvent("#saveProjectBtn", "click", saveProject);
   bindEvent("#historyBtn", "click", openHistory);
   bindEvent("#promptSettingsBtn", "click", () => {

@@ -19,6 +19,7 @@ const {
   summarizeOutlineGateIssues
 } = require('../lib/novel-panel/quality-gate');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+const { getStorageRoot, writeNovelPanelExport } = require('../lib/storage-root');
 
 const router = express.Router();
 const store = createNovelPanelStore({ usersDir: USERS_DIR });
@@ -680,6 +681,15 @@ router.delete('/projects/:id', (req, res) => {
   } catch (error) {
     return clientError(res, error);
   }
+});
+
+router.post('/:id/export', (req, res) => {
+  const project = store.loadProject(req.username, req.params.id);
+  if (!project) return res.status(404).json({ error: '项目不存在' });
+  const root = getStorageRoot(req.auth ? req.auth.account.username : (req.username || ''));
+  if (!root) return res.json({ saved: false, reason: '未配置本地存储文件夹' });
+  const file = writeNovelPanelExport(root, project);
+  res.json({ saved: true, path: file });
 });
 
 router.get('/draft', (req, res) => {
