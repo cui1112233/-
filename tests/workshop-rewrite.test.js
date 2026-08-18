@@ -167,3 +167,27 @@ test('generateAiVersions 聚合状态：部分失败 partial', async () => {
   assert.equal(res.generated[1].status, 'failed');
   assert.match(res.error, /上游失败/);
 });
+
+test('generateAiVersion AI 返回空文本视为失败且不写版本文件', async () => {
+  const { store } = makeTasksStore();
+  await store.saveTasks('u1', [{ bookId: '1004', bookName: '书名', style: '现代虐文', gender: '女频' }]);
+  await store.fetchOriginal('u1', '1004', 4000);
+
+  const configStore = makeRewriteConfigStore();
+  const ai = makeMockAi(''); // 空文本：不应静默删开头块
+  const task = store.getTask('u1', '1004').meta;
+  const res = await generateAiVersion({ configStore, tasks: store, username: 'u1', task, aiIndex: 1, count: 1, ai });
+
+  assert.equal(res.status, 'failed');
+  assert.match(res.error, /AI改文返回为空/);
+  // 不写版本文件
+  assert.ok(!fs.existsSync(store.pathForAiVersion('u1', '1004', 1)));
+  // meta 非 done，且记录错误
+  const meta = store.getTask('u1', '1004').meta;
+  assert.notEqual(meta.aiStatus, 'done');
+  assert.equal(meta.aiStatus, 'failed');
+  assert.match(meta.aiError, /AI改文返回为空/);
+  // 记录失败日志
+  const logs = store.readLogs('u1', '1004');
+  assert.ok(logs.some(log => log.event === 'ai_generate_failed'));
+});
