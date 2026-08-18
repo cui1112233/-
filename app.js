@@ -37,9 +37,13 @@ const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
 const { createNovelPanelHistoryStore } = require('./lib/novel-panel/history-store');
 const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-store');
+const { createNovelPanelStore } = require('./lib/novel-panel/project-store');
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
+const { getWorkshopConfigStore } = require('./lib/novel-fetch-workshop/config');
+const { createWorkshopTasks } = require('./lib/novel-fetch-workshop/tasks');
+const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelPanelStore, novelFetchStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const resolvedPresetStore = presetStore || createPresetStore({
@@ -58,7 +62,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
+  const resolvedNovelPanelStore = novelPanelStore || createNovelPanelStore({ usersDir });
   const resolvedNovelFetchStore = novelFetchStore || createNovelFetchStore({ usersDir });
+  // 改文工作台：系统级配置与任务数据层（fetchUpstream 使用 tasks 模块内置默认：GET txt.121w.com/api.php）
+  const workshopSystemDir = path.dirname(authRuntime.accountStore.files.audit);
+  const resolvedWorkshopConfigStore = getWorkshopConfigStore(workshopSystemDir);
+  const resolvedWorkshopTasks = createWorkshopTasks({ usersDir });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
   app.locals.presetStore = resolvedPresetStore;
@@ -68,6 +77,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
   app.locals.novelPanelHistoryStore = resolvedNovelPanelHistoryStore;
   app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
+  app.locals.novelPanelStore = resolvedNovelPanelStore;
   app.locals.novelFetchStore = resolvedNovelFetchStore;
 
   // 请求日志
@@ -135,6 +145,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore }));
+  app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter({
+    tasks: resolvedWorkshopTasks,
+    configStore: resolvedWorkshopConfigStore
+  }));
+  app.locals.workshopTasks = resolvedWorkshopTasks;
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
