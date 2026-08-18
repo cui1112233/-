@@ -7474,7 +7474,7 @@ function sceneContextToNaturalPhrase(value = "") {
 }
 
 function stripRenderedScenePrefix(body = "", scene = "") {
-  let source = String(body || "").replace(/^\s+|\s+$/g, "");
+  let source = normalizeRepeatedScenePrefix(body).replace(/^\s+|\s+$/g, "");
   const phrase = sceneContextToNaturalPhrase(scene);
   if (!source || !phrase) return source;
   const candidates = uniqueTextList([
@@ -7500,8 +7500,23 @@ function stripRenderedScenePrefix(body = "", scene = "") {
   return source.replace(/^[，,；;、\s]+/, "").trim();
 }
 
+function normalizeRepeatedScenePrefix(value = "") {
+  const collapseTimePrefix = (source, expression, tokenPattern) => source.replace(expression, (_match, repeated) => {
+    const tokens = [...repeated.matchAll(tokenPattern)];
+    const last = tokens.at(-1);
+    return last ? `在${last[1]}${last[2]}` : repeated;
+  });
+  return collapseTimePrefix(text(value), /在?((?:(?:夜间|夜晚|深夜)的?){2,})/g, /(夜间|夜晚|深夜)(的?)/g)
+    .replace(/在?((?:(?:白昼|日间|白天)的?){2,})/g, (_match, repeated) => {
+      const tokens = [...repeated.matchAll(/(白昼|日间|白天)(的?)/g)];
+      const last = tokens.at(-1);
+      return last ? `在${last[1]}${last[2]}` : repeated;
+    })
+    .replace(/(在?晴朗的)(?:晴朗的)+/g, "$1");
+}
+
 function canonicalScenePromptBody(prompt = "", scene = "") {
-  const parts = splitScenePromptParts(prompt, scene);
+  const parts = splitScenePromptParts(normalizeRepeatedScenePrefix(prompt), scene);
   const resolvedScene = text(parts.scene || scene);
   return { scene: resolvedScene, body: stripRenderedScenePrefix(parts.body, resolvedScene) };
 }
@@ -7515,7 +7530,7 @@ function bodyAlreadyContainsScene(body = "", scene = "") {
 }
 
 function mergeSceneIntoPromptBody(scene = "", body = "") {
-  const cleanBody = rewriteRiskSensitiveVisualText(normalizeKnownCharacterNameRepeats(sanitizeTimelinePrompt(body)));
+  const cleanBody = normalizeRepeatedScenePrefix(rewriteRiskSensitiveVisualText(normalizeKnownCharacterNameRepeats(sanitizeTimelinePrompt(body))));
   const phrase = sceneContextToNaturalPhrase(scene);
   if (!phrase || bodyAlreadyContainsScene(cleanBody, scene)) return cleanBody;
   return `在${phrase}，${cleanBody}`.replace(/，，/g, "，");
