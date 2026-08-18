@@ -187,6 +187,20 @@ function sanitizeProtagonists(characters, protagonists) {
   return (Array.isArray(protagonists) ? protagonists : []).filter(item => known.has(JSON.stringify(item)));
 }
 
+// 分段开头单元数量预算：以原文非空自然段数为中心锚点（对齐小说面板“一行一卡”的粒度），
+// 允许 ±40% 浮动，防止模型无限细分产生过多分镜。
+function buildSegmentedUnitBudget(novelText) {
+  const paragraphs = String(novelText || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean).length;
+  const center = Math.max(1, paragraphs);
+  const minimum = Math.max(1, Math.round(center * 0.6));
+  const maximum = Math.max(minimum, Math.round(center * 1.4));
+  return `## 单元数量预算
+本次原文共有 ${center} 个非空自然段。每个自然段默认对应一个剧情单元（一条独立分镜卡），相邻短段可在剧情连续时合并；建议单元总数控制在 ${minimum}-${maximum} 个，不允许把一个自然段拆成多个单元来增加数量，也不允许为了减少数量而把多个自然段硬合并成一个单元。`;
+}
+
 function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const mode = normalizeMode(body.mode);
   const format = normalizeFormat(body.format);
@@ -202,16 +216,25 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   formatContent = formatContent.replace(/\{duration\}/g, duration);
   formatContent = formatContent.replace(/\{结束时间\}/g, endTime);
 
+  let modeContent = resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]);
+  modeContent = modeContent.replace(/\{10s或15s\}/g, duration);
+  modeContent = modeContent.replace(/\{X\}/g, secs);
+  modeContent = modeContent.replace(/\{2X\}/g, String(parseInt(secs, 10) * 2));
+  modeContent = modeContent.replace(/\{duration\}/g, duration);
+  modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
+
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
   const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
     : '';
+  const unitBudget = mode === 'segmented' ? buildSegmentedUnitBudget(body.novelText) : '';
   const systemPrompt = [
-    resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]),
+    modeContent,
     resolveSystemPresetBody(presetStore, 'script-general'),
     unitProtocol,
+    unitBudget,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
@@ -368,6 +391,7 @@ router._private = {
   buildScriptMessages,
   buildMessages,
   buildConstraintWrapper,
+  buildSegmentedUnitBudget,
   normalizeDuration,
   listPublishedExtractionPresets,
   resolveExtractionPresetId,
