@@ -7,14 +7,21 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
-test('novel-panel partial outline feedback and issue page diagnostics remain wired without a new layout', () => {
+test('novel-panel outline gate and issue page diagnostics remain wired without a new layout', () => {
   const workbench = fs.readFileSync(path.join(__dirname, '..', 'public', 'novel-panel', 'workbench', 'app.js'), 'utf8');
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'routes', 'novel-panel.js'), 'utf8');
   const client = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'shared', 'api', 'client.js'), 'utf8');
   const issuePage = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'src', 'user', 'pages', 'IssueLogPage.jsx'), 'utf8');
 
-  assert.match(workbench, /data\?\.partial === true/);
-  assert.match(workbench, /质量闸门保留/);
-  assert.match(workbench, /diagnosticId/);
+  // V78 workbench surfaces AI/API failures through the shared error formatter.
+  assert.match(workbench, /formatApiError/);
+  assert.match(workbench, /apiError/);
+
+  // Backend outline writes remain protected by the V77-compatible quality gate.
+  assert.match(routes, /validateOutlineApplyGate/);
+  assert.match(routes, /applied: false/);
+  assert.match(routes, /rejected_shots/);
+
   assert.match(client, /listNovelPanelAiDiagnostics/);
   assert.match(client, /\/api\/novel-panel\/diagnostics/);
   assert.match(issuePage, /listNovelPanelAiDiagnostics/);
@@ -26,7 +33,7 @@ test('novel workbench routes TTS generation through the authenticated same-origi
 
   assert.match(workbench, /const TTS_API_URL = "\/api\/tts";/);
   assert.doesNotMatch(workbench, /const TTS_API_URL = "http:\/\/tts2\.121w\.com\/v1\/audio\/speech";/);
-  assert.match(workbench, /text\(errorData\?\.error\?\.message\) \|\| text\(errorData\?\.error\) \|\| text\(errorData\?\.message\)/);
+  assert.match(workbench, /text\(errorData\?\.error\?\.message\) \|\| text\(errorData\?\.message\)/);
 });
 const vm = require('node:vm');
 const { createApp } = require('../app');
@@ -170,20 +177,23 @@ function requestRaw(app, requestPath) {
   });
 }
 
-function writeFakeV77Source(sourceRoot) {
+function writeFakeV78Source(sourceRoot) {
   fs.mkdirSync(path.join(sourceRoot, 'templates'), { recursive: true });
   fs.mkdirSync(path.join(sourceRoot, 'static', 'character-core'), { recursive: true });
+  fs.mkdirSync(path.join(sourceRoot, 'static', 'clean-core'), { recursive: true });
   fs.writeFileSync(path.join(sourceRoot, 'templates', 'index.html'), [
     '<link rel="stylesheet" href="/static/style.css?v={{ asset_version }}" />',
     '<script>if ("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then(() => {}).catch(() => {});\nif ("caches" in window) caches.keys().then(() => {}).catch(() => {});</script>',
-    '<script src="/static/outline-quality-gate.js?v={{ asset_version }}"></script>',
     '<script src="/static/app.js?v={{ asset_version }}"></script>',
-    '<script src="/static/character-core/character-core.js?v={{ asset_version }}"></script>'
+    '<script src="/static/character-core/character-core.js?v={{ asset_version }}"></script>',
+    '<script src="/static/clean-core/release.js?v={{ asset_version }}"></script>',
+    '<script src="/static/clean-core/runtime.js?v={{ asset_version }}"></script>'
   ].join('\n'));
   fs.writeFileSync(path.join(sourceRoot, 'static', 'style.css'), 'body{}');
-  fs.writeFileSync(path.join(sourceRoot, 'static', 'app.js'), 'window.app = true;');
-  fs.writeFileSync(path.join(sourceRoot, 'static', 'outline-quality-gate.js'), 'window.gate = true;');
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'app.js'), 'const TTS_API_URL = "http://tts2.121w.com/v1/audio/speech";\nwindow.app = true;');
   fs.writeFileSync(path.join(sourceRoot, 'static', 'character-core', 'character-core.js'), 'window.core = true;');
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'clean-core', 'release.js'), 'window.release = true;');
+  fs.writeFileSync(path.join(sourceRoot, 'static', 'clean-core', 'runtime.js'), 'window.runtime = true;');
 }
 
 function readTree(rootPath) {
@@ -196,23 +206,25 @@ function readTree(rootPath) {
   return entries;
 }
 
-test('synced V77 workbench keeps its required controls and local assets', () => {
+test('synced V78 workbench keeps its required controls and local assets', () => {
   const html = fs.readFileSync(path.join(workbenchRoot, 'index.html'), 'utf8');
+  const appJs = fs.readFileSync(path.join(workbenchRoot, 'app.js'), 'utf8');
   const requiredIds = [
     'novelText', 'characterGuideInput', 'appearanceReference', 'analyzeBtn',
     'optimizeAllCharactersBtn', 'characters', 'relationshipGraphList', 'outlineBtn',
     'scenes', 'outputs', 'mergeBtn', 'segments', 'instructionCenterPage',
-    'settingsDialog', 'historyDialog', 'ttsDialog'
+    'settingsDialog', 'historyPage', 'ttsDialog'
   ];
   const requiredAssetPaths = [
     '/novel-panel/workbench/style.css',
-    '/novel-panel/workbench/outline-quality-gate.js',
     '/novel-panel/workbench/app.js',
-    '/novel-panel/workbench/character-core/character-core.js'
+    '/novel-panel/workbench/character-core/character-core.js',
+    '/novel-panel/workbench/clean-core/release.js',
+    '/novel-panel/workbench/clean-core/runtime.js'
   ];
 
   for (const id of requiredIds) {
-    assert.match(html, new RegExp(`id=["']${id}["']`), `missing V77 control #${id}`);
+    assert.match(html, new RegExp(`id=["']${id}["']`), `missing V78 control #${id}`);
   }
   for (const assetPath of requiredAssetPaths) {
     assert.match(html, new RegExp(`(?:href|src)=["']${assetPath}["']`), `missing local asset ${assetPath}`);
@@ -220,12 +232,13 @@ test('synced V77 workbench keeps its required controls and local assets', () => 
   assert.match(html, /src=["']\/novel-panel\/workbench\/bridge\.js["']/);
   assert.doesNotMatch(html, /\{\{\s*asset_version\s*\}\}/);
   assert.doesNotMatch(html, /getRegistrations|caches\.keys/);
+  assert.doesNotMatch(html, /outline-quality-gate\.js/);
+  assert.match(appJs, /v78\.3\.0\.2/);
 
   const bundle = [
     html,
     fs.readFileSync(path.join(workbenchRoot, 'bridge.js'), 'utf8'),
-    fs.readFileSync(path.join(workbenchRoot, 'app.js'), 'utf8'),
-    fs.readFileSync(path.join(workbenchRoot, 'outline-quality-gate.js'), 'utf8'),
+    appJs,
     fs.readFileSync(path.join(workbenchRoot, 'character-core', 'character-core.js'), 'utf8')
   ].join('\n');
   assert.doesNotMatch(bundle, /127\.0\.0\.1|8818|\.exe(?:\s|["'`]|$)/i);
@@ -239,6 +252,7 @@ test('sync keeps the existing workbench on source failure and produces stable ou
   const scriptPath = path.join(tempRoot, 'scripts', 'sync-novel-panel-assets.js');
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.copyFileSync(path.join(root, 'scripts', 'sync-novel-panel-assets.js'), scriptPath);
+  fs.copyFileSync(path.join(root, 'scripts', 'novel-panel-bridge.js'), path.join(tempRoot, 'scripts', 'novel-panel-bridge.js'));
   fs.mkdirSync(targetRoot, { recursive: true });
   fs.writeFileSync(path.join(targetRoot, 'sentinel.txt'), 'retain-this-exactly');
 
@@ -252,7 +266,7 @@ test('sync keeps the existing workbench on source failure and produces stable ou
   assert.notEqual(failed.status, 0);
   assert.equal(fs.readFileSync(path.join(targetRoot, 'sentinel.txt'), 'utf8'), 'retain-this-exactly');
 
-  writeFakeV77Source(sourceRoot);
+  writeFakeV78Source(sourceRoot);
   assert.equal(runSync().status, 0);
   const first = readTree(targetRoot);
   assert.equal(runSync().status, 0);
@@ -264,7 +278,7 @@ test('sync keeps the existing workbench on source failure and produces stable ou
   assert.deepEqual(readTree(targetRoot), first);
 });
 
-test('qiantie navigation renders the V77 workbench in a same-origin iframe', () => {
+test('qiantie navigation renders the V78 workbench in a same-origin iframe', () => {
   const userApp = read('frontend/src/user/App.jsx');
   const userLayout = read('frontend/src/shared/layouts/UserLayout.jsx');
   const novelPanelPage = read('frontend/src/user/pages/NovelPanelPage.jsx');
@@ -307,19 +321,21 @@ test('qiantie navigation renders the V77 workbench in a same-origin iframe', () 
   assert.match(bridge, /document\.documentElement\.dataset\.theme = data\.theme/);
   assert.doesNotMatch(bridge, /localStorage\.(?:getItem|setItem)\([^\n]*theme/i);
   assert.match(bridge, /bodyBase64/);
-  assert.match(style, /\[data-theme=['"]light['"]\]/);
+  // The V78 workbench ships a self-contained theme; it still accepts the shell
+  // theme attribute without leaking shell state into its own tokens.
+  assert.match(style, /:root\s*\{/);
   assert.match(style, /--bg:/);
   assert.match(style, /--surface:/);
   const readyDeclarations = cssDeclarations(lastExactSelectorRuleBlock(style, '.status-pill.ready'));
   assert.equal(readyDeclarations.get('color'), 'var(--success)');
-  assert.equal(readyDeclarations.get('border-color'), 'var(--success)');
-  assert.equal(readyDeclarations.get('background'), 'var(--success-soft)');
+  assert.equal(readyDeclarations.get('border-color'), '#bfe7d7');
+  assert.equal(readyDeclarations.get('background'), '#eafff5');
   const outputGroupHeadDeclarations = cssDeclarations(lastExactSelectorRuleBlock(style, '.output-group-head'));
-  assert.equal(outputGroupHeadDeclarations.get('color'), 'var(--ink)');
+  assert.equal(outputGroupHeadDeclarations.get('color'), '#2f4380');
   assert.match(pagesRouter, /router\.get\('\/novel-panel'/);
 });
 
-test('novel-panel iframe uses an isolated instance, server drafts, and abortable bridge requests', () => {
+test('novel-panel iframe uses an isolated instance, guarded local drafts, and abortable bridge requests', () => {
   const novelPanelPage = read('frontend/src/user/pages/NovelPanelPage.jsx');
   const workbench = read('public/novel-panel/workbench/app.js');
   const bridge = read('public/novel-panel/workbench/bridge.js');
@@ -336,15 +352,16 @@ test('novel-panel iframe uses an isolated instance, server drafts, and abortable
   assert.match(novelPanelPage, /new AbortController\(\)/);
   assert.match(novelPanelPage, /controller\.abort\(/);
   assert.match(novelPanelPage, /data\?\.type === 'novel-panel-api-cancel'/);
-  assert.match(characterCore, /params\.get\("instance"\)/);
-  assert.match(characterCore, /const currentInstance\s*=\s*\(\)\s*=>\s*pageInstanceId/);
-  assert.doesNotMatch(characterCore, /\|\| "instance-browser"/);
+  // V78 CharacterCore reads the isolated per-frame instance from the query string.
+  assert.match(characterCore, /URLSearchParams\(globalThis\.location\?\.search \|\| ""\)\.get\("instance"\)/);
+  assert.match(characterCore, /const currentInstance = \(\) => \{/);
+  assert.match(characterCore, /\.get\("instance"\) \|\| new URLSearchParams\(globalThis\.location\?\.search \|\| ""\)\.get\("session"\)/);
 
-  assert.match(workbench, /requestJSON\("\/api\/draft"/);
-  assert.match(workbench, /method:\s*"PUT"/);
-  assert.doesNotMatch(saveDraftBody, /localStorage/);
-  assert.match(restoreDraftBody, /requestJSON\("\/api\/draft"/);
-  assert.doesNotMatch(restoreDraftBody, /localStorage/);
+  // V78 keeps the local draft guarded so the sandboxed iframe degrades safely
+  // instead of throwing on storage access.
+  assert.match(saveDraftBody, /localStorage\.setItem\(DRAFT_KEY, serialized\)/);
+  assert.match(saveDraftBody, /catch \(error\) \{/);
+  assert.match(restoreDraftBody, /localStorage\.getItem/);
 
   assert.match(bridge, /type:\s*'novel-panel-api-cancel'/);
   assert.match(bridge, /function rejectPendingRequests\(\)[\s\S]*cancelPendingRequest/);
@@ -352,8 +369,9 @@ test('novel-panel iframe uses an isolated instance, server drafts, and abortable
   assert.match(bridge, /signal\?\.addEventListener\?\.\('abort'/);
   assert.match(bridge, /cancelPendingRequest\(id, createAbortError\(signal\.reason\)\)/);
   assert.match(bridge, /qiantie-v77-bridge-closing/);
-  assert.match(characterCore, /addEventListener\?\.\("pagehide",\s*releaseProjectLeaseOnPageExit,\s*\{once:true\}\)/);
-  assert.match(characterCore, /addEventListener\?\.\("qiantie-v77-bridge-closing",\s*releaseProjectLeaseOnPageExit,\s*\{once:true\}\)/);
+  // V78 routes project leases through the authenticated same-origin API.
+  assert.match(characterCore, /\/api\/character-core\/project-lease/);
+  assert.match(characterCore, /function projectLease\(action="check", projectId=appState\.projectId, force=false\)/);
   assert.match(
     handleFrameLoadBody,
     /portRef\.current\.close\(\);\s*portRef\.current = null;\s*handshakeConsumedRef\.current = false/
@@ -425,7 +443,7 @@ test('novel-panel API requires Bearer authentication and returns usable settings
   });
   assert.equal(health.status, 200);
   assert.equal(health.body.character_core_version, 2);
-  assert.equal(health.body.app_version, 'v77-hotfix26');
+  assert.equal(health.body.app_version, 'v78.3.0.2');
 
   const characterCore = await request(app, {
     method: 'POST',

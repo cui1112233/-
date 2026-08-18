@@ -10,18 +10,25 @@
   <link rel="stylesheet" href="/novel-panel/workbench/style.css" />
 </head>
 <body>
-<!-- V77 Hotfix19 production marker: CharacterCore 2.0 exclusively owns full analysis, character cards, relationships, outline readiness, scene casting and single-scene regeneration. -->
+<!-- V78 Stable production marker: V78 Clean Core owns public production; CharacterCore 2.0 remains the business semantics engine and V77 host is fallback-only. -->
   <main class="app-shell">
     <header class="topbar">
       <div class="brand-block">
+        <p class="eyebrow">9:16 · 小说短剧 · 整段时间轴生成 · 强制人物卡槽位唯一权威 · 同名不同阶段独立 · 独立可编辑人物关系图 · 称呼指代与对白解析 · 本镜人物语义匹配 · 当前界面修改即时生效 · 统一风格独立判断 · 强制名单人物卡独立生成 · CharacterCore 2.0全题材人物引擎 · 年龄阶段驱动外形重构 · 多窗口独立缓存 · V78 Clean Core 正式主链 · 普通/精品双模式与参考图资产</p>
         <h1>视频画面提示词工具</h1>
-        <p class="subtitle">先独立判断内容类型与统一风格，再由强制名单按钮生成人物卡、AI人物关系图和本地关键词勾选，最后生成导演级时间轴；自动拦截复述原文、抽象空话和单句敷衍画面。</p>
+        <p class="subtitle">先独立判断内容类型与统一风格，再由强制名单按钮生成人物卡、AI人物关系图和本地关键词勾选，最后生成导演级时间轴；当前工作区有什么资料就使用什么资料，不因缺少前置步骤阻断生成。</p>
       </div>
       <div class="top-actions">
         <span id="aiStatus" class="status-pill">AI 通道加载中</span>
-        <label class="project-name"><span>项目名称</span><input id="projectName" value="未命名项目" maxlength="100" /></label>
-        <button id="saveProjectBtn" class="btn secondary">保存项目</button>
+        <div id="outputModeToggle" class="mode-toggle" aria-label="生成模式">
+          <button type="button" class="mode-toggle-btn active" data-output-mode="normal">普通模式</button>
+          <button type="button" class="mode-toggle-btn" data-output-mode="premium">精品带图</button>
+        </div>
+        <input id="projectName" type="hidden" value="视频画面提示词" />
+        <button id="historyBtn" class="btn secondary">历史记录</button>
+        <button id="saveProjectBtn" class="btn secondary">保存当前记录</button>
         <button id="promptSettingsBtn" class="btn secondary prompt-settings-entry">AI 指令</button>
+        <button id="settingsBtn" class="btn primary">AI 设置</button>
       </div>
     </header>
 
@@ -55,26 +62,28 @@
             <span id="characterStyleReadyState" class="lock-state">请先判断内容类型与统一风格</span>
           </div>
           <div class="prompt-constraint-grid">
-            <label class="prompt-constraint-field">人物卡强制名单（人物卡唯一来源）
-              <textarea id="characterGuideInput" class="compact-textarea" maxlength="10000" placeholder="人物之间可用换行、逗号、顿号、分号或竖线分隔；括号可写原文明示的姓名、别称、身份、阶段或其他约束。程序只负责解析槽位，不用固定称谓词表猜关系；关系和动态称呼由AI结合全文判断。写几个槽位就生成几张正式人物卡，名单外人物不会自动增加。"></textarea>
+            <label class="prompt-constraint-field">正式人物强制名单【人物卡唯一权威源】
+              <textarea id="characterGuideInput" class="compact-textarea" placeholder="人物之间可用换行、逗号、顿号、分号或竖线分隔；括号可写姓名、别称、身份、阶段或其他约束。这里只决定哪些人物是正式人物；原文识别、关系称谓、临时人物和其他输入框都无权自动增删正式人物。"></textarea>
+              <span id="formalRosterStatus" class="formal-roster-status">正式人物名单：正在读取…</span>
+              <span id="formalRosterError" class="formal-roster-error" hidden></span>
             </label>
             <label class="prompt-constraint-field">人物外形全局要求（高优先级）
-              <textarea id="appearanceReference" class="compact-textarea" maxlength="6000" placeholder="可填写所有人物都要共同遵守的外形要求，例如：整体偏真实电影感、避免网红脸、避免同款发型、儿童必须保留儿童体态、现代豪门穿搭要高级但人物彼此明显区分。这里只写全局方向、统一禁用项和整体要求，不要粘贴单个人物模板。"></textarea>
+              <textarea id="appearanceReference" class="compact-textarea" placeholder="可填写所有人物都要共同遵守的外形要求，例如：整体偏真实电影感、避免网红脸、避免同款发型、儿童必须保留儿童体态、现代豪门穿搭要高级但人物彼此明显区分。这里只写全局方向、统一禁用项和整体要求，不要粘贴单个人物模板。"></textarea>
             </label>
           </div>
           <p class="hint">先在下方点击“AI判断内容类型与统一风格”并确认当前原文题材。人物卡生成会一次读取已确认的内容类型、时代、统一风格、整段原文、当前强制名单、全局外形要求以及每张卡的高优先级细节意见；每张卡必须由AI一次性返回明确性别、一个剧情年龄阶段和一整段完整外形正文。</p>
           <div class="inline-actions">
             <button id="optimizeAllCharactersBtn" type="button" class="btn primary">按强制名单生成人物卡</button>
             <button id="addCharacterBtn" type="button" class="btn secondary">+ 手动添加人物</button>
-            <span id="characterGenerationProgress" class="hint inline-hint">一次点击依次完成：强制名单槽位、AI人物事实与关系图、人物外形、项目关键词索引，以及现有分镜人物卡的本地关键词勾选。</span>
+            <span id="characterGenerationProgress" class="hint inline-hint">一次点击依次完成：强制名单槽位、AI人物事实与关系图、人物外形、当前关键词索引，以及现有分镜人物卡的本地关键词勾选。</span>
           </div>
         </div>
         <div class="prompt-constraint-grid">
-          <label class="prompt-constraint-field">必须拍出的原文细节
-            <textarea id="mustCoverDetails" class="compact-textarea" maxlength="4590" placeholder="填写原文中绝对不能漏掉的关键人物、动作、道具、线索、场景变化或站位关系。这里只管拍什么，不能被概括掉。"></textarea>
+          <label class="prompt-constraint-field">分镜额外要求：必须拍出的原文细节
+            <textarea id="mustCoverDetails" class="compact-textarea" placeholder="填写原文中绝对不能漏掉的动作、道具、线索、场景变化、人物行为或站位关系。这里只影响分镜画面，不创建人物卡，也不能修改正式人物强制名单。"></textarea>
           </label>
           <label class="prompt-constraint-field">镜头节奏与推进要求
-            <textarea id="shotRhythmRequirements" class="compact-textarea" maxlength="4590" placeholder="填写希望的节奏与镜头推进方式，例如快切、先铺场再反应、关键动作单独拆镜、同场景避免重复。这里只管怎么拆、怎么切、怎么推进。"></textarea>
+            <textarea id="shotRhythmRequirements" class="compact-textarea" placeholder="填写希望的节奏与镜头推进方式，例如快切、先铺场再反应、关键动作单独拆镜、同场景避免重复。这里只管怎么拆、怎么切、怎么推进。"></textarea>
           </label>
         </div>
         <div class="prompt-focus-controls">
@@ -100,10 +109,10 @@
           </div>
           <div class="prompt-constraint-grid">
             <label class="prompt-constraint-field">画面描述案例
-              <textarea id="promptExampleText" class="compact-textarea" maxlength="5000" placeholder="例如：原文分镜：……&#10;镜头画面描述提示词：00:00-00:04 | 远景 - 俯视 - 固定快推 - 硬切 | 在具体主场景的子场景，主体动作→环境构图强化→直接反应。"></textarea>
+              <textarea id="promptExampleText" class="compact-textarea" placeholder="例如：原文分镜：……&#10;镜头画面描述提示词：00:00-00:04 | 远景 - 俯视 - 固定快推 - 硬切 | 在具体主场景的子场景，主体动作→环境构图强化→直接反应。"></textarea>
             </label>
             <label class="prompt-constraint-field">AI 提炼后的通用逻辑
-              <textarea id="promptExampleLogic" class="compact-textarea" maxlength="2400" placeholder="点击“AI 提炼案例逻辑”后生成；也可以手动修改。"></textarea>
+              <textarea id="promptExampleLogic" class="compact-textarea" placeholder="点击“AI 提炼案例逻辑”后生成；也可以手动修改。"></textarea>
             </label>
           </div>
           <p id="promptExampleStatus" class="hint"></p>
@@ -125,7 +134,7 @@
         <div class="field-head">
           <label for="globalAnalysisAdvice">统一风格判断建议</label>
         </div>
-        <textarea id="globalAnalysisAdvice" class="compact-textarea" maxlength="1800" placeholder="只用于当前原文的内容类型、时代、世界观和统一风格判断。人物卡将在下一步按强制名单单独生成。"></textarea>
+        <textarea id="globalAnalysisAdvice" class="compact-textarea" placeholder="只用于当前原文的内容类型、时代、世界观和统一风格判断。人物卡将在下一步按强制名单单独生成。"></textarea>
         <p class="hint">该建议只影响内容类型、时代和统一视觉，不参与人物姓名、性别、年龄阶段或人物外形判断。</p>
       </div>
       <div class="style-grid lock-grid">
@@ -137,9 +146,9 @@
               <button type="button" class="btn secondary small-btn" data-lock-toggle="genre">确认锁定</button>
             </div>
           </div>
-          <input id="genre" maxlength="120" value="剧情情感短剧" />
+          <input id="genre" value="剧情情感短剧" />
           <label for="genreNote" class="sub-label">内容类型修改意见</label>
-          <input id="genreNote" maxlength="200" placeholder="AI阅读整段原文后自由判断一个最准确的内容类型；这里可补充希望强调的核心关系、冲突或情绪方向，不提供固定标签词，也不强制短剧后缀" />
+          <input id="genreNote" placeholder="AI阅读整段原文后自由判断一个最准确的内容类型；这里可补充希望强调的核心关系、冲突或情绪方向，不提供固定标签词，也不强制短剧后缀" />
           <div class="inline-actions">
             <button type="button" class="btn secondary small-btn" data-optimize-style="genre">优化当前内容类型</button>
           </div>
@@ -152,9 +161,9 @@
               <button type="button" class="btn secondary small-btn" data-lock-toggle="trailer_style">确认锁定</button>
             </div>
           </div>
-          <input id="trailerStyle" maxlength="900" value="电视剧级现实情感短剧电影质感，35毫米胶片实拍，细腻自然胶片颗粒，中性暖灰柔光滤镜，35毫米与50毫米叙事镜头，轻微胶片噪点，中高对比度，低饱和度，自然侧光与清晰明暗层次，电影级生活化叙事构图，克制真实氛围感" />
+          <input id="trailerStyle" value="电视剧级现实情感短剧电影质感，35毫米胶片实拍，细腻自然胶片颗粒，中性暖灰柔光滤镜，自然叙事镜头体系与克制透视，轻微胶片噪点，中高对比度，低饱和度，动机光优先并保留柔和高光与可读暗部层次，强调人物关系和空间纵深的电影级叙事构图，克制真实氛围感" />
           <label for="trailerStyleNote" class="sub-label">风格附加视觉信息修改意见</label>
-          <input id="trailerStyleNote" maxlength="320" placeholder="按十一字段固定顺序输出；这里可要求更冷、更复古、光影更写实等，AI仍需完整保留十一项" />
+          <input id="trailerStyleNote" placeholder="按十一字段固定顺序输出；这里可要求更冷、更复古、光影更写实等，AI仍需完整保留十一项" />
           <div class="inline-actions">
             <button type="button" class="btn secondary small-btn" data-optimize-style="trailer_style">优化当前统一风格附加视觉信息</button>
           </div>
@@ -167,7 +176,7 @@
               <button type="button" class="btn secondary small-btn" data-lock-toggle="negative_prompt">确认锁定</button>
             </div>
           </div>
-          <input id="negativePrompt" maxlength="500" value="禁止字幕、禁止台词、禁止旁白字幕、禁止对白字卡、禁止气泡框文字（手机聊天记录界面内的消息气泡除外）、禁止水印、禁止Logo、禁止非手机聊天记录的可读文字；剧情明确需要时，允许清楚保留手机聊天记录文字" />
+          <input id="negativePrompt" value="禁止字幕、禁止台词、禁止旁白字幕、禁止对白字卡、禁止气泡框文字（手机聊天记录界面内的消息气泡除外）、禁止水印、禁止Logo、禁止非手机聊天记录的可读文字；剧情明确需要时，允许清楚保留手机聊天记录文字" />
         </div>
         <div class="lockable-field">
           <div class="field-head">
@@ -177,7 +186,7 @@
               <button type="button" class="btn secondary small-btn" data-lock-toggle="picture_limit_prompt">确认锁定</button>
             </div>
           </div>
-          <textarea id="pictureLimitPrompt" class="compact-textarea" maxlength="500">禁止出现任何文字、横幅、漂浮UI元素。</textarea>
+          <textarea id="pictureLimitPrompt" class="compact-textarea">禁止出现任何文字、横幅、漂浮UI元素。</textarea>
         </div>
         <div class="lockable-field">
           <div class="field-head">
@@ -187,7 +196,7 @@
               <button type="button" class="btn secondary small-btn" data-lock-toggle="quality_constraint_prompt">确认锁定</button>
             </div>
           </div>
-          <textarea id="qualityConstraintPrompt" class="compact-textarea" maxlength="800">4K超高清，浅景深，不生成字幕水印Logo。全程无任何内嵌字幕（无对白字幕、无标题、无说明文字）。</textarea>
+          <textarea id="qualityConstraintPrompt" class="compact-textarea">4K超高清，浅景深，不生成字幕水印Logo。全程无任何内嵌字幕（无对白字幕、无标题、无说明文字）。</textarea>
         </div>
       </div>
       <p class="hint">上面的负面提示词、画面限制、画质约束只在最终复制/导出时附加，不会作为小说内容、图片参考或画面参考发送给 AI，也不会参与拆镜。AI 生成阶段只接收一条精简边界：避免无关字幕、水印、Logo/UI，并保留剧情明确需要的系统、聊天、表格或监控界面。</p>
@@ -199,9 +208,13 @@
             <button type="button" class="btn secondary small-btn" data-lock-toggle="remark_prompt">确认锁定</button>
           </div>
         </div>
-        <input id="remarkPrompt" maxlength="200" value="如果有疑似包含侵权/违规内容帮我修改。" />
+        <input id="remarkPrompt" value="如果有疑似包含侵权/违规内容帮我修改。" />
       </div>
       <p class="hint"><strong>第 1 小步：</strong>点击“AI判断内容类型与统一风格”时只生成内容类型、时代、世界观和统一风格，不识别也不生成人物卡。人物卡、AI关系图和本地关键词索引由上方“按强制名单生成人物卡”独立完成。</p>
+      <div class="character-reference-toolbar premium-only" hidden>
+        <div><strong>精品人物参考图</strong><span class="hint">批量并发用于首次快速建图；单个人物卡“图片设置 / 生成”用于后续单独重做。</span></div>
+        <button id="premiumBatchGenerateCharactersBtn" type="button" class="btn primary small-btn">批量并发生成参考图</button>
+      </div>
       <div id="characters" class="character-grid"></div>
       <p class="hint">人物图片或参考文字只用于提高强制人物卡外形质量。关系图负责称呼、代词、说话人、出镜状态和阶段卡选择，但对人物卡只有读取权限；用户修正关系后会保存，并优先于AI和本地自动判断。</p>
 
@@ -244,8 +257,16 @@
             <p class="step">第 3 步</p>
           <h2>原文分镜与对应时间片</h2>
           </div>
+          <div class="actions premium-only" hidden>
+            <button id="addPremiumSceneAssetBtn" type="button" class="btn secondary">+ 添加场景</button>
+            <button id="addPremiumPropAssetBtn" type="button" class="btn secondary">+ 添加道具</button>
+          </div>
         </div>
       <p class="hint">每张卡片显示：整段 AI 生成时确定的原文分镜、本镜人物、补充建议，以及当前命中的时间片。自动模式允许纯环境/纯道具镜头；手动勾选人物后点击“重新生成这一条”，所选人物必须真正写入画面正文。系统会结合上一分镜与当前原文自动补全省略的人物；勾选人物必须进入画面，判断不准时可手动勾选。这里显示的是整段 AI 生成时确定的原文分镜，改秒数不会改变它。`补充建议` 只在这条分镜不清晰时用于补充画面内容和导演调度意图，改完后点击 `重新生成这一条`，系统只重写当前分镜命中的镜头内容。</p>
+        <section id="premiumAssetLibrary" class="premium-asset-library premium-only" hidden>
+          <div class="premium-library-head"><strong>精品参考资产</strong><span class="hint">正式人物、场景、道具进入参考图绑定；临时人物只使用文字动态表达，不创建参考图。场景/道具支持自动匹配与人工覆盖；图片仅用于最终导出引用，不参与分镜AI生成。</span></div>
+          <div id="premiumAssetLibraryList" class="premium-library-list"></div>
+        </section>
         <div id="scenes" class="scene-list"></div>
       </section>
 
@@ -264,7 +285,7 @@
           <span id="durationSummary" class="duration-summary">总时长 0 秒</span>
         </div>
       <div id="durationTargetWarning" class="warning-box hidden"></div>
-      <p class="hint">这里展示的是整段总时间轴镜头卡，显示全局时间，并整理成 `00:00-00:02 | 景别 - 机位/角度 - 运镜 - 转场 | 自然嵌入主场景与子场景的画面描述提示词`。默认执行“一时段一视觉重点”：每个时段都带场景背景，正文重点写主体动作、直接反应和必要氛围；如原文有对白，可在对应时段下方补人物代号对白行。生成后的时间轴画面卡将作为最终分段的唯一来源；分段合并只调整段内相对时间，不会重新改写画面内容。</p>
+      <p class="hint">这里展示的是整段总时间轴镜头卡，显示全局时间，并整理成 `00:00-00:02 | 景别｜焦段｜机位/角度｜创意构图｜运镜｜转场 | 自然嵌入主场景与子场景的画面描述提示词`。默认执行“一时段一视觉重点”：每个时段都带场景背景，正文重点写主体动作、直接反应和必要氛围；如原文有对白，可在对应时段下方补人物代号对白行。生成后的时间轴画面卡将作为最终分段的唯一来源；分段合并只调整段内相对时间，不会重新改写画面内容。</p>
       <div id="timelineStateNotice" class="warning-box hidden"></div>
         <div id="outputs" class="output-list empty-state">生成后会显示整段时间轴镜头卡。</div>
       </aside>
@@ -275,12 +296,12 @@
         <div>
           <p class="step">第 5 步</p>
           <h2>最终分段提示词</h2>
-          <p class="final-subtitle">导出结构固定为：首行提示、统一风格、统一人物、镜头画面、负面提示词。镜头画面标准格式为：`00:00-00:02 | 景别 - 机位/角度 - 运镜 - 转场 | 自然嵌入主场景与子场景的画面描述提示词`；如果该时段有对白，则在下一行追加 `人物名+代号（说话状态）：“台词”`。最终复制/导出时才补上【画面限制】、【画质约束】；这两个字段不参与 AI 生成。</p>
+          <p class="final-subtitle">导出结构固定为：首行提示、统一风格、统一人物、镜头画面、负面提示词。镜头画面标准格式为：`00:00-00:02 | 景别｜焦段｜机位/角度｜创意构图｜运镜｜转场 | 自然嵌入主场景与子场景的画面描述提示词`；如果该时段有对白，则在下一行追加 `人物名+代号（说话状态）：“台词”`。最终复制/导出时才补上【画面限制】、【画质约束】；这两个字段不参与 AI 生成。</p>
         </div>
         <div class="actions">
           <button id="copyAllBtn" class="btn primary">复制全部分段</button>
+          <button id="premiumBatchCopyBtn" type="button" class="btn primary premium-only" hidden>精品逐段图文</button>
           <button id="exportTxtBtn" class="btn secondary">导出 TXT</button>
-          <button id="exportResultBtn" class="btn secondary">导出结果</button>
         </div>
       </div>
       <div id="mergeWarnings" class="warning-box hidden"></div>
@@ -289,18 +310,58 @@
   </main>
 
 
+  <section id="historyPage" class="history-page" hidden>
+    <div class="history-page-shell">
+      <header class="history-page-topbar">
+        <div>
+          <p class="eyebrow">V77 Hotfix44 · 软件根目录手动历史记录</p>
+          <h1>历史记录</h1>
+          <p class="subtitle">只有你主动点击“保存当前记录”才会写入历史。使用历史后直接恢复当前工作区并继续所有功能，不重新要求走步骤。</p>
+        </div>
+        <div class="history-page-actions">
+          <button id="historySaveCurrentBtn" type="button" class="btn primary">保存当前记录</button>
+          <button id="historyBackBtn" type="button" class="btn secondary">返回工具</button>
+        </div>
+      </header>
+      <div class="history-toolbar">
+        <input id="historySearchInput" type="search" placeholder="搜索备注或原文摘要" />
+        <span id="historyCurrentState" class="hint"></span>
+      </div>
+      <div id="historyList" class="history-list empty-state">加载中</div>
+    </div>
+  </section>
+
+  <dialog id="historySaveDialog" class="modal">
+    <section class="modal-card history-save-card">
+      <div class="modal-head">
+        <div><p class="step">手动保存</p><h2>保存当前记录</h2></div>
+        <button type="button" class="icon-btn" data-close-dialog="historySaveDialog" aria-label="关闭">×</button>
+      </div>
+      <label>备注（可留空）
+        <textarea id="historySaveNote" class="compact-textarea" placeholder="例如：人物卡修改完成后的版本"></textarea>
+      </label>
+      <p id="historySaveModeHint" class="hint"></p>
+      <p id="historySaveStatus" class="settings-message"></p>
+      <div class="modal-actions">
+        <button id="historyOverwriteBtn" type="button" class="btn secondary">覆盖当前记录</button>
+        <span class="grow"></span>
+        <button id="historySaveAsNewBtn" type="button" class="btn primary">另存为新记录</button>
+      </div>
+    </section>
+  </dialog>
+
   <section id="instructionCenterPage" class="instruction-center-page" hidden>
     <div class="instruction-center-shell">
       <header class="instruction-center-topbar">
         <div>
-          <p class="eyebrow">V77 Hotfix23 · 完整 AI 指令中心 · 协议锁定</p>
+          <p class="eyebrow">V77 Hotfix44 · 完整 AI 指令中心 · 协议锁定</p>
           <h1>AI 指令中心</h1>
           <p class="subtitle">只调整“AI应该怎样理解和生成内容”的语义要求；主功能输入字段、输出JSON结构、字段名、时间格式与接口协议由软件锁定，不能被这里或AI改写。</p>
         </div>
         <div class="instruction-center-top-actions">
-          <button id="instructionCenterRestoreAllBtn" type="button" class="btn danger-outline">恢复 Hotfix23 最新完整指令</button>
-          <button id="instructionCenterSaveProjectBtn" type="button" class="btn secondary">保存到当前项目</button>
-          <button id="instructionCenterSetDefaultBtn" type="button" class="btn primary">设为以后默认</button>
+          <button id="instructionCenterRestoreAllBtn" type="button" class="btn danger-outline">恢复当前最新完整指令</button>
+          <button id="instructionCenterSaveProjectBtn" type="button" class="btn secondary">保存当前修改</button>
+          <button id="instructionCenterSetDefaultBtn" type="button" class="btn primary">设为软件默认</button>
           <button id="instructionCenterBackBtn" type="button" class="btn secondary">返回工具</button>
         </div>
       </header>
@@ -381,39 +442,39 @@
         </div>
         <button type="button" class="icon-btn" data-close-dialog="promptSettingsDialog" aria-label="关闭">×</button>
       </div>
-      <p class="hint">这里的内容会随对应按钮一起提交给 AI，并保存在当前电脑和项目中。以后只改这里，不需要修改软件代码。全局总指令会叠加到下面每一步。</p>
+      <p class="hint">这里的内容会随对应按钮一起提交给 AI，并保存在当前电脑的AI指令设置中。以后只改这里，不需要修改软件代码。全局总指令会叠加到下面每一步。</p>
       <div class="prompt-instruction-list">
         <label class="prompt-instruction-card">
           <span><strong>全局总指令</strong><small>所有 AI 操作都会追加</small></span>
-          <textarea id="aiInstructionGlobal" maxlength="5000" placeholder="填写所有步骤共同遵守的要求"></textarea>
+          <textarea id="aiInstructionGlobal" placeholder="填写所有步骤共同遵守的要求"></textarea>
         </label>
         <label class="prompt-instruction-card">
           <span><strong>第 2 步第一小步：判断内容类型与统一风格</strong><small>对应“AI判断内容类型与统一风格”</small></span>
-          <textarea id="aiInstructionAnalysis" maxlength="5000"></textarea>
+          <textarea id="aiInstructionAnalysis"></textarea>
         </label>
         <label class="prompt-instruction-card">
           <span><strong>第 2 步：内容类型优化</strong><small>对应“优化当前内容类型”</small></span>
-          <textarea id="aiInstructionGenre" maxlength="5000"></textarea>
+          <textarea id="aiInstructionGenre"></textarea>
         </label>
         <label class="prompt-instruction-card">
           <span><strong>第 2 步：统一视觉风格优化</strong><small>对应“优化当前统一风格附加视觉信息”</small></span>
-          <textarea id="aiInstructionVisualStyle" maxlength="5000"></textarea>
+          <textarea id="aiInstructionVisualStyle"></textarea>
         </label>
         <label class="prompt-instruction-card">
           <span><strong>第 2 步第二小步：单个人物优化</strong><small>严格按当前性别、剧情年龄阶段和题材优化完整外形段落</small></span>
-          <textarea id="aiInstructionSingleCharacter" maxlength="5000"></textarea>
+          <textarea id="aiInstructionSingleCharacter"></textarea>
         </label>
         <label class="prompt-instruction-card">
           <span><strong>第 2 步第二小步：强制名单生成人物卡</strong><small>对应“按强制名单生成人物卡”</small></span>
-          <textarea id="aiInstructionAllCharacters" maxlength="5000"></textarea>
+          <textarea id="aiInstructionAllCharacters"></textarea>
         </label>
         <label class="prompt-instruction-card emphasis">
           <span><strong>第 3/4 步：通用小说原文转画面</strong><small>控制题材自适应、前后文连续性、简洁拆镜和画面重点</small></span>
-          <textarea id="aiInstructionOutline" maxlength="6000"></textarea>
+          <textarea id="aiInstructionOutline"></textarea>
         </label>
         <label class="prompt-instruction-card emphasis">
           <span><strong>第 3 步：通用逻辑重生成当前一条</strong><small>结合上下文与人物卡重写，不套固定案例</small></span>
-          <textarea id="aiInstructionSceneRegenerate" maxlength="6000"></textarea>
+          <textarea id="aiInstructionSceneRegenerate"></textarea>
         </label>
       </div>
       <p id="promptSettingsMessage" class="settings-message"></p>
@@ -450,7 +511,28 @@
         </label>
         <label class="full">API Key<input id="settingsApiKey" type="password" maxlength="1000" autocomplete="new-password" placeholder="留空则保留已保存的 Key" /></label>
       </div>
-      <div class="modal-note">最长等待可调到 400 秒；这是上限，不会强制等待，AI 提前返回会立即完成。连接阶段仍会快速失败，生成等待才使用该上限。密钥和等待设置只保存在当前电脑的 <code>data/settings.json</code>；耗时摘要写入 <code>data/ai_performance.log</code>，完整请求/返回追踪写入 <code>data/ai_trace.log</code>，不会记录 API Key 或 Authorization。</div>
+      <section class="image-ai-settings">
+        <div class="field-head"><strong>图片 AI（精品带图模式独立服务）</strong><span class="hint">独立于文本AI；支持 OpenAI Images 风格的文生图 /images/generations 与参考图 /images/edits，也可自定义路径。连接测试不会生成图片、不会消耗生图额度。</span></div>
+        <div class="settings-grid">
+          <label>图片模型<input id="imageSettingsModel" maxlength="200" placeholder="例如 gpt-image-1 或中转站图片模型" /></label>
+          <label>图片尺寸<input id="imageSettingsSize" maxlength="80" value="1536x1024" placeholder="1536x1024" /></label>
+          <label class="full">图片 API 地址<input id="imageSettingsBaseUrl" maxlength="500" placeholder="https://your-relay.example/v1" /></label>
+          <label>文生图路径<input id="imageSettingsGeneratePath" maxlength="240" value="/images/generations" /></label>
+          <label>参考图生图路径<input id="imageSettingsEditPath" maxlength="240" value="/images/edits" /></label>
+          <div class="full image-endpoint-preview" id="imageEndpointPreview">
+            <div><span>文生图最终地址</span><code id="imageGenerateUrlPreview">—</code></div>
+            <div><span>参考图最终地址</span><code id="imageEditUrlPreview">—</code></div>
+          </div>
+          <label>图片比例<input id="imageSettingsAspectRatio" maxlength="40" value="16:9" /></label>
+          <label>图片最长等待（秒）<input id="imageSettingsTimeout" type="number" min="30" max="400" step="10" value="400" /></label>
+          <label class="full checkbox-row"><input id="imageSettingsSupportsReference" type="checkbox" checked /> 当前图片服务支持上传参考图后再生图</label>
+          <label class="full">图片 API Key<input id="imageSettingsApiKey" type="password" maxlength="1000" autocomplete="new-password" placeholder="留空则保留已保存的图片 Key" /></label>
+          <label class="full">额外 JSON 参数（可选）<textarea id="imageSettingsExtraJson" class="compact-textarea" placeholder='例如：{"quality":"high"}'></textarea></label>
+        </div>
+        <div class="inline-actions image-ai-test-actions"><button id="testImageSettingsBtn" type="button" class="btn secondary small-btn">测试图片AI连接</button><button id="clearImageKeyBtn" type="button" class="btn danger-outline small-btn">清除图片 Key</button></div>
+        <div id="imageSettingsMessage" class="image-ai-diagnostic" hidden></div>
+      </section>
+      <div class="modal-note">文本AI与图片AI分别保存。文本密钥写入 <code>data/settings.json</code>；图片密钥写入 <code>data/image_settings.json</code>。人物/场景/道具图片保存在软件根目录 <code>data/reference_assets/</code>，不会因为切换普通/精品模式重新生成。</div>
       <p id="settingsMessage" class="settings-message"></p>
       <div class="modal-actions">
         <button type="button" id="clearKeyBtn" class="btn danger">清除已保存 Key</button>
@@ -461,15 +543,89 @@
     </form>
   </dialog>
 
-  <dialog id="historyDialog" class="modal">
-    <section class="modal-card history-card">
-      <div class="modal-head">
-        <div><p class="step">本机草稿</p><h2>历史项目</h2></div>
-        <button type="button" class="icon-btn" data-close-dialog="historyDialog" aria-label="关闭">×</button>
+
+  <dialog id="premiumAssetDialog" class="modal premium-asset-dialog">
+    <section class="modal-card premium-asset-card">
+      <header class="modal-head premium-asset-head"><div><p class="step">精品参考资产</p><h2 id="premiumAssetDialogTitle">参考图资产</h2><p id="premiumAssetDialogHint" class="hint premium-asset-dialog-hint">当前窗口用于单独编辑一个人物/场景/道具参考资产。</p></div><button type="button" class="icon-btn" data-close-dialog="premiumAssetDialog" aria-label="关闭">×</button></header>
+      <div class="premium-asset-scroll">
+        <input id="premiumAssetId" type="hidden" />
+        <input id="premiumAssetType" type="hidden" />
+        <input id="premiumAssetTargetSlotId" type="hidden" />
+        <div class="settings-grid premium-asset-fields">
+          <label class="full">名称<input id="premiumAssetName" maxlength="160" placeholder="人物名 / 场景名 / 道具名" /></label>
+          <label class="full premium-keywords-field">别称 / 触发关键词<textarea id="premiumAssetKeywords" class="compact-textarea" placeholder="场景/道具可用逗号、顿号或换行分隔；名称、别称、关键词与 Scene Memory 共同参与匹配。"></textarea></label>
+          <label class="full">外形 / 视觉描述<textarea id="premiumAssetDescription" class="large-textarea" placeholder="人物读取当前人物卡；场景/道具可手写，也可以点击 AI帮我描述。没有补充建议时，AI会根据原文、题材、时代与统一风格合理脑补缺失的可视细节。"></textarea></label>
+          <div class="full inline-actions"><button id="premiumAssetDescribeBtn" type="button" class="btn secondary">AI帮我描述</button></div>
+          <label class="full">图片生成补充建议<textarea id="premiumAssetGuidance" class="compact-textarea" placeholder="可选。例如：保持上传图脸型；场景改成夜景；道具材质更旧。为空时AI自行依据当前资料合理完成。"></textarea></label>
+          <div class="full inline-actions"><button id="premiumAssetOptimizeGuidanceBtn" type="button" class="btn secondary">AI优化图片建议</button></div>
+        </div>
+        <div class="premium-image-pair">
+          <div class="premium-image-box">
+            <div class="premium-image-box-head"><strong>上传参考图</strong><span class="hint">本地上传不依赖图片AI</span></div>
+            <div class="premium-image-preview-shell"><div id="premiumSourceEmpty" class="premium-image-empty">尚未上传参考图<br><small>可以上传图片后直接设为主图，或交给图片AI转换成精品格式</small></div><img id="premiumSourcePreview" loading="lazy" decoding="async" alt="上传参考图预览" /></div>
+            <div class="inline-actions premium-image-actions"><input id="premiumAssetFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /><button id="premiumUploadSourceBtn" type="button" class="btn secondary">上传参考图</button><button id="premiumUseSourceAsMainBtn" type="button" class="btn secondary">直接设为主参考图</button></div>
+          </div>
+          <div class="premium-image-box">
+            <div class="premium-image-box-head"><strong>精品主参考图</strong><span id="premiumMainImageState" class="hint">尚未生成</span></div>
+            <div class="premium-image-preview-shell"><div id="premiumMainEmpty" class="premium-image-empty">尚无精品主参考图<br><small>可以直接上传主参考图，无需生图；有主图时最终精品分段才会分配 (@图N)</small></div><img id="premiumMainPreview" loading="lazy" decoding="async" alt="精品主参考图预览" /></div>
+            <p id="premiumImageFormatHint" class="hint premium-format-hint"></p>
+            <div class="inline-actions premium-image-actions"><input id="premiumMainAssetFileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /><button id="premiumUploadMainBtn" type="button" class="btn secondary">上传主参考图（不生图）</button></div>
+            <div class="inline-actions premium-image-actions premium-character-generate-actions"><button id="premiumGenerateImageBtn" type="button" class="btn primary">AI生成有脸精品图</button><button id="premiumGenerateFacelessImageBtn" type="button" class="btn secondary">AI生成无人脸精品图</button></div>
+          </div>
+        </div>
       </div>
-      <div id="projectList" class="project-list empty-state">加载中</div>
+      <footer class="premium-asset-footer">
+        <div id="premiumAssetStatusWrap" class="premium-status-wrap" hidden>
+          <div id="premiumAssetStatus" class="settings-message"></div>
+          <div id="premiumAssetErrorActions" class="premium-error-actions" hidden><button id="premiumGoImageSettingsBtn" type="button" class="btn secondary small-btn">检查图片AI设置</button><button id="premiumRetryImageBtn" type="button" class="btn secondary small-btn">重新尝试</button><details id="premiumAssetErrorDetails"><summary>查看技术详情</summary><pre id="premiumAssetErrorTechnical"></pre></details></div>
+        </div>
+        <div class="modal-actions premium-asset-actions"><button id="premiumDeleteAssetBtn" type="button" class="btn danger-outline">删除当前资产</button><span class="grow"></span><button type="button" class="btn secondary" data-close-dialog="premiumAssetDialog">取消</button><button id="premiumSaveAssetBtn" type="button" class="btn primary">保存资产资料</button></div>
+      </footer>
     </section>
   </dialog>
+
+  <dialog id="premiumCharacterBatchDialog" class="modal premium-character-batch-dialog">
+    <section class="modal-card premium-character-batch-card">
+      <header class="modal-head premium-character-batch-head"><div><p class="step">精品人物参考图</p><h2>首次快速建图（批量并发）</h2><p class="hint premium-character-batch-subhint">这里只负责首轮批量建图与自动保存；后续单独重做请回到人物卡内点击“图片设置 / 生成”。</p></div><button type="button" class="icon-btn" data-close-dialog="premiumCharacterBatchDialog" aria-label="关闭">×</button></header>
+      <p class="hint">生成成功的每一张图都会立即绑定到当前人物/阶段、更新人物卡并自动保存到软件根目录；无需再点“保存资产资料”。失败项彼此隔离，不会回滚已成功人物。</p>
+      <div class="premium-character-batch-controls">
+        <label>参考图模式<select id="premiumCharacterBatchMode"><option value="normal">有脸精品参考图</option><option value="faceless">无人脸精品参考图</option></select></label>
+        <label>生成范围<select id="premiumCharacterBatchRange"><option value="missing">仅当前阶段缺少主图</option><option value="selected">只生成勾选人物</option><option value="all">全部重新生成</option></select></label>
+        <label>并发数<input id="premiumCharacterBatchConcurrency" type="number" min="1" max="6" step="1" value="3" /></label>
+      </div>
+      <div id="premiumCharacterBatchProgress" class="settings-message">尚未开始。</div>
+      <div id="premiumCharacterBatchList" class="premium-character-batch-list"></div>
+      <footer class="modal-actions">
+        <button id="premiumCharacterBatchRetryBtn" type="button" class="btn secondary" hidden>重试失败项</button>
+        <span class="grow"></span><button type="button" class="btn secondary" data-close-dialog="premiumCharacterBatchDialog">关闭</button>
+        <button id="premiumCharacterBatchStartBtn" type="button" class="btn primary">开始并发生成</button>
+      </footer>
+    </section>
+  </dialog>
+
+  <dialog id="premiumCopyDialog" class="modal premium-copy-dialog">
+    <section class="modal-card premium-copy-card">
+      <div class="modal-head"><div><p class="step">精品分段复制</p><h2>参考图与提示词</h2></div><button type="button" class="icon-btn" data-close-dialog="premiumCopyDialog" aria-label="关闭">×</button></div>
+      <div class="premium-copy-scroll">
+        <div id="premiumCopyAssetList" class="premium-copy-assets"></div>
+        <label class="premium-copy-text-label"><strong>本段精品提示词</strong><textarea id="premiumCopyText" class="large-textarea premium-copy-textarea"></textarea></label>
+        <p id="premiumCopyStatus" class="settings-message"></p>
+        <p id="premiumCopyProgress" class="hint premium-copy-progress">顺序复制进度：0 / 1</p><p class="hint">“一键复制图文”优先模拟网页原生选区复制，把图片与文字作为同一个富文本片段写入剪贴板；目标网站若主动过滤图片，可继续使用“复制下一项”保底。</p>
+      </div>
+      <div class="modal-actions premium-copy-actions"><button id="premiumCopyTextBtn" type="button" class="btn secondary">复制全部提示词</button><button id="premiumCopyNextBtn" type="button" class="btn secondary">复制下一项</button><span class="grow"></span><button id="premiumCopyRichBtn" type="button" class="btn primary">一键复制图文</button></div>
+    </section>
+  </dialog>
+
+
+
+  <dialog id="premiumBatchCopyDialog" class="modal premium-copy-dialog">
+    <section class="modal-card premium-copy-card">
+      <div class="modal-head"><div><p class="step">精品逐段图文</p><h2>每段独立参考图索引</h2></div><button type="button" class="icon-btn" data-close-dialog="premiumBatchCopyDialog" aria-label="关闭">×</button></div>
+      <p class="hint">每个最终分段独立从 @图1 开始编号。点击“打开本段复制”可按该段图号顺序复制图片，并复制对应精品提示词。</p>
+      <div id="premiumBatchCopyList" class="premium-batch-copy-list"></div>
+    </section>
+  </dialog>
+
 
   <dialog id="ttsDialog" class="modal">
     <form method="dialog" class="modal-card">
@@ -523,7 +679,7 @@
           <input id="ttsPitch" type="number" min="-50" max="50" step="1" value="0" />
         </label>
       </div>
-      <div class="modal-note">当前采用临时下载模式：生成成功后本次会话内可试听和下载，关闭页面或重新打开项目后如需音频文件需要重新生成。</div>
+      <div class="modal-note">当前采用临时下载模式：生成成功后本次会话内可试听和下载，关闭页面或切换历史记录后如需音频文件需要重新生成。</div>
       <div class="modal-actions">
         <span class="grow"></span>
         <button type="button" class="btn secondary" data-close-dialog="ttsDialog">取消</button>
@@ -562,11 +718,11 @@
     <article class="character-card">
       <div class="card-top"><strong class="character-title"></strong><button type="button" class="icon-btn delete-character" title="删除人物">×</button></div>
       <div class="character-fields">
-        <label>人物名字（支持括号别称）<input data-field="name" maxlength="60" placeholder="例如：我（女主）" /></label>
+        <label>人物名字<input data-field="name" maxlength="60" placeholder="例如：裴岁安" /></label>
         <label>性别<select data-field="gender"><option value="女">女</option><option value="男">男</option><option value="未定">未定</option></select></label>
-        <label class="full">人物外形细节修改意见（高优先级）<textarea data-field="appearanceNote" maxlength="4000" rows="4" placeholder="可直接写完整目标，例如：年轻亚洲女性，精致鹅蛋脸、小V脸、冷白细腻皮肤、清冷黑眸、中分黑色披肩长发、高挑优雅体态、黑色亮片修身晚礼服、白色轻纱披肩、多层珍珠项链和珍珠耳坠；也可写禁用项，例如：不要网红脸、不要高跟鞋、不要成熟体态。AI会结合当前人物事实与年龄阶段重写完整外形，不使用固定人物模板。"></textarea></label>
+        <label class="full">人物外形细节修改意见（高优先级）<textarea data-field="appearanceNote" rows="4" placeholder="可直接写完整目标，例如：年轻亚洲女性，精致鹅蛋脸、小V脸、冷白细腻皮肤、清冷黑眸、中分黑色披肩长发、高挑优雅体态、黑色亮片修身晚礼服、白色轻纱披肩、多层珍珠项链和珍珠耳坠；也可写禁用项，例如：不要网红脸、不要高跟鞋、不要成熟体态。AI会结合当前人物事实与年龄阶段重写完整外形，不使用固定人物模板。"></textarea></label>
         <label class="full">剧情年龄阶段<select data-field="ageStages"><option value="待AI判断">待AI判断</option><option value="女婴儿">女婴儿</option><option value="男婴儿">男婴儿</option><option value="小女孩">小女孩</option><option value="小男孩">小男孩</option><option value="少女">少女</option><option value="少年">少年</option><option value="年轻女性">年轻女性</option><option value="年轻男性">年轻男性</option><option value="中年女性">中年女性</option><option value="中年男性">中年男性</option><option value="老年女性">老年女性</option><option value="老年男性">老年男性</option></select></label>
-        <label class="full">外形细节<textarea data-field="appearance" maxlength="5000" rows="6" placeholder="AI根据当前小说、身份、种族、世界观、时间线和年龄阶段自由设计完整外形。"></textarea></label>
+        <label class="full">外形细节<textarea data-field="appearance" rows="6" placeholder="AI根据当前小说、身份、种族、世界观、时间线和年龄阶段自由设计完整外形。"></textarea></label>
       </div>
     </article>
   </template>
@@ -575,14 +731,14 @@
     <article class="character-card">
       <div class="card-top"><strong class="character-title"></strong><button type="button" class="icon-btn delete-character" title="删除人物">×</button></div>
       <div class="character-fields">
-        <label>人物名字（支持括号别称）<input data-field="name" maxlength="60" placeholder="例如：我（女主）" /></label>
+        <label>人物名字<input data-field="name" maxlength="60" placeholder="例如：裴岁安" /></label>
         <label>性别<select data-field="gender"><option value="女">女</option><option value="男">男</option><option value="未定">未定</option></select></label>
         <div class="character-actions">
           <button type="button" class="btn secondary small-btn" data-field="optimizeCharacter">优化人物</button>
         </div>
-        <label class="full">人物外形细节修改意见（高优先级）<textarea data-field="appearanceNote" maxlength="4000" rows="4" placeholder="可直接写完整目标，例如：年轻亚洲女性，精致鹅蛋脸、小V脸、冷白细腻皮肤、清冷黑眸、中分黑色披肩长发、高挑优雅体态、黑色亮片修身晚礼服、白色轻纱披肩、多层珍珠项链和珍珠耳坠；也可写禁用项，例如：不要网红脸、不要高跟鞋、不要成熟体态。AI会结合当前人物事实与年龄阶段重写完整外形，不使用固定人物模板。"></textarea></label>
+        <label class="full">人物外形细节修改意见（高优先级）<textarea data-field="appearanceNote" rows="4" placeholder="可直接写完整目标，例如：年轻亚洲女性，精致鹅蛋脸、小V脸、冷白细腻皮肤、清冷黑眸、中分黑色披肩长发、高挑优雅体态、黑色亮片修身晚礼服、白色轻纱披肩、多层珍珠项链和珍珠耳坠；也可写禁用项，例如：不要网红脸、不要高跟鞋、不要成熟体态。AI会结合当前人物事实与年龄阶段重写完整外形，不使用固定人物模板。"></textarea></label>
         <label class="full">剧情年龄阶段<select data-field="ageStages"><option value="待AI判断">待AI判断</option><option value="女婴儿">女婴儿</option><option value="男婴儿">男婴儿</option><option value="小女孩">小女孩</option><option value="小男孩">小男孩</option><option value="少女">少女</option><option value="少年">少年</option><option value="年轻女性">年轻女性</option><option value="年轻男性">年轻男性</option><option value="中年女性">中年女性</option><option value="中年男性">中年男性</option><option value="老年女性">老年女性</option><option value="老年男性">老年男性</option></select></label>
-        <label class="full">外形细节<textarea data-field="appearance" maxlength="5000" rows="6" placeholder="AI根据当前小说、身份、种族、世界观、时间线和年龄阶段自由设计完整外形。"></textarea></label>
+        <label class="full">外形细节<textarea data-field="appearance" rows="6" placeholder="AI根据当前小说、身份、种族、世界观、时间线和年龄阶段自由设计完整外形。"></textarea></label>
       </div>
     </article>
   </template>
@@ -594,7 +750,7 @@
         <div class="scene-tools"><button type="button" class="move-up icon-btn" title="上移">↑</button><button type="button" class="move-down icon-btn" title="下移">↓</button></div>
       </div>
       <label>原文分镜
-        <textarea data-field="text" class="scene-text" maxlength="800" placeholder="整段生成后，这里会显示 AI 确定的原文分镜，只读显示"></textarea>
+        <textarea data-field="text" class="scene-text" placeholder="整段生成后，这里会显示 AI 确定的原文分镜，只读显示"></textarea>
       </label>
       <div class="scene-bottom">
         <div class="person-area"><span class="field-label">本镜人物</span><div class="scene-characters" data-field="characters"></div></div>
@@ -615,7 +771,7 @@
       <p class="output-guidance"></p>
       <p class="output-source"></p>
       <p class="output-meta"></p>
-      <textarea data-field="prompt" class="output-text" maxlength="1200" placeholder="AI 返回的整段时间轴镜头正文，可直接微调"></textarea>
+      <textarea data-field="prompt" class="output-text" placeholder="AI 返回的整段时间轴镜头正文，可直接微调"></textarea>
       <p class="format-preview"></p>
     </article>
   </template>
@@ -637,14 +793,32 @@
     const params = new URLSearchParams(location.search);
     const instance = params.get("instance") || params.get("session") || `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
     const startedAt = Date.now();
-    // V77 intentionally does not broadcast or retire other windows. Every browser profile/window is an independent instance.
+    // V78 Stable keeps every browser profile/window isolated; no cross-window broadcast retirement.
 
-    window.__VIDEO_PROMPT_TOOL_BUILD__ = { version: "v77-hotfix23", session: instance, instance, startedAt, cleanCache: true, multiInstance: true };
+    window.__VIDEO_PROMPT_TOOL_BUILD__ = { version: "v78.3.0.2", buildId: "v78.3.0.2-scene-event-canonical-timeline-20260818-r1", session: instance, instance, startedAt, cleanCache: true, multiInstance: true };
   })();
 </script>
   <script src="/novel-panel/workbench/bridge.js"></script>
-  <script src="/novel-panel/workbench/outline-quality-gate.js"></script>
   <script src="/novel-panel/workbench/app.js"></script>
+  <script src="/novel-panel/workbench/clean-core/formal-roster.js"></script>
   <script src="/novel-panel/workbench/character-core/character-core.js"></script>
+  <script src="/novel-panel/workbench/clean-core/reference-entities.js"></script>
+  <script src="/novel-panel/workbench/clean-core/master-prompt.js"></script>
+  <script src="/novel-panel/workbench/clean-core/transport.js"></script>
+  <script src="/novel-panel/workbench/clean-core/workspace.js"></script>
+  <script src="/novel-panel/workbench/clean-core/character.js"></script>
+  <script src="/novel-panel/workbench/clean-core/casting.js"></script>
+  <script src="/novel-panel/workbench/clean-core/production-authority.js"></script>
+  <script src="/novel-panel/workbench/clean-core/character-ai-service.js"></script>
+  <script src="/novel-panel/workbench/clean-core/scene-context.js"></script>
+  <script src="/novel-panel/workbench/clean-core/generator-contract.js"></script>
+  <script src="/novel-panel/workbench/clean-core/generator-protocol.js"></script>
+  <script src="/novel-panel/workbench/clean-core/generator.js"></script>
+  <script src="/novel-panel/workbench/clean-core/generator-service.js"></script>
+  <script src="/novel-panel/workbench/clean-core/outline-response.js"></script>
+  <script src="/novel-panel/workbench/clean-core/outline-service.js"></script>
+  <script src="/novel-panel/workbench/clean-core/diagnostics.js"></script>
+  <script src="/novel-panel/workbench/clean-core/runtime.js"></script>
+  <script src="/novel-panel/workbench/clean-core/release.js"></script>
 </body>
 </html>
