@@ -13,7 +13,7 @@ import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstr
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
-import { getShotCards, joinShotCards } from './scriptShotOutput';
+import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
@@ -117,6 +117,8 @@ export function ScriptPage() {
   const [loadingExtractionPresets, setLoadingExtractionPresets] = useState(true);
   const [extractionPresetError, setExtractionPresetError] = useState('');
   const selectedFormat = Form.useWatch('format', form);
+  const selectedMode = Form.useWatch('mode', form);
+  const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
@@ -599,6 +601,20 @@ export function ScriptPage() {
     message.success('已撤销 CM 的本次修改。');
   }
 
+  // 分段开头：把模型输出的连续时间轴按所选秒数机械切段合并（对齐小说面板“按秒数分段并合并”）
+  function handleMergeSegments() {
+    const seconds = selectedDuration === '15s' ? 15 : 10;
+    const segments = splitContinuousTimeline(output, seconds);
+    if (segments.length < 2) {
+      message.warning('当前输出不是可切分的连续时间轴，或时长不足两段。');
+      return;
+    }
+    const merged = segments.join('\n\n---\n\n');
+    setPreviousOutput(output);
+    updateOutputDraft(merged);
+    message.success(`已按 ${seconds}s 切分为 ${segments.length} 段。`);
+  }
+
   function invalidateEntityOutput(nextInfo) {
     setOutput('');
     setEditingOutput(false);
@@ -904,6 +920,9 @@ export function ScriptPage() {
               disabled={!output || !canGenerateScript}
             />
             <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} disabled={!output}>导出</Button>
+            {selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output ? (
+              <Button icon={<Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleMergeSegments}>按秒分段并合并</Button>
+            ) : null}
           </Space>
         </div>
         <div className="script-output">

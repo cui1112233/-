@@ -41,3 +41,73 @@ export function getShotCards(format, output) {
 export function joinShotCards(cards, selectedIndexes) {
   return cards.filter((_, index) => selectedIndexes.has(index)).join('\n\n');
 }
+
+const TIMELINE_RE = /^\s*(\d{1,2}:\d{2})-(\d{1,2}:\d{2})\s*\|/;
+
+function toSeconds(value) {
+  const [m, s] = String(value).split(':').map(Number);
+  if (!Number.isFinite(m) || !Number.isFinite(s)) return null;
+  return m * 60 + s;
+}
+
+function formatSeconds(value) {
+  const m = Math.floor(value / 60);
+  const s = value % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// 把一条连续时间轴按所选秒数机械切段（对齐小说面板“按秒数分段并合并”）：
+// 每段时长不超过 maxSeconds，段内时间轴从 00:00 重新排布，返回多个"### 分镜N"块。
+export function splitContinuousTimeline(output, maxSeconds) {
+  const limit = Math.max(1, Number.parseInt(maxSeconds, 10) || 10);
+  const text = String(output || '').trim();
+  if (!text) return [];
+
+  const rows = text.split('\n').map(line => {
+    const match = line.match(TIMELINE_RE);
+    if (!match) return { line, start: null, end: null };
+    return { line, start: toSeconds(match[1]), end: toSeconds(match[2]) };
+  });
+  const timelineRows = rows.filter(row => row.start !== null && row.end !== null && row.end > row.start);
+  if (timelineRows.length === 0) return [];
+
+  const groups = [];
+  let current = [];
+  let groupStart = 0;
+  let groupEnd = 0;
+  const flush = () => {
+    if (!current.length) return;
+    groups.push({ rows: current, start: groupStart, end: groupEnd });
+    current = [];
+  };
+  timelineRows.forEach(row => {
+    if (!current.length) {
+      current = [row];
+      groupStart = row.start;
+      groupEnd = row.end;
+      return;
+    }
+    const proposedEnd = Math.max(groupEnd, row.end);
+    if (proposedEnd - groupStart > limit) {
+      flush();
+      current = [row];
+      groupStart = row.start;
+      groupEnd = row.end;
+    } else {
+      current.push(row);
+      groupEnd = proposedEnd;
+    }
+  });
+  flush();
+
+  return groups.map((group, index) => {
+    const totalSeconds = Math.max(1, Math.round(group.end - group.start));
+    const shifted = group.rows.map(row => {
+      const offset = group.start;
+      const start = formatSeconds(Math.max(0, row.start - offset));
+      const end = formatSeconds(Math.max(0, row.end - offset));
+      return row.line.replace(TIMELINE_RE, `${start}-${end} |`);
+    });
+    return `### 分镜${['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][index] || (index + 1)}（总时长：${totalSeconds}s）\n${shifted.join('\n')}`;
+  });
+}

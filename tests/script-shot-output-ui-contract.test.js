@@ -93,6 +93,15 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(cards, /scrollIntoView/);
 });
 
+test('segmented mode exposes a by-seconds merge action for continuous timelines', () => {
+  const page = read('frontend/src/user/pages/ScriptPage.jsx');
+  const output = read('frontend/src/user/pages/scriptShotOutput.js');
+  assert.match(page, /splitContinuousTimeline/);
+  assert.match(page, /按秒分段并合并/);
+  assert.match(page, /selectedMode === 'segmented'/);
+  assert.match(output, /export function splitContinuousTimeline/);
+});
+
 test('script source textarea clears without deleting prior results until extraction starts', () => {
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   const styles = read('frontend/src/shared/styles/global.css');
