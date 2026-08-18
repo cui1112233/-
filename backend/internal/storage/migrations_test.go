@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -657,6 +658,13 @@ WHERE table_schema = DATABASE()
 			if definitionID != wantDefinitionID {
 				t.Fatalf("version %d definition ID = %d, want %d", versionID, definitionID, wantDefinitionID)
 			}
+		}
+		_, err = conn.ExecContext(ctx, `
+INSERT INTO model_versions(id, model_definition_id, version_number, credential_ref, endpoint)
+VALUES (999, 999999, 1, 'invalid-ref', 'https://invalid.example')`)
+		var mysqlErr *mysql.MySQLError
+		if !errors.As(err, &mysqlErr) || mysqlErr.Number != 1452 {
+			t.Fatalf("invalid version definition insert error = %v, want MySQL foreign-key error 1452", err)
 		}
 	})
 
