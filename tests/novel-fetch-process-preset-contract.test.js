@@ -29,5 +29,5 @@ test('admin preset library includes novel-fetch module', () => {
 
 test('app wires novel-fetch router with presetStore', () => {
   const app = read('app.js');
-  assert.match(app, /createNovelFetchRouter\(\{ presetStore: resolvedPresetStore \}\)/);
+  assert.match(app, /createNovelFetchRouter\(\{ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore \}\)/);
 });
