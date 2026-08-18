@@ -2,6 +2,7 @@ import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Tabs,
 import { Check, Copy, Download, Eye, RotateCcw, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent } from '../../shared/api/novelFetch';
+import { apiRequest } from '../../shared/api/client';
 import './novel-fetch.css';
 
 const PLATFORMS = [
@@ -144,6 +145,30 @@ export function NovelFetchPage() {
     setSelected([]);
     setPreview(null);
     setCustomWordCount(false);
+  }
+
+  async function handleDownload(row) {
+    try {
+      const data = await apiRequest('/api/novel-fetch', {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: row.platform,
+          bookIds: [row.bookId],
+          maxTxt: resolveMaxTxt(form, customWordCount),
+          saveToFolder: true
+        })
+      });
+      const result = ((data && data.results) || [])[0];
+      if (result && result.savedToFolder) {
+        message.success(`已保存到本地文件夹（小说获取）：${row.bookId}.txt`);
+        return;
+      }
+      message.warning('未配置本地存储文件夹，已用浏览器下载');
+      downloadText(`${row.bookId}.txt`, row.data);
+    } catch (error) {
+      message.warning((error && error.message) || '保存失败，已用浏览器下载');
+      downloadText(`${row.bookId}.txt`, row.data);
+    }
   }
 
   function toggleRow(bookId) {
@@ -311,7 +336,7 @@ export function NovelFetchPage() {
                 {row.status === 'ok' ? (
                   <>
                     <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setPreview(row)}>查看</Button>
-                    <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${row.bookId}.txt`, row.data)}>下载</Button>
+                    <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => handleDownload(row)}>下载</Button>
                     <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={() => handleProcessOne(row)}>
                       {row.induced ? '查看处理结果' : (processPresets.find(p => p.value === processMode)?.label || '处理')}
                     </Button>

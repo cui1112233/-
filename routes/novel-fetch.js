@@ -2,6 +2,7 @@ const express = require('express');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
+const { getStorageRoot, FEATURE_NOVEL_FETCH, FEATURE_NOVEL_ADAPT, writeNovelFetchResult } = require('../lib/storage-root');
 
 const PLATFORMS = [
   { id: 1, name: '黑岩付费' },
@@ -144,7 +145,7 @@ function splitReportAndText(content) {
   return { report, rest };
 }
 
-function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI, novelFetchStore } = {}) {
+function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI, novelFetchStore, getStorageRootFn = getStorageRoot } = {}) {
   const fetchOne = customFetch || fetchUpstream;
   const processOne = processWithAI || defaultProcessWithAI;
   const router = express.Router();
@@ -152,7 +153,7 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
 
   router.post('/', async (req, res) => {
     try {
-      const { platform, bookIds, maxTxt } = req.body || {};
+      const { platform, bookIds, maxTxt, saveToFolder } = req.body || {};
       const numericPlatform = Number(platform);
       if (!platformNameById.has(numericPlatform)) {
         return res.status(400).json({ error: '无效的平台 ID' });
@@ -180,12 +181,15 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
         return res.status(400).json({ error: '字数需为 100–100000 的整数' });
       }
 
+      const wantSave = saveToFolder === true;
+      const root = wantSave ? getStorageRootFn(req.username) : null;
       const results = await Promise.all(cleanedIds.map(async bookId => {
         const base = { bookId, platform: numericPlatform, platformName: platformNameById.get(numericPlatform) };
         try {
           const upstream = await fetchOne(bookId, numericPlatform, numericMaxTxt);
           if (upstream && upstream.code === 200 && typeof upstream.data === 'string' && upstream.data.length > 0) {
-            return { ...base, status: 'ok', data: upstream.data, error: null, length: upstream.data.length };
+            const saved = wantSave && root ? writeNovelFetchResult(root, FEATURE_NOVEL_FETCH, bookId, upstream.data) : false;
+            return { ...base, status: 'ok', data: upstream.data, error: null, length: upstream.data.length, savedToFolder: saved };
           }
           return { ...base, status: 'error', data: null, error: (upstream && upstream.msg) || '获取失败', length: 0 };
         } catch (error) {
@@ -201,7 +205,7 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
 
   router.post('/process', async (req, res) => {
     try {
-      const { mode, items, platform, platformName } = req.body || {};
+      const { mode, items, platform, platformName, saveToFolder } = req.body || {};
       let normalizedPlatform = null;
       if (platform !== undefined) {
         normalizedPlatform = Number(platform);
@@ -223,6 +227,8 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
       if (!preset || preset.module !== 'novel-fetch' || preset.protocolLock?.format !== 'novel-fetch-process' || preset.protocolLock?.operation !== mode) {
         return res.status(400).json({ error: '未发布该处理预设' });
       }
+      const wantSave = saveToFolder === true;
+      const root = wantSave ? getStorageRootFn(req.username) : null;
       const results = await Promise.all(normalized.map(async ({ bookId, text }) => {
         try {
           const processed = await processOne(req.username, preset.body, text);
@@ -245,7 +251,8 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, pr
               // 落盘失败不阻断处理结果返回
             }
           }
-          return { bookId, status: 'ok', text: rest, report, analysis, error: null };
+          const saved = wantSave && root ? writeNovelFetchResult(root, FEATURE_NOVEL_ADAPT, bookId, rest) : false;
+          return { bookId, status: 'ok', text: rest, report, analysis, error: null, savedToFolder: saved };
         } catch (error) {
           return { bookId, status: 'error', text: null, report: null, analysis: null, error: error.message || '处理失败' };
         }
