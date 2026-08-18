@@ -44,7 +44,7 @@ func (api *API) handleCreateShuihuoAssetImageTasks(w http.ResponseWriter, r *htt
 	}
 	user, _ := currentUser(r)
 	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(r.Context(), req.ModelID)
-	if err != nil || model.Kind != models.KindImage || !model.AvailableTo("", user.IsOwner) || !model.ProviderConfigured() {
+	if err != nil || model.Kind != models.KindImage || !model.AvailableTo(shuihuoModelRole(user), false) || !model.ProviderConfigured() {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "所选图片模型不可用或尚未完成服务端配置"})
 		return
 	}

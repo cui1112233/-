@@ -135,9 +135,8 @@ func (model Definition) AvailableTo(role string, persistedReference bool) bool {
 	if len(model.AllowedRoles) == 0 {
 		return true
 	}
-	role = strings.TrimSpace(role)
 	for _, allowedRole := range model.AllowedRoles {
-		if role != "" && role == strings.TrimSpace(allowedRole) {
+		if role == allowedRole {
 			return true
 		}
 	}

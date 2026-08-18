@@ -167,31 +167,32 @@ func TestAdminModelIncludesOperationalConfigurationButNotCredentialValues(t *tes
 	}
 }
 
-func TestVisibilityAndAvailability(t *testing.T) {
-	model := Definition{ModelID: "generic-image", Name: "generic", Kind: KindImage, AdapterKind: AdapterGenericHTTP, Enabled: true, AllowedRoles: []string{"creator"}}
-	if !model.PubliclySelectable() {
-		t.Fatal("enabled, visible generic_http model must be publicly selectable")
+func TestAvailableToEnforcesDirectVisibilityAndRoles(t *testing.T) {
+	hidden := Definition{Enabled: true, Hidden: true}
+	if hidden.AvailableTo("owner", false) {
+		t.Fatal("owner direct request must not access a hidden model")
 	}
-	if !model.AvailableTo("creator", false) {
-		t.Fatal("allowed role must be able to use visible model")
-	}
-	if model.AvailableTo("viewer", false) {
-		t.Fatal("unlisted role must not be available")
+	if !hidden.AvailableTo("owner", true) {
+		t.Fatal("persisted server reference must access an enabled hidden model")
 	}
 
-	model.Hidden = true
-	if model.PubliclySelectable() {
-		t.Fatal("hidden model must never be publicly selectable")
+	ownerOnly := Definition{Enabled: true, AllowedRoles: []string{"owner"}}
+	if !ownerOnly.AvailableTo("owner", false) {
+		t.Fatal("owner must access a visible owner-only model")
 	}
-	if model.AvailableTo("creator", false) {
-		t.Fatal("hidden model must not be directly selectable")
+	if ownerOnly.AvailableTo("user", false) {
+		t.Fatal("user must not access a visible owner-only model")
 	}
-	if !model.AvailableTo("creator", true) {
-		t.Fatal("hidden model must be available to a persisted server reference")
+	if ownerOnly.AvailableTo(" owner", false) {
+		t.Fatal("role matching must be explicit")
 	}
 
-	model.Enabled = false
-	if model.AvailableTo("creator", true) {
-		t.Fatal("disabled model must not be available through a persisted reference")
+	open := Definition{Enabled: true}
+	if !open.AvailableTo("user", false) {
+		t.Fatal("empty allowed roles must allow an enabled visible model")
+	}
+	open.Enabled = false
+	if open.AvailableTo("user", false) {
+		t.Fatal("disabled model must not be available")
 	}
 }

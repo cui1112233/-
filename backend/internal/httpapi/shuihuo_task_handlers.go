@@ -236,7 +236,7 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	if !taskMatchesModel(kind, model.Kind) {
 		return domain.Task{}, taskCreationError("模型类型与任务不匹配")
 	}
-	if !model.AvailableTo("", user.IsOwner) {
+	if !model.AvailableTo(shuihuoModelRole(user), false) {
 		return domain.Task{}, taskCreationError("该模型仅限所有者使用")
 	}
 	if !model.ProviderConfigured() {
@@ -285,6 +285,13 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	}
 	task.Status = domain.TaskQueued
 	return task, nil
+}
+
+func shuihuoModelRole(user store.User) string {
+	if user.IsOwner {
+		return "owner"
+	}
+	return "user"
 }
 
 func normalizedAudioTaskSettings(input *shuihuoAudioTaskSettings) (struct {
