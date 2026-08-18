@@ -99,3 +99,40 @@ test('POST /process 自动分类/抓取/改文 全链路（注入 mock）', asyn
   assert.equal(r.body.fetchFailed, 0);
   assert.equal(r.body.generatedAiFiles, 2);
 });
+
+test('POST /process 改文单任务失败不中断整批（注入 mock）', async () => {
+  // 回归：改文步骤任一任务抛异常（如 AI 版本文件磁盘写失败）不得使 /process 500，
+  // 第一个任务正常生成，失败计入 fetchFailed（契约固定 9 字段，改文失败并入 fetchFailed 计数）。
+  const tasks = {
+    saveTasks: async () => ({ saved: 2 }),
+    listTasks: async () => [
+      { bookId: '1', bookName: '书A', originalStatus: 'done' },
+      { bookId: '2', bookName: '书B', originalStatus: 'done' }
+    ],
+    fetchOriginal: async () => ({ status: 'done' }),
+    getTask: async (u, id) => ({ meta: { bookId: id, originalStatus: 'done', maxTxt: 4000, aiCount: 1 } })
+  };
+  const configStore = {
+    getStyles: () => ['现代女主'],
+    getPlatforms: () => [{ id: '2', name: '番茄付费' }],
+    getConfig: () => ({
+      workflow: { auto_classify_missing: false, auto_fetch_original: true, auto_rewrite_after_fetch: true },
+      fetch: { concurrency: 4, default_max_txt: 4000 },
+      rewrite: { default_ai_count: 1 }
+    })
+  };
+  // 第 1 个任务成功生成 1 个版本；第 2 个任务抛异常（模拟 AI 版本写盘失败）
+  const rewrite = {
+    generateAiVersions: async ({ task }) => {
+      if (task.bookId === '2') throw new Error('AI版本写盘失败');
+      return { status: 'done', generated: [{ status: 'done' }] };
+    }
+  };
+  const app = makeApp({ tasks, configStore, rewrite });
+  const r = await req(app, { method: 'POST', path: '/api/novel-fetch-workshop/process', body: { inputText: '1\t书A\t\t女频\t\t\n2\t书B\t\t女频\t\t', platformId: '2', parseMode: 'smart', columnPresetId: 'sample_input' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.uniqueTasks, 2);
+  assert.equal(r.body.fetched, 2);
+  assert.equal(r.body.generatedAiFiles, 1);
+  assert.equal(r.body.fetchFailed, 1);
+});

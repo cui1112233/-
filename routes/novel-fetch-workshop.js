@@ -104,21 +104,29 @@ function createNovelFetchWorkshopRouter({
         }
       }
 
-      // 6. 可选：对原文成功的任务逐个生成 AI 改文版本
+      // 6. 可选：对原文成功的任务逐个生成 AI 改文版本（单任务失败不中断整批）
+      //    改文失败并入 fetchFailed 计数：响应契约固定 9 字段，无法新增字段，
+      //    故把改文异常计入 fetchFailed（语义扩展为"处理失败计数"，与 generatedAiFiles 的成功计数配对），
+      //    成功仍累计到 generatedAiFiles；任一任务抛异常（如 AI 版本文件磁盘写失败）只计数不中断后续任务。
       let generatedAiFiles = 0;
       if (workflow.auto_rewrite_after_fetch && tasksToProcess.length) {
         for (const task of tasksToProcess) {
           if (!fetchedDone.has(task.bookId)) continue;
-          const current = await tasks.getTask(username, task.bookId);
-          if (!current || !current.meta || current.meta.originalStatus !== 'done') continue;
-          const result = await rewrite.generateAiVersions({
-            configStore,
-            tasks,
-            username,
-            task: current.meta,
-            count: task.aiCount
-          });
-          generatedAiFiles += (result && result.generated || []).filter(item => item && item.status === 'done').length;
+          try {
+            const current = await tasks.getTask(username, task.bookId);
+            if (!current || !current.meta || current.meta.originalStatus !== 'done') continue;
+            const result = await rewrite.generateAiVersions({
+              configStore,
+              tasks,
+              username,
+              task: current.meta,
+              count: task.aiCount
+            });
+            generatedAiFiles += (result && result.generated || []).filter(item => item && item.status === 'done').length;
+          } catch (error) {
+            // 单任务改文异常（如 AI 版本文件磁盘写失败）只计数，不中断后续任务
+            fetchFailed++;
+          }
         }
       }
 
