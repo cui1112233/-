@@ -1,8 +1,9 @@
-import { AutoComplete, Button, Form, Input, Select, Slider, Switch, Typography, message } from 'antd';
+import { AutoComplete, Button, Form, Input, List, Select, Slider, Switch, Typography, message } from 'antd';
 import { Cable, FolderOpen, RefreshCw, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
+import { apiRequest } from '../../shared/api/client';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 
 const providers = [
@@ -38,6 +39,10 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [listing, setListing] = useState(false);
+  const [restoreReport, setRestoreReport] = useState(null);
+  const [fileList, setFileList] = useState(null);
   const [provider, setProvider] = useState('openai');
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -125,14 +130,31 @@ export function SettingsPage() {
     }
   }
 
-  function handleRestore() {
-    // Task 8 接线 POST /api/storage/restore
-    message.info('恢复功能开发中，敬请期待');
+  async function handleRestore() {
+    setRestoring(true);
+    setRestoreReport(null);
+    try {
+      const report = await apiRequest('/api/storage/restore', { method: 'POST' });
+      setRestoreReport(report);
+      message.success(`恢复完成：剧本并入 ${report.scriptResults?.added ?? 0} 条`);
+    } catch (error) {
+      message.error(error.message || '恢复失败');
+    } finally {
+      setRestoring(false);
+    }
   }
 
-  function handleList() {
-    // Task 8 接线 GET /api/storage/list
-    message.info('文件清单功能开发中，敬请期待');
+  async function handleList() {
+    setListing(true);
+    setFileList(null);
+    try {
+      const list = await apiRequest('/api/storage/list');
+      setFileList(list);
+    } catch (error) {
+      message.error(error.message || '读取文件清单失败');
+    } finally {
+      setListing(false);
+    }
   }
 
   const modelOptions = (providerDefaults[provider]?.models || []).map(model => ({ label: model, value: model }));
@@ -225,9 +247,57 @@ export function SettingsPage() {
             <Input placeholder="例如 D:\我的小说工程" />
           </Form.Item>
           <div className="settings-storage-actions">
-            <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleRestore}>恢复</Button>
-            <Button icon={<FolderOpen size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleList}>查看文件清单</Button>
+            <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleRestore} loading={restoring}>恢复</Button>
+            <Button icon={<FolderOpen size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleList} loading={listing}>查看文件清单</Button>
           </div>
+          {restoreReport && (
+            <div style={{ marginTop: 16 }}>
+              <Typography.Text strong>恢复报告</Typography.Text>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: 'var(--legacy-muted)', fontSize: 13, lineHeight: 1.7 }}>
+                <li>剧本生成：找到 {restoreReport.scriptResults?.found ?? 0} 个，新并入历史 {restoreReport.scriptResults?.added ?? 0} 条</li>
+                <li>小说获取：{restoreReport.novelFetch?.found ?? 0} 个文件</li>
+                <li>改编小说：{restoreReport.novelAdapt?.found ?? 0} 个文件</li>
+                <li>制作工程：{restoreReport.projects?.found ?? 0} 个项目</li>
+              </ul>
+              {Array.isArray(restoreReport.errors) && restoreReport.errors.length > 0 && (
+                <Typography.Paragraph type="danger" style={{ margin: '8px 0 0', fontSize: 13 }}>错误：{restoreReport.errors.join('；')}</Typography.Paragraph>
+              )}
+            </div>
+          )}
+          {fileList && (
+            <div style={{ marginTop: 16 }}>
+              <Typography.Text strong>文件清单</Typography.Text>
+              <List
+                size="small"
+                style={{ marginTop: 8 }}
+                dataSource={[
+                  { key: 'scriptResults', title: '剧本生成', files: fileList.scriptResults || [] },
+                  { key: 'novelFetch', title: '小说获取', files: fileList.novelFetch || [] },
+                  { key: 'novelAdapt', title: '改编小说', files: fileList.novelAdapt || [] },
+                  { key: 'projects', title: '制作工程', projects: fileList.projects || [] }
+                ]}
+                renderItem={group => (
+                  <List.Item>
+                    <div style={{ width: '100%' }}>
+                      <Typography.Text strong>{group.title}（{group.projects ? group.projects.length : group.files.length}）</Typography.Text>
+                      <List
+                        size="small"
+                        dataSource={group.projects || group.files}
+                        locale={{ emptyText: '（空）' }}
+                        renderItem={item => (
+                          <List.Item style={{ padding: '2px 0', borderBottom: 'none' }}>
+                            {group.projects
+                              ? `${item.name}/（${(item.files || []).length} 个文件）`
+                              : `${item.name}（${item.size}B）`}
+                          </List.Item>
+                        )}
+                      />
+                    </div>
+                  </List.Item>
+                )}
+              />
+            </div>
+          )}
         </section>
 
         <div className="settings-savebar">
