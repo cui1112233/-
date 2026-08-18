@@ -74,3 +74,20 @@ test('deleteTasks 删除全部文件并更新 index；restoreOriginal 从备份�
   assert.equal(store.getTask('u1', '3'), null);
   assert.deepEqual(store.listTasks('u1'), []);
 });
+
+test('saveTasks/deleteTasks 拒绝路径穿越的 bookId（白名单校验）', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: 'x' }) });
+  // saveTasks 写入侧：含 ..\ 的 bookId 必须被拒绝，不能越出任务目录写 meta
+  await assert.rejects(
+    store.saveTasks('u1', [{ bookId: '..\\..\\escape', bookName: 'x' }]),
+    /非法的书籍ID/
+  );
+  // deleteTasks 删除侧：同样必须被拒绝
+  assert.throws(() => store.deleteTasks('u1', ['..\\escape']), /非法的书籍ID/);
+  // 白名单允许合法字符（点、连字符、下划线、数字字母）
+  const dir = makeTempDir();
+  const store2 = createWorkshopTasks({ usersDir: dir, fetchUpstream: async () => ({ text: 'x' }) });
+  const r = await store2.saveTasks('u1', [{ bookId: 'a_b-c.d123', bookName: '合法' }]);
+  assert.equal(r.saved, 1);
+  assert.ok(store2.getTask('u1', 'a_b-c.d123'));
+});
