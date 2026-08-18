@@ -281,6 +281,7 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 	{version: 12, sql: shuihuoUserConfigMigrationSQL},
 	{version: 13, apply: addShuihuoAssetTemplateReference},
 	{version: 14, apply: seedShuihuoPromptGenerationPrompts},
+	{version: 24, sql: shuihuoAssetPromptSelectionMigrationSQL, apply: addShuihuoAssetPromptSelectionColumns},
 }
 
 const shuihuoUserConfigMigrationSQL = `
@@ -521,4 +522,49 @@ FROM information_schema.statistics
 WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?
 `, table, index).Scan(&count)
 	return count > 0, err
+}
+
+const shuihuoAssetPromptSelectionMigrationSQL = `
+ALTER TABLE shuihuo_asset_generation_configs ADD COLUMN character_preset_id VARCHAR(64) NULL;
+ALTER TABLE shuihuo_asset_generation_configs ADD COLUMN scene_preset_id VARCHAR(64) NULL;
+`
+
+func addShuihuoAssetPromptSelectionColumns(ctx context.Context, conn *sql.Conn) error {
+	return applyShuihuoAssetPromptSelectionMigrationWithExecutor(
+		ctx,
+		conn,
+		func(ctx context.Context, column string) (bool, error) {
+			return mysqlColumnExists(ctx, conn, "shuihuo_asset_generation_configs", column)
+		},
+	)
+}
+
+type assetPromptSelectionMigrationExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func applyShuihuoAssetPromptSelectionMigrationWithExecutor(
+	ctx context.Context,
+	executor assetPromptSelectionMigrationExecutor,
+	columnExists func(context.Context, string) (bool, error),
+) error {
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "character_preset_id", definition: "VARCHAR(64) NULL"},
+		{name: "scene_preset_id", definition: "VARCHAR(64) NULL"},
+	} {
+		exists, err := columnExists(ctx, column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := executor.ExecContext(ctx, "ALTER TABLE shuihuo_asset_generation_configs ADD COLUMN "+column.name+" "+column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -170,3 +170,18 @@ type TaskEvent struct {
 	Message   string
 	CreatedAt time.Time
 }
+// AssetGenerationConfig is the project-scoped preset selection used for asset
+// generation. It contains only safe identifiers and display choices.
+type AssetGenerationConfig struct {
+	ProjectID             int64     `json:"projectId"`
+	TextModelID           *int64    `json:"textModelId"`
+	ImageModelID          *int64    `json:"imageModelId"`
+	AudioModelID          *int64    `json:"audioModelId"`
+	PromptTemplateID      *int64    `json:"promptTemplateId"`
+	CharacterPresetID     *string   `json:"characterPresetId"`
+	ScenePresetID         *string   `json:"scenePresetId"`
+	AspectRatio           string    `json:"aspectRatio"`
+	StyleReferenceMediaID *int64    `json:"styleReferenceMediaId"`
+	ThreeView             bool      `json:"threeView"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+}

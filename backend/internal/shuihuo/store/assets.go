@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
@@ -90,4 +91,73 @@ WHERE a.id = ? AND p.user_id = ?
 		return err
 	}
 	return requireAffected(result)
+}
+var ErrInvalidAssetGenerationAspectRatio = errors.New("invalid asset generation aspect ratio")
+
+
+func (s *Assets) SaveGenerationConfig(ctx context.Context, ownerID, projectID int64, config domain.AssetGenerationConfig) error {
+	if !validAssetGenerationAspectRatio(config.AspectRatio) {
+		return ErrInvalidAssetGenerationAspectRatio
+	}
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO shuihuo_asset_generation_configs(
+  project_id, user_id, text_model_id, image_model_id, audio_model_id, prompt_template_id,
+  character_preset_id, scene_preset_id, aspect_ratio, style_reference_media_id, three_view
+)
+SELECT p.id, p.user_id, ?, ?, ?, ?, ?, ?, ?, ?, ?
+FROM shuihuo_projects p
+WHERE p.id = ? AND p.user_id = ?
+ON DUPLICATE KEY UPDATE
+  text_model_id = VALUES(text_model_id),
+  image_model_id = VALUES(image_model_id),
+  audio_model_id = VALUES(audio_model_id),
+  prompt_template_id = VALUES(prompt_template_id),
+  character_preset_id = VALUES(character_preset_id),
+  scene_preset_id = VALUES(scene_preset_id),
+  aspect_ratio = VALUES(aspect_ratio),
+  style_reference_media_id = VALUES(style_reference_media_id),
+  three_view = VALUES(three_view)
+`, config.TextModelID, config.ImageModelID, config.AudioModelID, config.PromptTemplateID,
+		config.CharacterPresetID, config.ScenePresetID, config.AspectRatio, config.StyleReferenceMediaID, config.ThreeView, projectID, ownerID)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result)
+}
+
+func (s *Assets) GetGenerationConfig(ctx context.Context, ownerID, projectID int64) (domain.AssetGenerationConfig, error) {
+	var config domain.AssetGenerationConfig
+	err := s.db.QueryRowContext(ctx, `
+SELECT c.project_id, c.text_model_id, c.image_model_id, c.audio_model_id, c.prompt_template_id,
+       c.character_preset_id, c.scene_preset_id, c.aspect_ratio, c.style_reference_media_id,
+       c.three_view, c.updated_at
+FROM shuihuo_asset_generation_configs c
+JOIN shuihuo_projects p ON p.id = c.project_id AND p.user_id = c.user_id
+WHERE c.project_id = ? AND c.user_id = ? AND p.user_id = ?
+`, projectID, ownerID, ownerID).Scan(
+		&config.ProjectID,
+		&config.TextModelID,
+		&config.ImageModelID,
+		&config.AudioModelID,
+		&config.PromptTemplateID,
+		&config.CharacterPresetID,
+		&config.ScenePresetID,
+		&config.AspectRatio,
+		&config.StyleReferenceMediaID,
+		&config.ThreeView,
+		&config.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return domain.AssetGenerationConfig{}, nil
+	}
+	return config, err
+}
+
+func validAssetGenerationAspectRatio(aspectRatio string) bool {
+	switch aspectRatio {
+	case "16:9", "9:16", "1:1":
+		return true
+	default:
+		return false
+	}
 }
