@@ -1,0 +1,60 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginUrl, isLoginPage, isDashboard, DEFAULT_ADVANCED } = require('../lib/target-upload');
+
+test('mappings cover platforms, genders and styles', () => {
+  assert.equal(PLATFORM_ID['七猫付费'], 3);
+  assert.equal(GENDER_ID['男'], 1);
+  assert.equal(STYLE_ID['现代虐文'], 301);
+  assert.equal(STYLE_ID['男频都市'], 305);
+  assert.equal(STYLE_ID['爆款BGM'], 309);
+  assert.equal(STYLE_ID['职场打脸'], 312);
+});
+
+test('normalizeAdvanced clamps values and fills defaults', () => {
+  const a = normalizeAdvanced({ jieyaNum: 99, gunpingNum: -5, jieyaSpeed: 9, jieyaPitch: 999, gunpingSpeed: -1 });
+  assert.equal(a.jieyaNum, 20);
+  assert.equal(a.gunpingNum, 0);
+  assert.equal(a.jieyaSpeed, 2.0);
+  assert.equal(a.jieyaPitch, 50);
+  assert.equal(a.gunpingSpeed, 0.1);
+  assert.equal(a.tl5, 0);
+  assert.deepEqual(a.fontColorStyles, [1]);
+  const empty = normalizeAdvanced();
+  assert.equal(empty.jieyaNum, DEFAULT_ADVANCED.jieyaNum);
+});
+
+test('buildUploadFields maps gender/style to ids', () => {
+  const f = buildUploadFields({ platformId: 3, gender: '女', style: '现代虐文', advanced: {} });
+  assert.equal(f.platform_id, '3');
+  assert.equal(f.gender, '2');
+  assert.equal(f.style, '301');
+  assert.ok(f.font_color_styles.includes('1'));
+});
+
+test('buildUploadFields throws on invalid platform/gender/style', () => {
+  assert.throws(() => buildUploadFields({ platformId: 999, gender: '女', style: '现代虐文' }), /无效的平台/);
+  assert.throws(() => buildUploadFields({ platformId: 3, gender: '其他', style: '现代虐文' }), /无效的性别/);
+  assert.throws(() => buildUploadFields({ platformId: 3, gender: '女', style: '未知风格' }), /无效的风格/);
+});
+
+test('buildMultipart contains boundary, fields and file content', () => {
+  const { boundary, body } = buildMultipart({ platform_id: '3', gender: '2' }, { filename: '1.txt', content: '小说正文' });
+  const text = body.toString('utf8');
+  assert.ok(text.includes(`--${boundary}`));
+  assert.ok(text.includes('name="platform_id"'));
+  assert.ok(text.includes('name="files[]"; filename="1.txt"'));
+  assert.ok(text.includes('小说正文'));
+});
+
+test('buildLoginUrl encodes credentials', () => {
+  const url = buildLoginUrl('u&x', 'p=x');
+  assert.ok(url.includes('username=u%26x'));
+  assert.ok(url.includes('password=p%3Dx'));
+});
+
+test('isLoginPage / isDashboard', () => {
+  assert.equal(isLoginPage('<title>管理员登录</title>'), true);
+  assert.equal(isDashboard('自定义文案 管理后台 管理员登录'), false);
+  assert.equal(isDashboard('自定义文案 管理后台'), true);
+});
