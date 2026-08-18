@@ -1,6 +1,7 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig, writeConfig, publicConfig, DEFAULT_CONFIG } = require('../lib/shared');
+const { normalizeStorageRoot } = require('../lib/storage-root');
 
 const router = express.Router();
 router.use(apiAuth);
@@ -56,12 +57,19 @@ router.get('/', (req, res) => {
 // POST /api/config — 保存配置
 router.post('/', (req, res) => {
   const body = req.body;
+  // POST 内、写回配置前：校验本地存储文件夹
+  if (req.body && typeof req.body.storageRoot === 'string') {
+    const result = normalizeStorageRoot(req.body.storageRoot);
+    if (result.error) return res.status(400).json({ error: result.error });
+    req.body.storageRoot = result.value;
+  }
   const oldConfig = readConfig(req.username);
   const nextConfig = {
     provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
     baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
     model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
     apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
+    storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
     pet: normalizePetConfig(body.pet, oldConfig.pet),
     tts: normalizeTtsConfig(body.tts, oldConfig.tts),
     notifications: normalizeNotifications(body.notifications, oldConfig.notifications)

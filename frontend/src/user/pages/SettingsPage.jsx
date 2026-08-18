@@ -1,5 +1,5 @@
 import { AutoComplete, Button, Form, Input, Select, Slider, Switch, Typography, message } from 'antd';
-import { Cable, Save } from 'lucide-react';
+import { Cable, FolderOpen, RefreshCw, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -60,6 +60,7 @@ export function SettingsPage() {
           baseUrl: config.baseUrl || 'https://api.openai.com/v1',
           model: config.model || 'gpt-4o-mini',
           apiKey: '',
+          storageRoot: config.storageRoot || '',
           petId: config.pet?.id || stackyPet.id,
           soundEnabled: config.notifications?.soundEnabled !== false,
           soundVolume: Number.isFinite(config.notifications?.soundVolume) ? config.notifications.soundVolume : 60,
@@ -82,6 +83,7 @@ export function SettingsPage() {
         baseUrl: values.baseUrl,
         model: values.model,
         apiKey: values.apiKey,
+        storageRoot: values.storageRoot || '',
         pet: values.petId === stackyPet.id ? stackyPet : undefined,
         notifications: {
           soundEnabled: values.soundEnabled !== false,
@@ -123,6 +125,16 @@ export function SettingsPage() {
     }
   }
 
+  function handleRestore() {
+    // Task 8 接线 POST /api/storage/restore
+    message.info('恢复功能开发中，敬请期待');
+  }
+
+  function handleList() {
+    // Task 8 接线 GET /api/storage/list
+    message.info('文件清单功能开发中，敬请期待');
+  }
+
   const modelOptions = (providerDefaults[provider]?.models || []).map(model => ({ label: model, value: model }));
 
   return (
@@ -140,7 +152,7 @@ export function SettingsPage() {
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: stackyPet.id, soundEnabled: true, soundVolume: 60, petVisible: true }}
+        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', storageRoot: '', petId: stackyPet.id, soundEnabled: true, soundVolume: 60, petVisible: true }}
         onFinish={handleSave}
       >
         <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
@@ -202,6 +214,20 @@ export function SettingsPage() {
               window.dispatchEvent(new CustomEvent(PET_COMPANION_SETTINGS_EVENT, { detail: { active: checked, username } }));
             }} />
           </Form.Item>
+        </section>
+
+        <section className="settings-section settings-storage-section" aria-labelledby="settings-storage-title">
+          <div>
+            <h2 id="settings-storage-title">本地存储文件夹</h2>
+            <p>指定保存剧本、小说与制作工程的本地目录，留空表示关闭。</p>
+          </div>
+          <Form.Item label="存储文件夹" name="storageRoot" extra="必须是绝对路径；留空表示关闭本地存储。">
+            <Input placeholder="例如 D:\我的小说工程" />
+          </Form.Item>
+          <div className="settings-storage-actions">
+            <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleRestore}>恢复</Button>
+            <Button icon={<FolderOpen size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleList}>查看文件清单</Button>
+          </div>
         </section>
 
         <div className="settings-savebar">
