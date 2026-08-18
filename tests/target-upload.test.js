@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginUrl, isLoginPage, isDashboard, DEFAULT_ADVANCED } = require('../lib/target-upload');
+const http = require('node:http');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginUrl, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
 
 test('mappings cover platforms, genders and styles', () => {
   assert.equal(PLATFORM_ID['七猫付费'], 3);
@@ -57,4 +58,21 @@ test('isLoginPage / isDashboard', () => {
   assert.equal(isLoginPage('<title>管理员登录</title>'), true);
   assert.equal(isDashboard('自定义文案 管理后台 管理员登录'), false);
   assert.equal(isDashboard('自定义文案 管理后台'), true);
+});
+
+test('requestHttp sets Content-Length header when body is a Buffer', async () => {
+  const originalRequest = http.request;
+  let captured;
+  http.request = (options, cb) => {
+    captured = options;
+    const res = { statusCode: 200, headers: {}, on: (ev, handler) => { if (ev === 'end') setImmediate(handler); return res; } };
+    return { on: () => {}, setTimeout: () => {}, write: () => {}, end: () => { if (cb) cb(res); } };
+  };
+  try {
+    const body = Buffer.from('x'.repeat(1234));
+    await requestHttp({ method: 'POST', url: 'http://example.test/api/upload', body });
+    assert.equal(captured.headers['Content-Length'], 1234);
+  } finally {
+    http.request = originalRequest;
+  }
 });

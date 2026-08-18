@@ -108,6 +108,7 @@ export function NovelFetchPage() {
   const [uploadItems, setUploadItems] = useState([]);      // [{ bookId, gender, style, overrideJieyaNum, overrideGunpingNum }]
   const [uploading, setUploading] = useState(false);
   const [uploadResults, setUploadResults] = useState([]);  // [{ bookId, status, error }]
+  const [retryUploading, setRetryUploading] = useState(null); // 正在单本重试上传的 bookId
 
   useEffect(() => {
     let active = true;
@@ -352,13 +353,16 @@ export function NovelFetchPage() {
 
   async function handleUploadBatch() {
     if (uploadItems.some(i => !i.gender || !i.style)) { message.warning('请为每本选择性别和风格'); return; }
+    // 跳过已经上传成功的书籍，避免重复上传
+    const okBookIds = new Set(uploadResults.filter(r => r.status === 'ok').map(r => String(r.bookId)));
+    const pendingItems = uploadItems.filter(i => !okBookIds.has(String(i.bookId)));
+    if (pendingItems.length === 0) { message.success('所选书籍均已上传成功'); return; }
     setUploading(true);
-    setUploadResults([]);
     try {
       const data = await uploadBatch({
         platformId: uploadConfig.platformId,
         advanced: uploadConfig.advanced,
-        items: uploadItems
+        items: pendingItems
       });
       if (data.notLoggedIn) {
         message.warning(data.error || '请先登录目标站');
@@ -368,7 +372,12 @@ export function NovelFetchPage() {
         return;
       }
       const results = data.results || [];
-      setUploadResults(results);
+      // 保留已有的成功结果，仅合并本次结果，避免成功标记丢失
+      setUploadResults(current => {
+        const newIds = new Set(results.map(r => String(r.bookId)));
+        const keptOk = current.filter(r => r.status === 'ok' && !newIds.has(String(r.bookId)));
+        return [...keptOk, ...results];
+      });
       const ok = results.filter(r => r.status === 'ok').length;
       const fail = results.filter(r => r.status === 'error').length;
       if (fail === 0) message.success(`全部上传成功（${ok} 本）`);
@@ -377,6 +386,42 @@ export function NovelFetchPage() {
       message.error(error.message || '上传失败');
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleRetryUpload(row) {
+    setRetryUploading(row.bookId);
+    try {
+      const data = await uploadBatch({
+        platformId: uploadConfig.platformId,
+        advanced: uploadConfig.advanced,
+        items: [{
+          bookId: row.bookId,
+          gender: row.gender,
+          style: row.style,
+          overrideJieyaNum: row.overrideJieyaNum,
+          overrideGunpingNum: row.overrideGunpingNum
+        }]
+      });
+      if (data.notLoggedIn) {
+        message.warning(data.error || '请先登录目标站');
+        setLoggedIn(false);
+        setUploadOpen(false);
+        setLoginOpen(true);
+        return;
+      }
+      const result = (data.results || []).find(r => String(r.bookId) === String(row.bookId));
+      if (result) {
+        // 仅更新该行对应的上传结果
+        setUploadResults(current => [...current.filter(x => String(x.bookId) !== String(row.bookId)), result]);
+        message[result.status === 'ok' ? 'success' : 'error'](result.status === 'ok' ? `重试上传成功：${row.bookId}` : `重试上传失败：${result.error || ''}`);
+      } else {
+        message.error('重试上传失败：无返回结果');
+      }
+    } catch (error) {
+      message.error(error.message || '重试上传失败');
+    } finally {
+      setRetryUploading(null);
     }
   }
 
@@ -704,13 +749,25 @@ export function NovelFetchPage() {
                 render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, overrideGunpingNum: n } : i))} />
               },
               {
-                title: '状态', dataIndex: 'status', width: 160,
+                title: '状态', dataIndex: 'status', width: 260,
                 render: (_, row) => {
                   const r = uploadResults.find(x => x.bookId === row.bookId);
                   if (!r) return <span>-</span>;
-                  return r.status === 'ok'
-                    ? <span style={{ color: '#389e0d' }}><Check size={14} aria-hidden="true" /> 成功</span>
-                    : <span style={{ color: '#cf1322' }}>失败：{r.error}</span>;
+                  if (r.status === 'ok') {
+                    return <span style={{ color: '#389e0d' }}><Check size={14} aria-hidden="true" /> 成功</span>;
+                  }
+                  return (
+                    <Space size={4}>
+                      <span style={{ color: '#cf1322' }}>失败：{r.error}</span>
+                      <Button
+                        size="small"
+                        icon={<RotateCcw size={14} aria-hidden="true" />}
+                        loading={retryUploading === row.bookId}
+                        disabled={uploading || (retryUploading !== null && retryUploading !== row.bookId)}
+                        onClick={() => handleRetryUpload(row)}
+                      >重试</Button>
+                    </Space>
+                  );
                 }
               }
             ]}
