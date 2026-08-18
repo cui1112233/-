@@ -91,3 +91,17 @@ test('saveTasks/deleteTasks 拒绝路径穿越的 bookId（白名单校验）', 
   assert.equal(r.saved, 1);
   assert.ok(store2.getTask('u1', 'a_b-c.d123'));
 });
+
+test('updateTaskMeta 合并 patch 并刷新 updatedAt', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: 'x' }) });
+  await store.saveTasks('u1', [{ bookId: '8', bookName: '书名' }]);
+  const before = store.getTask('u1', '8').meta.updatedAt;
+  await store.updateTaskMeta('u1', '8', { aiStatus: 'done', aiGeneratedCount: 2, rewriteKnowledge: { strategy: 'instruction' } });
+  const meta = store.getTask('u1', '8').meta;
+  assert.equal(meta.aiStatus, 'done');
+  assert.equal(meta.aiGeneratedCount, 2);
+  assert.deepEqual(meta.rewriteKnowledge, { strategy: 'instruction' });
+  assert.ok(meta.updatedAt >= before); // updatedAt 刷新
+  // 不存在的任务直接报错
+  await assert.rejects(store.updateTaskMeta('u1', 'nope', { aiStatus: 'done' }), /任务不存在/);
+});
