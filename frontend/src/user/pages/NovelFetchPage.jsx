@@ -467,6 +467,7 @@ export function NovelFetchPage() {
           <Space>
             <Button type="primary" htmlType="button" loading={fetching} onClick={handleFetch}>获取</Button>
             <Button onClick={handleReset}>重置</Button>
+            <Button onClick={() => { window.location.href = '/novel-fetch-workshop'; }}>改文工作台</Button>
           </Space>
         </Form.Item>
       </Form>
