@@ -88,3 +88,17 @@ test('classifyMissingRows 调用失败置 failed', async () => {
   assert.match(res.tasks[0].classifyError, /AI分类失败/);
   assert.equal(res.errors.length, 1);
 });
+
+// 追加：AI 返回不可解析文本（parseAiJsonContent 解析为 null）→ 候选任务 failed
+test('classifyMissingRows AI 返回不可解析文本置 failed', async () => {
+  const configStore = { getConfig: () => ({ ai_assignments: { classifier: '__current__' } }), getStyles: () => STYLES };
+  const ai = {
+    resolveAiSettings: () => ({ baseUrl: 'https://x/v1', apiKey: 'k', model: 'm', retry_times: 0 }),
+    chatCompletion: async () => ({ text: '你好', raw: null })
+  };
+  const tasks = [{ bookId: '1', style: '' }];
+  const res = await classifyMissingRows({ configStore, ai, tasks });
+  assert.equal(res.tasks[0].classifyStatus, 'failed');
+  assert.match(res.tasks[0].classifyError, /未覆盖或无法解析/);
+  assert.equal(res.errors.length, 1);
+});
