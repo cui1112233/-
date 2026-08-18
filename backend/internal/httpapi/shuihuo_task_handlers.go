@@ -7,30 +7,43 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"qiantie/backend/internal/shuihuo/domain"
 	"qiantie/backend/internal/shuihuo/models"
 	shuihuostore "qiantie/backend/internal/shuihuo/store"
 	"qiantie/backend/internal/store"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type shuihuoTaskRequest struct {
-	SegmentID int64  `json:"segmentId"`
-	Kind      string `json:"kind"`
-	ModelID   int64  `json:"modelId"`
+	SegmentID     int64                     `json:"segmentId"`
+	Kind          string                    `json:"kind"`
+	ModelID       int64                     `json:"modelId"`
+	AudioSettings *shuihuoAudioTaskSettings `json:"audioSettings,omitempty"`
 }
 
 type shuihuoBatchTaskRequest struct {
-	SegmentIDs []int64 `json:"segmentIds"`
-	Kind       string  `json:"kind"`
-	ModelID    int64   `json:"modelId"`
+	SegmentIDs             []int64                            `json:"segmentIds"`
+	Kind                   string                             `json:"kind"`
+	ModelID                int64                              `json:"modelId"`
+	AudioSettingsBySegment map[int64]shuihuoAudioTaskSettings `json:"audioSettingsBySegment,omitempty"`
+}
+
+// shuihuoAudioTaskSettings contains only user-visible synthesis choices. The
+// model's credential, endpoint and request template remain server-side.
+type shuihuoAudioTaskSettings struct {
+	Voice      string   `json:"voice"`
+	SpeechRate *float64 `json:"speechRate,omitempty"`
+	Pitch      *float64 `json:"pitch,omitempty"`
 }
 
 type shuihuoBatchTaskResult struct {
-	SegmentID int64        `json:"segmentId"`
-	Task      *domain.Task `json:"task,omitempty"`
-	Error     string       `json:"error,omitempty"`
+	SegmentID int64              `json:"segmentId"`
+	Task      *domain.PublicTask `json:"task,omitempty"`
+	Error     string             `json:"error,omitempty"`
 }
 
 type shuihuoTaskCreationError struct {
@@ -93,7 +106,11 @@ func (api *API) handleListShuihuoTasks(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取任务失败"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	public := make([]domain.PublicTask, 0, len(tasks))
+	for _, task := range tasks {
+		public = append(public, domain.ToPublicTask(task))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": public})
 }
 
 func (api *API) handleCreateShuihuoTask(w http.ResponseWriter, r *http.Request) {
@@ -107,12 +124,12 @@ func (api *API) handleCreateShuihuoTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	user, _ := currentUser(r)
-	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind)
+	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind, req.AudioSettings)
 	if err != nil {
 		writeJSON(w, taskCreationStatus(err), map[string]string{"error": singleTaskCreationErrorMessage(err)})
 		return
 	}
-	writeJSON(w, http.StatusCreated, task)
+	writeJSON(w, http.StatusCreated, domain.ToPublicTask(task))
 }
 
 func (api *API) handleCreateShuihuoBatchTasks(w http.ResponseWriter, r *http.Request) {
@@ -133,13 +150,19 @@ func (api *API) handleCreateShuihuoBatchTasks(w http.ResponseWriter, r *http.Req
 	results := make([]shuihuoBatchTaskResult, 0, len(req.SegmentIDs))
 	allSucceeded := true
 	for _, segmentID := range req.SegmentIDs {
-		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind)
+		var audioSettings *shuihuoAudioTaskSettings
+		if req.Kind == "audio" {
+			settings := req.AudioSettingsBySegment[segmentID]
+			audioSettings = &settings
+		}
+		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind, audioSettings)
 		result := shuihuoBatchTaskResult{SegmentID: segmentID}
 		if err != nil {
 			allSucceeded = false
 			result.Error = taskCreationErrorMessage(err)
 		} else {
-			result.Task = &task
+			item := domain.ToPublicTask(task)
+			result.Task = &item
 		}
 		results = append(results, result)
 	}
@@ -175,6 +198,8 @@ func taskCreationStatus(err error) int {
 		return http.StatusNotFound
 	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先保存对应提示词":
 		return http.StatusConflict
+	case "分镜已变更，请刷新后重试":
+		return http.StatusConflict
 	case "该模型仅限所有者使用":
 		return http.StatusForbidden
 	case "任务队列未配置，无法提交生成任务", "任务队列不可用，未提交生成任务":
@@ -184,7 +209,7 @@ func taskCreationStatus(err error) int {
 	}
 }
 
-func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string) (domain.Task, error) {
+func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string, audioSettings *shuihuoAudioTaskSettings) (domain.Task, error) {
 	if segmentID < 1 || modelID < 1 || !validTaskKind(kind) || kind == "export" {
 		return domain.Task{}, taskCreationError("任务参数无效")
 	}
@@ -211,38 +236,84 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	if !taskMatchesModel(kind, model.Kind) {
 		return domain.Task{}, taskCreationError("模型类型与任务不匹配")
 	}
-	if !model.AvailableTo(user.IsOwner) {
+	if !model.AvailableTo("", user.IsOwner) {
 		return domain.Task{}, taskCreationError("该模型仅限所有者使用")
 	}
 	if !model.ProviderConfigured() {
 		return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
 	}
 	prompt := segment.ImagePrompt
-	if kind == "video" || kind == "audio" {
+	if kind == "video" {
 		prompt = segment.VideoPrompt
 	}
-	if kind == "audio" && strings.TrimSpace(prompt) == "" {
+	if kind == "audio" {
 		prompt = segment.SubtitleText
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return domain.Task{}, taskCreationError("请先保存对应提示词")
 	}
-	input, _ := json.Marshal(map[string]any{"prompt": prompt, "segmentId": segment.ID, "model": model.Name})
+	inputSnapshot := map[string]any{"prompt": prompt, "segmentId": segment.ID, "model": model.Name}
+	if kind == "audio" {
+		settings, settingsErr := normalizedAudioTaskSettings(audioSettings)
+		if settingsErr != nil {
+			return domain.Task{}, taskCreationError("配音设置参数无效")
+		}
+		inputSnapshot["voice"] = settings.Voice
+		inputSnapshot["speechRate"] = settings.SpeechRate
+		inputSnapshot["pitch"] = settings.Pitch
+	}
+	input, _ := json.Marshal(inputSnapshot)
 	modelVersionID := model.VersionID
 	task, err := shuihuostore.NewTasks(api.deps.DB).Create(ctx, user.ID, project.ID, domain.Task{SegmentID: &segment.ID, Kind: kind, Status: domain.TaskDraft, Provider: model.AdapterKind, ModelID: &modelID, ModelVersionID: &modelVersionID, Input: string(input)})
 	if err != nil {
+		if errors.Is(err, shuihuostore.ErrTaskSegmentUnavailable) {
+			return domain.Task{}, taskCreationError("分镜已变更，请刷新后重试")
+		}
 		return domain.Task{}, taskCreationError("创建任务失败")
 	}
 	tasks := shuihuostore.NewTasks(api.deps.DB)
-	if err := api.deps.Queue.Enqueue(ctx, task.ID); err != nil {
-		_ = tasks.Delete(ctx, user.ID, task.ID)
-		return domain.Task{}, taskCreationError("任务队列不可用，未提交生成任务")
-	}
 	if err := tasks.Transition(ctx, user.ID, task.ID, domain.TaskDraft, domain.TaskQueued, "已进入 Redis 队列"); err != nil {
+		_ = tasks.Delete(ctx, user.ID, task.ID)
+		if errors.Is(err, shuihuostore.ErrTaskSegmentUnavailable) {
+			return domain.Task{}, taskCreationError("分镜已变更，请刷新后重试")
+		}
 		return domain.Task{}, taskCreationErrorWithSingleMessage("更新任务状态失败", fmt.Sprintf("更新任务状态失败: %v", err))
+	}
+	if err := api.deps.Queue.Enqueue(ctx, task.ID); err != nil {
+		_ = tasks.Transition(ctx, user.ID, task.ID, domain.TaskQueued, domain.TaskCancelled, "任务队列提交失败")
+		return domain.Task{}, taskCreationError("任务队列不可用，未提交生成任务")
 	}
 	task.Status = domain.TaskQueued
 	return task, nil
+}
+
+func normalizedAudioTaskSettings(input *shuihuoAudioTaskSettings) (struct {
+	Voice      string
+	SpeechRate float64
+	Pitch      float64
+}, error) {
+	settings := struct {
+		Voice      string
+		SpeechRate float64
+		Pitch      float64
+	}{SpeechRate: 1}
+	if input == nil {
+		return settings, nil
+	}
+	settings.Voice = strings.TrimSpace(input.Voice)
+	if len(settings.Voice) > 255 {
+		return settings, errors.New("voice is too long")
+	}
+	if input.SpeechRate != nil {
+		settings.SpeechRate = *input.SpeechRate
+	}
+	if input.Pitch != nil {
+		settings.Pitch = *input.Pitch
+	}
+	if settings.SpeechRate < 0.5 || settings.SpeechRate > 2 || settings.Pitch < -50 || settings.Pitch > 50 {
+		return settings, errors.New("audio settings outside allowed range")
+	}
+	return settings, nil
 }
 
 func (api *API) handleCancelShuihuoTask(w http.ResponseWriter, r *http.Request) {
@@ -271,20 +342,38 @@ func (api *API) handleRetryShuihuoTask(w http.ResponseWriter, r *http.Request) {
 	tasks := shuihuostore.NewTasks(api.deps.DB)
 	task, err := tasks.Retry(r.Context(), user.ID, taskID)
 	if err != nil {
+		if errors.Is(err, shuihuostore.ErrTaskSegmentUnavailable) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "分镜已变更，请刷新后重试"})
+			return
+		}
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "只有失败或取消的任务可以重试"})
 		return
 	}
-	if err := api.deps.Queue.Enqueue(r.Context(), task.ID); err != nil {
-		_ = tasks.Delete(r.Context(), user.ID, task.ID)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "任务队列不可用，未提交重试"})
-		return
-	}
 	if err := tasks.Transition(r.Context(), user.ID, task.ID, domain.TaskDraft, domain.TaskQueued, "已重新进入 Redis 队列"); err != nil {
+		_ = tasks.Delete(r.Context(), user.ID, task.ID)
+		if errors.Is(err, shuihuostore.ErrTaskSegmentUnavailable) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "分镜已变更，请刷新后重试"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
 		return
 	}
+	if err := api.deps.Queue.Enqueue(r.Context(), task.ID); err != nil {
+		_ = tasks.Transition(r.Context(), user.ID, task.ID, domain.TaskQueued, domain.TaskCancelled, "任务队列提交失败")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "任务队列不可用，未提交重试"})
+		return
+	}
 	task.Status = domain.TaskQueued
-	writeJSON(w, http.StatusCreated, task)
+	writeJSON(w, http.StatusCreated, domain.ToPublicTask(task))
+}
+
+func parseShuihuoResourceID(w http.ResponseWriter, r *http.Request, name, label string) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
+	if err != nil || id < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的" + label + " ID"})
+		return 0, false
+	}
+	return id, true
 }
 
 func validTaskKind(kind string) bool {
