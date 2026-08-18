@@ -45,7 +45,10 @@ function makeApp({ store, httpClient, auth } = {}) {
     .use(express.json())
     .use('/api/novel-fetch-upload', createNovelFetchUploadRouter({
       store: store || makeStore(),
-      httpClient: httpClient || (async ({ method, url, headers, body }) => ({ status: 200, headers: { 'set-cookie': ['PHPSESSID=sess123; path=/'] }, body: JSON.stringify({ success: true }) })),
+      httpClient: httpClient || (async ({ url }) => {
+        if (url.includes('/api/login.php') || url.includes('zbooklist_upload.php')) return { status: 200, headers: { 'set-cookie': ['PHPSESSID=sess123; path=/'] }, body: JSON.stringify({ success: true }) };
+        return { status: 200, headers: {}, body: '自定义文案 管理后台' };
+      }),
       auth: auth || ((req, res, next) => { req.username = 'tester'; next(); })
     }));
 }
@@ -55,7 +58,7 @@ test('upload-login success stores cookie', async () => {
   const store = makeStore();
   store.setSession = (u, cookie) => { calls.push({ u, cookie }); };
   const app = makeApp({ store, httpClient: async ({ url }) => {
-    if (url.includes('login.php')) return { status: 200, headers: { 'set-cookie': ['PHPSESSID=abc; path=/'] }, body: 'redirect' };
+    if (url.includes('/api/login.php')) return { status: 200, headers: { 'set-cookie': ['PHPSESSID=abc; path=/'] }, body: JSON.stringify({ success: true }) };
     return { status: 200, headers: {}, body: '自定义文案 管理后台' };
   } });
   const result = await request(app, { requestPath: '/api/novel-fetch-upload/upload-login', body: { username: 'u', password: 'p' } });
@@ -65,10 +68,11 @@ test('upload-login success stores cookie', async () => {
 });
 
 test('upload-login rejects bad credentials without 401', async () => {
-  const app = makeApp({ httpClient: async () => ({ status: 200, headers: {}, body: '管理员登录' }) });
+  const app = makeApp({ httpClient: async () => ({ status: 200, headers: {}, body: JSON.stringify({ success: false, message: '用户名或密码错误' }) }) });
   const result = await request(app, { requestPath: '/api/novel-fetch-upload/upload-login', body: { username: 'u', password: 'wrong' } });
   assert.equal(result.status, 400);
   assert.equal(result.body.ok, false);
+  assert.match(result.body.error, /用户名或密码错误/);
 });
 
 test('upload-batch without session returns notLoggedIn (not 401)', async () => {

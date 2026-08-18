@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginUrl, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginRequest, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
 
 test('mappings cover platforms, genders and styles', () => {
   assert.equal(PLATFORM_ID['七猫付费'], 3);
@@ -48,10 +48,14 @@ test('buildMultipart contains boundary, fields and file content', () => {
   assert.ok(text.includes('小说正文'));
 });
 
-test('buildLoginUrl encodes credentials', () => {
-  const url = buildLoginUrl('u&x', 'p=x');
-  assert.ok(url.includes('username=u%26x'));
-  assert.ok(url.includes('password=p%3Dx'));
+test('buildLoginRequest posts JSON credentials to the api login endpoint', () => {
+  const req = buildLoginRequest('u&x', 'p=x');
+  assert.equal(req.method, 'POST');
+  assert.ok(req.url.endsWith('/tttadmin/api/login.php'));
+  assert.equal(req.headers['Content-Type'], 'application/json');
+  const parsed = JSON.parse(req.body);
+  assert.equal(parsed.username, 'u&x');
+  assert.equal(parsed.password, 'p=x');
 });
 
 test('isLoginPage / isDashboard', () => {
@@ -60,7 +64,7 @@ test('isLoginPage / isDashboard', () => {
   assert.equal(isDashboard('自定义文案 管理后台'), true);
 });
 
-test('requestHttp sets Content-Length header when body is a Buffer', async () => {
+test('requestHttp sets Content-Length header when body is a Buffer or string', async () => {
   const originalRequest = http.request;
   let captured;
   http.request = (options, cb) => {
@@ -69,9 +73,10 @@ test('requestHttp sets Content-Length header when body is a Buffer', async () =>
     return { on: () => {}, setTimeout: () => {}, write: () => {}, end: () => { if (cb) cb(res); } };
   };
   try {
-    const body = Buffer.from('x'.repeat(1234));
-    await requestHttp({ method: 'POST', url: 'http://example.test/api/upload', body });
+    await requestHttp({ method: 'POST', url: 'http://example.test/api/upload', body: Buffer.from('x'.repeat(1234)) });
     assert.equal(captured.headers['Content-Length'], 1234);
+    await requestHttp({ method: 'POST', url: 'http://example.test/api/login', body: JSON.stringify({ a: 1 }) });
+    assert.equal(captured.headers['Content-Length'], Buffer.byteLength(JSON.stringify({ a: 1 })));
   } finally {
     http.request = originalRequest;
   }
