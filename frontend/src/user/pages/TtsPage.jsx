@@ -49,6 +49,7 @@ function NumberSlider({ ariaLabel, min, max, step, value, onChange }) {
 export function TtsPage() {
   const [cards, setCards] = useState([]);
   const [defaults, setDefaults] = useState({ voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10 });
+  const [projectName, setProjectName] = useState('');
   const audioUrlsRef = useRef(new Set());
   const cardRequestRef = useRef(new Map());
   const cardsRef = useRef([]);
@@ -146,7 +147,7 @@ export function TtsPage() {
     updateCard(id, { loading: true });
     dispatchPetState('working');
     try {
-      const blob = await textToSpeech(card);
+      const blob = await textToSpeech({ ...card, projectName });
       if (!blob || blob.size === 0) throw new Error('TTS 服务返回空音频');
       if (!isCurrentCardRequest(id, requestId) || !cardStillExists(id)) return;
       if (card.audioUrl) {
@@ -163,7 +164,8 @@ export function TtsPage() {
       updateCard(id, {
         audioUrl: nextAudioUrl,
         audioBlob: blob,
-        loading: false
+        loading: false,
+        projectName
       });
       message.success('语音生成成功');
       dispatchPetState('success');
@@ -191,6 +193,7 @@ export function TtsPage() {
     link.href = card.audioUrl;
     link.download = `${card.id}.mp3`;
     link.click();
+    if (card.projectName) message.success(`已保存到 制作工程/${card.projectName}/配音`);
   }
 
   function uploadNovel(event) {
@@ -209,6 +212,7 @@ export function TtsPage() {
     <div className="tts-workbench utility-workbench">
       <div className="tts-toolbar">
         <Button type="primary" icon={<Plus size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => addCard()}>添加卡片</Button>
+        <Input style={{ width: 170 }} placeholder="所属项目（可选）" value={projectName} onChange={event => setProjectName(event.target.value)} />
         <Select style={{ width: 190 }} value={defaults.voice} options={voices} onChange={voice => setDefaults(current => ({ ...current, voice }))} />
         <Select style={{ width: 110 }} value={defaults.style} options={styles} onChange={style => setDefaults(current => ({ ...current, style }))} />
         <div className="tts-default-slider" title="默认语速">
