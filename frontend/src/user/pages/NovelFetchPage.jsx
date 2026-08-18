@@ -1,9 +1,32 @@
-import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Tabs, Typography, message } from 'antd';
-import { Check, Copy, Download, Eye, RotateCcw, Wand2 } from 'lucide-react';
+import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Typography, message } from 'antd';
+import { Check, Copy, Download, Eye, Pencil, RotateCcw, Save, UploadCloud, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent } from '../../shared/api/novelFetch';
+import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent, saveNovelContent, uploadLogin, getUploadSession, uploadBatch } from '../../shared/api/novelFetch';
 import { apiRequest } from '../../shared/api/client';
 import './novel-fetch.css';
+
+const GENDER_OPTIONS = [
+  { value: '男', label: '男频' },
+  { value: '女', label: '女频' }
+];
+
+const STYLE_OPTIONS = [
+  '古风虐文','古风甜文','古风通用','年代虐文','年代甜文','年代通用',
+  '现代虐文','现代甜文','现代悬疑','现代通用','男频都市','现代女主',
+  '玄幻','历史','爆款BGM','家庭奇葩','家庭伤感','职场打脸'
+].map(name => ({ value: name, label: name }));
+
+const UPLOAD_PLATFORMS = [
+  { id: 1, name: '黑岩付费' }, { id: 2, name: '番茄付费' }, { id: 3, name: '七猫付费' },
+  { id: 4, name: '点众付费' }, { id: 6, name: '阅文付费' }, { id: 7, name: '番茄免费' },
+  { id: 15, name: '知乎付费' }, { id: 20, name: '掌阅付费' }, { id: 26, name: '卓越付费' },
+  { id: 29, name: '九州书城' }, { id: 31, name: '掌文付费' }
+];
+
+const DEFAULT_UPLOAD_ADVANCED = {
+  jieyaNum: 4, jieyaAiHead: 0, jieyaSpeed: 1.7, jieyaPitch: 0,
+  gunpingNum: 4, gunpingSpeed: 1
+};
 
 const PLATFORMS = [
   { id: 1, name: '黑岩付费' },
@@ -73,6 +96,18 @@ export function NovelFetchPage() {
   const [processing, setProcessing] = useState(false);
   const [processModal, setProcessModal] = useState(null); // { mode, results: [{bookId, status, report, text, error}] }
   const [inducedModal, setInducedModal] = useState(null); // 单本改编查看：row（含 induced 与原文 data）
+  const [editModal, setEditModal] = useState(null);        // { bookId, platformName, mode, text, original } 编辑弹窗
+  const [editText, setEditText] = useState('');            // 编辑弹窗当前文本
+  const [editDirty, setEditDirty] = useState(false);       // 是否有未保存修改
+  const [uploadOpen, setUploadOpen] = useState(false);     // 上传配置弹窗
+  const [loginOpen, setLoginOpen] = useState(false);       // 登录弹窗
+  const [loginForm] = Form.useForm();                      // 登录表单
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [uploadConfig, setUploadConfig] = useState({ platformId: null, advanced: { ...DEFAULT_UPLOAD_ADVANCED } });
+  const [uploadItems, setUploadItems] = useState([]);      // [{ bookId, gender, style, overrideJieyaNum, overrideGunpingNum }]
+  const [uploading, setUploading] = useState(false);
+  const [uploadResults, setUploadResults] = useState([]);  // [{ bookId, status, error }]
 
   useEffect(() => {
     let active = true;
@@ -206,12 +241,18 @@ export function NovelFetchPage() {
     try {
       const data = await processNovelContent({
         mode: processMode,
+        platform: chosen[0]?.platform,
+        platformName: chosen[0]?.platformName,
         items: chosen.map(row => ({ bookId: row.bookId, text: row.data }))
       });
       const results = data.results || [];
       setRows(current => current.map(row => {
         const result = results.find(item => item.bookId === row.bookId);
-        return result ? { ...row, induced: result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text } : null, processError: result.status === 'ok' ? null : result.error } : row;
+        return result ? {
+          ...row,
+          induced: result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text, analysis: result.analysis || null, edited: false } : null,
+          processError: result.status === 'ok' ? null : result.error
+        } : row;
       }));
       setProcessModal({ mode: processMode, results });
       const failed = results.filter(item => item.status === 'error').length;
@@ -232,10 +273,10 @@ export function NovelFetchPage() {
     }
     setProcessing(true);
     try {
-      const data = await processNovelContent({ mode: processMode, items: [{ bookId: row.bookId, text: row.data }] });
+      const data = await processNovelContent({ mode: processMode, platform: row.platform, platformName: row.platformName, items: [{ bookId: row.bookId, text: row.data }] });
       const result = (data.results || [])[0];
       setRows(current => current.map(item => item.bookId === row.bookId
-        ? { ...item, induced: result && result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text } : null, processError: result && result.status === 'ok' ? null : (result ? result.error : '处理失败') }
+        ? { ...item, induced: result && result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text, analysis: result.analysis || null } : null, processError: result && result.status === 'ok' ? null : (result ? result.error : '处理失败') }
         : item));
       if (result && result.status === 'ok') setProcessModal({ mode: processMode, results: [result] });
       else message.error((result && result.error) || '处理失败');
@@ -243,6 +284,99 @@ export function NovelFetchPage() {
       message.error(error.message || '处理失败');
     } finally {
       setProcessing(false);
+    }
+  }
+
+  function openEdit(row) {
+    const text = row.induced?.text ?? row.data ?? '';
+    setEditModal({ bookId: row.bookId, platformName: row.platformName, mode: row.induced?.mode, gender: row.induced?.analysis?.gender || null, style: row.induced?.analysis?.style || null });
+    setEditText(text);
+    setEditDirty(false);
+  }
+
+  async function handleSaveEdit() {
+    if (!editModal) return;
+    if (!editText.trim()) { message.warning('正文不能为空'); return; }
+    const meta = editModal.mode ? { mode: editModal.mode, platform: uploadConfig.platformId, platformName: editModal.platformName, gender: editModal.gender, style: editModal.style } : undefined;
+    try {
+      await saveNovelContent({ bookId: editModal.bookId, text: editText, meta });
+      setEditDirty(false);
+      setRows(current => current.map(r => r.bookId === editModal.bookId
+        ? { ...r, induced: r.induced ? { ...r.induced, text: editText, edited: true } : r.induced }
+        : r));
+      message.success('已保存');
+    } catch (error) {
+      message.error(error.message || '保存失败');
+    }
+  }
+
+  async function openUploadPanel() {
+    setUploadResults([]);
+    const oks = okRows().filter(r => r.induced);
+    if (oks.length === 0) { message.warning('请先对小说执行 AI 处理'); return; }
+    const platformId = oks[0].platform;
+    setUploadConfig({ platformId, advanced: { ...DEFAULT_UPLOAD_ADVANCED } });
+    setUploadItems(oks.map(r => ({
+      bookId: r.bookId,
+      gender: r.induced?.analysis?.gender || '',
+      style: r.induced?.analysis?.style || '',
+      overrideJieyaNum: null,
+      overrideGunpingNum: null
+    })));
+    let sessionOk = false;
+    try {
+      const session = await getUploadSession();
+      sessionOk = Boolean(session && session.loggedIn);
+    } catch (_) {
+      sessionOk = false;
+    }
+    setLoggedIn(sessionOk);
+    if (!sessionOk) { setLoginOpen(true); return; }
+    setUploadOpen(true);
+  }
+
+  async function handleLogin() {
+    const { username, password } = await loginForm.validateFields().catch(() => null);
+    if (!username || !password) return;
+    setLoggingIn(true);
+    try {
+      const data = await uploadLogin({ username, password });
+      if (data.ok) { setLoggedIn(true); setLoginOpen(false); setUploadOpen(true); message.success('登录成功'); }
+      else message.error(data.error || '登录失败');
+    } catch (error) {
+      message.error(error.message || '登录失败');
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  async function handleUploadBatch() {
+    if (uploadItems.some(i => !i.gender || !i.style)) { message.warning('请为每本选择性别和风格'); return; }
+    setUploading(true);
+    setUploadResults([]);
+    try {
+      const data = await uploadBatch({
+        platformId: uploadConfig.platformId,
+        advanced: uploadConfig.advanced,
+        items: uploadItems
+      });
+      if (data.notLoggedIn) {
+        message.warning(data.error || '请先登录目标站');
+        setLoggedIn(false);
+        setUploadOpen(false);
+        setLoginOpen(true);
+        return;
+      }
+      const results = data.results || [];
+      setUploadResults(results);
+      const ok = results.filter(r => r.status === 'ok').length;
+      const fail = results.filter(r => r.status === 'error').length;
+      if (fail === 0) message.success(`全部上传成功（${ok} 本）`);
+      else message.warning(`成功 ${ok} 本，失败 ${fail} 本`);
+    } catch (error) {
+      message.error(error.message || '上传失败');
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -299,6 +433,7 @@ export function NovelFetchPage() {
             </Checkbox>
             <Button size="small" icon={<Copy size={14} aria-hidden="true" />} onClick={handleBatchCopy}>批量复制</Button>
             <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={handleBatchDownload}>批量下载</Button>
+            <Button size="small" icon={<UploadCloud size={14} aria-hidden="true" />} disabled={okRows().filter(r => r.induced).length === 0} onClick={openUploadPanel}>对接上传</Button>
             <Select
               size="small"
               style={{ width: 120 }}
@@ -341,7 +476,10 @@ export function NovelFetchPage() {
                       {row.induced ? '查看处理结果' : (processPresets.find(p => p.value === processMode)?.label || '处理')}
                     </Button>
                     {row.induced ? (
-                      <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setInducedModal(row)}>查看改编</Button>
+                      <>
+                        <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setInducedModal(row)}>查看改编</Button>
+                        <Button size="small" icon={<Pencil size={14} aria-hidden="true" />} onClick={() => openEdit(row)}>编辑</Button>
+                      </>
                     ) : null}
                   </>
                 ) : row.status === 'error' ? (
@@ -459,6 +597,125 @@ export function NovelFetchPage() {
             ]}
           />
         ) : null}
+      </Modal>
+
+      <Modal
+        title={editModal ? `${editModal.bookId} — ${editModal.platformName}（${processPresets.find(p => p.value === editModal.mode)?.label || '改编'}）` : ''}
+        open={Boolean(editModal)}
+        width={900}
+        destroyOnClose
+        onCancel={() => {
+          if (editDirty) {
+            Modal.confirm({ title: '有未保存的修改', content: '关闭将丢失未保存的修改，确定关闭吗？', onOk: () => setEditModal(null) });
+          } else {
+            setEditModal(null);
+          }
+        }}
+        footer={[
+          <Button key="save" type="primary" icon={<Save size={14} aria-hidden="true" />} onClick={handleSaveEdit}>保存</Button>,
+          <Button key="dl" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${editModal?.bookId}.txt`, editText)}>下载</Button>,
+          <Button key="close" onClick={() => { if (editDirty) { Modal.confirm({ title: '有未保存的修改', content: '关闭将丢失未保存的修改，确定关闭吗？', onOk: () => setEditModal(null) }); } else { setEditModal(null); } }}>关闭</Button>
+        ]}
+      >
+        <Input.TextArea
+          value={editText}
+          rows={18}
+          onChange={e => { setEditText(e.target.value); setEditDirty(true); }}
+          className="novel-fetch-preview"
+        />
+      </Modal>
+
+      <Modal
+        title="登录 two.121w.com"
+        open={loginOpen}
+        onCancel={() => setLoginOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setLoginOpen(false)}>取消</Button>,
+          <Button key="login" type="primary" loading={loggingIn} onClick={handleLogin}>登录</Button>
+        ]}
+      >
+        <Form form={loginForm} layout="vertical">
+          <Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}>
+            <Input autoComplete="username" />
+          </Form.Item>
+          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="对接上传（two.121w.com）"
+        open={uploadOpen}
+        width={1000}
+        onCancel={() => setUploadOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setUploadOpen(false)}>关闭</Button>,
+          <Button key="upload" type="primary" icon={<UploadCloud size={14} aria-hidden="true" />} loading={uploading} onClick={handleUploadBatch}>开始上传</Button>
+        ]}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Space wrap>
+            <span>平台：</span>
+            <Select
+              style={{ width: 150 }}
+              value={uploadConfig.platformId}
+              onChange={v => setUploadConfig(c => ({ ...c, platformId: v }))}
+              options={UPLOAD_PLATFORMS.map(p => ({ value: p.id, label: p.name }))}
+            />
+            <span>解压数量：</span>
+            <InputNumber min={0} max={20} value={uploadConfig.advanced.jieyaNum} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaNum: v } }))} />
+            <span>AI头部：</span>
+            <Select style={{ width: 130 }} value={uploadConfig.advanced.jieyaAiHead} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaAiHead: v } }))}
+              options={[{ value: 0, label: '不加AI头部' }, { value: 1, label: '单个视频加AI头部' }, { value: 2, label: 'AI头部复用' }]} />
+            <span>解压语速：</span>
+            <InputNumber min={0.5} max={2.0} step={0.1} value={uploadConfig.advanced.jieyaSpeed} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaSpeed: v } }))} />
+            <span>解压音调：</span>
+            <InputNumber min={-50} max={50} value={uploadConfig.advanced.jieyaPitch} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaPitch: v } }))} />
+            <span>滚屏数量：</span>
+            <InputNumber min={0} max={20} value={uploadConfig.advanced.gunpingNum} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, gunpingNum: v } }))} />
+            <span>滚屏语速：</span>
+            <InputNumber min={0.1} max={2.0} step={0.1} value={uploadConfig.advanced.gunpingSpeed} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, gunpingSpeed: v } }))} />
+          </Space>
+          <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+            每本使用自己的性别/风格（来自 AI 分析，可修改）。本期暂不支持背景音乐与自定义 AI 头部视频。
+          </Typography.Paragraph>
+          <Table
+            size="small"
+            rowKey="bookId"
+            dataSource={uploadItems}
+            pagination={false}
+            columns={[
+              { title: '书籍 ID', dataIndex: 'bookId', width: 180 },
+              {
+                title: '性别', dataIndex: 'gender', width: 120,
+                render: (v, row) => <Select size="small" style={{ width: 110 }} value={v} options={GENDER_OPTIONS} onChange={g => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, gender: g } : i))} />
+              },
+              {
+                title: '风格', dataIndex: 'style', width: 150,
+                render: (v, row) => <Select size="small" showSearch style={{ width: 140 }} value={v} options={STYLE_OPTIONS} onChange={s => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, style: s } : i))} />
+              },
+              {
+                title: '解压数量', dataIndex: 'overrideJieyaNum', width: 120,
+                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, overrideJieyaNum: n } : i))} />
+              },
+              {
+                title: '滚屏数量', dataIndex: 'overrideGunpingNum', width: 120,
+                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => i.bookId === row.bookId ? { ...i, overrideGunpingNum: n } : i))} />
+              },
+              {
+                title: '状态', dataIndex: 'status', width: 160,
+                render: (_, row) => {
+                  const r = uploadResults.find(x => x.bookId === row.bookId);
+                  if (!r) return <span>-</span>;
+                  return r.status === 'ok'
+                    ? <span style={{ color: '#389e0d' }}><Check size={14} aria-hidden="true" /> 成功</span>
+                    : <span style={{ color: '#cf1322' }}>失败：{r.error}</span>;
+                }
+              }
+            ]}
+          />
+        </Space>
       </Modal>
     </Space>
   );
