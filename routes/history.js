@@ -15,7 +15,8 @@ const FORMAT_NAME_MAP = {
   screenplay: '剧情模式',
   storyboard: '画布模式',
   shortdrama: '剧本模式',
-  shotlist: '分镜模式'
+  shotlist: '分镜模式',
+  'q版': 'Q版模式'
 };
 
 const router = express.Router();

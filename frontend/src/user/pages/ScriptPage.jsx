@@ -550,7 +550,7 @@ export function ScriptPage() {
           id: 'react-' + Date.now().toString(36),
           mode: values.mode,
           format: values.format,
-          formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式' }[values.format] || '剧本',
+          formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式', q版: 'Q版模式' }[values.format] || '剧本',
           duration: values.duration,
           output: nextOutput
         });
@@ -904,7 +904,8 @@ export function ScriptPage() {
                 { label: '画布模式', value: 'storyboard' },
                 { label: '剧本模式', value: 'shortdrama' },
                 { label: '剧情模式', value: 'screenplay' },
-                { label: '分镜模式', value: 'shotlist' }
+                { label: '分镜模式', value: 'shotlist' },
+                { label: 'Q版模式', value: 'q版' }
               ]}
             />
           </Form.Item>

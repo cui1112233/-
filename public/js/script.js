@@ -34,7 +34,8 @@ const PromptTemplates = (function() {
     var formatNamesMap = {
         'screenplay': '剧情模式',
         'storyboard': '画布模式',
-        'shortdrama': '剧本模式'
+        'shortdrama': '剧本模式',
+        'q版': 'Q版模式'
     };
 
     function extractPrompt(novelText) {
@@ -708,7 +709,7 @@ const ScriptGenerator = (function() {
         showActionButtons();
 
         // 自动保存到历史记录
-        var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+        var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式', q版: 'Q版模式' };
         History.save({
             id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
             format: format,
@@ -727,7 +728,7 @@ const ScriptGenerator = (function() {
         var outputArea = document.getElementById('output-area');
         outputArea.innerHTML = '';
 
-        var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+        var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式', q版: 'Q版模式' };
 
         // 同步 tab
         document.querySelectorAll('#format-tabs .format-tab').forEach(function(t) {
@@ -824,7 +825,7 @@ const ScriptGenerator = (function() {
         btnExport.addEventListener('click', () => {
         const text = ScriptGenerator.getCurrentOutput();
         if (!text) return;
-        const names = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+        const names = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式', q版: 'Q版模式' };
         const name = names[ScriptGenerator.getCurrentFormat()] || '剧本';
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -987,7 +988,7 @@ const ScriptGenerator = (function() {
     var btnExec = document.getElementById('btn-exec-generate');
     var genFormatSelect = document.getElementById('gen-format-select');
     var loadingStatus = document.getElementById('loading-status');
-    var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式' };
+    var fNames = { screenplay: '剧情模式', storyboard: '画布模式', shortdrama: '剧本模式', q版: 'Q版模式' };
 
     function setLoading(msg) {
         loadingStatus.style.display = 'flex';
