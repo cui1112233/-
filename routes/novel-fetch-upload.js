@@ -1,12 +1,13 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const target = require('../lib/target-upload');
+const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 
 function isValidBookId(value) {
   return typeof value === 'string' && /^\d{1,20}$/.test(value);
 }
 
-function createNovelFetchUploadRouter({ auth = apiAuth, store, httpClient = target.requestHttp } = {}) {
+function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, httpClient = target.requestHttp } = {}) {
   const router = express.Router();
   router.use(auth);
 
@@ -17,16 +18,21 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, httpClient = targ
       if (typeof username !== 'string' || !username.trim() || typeof password !== 'string' || !password) {
         return res.status(400).json({ ok: false, error: '请输入账号和密码' });
       }
-      const login = await httpClient({ method: 'GET', url: target.buildLoginUrl(username.trim(), password) });
+      const login = await httpClient(target.buildLoginRequest(username.trim(), password));
+      let data = {};
+      try { data = JSON.parse(login.body); } catch (_) {}
+      if (data.success !== true) {
+        return res.status(400).json({ ok: false, error: data.message || '登录失败，请检查账号密码' });
+      }
       const setCookies = login.headers && login.headers['set-cookie'];
       const cookie = Array.isArray(setCookies) ? setCookies.map(c => c.split(';')[0]).join('; ') : '';
-      if (!cookie) return res.status(400).json({ ok: false, error: '登录失败，请检查账号密码' });
+      if (!cookie) return res.status(400).json({ ok: false, error: '登录失败，未获取到会话' });
       const check = await httpClient({
         method: 'GET',
         url: `http://${target.TARGET_HOST}${target.TARGET_CHECK_PATH}`,
         headers: { Cookie: cookie }
       });
-      if (!target.isDashboard(check.body)) return res.status(400).json({ ok: false, error: '登录失败，请检查账号密码' });
+      if (!target.isDashboard(check.body)) return res.status(400).json({ ok: false, error: '登录验证失败，请重试' });
       store.setSession(req.username, cookie);
       return res.json({ ok: true, username });
     } catch (error) {
@@ -63,12 +69,24 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, httpClient = targ
           results.push({ bookId, status: 'error', error: '书籍 ID 格式不正确' });
           continue;
         }
-        const saved = store.read(req.username, bookId);
-        if (!saved || !saved.text) {
-          results.push({ bookId, status: 'error', error: '未找到已保存的正文' });
-          continue;
+        let content = '';
+        let meta = {};
+        if (item.source === 'workshop') {
+          const workshopTasks = createMySQLWorkshopStore({ ...workshopGateway, account: req.auth.account });
+          const version = String(item.version || 'edited').trim() || 'edited';
+          content = await workshopTasks.readVersionText(req.username, bookId, version);
+          if (!content) { results.push({ bookId, status: 'error', error: '未找到该版本的正文' }); continue; }
+          const task = await workshopTasks.getTask(req.username, bookId);
+          meta = (task && task.meta) || {};
+        } else {
+          const saved = store.read(req.username, bookId);
+          if (!saved || !saved.text) {
+            results.push({ bookId, status: 'error', error: '未找到已保存的正文' });
+            continue;
+          }
+          content = saved.text;
+          meta = saved.meta || {};
         }
-        const meta = saved.meta || {};
         const gender = String(item.gender || meta.gender || '').trim();
         const style = String(item.style || meta.style || '').trim();
         if (target.GENDER_ID[gender] === undefined || target.STYLE_ID[style] === undefined) {
@@ -91,7 +109,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, httpClient = targ
           results.push({ bookId, status: 'error', error: error.message });
           continue;
         }
-        const { boundary, body } = target.buildMultipart(fields, { filename: `${bookId}.txt`, content: saved.text });
+        const { boundary, body } = target.buildMultipart(fields, { filename: `${bookId}.txt`, content });
         try {
           const resp = await httpClient({
             method: 'POST',

@@ -66,6 +66,12 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
 		r.Group(func(r chi.Router) {
 			r.Use(api.requirePlatformAuth)
+			r.Get("/novel-fetch-workshop/config", api.handleGetNovelFetchWorkshopSettings)
+			r.Put("/novel-fetch-workshop/config", api.handleSaveNovelFetchWorkshopSettings)
+			r.Get("/novel-fetch-workshop/tasks", api.handleListNovelFetchWorkshopTasks)
+			r.Delete("/novel-fetch-workshop/tasks", api.handleDeleteNovelFetchWorkshopTasks)
+			r.Get("/novel-fetch-workshop/tasks/{bookId}", api.handleGetNovelFetchWorkshopTask)
+			r.Put("/novel-fetch-workshop/tasks/{bookId}", api.handleSaveNovelFetchWorkshopTask)
 			r.Get("/shuihuo-production/health", api.handleShuihuoHealth)
 			r.Get("/shuihuo-production/config", api.handleGetShuihuoProductionConfig)
 			r.Put("/shuihuo-production/config", api.handleSaveShuihuoProductionConfig)

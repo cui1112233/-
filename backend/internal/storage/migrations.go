@@ -332,6 +332,30 @@ ALTER TABLE image_api_configs ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAU
 	{version: 31, sql: `
 UPDATE shuihuo_tasks SET provider_task_id = NULL WHERE provider_task_id = '';
 `},
+	{version: 32, sql: `
+CREATE TABLE IF NOT EXISTS novel_fetch_workshop_settings (
+  user_id BIGINT PRIMARY KEY,
+  settings_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_novel_fetch_workshop_settings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS novel_fetch_workshop_tasks (
+  user_id BIGINT NOT NULL,
+  book_id VARCHAR(128) NOT NULL,
+  meta_json JSON NOT NULL,
+  original_text MEDIUMTEXT NOT NULL,
+  original_raw_text MEDIUMTEXT NOT NULL,
+  versions_json JSON NOT NULL,
+  logs_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, book_id),
+  KEY idx_novel_fetch_workshop_tasks_user_updated (user_id, updated_at),
+  CONSTRAINT fk_novel_fetch_workshop_tasks_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`},
 }
 
 const shuihuoSourceUnitMigrationSQL = `

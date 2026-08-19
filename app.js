@@ -28,6 +28,7 @@ const novelPanelRouter = require('./routes/novel-panel-page');
 const novelPanelApiRouter = require('./routes/novel-panel');
 const { createNovelFetchRouter } = require('./routes/novel-fetch');
 const { createNovelFetchUploadRouter } = require('./routes/novel-fetch-upload');
+const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -135,7 +136,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
-  app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore }));
+  app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopGateway: shuihuoGateway }));
+  app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(shuihuoGateway));
   app.use('/api/config', createConfigRouter({ shuihuoGateway })); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts

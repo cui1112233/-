@@ -9,6 +9,7 @@ const AgentPage = lazy(() => import('./pages/AgentPage').then(module => ({ defau
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
+const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
@@ -28,6 +29,7 @@ function getPage(pathname) {
   const routes = {
     '/script': ScriptPage,
     '/novel-fetch': NovelFetchPage,
+    '/novel-fetch-workshop': NovelFetchWorkshopPage,
     '/history': HistoryPage,
     '/novel-panel': NovelPanelPage,
     '/agent': AgentPage,
