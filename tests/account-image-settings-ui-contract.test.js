@@ -109,6 +109,15 @@ test('settings test text and image connections independently without saving conf
     assert.doesNotMatch(functionBody(pageSource, functionName), /\bsaveConfig\s*\(/);
   }
   assert.match(functionBody(pageSource, 'handleSave'), /\bsaveConfig\s*\(/);
+
+  const textTestBody = functionBody(pageSource, 'handleTestText');
+  const imageTestBody = functionBody(pageSource, 'handleTestImage');
+  assert.match(pageSource, /function connectionResponseMessage\(candidate, fallback\)/);
+  assert.match(pageSource, /typeof candidate\?\.content === 'string'/);
+  assert.match(textTestBody, /message\.success\(connectionResponseMessage\(result\.message, '连接成功'\)\)/);
+  assert.doesNotMatch(textTestBody, /\$\{result\.message\}/);
+  assert.match(imageTestBody, /if \(result\.modelListed === false\) \{\s*message\.warning\(imageMessage\);/);
+  assert.match(imageTestBody, /\} else \{\s*message\.success\(imageMessage\);/);
 });
 
 test('connection-test save guard detects an unsafe function body', () => {

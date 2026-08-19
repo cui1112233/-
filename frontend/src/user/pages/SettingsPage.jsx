@@ -33,6 +33,12 @@ const petOptions = [
   { label: 'CM', value: 'stacky' }
 ];
 
+function connectionResponseMessage(candidate, fallback) {
+  if (typeof candidate === 'string') return candidate;
+  if (typeof candidate?.content === 'string') return candidate.content;
+  return fallback;
+}
+
 export function SettingsPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -114,7 +120,7 @@ export function SettingsPage() {
       const values = await form.validateFields(['provider', 'baseUrl', 'model']);
       setTestingText(true);
       const result = await testTextConfig({ ...values, apiKey: form.getFieldValue('apiKey') });
-      message.success(result.message ? `连接成功：${result.message}` : '连接成功');
+      message.success(connectionResponseMessage(result.message, '连接成功'));
     } catch (error) {
       if (error?.errorFields) return;
       message.error(error.message || '连接测试失败');
@@ -128,7 +134,15 @@ export function SettingsPage() {
       const { image } = await form.validateFields([['image', 'baseUrl'], ['image', 'model']]);
       setTestingImage(true);
       const result = await testImageConfig({ ...image, apiKey: form.getFieldValue(['image', 'apiKey']) });
-      message.success(result.message ? `生图连接成功：${result.message}` : '生图连接成功');
+      const imageMessage = connectionResponseMessage(
+        result.message,
+        result.modelListed === false ? '连接已建立，但服务未返回当前生图模型' : '生图连接成功'
+      );
+      if (result.modelListed === false) {
+        message.warning(imageMessage);
+      } else {
+        message.success(imageMessage);
+      }
     } catch (error) {
       if (error?.errorFields) return;
       message.error(error.message || '生图连接测试失败');
