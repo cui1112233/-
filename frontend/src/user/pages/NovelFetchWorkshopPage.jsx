@@ -526,11 +526,12 @@ export function NovelFetchWorkshopPage() {
   ];
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%', maxWidth: 1180, padding: 24 }}>
-      <Space align="center">
-        <Button icon={<ArrowLeft size={16} aria-hidden="true" />} onClick={() => window.history.back()}>返回</Button>
-        <Typography.Title level={3} style={{ margin: 0 }}>改文工作台</Typography.Title>
-      </Space>
+    <div style={{ height: '100%', overflowY: 'auto', boxSizing: 'border-box' }}>
+      <Space direction="vertical" size={16} style={{ width: '100%', maxWidth: 1180, padding: 24, boxSizing: 'border-box' }}>
+        <Space align="center">
+          <Button icon={<ArrowLeft size={16} aria-hidden="true" />} onClick={() => window.history.back()}>返回</Button>
+          <Typography.Title level={3} style={{ margin: 0 }}>改文工作台</Typography.Title>
+        </Space>
 
       <Tabs
         items={[
@@ -845,7 +846,8 @@ export function NovelFetchWorkshopPage() {
           />
         </Space>
       </Modal>
-    </Space>
+      </Space>
+    </div>
   );
 }
 
