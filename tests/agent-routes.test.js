@@ -359,6 +359,142 @@ test('Agent chat keeps page context transient and sends only the selected task h
   assert.doesNotMatch(persisted, /临时原文|临时剧本/);
 });
 
+test('Agent responder receives frontend-normalized CM script context only transiently', async t => {
+  const { normalizePetContext } = await import('../frontend/src/shared/pet/stacky.js');
+  const context = normalizePetContext({
+    page: '剧本生成',
+    pagePath: '/script',
+    summary: '当前剧本已生成，等待修改。',
+    entities: {
+      hasOutput: true,
+      nested: {
+        authorization: 'ENTITY_AUTHORIZATION',
+        credential: 'ENTITY_CREDENTIAL',
+        accessToken: 'ENTITY_ACCESS_TOKEN',
+        apiKey: 'ENTITY_API_KEY',
+        token: 'ENTITY_TOKEN',
+        scene: '场景A'
+      }
+    },
+    actions: ['检查当前剧本', '生成剧本'],
+    novelText: 'NOVEL_MARKER',
+    extracted: {
+      character: '角色A',
+      nested: {
+        authorization: 'EXTRACTED_AUTHORIZATION',
+        credential: 'EXTRACTED_CREDENTIAL',
+        accessToken: 'EXTRACTED_ACCESS_TOKEN',
+        apiKey: 'EXTRACTED_API_KEY',
+        token: 'EXTRACTED_TOKEN',
+        scene: '场景A'
+      }
+    },
+    scriptOutput: 'SCRIPT_MARKER',
+    authorization: 'TOP_LEVEL_AUTHORIZATION',
+    credential: 'TOP_LEVEL_CREDENTIAL',
+    accessToken: 'TOP_LEVEL_ACCESS_TOKEN',
+    apiKey: 'TOP_LEVEL_API_KEY',
+    token: 'TOP_LEVEL_TOKEN'
+  });
+  assert.equal(typeof context.extracted, 'string');
+  assert.deepEqual(JSON.parse(context.extracted), { character: '角色A', nested: { scene: '场景A' } });
+
+  let receivedContext;
+  let receivedMessages;
+  const { app, systemDir } = createFixture(t, {
+    responder: async ({ context: responderContext, messages }) => {
+      receivedContext = responderContext;
+      receivedMessages = messages;
+      return '修改说明\n【修改稿】\n完整候选剧本';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: { taskId: task.id, prompt: '加强第三场冲突', context }
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.assistant.content, '修改说明\n【修改稿】\n完整候选剧本');
+  assert.equal(receivedContext.novelText, 'NOVEL_MARKER');
+  assert.equal(receivedContext.scriptOutput, 'SCRIPT_MARKER');
+  if (typeof receivedContext.extracted === 'string') {
+    assert.equal(receivedContext.extracted, context.extracted);
+  } else {
+    assert.deepEqual(receivedContext.extracted, JSON.parse(context.extracted));
+  }
+  const responderInput = JSON.stringify({ context: receivedContext, messages: receivedMessages });
+  assert.match(responderInput, /NOVEL_MARKER|SCRIPT_MARKER|角色A|场景A/);
+  assert.doesNotMatch(responderInput, /authorization|credential|accessToken|apiKey|token|TOP_LEVEL_|ENTITY_|EXTRACTED_/i);
+  const persisted = fs.readFileSync(path.join(systemDir, 'users', 'choushiyiguai1', 'agent-tasks.json'), 'utf8');
+  assert.doesNotMatch(persisted, /NOVEL_MARKER|SCRIPT_MARKER|角色A|场景A|authorization|credential|accessToken|apiKey|token|TOP_LEVEL_|ENTITY_|EXTRACTED_/i);
+});
+
+test('Agent chat sanitizes credential variants from direct POST context before responder and persistence', async t => {
+  let receivedContext;
+  let receivedMessages;
+  const { app, systemDir } = createFixture(t, {
+    responder: async ({ context, messages }) => {
+      receivedContext = context;
+      receivedMessages = messages;
+      return '安全答复';
+    }
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: {
+      taskId: task.id,
+      prompt: '检查直接提交的上下文',
+      context: {
+        entities: {
+          authorization: 'ENTITY_AUTHORIZATION',
+          authorizationHeader: 'ENTITY_AUTHORIZATION_HEADER',
+          credential: 'ENTITY_CREDENTIAL',
+          accessToken: 'ENTITY_ACCESS_TOKEN',
+          scene: '场景A'
+        },
+        extracted: {
+          authorization: 'EXTRACTED_AUTHORIZATION',
+          authorizationHeader: 'EXTRACTED_AUTHORIZATION_HEADER',
+          credential: 'EXTRACTED_CREDENTIAL',
+          accessToken: 'EXTRACTED_ACCESS_TOKEN',
+          character: '角色A'
+        }
+      }
+    }
+  });
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(receivedContext.entities, { scene: '场景A' });
+  assert.deepEqual(receivedContext.extracted, { character: '角色A' });
+  const responderInput = JSON.stringify({ context: receivedContext, messages: receivedMessages });
+  assert.doesNotMatch(responderInput, /ENTITY_|EXTRACTED_|authorization|credential|accessToken/i);
+  const persisted = fs.readFileSync(path.join(systemDir, 'users', 'choushiyiguai1', 'agent-tasks.json'), 'utf8');
+  assert.doesNotMatch(persisted, /ENTITY_|EXTRACTED_|authorization|credential|accessToken/i);
+});
+
+test('Agent chat returns 422 for missing model configuration', async t => {
+  const { app, agentStore } = createProxyFixture(t, {
+    configReader: () => ({ baseUrl: '', apiKey: '', model: '' })
+  });
+  const loginResult = await login(app, 'choushiyiguai1');
+  const token = loginResult.body.token;
+  const task = await createTask(app, token);
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/agent/chat', token,
+    body: { taskId: task.id, prompt: '生成一段剧情' }
+  });
+
+  assert.equal(result.status, 422);
+  assert.match(result.body.error, /Base URL is required/);
+  assert.deepEqual(agentStore.getTask('choushiyiguai1', task.id).messages.map(message => message.role), ['user']);
+});
+
 test('Agent chat includes bounded CM page summaries transiently and tolerates unsafe context values', async t => {
   let receivedMessages;
   const { app, systemDir } = createFixture(t, {

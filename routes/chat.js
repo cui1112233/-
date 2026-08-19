@@ -30,6 +30,105 @@ const CONSTRAINT_CATEGORY_PREFIXES = {
   negative: 'script-constraint-negative-'
 };
 
+const REQUIRED_SHOT_BASE = '【基础设定】生成视频不带字幕 | 9:16';
+
+function shotHeaderText(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.trim().replace(/\s+/g, ' ');
+  return text && !/[{}\[\]]/.test(text) ? text : '';
+}
+
+function shotHeaderValue(entity, fields) {
+  for (const field of fields) {
+    const value = shotHeaderText(entity[field]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function buildRequiredShotHeader(characters, scenes) {
+  const lines = [REQUIRED_SHOT_BASE];
+  const names = new Set();
+  for (const character of Array.isArray(characters) ? characters : []) {
+    if (!character || typeof character !== 'object' || Array.isArray(character)) continue;
+    const name = shotHeaderValue(character, ['角色名称', '姓名', '名称', 'name', '人物']);
+    if (!name || names.has(name) || names.size === 3) continue;
+    const groups = [
+      ['基本体征', '体征', '身形', '年龄', '身份'],
+      ['五官与妆容', '五官', '妆容', '面容'],
+      ['发型与发饰', '发型', '发饰'],
+      ['服饰与配饰', '服饰', '服装', '配饰', '穿着']
+    ];
+    const details = groups.map(fields => shotHeaderValue(character, fields)).filter(Boolean);
+    if (!details.length) {
+      const description = shotHeaderValue(character, ['外貌描述', '外形', '外观描述', '描述']);
+      if (description) details.push(description);
+    }
+    if (!details.length) continue;
+    names.add(name);
+    lines.push(`${name}：${[...new Set(details)].join('，')}`);
+  }
+
+  for (const scene of Array.isArray(scenes) ? scenes : []) {
+    if (!scene || typeof scene !== 'object' || Array.isArray(scene)) continue;
+    const location = shotHeaderValue(scene, ['场景名称', '地点', '场景', 'name', '名称', '地点场景名称']);
+    const time = shotHeaderValue(scene, ['时间', '时段', 'time']);
+    const atmosphere = shotHeaderValue(scene, ['情绪基调', '氛围', '氛围概述', 'atmosphere']);
+    const details = [location, time, atmosphere].filter(Boolean);
+    const description = details.length ? '' : shotHeaderValue(scene, ['场景描述', '描述']);
+    const sceneParts = details.length ? details : description ? [description] : [];
+    if (sceneParts.length) {
+      lines.push(`场景环境：${sceneParts.join('｜')}`);
+      break;
+    }
+  }
+  return lines.join('\n');
+}
+
+function enforceShotlistHeaders(output, requiredShotHeader) {
+  const text = String(output);
+  const titlePattern = /^###\s*分镜[^\n]*（总时长：[^）]+）\s*$/gm;
+  const titles = [...text.matchAll(titlePattern)];
+  if (!titles.length) return text;
+  const headerNames = new Set();
+  for (const line of String(requiredShotHeader).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || /^(【基础设定】|统一人物：|场景环境：)/.test(trimmed)) continue;
+    const name = trimmed.split('：')[0];
+    if (name) headerNames.add(name);
+  }
+  let result = '';
+  let cursor = 0;
+  for (let index = 0; index < titles.length; index += 1) {
+    const title = titles[index];
+    const afterTitle = title.index + title[0].length;
+    const nextTitle = index + 1 < titles.length ? titles[index + 1].index : text.length;
+    const block = text.slice(afterTitle, nextTitle);
+    const pictureIndex = block.indexOf('镜头画面：');
+    const prefix = pictureIndex === -1 ? block : block.slice(0, pictureIndex);
+    const suffix = pictureIndex === -1 ? '' : block.slice(pictureIndex);
+    if (prefix.trim() === requiredShotHeader.trim()) {
+      result += text.slice(cursor, nextTitle);
+      cursor = nextTitle;
+      continue;
+    }
+    const retained = prefix.split('\n').filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      if (/^(【基础设定】|统一人物：|场景环境：)/.test(trimmed)) return false;
+      const name = trimmed.split('：')[0];
+      if (headerNames.has(name)) return false;
+      return true;
+    });
+    result += text.slice(cursor, afterTitle);
+    result += `\n${requiredShotHeader}\n\n`;
+    if (retained.length) result += `${retained.join('\n')}\n`;
+    result += suffix;
+    cursor = nextTitle;
+  }
+  return result + text.slice(cursor);
+}
+
 function listPublishedExtractionPresets(presetStore) {
   return (presetStore?.listCatalog?.('script') || [])
     .filter(item => item.kind === 'base' && (item.protocolLock?.format === 'extract' || ['script-extract', 'script-extract-novel-panel'].includes(item.id)));
@@ -201,6 +300,12 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
   const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
+  const requiredShotHeader = format === 'shotlist'
+    ? buildRequiredShotHeader(body.characters, body.scenes)
+    : '';
+  const requiredShotHeaderProtocol = requiredShotHeader
+    ? `## 强制基础设定结构\n以下内容由服务器根据已提取人物和场景生成。每个 ### 分镜 标题后、镜头画面：前必须逐字使用服务器提供的固定头部；不得省略、改名、重排、写成 JSON、花括号占位符或共享前言。\n\n${requiredShotHeader}`
+    : '';
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
@@ -209,6 +314,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]),
     resolveSystemPresetBody(presetStore, 'script-general'),
     unitProtocol,
+    requiredShotHeaderProtocol,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
@@ -448,18 +554,25 @@ function createChatRouter({
       res.status(502).json({ error: describeUpstreamFailure(upstream), type: 'upstream_error' });
       return;
     }
+    let upstreamData;
     try {
-      JSON.parse(upstream.text);
+      upstreamData = JSON.parse(upstream.text);
     } catch (error) {
       res.status(502).json({ error: 'Upstream returned non-JSON response' });
       return;
     }
 
     if (body.promptType === 'entity_enrich') {
-      const content = JSON.parse(upstream.text)?.choices?.[0]?.message?.content;
+      const content = upstreamData?.choices?.[0]?.message?.content;
       return res.json({ enrichment: parseEntityEnrichment(content) });
     }
     if (selectedPersonalPromptIds.length) req.app.locals.scriptConstraintPromptStore?.markUsed(req.username, selectedPersonalPromptIds);
+
+    const messageContent = upstreamData?.choices?.[0]?.message?.content;
+    if (body.promptType === 'script' && normalizeFormat(body.format) === 'shotlist' && typeof messageContent === 'string') {
+      upstreamData.choices[0].message.content = enforceShotlistHeaders(messageContent, buildRequiredShotHeader(body.characters, body.scenes));
+      upstream.text = JSON.stringify(upstreamData);
+    }
     res.writeHead(upstream.statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(upstream.text);
   } catch (error) {
@@ -468,6 +581,8 @@ function createChatRouter({
 });
 
   router._private = {
+    buildRequiredShotHeader,
+    enforceShotlistHeaders,
     buildEntityEnrichmentMessages,
     buildExtractMessages,
     buildScriptMessages,

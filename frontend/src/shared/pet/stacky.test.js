@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PET_EVENT,
+  PET_PREVIEW_EVENT,
   PET_STATES,
   cmTaskStorageKey,
+  dispatchPetPreview,
   normalizePetContext,
   normalizePetState,
   petAtlasRow,
@@ -16,6 +18,7 @@ import {
 
 test('maps public pet states to original Stacky atlas rows', () => {
   assert.equal(PET_EVENT, 'qiantie:pet-state');
+  assert.equal(PET_PREVIEW_EVENT, 'qiantie:pet-preview');
   assert.deepEqual(PET_STATES, ['idle', 'working', 'success', 'error']);
   assert.equal(petAtlasRow('idle'), 0);
   assert.equal(petAtlasRow('working'), 7);
@@ -29,9 +32,10 @@ test('exposes original Stacky animation lengths and status speech', () => {
   assert.equal(petFrameCount('working'), 6);
   assert.equal(petFrameCount('success'), 4);
   assert.equal(petFrameCount('error'), 8);
-  assert.equal(petSpeech('working'), '我在处理，稍等一下。');
-  assert.equal(petSpeech('success'), '完成了。');
-  assert.equal(petSpeech('error'), '这次没跑通，检查一下设置。');
+  assert.equal(petSpeech('idle'), '');
+  assert.equal(petSpeech('working'), '我去把灵感捞回来，别走开。');
+  assert.equal(petSpeech('success'), '完成！这次故事有点意思。');
+  assert.equal(petSpeech('error'), '这次灵感没接住，剧本还在，咱们再试试。');
 });
 
 test('maps pointer directions to original Stacky look frames', () => {
@@ -51,9 +55,38 @@ test('normalizes context and scopes task key by account', () => {
     page: '配音',
     pagePath: '',
     summary: '',
+    novelText: '',
+    extracted: '',
+    scriptOutput: '',
     entities: {},
     actions: ['生成语音', '下载']
   });
+});
+
+test('retains bounded script context while redacting nested sensitive fields', () => {
+  const normalized = normalizePetContext({
+    novelText: 'n'.repeat(5000),
+    extracted: {
+      character: '角色A',
+      nested: {
+        scene: '场景A',
+        apiKey: 'hidden',
+        token: 'hidden',
+        authorization: 'hidden',
+        authorizationHeader: 'hidden',
+        credential: 'hidden',
+        accessToken: 'hidden'
+      }
+    },
+    scriptOutput: 's'.repeat(5000),
+    apiKey: 'hidden'
+  });
+
+  assert.equal(normalized.novelText, 'n'.repeat(4500));
+  assert.equal(normalized.scriptOutput, 's'.repeat(4500));
+  assert.deepEqual(JSON.parse(normalized.extracted), { character: '角色A', nested: { scene: '场景A' } });
+  assert.ok(normalized.extracted.length <= 2500);
+  assert.doesNotMatch(JSON.stringify(normalized), /hidden|apiKey|token/i);
 });
 
 test('bounds, stringifies, and redacts entity context', () => {
@@ -184,10 +217,10 @@ test('degrades malformed context, throwing getters, and hostile Proxies safely',
   });
 
   assert.deepEqual(normalizePetContext(null), {
-    page: '', pagePath: '', summary: '', entities: {}, actions: []
+    page: '', pagePath: '', summary: '', novelText: '', extracted: '', scriptOutput: '', entities: {}, actions: []
   });
   assert.deepEqual(normalizePetContext('invalid'), {
-    page: '', pagePath: '', summary: '', entities: {}, actions: []
+    page: '', pagePath: '', summary: '', novelText: '', extracted: '', scriptOutput: '', entities: {}, actions: []
   });
   assert.doesNotThrow(() => normalizePetContext(throwingContext));
   assert.deepEqual(normalizePetContext({ entities: hostileEntities }).entities, {});
@@ -207,6 +240,30 @@ test('uses placeholders when entity getters or string coercion throw', () => {
     brokenGetter: '[unreadable]',
     brokenString: '[unserializable]'
   });
+});
+
+test('dispatches a trimmed preview candidate through the preview event', () => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const customEventDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'CustomEvent');
+  let event;
+  globalThis.window = { dispatchEvent(value) { event = value; } };
+  globalThis.CustomEvent = class {
+    constructor(type, init) {
+      this.type = type;
+      this.detail = init.detail;
+    }
+  };
+
+  try {
+    dispatchPetPreview({ summary: ' 修改说明 ', candidateOutput: ' 完整候选剧本 ' });
+    assert.equal(event.type, PET_PREVIEW_EVENT);
+    assert.deepEqual(event.detail, { summary: '修改说明', candidateOutput: '完整候选剧本' });
+  } finally {
+    if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
+    else delete globalThis.window;
+    if (customEventDescriptor) Object.defineProperty(globalThis, 'CustomEvent', customEventDescriptor);
+    else delete globalThis.CustomEvent;
+  }
 });
 
 test('handles inaccessible local storage safely', () => {

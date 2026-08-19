@@ -55,9 +55,8 @@ test('CM separates drag, open, and explicit page analysis actions', () => {
   assert.match(pet, /if \(chatOpen && event\.key === 'Escape'\) closeChat\(\);/);
   assert.match(pet, /\}, \[chatOpen\]\);/);
   assert.match(pet, /role="dialog" aria-label="CM 互动"/);
-  assert.match(pet, /应用到剧本/);
+  assert.match(pet, /预览修改/);
   assert.match(scriptPage, /dispatchPetContext/);
-  assert.match(scriptPage, /PET_APPLY_EVENT/);
   assert.match(css, /\.stacky-agent-panel/);
   assert.match(css, /\.stacky-agent-input/);
   assert.match(css, /\.stacky-agent-close/);
@@ -66,6 +65,32 @@ test('CM separates drag, open, and explicit page analysis actions', () => {
   assert.match(css, /\.cm-conversation-frame/);
   assert.match(css, /\.cm-conversation-frame::before/);
   assert.match(css, /linear-gradient\(to right, rgba\(160, 153, 216/);
+});
+
+test('CM revision preview and recovery own request failures', () => {
+  const pet = read('frontend/src/shared/pet/StackyPet.jsx');
+  const client = read('frontend/src/shared/api/client.js');
+  const css = read('frontend/src/shared/styles/global.css');
+  const scriptPage = read('frontend/src/user/pages/ScriptPage.jsx');
+
+  assert.match(pet, /parseScriptRevision/);
+  assert.match(pet, /dispatchPetPreview\(revision\)/);
+  assert.match(pet, /预览修改/);
+  assert.doesNotMatch(pet, /onClick=\{\(\) => dispatchPetApply\(/);
+  assert.match(pet, /classifyPetRequestError/);
+  assert.match(pet, /打开模型设置/);
+  assert.match(pet, /suppressGlobalError: true/);
+  assert.match(client, /if \(!options\.suppressGlobalError\) notifyApiFailure/);
+  assert.match(css, /\.stacky-agent-recovery/);
+  assert.match(scriptPage, /PET_PREVIEW_EVENT/);
+  assert.match(scriptPage, /const \[revisionPreview, setRevisionPreview\] = useState/);
+  assert.match(scriptPage, /const \[previousOutput, setPreviousOutput\] = useState\(''\)/);
+  assert.match(scriptPage, /title="CM 修改预览"/);
+  assert.match(scriptPage, /onOk=\{applyRevisionPreview\}/);
+  assert.match(scriptPage, /撤销本次修改/);
+  assert.match(scriptPage, /function undoLastRevision\(\)/);
+  assert.doesNotMatch(scriptPage, /setOutput\(''\);\s*setGenerationStage\('error'\)/);
+  assert.match(css, /\.cm-revision-preview/);
 });
 
 test('Agent frontend API exposes task conversation endpoints', () => {
@@ -77,8 +102,9 @@ test('Agent frontend API exposes task conversation endpoints', () => {
   assert.match(agentApi, /export function renameAgentTask\(id, title\)\s*\{\s*return apiRequest\(`\/api\/agent\/tasks\/\$\{encodeURIComponent\(id\)\}`, \{ method: 'PATCH', body: JSON\.stringify\(\{ title \}\) \}\);/);
   assert.match(agentApi, /export function clearAgentTask\(id\)\s*\{\s*return apiRequest\(`\/api\/agent\/tasks\/\$\{encodeURIComponent\(id\)\}\/messages`, \{ method: 'DELETE' \}\);/);
   assert.match(agentApi, /export function deleteAgentTask\(id\)\s*\{\s*return apiRequest\(`\/api\/agent\/tasks\/\$\{encodeURIComponent\(id\)\}`, \{ method: 'DELETE' \}\);/);
-  assert.match(agentApi, /export function askAgent\(\{ taskId, prompt, context, skillIds = \[\] \}\)/);
+  assert.match(agentApi, /export function askAgent\(\{ taskId, prompt, context, skillIds = \[\], suppressGlobalError = false \}\)/);
   assert.match(agentApi, /JSON\.stringify\(\{ taskId, prompt, context, skillIds \}\)/);
+  assert.match(agentApi, /suppressGlobalError/);
   assert.doesNotMatch(agentApi, /getAgentHistory|clearAgentHistory/);
 });
 
@@ -149,7 +175,7 @@ test('CM task workspace preserves active conversations and remains usable on nar
   assert.match(pet, /当前对话已失效，已为你准备新对话。/);
   assert.match(pet, /contextRef\.current = normalizePetContext\(event\.detail\);/);
   assert.match(pet, /async function loadPetTask\(taskId\)/);
-  assert.match(pet, /setFailedRequest\(\{ prompt: content, error: message \}\)/);
+  assert.match(pet, /setFailedRequest\(\{ prompt: content, \.\.\.recovery \}\)/);
   assert.match(pet, /onClick=\{\(\) => sendQuestion\(failedRequest\.prompt\)\}/);
   assert.doesNotMatch(pet, /listAgentTasks/);
   assert.match(pet, /getAgentTask/);
@@ -187,7 +213,7 @@ test('CM task UI resets across accounts and protects the composer while task det
   assert.match(pet, /accountSessionGenerationRef\.current \+= 1;/);
   assert.match(pet, /function isCurrentConversationRequest\(requestId, accountSessionGeneration\) \{[\s\S]*?conversationRequestRef\.current === requestId[\s\S]*?accountSessionGenerationRef\.current === accountSessionGeneration;/);
   assert.match(pet, /function dispatchConversationPetState\(requestId, accountSessionGeneration, nextState\) \{[\s\S]*?isCurrentConversationRequest\(requestId, accountSessionGeneration\)[\s\S]*?dispatchPetState\(nextState\);/);
-  assert.match(pet, /return \(\) => \{[\s\S]*?accountSessionGenerationRef\.current \+= 1;[\s\S]*?conversationRequestRef\.current \+= 1;[\s\S]*?\};\n  \}, \[accountSessionKey, username\]\);/);
+  assert.match(pet, /return \(\) => \{[\s\S]*?accountSessionGenerationRef\.current \+= 1;[\s\S]*?conversationRequestRef\.current \+= 1;[\s\S]*?\};\r?\n  \}, \[accountSessionKey, username\]\);/);
   assert.match(pet, /const accountSessionGeneration = accountSessionGenerationRef\.current;/);
   assert.match(pet, /if \(!isCurrentConversationRequest\(requestId, accountSessionGeneration\)\) return null;/);
   assert.match(pet, /if \(!taskId \|\| !isCurrentConversationRequest\(requestId, accountSessionGeneration\)\) return;/);
@@ -232,7 +258,7 @@ test('authentication expiry only clears the session that issued the 401', () => 
 
   assert.match(client, /const token = getToken\(\);/);
   assert.match(client, /if \(getToken\(\) === token\) \{[\s\S]*?new CustomEvent\('qiantie:auth-expired', \{ detail: \{ token \} \}\)[\s\S]*?setToken\(''\);[\s\S]*?localStorage\.removeItem\('auth_username'\);/);
-  assert.match(client, /if \(response\.status === 401[\s\S]*?throw new Error\('登录已失效，请重新登录'\);/);
+  assert.match(client, /if \(response\.status === 401[\s\S]*?throw attachApiError\(new Error\('登录已失效，请重新登录'\), \{ path, method: options\.method, status: response\.status \}\);/);
   assert.match(layout, /const expiredToken = event\?\.detail\?\.token;[\s\S]*?const currentToken = getToken\(\);[\s\S]*?if \(expiredToken\) \{[\s\S]*?if \(!currentToken \|\| expiredToken !== currentToken\) return;[\s\S]*?\} else if \(!sessionToken \|\| currentToken \|\| cancelled \|\| accountSessionGenerationRef\.current !== sessionGeneration\) \{/);
 });
 
