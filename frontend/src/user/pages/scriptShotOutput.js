@@ -24,8 +24,14 @@ function parseJsonShots(output) {
 function parseShotUnits(output) {
   const matches = [...output.matchAll(UNIT_HEADING)];
   if (matches.length < 2) return [];
+  // 头部共享基础设定：第一个标题之前的非空内容（【基础设定】人物/场景等），
+  // 复制到每一张卡，保证每张卡可独立复制提交，与小说面板“镜头画面”一致。
+  const preamble = output.slice(0, matches[0].index).replace(/\n?---\s*$/m, '').trim();
   return matches
-    .map((match, index) => output.slice(match.index, matches[index + 1]?.index).replace(/\n?---\s*$/m, '').trim())
+    .map((match, index) => {
+      const unit = output.slice(match.index, matches[index + 1]?.index).replace(/\n?---\s*$/m, '').trim();
+      return preamble ? `${preamble}\n\n${unit}` : unit;
+    })
     .filter(Boolean);
 }
 

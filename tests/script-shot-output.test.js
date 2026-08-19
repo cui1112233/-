@@ -68,6 +68,55 @@ test('recognizes 剧情[时间]镜头N: headings (screenplay preset)', async () 
   assert.match(cards[2], /^\[00:20-00:30\]镜头3:/);
 });
 
+test('shot cards retain the shared head base setup (preamble) in every card', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '【基础设定】生成视频不带字幕 | 9:16',
+    '顾清漪：一位21岁左右的女性。',
+    '洛清霜：一位24岁左右的女性。',
+    '场景环境：金殿（千秋宴）。',
+    '',
+    '---',
+    '镜头一：',
+    '00:00-00:05 | 全景 | 宏伟的金銮殿内',
+    '---',
+    '镜头二：',
+    '00:00-00:05 | 中景 | 洛清霜缓缓起身'
+  ].join('\n');
+  const cards = getShotCards('shotlist', output);
+  assert.equal(cards.length, 2);
+  // 每张卡都必须保留头部共享基础设定（人物/场景）
+  for (const card of cards) {
+    assert.match(card, /【基础设定】生成视频不带字幕/);
+    assert.match(card, /顾清漪：一位21岁左右的女性/);
+    assert.match(card, /场景环境：金殿（千秋宴）/);
+  }
+  // 每张卡都带自己的镜头标题与时间轴
+  assert.match(cards[0], /^【基础设定】[\s\S]*镜头一：/);
+  assert.match(cards[1], /^【基础设定】[\s\S]*镜头二：/);
+});
+
+test('cards without a shared head preamble are unchanged', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '### 分镜一（总时长：10s）',
+    '【基础设定】A',
+    '00:00-00:03 | A',
+    '00:03-00:10 | B',
+    '',
+    '---',
+    '',
+    '### 分镜二（总时长：10s）',
+    '【基础设定】B',
+    '00:00-00:10 | C'
+  ].join('\n');
+  const cards = getShotCards('storyboard', output);
+  assert.deepEqual(cards, [
+    '### 分镜一（总时长：10s）\n【基础设定】A\n00:00-00:03 | A\n00:03-00:10 | B',
+    '### 分镜二（总时长：10s）\n【基础设定】B\n00:00-00:10 | C'
+  ]);
+});
+
 test('splits a continuous timeline into max-seconds segments with re-based timestamps', async () => {
   const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   const timeline = [
