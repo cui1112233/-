@@ -187,25 +187,6 @@ function sanitizeProtagonists(characters, protagonists) {
   return (Array.isArray(protagonists) ? protagonists : []).filter(item => known.has(JSON.stringify(item)));
 }
 
-// 分段开头时间轴总时长预算：按原文长度估算整段总时长，对齐小说面板
-// buildOutlineSpeedBudget 的算法（center = ceil(字数/38) 个有效时段，约每时段 2s）。
-function buildSegmentedTimelineBudget(novelText) {
-  const sourceLength = String(novelText || '').replace(/\s+/g, '').length;
-  const center = Math.max(1, Math.min(40, Math.ceil(sourceLength / 38)));
-  const totalSeconds = Math.max(4, Math.min(80, Math.round(center * 2)));
-  const minimum = Math.max(4, totalSeconds - Math.round(totalSeconds * 0.18));
-  const maximum = Math.max(minimum, totalSeconds + Math.round(totalSeconds * 0.18));
-  return `## 时间轴总时长预算
-本次原文整段总时长目标为 ${totalSeconds} 秒（建议 ${minimum}-${maximum} 秒）。输出一条连续完整时间轴：从 00:00 开始沿原文顺序连续推进，镜头按真实信息量分配（单镜通常 1-4 秒），整段不拆分、不重复、不跳跃。禁止为凑时长复制镜头，也禁止为了让每段固定时长而硬切。`;
-}
-
-// 分段开头的连续时间轴协议：替代强制完整分镜协议，让模型输出一条连续时间轴，
-// 后续由前端按所选秒数机械切段合并（对齐小说面板“按秒数分段并合并”）。
-function buildSegmentedTimelineProtocol(duration, endTime) {
-  return `## 连续时间轴协议
-只输出一条连续完整时间轴，从 00:00 开始沿原文顺序连续推进，直到整段总时长预算结束（不晚于 ${endTime} 的整数倍）。禁止拆成多个独立“分镜一/分镜二”完整单元，禁止每个镜头重复完整人物卡；统一人物、场景与基础设定只写一次，之后每行只写一个镜头时段。时间轴行格式：00:00-00:03 | 景别 - 机位/角度 - 运镜 - 转场 | 具体画面正文。用户选择 ${duration}，前端会按此秒数将连续时间轴机械切段；请确保整段总时长能被 ${duration} 整除。`;
-}
-
 function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const mode = normalizeMode(body.mode);
   const format = normalizeFormat(body.format);
@@ -229,22 +210,19 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
-  // 分段开头：改用连续时间轴协议 + 总时长预算；其余模式保留强制完整分镜协议
-  const unitProtocol = format === 'shortdrama'
+  // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
+  // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
+  const unitProtocol = format === 'shortdrama' || mode === 'segmented'
     ? ''
-    : (mode === 'segmented'
-      ? buildSegmentedTimelineProtocol(duration, endTime)
-      : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`);
+    : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
     : '';
-  const segmentedBudget = mode === 'segmented' ? buildSegmentedTimelineBudget(body.novelText) : '';
   const systemPrompt = [
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general'),
     unitProtocol,
-    segmentedBudget,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
@@ -401,8 +379,6 @@ router._private = {
   buildScriptMessages,
   buildMessages,
   buildConstraintWrapper,
-  buildSegmentedTimelineBudget,
-  buildSegmentedTimelineProtocol,
   normalizeDuration,
   listPublishedExtractionPresets,
   resolveExtractionPresetId,

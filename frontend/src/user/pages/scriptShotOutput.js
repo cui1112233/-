@@ -1,5 +1,6 @@
 const SHOT_ARRAY_KEYS = ['shots', 'scenes', 'storyboard', '分镜'];
-const UNIT_HEADING = /^#{3,6}\s*分镜\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+).*$/gim;
+// 分镜模式预设可能输出 "### 分镜一（总时长：10s）" 或 "镜头一：" 两种标题，都识别为分镜单元
+const UNIT_HEADING = /^(?:#{3,6}\s*分镜\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)[（(：:].*|镜头\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)[：:].*)$/gim;
 
 export function isShotCardFormat(format) {
   return format !== 'shortdrama';

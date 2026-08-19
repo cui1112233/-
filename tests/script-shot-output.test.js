@@ -13,6 +13,26 @@ test('returns only complete 分镜 units and retains internal timestamps', async
   assert.equal(joinShotCards(['一', '二', '三'], new Set([0, 2])), '一\n\n三');
 });
 
+test('recognizes 镜头N： headings emitted by the shotlist preset', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '镜头一：',
+    '00:00-00:05 | 全景 - 俯拍 - 慢速推镜头 | A',
+    '00:05-00:10 | 近景 - 低角度仰拍 | B',
+    '---',
+    '镜头二：',
+    '00:00-00:03 | 中景 - 仰拍 - 慢速推镜头 | C',
+    '00:03-00:07 | 中景 - 侧面跟拍 | D',
+    '00:07-00:10 | 特写 - 俯拍 | E'
+  ].join('\n');
+  const cards = getShotCards('storyboard', output);
+  assert.equal(cards.length, 2);
+  assert.match(cards[0], /^镜头一：/);
+  assert.match(cards[0], /00:00-00:05/);
+  assert.match(cards[1], /^镜头二：/);
+  assert.match(cards[1], /00:07-00:10/);
+});
+
 test('splits a continuous timeline into max-seconds segments with re-based timestamps', async () => {
   const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   const timeline = [

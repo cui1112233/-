@@ -47,24 +47,14 @@ test('segmented opening replaces duration placeholders in its own preset body', 
   assert.match(content, /15s/);
 });
 
-test('segmented opening switches to continuous timeline protocol (not per-unit 10s cards)', () => {
+test('segmented mode does not inject an extra complete-shot protocol', () => {
   const messages = buildSegmentedShotlist('第一段。\n第二段。\n第三段。\n第四段。\n第五段。', '10s');
   const content = messages[0].content;
-  // 必须输出连续时间轴协议
-  assert.match(content, /连续时间轴/);
-  assert.match(content, /总时长/);
-  // 不再强制"每个单元从 ### 分镜一（总时长：10s）开始"的独立完整分镜协议
+  // 分段开头使用已发布预设自行定义结构，不叠加强制完整分镜协议
   assert.doesNotMatch(content, /强制完整分镜协议/);
   assert.doesNotMatch(content, /每个单元从 ### 分镜一/);
-});
-
-test('segmented opening injects a total duration budget based on source length', () => {
-  // 332 字 → ceil(332/38)*2 = 18 秒左右
-  const novelText = '甲。'.repeat(166);
-  const messages = buildSegmentedShotlist(novelText, '10s');
-  const content = messages[0].content;
-  assert.match(content, /时间轴总时长预算/);
-  assert.match(content, /18/); // ceil(332/38)=9，9*2=18
+  // 但格式预设本身（分镜模式）仍然在提示词中
+  assert.match(content, /分镜模式/);
 });
 
 test('non-segmented mode keeps the original per-unit complete shot protocol', () => {
@@ -84,5 +74,4 @@ test('non-segmented mode keeps the original per-unit complete shot protocol', ()
     constraints: undefined
   }, presetStore);
   assert.match(messages[0].content, /强制完整分镜协议/);
-  assert.doesNotMatch(messages[0].content, /时间轴总时长预算/);
 });
