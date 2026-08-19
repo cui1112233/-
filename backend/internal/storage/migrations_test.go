@@ -38,6 +38,16 @@ func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
 	}
 }
 
+func TestNovelFetchWorkshopMigrationExecutesDDLStatementsIndividually(t *testing.T) {
+	migration := migrationForVersion(t, 32)
+	if migration.apply == nil {
+		t.Fatal("novel-fetch workshop migration must apply its two CREATE TABLE statements individually")
+	}
+	if strings.Count(migration.sql, ";") < 2 {
+		t.Fatalf("novel-fetch workshop migration should contain both table definitions: %q", migration.sql)
+	}
+}
+
 func TestSourceUnitMigrationCreatesReversibleMappingAndLegacyBackfill(t *testing.T) {
 	migration := migrationForVersion(t, 15)
 	if migration.apply == nil {
