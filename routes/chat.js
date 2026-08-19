@@ -1,7 +1,10 @@
 const express = require('express');
 const { apiAuth, checkRateLimit } = require('../middleware/auth');
-const { readConfig, ensureReadyConfig, requestUpstream, requestUpstreamModels, collectResponse } = require('../lib/shared');
+const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+
+const router = express.Router();
+router.use(apiAuth);
 
 const MODE_PRESET_ID_MAP = {
   continuous: 'script-continuous',
@@ -176,7 +179,7 @@ function buildConstraintWrapper(presetStore, constraints, format, duration, pers
 
   const protocol = resolveSystemPresetBody(presetStore, 'script-constraint-wrapper')
     .replace(/\{duration\}/g, duration || '10s');
-  return `${protocol}\n\n## 分镜内约束\n${constraintText}\n\n每个完整分镜必须在自身标题之后写入以上所有非空约束；不得在全部分镜之外单独输出这些约束。`;
+  return `${protocol}\n\n## 分镜内约束\n${constraintText}\n\n生成画面内容时必须遵守以上约束，但不得把约束文本写入输出结果；最终由系统在把总时间轴切分为独立分镜卡时，把约束复制到每一张卡。`;
 }
 
 function sanitizeProtagonists(characters, protagonists) {
@@ -199,16 +202,34 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   formatContent = formatContent.replace(/\{duration\}/g, duration);
   formatContent = formatContent.replace(/\{结束时间\}/g, endTime);
 
+  let modeContent = resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]);
+  modeContent = modeContent.replace(/\{10s或15s\}/g, duration);
+  modeContent = modeContent.replace(/\{X\}/g, secs);
+  modeContent = modeContent.replace(/\{2X\}/g, String(parseInt(secs, 10) * 2));
+  modeContent = modeContent.replace(/\{duration\}/g, duration);
+  modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
+
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
-  const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
+  // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
+  // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
+  const unitProtocol = format === 'shortdrama' || mode === 'segmented'
+    ? ''
+    : `## 强制完整分镜协议\n输出一条连续的总时间轴，把整段原文按内容量转成可拍摄的画面描述。时间轴从 00:00 连续排布，每个时间片 1 到 4 秒、只承担一个观看重点，总时长按原文信息量分配（每约 38 个汉字对应 1 个时间片），信息不足时宁可减少时间片，禁止复制镜头或机械口型补时长。禁止输出 ### 分镜N 标题，禁止把时间轴拆成多个独立分镜单元；最终由系统按 ${duration} 自动切分为独立分镜卡，每张卡会补上基础设定与已启用约束并从 00:00 开始，可直接复制提交。`;
+  // 非分段模式按字数给时间片预算，防止总时长膨胀（对齐小说面板“38字≈1时间片”）。
+  const budgetSourceLength = String(body.novelText || '').replace(/\s+/g, '').length;
+  const budgetCenter = Math.max(3, Math.min(36, Math.ceil(budgetSourceLength / 38)));
+  const budgetRule = format === 'shortdrama' || mode === 'segmented'
+    ? ''
+    : `【本次生成预算】总时长按原文信息量分配：每约 38 个汉字对应 1 个时间片，建议共 ${budgetCenter} 个时间片（可±3），每个时间片 1 到 4 秒；禁止复制镜头、静止口型或无变化定镜补时长。`;
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
     : '';
   const systemPrompt = [
-    resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]),
+    modeContent,
     resolveSystemPresetBody(presetStore, 'script-general'),
     unitProtocol,
+    budgetRule,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
@@ -243,155 +264,47 @@ function describeUpstreamFailure(upstream) {
   return ['Upstream API error (status ' + upstream.statusCode + ')', details].filter(Boolean).join(': ');
 }
 
-function createChatRouter({
-  configReader = readConfig,
-  upstreamRequest = requestUpstream,
-  modelsRequest = requestUpstreamModels,
-  responseCollector = collectResponse
-} = {}) {
-  const router = express.Router();
-  router.use(apiAuth);
-
-  function useProvidedValue(value, fallback) {
-    return typeof value === 'string' && value.trim() ? value.trim() : fallback;
-  }
-
-  function isReadyConnectionConfig(config) {
-    try {
-      ensureReadyConfig(config);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function sendInvalidConnectionConfig(res, kind) {
-    return res.status(400).json({
-      ok: false,
-      kind,
-      error: kind === 'image'
-        ? '请填写完整的生图服务地址、模型和 API Key。'
-        : '请填写完整的文本服务地址、模型和 API Key。'
-    });
-  }
-
-  function sendUpstreamConnectionFailure(res, kind, upstream) {
-    const status = Number(upstream?.statusCode) || 502;
-    return res.status(502).json({
-      ok: false,
-      kind,
-      error: `上游模型服务请求失败（状态 ${status}）。`,
-      type: 'upstream_error'
-    });
-  }
-
-  function sendConnectionRequestFailure(res, kind) {
-    return res.status(502).json({
-      ok: false,
-      kind,
-      error: '模型服务连接失败，请检查服务地址、网络和代理设置。',
-      type: 'upstream_connection_error'
-    });
-  }
-
-  function readConnectionConfig(res, kind, username) {
-    try {
-      return configReader(username);
-    } catch {
-      res.status(500).json({
-        ok: false,
-        kind,
-        error: '无法读取当前模型配置，请稍后重试。'
-      });
-      return null;
-    }
-  }
-
-  async function testTextConnection(req, res) {
-    const current = readConnectionConfig(res, 'text', req.username);
-    if (!current) return;
+router.post('/test', async (req, res) => {
+  try {
+    const current = readConfig(req.username);
     const body = req.body || {};
     const config = {
-      provider: useProvidedValue(body.provider, current.provider),
-      baseUrl: useProvidedValue(body.baseUrl, current.baseUrl),
-      model: useProvidedValue(body.model, current.model),
-      apiKey: useProvidedValue(body.apiKey, current.apiKey)
+      ...current,
+      provider: body.provider || current.provider,
+      baseUrl: body.baseUrl || current.baseUrl,
+      model: body.model || current.model,
+      apiKey: body.apiKey || current.apiKey
     };
-    if (!isReadyConnectionConfig(config)) return sendInvalidConnectionConfig(res, 'text');
+    ensureReadyConfig(config);
+
+    const payload = {
+      model: config.model,
+      messages: [{ role: 'user', content: 'Hi' }],
+      max_tokens: 5
+    };
+
+    const upstream = await requestUpstream(config, payload, collectResponse);
+    let data;
 
     try {
-      const upstream = await upstreamRequest(config, {
-        model: config.model,
-        messages: [{ role: 'user', content: 'Hi' }],
-        max_tokens: 5
-      }, responseCollector);
-      if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
-        return sendUpstreamConnectionFailure(res, 'text', upstream);
-      }
-
-      let data;
-      try {
-        data = JSON.parse(upstream.text);
-      } catch {
-        return res.status(502).json({ ok: false, kind: 'text', error: '上游文本模型未返回有效 JSON。' });
-      }
-      const message = data?.choices?.[0]?.message;
-      if (!message) {
-        return res.status(502).json({ ok: false, kind: 'text', error: '上游文本模型未返回有效答复。' });
-      }
-      return res.json({ ok: true, kind: 'text', message });
-    } catch {
-      return sendConnectionRequestFailure(res, 'text');
+      data = JSON.parse(upstream.text);
+    } catch (error) {
+      res.status(502).json({ ok: false, error: 'Upstream did not return JSON', status: upstream.statusCode });
+      return;
     }
-  }
 
-  async function testImageConnection(req, res) {
-    const current = readConnectionConfig(res, 'image', req.username);
-    if (!current) return;
-    const body = req.body || {};
-    const savedImage = current?.image && typeof current.image === 'object' ? current.image : {};
-    const image = body.image && typeof body.image === 'object' && !Array.isArray(body.image) ? body.image : {};
-    const config = {
-      provider: useProvidedValue(image.provider, savedImage.provider),
-      baseUrl: useProvidedValue(image.baseUrl, savedImage.baseUrl),
-      model: useProvidedValue(image.model, savedImage.model),
-      apiKey: useProvidedValue(image.apiKey, savedImage.apiKey)
-    };
-    if (!isReadyConnectionConfig(config)) return sendInvalidConnectionConfig(res, 'image');
-
-    try {
-      const upstream = await modelsRequest(config, responseCollector);
-      if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
-        return sendUpstreamConnectionFailure(res, 'image', upstream);
-      }
-
-      let data;
-      try {
-        data = JSON.parse(upstream.text);
-      } catch {
-        return res.status(502).json({ ok: false, kind: 'image', error: '上游生图模型未返回有效 JSON。' });
-      }
-      if (!Array.isArray(data?.data)) {
-        return res.status(502).json({ ok: false, kind: 'image', error: '上游生图模型目录格式无效。' });
-      }
-      const modelListed = data.data.some(item => item && typeof item.id === 'string' && item.id === config.model);
-      return res.json({
-        ok: true,
-        kind: 'image',
-        modelListed,
-        message: modelListed
-          ? '生图模型连接成功，当前模型已在模型目录中找到。'
-          : '生图服务连接成功，但当前模型未出现在模型目录中，请确认模型名称或供应商支持。'
-      });
-    } catch {
-      return sendConnectionRequestFailure(res, 'image');
+    if (upstream.statusCode >= 200 && upstream.statusCode < 300 && data && data.choices && data.choices[0] && data.choices[0].message) {
+      res.json({ ok: true, message: data.choices[0].message });
+      return;
     }
+
+    res.status(502).json({ ok: false, error: 'Upstream response missing choices[0].message', status: upstream.statusCode, details: data });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
+});
 
-  router.post(['/test', '/test/text'], testTextConnection);
-  router.post('/test/image', testImageConnection);
-
-  router.post('/chat', async (req, res) => {
+router.post('/chat', async (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   if (!checkRateLimit(ip)) {
     res.status(429).json({ error: 'Too many requests. Please slow down.' });
@@ -399,7 +312,7 @@ function createChatRouter({
   }
 
   try {
-    const config = configReader(req.username);
+    const config = readConfig(req.username);
     ensureReadyConfig(config);
 
     const body = req.body;
@@ -422,7 +335,7 @@ function createChatRouter({
       : [];
 
     if (payload.stream === true) {
-      await upstreamRequest(config, payload, upstreamRes => new Promise((resolve, reject) => {
+      await requestUpstream(config, payload, upstreamRes => new Promise((resolve, reject) => {
         if ((upstreamRes.statusCode || 500) < 400 && selectedPersonalPromptIds.length) req.app.locals.scriptConstraintPromptStore?.markUsed(req.username, selectedPersonalPromptIds);
         res.writeHead(upstreamRes.statusCode || 500, {
           'Content-Type': 'text/event-stream; charset=utf-8',
@@ -443,7 +356,7 @@ function createChatRouter({
     }
 
     payload.stream = false;
-    const upstream = await upstreamRequest(config, payload, responseCollector);
+    const upstream = await requestUpstream(config, payload, collectResponse);
     if (upstream.statusCode >= 400) {
       res.status(502).json({ error: describeUpstreamFailure(upstream), type: 'upstream_error' });
       return;
@@ -467,31 +380,23 @@ function createChatRouter({
   }
 });
 
-  router._private = {
-    buildEntityEnrichmentMessages,
-    buildExtractMessages,
-    buildScriptMessages,
-    buildMessages,
-    buildConstraintWrapper,
-    normalizeDuration,
-    listPublishedExtractionPresets,
-    resolveExtractionPresetId,
-    normalizeFormat,
-    normalizeMode,
-    resolveConstraintText,
-    serializePromptSection,
-    sanitizeProtagonists,
-    describeUpstreamFailure,
-    parseEntityEnrichment,
-    validateEntityEnrichmentBody,
-    testImageConnection,
-    testTextConnection
-  };
-
-  return router;
-}
-
-const router = createChatRouter();
-router.createChatRouter = createChatRouter;
+router._private = {
+  buildEntityEnrichmentMessages,
+  buildExtractMessages,
+  buildScriptMessages,
+  buildMessages,
+  buildConstraintWrapper,
+  normalizeDuration,
+  listPublishedExtractionPresets,
+  resolveExtractionPresetId,
+  normalizeFormat,
+  normalizeMode,
+  resolveConstraintText,
+  serializePromptSection,
+  sanitizeProtagonists,
+  describeUpstreamFailure,
+  parseEntityEnrichment,
+  validateEntityEnrichmentBody
+};
 
 module.exports = router;

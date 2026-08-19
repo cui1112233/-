@@ -19,7 +19,8 @@ test('shot card component provides individual, selected and all-copy controls', 
 test('script page uses card output only for parsed non-shortdrama results', () => {
   const cards = read('frontend/src/user/components/ShotOutputCards.jsx');
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
-  assert.match(page, /getShotCards\(selectedFormat, output\)/);
+  assert.match(page, /buildFinalSegments\(\{ output, extractInfo, constraints, format: selectedFormat, duration: selectedDuration, mode: selectedMode \}\)/);
+  assert.match(page, /\[output, extractInfo, constraints, selectedFormat, selectedDuration, selectedMode\]/);
   assert.match(page, /getShotCardStarts/);
   assert.match(page, /useMemo\(\(\) => getShotCardStarts\(output, shotCards\)/);
   assert.doesNotMatch(page, /output\.indexOf\(card, cursor\)/);
@@ -91,6 +92,33 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(cards, /splitShotTextHighlight/);
   assert.match(cards, /shot-output-card-match/);
   assert.match(cards, /scrollIntoView/);
+});
+
+test('complete 分镜 unit headings drive cards and manual merge action stays available', () => {
+  const page = read('frontend/src/user/pages/ScriptPage.jsx');
+  const shot = read('frontend/src/user/pages/scriptShotOutput.js');
+  const final = read('frontend/src/user/pages/scriptFinalSegment.js');
+  assert.match(final, /export function buildFinalSegments/);
+  assert.match(final, /export function buildBaseSetupText/);
+  assert.match(final, /export function buildConstraintText/);
+  assert.match(shot, /export function getDisplayCards/);
+  assert.match(shot, /mode === 'segmented'/);
+  assert.ok(shot.includes('总时长\\s*[：:]?\\s*\\d+\\s*s'));
+  assert.match(page, /buildFinalSegments\(\{ output, extractInfo, constraints, format: selectedFormat, duration: selectedDuration, mode: selectedMode \}\)/);
+  assert.match(page, /\[output, extractInfo, constraints, selectedFormat, selectedDuration, selectedMode\]/);
+  assert.match(page, /splitContinuousTimeline/);
+  assert.match(page, /按秒分段并合并/);
+  assert.match(page, /selectedDuration === '15s' \? 15 : 10/);
+  assert.match(shot, /export function splitContinuousTimeline/);
+  assert.match(page, /基础设定（人物\/场景）/);
+});
+
+test('shot cards recognize storyboard and screenplay headings', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const storyboard = ['分镜1：a（0-10s）', '运镜：x', '画面内容：y', '分镜2：b（10-20s）', '运镜：z', '画面内容：w'].join('\n');
+  assert.equal(getShotCards('storyboard', storyboard).length, 2);
+  const screenplay = ['[00:00-00:10]镜头1:a(x)。', '画面描述：p', '[00:10-00:20]镜头2:b(y)。', '画面描述：q'].join('\n');
+  assert.equal(getShotCards('screenplay', screenplay).length, 2);
 });
 
 test('script source textarea clears without deleting prior results until extraction starts', () => {

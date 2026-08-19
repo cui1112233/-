@@ -12,5 +12,5 @@ test('non-shortdrama prompt contracts require self-contained 分镜 units', () =
     assert.match(content, /00:00/);
     assert.match(content, /独立/);
   }
-  assert.match(fs.readFileSync(path.join(prompts, '约束设置.md'), 'utf8'), /每个分镜内部/);
+  assert.match(fs.readFileSync(path.join(prompts, '约束设置.md'), 'utf8'), /切分为独立分镜卡/);
 });
