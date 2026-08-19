@@ -6,12 +6,17 @@ import (
 )
 
 type Request struct {
-	Prompt      string
-	ImageURL    string
-	Duration    string
-	AspectRatio string
-	Resolution  string
-	CallbackURL string
+	Prompt             string
+	OwnerID            int64
+	ImageURL           string
+	ReferenceImageURLs []string
+	Duration           string
+	AspectRatio        string
+	Resolution         string
+	CallbackURL        string
+	Voice              string
+	SpeechRate         float64
+	Pitch              float64
 }
 
 type Response struct {

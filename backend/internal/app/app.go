@@ -50,6 +50,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	configs := store.NewConfigs(db)
+	imageConfigs := store.NewImageConfigs(db)
 	histories := store.NewHistories(db)
 	redisHealth := httpapi.ShuihuoDependencyHealth{Reason: "Redis 未配置"}
 	var queue shuihuotasks.Queue
@@ -83,6 +84,7 @@ func New(cfg config.Config) (*App, error) {
 		SeedPassword:      cfg.SeedPassword,
 		Users:             users,
 		Configs:           configs,
+		ImageConfigs:      imageConfigs,
 		Histories:         histories,
 		Objects:           objects,
 		Queue:             queue,
@@ -96,12 +98,13 @@ func New(cfg config.Config) (*App, error) {
 		application.workerCancel = cancel
 		vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
 		worker := shuihuotasks.Worker{
-			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db),
+			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db), AssetImages: shuihuostore.NewAssetImages(db),
 			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
 			Adapter: shuihuomodels.AdapterRouter{
-				shuihuomodels.AdapterJimengImage:      providers.NewJimeng(nil, cfg.ModelCredential),
-				shuihuomodels.AdapterViduImageToVideo: vidu,
-				shuihuomodels.AdapterGenericHTTP:      shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
+				shuihuomodels.AdapterJimengImage:                  providers.NewJimeng(nil, cfg.ModelCredential),
+				shuihuomodels.AdapterAccountOpenAICompatibleImage: providers.NewOpenAICompatibleImage(nil, imageConfigs),
+				shuihuomodels.AdapterViduImageToVideo:             vidu,
+				shuihuomodels.AdapterGenericHTTP:                  shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
 			},
 		}
 		poller := shuihuotasks.Poller{

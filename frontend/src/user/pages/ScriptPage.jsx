@@ -1,18 +1,19 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
-import { AudioLines, Copy, Download, FileText, Pencil, Plus, RefreshCw, ScrollText, Settings2, Star, WandSparkles } from 'lucide-react';
+import { AudioLines, Copy, Download, FileText, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { saveHistory } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
-import { PET_APPLY_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
-import { loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
+import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards } from './scriptShotOutput';
+import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
 function extractJSON(value) {
@@ -83,8 +84,14 @@ export function ScriptPage() {
   const [generationStage, setGenerationStage] = useState('idle');
   const [extractInfo, setExtractInfo] = useState(() => normalizeExtractInfo());
   const [output, setOutput] = useState('');
+  const [revisionPreview, setRevisionPreview] = useState({ open: false, summary: '', currentOutput: '', candidateOutput: '' });
+  const [previousOutput, setPreviousOutput] = useState('');
   const [editingOutput, setEditingOutput] = useState(false);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
+  const [shotReplaceOpen, setShotReplaceOpen] = useState(false);
+  const [shotFindText, setShotFindText] = useState('');
+  const [shotReplaceText, setShotReplaceText] = useState('');
+  const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [activeEntity, setActiveEntity] = useState(null);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
@@ -107,12 +114,23 @@ export function ScriptPage() {
   const [loadingExtractionPresets, setLoadingExtractionPresets] = useState(true);
   const [extractionPresetError, setExtractionPresetError] = useState('');
   const selectedFormat = Form.useWatch('format', form);
+  const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
+  const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
+  const selectedShotMatches = useMemo(
+    () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
+    [output, shotCards, selectedShotIndexes, shotFindText]
+  );
+  const activeShotMatch = selectedShotMatches[shotMatchIndex] || null;
+  useEffect(() => {
+    setShotMatchIndex(index => selectedShotMatches.length ? Math.min(index, selectedShotMatches.length - 1) : 0);
+  }, [selectedShotMatches.length]);
   const isShotCardView = shotCards.length > 0 && !editingOutput;
   const workbenchRef = useRef(null);
   const draftReadyRef = useRef(false);
   const draftUsernameRef = useRef(getCurrentUsername());
+  const draftTabIdRef = useRef(getScriptDraftTabId(window.sessionStorage));
   const requestGenerationRef = useRef({ workflow: 0, narrate: 0 });
   const sourceGenerationRef = useRef(0);
   const mountedRef = useRef(true);
@@ -134,6 +152,11 @@ export function ScriptPage() {
 
   function invalidateRequests() {
     sourceGenerationRef.current += 1;
+  }
+
+  function clearNovelText() {
+    form.setFieldValue('novelText', '');
+    persistDraft({ ...form.getFieldsValue(), novelText: '' });
   }
 
   function replaceSourceAudio(nextUrl) {
@@ -161,16 +184,32 @@ export function ScriptPage() {
 
   function persistDraft(values, overrides = {}) {
     if (!draftReadyRef.current) return;
-    saveScriptDraft(window.localStorage, draftUsernameRef.current, {
+    saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, {
       ...snapshotDraft(values),
       ...overrides
     });
   }
 
-  function updateOutputDraft(nextOutput) {
+  function updateOutputDraft(nextOutput, preserveSelectedShots = false) {
     setOutput(nextOutput);
-    setSelectedShotIndexes(new Set());
+    if (!preserveSelectedShots) setSelectedShotIndexes(new Set());
+    else {
+      const nextCards = getShotCards(selectedFormat, nextOutput);
+      setSelectedShotIndexes(current => new Set([...current].filter(index => index < nextCards.length)));
+    }
     persistDraft(undefined, { output: nextOutput });
+  }
+
+  function replaceCurrentShotMatch() {
+    if (!activeShotMatch) return;
+    const nextOutput = replaceSelectedShotMatch(output, activeShotMatch, shotReplaceText);
+    updateOutputDraft(nextOutput, true);
+  }
+
+  function replaceAllShotMatches() {
+    if (!selectedShotMatches.length) return;
+    const nextOutput = replaceAllSelectedShotMatches(output, selectedShotMatches, shotReplaceText);
+    updateOutputDraft(nextOutput, true);
   }
 
   async function copyText(text) {
@@ -184,7 +223,7 @@ export function ScriptPage() {
   }
 
   useEffect(() => {
-    const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current);
+    const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current);
     if (restoredDraft) {
       form.setFieldsValue(restoredDraft.values);
       setExtractInfo(normalizeExtractInfo(restoredDraft.extractInfo));
@@ -199,7 +238,7 @@ export function ScriptPage() {
     const readyTimer = window.setTimeout(() => {
       draftReadyRef.current = true;
       if (restoredDraft) {
-        saveScriptDraft(window.localStorage, draftUsernameRef.current, restoredDraft);
+        saveScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current, restoredDraft);
       } else {
         persistDraft();
       }
@@ -281,16 +320,19 @@ export function ScriptPage() {
   }, [extractInfo, output, generationStage]);
 
   useEffect(() => {
-    function applyAgentDraft(event) {
-      const nextOutput = String(event.detail?.content || '').trim();
-      if (!nextOutput) return;
-      updateOutputDraft(nextOutput);
-      setEditingOutput(true);
-      message.success('CM 的修改稿已写入当前剧本，请继续检查后保存。');
+    function openRevisionPreview(event) {
+      const candidateOutput = String(event.detail?.candidateOutput || '').trim();
+      if (!output.trim() || !candidateOutput) return;
+      setRevisionPreview({
+        open: true,
+        summary: String(event.detail?.summary || '').trim(),
+        currentOutput: output,
+        candidateOutput
+      });
     }
-    window.addEventListener(PET_APPLY_EVENT, applyAgentDraft);
-    return () => window.removeEventListener(PET_APPLY_EVENT, applyAgentDraft);
-  }, []);
+    window.addEventListener(PET_PREVIEW_EVENT, openRevisionPreview);
+    return () => window.removeEventListener(PET_PREVIEW_EVENT, openRevisionPreview);
+  }, [output]);
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -384,6 +426,10 @@ export function ScriptPage() {
 
   async function handleExtract(values) {
     const requestId = beginRequest('workflow');
+    setExtractInfo(normalizeExtractInfo());
+    setOutput('');
+    setSelectedShotIndexes(new Set());
+    setEditingOutput(false);
     setExtracting(true);
     setGenerationStage('extracting');
     dispatchPetState('working');
@@ -470,7 +516,6 @@ export function ScriptPage() {
       dispatchPetState('success');
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
-      setOutput('');
       setGenerationStage('error');
       message.error(error.message || '剧本生成失败');
       dispatchPetState('error');
@@ -486,6 +531,33 @@ export function ScriptPage() {
     } finally {
       setRegeneratingOutput(false);
     }
+  }
+
+  function closeRevisionPreview() {
+    setRevisionPreview({ open: false, summary: '', currentOutput: '', candidateOutput: '' });
+  }
+
+  function applyRevisionPreview() {
+    const nextOutput = revisionPreview.candidateOutput.trim();
+    if (!nextOutput) return;
+    if (revisionPreview.currentOutput !== output) {
+      closeRevisionPreview();
+      message.warning('当前剧本已变化，请重新让 CM 生成修改稿。');
+      return;
+    }
+    setPreviousOutput(output);
+    updateOutputDraft(nextOutput);
+    setEditingOutput(true);
+    closeRevisionPreview();
+    message.success('CM 的修改稿已应用，可撤销一次。');
+  }
+
+  function undoLastRevision() {
+    if (!previousOutput) return;
+    updateOutputDraft(previousOutput);
+    setEditingOutput(true);
+    setPreviousOutput('');
+    message.success('已撤销 CM 的本次修改。');
   }
 
   function invalidateEntityOutput(nextInfo) {
@@ -685,11 +757,6 @@ export function ScriptPage() {
           setRegeneratingOutput(false);
           setNarrating(false);
           syncPetContext(changed.novelText);
-          if (generationStage !== 'idle') {
-            setExtractInfo(normalizeExtractInfo());
-            setGenerationStage('idle');
-            setOutput('');
-          }
         }
       }}
     >
@@ -701,9 +768,20 @@ export function ScriptPage() {
         <div className="script-left">
         <div className="script-left-scroll">
           <div className="script-chat-shell">
-            <Form.Item name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
-              <Input.TextArea className="script-chat-textarea" rows={10} placeholder="粘贴小说原文，开始构思... ✦" />
-            </Form.Item>
+            <div className="script-source-input">
+              <Form.Item name="novelText" rules={[{ required: true, message: '请先粘贴小说原文' }]}>
+                <Input.TextArea className="script-chat-textarea" rows={10} placeholder="粘贴小说原文，开始构思... ✦" />
+              </Form.Item>
+              {novelText ? (
+                <button
+                  type="button"
+                  className="script-source-clear"
+                  aria-label="清空小说原文"
+                  title="清空小说原文"
+                  onClick={clearNovelText}
+                >×</button>
+              ) : null}
+            </div>
             <div className="script-chat-options">
               <div className="script-chat-tools">
                 <label className="script-file-button" title="添加 TXT 原文">
@@ -775,7 +853,9 @@ export function ScriptPage() {
           <Space>
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>
             <Button icon={<Copy size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => copyText(isShotCardView ? shotCards.join('\n\n') : output)} disabled={!output}>复制</Button>
+            <Button disabled={!isShotCardView || !selectedShotIndexes.size} onClick={() => setShotReplaceOpen(true)}>查找替换</Button>
             <Button icon={<Pencil size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => { setSelectedShotIndexes(new Set()); setEditingOutput(value => !value); }} disabled={!output}>{editingOutput ? '完成编辑' : '编辑'}</Button>
+            <Button onClick={undoLastRevision} disabled={!previousOutput}>撤销本次修改</Button>
             <Button
               aria-label="重新生成剧本"
               title="重新生成剧本"
@@ -803,18 +883,73 @@ export function ScriptPage() {
               onToggleAll={() => setSelectedShotIndexes(current => current.size === shotCards.length ? new Set() : new Set(shotCards.map((_, index) => index)))}
               onCopy={copyText}
               onCopySelected={() => copyText(joinShotCards(shotCards, selectedShotIndexes))}
+              output={output}
+              activeMatch={shotReplaceOpen ? activeShotMatch : null}
+              cardStarts={shotCardStarts}
             /> : <Input.TextArea className="legacy-output" value={output} rows={24} readOnly={!editingOutput} onChange={event => updateOutputDraft(event.target.value)} />
           ) : generating ? (
             <CmLoader />
           ) : (
             <div className="script-empty legacy-panel-card">
-              <div className="script-empty-icon"><ScrollText size={30} strokeWidth={1.6} aria-hidden="true" /></div>
-              <div>先提取人物与场景，确认后再生成剧本</div>
+              <div className="script-empty-card">
+                <span className="script-empty-dot" aria-hidden="true" />
+                <span className="script-empty-ray" aria-hidden="true" />
+                <span className="script-empty-line script-empty-line--top" aria-hidden="true" />
+                <span className="script-empty-line script-empty-line--bottom" aria-hidden="true" />
+              </div>
+              <div className="script-empty-title">准备创作</div>
+              <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
         </div>
         </div>
       </div>
+      <Modal
+        title="替换已选分镜文字"
+        open={shotReplaceOpen}
+        onCancel={() => setShotReplaceOpen(false)}
+        footer={null}
+      >
+        <Typography.Paragraph>已选 {selectedShotIndexes.size} 条分镜</Typography.Paragraph>
+        <Form.Item label="查找内容">
+          <Input value={shotFindText} onChange={event => { setShotFindText(event.target.value); setShotMatchIndex(0); }} />
+        </Form.Item>
+        <Form.Item label="替换为">
+          <Input value={shotReplaceText} onChange={event => setShotReplaceText(event.target.value)} />
+        </Form.Item>
+        {!shotFindText ? <Typography.Text type="secondary">请输入查找内容</Typography.Text> : !selectedShotMatches.length ? <Typography.Text type="secondary">未找到匹配内容</Typography.Text> : (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            找到内容：“{shotFindText}” · 分镜 {activeShotMatch.cardIndex + 1} · {shotMatchIndex + 1} / {selectedShotMatches.length}
+          </Typography.Paragraph>
+        )}
+        <Space wrap style={{ marginTop: 16 }}>
+          <Button disabled={!selectedShotMatches.length} onClick={() => setShotMatchIndex(index => (index - 1 + selectedShotMatches.length) % selectedShotMatches.length)}>上一个</Button>
+          <Button disabled={!selectedShotMatches.length} onClick={() => setShotMatchIndex(index => (index + 1) % selectedShotMatches.length)}>下一个</Button>
+          <Button disabled={!activeShotMatch} onClick={replaceCurrentShotMatch}>替换当前</Button>
+          <Button type="primary" disabled={!selectedShotMatches.length} onClick={replaceAllShotMatches}>全部替换</Button>
+        </Space>
+      </Modal>
+      <Modal
+        title="CM 修改预览"
+        open={revisionPreview.open}
+        onCancel={closeRevisionPreview}
+        onOk={applyRevisionPreview}
+        okText="应用修改"
+        cancelText="放弃修改"
+        width={1100}
+      >
+        {revisionPreview.summary ? <Typography.Paragraph>{revisionPreview.summary}</Typography.Paragraph> : null}
+        <div className="cm-revision-preview">
+          <section>
+            <Typography.Title level={5}>当前剧本</Typography.Title>
+            <Input.TextArea value={revisionPreview.currentOutput} rows={24} readOnly />
+          </section>
+          <section>
+            <Typography.Title level={5}>CM 修改稿</Typography.Title>
+            <Input.TextArea value={revisionPreview.candidateOutput} rows={24} readOnly />
+          </section>
+        </div>
+      </Modal>
       <Modal
         title="切换人物与场景提取指令"
         open={instructionModalOpen}

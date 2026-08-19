@@ -10,7 +10,9 @@ export async function getProductionHealth() {
 
 export function listProjects() { return apiRequest(`${base}/projects`); }
 export function createProject(payload) { return apiRequest(`${base}/projects`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function importProject(payload) { return apiRequest(`${base}/projects/import`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function getProject(id) { return apiRequest(`${base}/projects/${id}`); }
+export function replaceProjectSource(id, payload) { return apiRequest(`${base}/projects/${id}/source`, { method: 'PUT', body: JSON.stringify(payload) }); }
 export function deleteProject(id) { return apiRequest(`${base}/projects/${id}`, { method: 'DELETE' }); }
 export function listProjectFiles(projectId) { return apiRequest(`${base}/projects/${projectId}/files`); }
 export function getProductionConfig() { return apiRequest(`${base}/config`); }
@@ -24,10 +26,21 @@ export function createAssetTemplate(payload) { return apiRequest(`${base}/asset-
 export function updateAssetTemplate(id, payload) { return apiRequest(`${base}/asset-templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) }); }
 export function deleteAssetTemplate(id) { return apiRequest(`${base}/asset-templates/${id}`, { method: 'DELETE' }); }
 export function createAsset(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function uploadAssetImage(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets/image`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function downloadAssetImage(assetId) { return apiRequest(`${base}/assets/${assetId}/image`, { responseType: 'blob' }); }
+export function generateAssetImages(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets/generate`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function listAssetImages(assetId) { return apiRequest(`${base}/assets/${assetId}/images`); }
+export function setPrimaryAssetImage(assetImageId) { return apiRequest(`${base}/asset-images/${assetImageId}/primary`, { method: 'PUT' }); }
+export function downloadGeneratedAssetImage(assetImageId) { return apiRequest(`${base}/asset-images/${assetImageId}/download`, { responseType: 'blob' }); }
+export function getAssetGenerationConfig(projectId) { return apiRequest(`${base}/projects/${projectId}/asset-generation-config`); }
+export function saveAssetGenerationConfig(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/asset-generation-config`, { method: 'PUT', body: JSON.stringify(payload) }); }
+export function listShuihuoPresetSlots() { return apiRequest(`${base}/preset-slots`); }
 export function fixedSegmentation(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segmentation/fixed`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function paragraphSegmentation(projectId, payload = {}) { return apiRequest(`${base}/projects/${projectId}/segmentation/paragraphs`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function importSegmentation(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segmentation/import`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function smartSegmentation(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segmentation/smart`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function analyzeAssets(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/analysis/assets`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function analyzeAssetsAndBindings(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/analysis/assets-and-bindings`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function applyAssetCandidates(projectId, candidates) { return apiRequest(`${base}/projects/${projectId}/assets/candidates/apply`, { method: 'POST', body: JSON.stringify({ candidates }) }); }
 export function generatePromptCandidates(projectId, kind, payload) { return apiRequest(`${base}/projects/${projectId}/prompt-candidates/${kind}`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function applyPromptCandidates(projectId, kind, candidates) { return apiRequest(`${base}/projects/${projectId}/prompt-candidates/${kind}/apply`, { method: 'PUT', body: JSON.stringify({ candidates }) }); }
@@ -35,6 +48,9 @@ export function confirmSegmentation(projectId, candidates) { return apiRequest(`
 export function createSegment(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segments`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function updateSegment(segmentId, payload) { return apiRequest(`${base}/segments/${segmentId}`, { method: 'PUT', body: JSON.stringify(payload) }); }
 export function deleteSegment(segmentId) { return apiRequest(`${base}/segments/${segmentId}`, { method: 'DELETE' }); }
+export function mergeStoryboard(segmentId) { return apiRequest(`${base}/segments/${segmentId}/merge-up`, { method: 'POST' }); }
+export function splitStoryboard(segmentId) { return apiRequest(`${base}/segments/${segmentId}/split`, { method: 'POST' }); }
+export function insertStoryboard(segmentId, payload) { return apiRequest(`${base}/segments/${segmentId}/insert-after`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function reorderSegments(projectId, segmentIds) { return apiRequest(`${base}/projects/${projectId}/segments/order`, { method: 'PUT', body: JSON.stringify({ segmentIds }) }); }
 export function replaceSegmentAssets(segmentId, assetIds) { return apiRequest(`${base}/segments/${segmentId}/assets`, { method: 'PUT', body: JSON.stringify({ assetIds }) }); }
 export function updateAsset(assetId, payload) { return apiRequest(`${base}/assets/${assetId}`, { method: 'PUT', body: JSON.stringify(payload) }); }
@@ -46,6 +62,9 @@ export function deleteMedia(mediaId) { return apiRequest(`${base}/media/${mediaI
 export async function downloadMedia(mediaId) {
   return apiRequest(`${base}/media/${mediaId}/download`, { responseType: 'blob' });
 }
+export async function exportProject(projectId) {
+  return apiRequest(`${base}/projects/${projectId}/export`, { responseType: 'blob' });
+}
 export function listModels() { return apiRequest(`${base}/models`); }
 export function listTasks(projectId) { return apiRequest(`${base}/projects/${projectId}/tasks`); }
 export function createTask(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(payload) }); }
@@ -55,9 +74,9 @@ export function createBatchTasks(projectId, payload) {
 export function cancelTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/cancel`, { method: 'PUT' }); }
 export function retryTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/retry`, { method: 'POST' }); }
 export function listAdminModels() { return apiRequest(`${base}/admin/models`); }
-export function createAdminModel({ name, kind, adapterKind, enabled, parameterSchema, credentialRef }) {
+export function createAdminModel({ name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping }) {
   return apiRequest(`${base}/admin/models`, {
     method: 'POST',
-    body: JSON.stringify({ name, kind, adapterKind, enabled, parameterSchema, credentialRef })
+    body: JSON.stringify({ name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping })
   });
 }

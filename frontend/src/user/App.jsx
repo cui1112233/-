@@ -8,6 +8,7 @@ const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
 const AgentPage = lazy(() => import('./pages/AgentPage').then(module => ({ default: module.AgentPage })));
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
+const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
@@ -26,6 +27,7 @@ function usePathname() {
 function getPage(pathname) {
   const routes = {
     '/script': ScriptPage,
+    '/novel-fetch': NovelFetchPage,
     '/history': HistoryPage,
     '/novel-panel': NovelPanelPage,
     '/agent': AgentPage,

@@ -167,3 +167,24 @@ test('API failures notify the user through one readable confirmation dialog whil
   assert.match(layout, /Modal\.error/);
   assert.match(layout, /确定/);
 });
+
+test('user issue log renders a compact operational timeline with severity and summary contracts', () => {
+  const page = read('frontend/src/user/pages/IssueLogPage.jsx');
+  const css = read('frontend/src/shared/styles/global.css');
+
+  assert.match(page, /function severityForEntry\(entry\)/);
+  assert.match(page, /function summarizeEntries\(entries, now = Date\.now\(\)\)/);
+  assert.match(page, /issue-log-summary-grid/);
+  assert.match(page, /最近 24 小时异常/);
+  assert.match(page, /接口失败/);
+  assert.match(page, /认证或配置问题/);
+  assert.match(page, /issue-log-timeline/);
+  assert.match(page, /issue-log-entry--\$\{severityForEntry\(entry\)\}/);
+  assert.match(page, /HTTP \{entry\.status\}/);
+  assert.match(page, /novel-panel\.ai/);
+  assert.match(css, /\.issue-log-page\s*\{/);
+  assert.match(css, /\.issue-log-entry--warning/);
+  assert.match(css, /\.issue-log-entry--error/);
+  assert.match(css, /\.issue-log-meta\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(css, /\[data-theme='light'\] \.issue-log-page/);
+});

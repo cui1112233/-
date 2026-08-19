@@ -29,6 +29,61 @@ func TestTextCompletionParsesNonEmptyCandidateArray(t *testing.T) {
 	}
 }
 
+func TestTextCompletionParsesAndNormalizesCandidateSpeaker(t *testing.T) {
+	candidates, err := ParseSegmentCandidates(`[{"text":"都成年了，谁还装乖宝宝？","speaker":" 我 "},{"text":"窗外下起了雨"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidates[0].Speaker != "我" {
+		t.Fatalf("first candidate speaker = %q, want 我", candidates[0].Speaker)
+	}
+	if candidates[1].Speaker != "旁白" {
+		t.Fatalf("second candidate speaker = %q, want 旁白", candidates[1].Speaker)
+	}
+}
+
+func TestParseAssetCandidatesAcceptsFeishuExtractorObject(t *testing.T) {
+	candidates, err := ParseAssetCandidates(`{
+		"人物设定": [
+			{"角色名称": "林鸢", "外观描述": "全景，正面拍摄，女，青年，白衬衫。"}
+		],
+		"场景设定": [
+			{"场景名称": "教室走廊", "场景描述": "室内半开放走廊，白天阳光明亮。"}
+		],
+		"道具设定": [
+			{"道具名称": "粉色情书", "道具描述": "粉色哑光纸质信封。"}
+		]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 3 {
+		t.Fatalf("candidates length = %d", len(candidates))
+	}
+	if candidates[0].Category != "character" || candidates[0].Name != "林鸢" || candidates[0].Prompt == "" {
+		t.Fatalf("character candidate = %#v", candidates[0])
+	}
+	if candidates[1].Category != "scene" || candidates[1].Name != "教室走廊" || candidates[1].Prompt == "" {
+		t.Fatalf("scene candidate = %#v", candidates[1])
+	}
+	if candidates[2].Category != "prop" || candidates[2].Name != "粉色情书" || candidates[2].Prompt == "" {
+		t.Fatalf("prop candidate = %#v", candidates[2])
+	}
+}
+
+func TestParseAssetPlanAcceptsAssetsAndStoryboardBindings(t *testing.T) {
+	plan, err := ParseAssetPlan(`{"assets":[{"key":"character_xiaohong","category":"character","name":"小红","prompt":"短发少女"},{"key":"scene_classroom","category":"scene","name":"教室","prompt":"明亮教室"}],"bindings":[{"segmentId":11,"sceneMode":"start","assetKeys":["character_xiaohong","scene_classroom"]},{"segmentId":12,"sceneMode":"continue","assetKeys":[]}]}`)
+	if err != nil {
+		t.Fatalf("ParseAssetPlan() error = %v", err)
+	}
+	if len(plan.Assets) != 2 || len(plan.Bindings) != 2 || plan.Bindings[0].AssetKeys[1] != "scene_classroom" {
+		t.Fatalf("ParseAssetPlan() = %#v", plan)
+	}
+	if plan.Bindings[0].SceneMode != "start" || plan.Bindings[1].SceneMode != "continue" {
+		t.Fatalf("scene continuity modes = %#v", plan.Bindings)
+	}
+}
+
 func TestTextCompletionOpenAIChat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
@@ -64,6 +119,23 @@ func TestTextCompletionOpenAIChat(t *testing.T) {
 	}
 	if result != "[]" {
 		t.Fatalf("result = %q", result)
+	}
+}
+
+func TestTextCompletionDoesNotDuplicateExplicitChatCompletionsPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"[]"}}]}`))
+	}))
+	defer server.Close()
+
+	provider := NewTextCompletion(server.Client(), func(ref string) (string, error) { return "test-secret", nil })
+	provider.validateURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	model := models.Definition{AdapterKind: models.AdapterTextCompletion, Endpoint: server.URL + "/v1/chat/completions", CredentialRef: "TEXT", Name: "gpt-4o"}
+	if _, err := provider.Complete(context.Background(), model, "生成候选"); err != nil {
+		t.Fatal(err)
 	}
 }
 

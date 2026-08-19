@@ -2,7 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"time"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -11,6 +15,11 @@ import (
 type Tasks struct{ db *sql.DB }
 
 func NewTasks(db *sql.DB) *Tasks { return &Tasks{db: db} }
+
+// ErrTaskSegmentUnavailable means a queued task would no longer have a valid
+// storyboard segment in its project. Callers must refresh the workbench before
+// creating another task.
+var ErrTaskSegmentUnavailable = errors.New("task segment is unavailable")
 
 func requireAffected(result sql.Result) error {
 	affected, err := result.RowsAffected()
@@ -31,12 +40,39 @@ func (s *Tasks) Create(ctx context.Context, ownerID, projectID int64, task domai
 	if err := domain.ValidateTaskStatus(task.Status); err != nil {
 		return domain.Task{}, err
 	}
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	defer tx.Rollback()
+	if err := lockOwnedProjectByID(ctx, tx, ownerID, projectID); err != nil {
+		return domain.Task{}, err
+	}
+	if err := requireTaskSegment(ctx, tx, projectID, task.SegmentID); err != nil {
+		return domain.Task{}, err
+	}
+	input, revision, err := taskInputRevision(task.Input)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	currentRevision, err := segmentRevision(ctx, tx, projectID, task.SegmentID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if revision != "" && revision != currentRevision {
+		return domain.Task{}, ErrTaskSegmentUnavailable
+	}
+	input["segmentRevision"] = currentRevision
+	encodedInput, err := json.Marshal(input)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	task.Input = string(encodedInput)
+	result, err := tx.ExecContext(ctx, `
 INSERT INTO shuihuo_tasks(project_id, segment_id, kind, status, provider, provider_task_id, model_id, model_version_id, prompt_version_id, input_snapshot, output_snapshot, error_code, error_message, retry_count)
-SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-FROM shuihuo_projects
-WHERE id = ? AND user_id = ?
-`, task.SegmentID, task.Kind, task.Status, task.Provider, task.ProviderTaskID, task.ModelID, task.ModelVersionID, task.PromptVersionID, task.Input, task.Output, task.ErrorCode, task.ErrorMessage, task.RetryCount, projectID, ownerID)
+
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, projectID, task.SegmentID, task.Kind, task.Status, task.Provider, task.ProviderTaskID, task.ModelID, task.ModelVersionID, task.PromptVersionID, task.Input, task.Output, task.ErrorCode, task.ErrorMessage, task.RetryCount)
 	if err != nil {
 		return domain.Task{}, err
 	}
@@ -45,6 +81,9 @@ WHERE id = ? AND user_id = ?
 	}
 	task.ID, err = result.LastInsertId()
 	if err != nil {
+		return domain.Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return domain.Task{}, err
 	}
 	task.ProjectID = projectID
@@ -248,6 +287,28 @@ func (s *Tasks) Transition(ctx context.Context, ownerID, taskID int64, current, 
 		return err
 	}
 	defer tx.Rollback()
+	if current == domain.TaskDraft && next == domain.TaskQueued {
+		projectID, segmentID, input, err := lockOwnedTaskProject(ctx, tx, ownerID, taskID)
+		if err != nil {
+			return err
+		}
+		if err := requireTaskSegment(ctx, tx, projectID, segmentID); err != nil {
+			return err
+		}
+		_, revision, err := taskInputRevision(input)
+		if err != nil {
+			return err
+		}
+		if revision != "" {
+			currentRevision, err := segmentRevision(ctx, tx, projectID, segmentID)
+			if err != nil {
+				return err
+			}
+			if currentRevision != revision {
+				return ErrTaskSegmentUnavailable
+			}
+		}
+	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE shuihuo_tasks t
 JOIN shuihuo_projects p ON p.id = t.project_id
@@ -270,6 +331,96 @@ WHERE t.id = ? AND p.user_id = ?
 		return err
 	}
 	return tx.Commit()
+}
+
+// lockOwnedTaskProject takes the same project row lock used by storyboard
+// mutations before a draft task can become active.
+func lockOwnedTaskProject(ctx context.Context, tx *sql.Tx, ownerID, taskID int64) (int64, *int64, string, error) {
+	var projectID int64
+	var segmentID sql.NullInt64
+	var input string
+	err := tx.QueryRowContext(ctx, `
+	SELECT t.project_id, t.segment_id, t.input_snapshot
+FROM shuihuo_tasks t
+JOIN shuihuo_projects p ON p.id = t.project_id
+WHERE t.id = ? AND p.user_id = ?
+	FOR UPDATE`, taskID, ownerID).Scan(&projectID, &segmentID, &input)
+	if err != nil {
+		return 0, nil, "", err
+	}
+	if err := lockOwnedProjectByID(ctx, tx, ownerID, projectID); err != nil {
+		return 0, nil, "", err
+	}
+	if !segmentID.Valid {
+		return projectID, nil, input, nil
+	}
+	return projectID, &segmentID.Int64, input, nil
+}
+
+func taskInputRevision(input string) (map[string]any, string, error) {
+	values := map[string]any{}
+	if input == "" {
+		return values, "", nil
+	}
+	if err := json.Unmarshal([]byte(input), &values); err != nil {
+		return nil, "", err
+	}
+	revision, _ := values["segmentRevision"].(string)
+	return values, revision, nil
+}
+
+func segmentRevision(ctx context.Context, tx *sql.Tx, projectID int64, segmentID *int64) (string, error) {
+	if segmentID == nil {
+		return "", nil
+	}
+	var source, subtitle, imagePrompt, videoPrompt, negativePrompt string
+	var imageLocked, videoLocked, negativeLocked bool
+	var order int
+	if err := tx.QueryRowContext(ctx, `SELECT source_text, subtitle_text, image_prompt, video_prompt, negative_prompt, image_prompt_locked, video_prompt_locked, negative_prompt_locked, order_index FROM shuihuo_segments WHERE id = ? AND project_id = ?`, *segmentID, projectID).Scan(&source, &subtitle, &imagePrompt, &videoPrompt, &negativePrompt, &imageLocked, &videoLocked, &negativeLocked, &order); err != nil {
+		return "", err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT m.position_index, u.id, u.text, u.source_order FROM shuihuo_segment_source_units m JOIN shuihuo_source_units u ON u.id = m.source_unit_id WHERE m.segment_id = ? ORDER BY m.position_index, u.id`, *segmentID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	parts := []any{source, subtitle, imagePrompt, videoPrompt, negativePrompt, imageLocked, videoLocked, negativeLocked, order}
+	for rows.Next() {
+		var pos, id int64
+		var text string
+		var sourceOrder int
+		if err := rows.Scan(&pos, &id, &text, &sourceOrder); err != nil {
+			return "", err
+		}
+		parts = append(parts, []any{pos, id, text, sourceOrder})
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(parts)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func requireTaskSegment(ctx context.Context, tx *sql.Tx, projectID int64, segmentID *int64) error {
+	if segmentID == nil {
+		return nil
+	}
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(
+  SELECT 1 FROM shuihuo_segments
+  WHERE id = ? AND project_id = ?
+)`, *segmentID, projectID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrTaskSegmentUnavailable
+	}
+	return nil
 }
 
 func (s *Tasks) Cancel(ctx context.Context, ownerID, taskID int64) error {

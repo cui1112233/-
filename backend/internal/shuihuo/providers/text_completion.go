@@ -58,7 +58,10 @@ func (p *TextCompletion) Complete(ctx context.Context, model models.Definition, 
 	if err != nil {
 		return "", err
 	}
-	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/chat/completions"
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/")
+	if !strings.HasSuffix(strings.ToLower(endpoint.Path), "/chat/completions") {
+		endpoint.Path += "/chat/completions"
+	}
 	endpoint.RawPath = ""
 	body, err := json.Marshal(map[string]any{
 		"model":       upstreamModel,
@@ -162,6 +165,10 @@ func ParseSegmentCandidates(raw string) ([]segmentation.CandidateSegment, error)
 		if candidates[index].Text == "" {
 			return nil, fmt.Errorf("segment candidate %d text is required", index+1)
 		}
+		candidates[index].Speaker = strings.TrimSpace(candidates[index].Speaker)
+		if candidates[index].Speaker == "" {
+			candidates[index].Speaker = "旁白"
+		}
 	}
 	return candidates, nil
 }
@@ -172,10 +179,87 @@ type AssetCandidate struct {
 	Prompt   string `json:"prompt"`
 }
 
+type AssetPlan struct {
+	Assets   []AssetPlanAsset   `json:"assets"`
+	Bindings []AssetPlanBinding `json:"bindings"`
+}
+
+type AssetPlanAsset struct {
+	Key string `json:"key"`
+	AssetCandidate
+}
+
+type AssetPlanBinding struct {
+	SegmentID int64    `json:"segmentId"`
+	SceneMode string   `json:"sceneMode"`
+	AssetKeys []string `json:"assetKeys"`
+}
+
+func ParseAssetPlan(raw string) (AssetPlan, error) {
+	var plan AssetPlan
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &plan); err != nil {
+		return AssetPlan{}, fmt.Errorf("asset plan must be a JSON object: %w", err)
+	}
+	assetsRaw, err := json.Marshal(plan.Assets)
+	if err != nil {
+		return AssetPlan{}, err
+	}
+	assets, err := ParseAssetCandidates(string(assetsRaw))
+	if err != nil {
+		return AssetPlan{}, err
+	}
+	keys := make(map[string]struct{}, len(plan.Assets))
+	for index := range plan.Assets {
+		key := strings.TrimSpace(plan.Assets[index].Key)
+		if key == "" {
+			return AssetPlan{}, fmt.Errorf("asset plan asset %d key is required", index+1)
+		}
+		if _, exists := keys[key]; exists {
+			return AssetPlan{}, fmt.Errorf("asset plan asset key %q is duplicated", key)
+		}
+		keys[key] = struct{}{}
+		plan.Assets[index].Key = key
+		plan.Assets[index].AssetCandidate = assets[index]
+	}
+	seenSegments := make(map[int64]struct{}, len(plan.Bindings))
+	for index := range plan.Bindings {
+		binding := &plan.Bindings[index]
+		if binding.SegmentID < 1 {
+			return AssetPlan{}, fmt.Errorf("asset plan binding %d segmentId is required", index+1)
+		}
+		if _, exists := seenSegments[binding.SegmentID]; exists {
+			return AssetPlan{}, fmt.Errorf("asset plan binding segment %d is duplicated", binding.SegmentID)
+		}
+		seenSegments[binding.SegmentID] = struct{}{}
+		binding.SceneMode = strings.ToLower(strings.TrimSpace(binding.SceneMode))
+		if binding.SceneMode != "" && binding.SceneMode != "start" && binding.SceneMode != "continue" && binding.SceneMode != "switch" {
+			return AssetPlan{}, fmt.Errorf("asset plan binding %d sceneMode is invalid", index+1)
+		}
+		seenKeys := make(map[string]struct{}, len(binding.AssetKeys))
+		for keyIndex, rawKey := range binding.AssetKeys {
+			key := strings.TrimSpace(rawKey)
+			if _, exists := keys[key]; !exists {
+				return AssetPlan{}, fmt.Errorf("asset plan binding %d references unknown asset key %q", index+1, key)
+			}
+			if _, exists := seenKeys[key]; exists {
+				return AssetPlan{}, fmt.Errorf("asset plan binding %d repeats asset key %q", index+1, key)
+			}
+			seenKeys[key] = struct{}{}
+			binding.AssetKeys[keyIndex] = key
+		}
+	}
+	return plan, nil
+}
+
 func ParseAssetCandidates(raw string) ([]AssetCandidate, error) {
 	var candidates []AssetCandidate
-	if err := json.Unmarshal([]byte(raw), &candidates); err != nil {
-		return nil, fmt.Errorf("asset candidates must be a JSON array: %w", err)
+	payload := []byte(strings.TrimSpace(raw))
+	if err := json.Unmarshal(payload, &candidates); err != nil {
+		converted, convertErr := parseFeishuAssetObject(payload)
+		if convertErr != nil {
+			return nil, fmt.Errorf("asset candidates must be a JSON array: %w", err)
+		}
+		candidates = converted
 	}
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("asset candidates cannot be empty")
@@ -192,6 +276,47 @@ func ParseAssetCandidates(raw string) ([]AssetCandidate, error) {
 		default:
 			return nil, fmt.Errorf("asset candidate %d category is invalid", index+1)
 		}
+	}
+	return candidates, nil
+}
+
+func parseFeishuAssetObject(payload []byte) ([]AssetCandidate, error) {
+	var document struct {
+		Characters []struct {
+			Name   string `json:"角色名称"`
+			Prompt string `json:"外观描述"`
+		} `json:"人物设定"`
+		Scenes []struct {
+			Name        string `json:"场景名称"`
+			Summary     string `json:"氛围概述"`
+			Description string `json:"场景描述"`
+		} `json:"场景设定"`
+		Props []struct {
+			Name        string `json:"道具名称"`
+			Summary     string `json:"道具说明"`
+			Description string `json:"道具描述"`
+		} `json:"道具设定"`
+	}
+	if err := json.Unmarshal(payload, &document); err != nil {
+		return nil, err
+	}
+	candidates := make([]AssetCandidate, 0, len(document.Characters)+len(document.Scenes)+len(document.Props))
+	for _, item := range document.Characters {
+		candidates = append(candidates, AssetCandidate{Category: "character", Name: item.Name, Prompt: item.Prompt})
+	}
+	for _, item := range document.Scenes {
+		prompt := strings.TrimSpace(item.Description)
+		if prompt == "" {
+			prompt = item.Summary
+		}
+		candidates = append(candidates, AssetCandidate{Category: "scene", Name: item.Name, Prompt: prompt})
+	}
+	for _, item := range document.Props {
+		prompt := strings.TrimSpace(item.Description)
+		if prompt == "" {
+			prompt = item.Summary
+		}
+		candidates = append(candidates, AssetCandidate{Category: "prop", Name: item.Name, Prompt: prompt})
 	}
 	return candidates, nil
 }

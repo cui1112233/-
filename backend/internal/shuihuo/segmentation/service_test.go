@@ -36,6 +36,13 @@ func TestFixedLineSegments(t *testing.T) {
 	}
 }
 
+func TestParagraphSegmentsKeepsEachNonEmptyParagraph(t *testing.T) {
+	got := ParagraphSegments("第一段第一句\n第一段第二句\n\n  \n第二段\n\n第三段")
+	if len(got) != 3 || got[0].Text != "第一段第一句\n第一段第二句" || got[1].Text != "第二段" || got[2].Text != "第三段" {
+		t.Fatalf("segments=%#v", got)
+	}
+}
+
 func TestGenerationBlockedUntilSegmentsConfirmed(t *testing.T) {
 	project := domain.Project{SegmentationStatus: StatusDraft}
 	if err := EnsureSegmentsConfirmed(project); !errors.Is(err, ErrSegmentsUnconfirmed) {

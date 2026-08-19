@@ -10,6 +10,10 @@ export function listAdminPresets(module) {
   return apiRequest(`${base}/presets?module=${encodeURIComponent(module)}`);
 }
 
+export function listAdminPresetSlots(module) {
+  return apiRequest(`${base}/preset-slots?module=${encodeURIComponent(module)}`);
+}
+
 export function listAdminAccounts() {
   return apiRequest(`${base}/accounts`);
 }

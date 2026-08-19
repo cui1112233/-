@@ -40,7 +40,8 @@ test('draft creation creates immutable consecutive versions without exposing pro
     description: 'Base protocol',
     compatibleBaseIds: [],
     version: 1,
-    status: 'draft'
+    status: 'draft',
+    slot: null
   });
   assert.equal(second.version, 2);
   assert.equal(store.getVersion('novel-base', 1).body, 'SERVER_ONLY_BODY');

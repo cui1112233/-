@@ -1,5 +1,6 @@
 const express = require('express');
 const { apiAuth, requireCapability, requireOwner } = require('../middleware/auth');
+const { slotsForModule } = require('../lib/system-preset-catalog');
 
 function sendStoreError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: 'Not found' });
@@ -136,6 +137,12 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
     } catch (error) {
       sendStoreError(res, error);
     }
+  });
+
+  router.get('/preset-slots', (req, res) => {
+    const module = req.query.module;
+    if (!canManagePreset(req, module)) return res.status(403).json({ error: 'Forbidden' });
+    return res.json({ slots: slotsForModule(module) });
   });
 
   router.get('/presets/:id/:version', (req, res) => {

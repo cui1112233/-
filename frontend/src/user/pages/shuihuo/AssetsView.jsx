@@ -1,81 +1,250 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, Input, Modal, Popconfirm, Select, Tag, message } from 'antd';
-import { analyzeAssets, applyAssetCandidates, createAsset, deleteAsset, listModels, updateAsset } from '../../../shared/api/shuihuoProduction';
+import { analyzeAssetsAndBindings, createAsset, deleteAsset, downloadGeneratedAssetImage, generateAssetImages, getAssetGenerationConfig, listAssetImages, listModels, listShuihuoPresetSlots, saveAssetGenerationConfig, setPrimaryAssetImage, updateAsset, uploadAssetImage } from '../../../shared/api/shuihuoProduction';
 
-const categories = [{ value: 'all', label: '全部' }, { value: 'character', label: '人物' }, { value: 'scene', label: '场景' }, { value: 'prop', label: '道具' }];
+const categories = [{ value: 'all', label: '全部' }, { value: 'character', label: '人物' }, { value: 'scene', label: '场景' }, { value: 'prop', label: '道具' }, { value: 'voice', label: '音色' }];
 const assetCategories = categories.filter(item => item.value !== 'all');
+const presetTabs = [
+  { value: 'character', label: 'AI角色' },
+  { value: 'scene', label: 'AI场景' },
+  { value: 'prop', label: 'AI道具' },
+  { value: 'voice', label: 'AI音色' },
+  { value: 'character-library', label: '角色库' },
+  { value: 'scene-library', label: '场景库' },
+  { value: 'voice-library', label: '音色库' }
+];
 const blankAsset = { category: 'character', name: '', prompt: '', referenceObjectKey: '' };
+const defaultGenerationConfig = { textModelId: null, imageModelId: null, audioModelId: null, promptTemplateId: null, characterPresetId: null, scenePresetId: null, styleId: null, characterSheetPresetId: null, aspectRatio: '16:9', styleReferenceMediaId: null, threeView: false };
+const characterSheetOptions = [
+  { value: 'shuihuo-character-color-sheet', label: '配色图人物设计' },
+  { value: 'shuihuo-character-accessory-sheet', label: '三视图配饰设计' },
+  { value: 'shuihuo-character-three-view', label: '三视图' },
+  { value: 'shuihuo-character-expression-sheet', label: '角色表情多状态' },
+  { value: 'shuihuo-character-single-view', label: '单视图' }
+];
+const ttsVoiceOptions = [
+  { value: 'zh-CN-XiaoxiaoNeural', label: '晓晓（女声·温柔）' },
+  { value: 'zh-CN-XiaochenNeural', label: '晓辰（女声·知性）' },
+  { value: 'zh-CN-YunxiNeural', label: '云希（男声·清朗）' },
+  { value: 'zh-CN-YunyangNeural', label: '云扬（男声·阳光）' },
+  { value: 'zh-CN-XiaoyiNeural', label: '晓伊（女声·甜美）' },
+  { value: 'zh-CN-YunjianNeural', label: '云健（男声·稳重）' }
+];
+const defaultStyles = [
+  { id: 'ancient', name: '古风1', prompt: '中国古风插画，工整构图，细腻人物刻画，柔和光影，统一服饰与场景质感', referenceName: '' },
+  { id: 'comic', name: '赛璐璐风格', prompt: '高清赛璐璐二次元插画，清晰线稿，明快配色，干净背景层次', referenceName: '' },
+  { id: 'suspense', name: '悬疑风格', prompt: '悬疑漫画视觉，强明暗对比，冷色环境光，紧张构图', referenceName: '' },
+  { id: 'ink', name: '国风水墨', prompt: '中国水墨画风，留白构图，墨色层次，宣纸质感', referenceName: '' }
+];
 
 function categoryLabel(category) { return assetCategories.find(item => item.value === category)?.label || '人物'; }
 
-export function selectedAssetCandidates(candidates) {
-  return candidates.filter(item => item.selected && item.name?.trim() && item.prompt?.trim()).map(({ category, name, prompt }) => ({ category, name: name.trim(), prompt: prompt.trim() }));
+function GeneratedAssetPreview({ image }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    downloadGeneratedAssetImage(image.id).then(blob => {
+      if (!active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => { if (active) setUrl(''); });
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [image.id]);
+  return url ? <img src={url} alt="资产生成结果" /> : <span>图片加载失败</span>;
 }
 
-export function AssetsView({ data, onRefresh }) {
+export function AssetsView({ data, onRefresh, embedded = false }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [libraryTab, setLibraryTab] = useState('character');
+  const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState([]);
   const [modelId, setModelId] = useState();
-  const [candidates, setCandidates] = useState([]);
-  const assets = useMemo(() => (data.assets || []).filter(asset => filter === 'all' || asset.category === filter), [data.assets, filter]);
+  const [generationConfig, setGenerationConfig] = useState(defaultGenerationConfig);
+  const [assetPresetOptions, setAssetPresetOptions] = useState([]);
+  const [assetImageFile, setAssetImageFile] = useState(null);
+  const [selectedAssetIDs, setSelectedAssetIDs] = useState([]);
+  const [assetImages, setAssetImages] = useState({});
+  const [styles, setStyles] = useState(defaultStyles);
+  const [selectedStyleId, setSelectedStyleId] = useState('');
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [styleEditor, setStyleEditor] = useState(null);
+  const textModels = useMemo(() => models.filter(model => model.kind === 'text'), [models]);
+  const imageModels = useMemo(() => models.filter(model => model.kind === 'image'), [models]);
+  const audioModels = useMemo(() => models.filter(model => model.kind === 'audio'), [models]);
+  const voiceAssets = useMemo(() => (data.assets || []).filter(asset => asset.category === 'voice'), [data.assets]);
+  const promptAssets = useMemo(() => (data.assets || []).filter(asset => {
+    const categoryMatch = filter === 'all' || asset.category === filter;
+    const text = `${asset.name || ''} ${asset.prompt || ''}`.toLowerCase();
+    return categoryMatch && (!search.trim() || text.includes(search.trim().toLowerCase()));
+  }), [data.assets, filter, search]);
+  const selectedImageAssetCount = selectedAssetIDs.filter(id => (data.assets || []).some(asset => asset.id === id && asset.category !== 'voice')).length;
+  const imageAssets = useMemo(() => (data.assets || []).filter(asset => asset.category === libraryTab && (assetImages[asset.id] || []).length), [assetImages, data.assets, libraryTab]);
+  const libraryImages = useMemo(() => imageAssets.flatMap(asset => (assetImages[asset.id] || []).map(image => ({ ...image, asset }))), [assetImages, imageAssets]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([listModels(), getAssetGenerationConfig(data.project.id), listShuihuoPresetSlots()]).then(([modelResult, config, presetResult]) => {
+      if (!active) return;
+      const nextModels = (modelResult.models || []).filter(model => typeof model?.id === 'number' && model?.name && model?.kind);
+      const nextConfig = { ...defaultGenerationConfig, ...config };
+      setModels(nextModels);
+      setGenerationConfig(nextConfig);
+      setAssetPresetOptions(presetResult.presets || []);
+      if (nextConfig.textModelId && nextModels.some(model => model.id === nextConfig.textModelId && model.kind === 'text')) {
+        setModelId(nextConfig.textModelId);
+      }
+    }).catch(error => message.error(error.message || '读取预设生成配置失败'));
+    return () => { active = false; };
+  }, [data.project.id]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`shuihuo.asset-styles.${data.project.id}`) || 'null');
+      setStyles(Array.isArray(saved) && saved.length ? saved : defaultStyles);
+    } catch { setStyles(defaultStyles); }
+    setSelectedStyleId('');
+  }, [data.project.id]);
+
+  function saveStyles(next) {
+    setStyles(next);
+    localStorage.setItem(`shuihuo.asset-styles.${data.project.id}`, JSON.stringify(next));
+  }
+
+  useEffect(() => {
+    let active = true;
+    const imageAssets = (data.assets || []).filter(asset => asset.category !== 'voice');
+    Promise.all(imageAssets.map(asset => listAssetImages(asset.id).then(result => [asset.id, result.images || []]).catch(() => [asset.id, []]))).then(entries => {
+      if (active) setAssetImages(Object.fromEntries(entries));
+    });
+    return () => { active = false; };
+  }, [data.assets]);
+
+  async function updateGenerationConfig(patch) {
+    const next = { ...generationConfig, ...patch };
+    setGenerationConfig(next);
+    if (patch.textModelId !== undefined) setModelId(patch.textModelId ?? undefined);
+    try {
+      const saved = await saveAssetGenerationConfig(data.project.id, next);
+      setGenerationConfig({ ...defaultGenerationConfig, ...saved });
+    } catch (error) {
+      message.error(error.message || '保存预设生成配置失败');
+    }
+  }
 
   async function save() {
     if (!editing?.name?.trim()) { message.warning('请填写资产名称'); return; }
     setSaving(true);
     try {
       const payload = { ...editing, name: editing.name.trim(), source: 'manual', manuallyEdited: true };
-      if (editing.id) await updateAsset(editing.id, payload); else await createAsset(data.project.id, payload);
-      setOpen(false); setEditing(null); await onRefresh(); message.success('人工资产已保存');
+      if (editing.id) await updateAsset(editing.id, payload);
+      else if (editing.category === 'voice') await createAsset(data.project.id, payload);
+      else {
+        if (!assetImageFile) { message.warning('请上传资产图片'); return; }
+        const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(assetImageFile); });
+        await uploadAssetImage(data.project.id, { ...payload, filename: assetImageFile.name, dataUrl });
+      }
+      setOpen(false); setEditing(null); setAssetImageFile(null); await onRefresh(); message.success('资产已保存');
     } catch (error) { message.error(error.message || '保存资产失败'); } finally { setSaving(false); }
   }
 
   async function remove(asset) { try { await deleteAsset(asset.id); await onRefresh(); message.success('资产已删除'); } catch (error) { message.error(error.message || '删除资产失败'); } }
 
-  async function openAnalysis() {
+  async function generateSelectedAssets() {
+    const assetIds = selectedAssetIDs.filter(id => (data.assets || []).some(asset => asset.id === id && asset.category !== 'voice'));
+    if (!assetIds.length) { message.warning('请先勾选需要生成图片的人物、场景或道具'); return; }
+    if (generationConfig.imageModelId === undefined || generationConfig.imageModelId === null) { message.warning('请先选择图片模型'); return; }
+    setSaving(true);
     try {
-      const result = await listModels();
-      setModels((result.models || []).filter(model => model.kind === 'text'));
-      setCandidates([]);
-      setModelId();
-      setOpen('analysis');
-    } catch (error) { message.error(error.message || '读取文本模型失败'); }
+      const result = await generateAssetImages(data.project.id, {
+        assetIds,
+        modelId: generationConfig.imageModelId,
+        aspectRatio: generationConfig.aspectRatio,
+        stylePrompt: styles.find(style => style.id === selectedStyleId)?.prompt || '',
+        characterSheetPresetId: generationConfig.characterSheetPresetId || ''
+      });
+      message.success(`已提交 ${result.tasks?.length || assetIds.length} 个资产图片任务`);
+      setSelectedAssetIDs([]);
+      await onRefresh();
+    } catch (error) { message.error(error.message || '资产图片任务提交失败'); } finally { setSaving(false); }
+  }
+
+  async function makePrimary(image) {
+    try { await setPrimaryAssetImage(image.id); await onRefresh(); message.success('已设为资产主图'); }
+    catch (error) { message.error(error.message || '设置资产主图失败'); }
   }
 
   async function analyze() {
-    if (!modelId) { message.warning('请选择文本模型'); return; }
+    const selectedModelId = generationConfig.textModelId ?? modelId ?? textModels[0]?.id;
+    if (!selectedModelId) { message.warning('请选择文本模型'); return; }
+    const assetPresetId = generationConfig.assetPresetId || 'shuihuo-extract-assets';
+    if (!assetPresetOptions.some(item => item.id === assetPresetId && item.slot === 'shuihuo.asset.extraction')) {
+      message.error('人物场景、道具提取提示词已失效，请在管理后台发布或重新选择。');
+      return;
+    }
     setSaving(true);
     try {
-      const result = await analyzeAssets(data.project.id, { modelId });
-      setCandidates((result.candidates || []).map((item, index) => ({ ...item, key: `${item.category}-${item.name}-${index}`, selected: true })));
+      await analyzeAssetsAndBindings(data.project.id, { modelId: selectedModelId, assetPresetId });
+      await onRefresh();
+      message.success('智能预设已更新资产并分配到分镜');
     } catch (error) { message.error(error.message || '资产分析失败'); } finally { setSaving(false); }
   }
 
-  function updateCandidate(key, patch) { setCandidates(items => items.map(item => item.key === key ? { ...item, ...patch } : item)); }
+  return <section className={`shuihuo-view${embedded ? ' is-modal' : ''}`}>
+    <div className="shuihuo-preset-toolbar">
+      <Select value={generationConfig.textModelId ?? undefined} onChange={textModelId => updateGenerationConfig({ textModelId: textModelId ?? null })} placeholder={textModels.length ? '选择文本模型' : '没有文本模型'} options={textModels.map(model => ({ value: model.id, label: model.name }))} />
+      <Select value={generationConfig.assetPresetId || 'shuihuo-extract-assets'} onChange={assetPresetId => updateGenerationConfig({ assetPresetId })} placeholder="人物场景、道具提取提示词" options={assetPresetOptions.filter(item => item.slot === 'shuihuo.asset.extraction').map(item => ({ value: item.id, label: item.name }))} />
+      <Button type="primary" loading={saving} onClick={analyze}>智能预设</Button>
+      <Select allowClear value={generationConfig.imageModelId ?? undefined} onChange={imageModelId => updateGenerationConfig({ imageModelId: imageModelId ?? null })} placeholder={imageModels.length ? '选择图片模型' : '没有图片模型'} options={imageModels.map(model => ({ value: model.id, label: model.name }))} />
+      <Select value={generationConfig.aspectRatio} onChange={aspectRatio => updateGenerationConfig({ aspectRatio })} options={[{ value: '16:9', label: '16:9' }, { value: '9:16', label: '9:16' }, { value: '1:1', label: '1:1' }]} />
+      <Button onClick={() => setStyleOpen(true)}>{styles.find(style => style.id === selectedStyleId)?.name || '选择风格'}</Button>
+      {(filter === 'all' || filter === 'character') ? <Select allowClear value={generationConfig.characterSheetPresetId ?? undefined} onChange={characterSheetPresetId => updateGenerationConfig({ characterSheetPresetId: characterSheetPresetId ?? null })} placeholder="人物设定（仅角色）" options={characterSheetOptions} /> : null}
 
-  async function applyCandidates() {
-    const selected = selectedAssetCandidates(candidates);
-    if (!selected.length) { message.warning('请至少选择一项并填写名称、视觉提示词'); return; }
-    setSaving(true);
-    try {
-      await applyAssetCandidates(data.project.id, selected);
-      setCandidates(items => items.filter(item => !item.selected));
-      await onRefresh();
-      message.success(`已采纳 ${selected.length} 项资产，可回到分镜绑定使用`);
-    } catch (error) { message.error(error.message || '采纳资产候选失败'); } finally { setSaving(false); }
-  }
-
-  return <section className="shuihuo-view">
-    <div className="shuihuo-page-heading"><div><h2>人物场景预设</h2><p>先点击“分析候选”，审阅后采纳人物、场景和道具；再回到分镜为每段绑定资产。</p></div><div className="shuihuo-actions"><Button onClick={openAnalysis}>分析候选</Button><Button type="primary" onClick={() => { setEditing({ ...blankAsset }); setOpen(true); }}>添加资产</Button></div></div>
-    <div className="shuihuo-asset-tabs">{categories.map(item => <button type="button" className={filter === item.value ? 'active' : ''} onClick={() => setFilter(item.value)} key={item.value}>{item.label}</button>)}</div>
-    <div className="shuihuo-asset-grid">{assets.map(asset => <article className="shuihuo-asset-card" key={asset.id}><div className={`shuihuo-asset-visual is-${asset.category || 'character'}`}><span>{asset.name}</span><b>{asset.manuallyEdited ? '人工' : 'AI 候选'}</b></div><div className="shuihuo-asset-card-title"><strong>{asset.name}</strong><Tag>{categoryLabel(asset.category)}</Tag></div><p>{asset.prompt || '尚未填写视觉提示词'}</p><div className="shuihuo-asset-card-actions"><Button type="text" size="small" onClick={() => { setEditing({ ...asset }); setOpen(true); }}>编辑</Button><Popconfirm title="删除资产后会同时解除其分段绑定。" onConfirm={() => remove(asset)}><Button type="text" danger size="small">删除</Button></Popconfirm></div></article>)}{!assets.length ? <div className="shuihuo-empty"><b>+</b><p>{filter === 'all' ? '尚未添加人物、场景或道具' : `尚未添加${categoryLabel(filter)}`}</p><Button onClick={() => { setEditing({ ...blankAsset, category: filter === 'all' ? 'character' : filter }); setOpen(true); }}>添加资产</Button></div> : null}</div>
-    <Modal title={editing?.id ? '编辑人工资产' : '添加人工资产'} open={open === true} onCancel={() => { setOpen(false); setEditing(null); }} onOk={save} okText="保存人工资产" confirmLoading={saving}><label className="shuihuo-form-label">类型</label><Select value={editing?.category} onChange={category => setEditing(item => ({ ...item, category }))} options={assetCategories} /><label className="shuihuo-form-label">名称</label><Input value={editing?.name} onChange={event => setEditing(item => ({ ...item, name: event.target.value }))} /><label className="shuihuo-form-label">视觉提示词</label><Input.TextArea rows={5} value={editing?.prompt} onChange={event => setEditing(item => ({ ...item, prompt: event.target.value }))} /></Modal>
-    <Modal title="AI 资产分析候选" open={open === 'analysis'} onCancel={() => setOpen(false)} width={820} footer={candidates.length ? <><Button onClick={() => setCandidates(items => items.map(item => ({ ...item, selected: true })))}>全选</Button><Button onClick={() => setCandidates(items => items.map(item => ({ ...item, selected: false })))}>取消全选</Button><Button type="primary" loading={saving} onClick={applyCandidates}>采纳已选</Button></> : <Button onClick={() => setOpen(false)}>关闭</Button>}>
-      <p className="shuihuo-modal-note">第 3 步：选择文本模型生成候选。AI 不会自动写入项目；请检查并采纳需要的人物、场景或道具。</p>
-      <div className="shuihuo-analysis-controls"><Select value={modelId} onChange={setModelId} placeholder="选择文本模型" options={models.map(model => ({ value: model.id, label: model.name }))} /><Button type="primary" loading={saving} onClick={analyze}>生成候选</Button></div>
-      {candidates.length ? <div className="shuihuo-candidate-list">{candidates.map(item => <article className="shuihuo-candidate-card" key={item.key}><Checkbox checked={item.selected} onChange={event => updateCandidate(item.key, { selected: event.target.checked })}>采纳此候选</Checkbox><Select value={item.category} onChange={category => updateCandidate(item.key, { category })} options={assetCategories} /><Input value={item.name} onChange={event => updateCandidate(item.key, { name: event.target.value })} placeholder="名称" /><Input.TextArea rows={3} value={item.prompt} onChange={event => updateCandidate(item.key, { prompt: event.target.value })} placeholder="视觉提示词" /></article>)}</div> : <div className="shuihuo-empty"><p>选择模型并点击“生成候选”，这里会显示可编辑的人物、场景与道具。</p></div>}
+      <Button type="primary" loading={saving} disabled={!selectedImageAssetCount} title={selectedImageAssetCount ? `提交 ${selectedImageAssetCount} 个资产图片任务` : '请先在左侧勾选人物、场景或道具'} onClick={generateSelectedAssets}>AI生成（已选 {selectedImageAssetCount}）</Button>
+      <Button onClick={() => { setEditing({ ...blankAsset, category: filter === 'all' ? 'character' : filter }); setOpen(true); }}>手动添加</Button>
+      <Button onClick={() => { setEditing({ ...blankAsset, category: 'voice' }); setOpen(true); }}>添加音色</Button>
+      <Select allowClear value={generationConfig.audioModelId ?? undefined} onChange={audioModelId => updateGenerationConfig({ audioModelId: audioModelId ?? null })} placeholder={audioModels.length ? '选择音频模型' : '没有音频模型'} options={audioModels.map(model => ({ value: model.id, label: model.name }))} />
+    </div>
+    <div className="shuihuo-preset-layout">
+      <aside className="shuihuo-preset-list">
+        <div className="shuihuo-preset-list-head"><strong>预设列表 ({promptAssets.length})</strong><Select size="small" value={filter} onChange={setFilter} options={categories} /><Button type="text" danger size="small" onClick={() => setSearch('')}>清空</Button></div>
+        <div className="shuihuo-prompt-list">
+          {promptAssets.map(asset => {
+            const selected = selectedAssetIDs.includes(asset.id);
+            return <article className={`shuihuo-prompt-row${selected ? ' is-selected' : ''}`} key={asset.id}>
+              <div className="shuihuo-prompt-row-head">
+                {asset.category !== 'voice' ? <Checkbox checked={selected} onChange={event => setSelectedAssetIDs(ids => event.target.checked ? [...new Set([...ids, asset.id])] : ids.filter(id => id !== asset.id))}>生成</Checkbox> : null}
+                <Tag>{categoryLabel(asset.category)}</Tag><strong>{asset.name}</strong>
+                <Button type="text" size="small" onClick={() => { setEditing({ ...asset }); setOpen(true); }}>编辑</Button>
+                <Popconfirm title="删除资产后会同时解除其分段绑定。" onConfirm={() => remove(asset)}><Button type="text" danger size="small">删除</Button></Popconfirm>
+              </div>
+              <p>{asset.prompt || '尚未填写视觉提示词'}</p>
+            </article>;
+          })}
+          {!promptAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>暂无提示词，请点击“智能预设”或手动添加</p><Button onClick={() => { setEditing({ ...blankAsset, category: filter === 'all' ? 'character' : filter }); setOpen(true); }}>添加提示词</Button></div> : null}
+        </div>
+      </aside>
+      <main className="shuihuo-preset-library">
+        <div className="shuihuo-asset-tabs">{presetTabs.map(item => <button type="button" className={libraryTab === item.value ? 'active' : ''} onClick={() => setLibraryTab(item.value)} key={item.value}>{item.label}</button>)}</div>
+        <Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder={`搜索${categoryLabel(libraryTab)}图片...`} className="shuihuo-preset-search" allowClear />
+        <div className="shuihuo-image-library-grid">{libraryImages.map(item => <article className="shuihuo-image-card" key={item.id} onClick={() => { setEditing({ ...item.asset }); setOpen(true); }} role="button" tabIndex={0}>
+          <div className="shuihuo-image-card-visual"><GeneratedAssetPreview image={item} /></div>
+          <div className="shuihuo-image-card-title"><strong>{item.asset.name}</strong><Tag>{categoryLabel(item.asset.category)}</Tag></div>
+          <p>{item.assetPromptSnapshot || item.asset.prompt || '生成时未保存提示词快照'}</p>
+          <div className="shuihuo-image-card-actions"><Button type="text" size="small" onClick={event => { event.stopPropagation(); makePrimary(item); }}>设主图</Button><span>点击编辑</span></div>
+        </article>)}{!libraryImages.length ? <div className="shuihuo-image-empty"><b>图片库</b><p>暂无已生成图片</p><span>在左侧勾选人物、场景或道具后，点击顶部“AI生成”</span></div> : null}</div>
+      </main>
+    </div>
+    <Modal title={editing?.id ? '编辑资产' : '添加资产'} open={open === true} width={810} className="shuihuo-asset-editor-modal" onCancel={() => { setOpen(false); setEditing(null); setAssetImageFile(null); }} footer={<div className="shuihuo-asset-editor-footer"><div className="shuihuo-asset-binding-source"><span>绑定资产</span><Button className={editing?.category === 'character' ? 'active' : ''} onClick={() => setEditing(item => ({ ...item, category: 'character' }))}>角色库</Button><Button className={editing?.category === 'scene' ? 'active' : ''} onClick={() => setEditing(item => ({ ...item, category: 'scene' }))}>场景库</Button><Button className={editing?.category === 'prop' ? 'active' : ''} onClick={() => setEditing(item => ({ ...item, category: 'prop' }))}>道具库</Button><Button className={editing?.category === 'voice' ? 'active' : ''} onClick={() => setEditing(item => ({ ...item, category: 'voice' }))}>音色库</Button></div><div><Button onClick={() => { setOpen(false); setEditing(null); setAssetImageFile(null); }}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存</Button></div></div>}><div className="shuihuo-asset-editor"><div className="shuihuo-asset-editor-fields"><label>资产分类<Select value={editing?.category} onChange={category => setEditing(item => ({ ...item, category, voiceAssetId: category === 'character' ? item.voiceAssetId : null }))} options={assetCategories} /></label><label>名称<Input value={editing?.name} onChange={event => setEditing(item => ({ ...item, name: event.target.value }))} /></label>{editing?.category === 'voice' ? <label>配音工具音色<Select value={editing?.prompt || undefined} placeholder="选择可直接调用的音色" options={ttsVoiceOptions} onChange={prompt => setEditing(item => ({ ...item, prompt }))} /></label> : <label>外观描述 / AI 生图提示词<Input.TextArea rows={11} value={editing?.prompt} onChange={event => setEditing(item => ({ ...item, prompt: event.target.value }))} placeholder="输入人物、场景或道具的可视化提示词" /></label>}{editing?.category === 'character' ? <label>角色声音<Select allowClear value={editing?.voiceAssetId ?? undefined} placeholder={voiceAssets.length ? '选择该角色的配音音色' : '请先创建音色预设'} options={voiceAssets.map(asset => ({ value: asset.id, label: asset.name }))} onChange={voiceAssetId => setEditing(item => ({ ...item, voiceAssetId: voiceAssetId ?? null }))} /></label> : null}</div>{editing?.category !== 'voice' ? <label className="shuihuo-asset-image-drop"><Input type="file" accept="image/*" onChange={event => setAssetImageFile(event.target.files?.[0] || null)} /><span>☁</span><b>{assetImageFile ? assetImageFile.name : '点击上传或拖放图片'}</b></label> : <div className="shuihuo-asset-image-drop is-voice"><span>♪</span><b>可绑定给角色的音色</b></div>}</div></Modal>
+    <Modal title="选择风格" open={styleOpen} width={620} onCancel={() => setStyleOpen(false)} footer={null}>
+      <div className="shuihuo-style-grid">{styles.map(style => <button type="button" className={`shuihuo-style-card${selectedStyleId === style.id ? ' is-active' : ''}`} key={style.id} onClick={() => { setSelectedStyleId(style.id); setStyleOpen(false); }}><span className={`shuihuo-style-swatch is-${style.id}`}>{style.referenceName || style.name.slice(0, 2)}</span><b>{style.name}</b><i onClick={event => { event.stopPropagation(); setStyleEditor({ ...style }); }}>编辑</i></button>)}</div>
+      <Button block onClick={() => setStyleEditor({ id: `style-${Date.now()}`, name: '', prompt: '', referenceName: '' })}>添加风格</Button>
+    </Modal>
+    <Modal title="编辑风格" open={!!styleEditor} onCancel={() => setStyleEditor(null)} onOk={() => { if (!styleEditor?.name?.trim() || !styleEditor?.prompt?.trim()) { message.warning('请填写风格名称和风格提示词'); return; } const exists = styles.some(item => item.id === styleEditor.id); saveStyles(exists ? styles.map(item => item.id === styleEditor.id ? styleEditor : item) : [...styles, styleEditor]); setStyleEditor(null); }} okText="保存修改" cancelText="取消">
+      <label className="shuihuo-style-field">风格名称<Input value={styleEditor?.name || ''} onChange={event => setStyleEditor(item => ({ ...item, name: event.target.value }))} /></label><label className="shuihuo-style-field">风格提示词<Input.TextArea rows={5} value={styleEditor?.prompt || ''} onChange={event => setStyleEditor(item => ({ ...item, prompt: event.target.value }))} /></label><label className="shuihuo-style-field">参考图片（可选）<Input type="file" accept="image/*" onChange={event => setStyleEditor(item => ({ ...item, referenceName: event.target.files?.[0]?.name || '' }))} />{styleEditor?.referenceName ? <span>{styleEditor.referenceName}</span> : null}</label>
     </Modal>
   </section>;
 }

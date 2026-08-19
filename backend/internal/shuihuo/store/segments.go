@@ -3,88 +3,38 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
+
+var ErrMappedSegmentStructureChange = errors.New("mapped storyboard source text and order are immutable")
 
 type Segments struct{ db *sql.DB }
 
 func NewSegments(db *sql.DB) *Segments { return &Segments{db: db} }
 
 func (s *Segments) Create(ctx context.Context, ownerID, projectID int64, segment domain.Segment) (domain.Segment, error) {
-	result, err := s.db.ExecContext(ctx, `
-	INSERT INTO shuihuo_segments(project_id, source_text, subtitle_text, order_index, confirmed, manually_edited, image_prompt, video_prompt, image_prompt_locked, video_prompt_locked)
-	SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?
-	FROM shuihuo_projects
-	WHERE id = ? AND user_id = ?
-	`, segment.SourceText, segment.SubtitleText, segment.OrderIndex, segment.Confirmed, segment.ManuallyEdited, segment.ImagePrompt, segment.VideoPrompt, segment.ImagePromptLocked, segment.VideoPromptLocked, projectID, ownerID)
-	if err != nil {
-		return domain.Segment{}, err
-	}
-	if err := requireAffected(result); err != nil {
-		return domain.Segment{}, err
-	}
-	segment.ID, err = result.LastInsertId()
-	if err != nil {
-		return domain.Segment{}, err
-	}
-	segment.ProjectID = projectID
-	return segment, nil
+	return NewSourceUnits(s.db).CreateManualSegment(ctx, ownerID, projectID, segment)
 }
 
 func (s *Segments) ReplaceConfirmed(ctx context.Context, ownerID, projectID int64, candidates []domain.Segment) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `
-UPDATE shuihuo_projects
-SET segmentation_status = 'candidate'
-WHERE id = ? AND user_id = ?
-`, projectID, ownerID)
-	if err != nil {
-		return err
-	}
-	if err := requireAffected(result); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE s FROM shuihuo_segments s JOIN shuihuo_projects p ON p.id = s.project_id WHERE s.project_id = ? AND p.user_id = ?`, projectID, ownerID); err != nil {
-		return err
-	}
-	for index, candidate := range candidates {
-		if candidate.SourceText == "" {
-			return fmt.Errorf("segment %d source text is required", index+1)
-		}
-		if _, err := tx.ExecContext(ctx, `
-INSERT INTO shuihuo_segments(project_id, source_text, subtitle_text, order_index, confirmed, manually_edited, image_prompt, video_prompt, image_prompt_locked, video_prompt_locked)
-VALUES(?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?)
-`, projectID, candidate.SourceText, candidate.SubtitleText, index+1, candidate.ManuallyEdited, candidate.ImagePrompt, candidate.VideoPrompt, candidate.ImagePromptLocked, candidate.VideoPromptLocked); err != nil {
-			return err
-		}
-	}
-	result, err = tx.ExecContext(ctx, `UPDATE shuihuo_projects SET segmentation_status = 'confirmed', segmentation_version = segmentation_version + 1 WHERE id = ? AND user_id = ?`, projectID, ownerID)
-	if err != nil {
-		return err
-	}
-	if err := requireAffected(result); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return NewSourceUnits(s.db).ReplaceConfirmedFromCandidates(ctx, ownerID, projectID, candidates)
 }
 
 func (s *Segments) GetSegment(ctx context.Context, ownerID, segmentID int64) (domain.Segment, error) {
 	var segment domain.Segment
 	err := s.db.QueryRowContext(ctx, `
-	SELECT s.id, s.project_id, s.source_text, s.subtitle_text, s.order_index, s.confirmed, s.manually_edited,
-       s.image_prompt, s.video_prompt, s.image_prompt_locked, s.video_prompt_locked
+	SELECT s.id, s.project_id, s.source_text, s.subtitle_text, s.speaker, s.order_index, s.confirmed, s.manually_edited,
+       s.image_prompt, s.video_prompt, s.negative_prompt, s.image_prompt_locked, s.video_prompt_locked, s.negative_prompt_locked
 FROM shuihuo_segments s
 JOIN shuihuo_projects p ON p.id = s.project_id
 WHERE s.id = ? AND p.user_id = ?
 `, segmentID, ownerID).Scan(
-		&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited,
-		&segment.ImagePrompt, &segment.VideoPrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked,
+		&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.Speaker, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited,
+		&segment.ImagePrompt, &segment.VideoPrompt, &segment.NegativePrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked, &segment.NegativePromptLocked,
 	)
 	return segment, err
 }
@@ -92,17 +42,17 @@ WHERE s.id = ? AND p.user_id = ?
 func (s *Segments) GetForWorker(ctx context.Context, projectID, segmentID int64) (domain.Segment, error) {
 	var segment domain.Segment
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, project_id, source_text, subtitle_text, order_index, confirmed, manually_edited, image_prompt, video_prompt, image_prompt_locked, video_prompt_locked
+SELECT id, project_id, source_text, subtitle_text, speaker, order_index, confirmed, manually_edited, image_prompt, video_prompt, negative_prompt, image_prompt_locked, video_prompt_locked, negative_prompt_locked
 FROM shuihuo_segments
 WHERE id = ? AND project_id = ?
-`, segmentID, projectID).Scan(&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited, &segment.ImagePrompt, &segment.VideoPrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked)
+`, segmentID, projectID).Scan(&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.Speaker, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited, &segment.ImagePrompt, &segment.VideoPrompt, &segment.NegativePrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked, &segment.NegativePromptLocked)
 	return segment, err
 }
 
 func (s *Segments) ListByProject(ctx context.Context, ownerID, projectID int64) ([]domain.Segment, error) {
 	rows, err := s.db.QueryContext(ctx, `
-	SELECT s.id, s.project_id, s.source_text, s.subtitle_text, s.order_index, s.confirmed, s.manually_edited,
-       s.image_prompt, s.video_prompt, s.image_prompt_locked, s.video_prompt_locked
+	SELECT s.id, s.project_id, s.source_text, s.subtitle_text, s.speaker, s.order_index, s.confirmed, s.manually_edited,
+       s.image_prompt, s.video_prompt, s.negative_prompt, s.image_prompt_locked, s.video_prompt_locked, s.negative_prompt_locked
 FROM shuihuo_segments s
 JOIN shuihuo_projects p ON p.id = s.project_id
 WHERE s.project_id = ? AND p.user_id = ?
@@ -116,7 +66,7 @@ ORDER BY s.order_index ASC, s.id ASC
 	segments := make([]domain.Segment, 0)
 	for rows.Next() {
 		var segment domain.Segment
-		if err := rows.Scan(&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited, &segment.ImagePrompt, &segment.VideoPrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked); err != nil {
+		if err := rows.Scan(&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.Speaker, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited, &segment.ImagePrompt, &segment.VideoPrompt, &segment.NegativePrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked, &segment.NegativePromptLocked); err != nil {
 			return nil, err
 		}
 		segments = append(segments, segment)
@@ -125,26 +75,54 @@ ORDER BY s.order_index ASC, s.id ASC
 }
 
 func (s *Segments) Update(ctx context.Context, ownerID int64, segment domain.Segment) error {
-	result, err := s.db.ExecContext(ctx, `
-UPDATE shuihuo_segments s
-JOIN shuihuo_projects p ON p.id = s.project_id
-	SET s.source_text = ?, s.subtitle_text = ?, s.order_index = ?, s.confirmed = ?, s.manually_edited = ?,
-    s.image_prompt = ?, s.video_prompt = ?, s.image_prompt_locked = ?, s.video_prompt_locked = ?
-WHERE s.id = ? AND p.user_id = ?
-	`, segment.SourceText, segment.SubtitleText, segment.OrderIndex, segment.Confirmed, segment.ManuallyEdited, segment.ImagePrompt, segment.VideoPrompt, segment.ImagePromptLocked, segment.VideoPromptLocked, segment.ID, ownerID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return requireAffected(result)
+	defer tx.Rollback()
+	projectID, err := lockOwnedProjectForSegment(ctx, tx, ownerID, segment.ID)
+	if err != nil {
+		return err
+	}
+	current, err := segmentForProject(ctx, tx, segment.ID, projectID)
+	if err != nil {
+		return err
+	}
+	var mappingCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM shuihuo_segment_source_units WHERE segment_id = ?`, segment.ID).Scan(&mappingCount); err != nil {
+		return err
+	}
+	structuralChange := segment.SourceText != current.SourceText || segment.OrderIndex != current.OrderIndex
+	if structuralChange {
+		if err := requireNoActiveTasks(ctx, sourceUnitTxAdapter{tx: tx}, projectID); err != nil {
+			return err
+		}
+	}
+	if mappingCount > 0 && structuralChange {
+		return ErrMappedSegmentStructureChange
+	}
+	result, err := tx.ExecContext(ctx, `
+UPDATE shuihuo_segments
+SET source_text = ?, subtitle_text = ?, speaker = ?, order_index = ?, confirmed = ?, manually_edited = ?,
+    image_prompt = ?, video_prompt = ?, negative_prompt = ?, image_prompt_locked = ?, video_prompt_locked = ?, negative_prompt_locked = ?
+WHERE id = ? AND project_id = ?
+`, segment.SourceText, segment.SubtitleText, normalizeSpeaker(segment.Speaker), segment.OrderIndex, segment.Confirmed, segment.ManuallyEdited, segment.ImagePrompt, segment.VideoPrompt, segment.NegativePrompt, segment.ImagePromptLocked, segment.VideoPromptLocked, segment.NegativePromptLocked, segment.ID, projectID)
+	if err != nil {
+		return err
+	}
+	if err := requireAffected(result); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-func (s *Segments) UpdatePrompts(ctx context.Context, ownerID, segmentID int64, imagePrompt, videoPrompt string, imageLocked, videoLocked bool) error {
+func (s *Segments) UpdatePrompts(ctx context.Context, ownerID, segmentID int64, imagePrompt, videoPrompt, negativePrompt string, imageLocked, videoLocked, negativeLocked bool) error {
 	result, err := s.db.ExecContext(ctx, `
 UPDATE shuihuo_segments s
 JOIN shuihuo_projects p ON p.id = s.project_id
-SET s.image_prompt = ?, s.video_prompt = ?, s.image_prompt_locked = ?, s.video_prompt_locked = ?
+SET s.image_prompt = ?, s.video_prompt = ?, s.negative_prompt = ?, s.image_prompt_locked = ?, s.video_prompt_locked = ?, s.negative_prompt_locked = ?
 WHERE s.id = ? AND p.user_id = ?
-`, imagePrompt, videoPrompt, imageLocked, videoLocked, segmentID, ownerID)
+`, imagePrompt, videoPrompt, negativePrompt, imageLocked, videoLocked, negativeLocked, segmentID, ownerID)
 	if err != nil {
 		return err
 	}
@@ -157,13 +135,11 @@ func (s *Segments) Delete(ctx context.Context, ownerID, segmentID int64) error {
 		return err
 	}
 	defer tx.Rollback()
-	var projectID int64
-	if err := tx.QueryRowContext(ctx, `
-SELECT s.project_id
-FROM shuihuo_segments s
-JOIN shuihuo_projects p ON p.id = s.project_id
-WHERE s.id = ? AND p.user_id = ?
-`, segmentID, ownerID).Scan(&projectID); err != nil {
+	projectID, err := lockOwnedProjectForSegment(ctx, tx, ownerID, segmentID)
+	if err != nil {
+		return err
+	}
+	if err := requireNoActiveTasks(ctx, sourceUnitTxAdapter{tx: tx}, projectID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM shuihuo_segments WHERE id = ?`, segmentID); err != nil {
@@ -184,17 +160,53 @@ func (s *Segments) Reorder(ctx context.Context, ownerID, projectID int64, ids []
 		return err
 	}
 	defer tx.Rollback()
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM shuihuo_projects WHERE id = ? AND user_id = ?`, projectID, ownerID).Scan(&count); err != nil {
+	if err := lockOwnedProjectByID(ctx, tx, ownerID, projectID); err != nil {
 		return err
 	}
-	if count == 0 {
-		return sql.ErrNoRows
+	if err := requireNoActiveTasks(ctx, sourceUnitTxAdapter{tx: tx}, projectID); err != nil {
+		return err
 	}
 	if err := s.reorder(ctx, tx, projectID, ids); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func lockOwnedProjectByID(ctx context.Context, tx *sql.Tx, ownerID, projectID int64) error {
+	var id int64
+	return tx.QueryRowContext(ctx, `SELECT id FROM shuihuo_projects WHERE id = ? AND user_id = ? FOR UPDATE`, projectID, ownerID).Scan(&id)
+}
+
+func lockOwnedProjectForSegment(ctx context.Context, tx *sql.Tx, ownerID, segmentID int64) (int64, error) {
+	var projectID int64
+	err := tx.QueryRowContext(ctx, `
+SELECT p.id
+FROM shuihuo_projects p
+JOIN shuihuo_segments s ON s.project_id = p.id
+WHERE s.id = ? AND p.user_id = ?
+FOR UPDATE`, segmentID, ownerID).Scan(&projectID)
+	return projectID, err
+}
+
+func segmentForProject(ctx context.Context, tx *sql.Tx, segmentID, projectID int64) (domain.Segment, error) {
+	var segment domain.Segment
+	err := tx.QueryRowContext(ctx, `
+SELECT id, project_id, source_text, subtitle_text, speaker, order_index, confirmed, manually_edited,
+       image_prompt, video_prompt, negative_prompt, image_prompt_locked, video_prompt_locked, negative_prompt_locked
+FROM shuihuo_segments
+WHERE id = ? AND project_id = ?`, segmentID, projectID).Scan(
+		&segment.ID, &segment.ProjectID, &segment.SourceText, &segment.SubtitleText, &segment.Speaker, &segment.OrderIndex, &segment.Confirmed, &segment.ManuallyEdited,
+		&segment.ImagePrompt, &segment.VideoPrompt, &segment.NegativePrompt, &segment.ImagePromptLocked, &segment.VideoPromptLocked, &segment.NegativePromptLocked,
+	)
+	return segment, err
+}
+
+func normalizeSpeaker(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "旁白"
+	}
+	return value
 }
 
 func (s *Segments) reorder(ctx context.Context, tx *sql.Tx, projectID int64, ids []int64) error {

@@ -15,6 +15,7 @@ function serializeReason(reason) {
 }
 
 export function reportClientError({ kind = 'error', message, stack, source, method, status } = {}) {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   const payload = JSON.stringify({
     kind: clean(kind),
     message: clean(message),

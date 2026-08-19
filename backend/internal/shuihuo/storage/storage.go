@@ -30,12 +30,15 @@ type ObjectStorage interface {
 }
 
 var allowedCategories = map[string]struct{}{
-	"source":  {},
-	"images":  {},
-	"videos":  {},
-	"audio":   {},
-	"exports": {},
+	"source":       {},
+	"images":       {},
+	"videos":       {},
+	"audio":        {},
+	"exports":      {},
+	"asset-images": {},
 }
+
+const maxObjectKeyLength = 768
 
 func ObjectKey(userID, projectID int64, category, filename string) (string, error) {
 	if userID < 1 || projectID < 1 {
@@ -51,6 +54,9 @@ func ObjectKey(userID, projectID int64, category, filename string) (string, erro
 }
 
 func validObjectKey(key string) bool {
+	if len(key) > maxObjectKeyLength {
+		return false
+	}
 	parts := strings.Split(key, "/")
 	if len(parts) != 5 || parts[0] != "shuihuo-production" {
 		return false
@@ -70,8 +76,21 @@ func isPositiveID(value string) bool {
 }
 
 func isSafeFilename(filename string) bool {
+	if filename != strings.TrimSpace(filename) {
+		return false
+	}
 	if filename == "" || filename == "." || filename == ".." {
 		return false
 	}
+	for _, character := range filename {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
 	return path.Base(filename) == filename && !strings.Contains(filename, "\\")
 }
+
+// ValidObjectKey verifies keys before they are persisted for deferred cleanup.
+// Object adapters already enforce this at their boundary, but a durable queue
+// must not retain arbitrary paths that an administrator could later execute.
+func ValidObjectKey(key string) bool { return validObjectKey(key) }

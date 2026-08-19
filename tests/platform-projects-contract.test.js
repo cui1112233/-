@@ -26,6 +26,7 @@ test('home and history use the shared platform project index', () => {
   const history = read('frontend/src/user/pages/HistoryPage.jsx');
 
   assert.match(home, /listPlatformProjects/);
+  assert.match(home, /listPlatformProjects\(6, \{ silent: true \}\)/);
   assert.match(home, /\/history\?entry=/);
   assert.match(history, /listPlatformProjects/);
   assert.match(history, /entry\.kind === 'script-history'/);

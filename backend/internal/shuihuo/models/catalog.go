@@ -16,10 +16,11 @@ const (
 	KindVideo Kind = "video"
 	KindAudio Kind = "audio"
 
-	AdapterTextCompletion   = "text_completion"
-	AdapterJimengImage      = "jimeng_image"
-	AdapterViduImageToVideo = "vidu_image_to_video"
-	AdapterGenericHTTP      = "generic_http"
+	AdapterTextCompletion               = "text_completion"
+	AdapterJimengImage                  = "jimeng_image"
+	AdapterAccountOpenAICompatibleImage = "account_openai_compatible_image"
+	AdapterViduImageToVideo             = "vidu_image_to_video"
+	AdapterGenericHTTP                  = "generic_http"
 )
 
 type Definition struct {
@@ -128,6 +129,26 @@ func (model Definition) ProviderConfigured() bool {
 	return strings.TrimSpace(model.Endpoint) != "" && strings.TrimSpace(model.RequestTemplate) != "" && strings.TrimSpace(model.ResponseMapping) != ""
 }
 
+// SupportsReferenceImages reports whether the server-side adapter can receive
+// the exact set of asset images snapshotted for a storyboard image task.
+// Generic models opt in only through an explicit typed template placeholder;
+// the fixed provider adapters are prompt-only and must not silently discard
+// reference images.
+func (model Definition) SupportsReferenceImages() bool {
+	if model.AdapterKind != AdapterGenericHTTP {
+		return false
+	}
+	return strings.Contains(model.RequestTemplate, "{{reference_image_urls}}") ||
+		strings.Contains(model.RequestTemplate, "{{reference_image_url}}")
+}
+
+// RequiresVideoImage identifies the fixed image-to-video adapter. Generic
+// video models may be configured as text-to-video and therefore receive an
+// empty ImageURL when the storyboard segment has no generated image.
+func (model Definition) RequiresVideoImage() bool {
+	return model.Kind == KindVideo && model.AdapterKind == AdapterViduImageToVideo
+}
+
 func (model Definition) AvailableTo(role string, persistedReference bool) bool {
 	if !model.Enabled || (model.Hidden && !persistedReference) {
 		return false
@@ -190,8 +211,9 @@ func ValidateModelID(value string) error {
 }
 
 var adapterKinds = map[string]Kind{
-	AdapterTextCompletion:   KindText,
-	AdapterJimengImage:      KindImage,
-	AdapterViduImageToVideo: KindVideo,
-	AdapterGenericHTTP:      "",
+	AdapterTextCompletion:               KindText,
+	AdapterJimengImage:                  KindImage,
+	AdapterAccountOpenAICompatibleImage: KindImage,
+	AdapterViduImageToVideo:             KindVideo,
+	AdapterGenericHTTP:                  "",
 }

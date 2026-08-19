@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -79,6 +80,17 @@ func (a workerAdapter) Submit(context.Context, models.Definition, models.Request
 	return a.response, a.err
 }
 
+type recordingWorkerAdapter struct {
+	request  models.Request
+	model    models.Definition
+	response models.Response
+}
+
+func (a *recordingWorkerAdapter) Submit(_ context.Context, model models.Definition, request models.Request) (models.Response, error) {
+	a.model, a.request = model, request
+	return a.response, nil
+}
+
 func TestWorkerMarksImmediateImageTaskSucceededAfterPersistingMedia(t *testing.T) {
 	taskRepo := &workerTaskRepo{task: domain.Task{ID: 8, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "image", Status: domain.TaskQueued, ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"雨夜车站"}`}}
 	objects := &workerObjects{}
@@ -108,6 +120,101 @@ func TestWorkerMarksImmediateImageTaskSucceededAfterPersistingMedia(t *testing.T
 	}
 	if taskRepo.output == "" {
 		t.Fatal("task output was not recorded")
+	}
+}
+
+func TestWorkerExecutesAccountImageTaskForTaskOwner(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 18, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "image", Status: domain.TaskQueued,
+		Provider: models.AdapterAccountOpenAICompatibleImage,
+		Input:    `{"prompt":"雨夜车站","model":"image-model","provider":"account_openai_compatible_image"}`,
+	}}
+	adapter := &recordingWorkerAdapter{response: models.Response{ResultURL: "https://cdn.example/image.png"}}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{}, Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media: &memoryMediaRepo{}, Objects: &workerObjects{}, Adapter: adapter,
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("png"), "image/png", nil },
+	}
+
+	if err := worker.Process(context.Background(), 18); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if adapter.request.OwnerID != 17 || adapter.model.AdapterKind != models.AdapterAccountOpenAICompatibleImage {
+		t.Fatalf("adapter request/model = %#v / %#v", adapter.request, adapter.model)
+	}
+	if taskRepo.task.Status != domain.TaskSucceeded {
+		t.Fatalf("status = %s", taskRepo.task.Status)
+	}
+}
+
+func TestWorkerPassesSnapshottedSegmentAssetReferencesToImageModel(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 19, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "image", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4),
+		Input: `{"prompt":"雨夜车站","referenceObjectKeys":["shuihuo-production/17/3/asset-images/hero.png","shuihuo-production/17/3/asset-images/station.png"]}`,
+	}}
+	adapter := &recordingWorkerAdapter{response: models.Response{ResultURL: "https://cdn.example/image.png"}}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindImage, AdapterKind: models.AdapterGenericHTTP}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media:    &memoryMediaRepo{}, Objects: &workerObjects{}, Adapter: adapter,
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("png"), "image/png", nil },
+	}
+
+	if err := worker.Process(context.Background(), 19); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if got, want := adapter.request.ReferenceImageURLs, []string{
+		"https://storage.example.com/image.png",
+		"https://storage.example.com/image.png",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reference image URLs = %#v, want %#v", got, want)
+	}
+}
+
+func TestWorkerUsesSnapshottedStoryboardImageForVideo(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 20, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4),
+		Input: `{"prompt":"镜头推进","sourceImageObjectKey":"shuihuo-production/17/3/images/selected.png"}`,
+	}}
+	adapter := &recordingWorkerAdapter{response: models.Response{ResultURL: "https://cdn.example/video.mp4"}}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterViduImageToVideo}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media:    &memoryMediaRepo{primaryErr: errors.New("the current primary image must not be read")}, Objects: &workerObjects{}, Adapter: adapter,
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("video"), "video/mp4", nil },
+	}
+
+	if err := worker.Process(context.Background(), 20); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if got, want := adapter.request.ImageURL, "https://storage.example.com/image.png"; got != want {
+		t.Fatalf("video source image URL = %q, want %q", got, want)
+	}
+}
+
+func TestWorkerSubmitsVideoPromptWithoutImageWhenTaskHasNoStoryboardImage(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 21, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"镜头从远景推至人物特写"}`,
+	}}
+	adapter := &recordingWorkerAdapter{response: models.Response{ResultURL: "https://cdn.example/video.mp4"}}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterGenericHTTP}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media:    &memoryMediaRepo{primaryErr: errors.New("no image exists")}, Objects: &workerObjects{}, Adapter: adapter,
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("video"), "video/mp4", nil },
+	}
+
+	if err := worker.Process(context.Background(), 21); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if adapter.request.ImageURL != "" {
+		t.Fatalf("video task without a storyboard image passed ImageURL = %q", adapter.request.ImageURL)
+	}
+	if got, want := adapter.request.Prompt, "镜头从远景推至人物特写"; got != want {
+		t.Fatalf("video prompt = %q, want %q", got, want)
 	}
 }
 
@@ -172,7 +279,7 @@ func TestWorkerMarksImageStoreFailureWithoutMedia(t *testing.T) {
 func TestWorkerRejectsVideoWithoutPrimaryImage(t *testing.T) {
 	taskRepo := &workerTaskRepo{task: domain.Task{ID: 8, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued, ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"镜头推进"}`}}
 	worker := Worker{
-		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo}},
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterViduImageToVideo}},
 		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
 		Media:    &memoryMediaRepo{primaryErr: errors.New("no image")}, Objects: &workerObjects{}, Adapter: workerAdapter{},
 	}
@@ -192,6 +299,14 @@ type memoryMediaRepo struct {
 	primaryErr error
 }
 
+type memoryAssetImageRepo struct{ items []domain.AssetImage }
+
+func (r *memoryAssetImageRepo) CreateGenerated(_ context.Context, image domain.AssetImage) (domain.AssetImage, error) {
+	image.ID = int64(len(r.items) + 1)
+	r.items = append(r.items, image)
+	return image, nil
+}
+
 func (r *memoryMediaRepo) PrimaryImage(_ context.Context, _, _ int64) (domain.Media, error) {
 	if r.primaryErr != nil {
 		return domain.Media{}, r.primaryErr
@@ -205,3 +320,23 @@ func (r *memoryMediaRepo) CreateGenerated(_ context.Context, media domain.Media)
 }
 
 func int64Ptr(value int64) *int64 { return &value }
+
+func TestWorkerPersistsAssetImageWithoutCreatingStoryboardMedia(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{ID: 15, UserID: 17, ProjectID: 3, Kind: "asset_image", Status: domain.TaskQueued, ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"白衣剑客，国风水墨","assetId":21}`}}
+	media := &memoryMediaRepo{}
+	assetImages := &memoryAssetImageRepo{}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindImage}},
+		Media: media, AssetImages: assetImages, Objects: &workerObjects{}, Adapter: workerAdapter{response: models.Response{ResultURL: "https://cdn.example/asset.png"}},
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("png"), "image/png", nil },
+	}
+	if err := worker.Process(context.Background(), 15); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if len(media.items) != 0 {
+		t.Fatalf("storyboard media = %#v, want none", media.items)
+	}
+	if len(assetImages.items) != 1 || assetImages.items[0].AssetID != 21 {
+		t.Fatalf("asset images = %#v, want one image for asset 21", assetImages.items)
+	}
+}

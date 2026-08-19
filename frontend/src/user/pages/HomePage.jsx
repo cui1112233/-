@@ -49,7 +49,10 @@ export function HomePage({ isLoggedIn, onOpenLogin }) {
     }
     let active = true;
     setLoadingProjects(true);
-    listPlatformProjects(6)
+    // A stale remembered session is cleared by apiRequest; the login panel is
+    // the appropriate recovery UI, rather than an error modal for this
+    // optional homepage preview.
+    listPlatformProjects(6, { silent: true })
       .then(data => { if (active) setProjects(Array.isArray(data.entries) ? data.entries : []); })
       .catch(() => { if (active) setProjects([]); })
       .finally(() => { if (active) setLoadingProjects(false); });
@@ -85,7 +88,6 @@ export function HomePage({ isLoggedIn, onOpenLogin }) {
             {navItems.map(item => <Link key={item.href} href={item.href} onClick={item.href === '/' ? undefined : requireLogin}>{item.label}</Link>)}
           </div>
           <div className="home-hero-actions-right">
-            {!isLoggedIn ? <GradientButton onMouseEnter={onOpenLogin} onFocus={onOpenLogin} onClick={onOpenLogin}>登录</GradientButton> : null}
             <GradientButton as="a" href="#contact">联系</GradientButton>
           </div>
         </nav>

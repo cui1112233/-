@@ -231,7 +231,9 @@ test('authentication expiry only clears the session that issued the 401', () => 
   const layout = read('frontend/src/shared/layouts/UserLayout.jsx');
 
   assert.match(client, /const token = getToken\(\);/);
-  assert.match(client, /if \(getToken\(\) === token\) \{[\s\S]*?new CustomEvent\('qiantie:auth-expired', \{ detail: \{ token \} \}\)[\s\S]*?setToken\(''\);[\s\S]*?localStorage\.removeItem\('auth_username'\);/);
+  assert.match(client, /const sessionStillCurrent = getToken\(\) === token;/);
+  assert.match(client, /if \(sessionStillCurrent && !options\.silent\) notifyApiFailure/);
+  assert.match(client, /if \(sessionStillCurrent\) \{[\s\S]*?new CustomEvent\('qiantie:auth-expired', \{ detail: \{ token \} \}\)[\s\S]*?setToken\(''\);[\s\S]*?localStorage\.removeItem\('auth_username'\);/);
   assert.match(client, /if \(response\.status === 401[\s\S]*?throw new Error\('登录已失效，请重新登录'\);/);
   assert.match(layout, /const expiredToken = event\?\.detail\?\.token;[\s\S]*?const currentToken = getToken\(\);[\s\S]*?if \(expiredToken\) \{[\s\S]*?if \(!currentToken \|\| expiredToken !== currentToken\) return;[\s\S]*?\} else if \(!sessionToken \|\| currentToken \|\| cancelled \|\| accountSessionGenerationRef\.current !== sessionGeneration\) \{/);
 });

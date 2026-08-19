@@ -4,7 +4,7 @@ import { getProductionConfig, listModels, saveProductionConfig } from '../../../
 
 const defaults = {
   characterPrefix: '', imagePrefix: '', imageSuffix: '', videoPrefix: '', videoSuffix: '',
-  textModelId: null, imageModelId: null, videoModelId: null, jianyingDraftDirectory: ''
+  textModelId: null, imageModelId: null, videoModelId: null, audioModelId: null, jianyingDraftDirectory: ''
 };
 
 export function ProductionConfigModal({ open, onClose, onSaved }) {
@@ -49,6 +49,7 @@ export function ProductionConfigModal({ open, onClose, onSaved }) {
         <Form.Item name="textModelId" label="文本模型"><Select allowClear placeholder="未选择" options={optionsFor('text')} /></Form.Item>
         <Form.Item name="imageModelId" label="图片模型"><Select allowClear placeholder="未选择" options={optionsFor('image')} /></Form.Item>
         <Form.Item name="videoModelId" label="视频模型"><Select allowClear placeholder="未选择" options={optionsFor('video')} /></Form.Item>
+        <Form.Item name="audioModelId" label="音频模型"><Select allowClear placeholder="未选择" options={optionsFor('audio')} /></Form.Item>
       </div>
       <Form.Item name="jianyingDraftDirectory" label="剪映草稿目录"><Input placeholder="阶段 C 导出时使用" /></Form.Item>
     </Form>

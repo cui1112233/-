@@ -7,7 +7,7 @@ export function PromptCandidatesModal({ open, projectId, kind, segments, onClose
   const [modelId, setModelId] = useState();
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(false);
-  const label = kind === 'image' ? '图片' : '视频';
+  const label = kind === 'image' ? '图片' : kind === 'video' ? '视频' : '负面';
 
   useEffect(() => {
     if (!open) return;

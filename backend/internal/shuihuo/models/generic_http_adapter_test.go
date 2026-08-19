@@ -60,3 +60,28 @@ func TestGenericHTTPAdapterRejectsTemplateWithoutResultMapping(t *testing.T) {
 		t.Fatal("Submit() accepted a response mapping without resultUrl or providerTaskId")
 	}
 }
+
+func TestGenericHTTPAdapterRendersAudioSettingsWithoutLeakingCredentials(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(body), `{"pitch":"-3","rate":"1.2","text":"旁白","voice":"narrator-a"}`; got != want {
+			t.Fatalf("body = %s, want %s", got, want)
+		}
+		_, _ = w.Write([]byte(`{"audio":"https://cdn.example.com/result.mp3"}`))
+	}))
+	defer server.Close()
+
+	adapter := NewGenericHTTPAdapter(server.Client(), nil)
+	adapter.validateURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	response, err := adapter.Submit(context.Background(), Definition{
+		Kind: KindAudio, AdapterKind: "generic_http", Endpoint: server.URL,
+		RequestTemplate: `{"body":{"text":"{{prompt}}","voice":"{{voice}}","rate":"{{speech_rate}}","pitch":"{{pitch}}"}}`,
+		ResponseMapping: `{"resultUrl":"audio"}`,
+	}, Request{Prompt: "旁白", Voice: "narrator-a", SpeechRate: 1.2, Pitch: -3})
+	if err != nil || response.ResultURL == "" {
+		t.Fatalf("Submit() = %#v, %v", response, err)
+	}
+}

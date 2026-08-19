@@ -7,6 +7,7 @@
     "frontend:preview": "npm --prefix frontend run preview"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "https-proxy-agent": "^7.0.6"
   }
 }

@@ -15,7 +15,7 @@ func (s *ProductionConfigs) Get(ctx context.Context, userID int64) (domain.UserP
 	config := domain.UserProductionConfig{UserID: userID}
 	err := s.db.QueryRowContext(ctx, `
 SELECT character_prefix, image_prefix, image_suffix, video_prefix, video_suffix,
-       text_model_id, image_model_id, video_model_id, jianying_draft_directory
+       text_model_id, image_model_id, video_model_id, audio_model_id, jianying_draft_directory
 FROM shuihuo_user_configs
 WHERE user_id = ?
 `, userID).Scan(
@@ -27,6 +27,7 @@ WHERE user_id = ?
 		&config.TextModelID,
 		&config.ImageModelID,
 		&config.VideoModelID,
+		&config.AudioModelID,
 		&config.JianyingDraftDirectory,
 	)
 	if err == sql.ErrNoRows {
@@ -39,8 +40,8 @@ func (s *ProductionConfigs) Save(ctx context.Context, config domain.UserProducti
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO shuihuo_user_configs(
   user_id, character_prefix, image_prefix, image_suffix, video_prefix, video_suffix,
-  text_model_id, image_model_id, video_model_id, jianying_draft_directory
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  text_model_id, image_model_id, video_model_id, audio_model_id, jianying_draft_directory
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
   character_prefix = VALUES(character_prefix),
   image_prefix = VALUES(image_prefix),
@@ -50,6 +51,7 @@ ON DUPLICATE KEY UPDATE
   text_model_id = VALUES(text_model_id),
   image_model_id = VALUES(image_model_id),
   video_model_id = VALUES(video_model_id),
+  audio_model_id = VALUES(audio_model_id),
   jianying_draft_directory = VALUES(jianying_draft_directory)
 `,
 		config.UserID,
@@ -61,6 +63,7 @@ ON DUPLICATE KEY UPDATE
 		config.TextModelID,
 		config.ImageModelID,
 		config.VideoModelID,
+		config.AudioModelID,
 		config.JianyingDraftDirectory,
 	)
 	if err != nil {

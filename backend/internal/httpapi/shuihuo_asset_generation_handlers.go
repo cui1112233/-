@@ -38,15 +38,31 @@ func (api *API) handleCreateShuihuoAssetImageTasks(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "资产生图请求格式无效"})
 		return
 	}
-	if len(req.AssetIDs) == 0 || len(req.AssetIDs) > 20 || req.ModelID < 1 || !validAssetGenerationAspectRatio(req.AspectRatio) {
+	if len(req.AssetIDs) == 0 || len(req.AssetIDs) > 20 || req.ModelID < 0 || !validAssetGenerationAspectRatio(req.AspectRatio) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请选择 1 到 20 项资产、图片模型和有效画幅"})
 		return
 	}
 	user, _ := currentUser(r)
-	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(r.Context(), req.ModelID)
-	if err != nil || model.Kind != models.KindImage || !model.AvailableTo(shuihuoModelRole(user), false) || !model.ProviderConfigured() {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "所选图片模型不可用或尚未完成服务端配置"})
-		return
+	accountImageModel := req.ModelID == accountOpenAICompatibleImageModelID
+	var model models.Definition
+	if accountImageModel {
+		config, configured, err := api.accountOpenAICompatibleImageConfig(r.Context(), user.ID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取账号图片配置失败"})
+			return
+		}
+		if !configured {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "请先在设置中完成 OpenAI 兼容生图配置"})
+			return
+		}
+		model = models.Definition{Name: config.Model, Kind: models.KindImage, AdapterKind: models.AdapterAccountOpenAICompatibleImage}
+	} else {
+		loadedModel, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(r.Context(), req.ModelID)
+		if err != nil || loadedModel.Kind != models.KindImage || !loadedModel.AvailableTo(shuihuoModelRole(user), false) || !loadedModel.ProviderConfigured() {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "所选图片模型不可用或尚未完成服务端配置"})
+			return
+		}
+		model = loadedModel
 	}
 	assets := shuihuostore.NewAssets(api.deps.DB)
 	tasks := shuihuostore.NewTasks(api.deps.DB)
@@ -83,8 +99,18 @@ func (api *API) handleCreateShuihuoAssetImageTasks(w http.ResponseWriter, r *htt
 			"prompt": prompt, "aspectRatio": req.AspectRatio, "model": model.Name,
 			"characterSheetPresetId": req.CharacterSheetPresetID,
 		})
-		modelID, versionID := model.ID, model.VersionID
-		task, createErr := tasks.Create(r.Context(), user.ID, project.ID, domain.Task{Kind: assetImageTaskKind, Status: domain.TaskDraft, Provider: model.AdapterKind, ModelID: &modelID, ModelVersionID: &versionID, Input: string(input)})
+		if accountImageModel {
+			var snapshot map[string]any
+			_ = json.Unmarshal(input, &snapshot)
+			snapshot["provider"] = models.AdapterAccountOpenAICompatibleImage
+			input, _ = json.Marshal(snapshot)
+		}
+		taskDefinition := domain.Task{Kind: assetImageTaskKind, Status: domain.TaskDraft, Provider: model.AdapterKind, Input: string(input)}
+		if !accountImageModel {
+			modelID, versionID := model.ID, model.VersionID
+			taskDefinition.ModelID, taskDefinition.ModelVersionID = &modelID, &versionID
+		}
+		task, createErr := tasks.Create(r.Context(), user.ID, project.ID, taskDefinition)
 		if createErr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "创建资产图片任务失败"})
 			return

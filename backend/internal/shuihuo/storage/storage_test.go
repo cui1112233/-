@@ -33,6 +33,10 @@ func TestObjectKeyRejectsUnsafeValues(t *testing.T) {
 		{name: "parent path", userID: 1, projectID: 1, category: "images", filename: "../shot.png"},
 		{name: "nested path", userID: 1, projectID: 1, category: "images", filename: "folder/shot.png"},
 		{name: "empty filename", userID: 1, projectID: 1, category: "images", filename: ""},
+		{name: "leading whitespace", userID: 1, projectID: 1, category: "images", filename: " story.png"},
+		{name: "trailing whitespace", userID: 1, projectID: 1, category: "images", filename: "story.png "},
+		{name: "tab", userID: 1, projectID: 1, category: "images", filename: "\tstory.png"},
+		{name: "control character", userID: 1, projectID: 1, category: "images", filename: "story\x7f.png"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -40,6 +44,13 @@ func TestObjectKeyRejectsUnsafeValues(t *testing.T) {
 				t.Fatal("ObjectKey() accepted unsafe value")
 			}
 		})
+	}
+}
+
+func TestValidObjectKeyRejectsValuesBeyondIndexedStorageLimit(t *testing.T) {
+	key := "shuihuo-production/1/1/source/" + strings.Repeat("a", maxObjectKeyLength)
+	if ValidObjectKey(key) {
+		t.Fatal("ValidObjectKey() accepted a value longer than the durable queue index permits")
 	}
 }
 

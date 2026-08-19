@@ -5,7 +5,7 @@ const path = require('path');
 const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
-const { seedSystemPresets } = require('./lib/system-preset-catalog');
+const { seedSystemPresets, validatePresetSlot } = require('./lib/system-preset-catalog');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
@@ -16,7 +16,7 @@ const { createApplicationsRouter } = require('./routes/applications');
 const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
-const configRouter = require('./routes/config');
+const { createConfigRouter } = require('./routes/config');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
@@ -25,6 +25,7 @@ const { createShuihuoProductionRouter } = require('./routes/shuihuo-production')
 const { createPlatformProjectsRouter } = require('./routes/platform-projects');
 const novelPanelRouter = require('./routes/novel-panel-page');
 const novelPanelApiRouter = require('./routes/novel-panel');
+const { createNovelFetchRouter } = require('./routes/novel-fetch');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -37,7 +38,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const resolvedPresetStore = presetStore || createPresetStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
+    systemDir: path.dirname(authRuntime.accountStore.files.audit),
+    validatePresetSlot
   });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
   const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({
@@ -121,7 +123,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
-  app.use('/api/config', configRouter); // GET/POST /api/config
+  app.use('/api/novel-fetch', createNovelFetchRouter());
+  app.use('/api/config', createConfigRouter({ shuihuoGateway })); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt
@@ -129,7 +132,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: agentResponder }));
-  app.use('/api/shuihuo-production', createShuihuoProductionRouter(shuihuoGateway));
+  app.use('/api/shuihuo-production', createShuihuoProductionRouter({ ...shuihuoGateway, presetStore: resolvedPresetStore }));
 
   // 404 处理
   app.use((req, res) => {

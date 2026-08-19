@@ -20,7 +20,8 @@ const (
 )
 
 type CandidateSegment struct {
-	Text string `json:"text"`
+	Text    string `json:"text"`
+	Speaker string `json:"speaker"`
 }
 
 type SmartGenerator interface {
@@ -64,6 +65,29 @@ func FixedLineSegments(text string, linesPerSegment int) []CandidateSegment {
 		}
 		result = append(result, CandidateSegment{Text: strings.Join(lines[start:end], "\n")})
 	}
+	return result
+}
+
+func ParagraphSegments(text string) []CandidateSegment {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	result := make([]CandidateSegment, 0)
+	paragraph := make([]string, 0)
+	flush := func() {
+		if len(paragraph) == 0 {
+			return
+		}
+		result = append(result, CandidateSegment{Text: strings.Join(paragraph, "\n")})
+		paragraph = paragraph[:0]
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			flush()
+			continue
+		}
+		paragraph = append(paragraph, line)
+	}
+	flush()
 	return result
 }
 

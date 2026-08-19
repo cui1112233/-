@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS shuihuo_segments (
   project_id BIGINT NOT NULL,
   source_text MEDIUMTEXT NOT NULL,
   subtitle_text MEDIUMTEXT NULL,
+  speaker VARCHAR(255) NOT NULL DEFAULT '旁白',
   order_index INT NOT NULL,
   confirmed BOOLEAN NOT NULL DEFAULT FALSE,
   manually_edited BOOLEAN NOT NULL DEFAULT FALSE,
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS shuihuo_asset_templates (
   asset_type_id BIGINT NOT NULL,
   name VARCHAR(255) NOT NULL,
   prompt MEDIUMTEXT NOT NULL,
+  voice_asset_id BIGINT NULL,
   source VARCHAR(32) NOT NULL DEFAULT 'manual',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -309,6 +311,24 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 	{version: 25, sql: shuihuoAssetPresetImageMigrationSQL, apply: addShuihuoAssetPresetImageColumns},
 	{version: 26, sql: shuihuoAssetHistoryMigrationSQL, apply: addShuihuoAssetHistoryColumns},
 	{version: 27, apply: addModelCenterCatalogColumns},
+	{version: 28, apply: addShuihuoSpeakerVoiceColumns},
+	{version: 29, sql: `
+CREATE TABLE IF NOT EXISTS image_api_configs (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  provider VARCHAR(64) NOT NULL,
+  base_url VARCHAR(512) NOT NULL,
+  model VARCHAR(128) NOT NULL,
+  api_key_ciphertext TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_image_api_config_user (user_id),
+  CONSTRAINT fk_image_api_configs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`},
+	{version: 30, sql: `
+ALTER TABLE image_api_configs ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT '' AFTER provider;
+`},
 }
 
 const shuihuoSourceUnitMigrationSQL = `
@@ -920,6 +940,26 @@ func addModelCenterCatalogColumns(ctx context.Context, conn *sql.Conn) error {
 			return findModelCenterCatalogKeyCollision(ctx, conn)
 		},
 	)
+}
+
+func addShuihuoSpeakerVoiceColumns(ctx context.Context, conn *sql.Conn) error {
+	for _, column := range []struct {
+		table, name, definition string
+	}{
+		{table: "shuihuo_segments", name: "speaker", definition: "VARCHAR(255) NOT NULL DEFAULT '旁白'"},
+		{table: "shuihuo_assets", name: "voice_asset_id", definition: "BIGINT NULL"},
+	} {
+		exists, err := mysqlColumnExists(ctx, conn, column.table, column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := conn.ExecContext(ctx, "ALTER TABLE "+column.table+" ADD COLUMN "+column.name+" "+column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func applyModelCenterCatalogMigrationWithExecutor(

@@ -12374,7 +12374,17 @@ function initializeApp() {
   });
 
   state.aiInstructions = loadGlobalAiInstructions();
-  restoreLocalDraft();
+  const qiantieRequestedProject = String(new URLSearchParams(globalThis.location?.search || "").get("project") || "").trim();
+  if (qiantieRequestedProject) {
+    requestJSON(`/api/projects/${encodeURIComponent(qiantieRequestedProject)}`, { timeoutMs: 30000 })
+      .then(({ project }) => {
+        if (!project) throw new Error("项目不存在");
+        applyProjectData(project.id, project.name, project.data || {});
+      })
+      .catch((error) => apiError(error.message || "无法打开指定项目"));
+  } else {
+    restoreLocalDraft();
+  }
   togglePromptExamplePanel();
   renderStyleLockState();
   loadSettings();

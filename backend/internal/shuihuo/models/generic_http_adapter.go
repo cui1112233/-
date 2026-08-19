@@ -101,6 +101,13 @@ func (a *GenericHTTPAdapter) Submit(ctx context.Context, model Definition, reque
 func renderTemplateValue(value any, request Request, credential string) any {
 	switch typed := value.(type) {
 	case string:
+		if strings.TrimSpace(typed) == "{{reference_image_urls}}" {
+			items := make([]any, 0, len(request.ReferenceImageURLs))
+			for _, imageURL := range request.ReferenceImageURLs {
+				items = append(items, imageURL)
+			}
+			return items
+		}
 		return renderTemplateString(typed, request, credential)
 	case []any:
 		items := make([]any, len(typed))
@@ -123,12 +130,23 @@ func renderTemplateString(value string, request Request, credential string) stri
 	return strings.NewReplacer(
 		"{{prompt}}", request.Prompt,
 		"{{image_url}}", request.ImageURL,
+		"{{reference_image_url}}", firstReferenceImageURL(request.ReferenceImageURLs),
 		"{{duration}}", request.Duration,
 		"{{aspect_ratio}}", request.AspectRatio,
 		"{{resolution}}", request.Resolution,
 		"{{callback_url}}", request.CallbackURL,
+		"{{voice}}", request.Voice,
+		"{{speech_rate}}", fmt.Sprintf("%g", request.SpeechRate),
+		"{{pitch}}", fmt.Sprintf("%g", request.Pitch),
 		"{{credential}}", credential,
 	).Replace(value)
+}
+
+func firstReferenceImageURL(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func parseModelResponse(body []byte, rawMapping string) (Response, error) {

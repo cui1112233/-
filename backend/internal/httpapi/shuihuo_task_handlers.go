@@ -46,6 +46,8 @@ type shuihuoBatchTaskResult struct {
 	Error     string             `json:"error,omitempty"`
 }
 
+const accountOpenAICompatibleImageModelID int64 = 0
+
 type shuihuoTaskCreationError struct {
 	message       string
 	singleMessage string
@@ -91,6 +93,15 @@ func (api *API) handleListShuihuoModels(w http.ResponseWriter, r *http.Request) 
 		if item.PubliclySelectable() {
 			public = append(public, models.ToPublic(item))
 		}
+	}
+	user, _ := currentUser(r)
+	accountImageModel, configured, imageErr := api.accountOpenAICompatibleImageModel(r.Context(), user.ID)
+	if imageErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取账号图片配置失败"})
+		return
+	}
+	if configured {
+		public = append(public, accountImageModel)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": public})
 }
@@ -174,7 +185,7 @@ func (api *API) handleCreateShuihuoBatchTasks(w http.ResponseWriter, r *http.Req
 }
 
 func validBatchTaskRequest(req shuihuoBatchTaskRequest) bool {
-	if len(req.SegmentIDs) == 0 || len(req.SegmentIDs) > 50 || req.ModelID < 1 || !validTaskKind(req.Kind) || req.Kind == "export" {
+	if len(req.SegmentIDs) == 0 || len(req.SegmentIDs) > 50 || req.ModelID < 0 || (req.ModelID == accountOpenAICompatibleImageModelID && req.Kind != "image") || !validTaskKind(req.Kind) || req.Kind == "export" {
 		return false
 	}
 	seen := make(map[int64]struct{}, len(req.SegmentIDs))
@@ -196,7 +207,7 @@ func taskCreationStatus(err error) int {
 		return http.StatusBadRequest
 	case "分段不存在":
 		return http.StatusNotFound
-	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先保存对应提示词":
+	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先在设置中完成 OpenAI 兼容生图配置", "请先保存对应提示词", "所选图片模型不支持分镜预设参考图，请在模型配置中使用参考图占位符或改选支持参考图的模型", "所选视频模型需要当前分镜画面图片，请先生成图片或改选文生视频模型":
 		return http.StatusConflict
 	case "分镜已变更，请刷新后重试":
 		return http.StatusConflict
@@ -210,7 +221,7 @@ func taskCreationStatus(err error) int {
 }
 
 func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string, audioSettings *shuihuoAudioTaskSettings) (domain.Task, error) {
-	if segmentID < 1 || modelID < 1 || !validTaskKind(kind) || kind == "export" {
+	if segmentID < 1 || modelID < 0 || (modelID == accountOpenAICompatibleImageModelID && kind != "image") || !validTaskKind(kind) || kind == "export" {
 		return domain.Task{}, taskCreationError("任务参数无效")
 	}
 	if api.deps.Queue == nil {
@@ -226,21 +237,36 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	if !segment.Confirmed {
 		return domain.Task{}, taskCreationError("请先确认分段")
 	}
-	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(ctx, modelID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return domain.Task{}, taskCreationError("所选模型未启用或不存在")
-	}
-	if err != nil {
-		return domain.Task{}, taskCreationError("读取模型失败")
-	}
-	if !taskMatchesModel(kind, model.Kind) {
-		return domain.Task{}, taskCreationError("模型类型与任务不匹配")
-	}
-	if !model.AvailableTo(shuihuoModelRole(user), false) {
-		return domain.Task{}, taskCreationError("该模型仅限所有者使用")
-	}
-	if !model.ProviderConfigured() {
-		return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
+	var model models.Definition
+	var accountImageConfig store.ImageAPIConfig
+	accountImageModel := modelID == accountOpenAICompatibleImageModelID
+	if accountImageModel {
+		var configured bool
+		accountImageConfig, configured, err = api.accountOpenAICompatibleImageConfig(ctx, user.ID)
+		if err != nil {
+			return domain.Task{}, taskCreationError("读取账号图片配置失败")
+		}
+		if !configured {
+			return domain.Task{}, taskCreationError("请先在设置中完成 OpenAI 兼容生图配置")
+		}
+		model = models.Definition{Name: accountImageConfig.Model, Kind: models.KindImage, AdapterKind: models.AdapterAccountOpenAICompatibleImage}
+	} else {
+		model, err = shuihuostore.NewModels(api.deps.DB).GetEnabled(ctx, modelID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Task{}, taskCreationError("所选模型未启用或不存在")
+		}
+		if err != nil {
+			return domain.Task{}, taskCreationError("读取模型失败")
+		}
+		if !taskMatchesModel(kind, model.Kind) {
+			return domain.Task{}, taskCreationError("模型类型与任务不匹配")
+		}
+		if !model.AvailableTo(shuihuoModelRole(user), false) {
+			return domain.Task{}, taskCreationError("该模型仅限所有者使用")
+		}
+		if !model.ProviderConfigured() {
+			return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
+		}
 	}
 	prompt := segment.ImagePrompt
 	if kind == "video" {
@@ -253,6 +279,40 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		return domain.Task{}, taskCreationError("请先保存对应提示词")
 	}
 	inputSnapshot := map[string]any{"prompt": prompt, "segmentId": segment.ID, "model": model.Name}
+	if kind == "image" {
+		assets := shuihuostore.NewAssets(api.deps.DB)
+		boundAssets, assetsErr := assets.ListBySegment(ctx, user.ID, segment.ID)
+		if assetsErr != nil {
+			return domain.Task{}, taskCreationError("读取分镜预设失败")
+		}
+		prompt = composeStoryboardImagePrompt(prompt, boundAssets)
+		inputSnapshot["prompt"] = prompt
+		inputSnapshot["basePrompt"] = segment.ImagePrompt
+		referenceObjectKeys, referencesErr := assets.ListReferenceObjectKeysBySegment(ctx, user.ID, segment.ID)
+		if referencesErr != nil {
+			return domain.Task{}, taskCreationError("读取分镜预设参考图失败")
+		}
+		if len(referenceObjectKeys) > 0 {
+			if !model.SupportsReferenceImages() {
+				return domain.Task{}, taskCreationError("所选图片模型不支持分镜预设参考图，请在模型配置中使用参考图占位符或改选支持参考图的模型")
+			}
+			inputSnapshot["referenceObjectKeys"] = referenceObjectKeys
+		}
+	}
+	if kind == "video" {
+		primaryImage, mediaErr := shuihuostore.NewMedia(api.deps.DB).PrimaryImage(ctx, project.ID, segment.ID)
+		if mediaErr != nil && !errors.Is(mediaErr, sql.ErrNoRows) {
+			return domain.Task{}, taskCreationError("读取分镜画面图片失败")
+		}
+		if primaryImage.ObjectKey != "" {
+			inputSnapshot["sourceImageObjectKey"] = primaryImage.ObjectKey
+		} else if model.RequiresVideoImage() {
+			return domain.Task{}, taskCreationError("所选视频模型需要当前分镜画面图片，请先生成图片或改选文生视频模型")
+		}
+	}
+	if accountImageModel {
+		inputSnapshot["provider"] = models.AdapterAccountOpenAICompatibleImage
+	}
 	if kind == "audio" {
 		settings, settingsErr := normalizedAudioTaskSettings(audioSettings)
 		if settingsErr != nil {
@@ -263,8 +323,13 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		inputSnapshot["pitch"] = settings.Pitch
 	}
 	input, _ := json.Marshal(inputSnapshot)
-	modelVersionID := model.VersionID
-	task, err := shuihuostore.NewTasks(api.deps.DB).Create(ctx, user.ID, project.ID, domain.Task{SegmentID: &segment.ID, Kind: kind, Status: domain.TaskDraft, Provider: model.AdapterKind, ModelID: &modelID, ModelVersionID: &modelVersionID, Input: string(input)})
+	taskDefinition := domain.Task{SegmentID: &segment.ID, Kind: kind, Status: domain.TaskDraft, Provider: model.AdapterKind, Input: string(input)}
+	if !accountImageModel {
+		modelVersionID := model.VersionID
+		taskDefinition.ModelID = &modelID
+		taskDefinition.ModelVersionID = &modelVersionID
+	}
+	task, err := shuihuostore.NewTasks(api.deps.DB).Create(ctx, user.ID, project.ID, taskDefinition)
 	if err != nil {
 		if errors.Is(err, shuihuostore.ErrTaskSegmentUnavailable) {
 			return domain.Task{}, taskCreationError("分镜已变更，请刷新后重试")
@@ -285,6 +350,54 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	}
 	task.Status = domain.TaskQueued
 	return task, nil
+}
+
+func composeStoryboardImagePrompt(basePrompt string, assets []domain.Asset) string {
+	basePrompt = strings.TrimSpace(basePrompt)
+	context := make([]string, 0, len(assets))
+	for _, asset := range assets {
+		if asset.Category == "voice" || strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.Prompt) == "" {
+			continue
+		}
+		context = append(context, strings.TrimSpace(asset.Name)+"："+strings.TrimSpace(asset.Prompt))
+	}
+	if len(context) == 0 {
+		return basePrompt
+	}
+	return basePrompt + "\n\n分镜绑定预设（人物、场景、道具须保持一致）：\n" + strings.Join(context, "\n")
+}
+
+func (api *API) accountOpenAICompatibleImageConfig(ctx context.Context, userID int64) (store.ImageAPIConfig, bool, error) {
+	if api.deps.ImageConfigs == nil {
+		return store.ImageAPIConfig{}, false, nil
+	}
+	config, err := api.deps.ImageConfigs.Get(ctx, userID)
+	if err != nil {
+		return store.ImageAPIConfig{}, false, err
+	}
+	return config, config.Configured(), nil
+}
+
+func (api *API) accountOpenAICompatibleImageModel(ctx context.Context, userID int64) (models.PublicModel, bool, error) {
+	config, configured, err := api.accountOpenAICompatibleImageConfig(ctx, userID)
+	if err != nil || !configured {
+		return models.PublicModel{}, false, err
+	}
+	return models.PublicModel{
+		ID:          accountOpenAICompatibleImageModelID,
+		ModelID:     "current-account-openai-compatible-image",
+		Name:        accountOpenAICompatibleImageModelName(config.DisplayName),
+		Kind:        models.KindImage,
+		AdapterKind: models.AdapterAccountOpenAICompatibleImage,
+	}, true, nil
+}
+
+func accountOpenAICompatibleImageModelName(displayName string) string {
+	name := strings.TrimSpace(displayName)
+	if name == "" {
+		name = "OpenAI 兼容"
+	}
+	return "当前账号 " + name + " 生图"
 }
 
 func shuihuoModelRole(user store.User) string {

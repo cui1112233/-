@@ -1,10 +1,11 @@
 import { Alert, Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { useEffect, useState } from 'react';
-import { createPresetDraft, listAdminPresets, publishPreset, rollbackPreset } from '../../shared/api/admin';
+import { createPresetDraft, listAdminPresetSlots, listAdminPresets, publishPreset, rollbackPreset } from '../../shared/api/admin';
 
 const modules = [
   { label: '剧本生成', value: 'script' },
-  { label: '小说面板', value: 'novel-panel' }
+  { label: '小说面板', value: 'novel-panel' },
+  { label: '水货生产', value: 'shuihuo-production' }
 ];
 
 const constraintCategories = [
@@ -15,6 +16,11 @@ const constraintCategories = [
 ];
 
 const formatPriority = [
+  'shuihuo-extract-characters',
+  'shuihuo-extract-scenes',
+  'shuihuo-smart-segmentation',
+  'shuihuo-image-prompt',
+  'shuihuo-video-prompt',
   'script-format-shotlist',
   'script-format-storyboard',
   'script-format-shortdrama',
@@ -55,6 +61,7 @@ function emptyDraft(module) {
 export function PresetLibraryPage() {
   const [module, setModule] = useState('script');
   const [presets, setPresets] = useState([]);
+  const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -66,10 +73,15 @@ export function PresetLibraryPage() {
     setLoading(true);
     setError('');
     try {
-      const result = await listAdminPresets(module);
-      setPresets(sortPresets(result.presets || []));
+      const [presetResult, slotResult] = await Promise.all([
+        listAdminPresets(module),
+        listAdminPresetSlots(module)
+      ]);
+      setPresets(sortPresets(presetResult.presets || []));
+      setSlots(slotResult.slots || []);
     } catch (requestError) {
       setPresets([]);
+      setSlots([]);
       setError(errorMessage(requestError));
     } finally {
       setLoading(false);
@@ -79,7 +91,7 @@ export function PresetLibraryPage() {
   useEffect(() => { load(); }, [module]);
 
   function openCreate() {
-    form.setFieldsValue({ ...emptyDraft(module), kind: 'addon' });
+    form.setFieldsValue(emptyDraft(module));
     setEditingExisting(false);
     setEditorOpen(true);
   }
@@ -87,6 +99,7 @@ export function PresetLibraryPage() {
   function openEdit(preset) {
     form.setFieldsValue({
       ...preset,
+      slot: preset.protocolLock?.slot || undefined,
       constraintCategory: preset.protocolLock?.format === 'constraint' ? preset.protocolLock.category : '',
       protocolLock: JSON.stringify(preset.protocolLock || {}, null, 2)
     });
@@ -116,7 +129,7 @@ export function PresetLibraryPage() {
         ...values,
         module,
         compatibleBaseIds: [],
-        protocolLock
+        protocolLock: { ...protocolLock, slot: values.slot }
       });
       message.success('已保存为草稿，发布后才会影响用户生成。');
       setEditorOpen(false);
@@ -152,6 +165,10 @@ export function PresetLibraryPage() {
     { title: '名称', dataIndex: 'name', width: 170 },
     { title: '预设词 ID', dataIndex: 'id', width: 190, ellipsis: true },
     { title: '说明', dataIndex: 'description', ellipsis: true },
+    {
+      title: '归属', dataIndex: 'slot', width: 150,
+      render: slot => slots.find(item => item.id === slot)?.label || '待设置归属'
+    },
     { title: '版本', dataIndex: 'version', width: 72 },
     {
       title: '状态', dataIndex: 'status', width: 94,
@@ -200,7 +217,17 @@ export function PresetLibraryPage() {
             </Form.Item>
           </Space>
           <Form.Item name="kind" hidden><Input /></Form.Item>
-          {!editingExisting && <Alert type="info" showIcon message="普通补充预设发布后会自动追加到模块请求；约束类别预设只会在用户明确选择时注入。" />}
+          {!editingExisting && <Alert type="info" showIcon message="选择归属后，发布的提示词会出现在该功能对应的项目下拉选择中。" />}
+          <Form.Item label="归属" name="slot" rules={[{ required: true, message: '请选择归属' }]}>
+            <Select
+              placeholder="请选择提示词归属"
+              options={slots.map(slot => ({ value: slot.id, label: `${slot.label}（${slot.mode === 'primary' ? '主提示词' : '补充提示词'}）` }))}
+              onChange={slotId => {
+                const slot = slots.find(item => item.id === slotId);
+                if (slot) form.setFieldValue('kind', slot.mode === 'primary' ? 'base' : 'addon');
+              }}
+            />
+          </Form.Item>
           {module === 'script' && <Form.Item label="约束类别（可选）" name="constraintCategory">
             <Select allowClear placeholder="普通模块补充规则" options={constraintCategories} />
           </Form.Item>}

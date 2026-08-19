@@ -10,10 +10,6 @@ export async function login(username, password, remember = true) {
   return data;
 }
 
-export function getCurrentAccount() {
-  return apiRequest('/api/login/session');
-}
-
 export async function logout() {
   const token = localStorage.getItem('auth_token');
   if (token) {
@@ -25,4 +21,10 @@ export async function logout() {
 
 export function getCurrentUsername() {
   return localStorage.getItem('auth_username') || '';
+}
+
+// Layouts need the authoritative account roles rather than inferring them
+// from a locally cached username.
+export function getCurrentAccount() {
+  return apiRequest('/api/login/session');
 }

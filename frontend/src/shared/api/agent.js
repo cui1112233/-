@@ -44,9 +44,10 @@ export function deleteMyAgentSkill(id) {
   return apiRequest(`/api/agent/skills/mine/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-export function askAgent({ taskId, prompt, context, skillIds = [] }) {
+export function askAgent({ taskId, prompt, context, skillIds = [], suppressGlobalError = false }) {
   return apiRequest('/api/agent/chat', {
     method: 'POST',
-    body: JSON.stringify({ taskId, prompt, context, skillIds })
+    body: JSON.stringify({ taskId, prompt, context, skillIds }),
+    suppressGlobalError
   });
 }

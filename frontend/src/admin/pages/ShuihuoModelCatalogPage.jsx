@@ -5,7 +5,8 @@ import { createAdminModel, listAdminModels } from '../../shared/api/shuihuoProdu
 const adapters = [
   { value: 'text_completion', label: '文本分析', kind: 'text' },
   { value: 'jimeng_image', label: '即梦生图', kind: 'image' },
-  { value: 'vidu_image_to_video', label: 'Vidu 图生视频', kind: 'video' }
+  { value: 'vidu_image_to_video', label: 'Vidu 图生视频', kind: 'video' },
+  { value: 'generic_http', label: '通用 HTTP 配音（仅管理员）', kind: 'audio' }
 ];
 
 export function ShuihuoModelCatalogPage() {
@@ -13,6 +14,8 @@ export function ShuihuoModelCatalogPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const adapterKind = Form.useWatch('adapterKind', form);
+  const isGenericAdapter = adapterKind === 'generic_http';
 
   const refresh = async () => {
     try {
@@ -32,7 +35,10 @@ export function ShuihuoModelCatalogPage() {
       await createAdminModel({
         ...values,
         parameterSchema: values.parameterSchema || '{}',
-        credentialRef: values.credentialRef || ''
+        credentialRef: values.credentialRef || '',
+        endpoint: values.endpoint || '',
+        requestTemplate: values.requestTemplate || '',
+        responseMapping: values.responseMapping || ''
       });
       setOpen(false);
       form.resetFields();
@@ -47,7 +53,7 @@ export function ShuihuoModelCatalogPage() {
 
   return <>
     <Typography.Title level={3}>水货生产模型</Typography.Title>
-    <Typography.Paragraph>管理员在此配置文本分析、即梦生图和 Vidu 图生视频。只保存密钥引用，不展示密钥或提供方内部协议。</Typography.Paragraph>
+    <Typography.Paragraph>管理员在此配置文本分析、即梦生图、图生视频和配音。密钥只保留服务器端的引用；运行地址、请求模板和返回映射不会在模型列表或用户工作台返回。</Typography.Paragraph>
     <Button type="primary" onClick={() => setOpen(true)}>新增模型</Button>
     <Table rowKey="id" style={{ marginTop: 16 }} dataSource={models} pagination={false} columns={[
       { title: '名称', dataIndex: 'name' },
@@ -60,11 +66,16 @@ export function ShuihuoModelCatalogPage() {
     <Drawer title="新增模型" open={open} onClose={() => setOpen(false)} width={560} extra={<Button type="primary" loading={saving} onClick={submit}>保存</Button>}>
       <Form form={form} layout="vertical" initialValues={{ kind: 'image', adapterKind: 'jimeng_image', enabled: false, parameterSchema: '{}' }}>
         <Form.Item label="名称" name="name" rules={[{ required: true, message: '请填写模型名称' }]}><Input /></Form.Item>
-        <Form.Item label="适配器" name="adapterKind"><Select options={adapters} onChange={adapterKind => form.setFieldValue('kind', adapters.find(item => item.value === adapterKind)?.kind)} /></Form.Item>
+        <Form.Item label="适配器" name="adapterKind"><Select options={adapters} onChange={nextAdapterKind => form.setFieldValue('kind', adapters.find(item => item.value === nextAdapterKind)?.kind)} /></Form.Item>
         <Form.Item name="kind" hidden><Input /></Form.Item>
         <Form.Item label="启用" name="enabled" valuePropName="checked"><Switch /></Form.Item>
         <Form.Item label="公开参数 Schema" name="parameterSchema"><Input.TextArea rows={3} /></Form.Item>
         <Form.Item label="密钥引用" name="credentialRef"><Input.Password placeholder="例如 IMAGE_PROVIDER_TOKEN，仅写入不回显" /></Form.Item>
+        {isGenericAdapter ? <>
+          <Form.Item label="服务端请求地址" name="endpoint" rules={[{ required: true, message: '请填写 HTTPS 配音接口地址' }]}><Input placeholder="https://provider.example.com/v1/audio/speech" /></Form.Item>
+          <Form.Item label="请求模板" name="requestTemplate" rules={[{ required: true, message: '请填写请求模板 JSON' }]} extra="可用占位符：{{prompt}}、{{voice}}、{{speech_rate}}、{{pitch}}、{{credential}}"><Input.TextArea rows={7} placeholder={'{"method":"POST","headers":{"Authorization":"Bearer {{credential}}"},"body":{"text":"{{prompt}}","voice":"{{voice}}","rate":"{{speech_rate}}","pitch":"{{pitch}}"}}'} /></Form.Item>
+          <Form.Item label="返回映射" name="responseMapping" rules={[{ required: true, message: '请填写返回映射 JSON' }]} extra={'填写音频 URL 的 JSON 路径，例如 {"resultUrl":"data.url"}'}><Input.TextArea rows={3} placeholder={'{"resultUrl":"data.url"}'} /></Form.Item>
+        </> : null}
       </Form>
     </Drawer>
   </>;

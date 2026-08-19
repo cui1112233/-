@@ -6,22 +6,25 @@ const path = require('node:path');
 const page = fs.readFileSync(path.join(__dirname, '..', 'frontend/src/admin/pages/ShuihuoModelCatalogPage.jsx'), 'utf8');
 const api = fs.readFileSync(path.join(__dirname, '..', 'frontend/src/shared/api/shuihuoProduction.js'), 'utf8');
 
-test('shuihuo model catalog only exposes controlled production adapters', () => {
+test('shuihuo model catalog exposes the controlled production adapters and an owner-only audio adapter', () => {
   for (const adapter of ['text_completion', 'jimeng_image', 'vidu_image_to_video']) {
     assert.match(page, new RegExp(adapter));
   }
-  assert.doesNotMatch(page, /value:\s*['"]generic_http['"]/);
+  assert.match(page, /value:\s*['"]generic_http['"]/);
+  assert.match(page, /kind:\s*['"]audio['"]/);
 });
 
-test('shuihuo model catalog never renders private runtime configuration fields', () => {
+test('audio adapter reveals provider configuration only in the owner creation form', () => {
   for (const field of ['endpoint', 'requestTemplate', 'responseMapping']) {
-    assert.doesNotMatch(page, new RegExp(`name=["']${field}["']`));
+    assert.match(page, new RegExp(`name=["']${field}["']`));
   }
+  assert.match(page, /isGenericAdapter/);
+  assert.match(page, /不会在模型列表或用户工作台返回/);
 });
 
-test('admin model API only serializes the controlled configuration fields', () => {
-  assert.match(api, /function createAdminModel\(\{ name, kind, adapterKind, enabled, parameterSchema, credentialRef \}\)/);
+test('admin model API serializes the owner-only provider configuration for creation', () => {
+  assert.match(api, /function createAdminModel\(\{ name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping \}\)/);
   for (const field of ['endpoint', 'requestTemplate', 'responseMapping']) {
-    assert.doesNotMatch(api, new RegExp(`createAdminModel[\\s\\S]*${field}`));
+    assert.match(api, new RegExp(`createAdminModel[\\s\\S]*${field}`));
   }
 });

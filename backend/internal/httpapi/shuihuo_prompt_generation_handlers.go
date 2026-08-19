@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"qiantie/backend/internal/shuihuo/domain"
 	"qiantie/backend/internal/shuihuo/prompts"
@@ -13,8 +15,13 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const promptCandidateConcurrency = 3
+
 type promptCandidateRequest struct {
-	ModelID int64 `json:"modelId"`
+	ModelID             int64  `json:"modelId"`
+	SystemPrompt        string `json:"systemPrompt"`
+	SystemPromptID      string `json:"systemPromptId"`
+	SystemPromptVersion int64  `json:"systemPromptVersion"`
 }
 
 type promptCandidate struct {
@@ -25,6 +32,15 @@ type promptCandidate struct {
 type promptCandidateApplyRequest struct {
 	Candidates []promptCandidate `json:"candidates"`
 }
+
+type promptCandidateJobError struct {
+	message        string
+	cause          error
+	status         int
+	textCompletion bool
+}
+
+func (e *promptCandidateJobError) Error() string { return e.message }
 
 func promptPurpose(kind string) (string, bool) {
 	if kind == "image" {
@@ -59,6 +75,11 @@ func (api *API) handleGenerateShuihuoPromptCandidates(w http.ResponseWriter, r *
 		return
 	}
 	user, _ := currentUser(r)
+	configuredModel, completion, configurationErr := api.textCompletionForUser(r.Context(), user.ID, model)
+	if configurationErr != nil {
+		api.writeTextCompletionError(w, fmt.Errorf("account text configuration: %w", configurationErr))
+		return
+	}
 	segments, err := shuihuostore.NewSegments(api.deps.DB).ListByProject(r.Context(), user.ID, project.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取分镜失败"})
@@ -68,65 +89,163 @@ func (api *API) handleGenerateShuihuoPromptCandidates(w http.ResponseWriter, r *
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请先确认至少一个分镜"})
 		return
 	}
-	projectNote := promptProjectNote(dataAssets(r, api, project.ID), purpose == "image_prompt")
+	externalPrompt := strings.TrimSpace(req.SystemPrompt)
 	service := prompts.NewService(prompts.NewDatabaseRepository(api.deps.DB, purpose), "shuihuo-production")
-	all := make([]promptCandidate, 0, len(segments))
-	for _, segment := range segments {
-		snapshot, assembleErr := service.Assemble(r.Context(), prompts.Selection{}, prompts.AssembleInput{SegmentText: segment.SourceText, ProjectNote: projectNote})
-		if assembleErr != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取提示词预设失败"})
-			return
+	assets := shuihuostore.NewAssets(api.deps.DB)
+	results, jobsErr := runPromptCandidateJobs(r.Context(), len(segments), func(ctx context.Context, index int) ([]promptCandidate, error) {
+		segment := segments[index]
+		boundAssets, assetsErr := assets.ListBySegment(ctx, user.ID, segment.ID)
+		if assetsErr != nil {
+			return nil, &promptCandidateJobError{message: "读取分镜绑定预设失败", cause: assetsErr}
 		}
-		raw, completeErr := api.deps.TextCompletion.Complete(r.Context(), model, snapshot.Rendered)
+		projectNote := promptProjectNote(boundAssets, purpose)
+		var snapshot prompts.PromptSnapshot
+		if externalPrompt != "" {
+			snapshot = prompts.PromptSnapshot{Rendered: strings.NewReplacer("{{segment_text}}", segment.SourceText, "{{project_note}}", projectNote).Replace(externalPrompt)}
+		} else {
+			var assembleErr error
+			snapshot, assembleErr = service.Assemble(ctx, prompts.Selection{}, prompts.AssembleInput{SegmentText: segment.SourceText, ProjectNote: projectNote})
+			if assembleErr != nil {
+				return nil, &promptCandidateJobError{message: "读取提示词预设失败", cause: assembleErr}
+			}
+		}
+		raw, completeErr := completion.Complete(ctx, configuredModel, snapshot.Rendered)
 		if completeErr != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "文本模型调用失败，请检查管理员服务端配置"})
-			return
+			return nil, &promptCandidateJobError{message: "文本模型调用失败", cause: completeErr, textCompletion: true}
 		}
-		parsed, parseErr := parsePromptCandidates(raw)
+		parsed, parseErr := parsePromptCandidates(raw, chi.URLParam(r, "kind"))
 		if parseErr != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "文本模型返回的提示词格式无效"})
-			return
+			return nil, &promptCandidateJobError{message: "文本模型返回的提示词格式无效", cause: parseErr, status: http.StatusBadGateway}
 		}
+		candidates := make([]promptCandidate, 0, len(parsed))
 		for _, candidate := range parsed {
 			if candidate.SegmentID == 0 {
 				candidate.SegmentID = segment.ID
 			}
 			if candidate.SegmentID == segment.ID {
-				all = append(all, candidate)
+				candidates = append(candidates, candidate)
 			}
 		}
-		if _, saveErr := prompts.NewSnapshotStore(api.deps.DB).Save(r.Context(), user.ID, project.ID, model.ID, model.VersionID, purpose, snapshot); saveErr != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存提示词快照失败"})
+		if externalPrompt == "" {
+			if _, saveErr := prompts.NewSnapshotStore(api.deps.DB).Save(ctx, user.ID, project.ID, model.ID, model.VersionID, purpose, snapshot); saveErr != nil {
+				return nil, &promptCandidateJobError{message: "保存提示词快照失败", cause: saveErr}
+			}
+		}
+		return candidates, nil
+	})
+	if jobsErr != nil {
+		if jobErr, ok := jobsErr.(*promptCandidateJobError); ok {
+			if jobErr.textCompletion {
+				api.writeTextCompletionError(w, fmt.Errorf("text completion: %w", jobErr.cause))
+				return
+			}
+			status := jobErr.status
+			if status == 0 {
+				status = http.StatusInternalServerError
+			}
+			writeJSON(w, status, map[string]string{"error": jobErr.message})
 			return
 		}
+		api.writeTextCompletionError(w, fmt.Errorf("text completion: %w", jobsErr))
+		return
+	}
+	all := make([]promptCandidate, 0, len(segments))
+	for _, candidates := range results {
+		all = append(all, candidates...)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"candidates": all})
 }
 
-func dataAssets(r *http.Request, api *API, projectID int64) []domain.Asset {
-	user, _ := currentUser(r)
-	assets, err := shuihuostore.NewAssets(api.deps.DB).ListByProject(r.Context(), user.ID, projectID)
-	if err != nil {
-		return nil
+func runPromptCandidateJobs(ctx context.Context, count int, work func(context.Context, int) ([]promptCandidate, error)) ([][]promptCandidate, error) {
+	if count == 0 {
+		return nil, nil
 	}
-	return assets
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	workers := promptCandidateConcurrency
+	if count < workers {
+		workers = count
+	}
+	results := make([][]promptCandidate, count)
+	jobs := make(chan int)
+	var firstErr error
+	var once sync.Once
+	var wait sync.WaitGroup
+	setError := func(err error) {
+		once.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+
+	for worker := 0; worker < workers; worker++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case index, open := <-jobs:
+					if !open {
+						return
+					}
+					candidates, err := work(ctx, index)
+					if err != nil {
+						setError(err)
+						return
+					}
+					results[index] = candidates
+				}
+			}
+		}()
+	}
+
+dispatch:
+	for index := 0; index < count; index++ {
+		select {
+		case <-ctx.Done():
+			break dispatch
+		case jobs <- index:
+		}
+	}
+	close(jobs)
+	wait.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
-func promptProjectNote(assets []domain.Asset, image bool) string {
+func promptProjectNote(assets []domain.Asset, purpose string) string {
 	items := make([]string, 0, len(assets))
 	for _, asset := range assets {
+		if asset.Category == "voice" {
+			continue
+		}
 		items = append(items, fmt.Sprintf("%s：%s", asset.Name, asset.Prompt))
 	}
-	if image {
+	switch purpose {
+	case "image_prompt":
 		return "可用资产：" + strings.Join(items, "；")
+	default:
+		return "可用资产与视觉设定：" + strings.Join(items, "；")
 	}
-	return "可用资产与视觉设定：" + strings.Join(items, "；")
 }
 
-func parsePromptCandidates(raw string) ([]promptCandidate, error) {
+func parsePromptCandidates(raw, kind string) ([]promptCandidate, error) {
 	var candidates []promptCandidate
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &candidates); err != nil {
-		return nil, err
+	payload := []byte(strings.TrimSpace(raw))
+	if err := json.Unmarshal(payload, &candidates); err != nil {
+		converted, convertErr := parseStoryboardPromptCandidates(payload, kind)
+		if convertErr != nil {
+			return nil, err
+		}
+		candidates = converted
 	}
 	valid := make([]promptCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -139,6 +258,40 @@ func parsePromptCandidates(raw string) ([]promptCandidate, error) {
 		return nil, fmt.Errorf("prompt candidates are empty")
 	}
 	return valid, nil
+}
+
+func parseStoryboardPromptCandidates(payload []byte, kind string) ([]promptCandidate, error) {
+	var document struct {
+		Storyboard []struct {
+			SegmentID   int64  `json:"segmentId"`
+			Prompt      string `json:"prompt"`
+			ImagePrompt string `json:"image_prompt"`
+			VideoDesc   string `json:"video_desc"`
+			VideoPrompt string `json:"video_prompt"`
+		} `json:"storyboard"`
+	}
+	if err := json.Unmarshal(payload, &document); err != nil {
+		return nil, err
+	}
+	candidates := make([]promptCandidate, 0, len(document.Storyboard))
+	for _, item := range document.Storyboard {
+		prompt := strings.TrimSpace(item.Prompt)
+		switch kind {
+		case "image":
+			if prompt == "" {
+				prompt = item.ImagePrompt
+			}
+		case "video":
+			if prompt == "" {
+				prompt = item.VideoDesc
+			}
+			if prompt == "" {
+				prompt = item.VideoPrompt
+			}
+		}
+		candidates = append(candidates, promptCandidate{SegmentID: item.SegmentID, Prompt: prompt})
+	}
+	return candidates, nil
 }
 
 func (api *API) handleApplyShuihuoPromptCandidates(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +337,7 @@ func (api *API) handleApplyShuihuoPromptCandidates(w http.ResponseWriter, r *htt
 		} else {
 			videoPrompt = candidate.Prompt
 		}
-		if err := segments.UpdatePrompts(r.Context(), user.ID, candidate.SegmentID, imagePrompt, videoPrompt, segment.ImagePromptLocked, segment.VideoPromptLocked); err != nil {
+		if err := segments.UpdatePrompts(r.Context(), user.ID, candidate.SegmentID, imagePrompt, videoPrompt, segment.NegativePrompt, segment.ImagePromptLocked, segment.VideoPromptLocked, segment.NegativePromptLocked); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "应用提示词失败"})
 			return
 		}

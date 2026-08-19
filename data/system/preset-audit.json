@@ -1,0 +1,3246 @@
+[
+  {
+    "id": "6c6c3ceb-c02d-406e-a28d-bea237c45c2b",
+    "at": "2026-08-15T05:29:53.167Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-extract",
+    "before": null,
+    "after": {
+      "id": "script-extract",
+      "module": "script",
+      "name": "人物场景提取",
+      "kind": "base",
+      "description": "人物与场景提取规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "5fec7f75-7c7c-409d-9e9b-c07539d8c50e",
+    "at": "2026-08-15T05:29:53.236Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-extract",
+    "before": null,
+    "after": {
+      "id": "script-extract",
+      "module": "script",
+      "name": "人物场景提取",
+      "kind": "base",
+      "description": "人物与场景提取规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "2b07b2f3-e3c6-481c-a0ec-8dee990b195a",
+    "at": "2026-08-15T05:29:53.319Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-extract-novel-panel",
+    "before": null,
+    "after": {
+      "id": "script-extract-novel-panel",
+      "module": "script",
+      "name": "小说面板提取",
+      "kind": "base",
+      "description": "V77 小说面板人物、关系、场景与统一风格提取规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "ffac99fc-5244-4ae8-b971-de5c5243c931",
+    "at": "2026-08-15T05:29:53.400Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-extract-novel-panel",
+    "before": null,
+    "after": {
+      "id": "script-extract-novel-panel",
+      "module": "script",
+      "name": "小说面板提取",
+      "kind": "base",
+      "description": "V77 小说面板人物、关系、场景与统一风格提取规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "899e885c-5784-44a5-93e3-ba4b3159162f",
+    "at": "2026-08-15T05:29:53.518Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-hook",
+    "before": null,
+    "after": {
+      "id": "script-hook",
+      "module": "script",
+      "name": "爆款开头",
+      "kind": "base",
+      "description": "剧本爆点开头策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "77fa0456-e3c7-47b0-a220-c42be5547b55",
+    "at": "2026-08-15T05:29:53.602Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-hook",
+    "before": null,
+    "after": {
+      "id": "script-hook",
+      "module": "script",
+      "name": "爆款开头",
+      "kind": "base",
+      "description": "剧本爆点开头策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "8757dee0-8d27-434c-90fe-d59baa438c06",
+    "at": "2026-08-15T05:29:53.710Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-continuous",
+    "before": null,
+    "after": {
+      "id": "script-continuous",
+      "module": "script",
+      "name": "连续开头",
+      "kind": "base",
+      "description": "连续剧情开头策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "88ac6fb9-0558-45ee-80eb-099b220edea3",
+    "at": "2026-08-15T05:29:53.787Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-continuous",
+    "before": null,
+    "after": {
+      "id": "script-continuous",
+      "module": "script",
+      "name": "连续开头",
+      "kind": "base",
+      "description": "连续剧情开头策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "05765aa9-adfa-47dc-bc21-1aa684ea92ba",
+    "at": "2026-08-15T05:29:53.857Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-segmented",
+    "before": null,
+    "after": {
+      "id": "script-segmented",
+      "module": "script",
+      "name": "分段开头",
+      "kind": "base",
+      "description": "V77 剧情单元自动分段连续策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "6699adda-30c4-4aa8-abce-e7c8370ce4b7",
+    "at": "2026-08-15T05:29:53.907Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-segmented",
+    "before": null,
+    "after": {
+      "id": "script-segmented",
+      "module": "script",
+      "name": "分段开头",
+      "kind": "base",
+      "description": "V77 剧情单元自动分段连续策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "73c28cfd-efab-4010-bc07-3cfebc440372",
+    "at": "2026-08-15T05:29:53.974Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-general",
+    "before": null,
+    "after": {
+      "id": "script-general",
+      "module": "script",
+      "name": "通用规则",
+      "kind": "base",
+      "description": "剧本生成通用约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "b35f3e58-24ff-4b3a-8521-0c067f9b44bd",
+    "at": "2026-08-15T05:29:54.027Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-general",
+    "before": null,
+    "after": {
+      "id": "script-general",
+      "module": "script",
+      "name": "通用规则",
+      "kind": "base",
+      "description": "剧本生成通用约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "5e989d48-ba62-4438-80b5-318648c5efa3",
+    "at": "2026-08-15T05:29:54.094Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-screenplay",
+    "before": null,
+    "after": {
+      "id": "script-format-screenplay",
+      "module": "script",
+      "name": "剧情模式",
+      "kind": "base",
+      "description": "剧情模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "5e8c24d9-f476-4985-bfd3-13e77172bec4",
+    "at": "2026-08-15T05:29:54.154Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-screenplay",
+    "before": null,
+    "after": {
+      "id": "script-format-screenplay",
+      "module": "script",
+      "name": "剧情模式",
+      "kind": "base",
+      "description": "剧情模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "602605b1-6c33-4eb8-b956-0462962577db",
+    "at": "2026-08-15T05:29:54.262Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-storyboard",
+    "before": null,
+    "after": {
+      "id": "script-format-storyboard",
+      "module": "script",
+      "name": "画布模式",
+      "kind": "base",
+      "description": "画布模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "3aec8c2d-e44a-4f59-a427-ec82eaaf39f6",
+    "at": "2026-08-15T05:29:54.344Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-storyboard",
+    "before": null,
+    "after": {
+      "id": "script-format-storyboard",
+      "module": "script",
+      "name": "画布模式",
+      "kind": "base",
+      "description": "画布模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "48396841-fd37-4b7f-95eb-38f1a5d98d18",
+    "at": "2026-08-15T05:29:54.455Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-shortdrama",
+    "before": null,
+    "after": {
+      "id": "script-format-shortdrama",
+      "module": "script",
+      "name": "剧本模式",
+      "kind": "base",
+      "description": "短剧模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "fa7a045c-55c2-4528-9dd2-7b8353096e11",
+    "at": "2026-08-15T05:29:54.533Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-shortdrama",
+    "before": null,
+    "after": {
+      "id": "script-format-shortdrama",
+      "module": "script",
+      "name": "剧本模式",
+      "kind": "base",
+      "description": "短剧模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "b042357f-0cae-45b2-827d-15e49220c7a7",
+    "at": "2026-08-15T05:29:54.641Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-shotlist",
+    "before": null,
+    "after": {
+      "id": "script-format-shotlist",
+      "module": "script",
+      "name": "分镜模式",
+      "kind": "base",
+      "description": "V77 小说面板式最终分镜输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "c4852ba7-cba0-495c-9920-dbf9309f09ce",
+    "at": "2026-08-15T05:29:54.706Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-shotlist",
+    "before": null,
+    "after": {
+      "id": "script-format-shotlist",
+      "module": "script",
+      "name": "分镜模式",
+      "kind": "base",
+      "description": "V77 小说面板式最终分镜输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "03fffb5e-7b11-41f9-8e68-aa21df1f7c53",
+    "at": "2026-08-15T05:29:54.815Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-wrapper",
+    "before": null,
+    "after": {
+      "id": "script-constraint-wrapper",
+      "module": "script",
+      "name": "约束设置规则",
+      "kind": "base",
+      "description": "允许格式下的约束输出包裹规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "7ce471f9-356f-4d8c-9d28-9810a3d91288",
+    "at": "2026-08-15T05:29:54.904Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-wrapper",
+    "before": null,
+    "after": {
+      "id": "script-constraint-wrapper",
+      "module": "script",
+      "name": "约束设置规则",
+      "kind": "base",
+      "description": "允许格式下的约束输出包裹规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "d566b02d-ee67-4327-81d8-02bc741cf9c0",
+    "at": "2026-08-15T05:29:55.018Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-live-action",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-live-action",
+      "module": "script",
+      "name": "真人实拍",
+      "kind": "addon",
+      "description": "真人实拍画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "76096141-3945-4604-9a0b-15764b822755",
+    "at": "2026-08-15T05:29:55.103Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-live-action",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-live-action",
+      "module": "script",
+      "name": "真人实拍",
+      "kind": "addon",
+      "description": "真人实拍画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "a1c3d1fb-bf0f-4b0b-8289-49da2e70c36e",
+    "at": "2026-08-15T05:29:55.216Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-3d",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-3d",
+      "module": "script",
+      "name": "3D 国漫",
+      "kind": "addon",
+      "description": "3D 国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "9d3a2b3e-4b91-4133-ae73-bf6e8c64b03c",
+    "at": "2026-08-15T05:29:55.296Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-3d",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-3d",
+      "module": "script",
+      "name": "3D 国漫",
+      "kind": "addon",
+      "description": "3D 国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "ef6e989f-c9d5-4209-9490-43283f5e9a81",
+    "at": "2026-08-15T05:29:55.406Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-2d",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-2d",
+      "module": "script",
+      "name": "2D 动漫",
+      "kind": "addon",
+      "description": "2D 动漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "41abbe11-7408-4adc-86d3-9de8eeb1d51b",
+    "at": "2026-08-15T05:29:55.488Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-2d",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-2d",
+      "module": "script",
+      "name": "2D 动漫",
+      "kind": "addon",
+      "description": "2D 动漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "ce11ca01-c8cc-4493-9e64-9ae47a5c7533",
+    "at": "2026-08-15T05:29:55.605Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-guoman",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-guoman",
+      "module": "script",
+      "name": "国漫",
+      "kind": "addon",
+      "description": "国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "7cb87f04-362d-465c-a1c6-60db94caae17",
+    "at": "2026-08-15T05:29:55.687Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-guoman",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-guoman",
+      "module": "script",
+      "name": "国漫",
+      "kind": "addon",
+      "description": "国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "0e1c8352-a93c-45b5-93fd-a70992179fec",
+    "at": "2026-08-15T05:29:55.799Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-quality-4k",
+    "before": null,
+    "after": {
+      "id": "script-constraint-quality-4k",
+      "module": "script",
+      "name": "4K 画质",
+      "kind": "addon",
+      "description": "4K 超高清画质约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "quality"
+    }
+  },
+  {
+    "id": "0d71f741-53b3-4f81-88c2-9bc8571a6925",
+    "at": "2026-08-15T05:29:55.894Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-quality-4k",
+    "before": null,
+    "after": {
+      "id": "script-constraint-quality-4k",
+      "module": "script",
+      "name": "4K 画质",
+      "kind": "addon",
+      "description": "4K 超高清画质约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "quality"
+    }
+  },
+  {
+    "id": "a2f5ffa3-1a99-47a1-ad77-d057c26b1b91",
+    "at": "2026-08-15T05:29:55.999Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-restriction-no-overlay",
+    "before": null,
+    "after": {
+      "id": "script-constraint-restriction-no-overlay",
+      "module": "script",
+      "name": "无关文字限制",
+      "kind": "addon",
+      "description": "禁止无关文字、横幅与漂浮 UI",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "restriction"
+    }
+  },
+  {
+    "id": "643ee965-f8a9-4b1e-b7c0-647e27d65a03",
+    "at": "2026-08-15T05:29:56.074Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-restriction-no-overlay",
+    "before": null,
+    "after": {
+      "id": "script-constraint-restriction-no-overlay",
+      "module": "script",
+      "name": "无关文字限制",
+      "kind": "addon",
+      "description": "禁止无关文字、横幅与漂浮 UI",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "restriction"
+    }
+  },
+  {
+    "id": "f9fdfb00-bf08-4de1-985a-1f8bae749b83",
+    "at": "2026-08-15T05:29:56.179Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-negative-general",
+    "before": null,
+    "after": {
+      "id": "script-constraint-negative-general",
+      "module": "script",
+      "name": "通用负面提示词",
+      "kind": "addon",
+      "description": "通用视频负面提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "constraintCategory": "negative"
+    }
+  },
+  {
+    "id": "66445e82-984c-4dd8-a244-9b322bb1ff2c",
+    "at": "2026-08-15T05:29:56.260Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-negative-general",
+    "before": null,
+    "after": {
+      "id": "script-constraint-negative-general",
+      "module": "script",
+      "name": "通用负面提示词",
+      "kind": "addon",
+      "description": "通用视频负面提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "constraintCategory": "negative"
+    }
+  },
+  {
+    "id": "fb87b557-ed85-4051-a59e-c1c8d93aa2e6",
+    "at": "2026-08-15T05:29:56.370Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "novel-analysis",
+    "before": null,
+    "after": {
+      "id": "novel-analysis",
+      "module": "novel-panel",
+      "name": "内容分析",
+      "kind": "base",
+      "description": "小说题材、人物与场景分析规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "65d0140f-d0ad-4aff-8c8d-29a035fcb9ac",
+    "at": "2026-08-15T05:29:56.452Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "novel-analysis",
+    "before": null,
+    "after": {
+      "id": "novel-analysis",
+      "module": "novel-panel",
+      "name": "内容分析",
+      "kind": "base",
+      "description": "小说题材、人物与场景分析规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "20094db6-7cc5-4144-ac58-2084e727a0a1",
+    "at": "2026-08-15T05:29:56.563Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "novel-character",
+    "before": null,
+    "after": {
+      "id": "novel-character",
+      "module": "novel-panel",
+      "name": "人物卡",
+      "kind": "base",
+      "description": "人物外形卡生成规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "5829dcae-95ce-4ab2-a626-759790adcad0",
+    "at": "2026-08-15T05:29:56.642Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "novel-character",
+    "before": null,
+    "after": {
+      "id": "novel-character",
+      "module": "novel-panel",
+      "name": "人物卡",
+      "kind": "base",
+      "description": "人物外形卡生成规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "849a88b3-e179-43fd-892f-efdba8359057",
+    "at": "2026-08-15T05:29:56.758Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "novel-outline",
+    "before": null,
+    "after": {
+      "id": "novel-outline",
+      "module": "novel-panel",
+      "name": "分镜生成",
+      "kind": "base",
+      "description": "小说分镜和时间轴生成规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "11f8aaca-f7e6-4f90-a197-52b66a9f0539",
+    "at": "2026-08-15T05:29:56.836Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "novel-outline",
+    "before": null,
+    "after": {
+      "id": "novel-outline",
+      "module": "novel-panel",
+      "name": "分镜生成",
+      "kind": "base",
+      "description": "小说分镜和时间轴生成规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "77820d37-3ae2-41ed-8256-dd5fe7f96124",
+    "at": "2026-08-17T08:03:45.025Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-smart-segmentation",
+    "before": null,
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "2e764cdf-4180-41f6-a1c1-f6205733aa01",
+    "at": "2026-08-17T08:03:45.071Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-smart-segmentation",
+    "before": null,
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "e955c6c0-3bc4-47d2-a4b6-19b35aa14b6f",
+    "at": "2026-08-17T12:23:45.512Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-characters",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-characters",
+      "module": "shuihuo-production",
+      "name": "提取人物",
+      "kind": "base",
+      "description": "从项目原文提取可复用的人物资产与视觉基线",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "bfa1e3ea-2310-4990-aba6-a16c27d33f7d",
+    "at": "2026-08-17T12:23:45.589Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-extract-characters",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-characters",
+      "module": "shuihuo-production",
+      "name": "提取人物",
+      "kind": "base",
+      "description": "从项目原文提取可复用的人物资产与视觉基线",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "b9931c38-bc70-463a-b6f2-37f1656265c0",
+    "at": "2026-08-17T12:23:45.687Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-scenes",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-scenes",
+      "module": "shuihuo-production",
+      "name": "提取场景",
+      "kind": "base",
+      "description": "从项目原文提取可复用的场景资产与空间基线",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "c8ada131-8127-4f34-b654-be7f6803c905",
+    "at": "2026-08-17T12:23:45.769Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-extract-scenes",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-scenes",
+      "module": "shuihuo-production",
+      "name": "提取场景",
+      "kind": "base",
+      "description": "从项目原文提取可复用的场景资产与空间基线",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "d9ee1d60-bcd4-4541-851c-8ea0809adfac",
+    "at": "2026-08-17T12:23:45.892Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-image-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "c8b63163-5e72-4c6c-9d94-78ac9b205b80",
+    "at": "2026-08-17T12:23:45.970Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-image-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "9ac6d932-30d6-4bf1-854b-b29da15038b1",
+    "at": "2026-08-17T12:23:46.066Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-video-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "0eba8d8b-fdb0-4702-a86a-15069f89eefe",
+    "at": "2026-08-17T12:23:46.147Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-video-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "5fbb081f-7ccb-4234-8c04-0e06d5e721b9",
+    "at": "2026-08-17T12:23:46.240Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-smart-segmentation",
+    "before": null,
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "3302e642-ec48-44ef-b88b-6a6e4df8e994",
+    "at": "2026-08-17T12:23:46.313Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-smart-segmentation",
+    "before": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived"
+    },
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published"
+    }
+  },
+  {
+    "id": "4263bd14-3c99-4ec9-8040-02b4bfae869c",
+    "at": "2026-08-18T04:00:27.092Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-negative-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft"
+    }
+  },
+  {
+    "id": "5bbcfdec-f15e-453b-b310-175377178b46",
+    "at": "2026-08-18T04:00:27.138Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-negative-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published"
+    }
+  },
+  {
+    "id": "5c6c4317-e1a2-41a0-94fe-b4a646a36a0e",
+    "at": "2026-08-18T06:54:17.118Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-extract",
+    "before": null,
+    "after": {
+      "id": "script-extract",
+      "module": "script",
+      "name": "人物场景提取",
+      "kind": "base",
+      "description": "人物与场景提取规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.extract",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "8be4c817-ba66-45cd-a20c-adf2ded115e6",
+    "at": "2026-08-18T06:54:17.185Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-extract",
+    "before": {
+      "id": "script-extract",
+      "module": "script",
+      "name": "人物场景提取",
+      "kind": "base",
+      "description": "人物与场景提取规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "extractionPreset": true
+    },
+    "after": {
+      "id": "script-extract",
+      "module": "script",
+      "name": "人物场景提取",
+      "kind": "base",
+      "description": "人物与场景提取规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.extract",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "21d2ba0c-1319-4b56-89ef-86a94a94b48f",
+    "at": "2026-08-18T06:54:17.279Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-extract-novel-panel",
+    "before": null,
+    "after": {
+      "id": "script-extract-novel-panel",
+      "module": "script",
+      "name": "小说面板提取",
+      "kind": "base",
+      "description": "V77 小说面板人物、关系、场景与统一风格提取规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.novel-panel-extract",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "6bb0acea-b43d-4539-a1e3-6049b7566e1a",
+    "at": "2026-08-18T06:54:17.349Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-extract-novel-panel",
+    "before": {
+      "id": "script-extract-novel-panel",
+      "module": "script",
+      "name": "小说面板提取",
+      "kind": "base",
+      "description": "V77 小说面板人物、关系、场景与统一风格提取规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "extractionPreset": true
+    },
+    "after": {
+      "id": "script-extract-novel-panel",
+      "module": "script",
+      "name": "小说面板提取",
+      "kind": "base",
+      "description": "V77 小说面板人物、关系、场景与统一风格提取规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.novel-panel-extract",
+      "extractionPreset": true
+    }
+  },
+  {
+    "id": "62bf31f0-8d63-45f7-80d6-ed7b5b4c282d",
+    "at": "2026-08-18T06:54:17.451Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-hook",
+    "before": null,
+    "after": {
+      "id": "script-hook",
+      "module": "script",
+      "name": "爆款开头",
+      "kind": "base",
+      "description": "剧本爆点开头策略",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.hook"
+    }
+  },
+  {
+    "id": "7d528d96-f053-4165-8fa5-b0ec0f0f1677",
+    "at": "2026-08-18T06:54:17.528Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-hook",
+    "before": {
+      "id": "script-hook",
+      "module": "script",
+      "name": "爆款开头",
+      "kind": "base",
+      "description": "剧本爆点开头策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-hook",
+      "module": "script",
+      "name": "爆款开头",
+      "kind": "base",
+      "description": "剧本爆点开头策略",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.hook"
+    }
+  },
+  {
+    "id": "7457cacb-fc7b-4ef8-b012-b9d99071325a",
+    "at": "2026-08-18T06:54:17.624Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-continuous",
+    "before": null,
+    "after": {
+      "id": "script-continuous",
+      "module": "script",
+      "name": "连续开头",
+      "kind": "base",
+      "description": "连续剧情开头策略",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.continuous"
+    }
+  },
+  {
+    "id": "2333e145-32fa-4e07-83f7-943116e6c830",
+    "at": "2026-08-18T06:54:17.691Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-continuous",
+    "before": {
+      "id": "script-continuous",
+      "module": "script",
+      "name": "连续开头",
+      "kind": "base",
+      "description": "连续剧情开头策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-continuous",
+      "module": "script",
+      "name": "连续开头",
+      "kind": "base",
+      "description": "连续剧情开头策略",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.continuous"
+    }
+  },
+  {
+    "id": "077ea0fd-f0ed-48db-8401-4794334cee3f",
+    "at": "2026-08-18T06:54:17.791Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-segmented",
+    "before": null,
+    "after": {
+      "id": "script-segmented",
+      "module": "script",
+      "name": "分段开头",
+      "kind": "base",
+      "description": "V77 剧情单元自动分段连续策略",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.segmented"
+    }
+  },
+  {
+    "id": "c8002ece-9bf3-4a9d-88c8-06f83ef5623b",
+    "at": "2026-08-18T06:54:17.873Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-segmented",
+    "before": {
+      "id": "script-segmented",
+      "module": "script",
+      "name": "分段开头",
+      "kind": "base",
+      "description": "V77 剧情单元自动分段连续策略",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-segmented",
+      "module": "script",
+      "name": "分段开头",
+      "kind": "base",
+      "description": "V77 剧情单元自动分段连续策略",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.segmented"
+    }
+  },
+  {
+    "id": "4ed19ebc-3d31-41ec-8fcf-a5ad3516385d",
+    "at": "2026-08-18T06:54:17.973Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-general",
+    "before": null,
+    "after": {
+      "id": "script-general",
+      "module": "script",
+      "name": "通用规则",
+      "kind": "base",
+      "description": "剧本生成通用约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.general"
+    }
+  },
+  {
+    "id": "62c73ca2-17ee-45ad-8a8e-83f1b7c6dc8d",
+    "at": "2026-08-18T06:54:18.057Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-general",
+    "before": {
+      "id": "script-general",
+      "module": "script",
+      "name": "通用规则",
+      "kind": "base",
+      "description": "剧本生成通用约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-general",
+      "module": "script",
+      "name": "通用规则",
+      "kind": "base",
+      "description": "剧本生成通用约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.general"
+    }
+  },
+  {
+    "id": "cfd11db7-659b-4fae-9be7-43834780765c",
+    "at": "2026-08-18T06:54:18.154Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-screenplay",
+    "before": null,
+    "after": {
+      "id": "script-format-screenplay",
+      "module": "script",
+      "name": "剧情模式",
+      "kind": "base",
+      "description": "剧情模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.format.screenplay"
+    }
+  },
+  {
+    "id": "b02b56e3-e56e-4a8c-a88a-f3bf3e2a33f9",
+    "at": "2026-08-18T06:54:18.228Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-screenplay",
+    "before": {
+      "id": "script-format-screenplay",
+      "module": "script",
+      "name": "剧情模式",
+      "kind": "base",
+      "description": "剧情模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-format-screenplay",
+      "module": "script",
+      "name": "剧情模式",
+      "kind": "base",
+      "description": "剧情模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.format.screenplay"
+    }
+  },
+  {
+    "id": "4c08afc5-006d-4249-9360-54cdcf49dc2c",
+    "at": "2026-08-18T06:54:18.326Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-storyboard",
+    "before": null,
+    "after": {
+      "id": "script-format-storyboard",
+      "module": "script",
+      "name": "画布模式",
+      "kind": "base",
+      "description": "画布模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.format.storyboard"
+    }
+  },
+  {
+    "id": "22427c76-7f3d-4be8-9d39-30d5ea18b4d7",
+    "at": "2026-08-18T06:54:18.403Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-storyboard",
+    "before": {
+      "id": "script-format-storyboard",
+      "module": "script",
+      "name": "画布模式",
+      "kind": "base",
+      "description": "画布模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-format-storyboard",
+      "module": "script",
+      "name": "画布模式",
+      "kind": "base",
+      "description": "画布模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.format.storyboard"
+    }
+  },
+  {
+    "id": "e26b1bfc-a5cf-4aaa-a379-2821a2ce1992",
+    "at": "2026-08-18T06:54:18.503Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-shortdrama",
+    "before": null,
+    "after": {
+      "id": "script-format-shortdrama",
+      "module": "script",
+      "name": "剧本模式",
+      "kind": "base",
+      "description": "短剧模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.format.shortdrama"
+    }
+  },
+  {
+    "id": "65837855-e416-433c-a548-ae4a0872ecb6",
+    "at": "2026-08-18T06:54:18.578Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-shortdrama",
+    "before": {
+      "id": "script-format-shortdrama",
+      "module": "script",
+      "name": "剧本模式",
+      "kind": "base",
+      "description": "短剧模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-format-shortdrama",
+      "module": "script",
+      "name": "剧本模式",
+      "kind": "base",
+      "description": "短剧模式输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.format.shortdrama"
+    }
+  },
+  {
+    "id": "a0560d3e-8fd1-4158-a77f-ffa346c001f1",
+    "at": "2026-08-18T06:54:18.688Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-format-shotlist",
+    "before": null,
+    "after": {
+      "id": "script-format-shotlist",
+      "module": "script",
+      "name": "分镜模式",
+      "kind": "base",
+      "description": "V77 小说面板式最终分镜输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.format.shotlist"
+    }
+  },
+  {
+    "id": "51c434a1-bce0-429f-90b2-2c28182f9929",
+    "at": "2026-08-18T06:54:18.761Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-format-shotlist",
+    "before": {
+      "id": "script-format-shotlist",
+      "module": "script",
+      "name": "分镜模式",
+      "kind": "base",
+      "description": "V77 小说面板式最终分镜输出格式",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-format-shotlist",
+      "module": "script",
+      "name": "分镜模式",
+      "kind": "base",
+      "description": "V77 小说面板式最终分镜输出格式",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.format.shotlist"
+    }
+  },
+  {
+    "id": "f59df5d0-3030-4ab4-a4ac-0dabfebd5095",
+    "at": "2026-08-18T06:54:18.860Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-wrapper",
+    "before": null,
+    "after": {
+      "id": "script-constraint-wrapper",
+      "module": "script",
+      "name": "约束设置规则",
+      "kind": "base",
+      "description": "允许格式下的约束输出包裹规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.wrapper"
+    }
+  },
+  {
+    "id": "eef4cc5e-38ad-4584-8be7-f5c0c778cc9a",
+    "at": "2026-08-18T06:54:18.938Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-wrapper",
+    "before": {
+      "id": "script-constraint-wrapper",
+      "module": "script",
+      "name": "约束设置规则",
+      "kind": "base",
+      "description": "允许格式下的约束输出包裹规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "script-constraint-wrapper",
+      "module": "script",
+      "name": "约束设置规则",
+      "kind": "base",
+      "description": "允许格式下的约束输出包裹规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.wrapper"
+    }
+  },
+  {
+    "id": "ac7ab856-48b0-4e6b-8c85-54eff4e306f0",
+    "at": "2026-08-18T06:54:19.044Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-live-action",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-live-action",
+      "module": "script",
+      "name": "真人实拍",
+      "kind": "addon",
+      "description": "真人实拍画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "fa1b5e53-8ce6-461c-b8ef-6dcfd2300aff",
+    "at": "2026-08-18T06:54:19.119Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-live-action",
+    "before": {
+      "id": "script-constraint-prefix-live-action",
+      "module": "script",
+      "name": "真人实拍",
+      "kind": "addon",
+      "description": "真人实拍画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "prefix"
+    },
+    "after": {
+      "id": "script-constraint-prefix-live-action",
+      "module": "script",
+      "name": "真人实拍",
+      "kind": "addon",
+      "description": "真人实拍画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "c7bb18d4-5c84-4e56-a358-56f3f8fe8ec2",
+    "at": "2026-08-18T06:54:19.215Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-3d",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-3d",
+      "module": "script",
+      "name": "3D 国漫",
+      "kind": "addon",
+      "description": "3D 国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "5d0b4bcd-a06b-4ae0-8dd8-21adfb2d8741",
+    "at": "2026-08-18T06:54:19.295Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-3d",
+    "before": {
+      "id": "script-constraint-prefix-3d",
+      "module": "script",
+      "name": "3D 国漫",
+      "kind": "addon",
+      "description": "3D 国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "prefix"
+    },
+    "after": {
+      "id": "script-constraint-prefix-3d",
+      "module": "script",
+      "name": "3D 国漫",
+      "kind": "addon",
+      "description": "3D 国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "2bdde3e8-d12f-4831-95f5-598b5d6bdfa9",
+    "at": "2026-08-18T06:54:19.398Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-2d",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-2d",
+      "module": "script",
+      "name": "2D 动漫",
+      "kind": "addon",
+      "description": "2D 动漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "84a9bd4e-d3e2-4183-ab9f-97b486b6b736",
+    "at": "2026-08-18T06:54:19.474Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-2d",
+    "before": {
+      "id": "script-constraint-prefix-2d",
+      "module": "script",
+      "name": "2D 动漫",
+      "kind": "addon",
+      "description": "2D 动漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "prefix"
+    },
+    "after": {
+      "id": "script-constraint-prefix-2d",
+      "module": "script",
+      "name": "2D 动漫",
+      "kind": "addon",
+      "description": "2D 动漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "15e0a281-862e-473d-855e-fd708b39c3d4",
+    "at": "2026-08-18T06:54:19.568Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-prefix-guoman",
+    "before": null,
+    "after": {
+      "id": "script-constraint-prefix-guoman",
+      "module": "script",
+      "name": "国漫",
+      "kind": "addon",
+      "description": "国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "a997bfbc-c5ce-43a1-b974-a99afbdd2780",
+    "at": "2026-08-18T06:54:19.657Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-prefix-guoman",
+    "before": {
+      "id": "script-constraint-prefix-guoman",
+      "module": "script",
+      "name": "国漫",
+      "kind": "addon",
+      "description": "国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "prefix"
+    },
+    "after": {
+      "id": "script-constraint-prefix-guoman",
+      "module": "script",
+      "name": "国漫",
+      "kind": "addon",
+      "description": "国漫画面前缀词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.prefix",
+      "constraintCategory": "prefix"
+    }
+  },
+  {
+    "id": "36162ac9-12fa-4910-97f9-4dea80519f24",
+    "at": "2026-08-18T06:54:19.757Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-quality-4k",
+    "before": null,
+    "after": {
+      "id": "script-constraint-quality-4k",
+      "module": "script",
+      "name": "4K 画质",
+      "kind": "addon",
+      "description": "4K 超高清画质约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.quality",
+      "constraintCategory": "quality"
+    }
+  },
+  {
+    "id": "c03d6a9f-7f2f-4a49-aab8-9cc7d3092521",
+    "at": "2026-08-18T06:54:19.827Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-quality-4k",
+    "before": {
+      "id": "script-constraint-quality-4k",
+      "module": "script",
+      "name": "4K 画质",
+      "kind": "addon",
+      "description": "4K 超高清画质约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "quality"
+    },
+    "after": {
+      "id": "script-constraint-quality-4k",
+      "module": "script",
+      "name": "4K 画质",
+      "kind": "addon",
+      "description": "4K 超高清画质约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.quality",
+      "constraintCategory": "quality"
+    }
+  },
+  {
+    "id": "36c2f3a6-f6f1-4a79-a470-8e546eb89c2e",
+    "at": "2026-08-18T06:54:19.925Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-restriction-no-overlay",
+    "before": null,
+    "after": {
+      "id": "script-constraint-restriction-no-overlay",
+      "module": "script",
+      "name": "无关文字限制",
+      "kind": "addon",
+      "description": "禁止无关文字、横幅与漂浮 UI",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.restriction",
+      "constraintCategory": "restriction"
+    }
+  },
+  {
+    "id": "8f250dd4-2e93-4225-a863-44dab0552a89",
+    "at": "2026-08-18T06:54:20.003Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-restriction-no-overlay",
+    "before": {
+      "id": "script-constraint-restriction-no-overlay",
+      "module": "script",
+      "name": "无关文字限制",
+      "kind": "addon",
+      "description": "禁止无关文字、横幅与漂浮 UI",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "restriction"
+    },
+    "after": {
+      "id": "script-constraint-restriction-no-overlay",
+      "module": "script",
+      "name": "无关文字限制",
+      "kind": "addon",
+      "description": "禁止无关文字、横幅与漂浮 UI",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.restriction",
+      "constraintCategory": "restriction"
+    }
+  },
+  {
+    "id": "b29f5e33-29dd-4a33-898b-682bea14e494",
+    "at": "2026-08-18T06:54:20.104Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "script-constraint-negative-general",
+    "before": null,
+    "after": {
+      "id": "script-constraint-negative-general",
+      "module": "script",
+      "name": "通用负面提示词",
+      "kind": "addon",
+      "description": "通用视频负面提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "script.constraint.negative",
+      "constraintCategory": "negative"
+    }
+  },
+  {
+    "id": "d3c2732b-ce09-4c94-a4a9-624dbb5b6f73",
+    "at": "2026-08-18T06:54:20.180Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "script-constraint-negative-general",
+    "before": {
+      "id": "script-constraint-negative-general",
+      "module": "script",
+      "name": "通用负面提示词",
+      "kind": "addon",
+      "description": "通用视频负面提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null,
+      "constraintCategory": "negative"
+    },
+    "after": {
+      "id": "script-constraint-negative-general",
+      "module": "script",
+      "name": "通用负面提示词",
+      "kind": "addon",
+      "description": "通用视频负面提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "script.constraint.negative",
+      "constraintCategory": "negative"
+    }
+  },
+  {
+    "id": "0748372e-e1d5-446e-ace6-2a03161967a7",
+    "at": "2026-08-18T06:54:20.280Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "novel-analysis",
+    "before": null,
+    "after": {
+      "id": "novel-analysis",
+      "module": "novel-panel",
+      "name": "内容分析",
+      "kind": "base",
+      "description": "小说题材、人物与场景分析规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "novel.analysis"
+    }
+  },
+  {
+    "id": "af0a0f45-dedf-4c1e-a5d4-c8099c8e1cf6",
+    "at": "2026-08-18T06:54:20.350Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "novel-analysis",
+    "before": {
+      "id": "novel-analysis",
+      "module": "novel-panel",
+      "name": "内容分析",
+      "kind": "base",
+      "description": "小说题材、人物与场景分析规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "novel-analysis",
+      "module": "novel-panel",
+      "name": "内容分析",
+      "kind": "base",
+      "description": "小说题材、人物与场景分析规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "novel.analysis"
+    }
+  },
+  {
+    "id": "78f7d493-4626-4196-9ff6-c8c85334a90e",
+    "at": "2026-08-18T06:54:20.449Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "novel-character",
+    "before": null,
+    "after": {
+      "id": "novel-character",
+      "module": "novel-panel",
+      "name": "人物卡",
+      "kind": "base",
+      "description": "人物外形卡生成规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "novel.character"
+    }
+  },
+  {
+    "id": "fabb238a-1346-4379-bbdb-a7cf83119746",
+    "at": "2026-08-18T06:54:20.525Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "novel-character",
+    "before": {
+      "id": "novel-character",
+      "module": "novel-panel",
+      "name": "人物卡",
+      "kind": "base",
+      "description": "人物外形卡生成规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "novel-character",
+      "module": "novel-panel",
+      "name": "人物卡",
+      "kind": "base",
+      "description": "人物外形卡生成规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "novel.character"
+    }
+  },
+  {
+    "id": "69773bee-c83f-449a-be70-574e30901ea3",
+    "at": "2026-08-18T06:54:20.614Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "novel-outline",
+    "before": null,
+    "after": {
+      "id": "novel-outline",
+      "module": "novel-panel",
+      "name": "分镜生成",
+      "kind": "base",
+      "description": "小说分镜和时间轴生成规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "novel.outline"
+    }
+  },
+  {
+    "id": "bde5c326-53e9-4b78-b00f-2d40b098f95a",
+    "at": "2026-08-18T06:54:20.691Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "novel-outline",
+    "before": {
+      "id": "novel-outline",
+      "module": "novel-panel",
+      "name": "分镜生成",
+      "kind": "base",
+      "description": "小说分镜和时间轴生成规则",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "novel-outline",
+      "module": "novel-panel",
+      "name": "分镜生成",
+      "kind": "base",
+      "description": "小说分镜和时间轴生成规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "novel.outline"
+    }
+  },
+  {
+    "id": "4e7a58a5-fbc4-45c5-816b-1770be150798",
+    "at": "2026-08-18T06:54:20.777Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-characters",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-characters",
+      "module": "shuihuo-production",
+      "name": "提取人物",
+      "kind": "base",
+      "description": "从项目原文提取可复用的人物资产与视觉基线",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "shuihuo.asset.character-extraction"
+    }
+  },
+  {
+    "id": "faba6365-9156-4916-8129-7ccdd8291bda",
+    "at": "2026-08-18T06:54:20.843Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-extract-characters",
+    "before": {
+      "id": "shuihuo-extract-characters",
+      "module": "shuihuo-production",
+      "name": "提取人物",
+      "kind": "base",
+      "description": "从项目原文提取可复用的人物资产与视觉基线",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "shuihuo-extract-characters",
+      "module": "shuihuo-production",
+      "name": "提取人物",
+      "kind": "base",
+      "description": "从项目原文提取可复用的人物资产与视觉基线",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "shuihuo.asset.character-extraction"
+    }
+  },
+  {
+    "id": "52453dc2-30f9-4c46-b7f8-693c03e1a589",
+    "at": "2026-08-18T06:54:20.955Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-scenes",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-scenes",
+      "module": "shuihuo-production",
+      "name": "提取场景",
+      "kind": "base",
+      "description": "从项目原文提取可复用的场景资产与空间基线",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "shuihuo.asset.scene-extraction"
+    }
+  },
+  {
+    "id": "8e226513-6a13-4303-98e9-e82260ab49cc",
+    "at": "2026-08-18T06:54:21.037Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-extract-scenes",
+    "before": {
+      "id": "shuihuo-extract-scenes",
+      "module": "shuihuo-production",
+      "name": "提取场景",
+      "kind": "base",
+      "description": "从项目原文提取可复用的场景资产与空间基线",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "shuihuo-extract-scenes",
+      "module": "shuihuo-production",
+      "name": "提取场景",
+      "kind": "base",
+      "description": "从项目原文提取可复用的场景资产与空间基线",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "shuihuo.asset.scene-extraction"
+    }
+  },
+  {
+    "id": "ca8f1a65-929d-4676-99de-12271a22e88f",
+    "at": "2026-08-18T06:54:21.156Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-smart-segmentation",
+    "before": null,
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "draft",
+      "slot": "shuihuo.segmentation.smart"
+    }
+  },
+  {
+    "id": "f310346e-3002-4c13-b2d9-2a95d5b2dfab",
+    "at": "2026-08-18T06:54:21.234Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-smart-segmentation",
+    "before": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "published",
+      "slot": "shuihuo.segmentation.smart"
+    }
+  },
+  {
+    "id": "e4b705ee-b024-46ae-adac-6ac8b338baca",
+    "at": "2026-08-18T06:54:21.331Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-image-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "shuihuo.prompt.image"
+    }
+  },
+  {
+    "id": "92164900-361e-4356-a9da-e34493776a92",
+    "at": "2026-08-18T06:54:21.409Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-image-prompt",
+    "before": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "shuihuo.prompt.image"
+    }
+  },
+  {
+    "id": "5e912baf-4803-4ab2-83bc-5ab89f9531a3",
+    "at": "2026-08-18T06:54:21.510Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-video-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "c12118c7-5808-4237-bd21-1ae2e4388ce0",
+    "at": "2026-08-18T06:54:21.590Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-video-prompt",
+    "before": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "9f88aa85-2917-4bdb-ad8b-c619075e45b9",
+    "at": "2026-08-18T06:54:21.687Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-negative-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "shuihuo.prompt.negative"
+    }
+  },
+  {
+    "id": "4a9df156-2731-498c-8b7e-d6a4adeb5c8f",
+    "at": "2026-08-18T06:54:21.774Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-negative-prompt",
+    "before": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": null
+    },
+    "after": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "shuihuo.prompt.negative"
+    }
+  },
+  {
+    "id": "2b52b03a-6f42-4444-9b20-1550becf388f",
+    "at": "2026-08-18T06:57:14.667Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-props",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-props",
+      "module": "shuihuo-production",
+      "name": "提取道具",
+      "kind": "base",
+      "description": "从项目原文提取可复用的关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.prop-extraction"
+    }
+  },
+  {
+    "id": "7b130927-2553-4b31-8fec-eb483791028f",
+    "at": "2026-08-18T06:57:14.746Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-extract-props",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-props",
+      "module": "shuihuo-production",
+      "name": "提取道具",
+      "kind": "base",
+      "description": "从项目原文提取可复用的关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.prop-extraction"
+    }
+  },
+  {
+    "id": "6db5cb48-94b8-4263-bc74-b2fe16a4e62a",
+    "at": "2026-08-18T06:57:14.854Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-asset-binding",
+    "before": null,
+    "after": {
+      "id": "shuihuo-asset-binding",
+      "module": "shuihuo-production",
+      "name": "分镜资产绑定",
+      "kind": "base",
+      "description": "将项目人物、场景和道具绑定到对应字幕分镜",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.binding"
+    }
+  },
+  {
+    "id": "9a22ceab-eb96-4882-918b-d8ab1035de5a",
+    "at": "2026-08-18T06:57:14.939Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-asset-binding",
+    "before": null,
+    "after": {
+      "id": "shuihuo-asset-binding",
+      "module": "shuihuo-production",
+      "name": "分镜资产绑定",
+      "kind": "base",
+      "description": "将项目人物、场景和道具绑定到对应字幕分镜",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.binding"
+    }
+  },
+  {
+    "id": "9725cde8-200d-4752-968d-184a57488771",
+    "at": "2026-08-18T06:57:15.033Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-character-color-sheet",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-color-sheet",
+      "module": "shuihuo-production",
+      "name": "配色图人物设计",
+      "kind": "base",
+      "description": "带三视图和配色板的角色设计参考图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "17e769a4-62b5-4d03-857d-4d8e56735eef",
+    "at": "2026-08-18T06:57:15.116Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-character-color-sheet",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-color-sheet",
+      "module": "shuihuo-production",
+      "name": "配色图人物设计",
+      "kind": "base",
+      "description": "带三视图和配色板的角色设计参考图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "1003c112-82f2-4b41-8f15-546c2ebe5569",
+    "at": "2026-08-18T06:57:15.225Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-character-accessory-sheet",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-accessory-sheet",
+      "module": "shuihuo-production",
+      "name": "三视图配饰设计",
+      "kind": "base",
+      "description": "带五官与服饰细节的角色三视图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "d1d97619-25ae-4433-a084-baefe72045fa",
+    "at": "2026-08-18T06:57:15.302Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-character-accessory-sheet",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-accessory-sheet",
+      "module": "shuihuo-production",
+      "name": "三视图配饰设计",
+      "kind": "base",
+      "description": "带五官与服饰细节的角色三视图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "c98dd8af-712d-4bbf-b6ba-a2f4e6dae6c8",
+    "at": "2026-08-18T06:57:15.403Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-character-three-view",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-three-view",
+      "module": "shuihuo-production",
+      "name": "三视图",
+      "kind": "base",
+      "description": "标准全身角色三视图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "f9ac6fb4-2541-4f9c-8dba-407ffa728cfd",
+    "at": "2026-08-18T06:57:15.484Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-character-three-view",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-three-view",
+      "module": "shuihuo-production",
+      "name": "三视图",
+      "kind": "base",
+      "description": "标准全身角色三视图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "e244a1a9-0114-44be-b4bb-12cfca052227",
+    "at": "2026-08-18T06:57:15.586Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-character-expression-sheet",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-expression-sheet",
+      "module": "shuihuo-production",
+      "name": "角色表情多状态",
+      "kind": "base",
+      "description": "角色细节、表情和动作全方位设定图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "b03a777d-e61a-40c3-9d20-1e0bbf3a9963",
+    "at": "2026-08-18T06:57:15.667Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-character-expression-sheet",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-expression-sheet",
+      "module": "shuihuo-production",
+      "name": "角色表情多状态",
+      "kind": "base",
+      "description": "角色细节、表情和动作全方位设定图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "46229a2f-b780-41b5-b26f-bcb556d0abba",
+    "at": "2026-08-18T06:57:15.771Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-character-single-view",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-single-view",
+      "module": "shuihuo-production",
+      "name": "单视图",
+      "kind": "base",
+      "description": "标准竖版角色单视图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "f575ad53-78b0-4ae2-b5ff-a0d984c27616",
+    "at": "2026-08-18T06:57:15.847Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-character-single-view",
+    "before": null,
+    "after": {
+      "id": "shuihuo-character-single-view",
+      "module": "shuihuo-production",
+      "name": "单视图",
+      "kind": "base",
+      "description": "标准竖版角色单视图",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.character-sheet"
+    }
+  },
+  {
+    "id": "7e1642c0-0f77-4e8c-ba6c-ad25c1500c50",
+    "at": "2026-08-18T07:14:00.010Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-assets",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-assets",
+      "module": "shuihuo-production",
+      "name": "人物场景、道具提取",
+      "kind": "base",
+      "description": "从项目原文一次性提取人物、场景和关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.extraction"
+    }
+  },
+  {
+    "id": "37e1fa75-7cba-460b-a42a-3cf36a06d8ab",
+    "at": "2026-08-18T07:14:00.064Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-extract-assets",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-assets",
+      "module": "shuihuo-production",
+      "name": "人物场景、道具提取",
+      "kind": "base",
+      "description": "从项目原文一次性提取人物、场景和关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.extraction"
+    }
+  },
+  {
+    "id": "007ff590-3843-4e60-9cf5-150ebf8ce623",
+    "at": "2026-08-18T08:37:25.746Z",
+    "actor": "codex",
+    "action": "preset.draft_created",
+    "target": "shuihuo-extract-assets",
+    "before": null,
+    "after": {
+      "id": "shuihuo-extract-assets",
+      "module": "shuihuo-production",
+      "name": "人物场景、道具提取",
+      "kind": "base",
+      "description": "从项目原文一次性提取人物、场景和关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "draft",
+      "slot": "shuihuo.asset.extraction"
+    }
+  },
+  {
+    "id": "32a582d2-12d1-4611-9c68-bbfcb315c752",
+    "at": "2026-08-18T08:37:25.788Z",
+    "actor": "codex",
+    "action": "preset.published",
+    "target": "shuihuo-extract-assets",
+    "before": {
+      "id": "shuihuo-extract-assets",
+      "module": "shuihuo-production",
+      "name": "人物场景、道具提取",
+      "kind": "base",
+      "description": "从项目原文一次性提取人物、场景和关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "archived",
+      "slot": "shuihuo.asset.extraction"
+    },
+    "after": {
+      "id": "shuihuo-extract-assets",
+      "module": "shuihuo-production",
+      "name": "人物场景、道具提取",
+      "kind": "base",
+      "description": "从项目原文一次性提取人物、场景和关键道具资产",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "published",
+      "slot": "shuihuo.asset.extraction"
+    }
+  },
+  {
+    "id": "68841f7b-0e64-4bc2-9d3a-8839c574efd4",
+    "at": "2026-08-18T08:37:25.831Z",
+    "actor": "codex",
+    "action": "preset.draft_created",
+    "target": "shuihuo-image-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "draft",
+      "slot": "shuihuo.prompt.image"
+    }
+  },
+  {
+    "id": "4d682589-c0f7-4bd4-a529-c6b21ec1568b",
+    "at": "2026-08-18T08:37:25.872Z",
+    "actor": "codex",
+    "action": "preset.published",
+    "target": "shuihuo-image-prompt",
+    "before": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "archived",
+      "slot": "shuihuo.prompt.image"
+    },
+    "after": {
+      "id": "shuihuo-image-prompt",
+      "module": "shuihuo-production",
+      "name": "画面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交图片模型的画面提示词",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "published",
+      "slot": "shuihuo.prompt.image"
+    }
+  },
+  {
+    "id": "152ed0d5-00ce-4de3-8cd8-b6c76da3c400",
+    "at": "2026-08-18T08:37:25.914Z",
+    "actor": "codex",
+    "action": "preset.draft_created",
+    "target": "shuihuo-video-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "draft",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "481263c5-d591-443b-84f1-0ade5035d904",
+    "at": "2026-08-18T08:37:25.953Z",
+    "actor": "codex",
+    "action": "preset.published",
+    "target": "shuihuo-video-prompt",
+    "before": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "archived",
+      "slot": "shuihuo.prompt.video"
+    },
+    "after": {
+      "id": "shuihuo-video-prompt",
+      "module": "shuihuo-production",
+      "name": "视频提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为可直接提交视频模型的动态镜头提示词",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "published",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "b2018b5b-1e8d-4c04-9060-0cb6d6f23ce1",
+    "at": "2026-08-18T08:37:25.993Z",
+    "actor": "codex",
+    "action": "preset.draft_created",
+    "target": "shuihuo-negative-prompt",
+    "before": null,
+    "after": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "draft",
+      "slot": "shuihuo.prompt.negative"
+    }
+  },
+  {
+    "id": "cb5d9a69-159a-4f2c-b07a-9d94028860ca",
+    "at": "2026-08-18T08:37:26.035Z",
+    "actor": "codex",
+    "action": "preset.published",
+    "target": "shuihuo-negative-prompt",
+    "before": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 2,
+      "status": "archived",
+      "slot": "shuihuo.prompt.negative"
+    },
+    "after": {
+      "id": "shuihuo-negative-prompt",
+      "module": "shuihuo-production",
+      "name": "负面提示词",
+      "kind": "base",
+      "description": "将已确认分镜转为图片或视频生成时需要避免的内容约束",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "published",
+      "slot": "shuihuo.prompt.negative"
+    }
+  },
+  {
+    "id": "12beb498-f719-41fe-9e79-9def300d984a",
+    "at": "2026-08-18T09:46:21.237Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-ai-novel-extractor-commentary",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-ai-novel-extractor-commentary",
+      "module": "shuihuo-production",
+      "name": "AI小说一键提取器（人物·场景·道具）-解说角色",
+      "kind": "base",
+      "description": "飞书原名资产提取提示词，适配水货人物、场景、道具候选解析。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.asset.extraction"
+    }
+  },
+  {
+    "id": "66048c81-0d7a-4377-91bc-b77dcae3b360",
+    "at": "2026-08-18T09:46:21.295Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-ai-novel-extractor-commentary",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-ai-novel-extractor-commentary",
+      "module": "shuihuo-production",
+      "name": "AI小说一键提取器（人物·场景·道具）-解说角色",
+      "kind": "base",
+      "description": "飞书原名资产提取提示词，适配水货人物、场景、道具候选解析。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.asset.extraction"
+    }
+  },
+  {
+    "id": "c24e0df2-bce8-4b97-a273-6a8147db463c",
+    "at": "2026-08-18T09:47:16.728Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-jimeng-image-new",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-jimeng-image-new",
+      "module": "shuihuo-production",
+      "name": "即梦生图新版",
+      "kind": "base",
+      "description": "飞书原名即梦生图新版，适配水货分镜图片提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.prompt.image"
+    }
+  },
+  {
+    "id": "4a56307f-423c-4804-b5fd-f49dc3137df7",
+    "at": "2026-08-18T09:47:16.777Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-jimeng-image-new",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-jimeng-image-new",
+      "module": "shuihuo-production",
+      "name": "即梦生图新版",
+      "kind": "base",
+      "description": "飞书原名即梦生图新版，适配水货分镜图片提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.prompt.image"
+    }
+  },
+  {
+    "id": "686cd5fe-81c7-4607-a324-c49660e0d937",
+    "at": "2026-08-18T09:47:18.769Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-vidu-storyboard",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-vidu-storyboard",
+      "module": "shuihuo-production",
+      "name": "剧本分镜-vidu分镜词",
+      "kind": "base",
+      "description": "飞书原名 Vidu 分镜词，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "ba4b6607-32b9-4de7-8629-285caf7baa85",
+    "at": "2026-08-18T09:47:18.866Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-vidu-storyboard",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-vidu-storyboard",
+      "module": "shuihuo-production",
+      "name": "剧本分镜-vidu分镜词",
+      "kind": "base",
+      "description": "飞书原名 Vidu 分镜词，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "facf2c89-220e-4265-bbcb-69c2b2fb1ac5",
+    "at": "2026-08-18T09:47:21.332Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-storyboard-general",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-storyboard-general",
+      "module": "shuihuo-production",
+      "name": "剧本分镜-通用",
+      "kind": "base",
+      "description": "飞书原名通用剧本分镜提示词，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "ad6992a7-6d16-4e61-8a6b-e23831ee5795",
+    "at": "2026-08-18T09:47:21.377Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-storyboard-general",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-storyboard-general",
+      "module": "shuihuo-production",
+      "name": "剧本分镜-通用",
+      "kind": "base",
+      "description": "飞书原名通用剧本分镜提示词，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "a1b82a2f-10e3-46c9-88fa-3c58c6776906",
+    "at": "2026-08-18T09:47:23.465Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-seedance2-pro",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-seedance2-pro",
+      "module": "shuihuo-production",
+      "name": "剧本分镜-Seedance 2.0专业版",
+      "kind": "base",
+      "description": "飞书原名 Seedance 2.0 专业版，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "013ec324-4e47-42e0-8e66-d13229a62fc8",
+    "at": "2026-08-18T09:47:23.532Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-seedance2-pro",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-seedance2-pro",
+      "module": "shuihuo-production",
+      "name": "剧本分镜-Seedance 2.0专业版",
+      "kind": "base",
+      "description": "飞书原名 Seedance 2.0 专业版，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "8d28d90c-ccab-4a4e-bd10-0a56f349db0f",
+    "at": "2026-08-18T09:47:26.723Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-jimeng-video",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-jimeng-video",
+      "module": "shuihuo-production",
+      "name": "即梦视频专项",
+      "kind": "base",
+      "description": "飞书原名即梦视频专项，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "bf0dbfea-ff39-457b-8485-db1a66aa4ad2",
+    "at": "2026-08-18T09:47:26.809Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-jimeng-video",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-jimeng-video",
+      "module": "shuihuo-production",
+      "name": "即梦视频专项",
+      "kind": "base",
+      "description": "飞书原名即梦视频专项，适配水货视频提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.prompt.video"
+    }
+  },
+  {
+    "id": "28da1549-2ef1-4c05-a687-b097d1d151fe",
+    "at": "2026-08-18T09:47:28.739Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-image-negative",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-image-negative",
+      "module": "shuihuo-production",
+      "name": "生图负面指令",
+      "kind": "base",
+      "description": "飞书原名生图负面指令，适配水货负面提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.prompt.negative"
+    }
+  },
+  {
+    "id": "ef04abda-24e7-479b-b7b2-f5b13a860353",
+    "at": "2026-08-18T09:47:28.806Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-image-negative",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-image-negative",
+      "module": "shuihuo-production",
+      "name": "生图负面指令",
+      "kind": "base",
+      "description": "飞书原名生图负面指令，适配水货负面提示词生成。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.prompt.negative"
+    }
+  },
+  {
+    "id": "55a5e4a5-5325-4aa0-9c17-59496cc4aab6",
+    "at": "2026-08-18T09:47:30.628Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-voice-qwen-minimax",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-voice-qwen-minimax",
+      "module": "shuihuo-production",
+      "name": "音色设计-支持qwen-minimax",
+      "kind": "base",
+      "description": "飞书原名音色设计提示词，当前进入水货系统预设库，供音色模块后续接入。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.voice.design"
+    }
+  },
+  {
+    "id": "1615d7bf-69cd-4ee8-8c2a-4773de271517",
+    "at": "2026-08-18T09:47:30.714Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-voice-qwen-minimax",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-voice-qwen-minimax",
+      "module": "shuihuo-production",
+      "name": "音色设计-支持qwen-minimax",
+      "kind": "base",
+      "description": "飞书原名音色设计提示词，当前进入水货系统预设库，供音色模块后续接入。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.voice.design"
+    }
+  },
+  {
+    "id": "1da21ded-350f-4d77-a965-18536f535c0f",
+    "at": "2026-08-18T09:47:32.817Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-feishu-multi-voice-lines",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-multi-voice-lines",
+      "module": "shuihuo-production",
+      "name": "多人配音台词-其他",
+      "kind": "base",
+      "description": "飞书原名多人配音台词提示词，当前进入水货系统预设库，供配音模块后续接入。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "draft",
+      "slot": "shuihuo.voice.dialogue"
+    }
+  },
+  {
+    "id": "c5652948-83fe-49e6-84cd-5bcb26614b91",
+    "at": "2026-08-18T09:47:32.902Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-feishu-multi-voice-lines",
+    "before": null,
+    "after": {
+      "id": "shuihuo-feishu-multi-voice-lines",
+      "module": "shuihuo-production",
+      "name": "多人配音台词-其他",
+      "kind": "base",
+      "description": "飞书原名多人配音台词提示词，当前进入水货系统预设库，供配音模块后续接入。",
+      "compatibleBaseIds": [],
+      "version": 1,
+      "status": "published",
+      "slot": "shuihuo.voice.dialogue"
+    }
+  },
+  {
+    "id": "8ce6478c-7541-4efe-8582-486661a88ced",
+    "at": "2026-08-19T03:19:13.557Z",
+    "actor": "choushiyiguai",
+    "action": "preset.draft_created",
+    "target": "shuihuo-smart-segmentation",
+    "before": null,
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 4,
+      "status": "draft",
+      "slot": "shuihuo.segmentation.smart"
+    }
+  },
+  {
+    "id": "b4cf3acd-8b97-4425-9623-0fc5c956527a",
+    "at": "2026-08-19T03:19:13.606Z",
+    "actor": "choushiyiguai",
+    "action": "preset.published",
+    "target": "shuihuo-smart-segmentation",
+    "before": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 3,
+      "status": "archived",
+      "slot": "shuihuo.segmentation.smart"
+    },
+    "after": {
+      "id": "shuihuo-smart-segmentation",
+      "module": "shuihuo-production",
+      "name": "智能识别（分镜提示词）",
+      "kind": "base",
+      "description": "水货生产导入原文后的智能分段规则",
+      "compatibleBaseIds": [],
+      "version": 4,
+      "status": "published",
+      "slot": "shuihuo.segmentation.smart"
+    }
+  }
+]

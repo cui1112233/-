@@ -590,6 +590,40 @@ test('only scoped preset administrators can read a preset body', async t => {
   assert.doesNotMatch(JSON.stringify(publicCatalog.body), /body|protocolLock/);
 });
 
+test('preset slot catalog is scoped to authorized preset administrators and never includes prompt bodies', async t => {
+  const runtime = createTestRuntime(t);
+  const app = createApp(runtime);
+  const owner = await login(app, 'choushiyiguai');
+  const writer = await login(app, 'choushiyiguai1');
+
+  const denied = await request(app, {
+    requestPath: '/api/admin/preset-slots?module=shuihuo-production',
+    token: writer.body.token
+  });
+  assert.equal(denied.status, 403);
+
+  const allowed = await request(app, {
+    requestPath: '/api/admin/preset-slots?module=shuihuo-production',
+    token: owner.body.token
+  });
+  assert.equal(allowed.status, 200);
+  assert.deepEqual(
+    allowed.body.slots.map(slot => [slot.id, slot.label, slot.mode]),
+    [
+      ['shuihuo.asset.character-extraction', '提取人物', 'primary'],
+      ['shuihuo.asset.scene-extraction', '提取场景', 'primary'],
+      ['shuihuo.asset.prop-extraction', '提取道具', 'primary'],
+      ['shuihuo.asset.binding', '分镜资产绑定', 'primary'],
+      ['shuihuo.asset.character-sheet', '人物设定', 'primary'],
+      ['shuihuo.segmentation.smart', '智能识别', 'primary'],
+      ['shuihuo.prompt.image', '画面提示词', 'primary'],
+      ['shuihuo.prompt.video', '视频提示词', 'primary'],
+      ['shuihuo.prompt.negative', '负面提示词', 'primary']
+    ]
+  );
+  assert.doesNotMatch(JSON.stringify(allowed.body), /body|protocolLock/i);
+});
+
 test('published constraint preset text is readable without exposing other preset bodies', async t => {
   const runtime = createTestRuntime(t);
   const app = createApp(runtime);

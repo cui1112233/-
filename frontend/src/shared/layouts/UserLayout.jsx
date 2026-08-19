@@ -1,7 +1,8 @@
 import { Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, X } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
+import { Lanyard } from '../components/lanyard/Lanyard';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
@@ -12,6 +13,7 @@ import { createAntTheme } from '../styles/theme';
 const navItems = [
   { href: '/', icon: Home, label: '首页' },
   { href: '/script', icon: FilePenLine, label: '剧本生成' },
+  { href: '/novel-fetch', icon: BookOpen, label: '小说获取' },
   { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
   { href: '/shuihuo-production', icon: Clapperboard, label: '水货生产' },
   { href: '/agent', icon: Bot, label: 'Agent 工作区' },
@@ -47,9 +49,11 @@ export function UserLayout({ children }) {
   const [loading, setLoading] = useState(false);
   const [loginExpanded, setLoginExpanded] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [loginCardTransitioning, setLoginCardTransitioning] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const accountSessionGenerationRef = useRef(0);
+  const loginCardTransitionTimerRef = useRef(null);
   const pathname = window.location.pathname;
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
@@ -71,6 +75,8 @@ export function UserLayout({ children }) {
     document.body.classList.add('user-theme-active');
     return () => document.body.classList.remove('user-theme-active');
   }, []);
+
+  useEffect(() => () => window.clearTimeout(loginCardTransitionTimerRef.current), []);
 
   useEffect(() => {
     let dialogOpen = false;
@@ -188,8 +194,24 @@ export function UserLayout({ children }) {
   }
 
   function openLoginDialog() {
+    if (isHome && !loginDialogOpen && !loginCardTransitioning) {
+      setLoginCardTransitioning(true);
+      loginCardTransitionTimerRef.current = window.setTimeout(() => {
+        setLoginExpanded(true);
+        setLoginDialogOpen(true);
+        setLoginCardTransitioning(false);
+      }, 820);
+      return;
+    }
     setLoginExpanded(true);
     setLoginDialogOpen(true);
+  }
+
+  function dockLoginCard() {
+    window.clearTimeout(loginCardTransitionTimerRef.current);
+    setLoginCardTransitioning(false);
+    setLoginExpanded(false);
+    setLoginDialogOpen(false);
   }
 
   function toggleSidebar() {
@@ -200,21 +222,41 @@ export function UserLayout({ children }) {
     setTheme(current => current === 'dark' ? 'light' : 'dark');
   }
 
-  const showLoginOverlay = !isLoggedIn && loginDialogOpen;
-  const loginOverlay = showLoginOverlay ? (
-    <div className="legacy-login-overlay">
+  const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen || loginCardTransitioning);
+  const loginCardDocked = isHome && !loginDialogOpen;
+  const showLanyardCard = isHome && (loginCardDocked || loginCardTransitioning);
+  const loginOverlay = showLoginCard ? (
+    <div className={`legacy-login-overlay${loginCardDocked ? ' is-card-docked' : ''}${loginCardTransitioning ? ' is-card-launching' : ''}`}>
+      {showLanyardCard ? (
+        <div className="login-lanyard-card">
+          <Lanyard
+            position={[0, 0, 22]}
+            gravity={[0, -40, 0]}
+            frontImage="/assets/logo-transparent.png"
+            backImage="/assets/logo.jpg"
+            lanyardWidth={2.2}
+            onCardClick={openLoginDialog}
+          />
+          <span className="login-lanyard-label">点击吊牌登录</span>
+        </div>
+      ) : (
       <div className={`login-modal${loginExpanded ? ' is-expanded' : ''}`}>
         <div className="login-concrete-texture" aria-hidden="true" />
         <div className="login-background-logo login-background-logo--one" aria-hidden="true"><BrandLogo /></div>
         <div className="login-background-logo login-background-logo--two" aria-hidden="true"><BrandLogo /></div>
         <div className="login-background-logo login-background-logo--three" aria-hidden="true"><BrandLogo /></div>
+        {isHome ? (
+          <button className="login-card-dismiss" type="button" aria-label="收起登录卡" onClick={dockLoginCard}>
+            <X size={15} aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           className="login-title"
           type="button"
           aria-expanded={loginExpanded}
-          onClick={() => setLoginExpanded(value => !value)}
+          onClick={openLoginDialog}
         >
-          一战晟铭登录
+          <span>一战晟铭登录</span>
         </button>
         <div className="login-form-wrap">
           <Form layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
@@ -232,6 +274,7 @@ export function UserLayout({ children }) {
           <p className="login-hint">提示：请联系管理员获取账号</p>
         </div>
       </div>
+      )}
     </div>
   ) : null;
 
