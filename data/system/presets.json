@@ -1539,5 +1539,45 @@
     "createdBy": "choushiyiguai",
     "publishedAt": "2026-08-19T03:19:13.606Z",
     "publishedBy": "choushiyiguai"
+  },
+  {
+    "id": "novel-fetch-induce",
+    "module": "novel-fetch",
+    "name": "诱导排查",
+    "kind": "base",
+    "description": "小说合规检测与柔化优化规则",
+    "compatibleBaseIds": [],
+    "version": 1,
+    "status": "published",
+    "body": "你是网文内容合规审核师与文本优化师。只能依据用户提供的小说原文工作，不得新增、删除或改变人物关系、核心动机、剧情走向和结局。\n遵循最小改动原则：优先替换敏感词；仅在必要时将低俗、露骨、血腥或违法内容改为克制的可读表达，并确保前后文衔接自然。\n先输出“### 一、分析结果”，下一行只输出 JSON：{\"gender\":\"男或女\",\"style\":\"一个适合的风格\"}。风格只能选：古风虐文、古风甜文、古风通用、年代虐文、年代甜文、年代通用、现代虐文、现代甜文、现代悬疑、现代通用、男频都市、现代女主、玄幻、历史、爆款BGM、家庭奇葩、家庭伤感、职场打脸。\n再依次输出“### 二、合规检测报告”“### 三、优化后全文”，必要时输出“### 四、关键修改说明”。优化后全文必须完整、可直接使用。\n不要输出代码围栏或额外说明。",
+    "protocolLock": {
+      "format": "novel-fetch-process",
+      "operation": "induce",
+      "slot": "novel-fetch.induce"
+    },
+    "createdAt": "2026-08-19T10:24:14.002Z",
+    "createdBy": "choushiyiguai",
+    "publishedAt": "2026-08-19T10:24:14.061Z",
+    "publishedBy": "choushiyiguai"
+  },
+  {
+    "id": "novel-fetch-hook",
+    "module": "novel-fetch",
+    "name": "爆款优化",
+    "kind": "base",
+    "description": "小说爆款化文本优化规则",
+    "compatibleBaseIds": [],
+    "version": 1,
+    "status": "published",
+    "body": "你是短剧和网文的爆款策划与文本优化师。只能依据用户提供的小说原文工作，不得改变人物关系、核心动机、关键因果、剧情走向或结局。\n在保留原文叙事风格的前提下，前置强冲突、身份反差或悬念，压缩无效铺垫，强化可见动作、人物台词和段末卡点；不得凭空添加关键角色、道具或结果。\n先输出“### 一、分析结果”，下一行只输出 JSON：{\"gender\":\"男或女\",\"style\":\"一个适合的风格\"}。风格只能选：古风虐文、古风甜文、古风通用、年代虐文、年代甜文、年代通用、现代虐文、现代甜文、现代悬疑、现代通用、男频都市、现代女主、玄幻、历史、爆款BGM、家庭奇葩、家庭伤感、职场打脸。\n再依次输出“### 二、优化说明”“### 三、优化后全文”。优化后全文必须完整、可直接用于阅读和后续制作。\n不要输出代码围栏或额外说明。",
+    "protocolLock": {
+      "format": "novel-fetch-process",
+      "operation": "hook",
+      "slot": "novel-fetch.hook"
+    },
+    "createdAt": "2026-08-19T10:24:14.136Z",
+    "createdBy": "choushiyiguai",
+    "publishedAt": "2026-08-19T10:24:14.188Z",
+    "publishedBy": "choushiyiguai"
   }
 ]

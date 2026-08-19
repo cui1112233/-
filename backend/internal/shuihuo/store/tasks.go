@@ -72,7 +72,7 @@ func (s *Tasks) Create(ctx context.Context, ownerID, projectID int64, task domai
 INSERT INTO shuihuo_tasks(project_id, segment_id, kind, status, provider, provider_task_id, model_id, model_version_id, prompt_version_id, input_snapshot, output_snapshot, error_code, error_message, retry_count)
 
 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, projectID, task.SegmentID, task.Kind, task.Status, task.Provider, task.ProviderTaskID, task.ModelID, task.ModelVersionID, task.PromptVersionID, task.Input, task.Output, task.ErrorCode, task.ErrorMessage, task.RetryCount)
+	`, projectID, task.SegmentID, task.Kind, task.Status, task.Provider, nullableProviderTaskID(task.ProviderTaskID), task.ModelID, task.ModelVersionID, task.PromptVersionID, task.Input, task.Output, task.ErrorCode, task.ErrorMessage, task.RetryCount)
 	if err != nil {
 		return domain.Task{}, err
 	}
@@ -271,7 +271,7 @@ JOIN shuihuo_projects p ON p.id = t.project_id
 SET t.segment_id = ?, t.kind = ?, t.provider = ?, t.provider_task_id = ?, t.model_id = ?, t.model_version_id = ?, t.prompt_version_id = ?,
     t.input_snapshot = ?, t.output_snapshot = ?, t.error_code = ?, t.error_message = ?, t.retry_count = ?
 WHERE t.id = ? AND p.user_id = ?
-`, task.SegmentID, task.Kind, task.Provider, task.ProviderTaskID, task.ModelID, task.ModelVersionID, task.PromptVersionID, task.Input, task.Output, task.ErrorCode, task.ErrorMessage, task.RetryCount, task.ID, ownerID)
+	`, task.SegmentID, task.Kind, task.Provider, nullableProviderTaskID(task.ProviderTaskID), task.ModelID, task.ModelVersionID, task.PromptVersionID, task.Input, task.Output, task.ErrorCode, task.ErrorMessage, task.RetryCount, task.ID, ownerID)
 	if err != nil {
 		return err
 	}
@@ -421,6 +421,15 @@ SELECT EXISTS(
 		return ErrTaskSegmentUnavailable
 	}
 	return nil
+}
+
+// provider_task_id participates in a unique key. A provider has not assigned
+// an ID while a task is still queued, so persist NULL rather than an empty ID.
+func nullableProviderTaskID(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func (s *Tasks) Cancel(ctx context.Context, ownerID, taskID int64) error {

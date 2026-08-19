@@ -22,6 +22,11 @@ function isTextInferenceRequest(method, pathname) {
     || /^\/api\/shuihuo-production\/projects\/\d+\/prompt-candidates\/(image|video)$/.test(pathname);
 }
 
+function requiresAccountAIConfigSync(method, pathname) {
+  return isTextInferenceRequest(method, pathname)
+    || (method === 'POST' && /^\/api\/shuihuo-production\/projects\/\d+\/assets\/generate$/.test(pathname));
+}
+
 function accountAIConfigPayload(config) {
   const provider = String(config?.provider || '').trim();
   const baseUrl = String(config?.baseUrl || '').trim();
@@ -235,7 +240,7 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStor
     const issuedAt = String(Math.floor(Date.now() / 1000));
     const username = req.auth.account.username;
     const isOwner = req.auth.account.isOwner === true;
-    if (isTextInferenceRequest(req.method, requestURL.pathname)) {
+    if (requiresAccountAIConfigSync(req.method, requestURL.pathname)) {
       try {
         await syncAccountAIConfig({
           targetBaseUrl: target.toString(), bridgeSecret: secret, username, isOwner,

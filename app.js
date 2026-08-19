@@ -125,7 +125,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   // 路由挂载
   app.get('/api/build-info', (req, res) => {
-    res.json({ app_version: 'v77-hotfix26', build_id: 'v77-hotfix26-style-reuse-r1' });
+    res.json({ app_version: 'v78.3.0.3', build_id: 'v78.3.0.3-remote-workbench-20260819-r1' });
   });
   app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));

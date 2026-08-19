@@ -1,6 +1,6 @@
 /* V77 Hotfix25: single runtime version/badge source. Legacy modules must not own the app badge. */
 (function(){
-  const runtime = Object.freeze({version:"v78.3.0.2", buildId:"v78.3.0.2-scene-event-canonical-timeline-20260818-r1", label:"V78.3.0.2 · 场景锚点/事件归属/连续时间轴根治", title:"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。"});
+  const runtime = Object.freeze({version:"v78.3.0.3", buildId:"v78.3.0.3-remote-workbench-20260819-r1", label:"V78.3.0.3 · 场景锚点/事件归属/连续时间轴根治", title:"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。"});
   globalThis.__V78_CURRENT_RUNTIME__ = runtime;
   globalThis.__V77_CURRENT_RUNTIME__ = runtime; // compatibility alias
   globalThis.__v78ApplyRuntimeBadge = globalThis.__v77ApplyRuntimeBadge = function(){
@@ -2229,7 +2229,7 @@ const V78302_SCENE_EVENT_OWNERSHIP_RULE = `【分镜场景锚点与内容事件�
 5. 同一个动作事件要拆“过程/细节/结果”而不是重复执行。例如“拿起文件扔到桌上”只能发生一次：可以分别拍手伸向文件、文件落桌、旁人反应，但不得在多个时段重复写“再次拿起并扔到桌上”。
 6. scene_anchor、内容事件 owner、卡内 local timeline 与整部视频 global timeline 是不同层级：AI只负责卡内镜头和事件分配；全局绝对秒数由软件统一顺排，不得让相邻外层卡出现重叠或倒序。`;
 
-globalThis.__V78_MULTI_CUT_STORYTELLING__=Object.freeze({version:"v78.3.0.2",mode:"timeline_segments",defaultCuts:"2-4",plainLanguage:true,sceneAnchor:true,eventOwnership:true,canonicalTimeline:true});
+globalThis.__V78_MULTI_CUT_STORYTELLING__=Object.freeze({version:"v78.3.0.3",mode:"timeline_segments",defaultCuts:"2-4",plainLanguage:true,sceneAnchor:true,eventOwnership:true,canonicalTimeline:true});
 
 function buildOutlineInstructionAppendix({
   mustCoverDetails = "",
@@ -8344,12 +8344,12 @@ function rebuildCanonicalOutlineTimelineV78302(reason = "canonical_timeline") {
     cursor = nextEnd;
   });
   state.outputs = state.outlineShots;
-  state.canonicalTimelineV78302 = { version: "v78.3.0.2", reason, total_seconds: cursor, changed, at: new Date().toISOString() };
+  state.canonicalTimelineV78302 = { version: "v78.3.0.3", reason, total_seconds: cursor, changed, at: new Date().toISOString() };
   return { changed, total_seconds: cursor, reason };
 }
 
 globalThis.__V78_SCENE_EVENT_TIMELINE_V78302__ = Object.freeze({
-  version: "v78.3.0.2",
+  version: "v78.3.0.3",
   ensureSceneCards: ensureSceneCardAnchorsV78302,
   rebuildTimeline: rebuildCanonicalOutlineTimelineV78302,
   sourceEvents: sourceContentEventsV78302,
@@ -11467,7 +11467,7 @@ ${fullOutlineSkillAppendix}`,
       characters: outlineCharactersV18,
     };
     console.info("[OUTLINE_PAYLOAD_TRACE]", {
-      build: "v78.3.0.2",
+      build: "v78.3.0.3",
       camera_chars: String(outlinePayload.camera || "").length,
       must_cover_chars: String(outlinePayload.must_cover_details || "").length,
       rhythm_chars: String(outlinePayload.shot_rhythm_requirements || "").length,
@@ -14504,7 +14504,7 @@ async function requestJSON(url, options = {}) {
       try {
         const rawDetail = Array.isArray(data?.detail) ? data.detail : [];
         const lengthIssue = rawDetail.find((item) => String(item?.type || item?.msg || "").toLowerCase().includes("too_long") || String(item?.msg || "").toLowerCase().includes("at most"));
-        if (lengthIssue) console.error("[SCHEMA_MISMATCH_TRACE]", { build:"v78.3.0.2", field:(lengthIssue.loc||[]).join("."), message:lengthIssue.msg, ctx:lengthIssue.ctx||{}, current_camera_chars:String(state.compatCamera||"").length });
+        if (lengthIssue) console.error("[SCHEMA_MISMATCH_TRACE]", { build:"v78.3.0.3", field:(lengthIssue.loc||[]).join("."), message:lengthIssue.msg, ctx:lengthIssue.ctx||{}, current_camera_chars:String(state.compatCamera||"").length });
       } catch (_error) {}
     }
     if (data?.code === "V77_STAGE_PROTOCOL_ERROR" && data?.stage) detail = `V77阶段 ${data.stage} 返回协议未完成：${detail}`;
@@ -21880,7 +21880,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
   };
 
   async function v24VerifyBackendBuild(){
-    const expectedVersion="v78.3.0.2", expectedBuild="v78.3.0.2-scene-event-canonical-timeline-20260818-r1";
+    const expectedVersion="v78.3.0.3", expectedBuild="v78.3.0.3-remote-workbench-20260819-r1";
     try{
       const response=await fetch(`/api/build-info?_=${Date.now()}`,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
       const info=response.ok?await response.json():{};
@@ -21920,8 +21920,8 @@ if (typeof buildAnalysisNovelPayload === "function") {
   globalThis.__V77_HOTFIX30_PREMIUM__ = true;
   globalThis.__V77_HOTFIX28_PREMIUM__ = true; // compatibility marker only
 
-  const V27_VERSION = "v78.3.0.2";
-  const V27_BUILD = "v78.3.0.2-scene-event-canonical-timeline-20260818-r1";
+  const V27_VERSION = "v78.3.0.3";
+  const V27_BUILD = "v78.3.0.3-remote-workbench-20260819-r1";
   const v27Text = (v)=>String(v ?? "").trim();
   const v27Array = (v)=>Array.isArray(v)?v:[];
   const v27Clone = (v)=>{try{return JSON.parse(JSON.stringify(v));}catch(_e){return v;}};
@@ -22651,7 +22651,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
   try{const prevSave=saveSettings;saveSettings=async function v27SaveSettings(){await prevSave.apply(this,arguments);try{const data=await v27SaveImageSettings();v29SettingsDiagnostic({message:data.message||"图片AI设置已保存。",diagnostics:{}});}catch(error){v29SettingsDiagnostic(null,error);}};}catch(_e){}
 
   globalThis.__V78_PREMIUM_HOST__={
-    version:"v78.3.0.2", normalizeAsset:v27NormalizeAsset, upsertAsset:v27UpsertAsset, characterAsset:v27CharacterAsset, assetUrl:v27AssetUrl, previewUrl:v28PreviewUrl,
+    version:"v78.3.0.3", normalizeAsset:v27NormalizeAsset, upsertAsset:v27UpsertAsset, characterAsset:v27CharacterAsset, assetUrl:v27AssetUrl, previewUrl:v28PreviewUrl,
     openAssetDialog:v27OpenAssetDialog, invalidateSegments:v27InvalidatePremiumSegments, renderAssetLibrary:v27RenderAssetLibrary, renderCharacterCards:v27DecorateCharacterCards,
     refreshLegacyMatches:v27RefreshAssetMatches, effectiveLegacyIds:v27EffectiveReferenceIds, premiumActive:v28PremiumActive
   };
@@ -22756,7 +22756,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
   }
   globalThis.v37AssetContract=assetContract;
   globalThis.__V77_SCENE_MEMORY__={version:"scene_memory_v37",store:ensureStore,buildPlans:buildMemoryPlans,directorDecision,assetContract,memoryForSourceKey:(key)=>{const store=ensureStore(),anchor=store.by_source_key?.[txt(key)];return anchor?store.anchors?.[anchor]||null:null;}};
-  console.info("[V78 Stable] Scene Memory / 中文导演决策 / 资产连续性契约已加载",{build:"v78.3.0.2-scene-event-canonical-timeline-20260818-r1"});
+  console.info("[V78 Stable] Scene Memory / 中文导演决策 / 资产连续性契约已加载",{build:"v78.3.0.3-remote-workbench-20260819-r1"});
 })();
 
 /* ========================================================================
@@ -22769,7 +22769,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
 (function installV77Hotfix35Diagnostics(){
   if(globalThis.__V77_HOTFIX35_DIAGNOSTICS__) return;
   globalThis.__V77_HOTFIX35_DIAGNOSTICS__=true;
-  const VERSION="v78.3.0.2", BUILD="v78.3.0.2-scene-event-canonical-timeline-20260818-r1";
+  const VERSION="v78.3.0.3", BUILD="v78.3.0.3-remote-workbench-20260819-r1";
   let traceSeq=0;
   const localTraces=new Map();
   const traceHistoryByEndpoint={};
@@ -22886,7 +22886,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
 (function installV77Hotfix38RuntimeFoundation(){
   if(globalThis.__V77_HOTFIX38_RUNTIME_FOUNDATION__)return;
   globalThis.__V77_HOTFIX38_RUNTIME_FOUNDATION__=true;
-  const VERSION="v78.3.0.2",BUILD="v78.3.0.2-scene-event-canonical-timeline-20260818-r1",SCHEMA_VERSION=38;
+  const VERSION="v78.3.0.3",BUILD="v78.3.0.3-remote-workbench-20260819-r1",SCHEMA_VERSION=38;
   const txt=(v)=>String(v??"").trim(),arr=(v)=>Array.isArray(v)?v:[],obj=(v)=>v&&typeof v==="object"&&!Array.isArray(v)?v:{};
   const clone=(v)=>{try{return JSON.parse(JSON.stringify(v));}catch(_){return v;}};
   function stable(value){

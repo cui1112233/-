@@ -31,6 +31,13 @@ func TestMigrationsUseExclusiveDatabaseLock(t *testing.T) {
 	}
 }
 
+func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
+	migration := migrationForVersion(t, 31)
+	if !strings.Contains(migration.sql, "UPDATE shuihuo_tasks") || !strings.Contains(migration.sql, "provider_task_id = NULL") || !strings.Contains(migration.sql, "provider_task_id = ''") {
+		t.Fatalf("migration must release empty provider task IDs: %q", migration.sql)
+	}
+}
+
 func TestSourceUnitMigrationCreatesReversibleMappingAndLegacyBackfill(t *testing.T) {
 	migration := migrationForVersion(t, 15)
 	if migration.apply == nil {

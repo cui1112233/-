@@ -128,6 +128,11 @@ function startAccountAIConfigSyncStub(t, secret) {
           res.end(JSON.stringify({ candidates: [] }));
           return;
         }
+        if (req.method === 'POST' && req.url === '/api/shuihuo-production/projects/12/assets/generate') {
+          res.statusCode = 201;
+          res.end(JSON.stringify({ tasks: [] }));
+          return;
+        }
         res.statusCode = 404;
         res.end(JSON.stringify({ error: 'unexpected route' }));
       });
@@ -278,7 +283,8 @@ test('settings save a separate image provider without exposing or discarding its
   assert.doesNotMatch(firstSave.body, /image-secret/);
   assert.equal(JSON.parse(firstSave.body).image.hasApiKey, true);
   assert.equal(readConfig('choushiyiguai1').image.apiKey, 'image-secret');
-  assert.deepEqual(backend.calls[0].body, { image });
+
+  assert.deepEqual(backend.calls[0].body.image, image);
 
   const secondSave = await request(app, {
     method: 'POST', requestPath: '/api/config', token,
@@ -288,6 +294,44 @@ test('settings save a separate image provider without exposing or discarding its
   assert.doesNotMatch(secondSave.body, /image-secret/);
   assert.equal(readConfig('choushiyiguai1').image.apiKey, 'image-secret');
   assert.equal(backend.calls[1].body.image.apiKey, 'image-secret');
+});
+
+test('asset image generation synchronizes the saved account image configuration', async t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-shuihuo-asset-image-sync-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  const secret = 'test-bridge-secret';
+  const backend = await startAccountAIConfigSyncStub(t, secret);
+  const priorConfig = readConfig('choushiyiguai1');
+  t.after(() => writeConfig('choushiyiguai1', priorConfig));
+  const image = {
+    mode: 'custom',
+    provider: 'openai_compatible',
+    displayName: 'My image gateway',
+    baseUrl: 'https://images.example/v1',
+    model: 'image-model',
+    apiKey: 'image-secret'
+  };
+  writeConfig('choushiyiguai1', { ...priorConfig, image });
+  const app = createApp({
+    accountStore: createAccountStore({ systemDir }),
+    tokenMap: new Map(),
+    sessionsPath: path.join(systemDir, 'sessions.json'),
+    shuihuoGateway: { targetBaseUrl: backend.targetBaseUrl, bridgeSecret: secret }
+  });
+  const login = await request(app, { method: 'POST', requestPath: '/api/login', body: { username: 'choushiyiguai1', password: '123456' } });
+  const result = await request(app, {
+    method: 'POST',
+    requestPath: '/api/shuihuo-production/projects/12/assets/generate',
+    token: JSON.parse(login.body).token,
+    body: { assetIds: [4], modelId: 0, aspectRatio: '16:9' }
+  });
+
+  assert.equal(result.status, 201);
+  assert.deepEqual(backend.calls.map(call => [call.method, call.pathname]), [
+    ['PUT', '/api/shuihuo-production/account-ai-config'],
+    ['POST', '/api/shuihuo-production/projects/12/assets/generate']
+  ]);
+  assert.deepEqual(backend.calls[0].body.image, image);
 });
 
 test('water-production prompt routes inject only published system presets', t => {

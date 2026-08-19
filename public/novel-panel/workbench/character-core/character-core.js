@@ -3,7 +3,7 @@
   "use strict";
   const PROTOCOL = "character_core_2_all_genres_v77";
   const VERSION = 77;
-  const BUILD_VERSION = "v78.3.0.2";
+  const BUILD_VERSION = "v78.3.0.3";
   const FACTS_MARKER = "V77_CHARACTER_CORE_FACTS";
   const APPEARANCE_MARKER = "V77_CHARACTER_CORE_APPEARANCE";
   const REVISION_CHECK_MARKER = "V77_CHARACTER_CORE_REVISION_CHECK";
@@ -2551,7 +2551,7 @@
       const health=await response.json();
       if(text(health.app_version)!==BUILD_VERSION)runtimeBuildMismatch=`当前页面脚本为 ${BUILD_VERSION}，后端为 ${text(health.app_version)||"未知版本"}。请关闭旧进程并使用当前目录的 START_CLEAN.ps1 重新启动。`;
     }catch(error){runtimeBuildMismatch=`无法验证当前后端版本：${error?.message||error}`;}
-    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V78.3.0.2 · 场景锚点/事件归属/连续时间轴根治";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=(globalThis.__V78_CURRENT_RUNTIME__||globalThis.__V77_CURRENT_RUNTIME__)?.buildId||"v78.3.0.2-scene-event-canonical-timeline-20260818-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
+    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V78.3.0.3 · 场景锚点/事件归属/连续时间轴根治";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=(globalThis.__V78_CURRENT_RUNTIME__||globalThis.__V77_CURRENT_RUNTIME__)?.buildId||"v78.3.0.3-remote-workbench-20260819-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
     if(!runtimeBuildMismatch) (globalThis.__v78ApplyRuntimeBadge||globalThis.__v77ApplyRuntimeBadge)?.();
     if(runtimeBuildMismatch)showAIStatusNotice(runtimeBuildMismatch,"warning",20000);
     globalThis.addEventListener?.("beforeunload",releaseProjectLease,{once:true});

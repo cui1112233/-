@@ -106,6 +106,21 @@ func TestGenericHTTPCanBePubliclySelectable(t *testing.T) {
 	}
 }
 
+func TestImageTaskExecutionRequiresAnInstalledImageAdapter(t *testing.T) {
+	for _, model := range []Definition{
+		{Kind: KindImage, AdapterKind: AdapterJimengImage},
+		{Kind: KindImage, AdapterKind: AdapterAccountOpenAICompatibleImage},
+		{Kind: KindImage, AdapterKind: AdapterGenericHTTP},
+	} {
+		if !model.SupportsTaskExecution() {
+			t.Fatalf("%q must support queued image tasks", model.AdapterKind)
+		}
+	}
+	if (Definition{Kind: KindImage, AdapterKind: "standard"}).SupportsTaskExecution() {
+		t.Fatal("legacy standard adapter must not be presented as executable")
+	}
+}
+
 func TestValidateModelID(t *testing.T) {
 	for _, value := range []string{"text-gpt-4o", "image-v2", "video-123", "a1-b2-c3"} {
 		if err := ValidateModelID(value); err != nil {

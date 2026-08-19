@@ -329,6 +329,9 @@ CREATE TABLE IF NOT EXISTS image_api_configs (
 	{version: 30, sql: `
 ALTER TABLE image_api_configs ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAULT '' AFTER provider;
 `},
+	{version: 31, sql: `
+UPDATE shuihuo_tasks SET provider_task_id = NULL WHERE provider_task_id = '';
+`},
 }
 
 const shuihuoSourceUnitMigrationSQL = `

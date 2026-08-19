@@ -58,7 +58,7 @@ func (api *API) handleCreateShuihuoAssetImageTasks(w http.ResponseWriter, r *htt
 		model = models.Definition{Name: config.Model, Kind: models.KindImage, AdapterKind: models.AdapterAccountOpenAICompatibleImage}
 	} else {
 		loadedModel, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(r.Context(), req.ModelID)
-		if err != nil || loadedModel.Kind != models.KindImage || !loadedModel.AvailableTo(shuihuoModelRole(user), false) || !loadedModel.ProviderConfigured() {
+		if err != nil || loadedModel.Kind != models.KindImage || !loadedModel.AvailableTo(shuihuoModelRole(user), false) || !loadedModel.ProviderConfigured() || !loadedModel.SupportsTaskExecution() {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "所选图片模型不可用或尚未完成服务端配置"})
 			return
 		}

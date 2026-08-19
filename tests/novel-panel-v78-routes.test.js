@@ -92,14 +92,14 @@ async function login(app) {
   return response.body.token;
 }
 
-test('V78 build-info, clean-core health and diagnostics self-check report v78.3.0.2', async t => {
+test('V78 build-info, clean-core health and diagnostics self-check report v78.3.0.3', async t => {
   const { app } = createServerContext(t);
   const token = await login(app);
 
   const buildInfo = await request(app, { requestPath: '/api/novel-panel/build-info', token });
   assert.equal(buildInfo.status, 200);
-  assert.equal(buildInfo.body.app_version, 'v78.3.0.2');
-  assert.equal(buildInfo.body.release_version, 'v78.3.0.2');
+  assert.equal(buildInfo.body.app_version, 'v78.3.0.3');
+  assert.equal(buildInfo.body.release_version, 'v78.3.0.3');
   assert.equal(buildInfo.body.workspace_schema_version, 40);
   assert.equal(buildInfo.body.release_channel, 'stable');
 

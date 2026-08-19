@@ -129,6 +129,17 @@ func (model Definition) ProviderConfigured() bool {
 	return strings.TrimSpace(model.Endpoint) != "" && strings.TrimSpace(model.RequestTemplate) != "" && strings.TrimSpace(model.ResponseMapping) != ""
 }
 
+// SupportsTaskExecution reports whether the task worker has an installed
+// adapter for this model. Legacy catalog rows can predate adapter validation.
+func (model Definition) SupportsTaskExecution() bool {
+	switch model.AdapterKind {
+	case AdapterJimengImage, AdapterAccountOpenAICompatibleImage, AdapterViduImageToVideo, AdapterGenericHTTP:
+		return true
+	default:
+		return false
+	}
+}
+
 // SupportsReferenceImages reports whether the server-side adapter can receive
 // the exact set of asset images snapshotted for a storyboard image task.
 // Generic models opt in only through an explicit typed template placeholder;

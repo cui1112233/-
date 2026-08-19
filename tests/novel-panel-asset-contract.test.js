@@ -424,7 +424,7 @@ test('novel-panel API requires Bearer authentication and returns usable settings
   });
   assert.equal(health.status, 200);
   assert.equal(health.body.character_core_version, 2);
-  assert.equal(health.body.app_version, 'v77-hotfix26');
+  assert.equal(health.body.app_version, 'v78.3.0.3');
 
   const characterCore = await request(app, {
     method: 'POST',

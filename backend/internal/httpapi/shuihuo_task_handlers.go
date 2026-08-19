@@ -90,6 +90,9 @@ func (api *API) handleListShuihuoModels(w http.ResponseWriter, r *http.Request) 
 	}
 	public := make([]models.PublicModel, 0, len(items))
 	for _, item := range items {
+		if item.Kind == models.KindImage && !item.SupportsTaskExecution() {
+			continue
+		}
 		if item.PubliclySelectable() {
 			public = append(public, models.ToPublic(item))
 		}

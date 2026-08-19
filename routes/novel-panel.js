@@ -35,16 +35,16 @@ const MIN_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 600;
 
 const V78_BUILD_INFO = {
-  app_version: 'v78.3.0.2',
+  app_version: 'v78.3.0.3',
   build_date: '2026-08-18',
   character_pipeline: 'character_core_2_all_genres_v78_stable',
   startup_mode: 'shared_backend_multi_instance_v78_stable',
   cache_policy: 'per_instance_profile_no_store',
   session_guard: 'registered_multi_instance',
-  build_id: 'v78.3.0.2-scene-event-canonical-timeline-20260818-r1',
+  build_id: 'v78.3.0.3-remote-workbench-20260819-r1',
   workspace_schema_version: 40,
   release_channel: 'stable',
-  release_version: 'v78.3.0.2',
+  release_version: 'v78.3.0.3',
   formal_roster_policy: 'forced_roster_slots_only_never_infer_formal_people_from_novel_relationship_terms',
   character_image_batch: 'bounded_concurrency_1_6_default_3_immediate_per_asset_persist_no_hidden_retry',
   release_status: 'production',
@@ -692,10 +692,10 @@ function cleanCoreHealth() {
   const requiredRoutes = ['/build-info', '/diagnostics/self-check', '/character-core/health', '/character-core/analyze', '/character-core/resolve-scene-cast', '/history'];
   const checks = [];
   const add = (id, label, ok, detail = '', severity = 'error') => checks.push({ id, label, status: ok ? 'pass' : (severity === 'warn' ? 'warn' : 'fail'), detail: String(detail || '') });
-  add('clean_backend_version', '后端V78 Stable版本', V78_BUILD_INFO.app_version === 'v78.3.0.2', V78_BUILD_INFO.build_id);
+  add('clean_backend_version', '后端V78 Stable版本', V78_BUILD_INFO.app_version === 'v78.3.0.3', V78_BUILD_INFO.build_id);
   add('clean_transport_backend', 'AI Transport后端兼容实现', true, 'remote_json_optimized 保持唯一远程AI出口');
   add('clean_workspace_schema', 'Workspace Schema协议', Number(V78_BUILD_INFO.workspace_schema_version) === 40, `schema=${V78_BUILD_INFO.workspace_schema_version}`);
-  add('stable_release', 'V78正式发布身份', V78_BUILD_INFO.release_channel === 'stable' && V78_BUILD_INFO.release_version === 'v78.3.0.2', V78_BUILD_INFO.legacy_v77_role);
+  add('stable_release', 'V78正式发布身份', V78_BUILD_INFO.release_channel === 'stable' && V78_BUILD_INFO.release_version === 'v78.3.0.3', V78_BUILD_INFO.legacy_v77_role);
   add('clean_character_ai_service', 'Character / Style AI统一服务', V78_BUILD_INFO.character_ai_service === 'character_ai_service_v78_phase16', V78_BUILD_INFO.character_ai_policy);
   add('clean_submission_authority', 'AI Submission Package Authority', V78_BUILD_INFO.submission_authority === 'ai_submission_package_authority_v78_phase8_phase15_default_primary_realtime_fallback', V78_BUILD_INFO.submission_authority);
   add('clean_outline_response', 'Outline Response / Writeback Adapter', V78_BUILD_INFO.outline_response_adapter === 'outline_response_adapter_v78_phase9', V78_BUILD_INFO.writeback_authority);
@@ -1335,7 +1335,7 @@ router.get('/character-core/health', (req, res) => {
   res.json({
     ok: true,
     character_core_version: 2,
-    app_version: 'v78.3.0.2',
+    app_version: 'v78.3.0.3',
     analysis_protocol: 'character_core_2_all_genres_v78_stable',
     semantic_layer: 'character_core_single_executor_v78_stable',
     clean_core_phase: 'v78_3_0_2_scene_event_canonical_timeline'

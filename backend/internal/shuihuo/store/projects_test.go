@@ -266,6 +266,28 @@ func TestTaskCreateRejectsUnknownStatus(t *testing.T) {
 	}
 }
 
+func TestTaskCreateStoresUnassignedProviderTaskIDAsNull(t *testing.T) {
+	projects, segments := newShuihuoRepositories(t)
+	project, err := projects.Create(context.Background(), 11, domain.Project{Name: "资产图片任务"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := NewTasks(segments.db)
+	_, err = tasks.Create(context.Background(), 11, project.ID, domain.Task{
+		Kind:     "asset_image",
+		Status:   domain.TaskDraft,
+		Provider: "standard",
+		Input:    `{"assetId":4}`,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if shuihuoStoreTestState.lastTaskProviderTaskID != nil {
+		t.Fatalf("provider_task_id = %#v, want NULL before the provider assigns a task ID", shuihuoStoreTestState.lastTaskProviderTaskID)
+	}
+}
+
 func TestTaskStatusTransitionsRejectInvalidMoves(t *testing.T) {
 	if !domain.TaskDraft.CanTransitionTo(domain.TaskQueued) {
 		t.Fatal("draft -> queued must be allowed")
@@ -306,18 +328,20 @@ func newShuihuoRepositories(t *testing.T) (*Projects, *Segments) {
 }
 
 type shuihuoStoreState struct {
-	projects             map[int64]domain.Project
-	segments             map[int64]domain.Segment
-	assets               map[int64]domain.Asset
-	units                map[int64]domain.SourceUnit
-	mappings             map[int64][]int64
-	segmentAssetMappings map[int64][]int64
-	nextProjectID        int64
-	nextSegmentID        int64
-	nextSourceID         int64
-	projectLockCount     int
-	activeTasks          map[int64]bool
-	archivedProjectID    int64
+	projects               map[int64]domain.Project
+	segments               map[int64]domain.Segment
+	assets                 map[int64]domain.Asset
+	units                  map[int64]domain.SourceUnit
+	mappings               map[int64][]int64
+	segmentAssetMappings   map[int64][]int64
+	nextProjectID          int64
+	nextSegmentID          int64
+	nextSourceID           int64
+	nextTaskID             int64
+	lastTaskProviderTaskID driver.Value
+	projectLockCount       int
+	activeTasks            map[int64]bool
+	archivedProjectID      int64
 }
 
 type shuihuoStoreTestDriver struct{}
@@ -450,6 +474,10 @@ func (shuihuoStoreTestConn) ExecContext(_ context.Context, query string, args []
 			UpdatedAt:           now,
 		}
 		return shuihuoStoreResult{id: id, rows: 1}, nil
+	case strings.HasPrefix(query, "INSERT INTO shuihuo_tasks"):
+		shuihuoStoreTestState.nextTaskID++
+		shuihuoStoreTestState.lastTaskProviderTaskID = args[5].Value
+		return shuihuoStoreResult{id: shuihuoStoreTestState.nextTaskID, rows: 1}, nil
 	case strings.HasPrefix(query, "DELETE FROM shuihuo_projects WHERE id = ? AND user_id = ?"):
 		id, ownerID := args[0].Value.(int64), args[1].Value.(int64)
 		project, ok := shuihuoStoreTestState.projects[id]
