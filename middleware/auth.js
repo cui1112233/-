@@ -8,7 +8,11 @@ const {
 const { getPersistentSession, revokePersistentSession } = require('../lib/session-store');
 
 function getRuntime(req) {
-  return req.app?.locals?.authRuntime || createAuthRuntime();
+  // Mounted sub-applications inherit their runtime from the parent app.
+  for (let app = req.app; app; app = app.parent) {
+    if (app.locals?.authRuntime) return app.locals.authRuntime;
+  }
+  return createAuthRuntime();
 }
 
 function checkRateLimit(ip) {

@@ -6,6 +6,7 @@ import { Lanyard } from '../components/lanyard/Lanyard';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
+import { getConfig } from '../api/config';
 import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
@@ -52,6 +53,7 @@ export function UserLayout({ children }) {
   const [loginCardTransitioning, setLoginCardTransitioning] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
+  const [petVisible, setPetVisible] = useState(true);
   const accountSessionGenerationRef = useRef(0);
   const loginCardTransitionTimerRef = useRef(null);
   const pathname = window.location.pathname;
@@ -77,6 +79,17 @@ export function UserLayout({ children }) {
   }, []);
 
   useEffect(() => () => window.clearTimeout(loginCardTransitionTimerRef.current), []);
+
+  useEffect(() => {
+    function updatePetVisibility(event) {
+      setPetVisible(event.detail?.petVisible !== false);
+    }
+    window.addEventListener('qiantie:notifications-updated', updatePetVisibility);
+    if (isLoggedIn) {
+      getConfig().then(config => setPetVisible(config.notifications?.petVisible !== false)).catch(() => {});
+    }
+    return () => window.removeEventListener('qiantie:notifications-updated', updatePetVisibility);
+  }, [isLoggedIn]);
 
   useEffect(() => {
     let dialogOpen = false;
@@ -358,7 +371,7 @@ export function UserLayout({ children }) {
           </header>
           <section className="legacy-content">{content}</section>
         </main>
-        <StackyPet username={username} accountSessionKey={accountSessionKey} />
+        {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
       </div>

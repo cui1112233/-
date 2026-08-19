@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { apiAuth } = require('../middleware/auth');
 const { getUserOutputsDir, ensureOutputsDir, readHistoryIndex, writeHistoryIndex } = require('../lib/shared');
+const { getStorageRoot, writeScriptResultMd, FEATURE_SCRIPT } = require('../lib/storage-root');
 
 const MODE_NAME_MAP = {
   continuous: '连续开头',
@@ -26,6 +27,39 @@ function isInvalidHistoryId(id) {
 
 function historyFilePath(username, filename) {
   return path.join(getUserOutputsDir(username), path.basename(filename));
+}
+
+// historyHasId — 判断历史索引中是否已含该 id（供本地存储恢复去重）
+function historyHasId(username, id) {
+  if (isInvalidHistoryId(id)) return false;
+  const data = readHistoryIndex(username);
+  return data.entries.some(e => e.id === id);
+}
+
+// historyAppend — 向历史索引追加一条记录并写回，上限 50 条（与 POST / 的索引维护逻辑一致）
+function historyAppend(username, record) {
+  const data = readHistoryIndex(username);
+  const entry = {
+    id: record.id,
+    filename: record.id + '.txt',
+    format: record.format || '',
+    formatName: record.formatName || '',
+    mode: record.mode || 'continuous',
+    duration: record.duration || '-',
+    preview: String(record.title || record.id || '').replace(/\n/g, ' ').slice(0, 40),
+    output: record.output || '',
+    restoredFrom: record.restoredFrom || 'local',
+    createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString()
+  };
+  data.entries.unshift(entry);
+  const MAX_ENTRIES = 50;
+  while (data.entries.length > MAX_ENTRIES) {
+    const removed = data.entries.pop();
+    const removedPath = historyFilePath(username, removed.filename);
+    try { if (fs.existsSync(removedPath)) fs.unlinkSync(removedPath); } catch (e) {}
+  }
+  writeHistoryIndex(username, data);
+  return true;
 }
 
 // GET /api/history — 获取所有记录列表
@@ -76,6 +110,14 @@ router.post('/', (req, res) => {
     }
 
     writeHistoryIndex(req.username, data);
+
+    // 本地存储文件夹：额外写一份剧本结果 md 副本（失败不影响主流程）
+    try {
+      const historyRecord = data.entries[0];
+      const storageRoot = getStorageRoot(req.username);
+      if (storageRoot) writeScriptResultMd(storageRoot, historyRecord);
+    } catch (_) { /* 本地副本失败不影响主流程 */ }
+
     res.json({ ok: true, id: id });
   } catch (e) {
     console.error('保存历史记录失败:', e);
@@ -92,6 +134,18 @@ router.get('/:id', (req, res) => {
   readHistoryIndex(req.username);
   const filePath = historyFilePath(req.username, id + '.txt');
   if (!fs.existsSync(filePath)) {
+    // 回落：本地存储文件夹 <root>/剧本生成/<id>.md
+    const storageRoot = getStorageRoot(req.username);
+    if (storageRoot) {
+      const mdPath = path.join(storageRoot, FEATURE_SCRIPT, `${id}.md`);
+      if (fs.existsSync(mdPath)) {
+        const md = fs.readFileSync(mdPath, 'utf8');
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('X-Restored-From-Local', '1');
+        res.send(md + '\n（恢复自本地文件夹）');
+        return;
+      }
+    }
     return res.status(404).json({ error: '记录不存在' });
   }
   const content = fs.readFileSync(filePath, 'utf8');
@@ -133,3 +187,5 @@ router.delete('/:id', (req, res) => {
 });
 
 module.exports = router;
+module.exports.historyHasId = historyHasId;
+module.exports.historyAppend = historyAppend;

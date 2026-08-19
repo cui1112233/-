@@ -1,6 +1,8 @@
 const express = require('express');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
+const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
+const { getStorageRoot, FEATURE_NOVEL_FETCH, FEATURE_NOVEL_ADAPT, writeNovelFetchResult } = require('../lib/storage-root');
 
 const PLATFORMS = [
   { id: 1, name: '黑岩付费' },
@@ -49,14 +51,109 @@ function fetchUpstream(bookId, platform, maxTxt) {
   });
 }
 
-function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth } = {}) {
+const PROCESS_PRESET_IDS = { induce: 'novel-fetch-induce', hook: 'novel-fetch-hook' };
+const PROCESS_TEXT_LIMIT = 120000;
+const MAX_PROCESS_ITEMS = 50;
+
+function isProcessMode(value) {
+  return Object.hasOwn(PROCESS_PRESET_IDS, value);
+}
+
+function extractProcessContent(upstreamText, statusCode) {
+  if (statusCode >= 400) throw new Error(`上游请求失败（${statusCode}）`);
+  let parsed;
+  try {
+    parsed = JSON.parse(upstreamText);
+  } catch (_) {
+    throw new Error('上游返回非 JSON 数据');
+  }
+  const content = parsed.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') throw new Error('上游响应缺少内容');
+  return content;
+}
+
+function computeMaxTokens(novelLength) {
+  return Math.min(8192, Math.max(4096, Math.ceil(novelLength * 1.5)));
+}
+
+async function defaultProcessWithAI(username, systemPrompt, novelText) {
+  const config = readConfig(username);
+  ensureReadyConfig(config);
+  const maxTokens = computeMaxTokens(novelText.length);
+  const payload = {
+    model: config.model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: novelText }
+    ],
+    max_tokens: maxTokens,
+    temperature: 0.4
+  };
+  const upstream = await requestUpstream(config, payload, collectResponse, { timeoutMs: 120000 });
+  return extractProcessContent(upstream.text, upstream.statusCode);
+}
+
+const STYLE_NAMES = [
+  '古风虐文','古风甜文','古风通用','年代虐文','年代甜文','年代通用',
+  '现代虐文','现代甜文','现代悬疑','现代通用','男频都市','现代女主',
+  '玄幻','历史','爆款BGM','家庭奇葩','家庭伤感','职场打脸'
+];
+
+function extractAnalysis(content) {
+  const text = String(content || '');
+  const headerIndex = text.search(/(?:^|\n)#{1,3}\s*[一二三四五六]?\s*[、\s]*分析结果/);
+  if (headerIndex === -1) return { gender: null, style: null, rest: text };
+  const headerStart = headerIndex === 0 ? 0 : headerIndex + 1;
+  const afterHeader = text.slice(headerStart);
+  const nextSection = afterHeader.search(/\n#{1,3}\s*[一二三四五六]?\s*[、\s]*(合规检测报告|优化说明|优化后全文|关键修改说明)/);
+  const sectionText = nextSection === -1 ? afterHeader : afterHeader.slice(0, nextSection);
+  const jsonMatch = sectionText.match(/\{"gender"\s*:\s*"([^"]+)"\s*,\s*"style"\s*:\s*"([^"]+)"\}/);
+  let gender = null;
+  let style = null;
+  if (jsonMatch) {
+    if (jsonMatch[1] === '男' || jsonMatch[1] === '女') gender = jsonMatch[1];
+    if (STYLE_NAMES.includes(jsonMatch[2])) style = jsonMatch[2];
+  }
+  const rest = nextSection === -1 ? text.slice(0, headerStart) : text.slice(0, headerStart) + afterHeader.slice(nextSection);
+  return { gender, style, rest };
+}
+
+function splitReportAndText(content) {
+  const text = String(content || '');
+  const reportPattern = /^#{1,3}\s*[一二三四五六]?\s*[、\s]*(合规检测报告|优化说明)/m;
+  const fullTextPattern = /^#{1,3}\s*[一二三四五六]?\s*[、\s]*优化后全文/m;
+  const thirdPattern = /^#{1,3}\s*[一二三四五六]?\s*[、\s]*关键修改说明/m;
+
+  const reportMatch = text.match(reportPattern);
+  if (!reportMatch) return { report: '', rest: text };
+  const reportIndex = reportMatch.index;
+
+  const fullTextMatch = text.slice(reportIndex).match(fullTextPattern);
+  if (!fullTextMatch) {
+    return { report: text.slice(0, reportIndex).trim(), rest: text.slice(reportIndex).trim() };
+  }
+  const fullTextIndex = reportIndex + fullTextMatch.index;
+  const afterFull = fullTextIndex + fullTextMatch[0].length;
+
+  const thirdMatch = text.slice(afterFull).match(thirdPattern);
+  if (!thirdMatch) {
+    return { report: text.slice(0, fullTextIndex).trim(), rest: text.slice(afterFull).trim() };
+  }
+  const thirdIndex = afterFull + thirdMatch.index;
+  const rest = text.slice(afterFull, thirdIndex).trim();
+  const report = `${text.slice(0, fullTextIndex)}\n${text.slice(thirdIndex)}`.trim();
+  return { report, rest };
+}
+
+function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth, presetStore, processWithAI, novelFetchStore, getStorageRootFn = getStorageRoot } = {}) {
   const fetchOne = customFetch || fetchUpstream;
+  const processOne = processWithAI || defaultProcessWithAI;
   const router = express.Router();
   router.use(auth);
 
   router.post('/', async (req, res) => {
     try {
-      const { platform, bookIds, maxTxt } = req.body || {};
+      const { platform, bookIds, maxTxt, saveToFolder } = req.body || {};
       const numericPlatform = Number(platform);
       if (!platformNameById.has(numericPlatform)) {
         return res.status(400).json({ error: '无效的平台 ID' });
@@ -84,12 +181,15 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth } =
         return res.status(400).json({ error: '字数需为 100–100000 的整数' });
       }
 
+      const wantSave = saveToFolder === true;
+      const root = wantSave ? getStorageRootFn(req.username) : null;
       const results = await Promise.all(cleanedIds.map(async bookId => {
         const base = { bookId, platform: numericPlatform, platformName: platformNameById.get(numericPlatform) };
         try {
           const upstream = await fetchOne(bookId, numericPlatform, numericMaxTxt);
           if (upstream && upstream.code === 200 && typeof upstream.data === 'string' && upstream.data.length > 0) {
-            return { ...base, status: 'ok', data: upstream.data, error: null, length: upstream.data.length };
+            const saved = wantSave && root ? writeNovelFetchResult(root, FEATURE_NOVEL_FETCH, bookId, upstream.data) : false;
+            return { ...base, status: 'ok', data: upstream.data, error: null, length: upstream.data.length, savedToFolder: saved };
           }
           return { ...base, status: 'error', data: null, error: (upstream && upstream.msg) || '获取失败', length: 0 };
         } catch (error) {
@@ -103,7 +203,89 @@ function createNovelFetchRouter({ fetchUpstream: customFetch, auth = apiAuth } =
     }
   });
 
+  router.post('/process', async (req, res) => {
+    try {
+      const { mode, items, platform, platformName, saveToFolder } = req.body || {};
+      let normalizedPlatform = null;
+      if (platform !== undefined) {
+        normalizedPlatform = Number(platform);
+        if (!Number.isInteger(normalizedPlatform)) return res.status(400).json({ error: '无效的平台 ID' });
+      }
+      if (!isProcessMode(mode)) return res.status(400).json({ error: '无效的处理类型' });
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: '请选择要处理的书籍' });
+      if (items.length > MAX_PROCESS_ITEMS) return res.status(400).json({ error: `一次最多处理 ${MAX_PROCESS_ITEMS} 本` });
+      const normalized = [];
+      for (const item of items) {
+        const bookId = String(item && item.bookId || '').trim();
+        const text = String(item && item.text || '');
+        if (!isValidBookId(bookId)) return res.status(400).json({ error: `书籍 ID 格式不正确：${bookId}` });
+        if (!text) return res.status(400).json({ error: `书籍 ${bookId} 缺少正文` });
+        normalized.push({ bookId, text: text.slice(0, PROCESS_TEXT_LIMIT) });
+      }
+      const presetId = PROCESS_PRESET_IDS[mode];
+      const preset = presetStore && presetStore.getPublished(presetId);
+      if (!preset || preset.module !== 'novel-fetch' || preset.protocolLock?.format !== 'novel-fetch-process' || preset.protocolLock?.operation !== mode) {
+        return res.status(400).json({ error: '未发布该处理预设' });
+      }
+      const wantSave = saveToFolder === true;
+      const root = wantSave ? getStorageRootFn(req.username) : null;
+      const results = await Promise.all(normalized.map(async ({ bookId, text }) => {
+        try {
+          const processed = await processOne(req.username, preset.body, text);
+          const { gender, style, rest: withoutAnalysis } = extractAnalysis(processed);
+          const { report, rest } = splitReportAndText(withoutAnalysis);
+          const analysis = gender && style ? { gender, style } : null;
+          if (novelFetchStore) {
+            try {
+              novelFetchStore.saveProcessed(req.username, {
+                bookId,
+                platform: normalizedPlatform,
+                platformName,
+                mode,
+                text: rest,
+                report,
+                gender,
+                style
+              });
+            } catch (saveError) {
+              // 落盘失败不阻断处理结果返回
+            }
+          }
+          const saved = wantSave && root ? writeNovelFetchResult(root, FEATURE_NOVEL_ADAPT, bookId, rest) : false;
+          return { bookId, status: 'ok', text: rest, report, analysis, error: null, savedToFolder: saved };
+        } catch (error) {
+          return { bookId, status: 'error', text: null, report: null, analysis: null, error: error.message || '处理失败' };
+        }
+      }));
+      return res.json({ results });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+  });
+
+  router.post('/save', async (req, res) => {
+    try {
+      if (!novelFetchStore) return res.status(400).json({ error: '存储未启用' });
+      const { bookId, text, meta } = req.body || {};
+      const bid = String(bookId || '').trim();
+      if (!isValidBookId(bid)) return res.status(400).json({ error: '书籍 ID 格式不正确' });
+      if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: '正文不能为空' });
+      if (text.length > 120000) return res.status(400).json({ error: '正文过长' });
+      const existing = novelFetchStore.readMeta(req.username, bid);
+      if (!existing && !(meta && meta.mode)) return res.status(400).json({ error: '该书尚未处理，无法保存' });
+      const savedAt = novelFetchStore.saveEdited(req.username, bid, text, meta && meta.mode ? meta : undefined);
+      return res.json({ ok: true, savedAt });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || '保存失败' });
+    }
+  });
+
+  router.get('/saved', (req, res) => {
+    if (!novelFetchStore) return res.json({ books: [] });
+    return res.json({ books: novelFetchStore.list(req.username) });
+  });
+
   return router;
 }
 
-module.exports = { createNovelFetchRouter, PLATFORMS };
+module.exports = { createNovelFetchRouter, PLATFORMS, extractProcessContent, splitReportAndText, extractAnalysis, STYLE_NAMES, computeMaxTokens };

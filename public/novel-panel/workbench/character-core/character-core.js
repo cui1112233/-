@@ -3,7 +3,7 @@
   "use strict";
   const PROTOCOL = "character_core_2_all_genres_v77";
   const VERSION = 77;
-  const BUILD_VERSION = "v77-hotfix26";
+  const BUILD_VERSION = "v78.3.0.2";
   const FACTS_MARKER = "V77_CHARACTER_CORE_FACTS";
   const APPEARANCE_MARKER = "V77_CHARACTER_CORE_APPEARANCE";
   const REVISION_CHECK_MARKER = "V77_CHARACTER_CORE_REVISION_CHECK";
@@ -38,6 +38,23 @@
     try { return new URLSearchParams(globalThis.location?.search || "").get("instance") || new URLSearchParams(globalThis.location?.search || "").get("session") || "instance-browser"; }
     catch (_) { return "instance-browser"; }
   };
+  const formalRosterApi = () => globalThis.__V78_FORMAL_ROSTER_STORE__ || globalThis.__V78_FORMAL_ROSTER__ || null;
+  function formalRosterSnapshot(reason="read", forceDom=true) {
+    const api=formalRosterApi();
+    if(api?.snapshot) return api.snapshot({forceDom,reason});
+    const raw=String(q("#characterGuideInput")?.value ?? appState.character_guide_input ?? "");
+    return Object.freeze({version:"legacy_roster_fallback",raw_text:raw,normalized_text:raw.trim(),entries:raw.split(/[\n；;，,、|｜]+/).map(x=>String(x||"").trim()).filter(Boolean),revision:0,hash:fingerprint(raw.trim()),snapshot_reason:reason});
+  }
+  function assertFormalRosterFresh(snapshot, stage="人物生成") {
+    const api=formalRosterApi();
+    if(api?.assertFresh) return api.assertFresh(snapshot,stage);
+    return true;
+  }
+  function showFormalRosterError(message="") {
+    const node=q("#formalRosterError");
+    if(node){node.textContent=String(message||"");node.hidden=!message;}
+    if(message){const guide=q("#characterGuideInput");try{guide?.scrollIntoView?.({behavior:"smooth",block:"center"});guide?.focus?.();}catch(_){}}
+  }
 
   function ensureCore() {
     // Keep one stable object for the lifetime of the page. Reconstructing the
@@ -49,6 +66,7 @@
     existing.character_core_version = 2;
     existing.source_hash = text(existing.source_hash);
     existing.character_revision = Number(existing.character_revision || 0);
+    existing.formal_roster_stale = Boolean(existing.formal_roster_stale);
     existing.people = array(existing.people);
     existing.slots = array(existing.slots);
     existing.relationships = array(existing.relationships);
@@ -56,6 +74,11 @@
     existing.mention_entities = array(existing.mention_entities);
     existing.scene_casting = object(existing.scene_casting);
     existing.relationship_pending = array(existing.relationship_pending);
+    existing.temporary_continuity_cache = object(existing.temporary_continuity_cache);
+    existing.temporary_continuity_cache_character_core_validator = object(existing.temporary_continuity_cache_character_core_validator);
+    existing.temporary_continuity_cache_v78_primary = object(existing.temporary_continuity_cache_v78_primary);
+    existing.temporary_continuity_authority_v78 = object(existing.temporary_continuity_authority_v78);
+    existing.relationship_conflicts = array(existing.relationship_conflicts);
     existing.keyword_index = object(existing.keyword_index);
     existing.analysis_state = object(existing.analysis_state);
     existing.analysis_state.protocol = PROTOCOL;
@@ -64,8 +87,18 @@
     existing.analysis_state.slots_ready = Boolean(existing.analysis_state.slots_ready || existing.analysis_state.forced_roster_ready);
     existing.analysis_state.forced_roster_ready = existing.analysis_state.slots_ready;
     existing.analysis_state.facts_ready = Boolean(existing.analysis_state.facts_ready);
-    existing.analysis_state.relationships_ready = Boolean(existing.analysis_state.relationships_ready || existing.analysis_state.relationship_graph_ready);
-    existing.analysis_state.relationship_graph_ready = existing.analysis_state.relationships_ready;
+    // Hotfix31: old builds sometimes set relationship_graph_ready=true merely because
+    // fallback人物节点 existed. Do not migrate that historical fallback flag into a
+    // false "AI关系已完成" state unless there is actual relationship/alias data.
+    const hadExplicitRelationshipsReady = Object.prototype.hasOwnProperty.call(existing.analysis_state, "relationships_ready");
+    const legacyRelationshipDataPresent = Boolean(existing.relationships.length || existing.aliases.length);
+    existing.analysis_state.relationships_ready = hadExplicitRelationshipsReady
+      ? Boolean(existing.analysis_state.relationships_ready)
+      : Boolean(existing.analysis_state.relationship_graph_ready && legacyRelationshipDataPresent);
+    if (!existing.analysis_state.relationships_ready && existing.analysis_state.relationship_graph_ready && !legacyRelationshipDataPresent) {
+      existing.analysis_state.relationship_fallback_available = true;
+    }
+    existing.analysis_state.relationship_graph_ready = Boolean(existing.analysis_state.relationships_ready || legacyRelationshipDataPresent);
     existing.analysis_state.appearances_ready = Boolean(existing.analysis_state.appearances_ready || existing.analysis_state.character_cards_ready);
     existing.analysis_state.character_cards_ready = existing.analysis_state.appearances_ready;
     existing.analysis_state.keyword_index_ready = Boolean(existing.analysis_state.keyword_index_ready || existing.analysis_state.casting_ready);
@@ -81,6 +114,11 @@
     existing.source_snapshot = object(existing.source_snapshot);
     existing.semantic_layer_version = BUILD_VERSION;
     existing.instance_id = currentInstance();
+    // V78.3.0: appearance text is no longer allowed to promote unresolved AI facts
+    // into an authoritative gender/stage. Old appearance_writeback values remain
+    // visible as legacy evidence, but CharacterFactsCompleteness requires a real
+    // manual/declared/AI-facts stage before downstream appearance/reference work.
+    for (const slot of existing.slots) sanitizeManualIdentityValues(slot);
     appState.characterCoreV2 = existing;
     appState.character_core_v2 = existing;
     return existing;
@@ -155,7 +193,7 @@
   function resetAnalysisState(reason = "") {
     const c = core();
     const snapshot = captureSourceSnapshot(`reset:${reason}`);
-    c.analysis_state = { protocol:PROTOCOL, source_hash:snapshot.source_hash, source_revision:snapshot.source_revision, style_revision:0, roster_revision:0, cards_revision:0, relationship_revision:0, keyword_revision:0, style_ready:false, slots_ready:false, forced_roster_ready:false, facts_ready:false, relationships_ready:false, relationship_graph_ready:false, appearances_ready:false, character_cards_ready:false, keyword_index_ready:false, casting_ready:false, scene_cast_ready:false, ready:false, current_stage:"", last_message:text(reason), last_updated_at:new Date().toISOString() };
+    c.analysis_state = { protocol:PROTOCOL, source_hash:snapshot.source_hash, source_revision:snapshot.source_revision, style_revision:0, roster_revision:0, cards_revision:0, relationship_revision:0, keyword_revision:0, style_ready:false, slots_ready:false, forced_roster_ready:false, facts_ready:false, relationships_ready:false, relationship_graph_ready:false, facts_fallback_available:false, relationship_fallback_available:false, appearances_ready:false, character_cards_ready:false, keyword_index_ready:false, casting_ready:false, scene_cast_ready:false, ready:false, current_stage:"", last_message:text(reason), last_updated_at:new Date().toISOString() };
     c.keyword_index = {};
     c.scene_casting = {};
     return c.analysis_state;
@@ -163,9 +201,12 @@
 
   function invalidateRosterStages(reason = "强制人物名单已修改") {
     const c=core(),st=analysisState(),snapshot=captureSourceSnapshot("roster_changed");
-    c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];c.keyword_index={};c.character_revision+=1;
+    // V78.2.8: roster editing invalidates authority, but does NOT destroy the
+    // previous Person/Slot objects. They are preservation cache for the next
+    // reconcile so unchanged entries retain stable ids/manual values/appearance.
+    c.formal_roster_stale=true;c.scene_casting={};c.relationship_pending=[];c.keyword_index={};c.character_revision+=1;
     st.source_hash=c.source_hash||snapshot.source_hash;st.source_revision=snapshot.source_revision;
-    st.slots_ready=false;st.forced_roster_ready=false;st.facts_ready=false;st.relationships_ready=false;st.relationship_graph_ready=false;st.appearances_ready=false;st.character_cards_ready=false;st.keyword_index_ready=false;st.casting_ready=false;st.scene_cast_ready=false;st.ready=false;
+    st.slots_ready=false;st.forced_roster_ready=false;st.facts_ready=false;st.relationships_ready=false;st.relationship_graph_ready=false;st.facts_fallback_available=false;st.relationship_fallback_available=false;st.appearances_ready=false;st.character_cards_ready=false;st.keyword_index_ready=false;st.casting_ready=false;st.scene_cast_ready=false;st.ready=false;
     st.roster_revision=0;st.cards_revision=0;st.relationship_revision=0;st.keyword_revision=0;st.current_stage="roster_changed";st.last_message=text(reason);st.last_updated_at=new Date().toISOString();
     return st;
   }
@@ -177,6 +218,20 @@
     if (/女性|女生|女人|女子|女孩|少女|女婴|female|woman|girl/.test(raw) || raw === "女") return "女";
     if (/男性|男生|男人|男子|男孩|少年|男婴|male|man|boy/.test(raw) || raw === "男") return "男";
     return "待确认";
+  }
+  function isUnresolvedGender(value = "") {
+    return normalizeGender(value) === "待确认";
+  }
+  function isUnresolvedStage(value = "") {
+    const raw = text(value).replace(/[〔〕【】\[\]（）()]/g, "");
+    return !raw || /待AI|待确认|未定|未知/i.test(raw) || !normalizeStage(raw);
+  }
+  function sanitizeManualIdentityValues(slot) {
+    const manual = object(slot.manual_values);
+    if (isUnresolvedGender(manual.gender)) delete manual.gender;
+    if (isUnresolvedStage(manual.visual_age_stage)) delete manual.visual_age_stage;
+    slot.manual_values = manual;
+    return manual;
   }
   function normalizeStage(value = "", gender = "") {
     const raw = text(value).replace(/[〔〕【】\[\]（）()]/g, "");
@@ -208,7 +263,14 @@
   }
   function visibleStage(slot) { return text(object(slot.age).visual_age_stage || slot.stage_label); }
   function normalizedVisibleStage(slot) { return normalizeStage(visibleStage(slot), slot.gender) || visibleStage(slot); }
-  function slotDisplay(slot) { return text(slot.display_name || slot.name || slot.base_name || slot.slot_token); }
+  function slotDisplay(slot) {
+    // Hotfix31: preserve the ordinary-mode/current-value priority (manual/current
+    // display name first) and only clean aliases/stage decorations for display.
+    // Premium mode must not silently replace a user's current character name with
+    // an older canonical/base hint.
+    const raw = text(object(slot?.manual_values).display_name || slot?.display_name || slot?.canonical_name_hint || slot?.base_name || slot?.name || slot?.slot_token);
+    return raw.replace(/〔[^〕]*〕/g, "").replace(/（[^）]*）/g, "").replace(/\([^)]*\)/g, "").trim() || text(slot?.display_name || slot?.slot_token);
+  }
   const APPEARANCE_ALIAS_NOISE = /^(?:我|你|他|她|它|某人|一位|这位|那位|这个人|那个人)$/;
   function splitAppearanceTokens(value = "") {
     return String(value || "").split(/[\s,，、\/|｜:：;；（）()【】\[\]<>《》"'“”‘’]+/).map(text).filter(Boolean);
@@ -344,17 +406,25 @@
     for (const [prefix, payload] of mapping) {
       if (safe.startsWith(prefix)) return payload;
     }
+    const first = firstAppearanceSentence(safe).slice(0, 80);
+    const gender = normalizeGender(first);
+    const stage = normalizeStage(first, gender);
+    if (stage) return { gender: gender === "待确认" ? genderFromStage(stage) : gender, stage };
     return { gender:"", stage:"" };
   }
   function backfillSlotIdentityFromAppearance(slot, candidate = "") {
     const inferred = inferIdentityFromAppearanceText(candidate);
-    const manual = object(slot.manual_values);
-    if (!manual.gender && inferred.gender && (!text(slot.gender) || text(slot.gender) === "待确认" || text(slot.gender) === "未定")) {
+    const manual = sanitizeManualIdentityValues(slot);
+    slot.age ||= {};
+    if (!manual.gender && inferred.gender && isUnresolvedGender(slot.gender)) {
       slot.gender = inferred.gender;
+      slot.current_values = { ...object(slot.current_values), gender: inferred.gender };
     }
-    if (!manual.visual_age_stage && inferred.stage && !visibleStage(slot)) {
+    if (!manual.visual_age_stage && inferred.stage && isUnresolvedStage(visibleStage(slot))) {
       slot.age.visual_age_stage = inferred.stage;
-      slot.age.stage_source = slot.age.stage_source || "appearance_writeback";
+      slot.age.stage_source = "appearance_writeback";
+      slot.age.stage_lock_state = "ai_inferred";
+      slot.current_values = { ...object(slot.current_values), visual_age_stage: inferred.stage };
     }
   }
 
@@ -464,21 +534,40 @@
     if(/AI_JSON_INVALID|V77_STAGE_PROTOCOL_ERROR|V77_PROTOCOL_INVALID/.test(message))return false;
     return /502|503|504|超时|timeout|network|fetch|连接|中转站/.test(message);
   }
-  async function aiAnalyze(prompt, marker, retries = 0, meta = {}) {
-    try { globalThis.__commitLatestEditableUiState?.(`before_character_ai:${markerStage(marker)}`); } catch (_) {}
-    let last;const requestStage=markerStage(marker);const maxRetries=Math.max(0,Math.min(1,Number(retries)||0));
+  function buildCharacterAiRequestPayload(prompt, marker, meta = {}) {
+    const requestStage=markerStage(marker);
+    return {
+      novel_text:prompt,
+      generation_rules:`${marker}\ncharacter_core_version=2\ninstance_id=${currentInstance()}${marker===APPEARANCE_MARKER?"\nplain_text_card=true":""}`,
+      request_stage:requestStage,
+      instance_id:currentInstance(),
+      slot_id:text(meta.slot_id),slot_token:text(meta.slot_token),
+    };
+  }
+  async function legacyAiAnalyzeRaw(prompt, marker, meta = {}) {
+    return postCore("/api/character-core/analyze",buildCharacterAiRequestPayload(prompt,marker,meta));
+  }
+  async function legacyAiAnalyze(prompt, marker, retries = 0, meta = {}) {
+    let last;const maxRetries=Math.max(0,Math.min(1,Number(retries)||0));
     for(let i=0;i<=maxRetries;i++){
-      try{
-        return await postCore("/api/character-core/analyze",{
-          novel_text:prompt,
-          generation_rules:`${marker}\ncharacter_core_version=2\ninstance_id=${currentInstance()}${marker===APPEARANCE_MARKER?"\nplain_text_card=true":""}`,
-          request_stage:requestStage,
-          instance_id:currentInstance(),
-          slot_id:text(meta.slot_id),slot_token:text(meta.slot_token),
-        });
-      }catch(error){last=error;if(i>=maxRetries||!retryableAiError(error))break;await new Promise((resolve)=>setTimeout(resolve,650));}
+      try{return await legacyAiAnalyzeRaw(prompt,marker,meta);}
+      catch(error){last=error;if(i>=maxRetries||!retryableAiError(error))break;await new Promise((resolve)=>setTimeout(resolve,650));}
     }
     throw last;
+  }
+  async function aiAnalyze(prompt, marker, retries = 0, meta = {}) {
+    try { globalThis.__commitLatestEditableUiState?.(`before_character_ai:${markerStage(marker)}`); } catch (_) {}
+    const service=globalThis.__V78_CHARACTER_AI_SERVICE__;
+    if(service?.request){
+      return service.request({
+        prompt,marker,meta,
+        request_stage:markerStage(marker),
+        retries_requested:Math.max(0,Number(retries)||0),
+        instance_id:currentInstance(),
+      });
+    }
+    // Phase16 compatibility fallback only. Normal runtime loads the V78 service.
+    return legacyAiAnalyze(prompt,marker,retries,meta);
   }
 
   function legacyCard(slot) {
@@ -552,7 +641,7 @@
     const c=core(),st=analysisState();
     const genre=text(valueOf("#genre"));
     const trailerStyle=text(valueOf("#trailerStyle"));
-    const guideText=String(valueOf("#characterGuideInput",appState.character_guide_input||"")||"").trim();
+    const guideText=String(formalRosterSnapshot("outline_usable_state",true).raw_text||"").trim();
     const slotRows=array(c.slots).filter(slot=>!slot.disabled);
     const legacyCards=array(appState.characters).filter(Boolean);
     const keywordCount=Object.values(c.keyword_index||{}).reduce((count,item)=>count+array(item?.entries).filter(entry=>entry?.enabled!==false).length,0);
@@ -611,20 +700,30 @@
     return {ok:true,source:snapshot.canonical_text,source_hash:snapshot.source_hash,source_revision:snapshot.source_revision,slot_count:usable.slot_count,analysis_state:deepClone(analysisState()),usable,warnings:usable.warnings};
   }
 
-  async function parseSlots({ preserve = true } = {}) {
-    const guide = String(valueOf("#characterGuideInput", appState.character_guide_input || "") || "");
-    const novel = currentNovel();
+  async function parseSlots({ preserve = true, rosterSnapshot = null } = {}) {
+    const roster=rosterSnapshot||formalRosterSnapshot("parse_slots",true);
+    const guide=String(roster.raw_text||"");
+    const novel=currentNovel();
+    appState.character_guide_input=guide;
+    if(!guide.trim()){
+      const c=core();c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.keyword_index={};c.relationship_pending=[];c.formal_roster_stale=false;c.character_revision+=1;
+      setAnalysisStage("slots",false,"强制人物名单为空");syncLegacyState();
+      return {slot_count:0,slots:[],people:[],formal_roster_snapshot:roster};
+    }
     const result = await postCore("/api/character-core/parse-slots", { guide_text:guide, novel_text:novel, source_hash:fingerprint(novel) });
+    assertFormalRosterFresh(roster,"名单解析");
     const previousCore=core();const nextSourceHash=fingerprint(novel);const sameSource=previousCore.source_hash===nextSourceHash;
     const previous = new Map(previousCore.slots.map((s) => [s.source_entry, s]));
     const nextSlots = array(result.slots).map((slot) => {
       const old = preserve && sameSource ? previous.get(slot.source_entry) : null;
       if (!old) return slot;
       const manual = object(old.manual_values);
+      if (isUnresolvedGender(manual.gender)) delete manual.gender;
+      if (isUnresolvedStage(manual.visual_age_stage)) delete manual.visual_age_stage;
       const oldAge = object(old.age);
       const parsedAge = object(slot.age);
-      const currentStage = text(manual.visual_age_stage || oldAge.visual_age_stage || parsedAge.visual_age_stage);
-      const currentGender = text(manual.gender || old.gender || slot.gender || "待确认");
+      const currentStage = text(manual.visual_age_stage || (!isUnresolvedStage(oldAge.visual_age_stage) ? oldAge.visual_age_stage : "") || parsedAge.visual_age_stage);
+      const currentGender = text(manual.gender || (!isUnresolvedGender(old.gender) ? old.gender : "") || slot.gender || "待确认");
       return {
         ...slot,
         slot_id: old.slot_id || slot.slot_id,
@@ -646,15 +745,17 @@
         appearance_detail_level: old.appearance_detail_level || "详细", appearance_status: old.appearance_status || (old.appearance ? "ready" : "missing"),
         appearance_revision: Number(old.appearance_revision || 0), appearance_stage_stale: Boolean(old.appearance_stage_stale),
         manual_values: { ...object(slot.manual_values), ...manual },
-        current_values: { ...object(slot.current_values), ...object(old.current_values), ...manual },
+        current_values: { ...object(slot.current_values), ...object(old.current_values), ...manual, gender:currentGender, visual_age_stage:currentStage },
         generated_values: object(old.generated_values), inferred_values: object(old.inferred_values),
         character_revision: Number(old.character_revision || 0),
       };
     });
-    const c = core(); c.source_hash = nextSourceHash; c.analysis_state.source_hash=nextSourceHash; c.source_stale=false; c.slots = nextSlots; c.people = array(result.people); if(!sameSource){c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];} c.character_revision += 1;
+    const c = core(); c.source_hash = nextSourceHash; c.analysis_state.source_hash=nextSourceHash; c.source_stale=false; c.formal_roster_stale=false; c.slots = nextSlots; c.people = array(result.people); if(!sameSource){c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];c.temporary_continuity_cache={};c.temporary_continuity_cache_character_core_validator={};c.temporary_continuity_cache_v78_primary={};c.temporary_continuity_authority_v78={};c.relationship_conflicts=[];}
+    else {const validPeople=new Set(c.people.map(p=>text(p.person_id)).filter(Boolean));c.relationships=array(c.relationships).filter(r=>validPeople.has(text(r.source_person_id))&&validPeople.has(text(r.target_person_id)));c.aliases=array(c.aliases).filter(a=>validPeople.has(text(a.target_person_id)));c.scene_casting={};c.relationship_pending=array(c.relationship_pending).filter(r=>!r.source_person_id||validPeople.has(text(r.source_person_id)));}
+    c.character_revision += 1;
     setAnalysisStage("slots", Boolean(nextSlots.length), nextSlots.length?`已解析 ${nextSlots.length} 个人物槽位`:"强制人物名单为空");
     syncLegacyState();
-    return result;
+    return {...result,slot_count:nextSlots.length,formal_roster_snapshot:roster};
   }
 
   function recordsArray(data = {}) {
@@ -675,12 +776,126 @@
     }
     return walk(data);
   }
+  function characterFactsCompleteness(slot = {}) {
+    const gender = normalizeGender(slot.gender);
+    const visualStage = normalizeStage(visibleStage(slot), slot.gender);
+    const timelineStage = text(slot.age?.timeline_stage || slot.current_values?.timeline_stage || "当前时间线");
+    const lifeStage = text(slot.age?.life_stage || slot.current_values?.life_stage || "");
+    const criticalMissing = [];
+    const advisoryMissing = [];
+    const stageSource=text(slot.age?.stage_source||"");
+    if (gender === "待确认") criticalMissing.push("gender");
+    if (!visualStage || stageSource === "appearance_writeback") criticalMissing.push("visual_age_stage");
+    if (!timelineStage) advisoryMissing.push("timeline_stage");
+    if (!lifeStage) advisoryMissing.push("life_stage");
+    return {
+      slot_id:text(slot.slot_id), slot_token:text(slot.slot_token), display_name:slotDisplay(slot),
+      gender, visual_age_stage:visualStage, stage_source:stageSource, timeline_stage:timelineStage, life_stage:lifeStage,
+      critical_missing:criticalMissing, advisory_missing:advisoryMissing,
+      complete:criticalMissing.length===0,
+    };
+  }
+  function characterFactsIntegrity(c = core()) {
+    const rows=c.slots.filter(slot=>!slot.disabled).map(characterFactsCompleteness);
+    const incomplete=rows.filter(row=>!row.complete);
+    const advisory=rows.filter(row=>row.advisory_missing.length);
+    return {
+      total:rows.length, complete_count:rows.length-incomplete.length, incomplete_count:incomplete.length,
+      rows, incomplete, advisory,
+      ready:rows.length>0 && incomplete.length===0,
+      summary:rows.length?`人物事实完整 ${rows.length-incomplete.length}/${rows.length}${incomplete.length?`；待补全 ${incomplete.map(row=>`${row.display_name}(${row.critical_missing.join("+")})`).join("、")}`:""}`:"当前没有正式人物槽位",
+    };
+  }
+  function applyFactRecordToSlot(record = {}, slot = {}, { missingOnly = false } = {}) {
+    if (!slot) return false;
+    slot.age ||= {};
+    const beforeStage=normalizeStage(visibleStage(slot),slot.gender);
+    const manual=sanitizeManualIdentityValues(slot), declared=object(slot.declared_values);
+    const returnedStage=normalizeStage(record.visual_age_stage || record.story_age_stage || record.stage_label, record.gender || slot.gender);
+    const returnedGender=normalizeGender(record.gender || genderFromStage(returnedStage));
+    const currentStageSource=text(slot.age?.stage_source||"");
+    const legacyAppearanceFact=currentStageSource==="appearance_writeback";
+    const canGender=!manual.gender&&!declared.gender&&returnedGender!=="待确认"&&(!missingOnly||isUnresolvedGender(slot.gender)||legacyAppearanceFact);
+    const canStage=!manual.visual_age_stage&&!declared.visual_age_stage&&returnedStage&&(!missingOnly||isUnresolvedStage(visibleStage(slot))||legacyAppearanceFact);
+    if(canGender) slot.gender=returnedGender;
+    if(canStage){slot.age.visual_age_stage=returnedStage;slot.age.stage_source=missingOnly?"ai_fact_repair":"ai_inferred";slot.age.stage_lock_state="ai_inferred";}
+    if(!manual.chronological_age&&record.chronological_age&&(!missingOnly||!text(slot.age.chronological_age)))slot.age.chronological_age=text(record.chronological_age);
+    if(!manual.life_stage&&record.life_stage&&(!missingOnly||!text(slot.age.life_stage)))slot.age.life_stage=text(record.life_stage);
+    if(!manual.timeline_stage&&record.timeline_stage&&(!missingOnly||!text(slot.age.timeline_stage)))slot.age.timeline_stage=text(record.timeline_stage);
+    if(!text(slot.age.timeline_stage))slot.age.timeline_stage="当前时间线";
+    if(!manual.species&&record.species&&(!missingOnly||!text(slot.species)))slot.species=text(record.species);
+    const stageGender=genderFromStage(slot.age.visual_age_stage);
+    if(!manual.gender&&stageGender!=="待确认"&&(!missingOnly||isUnresolvedGender(slot.gender)))slot.gender=stageGender;
+    slot.current_values={...object(slot.current_values),gender:slot.gender,visual_age_stage:visibleStage(slot),chronological_age:text(slot.age?.chronological_age),life_stage:text(slot.age?.life_stage),timeline_stage:text(slot.age?.timeline_stage||"当前时间线"),species:text(slot.species)};
+    slot.inferred_values={...object(slot.inferred_values),canonical_name:text(record.canonical_name)||text(slot.inferred_values?.canonical_name),ai_aliases:array(record.aliases).length?array(record.aliases):array(slot.inferred_values?.ai_aliases),gender:returnedGender!=="待确认"?returnedGender:text(slot.inferred_values?.gender),visual_age_stage:returnedStage||text(slot.inferred_values?.visual_age_stage),chronological_age:text(record.chronological_age)||text(slot.inferred_values?.chronological_age),life_stage:text(record.life_stage)||text(slot.inferred_values?.life_stage),timeline_stage:text(record.timeline_stage)||text(slot.inferred_values?.timeline_stage),species:text(record.species)||text(slot.inferred_values?.species),identity_role:text(record.identity_role)||text(slot.inferred_values?.identity_role),social_position:text(record.social_position)||text(slot.inferred_values?.social_position),personality_keywords:array(record.personality_keywords).length?array(record.personality_keywords):array(slot.inferred_values?.personality_keywords),narrative_function:text(record.narrative_function)||text(slot.inferred_values?.narrative_function),appearance_constraints:array(record.appearance_constraints).length?array(record.appearance_constraints):array(slot.inferred_values?.appearance_constraints),is_current_timeline:Boolean(record.is_current_timeline ?? slot.inferred_values?.is_current_timeline)};
+    const afterStage=normalizeStage(visibleStage(slot),slot.gender);
+    if(beforeStage!==afterStage&&text(slot.appearance))slot.appearance_stage_stale=true;
+    if(!missingOnly){slot.aliases=unique([...array(slot.aliases),text(record.canonical_name),...array(record.aliases)]);const person=core().people.find(p=>p.person_id===slot.person_id);if(person){if(record.canonical_name)person.canonical_name=text(record.canonical_name);person.aliases=unique([...array(person.aliases),...slot.aliases]);person.identity_hints=unique([...array(person.identity_hints),...slot.identity_hints]);person.species=slot.species||person.species;person.is_protagonist=Boolean(record.is_protagonist??person.is_protagonist);person.is_narrator=Boolean(record.is_narrator??person.is_narrator);}}
+    slot.character_revision+=1;
+    return true;
+  }
+  function buildFactsRepairPrompt(integrity = characterFactsIntegrity()) {
+    const missing=integrity.incomplete.map(row=>{
+      const slot=core().slots.find(item=>item.slot_id===row.slot_id);
+      return {
+        slot_token:slot?.slot_token,slot_id:slot?.slot_id,return_index:slot?.return_index,display_name:slotDisplay(slot||{}),
+        source_entry:text(slot?.source_entry),manual_values:object(slot?.manual_values),declared_values:object(slot?.declared_values),
+        current_values:{gender:text(slot?.gender),visual_age_stage:visibleStage(slot||{}),chronological_age:text(slot?.age?.chronological_age),life_stage:text(slot?.age?.life_stage),timeline_stage:text(slot?.age?.timeline_stage||"当前时间线"),species:text(slot?.species)},
+        missing_fields:row.critical_missing,
+      };
+    });
+    return [
+      "【任务】CharacterCore 2.0 人物事实缺失字段补全。只补下面明确缺失的字段，不重做人物关系、不生成外形、不覆盖任何已有或人工值。",
+      "【最高规则】必须逐slot_token原样返回；missing_fields里的字段必须给出明确结果。visual_age_stage必须从固定剧情年龄阶段中选择，不能返回待确认、未知、空字符串。gender必须根据全文判断，非人类允许无性别；不得用本地称谓规则猜测。",
+      "【待补全槽位】",JSON.stringify(missing),
+      "【完整原文开始】",currentNovel(),"【完整原文结束】",
+      "【返回】只返回JSON：{characters:[{slot_token,slot_id,return_index,gender,visual_age_stage,chronological_age,life_stage,timeline_stage,species}]}。每个待补槽位必须同时返回gender与visual_age_stage以满足人物事实协议；程序只写回当前缺失字段，不覆盖已有正确值。不返回relationships、alias_bindings、appearance或解释。",
+    ].join("\\n\\n");
+  }
+  async function repairMissingCharacterFacts(integrity = characterFactsIntegrity()) {
+    if(!integrity.incomplete.length)return {attempted:false,integrity};
+    const before=core(),requestState={source_hash:before.source_hash,character_revision:before.character_revision,instance_id:currentInstance()};
+    const data=await aiAnalyze(buildFactsRepairPrompt(integrity),FACTS_MARKER,0,{task_type:"facts_missing_fields_repair"});
+    const c=core();
+    if(c.source_hash!==requestState.source_hash||c.character_revision!==requestState.character_revision||currentInstance()!==requestState.instance_id)return {attempted:true,stale:true,discarded:true,integrity:characterFactsIntegrity()};
+    let mapped=0;
+    for(const record of recordsArray(data)){
+      const slot=recordSlot(record,c.slots);if(!slot)continue;
+      const target=integrity.incomplete.find(row=>row.slot_id===slot.slot_id);if(!target)continue;
+      if(applyFactRecordToSlot(record,slot,{missingOnly:true}))mapped++;
+    }
+    if(mapped)c.character_revision+=1;
+    const after=characterFactsIntegrity(c);
+    console.info("[CHARACTER_FACTS_REPAIR_TRACE]",{requested:integrity.incomplete.length,mapped,remaining:after.incomplete_count,remaining_rows:after.incomplete});
+    emitCharacterCoreTrace({trace_stage:"facts_missing_fields_repair",request_id:text(data?._ai_meta?.request_id)||`facts-repair-${Date.now()}`,requested:integrity.incomplete.length,mapped,remaining:after.incomplete_count,outcome:after.ready?"complete":"partial",final_snapshot:after.rows}).catch(()=>{});
+    return {attempted:true,data,mapped,integrity:after};
+  }
+
   function recordSlot(record, slots) {
     const token = text(record.slot_token).toUpperCase();
-    let slot = slots.find((s) => text(s.slot_token).toUpperCase() === token);
+    let slot = token ? slots.find((s) => text(s.slot_token).toUpperCase() === token) : null;
     if (slot) return slot;
-    slot = slots.find((s) => text(s.slot_id) === text(record.slot_id)); if (slot) return slot;
-    const idx = Number(record.return_index || record.__index); if (idx >= 1 && idx <= slots.length) return slots[idx-1];
+    const slotId = text(record.slot_id);
+    slot = slotId ? slots.find((s) => text(s.slot_id) === slotId) : null;
+    if (slot) return slot;
+    const personId = text(record.person_id);
+    if (personId) {
+      const personMatches = slots.filter((s) => text(s.person_id) === personId);
+      if (personMatches.length === 1) return personMatches[0];
+    }
+    const names = unique([record.canonical_name, record.name, record.display_name, record.base_name, ...array(record.aliases)].map(text).filter(Boolean));
+    if (names.length) {
+      const nameMatches = slots.filter((s) => {
+        const candidates = unique([s.display_name, s.base_name, s.canonical_name_hint, s.source_entry, ...array(s.aliases), ...array(s.bracket_hints)].map(text).filter(Boolean));
+        return names.some((name) => {
+          const cleanName = cleanIdentityToken(name);
+          return cleanName && candidates.some((candidate) => cleanIdentityToken(candidate) === cleanName);
+        });
+      });
+      if (nameMatches.length === 1) return nameMatches[0];
+    }
+    const idx = Number(record.return_index || record.__index);
+    if (idx >= 1 && idx <= slots.length) return slots[idx-1];
     return slots.length === 1 ? slots[0] : null;
   }
 
@@ -719,80 +934,104 @@
     const data = await aiAnalyze(buildFactsPrompt(), FACTS_MARKER, 1);
     const c = core();
     if(c.source_hash!==requestState.source_hash||c.character_revision!==requestState.character_revision||currentInstance()!==requestState.instance_id){return {stale:true,discarded:true};}
-    for (const record of recordsArray(data)) {
-      const slot = recordSlot(record, c.slots); if (!slot) continue;
-      const manual = object(slot.manual_values); const declared = object(slot.declared_values);
-      const returnedStage = normalizeStage(record.visual_age_stage || record.story_age_stage || record.stage_label, record.gender);
-      const returnedGender = normalizeGender(record.gender || genderFromStage(returnedStage));
-      if (!manual.gender && !declared.gender && returnedGender !== "待确认") slot.gender = returnedGender;
-      if (!manual.visual_age_stage && !declared.visual_age_stage && returnedStage) { slot.age.visual_age_stage = returnedStage; slot.age.stage_source = "ai_inferred"; }
-      if (!manual.chronological_age && record.chronological_age) slot.age.chronological_age = text(record.chronological_age);
-      if (!manual.life_stage && record.life_stage) slot.age.life_stage = text(record.life_stage);
-      if (!manual.timeline_stage && record.timeline_stage) slot.age.timeline_stage = text(record.timeline_stage);
-      if (!manual.species && record.species) slot.species = text(record.species);
-      const stageGender = genderFromStage(slot.age.visual_age_stage);
-      if (stageGender !== "待确认") slot.gender = stageGender;
-      slot.inferred_values = { ...object(slot.inferred_values), canonical_name:text(record.canonical_name), ai_aliases:array(record.aliases), gender:returnedGender, visual_age_stage:returnedStage, chronological_age:text(record.chronological_age), life_stage:text(record.life_stage), timeline_stage:text(record.timeline_stage), species:text(record.species), identity_role:text(record.identity_role), social_position:text(record.social_position), personality_keywords:array(record.personality_keywords), narrative_function:text(record.narrative_function), appearance_constraints:array(record.appearance_constraints), is_current_timeline:Boolean(record.is_current_timeline) };
-      slot.aliases = unique([...array(slot.aliases), record.canonical_name]);
-      slot.character_revision += 1;
-      const person = c.people.find((p) => p.person_id === slot.person_id);
-      if (person) {
-        if (record.canonical_name) person.canonical_name = text(record.canonical_name);
-        person.aliases = unique([...array(person.aliases), ...slot.aliases]);
-        person.identity_hints = unique([...array(person.identity_hints), ...slot.identity_hints]);
-        person.species = slot.species || person.species;
-        person.is_protagonist = Boolean(record.is_protagonist ?? person.is_protagonist);
-        person.is_narrator = Boolean(record.is_narrator ?? person.is_narrator);
-      }
+    const records=recordsArray(data);
+    let mappedFacts=0;
+    const unmappedFacts=[];
+    for (const record of records) {
+      const slot = recordSlot(record, c.slots);
+      if (!slot) { unmappedFacts.push({slot_token:text(record.slot_token),slot_id:text(record.slot_id),return_index:Number(record.return_index||record.__index||0),canonical_name:text(record.canonical_name||record.name)}); continue; }
+      mappedFacts += 1;
+      applyFactRecordToSlot(record,slot,{missingOnly:false});
     }
-    const previous = { relationships:c.relationships, aliases:c.aliases };
-    c.relationships = normalizeRelationships(data, c, previous);
-    c.aliases = normalizeAliases(data, c, previous);
-    c.mention_entities = array(data.mention_entities);
-    c.relationship_pending = array(data.ambiguous_relations || data.pending);
+    const previousState=analysisState();
+    const previous = { relationships:deepClone(c.relationships), aliases:deepClone(c.aliases), mention_entities:deepClone(c.mention_entities), relationship_pending:deepClone(c.relationship_pending), relationships_ready:Boolean(previousState.relationships_ready), relationship_fallback_available:Boolean(previousState.relationship_fallback_available) };
+    const sourceData=object(data),graphData=object(sourceData.relationship_graph||sourceData.relationshipGraph);
+    const hasRelationshipEnvelope=["relationships","relations","alias_bindings","keyword_bindings","aliases"].some((key)=>Object.prototype.hasOwnProperty.call(sourceData,key)) || ["relationships","relations","edges","alias_bindings","keyword_bindings","aliases"].some((key)=>Object.prototype.hasOwnProperty.call(graphData,key));
+    // Hotfix31: a facts-only/partially recovered response must never erase a
+    // previously usable relationship graph. Replace relationship data only when
+    // the AI response actually contains the relationship/alias envelope.
+    if (hasRelationshipEnvelope) {
+      c.relationships = normalizeRelationships(data, c, previous);
+      c.aliases = normalizeAliases(data, c, previous);
+    } else {
+      c.relationships = previous.relationships;
+      c.aliases = previous.aliases;
+    }
+    const hasMentionEntities=Object.prototype.hasOwnProperty.call(sourceData,"mention_entities")||Object.prototype.hasOwnProperty.call(graphData,"mention_entities");
+    const hasPendingRelations=["ambiguous_relations","pending"].some((key)=>Object.prototype.hasOwnProperty.call(sourceData,key)||Object.prototype.hasOwnProperty.call(graphData,key));
+    c.mention_entities = hasMentionEntities ? (array(sourceData.mention_entities).length ? array(sourceData.mention_entities) : array(graphData.mention_entities)) : previous.mention_entities;
+    c.relationship_pending = hasPendingRelations ? (array(sourceData.ambiguous_relations || sourceData.pending).length ? array(sourceData.ambiguous_relations || sourceData.pending) : array(graphData.ambiguous_relations || graphData.pending)) : previous.relationship_pending;
     c.character_revision += 1;
-    setAnalysisStage("facts", true, `已写入 ${recordsArray(data).length} 个人物事实`);
-    setAnalysisStage("relationships", true, `关系 ${c.relationships.length} 条，别称 ${c.aliases.length} 条`);
+    const activeSlots=c.slots.filter((slot)=>!slot.disabled);
+    let factsIntegrity=characterFactsIntegrity(c);
+    let factsRepair=null;
+    if(factsIntegrity.incomplete_count){
+      try{factsRepair=await repairMissingCharacterFacts(factsIntegrity);factsIntegrity=factsRepair.integrity||characterFactsIntegrity(c);}
+      catch(repairError){factsRepair={attempted:true,error:text(repairError?.message||repairError),integrity:characterFactsIntegrity(c)};factsIntegrity=factsRepair.integrity;}
+    }
+    const factsReady=Boolean(factsIntegrity.ready);
+    const relationshipsReady=hasRelationshipEnvelope ? true : Boolean(previous.relationships_ready && (previous.relationships.length || previous.aliases.length));
+    const st=analysisState();st.facts_fallback_available=!factsReady;st.relationship_fallback_available=hasRelationshipEnvelope ? false : Boolean(previous.relationship_fallback_available);
+    st.character_facts_integrity=deepClone(factsIntegrity);
+    setAnalysisStage("facts", factsReady, `${factsIntegrity.summary}${unmappedFacts.length?`；未映射记录 ${unmappedFacts.length}`:""}${factsRepair?.attempted?`；缺失字段补全${factsRepair?.error?`失败：${factsRepair.error}`:factsReady?"完成":"仍有缺失"}`:""}`);
+    setAnalysisStage("relationships", relationshipsReady, hasRelationshipEnvelope?`关系 ${c.relationships.length} 条，别称 ${c.aliases.length} 条`:(relationshipsReady?`本次未返回关系字段；已保留当前有效关系 ${c.relationships.length} 条、别称 ${c.aliases.length} 条`:`AI人物关系字段未完整返回；当前保留已有关系/别称，不伪装为已完成`));
     rebuildKeywordIndex();
     syncLegacyState(); renderAll();
+    const trace={trace_stage:"core_parity_facts_relationships",request_id:text(data?._ai_meta?.request_id)||`core-parity-${Date.now()}`,facts_returned:records.length,facts_mapped:mappedFacts,slot_count:activeSlots.length,facts_integrity:factsIntegrity,unmapped_facts:unmappedFacts,relationships_returned:relationshipRows(data).length,relationships_mapped:c.relationships.filter((r)=>!r.disabled).length,aliases_returned:aliasRows(data).length,aliases_mapped:c.aliases.filter((a)=>!a.disabled).length,relationships_envelope_present:hasRelationshipEnvelope,outcome:(factsReady&&relationshipsReady)?"complete":"partial",final_snapshot:{slots:activeSlots.map(slot=>({slot_id:slot.slot_id,person_id:slot.person_id,display_name:slot.display_name,gender:slot.gender,visual_age_stage:visibleStage(slot),chronological_age:text(slot.age?.chronological_age),species:text(slot.species)})),relationships:c.relationships.filter(r=>!r.disabled).slice(0,80),aliases:c.aliases.filter(a=>!a.disabled).slice(0,120),mention_entities:array(c.mention_entities).slice(0,80)}};
+    console.info("[CORE_PARITY_TRACE]",trace);emitCharacterCoreTrace(trace).catch(()=>{});
     return data;
   }
 
+  function cleanIdentityToken(value = "") {
+    return text(value).replace(/〔[^〕]*〕/g, "").replace(/（[^）]*）/g, "").replace(/\([^)]*\)/g, "").replace(/\s+/g, "").trim();
+  }
   function resolvePerson(value, c = core()) {
     const v = text(value);
     if (!v) return "";
     if (c.people.some((p) => p.person_id === v)) return v;
-    const byToken = c.slots.find((s) => text(s.slot_token).toUpperCase() === v.toUpperCase() || s.slot_id === v);
+    const byToken = c.slots.find((s) => text(s.slot_token).toUpperCase() === v.toUpperCase() || s.slot_id === v || s.person_id === v);
     if (byToken) return byToken.person_id;
-    const matches = c.people.filter((p) => unique([p.canonical_name,p.primary_display_name,...array(p.aliases)]).includes(v));
-    return matches.length === 1 ? matches[0].person_id : "";
+    const clean = cleanIdentityToken(v);
+    const personMatches = c.people.filter((p) => unique([p.canonical_name,p.primary_display_name,...array(p.aliases)]).some((name)=>cleanIdentityToken(name)===clean));
+    if (personMatches.length === 1) return personMatches[0].person_id;
+    const slotMatches = c.slots.filter((s)=>unique([s.display_name,s.base_name,s.canonical_name_hint,s.source_entry,...array(s.aliases),...array(s.bracket_hints)]).some((name)=>cleanIdentityToken(name)===clean));
+    const personIds=unique(slotMatches.map((s)=>s.person_id).filter(Boolean));
+    return personIds.length===1 ? personIds[0] : "";
+  }
+  function relationshipRows(data = {}) {
+    const source=object(data),graph=object(source.relationship_graph||source.relationshipGraph);
+    return [...array(source.relationships),...array(source.relations),...array(graph.relationships),...array(graph.relations),...array(graph.edges)];
+  }
+  function aliasRows(data = {}) {
+    const source=object(data),graph=object(source.relationship_graph||source.relationshipGraph);
+    return [...array(source.alias_bindings),...array(source.keyword_bindings),...array(source.aliases),...array(graph.alias_bindings),...array(graph.keyword_bindings),...array(graph.aliases)];
   }
   function normalizeRelationships(data, c, previous) {
-    const auto = array(data.relationships).map((r) => {
-      const source = resolvePerson(r.source_person_id || r.subject_slot || r.subject || r.source, c);
-      const target = resolvePerson(r.target_person_id || r.object_slot || r.object || r.target, c);
+    const auto = relationshipRows(data).map((r) => {
+      const source = resolvePerson(r.source_person_id || r.subject_person_id || r.subject_slot || r.source_slot || r.subject || r.source || r.from, c);
+      const target = resolvePerson(r.target_person_id || r.object_person_id || r.object_slot || r.target_slot || r.object || r.target || r.to, c);
       if (!source || !target || source === target) return null;
-      const label = text(r.display_label || r.relation_label || r.relation_type || "相关");
-      return { relation_id:text(r.relation_id) || `rel_${fingerprint(`${source}|${label}|${target}`)}`, source_person_id:source, target_person_id:target, relation_type:text(r.relation_type || r.relation_code || "related"), display_label:label, reverse_type:text(r.reverse_type || r.reverse_relation_type), reverse_label:text(r.reverse_label || r.reverse_relation_label), evidence_lines:array(r.evidence_lines), evidence:text(r.evidence), timeline:text(r.timeline || r.timeline_scope || "current"), worldline:text(r.worldline || r.worldline_id || "main"), confidence:Number(r.confidence || .75), origin:"ai", manual_locked:false, disabled:false };
+      const label = text(r.display_label || r.relation_label || r.label || r.relationship || r.relation_type || "相关");
+      return { relation_id:text(r.relation_id || r.id) || `rel_${fingerprint(`${source}|${label}|${target}`)}`, source_person_id:source, target_person_id:target, relation_type:text(r.relation_type || r.relation_code || r.type || "related"), display_label:label, reverse_type:text(r.reverse_type || r.reverse_relation_type), reverse_label:text(r.reverse_label || r.reverse_relation_label), evidence_lines:array(r.evidence_lines), evidence:text(r.evidence || r.reason), timeline:text(r.timeline || r.timeline_scope || "current"), worldline:text(r.worldline || r.worldline_id || "main"), confidence:Number(r.confidence || .75), origin:"ai", manual_locked:false, disabled:false };
     }).filter(Boolean);
     const manual = array(previous.relationships).filter((r)=>r.manual_locked && !r.disabled);
     return [...new Map([...auto,...manual].map((r)=>[r.relation_id,r])).values()];
   }
   function normalizeAliases(data, c, previous) {
-    const sourceRows=[...array(data.alias_bindings),...array(data.keyword_bindings),...array(data.aliases)];
+    const sourceRows=aliasRows(data);
     const auto = sourceRows.map((a) => {
-      const target = resolvePerson(a.target_person_id || a.target_slot || a.target || a.target_name, c);
-      const alias = text(a.alias || a.expression || a.keyword || a.trigger_text);
+      const target = resolvePerson(a.target_person_id || a.target_slot || a.target_slot_id || a.target || a.target_name || a.person_id, c);
+      const alias = text(a.alias || a.expression || a.keyword || a.trigger_text || a.name);
       if (!target || !alias) return null;
       const targetSlot=text(a.target_slot_id || a.slot_id);
       const confidence=Math.max(0,Math.min(1,Number(a.confidence ?? .75)));
       return {
-        binding_id:text(a.binding_id)||`alias_${fingerprint(`${alias}|${target}|${targetSlot}`)}`,
+        binding_id:text(a.binding_id||a.id)||`alias_${fingerprint(`${alias}|${target}|${targetSlot}`)}`,
         alias,target_person_id:target,target_slot_id:targetSlot,
-        alias_type:text(a.alias_type || a.keyword_type || "alias"),
+        alias_type:text(a.alias_type || a.keyword_type || a.type || "alias"),
         valid_from_line:a.valid_from_line ?? null, valid_to_line:a.valid_to_line ?? null,
         valid_scope:text(a.valid_scope || a.scope || ""),timeline_scope:text(a.timeline_scope || a.timeline || ""),
-        relation_id:text(a.relation_id),evidence:text(a.evidence),confidence,
+        relation_id:text(a.relation_id),evidence:text(a.evidence || a.reason),confidence,
         keyword_enabled:a.keyword_enabled !== false && a.enabled !== false,
         origin:"ai",manual_locked:false,disabled:false,
       };
@@ -1006,6 +1245,8 @@
     }catch(error){return {result:"",error:error instanceof Error?error:new Error(String(error||APPEARANCE_WRITEBACK_ERROR)),meta:{}};}
   }
   async function generateAppearance(slot, { forceStage = false } = {}) {
+    const facts=characterFactsCompleteness(slot);
+    if(!facts.complete){const error=new Error(`人物事实未完整，外形生成已跳过：${facts.critical_missing.join("、")||"剧情年龄阶段待AI确认"}`);error.code="CHARACTER_FACTS_INCOMPLETE";return {appearance:text(slot?.appearance),error,review:{passed:false,implemented:[],missing:facts.critical_missing,violations:[],summary:error.message},success:false,failed:true,repaired:false,advisory:false,slot_id:slot?.slot_id,display_name:slot?.display_name,facts_incomplete:true};}
     const requestState={source_hash:core().source_hash,slot_id:slot.slot_id,character_revision:slot.character_revision,visual_age_stage:visibleStage(slot),instance_id:currentInstance()};
     const old=text(slot.appearance);let error=null;
     const promptPackage=buildAppearancePromptPackage(slot,forceStage);
@@ -1054,8 +1295,11 @@
       backfillSlotIdentityFromAppearance(slot,best);
       slot.appearance=best;slot.appearance_status="ready";slot.appearance_revision+=1;slot.appearance_stage_stale=false;
       slot.generated_values={...object(slot.generated_values),appearance:best,appearance_stage:visibleStage(slot),generated_at:new Date().toISOString(),revision_review:review};
-      slot.manual_values={...object(slot.manual_values),display_name:slot.display_name,gender:slot.gender,visual_age_stage:visibleStage(slot),chronological_age:text(slot.age?.chronological_age),life_stage:text(slot.age?.life_stage),timeline_stage:text(slot.age?.timeline_stage||"当前时间线"),species:text(slot.species),appearance:best,appearance_revision_note:text(slot.appearance_revision_note)};
-      slot.current_values={...object(slot.manual_values)};
+      // AI生成/外形反推属于 generated/current 值，绝不能冒充用户 manual_values。
+      // 否则“待AI判断/未定”或一次AI推断会被永久锁死，后续人物事实与关系链无法正常更新。
+      const preservedManual=sanitizeManualIdentityValues(slot);
+      slot.manual_values={...preservedManual};
+      slot.current_values={...object(slot.current_values),display_name:slot.display_name,gender:slot.gender,visual_age_stage:visibleStage(slot),chronological_age:text(slot.age?.chronological_age),life_stage:text(slot.age?.life_stage),timeline_stage:text(slot.age?.timeline_stage||"当前时间线"),species:text(slot.species),appearance:best,appearance_revision_note:text(slot.appearance_revision_note)};
       slot.appearance_revision_review=review;slot.appearance_revision_status=review.review_error?"review_unavailable":review.passed?"passed":"needs_review";slot.character_revision+=1;
       const repaired=best!==initialCandidate;
       const outcome=review.passed?(repaired?"accepted_after_identity_repair":"accepted_initial"):(repaired?"accepted_repair_with_advisory":"accepted_with_advisory");
@@ -1070,17 +1314,19 @@
     return {appearance:old,error:finalError,review,success:false,failed:true,repaired:false,advisory:false,slot_id:slot.slot_id,display_name:slot.display_name};
   }
   async function generateAll({ onlySlotId = "", forceStage = false } = {}) {
-    const c = core(); const targets = onlySlotId ? c.slots.filter((s)=>s.slot_id===onlySlotId) : c.slots;
+    const c = core(); const requestedTargets = (onlySlotId ? c.slots.filter((s)=>s.slot_id===onlySlotId) : c.slots).filter(s=>!s.disabled);
+    const blocked=requestedTargets.filter(slot=>!characterFactsCompleteness(slot).complete);
+    const targets=requestedTargets.filter(slot=>characterFactsCompleteness(slot).complete);
     let cursor=0, complete=0;
-    const results=[],successes=[],failures=[],advisories=[],activeSlots=new Set();
+    const results=[],successes=[],failures=blocked.map((slot,index)=>({index:index+1,name:slot.display_name,error:`人物事实未完整：${characterFactsCompleteness(slot).critical_missing.join("、")||"剧情年龄阶段待AI补全"}`,facts_incomplete:true,stale:false})),advisories=[],activeSlots=new Set();
     const progress=(msg)=>{const n=q("#characterGenerationProgress");if(n)n.textContent=msg;};
     const refreshProgress=()=>{
-      if(!targets.length){progress("人物卡生成完成：成功 0，失败 0");return;}
+      if(!requestedTargets.length){progress("人物卡生成完成：成功 0，失败 0");return;} if(!targets.length){progress(`人物卡生成暂停：${blocked.length} 个人物事实未完整，未进入外形生成`);return;}
       if(complete>=targets.length){
-        progress(`人物卡生成完成：成功 ${successes.length}，失败 ${failures.length}${advisories.length?`；建议复核 ${advisories.length}`:""}`);
+        progress(`人物卡生成完成：成功 ${successes.length}，失败 ${failures.length}${blocked.length?`；事实未完整 ${blocked.length}`:""}${advisories.length?`；建议复核 ${advisories.length}`:""}`);
         return;
       }
-      progress(`已完成 ${complete}/${targets.length}${activeSlots.size?`，正在生成 ${activeSlots.size} 张`:""}`);
+      progress(`已完成 ${complete}/${targets.length}${blocked.length?`，事实待补全 ${blocked.length}`:""}${activeSlots.size?`，正在生成 ${activeSlots.size} 张`:""}`);
     };
     refreshProgress();
     const workers=Array.from({length:Math.min(APPEARANCE_CONCURRENCY,Math.max(1,targets.length))},async()=>{
@@ -1099,7 +1345,7 @@
         complete++;activeSlots.delete(activeKey);syncLegacyState();renderCharacters();if(typeof renderScenes==="function")renderScenes();if(typeof scheduleDraftSave==="function")scheduleDraftSave();refreshProgress();
       }
     });
-    await Promise.all(workers);refreshProgress();return {targets,results,successes,failures,advisories,total:targets.length,success_count:successes.length,failure_count:failures.length,advisory_count:advisories.length};
+    await Promise.all(workers);refreshProgress();return {targets,requestedTargets,blocked,results,successes,failures,advisories,total:requestedTargets.length,success_count:successes.length,failure_count:failures.length,blocked_count:blocked.length,advisory_count:advisories.length};
   }
 
   async function runCharacters(options = {}) {
@@ -1107,23 +1353,32 @@
     const button=options.button||q("#optimizeAllCharactersBtn"); if(typeof setButtonBusy==="function")setButtonBusy(button,true,options.onlySlotId?"按当前人物卡重写外形中":"强制名单人物链路生成中");
     try {
       const requestSnapshot=captureSourceSnapshot("forced_roster_request"),st=analysisState();
+      const onlySlotId=options.onlySlotId||"";
+      const rosterTransaction=onlySlotId?null:formalRosterSnapshot("forced_roster_generation",true);
+      if(!onlySlotId&&!String(rosterTransaction?.raw_text||"").trim()){
+        setAnalysisStage("slots",false,"强制人物名单为空");
+        showFormalRosterError("正式人物强制名单当前为空。人物卡只读取这个名单；原文、临时人物和其他输入框不会自动补正式人物。");
+        const e=new Error("强制人物名单为空。");e.code="FORMAL_ROSTER_EMPTY";throw e;
+      }
+      showFormalRosterError("");
+      const progress=q("#characterGenerationProgress");if(progress&&!onlySlotId)progress.textContent=`已冻结当前正式人物名单 revision ${rosterTransaction.revision}，本地读取 ${rosterTransaction.entries?.length||0} 个条目；正在建立正式人物槽位……`;
       const currentContentType=text(valueOf("#genre")||appState.characterAppearanceContext?.content_type||"");
       const currentUnifiedStyle=text(valueOf("#trailerStyle")||appState.characterAppearanceContext?.trailer_style||appState.characterAppearanceContext?.unified_style||"");
       const currentCameraStyle=text(valueOf("#camera")||appState.characterAppearanceContext?.camera||"");
       const currentStyleUsable=Boolean(currentContentType||currentUnifiedStyle||currentCameraStyle);
       if(!currentStyleUsable)throw new Error("当前内容类型与统一风格均为空，请先生成或手动填写后再生成人物卡。");
-      // Hotfix26: 页面当前已有内容类型/统一风格就是当前有效值。原文revision或旧style revision
+      // Hotfix28: 页面当前已有内容类型/统一风格就是当前有效值。原文revision或旧style revision
       // 只能作为诊断，不能要求用户重复生成风格；人物卡直接使用当前可见内容继续。
       st.style_ready=true;
       st.style_revision=Number(requestSnapshot.source_revision||st.style_revision||0);
       st.source_hash=requestSnapshot.source_hash;
       appState.characterAppearanceContext={...object(appState.characterAppearanceContext),content_type:currentContentType||text(appState.characterAppearanceContext?.content_type),trailer_style:currentUnifiedStyle||text(appState.characterAppearanceContext?.trailer_style),camera:currentCameraStyle||text(appState.characterAppearanceContext?.camera)};
       console.info("[STYLE_REUSE_TRACE]",{source_hash:requestSnapshot.source_hash,source_revision:requestSnapshot.source_revision,style_revision:st.style_revision,content_type_present:Boolean(currentContentType),unified_style_present:Boolean(currentUnifiedStyle),camera_present:Boolean(currentCameraStyle),reused_current_style:true});
-      const onlySlotId=options.onlySlotId||"";
       let parsed={slot_count:core().slots.length};
       if(!onlySlotId){
-        parsed=await parseSlots({preserve:true});
-        if(!parsed.slot_count){setAnalysisStage("slots",false,"强制人物名单为空");throw new Error("强制人物名单为空。");}
+        parsed=await parseSlots({preserve:true,rosterSnapshot:rosterTransaction});
+        assertFormalRosterFresh(rosterTransaction,"人物槽位建立");
+        if(!parsed.slot_count){setAnalysisStage("slots",false,"人物名单协议异常");const e=new Error("强制人物名单已有内容，但人物槽位解析结果为空。请打开诊断中心查看 Formal Roster Authority。 ");e.code="FORMAL_ROSTER_PROTOCOL_MISMATCH";throw e;}
       }else{
         const currentSlot=core().slots.find((item)=>item.slot_id===onlySlotId);
         if(!currentSlot)throw new Error("当前人物槽位不存在，请重新按强制名单生成人物卡。");
@@ -1131,7 +1386,7 @@
         currentSlot.manual_values ||= {};
         currentSlot.current_values ||= {};
         const currentStage=visibleStage(currentSlot);
-        if(currentStage){
+        if(currentStage&&!isUnresolvedStage(currentStage)){
           currentSlot.age.stage_locked=true;
           currentSlot.age.stage_source="user_manual";
           currentSlot.age.stage_lock_state="manual_locked";
@@ -1145,18 +1400,22 @@
       }
       let factsWarning="";
       if(!onlySlotId){
-        const p=q("#characterGenerationProgress");if(p)p.textContent="正在判断人物事实、年龄层、别称与关系……";
-        try{await analyzeFactsAndRelations();}
-        catch(factsError){factsWarning=factsError?.message||String(factsError);setAnalysisStage("facts",false,factsWarning);setAnalysisStage("relationships",false,factsWarning);ensureFallbackPeopleGraph();if(p)p.textContent=`人物事实请求未完成，继续按强制名单与当前阶段逐卡生成外形：${factsWarning}`;}
+        assertFormalRosterFresh(rosterTransaction,"人物事实分析前");
+        const p=q("#characterGenerationProgress");if(p)p.textContent=`已建立 ${core().slots.filter(s=>!s.disabled).length} 个正式人物槽位；正在判断人物事实、年龄层、别称与关系……`;
+        try{await analyzeFactsAndRelations();assertFormalRosterFresh(rosterTransaction,"人物事实分析");const integrity=characterFactsIntegrity();if(!integrity.ready)factsWarning=integrity.summary;}
+        catch(factsError){factsWarning=factsError?.message||String(factsError);setAnalysisStage("facts",false,factsWarning);setAnalysisStage("relationships",false,factsWarning);ensureFallbackPeopleGraph();if(p)p.textContent=`人物事实请求未完成；仅已确认性别与剧情年龄阶段的人物会继续生成外形：${factsWarning}`;}
       }
       if(!core().people.length&&core().slots.length)ensureFallbackPeopleGraph();
       globalThis.__v23CharacterInstructionMode = onlySlotId ? "single_character" : "all_characters";
       const batch=await generateAll({onlySlotId,forceStage:Boolean(options.forceStage)});
+      if(!onlySlotId)assertFormalRosterFresh(rosterTransaction,"人物外形生成");
       globalThis.__v23CharacterInstructionMode = "single_character";
-      setAnalysisStage("appearances",Boolean(batch.success_count||core().slots.some(s=>s.appearance)),`人物外形成功 ${batch.success_count}，失败 ${batch.failure_count}`);
+      const appearanceReady=Boolean(!batch.blocked_count && (batch.success_count||core().slots.filter(s=>!s.disabled).every(s=>text(s.appearance))));
+      setAnalysisStage("appearances",appearanceReady,`人物外形成功 ${batch.success_count}，失败 ${batch.failure_count}${batch.blocked_count?`；人物事实未完整 ${batch.blocked_count}`:""}`);
       rebuildKeywordIndex();syncLegacyState();renderAll();refreshSceneBindings();
       const analyzedSource=currentNovel();
-      setAnalysisStage("casting",Object.values(core().keyword_index||{}).some(item=>array(item.entries).length),"强制名单人物卡、AI关系图与本地关键词索引已建立");
+      const relationReady=Boolean(analysisState().relationships_ready);
+      setAnalysisStage("casting",Object.values(core().keyword_index||{}).some(item=>array(item.entries).length),relationReady?"强制名单人物卡、AI关系图与本地关键词索引已建立":"强制名单人物卡与本地关键词索引已建立；AI人物关系未完整返回但不阻断选角");
       markV77RuntimeReady(analyzedSource);
       if(typeof globalThis.__syncFinalSegmentCharacterBlocksV20==="function"){globalThis.__syncFinalSegmentCharacterBlocksV20({force:false});try{if(typeof renderSegments==="function")renderSegments();}catch(_error){}}else if(typeof clearFinalSegments==="function")clearFinalSegments();if(typeof scheduleDraftSave==="function")scheduleDraftSave();
       const c=core(), missing=c.slots.filter(s=>!s.appearance).length;
@@ -1165,9 +1424,17 @@
       const advisoryDetails=array(batch.advisories).sort((a,b)=>Number(a.index||0)-Number(b.index||0)).map((item)=>`${text(item.name)}（${text(item.summary||"建议复核当前外形") || "建议复核当前外形"}）`).filter(Boolean);
       const progressText=`人物卡生成完成：成功 ${batch.success_count}，失败 ${batch.failure_count}${batch.advisory_count?`；建议复核 ${batch.advisory_count}`:""}`;
       const progressNode=q("#characterGenerationProgress");if(progressNode)progressNode.textContent=progressText;
-      showAIStatusNotice(`CharacterCore 2.0已完成：${progressText}${missing?`；当前缺外形 ${missing}`:""}${failedNames.length?`；失败角色：${failedNames.join("、")}`:""}${failedDetails.length?`；失败原因：${failedDetails.join("；")}`:""}${advisoryDetails.length?`；建议复核：${advisoryDetails.join("；")}`:""}${factsWarning?`；人物事实请求未完成但未阻断外形生成：${factsWarning}`:""}。人物卡只来自强制名单；人物关系图由AI判断；分镜人物由本地项目关键词确定性勾选。`,(batch.failure_count||batch.advisory_count||missing||factsWarning)?"warning":"ready",14000);
+      showAIStatusNotice(`CharacterCore 2.0已完成：${progressText}${missing?`；当前缺外形 ${missing}`:""}${failedNames.length?`；失败角色：${failedNames.join("、")}`:""}${failedDetails.length?`；失败原因：${failedDetails.join("；")}`:""}${advisoryDetails.length?`；建议复核：${advisoryDetails.join("；")}`:""}${factsWarning?`；人物事实仍有缺失；未确认阶段的人物已隔离，其他人物继续生成：${factsWarning}`:""}。人物卡只来自强制名单；人物关系图由AI判断；分镜人物由本地项目关键词确定性勾选。`,(batch.failure_count||batch.advisory_count||missing||factsWarning)?"warning":"ready",14000);
       return c;
-    }catch(error){apiError(error?.message||String(error));showAIStatusNotice(`人物卡处理异常，但已写入内容不会回滚：${error?.message||error}`,"warning",12000);return null;}
+    }catch(error){
+      const code=text(error?.code);
+      if(code==="FORMAL_ROSTER_EMPTY"||code==="FORMAL_ROSTER_PROTOCOL_MISMATCH"||code==="STALE_FORMAL_ROSTER_TRANSACTION"){
+        showFormalRosterError(error?.message||"正式人物名单状态异常，请按当前名单重新生成。");
+        const progress=q("#characterGenerationProgress");if(progress)progress.textContent=error?.message||"正式人物名单状态异常，请按当前名单重新生成。";
+        showAIStatusNotice(error?.message||"正式人物名单状态异常，请按当前名单重新生成。","warning",12000);return null;
+      }
+      apiError(error?.message||String(error));showAIStatusNotice(`人物卡处理异常，但已写入内容不会回滚：${error?.message||error}`,"warning",12000);return null;
+    }
     finally{globalThis.__v23CharacterInstructionMode = "single_character";if(typeof setButtonBusy==="function")setButtonBusy(button,false);}
   }
 
@@ -1188,6 +1455,13 @@
       .replace(/[；;]+$/g, "")
       .replace(/[，,。\s]+$/g, "")
       .trim();
+  }
+  function v7827GlobalizeStyleComponent(key = "", value = "") {
+    const part=cleanChineseStylePart(value);
+    if(key==="lens_language") return "自然叙事镜头体系与克制透视及稳定空间关系";
+    if(key==="lighting_layers") return "动机光优先并保留柔和高光与可读暗部及自然明暗层次";
+    if(key==="narrative_composition") return "强调人物关系与空间纵深及视线组织的电影级叙事构图";
+    return part;
   }
   function hasLatinText(value = "") { return /[A-Za-z]/.test(String(value || "")); }
   function hasStylePollution(value = "") {
@@ -1220,7 +1494,7 @@
     const components = {};
     const issues = [];
     for (const [key, label] of STYLE_COMPONENT_FIELDS_V78) {
-      const part = cleanChineseStylePart(source[key]);
+      const part = v7827GlobalizeStyleComponent(key, source[key]);
       components[key] = part;
       if (!part) issues.push(`${label}缺失`);
       else if (hasLatinText(part)) issues.push(`${label}含英文`);
@@ -1263,9 +1537,9 @@
       (globalThis.__v23GetInstruction?.("analysis") ? `【Hotfix23内容类型与统一风格自定义指令｜只改语义】\n${globalThis.__v23GetInstruction("analysis")}` : ""),
       "【分析顺序】先判断时代与世界观，再判断核心关系、核心冲突、主要叙事发动机、情绪基调和观看期待；最后据此生成一个简洁内容类型，并生成十一项统一风格组件。不得先猜标签再反推原文。",
       "【内容类型规则】content_type必须是一个简洁中文“XXXX短剧”，只保留一个主要类型轴和必要的情绪/关系修饰，不得堆叠三个以上标签，不得包含人物名、地点名、场景名、英文或标点。只有调查、取证、追踪线索和推理解谜是主要叙事发动机时，suspense_is_primary才返回true，content_type才允许包含“悬疑”。",
-      "【统一风格规则】十一项必须全部使用中文正向视觉描述；不得混入不要、禁止、避免、拒绝项、人物外形要求、画面限制、画质约束、提示词解释或剧情内容；不得返回英文摄影术语，全部改写为中文。每项只写一个清晰短语。",
+      "【统一风格规则】十一项必须全部使用中文正向视觉描述；不得混入不要、禁止、避免、拒绝项、人物外形要求、画面限制、画质约束、提示词解释或剧情内容；不得返回英文摄影术语，全部改写为中文。每项只写一个清晰短语。镜头项只写全片镜头美学倾向，不锁死具体逐镜焦段；光线项只写动机光/高光/暗部原则，不锁死具体场景灯位或色温；叙事构图项只写全片人物关系与空间组织原则，不要求每镜同一种构图。",
       "【固定JSON字段】只返回：{content_type,story_era,world_setting,core_relationship,core_conflict,narrative_engine,emotional_tone,audience_expectation,suspense_is_primary,cinematic_quality,capture_texture,grain_texture,filter_tone,lens_language,optical_texture,contrast_level,saturation_level,lighting_layers,narrative_composition,atmosphere}。不得返回negative_prompt、picture_limit_prompt、quality_constraint_prompt、remark_prompt、trailer_style、characters或其他字段。",
-      "【十一项含义】cinematic_quality=什么影视/电影质感；capture_texture=什么实拍质感；grain_texture=什么颗粒纹理；filter_tone=什么滤镜；lens_language=什么镜头语言；optical_texture=什么噪点/畸变/光晕；contrast_level=什么对比度；saturation_level=什么饱和度；lighting_layers=什么光线与明暗层次；narrative_composition=什么电影级叙事构图；atmosphere=什么整体氛围感。",
+      "【十一项含义】cinematic_quality=什么影视/电影质感；capture_texture=什么实拍质感；grain_texture=什么颗粒纹理；filter_tone=什么滤镜；lens_language=全片镜头性格与透视原则，不写具体逐镜焦段；optical_texture=什么噪点/畸变/光晕；contrast_level=什么对比度；saturation_level=什么饱和度；lighting_layers=全片动机光、高光与暗部层次原则，不写具体场景灯位；narrative_composition=全片人物关系、空间纵深与视线组织原则，不锁定逐镜构图；atmosphere=什么整体氛围感。",
       "【语言硬约束】所有字符串字段必须为简体中文，不得出现任何英文字母。",
       "【用户风格判断建议】", advice || "无；完全依据当前原文判断。",
       "【当前界面内容类型｜当前有效值】", text(valueOf("#genre")) || "空",
@@ -1318,7 +1592,7 @@
     if(!currentNovel())return apiError("请先粘贴整段原文。");if(typeof setButtonBusy==="function")setButtonBusy(button,true,"判断中");
     try{
       const c=core(),requestSnapshot=captureSourceSnapshot("style_request");
-      if(c.source_hash&&c.source_hash!==requestSnapshot.source_hash){c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];resetAnalysisState("整段原文已变化，旧人物链路已隔离");}
+      if(c.source_hash&&c.source_hash!==requestSnapshot.source_hash){c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];c.temporary_continuity_cache={};c.temporary_continuity_cache_character_core_validator={};c.temporary_continuity_cache_v78_primary={};c.temporary_continuity_authority_v78={};c.relationship_conflicts=[];resetAnalysisState("整段原文已变化，旧人物链路已隔离");}
       c.source_hash=requestSnapshot.source_hash;c.analysis_state.source_hash=requestSnapshot.source_hash;c.source_stale=false;
       const result=await requestValidatedStyleAnalysis();
       const responseSnapshot=captureSourceSnapshot("style_response");
@@ -1344,6 +1618,8 @@
       appState.analysisProtocolVersion=PROTOCOL;
       setAnalysisStage("style",Boolean(applied.final_genre&&applied.final_trailer_style),"内容类型与统一风格中文纯净分析完成");
       appState.characterAnalysisResultStatus="style_ready_waiting_character_core";
+      const styleTraceId=text(result?._ai_meta?.request_id||result?.__v77_trace_id);
+      if(styleTraceId)emitCharacterCoreTrace({trace_stage:"style_writeback",request_id:styleTraceId,outcome:"accepted",summary:"内容类型与统一风格已写入当前工作区",final_snapshot:{genre:applied.final_genre,trailer_style:applied.final_trailer_style,story_era:result.story_era,world_setting:result.world_setting}}).catch(()=>{});
       const lockNote=[applied.genre_locked?"内容类型已锁定并保留当前值":"",applied.trailer_style_locked?"统一风格已锁定并保留当前值":""].filter(Boolean).join("；");
       if(!options.silentStatus)showAIStatusNotice(`V77已完成中文内容类型与统一风格判断；负面提示词、画面限制、画质约束、最终输出首行提示均未读取、未提交、未修改。${lockNote?`${lockNote}。`:""}下一步请点击“按强制名单生成人物卡”。`,"ready",10000);
       scheduleDraftSave?.();
@@ -1351,19 +1627,79 @@
     }catch(e){setAnalysisStage("style",false,e?.message||String(e));apiError(e?.message||String(e));return null;}finally{if(typeof setButtonBusy==="function")setButtonBusy(button,false);}
   }
 
+  function v36StageSignature(slot={}) {
+    const stage=normalizeStage(visibleStage(slot),slot.gender);
+    const timeline=text(slot?.age?.timeline_stage||slot?.current_values?.timeline_stage||"当前时间线");
+    return `${stage||"待AI判断"}@@${timeline}`;
+  }
+  function v36ReferenceAssetState(slot={}) {
+    const facts=characterFactsCompleteness(slot);
+    if(!facts.complete)return {state:"pending_facts",asset:null,summary:"参考图：等待AI确认性别与剧情年龄阶段"};
+    const refs=object(appState.referenceAssets),assets=array(refs.characters),personId=text(slot.person_id),slotId=text(slot.slot_id),sig=v36StageSignature(slot);
+    const samePerson=assets.filter(a=>text(a.person_id)===personId);
+    const exact=assets.find(a=>text(a.target_slot_id)===slotId&&(!text(a.stage_signature)||text(a.stage_signature)===sig))
+      || assets.find(a=>text(a.person_id)===personId&&text(a.stage_signature)===sig);
+    const mismatched=samePerson.filter(a=>Boolean(a.has_main_image)&&text(a.stage_signature)&&text(a.stage_signature)!==sig);
+    if(exact?.has_main_image)return {state:"ready",asset:exact,summary:`参考图：已匹配当前阶段（${stageLabel(sig)}）`};
+    if(mismatched.length)return {state:"stale",asset:null,summary:`参考图：存在其他阶段主图，当前阶段需单独绑定`};
+    const legacy=samePerson.find(a=>Boolean(a.has_main_image)&&!text(a.stage_signature));
+    if(legacy)return {state:"legacy",asset:legacy,summary:"参考图：旧资产缺少阶段标记，建议重新保存当前阶段主图"};
+    return {state:"missing",asset:null,summary:"参考图：未绑定当前阶段主图"};
+  }
+  function stageLabel(signature="") {return text(signature).split("@@")[0]||"当前阶段";}
+  function v36ScopesOverlap(a={},b={}) {
+    const a1=Number.isFinite(Number(a.valid_from_line))?Number(a.valid_from_line):-Infinity,a2=Number.isFinite(Number(a.valid_to_line))?Number(a.valid_to_line):Infinity;
+    const b1=Number.isFinite(Number(b.valid_from_line))?Number(b.valid_from_line):-Infinity,b2=Number.isFinite(Number(b.valid_to_line))?Number(b.valid_to_line):Infinity;
+    return Math.max(a1,b1)<=Math.min(a2,b2);
+  }
+  function v36RelationshipConflicts(c=core()) {
+    const conflicts=[];
+    const rels=array(c.relationships).filter(r=>!r.disabled);
+    const byPair=new Map();
+    rels.forEach(r=>{const key=[text(r.source_person_id),text(r.target_person_id),text(r.timeline||"current"),text(r.worldline||"main")].join("|");const list=byPair.get(key)||[];list.push(r);byPair.set(key,list);});
+    byPair.forEach((rows,key)=>{
+      const labels=unique(rows.map(r=>text(r.display_label||r.relation_type||"相关")));
+      if(labels.length>1){
+        const manual=rows.filter(r=>r.manual_locked||text(r.origin)==="manual"),ai=rows.filter(r=>!(r.manual_locked||text(r.origin)==="manual"));
+        conflicts.push({type:manual.length&&ai.length?"manual_vs_ai_relation":"relation_disagreement",key,labels,relation_ids:rows.map(r=>text(r.relation_id)),evidence:unique(rows.map(r=>text(r.evidence))),summary:`${personLabel(rows[0].source_person_id)} → ${personLabel(rows[0].target_person_id)} 同一作用域存在不同关系：${labels.join(" / ")}`});
+      }
+    });
+    const aliases=array(c.aliases).filter(a=>!a.disabled&&text(a.alias));
+    for(let i=0;i<aliases.length;i++)for(let j=i+1;j<aliases.length;j++){
+      const a=aliases[i],b=aliases[j];if(text(a.alias)!==text(b.alias)||text(a.target_person_id)===text(b.target_person_id)||!v36ScopesOverlap(a,b))continue;
+      conflicts.push({type:(a.manual_locked||b.manual_locked)?"manual_vs_ai_alias":"alias_collision",alias:text(a.alias),targets:unique([personLabel(a.target_person_id),personLabel(b.target_person_id)]),binding_ids:unique([text(a.binding_id),text(b.binding_id)]),evidence:unique([text(a.evidence),text(b.evidence)]),summary:`称呼“${text(a.alias)}”在重叠作用域同时指向：${unique([personLabel(a.target_person_id),personLabel(b.target_person_id)]).join(" / ")}`});
+    }
+    c.relationship_conflicts=conflicts.slice(0,80);return c.relationship_conflicts;
+  }
+  function v36CharacterHealth(slot={}) {
+    const c=core(),issues=[],warnings=[];
+    if(isUnresolvedGender(slot.gender))issues.push("性别待确认");
+    if(isUnresolvedStage(visibleStage(slot)))issues.push("年龄阶段待确认");
+    if(!text(slot.appearance))issues.push("外形未生成");
+    else if(slot.appearance_stage_stale)issues.push("阶段变化后外形待重构");
+    const ref=v36ReferenceAssetState(slot);if(ref.state==="pending_facts")warnings.push("参考图等待人物事实完成");else if(ref.state==="stale")issues.push("参考图阶段不匹配");else if(ref.state==="legacy")warnings.push("参考图缺阶段标记");else if(ref.state==="missing")warnings.push("当前阶段无参考图");
+    const conflicts=v36RelationshipConflicts(c).filter(x=>JSON.stringify(x).includes(text(slot.person_id))||JSON.stringify(x).includes(personLabel(slot.person_id)));if(conflicts.length)warnings.push(`关系/别称冲突 ${conflicts.length} 项`);
+    const aliases=c.aliases.filter(a=>!a.disabled&&text(a.target_person_id)===text(slot.person_id));
+    const rels=c.relationships.filter(r=>!r.disabled&&(text(r.source_person_id)===text(slot.person_id)||text(r.target_person_id)===text(slot.person_id)));
+    const level=issues.length?"error":warnings.length?"warn":"ok";
+    return {level,issues,warnings,reference:ref,relation_count:rels.length,alias_count:aliases.length,summary:issues.length?issues.join("；"):warnings.length?warnings.join("；"):"人物资料、阶段外形与当前引用状态正常"};
+  }
   function renderCharacters() {
+    const dm=globalThis.__V77_DIRTY_RENDER__,cc=core();
+    if(dm&&!dm.shouldRender("core.characters",{revision:cc.character_revision,slots:cc.slots.map(slot=>({slot_id:slot.slot_id,person_id:slot.person_id,display_name:slot.display_name,gender:slot.gender,visual_age_stage:visibleStage(slot),appearance:slot.appearance,appearance_status:slot.appearance_status,current_values:slot.current_values,manual_values:slot.manual_values,status:slot.status,revisions:slot.revisions})),assets:appState.referenceAssets?.characters,mode:appState.outputMode}))return;
     const container=q("#characters"),template=q("#characterTemplateV2")||q("#characterTemplate");if(!container||!template)return;
     container.innerHTML="";const c=core();if(!c.slots.length){container.innerHTML='<div class="empty-state compact">尚未生成CharacterCore 2.0人物卡。</div>';return;}
     const frag=document.createDocumentFragment();
     c.slots.forEach((slot,index)=>{
       const node=template.content.firstElementChild.cloneNode(true);node.dataset.slotId=slot.slot_id;
-      const title=node.querySelector(".character-title");if(title)title.textContent=`人物 ${index+1} · ${slot.display_name}${visibleStage(slot)?`〔${visibleStage(slot)}〕`:"〔待AI判断〕"}`;
+      const title=node.querySelector(".character-title");if(title)title.textContent=`人物 ${index+1} · ${slotDisplay(slot)}`;
       const actions=node.querySelector(".character-actions");
       const addAction=(label,field,handler)=>{let b=document.createElement("button");b.type="button";b.className="btn secondary small-btn";b.dataset.field=field;b.textContent=label;b.addEventListener("click",handler);actions?.appendChild(b);return b;};
-      const status=document.createElement("p");status.className="hint character-core-v2-status";const revisionState=slot.appearance_revision_status==="needs_review"?"；诊断：建议复核":slot.appearance_revision_status==="passed"?"；诊断：已通过":"";status.textContent=`性别：${slot.gender}；可视阶段：${visibleStage(slot)||"待AI判断"}；实际年龄：${slot.age?.chronological_age||"未明确"}；外形：${slot.appearance?slot.appearance_stage_stale?"阶段已变更，待重构":"已写入":"待AI生成"}${revisionState}`;actions?.before(status);
-      const name=node.querySelector('[data-field="name"]');if(name){name.value=slot.display_name;name.addEventListener("change",()=>{slot.display_name=text(name.value)||slot.display_name;slot.manual_values={...object(slot.manual_values),display_name:slot.display_name};slot.character_revision++;syncLegacyState();renderCharacters();scheduleDraftSave?.();});}
-      const gender=node.querySelector('[data-field="gender"]');if(gender){if(![...gender.options].some(o=>o.value==="无性别")){const option=document.createElement("option");option.value="无性别";option.textContent="无性别/不适用";gender.appendChild(option);}gender.value=slot.gender==="待确认"?"未定":slot.gender;gender.addEventListener("change",()=>{slot.gender=normalizeGender(gender.value);slot.manual_values={...object(slot.manual_values),gender:slot.gender};const g=genderFromStage(visibleStage(slot));if(g!=="待确认"&&g!==slot.gender){const family=/婴儿/.test(visibleStage(slot))?"婴儿":/小/.test(visibleStage(slot))?"儿童":/少女|少年|青少年/.test(visibleStage(slot))?"青少年":/成年|年轻|青年/.test(visibleStage(slot))?"成年":/中年/.test(visibleStage(slot))?"中年":"老年";slot.age.visual_age_stage=normalizeStage(family,slot.gender);}slot.appearance_stage_stale=Boolean(slot.appearance);slot.character_revision++;syncLegacyState();renderCharacters();scheduleDraftSave?.();});}
-      const stage=node.querySelector('[data-field="ageStages"]');if(stage){stage.innerHTML="";["",...STAGES].forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v||"待AI判断";stage.appendChild(o);});stage.value=visibleStage(slot);stage.addEventListener("change",()=>{const old=visibleStage(slot);slot.age.visual_age_stage=normalizeStage(stage.value,slot.gender);slot.age.stage_source=slot.age.visual_age_stage?"user_pending":"user_cleared";slot.age.stage_locked=false;slot.age.stage_lock_state=slot.age.visual_age_stage?"manual_editing":"unlocked";slot.manual_values={...object(slot.manual_values),visual_age_stage:slot.age.visual_age_stage};slot.current_values={...object(slot.current_values),visual_age_stage:slot.age.visual_age_stage};const g=genderFromStage(slot.age.visual_age_stage);if(g!=="待确认"){slot.gender=g;slot.manual_values.gender=g;slot.current_values.gender=g;}if(old!==slot.age.visual_age_stage&&slot.appearance)slot.appearance_stage_stale=true;slot.character_revision++;syncLegacyState();renderCharacters();refreshSceneBindings();scheduleDraftSave?.();});}
+      const status=document.createElement("p");status.className="hint character-core-v2-status full";const revisionState=slot.appearance_revision_status==="needs_review"?"；诊断：建议复核":slot.appearance_revision_status==="passed"?"；诊断：已通过":"";status.textContent=`性别：${slot.gender}；可视阶段：${visibleStage(slot)||"待AI判断"}；实际年龄：${slot.age?.chronological_age||"未明确"}；外形：${slot.appearance?slot.appearance_stage_stale?"阶段已变更，待重构":"已写入":"待AI生成"}${revisionState}`;actions?.before(status);
+      const health=v36CharacterHealth(slot),healthNode=document.createElement("p");healthNode.className=`character-health-badge full ${health.level}`;healthNode.textContent=`${health.level==="ok"?"✓ 人物资料正常":health.level==="warn"?"⚠ 人物资料需复核":"⚠ 人物资料需处理"}｜关系 ${health.relation_count}｜别称 ${health.alias_count}${health.issues.length?`｜${health.issues[0]}`:health.warnings.length?`｜${health.warnings[0]}`:""}`;healthNode.title=`${health.reference.summary}${health.issues.length?`\n问题：${health.issues.join("；")}`:""}${health.warnings.length?`\n提醒：${health.warnings.join("；")}`:""}`;actions?.before(healthNode);
+      const name=node.querySelector('[data-field="name"]');if(name){name.value=slotDisplay(slot);name.addEventListener("change",()=>{slot.display_name=text(name.value)||slot.display_name;slot.manual_values={...object(slot.manual_values),display_name:slot.display_name};slot.character_revision++;syncLegacyState();renderCharacters();scheduleDraftSave?.();});}
+      const gender=node.querySelector('[data-field="gender"]');if(gender){if(![...gender.options].some(o=>o.value==="无性别")){const option=document.createElement("option");option.value="无性别";option.textContent="无性别/不适用";gender.appendChild(option);}gender.value=slot.gender==="待确认"?"未定":slot.gender;gender.addEventListener("change",()=>{slot.gender=normalizeGender(gender.value);const manual={...object(slot.manual_values)};if(isUnresolvedGender(slot.gender))delete manual.gender;else manual.gender=slot.gender;slot.manual_values=manual;slot.current_values={...object(slot.current_values),gender:slot.gender};const g=genderFromStage(visibleStage(slot));if(g!=="待确认"&&g!==slot.gender){const family=/婴儿/.test(visibleStage(slot))?"婴儿":/小/.test(visibleStage(slot))?"儿童":/少女|少年|青少年/.test(visibleStage(slot))?"青少年":/成年|年轻|青年/.test(visibleStage(slot))?"成年":/中年/.test(visibleStage(slot))?"中年":"老年";slot.age.visual_age_stage=normalizeStage(family,slot.gender);}slot.appearance_stage_stale=Boolean(slot.appearance);slot.character_revision++;syncLegacyState();renderCharacters();scheduleDraftSave?.();});}
+      const stage=node.querySelector('[data-field="ageStages"]');if(stage){stage.innerHTML="";["",...STAGES].forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v||"待AI判断";stage.appendChild(o);});stage.value=visibleStage(slot);stage.addEventListener("change",()=>{const old=visibleStage(slot);slot.age.visual_age_stage=normalizeStage(stage.value,slot.gender);slot.age.stage_source=slot.age.visual_age_stage?"user_pending":"user_cleared";slot.age.stage_locked=false;slot.age.stage_lock_state=slot.age.visual_age_stage?"manual_editing":"unlocked";{const manual={...object(slot.manual_values)};if(isUnresolvedStage(slot.age.visual_age_stage))delete manual.visual_age_stage;else manual.visual_age_stage=slot.age.visual_age_stage;slot.manual_values=manual;}slot.current_values={...object(slot.current_values),visual_age_stage:slot.age.visual_age_stage};const g=genderFromStage(slot.age.visual_age_stage);if(g!=="待确认"){slot.gender=g;slot.manual_values.gender=g;slot.current_values.gender=g;}if(old!==slot.age.visual_age_stage&&slot.appearance)slot.appearance_stage_stale=true;slot.character_revision++;syncLegacyState();renderCharacters();refreshSceneBindings();scheduleDraftSave?.();});}
       const note=node.querySelector('[data-field="appearanceNote"]');if(note){note.maxLength=MAX_NOTE;note.value=slot.appearance_revision_note||"";note.placeholder="写完整修改目标或方向要求。AI会结合当前年龄阶段重写整段外形，不使用固定人物模板。";note.addEventListener("input",()=>{slot.appearance_revision_note=String(note.value||"").slice(0,MAX_NOTE);slot.manual_values={...object(slot.manual_values),appearance_revision_note:slot.appearance_revision_note};slot.character_revision++;scheduleDraftSave?.();});}
       const appearance=node.querySelector('[data-field="appearance"]');if(appearance){appearance.maxLength=MAX_APPEARANCE;appearance.value=slot.appearance||"";appearance.placeholder="AI根据当前小说、身份、种族、世界观和年龄阶段自由设计完整外形。";appearance.addEventListener("input",()=>{slot.appearance=String(appearance.value||"").slice(0,MAX_APPEARANCE);slot.manual_values={...object(slot.manual_values),appearance:slot.appearance};slot.appearance_status=slot.appearance?"ready":"missing";slot.character_revision++;syncLegacyState();scheduleDraftSave?.();});}
       const fields=node.querySelector(".character-fields");
@@ -1388,10 +1724,14 @@
   function personLabel(personId) { const p=core().people.find(x=>x.person_id===personId);return p?.canonical_name||p?.primary_display_name||personId; }
   function personOptions(selected="") { return core().people.map(p=>`<option value="${p.person_id}" ${p.person_id===selected?"selected":""}>${personLabel(p.person_id)}</option>`).join(""); }
   function renderRelations() {
-    const c=core(),status=q("#relationshipGraphStatus"),relBox=q("#relationshipGraphList"),aliasBox=q("#relationshipAliasList"),pending=q("#relationshipPendingList");
-    if(status)status.textContent=`基础人物 ${c.people.length} 个｜关系 ${c.relationships.length} 条｜称呼映射 ${c.aliases.length} 条｜待确认 ${c.relationship_pending.length} 项`;
-    if(relBox){relBox.innerHTML="";if(!c.relationships.length)relBox.innerHTML='<div class="empty-state compact">暂无人物关系。</div>';c.relationships.filter(r=>!r.disabled).forEach(r=>{const row=document.createElement("article");row.className="relationship-row";row.innerHTML=`<select data-r="source">${personOptions(r.source_person_id)}</select><input data-r="label" value="${r.display_label||"相关"}" placeholder="正向关系"><select data-r="target">${personOptions(r.target_person_id)}</select><input data-r="reverse" value="${r.reverse_label||""}" placeholder="反向关系"><input data-r="timeline" value="${r.timeline||"current"}" placeholder="时间线"><input data-r="worldline" value="${r.worldline||"main"}" placeholder="世界线"><input data-r="evidence" value="${r.evidence||""}" placeholder="证据"><button class="btn secondary small-btn" data-r="save">保存</button><button class="btn danger small-btn" data-r="delete">删除</button>`;row.querySelector('[data-r="save"]').onclick=()=>{r.source_person_id=row.querySelector('[data-r="source"]').value;r.target_person_id=row.querySelector('[data-r="target"]').value;r.display_label=text(row.querySelector('[data-r="label"]').value)||"相关";r.reverse_label=text(row.querySelector('[data-r="reverse"]').value);r.timeline=text(row.querySelector('[data-r="timeline"]').value)||"current";r.worldline=text(row.querySelector('[data-r="worldline"]').value)||"main";r.evidence=text(row.querySelector('[data-r="evidence"]').value);r.manual_locked=true;r.origin="manual";renderRelations();refreshSceneBindings();scheduleDraftSave?.();};row.querySelector('[data-r="delete"]').onclick=()=>{r.disabled=true;r.manual_locked=true;renderRelations();refreshSceneBindings();scheduleDraftSave?.();};relBox.appendChild(row);});}
-    if(aliasBox){aliasBox.innerHTML="";if(!c.aliases.length)aliasBox.innerHTML='<div class="empty-state compact">暂无称呼映射。</div>';c.aliases.filter(a=>!a.disabled).forEach(a=>{const row=document.createElement("article");row.className="relationship-row alias-row";row.innerHTML=`<input data-a="alias" value="${a.alias||""}" placeholder="称呼/别称"><select data-a="target">${personOptions(a.target_person_id)}</select><input data-a="type" value="${a.alias_type||"alias"}" placeholder="称呼类型"><input data-a="scope" value="${a.valid_from_line??""}-${a.valid_to_line??""}" placeholder="有效行范围，如1-20"><input data-a="evidence" value="${a.evidence||""}" placeholder="证据"><button class="btn secondary small-btn" data-a="save">保存</button><button class="btn danger small-btn" data-a="delete">删除</button>`;row.querySelector('[data-a="save"]').onclick=()=>{a.alias=text(row.querySelector('[data-a="alias"]').value);a.target_person_id=row.querySelector('[data-a="target"]').value;a.alias_type=text(row.querySelector('[data-a="type"]').value)||"alias";const scope=text(row.querySelector('[data-a="scope"]').value);const match=scope.match(/^(\d*)\s*[-~至]\s*(\d*)$/);a.valid_from_line=match&&match[1]?Number(match[1]):null;a.valid_to_line=match&&match[2]?Number(match[2]):null;a.evidence=text(row.querySelector('[data-a="evidence"]').value);a.manual_locked=true;a.origin="manual";renderRelations();refreshSceneBindings();scheduleDraftSave?.();};row.querySelector('[data-a="delete"]').onclick=()=>{a.disabled=true;a.manual_locked=true;renderRelations();refreshSceneBindings();scheduleDraftSave?.();};aliasBox.appendChild(row);});}
+    const dm=globalThis.__V77_DIRTY_RENDER__,cc=core();
+    if(dm&&!dm.shouldRender("core.relations",{relationships:cc.relationships,aliases:cc.aliases,conflicts:cc.relationship_conflicts,revision:cc.character_revision}))return;
+    const c=cc,status=q("#relationshipGraphStatus"),relBox=q("#relationshipGraphList"),aliasBox=q("#relationshipAliasList"),pending=q("#relationshipPendingList");
+    const v36Conflicts=v36RelationshipConflicts(c);
+    if(status){const st=analysisState();const phase=st.relationships_ready?"AI关系已完成":st.relationship_fallback_available?"AI关系未完成（当前使用人物节点/关键词保底）":"AI关系待分析";status.textContent=`${phase}｜基础人物 ${c.people.length} 个｜关系 ${c.relationships.filter(r=>!r.disabled).length} 条｜称呼映射 ${c.aliases.filter(a=>!a.disabled).length} 条｜待确认 ${c.relationship_pending.length} 项｜冲突 ${v36Conflicts.length} 项`;
+      let conflictBox=document.querySelector("#characterCoreRelationshipConflicts");if(!conflictBox){conflictBox=document.createElement("div");conflictBox.id="characterCoreRelationshipConflicts";status.insertAdjacentElement("afterend",conflictBox);}conflictBox.className=`character-relationship-conflicts ${v36Conflicts.length?"has-conflict":"clear"}`;conflictBox.innerHTML=v36Conflicts.length?`<strong>关系/别称冲突诊断（不会自动覆盖人工值）</strong>${v36Conflicts.slice(0,12).map(x=>`<div class="relationship-conflict-row"><span>${text(x.summary)}</span>${array(x.evidence).filter(Boolean).length?`<small>证据：${array(x.evidence).filter(Boolean).join("；")}</small>`:""}</div>`).join("")}`:`<span>未检测到关系或称呼冲突。</span>`;}
+    if(relBox){relBox.innerHTML="";if(!c.relationships.length)relBox.innerHTML='<div class="empty-state compact">暂无人物关系。</div>';c.relationships.filter(r=>!r.disabled).forEach(r=>{const row=document.createElement("article");row.className="relationship-row";row.innerHTML=`<select data-r="source">${personOptions(r.source_person_id)}</select><input data-r="label" value="${r.display_label||"相关"}" placeholder="正向关系"><select data-r="target">${personOptions(r.target_person_id)}</select><input data-r="reverse" value="${r.reverse_label||""}" placeholder="反向关系"><input data-r="timeline" value="${r.timeline||"current"}" placeholder="时间线"><input data-r="worldline" value="${r.worldline||"main"}" placeholder="世界线"><input data-r="evidence" value="${r.evidence||""}" placeholder="证据"><button class="btn secondary small-btn" data-r="save">保存</button><button class="btn danger small-btn" data-r="delete">删除</button>`;row.querySelectorAll('input,select').forEach((control)=>{const mark=()=>{row.dataset.liveModified="true";};control.addEventListener("input",mark);control.addEventListener("change",mark);});row.querySelector('[data-r="save"]').onclick=()=>{r.source_person_id=row.querySelector('[data-r="source"]').value;r.target_person_id=row.querySelector('[data-r="target"]').value;r.display_label=text(row.querySelector('[data-r="label"]').value)||"相关";r.reverse_label=text(row.querySelector('[data-r="reverse"]').value);r.timeline=text(row.querySelector('[data-r="timeline"]').value)||"current";r.worldline=text(row.querySelector('[data-r="worldline"]').value)||"main";r.evidence=text(row.querySelector('[data-r="evidence"]').value);r.manual_locked=true;r.origin="manual";renderRelations();refreshSceneBindings();scheduleDraftSave?.();};row.querySelector('[data-r="delete"]').onclick=()=>{r.disabled=true;r.manual_locked=true;renderRelations();refreshSceneBindings();scheduleDraftSave?.();};relBox.appendChild(row);});}
+    if(aliasBox){aliasBox.innerHTML="";if(!c.aliases.length)aliasBox.innerHTML='<div class="empty-state compact">暂无称呼映射。</div>';c.aliases.filter(a=>!a.disabled).forEach(a=>{const row=document.createElement("article");row.className="relationship-row alias-row";row.innerHTML=`<input data-a="alias" value="${a.alias||""}" placeholder="称呼/别称"><select data-a="target">${personOptions(a.target_person_id)}</select><input data-a="type" value="${a.alias_type||"alias"}" placeholder="称呼类型"><input data-a="scope" value="${a.valid_from_line??""}-${a.valid_to_line??""}" placeholder="有效行范围，如1-20"><input data-a="evidence" value="${a.evidence||""}" placeholder="证据"><button class="btn secondary small-btn" data-a="save">保存</button><button class="btn danger small-btn" data-a="delete">删除</button>`;row.querySelectorAll('input,select').forEach((control)=>{const mark=()=>{row.dataset.liveModified="true";};control.addEventListener("input",mark);control.addEventListener("change",mark);});row.querySelector('[data-a="save"]').onclick=()=>{a.alias=text(row.querySelector('[data-a="alias"]').value);a.target_person_id=row.querySelector('[data-a="target"]').value;a.alias_type=text(row.querySelector('[data-a="type"]').value)||"alias";const scope=text(row.querySelector('[data-a="scope"]').value);const match=scope.match(/^(\d*)\s*[-~至]\s*(\d*)$/);a.valid_from_line=match&&match[1]?Number(match[1]):null;a.valid_to_line=match&&match[2]?Number(match[2]):null;a.evidence=text(row.querySelector('[data-a="evidence"]').value);a.manual_locked=true;a.origin="manual";renderRelations();refreshSceneBindings();scheduleDraftSave?.();};row.querySelector('[data-a="delete"]').onclick=()=>{a.disabled=true;a.manual_locked=true;renderRelations();refreshSceneBindings();scheduleDraftSave?.();};aliasBox.appendChild(row);});}
     if(pending){pending.innerHTML=c.relationship_pending.length?c.relationship_pending.map(x=>`<div class="pending-relation">${text(x.text||x.evidence||JSON.stringify(x))}</div>`).join(""):'<div class="empty-state compact">当前没有待确认项。</div>';}
   }
   function addRelation() { const c=core();if(c.people.length<2)return apiError("至少需要两个人物才能添加关系。");c.relationships.push({relation_id:`manual_rel_${Date.now()}`,source_person_id:c.people[0].person_id,target_person_id:c.people[1].person_id,relation_type:"related",display_label:"相关",timeline:"current",worldline:"main",confidence:1,origin:"manual",manual_locked:true,disabled:false});renderRelations();scheduleDraftSave?.(); }
@@ -1425,10 +1765,11 @@
     c.people = [...merged.values()];
     if (c.people.length) {
       const st = analysisState();
-      if (!st.facts_ready) setAnalysisStage('facts', true, 'AI人物事实未完整返回，已按强制名单建立保底人物节点。');
+      if (!st.facts_ready) { st.facts_fallback_available=true; st.last_message='AI人物事实未完整返回；已按强制名单建立人物节点，但事实阶段仍标记为未完成。'; }
       if (!st.relationships_ready && !c.relationships.length && !c.aliases.length) {
-        setAnalysisStage('relationships', true, 'AI关系图缺失时已启用强制名单保底人物节点；本地关键词仍可完成分镜人物勾选。');
+        st.relationship_fallback_available=true;st.relationship_graph_ready=false;st.last_message='AI关系图未完整返回；强制名单人物节点仅用于继续生成，本地关键词仍可选角，但关系阶段不会伪装为已完成。';
       }
+      st.last_updated_at=new Date().toISOString();
     }
     return c.people.length;
   }
@@ -1480,14 +1821,21 @@
     return [...seen.values()];
   }
   function rebuildKeywordIndex() {
-    const c=core(),index={};
+    const c=core(),legacyIndex={};
     if(!c.people.length&&c.slots.length)ensureFallbackPeopleGraph();
-    c.people.forEach(person=>{index[person.person_id]={person_id:person.person_id,canonical_name:text(person.canonical_name||person.primary_display_name),entries:keywordEntriesForPerson(person,c)};});
-    c.keyword_index=index;
-    const total=Object.values(index).reduce((n,item)=>n+array(item.entries).length,0);
+    c.people.forEach(person=>{legacyIndex[person.person_id]={person_id:person.person_id,canonical_name:text(person.canonical_name||person.primary_display_name),entries:keywordEntriesForPerson(person,c)};});
+    // Phase6 keeps the original CharacterCore index as an independent live validator.
+    c.keyword_index_character_core_validator=deepClone(legacyIndex);
+    let authority=null;
+    try{authority=globalThis.__V78_CASTING_SERVICE__?.resolveKeywordProduction?.(deepClone(legacyIndex))||null;}catch(error){console.warn('[V78_KEYWORD_AUTHORITY] 主索引决策异常，自动回退 CharacterCore',error);}
+    c.keyword_index=authority?.promoted?deepClone(authority.index):legacyIndex;
+    c.keyword_executor_v78=authority?.executor||'character_core_keyword_fallback';
+    c.keyword_authority_v78=authority?{promoted:Boolean(authority.promoted),safe_streak:Number(authority.safe_streak||0),threshold:Number(authority.threshold||3),executor:c.keyword_executor_v78,decided_at:authority.decided_at||new Date().toISOString(),mismatch_count:Number(authority.parity?.mismatch_count||0)}:{promoted:false,safe_streak:0,threshold:3,executor:c.keyword_executor_v78,decided_at:new Date().toISOString(),mismatch_count:0};
+    const total=Object.values(c.keyword_index).reduce((n,item)=>n+array(item.entries).length,0);
     const usedFallback = Boolean(c.slots.length && c.people.length && !c.relationships.length && !c.aliases.length);
-    setAnalysisStage("casting",Boolean(total),usedFallback?`AI关系图缺失时，已按强制名单保底建立 ${total} 个本地关键词映射`:`已根据强制名单名称与AI关系图建立 ${total} 个本地关键词映射`);
-    syncLegacyState();return index;
+    const owner=c.keyword_authority_v78.promoted?'V78主索引':'CharacterCore校验/回退索引';
+    setAnalysisStage("casting",Boolean(total),usedFallback?`AI关系图缺失时，已按强制名单保底建立 ${total} 个本地关键词映射；当前 ${owner}`:`已根据强制名单名称与AI关系图建立 ${total} 个本地关键词映射；当前 ${owner}`);
+    syncLegacyState();return c.keyword_index;
   }
   function detectSceneRole(source,hits=[]) {
     const textSource=text(source),safeHits=array(hits).map(item=>text(item.keyword||item)).filter(Boolean);if(!safeHits.length)return "unknown";
@@ -1587,6 +1935,25 @@
     return merged;
   }
   function expandCastItem(item) {const c=core(),s=c.slots.find(z=>z.slot_id===item.slot_id);if(!s)return null;return{slot_id:s.slot_id,slot_token:s.slot_token,person_id:s.person_id,display_name:s.display_name,gender:s.gender,visual_age_stage:visibleStage(s),chronological_age:s.age?.chronological_age||"",life_stage:s.age?.life_stage||"",timeline_stage:s.age?.timeline_stage||"",species:s.species||"",appearance:s.appearance||"",identity_role:text(s.inferred_values?.identity_role),social_position:text(s.inferred_values?.social_position),scene_role:item.scene_role,matched_keywords:array(item.matched_keywords),keyword_evidence:array(item.keyword_evidence),relationship_evidence:array(item.relationship_evidence),evidence:array(item.evidence),confidence:Number(item.confidence||0)};}
+  function v36TemporaryContinuityProfile(entity={}) {
+    const identity=text(entity.identity_hint||entity.label||entity.source_phrase||"临时人物");
+    const anchors=unique([text(entity.age_stage_hint),text(entity.gender_hint),text(entity.species_hint),identity]).filter(Boolean).join("、");
+    return `${anchors||"临时人物"}；同一continuity_id连续镜头保持同一体型、发型、服装主色与主要配饰，除非原文明示换装或时间线变化`;
+  }
+  function v36HydrateTemporaryContinuity(entity={},lineNumber=null) {
+    const c=core(),cache=c.temporary_continuity_cache||(c.temporary_continuity_cache={}),id=text(entity.continuity_id||entity.entity_id||`temp_${fingerprint(entity.label||entity.source_phrase)}`),n=Number.isFinite(Number(lineNumber))?Number(lineNumber):null,sceneKey=text(entity.continuity_scene_key),old=object(cache[id]);
+    const gap=n!==null&&Number.isFinite(Number(old.last_line))?Math.abs(n-Number(old.last_line)):0;
+    const sceneChanged=Boolean(sceneKey&&text(old.scene_key)&&sceneKey!==text(old.scene_key));
+    const expired=Boolean(old.continuity_id&&(sceneChanged||gap>5));
+    const base=expired?{}:old;
+    const profile=text(entity.continuity_profile)||text(base.continuity_profile)||v36TemporaryContinuityProfile(entity);
+    const wardrobe=text(entity.wardrobe_state)||text(base.wardrobe_state)||"沿用首次出镜确定的同一套简易服装、主色和主要配饰；原文明示换装时才更新";
+    const next={continuity_id:id,scene_key:sceneKey||text(base.scene_key),first_line:base.first_line??n,last_line:n??base.last_line??null,appearance_count:Number(base.appearance_count||0)+1,continuity_profile:profile,wardrobe_state:wardrobe,gender_hint:text(entity.gender_hint||base.gender_hint),age_stage_hint:text(entity.age_stage_hint||base.age_stage_hint),species_hint:text(entity.species_hint||base.species_hint),identity_hint:text(entity.identity_hint||base.identity_hint||entity.label),updated_at:new Date().toISOString()};
+    cache[id]=next;
+    // Keep the cache bounded; the continuity is intentionally short-term.
+    const keys=Object.keys(cache);if(keys.length>80)keys.sort((a,b)=>text(cache[a]?.updated_at).localeCompare(text(cache[b]?.updated_at))).slice(0,keys.length-80).forEach(k=>delete cache[k]);
+    return {...entity,continuity_id:id,continuity_profile:profile,wardrobe_state:wardrobe,continuity_scope:"scene_short_term",continuity_ttl_shots:5,continuity_first_line:next.first_line,continuity_last_line:next.last_line};
+  }
   function normalizeTemporaryCharacter(item = {}) {
     const source = object(item);
     const label = text(source.label || source.source_phrase || source.identity_hint || source.entity_type);
@@ -1611,6 +1978,9 @@
       continuity_id:text(source.continuity_id || source.entity_id || `temp_${fingerprint(label)}`),
       continuity_profile:text(source.continuity_profile),
       wardrobe_state:text(source.wardrobe_state),
+      continuity_ttl_shots:Number(source.continuity_ttl_shots||5),
+      continuity_first_line:source.continuity_first_line??null,
+      continuity_last_line:source.continuity_last_line??null,
       rendered:source.rendered===true,
     };
   }
@@ -1619,6 +1989,17 @@
     if(!Number.isFinite(Number(lineNumber)))return true;const n=Number(lineNumber);
     return !(entity.valid_from_line!==null&&n<entity.valid_from_line)&&!(entity.valid_to_line!==null&&n>entity.valid_to_line);
   }
+  function v783NormalizeRelationAlias(value=""){
+    return text(value).replace(/^(?:我的?|他的?|她的?|其|咱们的?|我们(?:家)?的?)/,"").replace(/^(?:两个|两位|两名|一位|一个|那位|这位|那名|这名)/,"").trim();
+  }
+  function v783FormalAliasCollision(c,raw,hit="",entity={}){
+    const candidates=unique([hit,entity.label,entity.source_phrase,...array(entity.aliases)]).map(v783NormalizeRelationAlias).filter(Boolean);
+    return c.slots.some(slot=>{
+      if(slot.person_id===text(raw.target_person_id))return true;
+      const aliases=unique([slot.display_name,slot.base_name,slot.canonical_name_hint,...array(slot.aliases)]).map(v783NormalizeRelationAlias).filter(Boolean);
+      return candidates.some(candidate=>aliases.some(alias=>candidate===alias||(/^(?:我|我的|他|他的|她|她的)/.test(hit)&&candidate.endsWith(alias))));
+    });
+  }
   function temporaryEntitiesForSource(source="",lineNumber=null){
     const c=core(),sourceText=text(source),result=[];
     for(const raw of array(c.mention_entities)){
@@ -1626,11 +2007,12 @@
       const tokens=unique([entity.label,entity.source_phrase,...array(entity.aliases)]).sort((a,b)=>b.length-a.length);
       const hit=tokens.find(token=>token&&sourceText.includes(token));if(!hit)continue;
       if(['mentioned_only','offscreen_voice'].includes(entity.participation_state))continue;
-      const formalCollision=c.slots.some(slot=>slot.person_id===text(raw.target_person_id)||[slot.display_name,slot.base_name,slot.canonical_name_hint,...array(slot.aliases)].some(value=>text(value)===hit));
-      if(formalCollision)continue;
+      // V78.2.6: resolve relation-prefixed phrases back to existing formal slots first.
+      // Example: “我未婚妻” must map to formal “未婚妻” when that slot exists, never duplicate as a temporary person.
+      if(v783FormalAliasCollision(c,raw,hit,entity))continue;
       entity.matched_keyword=hit;
       entity.must_render=['visible','visual_exposition','visible_candidate','group_visible','photo_visible','screen_visible','screen_or_memory_visible','memory_visible','dream_visible','background_visible'].includes(entity.participation_state);
-      result.push(entity);
+      result.push(v36HydrateTemporaryContinuity(entity,lineNumber));
       if(result.length>=8)break;
     }
     return result;
@@ -1644,6 +2026,17 @@
       if(at<0)merged.push(item);else merged[at]={...merged[at],...item,aliases:unique([...array(merged[at].aliases),...array(item.aliases)])};
     });
     return merged.slice(0,8);
+  }
+
+  function temporaryEntitiesForContextReadOnly(source='',lineNumber=null){
+    const c=core(),svc=globalThis.__V78_CASTING_SERVICE__,authority=object(c.temporary_continuity_authority_v78||{});
+    if(authority.promoted&&svc?.computeTemporary){
+      try{return array(svc.computeTemporary(text(source),lineNumber,{continuityCache:deepClone(c.temporary_continuity_cache_v78_primary||c.temporary_continuity_cache||{})})?.temporary_characters);}
+      catch(error){console.warn('[V78_TEMPORARY_CONTEXT] 主状态读取失败，回退 CharacterCore validator',error);}
+    }
+    const saved=c.temporary_continuity_cache;
+    try{c.temporary_continuity_cache=deepClone(c.temporary_continuity_cache_character_core_validator||saved||{});return temporaryEntitiesForSource(text(source),lineNumber);}
+    finally{c.temporary_continuity_cache=saved;}
   }
   function fallbackFormalCastFromPlan(plan={},previousStageByPerson=new Map()){
     const c=core(),result=[];
@@ -1719,6 +2112,12 @@
       scene.keyword_evidence=deepClone(array(record.keyword_evidence));
       scene.relationship_evidence=deepClone(array(record.relationship_evidence));
       scene.temporary_characters=deepClone(array(record.temporary_characters));
+      scene.cast_executor_v78=text(record.cast_executor||scene.cast_executor_v78||'character_core_fallback');
+      scene.cast_authority_v78=deepClone(object(record.cast_authority||scene.cast_authority_v78||{}));
+      scene.cast_evidence_executor_v78=text(record.cast_evidence_executor||scene.cast_evidence_executor_v78||'character_core_evidence_fallback');
+      scene.cast_evidence_authority_v78=deepClone(object(record.cast_evidence_authority||scene.cast_evidence_authority_v78||{}));
+      scene.temporary_executor_v78=text(record.temporary_executor||scene.temporary_executor_v78||'character_core_temporary_fallback');
+      scene.temporary_scene_parity_v78=deepClone(object(record.temporary_scene_parity||scene.temporary_scene_parity_v78||{}));
       scene.characters_mode=scene.manual_added_slot_ids.length||scene.manual_excluded_slot_ids.length?'manual':'auto';
       scene.characters_authoritative=true;scene.preselected_cast_frozen=false;
     });
@@ -1731,13 +2130,23 @@
   function refreshSceneBindings(options={}) {
     const c=core(),previousStageByPerson=new Map(),preRequest=Boolean(options?.preRequest),shouldRender=options?.render!==false;
     const castSnapshots=[];
+    const activeContinuityAtStart=deepClone(c.temporary_continuity_cache||{});
+    const validatorStored=object(c.temporary_continuity_cache_character_core_validator||{}),v78Stored=object(c.temporary_continuity_cache_v78_primary||{});
+    let validatorContinuityCursor=deepClone(Object.keys(validatorStored).length?validatorStored:activeContinuityAtStart);
+    let v78ContinuityCursor=deepClone(Object.keys(v78Stored).length?v78Stored:activeContinuityAtStart);
     array(appState.scenes).forEach((scene,index)=>{
       const source=text(scene.source_text||scene.text||scene.original_text),lineNumber=Number(scene.source_index||index+1);
-      const relationshipRows=localCast(source,lineNumber,previousStageByPerson)
-        .filter(item=>array(item.relationship_evidence).length||array(item.keyword_evidence).some(e=>text(e.relation_id)||text(e.binding_id)))
-        .filter(item=>!['offscreen_voice','mentioned_only'].includes(item.scene_role));
-      const keywordRows=characterCardKeywordFallbackCast(source,lineNumber,previousStageByPerson)
-        .filter(item=>!['offscreen_voice','mentioned_only'].includes(item.scene_role));
+      // CharacterCore remains the independent live validator even after V78 keyword promotion.
+      const activeKeywordIndex=c.keyword_index,validatorKeywordIndex=object(c.keyword_index_character_core_validator||activeKeywordIndex);
+      let relationshipRows=[],keywordRows=[];
+      try{
+        c.keyword_index=validatorKeywordIndex;
+        relationshipRows=localCast(source,lineNumber,previousStageByPerson)
+          .filter(item=>array(item.relationship_evidence).length||array(item.keyword_evidence).some(e=>text(e.relation_id)||text(e.binding_id)))
+          .filter(item=>!['offscreen_voice','mentioned_only'].includes(item.scene_role));
+        keywordRows=characterCardKeywordFallbackCast(source,lineNumber,previousStageByPerson)
+          .filter(item=>!['offscreen_voice','mentioned_only'].includes(item.scene_role));
+      }finally{c.keyword_index=activeKeywordIndex;}
       const relationIds=unique(relationshipRows.map(item=>item.slot_id));
       const keywordIds=unique(keywordRows.map(item=>item.slot_id));
       const automaticIds=unique([...relationIds,...keywordIds]);
@@ -1758,8 +2167,25 @@
         rowBySlot.set(id,{slot_id:slot.slot_id,slot_token:slot.slot_token,person_id:slot.person_id,display_name:slot.display_name,scene_role:'visible',evidence:[{type:'manual_add',keyword:slot.display_name,reason:'用户人工增加本镜人物'}],matched_keywords:[],keyword_evidence:[],relationship_evidence:[],confidence:1,selection_source:'manual_add'});
       });
       const effectiveRows=effectiveIds.map(id=>rowBySlot.get(id)||(()=>{const slot=c.slots.find(item=>item.slot_id===id);return slot?{slot_id:slot.slot_id,slot_token:slot.slot_token,person_id:slot.person_id,display_name:slot.display_name,scene_role:'visible',evidence:[{type:'manual',keyword:slot.display_name,reason:'当前本镜人物'}],matched_keywords:[],keyword_evidence:[],relationship_evidence:[],confidence:1,selection_source:'manual'}:null;})()).filter(Boolean);
-      effectiveRows.forEach(item=>previousStageByPerson.set(item.person_id,item.slot_id));
-      const temporary=mergeTemporaryCharacters(scene.temporary_characters,temporaryEntitiesForSource(source,lineNumber));
+      // Phase6: CharacterCore temporary continuity is calculated against its independent validator mirror.
+      // The currently active V78 cache is never used as CharacterCore's own validator input.
+      const savedActiveContinuity=c.temporary_continuity_cache;
+      let temporary=[];
+      try{
+        c.temporary_continuity_cache=validatorContinuityCursor;
+        temporary=mergeTemporaryCharacters(scene.temporary_characters,temporaryEntitiesForSource(source,lineNumber));
+        validatorContinuityCursor=deepClone(c.temporary_continuity_cache||{});
+      }finally{c.temporary_continuity_cache=savedActiveContinuity;}
+      const sceneId=scene.id||`scene_${index+1}`,sourceKey=text(scene.source_key)||sceneSourceKey(source,lineNumber);
+      const productionCandidate={scene_id:sceneId,source_key:sourceKey,source_index:lineNumber,source_text:source,selected:deepClone(effectiveRows),selected_slot_ids:deepClone(effectiveIds),manual_added_slot_ids:deepClone(manualAdded),manual_excluded_slot_ids:deepClone(manualExcluded),temporary_characters:deepClone(temporary)};
+      let v78Gate=null;
+      try{v78Gate=globalThis.__V78_CASTING_SERVICE__?.resolveProductionScene?.(scene,index,{productionRecord:productionCandidate,keywordIndex:globalThis.__V78_CASTING_SERVICE__?.buildKeywordIndex?.(),previousStageByPerson:Object.fromEntries(previousStageByPerson),continuityCache:deepClone(v78ContinuityCursor)})||null;if(v78Gate?.proposed_continuity_cache)v78ContinuityCursor=deepClone(v78Gate.proposed_continuity_cache);}catch(error){console.warn('[V78_CAST_GATE] 闸门计算异常，自动回退 CharacterCore',error);}
+      const finalIds=v78Gate?.takeover?unique(array(v78Gate.record?.selected_slot_ids)):effectiveIds;
+      let finalRows=finalIds.map(id=>rowBySlot.get(id)||effectiveRows.find(row=>row.slot_id===id)).filter(Boolean);
+      // Evidence changes ownership only after its own 3-pass parity gate; identity/appearance rows remain CharacterCore-rich.
+      if(v78Gate?.evidence_takeover){const shadowBySlot=new Map(array(v78Gate.record?.selected).map(row=>[text(row.slot_id),row]));finalRows=finalRows.map(row=>{const shadow=shadowBySlot.get(text(row.slot_id));return shadow?{...row,scene_role:text(shadow.scene_role||row.scene_role),matched_keywords:deepClone(array(shadow.matched_keywords)),keyword_evidence:deepClone(array(shadow.keyword_evidence)),relationship_evidence:deepClone(array(shadow.relationship_evidence)),evidence:deepClone(array(shadow.evidence)),selection_source:'v78_scene_cast_evidence_primary_phase6'}:row;});}
+      const finalTemporary=v78Gate?.temporary_takeover?mergeTemporaryCharacters(v78Gate.record?.temporary_characters):temporary;
+      finalRows.forEach(item=>previousStageByPerson.set(item.person_id,item.slot_id));
 
       scene.relation_selected_slot_ids=relationIds;
       scene.keyword_selected_slot_ids=keywordIds;
@@ -1767,34 +2193,53 @@
       scene.manual_excluded_slot_ids=manualExcluded;
       scene.relation_cast_rows=deepClone(relationshipRows);
       scene.keyword_cast_rows=deepClone(keywordRows);
-      scene.character_core_cast=deepClone(effectiveRows);
-      scene.character_slot_ids=effectiveIds;
-      scene.characters=effectiveRows.map(item=>item.display_name);
-      scene.character_casting_evidence=effectiveRows.flatMap(item=>array(item.evidence));
-      scene.keyword_evidence=keywordRows.flatMap(item=>array(item.keyword_evidence));
-      scene.relationship_evidence=relationshipRows.flatMap(item=>array(item.relationship_evidence));
-      scene.temporary_characters=temporary;
+      scene.character_core_cast=deepClone(finalRows);
+      scene.character_slot_ids=finalIds;
+      scene.characters=finalRows.map(item=>item.display_name);
+      scene.character_casting_evidence=finalRows.flatMap(item=>array(item.evidence));
+      scene.keyword_evidence=v78Gate?.evidence_takeover?finalRows.flatMap(item=>array(item.keyword_evidence)):keywordRows.flatMap(item=>array(item.keyword_evidence));
+      scene.relationship_evidence=v78Gate?.evidence_takeover?finalRows.flatMap(item=>array(item.relationship_evidence)):relationshipRows.flatMap(item=>array(item.relationship_evidence));
+      scene.temporary_characters=finalTemporary;
+      scene.cast_evidence_executor_v78=v78Gate?.evidence_executor||'character_core_evidence_fallback';
+      scene.cast_evidence_authority_v78=deepClone(v78Gate?.evidence_authority||{});
+      scene.temporary_executor_v78=v78Gate?.temporary_executor||'character_core_temporary_warmup_validator';
+      scene.temporary_scene_parity_v78=deepClone(v78Gate?.temporary_scene_parity||{});
       scene.characters_mode=manualAdded.length||manualExcluded.length?'manual':'auto';
       scene.characters_authoritative=true;
       scene.character_core_manual_locked=false;
       scene.preselected_cast_frozen=preRequest;
-      scene.cast_snapshot_source='relationship_graph_plus_character_card_keyword_plus_manual_override';
+      scene.cast_snapshot_source=v78Gate?.takeover?'v78_casting_primary_phase6_promoted':'relationship_graph_plus_character_card_keyword_plus_manual_override';
+      if(v78Gate?.evidence_takeover)scene.cast_snapshot_source+=' + v78_evidence_primary';
+      if(v78Gate?.temporary_takeover)scene.cast_snapshot_source+=' + v78_temporary_primary';
+      scene.cast_executor_v78=v78Gate?.executor||'character_core_fallback';
+      scene.cast_authority_v78={promoted:Boolean(v78Gate?.promoted),safe_streak:Number(v78Gate?.safe_streak||0),threshold:Number(v78Gate?.threshold||3),takeover:Boolean(v78Gate?.takeover),executor:scene.cast_executor_v78,promoted_now:Boolean(v78Gate?.promoted_now),demoted_now:Boolean(v78Gate?.demoted_now)};
+      scene.cast_gate_reasons_v78=deepClone(array(v78Gate?.reasons));
+      scene.cast_gate_at_v78=v78Gate?.decided_at||new Date().toISOString();
       scene.cast_snapshot_at=new Date().toISOString();
 
-      const sceneId=scene.id||`scene_${index+1}`,sourceKey=text(scene.source_key)||sceneSourceKey(source,lineNumber);
       scene.source_key=sourceKey;
-      const record={scene_id:sceneId,source_key:sourceKey,source_index:lineNumber,source_text:source,relation_selected_slot_ids:relationIds,keyword_selected_slot_ids:keywordIds,manual_added_slot_ids:manualAdded,manual_excluded_slot_ids:manualExcluded,selected:deepClone(effectiveRows),selected_slot_ids:effectiveIds,visible_slot_ids:effectiveIds,keyword_evidence:deepClone(scene.keyword_evidence),relationship_evidence:deepClone(scene.relationship_evidence),ambiguous_matches:[],mentioned_only:[],offscreen_voice:[],temporary_characters:deepClone(temporary),manual_locked:Boolean(manualAdded.length||manualExcluded.length),ui_checkbox_synced:true,snapshot_frozen:preRequest};
+      const record={scene_id:sceneId,source_key:sourceKey,source_index:lineNumber,source_text:source,relation_selected_slot_ids:relationIds,keyword_selected_slot_ids:keywordIds,manual_added_slot_ids:manualAdded,manual_excluded_slot_ids:manualExcluded,selected:deepClone(finalRows),selected_slot_ids:finalIds,visible_slot_ids:finalIds,keyword_evidence:deepClone(scene.keyword_evidence),relationship_evidence:deepClone(scene.relationship_evidence),ambiguous_matches:[],mentioned_only:[],offscreen_voice:[],temporary_characters:deepClone(finalTemporary),manual_locked:Boolean(manualAdded.length||manualExcluded.length),ui_checkbox_synced:true,snapshot_frozen:preRequest,cast_executor:scene.cast_executor_v78,cast_authority:deepClone(scene.cast_authority_v78),cast_evidence_executor:scene.cast_evidence_executor_v78,cast_evidence_authority:deepClone(scene.cast_evidence_authority_v78),temporary_executor:scene.temporary_executor_v78,temporary_scene_parity:deepClone(scene.temporary_scene_parity_v78),cast_gate_reasons:deepClone(scene.cast_gate_reasons_v78),cast_gate_at:scene.cast_gate_at_v78};
       c.scene_casting[sourceKey]=record;castSnapshots.push(record);
       console.info('[RELATION_CAST_TRACE]',{scene_id:sceneId,source_index:lineNumber,selected_slot_ids:relationIds});
       console.info('[KEYWORD_CAST_TRACE]',{scene_id:sceneId,source_index:lineNumber,selected_slot_ids:keywordIds});
-      console.info('[MANUAL_CAST_TRACE]',{scene_id:sceneId,manual_added_slot_ids:manualAdded,manual_excluded_slot_ids:manualExcluded,effective_slot_ids:effectiveIds});
-      console.info('[CAST_UI_TRACE]',{scene_id:sceneId,ui_checkbox_synced:true,effective_slot_ids:effectiveIds});
+      console.info('[MANUAL_CAST_TRACE]',{scene_id:sceneId,manual_added_slot_ids:manualAdded,manual_excluded_slot_ids:manualExcluded,effective_slot_ids:finalIds});
+      console.info('[CAST_UI_TRACE]',{scene_id:sceneId,ui_checkbox_synced:true,effective_slot_ids:finalIds,executor:scene.cast_executor_v78,gate_reasons:scene.cast_gate_reasons_v78});
     });
-    c.outline_cast_snapshot={protocol:'character_core_single_executor_v77_hotfix19',created_at:new Date().toISOString(),source_hash:c.source_hash,scenes:castSnapshots};
+    // Phase6: keep two independent continuity mirrors and promote V78 only after full-cache parity for 3 consecutive refreshes.
+    c.temporary_continuity_cache_character_core_validator=deepClone(validatorContinuityCursor);
+    c.temporary_continuity_cache_v78_primary=deepClone(v78ContinuityCursor);
+    let temporaryAuthority=null;
+    try{temporaryAuthority=globalThis.__V78_CASTING_SERVICE__?.resolveTemporaryCacheProduction?.(deepClone(validatorContinuityCursor),deepClone(v78ContinuityCursor))||null;}catch(error){console.warn('[V78_TEMPORARY_AUTHORITY] 连续性主状态决策异常，自动回退 CharacterCore',error);}
+    c.temporary_continuity_cache=temporaryAuthority?.promoted?deepClone(temporaryAuthority.cache):deepClone(validatorContinuityCursor);
+    // On a cache-level mismatch, rebase the V78 candidate mirror from the independent CharacterCore validator so a later 3-pass recovery is possible.
+    if(temporaryAuthority&&!temporaryAuthority.promoted&&Number(temporaryAuthority.parity?.mismatch_count||0)>0)c.temporary_continuity_cache_v78_primary=deepClone(validatorContinuityCursor);
+    c.temporary_continuity_authority_v78=temporaryAuthority?{promoted:Boolean(temporaryAuthority.promoted),safe_streak:Number(temporaryAuthority.safe_streak||0),threshold:Number(temporaryAuthority.threshold||3),executor:temporaryAuthority.executor,decided_at:temporaryAuthority.decided_at||new Date().toISOString(),mismatch_count:Number(temporaryAuthority.parity?.mismatch_count||0)}:{promoted:false,safe_streak:0,threshold:3,executor:'character_core_temporary_fallback',decided_at:new Date().toISOString(),mismatch_count:0};
+    c.outline_cast_snapshot={protocol:'v78_casting_primary_with_character_core_fallback_phase6',created_at:new Date().toISOString(),source_hash:c.source_hash,temporary_continuity_authority:deepClone(c.temporary_continuity_authority_v78),scenes:castSnapshots};
     setAnalysisStage('casting',Boolean(castSnapshots.length),'人物关系判断与人物卡关键词保底已分通道完成，并合并人工覆盖');
     syncLegacyState();
     try{if(typeof syncAllSceneCharactersToOutlineShots==='function')syncAllSceneCharactersToOutlineShots();}catch(_){}
     if(shouldRender&&typeof renderScenes==='function')renderScenes();
+    try{globalThis.__V78_CASTING_SERVICE__?.observeProduction?.(deepClone(c.outline_cast_snapshot),{source_hash:c.source_hash,pre_request:preRequest});}catch(error){console.warn('[V78_CAST_PARITY] 本镜人物影子对比失败',error);}
     return deepClone(c.outline_cast_snapshot);
   }
   function buildSceneContext(source,manualIdentifiers=null,lineNumber=null,previousStageByPerson=new Map()) {
@@ -1803,7 +2248,7 @@
     else selected=preselectFormalCast(text(source),lineNumber,previousStageByPerson);
     const expanded=selected.map(expandCastItem).filter(Boolean),personIds=new Set(expanded.map(x=>x.person_id));
     const relationships=c.relationships.filter(r=>personIds.has(r.source_person_id)&&personIds.has(r.target_person_id)&&!r.disabled);
-    const temporaryCharacters=temporaryEntitiesForSource(text(source),lineNumber);
+    const temporaryCharacters=temporaryEntitiesForContextReadOnly(text(source),lineNumber);
     return{casting_protocol:"character_core_single_executor_v77_hotfix19",manual_locked:manual,selected_characters:expanded,visible_characters:expanded.filter(x=>!['offscreen_voice','mentioned_only'].includes(x.scene_role)),offscreen_voice:expanded.filter(x=>x.scene_role==='offscreen_voice'),mentioned_only:expanded.filter(x=>x.scene_role==='mentioned_only'),temporary_characters:temporaryCharacters,keyword_evidence:expanded.flatMap(x=>x.keyword_evidence),relationship_evidence:expanded.flatMap(x=>x.relationship_evidence),relationship_context:relationships,continuity_context:{}};
   }
   function compactCharacterRegistryFromPlans(plans=[], appearanceLimit=1400) {
@@ -1835,6 +2280,18 @@
   }
   function buildV77SceneSubmissionPrompt(plans=[]) {
     try { globalThis.__commitLatestEditableUiState?.("before_outline_cast_package"); } catch (_) {}
+    try {
+      const svc=globalThis.__V78_SCENE_CONTEXT_SERVICE__;
+      const built=svc?.buildOutlinePrompt?.(plans);
+      const parity=built?.package?svc?.parityAgainstPlans?.(plans,built.package):null;
+      const decision=built?.package?svc?.resolveOutlineAuthority?.(plans,built.package,parity):null;
+      if(built?.ok&&parity?.ok&&decision?.takeover){
+        console.info('[V78_SCENE_CONTEXT]',{stage:'outline_submission',executor:decision.executor,scene_count:built.package?.scenes?.length||0,parity:true,safe_streak:decision.safe_streak,threshold:decision.threshold});
+        try{globalThis.__V78_OUTLINE_GENERATION_SERVICE__?.markStage?.('submission_package',{mode:'outline',executor:decision.executor,scene_count:built.package?.scenes?.length||0,parity:true,safe_streak:decision.safe_streak,threshold:decision.threshold});}catch(_){}
+        return built.prompt;
+      }
+      if(svc){console.warn('[V78_SCENE_CONTEXT] Phase8提交包尚未晋升或校验未通过，本次使用CharacterCore Validator/Fallback',{validation:built?.package?.validation||null,parity,authority:decision});try{globalThis.__V78_OUTLINE_GENERATION_SERVICE__?.markStage?.('submission_package',{mode:'outline',executor:decision?.executor||'character_core_submission_fallback',parity:Boolean(parity?.ok),validation_ok:Boolean(built?.ok),safe_streak:Number(decision?.safe_streak||0)});}catch(_){}}
+    }catch(error){console.warn('[V78_SCENE_CONTEXT] Phase8上下文构建异常，自动回退CharacterCore旧提交包',error);}
     const buildNormal=(appearanceLimit,compact)=>JSON.stringify({
       protocol:'character_core_pre_ai_keyword_cast_v77_hotfix19',
       character_registry:compactCharacterRegistryFromPlans(plans,appearanceLimit),
@@ -1876,6 +2333,7 @@
         payload=JSON.stringify({p:'cc77h15-lean',a:'完整appearance从同一请求characters数组按slot_id读取',r:registry,c:leanRows,k:'c=[line,manual,selected[index,role],temporary_phrases,crowd_labels,offscreen,mentioned];正式人物唯一来源是强制名单slots；名单外人物只作为临时人物/群体/仅提及实体，不得要求补正式人物卡'});
       }
     }
+    try{globalThis.__V78_OUTLINE_GENERATION_SERVICE__?.markStage?.('submission_package',{mode:'outline',executor:'character_core_submission_legacy_fallback',compact_mode:compactMode,payload_chars:payload.length});}catch(_){}
     return [
       '【V77 Hotfix19 请求前已冻结的逐镜选角数据｜必须执行】',
       '逐镜 selected 已在请求AI前由人物关系图、人物卡关键词和人工覆盖计算完成，slot_id是正式人物唯一身份。AI只负责生成画面，不得新增、删除、替换 selected，也不得用返回内容修改正式人物勾选。temporary_characters 是名单外通用临时演员的最低必达数据，不是封闭白名单；AI还要阅读当前原文补充识别其他可见临时人物。visible/visual_exposition/visible_candidate/group_visible/background_visible必须实体进入成品画面，并沿用continuity_id/continuity_profile/wardrobe_state保持同场景短期一致；offscreen只可发声，mentioned不得实体出镜。禁止在prompt输出字段名、分类名、无人物卡或规则说明。',
@@ -1942,9 +2400,17 @@
       const wrappedRegeneration=function(scene={},guidance=''){
         const sourceKey=text(scene.source_key)||sceneSourceKey(scene.source_text||scene.text,scene.source_index||1);
         const base=previousRegeneration(scene,guidance),stored=array(appState.scenes).find(item=>text(item.source_key)===sourceKey)||array(appState.scenes).find(item=>item.id===scene.id)||scene;
+        try{
+          const svc=globalThis.__V78_SCENE_CONTEXT_SERVICE__,sceneInput={...stored,...scene,source_key:sourceKey},built=svc?.buildRegenerationPrompt?.(sceneInput);
+          const parity=built?.package?svc?.parityRegenerationAgainstScene?.(sceneInput,built.package):null;
+          const decision=built?.package?svc?.resolveRegenerationAuthority?.(sceneInput,built.package,parity):null;
+          if(built?.ok&&parity?.ok&&decision?.takeover){console.info('[V78_SCENE_CONTEXT]',{stage:'regeneration_submission',executor:decision.executor,source_key:sourceKey,safe_streak:decision.safe_streak,threshold:decision.threshold});try{globalThis.__V78_OUTLINE_GENERATION_SERVICE__?.markStage?.('submission_package',{mode:'regeneration',executor:decision.executor,source_key:sourceKey,parity:true,safe_streak:decision.safe_streak,threshold:decision.threshold});}catch(_){}return `${built.prompt}\n\n${base}`;}
+          if(svc){console.warn('[V78_SCENE_CONTEXT] Phase8单镜提交包尚未晋升或校验未通过，本次使用CharacterCore Validator/Fallback',{validation:built?.package?.validation||null,parity,authority:decision});try{globalThis.__V78_OUTLINE_GENERATION_SERVICE__?.markStage?.('submission_package',{mode:'regeneration',executor:decision?.executor||'character_core_submission_fallback',source_key:sourceKey,parity:Boolean(parity?.ok),validation_ok:Boolean(built?.ok),safe_streak:Number(decision?.safe_streak||0)});}catch(_){}}
+        }catch(error){console.warn('[V78_SCENE_CONTEXT] 单镜上下文构建异常，自动回退CharacterCore旧提交包',error);}
         const ids=array(stored.character_slot_ids),ctx=buildSceneContext(scene.source_text||stored.source_text||'',ids,Number(stored.source_index||0)||null,new Map()),selectedIds=new Set(ids);
         const registry=ids.map(id=>{const slot=core().slots.find(item=>item.slot_id===id);return slot?{slot_id:slot.slot_id,slot_token:slot.slot_token,person_id:slot.person_id,display_name:slot.display_name,gender:slot.gender,visual_age_stage:visibleStage(slot),appearance:String(slot.appearance||'').slice(0,1600),scene_role:'visible'}:null;}).filter(Boolean);
         const pack={protocol:'character_core_scene_regeneration_preselected_v77_hotfix19',preselected_before_ai:true,manual_locked:stored.characters_mode==='manual',selected_characters:registry,temporary_characters:mergeTemporaryCharacters(stored.temporary_characters,ctx.temporary_characters),offscreen_voice:ctx.offscreen_voice.map(item=>({slot_id:item.slot_id,display_name:item.display_name,scene_role:'offscreen_voice'})),mentioned_only:ctx.mentioned_only.map(item=>({slot_id:item.slot_id,display_name:item.display_name,scene_role:'mentioned_only'})),relationship_context:ctx.relationship_context,keyword_evidence:stored.keyword_evidence||ctx.keyword_evidence,excluded_slot_ids:core().slots.filter(slot=>!selectedIds.has(slot.slot_id)).map(slot=>slot.slot_id)};
+        try{globalThis.__V78_OUTLINE_GENERATION_SERVICE__?.markStage?.('submission_package',{mode:'regeneration',executor:'character_core_submission_legacy_fallback',source_key:sourceKey,selected_count:registry.length});}catch(_){}
         return`【V77 Hotfix19当前分镜选角快照｜最高优先级】\n${JSON.stringify(pack)}\n正式人物复选框已经在请求前完成勾选并冻结；正式人物唯一来源是强制名单slots，你不得新增、修改或要求补充名单外正式人物卡。必须使用selected_characters中的完整外形。temporary_characters是结构化镜头数据，只根据participation_state自然融入最终画面，不输出字段名、分类名、规则说明或执行过程。\n\n${base}`;
       };
       wrappedRegeneration.__characterCoreV2Hotfix16=true;buildRegenerationInstructionAppendix=wrappedRegeneration;
@@ -1964,19 +2430,24 @@
     return runStyle(button,{silentStatus:false});
   }
 
-  async function runOutlineV77() {
+  async function runOutlineV77(v78Options={}) {
+    const facade=globalThis.__V78_OUTLINE_GENERATION_SERVICE__;
+    if(facade&&!v78Options?.__v78FacadeInternal){return facade.runOutline({executeNative:()=>runOutlineV77({__v78FacadeInternal:true})});}
     try { globalThis.__commitLatestEditableUiState?.('before_outline_entry'); } catch (_) {}
     if(outlineRequestInFlight){showAIStatusNotice?.('整段分镜请求正在执行，请等待当前请求完成。','warning',5000);return null;}
     const clickId=++outlineClickSequence,snapshot=captureSourceSnapshot('outline_click');
     if(!snapshot.canonical_text)return apiError('无法生成：当前整段原文为空。');
     try{ensureOutlineSourceSceneShells();}catch(error){console.warn('[CAST_TRACE] 原文分镜壳建立失败',error);}
-    const guideText=String(valueOf('#characterGuideInput',appState.character_guide_input||'')||'').trim();
-    if(!core().slots.length&&guideText){try{await parseSlots({preserve:true});}catch(error){console.warn('[OUTLINE_TRACE] parseSlots降级继续',error);}}
+    const rosterSnapshot=formalRosterSnapshot('outline_formal_roster_reconcile',true);
+    const guideText=String(rosterSnapshot.raw_text||'').trim();
+    // V78.2.8: every outline request reconciles from the same frozen formal-roster snapshot.
+    try{await parseSlots({preserve:true,rosterSnapshot});assertFormalRosterFresh(rosterSnapshot,'分镜正式人物对账');}catch(error){console.warn('[OUTLINE_TRACE] Formal Roster对账失败；不从原文或旧状态补正式人物',error);}
     if(!core().people.length&&core().slots.length){try{ensureFallbackPeopleGraph();}catch(error){console.warn('[OUTLINE_TRACE] people保底失败但继续',error);}}
     try{rebuildKeywordIndex();}catch(error){console.warn('[OUTLINE_TRACE] 关键词重建失败但继续',error);}
     let castSnapshot=null;
     try{
       castSnapshot=refreshSceneBindings({preRequest:true,render:true});
+      try{facade?.markStage?.('cast_frozen',{scene_count:array(appState.scenes).length,selected_slot_count:array(castSnapshot?.scenes).reduce((sum,item)=>sum+array(item.selected_slot_ids).length,0)});}catch(_){}
       showAIStatusNotice?.(`已先完成 ${array(appState.scenes).length} 个分镜的人物关系图+本地关键词匹配、本镜人物勾选与人物卡快照冻结，正在提交给AI。`,'ready',6000);
       await new Promise(resolve=>{if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>resolve());else setTimeout(resolve,0);});
     }catch(error){console.warn('[CAST_TRACE] 预选角失败，使用当前人工勾选继续',error);}
@@ -1992,73 +2463,139 @@
     outlineRequestInFlight=true;
     try{
       appState.analysisSourceText=snapshot.canonical_text;appState.analysisComplete=true;appState.characterRegistryStatus='ready';appState.characterAnalysisResultStatus='current';
+      try{facade?.markStage?.('generator_dispatch',{generator:'v77_native_outline_generator'});}catch(_){}
       const result=await v77BaseGenerateOutline();
-      try{restoreSceneBindingsBySourceKey({render:true});}catch(error){console.warn('[CAST_TRACE] AI返回后source_key人物恢复失败',error);}
+      try{facade?.markStage?.('generator_return',{generator:'v77_native_outline_generator'});}catch(_){}
+      try{restoreSceneBindingsBySourceKey({render:true});facade?.markStage?.('post_writeback_refresh',{scene_count:array(appState.scenes).length,shot_count:array(appState.outlineShots).length,source_key_restore:true});}catch(error){console.warn('[CAST_TRACE] AI返回后source_key人物恢复失败',error);}
+      try{const traceId=globalThis.__V77_LAST_TRACE_BY_ENDPOINT__?.["/api/outline-scenes"]||"";if(traceId)emitCharacterCoreTrace({trace_stage:"outline_writeback",request_id:traceId,outcome:"accepted",summary:"整段分镜已写入当前工作区并按source_key恢复人物勾选",scene_count:array(appState.scenes).length,shot_count:array(appState.outlineShots).length,source_key_count:new Set(array(appState.scenes).map(x=>text(x.source_key)).filter(Boolean)).size,final_snapshot:{scene_count:array(appState.scenes).length,outline_shot_count:array(appState.outlineShots).length,first_scenes:array(appState.scenes).slice(0,6).map(x=>({source_key:x.source_key,source_text:x.source_text,character_slot_ids:x.character_slot_ids}))}}).catch(()=>{});}catch(_){}
       return result;
     }finally{outlineRequestInFlight=false;}
   }
 
-  async function runSceneRegenerationV77(sceneId) {
+  async function runSceneRegenerationV77(sceneId,v78Options={}) {
+    const facade=globalThis.__V78_OUTLINE_GENERATION_SERVICE__;
+    if(facade&&!v78Options?.__v78FacadeInternal){return facade.runRegeneration(sceneId,{executeNative:()=>runSceneRegenerationV77(sceneId,{__v78FacadeInternal:true})});}
     try { globalThis.__commitLatestEditableUiState?.("before_scene_regeneration_entry"); } catch (_) {}
     const readiness=v77OutlineReadiness();if(!readiness.ok)return apiError(readiness.message);
     try{rebuildKeywordIndex();}catch(_){}
     let snapshot=null;
-    try{snapshot=refreshSceneBindings({preRequest:true,render:true});}catch(error){console.warn('[CAST_SNAPSHOT_TRACE] 单条重生成预选角失败，继续使用当前勾选',error);}
+    try{snapshot=refreshSceneBindings({preRequest:true,render:true});facade?.markStage?.('cast_frozen',{scene_id:sceneId,scene_count:array(appState.scenes).length});}catch(error){console.warn('[CAST_SNAPSHOT_TRACE] 单条重生成预选角失败，继续使用当前勾选',error);}
     const scene=array(appState.scenes).find(item=>item.id===sceneId);
     console.info('[CAST_SNAPSHOT_TRACE]',{scene_id:sceneId,relation_selected_slot_ids:array(scene?.relation_selected_slot_ids),keyword_selected_slot_ids:array(scene?.keyword_selected_slot_ids),manual_added_slot_ids:array(scene?.manual_added_slot_ids),manual_excluded_slot_ids:array(scene?.manual_excluded_slot_ids),effective_slot_ids:array(scene?.character_slot_ids),snapshot_frozen:true});
     try{markV77RuntimeReady(currentNovel());}catch(_){}
     if(typeof v77BaseRegenerateScene!=="function")return apiError("V77原生单条重生成执行器缺失，请确认软件文件完整。");
+    try{facade?.markStage?.('generator_dispatch',{generator:'v77_native_regeneration_generator',scene_id:sceneId,source_key:scene?.source_key||''});}catch(_){}
     const result=await v77BaseRegenerateScene(sceneId);
+    try{facade?.markStage?.('generator_return',{generator:'v77_native_regeneration_generator',scene_id:sceneId});}catch(_){}
     if(scene){scene.preselected_cast_frozen=false;scene.character_core_manual_locked=false;}
+    try{const traceId=globalThis.__V77_LAST_TRACE_BY_ENDPOINT__?.["/api/regenerate-scene-outline"]||"";if(traceId)emitCharacterCoreTrace({trace_stage:"regenerate_writeback",request_id:traceId,outcome:"accepted",summary:"当前分镜重生成结果已写回",final_snapshot:{scene_id:sceneId,source_key:scene?.source_key||"",character_slot_ids:array(scene?.character_slot_ids),outline_shots:array(scene?.outline_shots).slice(0,8)}}).catch(()=>{});}catch(_){}
     return result;
   }
 
+  async function runOutlineProductionV78(){
+    const facade=globalThis.__V78_OUTLINE_GENERATION_SERVICE__;
+    if(facade)return facade.runOutline({executeNative:()=>runOutlineV77({__v78FacadeInternal:true})});
+    return runOutlineV77({__v78FacadeInternal:true});
+  }
+  async function runSceneRegenerationProductionV78(sceneId){
+    const facade=globalThis.__V78_OUTLINE_GENERATION_SERVICE__;
+    if(facade)return facade.runRegeneration(sceneId,{executeNative:()=>runSceneRegenerationV77(sceneId,{__v78FacadeInternal:true})});
+    return runSceneRegenerationV77(sceneId,{__v78FacadeInternal:true});
+  }
+
   function installV77ExclusiveEntrypoints() {
-    // V77 Hotfix16 binds only the native outline engines captured before historical transaction wrappers.
-    try { if(typeof generateOutline==="function")generateOutline=runOutlineV77; } catch(_) {}
-    try { if(typeof regenerateSceneOutline==="function")regenerateSceneOutline=runSceneRegenerationV77; } catch(_) {}
+    // V78 Stable: historical V77 engines remain compatibility-only fallbacks; all public entrypoints bind V78 production.
+  globalThis.__V78_OUTLINE_NATIVE_EXECUTORS__={version:'v78_stable_v77_compatibility_host',compatibility_only:true,outline:()=>runOutlineV77({__v78FacadeInternal:true}),regenerate:(sceneId)=>runSceneRegenerationV77(sceneId,{__v78FacadeInternal:true})};
+    try { if(typeof generateOutline==="function")generateOutline=runOutlineProductionV78; } catch(_) {}
+    try { if(typeof regenerateSceneOutline==="function")regenerateSceneOutline=runSceneRegenerationProductionV78; } catch(_) {}
     globalThis.analyzeNovel=(button=q("#analyzeBtn"))=>runStyle(button,{silentStatus:false});
-    globalThis.generateOutline=runOutlineV77;
-    globalThis.regenerateSceneOutline=runSceneRegenerationV77;
+    globalThis.generateOutline=runOutlineProductionV78;
+    globalThis.regenerateSceneOutline=runSceneRegenerationProductionV78;
   }
 
   function renderAll(){syncLegacyState();renderCharacters();renderRelations();if(typeof renderScenes==="function")renderScenes();}
-  function cloneRebind(selector,handler,handlerVersion=""){const old=q(selector);if(!old)return null;const fresh=old.cloneNode(true);old.replaceWith(fresh);if(handlerVersion)fresh.dataset.handlerVersion=handlerVersion;fresh.addEventListener("click",handler);return fresh;}
+  function cloneRebind(selector,handler,handlerVersion=""){const old=q(selector);if(!old)return null;const fresh=old.cloneNode(true);old.replaceWith(fresh);if(handlerVersion){fresh.dataset.handlerVersion=handlerVersion;fresh.dataset.executorId=handlerVersion;}fresh.dataset.executorOwner="CharacterCore2";fresh.addEventListener("click",handler);return fresh;}
   function bindUI(){
-    cloneRebind("#analyzeBtn",()=>runStyle(q("#analyzeBtn"),{silentStatus:false}));
-    cloneRebind("#optimizeAllCharactersBtn",()=>runCharacters({button:q("#optimizeAllCharactersBtn")}));
-    cloneRebind("#outlineBtn",()=>runOutlineV77(),"v77-hotfix19-manual-stage-roster-only");
-    cloneRebind("#saveProjectBtn",saveProjectWithLease);
+    cloneRebind("#analyzeBtn",()=>runStyle(q("#analyzeBtn"),{silentStatus:false}),"v78-stable-style-ai-service");
+    cloneRebind("#optimizeAllCharactersBtn",()=>runCharacters({button:q("#optimizeAllCharactersBtn")}),"v78-stable-character-ai-service");
+    const outlineButtonV78=cloneRebind("#outlineBtn",()=>runOutlineProductionV78(),"v78-stable-outline-production-mainline");if(outlineButtonV78)outlineButtonV78.dataset.executorOwner="V78ProductionMainline";
+    cloneRebind("#saveProjectBtn",saveProjectWithLease,"v78-stable-history-runtime");
     const addButton=cloneRebind("#addCharacterBtn",()=>{const guide=q("#characterGuideInput");if(!guide)return;guide.focus();if(String(guide.value||"").trim()&&!/[\n；;，,、|｜]\s*$/.test(guide.value))guide.value=`${guide.value.trim()}\n`;guide.dispatchEvent(new Event("input",{bubbles:true}));showAIStatusNotice("请在强制名单中添加人物；人物卡只由名单槽位生成。","ready",5000);});
     if(addButton){addButton.disabled=false;addButton.textContent="+ 在强制名单添加";addButton.title="人物卡只能来自强制名单；点击后定位到名单输入框。";}
-    cloneRebind("#relationshipAddBtn",addRelation);cloneRebind("#relationshipAliasAddBtn",addAlias);cloneRebind("#relationshipReanalyzeBtn",async()=>{await analyzeFactsAndRelations();rebuildKeywordIndex();refreshSceneBindings();renderAll();showAIStatusNotice("已由AI重新分析人物关系和动态称呼映射，本地关键词索引已同步重建；人工锁定关系未被覆盖。","ready",7000);});cloneRebind("#relationshipSaveBtn",()=>{try{rebuildKeywordIndex();refreshSceneBindings({preRequest:false,render:true});}catch(_){}scheduleDraftSave?.();showAIStatusNotice("人物关系已保存；本地关键词索引与每个分镜的本镜人物勾选已立即更新。","ready",6000);});
-    const novel=q("#novelText");if(novel&&!novel.dataset.characterCoreSourceBound){novel.dataset.characterCoreSourceBound="true";novel.addEventListener("input",()=>{const c=core(),snapshot=captureSourceSnapshot("novel_input");if(!c.source_stale&&c.source_hash&&c.source_hash!==snapshot.source_hash){c.source_stale=true;c.character_revision+=1;c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];resetAnalysisState("整段原文实际内容已更换");appState.analysisComplete=false;appState.analysisSourceText="";appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();refreshSceneBindings();const p=q("#characterGenerationProgress");if(p)p.textContent=`检测到整段原文实际内容已变化：当前 revision ${snapshot.source_revision}。旧人物事实、外形、关系和分镜选角已隔离；强制名单保留，请重新生成。`;}});}
-    const guide=q("#characterGuideInput");if(guide){const fresh=guide.cloneNode(true);fresh.value=guide.value;guide.replaceWith(fresh);fresh.addEventListener("input",()=>{appState.character_guide_input=String(fresh.value||"");invalidateRosterStages("强制人物名单已修改；统一风格仍保留当前原文版本");appState.analysisComplete=false;appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();const p=q("#characterGenerationProgress");if(p)p.textContent="强制名单已修改；统一风格保持有效，只需重新点击“按强制名单生成人物卡”。";scheduleDraftSave?.();});}
+    cloneRebind("#relationshipAddBtn",addRelation);cloneRebind("#relationshipAliasAddBtn",addAlias);cloneRebind("#relationshipReanalyzeBtn",async()=>{try{await analyzeFactsAndRelations();rebuildKeywordIndex();refreshSceneBindings();renderAll();const ok=Boolean(analysisState().relationships_ready);showAIStatusNotice(ok?"已由AI重新分析人物关系和动态称呼映射，本地关键词索引已同步重建；人工锁定关系未被覆盖。":"AI人物关系请求已返回，但关系字段仍不完整；现有人物卡与本地关键词继续可用。",ok?"ready":"warning",9000);}catch(error){setAnalysisStage("relationships",false,error?.message||String(error));ensureFallbackPeopleGraph();rebuildKeywordIndex();refreshSceneBindings();renderAll();showAIStatusNotice(`人物关系AI请求未完成：${error?.message||error}。现有人物卡和本地关键词仍可继续使用。`,"warning",12000);}});cloneRebind("#relationshipSaveBtn",()=>{try{rebuildKeywordIndex();refreshSceneBindings({preRequest:false,render:true});}catch(_){}scheduleDraftSave?.();showAIStatusNotice("人物关系已保存；本地关键词索引与每个分镜的本镜人物勾选已立即更新。","ready",6000);});
+    const novel=q("#novelText");if(novel&&!novel.dataset.characterCoreSourceBound){novel.dataset.characterCoreSourceBound="true";novel.addEventListener("input",()=>{const c=core(),snapshot=captureSourceSnapshot("novel_input");if(!c.source_stale&&c.source_hash&&c.source_hash!==snapshot.source_hash){c.source_stale=true;c.character_revision+=1;c.people=[];c.slots=[];c.relationships=[];c.aliases=[];c.mention_entities=[];c.scene_casting={};c.relationship_pending=[];c.temporary_continuity_cache={};c.temporary_continuity_cache_character_core_validator={};c.temporary_continuity_cache_v78_primary={};c.temporary_continuity_authority_v78={};c.relationship_conflicts=[];resetAnalysisState("整段原文实际内容已更换");appState.analysisComplete=false;appState.analysisSourceText="";appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();refreshSceneBindings();const p=q("#characterGenerationProgress");if(p)p.textContent=`检测到整段原文实际内容已变化：当前 revision ${snapshot.source_revision}。旧人物事实、外形、关系和分镜选角已隔离；强制名单保留，请重新生成。`;}});}
+    const guide=q("#characterGuideInput");if(guide){
+      const fresh=guide.cloneNode(true);fresh.value=guide.value;guide.replaceWith(fresh);
+      const roster=formalRosterApi();roster?.bindInput?.();roster?.commitFromDom?.("character_core_bind");
+      if(roster&&!globalThis.__V78_FORMAL_ROSTER_CC_SUBSCRIBED__){
+        globalThis.__V78_FORMAL_ROSTER_CC_SUBSCRIBED__=true;
+        roster.subscribe((next,_previous,meta)=>{if(meta?.source!=="user_input")return;invalidateRosterStages("强制人物名单已修改；统一风格仍保留当前原文版本");appState.analysisComplete=false;appState.characterRegistryStatus="stale";appState.characterAnalysisResultStatus="stale";syncLegacyState();renderAll();const p=q("#characterGenerationProgress");if(p)p.textContent=`正式人物名单已更新为 revision ${next.revision}（${next.entries?.length||0} 个条目）；统一风格保持有效，请按当前名单重新生成人物卡。`;scheduleDraftSave?.();});
+      }
+    }
     const ref=q("#appearanceReference");
   }
 
   function installProjectAdapter(){
-    if(typeof getProjectData==="function"&&!getProjectData.__characterCoreV2){const prev=getProjectData;getProjectData=function(){const fullGuide=String(valueOf("#characterGuideInput",appState.character_guide_input||"")||"");const fullAppearanceReference=String(valueOf("#appearanceReference",appState.appearance_reference||"")||"");appState.character_guide_input=fullGuide;appState.appearance_reference=fullAppearanceReference;return{...prev(),character_guide_input:fullGuide,appearance_reference:fullAppearanceReference,character_core_v2:deepClone(core()),character_core_version:2,character_core_instance_id:currentInstance()};};getProjectData.__characterCoreV2=true;}
-    if(typeof applyProjectData==="function"&&!applyProjectData.__characterCoreV2){const prev=applyProjectData;applyProjectData=function(projectId,name,data={}){prev(projectId,name,data);const fullGuide=String(data.character_guide_input||"");const fullAppearanceReference=String(data.appearance_reference||"");if(fullGuide){appState.character_guide_input=fullGuide;setValue("#characterGuideInput",fullGuide);}if(fullAppearanceReference){appState.appearance_reference=fullAppearanceReference;setValue("#appearanceReference",fullAppearanceReference);}ensureProjectLease({interactive:false}).then(acquired=>{if(!acquired)showAIStatusNotice("当前工作区不使用项目编辑锁。","warning",12000);}).catch(()=>{});const incoming=object(data.character_core_v2||data.character_core);if(Number(incoming.character_core_version)>=2){appState.characterCoreV2=deepClone(incoming);appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从历史/当前工作区恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();}else{postCore("/api/character-core/migrate-project",{project:data,guide_text:fullGuide||appState.character_guide_input||"",novel_text:currentNovel()}).then(result=>{appState.characterCoreV2=result.character_core;appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从历史/当前工作区恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();if(result.migrated)showAIStatusNotice("旧历史人物数据已迁移到CharacterCore 2.0运行结构。","ready",8000);}).catch(()=>{});}};applyProjectData.__characterCoreV2=true;}
+    if(typeof getProjectData==="function"&&!getProjectData.__characterCoreV2){const prev=getProjectData;getProjectData=function(){const roster=formalRosterSnapshot("project_save",true);const fullGuide=String(roster.raw_text||"");const fullAppearanceReference=String(valueOf("#appearanceReference",appState.appearance_reference||"")||"");appState.character_guide_input=fullGuide;appState.appearance_reference=fullAppearanceReference;return{...prev(),character_guide_input:fullGuide,formal_roster_snapshot_v7828:deepClone(roster),appearance_reference:fullAppearanceReference,character_core_v2:deepClone(core()),character_core_version:2,character_core_instance_id:currentInstance()};};getProjectData.__characterCoreV2=true;}
+    if(typeof applyProjectData==="function"&&!applyProjectData.__characterCoreV2){const prev=applyProjectData;applyProjectData=function(projectId,name,data={}){prev(projectId,name,data);const fullGuide=String(data.formal_roster_snapshot_v7828?.raw_text??data.character_guide_input??"");const fullAppearanceReference=String(data.appearance_reference||"");formalRosterApi()?.restore?.(fullGuide,{source:"history_restore",reason:"apply_project"});appState.character_guide_input=fullGuide;setValue("#characterGuideInput",fullGuide);formalRosterApi()?.bindInput?.();if(fullAppearanceReference){appState.appearance_reference=fullAppearanceReference;setValue("#appearanceReference",fullAppearanceReference);}ensureProjectLease({interactive:false}).then(acquired=>{if(!acquired)showAIStatusNotice("当前工作区不使用项目编辑锁。","warning",12000);}).catch(()=>{});const incoming=object(data.character_core_v2||data.character_core);if(Number(incoming.character_core_version)>=2){appState.characterCoreV2=deepClone(incoming);appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从历史/当前工作区恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();}else{postCore("/api/character-core/migrate-project",{project:data,guide_text:fullGuide||appState.character_guide_input||"",novel_text:currentNovel()}).then(result=>{appState.characterCoreV2=result.character_core;appState.characterCoreV2.instance_id=currentInstance();rebuildKeywordIndex();setAnalysisStage("casting",Boolean(Object.keys(core().keyword_index||{}).length),"已从历史/当前工作区恢复人物语义层");markV77RuntimeReady(currentNovel());renderAll();refreshSceneBindings();if(result.migrated)showAIStatusNotice("旧历史人物数据已迁移到CharacterCore 2.0运行结构。","ready",8000);}).catch(()=>{});}};applyProjectData.__characterCoreV2=true;}
   }
 
   async function init(){
     ensureCore();globalThis.__activeAnalyzeProtocol=PROTOCOL;globalThis.__characterAppearanceSkillVersion=VERSION;globalThis.__VIDEO_PROMPT_TOOL_BUILD__={...(globalThis.__VIDEO_PROMPT_TOOL_BUILD__||{}),version:BUILD_VERSION,characterPipeline:PROTOCOL,instance:currentInstance(),multiInstance:true};
+    // V78.2.8: take UI/data authority synchronously before any awaited health
+    // request. This removes the startup race where legacy app.js handlers could
+    // receive a click before CharacterCore replaced them.
+    installV77ExclusiveEntrypoints();bindUI();installProjectAdapter();installOutlineAdapter();
     try{
       const response=await fetch(`/api/character-core/health?instance=${encodeURIComponent(currentInstance())}`,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
       const health=await response.json();
       if(text(health.app_version)!==BUILD_VERSION)runtimeBuildMismatch=`当前页面脚本为 ${BUILD_VERSION}，后端为 ${text(health.app_version)||"未知版本"}。请关闭旧进程并使用当前目录的 START_CLEAN.ps1 重新启动。`;
     }catch(error){runtimeBuildMismatch=`无法验证当前后端版本：${error?.message||error}`;}
-    installV77ExclusiveEntrypoints();bindUI();installProjectAdapter();installOutlineAdapter();
-    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V77 Hotfix26 当前风格保留版";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=globalThis.__V77_CURRENT_RUNTIME__?.buildId||"v77-hotfix26-style-reuse-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
-    if(!runtimeBuildMismatch) globalThis.__v77ApplyRuntimeBadge?.();
+    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V78.3.0.2 · 场景锚点/事件归属/连续时间轴根治";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=(globalThis.__V78_CURRENT_RUNTIME__||globalThis.__V77_CURRENT_RUNTIME__)?.buildId||"v78.3.0.2-scene-event-canonical-timeline-20260818-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
+    if(!runtimeBuildMismatch) (globalThis.__v78ApplyRuntimeBadge||globalThis.__v77ApplyRuntimeBadge)?.();
     if(runtimeBuildMismatch)showAIStatusNotice(runtimeBuildMismatch,"warning",20000);
     globalThis.addEventListener?.("beforeunload",releaseProjectLease,{once:true});
-    globalThis.analyzeNovel=()=>runStyle(q("#analyzeBtn"),{silentStatus:false});globalThis.generateOutline=runOutlineV77;globalThis.regenerateSceneOutline=runSceneRegenerationV77;globalThis.optimizeAllCharacters=()=>runCharacters({button:q("#optimizeAllCharactersBtn")});globalThis.optimizeCharacterDescription=(index)=>{const slot=core().slots[index];return slot?runCharacters({onlySlotId:slot.slot_id,button:q(`[data-optimize-character="${index}"]`)}):null;};globalThis.renderCharacters=renderCharacters;
-    if(!core().slots.length&&String(valueOf("#characterGuideInput",appState.character_guide_input||"")).trim()){try{await parseSlots({preserve:true});}catch(_){} }
+    globalThis.analyzeNovel=()=>runStyle(q("#analyzeBtn"),{silentStatus:false});globalThis.generateOutline=runOutlineProductionV78;globalThis.regenerateSceneOutline=runSceneRegenerationProductionV78;globalThis.optimizeAllCharacters=()=>runCharacters({button:q("#optimizeAllCharactersBtn")});globalThis.optimizeCharacterDescription=(index)=>{const slot=core().slots[index];return slot?runCharacters({onlySlotId:slot.slot_id,button:q(`[data-optimize-character="${index}"]`)}):null;};globalThis.renderCharacters=renderCharacters;
+    const stableRegistry={build:BUILD_VERSION,owner:"V78ReleaseCore",release:"stable",installed_at:new Date().toISOString(),executors:{analyze:{id:"v78-stable-style-ai-service",owner:"V78CharacterAIService",function_name:"runStyle"},characters:{id:"v78-stable-character-ai-service",owner:"CharacterCore2+V78CharacterAIService",function_name:"runCharacters"},outline:{id:"v78-stable-outline-production-mainline",owner:"V78ProductionMainline",function_name:"runOutlineProductionV78"},regenerate:{id:"v78-stable-regenerate-production-mainline",owner:"V78ProductionMainline",function_name:"runSceneRegenerationProductionV78"},save:{id:"v78-stable-history-runtime",owner:"CharacterCore2",function_name:"saveProjectWithLease"}},compatibility_only:{outline:"runOutlineV77",regenerate:"runSceneRegenerationV77",protocol_markers:"V77_CHARACTER_CORE_*"}};globalThis.__V78_EXECUTOR_REGISTRY__=stableRegistry;globalThis.__V77_EXECUTOR_REGISTRY__=stableRegistry;
+    const bootRoster=formalRosterSnapshot("character_core_init",true);if(!core().slots.length&&String(bootRoster.raw_text||"").trim()){try{await parseSlots({preserve:true,rosterSnapshot:bootRoster});}catch(_){} }
     renderAll();refreshSceneBindings();
   }
 
-  globalThis.__characterCoreV2Api={protocol:PROTOCOL,version:VERSION,state:core,analysisState,parseSlots,runCharacters,runStyle,runFullAnalysis:runFullAnalysisV77,runOutline:runOutlineV77,runSceneRegeneration:runSceneRegenerationV77,isOutlineReady:()=>v77OutlineReadiness().ok,sourceSnapshot:()=>deepClone(captureSourceSnapshot("api_read")),revisionDiagnostics:()=>deepClone(revisionDiagnostics()),outlineUsableData:()=>deepClone(getOutlineUsableDataState()),syncRuntimeState:markV77RuntimeReady,analyzeFactsAndRelations,generateAppearance,verifyAppearanceRevision,projectLease,ensureProjectLease,saveProjectWithLease,renderCharacters,renderRelations,rebuildKeywordIndex,refreshSceneBindings,restoreSceneBindingsBySourceKey,ensureOutlineSourceSceneShells,buildSceneContext,buildV77SceneSubmissionPrompt,installOutlineAdapter,localCast,temporaryEntitiesForSource,mergeTemporaryCharacters,fallbackFormalCastFromPlan,aliasScopeActive,normalizeGender,normalizeStage,genderFromStage};
+  function coreParityHealth() {
+    const c=core(),st=analysisState(),slots=c.slots.filter((slot)=>!slot.disabled);
+    return {
+      build:BUILD_VERSION,
+      slot_count:slots.length,
+      unresolved_gender:slots.filter((slot)=>isUnresolvedGender(slot.gender)).map((slot)=>slot.slot_id),
+      unresolved_stage:slots.filter((slot)=>isUnresolvedStage(visibleStage(slot))).map((slot)=>slot.slot_id),
+      appearance_ready:slots.filter((slot)=>Boolean(text(slot.appearance))).length,
+      facts_ready:Boolean(st.facts_ready),
+      facts_fallback_available:Boolean(st.facts_fallback_available),
+      facts_integrity:characterFactsIntegrity(c),
+      relationships_ready:Boolean(st.relationships_ready),
+      relationship_fallback_available:Boolean(st.relationship_fallback_available),
+      relationship_count:c.relationships.filter((row)=>!row.disabled).length,
+      alias_count:c.aliases.filter((row)=>!row.disabled).length,
+      keyword_person_count:Object.keys(c.keyword_index||{}).length,
+      scene_cast_count:Object.keys(c.scene_casting||{}).length,
+      temporary_continuity_count:Object.keys(c.temporary_continuity_cache||{}).length,
+      relationship_conflict_count:v36RelationshipConflicts(c).length,
+      character_health:c.slots.filter(slot=>!slot.disabled).map(slot=>({slot_id:slot.slot_id,display_name:slot.display_name,...v36CharacterHealth(slot)})),
+      output_mode:text(appState.outputMode||"normal"),
+    };
+  }
+
+  globalThis.__V78_CHARACTER_AI_HOST_BRIDGE__={
+    version:"character_ai_host_bridge_v78_phase16",
+    markers:{style:STYLE_MARKER,facts_relationships:FACTS_MARKER,appearance:APPEARANCE_MARKER,revision_check:REVISION_CHECK_MARKER},
+    markerStage,
+    currentInstance,
+    resolveTimeoutSeconds:resolveRuntimeTimeoutSeconds,
+    buildLegacyPayload:(prompt,marker,meta={})=>deepClone(buildCharacterAiRequestPayload(prompt,marker,meta)),
+    legacyRawRequest:({prompt="",marker="",meta={}}={})=>legacyAiAnalyzeRaw(prompt,marker,meta),
+    legacyRequest:({prompt="",marker="",meta={},retries=0}={})=>legacyAiAnalyze(prompt,marker,retries,meta),
+    retryableAiError,
+  };
+  globalThis.__characterCoreV2Api={protocol:PROTOCOL,version:VERSION,state:core,analysisState,parseSlots,runCharacters,runStyle,runFullAnalysis:runFullAnalysisV77,runOutline:runOutlineProductionV78,runSceneRegeneration:runSceneRegenerationProductionV78,isOutlineReady:()=>v77OutlineReadiness().ok,sourceSnapshot:()=>deepClone(captureSourceSnapshot("api_read")),revisionDiagnostics:()=>deepClone(revisionDiagnostics()),outlineUsableData:()=>deepClone(getOutlineUsableDataState()),syncRuntimeState:markV77RuntimeReady,analyzeFactsAndRelations,generateAppearance,verifyAppearanceRevision,projectLease,ensureProjectLease,saveProjectWithLease,renderCharacters,renderRelations,rebuildKeywordIndex,refreshSceneBindings,restoreSceneBindingsBySourceKey,ensureOutlineSourceSceneShells,buildSceneContext,buildV77SceneSubmissionPrompt,installOutlineAdapter,localCast,temporaryEntitiesForSource,mergeTemporaryCharacters,fallbackFormalCastFromPlan,aliasScopeActive,normalizeGender,normalizeStage,genderFromStage,coreParityHealth,characterHealth:v36CharacterHealth,characterFactsIntegrity:()=>deepClone(characterFactsIntegrity()),relationshipConflicts:()=>deepClone(v36RelationshipConflicts(core())),temporaryContinuity:()=>deepClone(core().temporary_continuity_cache||{}),temporaryContinuityMirrors:()=>({active:deepClone(core().temporary_continuity_cache||{}),character_core_validator:deepClone(core().temporary_continuity_cache_character_core_validator||{}),v78_primary:deepClone(core().temporary_continuity_cache_v78_primary||{}),authority:deepClone(core().temporary_continuity_authority_v78||{})}),stageSignature:v36StageSignature,formalRoster:()=>formalRosterSnapshot("api_read",true),formalRosterHealth:()=>formalRosterApi()?.health?.()||null};
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init,{once:true});else init();
 })();

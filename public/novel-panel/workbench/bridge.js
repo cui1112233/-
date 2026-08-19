@@ -43,7 +43,7 @@
 
   function nextRequestId() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-    return `v77-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `v78-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   function postPendingRequest(pending) {

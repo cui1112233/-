@@ -2,6 +2,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig, writeConfig, publicConfig, normalizeImageConfig, DEFAULT_CONFIG } = require('../lib/shared');
 const { syncAccountAIConfig } = require('./shuihuo-production');
+const { normalizeStorageRoot } = require('../lib/storage-root');
 
 function normalizePetConfig(value, fallback) {
   if (!value || value.id !== 'stacky') {
@@ -33,6 +34,15 @@ function normalizeTtsConfig(value, fallback = {}) {
   };
 }
 
+function normalizeNotifications(value, fallback = {}) {
+  const volume = Number(value?.soundVolume);
+  return {
+    soundEnabled: typeof value?.soundEnabled === 'boolean' ? value.soundEnabled : (fallback.soundEnabled ?? true),
+    petVisible: typeof value?.petVisible === 'boolean' ? value.petVisible : (fallback.petVisible ?? true),
+    soundVolume: Number.isFinite(volume) ? Math.min(100, Math.max(0, Math.round(volume))) : 60
+  };
+}
+
 function createConfigRouter({ shuihuoGateway } = {}) {
   const router = express.Router();
   router.use(apiAuth);
@@ -42,21 +52,29 @@ function createConfigRouter({ shuihuoGateway } = {}) {
     const config = readConfig(req.username);
     config.pet = normalizePetConfig(config.pet);
     config.tts = normalizeTtsConfig(config.tts);
+    config.notifications = normalizeNotifications(config.notifications);
     res.json(publicConfig(config));
   });
 
   // POST /api/config — 保存配置
   router.post('/', async (req, res) => {
     const body = req.body;
+    if (typeof body?.storageRoot === 'string') {
+      const storageRoot = normalizeStorageRoot(body.storageRoot);
+      if (storageRoot.error) return res.status(400).json({ error: storageRoot.error });
+      body.storageRoot = storageRoot.value;
+    }
     const oldConfig = readConfig(req.username);
     const nextConfig = {
       provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
       baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
       model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
       apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
+      storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
       image: normalizeImageConfig(body.image, oldConfig.image),
       pet: normalizePetConfig(body.pet, oldConfig.pet),
-      tts: normalizeTtsConfig(body.tts, oldConfig.tts)
+      tts: normalizeTtsConfig(body.tts, oldConfig.tts),
+      notifications: normalizeNotifications(body.notifications, oldConfig.notifications)
     };
     if (shuihuoGateway) {
       try {
@@ -77,4 +95,4 @@ function createConfigRouter({ shuihuoGateway } = {}) {
   return router;
 }
 
-module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig };
+module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications };

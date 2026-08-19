@@ -22,10 +22,12 @@ const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
 const historyRouter = require('./routes/history');
 const { createShuihuoProductionRouter } = require('./routes/shuihuo-production');
+const { createStorageRouter } = require('./routes/storage');
 const { createPlatformProjectsRouter } = require('./routes/platform-projects');
 const novelPanelRouter = require('./routes/novel-panel-page');
 const novelPanelApiRouter = require('./routes/novel-panel');
 const { createNovelFetchRouter } = require('./routes/novel-fetch');
+const { createNovelFetchUploadRouter } = require('./routes/novel-fetch-upload');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -33,8 +35,11 @@ const { seedAgentSkills } = require('./lib/agent-skill-catalog');
 const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
+const { createNovelPanelHistoryStore } = require('./lib/novel-panel/history-store');
+const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-store');
+const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const resolvedPresetStore = presetStore || createPresetStore({
@@ -52,6 +57,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
   const usersDir = path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users');
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
+  const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
+  const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
+  const resolvedNovelFetchStore = novelFetchStore || createNovelFetchStore({ usersDir });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
   app.locals.presetStore = resolvedPresetStore;
@@ -59,6 +67,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.agentSkillStore = resolvedAgentSkillStore;
   app.locals.errorLogStore = resolvedErrorLogStore;
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
+  app.locals.novelPanelHistoryStore = resolvedNovelPanelHistoryStore;
+  app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
+  app.locals.novelFetchStore = resolvedNovelFetchStore;
 
   // 请求日志
   app.use((req, res, next) => {
@@ -123,7 +134,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
-  app.use('/api/novel-fetch', createNovelFetchRouter());
+  app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
+  app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore }));
   app.use('/api/config', createConfigRouter({ shuihuoGateway })); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
@@ -133,6 +145,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: agentResponder }));
   app.use('/api/shuihuo-production', createShuihuoProductionRouter({ ...shuihuoGateway, presetStore: resolvedPresetStore }));
+  // 本地存储文件夹：createStorageRouter 返回的子应用内部自带 /api/storage 前缀，
+  // 此处无前缀挂载，避免前缀叠加（见 routes/storage.js）。
+  app.use(createStorageRouter());
 
   // 404 处理
   app.use((req, res) => {
