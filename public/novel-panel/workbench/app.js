@@ -148,7 +148,7 @@ const FAST_OUTLINE_MUST_COVER_RULES = `整段分镜一次请求完整成品规�
 7. 每次用户点击“按整段原文生成分镜/画面”，只发起一次AI请求并直接返回该次结果。模型须在本次响应内部完成人物、场景、对白归属、镜头数量和完整画面正文判断；禁止输出思考过程、规则复述和二次纠错建议。`;
 
 const FAST_OUTLINE_RHYTHM_RULES = `整段一次请求拆镜规则｜V78.3.0：
-- 外层仍严格一行一张分镜卡；卡内 timeline_segments 才是真正的镜头切换。不要把一整段原文长期压成一个平铺镜头。
+- 外层卡数由内容量决定：内容不长时同一场景相邻行合并为一张卡（整段较短通常1到3张），禁止每行机械一张卡；卡内 timeline_segments 才是真正的镜头切换。不要把一整段原文长期压成一个平铺镜头。
 - 非常短、纯空镜或单一静态信息可以1个镜头；普通动作/说明优先2个镜头；对白、情绪变化、多人关系优先2到3个镜头；冲突、揭示、明显动作过程可3到4个镜头。全部镜头都必须来自同一条原文事实，不得为增加镜头编新剧情。
 - 允许因为“建立场面→主体动作→听者/对手反应→关键手部/道具细节→结果/回到主体”而切镜，即使同一事件没有新剧情节点；切镜的目的是真正换观看重点，不是按逗号机械拆句。
 - 单个时段通常1到3秒，只负责一个清楚画面任务。正文用大白话，通常40到110个中文字符；一张外层卡的多个时段合起来完整表达原文即可，不再要求每个小镜头都写成120到240字长段落。
@@ -166,7 +166,7 @@ function buildOutlineSpeedBudget(audioTotalSeconds, novelText = "") {
   const durationRule = audio
     ? `整段总时长目标为${audio}秒，优先用已有有效镜头的1到4秒时长接近；禁止复制镜头或机械口型补秒。`
     : "未填写配音时长时，按原文真实信息量分配总时长。";
-  return `【本次快速生成预算】${durationRule}整段建议${minimum}-${maximum}个有效时段；每个原文行保持一张外层卡，卡内按观看重点生成1到4个连续时段：普通内容优先2个，对白/情绪/多人优先2到3个，冲突或揭示可3到4个；允许用建立场面、主体动作、听者反应、关键细节和结果落点形成切镜，不机械见逗号就拆。禁止超过预算后用重复画面补数量。`;
+  return `【本次快速生成预算】${durationRule}整段建议${minimum}-${maximum}个有效时段；外层卡数量按内容量控制，内容不长时同一场景相邻行合并为一张卡（整段较短通常1到3张），禁止每行机械一张卡；卡内按观看重点生成1到4个连续时段：普通内容优先2个，对白/情绪/多人优先2到3个，冲突或揭示可3到4个；允许用建立场面、主体动作、听者反应、关键细节和结果落点形成切镜，不机械见逗号就拆。禁止超过预算后用重复画面补数量。`;
 }
 
 function charactersForOutlineAi(sceneText = "") {
@@ -509,11 +509,11 @@ ${builtInRules}` : builtInRules;
 }
 
 const PROMPT_DENSITY_RULES = {
-  strict: `画面描述模式：多镜头大白话成品版。外层一行原文一张卡，普通内容优先2镜，对白/情绪/多人优先2到3镜，冲突/揭示可3到4镜；每个小镜头1到3秒、40到110个中文字符，只承担一个观看重点。丰富感来自“场面→主体→反应/细节→结果”的镜头切换，不靠长篇形容词。`,
+  strict: `画面描述模式：多镜头大白话成品版。外层卡数由内容量决定，内容不长时同一场景相邻行合并为一张卡（整段较短通常1到3张）；普通内容优先2镜，对白/情绪/多人优先2到3镜，冲突/揭示可3到4镜；每个小镜头1到3秒、40到110个中文字符，只承担一个观看重点。丰富感来自“场面→主体→反应/细节→结果”的镜头切换，不靠长篇形容词。`,
   concise: `画面描述模式：多镜头精简版。保持必要的2到3镜切换，每个小镜头约30到75个中文字符，用最直接的大白话写主体动作、反应或关键细节；不删原文重要内容。`,
   balanced: `画面描述模式：多镜头标准版。普通2镜，情绪/对白2到3镜，复杂3到4镜；每个小镜头约45到105个中文字符，兼顾具体站位、动作/反应和镜头落点。`,
   detailed: `画面描述模式：多镜头细节增强版。仍以2到4个镜头切换为主，每个小镜头约60到130个中文字符，可多写一层可见材质、环境动态或微表情，但禁止把一镜写成复杂长文。`,
-  example: `画面描述模式：案例学习多镜头版。只抽象学习用户案例的镜头切换顺序、主体/反应/细节覆盖方式与大白话表达，不复制案例剧情；仍保持一行原文一张外层卡、卡内1到4个timeline_segments。`,
+  example: `画面描述模式：案例学习多镜头版。只抽象学习用户案例的镜头切换顺序、主体/反应/细节覆盖方式与大白话表达，不复制案例剧情；仍保持卡数由内容量决定（短内容合并为1到3张外层卡）、卡内1到4个timeline_segments。`,
   reference: `画面描述模式：样例对照多镜头版。重点学习样例如何用不同景别来回切换表达同一段内容；每个小镜头只写一个观看重点，不复制样例的人物、地点、台词或具体剧情。`,
 };
 
@@ -662,10 +662,11 @@ const SCENE_AND_SUBSCENE_SKILL = `【主场景与子场景判断 Skill｜必须�
 4. 接电话的人与电话另一端人物不在同一地点时必须分场；回忆与现实必须分场；同一建筑内的门口、走廊、客厅、书房等优先作为子场景变化。
 5. visual_context 内部固定保存为“主场景｜子场景”；prompt 中自然写成“在主场景的子场景，……”或符合语序的等价表达。`;
 
-const LINE_BASED_STORYBOARD_SKILL = `【一行一个原文分镜 Skill｜最高优先级】
-- 小说原文中的每一个非空行固定对应一张外层原文分镜卡；不得按句号、问号、感叹号再次拆成多张外层卡，也不得合并两行。
-- 每行仍只对应一张外层卡，但卡内允许用1到4个 timeline_segments 做镜头覆盖：非常短的静态信息可1镜，普通内容优先2镜，对白/情绪/多人优先2到3镜，冲突/揭示可3到4镜。切镜可来自主体、听者反应、关键细节或观看重点变化，不要求剧情必须发生新事件。
-- 必须按行顺序在同一次请求内逐行生成。生成第2行起，先读取上一行原文与上一行刚生成的 visual_context、人物站位、道具状态、动作结束状态和画面正文，再生成当前行，保证连贯；当前行原文仍是最高优先级。`;
+const LINE_BASED_STORYBOARD_SKILL = `【原文分镜 Skill｜最高优先级】
+- 外层卡数量由当前内容量与剧情节奏决定，禁止每行机械硬切一张卡。内容不长时，同一场景、同一连续事件的相邻行必须合并成一张外层卡（整段较短时通常合并成1到3张卡）；只有行与行之间发生明确地点切换、时间跳跃或事件独立且信息量充足时，才单独拆卡。
+- 不得按句号、问号、感叹号再次拆成多张外层卡；合并卡必须完整覆盖所合并每一行原文的事实，不得丢行、不得概括到空泛。
+- 每张卡内允许用1到4个 timeline_segments 做镜头覆盖：非常短的静态信息可1镜，普通内容优先2镜，对白/情绪/多人优先2到3镜，冲突/揭示可3到4镜。切镜可来自主体、听者反应、关键细节或观看重点变化，不要求剧情必须发生新事件。
+- 必须按原文行顺序在同一次请求内逐段生成。生成后续行时，先读取上一行原文与上一行刚生成的 visual_context、人物站位、道具状态、动作结束状态和画面正文，再生成当前行，保证连贯；当前行原文仍是最高优先级。`;
 
 const DIALOGUE_DEDUP_SKILL = `【对白唯一出现 Skill】有明确对白时，完整台词只能写入 speech_text/对白字段一次；prompt 只写说话前后的可见动作、嘴角、视线、停顿与受话者反应，禁止再次出现“某人说：原文台词”“某人说道原文台词”或完整引号台词。`;
 
@@ -1700,7 +1701,7 @@ const UNIVERSAL_ANALYSIS_ALIGNMENT_SKILL_V36 = `【通用小说统一风格与�
 
 const UNIVERSAL_STORYBOARD_STANDARDIZATION_SKILL_V36 = `【通用小说分镜导演标准化 Skill v36｜所有小说类型统一执行｜最高优先级】
 一、外层分镜与内部分时段
-1. 每个非空原文行固定对应一张外层分镜卡，禁止按句号、问号、感叹号再次拆成多张卡，也禁止合并两行。
+1. 外层分镜卡数量与原文内容量匹配：内容不长时，同一场景、同一连续事件的相邻行应合并为一张外层分镜卡（短内容通常合并成1到3张卡）；只有明确地点/时间切换、事件独立且信息量充足时才单独拆卡。禁止按句号、问号、感叹号机械拆卡，也禁止丢行；合并卡必须完整覆盖所合并行的全部事实。
 2. 逗号、顿号、分号只作为候选切点；当其前后形成新的可见动作阶段、主体变化、作用对象变化、情绪/权力关系转折、关键道具变化、子场景移动、对白前后反应或镜头落点变化时，才在同一卡内拆成新的连续 timeline_segments。
 3. 不机械“见逗号就拆”。同一动作的并列修饰、外貌罗列、语气停顿和不能独立成画面的短语必须留在同一时段；信息丰富的一行可生成1到4个连续时段，每段1到4秒，必须承接上一段形成的新状态。
 二、本镜人物白名单与主视觉
@@ -2211,7 +2212,7 @@ const V7824_BLOCKING_VISUAL_DENSITY_RULE = `【站位、调度与画面内容密
 7. 精品模式与普通模式共享同一Master Visual Prompt。精品导出只允许增加引用格式，不得删减、泛化或替换站位、动作、互动、场景状态、道具行为和镜头落点。`;
 
 const V7830_MULTI_CUT_STORYTELLING_RULE = `【原文分镜多镜头切换表达｜V78.3.0｜最终最高优先级】
-1. 本规则覆盖此前“只有新事件才能切镜”“每个时段必须120到240字”“每个时段塞3到6个视觉节点”等旧密度要求。外层仍是一行原文一张卡；真正的镜头来回切换放在同一卡的 timeline_segments 中。
+1. 本规则覆盖此前“只有新事件才能切镜”“每个时段必须120到240字”“每个时段塞3到6个视觉节点”等旧密度要求。外层卡数由内容量决定，内容不长时同一场景相邻行合并为一张卡（短内容通常1到3张），禁止每行机械一张卡；真正的镜头来回切换放在同一卡的 timeline_segments 中。
 2. 非常短的静态信息/纯空镜允许1个镜头；普通叙事优先2个；对白、人物情绪、多人关系优先2到3个；动作冲突、揭示、明显前后反应可3到4个。不要为了数量编造不存在的人物、动作、台词、道具或结果。
 3. 优先使用自然的影视覆盖顺序：建立场面/双人关系 → 当前主体动作或说话人 → 听者/对手反应 → 手部/眼神/关键道具细节 → 必要时回到主体或结果。不是每条都必须五步，按原文需要选择2到4个即可。
 4. 对白镜头要有来回切换：先拍说话人，再拍听者真实反应，必要时再切回说话人或关键细节；每个时段仍只允许一个 speaker，同一句原文对白只出现一次。
@@ -2222,7 +2223,7 @@ const V7830_MULTI_CUT_STORYTELLING_RULE = `【原文分镜多镜头切换表达�
 9. 返回前静默检查：除确实只需单镜的简单原文外，如果一张卡可以通过“主体+反应”或“场面+细节”更清楚表达却仍只有一个平铺镜头，应在总剧情事实不变的前提下重新拆成2到4个连续时段。`;
 
 const V78302_SCENE_EVENT_OWNERSHIP_RULE = `【分镜场景锚点与内容事件单一归属｜V78.3.0.2｜最高优先级】
-1. 一行原文对应一张外层分镜卡，一张卡必须只有一个确定的 scene_anchor / visual_context。当前原文没有明确换地点时，必须继承上一张卡的场景；只有地点、时间+环境、电话两端、回忆/梦境/穿越、明确室内外或独立空间切换时才新建场景锚点。
+1. 外层卡数由内容量决定，内容不长时同一场景相邻行合并为一张卡（短内容通常1到3张）；一张卡必须只有一个确定的 scene_anchor / visual_context。当前原文没有明确换地点时，必须继承上一张卡的场景；只有地点、时间+环境、电话两端、回忆/梦境/穿越、明确室内外或独立空间切换时才新建场景锚点。
 2. 同一张卡内所有 timeline_segments 共用同一场景锚点。第一个小镜头可以自然交代场景，后续小镜头默认继承，不要每镜重复“在某某场景内”；人物可以在同一场景内改变站位、朝向和镜位。
 3. 每张卡先在内部建立内容事件表：对白事件、动作事件、反应事件、道具事件、信息揭示事件。每个事件只能分配给一个 timeline_segment 作为 owner；后续小镜头只能拍该事件造成的新状态、受话者反应、细节或结果，禁止再次完整复述同一句对白、同一个动作或同一个信息。
 4. 同一句原文对白只允许一个 owner 时段填写 speech_text；其他时段只拍听者/对手反应，不得再次写完整台词。原文确实重复说了同一句话时，才允许按原文实际出现次数分别拥有独立事件。
@@ -10488,10 +10489,23 @@ function renderScenes() {
   }
 
   const fragment = document.createDocumentFragment();
+  // V78.3.0.3：短内容允许相邻行合并成一张卡后，“分镜 N”只按实际生成卡的行计数，
+  // 被合并的行标题保留为“原文行 N”不占分镜编号，避免用户看到与行数等量的分镜。
+  let storyboardNumber = 0;
+  const shotSceneIds = new Set((Array.isArray(state.outlineShots) ? state.outlineShots : []).flatMap((shot) => [
+    text(shot?.parent_scene_id),
+    ...(Array.isArray(shot?.parent_scene_ids) ? shot.parent_scene_ids.map(text) : []),
+  ]).filter(Boolean));
   state.scenes.forEach((scene, index) => {
     const node = template.content.firstElementChild.cloneNode(true);
     node.dataset.sceneId = scene.id;
-    node.querySelector(".scene-title").textContent = `分镜 ${index + 1}`;
+    const hasShot = (Array.isArray(scene.outline_shot_ids) && scene.outline_shot_ids.length > 0) || shotSceneIds.has(text(scene.id));
+    if (hasShot) {
+      storyboardNumber += 1;
+      node.querySelector(".scene-title").textContent = `分镜 ${storyboardNumber}`;
+    } else {
+      node.querySelector(".scene-title").textContent = `原文行 ${index + 1}`;
+    }
     const textInput = node.querySelector('[data-field="text"]');
     const guidanceInput = node.querySelector('[data-field="guidance"]');
     const peopleBox = node.querySelector('[data-field="characters"]');
@@ -10617,15 +10631,17 @@ function renderOutputs() {
 
   container.className = "output-list";
   const fragment = document.createDocumentFragment();
+  let storyboardNumber = 0;
   state.scenes.forEach((scene, sceneIndex) => {
     const sceneShots = outlineShotsByScene(scene.id);
     if (!sceneShots.length) return;
+    storyboardNumber += 1;
     const group = document.createElement("section");
     group.className = "output-group";
     const head = document.createElement("div");
     head.className = "output-group-head";
     const title = document.createElement("strong");
-    title.textContent = `分镜 ${sceneIndex + 1}`;
+    title.textContent = `分镜 ${storyboardNumber}`;
     const badge = document.createElement("span");
     badge.className = "count-badge";
     const segmentCount = sceneShots.reduce((sum, shot) => sum + (shot.timeline_segments?.length || 1), 0);
@@ -11085,6 +11101,12 @@ function outlineCoverageBySourceV16(data = {}, novelText = "") {
     groups.forEach((group) => group.splice(0));
     returnedShots.forEach((shot, index) => { if (groups[index]) groups[index].push(shot); });
   }
+  // V78.3.0.3：合并卡区间覆盖。内容不长时相邻行允许合并为一张卡；
+  // 某行没有直接命中卡时，若其原文被任一返回卡的 source_basis 包含，视为已被合并覆盖，不触发缺失补齐。
+  const mergedBases = uniqueTextList(returnedShots.map((rawShot) => {
+    const shot = makeOutlineShot(rawShot);
+    return normalizedSourceComparable(shot.source_basis || shot.source_text || shot.text);
+  }).filter(Boolean));
   const coverage = sourceScenes.map((scene, index) => {
     const group = groups[index] || [];
     const validShots = group.filter((rawShot) => {
@@ -11092,13 +11114,15 @@ function outlineCoverageBySourceV16(data = {}, novelText = "") {
       const segments = fallbackTimelineSegmentsFromShot(shot);
       return segments.some((segment) => text(segment?.prompt || shot?.prompt));
     });
+    const lineKey = normalizedSourceComparable(scene.source_text);
+    const mergedCovered = Boolean(lineKey) && mergedBases.some((base) => base.includes(lineKey));
     return {
       source_index: index + 1,
       source_key: buildSceneSourceKey(scene.source_text, index + 1),
       source_text: scene.source_text,
       returned_count: group.length,
       valid_count: validShots.length,
-      complete: validShots.length > 0,
+      complete: validShots.length > 0 || mergedCovered,
     };
   });
   return { sourceScenes, groups, coverage, missing: coverage.filter((item) => !item.complete) };
@@ -12602,6 +12626,20 @@ async function exportResult() {
 }
 
 function applyProjectData(projectId, name, data = {}) {
+  // V78.3.0.2 集成修复：草稿/历史数据里的人物卡与精品参考资产必须一并恢复，
+  // 否则 applyProjectData 只恢复旧字段，刷新后 characterCoreV2 人物卡与
+  // referenceAssets 图片绑定会丢失（“人物提示词/图片不见”）。
+  if (data.character_core_v2 && typeof data.character_core_v2 === "object" && !Array.isArray(data.character_core_v2)) {
+    state.characterCoreV2 = data.character_core_v2;
+    state.character_core_v2 = data.character_core_v2;
+  }
+  if (data.reference_assets && typeof data.reference_assets === "object" && !Array.isArray(data.reference_assets)) {
+    state.referenceAssets = data.reference_assets;
+  }
+  if (data.character_cast_v19 && typeof data.character_cast_v19 === "object" && !Array.isArray(data.character_cast_v19)) {
+    state.character_cast_v19 = data.character_cast_v19;
+  }
+  if (data.output_mode) state.outputMode = data.output_mode === "premium" ? "premium" : "normal";
   state.projectId = projectId || null;
   writeFieldValue("#projectName", name || "未命名项目");
   writeFieldValue("#novelText", data.novel_text || "");
@@ -21822,7 +21860,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
 
   // Current-workspace autosave remains a local browser draft only. It NEVER creates history files.
   const V28_DRAFT_DB="video_prompt_tool_runtime_v28",V28_DRAFT_STORE="drafts",V28_DRAFT_RECORD="current_workspace";
-  let v28DraftRevision=0,v28LastLocalCheckpoint=0,v28UserTouched=false,v28IdbUnavailable=false;
+  let v28DraftRevision=0,v28LastLocalCheckpoint=0,v28LastBackendDraftAt=0,v28UserTouched=false,v28IdbUnavailable=false;
   document.addEventListener("input",()=>{v28UserTouched=true;},{capture:true,passive:true});
   document.addEventListener("pointerdown",()=>{v28UserTouched=true;},{capture:true,passive:true});
   function v28OpenDraftDb(){return new Promise((resolve,reject)=>{if(v28IdbUnavailable||!globalThis.indexedDB)return reject(new Error("IndexedDB unavailable"));const req=indexedDB.open(V28_DRAFT_DB,1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(V28_DRAFT_STORE))db.createObjectStore(V28_DRAFT_STORE,{keyPath:"key"});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error("IndexedDB open failed"));});}
@@ -21863,6 +21901,18 @@ if (typeof buildAnalysisNovelPayload === "function") {
         try{await v28PutDraftRecord(record);idbOk=true;}catch(error){v28IdbUnavailable=true;console.warn("IndexedDB draft unavailable; using localStorage fallback",error);}
         // Keep a low-frequency localStorage checkpoint for migration/recovery only. Normal edits use async IndexedDB.
         if(!idbOk||savedAt-v28LastLocalCheckpoint>=30000){const serialized=JSON.stringify(record);if(serialized!==lastDraftSerialized){lastDraftSerialized=serialized;localStorage.setItem(DRAFT_KEY,serialized);}v28LastLocalCheckpoint=savedAt;}
+        // Backend draft.json persistence (qiantie novel-panel embedding only). The
+        // iframe fetch bridge rewrites /api/draft to /api/novel-panel/draft and
+        // attaches the session token. Fire-and-forget so a failing backend never
+        // blocks the local IndexedDB/localStorage draft, and the standalone V78
+        // tool (top-level window) stays untouched.
+        if(window.parent!==window&&savedAt-v28LastBackendDraftAt>=15000){
+          v28LastBackendDraftAt=savedAt;
+          try{
+            const backendPayload={draft:{projectId:state.projectId||null,projectName:record.data?.projectName||readFieldValue("#projectName")||"视频画面提示词",saved_at:savedAt,currentHistoryId:record.currentHistoryId,currentHistoryNote:record.currentHistoryNote,data:record.data}};
+            fetch("/api/draft",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(backendPayload),cache:"no-store"}).catch((error)=>console.warn("[DRAFT_BACKEND] backend draft save failed",error));
+          }catch(error){console.warn("[DRAFT_BACKEND] backend draft save error",error);}
+        }
         const dt=performance.now()-t0;if(dt>80)console.info("[PERF_CORE]",{task:"draft_async_store",duration_ms:Math.round(dt),idb:idbOk,local_checkpoint:!idbOk||savedAt-v28LastLocalCheckpoint>=30000});
       }catch(error){console.warn("Could not save current workspace draft",error);}};
       if(typeof requestIdleCallback==="function")persistIdleHandle=requestIdleCallback(()=>flush(),{timeout:3000});else persistIdleHandle=setTimeout(()=>flush(),0);
@@ -21870,10 +21920,10 @@ if (typeof buildAnalysisNovelPayload === "function") {
   };
 
   restoreLocalDraft = function v28RestoreLocalDraft(){
-    let localSavedAt=0,restoredLocal=false;
+    let bestSavedAt=0,restoredLocal=false;
     try{
       const raw=[DRAFT_KEY,...LEGACY_DRAFT_KEYS].map((key)=>localStorage.getItem(key)).find(Boolean);const saved=JSON.parse(raw||"null");
-      if(saved?.data){applyProjectData(null,"视频画面提示词",saved.data);state.projectId=null;state.currentHistoryId=v24Text(saved.currentHistoryId)||null;state.currentHistoryNote=v24Text(saved.currentHistoryNote);localSavedAt=Number(saved.saved_at||0);restoredLocal=true;}
+      if(saved?.data){applyProjectData(null,"视频画面提示词",saved.data);state.projectId=null;state.currentHistoryId=v24Text(saved.currentHistoryId)||null;state.currentHistoryNote=v24Text(saved.currentHistoryNote);bestSavedAt=Number(saved.saved_at||0);restoredLocal=true;}
     }catch(error){console.warn("Could not restore current workspace draft",error);}
     if(!restoredLocal){
       state.projectId=null;state.currentHistoryId=null;state.currentHistoryNote="";state.characters=[];state.sceneOptions=[];state.scenes=[];state.outlineShots=[];state.outputs=[];state.segments=[];state.outlineSourceText="";state.analysisSourceText="";state.analysisComplete=false;state.sourceDirty=false;state.sourceCompatibilityNotice="";
@@ -21881,7 +21931,11 @@ if (typeof buildAnalysisNovelPayload === "function") {
       ["#novelText","#appearanceReference","#characterGuideInput","#globalAnalysisAdvice","#mustCoverDetails","#shotRhythmRequirements","#promptExampleText","#promptExampleLogic"].forEach((id)=>writeFieldValue(id,""));try{writeFieldValue("#promptDensity","strict");writeStyleNotes({});writeTtsSettings(state.tts);renderStyleLockState();renderCharacters();renderScenes();renderOutputs();renderSegments();renderSourceNotices();renderTtsState();}catch(_e){}
     }
     // IndexedDB is the high-frequency async draft. Apply it only before the user touches the page.
-    setTimeout(async()=>{try{const saved=await v28GetDraftRecord();if(!saved?.data||v28UserTouched)return;if(Number(saved.saved_at||0)<=localSavedAt)return;applyProjectData(null,"视频画面提示词",saved.data);state.projectId=null;state.currentHistoryId=v24Text(saved.currentHistoryId)||null;state.currentHistoryNote=v24Text(saved.currentHistoryNote);console.info("[PERF_CORE]",{task:"draft_restore_indexeddb",saved_at:saved.saved_at});}catch(_e){}},0);
+    setTimeout(async()=>{try{const saved=await v28GetDraftRecord();if(!saved?.data||v28UserTouched)return;if(Number(saved.saved_at||0)<=bestSavedAt)return;applyProjectData(null,"视频画面提示词",saved.data);state.projectId=null;state.currentHistoryId=v24Text(saved.currentHistoryId)||null;state.currentHistoryNote=v24Text(saved.currentHistoryNote);bestSavedAt=Number(saved.saved_at||0);console.info("[PERF_CORE]",{task:"draft_restore_indexeddb",saved_at:saved.saved_at});}catch(_e){}},0);
+    // Backend draft.json is the last-resort source for the qiantie novel panel:
+    // if the browser-only drafts are empty or older than the last server save,
+    // recover the server copy so a refresh never loses character cards.
+    setTimeout(async()=>{try{if(v28UserTouched)return;const response=await fetch("/api/draft",{method:"GET",headers:{"Cache-Control":"no-store","Pragma":"no-cache"}});if(!response.ok)return;const payload=await response.json();const remote=payload?.draft;if(!remote?.data)return;const remoteSavedAt=Number(remote.saved_at||0);if(remoteSavedAt<=bestSavedAt)return;applyProjectData(null,String(remote.projectName||"视频画面提示词"),remote.data);state.projectId=null;state.currentHistoryId=v24Text(remote.currentHistoryId)||null;state.currentHistoryNote=v24Text(remote.currentHistoryNote);bestSavedAt=remoteSavedAt;console.info("[DRAFT_BACKEND]",{task:"draft_restore_backend",saved_at:remoteSavedAt});}catch(_e){}},0);
   };
 
   async function v24VerifyBackendBuild(){
@@ -21968,7 +22022,22 @@ if (typeof buildAnalysisNovelPayload === "function") {
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);try{const response=await fetch("/api/image-settings/test",{method:"POST",body:JSON.stringify(payload||{}),cache:"no-store",signal:controller.signal,headers:{"Content-Type":"application/json","Cache-Control":"no-store","X-VideoPromptTool-Session":currentToolSessionToken()}});const raw=await response.text();let data={};try{data=raw?JSON.parse(raw):{};}catch(_e){data={error:raw||"图片AI诊断返回无法解析"};}if(!response.ok){const err=new Error(formatApiError(data?.error||data)||`图片AI诊断失败 HTTP ${response.status}`);err.code=data?.code||"IMAGE_AI_TEST_FAILED";err.details=data?.details||{};err.httpStatus=response.status;throw err;}return data;}catch(error){if(error?.name==="AbortError"){const err=new Error("图片AI连接诊断超过20秒，请检查网络、DNS或代理。");err.code="IMAGE_AI_TEST_TIMEOUT";throw err;}throw error;}finally{clearTimeout(timer);}
   }
   async function v29EnsureImagePreflight(epoch=v28Runtime.epoch){const key=v29ImageSettingsFingerprint(state.imageSettings||{});if(key&&v29ImagePreflightKey===key)return true;const data=await v28PremiumPost("/api/image-settings/test",{},epoch);if(!v28PremiumActive(epoch))return false;v29ImagePreflightKey=key;console.info("[IMAGE_AI_TRACE]",{stage:"preflight",ok:true,diagnostics:data?.diagnostics||{}});return true;}
-  function v28SetLazyImage(img,url){if(!img)return;img.loading="lazy";img.decoding="async";if(url)img.src=url;else img.removeAttribute("src");}
+  function v28SetLazyImage(img,url){
+    if(!img)return;
+    img.loading="lazy";img.decoding="async";
+    if(!url){img.removeAttribute("src");return;}
+    if(url.indexOf("/api/")===0){
+      // 参考资产接口需要 Bearer 认证，<img> 标签无法携带请求头（会 401 导致
+      // “获取图片失败”）。改为经 iframe bridge fetch（父页面自动附加 token）
+      // 获取图片后转 blob URL 显示；失败时回退原 URL 让浏览器尝试。
+      let cancelled=false;
+      fetch(url,{cache:"no-store"}).then((response)=>{if(!response.ok)throw new Error("HTTP "+response.status);return response.blob();})
+        .then((blob)=>{if(!cancelled)img.src=URL.createObjectURL(blob);})
+        .catch(()=>{if(!cancelled)img.src=url;});
+      return;
+    }
+    img.src=url;
+  }
   function v28PreviewUrl(asset){return v27AssetUrl(asset,asset?.has_thumb_image?"thumb":"main");}
   async function v28CreateThumbnail(asset){
     if(!v28PremiumActive()||!asset?.has_main_image||asset.has_thumb_image||!globalThis.createImageBitmap)return asset;

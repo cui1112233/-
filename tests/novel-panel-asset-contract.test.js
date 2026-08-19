@@ -291,7 +291,7 @@ test('qiantie navigation renders the V78 workbench in a same-origin iframe', () 
   assert.match(novelPanelPage, /<iframe/);
   assert.match(novelPanelPage, /const workbenchSrc =/);
   assert.match(novelPanelPage, /src=\{workbenchSrc\}/);
-  assert.match(novelPanelPage, /sandbox="allow-scripts allow-forms allow-downloads allow-modals"/);
+  assert.match(novelPanelPage, /sandbox="allow-scripts allow-forms allow-downloads allow-modals allow-same-origin"/);
   const syncThemeBody = extractFunctionBody(novelPanelPage, 'syncTheme');
   const handleFrameLoadBody = extractFunctionBody(novelPanelPage, 'handleFrameLoad');
   const themeEffectBody = extractThemeEffectBody(novelPanelPage);
@@ -390,7 +390,7 @@ test('workbench and direct index both receive the opaque-origin CSP and revalida
   for (const response of [workbench, directIndex]) {
     assert.equal(response.status, 200);
     const csp = response.headers['content-security-policy'] || '';
-    assert.match(csp, /sandbox allow-scripts allow-forms allow-downloads allow-modals/);
+    assert.match(csp, /sandbox allow-scripts allow-forms allow-downloads allow-modals allow-same-origin/);
     assert.match(csp, /style-src 'self' 'unsafe-inline' http:\/\/127\.0\.0\.1:\d+/);
     assert.match(csp, /script-src 'self' 'unsafe-inline' http:\/\/127\.0\.0\.1:\d+/);
     assert.match(response.headers['cache-control'] || '', /no-store/);

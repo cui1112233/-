@@ -218,9 +218,15 @@ test('reference assets upload, serve and degrade for generation/clipboard', asyn
   const missing = await requestRaw(app, '/api/novel-panel/reference-assets/file/character/nope/source', token);
   assert.equal(missing.status, 404);
 
-  const generate = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/generate', token, body: { asset_type: 'character', asset_id: assetId } });
-  assert.equal(generate.status, 502);
-  assert.equal(generate.body.code, 'REFERENCE_ASSET_GENERATE_UNAVAILABLE');
+  // Other tests share the same process users dir, so explicitly clear the image
+  // AI config here. Without it the generation call would read a foreign base_url
+  // and hang on an unreachable upstream instead of failing fast with the
+  // incomplete-config error.
+  await request(app, { method: 'POST', requestPath: '/api/novel-panel/image-settings', token, body: { base_url: '', model: '', api_key: '', clear_api_key: true } });
+
+  const generate = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/generate', token, body: { asset_type: 'character', asset_id: assetId, description: '一名年轻女性' } });
+  assert.equal(generate.status, 400);
+  assert.equal(generate.body.code, 'IMAGE_SETTINGS_INCOMPLETE');
 
   const clipboard = await request(app, { method: 'POST', requestPath: '/api/novel-panel/native-clipboard/copy-rich', token, body: { text: 'x', refs: [] } });
   assert.equal(clipboard.status, 503);
@@ -273,4 +279,123 @@ test('new V78 endpoints require Bearer authentication', async t => {
     const response = await request(app, { requestPath: path });
     assert.equal(response.status, 401, `${path} must require auth`);
   }
+});
+
+function startImageUpstream(t, { status = 200, body } = {}) {
+  const paths = [];
+  const server = http.createServer((req, res) => {
+    paths.push(req.url);
+    req.resume();
+    req.on('end', () => {
+      res.statusCode = status;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(body));
+    });
+  });
+  t.after(() => new Promise(resolve => {
+    server.closeAllConnections?.();
+    server.close(resolve);
+  }));
+  return new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    resolve({ baseUrl: `http://127.0.0.1:${server.address().port}`, paths });
+  }));
+}
+
+test('reference asset generation persists the generated image and returns asset metadata', async t => {
+  const { app } = createServerContext(t);
+  const token = await login(app);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const upstream = await startImageUpstream(t, { body: { data: [{ b64_json: png.toString('base64') }] } });
+
+  await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/image-settings',
+    token,
+    body: { base_url: upstream.baseUrl, model: 'img-test', api_key: 'test-key', generate_path: '/images/generations' }
+  });
+
+  const assetId = `gen_char_${Date.now()}`;
+  const generate = await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/reference-assets/generate',
+    token,
+    body: { asset_type: 'character', asset_id: assetId, description: '一位年轻女性', reference_mode: 'normal', character: { name: '妹妹', gender: '女', visual_age_stage: '年轻女性' } }
+  });
+  assert.equal(generate.status, 200);
+  assert.equal(generate.body.ok, true);
+  assert.equal(generate.body.main_origin, 'generated');
+  assert.equal(generate.body.has_main_image, true);
+  assert.match(generate.body.url, new RegExp(`/api/novel-panel/reference-assets/file/character/${assetId}/main`));
+  // OpenAI-compatible image relays expect /v1/images/generations; a root-domain
+  // base_url must be normalized to include the /v1 prefix automatically.
+  assert.equal(upstream.paths[0], '/v1/images/generations');
+
+  const file = await requestRaw(app, `/api/novel-panel/reference-assets/file/character/${assetId}/main`, token);
+  assert.equal(file.status, 200);
+  assert.equal(file.body.length, png.length);
+});
+
+test('image generation keeps an explicit /v1 base url without duplicating the prefix', async t => {
+  const { app } = createServerContext(t);
+  const token = await login(app);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const upstream = await startImageUpstream(t, { body: { data: [{ b64_json: png.toString('base64') }] } });
+
+  await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/image-settings',
+    token,
+    body: { base_url: `${upstream.baseUrl}/v1`, model: 'img-test', api_key: 'test-key' }
+  });
+
+  const generate = await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/reference-assets/generate',
+    token,
+    body: { asset_type: 'character', description: '一位年轻女性' }
+  });
+  assert.equal(generate.status, 200);
+  assert.equal(upstream.paths[0], '/v1/images/generations');
+});
+
+test('reference asset generation reports image AI upstream failures', async t => {
+  const { app } = createServerContext(t);
+  const token = await login(app);
+  const upstream = await startImageUpstream(t, { status: 401, body: { error: { message: 'invalid key' } } });
+
+  await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/image-settings',
+    token,
+    body: { base_url: upstream.baseUrl, model: 'img-test', api_key: 'bad-key' }
+  });
+
+  const generate = await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/reference-assets/generate',
+    token,
+    body: { asset_type: 'character', description: '测试描述' }
+  });
+  assert.equal(generate.status, 502);
+  assert.match(generate.body.error, /图片AI请求失败：invalid key/);
+});
+
+test('reference asset generation requires a non-empty prompt', async t => {
+  const { app } = createServerContext(t);
+  const token = await login(app);
+  const upstream = await startImageUpstream(t, { body: { data: [] } });
+  await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/image-settings',
+    token,
+    body: { base_url: upstream.baseUrl, model: 'img-test', api_key: 'test-key' }
+  });
+  const generate = await request(app, {
+    method: 'POST',
+    requestPath: '/api/novel-panel/reference-assets/generate',
+    token,
+    body: { asset_type: 'character' }
+  });
+  assert.equal(generate.status, 400);
+  assert.equal(generate.body.code, 'IMAGE_GENERATION_EMPTY_PROMPT');
 });

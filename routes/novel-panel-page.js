@@ -17,7 +17,7 @@ function workbenchCsp(req) {
   const localSource = `'self' ${origin}`;
 
   return [
-    'sandbox allow-scripts allow-forms allow-downloads allow-modals',
+    'sandbox allow-scripts allow-forms allow-downloads allow-modals allow-same-origin',
     "default-src 'self'",
     "base-uri 'none'",
     "object-src 'none'",

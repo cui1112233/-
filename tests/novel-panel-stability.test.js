@@ -12,6 +12,7 @@ const { createApp } = require('../app');
 const { createAccountStore } = require('../lib/account-store');
 const { createNovelPanelRuntime } = require('../lib/novel-panel/runtime');
 const { createNovelPanelAiDiagnosticStore } = require('../lib/novel-panel/ai-diagnostic-store');
+const { createNovelPanelStore } = require('../lib/novel-panel/project-store');
 const novelPanelRouter = require('../routes/novel-panel');
 const { validateOutlineShotApplyGate } = require('../lib/novel-panel/quality-gate');
 
@@ -72,7 +73,8 @@ function createTestApp(t, options = {}) {
     accountStore: createAccountStore({ systemDir }),
     tokenMap: new Map(),
     sessionsPath: path.join(systemDir, 'sessions.json'),
-    novelPanelAiDiagnosticStore: options.novelPanelAiDiagnosticStore
+    novelPanelAiDiagnosticStore: options.novelPanelAiDiagnosticStore,
+    novelPanelStore: createNovelPanelStore({ usersDir })
   });
   app.locals.novelPanelRuntime = createNovelPanelRuntime({ usersDir });
   if (options.config) app.locals.novelPanelConfig = options.config;
