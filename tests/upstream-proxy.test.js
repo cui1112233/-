@@ -22,6 +22,8 @@ test('buildModelsUrl normalizes OpenAI-compatible base URLs', () => {
   assert.equal(buildModelsUrl('https://gateway.example/v1'), 'https://gateway.example/v1/models');
   assert.equal(buildModelsUrl('https://gateway.example/v1/'), 'https://gateway.example/v1/models');
   assert.equal(buildModelsUrl('https://gateway.example'), 'https://gateway.example/v1/models');
+  assert.equal(buildModelsUrl('https://gateway.example/models'), 'https://gateway.example/v1/models');
+  assert.equal(buildModelsUrl('https://gateway.example/v1/models'), 'https://gateway.example/v1/models');
   assert.throws(() => buildModelsUrl(''), /Base URL is required/);
 });
 
