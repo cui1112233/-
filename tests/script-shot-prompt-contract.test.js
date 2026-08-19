@@ -18,18 +18,28 @@ test('non-shortdrama prompt contracts require self-contained 分镜 units', () =
 
 test('Q版模式 prompt and catalog contract define the complete shot protocol', () => {
   const content = fs.readFileSync(path.join(prompts, 'Q版模式.md'), 'utf8');
+  assert.match(content, /核心转化规则/);
+  assert.match(content, /迷你小人/);
+  assert.match(content, /画面主体描述/);
+  assert.match(content, /环境光影/);
+  assert.match(content, /分类转化规则/);
+  assert.match(content, /弹幕类/);
+  assert.match(content, /脑补\/妄想画面/);
+  assert.match(content, /分画风变体/);
+  assert.match(content, /变体A/);
+  assert.match(content, /变体B/);
+  assert.match(content, /变体C/);
+  assert.match(content, /完整输出示例/);
+  assert.match(content, /正常输出格式/);
   assert.match(content, /镜头一/);
   assert.match(content, /镜头二/);
+  assert.match(content, /10s\/15s拆分规则/);
   assert.match(content, /10s/);
   assert.match(content, /15s/);
   assert.match(content, /四段式/);
-  assert.match(content, /基础设定/);
-  assert.match(content, /声音设计/);
-  assert.match(content, /氛围与画质规范/);
-  assert.match(content, /画面内容/);
   assert.match(content, /---/);
-  assert.match(content, /三类画风变体/);
   assert.match(content, /硬性校验/);
+  assert.match(content, /输出顺序/);
 
   const preset = SYSTEM_PRESETS.find(item => item.id === 'script-format-q版');
   assert.ok(preset);
