@@ -6,6 +6,64 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
+function functionBody(source, functionName) {
+  const declaration = new RegExp(`(?:async\\s+)?function\\s+${functionName}\\s*\\([^)]*\\)\\s*\\{`).exec(source);
+  assert.ok(declaration?.index !== undefined, `missing function ${functionName}`);
+
+  const start = declaration.index + declaration[0].length;
+  let depth = 1;
+  let quote = '';
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (lineComment) {
+      if (character === '\n') lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (character === '*' && nextCharacter === '/') {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        quote = '';
+      }
+      continue;
+    }
+    if (character === '/' && nextCharacter === '/') {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '/' && nextCharacter === '*') {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (character === '\'' || character === '"' || character === '`') {
+      quote = character;
+      continue;
+    }
+    if (character === '{') depth += 1;
+    if (character === '}') depth -= 1;
+    if (depth === 0) return source.slice(start, index);
+  }
+
+  assert.fail(`unterminated function ${functionName}`);
+}
+
 test('settings expose independent OpenAI-compatible image fields without loading the key', () => {
   const source = read('frontend/src/user/pages/SettingsPage.jsx');
 
@@ -42,6 +100,19 @@ test('settings test text and image connections independently without saving conf
   assert.match(pageSource, />测试生图连接<\/Button>/);
   assert.doesNotMatch(pageSource, /handleTest\(\)/);
   assert.doesNotMatch(pageSource, />测试连接<\/Button>/);
+
+  for (const functionName of ['handleTestText', 'handleTestImage']) {
+    assert.doesNotMatch(functionBody(pageSource, functionName), /\bsaveConfig\s*\(/);
+  }
+  assert.match(functionBody(pageSource, 'handleSave'), /\bsaveConfig\s*\(/);
+});
+
+test('connection-test save guard detects an unsafe function body', () => {
+  const unsafeSource = 'async function handleTestText() { await saveConfig({}); }';
+
+  assert.throws(() => {
+    assert.doesNotMatch(functionBody(unsafeSource, 'handleTestText'), /\bsaveConfig\s*\(/);
+  }, assert.AssertionError);
 });
 
 test('Shuihuo image model selectors preserve the account model ID zero', () => {
