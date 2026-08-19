@@ -1,5 +1,5 @@
 import { Alert, Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPresetDraft, listAdminPresets, publishPreset, rollbackPreset } from '../../shared/api/admin';
 
 const modules = [
@@ -149,17 +149,51 @@ export function PresetLibraryPage() {
     }
   }
 
+  // 同一预设 ID 的多个版本折叠为一行：默认只显示“当前版本”，展开查看全部历史版本
+  const grouped = useMemo(() => {
+    const map = new Map();
+    presets.forEach(preset => {
+      if (!map.has(preset.id)) map.set(preset.id, []);
+      map.get(preset.id).push(preset);
+    });
+    return [...map.entries()].map(([id, versions]) => {
+      const sorted = [...versions].sort((a, b) => b.version - a.version);
+      const published = versions.find(version => version.status === 'published');
+      return {
+        id,
+        name: sorted[0].name,
+        description: sorted[0].description,
+        versions: sorted,
+        current: published || sorted[0]
+      };
+    });
+  }, [presets]);
+
+  function statusTag(status) {
+    return <Tag color={status === 'published' ? 'green' : status === 'draft' ? 'gold' : 'default'}>{status === 'published' ? '已发布' : status === 'draft' ? '草稿' : '已归档'}</Tag>;
+  }
+
   const columns = [
     { title: '名称', dataIndex: 'name', width: 170 },
     { title: '预设词 ID', dataIndex: 'id', width: 190, ellipsis: true },
     { title: '说明', dataIndex: 'description', ellipsis: true },
-    { title: '版本', dataIndex: 'version', width: 72 },
     {
-      title: '状态', dataIndex: 'status', width: 94,
-      render: status => <Tag color={status === 'published' ? 'green' : status === 'draft' ? 'gold' : 'default'}>{status === 'published' ? '已发布' : status === 'draft' ? '草稿' : '已归档'}</Tag>
+      title: '当前版本', width: 120,
+      render: (_, row) => statusTag(row.current.status)
     },
+    { title: '版本数', width: 84, render: (_, row) => row.versions.length },
     {
-      title: '操作', key: 'actions', width: 245,
+      title: '操作', key: 'actions', width: 150,
+      render: (_, row) => <Button size="small" onClick={() => openEdit(row.current)}>编辑当前版本</Button>
+    }
+  ];
+
+  const versionColumns = [
+    { title: '版本', dataIndex: 'version', width: 76 },
+    { title: '状态', dataIndex: 'status', width: 100, render: statusTag },
+    { title: '更新时间', dataIndex: 'publishedAt', width: 180, render: value => value ? new Date(value).toLocaleString() : '' },
+    {
+      title: '操作', key: 'actions', width: 260,
       render: (_, preset) => (
         <Space size="small">
           <Button size="small" onClick={() => openEdit(preset)}>编辑为草稿</Button>
@@ -183,11 +217,23 @@ export function PresetLibraryPage() {
         <Segmented options={modules} value={module} onChange={setModule} />
         {error && <Alert type="error" showIcon message="无法读取此模块预设词" description={error} />}
         <Table
-          rowKey={preset => `${preset.id}-${preset.version}`}
-          dataSource={presets}
+          rowKey={row => row.id}
+          dataSource={grouped}
           columns={columns}
           loading={loading}
-          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: total => `共 ${total} 条预设词` }}
+          expandable={{
+            rowExpandable: row => row.versions.length > 1,
+            expandedRowRender: row => (
+              <Table
+                rowKey={version => `${row.id}-${version.version}`}
+                size="small"
+                pagination={false}
+                dataSource={row.versions}
+                columns={versionColumns}
+              />
+            )
+          }}
+          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: total => `共 ${total} 个预设词` }}
         />
       </Space>
       <Modal title="系统预设词草稿" open={editorOpen} onCancel={() => setEditorOpen(false)} footer={null} width={760} destroyOnClose>

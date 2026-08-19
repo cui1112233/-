@@ -178,6 +178,18 @@ test('published legacy novel-fetch seeds upgrade to the current seed body and ar
   }
 });
 
+test('script format presets prevent repeated full character descriptions in shot bodies', () => {
+  for (const id of [
+    'script-format-screenplay',
+    'script-format-storyboard',
+    'script-format-shotlist',
+    'script-format-shortdrama'
+  ]) {
+    const body = defaultBody(id);
+    assert.match(body, /不得(?:在镜头正文|在△画面描述)重复完整人物外貌/);
+  }
+});
+
 test('a user-edited novel-fetch preset is never auto-upgraded by seeding', t => {
   const store = createStore(t);
   const legacy = require('../lib/legacy-seed-bodies');

@@ -306,11 +306,12 @@ test('CM pages discard stale work and bound the novel panel bridge', () => {
   assert.match(shuihuo, /projectRequestRef\.current !== requestId\) return;/);
   assert.match(shuihuo, /const requestId = \+\+refreshRequestRef\.current;/);
   assert.match(shuihuo, /refreshRequestRef\.current !== requestId\) return null;/);
-  assert.match(novel, /const MAX_REQUEST_BODY_BYTES = 64 \* 1024;/);
+  assert.match(novel, /const MAX_REQUEST_BODY_BYTES = 4 \* 1024 \* 1024;/);
   assert.match(novel, /const MAX_REQUEST_ID_LENGTH = 120;/);
   assert.match(novel, /const MAX_HEADER_VALUE_LENGTH = 512;/);
   assert.match(novel, /const MAX_ACTIVE_CONTROLLERS = 8;/);
-  assert.match(novel, /const MAX_RESPONSE_BODY_BYTES = 2 \* 1024 \* 1024;/);
+  assert.match(novel, /const MAX_RESPONSE_BODY_BYTES = 12 \* 1024 \* 1024;/);
+  assert.match(novel, /const isBinary = \/\^\(audio\|image\)\\\/\/i\.test\(contentType\);/);
   assert.match(novel, /const MAX_RESPONSE_HEADER_BYTES = 8 \* 1024;/);
   assert.match(novel, /async function readResponseBytes\(response\)/);
   assert.match(novel, /size > MAX_RESPONSE_BODY_BYTES/);

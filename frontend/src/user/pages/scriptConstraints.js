@@ -1,12 +1,13 @@
 export const DEFAULT_SCRIPT_CONSTRAINTS = Object.freeze({
   enabled: false,
+  baseSetup: { enabled: true, source: 'system', presetId: '', personalPromptId: '', body: '' },
   prefix: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   quality: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   restriction: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   negative: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' }
 });
 
-const categories = ['prefix', 'quality', 'restriction', 'negative'];
+const categories = ['baseSetup', 'prefix', 'quality', 'restriction', 'negative'];
 
 function normalizeLayer(value) {
   const presetId = typeof value?.presetId === 'string' ? value.presetId : '';

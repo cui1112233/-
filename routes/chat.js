@@ -179,7 +179,7 @@ function buildConstraintWrapper(presetStore, constraints, format, duration, pers
 
   const protocol = resolveSystemPresetBody(presetStore, 'script-constraint-wrapper')
     .replace(/\{duration\}/g, duration || '10s');
-  return `${protocol}\n\n## 分镜内约束\n${constraintText}\n\n每个完整分镜必须在自身标题之后写入以上所有非空约束；不得在全部分镜之外单独输出这些约束。`;
+  return `${protocol}\n\n## 分镜内约束\n${constraintText}\n\n生成画面内容时必须遵守以上约束，但不得把约束文本写入输出结果；最终由系统在把总时间轴切分为独立分镜卡时，把约束复制到每一张卡。`;
 }
 
 function sanitizeProtagonists(characters, protagonists) {
@@ -214,7 +214,13 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
   const unitProtocol = format === 'shortdrama' || mode === 'segmented'
     ? ''
-    : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
+    : `## 强制完整分镜协议\n输出一条连续的总时间轴，把整段原文按内容量转成可拍摄的画面描述。时间轴从 00:00 连续排布，每个时间片 1 到 4 秒、只承担一个观看重点，总时长按原文信息量分配（每约 38 个汉字对应 1 个时间片），信息不足时宁可减少时间片，禁止复制镜头或机械口型补时长。禁止输出 ### 分镜N 标题，禁止把时间轴拆成多个独立分镜单元；最终由系统按 ${duration} 自动切分为独立分镜卡，每张卡会补上基础设定与已启用约束并从 00:00 开始，可直接复制提交。`;
+  // 非分段模式按字数给时间片预算，防止总时长膨胀（对齐小说面板“38字≈1时间片”）。
+  const budgetSourceLength = String(body.novelText || '').replace(/\s+/g, '').length;
+  const budgetCenter = Math.max(3, Math.min(36, Math.ceil(budgetSourceLength / 38)));
+  const budgetRule = format === 'shortdrama' || mode === 'segmented'
+    ? ''
+    : `【本次生成预算】总时长按原文信息量分配：每约 38 个汉字对应 1 个时间片，建议共 ${budgetCenter} 个时间片（可±3），每个时间片 1 到 4 秒；禁止复制镜头、静止口型或无变化定镜补时长。`;
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
@@ -223,6 +229,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general'),
     unitProtocol,
+    budgetRule,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
