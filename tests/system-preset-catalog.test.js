@@ -19,7 +19,7 @@ test('seeds the ten fixed server-only defaults once without overwriting a publis
   const store = createStore(t);
 
   seedSystemPresets(store, 'owner');
-  assert.equal(store.listAll('script').length, 18);
+  assert.equal(store.listAll('script').length, 19);
   assert.equal(store.listAll('novel-panel').length, 3);
 
   const original = store.getPublished('script-extract');

@@ -7,9 +7,9 @@ const chat = require('../routes/chat');
 // 与生产 presetStore 一致。
 const presets = {};
 function loadPresets() {
-  if (presets['script-format-q版']) return;
+  if (presets['script-format-qban']) return;
   const catalog = require('../lib/system-preset-catalog');
-  for (const id of ['script-format-q版', 'script-general', 'script-continuous', 'script-format-screenplay']) {
+  for (const id of ['script-format-qban', 'script-general', 'script-continuous', 'script-format-screenplay']) {
     try {
       presets[id] = { id, module: 'script', kind: 'base', body: catalog.defaultBody(id), protocolLock: {} };
     } catch (error) {

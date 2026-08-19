@@ -41,7 +41,7 @@ test('Q版模式 prompt and catalog contract define the complete shot protocol',
   assert.match(content, /硬性校验/);
   assert.match(content, /输出顺序/);
 
-  const preset = SYSTEM_PRESETS.find(item => item.id === 'script-format-q版');
+  const preset = SYSTEM_PRESETS.find(item => item.id === 'script-format-qban');
   assert.ok(preset);
   assert.equal(preset.module, 'script');
   assert.equal(preset.name, 'Q版模式');

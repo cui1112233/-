@@ -17,7 +17,7 @@ const FORMAT_PRESET_ID_MAP = {
   storyboard: 'script-format-storyboard',
   shortdrama: 'script-format-shortdrama',
   shotlist: 'script-format-shotlist',
-  'q版': 'script-format-q版'
+  'q版': 'script-format-qban'
 };
 
 const FORMAT_NAME_MAP = {
