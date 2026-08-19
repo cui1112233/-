@@ -761,7 +761,7 @@ const ScriptGenerator = (function() {
         var btnDuration = document.getElementById('canvas-btn-duration');
         var currentFmt = currentFormat;
         if (canvasActions) canvasActions.style.display = 'flex';
-        if (btnDuration) btnDuration.style.display = (currentFmt === 'screenplay' || currentFmt === 'storyboard') ? '' : 'none';
+        if (btnDuration) btnDuration.style.display = (currentFmt === 'screenplay' || currentFmt === 'storyboard' || currentFmt === 'q版') ? '' : 'none';
         // 同步 duration-toggle
         StoryDuration.updateUI();
     }
@@ -1079,7 +1079,7 @@ var StoryDuration = (function() {
         if (!toggle) return;
         
         var currentFormat = ScriptGenerator.getCurrentFormat();
-        var showDuration = currentFormat === 'screenplay' || currentFormat === 'storyboard';
+        var showDuration = currentFormat === 'screenplay' || currentFormat === 'storyboard' || currentFormat === 'q版';
         toggle.style.display = showDuration ? 'flex' : 'none';
         
         var btns = toggle.querySelectorAll('.duration-btn');
