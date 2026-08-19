@@ -214,7 +214,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
   // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
-  const unitProtocol = format === 'shortdrama' || mode === 'segmented'
+  const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
     ? ''
     : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);

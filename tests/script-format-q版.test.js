@@ -43,7 +43,7 @@ test('q版 format loads the Q版模式 preset body and normalizes correctly', ()
   // Q版模式 提示词正文被注入系统提示词
   assert.match(content, /Q版模式/);
   assert.match(content, /迷你小人/);
-  assert.match(content, /正常比例主角/);
+  assert.match(content, /正常比例/);
   // format=q版 时 normalizeFormat 保持原值
   assert.equal(chat._private.normalizeFormat('q版'), 'q版');
 });

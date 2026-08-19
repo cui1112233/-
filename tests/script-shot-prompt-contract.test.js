@@ -33,7 +33,7 @@ test('Q版模式 prompt and catalog contract define the complete shot protocol',
   assert.match(content, /正常输出格式/);
   assert.match(content, /镜头一/);
   assert.match(content, /镜头二/);
-  assert.match(content, /10s\/15s拆分规则/);
+  assert.match(content, /10s\/15s 拆分规则/);
   assert.match(content, /10s/);
   assert.match(content, /15s/);
   assert.match(content, /四段式/);
