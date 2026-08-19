@@ -28,6 +28,19 @@ function normalizeNotifications(value, fallback = {}) {
   };
 }
 
+// 内置头像：{ emoji, background }。非法值回退到 fallback（一般为旧值或 null）。
+function normalizeAvatar(value, fallback = null) {
+  if (!value || typeof value !== 'object') return fallback || null;
+  const emoji = typeof value.emoji === 'string' && value.emoji.trim() && value.emoji.trim().length <= 8
+    ? value.emoji.trim()
+    : null;
+  const background = typeof value.background === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(value.background.trim())
+    ? value.background.trim()
+    : null;
+  if (!emoji || !background) return fallback || null;
+  return { emoji, background };
+}
+
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')
     ? value.voice
@@ -51,6 +64,7 @@ router.get('/', (req, res) => {
   config.pet = normalizePetConfig(config.pet);
   config.tts = normalizeTtsConfig(config.tts);
   config.notifications = normalizeNotifications(config.notifications);
+  config.avatar = normalizeAvatar(config.avatar);
   res.json(publicConfig(config));
 });
 
@@ -72,7 +86,8 @@ router.post('/', (req, res) => {
     storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
     pet: normalizePetConfig(body.pet, oldConfig.pet),
     tts: normalizeTtsConfig(body.tts, oldConfig.tts),
-    notifications: normalizeNotifications(body.notifications, oldConfig.notifications)
+    notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
+    avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
   };
   writeConfig(req.username, nextConfig);
   res.json(publicConfig(nextConfig));
@@ -80,3 +95,4 @@ router.post('/', (req, res) => {
 
 module.exports = router;
 module.exports.normalizeNotifications = normalizeNotifications;
+module.exports.normalizeAvatar = normalizeAvatar;

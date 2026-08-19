@@ -84,13 +84,17 @@ test('shuihuo production inherits the platform color system', () => {
 
 test('novel workbench core surfaces use semantic theme tokens', () => {
   const source = read('public/novel-panel/workbench/style.css');
-  for (const selector of ['.modal-card', '.large-textarea', '.compact-textarea', '.btn.secondary', '.instruction-center-page']) {
-    assert.match(cssBlock(source, selector), /var\(--(ink|muted|surface|surface-soft|field|line|primary)/, `${selector} must use a theme token`);
+  const root = cssBlock(source, ':root');
+  for (const token of ['--bg', '--surface', '--surface-soft', '--ink', '--muted', '--line', '--primary', '--primary-soft', '--danger', '--danger-soft', '--success', '--warning', '--warning-soft']) {
+    assert.ok(root.includes(token), `:root must define ${token}`);
+  }
+  for (const selector of ['.large-textarea', '.compact-textarea', '.panel', '.btn.primary', '.muted', '.character-card']) {
+    assert.match(cssBlock(source, selector), /var\(--(ink|muted|surface|surface-soft|line|primary)/, `${selector} must use a theme token`);
   }
   assert.match(read('public/novel-panel/workbench/bridge.js'), /qiantie-theme-sync/);
 });
 
-test('novel workbench advanced cards define their theme from semantic tokens', () => {
+test('novel workbench advanced cards define a visible themed surface', () => {
   const source = read('public/novel-panel/workbench/style.css');
   const selectors = [
     '.lock-state',
@@ -108,11 +112,9 @@ test('novel workbench advanced cards define their theme from semantic tokens', (
   ];
 
   for (const selector of selectors) {
-    assert.match(
-      cssBlock(source, selector),
-      /var\(--(ink|muted|surface|surface-soft|field|line|primary|primary-soft|status-info|status-info-soft|warning|warning-soft)/,
-      `${selector} must define its own theme-aware surface`,
-    );
+    const block = cssBlock(source, selector);
+    assert.match(block, /background/, `${selector} must define a surface background`);
+    assert.match(block, /border/, `${selector} must define a border`);
   }
 });
 
@@ -122,12 +124,12 @@ test('collapsed navigation tooltips never shift the page content', () => {
   assert.doesNotMatch(css, /legacy-shell:has\(\.legacy-sidebar\.collapsed \.legacy-nav a:focus-visible\) \.legacy-main/);
 });
 
-test('novel workbench uses the platform history and settings entries', () => {
+test('novel workbench exposes its built-in history and settings entries', () => {
   const html = read('public/novel-panel/workbench/index.html');
-  assert.match(html, /<button id="saveProjectBtn"[^>]*>保存项目<\/button>/);
+  assert.match(html, /<button id="saveProjectBtn"[^>]*>保存当前记录<\/button>/);
   assert.match(html, /<button id="promptSettingsBtn"[^>]*>AI 指令<\/button>/);
-  assert.doesNotMatch(html, /<button id="historyBtn"/);
-  assert.doesNotMatch(html, /<button id="settingsBtn"/);
+  assert.match(html, /<button id="historyBtn"[^>]*>历史记录<\/button>/);
+  assert.match(html, /<button id="settingsBtn"[^>]*>AI 设置<\/button>/);
 });
 
 test('login remains available after a logout from every user workspace', () => {

@@ -11,6 +11,11 @@ export function saveConfig(config) {
   });
 }
 
+// 保存内置头像 { emoji, background }
+export function saveAvatar(avatar) {
+  return saveConfig({ avatar });
+}
+
 export function testConfig(config) {
   return apiRequest('/api/test', {
     method: 'POST',
