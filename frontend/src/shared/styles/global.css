@@ -553,25 +553,19 @@ select {
   gap: 10px;
 }
 
-.legacy-corner-user {
-  position: fixed;
-  left: 232px;
-  bottom: 168px;
-  z-index: 850;
+.legacy-sidebar-user {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--legacy-border-strong);
-  border-radius: 999px;
-  background: var(--legacy-card);
-  backdrop-filter: blur(12px);
-  box-shadow: var(--legacy-shadow);
+  padding: 10px 14px;
+  border-top: 1px solid var(--legacy-border);
   font-size: 12px;
 }
 
-.legacy-corner-username {
-  max-width: 160px;
+.legacy-sidebar-username {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

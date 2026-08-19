@@ -313,17 +313,17 @@ export function UserLayout({ children }) {
             </Link>
           ) : null}
         </div>
+        {isLoggedIn ? (
+          <div className="legacy-sidebar-user">
+            <span className="legacy-sidebar-username">{username}</span>
+            <Button size="small" onClick={handleLogout}>退出</Button>
+          </div>
+        ) : null}
       </aside>
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
           <section className="legacy-content">{content}</section>
         </main>
-        {isLoggedIn && pathname !== '/' ? (
-          <div className="legacy-corner-user">
-            <span className="legacy-corner-username">{username}</span>
-            <Button size="small" onClick={handleLogout}>退出</Button>
-          </div>
-        ) : null}
         {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
