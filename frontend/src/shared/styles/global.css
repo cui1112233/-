@@ -553,6 +553,31 @@ select {
   gap: 10px;
 }
 
+.legacy-corner-user {
+  position: fixed;
+  right: 22px;
+  bottom: 168px;
+  z-index: 850;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 999px;
+  background: var(--legacy-card);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--legacy-shadow);
+  font-size: 12px;
+}
+
+.legacy-corner-username {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--legacy-muted);
+}
+
 .legacy-theme-toggle {
   border: 1px solid var(--legacy-border-strong);
   background: var(--theme-button);
