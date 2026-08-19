@@ -105,6 +105,14 @@ test('segmented mode auto-splits continuous timelines into cards and exposes mer
   assert.match(output, /复制到每一段/);
 });
 
+test('shot cards recognize storyboard and screenplay headings', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const storyboard = ['分镜1：a（0-10s）', '运镜：x', '画面内容：y', '分镜2：b（10-20s）', '运镜：z', '画面内容：w'].join('\n');
+  assert.equal(getShotCards('storyboard', storyboard).length, 2);
+  const screenplay = ['[00:00-00:10]镜头1:a(x)。', '画面描述：p', '[00:10-00:20]镜头2:b(y)。', '画面描述：q'].join('\n');
+  assert.equal(getShotCards('screenplay', screenplay).length, 2);
+});
+
 test('script source textarea clears without deleting prior results until extraction starts', () => {
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   const styles = read('frontend/src/shared/styles/global.css');

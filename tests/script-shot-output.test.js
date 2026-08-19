@@ -33,6 +33,41 @@ test('recognizes 镜头N： headings emitted by the shotlist preset', async () =
   assert.match(cards[1], /00:07-00:10/);
 });
 
+test('recognizes 画布分镜N： headings (storyboard preset)', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '分镜1：宴会开幕（0-10s）',
+    '运镜：俯拍推近',
+    '画面内容：金碧辉煌的殿内',
+    '分镜2：密信揭晓（10-20s）',
+    '运镜：低角度仰拍',
+    '画面内容：皇后举起密信',
+    '分镜3：众人震惊（20-30s）',
+    '运镜：快速横移',
+    '画面内容：大臣们哗然'
+  ].join('\n');
+  const cards = getShotCards('storyboard', output);
+  assert.equal(cards.length, 3);
+  assert.match(cards[0], /^分镜1：宴会开幕/);
+  assert.match(cards[2], /^分镜3：众人震惊/);
+});
+
+test('recognizes 剧情[时间]镜头N: headings (screenplay preset)', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '[00:00-00:10]镜头1:皇后起身(Queen Stands)。',
+    '画面描述：洛清霜缓缓起身。',
+    '[00:10-00:20]镜头2:密信举起(Lifting the Letter)。',
+    '画面描述：双手高举密信。',
+    '[00:20-00:30]镜头3:满殿哗然(Uproar)。',
+    '画面描述：大臣惊愕。'
+  ].join('\n');
+  const cards = getShotCards('screenplay', output);
+  assert.equal(cards.length, 3);
+  assert.match(cards[0], /^\[00:00-00:10\]镜头1:/);
+  assert.match(cards[2], /^\[00:20-00:30\]镜头3:/);
+});
+
 test('splits a continuous timeline into max-seconds segments with re-based timestamps', async () => {
   const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   const timeline = [
