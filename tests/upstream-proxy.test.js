@@ -27,6 +27,13 @@ test('buildModelsUrl normalizes OpenAI-compatible base URLs', () => {
   assert.throws(() => buildModelsUrl(''), /Base URL is required/);
 });
 
+test('model catalog lookup rejects non-HTTP protocols before selecting a transport', async () => {
+  await assert.rejects(
+    requestUpstreamModels({ baseUrl: 'ftp://gateway.example', apiKey: 'test-image-key' }, collectResponse),
+    error => error?.code === 'UPSTREAM_PROTOCOL_INVALID' && /HTTP or HTTPS/.test(error.message)
+  );
+});
+
 test('model catalog lookup uses GET without a payload and sends the API key', async () => {
   const observed = {};
   const server = http.createServer((req, res) => {
@@ -57,5 +64,31 @@ test('model catalog lookup uses GET without a payload and sends the API key', as
     assert.equal(observed.body, '');
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('model catalog lookup uses the configured proxy for HTTPS targets', async () => {
+  const observed = {};
+  const proxy = http.createServer();
+  proxy.on('connect', (req, socket) => {
+    observed.target = req.url;
+    socket.destroy();
+  });
+
+  await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
+  const address = proxy.address();
+  const originalProxy = process.env.QIANTIE_HTTPS_PROXY;
+  process.env.QIANTIE_HTTPS_PROXY = `http://127.0.0.1:${address.port}`;
+  try {
+    // Actual TLS handshake compatibility is verified by the live no-key smoke test.
+    await assert.rejects(
+      requestUpstreamModels({ baseUrl: 'https://catalog.example', apiKey: 'test-image-key' }, collectResponse, { timeoutMs: 1000 }),
+      error => error instanceof Error
+    );
+    assert.equal(observed.target, 'catalog.example:443');
+  } finally {
+    if (originalProxy === undefined) delete process.env.QIANTIE_HTTPS_PROXY;
+    else process.env.QIANTIE_HTTPS_PROXY = originalProxy;
+    await new Promise((resolve, reject) => proxy.close(error => error ? reject(error) : resolve()));
   }
 });
