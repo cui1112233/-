@@ -121,7 +121,17 @@ export function ScriptPage() {
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
-  const shotCards = useMemo(() => getShotCards(selectedFormat, output), [selectedFormat, output]);
+  const shotCards = useMemo(() => {
+    const parsed = getShotCards(selectedFormat, output);
+    if (parsed.length) return parsed;
+    // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
+    if (selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output) {
+      const seconds = selectedDuration === '15s' ? 15 : 10;
+      const segments = splitContinuousTimeline(output, seconds);
+      if (segments.length >= 2) return segments;
+    }
+    return parsed;
+  }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),

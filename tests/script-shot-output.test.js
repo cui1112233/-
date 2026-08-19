@@ -34,6 +34,25 @@ test('splits a continuous timeline into max-seconds segments with re-based times
   assert.doesNotMatch(segments[1], /00:10-00:13/);
 });
 
+test('splitContinuousTimeline copies the preamble into every segment', async () => {
+  const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const timeline = [
+    '统一人物：林默',
+    '场景环境：街头',
+    '负面提示词：禁止字幕',
+    '00:00-00:03 | 特写 | A',
+    '00:03-00:08 | 中景 | B',
+    '00:08-00:13 | 全景 | C'
+  ].join('\n');
+  const segments = splitContinuousTimeline(timeline, 10);
+  assert.equal(segments.length, 2);
+  for (const segment of segments) {
+    assert.match(segment, /统一人物：林默/);
+    assert.match(segment, /场景环境：街头/);
+    assert.match(segment, /负面提示词：禁止字幕/);
+  }
+});
+
 test('splitContinuousTimeline returns empty when no timeline rows exist', async () => {
   const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   assert.deepEqual(splitContinuousTimeline('统一人物：林默\n没有时间轴', 10), []);

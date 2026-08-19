@@ -58,6 +58,8 @@ function formatSeconds(value) {
 
 // 把一条连续时间轴按所选秒数机械切段（对齐小说面板“按秒数分段并合并”）：
 // 每段时长不超过 maxSeconds，段内时间轴从 00:00 重新排布，返回多个"### 分镜N"块。
+// 输出开头第一个时间轴行之前的内容（人物/场景/负面提示词等前言）会复制到每一段，
+// 保证每段可独立复制提交，与小说面板的“镜头画面”一致。
 export function splitContinuousTimeline(output, maxSeconds) {
   const limit = Math.max(1, Number.parseInt(maxSeconds, 10) || 10);
   const text = String(output || '').trim();
@@ -70,6 +72,14 @@ export function splitContinuousTimeline(output, maxSeconds) {
   });
   const timelineRows = rows.filter(row => row.start !== null && row.end !== null && row.end > row.start);
   if (timelineRows.length === 0) return [];
+
+  // 前言：第一个时间轴行之前的所有非空行（统一人物/场景/负面提示词等）
+  const firstTimelineIndex = rows.findIndex(row => row.start !== null);
+  const preamble = rows
+    .slice(0, Math.max(0, firstTimelineIndex))
+    .map(row => row.line.trim())
+    .filter(Boolean)
+    .join('\n');
 
   const groups = [];
   let current = [];
@@ -108,6 +118,7 @@ export function splitContinuousTimeline(output, maxSeconds) {
       const end = formatSeconds(Math.max(0, row.end - offset));
       return row.line.replace(TIMELINE_RE, `${start}-${end} |`);
     });
-    return `### 分镜${['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][index] || (index + 1)}（总时长：${totalSeconds}s）\n${shifted.join('\n')}`;
+    const body = [preamble, ...shifted].filter(Boolean).join('\n');
+    return `### 分镜${['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][index] || (index + 1)}（总时长：${totalSeconds}s）\n${body}`;
   });
 }
