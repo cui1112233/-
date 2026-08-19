@@ -16,14 +16,16 @@ const FORMAT_PRESET_ID_MAP = {
   screenplay: 'script-format-screenplay',
   storyboard: 'script-format-storyboard',
   shortdrama: 'script-format-shortdrama',
-  shotlist: 'script-format-shotlist'
+  shotlist: 'script-format-shotlist',
+  'q版': 'script-format-q版'
 };
 
 const FORMAT_NAME_MAP = {
   screenplay: '剧情模式',
   storyboard: '画布模式',
   shortdrama: '剧本模式',
-  shotlist: '分镜模式'
+  shotlist: '分镜模式',
+  'q版': 'Q版模式'
 };
 
 const CONSTRAINT_CATEGORY_PREFIXES = {
