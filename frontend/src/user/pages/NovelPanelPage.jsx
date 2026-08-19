@@ -5,11 +5,11 @@ import { dispatchPetContext } from '../../shared/pet/stacky';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
 const ALLOWED_HEADERS = new Set(['content-type', 'cache-control', 'pragma', 'x-videoprompttool-session']);
-const MAX_REQUEST_BODY_BYTES = 64 * 1024;
+const MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_REQUEST_ID_LENGTH = 120;
 const MAX_HEADER_VALUE_LENGTH = 512;
 const MAX_ACTIVE_CONTROLLERS = 8;
-const MAX_RESPONSE_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_RESPONSE_BODY_BYTES = 12 * 1024 * 1024;
 const MAX_RESPONSE_HEADER_BYTES = 8 * 1024;
 
 function normalizeTheme(theme) {
@@ -213,7 +213,7 @@ export function NovelPanelPage({ theme }) {
         if (controller.signal.aborted || port !== portRef.current) return;
         const responseHeaders = boundedResponseHeaders(response.headers);
         const contentType = response.headers.get('content-type') || '';
-        const isBinary = /^audio\//i.test(contentType);
+        const isBinary = /^(audio|image)\//i.test(contentType);
         const responseBytes = await readResponseBytes(response);
         postBridgeResponse(port, request.id, {
           status: response.status,
@@ -288,7 +288,7 @@ export function NovelPanelPage({ theme }) {
         className="novel-panel-frame"
         title="小说面板"
         src={workbenchSrc}
-        sandbox="allow-scripts allow-forms allow-downloads allow-modals"
+        sandbox="allow-scripts allow-forms allow-downloads allow-modals allow-same-origin"
         onLoad={handleFrameLoad}
         onError={() => {
           setLoading(false);

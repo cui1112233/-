@@ -35,16 +35,16 @@ const MIN_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 600;
 
 const V78_BUILD_INFO = {
-  app_version: 'v78.3.0.3',
+  app_version: 'v78.3.0.2',
   build_date: '2026-08-18',
   character_pipeline: 'character_core_2_all_genres_v78_stable',
   startup_mode: 'shared_backend_multi_instance_v78_stable',
   cache_policy: 'per_instance_profile_no_store',
   session_guard: 'registered_multi_instance',
-  build_id: 'v78.3.0.3-remote-workbench-20260819-r1',
+  build_id: 'v78.3.0.2-scene-event-canonical-timeline-20260818-r1',
   workspace_schema_version: 40,
   release_channel: 'stable',
-  release_version: 'v78.3.0.3',
+  release_version: 'v78.3.0.2',
   formal_roster_policy: 'forced_roster_slots_only_never_infer_formal_people_from_novel_relationship_terms',
   character_image_batch: 'bounded_concurrency_1_6_default_3_immediate_per_asset_persist_no_hidden_retry',
   release_status: 'production',
@@ -115,23 +115,25 @@ function panelSettings(config, saved = {}) {
   };
 }
 
-function loadPanelSettings(username) {
+function loadPanelSettings(req, username) {
+  const target = panelStore(req);
   try {
-    const result = require('../lib/system-store').readJsonOrMissing(store.settingsPath(username));
+    const result = require('../lib/system-store').readJsonOrMissing(target.settingsPath(username));
     return result.found && isPlainObject(result.value) ? result.value : {};
   } catch {
     throw new Error('小说面板设置文件无法读取');
   }
 }
 
-function savePanelSettings(username, value) {
+function savePanelSettings(req, username, value) {
+  const target = panelStore(req);
   const { writeJsonAtomic } = require('../lib/system-store');
-  writeJsonAtomic(store.settingsPath(username), value);
+  writeJsonAtomic(target.settingsPath(username), value);
 }
 
-function configuredPanelSettings(username) {
+function configuredPanelSettings(req, username) {
   const config = readConfig(username);
-  const saved = loadPanelSettings(username);
+  const saved = loadPanelSettings(req, username);
   return { config, saved, settings: panelSettings(config, saved) };
 }
 
@@ -141,6 +143,10 @@ function getRuntime(req) {
 
 function historyStore(req) {
   return req.app?.locals?.novelPanelHistoryStore || fallbackHistoryStore;
+}
+
+function panelStore(req) {
+  return req.app?.locals?.novelPanelStore || store;
 }
 
 function premiumStore(req) {
@@ -186,7 +192,7 @@ function normalizedMaxTokens(value) {
 
 function requestDiagnosticMeta(req, system, user, options = {}) {
   const config = options.config || requestConfig(req);
-  const timeoutSeconds = clampTimeout(options.timeoutSeconds ?? loadPanelSettings(req.username).ai_timeout_seconds);
+  const timeoutSeconds = clampTimeout(options.timeoutSeconds ?? loadPanelSettings(req, req.username).ai_timeout_seconds);
   return {
     model: text(config.model, 500),
     base_url_host: safeHostname(config.baseUrl),
@@ -352,7 +358,7 @@ function upstreamError(res, error, diagnosticId = error?.diagnosticId) {
       ...(diagnosticId ? { diagnostic_id: diagnosticId } : {})
     });
   }
-  const status = error?.code === 'UPSTREAM_TIMEOUT' || /Upstream request timed out/.test(message)
+  const status = error?.code === 'UPSTREAM_TIMEOUT' || error?.code === 'IMAGE_AI_TIMEOUT' || /Upstream request timed out/.test(message)
     ? 504
     : (/API Key is required|Base URL is required|Model is required/.test(message) || /上游模型返回 HTTP 401/.test(message)
       ? 400
@@ -389,7 +395,7 @@ async function requestCompletion(req, system, user, {
   parseJson = true
 } = {}) {
   const config = configuredConfig || requestConfig(req);
-  const timeoutSeconds = clampTimeout(loadPanelSettings(req.username).ai_timeout_seconds);
+  const timeoutSeconds = clampTimeout(loadPanelSettings(req, req.username).ai_timeout_seconds);
   const effectiveMaxTokens = normalizedMaxTokens(maxTokens);
   req.novelPanelAiDiagnosticMeta = requestDiagnosticMeta(req, system, user, {
     config,
@@ -615,7 +621,7 @@ function migrateProjectCharacterCore(body) {
 
 router.get('/settings', (req, res) => {
   try {
-    res.json(configuredPanelSettings(req.username).settings);
+    res.json(configuredPanelSettings(req, req.username).settings);
   } catch (error) {
     clientError(res, error);
   }
@@ -625,7 +631,7 @@ router.post('/settings', (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
     const current = readConfig(req.username);
-    const saved = loadPanelSettings(req.username);
+    const saved = loadPanelSettings(req, req.username);
     const nextConfig = {
       ...current,
       baseUrl: text(body.base_url) || current.baseUrl,
@@ -638,7 +644,7 @@ router.post('/settings', (req, res) => {
       ai_mode: body.ai_mode === 'local' ? 'local' : 'remote',
       ai_timeout_seconds: clampTimeout(body.ai_timeout_seconds ?? saved.ai_timeout_seconds)
     };
-    savePanelSettings(req.username, nextSaved);
+    savePanelSettings(req, req.username, nextSaved);
     res.json({ message: '设置已保存。', settings: panelSettings(nextConfig, nextSaved) });
   } catch (error) {
     clientError(res, error);
@@ -647,7 +653,7 @@ router.post('/settings', (req, res) => {
 
 router.get('/runtime-config', (req, res) => {
   try {
-    const saved = loadPanelSettings(req.username);
+    const saved = loadPanelSettings(req, req.username);
     res.json({ ai_timeout_seconds: clampTimeout(saved.ai_timeout_seconds) });
   } catch (error) {
     clientError(res, error);
@@ -656,9 +662,9 @@ router.get('/runtime-config', (req, res) => {
 
 router.post('/runtime-config', (req, res) => {
   try {
-    const saved = loadPanelSettings(req.username);
+    const saved = loadPanelSettings(req, req.username);
     const runtimeConfig = { ...saved, ai_timeout_seconds: clampTimeout(req.body?.ai_timeout_seconds) };
-    savePanelSettings(req.username, runtimeConfig);
+    savePanelSettings(req, req.username, runtimeConfig);
     res.json({ message: 'AI等待上限已保存。', runtime_config: { ai_timeout_seconds: runtimeConfig.ai_timeout_seconds } });
   } catch (error) {
     clientError(res, error);
@@ -692,10 +698,10 @@ function cleanCoreHealth() {
   const requiredRoutes = ['/build-info', '/diagnostics/self-check', '/character-core/health', '/character-core/analyze', '/character-core/resolve-scene-cast', '/history'];
   const checks = [];
   const add = (id, label, ok, detail = '', severity = 'error') => checks.push({ id, label, status: ok ? 'pass' : (severity === 'warn' ? 'warn' : 'fail'), detail: String(detail || '') });
-  add('clean_backend_version', '后端V78 Stable版本', V78_BUILD_INFO.app_version === 'v78.3.0.3', V78_BUILD_INFO.build_id);
+  add('clean_backend_version', '后端V78 Stable版本', V78_BUILD_INFO.app_version === 'v78.3.0.2', V78_BUILD_INFO.build_id);
   add('clean_transport_backend', 'AI Transport后端兼容实现', true, 'remote_json_optimized 保持唯一远程AI出口');
   add('clean_workspace_schema', 'Workspace Schema协议', Number(V78_BUILD_INFO.workspace_schema_version) === 40, `schema=${V78_BUILD_INFO.workspace_schema_version}`);
-  add('stable_release', 'V78正式发布身份', V78_BUILD_INFO.release_channel === 'stable' && V78_BUILD_INFO.release_version === 'v78.3.0.3', V78_BUILD_INFO.legacy_v77_role);
+  add('stable_release', 'V78正式发布身份', V78_BUILD_INFO.release_channel === 'stable' && V78_BUILD_INFO.release_version === 'v78.3.0.2', V78_BUILD_INFO.legacy_v77_role);
   add('clean_character_ai_service', 'Character / Style AI统一服务', V78_BUILD_INFO.character_ai_service === 'character_ai_service_v78_phase16', V78_BUILD_INFO.character_ai_policy);
   add('clean_submission_authority', 'AI Submission Package Authority', V78_BUILD_INFO.submission_authority === 'ai_submission_package_authority_v78_phase8_phase15_default_primary_realtime_fallback', V78_BUILD_INFO.submission_authority);
   add('clean_outline_response', 'Outline Response / Writeback Adapter', V78_BUILD_INFO.outline_response_adapter === 'outline_response_adapter_v78_phase9', V78_BUILD_INFO.writeback_authority);
@@ -1018,14 +1024,134 @@ router.post('/reference-assets/describe', async (req, res) => {
   }
 });
 
-router.post('/reference-assets/generate', (req, res) => {
-  // Web deployment cannot generate images without a separately configured
-  // image-generation API. The V78 workbench degrades gracefully and keeps the
-  // existing reference image state on failure.
-  return res.status(502).json({
-    error: '网页版未配置图片生成服务。请在小说面板“AI 设置”中配置可用的图片生成 API；当前保留已有参考图状态，可改为上传参考图或使用文本表达。',
-    code: 'REFERENCE_ASSET_GENERATE_UNAVAILABLE'
-  });
+function buildImageGenerationPrompt(body = {}) {
+  const parts = [];
+  const description = text(body.description);
+  if (description) parts.push(`【主体描述】${description}`);
+  const character = isPlainObject(body.character);
+  if (character) {
+    const facts = {};
+    for (const key of ['name', 'gender', 'visual_age_stage', 'chronological_age', 'life_stage', 'timeline_stage', 'species']) {
+      const value = text(character[key]);
+      if (value) facts[key] = value;
+    }
+    if (Object.keys(facts).length) parts.push(`【人物事实】${JSON.stringify(facts)}`);
+  }
+  if (text(body.style)) parts.push(`【画面风格】${text(body.style)}`);
+  if (text(body.context)) parts.push(`【场景/上下文】${typeof body.context === 'string' ? body.context : JSON.stringify(body.context)}`);
+  if (text(body.generation_guidance)) parts.push(`【生成引导】${text(body.generation_guidance)}`);
+  if (text(body.image_instruction)) parts.push(`【生成指令】${text(body.image_instruction)}`);
+  if (text(body.reference_mode) === 'faceless') parts.push('【参考模式】无人脸参考图：人物可从背面、侧面或远景呈现，不要求可辨识的五官。');
+  return parts.join('\n');
+}
+
+function buildImageApiUrl(baseUrl, generatePath) {
+  const base = String(baseUrl || '').replace(/\/+$/, '');
+  const genPath = String(generatePath || '/images/generations');
+  let url = `${base}${genPath}`;
+  // OpenAI Images 兼容中转站（vveai / apiyi / 各类中转）通常要求 base_url 含
+  // /v1 路径段；用户常漏填成根域名，导致上游返回 Invalid URL。仅当 base_url
+  // 是纯域名（无路径段）且 generate_path 不以 /v1 开头时自动补 /v1，不影响
+  // 已正确配置 /v1 或自定义 generate_path 的用户。
+  if (!genPath.startsWith('/v1')) {
+    try {
+      const parsed = new URL(base);
+      if (!parsed.pathname.replace(/\/+$/, '')) url = `${base}/v1${genPath}`;
+    } catch (_) {
+      // 非 URL 时保持原样，让 fetch 抛出可读错误。
+    }
+  }
+  return url;
+}
+
+router.post('/reference-assets/generate', async (req, res) => {
+  try {
+    // Web deployment generates reference images through the per-account image AI
+    // settings (OpenAI Images compatible /images/generations). Missing config
+    // degrades gracefully and keeps the existing reference image state.
+    const settings = premiumStore(req).readImageSettingsRaw(req.username);
+    const missing = ['base_url', 'model', 'api_key'].filter(key => !text(settings[key] || '').trim());
+    if (missing.length) {
+      return res.status(400).json({
+        error: `图片AI未配置：缺少 ${missing.join('、')}。请在小说面板“AI 设置”→“图片 AI”中填写图片生成 API 地址、模型与密钥；也可上传参考图或使用文本表达。`,
+        code: 'IMAGE_SETTINGS_INCOMPLETE'
+      });
+    }
+    const body = isPlainObject(req.body) ? req.body : {};
+    const prompt = buildImageGenerationPrompt(body);
+    if (!text(prompt)) return res.status(400).json({ error: '缺少生成内容：请填写人物外形描述或生成引导。', code: 'IMAGE_GENERATION_EMPTY_PROMPT' });
+    const fullUrl = buildImageApiUrl(settings.base_url, settings.generate_path);
+    const payload = {
+      model: settings.model,
+      prompt,
+      n: 1,
+      size: settings.size || '1536x1024',
+      response_format: 'b64_json',
+      ...(isPlainObject(settings.extra_json) ? settings.extra_json : {})
+    };
+    return await runAiOperation(req, res, 'reference-assets:generate', async signal => {
+      const controller = new AbortController();
+      let timedOut = false;
+      const abortFromClient = () => controller.abort();
+      signal?.addEventListener?.('abort', abortFromClient, { once: true });
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, Math.max(30, Number(settings.timeout_seconds) || 400) * 1000);
+      try {
+        const upstream = await fetch(fullUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.api_key}` },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        const raw = await upstream.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = { raw }; }
+        if (!upstream.ok) {
+          const detail = data?.error?.message || data?.message || data?.error || `HTTP ${upstream.status}`;
+          const error = new Error(`图片AI请求失败：${detail}`);
+          error.httpStatus = upstream.status;
+          throw error;
+        }
+        const item = Array.isArray(data.data) ? data.data[0] : null;
+        const b64 = text(item?.b64_json);
+        let imageBuffer = null;
+        let mime = 'image/png';
+        if (b64) {
+          imageBuffer = Buffer.from(b64, 'base64');
+        } else if (text(item?.url)) {
+          const imageResponse = await fetch(item.url, { signal: controller.signal });
+          imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+          const contentType = String(imageResponse.headers.get('content-type') || '').toLowerCase();
+          if (contentType.includes('jpeg')) mime = 'image/jpeg';
+          else if (contentType.includes('webp')) mime = 'image/webp';
+          else if (contentType.includes('png')) mime = 'image/png';
+        }
+        if (!imageBuffer || !imageBuffer.length) throw new Error('图片AI未返回可用的图像内容。');
+        const assetType = premiumStore(req).safeAssetType(text(body.asset_type) || 'character');
+        const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
+        premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, 'main', imageBuffer, mime);
+        const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
+        if (!res.writableEnded) {
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, 'main'), main_origin: 'generated', ...metadata });
+        }
+      } catch (error) {
+        if (timedOut) {
+          const timeoutError = new Error(`图片AI请求超时（超过 ${settings.timeout_seconds} 秒），服务端已停止本次生图请求。请重试或提高图片 AI 超时设置。`);
+          timeoutError.code = 'IMAGE_AI_TIMEOUT';
+          throw timeoutError;
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener?.('abort', abortFromClient);
+      }
+    });
+  } catch (error) {
+    if (res.writableEnded || res.destroyed) return;
+    if (error?.code === 'IMAGE_AI_TIMEOUT') {
+      return res.status(504).json({ error: error.message, code: 'IMAGE_AI_TIMEOUT', ...(error.diagnosticId ? { diagnostic_id: error.diagnosticId } : {}) });
+    }
+    return res.status(502).json({ error: error.message || '图片AI请求失败。', ...(error.diagnosticId ? { diagnostic_id: error.diagnosticId } : {}) });
+  }
 });
 
 router.post('/native-clipboard/copy-rich', (req, res) => {
@@ -1335,7 +1461,7 @@ router.get('/character-core/health', (req, res) => {
   res.json({
     ok: true,
     character_core_version: 2,
-    app_version: 'v78.3.0.3',
+    app_version: 'v78.3.0.2',
     analysis_protocol: 'character_core_2_all_genres_v78_stable',
     semantic_layer: 'character_core_single_executor_v78_stable',
     clean_core_phase: 'v78_3_0_2_scene_event_canonical_timeline'
@@ -1343,9 +1469,25 @@ router.get('/character-core/health', (req, res) => {
 });
 
 router.post('/character-core/trace', (req, res) => {
-  // The desktop V77 service wrote diagnostic files here. qiantie intentionally
-  // keeps this request ephemeral so per-user project storage contains no traces.
-  res.json({ ok: true, logged: false });
+  // The desktop V77 service wrote diagnostic files here. qiantie persists the
+  // most recent CharacterCore parity traces so the CORE_PARITY_TRACE metrics
+  // (relationships_envelope_present / relationships_returned / mapped) can be
+  // audited when the relationship graph appears empty.
+  try {
+    const body = isPlainObject(req.body) ? req.body : {};
+    const targetPath = path.join(USERS_DIR, req.username, 'novel-panel', 'character-core-traces.json');
+    const { withJsonLock: lockTrace, writeJsonAtomic: writeTraceAtomic } = require('../lib/system-store');
+    const { readJsonOrMissing: readTraceJson } = require('../lib/system-store');
+    lockTrace(`${targetPath}.lock`, () => {
+      const existing = readTraceJson(targetPath);
+      const list = Array.isArray(existing.value) ? existing.value : [];
+      list.unshift({ id: body.request_id || `trace-${Date.now()}`, at: new Date().toISOString(), trace_stage: body.trace_stage || 'unknown', ...body });
+      writeTraceAtomic(targetPath, list.slice(0, 50));
+    });
+    return res.json({ ok: true, logged: true });
+  } catch (error) {
+    return clientError(res, error);
+  }
 });
 
 router.post('/character-core/parse-slots', (req, res) => {

@@ -1,3 +1,4 @@
+process.env.QIANTIE_SEED_ACCOUNTS = JSON.stringify({ choushiyiguai: '123456', choushiyiguai1: '123456', choushiyiguai2: '123456', choushiyiguai3: '123456', choushiyiguai4: '123456', choushiyiguai5: '123456' });
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,6 +12,7 @@ const { createApp } = require('../app');
 const { createAccountStore } = require('../lib/account-store');
 const { createNovelPanelRuntime } = require('../lib/novel-panel/runtime');
 const { createNovelPanelAiDiagnosticStore } = require('../lib/novel-panel/ai-diagnostic-store');
+const { createNovelPanelStore } = require('../lib/novel-panel/project-store');
 const novelPanelRouter = require('../routes/novel-panel');
 const { validateOutlineShotApplyGate } = require('../lib/novel-panel/quality-gate');
 
@@ -71,7 +73,8 @@ function createTestApp(t, options = {}) {
     accountStore: createAccountStore({ systemDir }),
     tokenMap: new Map(),
     sessionsPath: path.join(systemDir, 'sessions.json'),
-    novelPanelAiDiagnosticStore: options.novelPanelAiDiagnosticStore
+    novelPanelAiDiagnosticStore: options.novelPanelAiDiagnosticStore,
+    novelPanelStore: createNovelPanelStore({ usersDir })
   });
   app.locals.novelPanelRuntime = createNovelPanelRuntime({ usersDir });
   if (options.config) app.locals.novelPanelConfig = options.config;

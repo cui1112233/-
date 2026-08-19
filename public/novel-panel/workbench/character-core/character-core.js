@@ -3,7 +3,7 @@
   "use strict";
   const PROTOCOL = "character_core_2_all_genres_v77";
   const VERSION = 77;
-  const BUILD_VERSION = "v78.3.0.3";
+  const BUILD_VERSION = "v78.3.0.2";
   const FACTS_MARKER = "V77_CHARACTER_CORE_FACTS";
   const APPEARANCE_MARKER = "V77_CHARACTER_CORE_APPEARANCE";
   const REVISION_CHECK_MARKER = "V77_CHARACTER_CORE_REVISION_CHECK";
@@ -811,8 +811,10 @@
     slot.age ||= {};
     const beforeStage=normalizeStage(visibleStage(slot),slot.gender);
     const manual=sanitizeManualIdentityValues(slot), declared=object(slot.declared_values);
-    const returnedStage=normalizeStage(record.visual_age_stage || record.story_age_stage || record.stage_label, record.gender || slot.gender);
-    const returnedGender=normalizeGender(record.gender || genderFromStage(returnedStage));
+    // AI 返回键名不稳定：兼容 current_gender/gender_hint/sex 与 story_age_stage/stage_label/age_stage 等变体。
+    const recordGender=text(record.gender||record.current_gender||record.gender_hint||record.sex||genderFromStage(record.visual_age_stage||record.story_age_stage||record.stage_label||record.age_stage||record.age_stage_hint||""));
+    const returnedStage=normalizeStage(record.visual_age_stage || record.story_age_stage || record.stage_label || record.age_stage || record.age_stage_hint, recordGender || slot.gender);
+    const returnedGender=normalizeGender(recordGender || genderFromStage(returnedStage));
     const currentStageSource=text(slot.age?.stage_source||"");
     const legacyAppearanceFact=currentStageSource==="appearance_writeback";
     const canGender=!manual.gender&&!declared.gender&&returnedGender!=="待确认"&&(!missingOnly||isUnresolvedGender(slot.gender)||legacyAppearanceFact);
@@ -925,7 +927,7 @@
       "【完整原文开始】", currentNovel(), "【完整原文结束】",
       "【本地关键词契约】本地程序只做确定性关键词匹配，不自行理解关系。凡是应触发某人物出镜勾选的正式名、别称、昵称、代号、身份称呼或关系称谓，都必须放入alias_bindings并明确target_person_id；存在多阶段时尽量返回target_slot_id或timeline_scope；局部有效称呼必须返回valid_from_line与valid_to_line；低置信或歧义表达放入ambiguous_relations，不得强行绑定。",
       "【名单外通用临时人物】完整扫描原文中不在slot_rows但可能进入画面的所有人物/群体，不限制现代、古代、民国、校园、职场、医疗、刑侦、仙侠、玄幻、科幻、末世、宫廷、战争、异族或系统题材，也不依赖固定称谓词库。具名人物、关系称谓、职业/身份人物、随从、仆役、军士、修士、灵体、机械人、异族、妖兽化形、群体成员等都放入mention_entities；不得只返回正式人物。每项字段：label,aliases,entity_type,count,participation_state,valid_from_line,valid_to_line,gender_hint,age_stage_hint,species_hint,identity_hint,evidence,confidence。participation_state区分visible_candidate、visual_exposition、group_visible、offscreen_voice、mentioned_only、photo_visible、screen_visible、memory_visible、dream_visible。介绍家族/组织/队伍/班级/宗门/军阵等人物构成的句子，只要适合直接视觉化，标visual_exposition而不是mentioned_only。",
-      "【返回】严格按槽位返回characters，并返回relationships、alias_bindings、mention_entities、ambiguous_relations。alias_bindings每项字段：alias,target_person_id,target_slot_id,alias_type,valid_from_line,valid_to_line,timeline_scope,confidence,evidence,keyword_enabled。不得生成appearance。",
+      "【返回】严格按槽位返回characters，并返回relationships、alias_bindings、mention_entities、ambiguous_relations。characters每项必须含：slot_token(原样返回)、display_name、canonical_name、aliases、gender(男/女/无性别/待确认)、visual_age_stage(固定剧情年龄阶段)、chronological_age、life_stage、timeline_stage、species、identity_role、social_position。alias_bindings每项字段：alias,target_person_id,target_slot_id,alias_type,valid_from_line,valid_to_line,timeline_scope,confidence,evidence,keyword_enabled。不得生成appearance。",
     ].join("\n\n");
   }
 
@@ -933,7 +935,10 @@
     const before=core();const requestState={source_hash:before.source_hash,character_revision:before.character_revision,instance_id:currentInstance()};
     const data = await aiAnalyze(buildFactsPrompt(), FACTS_MARKER, 1);
     const c = core();
-    if(c.source_hash!==requestState.source_hash||c.character_revision!==requestState.character_revision||currentInstance()!==requestState.instance_id){return {stale:true,discarded:true};}
+    if(c.source_hash!==requestState.source_hash||c.character_revision!==requestState.character_revision||currentInstance()!==requestState.instance_id){
+      emitCharacterCoreTrace({trace_stage:"core_parity_facts_relationships",request_id:text(data?._ai_meta?.request_id)||`core-parity-${Date.now()}`,outcome:"stale_discarded",summary:"响应到达时人物/实例状态已变化，本次返回整包丢弃",request_state:requestState,current:{source_hash:c.source_hash,character_revision:c.character_revision,instance_id:currentInstance()}}).catch(()=>{});
+      return {stale:true,discarded:true};
+    }
     const records=recordsArray(data);
     let mappedFacts=0;
     const unmappedFacts=[];
@@ -1008,11 +1013,22 @@
   }
   function normalizeRelationships(data, c, previous) {
     const auto = relationshipRows(data).map((r) => {
-      const source = resolvePerson(r.source_person_id || r.subject_person_id || r.subject_slot || r.source_slot || r.subject || r.source || r.from, c);
-      const target = resolvePerson(r.target_person_id || r.object_person_id || r.object_slot || r.target_slot || r.object || r.target || r.to, c);
+      let source = resolvePerson(r.source_person_id || r.subject_person_id || r.subject_slot || r.source_slot || r.subject || r.source || r.from || r.person_id_a || r.personA || r.character_a || r.actor_id || r.person_1, c);
+      let target = resolvePerson(r.target_person_id || r.object_person_id || r.object_slot || r.target_slot || r.object || r.target || r.to || r.person_id_b || r.personB || r.character_b || r.receiver_id || r.person_2, c);
+      // AI 输出键名不稳定兜底：标准键缺失时，扫描本对象中能解析到正式人物的值作为关系两端。
+      if (!source || !target) {
+        const resolvedIds = [];
+        for (const [key, value] of Object.entries(r)) {
+          if (typeof value !== "string" || resolvedIds.length >= 2) continue;
+          const resolved = resolvePerson(value, c);
+          if (resolved && !resolvedIds.includes(resolved)) resolvedIds.push(resolved);
+        }
+        if (!source) source = resolvedIds[0] || "";
+        if (!target) target = resolvedIds.find((id) => id !== source) || "";
+      }
       if (!source || !target || source === target) return null;
       const label = text(r.display_label || r.relation_label || r.label || r.relationship || r.relation_type || "相关");
-      return { relation_id:text(r.relation_id || r.id) || `rel_${fingerprint(`${source}|${label}|${target}`)}`, source_person_id:source, target_person_id:target, relation_type:text(r.relation_type || r.relation_code || r.type || "related"), display_label:label, reverse_type:text(r.reverse_type || r.reverse_relation_type), reverse_label:text(r.reverse_label || r.reverse_relation_label), evidence_lines:array(r.evidence_lines), evidence:text(r.evidence || r.reason), timeline:text(r.timeline || r.timeline_scope || "current"), worldline:text(r.worldline || r.worldline_id || "main"), confidence:Number(r.confidence || .75), origin:"ai", manual_locked:false, disabled:false };
+      return { relation_id:text(r.relation_id || r.id) || `rel_${fingerprint(`${source}|${label}|${target}`)}`, source_person_id:source, target_person_id:target, relation_type:text(r.relation_type || r.relation_code || r.type || "related"), display_label:label, reverse_type:text(r.reverse_type || r.reverse_relation_type), reverse_label:text(r.reverse_label || r.reverse_relation_label), evidence_lines:array(r.evidence_lines), evidence:text(r.evidence || r.reason || r.relation_description), timeline:text(r.timeline || r.timeline_scope || "current"), worldline:text(r.worldline || r.worldline_id || "main"), confidence:Number(r.confidence || .75), origin:"ai", manual_locked:false, disabled:false };
     }).filter(Boolean);
     const manual = array(previous.relationships).filter((r)=>r.manual_locked && !r.disabled);
     return [...new Map([...auto,...manual].map((r)=>[r.relation_id,r])).values()];
@@ -1244,10 +1260,11 @@
       return {result,error:result?null:new Error(APPEARANCE_WRITEBACK_ERROR),meta:object(data?._ai_meta)};
     }catch(error){return {result:"",error:error instanceof Error?error:new Error(String(error||APPEARANCE_WRITEBACK_ERROR)),meta:{}};}
   }
-  async function generateAppearance(slot, { forceStage = false } = {}) {
+  async function generateAppearance(slot, { forceStage = false, __stageRetry = false } = {}) {
     const facts=characterFactsCompleteness(slot);
     if(!facts.complete){const error=new Error(`人物事实未完整，外形生成已跳过：${facts.critical_missing.join("、")||"剧情年龄阶段待AI确认"}`);error.code="CHARACTER_FACTS_INCOMPLETE";return {appearance:text(slot?.appearance),error,review:{passed:false,implemented:[],missing:facts.critical_missing,violations:[],summary:error.message},success:false,failed:true,repaired:false,advisory:false,slot_id:slot?.slot_id,display_name:slot?.display_name,facts_incomplete:true};}
-    const requestState={source_hash:core().source_hash,slot_id:slot.slot_id,character_revision:slot.character_revision,visual_age_stage:visibleStage(slot),instance_id:currentInstance()};
+    const requestState={source_hash:core().source_hash,slot_id:slot.slot_id,character_revision:slot.character_revision,visual_age_stage:visibleStage(slot),gender:slot.gender,instance_id:currentInstance()};
+    emitCharacterCoreTrace({trace_stage:"appearance_request_snapshot",slot_id:slot.slot_id,slot_token:slot.slot_token,display_name:slot.display_name,visual_age_stage:visibleStage(slot),raw_stage:object(slot.age).visual_age_stage,stage_source:object(slot.age).stage_source,character_revision:slot.character_revision,gender:slot.gender,slots_len:core().slots.length,slot_index:core().slots.findIndex((s)=>s===slot),slots_includes:core().slots.includes(slot),people_len:core().people.length}).catch(()=>{});
     const old=text(slot.appearance);let error=null;
     const promptPackage=buildAppearancePromptPackage(slot,forceStage);
     const evaluateCandidate = async (candidate) => {
@@ -1287,8 +1304,20 @@
 
     const {localReview,review}=evaluated;
     const active=core().slots.find(s=>s.slot_id===requestState.slot_id);
-    if(!active||active!==slot||core().source_hash!==requestState.source_hash||slot.character_revision!==requestState.character_revision||visibleStage(slot)!==requestState.visual_age_stage||currentInstance()!==requestState.instance_id){
-      await emitCharacterCoreTrace({trace_stage:"appearance_writeback",request_id:text(bestMeta.request_id),...traceBase,outcome:"stale_discarded",final_outcome:"stale_discarded",summary:"响应到达时人物卡已更新，本次结果已丢弃。",candidate_text:best,previous_appearance:old,diagnostic_flags:appearanceDiagnosticFlags(review),first_sentence:firstAppearanceSentence(best)});
+    // 外形写回只在身份（性别/剧情年龄阶段）或会话（原文/实例）真实变化时丢弃。
+    // character_revision 会因 facts 补全、关系分析等并发操作频繁递增，若把它也作为
+    // 丢弃依据，合法外形结果会被误弃（previous_appearance 永远为空），人物卡缺失外形。
+    const identityAligned=Boolean(active)&&active===slot&&visibleStage(slot)===requestState.visual_age_stage&&(requestState.gender==null||normalizeGender(slot.gender)===normalizeGender(requestState.gender));
+    const sessionAligned=core().source_hash===requestState.source_hash&&currentInstance()===requestState.instance_id;
+    if(!active||active!==slot||!sessionAligned||!identityAligned){
+      const stageMoved = active && active === slot && visibleStage(slot) !== requestState.visual_age_stage && !slot.manual_values?.visual_age_stage && !slot.age?.stage_locked;
+      if (stageMoved && !__stageRetry) {
+        // 请求期间剧情年龄阶段被 AI 事实补全更新（如「成年阶段」→「年轻女性」）：
+        // 旧锚点的外形不再适用，按最新阶段重试一次，避免合法结果被丢弃。
+        await emitCharacterCoreTrace({trace_stage:"appearance_stage_retry",request_id:text(bestMeta.request_id),...traceBase,outcome:"stage_changed_retry",summary:`阶段在请求期间由AI推断更新（${requestState.visual_age_stage||"空"} → ${visibleStage(slot)||"空"}），按新阶段重试一次外形生成。`,candidate_text:best,previous_appearance:old}).catch(()=>{});
+        return generateAppearance(slot, { forceStage, __stageRetry: true });
+      }
+      await emitCharacterCoreTrace({trace_stage:"appearance_writeback",request_id:text(bestMeta.request_id),...traceBase,outcome:"stale_discarded",final_outcome:"stale_discarded",summary:"响应到达时人物卡已更新，本次结果已丢弃。",candidate_text:best,previous_appearance:old,diagnostic_flags:appearanceDiagnosticFlags(review),first_sentence:firstAppearanceSentence(best),stale_diagnostics:{active_exists:Boolean(active),active_same_reference:active===slot,source_hash_changed:core().source_hash!==requestState.source_hash,current_source_hash:core().source_hash,requested_source_hash:requestState.source_hash,slot_revision:slot.character_revision,requested_revision:requestState.character_revision,visible_stage_changed:visibleStage(slot)!==requestState.visual_age_stage,current_visible_stage:visibleStage(slot),requested_visible_stage:requestState.visual_age_stage,instance_changed:currentInstance()!==requestState.instance_id,current_instance:currentInstance(),requested_instance:requestState.instance_id}});
       return {appearance:old,error,review,stale:true,discarded:true,success:false,failed:true,slot_id:slot.slot_id,display_name:slot.display_name};
     }
     if(best && localReview.identity_passed){
@@ -1403,7 +1432,7 @@
         assertFormalRosterFresh(rosterTransaction,"人物事实分析前");
         const p=q("#characterGenerationProgress");if(p)p.textContent=`已建立 ${core().slots.filter(s=>!s.disabled).length} 个正式人物槽位；正在判断人物事实、年龄层、别称与关系……`;
         try{await analyzeFactsAndRelations();assertFormalRosterFresh(rosterTransaction,"人物事实分析");const integrity=characterFactsIntegrity();if(!integrity.ready)factsWarning=integrity.summary;}
-        catch(factsError){factsWarning=factsError?.message||String(factsError);setAnalysisStage("facts",false,factsWarning);setAnalysisStage("relationships",false,factsWarning);ensureFallbackPeopleGraph();if(p)p.textContent=`人物事实请求未完成；仅已确认性别与剧情年龄阶段的人物会继续生成外形：${factsWarning}`;}
+        catch(factsError){factsWarning=factsError?.message||String(factsError);setAnalysisStage("facts",false,factsWarning);setAnalysisStage("relationships",false,factsWarning);ensureFallbackPeopleGraph();if(p)p.textContent=`人物事实请求未完成；仅已确认性别与剧情年龄阶段的人物会继续生成外形：${factsWarning}`;emitCharacterCoreTrace({trace_stage:"core_parity_facts_relationships",request_id:`core-parity-error-${Date.now()}`,outcome:"error",error:factsWarning,summary:"人物事实/关系AI请求前端处理异常，已走保底人物链路"}).catch(()=>{});}
       }
       if(!core().people.length&&core().slots.length)ensureFallbackPeopleGraph();
       globalThis.__v23CharacterInstructionMode = onlySlotId ? "single_character" : "all_characters";
@@ -1435,7 +1464,11 @@
       }
       apiError(error?.message||String(error));showAIStatusNotice(`人物卡处理异常，但已写入内容不会回滚：${error?.message||error}`,"warning",12000);return null;
     }
-    finally{globalThis.__v23CharacterInstructionMode = "single_character";if(typeof setButtonBusy==="function")setButtonBusy(button,false);}
+    finally{globalThis.__v23CharacterInstructionMode = "single_character";if(typeof setButtonBusy==="function")setButtonBusy(button,false);
+      // 无论 AI 流程成功、部分成功还是中断，只要内存里已写回人物事实/外形，
+      // 都立即触发草稿保存，避免用户刷新后从旧草稿恢复到空壳人物卡。
+      try{if(typeof scheduleDraftSave==="function")scheduleDraftSave();}catch(_e){}
+    }
   }
 
   function cleanStyleAnalysisAdvice(value = "") {
@@ -2551,7 +2584,7 @@
       const health=await response.json();
       if(text(health.app_version)!==BUILD_VERSION)runtimeBuildMismatch=`当前页面脚本为 ${BUILD_VERSION}，后端为 ${text(health.app_version)||"未知版本"}。请关闭旧进程并使用当前目录的 START_CLEAN.ps1 重新启动。`;
     }catch(error){runtimeBuildMismatch=`无法验证当前后端版本：${error?.message||error}`;}
-    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V78.3.0.3 · 场景锚点/事件归属/连续时间轴根治";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=(globalThis.__V78_CURRENT_RUNTIME__||globalThis.__V77_CURRENT_RUNTIME__)?.buildId||"v78.3.0.3-remote-workbench-20260819-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
+    const badge=document.createElement("span");badge.id="v77NativeBuildBadge";badge.className="status-pill";badge.textContent=runtimeBuildMismatch?"版本不一致":"V78.3.0.2 · 场景锚点/事件归属/连续时间轴根治";badge.title=runtimeBuildMismatch||"单一运行时版本源；旧Hotfix模块不得再改软件版本徽标；历史记录、AI指令中心、临时人物等仅作为功能模块运行。";badge.dataset.runtimeVersion=BUILD_VERSION;badge.dataset.runtimeBuildId=(globalThis.__V78_CURRENT_RUNTIME__||globalThis.__V77_CURRENT_RUNTIME__)?.buildId||"v78.3.0.2-scene-event-canonical-timeline-20260818-r1";q("#aiStatus")?.insertAdjacentElement("afterend",badge);
     if(!runtimeBuildMismatch) (globalThis.__v78ApplyRuntimeBadge||globalThis.__v77ApplyRuntimeBadge)?.();
     if(runtimeBuildMismatch)showAIStatusNotice(runtimeBuildMismatch,"warning",20000);
     globalThis.addEventListener?.("beforeunload",releaseProjectLease,{once:true});
