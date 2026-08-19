@@ -1,11 +1,8 @@
 # 敏感配置
 api-config.json
 
-# 生成输出
-outputs/
-
-# 用户运行时数据
-data/users/
+# 用户运行时数据（API 密钥仍忽略）
+data/users/**/api-config.json
 
 # React 前端构建产物
 frontend/node_modules/

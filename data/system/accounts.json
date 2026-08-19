@@ -1,0 +1,56 @@
+[
+  {
+    "username": "choushiyiguai",
+    "passwordHash": "scrypt$fc3785504b851ddd884764da0f5edb7f$27a9597f14c68f04cb048762289107ba81ee3c329859d1d4ce62b16ad7d1bcec11ad10634aff122358d7bf338a336828fe3a715ac0630b47692430429c1a8e7c",
+    "isOwner": true,
+    "active": true,
+    "createdAt": "2026-08-17T08:37:29.722Z",
+    "updatedAt": "2026-08-17T08:37:29.722Z",
+    "source": "seed"
+  },
+  {
+    "username": "choushiyiguai1",
+    "passwordHash": "scrypt$6c00c9734348121b4b004ec10f9b9bce$9fd5b0bc16d1265dd8e56cfc256f2a5a31c8948cc7581e9aa14217b19c8df06724aef5a81985c4db55c03c4a0bd20a16fcc5337ea4bb097666bcf3f5a0e2b12c",
+    "isOwner": false,
+    "active": true,
+    "createdAt": "2026-08-17T08:37:29.722Z",
+    "updatedAt": "2026-08-17T08:37:29.722Z",
+    "source": "seed"
+  },
+  {
+    "username": "choushiyiguai2",
+    "passwordHash": "scrypt$cc57bc1e1d9723d20a117c5065d0a86b$026f9ff10d84a18371da8f98485a0059e74c342a5de28d18c0f6b92b2d9df29410e647ab0e97a054751e37083a681259815d0e0c517e98e3cd37f0f5651b1038",
+    "isOwner": false,
+    "active": true,
+    "createdAt": "2026-08-17T08:37:29.722Z",
+    "updatedAt": "2026-08-17T08:37:29.722Z",
+    "source": "seed"
+  },
+  {
+    "username": "choushiyiguai3",
+    "passwordHash": "scrypt$fdf9abc93d84a5f0205f20166d34c645$af9c89c8de5b8e830b85e88990a1470bee0b7a052f26b4c158ce293188e47a8e741100554e3004766284075550c0584df9ad1665293ba315a53269935afe0066",
+    "isOwner": false,
+    "active": true,
+    "createdAt": "2026-08-17T08:37:29.722Z",
+    "updatedAt": "2026-08-17T08:37:29.722Z",
+    "source": "seed"
+  },
+  {
+    "username": "choushiyiguai4",
+    "passwordHash": "scrypt$f6d9e08f7182339254dc195c7f6adef7$8d8a19aa81307553ab60222b2520b1ca2422a694a64551bf33893b7c78502e8f7ebe05bc2c2babff5de0ebf09eebf0c0450a5f5dc9c173b175c6a01e2e76ecdb",
+    "isOwner": false,
+    "active": true,
+    "createdAt": "2026-08-17T08:37:29.722Z",
+    "updatedAt": "2026-08-17T08:37:29.722Z",
+    "source": "seed"
+  },
+  {
+    "username": "choushiyiguai5",
+    "passwordHash": "scrypt$952a4011eae1791fb198552bf8be1913$433119abe001a084346ba25bc07b4a6410a5b621c4ad13d80329390475a7610de3f8740ec6da71e3b3a88212932ad068e12f4f5ddd5f8b1626b9e0ff0dc226fc",
+    "isOwner": false,
+    "active": true,
+    "createdAt": "2026-08-17T08:37:29.722Z",
+    "updatedAt": "2026-08-17T08:37:29.722Z",
+    "source": "seed"
+  }
+]

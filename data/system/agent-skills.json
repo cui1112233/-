@@ -1,0 +1,18 @@
+[
+  {
+    "id": "pre-roll-ad-script",
+    "source": "system",
+    "owner": null,
+    "name": "前贴片广告脚本",
+    "description": "生成可拍摄的前贴片广告分镜脚本。",
+    "category": "广告创作",
+    "inputTemplate": "请为我生成一个前贴片视频脚本：\n1. 产品/品牌名称：\n2. 核心卖点（USP）：\n3. 目标受众：\n4. 投放渠道与时长：\n5. 视频风格：",
+    "body": "PRE_ROLL_SKILL_BODY\n为前贴片广告脚本输出且只能输出 Markdown 表格，表头固定为：镜号｜画面内容（视觉/动作/文字包装）｜旁白/台词（听觉）｜音效/BGM｜预估时长。\n第 1 镜的前三秒必须采用视觉冲击、痛点或反直觉 Hook。结尾必须给出明确 CTA。总时长必须与用户指定时长一致。\n不能声称已发布、拍摄、上传或执行任何外部操作。",
+    "version": 1,
+    "status": "published",
+    "createdAt": "2026-08-17T08:37:56.522Z",
+    "createdBy": "choushiyiguai",
+    "publishedAt": "2026-08-17T08:37:56.522Z",
+    "publishedBy": "choushiyiguai"
+  }
+]
