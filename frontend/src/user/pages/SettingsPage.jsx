@@ -1,7 +1,9 @@
-import { AutoComplete, Button, Form, Input, Select, Typography, message } from 'antd';
+import { AutoComplete, Button, Form, Input, Select, Switch, Typography, message } from 'antd';
 import { Cable, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getConfig, saveConfig, testConfig } from '../../shared/api/config';
+import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
+import { getCurrentUsername } from '../../shared/api/auth';
+import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 
 const providers = [
   { label: 'OpenAI', value: 'openai' },
@@ -35,8 +37,16 @@ export function SettingsPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [testingText, setTestingText] = useState(false);
+  const [testingImage, setTestingImage] = useState(false);
   const [provider, setProvider] = useState('openai');
+  const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
+  const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
+  const username = getCurrentUsername();
+
+  useEffect(() => {
+    setCompanionActive(readCompanionSpeechState(username).active);
+  }, [username]);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +59,14 @@ export function SettingsPage() {
           baseUrl: config.baseUrl || 'https://api.openai.com/v1',
           model: config.model || 'gpt-4o-mini',
           apiKey: '',
+          image: {
+            mode: config.image?.mode || 'openai_compatible',
+            provider: config.image?.provider || 'openai_compatible',
+            displayName: config.image?.displayName || '',
+            baseUrl: config.image?.baseUrl || '',
+            model: config.image?.model || '',
+            apiKey: ''
+          },
           petId: config.pet?.id || stackyPet.id
         });
         setProvider(config.provider || 'openai');
@@ -68,9 +86,11 @@ export function SettingsPage() {
         baseUrl: values.baseUrl,
         model: values.model,
         apiKey: values.apiKey,
+        image: values.image,
         pet: values.petId === stackyPet.id ? stackyPet : undefined
       });
       form.setFieldValue('apiKey', '');
+      form.setFieldValue(['image', 'apiKey'], '');
       message.success('设置已保存');
     } catch (error) {
       message.error(error.message || '保存失败');
@@ -89,17 +109,31 @@ export function SettingsPage() {
     });
   }
 
-  async function handleTest() {
+  async function handleTestText() {
     try {
       const values = await form.validateFields(['provider', 'baseUrl', 'model']);
-      setTesting(true);
-      const result = await testConfig({ ...values, apiKey: form.getFieldValue('apiKey') });
+      setTestingText(true);
+      const result = await testTextConfig({ ...values, apiKey: form.getFieldValue('apiKey') });
       message.success(result.message ? `连接成功：${result.message}` : '连接成功');
     } catch (error) {
       if (error?.errorFields) return;
       message.error(error.message || '连接测试失败');
     } finally {
-      setTesting(false);
+      setTestingText(false);
+    }
+  }
+
+  async function handleTestImage() {
+    try {
+      const { image } = await form.validateFields([['image', 'baseUrl'], ['image', 'model']]);
+      setTestingImage(true);
+      const result = await testImageConfig({ ...image, apiKey: form.getFieldValue(['image', 'apiKey']) });
+      message.success(result.message ? `生图连接成功：${result.message}` : '生图连接成功');
+    } catch (error) {
+      if (error?.errorFields) return;
+      message.error(error.message || '生图连接测试失败');
+    } finally {
+      setTestingImage(false);
     }
   }
 
@@ -159,12 +193,47 @@ export function SettingsPage() {
               <Typography.Paragraph type="secondary">{stackyPet.description}</Typography.Paragraph>
             </div>
           </div>
+          <Form.Item label="宠物主动说话" valuePropName="checked">
+            <Switch checked={companionActive} onChange={checked => {
+              setCompanionActive(checked);
+              writeCompanionSpeechState(username, { ...readCompanionSpeechState(username), active: checked, nextIdleAt: 0 });
+              window.dispatchEvent(new CustomEvent(PET_COMPANION_SETTINGS_EVENT, { detail: { active: checked, username } }));
+            }} />
+          </Form.Item>
+          <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button>
+        </section>
+
+        <section className="settings-section settings-image-section" aria-labelledby="settings-image-title">
+          <div>
+            <h2 id="settings-image-title">生图服务</h2>
+            <p>独立用于水货生产的图片生成，不会复用文本模型的地址或密钥。</p>
+          </div>
+          <Form.Item label="API 提供商" name={['image', 'provider']}>
+            <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }]} disabled />
+          </Form.Item>
+          <Form.Item label="生图模式" name={['image', 'mode']}>
+            <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }, { label: '自定义（OpenAI 兼容）', value: 'custom' }]} onChange={mode => {
+              if (mode !== 'custom') form.setFieldValue(['image', 'displayName'], '');
+            }} />
+          </Form.Item>
+          {imageMode === 'custom' ? <Form.Item label="供应商名称" name={['image', 'displayName']} rules={[{ required: true, whitespace: true, message: '请输入供应商名称' }]}>
+            <Input placeholder="例如 My image gateway" maxLength={80} />
+          </Form.Item> : null}
+          <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}>
+            <Input placeholder="https://api.openai.com/v1" />
+          </Form.Item>
+          <Form.Item label="API Key" name={['image', 'apiKey']}>
+            <Input.Password placeholder="留空表示不修改已保存的 Key" />
+          </Form.Item>
+          <Form.Item label="生图模型名称" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型名称' }]}>
+            <Input placeholder="例如 gpt-image-1" />
+          </Form.Item>
+          <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestImage} loading={testingImage}>测试生图连接</Button>
         </section>
 
         <div className="settings-savebar">
           <span>保存后仅更新当前账号的工作台连接配置。</span>
           <div className="settings-savebar-actions">
-            <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTest} loading={testing}>测试连接</Button>
             <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving}>保存设置</Button>
           </div>
         </div>

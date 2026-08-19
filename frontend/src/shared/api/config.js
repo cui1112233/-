@@ -11,9 +11,16 @@ export function saveConfig(config) {
   });
 }
 
-export function testConfig(config) {
-  return apiRequest('/api/test', {
+export function testTextConfig(config) {
+  return apiRequest('/api/test/text', {
     method: 'POST',
     body: JSON.stringify(config)
+  });
+}
+
+export function testImageConfig(image) {
+  return apiRequest('/api/test/image', {
+    method: 'POST',
+    body: JSON.stringify({ image })
   });
 }
