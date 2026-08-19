@@ -88,6 +88,10 @@ test('settings test text and image connections independently without saving conf
   assert.match(apiSource, /body:\s*JSON\.stringify\(\{ image \}\)/);
   assert.doesNotMatch(apiSource, /export function testConfig\(/);
 
+  for (const functionName of ['testTextConfig', 'testImageConfig']) {
+    assert.match(functionBody(apiSource, functionName), /suppressGlobalError:\s*true/);
+  }
+
   assert.match(pageSource, /const \[testingText, setTestingText\] = useState\(false\);/);
   assert.match(pageSource, /const \[testingImage, setTestingImage\] = useState\(false\);/);
   assert.match(pageSource, /async function handleTestText\(\)/);
