@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const https = require('node:https');
 
 const {
   buildModelsUrl,
@@ -24,6 +25,8 @@ test('buildModelsUrl normalizes OpenAI-compatible base URLs', () => {
   assert.equal(buildModelsUrl('https://gateway.example'), 'https://gateway.example/v1/models');
   assert.equal(buildModelsUrl('https://gateway.example/models'), 'https://gateway.example/v1/models');
   assert.equal(buildModelsUrl('https://gateway.example/v1/models'), 'https://gateway.example/v1/models');
+  assert.equal(buildModelsUrl('https://gateway.example/v1?region=sg'), 'https://gateway.example/v1/models?region=sg');
+  assert.equal(buildModelsUrl('https://gateway.example#catalog'), 'https://gateway.example/v1/models#catalog');
   assert.throws(() => buildModelsUrl(''), /Base URL is required/);
 });
 
@@ -87,6 +90,44 @@ test('model catalog lookup uses the configured proxy for HTTPS targets', async (
     );
     assert.equal(observed.target, 'catalog.example:443');
   } finally {
+    if (originalProxy === undefined) delete process.env.QIANTIE_HTTPS_PROXY;
+    else process.env.QIANTIE_HTTPS_PROXY = originalProxy;
+    await new Promise((resolve, reject) => proxy.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test('pre-aborted model catalog lookup creates no transport request or proxy CONNECT', async () => {
+  const observed = { connectRequests: 0, transportRequests: 0 };
+  const proxy = http.createServer();
+  proxy.on('connect', (_req, socket) => {
+    observed.connectRequests += 1;
+    socket.destroy();
+  });
+
+  await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
+  const address = proxy.address();
+  const originalProxy = process.env.QIANTIE_HTTPS_PROXY;
+  const originalHttpsRequest = https.request;
+  process.env.QIANTIE_HTTPS_PROXY = `http://127.0.0.1:${address.port}`;
+  https.request = (...args) => {
+    observed.transportRequests += 1;
+    return originalHttpsRequest(...args);
+  };
+
+  const controller = new AbortController();
+  const abortError = new Error('test abort');
+  abortError.name = 'AbortError';
+  controller.abort(abortError);
+
+  try {
+    await assert.rejects(
+      requestUpstreamModels({ baseUrl: 'https://catalog.example', apiKey: 'test-image-key' }, collectResponse, { signal: controller.signal }),
+      error => error?.code === 'UPSTREAM_ABORTED'
+    );
+    assert.equal(observed.transportRequests, 0);
+    assert.equal(observed.connectRequests, 0);
+  } finally {
+    https.request = originalHttpsRequest;
     if (originalProxy === undefined) delete process.env.QIANTIE_HTTPS_PROXY;
     else process.env.QIANTIE_HTTPS_PROXY = originalProxy;
     await new Promise((resolve, reject) => proxy.close(error => error ? reject(error) : resolve()));
