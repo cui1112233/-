@@ -1,4 +1,4 @@
-import { Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
+import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
 import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, X } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
@@ -6,7 +6,8 @@ import { Lanyard } from '../components/lanyard/Lanyard';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
-import { getConfig } from '../api/config';
+import { getConfig, saveAvatar } from '../api/config';
+import { AVATAR_PRESETS, avatarDisplay } from '../avatars';
 import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
@@ -54,11 +55,16 @@ export function UserLayout({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
+  const [avatar, setAvatar] = useState(null);
+  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [avatarPicking, setAvatarPicking] = useState(null);
+  const [avatarSaving, setAvatarSaving] = useState(false);
   const accountSessionGenerationRef = useRef(0);
   const loginCardTransitionTimerRef = useRef(null);
   const pathname = window.location.pathname;
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
+  const displayAvatar = avatarDisplay(avatar, username);
   const accountSessionKey = username || 'anonymous';
   const content = isValidElement(children)
     ? cloneElement(
@@ -86,7 +92,10 @@ export function UserLayout({ children }) {
     }
     window.addEventListener('qiantie:notifications-updated', updatePetVisibility);
     if (isLoggedIn) {
-      getConfig().then(config => setPetVisible(config.notifications?.petVisible !== false)).catch(() => {});
+      getConfig().then(config => {
+        setPetVisible(config.notifications?.petVisible !== false);
+        setAvatar(config.avatar || null);
+      }).catch(() => {});
     }
     return () => window.removeEventListener('qiantie:notifications-updated', updatePetVisibility);
   }, [isLoggedIn]);
@@ -201,9 +210,27 @@ export function UserLayout({ children }) {
     await logout();
     setUsername('');
     setAccount(null);
+    setAvatar(null);
+    setAvatarPicking(null);
+    setAvatarEditorOpen(false);
     setLoginExpanded(true);
     setLoginDialogOpen(true);
     message.success('已退出');
+  }
+
+  async function handleSaveAvatar() {
+    if (!avatarPicking) return;
+    setAvatarSaving(true);
+    try {
+      await saveAvatar(avatarPicking);
+      setAvatar(avatarPicking);
+      setAvatarEditorOpen(false);
+      message.success('头像已更新');
+    } catch (error) {
+      message.error(error.message || '保存头像失败');
+    } finally {
+      setAvatarSaving(false);
+    }
   }
 
   function openLoginDialog() {
@@ -355,25 +382,52 @@ export function UserLayout({ children }) {
             </Link>
           ) : null}
         </div>
+        {isLoggedIn ? (
+          <div className="legacy-sidebar-user">
+            <button
+              type="button"
+              className="legacy-sidebar-avatar"
+              onClick={() => { setAvatarPicking(avatar); setAvatarEditorOpen(true); }}
+              title="点击更换头像"
+              aria-label="更换头像"
+            >
+              <Avatar size={28} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
+            </button>
+            <span className="legacy-sidebar-username" title={username}>{username}</span>
+            <Button size="small" onClick={handleLogout}>退出</Button>
+          </div>
+        ) : null}
       </aside>
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
-          <header className="legacy-topbar">
-            <span className="legacy-page-title">{pageTitle(pathname)}</span>
-            <div className="legacy-userbar">
-              {isLoggedIn ? (
-                <>
-                  <span className="legacy-muted">{username}</span>
-                  <Button size="small" onClick={handleLogout}>退出</Button>
-                </>
-              ) : null}
-            </div>
-          </header>
           <section className="legacy-content">{content}</section>
         </main>
         {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
+      <Modal title="更换头像" open={avatarEditorOpen} onCancel={() => setAvatarEditorOpen(false)} footer={null} width={440}>
+        <div className="avatar-picker-grid" role="listbox" aria-label="选择头像">
+          {AVATAR_PRESETS.map(preset => {
+            const selected = avatarPicking?.emoji === preset.emoji && avatarPicking?.background === preset.background;
+            return (
+              <button
+                key={preset.emoji}
+                type="button"
+                className={`avatar-option${selected ? ' selected' : ''}`}
+                aria-pressed={selected}
+                onClick={() => setAvatarPicking(preset)}
+              >
+                <Avatar size={40} style={{ backgroundColor: preset.background }}>{preset.emoji}</Avatar>
+                <span className="avatar-option-label">{preset.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="avatar-picker-footer">
+          <Button onClick={() => setAvatarEditorOpen(false)}>取消</Button>
+          <Button type="primary" loading={avatarSaving} disabled={!avatarPicking} onClick={handleSaveAvatar}>保存头像</Button>
+        </div>
+      </Modal>
       </div>
     </ConfigProvider>
   );

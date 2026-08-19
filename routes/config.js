@@ -43,6 +43,14 @@ function normalizeNotifications(value, fallback = {}) {
   };
 }
 
+function normalizeAvatar(value, fallback = null) {
+  const emoji = typeof value?.emoji === 'string' ? value.emoji.trim() : '';
+  const background = typeof value?.background === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(value.background.trim())
+    ? value.background.trim()
+    : '';
+  return emoji && background ? { emoji, background } : fallback;
+}
+
 function createConfigRouter({ shuihuoGateway } = {}) {
   const router = express.Router();
   router.use(apiAuth);
@@ -53,6 +61,7 @@ function createConfigRouter({ shuihuoGateway } = {}) {
     config.pet = normalizePetConfig(config.pet);
     config.tts = normalizeTtsConfig(config.tts);
     config.notifications = normalizeNotifications(config.notifications);
+    config.avatar = normalizeAvatar(config.avatar);
     res.json(publicConfig(config));
   });
 
@@ -74,7 +83,8 @@ function createConfigRouter({ shuihuoGateway } = {}) {
       image: normalizeImageConfig(body.image, oldConfig.image),
       pet: normalizePetConfig(body.pet, oldConfig.pet),
       tts: normalizeTtsConfig(body.tts, oldConfig.tts),
-      notifications: normalizeNotifications(body.notifications, oldConfig.notifications)
+      notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
+      avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
     };
     if (shuihuoGateway) {
       try {
@@ -95,4 +105,4 @@ function createConfigRouter({ shuihuoGateway } = {}) {
   return router;
 }
 
-module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications };
+module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar };

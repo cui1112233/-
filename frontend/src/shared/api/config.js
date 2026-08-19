@@ -11,6 +11,10 @@ export function saveConfig(config) {
   });
 }
 
+export function saveAvatar(avatar) {
+  return saveConfig({ avatar });
+}
+
 export function testTextConfig(config) {
   return apiRequest('/api/test/text', {
     method: 'POST',
