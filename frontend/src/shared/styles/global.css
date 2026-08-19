@@ -555,7 +555,7 @@ select {
 
 .legacy-corner-user {
   position: fixed;
-  right: 22px;
+  left: 232px;
   bottom: 168px;
   z-index: 850;
   display: flex;
