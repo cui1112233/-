@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,13 +29,14 @@ const (
 type YD struct {
 	client      *http.Client
 	credentials models.CredentialResolver
+	resolver    models.IPResolver
 }
 
 func NewYD(client *http.Client, credentials models.CredentialResolver) *YD {
 	if client == nil {
 		client = &http.Client{Timeout: 90 * time.Second}
 	}
-	return &YD{client: client, credentials: credentials}
+	return &YD{client: client, credentials: credentials, resolver: net.DefaultResolver}
 }
 
 func (p *YD) Submit(ctx context.Context, model models.Definition, request models.Request) (models.Response, error) {
@@ -56,20 +58,20 @@ func (p *YD) Submit(ctx context.Context, model models.Definition, request models
 	if len(request.ReferenceImageURLs) > 3 {
 		return models.Response{}, fmt.Errorf("YD accepts at most 3 reference images")
 	}
-	if err := validateYDURL("YD endpoint", ydCreateEndpoint); err != nil {
+	if err := p.validateURL(ctx, "YD endpoint", ydCreateEndpoint); err != nil {
 		return models.Response{}, err
 	}
-	if err := validateYDURL("YD empty image URL", ydEmptyImageURL); err != nil {
+	if err := p.validateURL(ctx, "YD empty image URL", ydEmptyImageURL); err != nil {
 		return models.Response{}, err
 	}
-	if err := validateYDURL("YD scene image URL", sceneURL); err != nil {
+	if err := p.validateURL(ctx, "YD scene image URL", sceneURL); err != nil {
 		return models.Response{}, err
 	}
 	images := make([]string, 0, len(request.ReferenceImageURLs)+2)
 	images = append(images, ydEmptyImageURL)
 	for index, rawURL := range request.ReferenceImageURLs {
 		imageURL := strings.TrimSpace(rawURL)
-		if err := validateYDURL(fmt.Sprintf("YD reference image URL %d", index+1), imageURL); err != nil {
+		if err := p.validateURL(ctx, fmt.Sprintf("YD reference image URL %d", index+1), imageURL); err != nil {
 			return models.Response{}, err
 		}
 		images = append(images, imageURL)
@@ -97,7 +99,7 @@ func (p *YD) Submit(ctx context.Context, model models.Definition, request models
 	setYDAuth(httpRequest, token)
 	response, err := p.client.Do(httpRequest)
 	if err != nil {
-		return models.Response{}, fmt.Errorf("call YD")
+		return models.Response{}, fmt.Errorf("call YD: %w", err)
 	}
 	defer response.Body.Close()
 	body, err := readYDResponse(response)
@@ -122,7 +124,7 @@ func (p *YD) Poll(ctx context.Context, model models.Definition, providerTaskID s
 	if providerTaskID == "" {
 		return AsyncVideoTask{}, fmt.Errorf("YD provider task ID is required")
 	}
-	if err := validateYDURL("YD status endpoint", ydStatusEndpoint); err != nil {
+	if err := p.validateURL(ctx, "YD status endpoint", ydStatusEndpoint); err != nil {
 		return AsyncVideoTask{}, err
 	}
 	token, err := p.credential(model)
@@ -130,7 +132,7 @@ func (p *YD) Poll(ctx context.Context, model models.Definition, providerTaskID s
 		return AsyncVideoTask{}, err
 	}
 	statusURL := ydStatusEndpoint + "/" + url.PathEscape(providerTaskID)
-	if err := validateYDURL("YD status URL", statusURL); err != nil {
+	if err := p.validateURL(ctx, "YD status URL", statusURL); err != nil {
 		return AsyncVideoTask{}, err
 	}
 	statusBody, err := p.get(ctx, statusURL, token)
@@ -156,14 +158,14 @@ func (p *YD) Poll(ctx context.Context, model models.Definition, providerTaskID s
 		return AsyncVideoTask{ID: providerTaskID, State: AsyncVideoFailed, Message: safeYDMessage(status.ErrorMessage, token)}, nil
 	case "SUCCESS":
 		resultEndpoint := ydStatusEndpoint + "/" + url.PathEscape(providerTaskID) + "/result"
-		if err := validateYDURL("YD result endpoint", resultEndpoint); err != nil {
+		if err := p.validateURL(ctx, "YD result endpoint", resultEndpoint); err != nil {
 			return AsyncVideoTask{}, err
 		}
 		resultBody, err := p.get(ctx, resultEndpoint, token)
 		if err != nil {
 			return AsyncVideoTask{}, err
 		}
-		resultURL, err := decodeYDResultURL(resultBody)
+		resultURL, err := p.decodeResultURL(ctx, resultBody)
 		if err != nil {
 			return AsyncVideoTask{}, err
 		}
@@ -181,7 +183,7 @@ func (p *YD) get(ctx context.Context, endpoint, token string) ([]byte, error) {
 	setYDAuth(request, token)
 	response, err := p.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("call YD")
+		return nil, fmt.Errorf("call YD: %w", err)
 	}
 	defer response.Body.Close()
 	body, err := readYDResponse(response)
@@ -210,9 +212,13 @@ func setYDAuth(request *http.Request, token string) {
 	request.Header.Set("Authorization", "Bearer "+token)
 }
 
-func validateYDURL(label, raw string) error {
-	if _, err := models.ValidateOutboundURL(raw); err != nil {
-		return fmt.Errorf("validate %s", label)
+func (p *YD) validateURL(ctx context.Context, label, raw string) error {
+	resolver := p.resolver
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	if _, err := models.ValidateOutboundURLWithResolver(ctx, raw, resolver); err != nil {
+		return fmt.Errorf("validate %s: %w", label, err)
 	}
 	return nil
 }
@@ -245,7 +251,7 @@ func decodeYDTaskID(body []byte) (string, error) {
 	return "", fmt.Errorf("YD submit response did not contain a task ID")
 }
 
-func decodeYDResultURL(body []byte) (string, error) {
+func (p *YD) decodeResultURL(ctx context.Context, body []byte) (string, error) {
 	var payload struct {
 		URLs    []string `json:"urls"`
 		Outputs []struct {
@@ -265,8 +271,10 @@ func decodeYDResultURL(body []byte) (string, error) {
 		if candidate == "" {
 			continue
 		}
-		if _, err := models.ValidateOutboundURL(candidate); err == nil {
+		if err := p.validateURL(ctx, "YD result URL", candidate); err == nil {
 			return candidate, nil
+		} else if ctx.Err() != nil {
+			return "", err
 		}
 	}
 	return "", fmt.Errorf("YD result response did not contain a valid HTTPS URL")

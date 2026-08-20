@@ -3,7 +3,9 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -150,23 +152,83 @@ func TestYDPollMapsStatusesAndFetchesResult(t *testing.T) {
 }
 
 func TestYDPollUsesFirstValidURLFromURLsThenOutputs(t *testing.T) {
-	for _, resultBody := range []string{
-		`{"urls":["http://invalid.example/clip.mp4","https://example.com/from-urls.mp4"],"outputs":[{"url":"https://example.com/from-output.mp4"}]}`,
-		`{"urls":[],"outputs":[{"url":"http://invalid.example/clip.mp4"},{"url":"https://example.com/from-output.mp4"}]}`,
+	for _, test := range []struct {
+		name       string
+		resultBody string
+		wantURL    string
+	}{
+		{name: "urls win before outputs", resultBody: `{"urls":["http://invalid.example/clip.mp4","https://example.com/from-urls.mp4"],"outputs":[{"url":"https://example.com/from-output.mp4"}]}`, wantURL: "https://example.com/from-urls.mp4"},
+		{name: "outputs when urls are absent", resultBody: `{"urls":[],"outputs":[{"url":"http://invalid.example/clip.mp4"},{"url":"https://example.com/from-output.mp4"}]}`, wantURL: "https://example.com/from-output.mp4"},
 	} {
-		provider := newYDTestProvider(func(request *http.Request) (*http.Response, error) {
-			if strings.HasSuffix(request.URL.Path, "/result") {
-				return jsonResponse(http.StatusOK, resultBody), nil
+		t.Run(test.name, func(t *testing.T) {
+			provider := newYDTestProvider(func(request *http.Request) (*http.Response, error) {
+				if strings.HasSuffix(request.URL.Path, "/result") {
+					return jsonResponse(http.StatusOK, test.resultBody), nil
+				}
+				return jsonResponse(http.StatusOK, `{"status":"SUCCESS"}`), nil
+			})
+			result, err := provider.Poll(context.Background(), ydModel, "yd-42")
+			if err != nil {
+				t.Fatal(err)
 			}
-			return jsonResponse(http.StatusOK, `{"status":"SUCCESS"}`), nil
+			if result.State != AsyncVideoSucceeded || result.ResultURL != test.wantURL {
+				t.Fatalf("result = %#v", result)
+			}
 		})
-		result, err := provider.Poll(context.Background(), ydModel, "yd-42")
-		if err != nil {
-			t.Fatal(err)
+	}
+}
+
+func TestYDWrapsHTTPClientCancellationErrors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call func(*YD) error
+	}{
+		{name: "submit", call: func(provider *YD) error {
+			_, err := provider.Submit(context.Background(), ydModel, models.Request{Prompt: "p", ImageURL: "https://example.com/scene.png", AspectRatio: "9:16"})
+			return err
+		}},
+		{name: "poll", call: func(provider *YD) error {
+			_, err := provider.Poll(context.Background(), ydModel, "yd-42")
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := newYDTestProvider(func(*http.Request) (*http.Response, error) {
+				return nil, context.DeadlineExceeded
+			})
+			if err := test.call(provider); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("error = %v, want wrapped deadline exceeded", err)
+			}
+		})
+	}
+}
+
+func TestYDValidatesResultURLWithRequestContextAndInjectedResolver(t *testing.T) {
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "request-context")
+	seenResultHost := false
+	provider := newYDTestProvider(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, "/result") {
+			return jsonResponse(http.StatusOK, `{"urls":["https://result.example/clip.mp4"]}`), nil
 		}
-		if result.State != AsyncVideoSucceeded || result.ResultURL != "https://example.com/from-urls.mp4" && result.ResultURL != "https://example.com/from-output.mp4" {
-			t.Fatalf("result = %#v", result)
+		return jsonResponse(http.StatusOK, `{"status":"SUCCESS"}`), nil
+	})
+	provider.resolver = ydResolverFunc(func(resolverCtx context.Context, host string) ([]net.IPAddr, error) {
+		if resolverCtx.Value(contextKey{}) != "request-context" {
+			t.Fatal("URL validation did not receive the request context")
 		}
+		if host == "result.example" {
+			seenResultHost = true
+		}
+		return []net.IPAddr{{IP: net.ParseIP("8.8.8.8")}}, nil
+	})
+
+	result, err := provider.Poll(ctx, ydModel, "yd-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !seenResultHost || result.ResultURL != "https://result.example/clip.mp4" {
+		t.Fatalf("result = %#v, result URL resolver called = %t", result, seenResultHost)
 	}
 }
 
@@ -196,4 +258,10 @@ func TestYDPollRejectsUnknownMalformedHTTPAndLeakyResponses(t *testing.T) {
 
 func jsonResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+}
+
+type ydResolverFunc func(context.Context, string) ([]net.IPAddr, error)
+
+func (fn ydResolverFunc) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return fn(ctx, host)
 }
