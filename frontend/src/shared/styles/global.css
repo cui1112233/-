@@ -1826,6 +1826,23 @@ select {
 .settings-section h2 { margin: 0; color: var(--legacy-text); font-size: 16px; line-height: 1.4; }
 .settings-section > div > p { margin: 5px 0 18px; color: var(--legacy-muted); font-size: 13px; line-height: 1.55; }
 .settings-section .ant-form-item:last-of-type { margin-bottom: 0; }
+.settings-model-services { grid-column: 1 / -1; }
+.model-service-row { display: grid; grid-template-columns: minmax(180px, .58fr) minmax(0, 1.42fr); gap: 24px; padding: 20px 0; border-top: 1px solid var(--legacy-border); }
+.model-service-summary h3 { margin: 0; color: var(--legacy-text); font-size: 15px; line-height: 1.45; }
+.model-service-summary p { margin: 5px 0 0; color: var(--legacy-muted); font-size: 13px; line-height: 1.55; }
+.model-service-title-line { display: flex; align-items: center; gap: 8px; }
+.model-service-provider { padding: 2px 7px; border: 1px solid var(--legacy-border-strong); border-radius: 4px; color: var(--legacy-muted); font-size: 12px; line-height: 1.35; }
+.model-service-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.model-service-fields .ant-form-item { margin-bottom: 16px; }
+.model-service-test { width: max-content; }
+.model-service-video-fields { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 16px; }
+.model-service-video-fields .ant-form-item { margin-bottom: 0; }
+.model-service-video-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-height: 32px; color: var(--legacy-muted); font-size: 13px; }
+.model-service-video-meta > span:not(.model-service-key-status) { padding-right: 8px; border-right: 1px solid var(--legacy-border); }
+.model-service-video-meta > span:nth-last-child(2) { border-right: 0; }
+.model-service-key-status { padding: 3px 8px; border: 1px solid var(--legacy-border-strong); border-radius: 4px; font-size: 12px; line-height: 1.35; }
+.model-service-key-status.is-configured { color: var(--legacy-text); border-color: var(--legacy-border-strong); background: var(--legacy-accent-dim); }
+.model-service-key-status.is-unconfigured { color: var(--legacy-muted); }
 .settings-model-section { display: flex; flex-direction: column; }
 .settings-pet-preview {
   display: flex;
@@ -1857,6 +1874,10 @@ select {
   .settings-page { padding: 20px; }
   .settings-heading { gap: 14px; }
   .settings-form { grid-template-columns: minmax(0, 1fr); }
+  .model-service-row { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .model-service-fields { grid-template-columns: minmax(0, 1fr); }
+  .model-service-video-fields { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .model-service-video-meta { justify-content: flex-start; }
   .settings-savebar { align-items: flex-start; flex-direction: column; }
 }
 

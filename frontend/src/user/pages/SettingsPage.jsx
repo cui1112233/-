@@ -51,6 +51,7 @@ export function SettingsPage() {
   const [restoreReport, setRestoreReport] = useState(null);
   const [fileList, setFileList] = useState(null);
   const [provider, setProvider] = useState('openai');
+  const [videoHasApiKey, setVideoHasApiKey] = useState(false);
   const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -81,6 +82,9 @@ export function SettingsPage() {
             model: config.image?.model || '',
             apiKey: ''
           },
+          video: {
+            apiKey: ''
+          },
           storageRoot: config.storageRoot || '',
           petId: config.pet?.id || stackyPet.id,
           soundEnabled: config.notifications?.soundEnabled !== false,
@@ -88,6 +92,7 @@ export function SettingsPage() {
           petVisible: config.notifications?.petVisible !== false
         });
         setProvider(config.provider || 'openai');
+        setVideoHasApiKey(Boolean(config.video?.hasApiKey));
       })
       .catch(error => message.error(error.message || '读取设置失败'))
       .finally(() => {
@@ -105,6 +110,7 @@ export function SettingsPage() {
         model: values.model,
         apiKey: values.apiKey,
         image: values.image,
+        video: { apiKey: values.video?.apiKey || '' },
         storageRoot: values.storageRoot || '',
         pet: values.petId === stackyPet.id ? stackyPet : undefined,
         notifications: {
@@ -116,6 +122,8 @@ export function SettingsPage() {
       window.dispatchEvent(new CustomEvent('qiantie:notifications-updated', { detail: saved.notifications }));
       form.setFieldValue('apiKey', '');
       form.setFieldValue(['image', 'apiKey'], '');
+      form.setFieldValue(['video', 'apiKey'], '');
+      setVideoHasApiKey(Boolean(saved.video?.hasApiKey ?? (values.video?.apiKey || videoHasApiKey)));
       message.success('设置已保存');
     } catch (error) {
       message.error(error.message || '保存失败');
@@ -214,33 +222,96 @@ export function SettingsPage() {
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', storageRoot: '', petId: stackyPet.id, soundEnabled: true, soundVolume: 60, petVisible: true }}
+        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', image: { apiKey: '' }, video: { apiKey: '' }, storageRoot: '', petId: stackyPet.id, soundEnabled: true, soundVolume: 60, petVisible: true }}
         onFinish={handleSave}
       >
-        <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
+        <section className="settings-section settings-model-services" aria-labelledby="settings-model-services-title">
           <div>
-            <h2 id="settings-connection-title">连接配置</h2>
-            <p>选择模型服务并填写访问地址。</p>
+            <h2 id="settings-model-services-title">模型服务</h2>
+            <p>按用途分别配置文本、图片和视频生成服务。</p>
           </div>
-          <Form.Item label="API 提供商" name="provider">
-            <Select options={providers} onChange={handleProviderChange} />
-          </Form.Item>
-          <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}>
-            <Input placeholder="https://api.openai.com/v1" />
-          </Form.Item>
-          <Form.Item label="API Key" name="apiKey">
-            <Input.Password placeholder="留空表示不修改已保存的 Key" />
-          </Form.Item>
+
+          <div className="model-service-row">
+            <div className="model-service-summary">
+              <h3>文本推理</h3>
+              <p>用于剧本、提示词和内容分析。</p>
+            </div>
+            <div className="model-service-fields">
+              <Form.Item label="API 提供商" name="provider">
+                <Select options={providers} onChange={handleProviderChange} />
+              </Form.Item>
+              <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}>
+                <Input placeholder="https://api.openai.com/v1" />
+              </Form.Item>
+              <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}>
+                <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption />
+              </Form.Item>
+              <Form.Item label="API Key" name="apiKey">
+                <Input.Password placeholder="留空表示不修改已保存的 Key" />
+              </Form.Item>
+              <Button className="model-service-test" icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button>
+            </div>
+          </div>
+
+          <div className="model-service-row">
+            <div className="model-service-summary">
+              <h3>图片生成</h3>
+              <p>独立用于水货生产的图片生成。</p>
+            </div>
+            <div className="model-service-fields">
+              <Form.Item label="API 提供商" name={['image', 'provider']}>
+                <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }]} disabled />
+              </Form.Item>
+              <Form.Item label="生图模式" name={['image', 'mode']}>
+                <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }, { label: '自定义（OpenAI 兼容）', value: 'custom' }]} onChange={mode => {
+                  if (mode !== 'custom') form.setFieldValue(['image', 'displayName'], '');
+                }} />
+              </Form.Item>
+              {imageMode === 'custom' ? <Form.Item label="供应商名称" name={['image', 'displayName']} rules={[{ required: true, whitespace: true, message: '请输入供应商名称' }]}>
+                <Input placeholder="例如 My image gateway" maxLength={80} />
+              </Form.Item> : null}
+              <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}>
+                <Input placeholder="https://api.openai.com/v1" />
+              </Form.Item>
+              <Form.Item label="API Key" name={['image', 'apiKey']}>
+                <Input.Password placeholder="留空表示不修改已保存的 Key" />
+              </Form.Item>
+              <Form.Item label="生图模型名称" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型名称' }]}>
+                <Input placeholder="例如 gpt-image-1" />
+              </Form.Item>
+              <Button className="model-service-test" icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestImage} loading={testingImage}>测试生图连接</Button>
+            </div>
+          </div>
+
+          <div className="model-service-row model-service-video-row">
+            <div className="model-service-summary">
+              <div className="model-service-title-line">
+                <h3>视频生成</h3>
+                <span className="model-service-provider">中转亚迪</span>
+              </div>
+              <p>固定的图生视频服务配置。</p>
+            </div>
+            <div className="model-service-video-fields">
+              <Form.Item label="API Key" name={['video', 'apiKey']}>
+                <Input.Password placeholder="留空表示不修改已保存的 Key" />
+              </Form.Item>
+              <div className="model-service-video-meta" aria-label="固定视频服务规格">
+                <span>YD2.0 Mini</span>
+                <span>720p</span>
+                <span>1 秒</span>
+                <span className={`model-service-key-status ${videoHasApiKey ? 'is-configured' : 'is-unconfigured'}`}>
+                  {videoHasApiKey ? '已配置' : '未配置'}
+                </span>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="settings-section settings-model-section" aria-labelledby="settings-model-title">
           <div>
-            <h2 id="settings-model-title">模型与助手</h2>
-            <p>指定默认模型，并确认当前桌面宠物。</p>
+            <h2 id="settings-model-title">工作台与 CM</h2>
+            <p>管理桌面宠物和工作完成提醒。</p>
           </div>
-          <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}>
-            <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption />
-          </Form.Item>
           <Form.Item label="前贴宠物" name="petId">
             <Select options={petOptions} />
           </Form.Item>
@@ -276,35 +347,6 @@ export function SettingsPage() {
               window.dispatchEvent(new CustomEvent(PET_COMPANION_SETTINGS_EVENT, { detail: { active: checked, username } }));
             }} />
           </Form.Item>
-          <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button>
-        </section>
-
-        <section className="settings-section settings-image-section" aria-labelledby="settings-image-title">
-          <div>
-            <h2 id="settings-image-title">生图服务</h2>
-            <p>独立用于水货生产的图片生成，不会复用文本模型的地址或密钥。</p>
-          </div>
-          <Form.Item label="API 提供商" name={['image', 'provider']}>
-            <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }]} disabled />
-          </Form.Item>
-          <Form.Item label="生图模式" name={['image', 'mode']}>
-            <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }, { label: '自定义（OpenAI 兼容）', value: 'custom' }]} onChange={mode => {
-              if (mode !== 'custom') form.setFieldValue(['image', 'displayName'], '');
-            }} />
-          </Form.Item>
-          {imageMode === 'custom' ? <Form.Item label="供应商名称" name={['image', 'displayName']} rules={[{ required: true, whitespace: true, message: '请输入供应商名称' }]}>
-            <Input placeholder="例如 My image gateway" maxLength={80} />
-          </Form.Item> : null}
-          <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}>
-            <Input placeholder="https://api.openai.com/v1" />
-          </Form.Item>
-          <Form.Item label="API Key" name={['image', 'apiKey']}>
-            <Input.Password placeholder="留空表示不修改已保存的 Key" />
-          </Form.Item>
-          <Form.Item label="生图模型名称" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型名称' }]}>
-            <Input placeholder="例如 gpt-image-1" />
-          </Form.Item>
-          <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestImage} loading={testingImage}>测试生图连接</Button>
         </section>
 
         <section className="settings-section settings-storage-section" aria-labelledby="settings-storage-title">
