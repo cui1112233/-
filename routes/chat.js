@@ -16,14 +16,16 @@ const FORMAT_PRESET_ID_MAP = {
   screenplay: 'script-format-screenplay',
   storyboard: 'script-format-storyboard',
   shortdrama: 'script-format-shortdrama',
-  shotlist: 'script-format-shotlist'
+  shotlist: 'script-format-shotlist',
+  'q版': 'script-format-qban'
 };
 
 const FORMAT_NAME_MAP = {
   screenplay: '剧情模式',
   storyboard: '画布模式',
   shortdrama: '剧本模式',
-  shotlist: '分镜模式'
+  shotlist: '分镜模式',
+  'q版': 'Q版模式'
 };
 
 const CONSTRAINT_CATEGORY_PREFIXES = {
@@ -212,7 +214,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
   // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
-  const unitProtocol = format === 'shortdrama' || mode === 'segmented'
+  const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
     ? ''
     : `## 强制完整分镜协议\n输出一条连续的总时间轴，把整段原文按内容量转成可拍摄的画面描述。时间轴从 00:00 连续排布，每个时间片 1 到 4 秒、只承担一个观看重点，总时长按原文信息量分配（每约 38 个汉字对应 1 个时间片），信息不足时宁可减少时间片，禁止复制镜头或机械口型补时长。禁止输出 ### 分镜N 标题，禁止把时间轴拆成多个独立分镜单元；最终由系统按 ${duration} 自动切分为独立分镜卡，每张卡会补上基础设定与已启用约束并从 00:00 开始，可直接复制提交。`;
   // 非分段模式按字数给时间片预算，防止总时长膨胀（对齐小说面板“38字≈1时间片”）。
