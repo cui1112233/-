@@ -263,6 +263,23 @@ select {
   flex: 0 0 52px;
 }
 
+.legacy-brand-logo {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.legacy-brand-logo::after {
+  position: absolute;
+  z-index: 1;
+  inset: -35% -50%;
+  content: '';
+  pointer-events: none;
+  background: linear-gradient(108deg, transparent 42%, rgb(255 255 255 / 0.08) 47%, rgb(255 247 211 / 0.9) 50%, rgb(255 255 255 / 0.1) 53%, transparent 58%);
+  transform: translateX(-72%);
+  animation: brand-logo-sheen 5.8s ease-in-out infinite;
+}
+
 .brand-logo img {
   position: absolute;
   inset: 0;
@@ -307,6 +324,25 @@ select {
   opacity: 1;
   transition: opacity 0.15s ease;
   white-space: nowrap;
+}
+
+.legacy-brand-title {
+  color: transparent;
+  background: linear-gradient(105deg, var(--legacy-accent) 0%, #fff6d5 35%, #ffffff 50%, var(--legacy-accent) 72%, var(--legacy-text) 100%);
+  background-size: 260% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: brand-title-shift 4.8s ease-in-out infinite;
+}
+
+@keyframes brand-logo-sheen {
+  0%, 45% { transform: translateX(-72%); }
+  72%, 100% { transform: translateX(72%); }
+}
+
+@keyframes brand-title-shift {
+  0%, 100% { background-position: 100% 50%; }
+  50% { background-position: 0 50%; }
 }
 
 .legacy-nav-tooltip {
@@ -1321,6 +1357,11 @@ select {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .legacy-brand-logo::after,
+  .legacy-brand-title {
+    animation: none !important;
+  }
+
   body::before,
   body::after,
   .legacy-sidebar::before,
