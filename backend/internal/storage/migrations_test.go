@@ -31,6 +31,22 @@ func TestMigrationsUseExclusiveDatabaseLock(t *testing.T) {
 	}
 }
 
+func TestVideoAPIConfigMigrationCreatesIdempotentUserScopedTable(t *testing.T) {
+	migration := migrationForVersion(t, 33)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS video_api_configs",
+		"user_id BIGINT PRIMARY KEY",
+		"provider VARCHAR(64) NOT NULL",
+		"api_key_ciphertext TEXT NOT NULL",
+		"updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+		"REFERENCES users(id) ON DELETE CASCADE",
+	} {
+		if !strings.Contains(migration.sql, required) {
+			t.Fatalf("video config migration missing %q", required)
+		}
+	}
+}
+
 func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
 	migration := migrationForVersion(t, 31)
 	if !strings.Contains(migration.sql, "UPDATE shuihuo_tasks") || !strings.Contains(migration.sql, "provider_task_id = NULL") || !strings.Contains(migration.sql, "provider_task_id = ''") {

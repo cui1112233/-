@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"qiantie/backend/internal/credentials"
 	"qiantie/backend/internal/shuihuo/models"
 	shuihuostorage "qiantie/backend/internal/shuihuo/storage"
 	shuihuotasks "qiantie/backend/internal/shuihuo/tasks"
@@ -23,6 +24,8 @@ type Dependencies struct {
 	Users             UserStore
 	Configs           ConfigStore
 	ImageConfigs      ImageConfigStore
+	VideoConfigs      VideoConfigStore
+	CredentialCipher  *credentials.Cipher
 	Histories         HistoryStore
 	Objects           shuihuostorage.ObjectStorage
 	Queue             shuihuotasks.Queue

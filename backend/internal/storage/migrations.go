@@ -358,6 +358,15 @@ ALTER TABLE image_api_configs ADD COLUMN display_name VARCHAR(80) NOT NULL DEFAU
 UPDATE shuihuo_tasks SET provider_task_id = NULL WHERE provider_task_id = '';
 `},
 	{version: 32, sql: novelFetchWorkshopMigrationSQL, apply: applyNovelFetchWorkshopSchema},
+	{version: 33, sql: `
+CREATE TABLE IF NOT EXISTS video_api_configs (
+  user_id BIGINT PRIMARY KEY,
+  provider VARCHAR(64) NOT NULL,
+  api_key_ciphertext TEXT NOT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_video_api_configs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`},
 }
 
 const shuihuoSourceUnitMigrationSQL = `

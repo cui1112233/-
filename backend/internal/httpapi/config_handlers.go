@@ -19,6 +19,11 @@ type ImageConfigStore interface {
 	Save(ctx context.Context, userID int64, cfg store.ImageAPIConfig) error
 }
 
+type VideoConfigStore interface {
+	Get(ctx context.Context, userID int64) (store.VideoAPIConfig, error)
+	Save(ctx context.Context, userID int64, cfg store.VideoAPIConfig) error
+}
+
 type imageConfigRequest struct {
 	Provider    string `json:"provider"`
 	DisplayName string `json:"displayName"`
@@ -33,6 +38,11 @@ type configRequest struct {
 	Model    string              `json:"model"`
 	APIKey   string              `json:"apiKey"`
 	Image    *imageConfigRequest `json:"image"`
+	Video    *videoConfigRequest `json:"video"`
+}
+
+type videoConfigRequest struct {
+	APIKey string `json:"apiKey"`
 }
 
 func (api *API) handleGetConfig(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +57,12 @@ func (api *API) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Read image config failed"})
 		return
 	}
-	writePublicConfig(w, cfg, image)
+	video, err := api.videoConfig(r.Context(), user.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Read video config failed"})
+		return
+	}
+	writePublicConfig(w, cfg, image, video)
 }
 
 func (api *API) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +75,11 @@ func (api *API) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var req configRequest
 	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	video, err := api.saveVideoConfig(r.Context(), user.ID, req.Video)
+	if err != nil {
+		writeVideoConfigError(w, err)
 		return
 	}
 	next := store.APIConfig{
@@ -77,7 +97,7 @@ func (api *API) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		writeImageConfigError(w, err)
 		return
 	}
-	writePublicConfig(w, next, image)
+	writePublicConfig(w, next, image, video)
 }
 
 // handleSaveBridgeAccountAIConfig accepts a signed Node gateway request. The
@@ -123,7 +143,7 @@ func (api *API) handleSaveBridgeAccountAIConfig(w http.ResponseWriter, r *http.R
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "至少需要一项完整的 AI 配置"})
 		return
 	}
-	writePublicConfig(w, textConfig, image)
+	writePublicConfig(w, textConfig, image, store.VideoAPIConfig{Provider: store.YDVideoProvider})
 }
 
 func (api *API) handleTestConfig(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +155,31 @@ func (api *API) imageConfig(ctx context.Context, userID int64) (store.ImageAPICo
 		return store.ImageAPIConfig{}, nil
 	}
 	return api.deps.ImageConfigs.Get(ctx, userID)
+}
+
+func (api *API) videoConfig(ctx context.Context, userID int64) (store.VideoAPIConfig, error) {
+	if api.deps.VideoConfigs == nil {
+		return store.VideoAPIConfig{Provider: store.YDVideoProvider}, nil
+	}
+	return api.deps.VideoConfigs.Get(ctx, userID)
+}
+
+func (api *API) saveVideoConfig(ctx context.Context, userID int64, req *videoConfigRequest) (store.VideoAPIConfig, error) {
+	if req == nil || strings.TrimSpace(req.APIKey) == "" {
+		return api.videoConfig(ctx, userID)
+	}
+	if api.deps.VideoConfigs == nil || api.deps.CredentialCipher == nil {
+		return store.VideoAPIConfig{}, errVideoConfigUnavailable
+	}
+	ciphertext, err := api.deps.CredentialCipher.Encrypt(req.APIKey)
+	if err != nil {
+		return store.VideoAPIConfig{}, errVideoConfigUnavailable
+	}
+	next := store.VideoAPIConfig{Provider: store.YDVideoProvider, APIKeyCiphertext: ciphertext}
+	if err := api.deps.VideoConfigs.Save(ctx, userID, next); err != nil {
+		return store.VideoAPIConfig{}, err
+	}
+	return next, nil
 }
 
 func (api *API) saveImageConfig(ctx context.Context, userID int64, req *imageConfigRequest) (store.ImageAPIConfig, error) {
@@ -167,7 +212,16 @@ func (api *API) saveImageConfig(ctx context.Context, userID int64, req *imageCon
 var (
 	errInvalidImageConfig     = errors.New("图片服务需要 OpenAI 兼容供应商、API 地址、模型名和密钥")
 	errImageConfigUnavailable = errors.New("图片配置服务未就绪")
+	errVideoConfigUnavailable = errors.New("视频配置服务未就绪")
 )
+
+func writeVideoConfigError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errVideoConfigUnavailable) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "视频配置服务暂不可用"})
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存视频配置失败"})
+}
 
 func writeImageConfigError(w http.ResponseWriter, err error) {
 	switch {
@@ -180,7 +234,7 @@ func writeImageConfigError(w http.ResponseWriter, err error) {
 	}
 }
 
-func writePublicConfig(w http.ResponseWriter, cfg store.APIConfig, image store.ImageAPIConfig) {
+func writePublicConfig(w http.ResponseWriter, cfg store.APIConfig, image store.ImageAPIConfig, video store.VideoAPIConfig) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"provider":  cfg.Provider,
 		"baseUrl":   cfg.BaseURL,
@@ -192,6 +246,11 @@ func writePublicConfig(w http.ResponseWriter, cfg store.APIConfig, image store.I
 			"baseUrl":     image.BaseURL,
 			"model":       image.Model,
 			"hasApiKey":   image.APIKeyCiphertext != "",
+		},
+		"video": map[string]any{
+			"provider":    store.YDVideoProvider,
+			"displayName": "中转亚迪",
+			"hasApiKey":   video.Configured(),
 		},
 	})
 }
