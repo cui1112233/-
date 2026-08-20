@@ -3,6 +3,19 @@ const { apiAuth } = require('../middleware/auth');
 const { readConfig, writeConfig, publicConfig, DEFAULT_CONFIG } = require('../lib/shared');
 const { normalizeStorageRoot } = require('../lib/storage-root');
 
+function configAccount(req) {
+  return req.auth?.account || { username: req.username, role: 'member' };
+}
+
+function configUsername(req) {
+  const account = configAccount(req);
+  if (account.role === 'member') {
+    if (account.apiGranted !== true || !account.boundTo) return null;
+    return account.boundTo;
+  }
+  return account.username;
+}
+
 const router = express.Router();
 router.use(apiAuth);
 
@@ -60,36 +73,67 @@ function normalizeTtsConfig(value, fallback = {}) {
 
 // GET /api/config — 获取配置（不含 apiKey）
 router.get('/', (req, res) => {
-  const config = readConfig(req.username);
-  config.pet = normalizePetConfig(config.pet);
+  const account = configAccount(req);
+  const ownerUsername = configUsername(req);
+  if (!ownerUsername) {
+    return res.json({ ...publicConfig(readConfig(req.username)), apiConfigured: false, apiShared: false, apiConfigEditable: false });
+  }
+  const config = readConfig(ownerUsername);
+  config.pet = normalizePetConfig(config.pet, DEFAULT_CONFIG.pet);
   config.tts = normalizeTtsConfig(config.tts);
   config.notifications = normalizeNotifications(config.notifications);
   config.avatar = normalizeAvatar(config.avatar);
-  res.json(publicConfig(config));
+  res.json({ ...publicConfig(config), apiConfigured: Boolean(config.apiKey), apiShared: ownerUsername !== account.username, apiConfigEditable: account.role !== 'member' });
 });
 
 // POST /api/config — 保存配置
 router.post('/', (req, res) => {
-  const body = req.body;
+  const body = req.body || {};
   // POST 内、写回配置前：校验本地存储文件夹
   if (req.body && typeof req.body.storageRoot === 'string') {
     const result = normalizeStorageRoot(req.body.storageRoot);
     if (result.error) return res.status(400).json({ error: result.error });
     req.body.storageRoot = result.value;
   }
-  const oldConfig = readConfig(req.username);
-  const nextConfig = {
-    provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
-    baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
-    model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
-    apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
-    storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
-    pet: normalizePetConfig(body.pet, oldConfig.pet),
-    tts: normalizeTtsConfig(body.tts, oldConfig.tts),
-    notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
-    avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
-  };
-  writeConfig(req.username, nextConfig);
+  const account = configAccount(req);
+  const memberProfileOnly = account.role === 'member';
+  const ownerUsername = configUsername(req);
+  if (memberProfileOnly && !ownerUsername) {
+    if (Object.hasOwn(body, 'provider') || Object.hasOwn(body, 'baseUrl') || Object.hasOwn(body, 'model') || Object.hasOwn(body, 'apiKey') || Object.hasOwn(body, 'storageRoot')) {
+      return res.status(403).json({ error: 'API configuration requires manager authorization' });
+    }
+    const profileConfig = readConfig(req.username);
+    const profileOnly = {
+      ...profileConfig,
+      avatar: normalizeAvatar(body.avatar, profileConfig.avatar),
+      nickname: typeof body.nickname === 'string' ? body.nickname.trim().slice(0, 80) : profileConfig.nickname || null,
+      note: typeof body.note === 'string' ? body.note.trim().slice(0, 500) : profileConfig.note || null
+    };
+    writeConfig(req.username, profileOnly);
+    return res.json(publicConfig(profileOnly));
+  }
+  const oldConfig = readConfig(ownerUsername || req.username);
+  const nextConfig = memberProfileOnly
+    ? {
+      ...oldConfig,
+      avatar: normalizeAvatar(body.avatar, oldConfig.avatar),
+      nickname: typeof body.nickname === 'string' ? body.nickname.trim().slice(0, 80) : oldConfig.nickname || null,
+      note: typeof body.note === 'string' ? body.note.trim().slice(0, 500) : oldConfig.note || null
+    }
+    : {
+      provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
+      baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
+      model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
+      apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
+      storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
+      pet: normalizePetConfig(body.pet, oldConfig.pet),
+      tts: normalizeTtsConfig(body.tts, oldConfig.tts),
+      notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
+      avatar: normalizeAvatar(body.avatar, oldConfig.avatar),
+      nickname: typeof body.nickname === 'string' ? body.nickname.trim().slice(0, 80) : oldConfig.nickname || null,
+      note: typeof body.note === 'string' ? body.note.trim().slice(0, 500) : oldConfig.note || null
+    };
+  writeConfig(ownerUsername || req.username, nextConfig);
   res.json(publicConfig(nextConfig));
 });
 

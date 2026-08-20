@@ -2,9 +2,14 @@
 // 覆盖 /process 解析建任务、/tasks 列表、/tasks/:bookId 详情、/config 读取，
 // 以及 /process 含自动分类/抓取/改文的完整链路（注入 mock 的 classifier/rewrite/fetch）。
 const express = require('express');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { createNovelFetchWorkshopRouter } = require('../routes/novel-fetch-workshop');
+
+const makeTempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-workshop-routes-'));
 
 // 请求辅助：简单 fetch 风格
 function req(app, { method = 'GET', path, body }) {
@@ -25,11 +30,12 @@ function req(app, { method = 'GET', path, body }) {
   });
 }
 
-function makeApp({ tasks, configStore, classifier, rewrite } = {}) {
+function makeApp({ tasks, configStore, classifier, rewrite, jobsStore } = {}) {
   const noopAuth = (req, res, next) => { req.username = 'u1'; next(); };
-  const options = { auth: noopAuth, tasks, configStore };
+  const options = { auth: noopAuth, tasks, configStore, systemDir: makeTempDir() };
   if (classifier) options.classifier = classifier;
   if (rewrite) options.rewrite = rewrite;
+  if (jobsStore) options.jobsStore = jobsStore;
   return express().use(express.json()).use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(options));
 }
 
@@ -51,7 +57,16 @@ test('POST /process 解析并创建任务', async () => {
 });
 
 test('GET /tasks 与 GET /tasks/:bookId', async () => {
-  const tasks = { listTasks: async () => [], getTask: async (u, id) => id === 'x' ? { meta: { bookId: 'x' } } : null, readOriginal: () => '正文', readLogs: () => [] };
+  const tasks = {
+    listTasks: async () => [],
+    getTask: async (u, id) => id === 'x' ? { meta: { bookId: 'x' } } : null,
+    readOriginal: () => '正文',
+    readLogs: () => [],
+    listAiVersions: async () => [],
+    readSensitiveRecords: async () => ({ sensitive_hits: {}, sensitive_fixed: {} }),
+    readSiteSubmitLog: async () => [],
+    readSiteSubmitResult: async () => null
+  };
   const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
   const app = makeApp({ tasks, configStore });
   const r1 = await req(app, { path: '/api/novel-fetch-workshop/tasks' });
@@ -160,4 +175,131 @@ test('POST /process 改文单任务失败不中断整批（注入 mock）', asyn
   assert.equal(r.body.fetched, 2);
   assert.equal(r.body.generatedAiFiles, 1);
   assert.equal(r.body.fetchFailed, 1);
+});
+
+test('POST /process/start 返回 jobId；GET jobs/latest 与 jobs/:jobId 可查询', async () => {
+  const started = [];
+  const jobsStore = {
+    startProcessJob: ({ workflow, tasksToProcess }) => {
+      started.push({ workflow, tasksToProcess });
+      return 'job_123';
+    },
+    getJob: (id) => id === 'job_123' ? { id: 'job_123', status: 'done', steps: [], result: {} } : null,
+    listLatest: (n) => [{ id: 'job_123', status: 'done', steps: [], updatedAt: '2026-08-20T10:00:00+08:00' }]
+  };
+  const tasks = { saveTasks: async () => ({}), listTasks: async () => [] };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore, jobsStore });
+
+  const r1 = await req(app, { method: 'POST', path: '/api/novel-fetch-workshop/process/start', body: { inputText: '1\t书A', platformId: '2' } });
+  assert.equal(r1.status, 200);
+  assert.equal(r1.body.jobId, 'job_123');
+  assert.equal(started.length, 1);
+  assert.equal(started[0].workflow.username, 'u1');
+  assert.equal(started[0].workflow.body.inputText, '1\t书A');
+
+  const r2 = await req(app, { path: '/api/novel-fetch-workshop/process/jobs/latest?limit=5' });
+  assert.equal(r2.status, 200);
+  assert.equal(r2.body.jobs.length, 1);
+  assert.equal(r2.body.jobs[0].id, 'job_123');
+
+  const r3 = await req(app, { path: '/api/novel-fetch-workshop/process/jobs/job_123' });
+  assert.equal(r3.status, 200);
+  assert.equal(r3.body.id, 'job_123');
+
+  const r4 = await req(app, { path: '/api/novel-fetch-workshop/process/jobs/nope' });
+  assert.equal(r4.status, 404);
+});
+
+test('POST /process/start 空 inputText 返回 400', async () => {
+  const jobsStore = { startProcessJob: () => 'job_x', getJob: () => null, listLatest: () => [] };
+  const tasks = { saveTasks: async () => ({}), listTasks: async () => [] };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore, jobsStore });
+  const r = await req(app, { method: 'POST', path: '/api/novel-fetch-workshop/process/start', body: { inputText: '   ' } });
+  assert.equal(r.status, 400);
+});
+
+test('POST /tasks/batch-retry 调 stub tasks.batchRetry', async () => {
+  let called = null;
+  const tasks = {
+    batchRetry: async (username, ids, deps) => {
+      called = { username, ids, hasDeps: Boolean(deps && typeof deps.retryClassify === 'function') };
+      return { requested: 2, retried: 1, failed: 1, results: [{ id: '1', ok: true }, { id: '2', ok: false, error: '任务不存在' }] };
+    },
+    listTasks: async () => []
+  };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore });
+  const r = await req(app, { method: 'POST', path: '/api/novel-fetch-workshop/tasks/batch-retry', body: { ids: ['1', '2'] } });
+  assert.equal(r.status, 200);
+  assert.equal(called.username, 'u1');
+  assert.deepEqual(called.ids, ['1', '2']);
+  assert.equal(called.hasDeps, true);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.requested, 2);
+  assert.equal(r.body.retried, 1);
+  assert.equal(r.body.failed, 1);
+  assert.equal(r.body.results[1].error, '任务不存在');
+});
+
+test('POST /tasks/:bookId/restore-original 恢复原文', async () => {
+  const tasks = {
+    getTask: async (u, id) => id === 'x' ? { meta: { bookId: 'x' } } : null,
+    restoreOriginal: async () => ({ status: 'done' }),
+    listTasks: async () => []
+  };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore });
+  const r = await req(app, { method: 'POST', path: '/api/novel-fetch-workshop/tasks/x/restore-original' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  const r2 = await req(app, { method: 'POST', path: '/api/novel-fetch-workshop/tasks/nope/restore-original' });
+  assert.equal(r2.status, 404);
+});
+
+test('GET /tasks/:bookId/sensitive-log 与 site-submit-log', async () => {
+  const tasks = {
+    getTask: async (u, id) => id === 'x' ? { meta: { bookId: 'x' } } : null,
+    readLogs: async () => [{ event: 'task_saved' }, { event: 'sensitive_ai_partial' }],
+    readSensitiveRecords: async () => ({ sensitive_hits: { hit_count: 1, hits: [{ keyword: '小三' }] }, sensitive_fixed: { fixed_count: 1 } }),
+    readSiteSubmitLog: async () => [{ event: 'site_submit_submitted' }],
+    readSiteSubmitResult: async () => ({ status: 'submitted', versions: { ai1: { status: 'submitted' } } })
+  };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore });
+  const r1 = await req(app, { path: '/api/novel-fetch-workshop/tasks/x/sensitive-log' });
+  assert.equal(r1.status, 200);
+  assert.equal(r1.body.sensitive_hits.hit_count, 1);
+  assert.equal(r1.body.logs.length, 1); // 只保留 sensitive 相关事件
+  assert.equal(r1.body.logs[0].event, 'sensitive_ai_partial');
+  const r2 = await req(app, { path: '/api/novel-fetch-workshop/tasks/x/site-submit-log' });
+  assert.equal(r2.status, 200);
+  assert.equal(r2.body.logs.length, 1);
+  assert.equal(r2.body.result.status, 'submitted');
+  const r3 = await req(app, { path: '/api/novel-fetch-workshop/tasks/nope/sensitive-log' });
+  assert.equal(r3.status, 404);
+});
+
+test('GET /tasks/:bookId 详情含 ai_versions / sensitive_log / submit_log', async () => {
+  const tasks = {
+    getTask: async () => ({ meta: { bookId: 'x' }, hasOriginalRaw: true }),
+    readOriginal: async () => '正文',
+    readLogs: async () => [],
+    listAiVersions: async () => [{ name: 'ai1', text: '版本全文', chars: 4, exists: true }],
+    readSensitiveRecords: async () => ({ sensitive_hits: {}, sensitive_fixed: {} }),
+    readSiteSubmitLog: async () => [],
+    readSiteSubmitResult: async () => null
+  };
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = makeApp({ tasks, configStore });
+  const r = await req(app, { path: '/api/novel-fetch-workshop/tasks/x' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.meta.bookId, 'x');
+  assert.equal(r.body.original, '正文');
+  assert.ok(r.body.hasOriginalRaw === true);
+  assert.equal(r.body.ai_versions.length, 1);
+  assert.equal(r.body.ai_versions[0].text, '版本全文');
+  assert.ok(r.body.sensitive_log && typeof r.body.sensitive_log === 'object');
+  assert.deepEqual(r.body.submit_log, []); // 空数组兜底
 });

@@ -12,6 +12,7 @@ const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
+const MemberPage = lazy(() => import('./pages/MemberPage').then(module => ({ default: module.MemberPage })));
 
 function usePathname() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -36,7 +37,8 @@ function getPage(pathname) {
     '/shuihuo-production': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,
-    '/issues': IssueLogPage
+    '/issues': IssueLogPage,
+    '/member': MemberPage
   };
   const Page = routes[pathname];
   if (Page) {

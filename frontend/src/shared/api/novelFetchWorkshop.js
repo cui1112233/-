@@ -10,6 +10,21 @@ export function processBatch(payload) {
   });
 }
 
+export function startWorkshopProcess(payload) {
+  return apiRequest('/api/novel-fetch-workshop/process/start', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getWorkshopJobs(limit = 10) {
+  return apiRequest(`/api/novel-fetch-workshop/process/jobs/latest?limit=${encodeURIComponent(limit)}`);
+}
+
+export function getWorkshopJob(jobId) {
+  return apiRequest(`/api/novel-fetch-workshop/process/jobs/${encodeURIComponent(jobId)}`);
+}
+
 // 任务列表
 export function listWorkshopTasks() {
   return apiRequest('/api/novel-fetch-workshop/tasks');
@@ -19,6 +34,13 @@ export function listWorkshopTasks() {
 export function deleteWorkshopTasks(ids) {
   return apiRequest('/api/novel-fetch-workshop/tasks', {
     method: 'DELETE',
+    body: JSON.stringify({ ids })
+  });
+}
+
+export function retryWorkshopTasks(ids) {
+  return apiRequest('/api/novel-fetch-workshop/tasks/batch-retry', {
+    method: 'POST',
     body: JSON.stringify({ ids })
   });
 }
@@ -36,12 +58,88 @@ export function fetchWorkshopOriginal(bookId, maxTxt) {
   });
 }
 
+export function restoreWorkshopOriginal(bookId) {
+  return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/restore-original`, {
+    method: 'POST'
+  });
+}
+
+export function getWorkshopSensitiveLog(bookId) {
+  return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/sensitive-log`);
+}
+
+export function getWorkshopSubmitLog(bookId) {
+  return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/site-submit-log`);
+}
+
 // 生成 AI 改文版本（数量 1~20）
 export function generateWorkshopAi(bookId, count) {
   return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/generate-ai`, {
     method: 'POST',
     body: JSON.stringify({ count })
   });
+}
+
+// 规则排版预览
+export function previewWorkshopRules(payload) {
+  return apiRequest('/api/novel-fetch-workshop/rules/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// AI 生成规则建议
+export function suggestWorkshopRules(payload) {
+  return apiRequest('/api/novel-fetch-workshop/rules/suggest', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+// 知识库
+export function getWorkshopKnowledgeSummary() {
+  return apiRequest('/api/novel-fetch-workshop/knowledge/summary');
+}
+
+export function getWorkshopKnowledge(kind) {
+  return apiRequest(`/api/novel-fetch-workshop/knowledge/${encodeURIComponent(kind)}`);
+}
+
+export function saveWorkshopKnowledge(kind, item) {
+  return apiRequest(`/api/novel-fetch-workshop/knowledge/${encodeURIComponent(kind)}`, {
+    method: 'POST',
+    body: JSON.stringify({ item })
+  });
+}
+
+export function deleteWorkshopKnowledge(kind, id) {
+  return apiRequest(`/api/novel-fetch-workshop/knowledge/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+}
+
+export function optimizeWorkshopKnowledge(kind, id) {
+  return apiRequest(`/api/novel-fetch-workshop/knowledge/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/optimize`, {
+    method: 'POST'
+  });
+}
+
+export function analyzeWorkshopOpening(text) {
+  return apiRequest('/api/novel-fetch-workshop/opening/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ text })
+  });
+}
+
+export function saveWorkshopOpening(item) {
+  return apiRequest('/api/novel-fetch-workshop/opening/save', {
+    method: 'POST',
+    body: JSON.stringify({ item })
+  });
+}
+
+export function normalizeWorkshopOpening() {
+  return apiRequest('/api/novel-fetch-workshop/opening/normalize', { method: 'POST' });
 }
 
 // 读取工作台配置（appConfig / platforms / styles / aiConfig）

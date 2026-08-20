@@ -106,6 +106,32 @@ test('seeds the owner once and never grants owner to another account', t => {
   assert.throws(() => store.setOwner('choushiyiguai1'), /owner is immutable/);
 });
 
+test('supports development role management and scoped member API access', t => {
+  const { store } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'manager01', password: 'secret-123' });
+  store.createAccount({ username: 'member01', password: 'secret-123' });
+
+  assert.equal(store.setRole('choushiyiguai', 'manager01', 'manager').role, 'manager');
+  assert.equal(store.setRole('choushiyiguai', 'member01', 'member').role, 'member');
+  assert.equal(store.setApiGranted('choushiyiguai', 'member01', true).apiGranted, true);
+  assert.equal(store.getAccount('member01').apiGranted, true);
+  assert.deepEqual(store.listTeam('choushiyiguai').team.map(account => account.username).sort(), ['choushiyiguai', 'choushiyiguai1', 'manager01', 'member01']);
+  assert.throws(() => store.setApiGranted('manager01', 'member01', false), /Not your member/);
+});
+
+test('allows a manager to bind and control only its own members', t => {
+  const { store } = tempStore(t);
+  seed(store);
+  store.createAccount({ username: 'manager01', password: 'secret-123', role: 'manager' });
+  store.createAccount({ username: 'member01', password: 'secret-123', boundTo: 'manager01' });
+
+  assert.equal(store.setApiGranted('manager01', 'member01', true).apiGranted, true);
+  assert.deepEqual(store.listTeam('manager01').team.map(account => account.username), ['member01']);
+  assert.throws(() => store.setApiGranted('manager01', 'choushiyiguai1', true), /Not your member/);
+  assert.throws(() => store.setRole('choushiyiguai', 'manager01', 'member'), /bound members/);
+});
+
 test('does not overwrite or append seed accounts after initial creation', t => {
   const { store } = tempStore(t);
   seed(store);

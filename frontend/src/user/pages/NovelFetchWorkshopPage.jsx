@@ -1,9 +1,13 @@
-import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd';
-import { ArrowLeft, Download, Eye, RefreshCw, RotateCcw, Save, Trash2, UploadCloud, Wand2 } from 'lucide-react';
+import { Alert, Button, Card, Checkbox, Collapse, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Timeline, Typography, message } from 'antd';
+import { ArrowLeft, Download, Eye, FileText, LayoutTemplate, ListTodo, Play, RefreshCw, RotateCcw, Save, Settings2, Sparkles, Trash2, UploadCloud, Wand2, Workflow, BookOpen } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   deleteWorkshopTasks, fetchWorkshopOriginal, generateWorkshopAi, getWorkshopConfig, getWorkshopTask,
-  listWorkshopTasks, processBatch, saveWorkshopConfig, testWorkshopAi
+  getWorkshopJob, getWorkshopJobs, listWorkshopTasks, processBatch, restoreWorkshopOriginal,
+  retryWorkshopTasks, saveWorkshopConfig, startWorkshopProcess, testWorkshopAi,
+  previewWorkshopRules, suggestWorkshopRules, getWorkshopKnowledgeSummary, getWorkshopKnowledge,
+  saveWorkshopKnowledge, deleteWorkshopKnowledge, optimizeWorkshopKnowledge, analyzeWorkshopOpening,
+  saveWorkshopOpening, normalizeWorkshopOpening
 } from '../../shared/api/novelFetchWorkshop';
 
 // 输入格式（parse 模块 PARSE_MODES）
@@ -109,6 +113,8 @@ export function NovelFetchWorkshopPage() {
   // 处理 Tab
   const [processing, setProcessing] = useState(false);
   const [processResult, setProcessResult] = useState(null);
+  const [job, setJob] = useState(null);
+  const [latestJobs, setLatestJobs] = useState([]);
 
   // 任务详情（弹窗）
   const [detail, setDetail] = useState(null);     // { bookId, data, loading }
@@ -121,11 +127,21 @@ export function NovelFetchWorkshopPage() {
   // 配置保存 / AI 测试
   const [savingConfig, setSavingConfig] = useState(false);
   const [testingAi, setTestingAi] = useState(false);
+  const [ruleForm] = Form.useForm();
+  const [ruleResult, setRuleResult] = useState(null);
+  const [ruleLoading, setRuleLoading] = useState(false);
+  const [knowledgeKind, setKnowledgeKind] = useState('high_imitation');
+  const [knowledgeData, setKnowledgeData] = useState({ items: [] });
+  const [knowledgeSummary, setKnowledgeSummary] = useState({});
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [openingText, setOpeningText] = useState('');
+  const [openingItems, setOpeningItems] = useState([]);
 
   async function loadConfig() {
     try {
       const data = await getWorkshopConfig();
       setConfigData({
+        appConfig: (data && data.appConfig) || {},
         platforms: (data && data.platforms) || [],
         styles: (data && data.styles) || [],
         aiConfig: (data && data.aiConfig) || null
@@ -184,11 +200,97 @@ export function NovelFetchWorkshopPage() {
     }
   }
 
+  async function loadKnowledge(kind = knowledgeKind) {
+    setKnowledgeLoading(true);
+    try {
+      const [data, summary] = await Promise.all([getWorkshopKnowledge(kind), getWorkshopKnowledgeSummary()]);
+      setKnowledgeData((data && data.data) || { items: [] });
+      setKnowledgeSummary((summary && summary.summary) || {});
+    } catch (error) {
+      message.error(error.message || '读取知识库失败');
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadConfig();
     loadTasks();
+    loadKnowledge();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleRulePreview() {
+    const values = await ruleForm.validateFields().catch(() => null);
+    if (!values) return;
+    setRuleLoading(true);
+    try {
+      setRuleResult(await previewWorkshopRules({ text: values.text, scope: values.scope, layoutConfig: configData.appConfig?.layout || {} }));
+    } catch (error) {
+      message.error(error.message || '规则排版失败');
+    } finally {
+      setRuleLoading(false);
+    }
+  }
+
+  async function handleRuleSuggest() {
+    const values = await ruleForm.validateFields().catch(() => null);
+    if (!values) return;
+    setRuleLoading(true);
+    try {
+      const data = await suggestWorkshopRules({ text: values.text, ruleType: 'layout_rules' });
+      Modal.info({ title: 'AI规则建议', width: 720, content: <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(data.suggestions || data, null, 2)}</pre> });
+    } catch (error) {
+      message.error(error.message || '生成规则建议失败');
+    } finally {
+      setRuleLoading(false);
+    }
+  }
+
+  async function handleOpeningAnalyze() {
+    if (!openingText.trim()) { message.warning('请先粘贴爆款开头原文'); return; }
+    setKnowledgeLoading(true);
+    try {
+      const data = await analyzeWorkshopOpening(openingText);
+      setOpeningItems((data && data.items) || []);
+    } catch (error) {
+      message.error(error.message || '开头分析失败');
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }
+
+  async function saveKnowledgeItem(item) {
+    try {
+      await saveWorkshopKnowledge(knowledgeKind, item);
+      message.success('条目已保存');
+      loadKnowledge(knowledgeKind);
+    } catch (error) { message.error(error.message || '保存失败'); }
+  }
+
+  async function handleStartJob() {
+    const values = await processForm.validateFields().catch(() => null);
+    if (!values || !values.inputText?.trim()) { message.warning('请填写待处理清单'); return; }
+    setProcessing(true);
+    try {
+      const data = await startWorkshopProcess(values);
+      setJob({ id: data.jobId, status: data.status });
+      message.success('流水线已启动');
+      const poll = async () => {
+        const current = await getWorkshopJob(data.jobId);
+        setJob(current);
+        if (current.status === 'running') window.setTimeout(poll, 1200);
+        else { loadTasks(); getWorkshopJobs().then(result => setLatestJobs(result.jobs || [])); }
+      };
+      poll();
+    } catch (error) { message.error(error.message || '启动流水线失败'); }
+    finally { setProcessing(false); }
+  }
+
+  async function loadJobs() {
+    try { const data = await getWorkshopJobs(); setLatestJobs((data && data.jobs) || []); }
+    catch (error) { message.error(error.message || '读取流水线记录失败'); }
+  }
 
   // ===== 处理 Tab =====
   async function handleProcess() {
@@ -407,6 +509,25 @@ export function NovelFetchWorkshopPage() {
     }
   }
 
+  async function handleRetrySelected() {
+    if (!selectedRowKeys.length) return;
+    try {
+      await retryWorkshopTasks(selectedRowKeys);
+      message.success('批量重试已完成');
+      setSelectedRowKeys([]);
+      await loadTasks();
+    } catch (error) { message.error(error.message || '批量重试失败'); }
+  }
+
+  async function handleRestoreOriginal(bookId) {
+    try {
+      await restoreWorkshopOriginal(bookId);
+      message.success('已从原始备份恢复');
+      await loadTasks();
+      await reloadDetail(bookId);
+    } catch (error) { message.error(error.message || '恢复原文失败'); }
+  }
+
   // ===== 任务表格（处理 / 任务 Tab 共用）=====
   // 批量删除选中任务：确认后调 DELETE /tasks，成功后刷新列表并清空勾选
   function handleDeleteSelected() {
@@ -445,6 +566,7 @@ export function NovelFetchWorkshopPage() {
           onClick={() => handleFetchOriginal(row)}
         >重新抓原文</Button>
         <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} onClick={() => setGenModal({ bookId: row.bookId, count: Number(row.aiCount) || 1 })}>生成AI</Button>
+        <Button size="small" icon={<RotateCcw size={14} aria-hidden="true" />} onClick={() => handleRestoreOriginal(row.bookId)}>恢复原文</Button>
         <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => handleDownloadOriginal(row)}>下载</Button>
         <Button size="small" icon={<UploadCloud size={14} aria-hidden="true" />} onClick={() => handleAddToUpload(row)}>加入上传</Button>
       </Space>
@@ -484,6 +606,7 @@ export function NovelFetchWorkshopPage() {
         {withSelection ? (
           <Space style={{ marginBottom: 8 }} wrap>
             <Typography.Text type="secondary">已选 {keys.length} 项</Typography.Text>
+            <Button icon={<RotateCcw size={14} aria-hidden="true" />} disabled={!keys.length} onClick={handleRetrySelected}>批量重试</Button>
             <Button
               danger
               size="small"
@@ -536,8 +659,8 @@ export function NovelFetchWorkshopPage() {
       <Tabs
         items={[
           {
-            key: 'process',
-            label: '处理',
+            key: 'pipeline',
+            label: <Space size={6}><Workflow size={15} />流水线</Space>,
             children: (
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <Form
@@ -578,31 +701,75 @@ export function NovelFetchWorkshopPage() {
                     />
                   </Form.Item>
                   <Space>
-                    <Button type="primary" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={handleProcess}>开始处理</Button>
+                    <Button type="primary" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={handleProcess}>立即处理</Button>
+                    <Button icon={<Play size={14} aria-hidden="true" />} loading={processing} onClick={handleStartJob}>后台运行</Button>
                     <Button icon={<RefreshCw size={14} aria-hidden="true" />} loading={tasksLoading} onClick={loadTasks}>刷新任务</Button>
+                    <Button icon={<ListTodo size={14} aria-hidden="true" />} onClick={loadJobs}>查看流水线记录</Button>
                   </Space>
                 </Form>
                 {renderProcessSummary(processResult)}
-                <Typography.Title level={5} style={{ margin: 0 }}>任务列表</Typography.Title>
+                {job ? <Card size="small" title={`后台作业 ${job.id || ''}`} style={{ maxWidth: 840 }}>
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Tag color={statusColor(job.status)}>{job.status === 'running' ? '运行中' : job.status === 'done' ? '已完成' : '失败'}</Tag>
+                    <Timeline items={(job.steps || []).map((step, index) => ({ key: index, color: statusColor(step.status), children: `${step.detail || step.step}（${step.status}）` }))} />
+                  </Space>
+                </Card> : null}
+                {latestJobs.length ? <Collapse items={[{ key: 'jobs', label: '最近后台作业', children: <Table size="small" rowKey="id" pagination={false} dataSource={latestJobs} columns={[{ title: '作业ID', dataIndex: 'id' }, { title: '状态', dataIndex: 'status', render: value => <Tag color={statusColor(value)}>{value}</Tag> }, { title: '更新时间', dataIndex: 'updatedAt' }]} />}]} /> : null}
+                <Typography.Title level={5} style={{ margin: 0 }}>最近任务</Typography.Title>
                 <TaskTable withSelection={false} />
               </Space>
             )
           },
           {
             key: 'tasks',
-            label: '任务',
+            label: <Space size={6}><ListTodo size={15} />任务中心</Space>,
             children: (
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-                  支持勾选批量删除选中任务；批量重试一期未提供，单本操作：查看、重新抓原文、生成AI、下载。
+                  任务中心支持批量删除、批量重试、原文恢复和单本改文操作。
                 </Typography.Paragraph>
                 <TaskTable withSelection selectedRowKeys={selectedRowKeys} onSelectionChange={setSelectedRowKeys} />
               </Space>
             )
           },
           {
+            key: 'rules',
+            label: <Space size={6}><LayoutTemplate size={15} />规则排版</Space>,
+            children: (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Card title="规则排版预览" extra={<FileText size={18} />}>
+                  <Form form={ruleForm} layout="vertical" initialValues={{ scope: 'original' }}>
+                    <Form.Item name="scope" label="处理范围"><Select style={{ width: 180 }} options={[{ value: 'original', label: '原文' }, { value: 'ai', label: 'AI版本' }]} /></Form.Item>
+                    <Form.Item name="text" label="样本文案" rules={[{ required: true, message: '请输入样本文案' }]}><Input.TextArea rows={9} placeholder="粘贴需要预览排版的文本" /></Form.Item>
+                    <Space wrap><Button type="primary" icon={<LayoutTemplate size={14} />} loading={ruleLoading} onClick={handleRulePreview}>预览排版</Button><Button icon={<Sparkles size={14} />} loading={ruleLoading} onClick={handleRuleSuggest}>AI生成规则建议</Button></Space>
+                  </Form>
+                </Card>
+                {ruleResult ? <Card title="排版结果">
+                  <Tabs items={[{ key: 'result', label: '处理后文本', children: <Input.TextArea rows={12} value={ruleResult.result || ''} readOnly /> }, { key: 'trace', label: '阶段追踪', children: <Timeline items={(ruleResult.trace || []).map((stage, index) => ({ key: index, color: stage.changed ? 'blue' : 'gray', children: <Space direction="vertical"><Typography.Text strong>{stage.title}</Typography.Text><Typography.Text type="secondary">{stage.chars} 字符 / {stage.lines} 行{stage.changed ? '，已变更' : '，无变更'}</Typography.Text>{stage.samples?.length ? <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{stage.samples.map(sample => `${sample.before} → ${sample.after}`).join('\\n')}</pre> : null}</Space> }))} />}]} />
+                </Card> : null}
+              </Space>
+            )
+          },
+          {
+            key: 'knowledge',
+            label: <Space size={6}><BookOpen size={15} />知识库</Space>,
+            children: (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Card title="资料库总览"><Space wrap>{Object.entries(knowledgeSummary).map(([kind, count]) => <Tag key={kind}>{kind}：{count}</Tag>)}</Space></Card>
+                <Card title="条目管理">
+                  <Space wrap><Select value={knowledgeKind} style={{ width: 220 }} options={[{ value: 'high_imitation', label: '高仿文章库' }, { value: 'opening_phrases', label: '爆款开头词库' }, { value: 'rewrite_templates', label: '批量改文指令库' }]} onChange={value => { setKnowledgeKind(value); loadKnowledge(value); }} /><Button icon={<RefreshCw size={14} />} loading={knowledgeLoading} onClick={() => loadKnowledge()}>刷新</Button><Button icon={<RotateCcw size={14} />} onClick={async () => { await normalizeWorkshopOpening(); loadKnowledge('opening_phrases'); }}>规范化开头词</Button></Space>
+                  <Table size="small" rowKey="id" loading={knowledgeLoading} dataSource={knowledgeData.items || []} pagination={{ pageSize: 8 }} columns={[{ title: '名称/内容', key: 'title', render: item => item.title || item.name || item.text || item.content }, { title: '风格', dataIndex: 'style' }, { title: '来源', dataIndex: 'source' }, { title: '操作', key: 'action', render: item => <Space><Button size="small" icon={<Sparkles size={14} />} onClick={async () => { await optimizeWorkshopKnowledge(knowledgeKind, item.id); loadKnowledge(); }}>优化</Button><Button danger size="small" icon={<Trash2 size={14} />} onClick={async () => { await deleteWorkshopKnowledge(knowledgeKind, item.id); loadKnowledge(); }}>删除</Button></Space> }]} />
+                </Card>
+                <Card title="爆款开头分析">
+                  <Input.TextArea rows={5} value={openingText} onChange={event => setOpeningText(event.target.value)} placeholder="粘贴爆款开头原文，调用 AI 拆解为可入库模板" /><Button style={{ marginTop: 12 }} type="primary" icon={<Sparkles size={14} />} loading={knowledgeLoading} onClick={handleOpeningAnalyze}>AI拆解</Button>
+                  {openingItems.length ? <Space direction="vertical" style={{ width: '100%', marginTop: 12 }}>{openingItems.map((item, index) => <Card size="small" key={item.id || index}><Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{item.text}</Typography.Paragraph><Space><Tag>{item.style || '未分类'}</Tag><Button size="small" icon={<Save size={14} />} onClick={() => saveKnowledgeItem(item)}>保存</Button></Space></Card>)}</Space> : null}
+                </Card>
+              </Space>
+            )
+          },
+          {
             key: 'config',
-            label: '配置',
+            label: <Space size={6}><Settings2 size={15} />配置</Space>,
             children: (
               <Space direction="vertical" size={20} style={{ width: '100%', maxWidth: 760 }}>
                 <div className="legacy-panel-card" style={{ padding: 16 }}>

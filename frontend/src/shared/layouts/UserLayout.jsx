@@ -4,6 +4,7 @@ import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } f
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
 import { getConfig, saveAvatar } from '../api/config';
+import { getMemberSummary, saveMemberProfile } from '../api/member';
 import { AVATAR_PRESETS, avatarDisplay } from '../avatars';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -55,10 +56,13 @@ export function UserLayout({ children }) {
   const [petVisible, setPetVisible] = useState(true);
   const [avatar, setAvatar] = useState(null);
   const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [memberCardOpen, setMemberCardOpen] = useState(false);
+  const [memberProfile, setMemberProfile] = useState({ nickname: '', note: '' });
+  const [memberProfileSaving, setMemberProfileSaving] = useState(false);
   const [avatarPicking, setAvatarPicking] = useState(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const accountSessionGenerationRef = useRef(0);
-  const pathname = window.location.pathname;
+  const pathname = window.location.pathname || '/';
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
   const displayAvatar = avatarDisplay(avatar, username);
@@ -90,6 +94,11 @@ export function UserLayout({ children }) {
       getConfig().then(config => {
         setPetVisible(config.notifications?.petVisible !== false);
         setAvatar(config.avatar || null);
+        setMemberProfile({ nickname: config.nickname || '', note: config.note || '' });
+      }).catch(() => {});
+      getMemberSummary().then(summary => {
+        setAccount(summary.account || null);
+        setMemberProfile({ nickname: summary.profile?.nickname || '', note: summary.profile?.note || '' });
       }).catch(() => {});
     }
     return () => window.removeEventListener('qiantie:notifications-updated', updatePetVisibility);
@@ -233,6 +242,35 @@ export function UserLayout({ children }) {
     setLoginDialogOpen(true);
   }
 
+  async function handleSaveProfile() {
+    setMemberProfileSaving(true);
+    try {
+      const result = await saveMemberProfile(memberProfile);
+      setMemberProfile(result.profile || memberProfile);
+      message.success('会员资料已保存');
+    } catch (error) {
+      message.error(error.message || '保存会员资料失败');
+    } finally {
+      setMemberProfileSaving(false);
+    }
+  }
+
+  function openMemberCard() {
+    setMemberCardOpen(true);
+  }
+
+  function openMemberZone() {
+    setMemberCardOpen(false);
+    window.history.pushState({}, '', '/member');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
+
+  function openAvatarEditor() {
+    setMemberCardOpen(false);
+    setAvatarPicking(avatar || displayAvatar);
+    setAvatarEditorOpen(true);
+  }
+
   function toggleSidebar() {
     setSidebarCollapsed(collapsed => !collapsed);
   }
@@ -345,9 +383,9 @@ export function UserLayout({ children }) {
             <button
               type="button"
               className="legacy-sidebar-avatar"
-              onClick={() => setAvatarEditorOpen(true)}
-              title="点击更换头像"
-              aria-label="更换头像"
+              onClick={openMemberCard}
+              title="打开会员卡片"
+              aria-label="打开会员卡片"
             >
               <Avatar size={28} style={{ backgroundColor: displayAvatar.background }}>
                 {displayAvatar.emoji}
@@ -365,6 +403,38 @@ export function UserLayout({ children }) {
         {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
+      <Modal
+        title="会员卡片"
+        open={memberCardOpen}
+        onCancel={() => setMemberCardOpen(false)}
+        footer={null}
+        width={380}
+        className={`member-popover member-popover--${account?.role || 'member'}`}
+      >
+        <div className="member-card-hero">
+          <Avatar size={76} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
+          <div>
+            <strong>{memberProfile.nickname || username}</strong>
+            <span>@{username}</span>
+          </div>
+          <span className={`member-tier-badge member-tier-badge--${account?.role || 'member'}`}>
+            {account?.role === 'dev' ? '开发会员' : account?.role === 'manager' ? '管理会员' : '普通用户'}
+          </span>
+        </div>
+        <Form layout="vertical" onFinish={handleSaveProfile} initialValues={memberProfile}>
+          <Form.Item label="名字" name="nickname">
+            <Input maxLength={80} value={memberProfile.nickname} onChange={event => setMemberProfile(profile => ({ ...profile, nickname: event.target.value }))} />
+          </Form.Item>
+          <Form.Item label="备注" name="note">
+            <Input.TextArea rows={3} maxLength={500} value={memberProfile.note} onChange={event => setMemberProfile(profile => ({ ...profile, note: event.target.value }))} />
+          </Form.Item>
+          <div className="member-card-actions">
+            <Button onClick={openAvatarEditor}>更换头像</Button>
+            <Button type="primary" onClick={openMemberZone}>进入会员区</Button>
+            <Button loading={memberProfileSaving} onClick={handleSaveProfile}>保存资料</Button>
+          </div>
+        </Form>
+      </Modal>
       <Modal
         title="更换头像"
         open={avatarEditorOpen}

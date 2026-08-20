@@ -17,6 +17,7 @@ const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const configRouter = require('./routes/config');
+const { createMemberRouter } = require('./routes/member');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
@@ -41,6 +42,8 @@ const { createNovelPanelStore } = require('./lib/novel-panel/project-store');
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { getWorkshopConfigStore } = require('./lib/novel-fetch-workshop/config');
 const { createWorkshopTasks } = require('./lib/novel-fetch-workshop/tasks');
+const { createKnowledgeStore } = require('./lib/novel-fetch-workshop/knowledge');
+const { createOpeningStore } = require('./lib/novel-fetch-workshop/opening');
 const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelPanelStore, novelFetchStore } = {}) {
@@ -68,6 +71,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const workshopSystemDir = path.dirname(authRuntime.accountStore.files.audit);
   const resolvedWorkshopConfigStore = getWorkshopConfigStore(workshopSystemDir);
   const resolvedWorkshopTasks = createWorkshopTasks({ usersDir });
+  const resolvedWorkshopKnowledge = createKnowledgeStore({ systemDir: workshopSystemDir });
+  const resolvedWorkshopOpening = createOpeningStore({
+    systemDir: workshopSystemDir,
+    styles: resolvedWorkshopConfigStore.getStyles()
+  });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
   app.locals.presetStore = resolvedPresetStore;
@@ -147,10 +155,14 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopTasks: resolvedWorkshopTasks }));
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter({
     tasks: resolvedWorkshopTasks,
-    configStore: resolvedWorkshopConfigStore
+    configStore: resolvedWorkshopConfigStore,
+    systemDir: workshopSystemDir,
+    knowledgeStore: resolvedWorkshopKnowledge,
+    openingStore: resolvedWorkshopOpening
   }));
   app.locals.workshopTasks = resolvedWorkshopTasks;
   app.use('/api/config', configRouter); // GET/POST /api/config
+  app.use('/api/member', createMemberRouter(authRuntime.accountStore));
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt

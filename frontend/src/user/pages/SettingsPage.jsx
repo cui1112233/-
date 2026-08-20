@@ -44,6 +44,9 @@ export function SettingsPage() {
   const [restoreReport, setRestoreReport] = useState(null);
   const [fileList, setFileList] = useState(null);
   const [provider, setProvider] = useState('openai');
+  const [apiShared, setApiShared] = useState(false);
+  const [apiConfigEditable, setApiConfigEditable] = useState(true);
+  const [apiConfigured, setApiConfigured] = useState(false);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
   const soundEnabled = Form.useWatch('soundEnabled', form);
@@ -72,6 +75,9 @@ export function SettingsPage() {
           petVisible: config.notifications?.petVisible !== false
         });
         setProvider(config.provider || 'openai');
+        setApiShared(config.apiShared === true);
+        setApiConfigEditable(config.apiConfigEditable !== false);
+        setApiConfigured(config.apiConfigured === true);
       })
       .catch(error => message.error(error.message || '读取设置失败'))
       .finally(() => {
@@ -180,16 +186,17 @@ export function SettingsPage() {
         <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
           <div>
             <h2 id="settings-connection-title">连接配置</h2>
-            <p>选择模型服务并填写访问地址。</p>
+            <p>{apiShared ? '当前使用管理会员共享的 API 配置，组员不能修改。' : '选择模型服务并填写访问地址。'}</p>
           </div>
+          {apiShared ? <Typography.Paragraph type="warning">API 已由管理会员授权，连接地址、模型与密钥由管理会员统一维护。</Typography.Paragraph> : null}
           <Form.Item label="API 提供商" name="provider">
-            <Select options={providers} onChange={handleProviderChange} />
+            <Select options={providers} onChange={handleProviderChange} disabled={apiShared || !apiConfigEditable} />
           </Form.Item>
           <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}>
-            <Input placeholder="https://api.openai.com/v1" />
+            <Input placeholder="https://api.openai.com/v1" disabled={apiShared || !apiConfigEditable} />
           </Form.Item>
           <Form.Item label="API Key" name="apiKey">
-            <Input.Password placeholder="留空表示不修改已保存的 Key" />
+            <Input.Password placeholder={apiShared ? '由管理会员维护' : '留空表示不修改已保存的 Key'} disabled={apiShared || !apiConfigEditable} />
           </Form.Item>
         </section>
 
@@ -198,8 +205,8 @@ export function SettingsPage() {
             <h2 id="settings-model-title">模型与助手</h2>
             <p>指定默认模型，并确认当前桌面宠物。</p>
           </div>
-          <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}>
-            <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption />
+          <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}> 
+            <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption disabled={apiShared || !apiConfigEditable} />
           </Form.Item>
           <Form.Item label="前贴宠物" name="petId">
             <Select options={petOptions} />
@@ -303,8 +310,8 @@ export function SettingsPage() {
         <div className="settings-savebar">
           <span>保存后仅更新当前账号的工作台连接配置。</span>
           <div className="settings-savebar-actions">
-            <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTest} loading={testing}>测试连接</Button>
-            <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving}>保存设置</Button>
+            <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTest} loading={testing} disabled={apiShared || !apiConfigEditable}>测试连接</Button>
+            <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving} disabled={apiShared || !apiConfigEditable}>保存设置</Button>
           </div>
         </div>
       </Form>

@@ -1,7 +1,25 @@
 const express = require('express');
 const { apiAuth, checkRateLimit } = require('../middleware/auth');
-const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
+const {
+  readConfig,
+  ensureReadyConfig,
+  requestUpstream,
+  collectResponse
+} = require('../lib/shared');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+
+function resolveChatConfig(req) {
+  const account = req.auth?.account;
+  if (account?.role === 'member') {
+    if (account.apiGranted !== true || !account.boundTo) {
+      const error = new Error('API access has not been granted');
+      error.code = 'API_ACCESS_FORBIDDEN';
+      throw error;
+    }
+    return readConfig(account.boundTo);
+  }
+  return readConfig(req.username);
+}
 
 const router = express.Router();
 router.use(apiAuth);
@@ -268,7 +286,7 @@ function describeUpstreamFailure(upstream) {
 
 router.post('/test', async (req, res) => {
   try {
-    const current = readConfig(req.username);
+    const current = resolveChatConfig(req);
     const body = req.body || {};
     const config = {
       ...current,
@@ -302,6 +320,10 @@ router.post('/test', async (req, res) => {
 
     res.status(502).json({ ok: false, error: 'Upstream response missing choices[0].message', status: upstream.statusCode, details: data });
   } catch (error) {
+    if (error.code === 'API_ACCESS_FORBIDDEN') {
+      res.status(403).json({ error: error.message });
+      return;
+    }
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
@@ -314,7 +336,7 @@ router.post('/chat', async (req, res) => {
   }
 
   try {
-    const config = readConfig(req.username);
+    const config = resolveChatConfig(req);
     ensureReadyConfig(config);
 
     const body = req.body;
@@ -378,6 +400,10 @@ router.post('/chat', async (req, res) => {
     res.writeHead(upstream.statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(upstream.text);
   } catch (error) {
+    if (error.code === 'API_ACCESS_FORBIDDEN') {
+      res.status(403).json({ error: error.message });
+      return;
+    }
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

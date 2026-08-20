@@ -13,10 +13,15 @@ test('改文工作台前端契约', () => {
   const page = read('frontend/src/user/pages/NovelFetchWorkshopPage.jsx');
   assert.match(page, /改文工作台/);
   assert.match(page, /Tabs/);
-  assert.match(page, /处理/);
-  assert.match(page, /任务/);
+  assert.match(page, /流水线/);
+  assert.match(page, /任务中心/);
+  assert.match(page, /规则排版/);
+  assert.match(page, /知识库/);
   assert.match(page, /配置/);
   assert.match(page, /processBatch/);
+  assert.match(page, /startWorkshopProcess/);
+  assert.match(page, /retryWorkshopTasks/);
+  assert.match(page, /restoreWorkshopOriginal/);
   assert.match(page, /listWorkshopTasks/);
   const entry = read('frontend/src/user/pages/NovelFetchPage.jsx');
   assert.match(entry, /改文工作台/);

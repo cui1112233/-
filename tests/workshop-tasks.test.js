@@ -105,3 +105,136 @@ test('updateTaskMeta 合并 patch 并刷新 updatedAt', async () => {
   // 不存在的任务直接报错
   await assert.rejects(store.updateTaskMeta('u1', 'nope', { aiStatus: 'done' }), /任务不存在/);
 });
+
+test('batchRetry 逐级补跑：分类→抓取→AI（注入 stub 步骤）', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: '第一行\r\n\r\n第二行\r\n' }) });
+  await store.saveTasks('u1', [{
+    bookId: '1', bookName: '书', status: 'created',
+    classifyStatus: 'failed', originalStatus: 'failed', aiStatus: 'failed', aiCount: 1
+  }]);
+  const calls = [];
+  const deps = {
+    retryClassify: async (username, meta) => {
+      calls.push('classify');
+      return store.updateTaskMeta(username, meta.bookId, {
+        style: '现代女主', styleSource: 'ai', gender: '女频', genderSource: 'ai',
+        classifyStatus: 'classified', classifyError: ''
+      });
+    },
+    fetchOriginal: async (username, bookId) => {
+      calls.push('fetch');
+      return store.fetchOriginal(username, bookId, 4000);
+    },
+    generateAi: async (username, bookId, count) => {
+      calls.push('generate');
+      return store.updateTaskMeta(username, bookId, { aiStatus: 'done', aiGeneratedCount: count, aiError: '' });
+    }
+  };
+  const result = await store.batchRetry('u1', ['1'], deps);
+  assert.equal(result.requested, 1);
+  assert.equal(result.retried, 1);
+  assert.equal(result.failed, 0);
+  assert.deepEqual(calls, ['classify', 'fetch', 'generate']);
+  const meta = store.getTask('u1', '1').meta;
+  assert.equal(meta.style, '现代女主');
+  assert.equal(meta.classifyStatus, 'classified');
+  assert.equal(meta.originalStatus, 'done');
+  // 分类补跑后进入 retry_done 而不是保留 failed
+  assert.equal(meta.status, 'retry_done');
+});
+
+test('batchRetry 全部环节已成功 → 不补跑并标记 retry_done', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: 'a\r\nb\r\n' }) });
+  await store.saveTasks('u1', [{
+    bookId: '1', bookName: '书', style: '现代女主', gender: '女频',
+    classifyStatus: 'classified', status: 'original_done', originalStatus: 'done', aiStatus: 'done'
+  }]);
+  await store.fetchOriginal('u1', '1', 4000);
+  const calls = [];
+  const deps = {
+    retryClassify: async (u, meta) => { calls.push('classify'); return meta; },
+    fetchOriginal: async () => { calls.push('fetch'); return { status: 'skipped' }; },
+    generateAi: async () => { calls.push('generate'); return { status: 'skipped' }; }
+  };
+  const result = await store.batchRetry('u1', ['1'], deps);
+  assert.equal(result.requested, 1);
+  assert.equal(result.retried, 1);
+  assert.deepEqual(calls, []);
+  const meta = store.getTask('u1', '1').meta;
+  assert.equal(meta.status, 'retry_done');
+});
+
+test('batchRetry 任务不存在 → 该条 failed；空 ids 安全', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: 'x' }) });
+  const result = await store.batchRetry('u1', ['nope'], {});
+  assert.equal(result.requested, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(result.results[0].ok, false);
+  const empty = await store.batchRetry('u1', [], {});
+  assert.equal(empty.requested, 0);
+  assert.equal(empty.retried, 0);
+  assert.equal(empty.failed, 0);
+});
+
+test('listTasks 合并敏感词/提交状态（无提交文件时为空兜底）', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: 'x' }) });
+  await store.saveTasks('u1', [{ bookId: '1', bookName: '书', sensitiveStatus: 'done', sensitiveHitCount: 3, sensitiveFixedCount: 2 }]);
+  const list = store.listTasks('u1');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].sensitiveStatus, 'done');
+  assert.equal(list[0].sensitiveHitCount, 3);
+  assert.equal(list[0].sensitiveFixedCount, 2);
+  // 提交状态空兜底
+  assert.equal(list[0].site_submit_status, '');
+  assert.deepEqual(list[0].site_submit_done_versions, []);
+  assert.deepEqual(list[0].site_submit_failed_versions, []);
+});
+
+test('siteSubmitSummary 读提交结果；readSiteSubmitLog 读 jsonl（缺失时空）', async () => {
+  const dir = makeTempDir();
+  const store = createWorkshopTasks({ usersDir: dir, fetchUpstream: async () => ({ text: 'x' }) });
+  await store.saveTasks('u1', [{ bookId: '1' }]);
+  // 缺失时空结构
+  const empty = store.siteSubmitSummary('u1', '1');
+  assert.equal(empty.site_submit_status, '');
+  assert.deepEqual(empty.site_submit_done_versions, []);
+  assert.deepEqual(store.readSiteSubmitLog('u1', '1'), []);
+  // 写入提交结果后能读到状态
+  store.writeSiteSubmitResult('u1', '1', {
+    status: 'submitted',
+    versions: { ai1: { status: 'submitted' }, ai2: { status: 'failed', error: '文件过小' } },
+    last_group_id: 'g1',
+    updated_at: '2026-08-20T10:00:00+08:00'
+  });
+  const summary = store.siteSubmitSummary('u1', '1');
+  assert.equal(summary.site_submit_status, 'submitted');
+  assert.deepEqual(summary.site_submit_done_versions, ['ai1']);
+  assert.deepEqual(summary.site_submit_failed_versions, ['ai2']);
+  assert.equal(summary.site_submit_group_id, 'g1');
+  assert.equal(summary.site_submit_error, '文件过小');
+  // 提交日志 jsonl
+  store.appendSiteSubmitLog('u1', '1', 'site_submit_submitted', { version: 'ai1' });
+  const logs = store.readSiteSubmitLog('u1', '1');
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].event, 'site_submit_submitted');
+});
+
+test('listAiVersions 列出 ai 版本（含全文与 chars）', async () => {
+  const store = createWorkshopTasks({ usersDir: makeTempDir(), fetchUpstream: async () => ({ text: 'x' }) });
+  await store.saveTasks('u1', [{ bookId: '5' }]);
+  const p = store.pathForAiVersion('u1', '5', 1);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, '版本1内容', 'utf8');
+  const p2 = store.pathForAiVersion('u1', '5', 3);
+  fs.mkdirSync(path.dirname(p2), { recursive: true });
+  fs.writeFileSync(p2, '版本3内容更长', 'utf8');
+  const versions = store.listAiVersions('u1', '5');
+  assert.equal(versions.length, 2);
+  assert.equal(versions[0].name, 'ai1');
+  assert.equal(versions[0].text, '版本1内容');
+  assert.equal(versions[0].chars, 5);
+  assert.equal(versions[1].name, 'ai3');
+  // 无版本任务返回空数组
+  await store.saveTasks('u1', [{ bookId: '9' }]);
+  assert.deepEqual(store.listAiVersions('u1', '9'), []);
+});
