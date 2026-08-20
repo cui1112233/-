@@ -1,7 +1,8 @@
-import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Collapse, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Typography, message } from 'antd';
 import { Check, Copy, Download, Eye, Pencil, RotateCcw, Save, UploadCloud, Wand2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent, saveNovelContent, uploadLogin, getUploadSession, uploadBatch } from '../../shared/api/novelFetch';
+import { generateWorkshopAi, getWorkshopConfig, getWorkshopTask, listWorkshopTasks, previewWorkshopRules, suggestWorkshopRules } from '../../shared/api/novelFetchWorkshop';
 import { apiRequest } from '../../shared/api/client';
 import './novel-fetch.css';
 
@@ -109,6 +110,17 @@ export function NovelFetchPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadResults, setUploadResults] = useState([]);  // [{ bookId, status, error }]
   const [retryUploading, setRetryUploading] = useState(null); // 正在单本重试上传的 bookId
+  const [workshopTasks, setWorkshopTasks] = useState([]);
+  const [workshopConfig, setWorkshopConfig] = useState({});
+  const [selectedWorkshopTask, setSelectedWorkshopTask] = useState(null);
+  const [rewriteCount, setRewriteCount] = useState(1);
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [rewriteError, setRewriteError] = useState('');
+  const [ruleText, setRuleText] = useState('');
+  const [ruleScope, setRuleScope] = useState('original');
+  const [ruleResult, setRuleResult] = useState(null);
+  const [ruleLoading, setRuleLoading] = useState(false);
+  const [ruleError, setRuleError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -143,8 +155,37 @@ export function NovelFetchPage() {
       // 数据损坏时忽略并清空，避免阻塞页面
     }
     sessionStorage.removeItem('workshopUploadItems');
+    Promise.all([listWorkshopTasks(), getWorkshopConfig()])
+      .then(([taskData, configData]) => {
+        if (!active) return;
+        setWorkshopTasks(taskData?.tasks || []);
+        setWorkshopConfig(configData?.appConfig || {});
+      })
+      .catch(() => {});
     return () => { active = false; };
   }, []);
+
+  async function selectWorkshopTask(bookId) {
+    if (!bookId) {
+      setSelectedWorkshopTask(null);
+      return;
+    }
+    try {
+      const detail = await getWorkshopTask(bookId);
+      setSelectedWorkshopTask({ ...detail, bookId });
+      if (detail.original) setRuleText(detail.original);
+    } catch (error) {
+      const errorMessage = error.message || '读取任务详情失败';
+      setRewriteError(errorMessage);
+      message.error(errorMessage);
+    }
+  }
+
+  async function refreshWorkshopTask(bookId) {
+    const [taskData, detail] = await Promise.all([listWorkshopTasks(), getWorkshopTask(bookId)]);
+    setWorkshopTasks(taskData?.tasks || []);
+    setSelectedWorkshopTask({ ...detail, bookId });
+  }
 
   async function handleFetch() {
     const bookIds = parseBookIds(form.getFieldValue('bookIdsText'));
@@ -434,6 +475,56 @@ export function NovelFetchPage() {
     }
   }
 
+  async function handleGenerateWorkshopAi() {
+    if (!selectedWorkshopTask) { message.warning('请先选择任务'); return; }
+    const count = Math.floor(Number(rewriteCount) || 1);
+    if (count < 1 || count > 20) { message.warning('生成数量需为 1~20 的整数'); return; }
+    setRewriteLoading(true);
+    setRewriteError('');
+    try {
+      await generateWorkshopAi(selectedWorkshopTask.bookId, count);
+      await refreshWorkshopTask(selectedWorkshopTask.bookId);
+      message.success('AI 改文已生成');
+    } catch (error) {
+      const errorMessage = error.message || 'AI 改文失败';
+      setRewriteError(errorMessage);
+      message.error(errorMessage);
+    } finally {
+      setRewriteLoading(false);
+    }
+  }
+
+  async function handleRulePreview() {
+    if (!ruleText.trim()) { message.warning('请输入待排版文本'); return; }
+    setRuleLoading(true);
+    setRuleError('');
+    try {
+      setRuleResult(await previewWorkshopRules({ text: ruleText, scope: ruleScope, layoutConfig: workshopConfig.layout || {} }));
+    } catch (error) {
+      const errorMessage = error.message || '规则排版失败';
+      setRuleError(errorMessage);
+      message.error(errorMessage);
+    } finally {
+      setRuleLoading(false);
+    }
+  }
+
+  async function handleRuleSuggest() {
+    if (!ruleText.trim()) { message.warning('请输入待排版文本'); return; }
+    setRuleLoading(true);
+    setRuleError('');
+    try {
+      const data = await suggestWorkshopRules({ text: ruleText, ruleType: 'layout_rules' });
+      setRuleResult(current => ({ ...current, suggestions: data.suggestions || data }));
+    } catch (error) {
+      const errorMessage = error.message || '生成规则建议失败';
+      setRuleError(errorMessage);
+      message.error(errorMessage);
+    } finally {
+      setRuleLoading(false);
+    }
+  }
+
   async function handleRetryUpload(row) {
     setRetryUploading(row.bookId);
     try {
@@ -513,6 +604,64 @@ export function NovelFetchPage() {
           </Space>
         </Form.Item>
       </Form>
+
+      <Tabs
+        items={[
+          {
+            key: 'rewrite',
+            label: 'AI 改文',
+            children: (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Typography.Text type="secondary">选择任务后生成 AI 改文版本，生成完成会同步刷新当前任务。</Typography.Text>
+                <Space wrap>
+                  <Select
+                    style={{ minWidth: 260 }}
+                    value={selectedWorkshopTask?.bookId}
+                    placeholder="选择工作台任务"
+                    options={workshopTasks.map(task => ({ value: task.bookId, label: `${task.bookName || task.bookId}（${task.bookId}）` }))}
+                    onChange={selectWorkshopTask}
+                  />
+                  <InputNumber min={1} max={20} value={rewriteCount} onChange={value => setRewriteCount(value || 1)} addonBefore="生成数量" />
+                  <Button type="primary" loading={rewriteLoading} onClick={handleGenerateWorkshopAi}>生成 AI 改文</Button>
+                </Space>
+                {rewriteError ? <Alert type="error" showIcon message="AI 改文失败" description={rewriteError} /> : null}
+                {selectedWorkshopTask ? (
+                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                    <Typography.Text>当前任务：{selectedWorkshopTask.meta?.bookName || selectedWorkshopTask.bookName || selectedWorkshopTask.bookId}</Typography.Text>
+                    <Input.TextArea rows={10} value={selectedWorkshopTask.original || ''} readOnly placeholder="该任务暂无原文" />
+                    <Typography.Text type="secondary">已生成 AI 版本：{(selectedWorkshopTask.ai_versions || []).length || selectedWorkshopTask.meta?.aiGeneratedCount || 0}</Typography.Text>
+                  </Space>
+                ) : null}
+              </Space>
+            )
+          },
+          {
+            key: 'rules',
+            label: '规则排版',
+            children: (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space wrap>
+                  <Select value={ruleScope} style={{ width: 160 }} options={[{ value: 'original', label: '原文' }, { value: 'ai', label: 'AI版本' }]} onChange={setRuleScope} />
+                  <Button disabled={!selectedWorkshopTask?.original} onClick={() => setRuleText(selectedWorkshopTask.original || '')}>载入当前任务原文</Button>
+                  <Button type="primary" loading={ruleLoading} onClick={handleRulePreview}>预览排版</Button>
+                  <Button loading={ruleLoading} onClick={handleRuleSuggest}>AI生成规则建议</Button>
+                </Space>
+                <Input.TextArea rows={9} value={ruleText} onChange={event => setRuleText(event.target.value)} placeholder="粘贴需要预览排版的文本" />
+                {ruleError ? <Alert type="error" showIcon message="规则排版失败" description={ruleError} /> : null}
+                {ruleResult ? (
+                  <Tabs
+                    items={[
+                      { key: 'result', label: '处理后文本', children: <Input.TextArea rows={12} value={ruleResult.result || ''} readOnly /> },
+                      { key: 'trace', label: '阶段追踪', children: <Collapse items={(ruleResult.trace || []).map((stage, index) => ({ key: String(index), label: `${stage.title || `阶段 ${index + 1}`}：${stage.changed ? '已变更' : '无变更'}`, children: <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{stage.samples?.map(sample => `${sample.before} → ${sample.after}`).join('\n') || `${stage.chars || 0} 字符 / ${stage.lines || 0} 行`}</Typography.Paragraph> }))} /> },
+                      { key: 'suggestions', label: 'AI 规则建议', children: <Input.TextArea rows={12} value={ruleResult.suggestions ? JSON.stringify(ruleResult.suggestions, null, 2) : '尚未生成建议'} readOnly /> }
+                    ]}
+                  />
+                ) : null}
+              </Space>
+            )
+          }
+        ]}
+      />
 
       {rows.length > 0 ? (
         <div className="legacy-panel-card novel-fetch-results">
