@@ -16,6 +16,7 @@ const constraintCategories = [
 ];
 
 const formatPriority = [
+  'script-format-qban',
   'script-format-shotlist',
   'script-format-storyboard',
   'script-format-shortdrama',
