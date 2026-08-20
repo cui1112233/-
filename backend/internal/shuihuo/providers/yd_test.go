@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"qiantie/backend/internal/credentials"
+	"qiantie/backend/internal/shuihuo/domain"
 	"qiantie/backend/internal/shuihuo/models"
 	"qiantie/backend/internal/store"
 )
@@ -69,6 +70,37 @@ func TestYDSubmitUsesRequestOwnerCredentialInsteadOfModelCredential(t *testing.T
 	_, err = provider.Submit(context.Background(), models.Definition{
 		Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, CredentialRef: "owner-b",
 	}, models.Request{OwnerID: 101, Prompt: "镜头推进", ImageURL: "https://example.com/scene.png", AspectRatio: "9:16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestYDAccountCredentialStaysOutOfTaskSnapshotAndModelDefinition(t *testing.T) {
+	const accountKey = "test-snapshot-account-key"
+	cipher := ydTestCipher(t)
+	ciphertext, err := cipher.Encrypt(accountKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := domain.Task{UserID: 101, Input: `{"prompt":"镜头推进","aspectRatio":"9:16"}`}
+	model := models.Definition{Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo}
+	modelJSON, err := json.Marshal(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(task.Input, accountKey) || strings.Contains(task.Input, ciphertext) || strings.Contains(string(modelJSON), accountKey) || strings.Contains(string(modelJSON), ciphertext) {
+		t.Fatal("account credential appeared in a task snapshot or model definition")
+	}
+	provider := NewYD(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "Bearer "+accountKey {
+			t.Fatal("YD submit did not use the account credential for outbound authentication")
+		}
+		return jsonResponse(http.StatusOK, `{"task_id":"yd-snapshot"}`), nil
+	})}, NewYDAccountCredentialResolver(ydConfigStore{configs: map[int64]store.VideoAPIConfig{
+		task.UserID: {Provider: store.YDVideoProvider, APIKeyCiphertext: ciphertext},
+	}}, cipher))
+
+	_, err = provider.Submit(context.Background(), model, models.Request{OwnerID: task.UserID, Prompt: "镜头推进", ImageURL: "https://example.com/scene.png", AspectRatio: "9:16"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2274,7 +2274,7 @@ func TestYDVideoTaskRequiresCurrentUserAccountKeyBeforeQueueing(t *testing.T) {
 	api, queue := newBatchTaskTestAPI(t)
 	api.deps.VideoConfigs = &videoConfigTestStore{configs: map[int64]store.VideoAPIConfig{}}
 	api.deps.CredentialCipher = testCredentialCipher(t)
-	batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true, CredentialRef: "YD_API_KEY"}
+	batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true}
 	segment := batchTaskTestState.segments[11]
 	segment.VideoPrompt = "镜头缓慢推进"
 	batchTaskTestState.segments[11] = segment
@@ -2293,5 +2293,41 @@ func TestYDVideoTaskRequiresCurrentUserAccountKeyBeforeQueueing(t *testing.T) {
 	}
 	if len(queue.ids) != 0 || len(batchTaskTestState.tasks) != 0 {
 		t.Fatalf("YD task was persisted or queued without an account key")
+	}
+}
+
+func TestYDVideoTaskWithAccountConfigAndNoModelCredentialReachesNormalValidation(t *testing.T) {
+	const accountKey = "test-yd-account-key"
+	cipher := testCredentialCipher(t)
+	ciphertext, err := cipher.Encrypt(accountKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, queue := newBatchTaskTestAPI(t)
+	configs := &videoConfigTestStore{configs: map[int64]store.VideoAPIConfig{}}
+	if err := configs.Save(context.Background(), 100, store.VideoAPIConfig{Provider: store.YDVideoProvider, APIKeyCiphertext: ciphertext}); err != nil {
+		t.Fatal(err)
+	}
+	api.deps.VideoConfigs = configs
+	api.deps.CredentialCipher = cipher
+	batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true}
+	segment := batchTaskTestState.segments[11]
+	segment.VideoPrompt = "镜头缓慢推进"
+	batchTaskTestState.segments[11] = segment
+
+	req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks", "producer", false)
+	req.Body = io.NopCloser(strings.NewReader(`{"segmentId":11,"kind":"video","modelId":7}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "所选视频模型需要当前分镜画面图片") {
+		t.Fatal("configured YD task did not reach its normal primary image validation")
+	}
+	if strings.Contains(response.Body.String(), accountKey) || batchTaskTestState.model.CredentialRef != "" {
+		t.Fatal("account credential leaked into task creation state")
+	}
+	if len(queue.ids) != 0 || len(batchTaskTestState.tasks) != 0 {
+		t.Fatal("task was persisted or queued after normal YD validation rejected it")
 	}
 }

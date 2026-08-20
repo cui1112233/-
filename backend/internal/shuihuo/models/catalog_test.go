@@ -59,6 +59,23 @@ func TestYDVideoAdapterRequiresVideoKindAndSupportsExecution(t *testing.T) {
 	}
 }
 
+func TestYDVideoProviderConfigurationUsesAccountCredentialInsteadOfModelReference(t *testing.T) {
+	yd := Definition{ModelID: "video-yd", Name: "YD", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true}
+	if !yd.ProviderConfigured() {
+		t.Fatal("account-scoped YD video must not require a model credential reference")
+	}
+	admin := ToAdmin(yd)
+	if admin.CredentialConfigured || !admin.ProviderConfigured {
+		t.Fatal("admin availability did not distinguish YD account credentials from model credentials")
+	}
+	if (Definition{Kind: KindVideo, AdapterKind: AdapterViduImageToVideo}).ProviderConfigured() {
+		t.Fatal("Vidu must retain its global model credential requirement")
+	}
+	if (Definition{Kind: KindVideo, AdapterKind: AdapterGenericHTTP, Endpoint: "https://video.example", RequestTemplate: `{}`, ResponseMapping: `{}`}).ProviderConfigured() {
+		t.Fatal("generic HTTP must retain its global model credential requirement")
+	}
+}
+
 func TestIsAsyncVideoAdapter(t *testing.T) {
 	if !IsAsyncVideoAdapter(AdapterViduImageToVideo) || !IsAsyncVideoAdapter(AdapterYDVideo) {
 		t.Fatal("fixed async video adapters must be identified")

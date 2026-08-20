@@ -12,6 +12,7 @@ import (
 
 	"qiantie/backend/internal/auth"
 	"qiantie/backend/internal/config"
+	"qiantie/backend/internal/credentials"
 	"qiantie/backend/internal/httpapi"
 	"qiantie/backend/internal/legacy"
 	shuihuomodels "qiantie/backend/internal/shuihuo/models"
@@ -77,7 +78,7 @@ func New(cfg config.Config) (*App, error) {
 	if modelHealth != "" {
 		health.Models = httpapi.ShuihuoDependencyHealth{Reason: modelHealth}
 	}
-	api := httpapi.New(httpapi.Dependencies{
+	api := httpapi.New(newHTTPAPIDependencies(cfg, httpapi.Dependencies{
 		DB:                db,
 		TokenSecret:       cfg.TokenSecret,
 		BridgeSecret:      cfg.BridgeSecret,
@@ -86,20 +87,18 @@ func New(cfg config.Config) (*App, error) {
 		Users:             users,
 		Configs:           configs,
 		ImageConfigs:      imageConfigs,
-		VideoConfigs:      videoConfigs,
-		CredentialCipher:  cfg.CredentialCipher,
 		Histories:         histories,
 		Objects:           objects,
 		Queue:             queue,
 		Health:            health,
 		TextCompletion:    providers.NewTextCompletion(nil, cfg.ModelCredential),
 		TextModelEndpoint: cfg.ModelEndpoint,
-	})
+	}, videoConfigs))
 	application := &App{cfg: cfg, db: db, api: api, objects: objects}
 	workerCtx, cancel := context.WithCancel(context.Background())
 	application.workerCancel = cancel
 	vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
-	yd := providers.NewYD(nil, providers.NewYDAccountCredentialResolver(videoConfigs, cfg.CredentialCipher))
+	yd := newAccountYDProvider(nil, videoConfigs, cfg.CredentialCipher)
 	poller := shuihuotasks.Poller{
 		Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Providers: map[string]providers.AsyncVideoProvider{
 			shuihuomodels.AdapterViduImageToVideo: vidu,
@@ -125,6 +124,16 @@ func New(cfg config.Config) (*App, error) {
 		go func() { _ = worker.Run(workerCtx, queue) }()
 	}
 	return application, nil
+}
+
+func newHTTPAPIDependencies(cfg config.Config, deps httpapi.Dependencies, videoConfigs httpapi.VideoConfigStore) httpapi.Dependencies {
+	deps.VideoConfigs = videoConfigs
+	deps.CredentialCipher = cfg.CredentialCipher
+	return deps
+}
+
+func newAccountYDProvider(client *http.Client, videoConfigs providers.YDVideoConfigStore, cipher *credentials.Cipher) *providers.YD {
+	return providers.NewYD(client, providers.NewYDAccountCredentialResolver(videoConfigs, cipher))
 }
 
 func pingRedis(ctx context.Context, address string) error {
