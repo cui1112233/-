@@ -13,7 +13,7 @@ func TestLoadLeavesCredentialCipherNilWhenEncryptionKeyIsAbsent(t *testing.T) {
 
 	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatal("Load() failed")
 	}
 	if cfg.CredentialCipher != nil {
 		t.Fatal("Load() configured CredentialCipher without encryption key")
@@ -26,14 +26,14 @@ func TestLoadConfiguresCredentialCipherFromValidEncryptionKey(t *testing.T) {
 
 	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatal("Load() failed")
 	}
 	if cfg.CredentialCipher == nil {
 		t.Fatal("Load() left CredentialCipher nil for valid encryption key")
 	}
 	ciphertext, err := cfg.CredentialCipher.Encrypt("sk-yadi-secret")
 	if err != nil {
-		t.Fatalf("CredentialCipher.Encrypt() error = %v", err)
+		t.Fatal("CredentialCipher.Encrypt() failed")
 	}
 	if strings.Contains(ciphertext, "sk-yadi-secret") {
 		t.Fatal("CredentialCipher.Encrypt() leaked plaintext")
@@ -46,11 +46,25 @@ func TestLoadRejectsInvalidCredentialEncryptionKey(t *testing.T) {
 		t.Setenv("QIANTIE_CREDENTIAL_ENCRYPTION_KEY", value)
 		_, err := Load()
 		if err == nil || !strings.Contains(err.Error(), "QIANTIE_CREDENTIAL_ENCRYPTION_KEY") {
-			t.Fatalf("Load() error = %v, want encryption-key validation error", err)
+			t.Fatal("Load() did not return the expected encryption-key validation error")
 		}
 		if value != "" && strings.Contains(err.Error(), value) {
-			t.Fatalf("Load() leaked supplied encryption key in error %q", err)
+			t.Fatal("Load() leaked the supplied encryption key")
 		}
+	}
+}
+
+func TestLoadRejectsCredentialEncryptionKeyLongerThan32BytesWithoutLeakage(t *testing.T) {
+	setRequiredConfigEnv(t)
+	value := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", 33)))
+	t.Setenv("QIANTIE_CREDENTIAL_ENCRYPTION_KEY", value)
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "QIANTIE_CREDENTIAL_ENCRYPTION_KEY") {
+		t.Fatal("Load() did not return the expected encryption-key validation error")
+	}
+	if strings.Contains(err.Error(), value) {
+		t.Fatal("Load() leaked the supplied encryption key")
 	}
 }
 
@@ -61,10 +75,16 @@ func TestLoadPreservesModelCredentialsBehavior(t *testing.T) {
 
 	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatal("Load() failed")
 	}
-	if got, want := cfg.ModelCredentials, map[string]string{"text": "text-secret", "image": "image-secret"}; len(got) != len(want) || got["text"] != want["text"] || got["image"] != want["image"] {
-		t.Fatalf("ModelCredentials = %#v, want %#v", got, want)
+	if len(cfg.ModelCredentials) != 2 {
+		t.Fatal("ModelCredentials did not preserve the expected entry count")
+	}
+	if value, ok := cfg.ModelCredentials["text"]; !ok || value != "text-secret" {
+		t.Fatal("ModelCredentials did not preserve the text credential")
+	}
+	if value, ok := cfg.ModelCredentials["image"]; !ok || value != "image-secret" {
+		t.Fatal("ModelCredentials did not preserve the image credential")
 	}
 }
 
@@ -81,7 +101,7 @@ func unsetEnv(t *testing.T, key string) {
 	t.Helper()
 	value, wasSet := os.LookupEnv(key)
 	if err := os.Unsetenv(key); err != nil {
-		t.Fatalf("Unsetenv(%q) error = %v", key, err)
+		t.Fatal("Unsetenv() failed")
 	}
 	t.Cleanup(func() {
 		if wasSet {
