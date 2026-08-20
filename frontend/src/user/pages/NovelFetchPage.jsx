@@ -1,841 +1,213 @@
-import { Button, Checkbox, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Typography, message } from 'antd';
-import { Check, Copy, Download, Eye, Pencil, RotateCcw, Save, UploadCloud, Wand2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { fetchNovelContent, listNovelFetchProcessPresets, processNovelContent, saveNovelContent, uploadLogin, getUploadSession, uploadBatch } from '../../shared/api/novelFetch';
-import { apiRequest } from '../../shared/api/client';
+import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Download, Eye, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  checkWebSubmitEnvironment, fetchNovelContent, getWebSubmitConfig, previewWebSubmit,
+  saveWebSubmitConfig, startWebSubmit, syncWebSubmitConfigs, syncWebSubmitStyles
+} from '../../shared/api/novelFetch';
+import {
+  analyzeWorkshopOpening, deleteWorkshopKnowledge, deleteWorkshopTasks, fetchWorkshopOriginal,
+  generateWorkshopAi, getWorkshopConfig, getWorkshopKnowledge, getWorkshopKnowledgeSummary,
+  getWorkshopTask, listWorkshopTasks, normalizeWorkshopOpening, optimizeWorkshopKnowledge,
+  previewWorkshopRules, restoreWorkshopOriginal, retryWorkshopTasks, saveWorkshopConfig,
+  saveWorkshopKnowledge, saveWorkshopOpening, suggestWorkshopRules, testWorkshopAi
+} from '../../shared/api/novelFetchWorkshop';
 import './novel-fetch.css';
 
-const GENDER_OPTIONS = [
-  { value: '男', label: '男频' },
-  { value: '女', label: '女频' }
+const TABS = [
+  { key: 'process', label: '处理' },
+  { key: 'tasks', label: '任务' },
+  { key: 'config', label: '配置' },
+  { key: 'knowledge', label: '知识库' },
+  { key: 'rules', label: '处理规则' },
+  { key: 'submit', label: '网站提交' },
+  { key: 'logs', label: '日志' }
 ];
-
-const STYLE_OPTIONS = [
-  '古风虐文','古风甜文','古风通用','年代虐文','年代甜文','年代通用',
-  '现代虐文','现代甜文','现代悬疑','现代通用','男频都市','现代女主',
-  '玄幻','历史','爆款BGM','家庭奇葩','家庭伤感','职场打脸'
-].map(name => ({ value: name, label: name }));
-
-const UPLOAD_PLATFORMS = [
-  { id: 1, name: '黑岩付费' }, { id: 2, name: '番茄付费' }, { id: 3, name: '七猫付费' },
-  { id: 4, name: '点众付费' }, { id: 6, name: '阅文付费' }, { id: 7, name: '番茄免费' },
-  { id: 15, name: '知乎付费' }, { id: 20, name: '掌阅付费' }, { id: 26, name: '卓越付费' },
-  { id: 29, name: '九州书城' }, { id: 31, name: '掌文付费' }
-];
-
-const DEFAULT_UPLOAD_ADVANCED = {
-  jieyaNum: 4, jieyaAiHead: 0, jieyaSpeed: 1.7, jieyaPitch: 0,
-  gunpingNum: 4, gunpingSpeed: 1
-};
-
 const PLATFORMS = [
-  { id: 1, name: '黑岩付费' },
-  { id: 2, name: '番茄付费' },
-  { id: 3, name: '七猫付费' },
-  { id: 4, name: '点众付费' },
-  { id: 7, name: '番茄免费' },
-  { id: 15, name: '知乎付费' },
-  { id: 20, name: '掌阅付费' },
-  { id: 26, name: '卓越付费' },
-  { id: 29, name: '九州书城' },
-  { id: 31, name: '掌文付费' }
+  { value: 1, label: '黑岩付费' }, { value: 2, label: '番茄付费' }, { value: 3, label: '七猫付费' },
+  { value: 4, label: '点众付费' }, { value: 7, label: '番茄免费' }, { value: 15, label: '知乎付费' },
+  { value: 20, label: '掌阅付费' }, { value: 26, label: '卓越付费' }, { value: 29, label: '九州书城' }, { value: 31, label: '掌文付费' }
+];
+const KNOWLEDGE_TABS = [
+  ['high_imitation', '高仿库'], ['opening_phrases', '爆款开头'], ['rewrite_templates', '改文模板'],
+  ['layout_rules', '排版规则'], ['symbol_rules', '符号规则'], ['chapter_rules', '章节规则']
 ];
 
-const WORD_COUNTS = [500, 1000, 2000, 3000, 5000, 10000];
-const MAX_BOOK_IDS = 50;
-
-function parseBookIds(text) {
-  const values = String(text || '')
-    .split(/[\s,，;；]+/)
-    .map(item => item.trim())
-    .filter(Boolean);
-  return [...new Set(values)];
+function initialTab() {
+  const tab = new URLSearchParams(window.location.search).get('tab');
+  return TABS.some(item => item.key === tab) ? tab : 'process';
 }
-
-function downloadText(filename, content) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+function parseIds(value) {
+  return [...new Set(String(value || '').split(/[\s,，;；]+/).map(item => item.trim()).filter(Boolean))];
+}
+function statusColor(value) {
+  if (String(value || '').includes('fail')) return 'red';
+  if (String(value || '').includes('done')) return 'green';
+  return 'gold';
+}
+function downloadText(name, content) {
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
   URL.revokeObjectURL(url);
 }
 
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (_) {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    textarea.remove();
-  }
-}
-
-function resolveMaxTxt(form, customWordCount) {
-  const value = form.getFieldValue('maxTxt');
-  if (customWordCount) return Number(form.getFieldValue('customMaxTxt'));
-  return Number(value);
-}
-
 export function NovelFetchPage() {
-  const [form] = Form.useForm();
-  const [rows, setRows] = useState([]);
-  const [fetching, setFetching] = useState(false);
-  const [selected, setSelected] = useState([]);
-  const [customWordCount, setCustomWordCount] = useState(false);
-  const [preview, setPreview] = useState(null);
-  const [retrying, setRetrying] = useState(false);
-  const [processPresets, setProcessPresets] = useState([]);
-  const [processMode, setProcessMode] = useState('');
+  const [processForm] = Form.useForm();
+  const [configForm] = Form.useForm();
+  const [knowledgeForm] = Form.useForm();
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [processRows, setProcessRows] = useState([]);
   const [processing, setProcessing] = useState(false);
-  const [processModal, setProcessModal] = useState(null); // { mode, results: [{bookId, status, report, text, error}] }
-  const [inducedModal, setInducedModal] = useState(null); // 单本改编查看：row（含 induced 与原文 data）
-  const [editModal, setEditModal] = useState(null);        // { bookId, platformName, mode, text, original } 编辑弹窗
-  const [editText, setEditText] = useState('');            // 编辑弹窗当前文本
-  const [editDirty, setEditDirty] = useState(false);       // 是否有未保存修改
-  const [uploadOpen, setUploadOpen] = useState(false);     // 上传配置弹窗
-  const [loginOpen, setLoginOpen] = useState(false);       // 登录弹窗
-  const [loginForm] = Form.useForm();                      // 登录表单
-  const [loggingIn, setLoggingIn] = useState(false);
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [uploadConfig, setUploadConfig] = useState({ platformId: null, advanced: { ...DEFAULT_UPLOAD_ADVANCED } });
-  const [uploadItems, setUploadItems] = useState([]);      // [{ bookId, gender, style, overrideJieyaNum, overrideGunpingNum }]
-  const [uploading, setUploading] = useState(false);
-  const [uploadResults, setUploadResults] = useState([]);  // [{ bookId, status, error }]
-  const [retryUploading, setRetryUploading] = useState(null); // 正在单本重试上传的 bookId
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [selectedTaskKeys, setSelectedTaskKeys] = useState([]);
+  const [selectedTaskData, setSelectedTaskData] = useState(null);
+  const [taskDetail, setTaskDetail] = useState(null);
+  const [ruleText, setRuleText] = useState('');
+  const [ruleScope, setRuleScope] = useState('original');
+  const [ruleResult, setRuleResult] = useState(null);
+  const [ruleLoading, setRuleLoading] = useState(false);
+  const [knowledgeKind, setKnowledgeKind] = useState('high_imitation');
+  const [knowledge, setKnowledge] = useState({ items: [] });
+  const [knowledgeSummary, setKnowledgeSummary] = useState({});
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeModal, setKnowledgeModal] = useState(false);
+  const [openingText, setOpeningText] = useState('');
+  const [openingItems, setOpeningItems] = useState([]);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [webSubmitConfig, setWebSubmitConfig] = useState(null);
+  const [webSubmitPlan, setWebSubmitPlan] = useState(null);
+  const [webSubmitResults, setWebSubmitResults] = useState([]);
+  const [webSubmitLoading, setWebSubmitLoading] = useState(false);
 
+  const selectedTask = useMemo(() => selectedTaskKeys[0] || '', [selectedTaskKeys]);
+
+  async function loadTasks() {
+    setTasksLoading(true);
+    try { setTasks((await listWorkshopTasks()).tasks || []); } catch (error) { message.error(error.message || '读取任务失败'); } finally { setTasksLoading(false); }
+  }
+  async function selectTask(bookId) {
+    if (!bookId) return;
+    try { setSelectedTaskData(await getWorkshopTask(bookId)); } catch (error) { message.error(error.message || '读取任务详情失败'); }
+  }
+  async function loadKnowledge() {
+    setKnowledgeLoading(true);
+    try {
+      const [items, summary] = await Promise.all([getWorkshopKnowledge(knowledgeKind), getWorkshopKnowledgeSummary()]);
+      setKnowledge(items || { items: [] });
+      setKnowledgeSummary(summary || {});
+    } catch (error) { message.error(error.message || '读取知识库失败'); } finally { setKnowledgeLoading(false); }
+  }
+  async function loadConfig() {
+    setConfigLoading(true);
+    try {
+      const data = await getWorkshopConfig();
+      configForm.setFieldsValue(data.appConfig || data.config || {});
+    } catch (error) { message.error(error.message || '读取配置失败'); } finally { setConfigLoading(false); }
+  }
+  async function loadWebSubmit() {
+    try { setWebSubmitConfig((await getWebSubmitConfig()).config || {}); } catch (error) { message.error(error.message || '读取提交配置失败'); }
+  }
+
+  useEffect(() => { loadTasks(); }, []);
   useEffect(() => {
-    let active = true;
-    // 处理类型来自系统预设：诱导排查(induce)、爆款优化(hook)
-    listNovelFetchProcessPresets()
-      .then(data => {
-        if (!active) return;
-        const available = (data && data.catalog || []).filter(item => item.processOperation === 'induce' || item.processOperation === 'hook');
-        const options = available.map(item => ({ value: item.processOperation, label: item.name }));
-        setProcessPresets(options);
-        if (options.length > 0) setProcessMode(options[0].value);
-      })
-      .catch(() => {});
-    // 合并改文工作台"加入上传"的项（sessionStorage 传递），同 bookId+source 去重
-    try {
-      const incoming = JSON.parse(sessionStorage.getItem('workshopUploadItems') || '[]');
-      if (Array.isArray(incoming) && incoming.length > 0) {
-        setUploadItems(current => {
-          const seen = new Set(current.map(i => `${String(i.bookId)}:${i.source || ''}`));
-          const merged = [...current];
-          for (const item of incoming) {
-            if (!item || !item.bookId) continue;
-            const key = `${String(item.bookId)}:${item.source || ''}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            merged.push(item);
-          }
-          return merged;
-        });
-      }
-    } catch (_) {
-      // 数据损坏时忽略并清空，避免阻塞页面
-    }
-    sessionStorage.removeItem('workshopUploadItems');
-    return () => { active = false; };
-  }, []);
+    if (activeTab === 'config') loadConfig();
+    if (activeTab === 'knowledge') loadKnowledge();
+    if (activeTab === 'submit') loadWebSubmit();
+  }, [activeTab, knowledgeKind]);
 
-  async function handleFetch() {
-    const bookIds = parseBookIds(form.getFieldValue('bookIdsText'));
-    if (bookIds.length === 0) { message.warning('请填写书籍 ID'); return; }
-    if (bookIds.length > MAX_BOOK_IDS) { message.warning(`一次最多获取 ${MAX_BOOK_IDS} 本书`); return; }
-    const maxTxt = resolveMaxTxt(form, customWordCount);
-    if (!Number.isInteger(maxTxt) || maxTxt < 100 || maxTxt > 100000) { message.warning('字数需为 100–100000 的整数'); return; }
-    const platformId = Number(form.getFieldValue('platformId'));
-    const platformName = PLATFORMS.find(p => p.id === platformId)?.name || '';
-    const initialRows = bookIds.map(bookId => ({ bookId, platform: platformId, platformName, status: 'loading', data: null, error: null, length: 0 }));
-    setRows(initialRows);
-    setSelected([]);
-    setFetching(true);
-    try {
-      const data = await fetchNovelContent({ platform: platformId, bookIds, maxTxt });
-      const byId = new Map((data.results || []).map(item => [item.bookId, item]));
-      setRows(initialRows.map(row => {
-        const result = byId.get(row.bookId);
-        return result
-          ? { ...row, status: result.status, data: result.data, error: result.error, length: result.length }
-          : { ...row, status: 'error', error: '无返回结果', length: 0 };
-      }));
-      const failed = (data.results || []).filter(item => item.status === 'error').length;
-      if (failed) message.error(`${failed} 本获取失败`);
-      else message.success('全部获取成功');
-    } catch (error) {
-      setRows(initialRows.map(row => ({ ...row, status: 'error', error: error.message || '请求失败', length: 0 })));
-      message.error(error.message || '获取失败');
-    } finally {
-      setFetching(false);
-    }
+  function changeTab(tab) {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.replaceState(null, '', `${url.pathname}${url.search}`);
   }
-
-  async function handleRetry(row) {
-    setRetrying(true);
-    try {
-      const maxTxt = resolveMaxTxt(form, customWordCount);
-      const data = await fetchNovelContent({ platform: row.platform, bookIds: [row.bookId], maxTxt });
-      const result = (data.results || [])[0];
-      if (!result) { message.error('重试失败：无返回结果'); return; }
-      setRows(current => current.map(item => item.bookId === row.bookId
-        ? { ...item, status: result.status, data: result.data, error: result.error, length: result.length }
-        : item));
-      message[result.status === 'ok' ? 'success' : 'error'](result.status === 'ok' ? '重试成功' : (result.error || '重试失败'));
-    } catch (error) {
-      message.error(error.message || '重试失败');
-    } finally {
-      setRetrying(false);
-    }
-  }
-
-  function handleReset() {
-    form.resetFields();
-    setRows([]);
-    setSelected([]);
-    setPreview(null);
-    setCustomWordCount(false);
-  }
-
-  async function handleDownload(row) {
-    try {
-      const data = await apiRequest('/api/novel-fetch', {
-        method: 'POST',
-        body: JSON.stringify({
-          platform: row.platform,
-          bookIds: [row.bookId],
-          maxTxt: resolveMaxTxt(form, customWordCount),
-          saveToFolder: true
-        })
-      });
-      const result = ((data && data.results) || [])[0];
-      if (result && result.savedToFolder) {
-        message.success(`已保存到本地文件夹（小说获取）：${row.bookId}.txt`);
-        return;
-      }
-      message.warning('未配置本地存储文件夹，已用浏览器下载');
-      downloadText(`${row.bookId}.txt`, row.data);
-    } catch (error) {
-      message.warning((error && error.message) || '保存失败，已用浏览器下载');
-      downloadText(`${row.bookId}.txt`, row.data);
-    }
-  }
-
-  function toggleRow(bookId) {
-    setSelected(current => current.includes(bookId) ? current.filter(id => id !== bookId) : [...current, bookId]);
-  }
-
-  function okRows() {
-    return rows.filter(row => row.status === 'ok');
-  }
-
-  function toggleAll() {
-    const oks = okRows();
-    setSelected(current => current.length === oks.length ? [] : oks.map(row => row.bookId));
-  }
-
-  async function handleBatchCopy() {
-    const chosen = rows.filter(row => selected.includes(row.bookId));
-    if (chosen.length === 0) { message.warning('请先选择要复制的书籍'); return; }
-    const text = chosen.map(row => `bookid：${row.bookId} —— ${row.platformName}\n\n${row.data}`).join('\n\n----------------\n\n');
-    await copyText(text);
-    message.success(`已复制 ${chosen.length} 本内容`);
-  }
-
-  function handleBatchDownload() {
-    const chosen = rows.filter(row => selected.includes(row.bookId));
-    if (chosen.length === 0) { message.warning('请先选择要下载的书籍'); return; }
-    chosen.forEach(row => downloadText(`${row.bookId}.txt`, row.data));
-  }
-
   async function handleProcess() {
-    const chosen = okRows().filter(row => selected.includes(row.bookId) && (!row.induced || row.induced.mode !== processMode));
-    if (chosen.length === 0) { message.warning('所选书籍均已处理'); return; }
-    if (!processMode) { message.warning('暂无可用的处理类型'); return; }
+    const values = await processForm.validateFields();
+    const bookIds = parseIds(values.bookIds);
+    if (!bookIds.length) return message.warning('请填写至少一个书籍 ID');
     setProcessing(true);
+    setProcessRows(bookIds.map(bookId => ({ bookId, status: 'loading' })));
     try {
-      const data = await processNovelContent({
-        mode: processMode,
-        platform: chosen[0]?.platform,
-        platformName: chosen[0]?.platformName,
-        items: chosen.map(row => ({ bookId: row.bookId, text: row.data })),
-        saveToFolder: true
-      });
+      const data = await fetchNovelContent({ platform: values.platform, bookIds, maxTxt: values.maxTxt });
       const results = data.results || [];
-      setRows(current => current.map(row => {
-        const result = results.find(item => item.bookId === row.bookId);
-        return result ? {
-          ...row,
-          induced: result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text, analysis: result.analysis || null, edited: false } : null,
-          processError: result.status === 'ok' ? null : result.error
-        } : row;
-      }));
-      setProcessModal({ mode: processMode, results });
-      const failed = results.filter(item => item.status === 'error').length;
-      if (failed) message.error(`${failed} 本处理失败`);
-      else if (results.length && results.every(item => item.savedToFolder)) message.success('处理完成，已保存到本地文件夹（改编小说）');
-      else message.success('处理完成');
+      setProcessRows(results.map(row => ({ ...row, status: row.status === 'ok' ? 'done' : 'failed' })));
+      await loadTasks();
     } catch (error) {
+      setProcessRows(bookIds.map(bookId => ({ bookId, status: 'failed', error: error.message })));
       message.error(error.message || '处理失败');
-    } finally {
-      setProcessing(false);
-    }
+    } finally { setProcessing(false); }
   }
-
-  async function handleProcessOne(row) {
-    if (!processMode) { message.warning('暂无可用的处理类型'); return; }
-    if (row.induced && row.induced.mode === processMode) {
-      setProcessModal({ mode: processMode, results: [{ bookId: row.bookId, status: 'ok', text: row.induced.text, report: row.induced.report, error: null }] });
-      return;
-    }
-    setProcessing(true);
+  async function handleGenerateAi() {
+    if (!selectedTask) return message.warning('请先选择一个任务');
+    try { await generateWorkshopAi(selectedTask, 1); await selectTask(selectedTask); await loadTasks(); message.success('已生成 AI 版本'); } catch (error) { message.error(error.message || '生成 AI 版本失败'); }
+  }
+  async function handleRetryTasks() {
+    try { await retryWorkshopTasks(selectedTaskKeys); await loadTasks(); message.success('已加入重试'); } catch (error) { message.error(error.message || '批量重试失败'); }
+  }
+  async function handleDeleteTasks() {
+    Modal.confirm({ title: '删除选中任务', content: '删除后无法恢复，确认继续？', onOk: async () => { await deleteWorkshopTasks(selectedTaskKeys); setSelectedTaskKeys([]); await loadTasks(); } });
+  }
+  async function handleRulePreview() {
+    if (!ruleText.trim()) return message.warning('请填写待处理文本');
+    setRuleLoading(true);
+    try { setRuleResult(await previewWorkshopRules(ruleText, ruleScope)); } catch (error) { message.error(error.message || '预览规则失败'); } finally { setRuleLoading(false); }
+  }
+  async function handleRuleSuggest() {
+    if (!ruleText.trim()) return message.warning('请填写待处理文本');
+    setRuleLoading(true);
     try {
-      const data = await processNovelContent({ mode: processMode, platform: row.platform, platformName: row.platformName, items: [{ bookId: row.bookId, text: row.data }], saveToFolder: true });
-      const result = (data.results || [])[0];
-      setRows(current => current.map(item => item.bookId === row.bookId
-        ? { ...item, induced: result && result.status === 'ok' ? { mode: processMode, report: result.report, text: result.text, analysis: result.analysis || null } : null, processError: result && result.status === 'ok' ? null : (result ? result.error : '处理失败') }
-        : item));
-      if (result && result.status === 'ok') {
-        setProcessModal({ mode: processMode, results: [result] });
-        if (result.savedToFolder) message.success('已保存到本地文件夹（改编小说）');
-      }
-      else message.error((result && result.error) || '处理失败');
-    } catch (error) {
-      message.error(error.message || '处理失败');
-    } finally {
-      setProcessing(false);
-    }
+      const result = await suggestWorkshopRules(ruleText, 'layout', '优化排版与敏感词处理');
+      setRuleResult(current => ({ ...current, suggestions: result }));
+    } catch (error) { message.error(error.message || '生成规则建议失败'); } finally { setRuleLoading(false); }
+  }
+  async function saveKnowledge() {
+    const item = await knowledgeForm.validateFields();
+    try { await saveWorkshopKnowledge(knowledgeKind, item); setKnowledgeModal(false); await loadKnowledge(); message.success('知识条目已保存'); } catch (error) { message.error(error.message || '保存知识条目失败'); }
+  }
+  async function handleOpeningAnalyze() {
+    if (!openingText.trim()) return message.warning('请填写开头文本');
+    try { setOpeningItems((await analyzeWorkshopOpening(openingText)).items || []); } catch (error) { message.error(error.message || '分析失败'); }
+  }
+  async function handleWebSubmit(action, success) {
+    setWebSubmitLoading(true);
+    try { const result = await action(); if (success) message.success(success); return result; } catch (error) { message.error(error.message || '网站提交操作失败'); return null; } finally { setWebSubmitLoading(false); }
   }
 
-  function openEdit(row) {
-    const text = row.induced?.text ?? row.data ?? '';
-    setEditModal({ bookId: row.bookId, platformName: row.platformName, mode: row.induced?.mode, gender: row.induced?.analysis?.gender || null, style: row.induced?.analysis?.style || null });
-    setEditText(text);
-    setEditDirty(false);
-  }
-
-  async function handleSaveEdit() {
-    if (!editModal) return;
-    if (!editText.trim()) { message.warning('正文不能为空'); return; }
-    const meta = editModal.mode ? { mode: editModal.mode, platform: uploadConfig.platformId, platformName: editModal.platformName, gender: editModal.gender, style: editModal.style } : undefined;
-    try {
-      await saveNovelContent({ bookId: editModal.bookId, text: editText, meta });
-      setEditDirty(false);
-      setRows(current => current.map(r => r.bookId === editModal.bookId
-        ? { ...r, induced: r.induced ? { ...r.induced, text: editText, edited: true } : r.induced }
-        : r));
-      message.success('已保存');
-    } catch (error) {
-      message.error(error.message || '保存失败');
-    }
-  }
-
-  async function openUploadPanel() {
-    setUploadResults([]);
-    const oks = okRows().filter(r => r.induced);
-    const hasWorkshopItems = uploadItems.some(i => i.source === 'workshop');
-    if (oks.length === 0 && !hasWorkshopItems) { message.warning('请先对小说执行 AI 处理，或从改文工作台加入上传'); return; }
-    // 仅本页无已处理小说时（仅 workshop 项），回退使用默认平台 2（番茄付费）
-    const platformId = oks.length > 0 ? oks[0].platform : (uploadConfig.platformId || 2);
-    setUploadConfig({ platformId, advanced: { ...DEFAULT_UPLOAD_ADVANCED } });
-    // 保留工作台"加入上传"的项（source==='workshop'），再合并本页小说，同 bookId+source 去重
-    setUploadItems(current => {
-      const seen = new Set(current.map(i => `${String(i.bookId)}:${i.source || ''}`));
-      const merged = [...current];
-      for (const row of oks) {
-        const item = {
-          bookId: row.bookId,
-          gender: row.induced?.analysis?.gender || '',
-          style: row.induced?.analysis?.style || '',
-          overrideJieyaNum: null,
-          overrideGunpingNum: null
-        };
-        const key = `${String(item.bookId)}:${item.source || ''}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(item);
-      }
-      return merged;
-    });
-    let sessionOk = false;
-    try {
-      const session = await getUploadSession();
-      sessionOk = Boolean(session && session.loggedIn);
-    } catch (_) {
-      sessionOk = false;
-    }
-    setLoggedIn(sessionOk);
-    if (!sessionOk) { setLoginOpen(true); return; }
-    setUploadOpen(true);
-  }
-
-  async function handleLogin() {
-    const { username, password } = await loginForm.validateFields().catch(() => null);
-    if (!username || !password) return;
-    setLoggingIn(true);
-    try {
-      const data = await uploadLogin({ username, password });
-      if (data.ok) { setLoggedIn(true); setLoginOpen(false); setUploadOpen(true); message.success('登录成功'); }
-      else message.error(data.error || '登录失败');
-    } catch (error) {
-      message.error(error.message || '登录失败');
-    } finally {
-      setLoggingIn(false);
-    }
-  }
-
-  async function handleUploadBatch() {
-    if (uploadItems.some(i => !i.gender || !i.style)) { message.warning('请为每本选择性别和风格'); return; }
-    // 跳过已经上传成功的书籍，避免重复上传（按 bookId+source 复合键匹配）
-    const okKeys = new Set(uploadResults.filter(r => r.status === 'ok').map(r => `${String(r.bookId)}:${r.source || ''}`));
-    const pendingItems = uploadItems.filter(i => !okKeys.has(`${String(i.bookId)}:${i.source || ''}`));
-    if (pendingItems.length === 0) { message.success('所选书籍均已上传成功'); return; }
-    setUploading(true);
-    try {
-      const data = await uploadBatch({
-        platformId: uploadConfig.platformId,
-        advanced: uploadConfig.advanced,
-        items: pendingItems
-      });
-      if (data.notLoggedIn) {
-        message.warning(data.error || '请先登录目标站');
-        setLoggedIn(false);
-        setUploadOpen(false);
-        setLoginOpen(true);
-        return;
-      }
-      const results = data.results || [];
-      // 后端结果不含 source，按 bookId 回填关联项 source，供 bookId+source 复合键匹配
-      const keyedResults = results.map(r => {
-        const srcItem = pendingItems.find(i => String(i.bookId) === String(r.bookId));
-        return { ...r, source: srcItem ? (srcItem.source || '') : '' };
-      });
-      // 保留已有的成功结果，仅合并本次结果，避免成功标记丢失
-      setUploadResults(current => {
-        const newKeys = new Set(keyedResults.map(r => `${String(r.bookId)}:${r.source || ''}`));
-        const keptOk = current.filter(r => r.status === 'ok' && !newKeys.has(`${String(r.bookId)}:${r.source || ''}`));
-        return [...keptOk, ...keyedResults];
-      });
-      const ok = results.filter(r => r.status === 'ok').length;
-      const fail = results.filter(r => r.status === 'error').length;
-      if (fail === 0) message.success(`全部上传成功（${ok} 本）`);
-      else message.warning(`成功 ${ok} 本，失败 ${fail} 本`);
-    } catch (error) {
-      message.error(error.message || '上传失败');
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handleRetryUpload(row) {
-    setRetryUploading(row.bookId);
-    try {
-      const data = await uploadBatch({
-        platformId: uploadConfig.platformId,
-        advanced: uploadConfig.advanced,
-        items: [{
-          bookId: row.bookId,
-          gender: row.gender,
-          style: row.style,
-          source: row.source,
-          version: row.version,
-          overrideJieyaNum: row.overrideJieyaNum,
-          overrideGunpingNum: row.overrideGunpingNum
-        }]
-      });
-      if (data.notLoggedIn) {
-        message.warning(data.error || '请先登录目标站');
-        setLoggedIn(false);
-        setUploadOpen(false);
-        setLoginOpen(true);
-        return;
-      }
-      const result = (data.results || []).find(r => String(r.bookId) === String(row.bookId));
-      if (result) {
-        // 仅更新该行（bookId+source）对应的上传结果
-        setUploadResults(current => [...current.filter(x => !(String(x.bookId) === String(row.bookId) && (x.source || '') === (row.source || ''))), { ...result, source: row.source || '' }]);
-        message[result.status === 'ok' ? 'success' : 'error'](result.status === 'ok' ? `重试上传成功：${row.bookId}` : `重试上传失败：${result.error || ''}`);
-      } else {
-        message.error('重试上传失败：无返回结果');
-      }
-    } catch (error) {
-      message.error(error.message || '重试上传失败');
-    } finally {
-      setRetryUploading(null);
-    }
-  }
-
-  return (
-    <Space className="novel-fetch-page" direction="vertical" size={16} style={{ width: '100%' }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>小说获取</Typography.Title>
-      <Form
-        form={form}
-        layout="inline"
-        initialValues={{ platformId: 2, maxTxt: 2000 }}
-        className="novel-fetch-form"
-      >
-        <Form.Item name="platformId" label="平台">
-          <Select style={{ width: 160 }} options={PLATFORMS.map(p => ({ value: p.id, label: p.name }))} />
-        </Form.Item>
-        <Form.Item name="bookIdsText" label="书籍 ID" style={{ minWidth: 300, flex: 1 }}>
-          <Input.TextArea
-            rows={2}
-            placeholder={'每行一个书籍 ID，支持逗号/空格分隔\n例：7673480334440139800'}
-          />
-        </Form.Item>
-        <Form.Item name="maxTxt" label="字数">
-          <Select
-            style={{ width: 130 }}
-            options={[
-              ...WORD_COUNTS.map(n => ({ value: n, label: String(n) })),
-              { value: 'custom', label: '自定义' }
-            ]}
-            onChange={(value) => setCustomWordCount(value === 'custom')}
-          />
-        </Form.Item>
-        {customWordCount ? (
-          <Form.Item name="customMaxTxt" label="自定义字数">
-            <InputNumber min={100} max={100000} style={{ width: 120 }} />
-          </Form.Item>
-        ) : null}
-        <Form.Item>
-          <Space>
-            <Button type="primary" htmlType="button" loading={fetching} onClick={handleFetch}>获取</Button>
-            <Button onClick={handleReset}>重置</Button>
-            <Button onClick={() => { window.location.href = '/novel-fetch-workshop'; }}>改文工作台</Button>
-          </Space>
-        </Form.Item>
-      </Form>
-
-      {rows.length > 0 ? (
-        <div className="legacy-panel-card novel-fetch-results">
-          <div className="novel-fetch-toolbar">
-            <Checkbox
-              checked={okRows().length > 0 && selected.length === okRows().length}
-              disabled={okRows().length === 0}
-              onChange={toggleAll}
-            >
-              全选
-            </Checkbox>
-            <Button size="small" icon={<Copy size={14} aria-hidden="true" />} onClick={handleBatchCopy}>批量复制</Button>
-            <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={handleBatchDownload}>批量下载</Button>
-            <Button size="small" icon={<UploadCloud size={14} aria-hidden="true" />} disabled={okRows().filter(r => r.induced).length === 0 && uploadItems.every(i => i.source !== 'workshop')} onClick={openUploadPanel}>对接上传</Button>
-            <Select
-              size="small"
-              style={{ width: 120 }}
-              value={processMode}
-              onChange={setProcessMode}
-              options={processPresets}
-              placeholder="处理类型"
-              disabled={processPresets.length === 0 || processing}
-            />
-            <Button
-              size="small"
-              type="primary"
-              icon={<Wand2 size={14} aria-hidden="true" />}
-              loading={processing}
-              disabled={okRows().length === 0 || !processMode}
-              onClick={handleProcess}
-            >AI 处理</Button>
-          </div>
-          {rows.map(row => (
-            <div key={row.bookId} className="novel-fetch-row">
-              <Checkbox
-                checked={selected.includes(row.bookId)}
-                disabled={row.status !== 'ok'}
-                onChange={() => toggleRow(row.bookId)}
-              />
-              <span className="novel-fetch-bookid">{row.bookId}</span>
-              <span className="novel-fetch-platform">{row.platformName}</span>
-              <span className={`novel-fetch-status novel-fetch-status--${row.status}`}>
-                {row.status === 'loading' ? '获取中…' : row.status === 'ok' ? '成功' : '失败'}
-              </span>
-              <span className="novel-fetch-length">
-                {row.processError ? row.processError : (row.status === 'ok' ? `${row.length} 字` : (row.error || ''))}
-              </span>
-              <Space className="novel-fetch-actions">
-                {row.status === 'ok' ? (
-                  <>
-                    <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setPreview(row)}>查看</Button>
-                    <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => handleDownload(row)}>下载</Button>
-                    <Button size="small" icon={<Wand2 size={14} aria-hidden="true" />} loading={processing} onClick={() => handleProcessOne(row)}>
-                      {row.induced ? '查看处理结果' : (processPresets.find(p => p.value === processMode)?.label || '处理')}
-                    </Button>
-                    {row.induced ? (
-                      <>
-                        <Button size="small" icon={<Eye size={14} aria-hidden="true" />} onClick={() => setInducedModal(row)}>查看改编</Button>
-                        <Button size="small" icon={<Pencil size={14} aria-hidden="true" />} onClick={() => openEdit(row)}>编辑</Button>
-                      </>
-                    ) : null}
-                  </>
-                ) : row.status === 'error' ? (
-                  <Button size="small" icon={<RotateCcw size={14} aria-hidden="true" />} loading={retrying} onClick={() => handleRetry(row)}>重试</Button>
-                ) : null}
-              </Space>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <Modal
-        title={preview ? `${preview.bookId} — ${preview.platformName}` : ''}
-        open={Boolean(preview)}
-        width={860}
-        footer={[
-          <Button key="copy" icon={<Copy size={14} aria-hidden="true" />} onClick={async () => {
-            if (!preview) return;
-            try {
-              await copyText(preview.data);
-              message.success('已复制到剪贴板');
-            } catch (_) {
-              message.error('复制失败');
-            }
-          }}>复制</Button>,
-          <Button key="close" onClick={() => setPreview(null)}>关闭</Button>
-        ]}
-        onCancel={() => setPreview(null)}
-      >
-        <Input.TextArea value={preview ? preview.data : ''} rows={18} readOnly className="novel-fetch-preview" />
-      </Modal>
-
-      <Modal
-        title="AI 处理结果"
-        open={Boolean(processModal)}
-        width={880}
-        onCancel={() => setProcessModal(null)}
-        footer={[
-          <Button key="all" icon={<Download size={14} aria-hidden="true" />} onClick={() => {
-            (processModal?.results || []).filter(item => item.status === 'ok').forEach(item => downloadText(`${item.bookId}.txt`, item.text));
-          }}>全选下载</Button>,
-          <Button key="close" onClick={() => setProcessModal(null)}>关闭</Button>
-        ]}
-      >
-        <Space direction="vertical" size={12} style={{ width: '100%', maxHeight: '60vh', overflow: 'auto' }}>
-          {(processModal?.results || []).map(item => (
-            <div key={item.bookId} className="novel-fetch-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="novel-fetch-bookid">{item.bookId}</span>
-                {item.status === 'ok'
-                  ? <span style={{ color: '#389e0d' }}><Check size={14} /> 成功</span>
-                  : <span style={{ color: '#cf1322' }}>失败：{item.error}</span>}
-                {item.status === 'ok' ? (
-                  <>
-                    <Button size="small" icon={<Copy size={14} aria-hidden="true" />} onClick={async () => { await copyText(item.text); message.success('已复制'); }}>复制</Button>
-                    <Button size="small" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${item.bookId}.txt`, item.text)}>下载</Button>
-                  </>
-                ) : null}
-              </div>
-              {item.status === 'ok' && item.report ? (
-                <Typography.Paragraph type="secondary" style={{ margin: '4px 0' }}>{item.report}</Typography.Paragraph>
-              ) : null}
-              {item.status === 'ok' ? (
-                <Input.TextArea value={item.text} rows={10} readOnly className="novel-fetch-preview" />
-              ) : null}
-            </div>
-          ))}
-        </Space>
-      </Modal>
-
-      <Modal
-        title={inducedModal ? `${inducedModal.bookId} — ${processPresets.find(p => p.value === inducedModal.induced?.mode)?.label || '改编'}` : ''}
-        open={Boolean(inducedModal)}
-        width={880}
-        onCancel={() => setInducedModal(null)}
-        footer={[
-          <Button key="copy" icon={<Copy size={14} aria-hidden="true" />} onClick={async () => {
-            if (!inducedModal?.induced) return;
-            try {
-              await copyText(inducedModal.induced.text);
-              message.success('已复制改编全文');
-            } catch (_) {
-              message.error('复制失败');
-            }
-          }}>复制改编</Button>,
-          <Button key="dl" icon={<Download size={14} aria-hidden="true" />} onClick={() => {
-            if (!inducedModal?.induced) return;
-            downloadText(`${inducedModal.bookId}.txt`, inducedModal.induced.text);
-          }}>下载改编</Button>,
-          <Button key="close" onClick={() => setInducedModal(null)}>关闭</Button>
-        ]}
-      >
-        {inducedModal?.induced ? (
-          <Tabs
-            items={[
-              {
-                key: 'adapted',
-                label: '改编结果',
-                children: (
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    {inducedModal.induced.report ? (
-                      <Typography.Paragraph type="secondary" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{inducedModal.induced.report}</Typography.Paragraph>
-                    ) : null}
-                    <Input.TextArea value={inducedModal.induced.text} rows={16} readOnly className="novel-fetch-preview" />
-                  </Space>
-                )
-              },
-              {
-                key: 'original',
-                label: '原文',
-                children: (
-                  <Input.TextArea value={inducedModal.data} rows={16} readOnly className="novel-fetch-preview" />
-                )
-              }
-            ]}
-          />
-        ) : null}
-      </Modal>
-
-      <Modal
-        title={editModal ? `${editModal.bookId} — ${editModal.platformName}（${processPresets.find(p => p.value === editModal.mode)?.label || '改编'}）` : ''}
-        open={Boolean(editModal)}
-        width={900}
-        destroyOnClose
-        onCancel={() => {
-          if (editDirty) {
-            Modal.confirm({ title: '有未保存的修改', content: '关闭将丢失未保存的修改，确定关闭吗？', onOk: () => setEditModal(null) });
-          } else {
-            setEditModal(null);
-          }
-        }}
-        footer={[
-          <Button key="save" type="primary" icon={<Save size={14} aria-hidden="true" />} onClick={handleSaveEdit}>保存</Button>,
-          <Button key="dl" icon={<Download size={14} aria-hidden="true" />} onClick={() => downloadText(`${editModal?.bookId}.txt`, editText)}>下载</Button>,
-          <Button key="close" onClick={() => { if (editDirty) { Modal.confirm({ title: '有未保存的修改', content: '关闭将丢失未保存的修改，确定关闭吗？', onOk: () => setEditModal(null) }); } else { setEditModal(null); } }}>关闭</Button>
-        ]}
-      >
-        <Input.TextArea
-          value={editText}
-          rows={18}
-          onChange={e => { setEditText(e.target.value); setEditDirty(true); }}
-          className="novel-fetch-preview"
-        />
-      </Modal>
-
-      <Modal
-        title="登录 two.121w.com"
-        open={loginOpen}
-        onCancel={() => setLoginOpen(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setLoginOpen(false)}>取消</Button>,
-          <Button key="login" type="primary" loading={loggingIn} onClick={handleLogin}>登录</Button>
-        ]}
-      >
-        <Form form={loginForm} layout="vertical">
-          <Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}>
-            <Input autoComplete="username" />
-          </Form.Item>
-          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password autoComplete="current-password" />
-          </Form.Item>
+  const panels = {
+    process: <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <div className="novel-fetch-grid">
+        <Form className="novel-fetch-panel" form={processForm} layout="vertical" initialValues={{ platform: 2, maxTxt: 2000 }}>
+          <Typography.Title level={5}>获取并处理原文</Typography.Title>
+          <Form.Item name="platform" label="平台"><Select options={PLATFORMS} /></Form.Item>
+          <Form.Item name="bookIds" label="书籍 ID" rules={[{ required: true, message: '请输入书籍 ID' }]}><Input.TextArea rows={5} placeholder="每行一个 ID，支持空格或逗号分隔" /></Form.Item>
+          <Form.Item name="maxTxt" label="截取字数"><InputNumber min={100} max={100000} /></Form.Item>
+          <Space><Button type="primary" loading={processing} onClick={handleProcess}>开始处理</Button><Button onClick={() => processForm.resetFields()}>清空</Button></Space>
         </Form>
-      </Modal>
+        <div className="novel-fetch-panel"><Typography.Title level={5}>处理结果</Typography.Title><Table size="small" rowKey="bookId" pagination={false} dataSource={processRows} locale={{ emptyText: '提交任务后在这里查看处理结果' }} columns={[
+          { title: '书籍 ID', dataIndex: 'bookId' }, { title: '状态', dataIndex: 'status', render: value => <Tag color={statusColor(value)}>{value === 'done' ? '完成' : value === 'failed' ? '失败' : '处理中'}</Tag> },
+          { title: '内容', render: (_, row) => row.data ? <Button size="small" icon={<Download size={14} />} onClick={() => downloadText(`${row.bookId}.txt`, row.data)}>下载</Button> : row.error || '-' }
+        ]} /></div>
+      </div>
+    </Space>,
+    tasks: <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <div className="novel-fetch-panel"><Space wrap><Button icon={<RefreshCw size={14} />} loading={tasksLoading} onClick={loadTasks}>刷新任务</Button><Button disabled={!selectedTaskKeys.length} onClick={handleRetryTasks}>批量重试</Button><Button danger disabled={!selectedTaskKeys.length} onClick={handleDeleteTasks}>删除选中</Button><Button disabled={!selectedTask} onClick={handleGenerateAi}>生成 AI 改文</Button></Space></div>
+      <Table className="novel-fetch-panel" rowKey="bookId" loading={tasksLoading} dataSource={tasks} rowSelection={{ selectedRowKeys: selectedTaskKeys, onChange: setSelectedTaskKeys }} pagination={{ pageSize: 20 }} columns={[
+        { title: '书名', dataIndex: 'bookName' }, { title: '平台', dataIndex: 'platformName' }, { title: '原文状态', dataIndex: 'originalStatus', render: value => <Tag color={statusColor(value)}>{value || '未抓取'}</Tag> },
+        { title: 'AI 状态', render: (_, row) => <Tag color={statusColor(row.aiStatus)}>{row.aiGeneratedCount ? `${row.aiGeneratedCount} 版` : row.aiStatus || '未生成'}</Tag> }, { title: '操作', render: (_, row) => <Space><Button size="small" onClick={() => selectTask(row.bookId)}>选择</Button><Button size="small" icon={<Eye size={14} />} onClick={async () => setTaskDetail({ bookId: row.bookId, data: await getWorkshopTask(row.bookId) })}>详情</Button><Button size="small" onClick={() => fetchWorkshopOriginal(row.bookId, row.maxTxt).then(loadTasks)}>重新抓取</Button><Button size="small" onClick={() => restoreWorkshopOriginal(row.bookId).then(loadTasks)}>恢复原文</Button></Space> }
+      ]} />
+    </Space>,
+    config: <Form className="novel-fetch-panel" form={configForm} layout="vertical" style={{ maxWidth: 760 }}><Typography.Title level={5}>配置</Typography.Title><Form.Item name="base_url" label="AI 基础接口"><Input /></Form.Item><Form.Item name="api_key" label="API Key"><Input.Password /></Form.Item><Form.Item name="model" label="模型"><Input /></Form.Item><Form.Item name="default_max_txt" label="默认抓取字数"><InputNumber min={100} max={100000} /></Form.Item><Form.Item name="default_ai_count" label="默认 AI 数量"><InputNumber min={1} max={20} /></Form.Item><Space><Button type="primary" loading={configLoading} onClick={async () => { await saveWorkshopConfig(configForm.getFieldsValue()); message.success('配置已保存'); }}>保存配置</Button><Button onClick={() => testWorkshopAi('rewrite').then(() => message.success('测试接口成功')).catch(error => message.error(error.message || '测试失败'))}>测试接口</Button></Space></Form>,
+    knowledge: <Space direction="vertical" size={12} style={{ width: '100%' }}><div className="novel-fetch-panel"><Tabs activeKey={knowledgeKind} onChange={setKnowledgeKind} items={KNOWLEDGE_TABS.map(([key, label]) => ({ key, label: `${label}（${knowledgeSummary[key] || 0}）` }))} /><Space wrap><Button onClick={() => { knowledgeForm.resetFields(); setKnowledgeModal(true); }}>新增条目</Button><Button loading={knowledgeLoading} onClick={loadKnowledge}>刷新</Button>{knowledgeKind === 'opening_phrases' ? <Button onClick={() => normalizeWorkshopOpening().then(loadKnowledge)}>规范化开头词</Button> : null}</Space></div>{knowledgeKind === 'opening_phrases' ? <div className="novel-fetch-panel"><Input.TextArea rows={4} value={openingText} onChange={event => setOpeningText(event.target.value)} placeholder="粘贴爆款开头进行分析" /><Space style={{ marginTop: 8 }}><Button onClick={handleOpeningAnalyze}>分析爆款开头</Button>{openingItems.map((item, index) => <Button key={item.id || index} onClick={() => saveWorkshopOpening(item).then(loadKnowledge)}>保存分析项</Button>)}</Space></div> : null}<Table className="novel-fetch-panel" rowKey="id" loading={knowledgeLoading} dataSource={knowledge.items || []} columns={[{ title: '条目', render: (_, item) => item.title || item.name || item.text || item.id }, { title: '内容', render: (_, item) => String(item.content || item.prompt || item.text || '').slice(0, 100) }, { title: '操作', render: (_, item) => <Space><Button size="small" onClick={() => { knowledgeForm.setFieldsValue(item); setKnowledgeModal(true); }}>编辑</Button><Button size="small" onClick={() => optimizeWorkshopKnowledge(knowledgeKind, item.id).then(loadKnowledge)}>AI 优化</Button><Button size="small" danger onClick={() => deleteWorkshopKnowledge(knowledgeKind, item.id).then(loadKnowledge)}>删除</Button></Space> }]} /><Modal open={knowledgeModal} title="知识条目" onCancel={() => setKnowledgeModal(false)} onOk={saveKnowledge}><Form form={knowledgeForm} layout="vertical"><Form.Item name="id" hidden><Input /></Form.Item><Form.Item name="title" label="标题"><Input /></Form.Item><Form.Item name="content" label="内容"><Input.TextArea rows={7} /></Form.Item></Form></Modal></Space>,
+    rules: <Space direction="vertical" size={12} style={{ width: '100%' }}><div className="novel-fetch-panel"><Space wrap><Select value={ruleScope} onChange={setRuleScope} options={[{ value: 'original', label: '原文' }, { value: 'ai', label: 'AI 版本' }]} /><Button disabled={!selectedTaskData?.original} onClick={() => setRuleText(selectedTaskData.original)}>载入当前任务原文</Button><Button type="primary" loading={ruleLoading} onClick={handleRulePreview}>预览规则</Button><Button loading={ruleLoading} onClick={handleRuleSuggest}>AI 规则建议</Button></Space><Input.TextArea style={{ marginTop: 12 }} rows={9} value={ruleText} onChange={event => setRuleText(event.target.value)} placeholder="输入需要处理的文本" /></div>{ruleResult ? <div className="novel-fetch-compare"><Tabs items={[{ key: 'result', label: '处理后文本', children: <Input.TextArea rows={14} readOnly value={ruleResult.result || ''} /> }, { key: 'trace', label: '阶段追踪', children: <Collapse items={(ruleResult.trace || []).map((item, index) => ({ key: String(index), label: item.title || `阶段 ${index + 1}`, children: JSON.stringify(item) }))} /> }, { key: 'suggestions', label: '规则建议', children: <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(ruleResult.suggestions || {}, null, 2)}</Typography.Paragraph> }]} /></div> : null}</Space>,
+    submit: <Space direction="vertical" size={12} style={{ width: '100%' }}><div className="novel-fetch-panel"><Typography.Title level={5}>网站提交</Typography.Title><Alert type="info" showIcon message="仅在确认“开始自动提交”后执行外部提交。" /><Space wrap style={{ marginTop: 12 }}><Button loading={webSubmitLoading} onClick={() => handleWebSubmit(checkWebSubmitEnvironment, '环境检测完成')}>环境检测</Button><Button loading={webSubmitLoading} onClick={() => handleWebSubmit(syncWebSubmitConfigs, '同步网站配置完成')}>同步网站配置</Button><Button loading={webSubmitLoading} onClick={() => handleWebSubmit(syncWebSubmitStyles, '同步网站风格完成')}>同步网站风格</Button><Button disabled={!selectedTaskKeys.length} loading={webSubmitLoading} onClick={async () => { const result = await handleWebSubmit(() => previewWebSubmit({ taskIds: selectedTaskKeys }), '提交预览已生成'); if (result) setWebSubmitPlan(result.plan); }}>提交预览</Button><Button type="primary" disabled={!selectedTaskKeys.length} loading={webSubmitLoading} onClick={() => Modal.confirm({ title: '确认开始自动提交', onOk: async () => { const result = await handleWebSubmit(() => startWebSubmit({ taskIds: selectedTaskKeys }), '自动提交完成'); if (result) setWebSubmitResults(result.results || []); } })}>开始自动提交</Button></Space><Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>已选任务：{selectedTaskKeys.length}；配置版本：{(webSubmitConfig?.submitVersions || []).join('、') || '默认'}</Typography.Paragraph>{webSubmitPlan ? <Alert type="success" message="提交预览已生成" description={`提交组：${webSubmitPlan.groups?.length || 0}，跳过：${webSubmitPlan.skipped?.length || 0}`} /> : null}</div><Table className="novel-fetch-panel" rowKey={row => `${row.bookId}-${row.version}`} dataSource={webSubmitResults} locale={{ emptyText: '暂无提交结果' }} columns={[{ title: '任务', dataIndex: 'bookId' }, { title: '版本', dataIndex: 'version' }, { title: '状态', dataIndex: 'status' }, { title: '失败重试', render: (_, row) => row.status === 'error' ? <Button size="small" onClick={() => startWebSubmit({ taskIds: [row.bookId], versions: [row.version] })}>失败重试</Button> : '-' }]} /></Space>,
+    logs: <div className="novel-fetch-panel"><Typography.Title level={5}>操作日志</Typography.Title><Select value={selectedTask || undefined} style={{ width: 320, marginBottom: 12 }} placeholder="选择任务查看日志" options={tasks.map(task => ({ value: task.bookId, label: task.bookName || task.bookId }))} onChange={selectTask} />{selectedTaskData ? <Collapse items={(selectedTaskData.logs || []).map((log, index) => ({ key: String(index), label: `${log.time || ''} ${log.event || '操作日志'}`, children: <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{log.detail || JSON.stringify(log)}</Typography.Paragraph> }))} /> : <Typography.Text type="secondary">选择任务后显示原文、AI、规则和提交的操作日志。</Typography.Text>}</div>
+  };
 
-      <Modal
-        title="对接上传（two.121w.com）"
-        open={uploadOpen}
-        width={1000}
-        onCancel={() => setUploadOpen(false)}
-        footer={[
-          <Button key="close" onClick={() => setUploadOpen(false)}>关闭</Button>,
-          <Button key="upload" type="primary" icon={<UploadCloud size={14} aria-hidden="true" />} loading={uploading} onClick={handleUploadBatch}>开始上传</Button>
-        ]}
-      >
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Space wrap>
-            <span>平台：</span>
-            <Select
-              style={{ width: 150 }}
-              value={uploadConfig.platformId}
-              onChange={v => setUploadConfig(c => ({ ...c, platformId: v }))}
-              options={UPLOAD_PLATFORMS.map(p => ({ value: p.id, label: p.name }))}
-            />
-            <span>解压数量：</span>
-            <InputNumber min={0} max={20} value={uploadConfig.advanced.jieyaNum} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaNum: v } }))} />
-            <span>AI头部：</span>
-            <Select style={{ width: 130 }} value={uploadConfig.advanced.jieyaAiHead} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaAiHead: v } }))}
-              options={[{ value: 0, label: '不加AI头部' }, { value: 1, label: '单个视频加AI头部' }, { value: 2, label: 'AI头部复用' }]} />
-            <span>解压语速：</span>
-            <InputNumber min={0.5} max={2.0} step={0.1} value={uploadConfig.advanced.jieyaSpeed} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaSpeed: v } }))} />
-            <span>解压音调：</span>
-            <InputNumber min={-50} max={50} value={uploadConfig.advanced.jieyaPitch} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, jieyaPitch: v } }))} />
-            <span>滚屏数量：</span>
-            <InputNumber min={0} max={20} value={uploadConfig.advanced.gunpingNum} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, gunpingNum: v } }))} />
-            <span>滚屏语速：</span>
-            <InputNumber min={0.1} max={2.0} step={0.1} value={uploadConfig.advanced.gunpingSpeed} onChange={v => setUploadConfig(c => ({ ...c, advanced: { ...c.advanced, gunpingSpeed: v } }))} />
-          </Space>
-          <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-            每本使用自己的性别/风格（来自 AI 分析，可修改）。本期暂不支持背景音乐与自定义 AI 头部视频。
-          </Typography.Paragraph>
-          <Table
-            size="small"
-            rowKey={record => `${String(record.bookId)}:${record.source || ''}`}
-            dataSource={uploadItems}
-            pagination={false}
-            columns={[
-              { title: '书籍 ID', dataIndex: 'bookId', width: 180 },
-              {
-                title: '版本', dataIndex: 'version', width: 130,
-                render: (v, row) => row.source === 'workshop' ? (
-                  <Select
-                    size="small"
-                    style={{ width: 120 }}
-                    value={row.version || 'edited'}
-                    options={(row.versions || ['edited']).map(ver => ({ value: ver, label: ver }))}
-                    onChange={ver => setUploadItems(list => list.map(i => i.bookId === row.bookId && i.source === 'workshop' ? { ...i, version: ver } : i))}
-                  />
-                ) : <span>-</span>
-              },
-              {
-                title: '性别', dataIndex: 'gender', width: 120,
-                render: (v, row) => <Select size="small" style={{ width: 110 }} value={v} options={GENDER_OPTIONS} onChange={g => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, gender: g } : i))} />
-              },
-              {
-                title: '风格', dataIndex: 'style', width: 150,
-                render: (v, row) => <Select size="small" showSearch style={{ width: 140 }} value={v} options={STYLE_OPTIONS} onChange={s => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, style: s } : i))} />
-              },
-              {
-                title: '解压数量', dataIndex: 'overrideJieyaNum', width: 120,
-                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, overrideJieyaNum: n } : i))} />
-              },
-              {
-                title: '滚屏数量', dataIndex: 'overrideGunpingNum', width: 120,
-                render: (v, row) => <InputNumber size="small" min={0} max={20} value={v} placeholder="默认" onChange={n => setUploadItems(list => list.map(i => (String(i.bookId) === String(row.bookId) && (i.source || '') === (row.source || '')) ? { ...i, overrideGunpingNum: n } : i))} />
-              },
-              {
-                title: '状态', dataIndex: 'status', width: 260,
-                render: (_, row) => {
-                  const r = uploadResults.find(x => String(x.bookId) === String(row.bookId) && (x.source || '') === (row.source || ''));
-                  if (!r) return <span>-</span>;
-                  if (r.status === 'ok') {
-                    return <span style={{ color: '#389e0d' }}><Check size={14} aria-hidden="true" /> 成功</span>;
-                  }
-                  return (
-                    <Space size={4}>
-                      <span style={{ color: '#cf1322' }}>失败：{r.error}</span>
-                      <Button
-                        size="small"
-                        icon={<RotateCcw size={14} aria-hidden="true" />}
-                        loading={retryUploading === row.bookId}
-                        disabled={uploading || (retryUploading !== null && retryUploading !== row.bookId)}
-                        onClick={() => handleRetryUpload(row)}
-                      >重试</Button>
-                    </Space>
-                  );
-                }
-              }
-            ]}
-          />
-        </Space>
-      </Modal>
-    </Space>
-  );
+  return <Space className="novel-fetch-page novel-fetch-workbench" direction="vertical" size={16} style={{ width: '100%' }}><div className="novel-fetch-summary"><Typography.Title level={3} style={{ margin: 0 }}>小说获取</Typography.Title><Typography.Text type="secondary">统一处理、任务、配置、知识库、处理规则、网站提交与日志。</Typography.Text></div><Tabs className="novel-fetch-panel" activeKey={activeTab} onChange={changeTab} items={TABS.map(item => ({ ...item, children: panels[item.key] }))} /><Drawer open={Boolean(taskDetail)} title={taskDetail?.bookId ? `任务详情 · ${taskDetail.bookId}` : '任务详情'} width={860} onClose={() => setTaskDetail(null)}>{taskDetail?.data ? <Tabs items={[{ key: 'original', label: '原文', children: <Input.TextArea rows={18} readOnly value={taskDetail.data.original || ''} /> }, { key: 'logs', label: '操作日志', children: <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(taskDetail.data.logs || [], null, 2)}</Typography.Paragraph> }]} /> : null}</Drawer></Space>;
 }
 
 export default NovelFetchPage;
