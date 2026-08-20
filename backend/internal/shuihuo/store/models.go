@@ -15,7 +15,7 @@ func NewModels(db *sql.DB) *Models { return &Models{db: db} }
 
 func (s *Models) ListEnabled(ctx context.Context) ([]models.Definition, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT d.id, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
+	SELECT d.id, d.model_key, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
 	       COALESCE(v.credential_ref, ''), COALESCE(v.endpoint, ''), COALESCE(v.request_template, ''), COALESCE(v.response_mapping, '')
 FROM model_definitions d
 JOIN model_versions v ON v.model_definition_id = d.id
@@ -32,7 +32,7 @@ ORDER BY d.kind, d.name
 
 func (s *Models) ListAll(ctx context.Context) ([]models.Definition, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT d.id, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
+	SELECT d.id, d.model_key, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
 	       COALESCE(v.credential_ref, ''), COALESCE(v.endpoint, ''), COALESCE(v.request_template, ''), COALESCE(v.response_mapping, '')
 FROM model_definitions d
 LEFT JOIN model_versions v ON v.model_definition_id = d.id
@@ -50,13 +50,13 @@ func (s *Models) GetEnabled(ctx context.Context, modelID int64) (models.Definiti
 	var model models.Definition
 	var rolesJSON, schemaJSON []byte
 	err := s.db.QueryRowContext(ctx, `
-SELECT d.id, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
+	SELECT d.id, d.model_key, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
 	       COALESCE(v.credential_ref, ''), COALESCE(v.endpoint, ''), COALESCE(v.request_template, ''), COALESCE(v.response_mapping, '')
 FROM model_definitions d
 JOIN model_versions v ON v.model_definition_id = d.id
 WHERE d.id = ? AND d.enabled = TRUE
   AND v.version_number = (SELECT MAX(version_number) FROM model_versions latest WHERE latest.model_definition_id = d.id)
-`, modelID).Scan(&model.ID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled, &rolesJSON, &schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping)
+	`, modelID).Scan(&model.ID, &model.ModelID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled, &rolesJSON, &schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping)
 	if err != nil {
 		return models.Definition{}, err
 	}
@@ -70,12 +70,12 @@ func (s *Models) GetVersion(ctx context.Context, modelID, versionID int64) (mode
 	var model models.Definition
 	var rolesJSON, schemaJSON []byte
 	err := s.db.QueryRowContext(ctx, `
-SELECT d.id, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
+	SELECT d.id, d.model_key, v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.allowed_roles_json, d.parameter_schema_json,
 	       COALESCE(v.credential_ref, ''), COALESCE(v.endpoint, ''), COALESCE(v.request_template, ''), COALESCE(v.response_mapping, '')
 FROM model_definitions d
 JOIN model_versions v ON v.model_definition_id = d.id
 WHERE d.id = ? AND v.id = ? AND d.enabled = TRUE
-`, modelID, versionID).Scan(&model.ID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled, &rolesJSON, &schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping)
+	`, modelID, versionID).Scan(&model.ID, &model.ModelID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled, &rolesJSON, &schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping)
 	if err != nil {
 		return models.Definition{}, err
 	}
@@ -101,7 +101,7 @@ func (s *Models) Create(ctx context.Context, ownerID int64, model models.Definit
 		return models.Definition{}, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `INSERT INTO model_definitions(name, kind, adapter_kind, enabled, allowed_roles_json, parameter_schema_json) VALUES(?, ?, ?, ?, ?, CAST(? AS JSON))`, model.Name, model.Kind, model.AdapterKind, model.Enabled, rolesJSON, model.ParameterSchema)
+	result, err := tx.ExecContext(ctx, `INSERT INTO model_definitions(model_key, name, kind, adapter_kind, enabled, allowed_roles_json, parameter_schema_json) VALUES(?, ?, ?, ?, ?, ?, CAST(? AS JSON))`, model.ModelID, model.Name, model.Kind, model.AdapterKind, model.Enabled, rolesJSON, model.ParameterSchema)
 	if err != nil {
 		return models.Definition{}, err
 	}
@@ -128,7 +128,7 @@ func scanModels(rows *sql.Rows) ([]models.Definition, error) {
 	for rows.Next() {
 		var model models.Definition
 		var rolesJSON, schemaJSON []byte
-		if err := rows.Scan(&model.ID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled, &rolesJSON, &schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping); err != nil {
+		if err := rows.Scan(&model.ID, &model.ModelID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled, &rolesJSON, &schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping); err != nil {
 			return nil, err
 		}
 		if err := decodeModelJSON(&model, rolesJSON, schemaJSON); err != nil {

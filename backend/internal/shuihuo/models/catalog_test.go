@@ -40,6 +40,20 @@ func TestValidateDefinitionAcceptsAllModelKinds(t *testing.T) {
 	}
 }
 
+func TestValidateDefinitionAcceptsViduAdminModelID(t *testing.T) {
+	model := Definition{
+		ModelID:       "video-vidu-admin",
+		Name:          "Vidu",
+		Kind:          KindVideo,
+		AdapterKind:   AdapterViduImageToVideo,
+		Enabled:       true,
+		CredentialRef: "VIDU_API_KEY",
+	}
+	if err := ValidateDefinition(model); err != nil {
+		t.Fatalf("ValidateDefinition() error = %v", err)
+	}
+}
+
 func TestValidateDefinitionAcceptsConfiguredAudioModel(t *testing.T) {
 	err := ValidateDefinition(Definition{
 		ModelID:         "audio-provider",

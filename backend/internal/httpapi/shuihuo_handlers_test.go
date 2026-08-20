@@ -347,6 +347,32 @@ func TestAdminModelCreateRejectsUnapprovedAdapterBeforePersistence(t *testing.T)
 	}
 }
 
+func TestAdminModelRequestMapsModelID(t *testing.T) {
+	var req shuihuoAdminModelRequest
+	if err := json.Unmarshal([]byte(`{"modelId":"video-vidu-admin","name":"Vidu","kind":"video","adapterKind":"vidu_image_to_video","enabled":true,"credentialRef":"VIDU_API_KEY"}`), &req); err != nil {
+		t.Fatalf("unmarshal admin model request: %v", err)
+	}
+
+	definition := req.definition()
+	if definition.ModelID != "video-vidu-admin" {
+		t.Fatalf("definition modelId = %q, want video-vidu-admin", definition.ModelID)
+	}
+	if err := models.ValidateDefinition(definition); err != nil {
+		t.Fatalf("ValidateDefinition() error = %v", err)
+	}
+}
+
+func TestAdminModelRequestRejectsMissingModelID(t *testing.T) {
+	var req shuihuoAdminModelRequest
+	if err := json.Unmarshal([]byte(`{"name":"Vidu","kind":"video","adapterKind":"vidu_image_to_video","credentialRef":"VIDU_API_KEY"}`), &req); err != nil {
+		t.Fatalf("unmarshal admin model request: %v", err)
+	}
+
+	if err := models.ValidateDefinition(req.definition()); err == nil {
+		t.Fatal("ValidateDefinition() accepted a new admin model without modelId")
+	}
+}
+
 func TestAdminModelWriteRejectsNonOwner(t *testing.T) {
 	api, _ := newShuihuoTestAPI(t, map[int64]store.User{})
 	response := httptest.NewRecorder()
@@ -1542,7 +1568,7 @@ func newBatchTaskTestAPI(t *testing.T) (*API, *batchTaskQueue) {
 		nextProject:          1,
 		nextSegment:          12,
 		nextSourceUnit:       202,
-		model:                models.Definition{ID: 7, VersionID: 8, Name: "即梦", Kind: models.KindImage, AdapterKind: models.AdapterJimengImage, Enabled: true},
+		model:                models.Definition{ID: 7, ModelID: "image-jimeng", VersionID: 8, Name: "即梦", Kind: models.KindImage, AdapterKind: models.AdapterJimengImage, Enabled: true},
 	}
 	db, err := sql.Open(batchTaskTestDriverName, "")
 	if err != nil {
@@ -2205,7 +2231,7 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 			return &batchTaskRows{columns: modelColumns}, nil
 		}
 		model := batchTaskTestState.model
-		return &batchTaskRows{columns: modelColumns, values: [][]driver.Value{{model.ID, model.VersionID, model.Name, string(model.Kind), model.AdapterKind, model.Enabled, []byte("[]"), []byte("{}"), "", "", "", ""}}}, nil
+		return &batchTaskRows{columns: modelColumns, values: [][]driver.Value{{model.ID, model.ModelID, model.VersionID, model.Name, string(model.Kind), model.AdapterKind, model.Enabled, []byte("[]"), []byte("{}"), "", "", "", ""}}}, nil
 	default:
 		return nil, fmt.Errorf("unexpected batch task query: %s", query)
 	}
@@ -2225,7 +2251,7 @@ func (r batchTaskResult) RowsAffected() (int64, error) { return r.rows, nil }
 var projectColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version", "created_at", "updated_at"}
 var projectReadColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version"}
 var segmentColumns = []string{"id", "project_id", "source_text", "subtitle_text", "speaker", "order_index", "confirmed", "manually_edited", "image_prompt", "video_prompt", "negative_prompt", "image_prompt_locked", "video_prompt_locked", "negative_prompt_locked"}
-var modelColumns = []string{"id", "version_id", "name", "kind", "adapter_kind", "enabled", "allowed_roles_json", "parameter_schema_json", "credential_ref", "endpoint", "request_template", "response_mapping"}
+var modelColumns = []string{"id", "model_key", "version_id", "name", "kind", "adapter_kind", "enabled", "allowed_roles_json", "parameter_schema_json", "credential_ref", "endpoint", "request_template", "response_mapping"}
 
 type batchTaskRows struct {
 	columns []string

@@ -74,9 +74,9 @@ export function createBatchTasks(projectId, payload) {
 export function cancelTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/cancel`, { method: 'PUT' }); }
 export function retryTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/retry`, { method: 'POST' }); }
 export function listAdminModels() { return apiRequest(`${base}/admin/models`); }
-export function createAdminModel({ name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping }) {
+export function createAdminModel({ modelId, name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping }) {
   return apiRequest(`${base}/admin/models`, {
     method: 'POST',
-    body: JSON.stringify({ name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping })
+    body: JSON.stringify({ modelId, name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping })
   });
 }

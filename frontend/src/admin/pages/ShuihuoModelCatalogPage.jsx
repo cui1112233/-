@@ -65,6 +65,7 @@ export function ShuihuoModelCatalogPage() {
     ]} />
     <Drawer title="新增模型" open={open} onClose={() => setOpen(false)} width={560} extra={<Button type="primary" loading={saving} onClick={submit}>保存</Button>}>
       <Form form={form} layout="vertical" initialValues={{ kind: 'image', adapterKind: 'jimeng_image', enabled: false, parameterSchema: '{}' }}>
+        <Form.Item label="模型标识" name="modelId" rules={[{ required: true, message: '请填写模型标识' }, { pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, message: '请使用小写 kebab-case，例如 video-vidu-admin' }]}><Input placeholder="例如 video-vidu-admin" /></Form.Item>
         <Form.Item label="名称" name="name" rules={[{ required: true, message: '请填写模型名称' }]}><Input /></Form.Item>
         <Form.Item label="适配器" name="adapterKind"><Select options={adapters} onChange={nextAdapterKind => form.setFieldValue('kind', adapters.find(item => item.value === nextAdapterKind)?.kind)} /></Form.Item>
         <Form.Item name="kind" hidden><Input /></Form.Item>

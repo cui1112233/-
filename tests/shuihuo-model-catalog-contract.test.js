@@ -22,8 +22,9 @@ test('audio adapter reveals provider configuration only in the owner creation fo
   assert.match(page, /不会在模型列表或用户工作台返回/);
 });
 
-test('admin model API serializes the owner-only provider configuration for creation', () => {
-  assert.match(api, /function createAdminModel\(\{ name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping \}\)/);
+test('admin model API serializes the stable model ID and owner-only provider configuration for creation', () => {
+  assert.match(api, /function createAdminModel\(\{ modelId, name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping \}\)/);
+  assert.match(api, /JSON\.stringify\(\{ modelId, name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping \}\)/);
   for (const field of ['endpoint', 'requestTemplate', 'responseMapping']) {
     assert.match(api, new RegExp(`createAdminModel[\\s\\S]*${field}`));
   }

@@ -9,6 +9,7 @@ import (
 )
 
 type shuihuoAdminModelRequest struct {
+	ModelID         string      `json:"modelId"`
 	Name            string      `json:"name"`
 	Kind            models.Kind `json:"kind"`
 	AdapterKind     string      `json:"adapterKind"`
@@ -18,6 +19,14 @@ type shuihuoAdminModelRequest struct {
 	Endpoint        string      `json:"endpoint"`
 	RequestTemplate string      `json:"requestTemplate"`
 	ResponseMapping string      `json:"responseMapping"`
+}
+
+func (req shuihuoAdminModelRequest) definition() models.Definition {
+	return models.Definition{
+		ModelID: strings.TrimSpace(req.ModelID), Name: strings.TrimSpace(req.Name), Kind: req.Kind, AdapterKind: req.AdapterKind, Enabled: req.Enabled,
+		ParameterSchema: req.ParameterSchema, CredentialRef: strings.TrimSpace(req.CredentialRef),
+		Endpoint: strings.TrimSpace(req.Endpoint), RequestTemplate: req.RequestTemplate, ResponseMapping: req.ResponseMapping,
+	}
 }
 
 func (api *API) handleAdminModelList(w http.ResponseWriter, r *http.Request) {
@@ -46,11 +55,7 @@ func (api *API) handleCreateAdminModel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
 		return
 	}
-	definition := models.Definition{
-		Name: strings.TrimSpace(req.Name), Kind: req.Kind, AdapterKind: req.AdapterKind, Enabled: req.Enabled,
-		ParameterSchema: req.ParameterSchema, CredentialRef: strings.TrimSpace(req.CredentialRef),
-		Endpoint: strings.TrimSpace(req.Endpoint), RequestTemplate: req.RequestTemplate, ResponseMapping: req.ResponseMapping,
-	}
+	definition := req.definition()
 	if err := models.ValidateDefinition(definition); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效"})
 		return
