@@ -17,7 +17,6 @@ const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const configRouter = require('./routes/config');
-const { createMemberRouter } = require('./routes/member');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
@@ -42,9 +41,9 @@ const { createNovelPanelStore } = require('./lib/novel-panel/project-store');
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { getWorkshopConfigStore } = require('./lib/novel-fetch-workshop/config');
 const { createWorkshopTasks } = require('./lib/novel-fetch-workshop/tasks');
-const { createKnowledgeStore } = require('./lib/novel-fetch-workshop/knowledge');
-const { createOpeningStore } = require('./lib/novel-fetch-workshop/opening');
 const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
+const { createWebSubmitService } = require('./lib/novel-fetch-workshop/web-submit');
+const { createNovelFetchWebSubmitRouter } = require('./routes/novel-fetch-web-submit');
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelPanelStore, novelFetchStore } = {}) {
   const app = express();
@@ -70,11 +69,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   // 改文工作台：系统级配置与任务数据层（fetchUpstream 使用 tasks 模块内置默认：GET txt.121w.com/api.php）
   const workshopSystemDir = path.dirname(authRuntime.accountStore.files.audit);
   const resolvedWorkshopConfigStore = getWorkshopConfigStore(workshopSystemDir);
-  const resolvedWorkshopTasks = createWorkshopTasks({ usersDir });
-  const resolvedWorkshopKnowledge = createKnowledgeStore({ systemDir: workshopSystemDir });
-  const resolvedWorkshopOpening = createOpeningStore({
+  const resolvedWorkshopTasks = createWorkshopTasks({
+    usersDir,
+    getLayout: () => (resolvedWorkshopConfigStore.getConfig() || {}).layout || {}
+  });
+  const resolvedWebSubmitService = createWebSubmitService({
     systemDir: workshopSystemDir,
-    styles: resolvedWorkshopConfigStore.getStyles()
+    taskStore: resolvedWorkshopTasks
   });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
@@ -156,13 +157,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter({
     tasks: resolvedWorkshopTasks,
     configStore: resolvedWorkshopConfigStore,
-    systemDir: workshopSystemDir,
-    knowledgeStore: resolvedWorkshopKnowledge,
-    openingStore: resolvedWorkshopOpening
+    systemDir: workshopSystemDir
   }));
+  app.use('/api/novel-fetch-web-submit', createNovelFetchWebSubmitRouter({ service: resolvedWebSubmitService }));
   app.locals.workshopTasks = resolvedWorkshopTasks;
   app.use('/api/config', configRouter); // GET/POST /api/config
-  app.use('/api/member', createMemberRouter(authRuntime.accountStore));
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt

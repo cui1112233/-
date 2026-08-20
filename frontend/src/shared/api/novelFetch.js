@@ -46,3 +46,12 @@ export function uploadBatch(payload) {
     body: JSON.stringify(payload)
   });
 }
+
+export function getWebSubmitConfig() { return apiRequest('/api/novel-fetch-web-submit/config'); }
+export function saveWebSubmitConfig(payload) { return apiRequest('/api/novel-fetch-web-submit/config', { method: 'POST', body: JSON.stringify(payload) }); }
+export function checkWebSubmitEnvironment() { return apiRequest('/api/novel-fetch-web-submit/environment'); }
+export function syncWebSubmitConfigs(payload = {}) { return apiRequest('/api/novel-fetch-web-submit/sync-configs', { method: 'POST', body: JSON.stringify(payload) }); }
+export function syncWebSubmitStyles(payload = {}) { return apiRequest('/api/novel-fetch-web-submit/sync-styles', { method: 'POST', body: JSON.stringify(payload) }); }
+export function testWebSubmitVisible(payload = {}) { return apiRequest('/api/novel-fetch-web-submit/test-visible', { method: 'POST', body: JSON.stringify(payload) }); }
+export function previewWebSubmit(payload) { return apiRequest('/api/novel-fetch-web-submit/preview', { method: 'POST', body: JSON.stringify(payload) }); }
+export function startWebSubmit(payload) { return apiRequest('/api/novel-fetch-web-submit/submit', { method: 'POST', body: JSON.stringify(payload) }); }

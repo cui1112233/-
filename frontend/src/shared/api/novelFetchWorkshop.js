@@ -10,6 +10,7 @@ export function processBatch(payload) {
   });
 }
 
+// 启动后台批处理作业
 export function startWorkshopProcess(payload) {
   return apiRequest('/api/novel-fetch-workshop/process/start', {
     method: 'POST',
@@ -17,12 +18,14 @@ export function startWorkshopProcess(payload) {
   });
 }
 
-export function getWorkshopJobs(limit = 10) {
-  return apiRequest(`/api/novel-fetch-workshop/process/jobs/latest?limit=${encodeURIComponent(limit)}`);
-}
-
+// 查询单个后台作业进度
 export function getWorkshopJob(jobId) {
   return apiRequest(`/api/novel-fetch-workshop/process/jobs/${encodeURIComponent(jobId)}`);
+}
+
+// 查询最近后台作业
+export function getWorkshopJobs(limit = 10) {
+  return apiRequest(`/api/novel-fetch-workshop/process/jobs/latest?limit=${encodeURIComponent(limit)}`);
 }
 
 // 任务列表
@@ -38,6 +41,7 @@ export function deleteWorkshopTasks(ids) {
   });
 }
 
+// 批量重试任务
 export function retryWorkshopTasks(ids) {
   return apiRequest('/api/novel-fetch-workshop/tasks/batch-retry', {
     method: 'POST',
@@ -58,18 +62,11 @@ export function fetchWorkshopOriginal(bookId, maxTxt) {
   });
 }
 
+// 从原始备份恢复原文
 export function restoreWorkshopOriginal(bookId) {
   return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/restore-original`, {
     method: 'POST'
   });
-}
-
-export function getWorkshopSensitiveLog(bookId) {
-  return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/sensitive-log`);
-}
-
-export function getWorkshopSubmitLog(bookId) {
-  return apiRequest(`/api/novel-fetch-workshop/tasks/${encodeURIComponent(bookId)}/site-submit-log`);
 }
 
 // 生成 AI 改文版本（数量 1~20）
@@ -80,23 +77,43 @@ export function generateWorkshopAi(bookId, count) {
   });
 }
 
-// 规则排版预览
-export function previewWorkshopRules(payload) {
-  return apiRequest('/api/novel-fetch-workshop/rules/preview', {
+// 读取工作台配置（appConfig / platforms / styles / aiConfig）
+export function getWorkshopConfig() {
+  return apiRequest('/api/novel-fetch-workshop/config');
+}
+
+// 保存工作台配置（一期仅持久化 appConfig）
+export function saveWorkshopConfig(patch) {
+  return apiRequest('/api/novel-fetch-workshop/config', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: JSON.stringify(patch)
   });
 }
 
-// AI 生成规则建议
-export function suggestWorkshopRules(payload) {
+// 生成规则建议，不自动写入配置
+export function suggestWorkshopRules(text, ruleType, goal) {
   return apiRequest('/api/novel-fetch-workshop/rules/suggest', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ text, ruleType, goal })
   });
 }
 
-// 知识库
+// 预览规则排版结果与分阶段 trace
+export function previewWorkshopRules(text, scope = 'ai') {
+  return apiRequest('/api/novel-fetch-workshop/rules/preview', {
+    method: 'POST',
+    body: JSON.stringify({ text, scope })
+  });
+}
+
+// AI 接口连通性测试
+export function testWorkshopAi(purpose) {
+  return apiRequest('/api/novel-fetch-workshop/ai/test', {
+    method: 'POST',
+    body: JSON.stringify({ purpose })
+  });
+}
+
 export function getWorkshopKnowledgeSummary() {
   return apiRequest('/api/novel-fetch-workshop/knowledge/summary');
 }
@@ -139,26 +156,7 @@ export function saveWorkshopOpening(item) {
 }
 
 export function normalizeWorkshopOpening() {
-  return apiRequest('/api/novel-fetch-workshop/opening/normalize', { method: 'POST' });
-}
-
-// 读取工作台配置（appConfig / platforms / styles / aiConfig）
-export function getWorkshopConfig() {
-  return apiRequest('/api/novel-fetch-workshop/config');
-}
-
-// 保存工作台配置（一期仅持久化 appConfig）
-export function saveWorkshopConfig(patch) {
-  return apiRequest('/api/novel-fetch-workshop/config', {
-    method: 'POST',
-    body: JSON.stringify(patch)
-  });
-}
-
-// AI 接口连通性测试
-export function testWorkshopAi(purpose) {
-  return apiRequest('/api/novel-fetch-workshop/ai/test', {
-    method: 'POST',
-    body: JSON.stringify({ purpose })
+  return apiRequest('/api/novel-fetch-workshop/opening/normalize', {
+    method: 'POST'
   });
 }
