@@ -23,6 +23,7 @@ type shuihuoTaskRequest struct {
 	Kind          string                    `json:"kind"`
 	ModelID       int64                     `json:"modelId"`
 	AudioSettings *shuihuoAudioTaskSettings `json:"audioSettings,omitempty"`
+	VideoSettings *shuihuoVideoTaskSettings `json:"videoSettings,omitempty"`
 }
 
 type shuihuoBatchTaskRequest struct {
@@ -30,6 +31,8 @@ type shuihuoBatchTaskRequest struct {
 	Kind                   string                             `json:"kind"`
 	ModelID                int64                              `json:"modelId"`
 	AudioSettingsBySegment map[int64]shuihuoAudioTaskSettings `json:"audioSettingsBySegment,omitempty"`
+	VideoSettings          *shuihuoVideoTaskSettings          `json:"videoSettings,omitempty"`
+	VideoSettingsBySegment map[int64]shuihuoVideoTaskSettings `json:"videoSettingsBySegment,omitempty"`
 }
 
 // shuihuoAudioTaskSettings contains only user-visible synthesis choices. The
@@ -38,6 +41,10 @@ type shuihuoAudioTaskSettings struct {
 	Voice      string   `json:"voice"`
 	SpeechRate *float64 `json:"speechRate,omitempty"`
 	Pitch      *float64 `json:"pitch,omitempty"`
+}
+
+type shuihuoVideoTaskSettings struct {
+	AspectRatio string `json:"aspectRatio"`
 }
 
 type shuihuoBatchTaskResult struct {
@@ -138,7 +145,7 @@ func (api *API) handleCreateShuihuoTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	user, _ := currentUser(r)
-	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind, req.AudioSettings)
+	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind, req.AudioSettings, req.VideoSettings)
 	if err != nil {
 		writeJSON(w, taskCreationStatus(err), map[string]string{"error": singleTaskCreationErrorMessage(err)})
 		return
@@ -161,15 +168,27 @@ func (api *API) handleCreateShuihuoBatchTasks(w http.ResponseWriter, r *http.Req
 		return
 	}
 	user, _ := currentUser(r)
+	if err := api.validateBatchSharedVideoSettings(r.Context(), req); err != nil {
+		writeJSON(w, taskCreationStatus(err), map[string]string{"error": taskCreationErrorMessage(err)})
+		return
+	}
 	results := make([]shuihuoBatchTaskResult, 0, len(req.SegmentIDs))
 	allSucceeded := true
 	for _, segmentID := range req.SegmentIDs {
 		var audioSettings *shuihuoAudioTaskSettings
+		var videoSettings *shuihuoVideoTaskSettings
 		if req.Kind == "audio" {
 			settings := req.AudioSettingsBySegment[segmentID]
 			audioSettings = &settings
 		}
-		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind, audioSettings)
+		if req.Kind == "video" {
+			if req.VideoSettings != nil {
+				videoSettings = req.VideoSettings
+			} else if settings, ok := req.VideoSettingsBySegment[segmentID]; ok {
+				videoSettings = &settings
+			}
+		}
+		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind, audioSettings, videoSettings)
 		result := shuihuoBatchTaskResult{SegmentID: segmentID}
 		if err != nil {
 			allSucceeded = false
@@ -204,9 +223,32 @@ func validBatchTaskRequest(req shuihuoBatchTaskRequest) bool {
 	return true
 }
 
+// validateBatchSharedVideoSettings performs model-specific validation before
+// the first task can be persisted. Per-segment settings remain a legacy path
+// and are validated by each individual task creation.
+func (api *API) validateBatchSharedVideoSettings(ctx context.Context, req shuihuoBatchTaskRequest) error {
+	if req.Kind != "video" || req.VideoSettings == nil {
+		return nil
+	}
+	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(ctx, req.ModelID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return taskCreationError("所选模型未启用或不存在")
+	}
+	if err != nil {
+		return taskCreationError("读取模型失败")
+	}
+	if model.AdapterKind != models.AdapterYDVideo {
+		return nil
+	}
+	if _, err := normalizedYDVideoTaskSettings(req.VideoSettings); err != nil {
+		return taskCreationError("YD 视频比例仅支持 9:16 或 16:9")
+	}
+	return nil
+}
+
 func taskCreationStatus(err error) int {
 	switch taskCreationErrorMessage(err) {
-	case "任务参数无效", "模型类型与任务不匹配":
+	case "任务参数无效", "模型类型与任务不匹配", "YD 视频比例仅支持 9:16 或 16:9":
 		return http.StatusBadRequest
 	case "分段不存在":
 		return http.StatusNotFound
@@ -223,7 +265,7 @@ func taskCreationStatus(err error) int {
 	}
 }
 
-func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string, audioSettings *shuihuoAudioTaskSettings) (domain.Task, error) {
+func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string, audioSettings *shuihuoAudioTaskSettings, videoSettings *shuihuoVideoTaskSettings) (domain.Task, error) {
 	if segmentID < 1 || modelID < 0 || (modelID == accountOpenAICompatibleImageModelID && kind != "image") || !validTaskKind(kind) || kind == "export" {
 		return domain.Task{}, taskCreationError("任务参数无效")
 	}
@@ -312,6 +354,18 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		} else if model.RequiresVideoImage() {
 			return domain.Task{}, taskCreationError("所选视频模型需要当前分镜画面图片，请先生成图片或改选文生视频模型")
 		}
+		if model.AdapterKind == models.AdapterYDVideo {
+			aspectRatio, settingsErr := normalizedYDVideoTaskSettings(videoSettings)
+			if settingsErr != nil {
+				return domain.Task{}, taskCreationError("YD 视频比例仅支持 9:16 或 16:9")
+			}
+			referenceObjectKeys, referencesErr := shuihuostore.NewAssets(api.deps.DB).ListVideoReferenceObjectKeysBySegment(ctx, user.ID, segment.ID, 3)
+			if referencesErr != nil {
+				return domain.Task{}, taskCreationError("读取分镜视频参考图失败")
+			}
+			inputSnapshot["aspectRatio"] = aspectRatio
+			inputSnapshot["videoReferenceObjectKeys"] = referenceObjectKeys
+		}
 	}
 	if accountImageModel {
 		inputSnapshot["provider"] = models.AdapterAccountOpenAICompatibleImage
@@ -353,6 +407,17 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	}
 	task.Status = domain.TaskQueued
 	return task, nil
+}
+
+func normalizedYDVideoTaskSettings(input *shuihuoVideoTaskSettings) (string, error) {
+	aspectRatio := "9:16"
+	if input != nil && strings.TrimSpace(input.AspectRatio) != "" {
+		aspectRatio = strings.TrimSpace(input.AspectRatio)
+	}
+	if aspectRatio != "9:16" && aspectRatio != "16:9" {
+		return "", errors.New("invalid YD aspect ratio")
+	}
+	return aspectRatio, nil
 }
 
 func composeStoryboardImagePrompt(basePrompt string, assets []domain.Asset) string {

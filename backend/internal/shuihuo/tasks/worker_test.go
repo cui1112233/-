@@ -52,9 +52,11 @@ func (r workerMediaRepo) PrimaryImage(context.Context, int64, int64) (domain.Med
 }
 
 type workerObjects struct {
-	key    string
-	bytes  []byte
-	putErr error
+	key      string
+	bytes    []byte
+	putErr   error
+	urls     map[string]string
+	urlCalls []string
 }
 
 func (s *workerObjects) PutGenerated(_ context.Context, key string, body []byte, _ string) error {
@@ -67,7 +69,11 @@ func (s *workerObjects) PutGenerated(_ context.Context, key string, body []byte,
 func (s *workerObjects) Download(context.Context, string) ([]byte, string, error) {
 	return nil, "", errors.New("not implemented")
 }
-func (s *workerObjects) URL(context.Context, string) (string, error) {
+func (s *workerObjects) URL(_ context.Context, key string) (string, error) {
+	s.urlCalls = append(s.urlCalls, key)
+	if value, ok := s.urls[key]; ok {
+		return value, nil
+	}
 	return "https://storage.example.com/image.png", nil
 }
 
@@ -191,6 +197,69 @@ func TestWorkerUsesSnapshottedStoryboardImageForVideo(t *testing.T) {
 	}
 	if got, want := adapter.request.ImageURL, "https://storage.example.com/image.png"; got != want {
 		t.Fatalf("video source image URL = %q, want %q", got, want)
+	}
+}
+
+func TestWorkerUsesYDVideoSnapshotReferencesBeforeSceneAndAcceptsAsyncTask(t *testing.T) {
+	taskRepo := &asyncWorkerTaskRepo{task: domain.Task{
+		ID: 22, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Provider: models.AdapterYDVideo,
+		Input: `{"prompt":"镜头推进","sourceImageObjectKey":"shuihuo-production/17/3/images/scene.png","aspectRatio":"16:9","videoReferenceObjectKeys":["shuihuo-production/17/3/asset-images/hero.png","shuihuo-production/17/3/asset-images/prop.png"]}`,
+	}}
+	objects := &workerObjects{urls: map[string]string{
+		"shuihuo-production/17/3/asset-images/hero.png": "https://storage.example.com/hero.png",
+		"shuihuo-production/17/3/asset-images/prop.png": "https://storage.example.com/prop.png",
+		"shuihuo-production/17/3/images/scene.png":      "https://storage.example.com/scene.png",
+	}}
+	adapter := &recordingWorkerAdapter{response: models.Response{ProviderTaskID: "yd-42"}}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media:    &memoryMediaRepo{primaryErr: errors.New("worker must use the task snapshot")}, Objects: objects, Adapter: adapter,
+	}
+
+	if err := worker.Process(context.Background(), 22); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if got, want := objects.urlCalls, []string{
+		"shuihuo-production/17/3/asset-images/hero.png",
+		"shuihuo-production/17/3/asset-images/prop.png",
+		"shuihuo-production/17/3/images/scene.png",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resolved object keys = %#v, want %#v", got, want)
+	}
+	if got, want := adapter.request.ReferenceImageURLs, []string{"https://storage.example.com/hero.png", "https://storage.example.com/prop.png"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reference URLs = %#v, want %#v", got, want)
+	}
+	if adapter.request.ImageURL != "https://storage.example.com/scene.png" || adapter.request.AspectRatio != "16:9" {
+		t.Fatalf("YD request = %#v", adapter.request)
+	}
+	if taskRepo.task.Status != domain.TaskRunning || taskRepo.task.ProviderTaskID != "yd-42" {
+		t.Fatalf("async task = %#v", taskRepo.task)
+	}
+}
+
+func TestWorkerRejectsLocalYDSceneURLBeforeSubmitting(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 23, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Provider: models.AdapterYDVideo,
+		Input: `{"prompt":"镜头推进","sourceImageObjectKey":"shuihuo-production/17/3/images/scene.png","aspectRatio":"9:16"}`,
+	}}
+	adapter := &recordingWorkerAdapter{}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media:    &memoryMediaRepo{}, Objects: &workerObjects{urls: map[string]string{"shuihuo-production/17/3/images/scene.png": "https://127.0.0.1/scene.png"}}, Adapter: adapter,
+	}
+
+	if err := worker.Process(context.Background(), 23); err == nil {
+		t.Fatal("Process() succeeded with a local scene URL")
+	}
+	if taskRepo.task.ErrorCode != "primary_image_url_invalid" {
+		t.Fatalf("error code = %q", taskRepo.task.ErrorCode)
+	}
+	if adapter.request.Prompt != "" || adapter.request.ImageURL != "" || len(adapter.request.ReferenceImageURLs) != 0 {
+		t.Fatalf("adapter received request = %#v", adapter.request)
 	}
 }
 

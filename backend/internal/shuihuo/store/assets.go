@@ -158,6 +158,66 @@ ORDER BY a.created_at ASC, a.id ASC
 	return keys, rows.Err()
 }
 
+// ListVideoReferenceObjectKeysBySegment returns a bounded, deterministic set
+// of character and prop images explicitly bound to a storyboard segment.
+func (s *Assets) ListVideoReferenceObjectKeysBySegment(ctx context.Context, ownerID, segmentID int64, limit int) ([]string, error) {
+	if limit < 1 {
+		return []string{}, nil
+	}
+	if limit > 3 {
+		limit = 3
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT CASE
+  WHEN a.manually_edited = TRUE AND NULLIF(a.reference_object_key, '') IS NOT NULL THEN a.reference_object_key
+  ELSE COALESCE(
+    (
+    SELECT ai.object_key
+    FROM shuihuo_asset_images ai
+    WHERE ai.asset_id = a.id AND ai.is_primary = TRUE
+    ORDER BY ai.updated_at DESC, ai.id DESC
+    LIMIT 1
+    ),
+    NULLIF(a.reference_object_key, '')
+  )
+END
+FROM shuihuo_segment_assets sa
+JOIN shuihuo_assets a ON a.id = sa.asset_id
+JOIN shuihuo_projects p ON p.id = a.project_id
+WHERE sa.segment_id = ?
+  AND p.user_id = ?
+  AND a.is_current = TRUE
+  AND a.category IN ('character', 'prop')
+ORDER BY a.created_at ASC, a.id ASC
+`, segmentID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[string]struct{}, limit)
+	keys := make([]string, 0, limit)
+	for rows.Next() {
+		var objectKey sql.NullString
+		if err := rows.Scan(&objectKey); err != nil {
+			return nil, err
+		}
+		key := strings.TrimSpace(objectKey.String)
+		if !objectKey.Valid || key == "" {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+		if len(keys) == limit {
+			break
+		}
+	}
+	return keys, rows.Err()
+}
+
 func (s *Assets) Update(ctx context.Context, ownerID int64, asset domain.Asset) error {
 	if err := validateCharacterVoice(ctx, s.db, ownerID, asset.ProjectID, asset.Category, asset.VoiceAssetID); err != nil {
 		return err

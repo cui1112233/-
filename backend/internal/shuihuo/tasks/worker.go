@@ -178,6 +178,26 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 		if sourceErr != nil {
 			return fail("invalid_input", sourceErr)
 		}
+		if model.AdapterKind == models.AdapterYDVideo {
+			videoReferences, aspectRatio, snapshotErr := ydVideoSettingsFromTask(task)
+			if snapshotErr != nil {
+				return fail("invalid_input", snapshotErr)
+			}
+			request.AspectRatio = aspectRatio
+			for _, objectKey := range videoReferences {
+				referenceURL, referenceURLErr := w.Objects.URL(ctx, objectKey)
+				if referenceURLErr != nil {
+					return fail("reference_image_url_failed", referenceURLErr)
+				}
+				if _, validationErr := models.ValidateOutboundURL(referenceURL); validationErr != nil {
+					return fail("reference_image_url_invalid", errors.New("视频参考图地址不安全"))
+				}
+				request.ReferenceImageURLs = append(request.ReferenceImageURLs, referenceURL)
+			}
+			if sourceObjectKey == "" {
+				return fail("primary_image_required", errors.New("YD 视频任务缺少分镜画面图片"))
+			}
+		}
 		if sourceObjectKey == "" {
 			primary, primaryErr := w.Media.PrimaryImage(ctx, task.ProjectID, *task.SegmentID)
 			if primaryErr != nil || primary.ObjectKey == "" {
@@ -196,6 +216,11 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 			if err != nil {
 				return fail("primary_image_url_failed", err)
 			}
+			if model.AdapterKind == models.AdapterYDVideo {
+				if _, validationErr := models.ValidateOutboundURL(request.ImageURL); validationErr != nil {
+					return fail("primary_image_url_invalid", errors.New("分镜画面图片地址不安全"))
+				}
+			}
 		}
 	}
 	response, err := w.Adapter.Submit(ctx, model, request)
@@ -204,7 +229,7 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	}
 	if response.ProviderTaskID != "" && response.ResultURL == "" {
 		asyncTasks, ok := w.Tasks.(AsyncVideoTaskRepository)
-		if !ok || task.Kind != "video" || model.AdapterKind != models.AdapterViduImageToVideo {
+		if !ok || task.Kind != "video" || !models.IsAsyncVideoAdapter(model.AdapterKind) {
 			return fail("async_model_not_configured", errors.New("模型已返回上游任务 ID，但未配置受控视频轮询"))
 		}
 		if err := asyncTasks.SetProviderTask(ctx, task.ID, response.ProviderTaskID, time.Now().UTC()); err != nil {
@@ -323,6 +348,40 @@ func videoSourceObjectKeyFromTask(task domain.Task) (string, error) {
 		return "", errors.New("视频参考图无效")
 	}
 	return objectKey, nil
+}
+
+func ydVideoSettingsFromTask(task domain.Task) ([]string, string, error) {
+	var input struct {
+		AspectRatio              string   `json:"aspectRatio"`
+		VideoReferenceObjectKeys []string `json:"videoReferenceObjectKeys"`
+	}
+	if err := json.Unmarshal([]byte(task.Input), &input); err != nil {
+		return nil, "", fmt.Errorf("读取 YD 视频任务设置: %w", err)
+	}
+	aspectRatio := strings.TrimSpace(input.AspectRatio)
+	if aspectRatio != "9:16" && aspectRatio != "16:9" {
+		return nil, "", errors.New("YD 视频比例无效")
+	}
+	seen := make(map[string]struct{}, len(input.VideoReferenceObjectKeys))
+	keys := make([]string, 0, len(input.VideoReferenceObjectKeys))
+	for _, objectKey := range input.VideoReferenceObjectKeys {
+		objectKey = strings.TrimSpace(objectKey)
+		if objectKey == "" {
+			continue
+		}
+		if !shuihuostorage.ValidObjectKey(objectKey) {
+			return nil, "", errors.New("YD 视频参考图无效")
+		}
+		if _, duplicate := seen[objectKey]; duplicate {
+			continue
+		}
+		seen[objectKey] = struct{}{}
+		keys = append(keys, objectKey)
+		if len(keys) > 3 {
+			return nil, "", errors.New("YD 视频参考图超过上限")
+		}
+	}
+	return keys, aspectRatio, nil
 }
 
 func audioSettingsFromTask(task domain.Task) (struct {
