@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"qiantie/backend/internal/credentials"
 )
 
 type Config struct {
@@ -18,6 +20,7 @@ type Config struct {
 	RedisAddr        string
 	ModelCredentials map[string]string
 	ModelEndpoints   map[string]string
+	CredentialCipher *credentials.Cipher
 }
 
 type StorageConfig struct {
@@ -76,6 +79,13 @@ func Load() (Config, error) {
 		if cfg.Storage.Driver == "tos" && cfg.Storage.Region == "" {
 			return Config{}, fmt.Errorf("QIANTIE_STORAGE_REGION is required for tos storage")
 		}
+	}
+	if encodedKey, supplied := os.LookupEnv("QIANTIE_CREDENTIAL_ENCRYPTION_KEY"); supplied {
+		credentialCipher, err := credentials.NewFromBase64(encodedKey)
+		if err != nil {
+			return Config{}, fmt.Errorf("QIANTIE_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key")
+		}
+		cfg.CredentialCipher = credentialCipher
 	}
 	return cfg, nil
 }
