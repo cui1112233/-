@@ -45,30 +45,25 @@ func ydTestCipher(t *testing.T) *credentials.Cipher {
 	return cipher
 }
 
-func TestYDSubmitUsesRequestOwnerCredentialInsteadOfModelCredential(t *testing.T) {
+func TestYDSubmitIgnoresHistoricGlobalCredentialReference(t *testing.T) {
 	const ownerAKey = "test-owner-a-key"
-	const ownerBKey = "test-owner-b-key"
+	const historicReference = "historic-yd-global-reference"
 	cipher := ydTestCipher(t)
 	ownerACiphertext, err := cipher.Encrypt(ownerAKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerBCiphertext, err := cipher.Encrypt(ownerBKey)
-	if err != nil {
-		t.Fatal(err)
-	}
 	provider := NewYD(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Header.Get("Authorization") != "Bearer "+ownerAKey {
-			t.Fatal("YD submit authorization did not use the request owner's credential")
+			t.Fatal("YD submit authorization did not ignore the historic global credential reference")
 		}
 		return jsonResponse(http.StatusOK, `{"task_id":"yd-owner-a"}`), nil
 	})}, NewYDAccountCredentialResolver(ydConfigStore{configs: map[int64]store.VideoAPIConfig{
 		101: {Provider: store.YDVideoProvider, APIKeyCiphertext: ownerACiphertext},
-		202: {Provider: store.YDVideoProvider, APIKeyCiphertext: ownerBCiphertext},
 	}}, cipher))
 
 	_, err = provider.Submit(context.Background(), models.Definition{
-		Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, CredentialRef: "owner-b",
+		Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, CredentialRef: historicReference,
 	}, models.Request{OwnerID: 101, Prompt: "镜头推进", ImageURL: "https://example.com/scene.png", AspectRatio: "9:16"})
 	if err != nil {
 		t.Fatal(err)

@@ -1516,6 +1516,7 @@ type batchTaskState struct {
 	sourceUnits            []domain.SourceUnit
 	sourceMappings         map[int64][]int64
 	segmentAssetMappings   map[int64][]int64
+	primaryImages          map[int64]domain.Media
 	tasks                  map[int64]domain.Task
 	model                  models.Definition
 	nextTask               int64
@@ -1561,6 +1562,7 @@ func newBatchTaskTestAPI(t *testing.T) (*API, *batchTaskQueue) {
 		assets:               map[int64]domain.Asset{},
 		sourceMappings:       map[int64][]int64{},
 		segmentAssetMappings: map[int64][]int64{},
+		primaryImages:        map[int64]domain.Media{},
 		tasks:                map[int64]domain.Task{},
 		activeTasks:          map[int64]bool{},
 		objectCleanups:       map[string]batchTaskObjectCleanup{},
@@ -2206,6 +2208,12 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 			}
 		}
 		return &batchTaskRows{columns: []string{"segment_id", "asset_id"}, values: values}, nil
+	case strings.HasPrefix(query, "SELECT id, project_id, segment_id, task_id, kind, object_key, source, manually_edited, width, height, duration_ms, is_primary FROM shuihuo_media WHERE project_id = ?"):
+		media, ok := batchTaskTestState.primaryImages[args[1].Value.(int64)]
+		if !ok || media.ProjectID != args[0].Value.(int64) {
+			return &batchTaskRows{columns: mediaColumns}, nil
+		}
+		return &batchTaskRows{columns: mediaColumns, values: [][]driver.Value{{media.ID, media.ProjectID, media.SegmentID, media.TaskID, media.Kind, media.ObjectKey, media.Source, media.ManuallyEdited, media.Width, media.Height, media.DurationMS, media.IsPrimary}}}, nil
 	case strings.Contains(query, "FROM shuihuo_assets a"):
 		projectID, ownerID := args[0].Value.(int64), args[1].Value.(int64)
 		project, ok := batchTaskTestState.projects[projectID]
@@ -2251,6 +2259,7 @@ func (r batchTaskResult) RowsAffected() (int64, error) { return r.rows, nil }
 var projectColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version", "created_at", "updated_at"}
 var projectReadColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version"}
 var segmentColumns = []string{"id", "project_id", "source_text", "subtitle_text", "speaker", "order_index", "confirmed", "manually_edited", "image_prompt", "video_prompt", "negative_prompt", "image_prompt_locked", "video_prompt_locked", "negative_prompt_locked"}
+var mediaColumns = []string{"id", "project_id", "segment_id", "task_id", "kind", "object_key", "source", "manually_edited", "width", "height", "duration_ms", "is_primary"}
 var modelColumns = []string{"id", "model_key", "version_id", "name", "kind", "adapter_kind", "enabled", "allowed_roles_json", "parameter_schema_json", "credential_ref", "endpoint", "request_template", "response_mapping"}
 
 type batchTaskRows struct {
@@ -2296,7 +2305,7 @@ func TestYDVideoTaskRequiresCurrentUserAccountKeyBeforeQueueing(t *testing.T) {
 	}
 }
 
-func TestYDVideoTaskWithAccountConfigAndNoModelCredentialReachesNormalValidation(t *testing.T) {
+func TestYDVideoTaskAllowsAccountKeyWithoutModelCredentialRef(t *testing.T) {
 	const accountKey = "test-yd-account-key"
 	cipher := testCredentialCipher(t)
 	ciphertext, err := cipher.Encrypt(accountKey)
@@ -2314,6 +2323,11 @@ func TestYDVideoTaskWithAccountConfigAndNoModelCredentialReachesNormalValidation
 	segment := batchTaskTestState.segments[11]
 	segment.VideoPrompt = "镜头缓慢推进"
 	batchTaskTestState.segments[11] = segment
+	segmentID := int64(11)
+	batchTaskTestState.primaryImages[segmentID] = domain.Media{
+		ID: 88, ProjectID: 1, SegmentID: &segmentID, Kind: "image",
+		ObjectKey: "shuihuo-production/100/1/images/scene.png", IsPrimary: true,
+	}
 
 	req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks", "producer", false)
 	req.Body = io.NopCloser(strings.NewReader(`{"segmentId":11,"kind":"video","modelId":7}`))
@@ -2321,13 +2335,17 @@ func TestYDVideoTaskWithAccountConfigAndNoModelCredentialReachesNormalValidation
 	response := httptest.NewRecorder()
 	api.Router().ServeHTTP(response, req)
 
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "所选视频模型需要当前分镜画面图片") {
-		t.Fatal("configured YD task did not reach its normal primary image validation")
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create YD video task = %d, want created", response.Code)
 	}
 	if strings.Contains(response.Body.String(), accountKey) || batchTaskTestState.model.CredentialRef != "" {
 		t.Fatal("account credential leaked into task creation state")
 	}
-	if len(queue.ids) != 0 || len(batchTaskTestState.tasks) != 0 {
-		t.Fatal("task was persisted or queued after normal YD validation rejected it")
+	if len(queue.ids) != 1 || len(batchTaskTestState.tasks) != 1 {
+		t.Fatalf("YD task persistence or queueing = tasks:%d queue:%#v, want one", len(batchTaskTestState.tasks), queue.ids)
+	}
+	task := batchTaskTestState.tasks[queue.ids[0]]
+	if !strings.Contains(task.Input, `"sourceImageObjectKey":"shuihuo-production/100/1/images/scene.png"`) || strings.Contains(task.Input, accountKey) || strings.Contains(task.Input, ciphertext) {
+		t.Fatal("YD task snapshot did not retain only generation input")
 	}
 }

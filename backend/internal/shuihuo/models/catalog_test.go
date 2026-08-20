@@ -31,7 +31,7 @@ func TestValidateDefinitionAcceptsAllModelKinds(t *testing.T) {
 		{ModelID: "text-completion", Name: "text", Kind: KindText, AdapterKind: AdapterTextCompletion, Enabled: true, CredentialRef: "text-provider"},
 		{ModelID: "image-jimeng", Name: "image", Kind: KindImage, AdapterKind: AdapterJimengImage, Enabled: true},
 		{ModelID: "video-vidu", Name: "video", Kind: KindVideo, AdapterKind: AdapterViduImageToVideo, Enabled: true, CredentialRef: "video-provider"},
-		{ModelID: "video-yd", Name: "video", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true, CredentialRef: "video-provider"},
+		{ModelID: "video-yd", Name: "video", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true},
 		{ModelID: "audio-generic", Name: "audio", Kind: KindAudio, AdapterKind: AdapterGenericHTTP, Enabled: true, CredentialRef: "audio-provider", Endpoint: "https://audio.example.com", RequestTemplate: `{}`, ResponseMapping: `{}`},
 	}
 	for _, model := range tests {
@@ -43,7 +43,7 @@ func TestValidateDefinitionAcceptsAllModelKinds(t *testing.T) {
 
 func TestYDVideoAdapterRequiresVideoKindAndSupportsExecution(t *testing.T) {
 	model := Definition{Kind: KindVideo, AdapterKind: AdapterYDVideo}
-	if err := ValidateDefinition(Definition{ModelID: "video-yd", Name: "YD", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true, CredentialRef: "yd-key"}); err != nil {
+	if err := ValidateDefinition(Definition{ModelID: "video-yd", Name: "YD", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true}); err != nil {
 		t.Fatalf("ValidateDefinition() error = %v", err)
 	}
 	if !model.SupportsTaskExecution() {
@@ -73,6 +73,24 @@ func TestYDVideoProviderConfigurationUsesAccountCredentialInsteadOfModelReferenc
 	}
 	if (Definition{Kind: KindVideo, AdapterKind: AdapterGenericHTTP, Endpoint: "https://video.example", RequestTemplate: `{}`, ResponseMapping: `{}`}).ProviderConfigured() {
 		t.Fatal("generic HTTP must retain its global model credential requirement")
+	}
+}
+
+func TestYDVideoHidesHistoricGlobalCredentialReferenceAndRejectsNewOne(t *testing.T) {
+	historic := Definition{ModelID: "video-yd", Name: "YD", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true, CredentialRef: "historic-yd-global-reference"}
+	admin := ToAdmin(historic)
+	if admin.CredentialRef != "" || admin.CredentialConfigured || !admin.ProviderConfigured {
+		t.Fatalf("YD admin representation = %#v, want account-scoped credential state", admin)
+	}
+	public, err := json.Marshal(ToPublic(historic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(public), "historic-yd-global-reference") {
+		t.Fatalf("YD public representation leaked historic credential reference: %s", public)
+	}
+	if err := ValidateDefinition(historic); err == nil || !strings.Contains(err.Error(), "cannot have a credential reference") {
+		t.Fatalf("ValidateDefinition() error = %v, want YD account credential validation", err)
 	}
 }
 

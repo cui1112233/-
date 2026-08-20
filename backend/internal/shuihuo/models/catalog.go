@@ -93,12 +93,20 @@ func ToPublic(model Definition) PublicModel {
 }
 
 func ToAdmin(model Definition) AdminModel {
+	credentialRef := model.CredentialRef
+	credentialConfigured := strings.TrimSpace(credentialRef) != ""
+	if model.AdapterKind == AdapterYDVideo {
+		// Historic YD rows may still contain a global reference. YD ignores it
+		// and resolves the authenticated account's encrypted configuration.
+		credentialRef = ""
+		credentialConfigured = false
+	}
 	return AdminModel{
 		PublicModel:          ToPublic(model),
 		Enabled:              model.Enabled,
 		Hidden:               model.Hidden,
 		AdminNote:            model.AdminNote,
-		CredentialRef:        model.CredentialRef,
+		CredentialRef:        credentialRef,
 		Endpoint:             model.Endpoint,
 		BaseDomain:           model.BaseDomain,
 		BasePath:             model.BasePath,
@@ -106,7 +114,7 @@ func ToAdmin(model Definition) AdminModel {
 		ResponseMapping:      model.ResponseMapping,
 		PollingTemplate:      model.PollingTemplate,
 		RuntimePolicyJSON:    model.RuntimePolicyJSON,
-		CredentialConfigured: strings.TrimSpace(model.CredentialRef) != "",
+		CredentialConfigured: credentialConfigured,
 		ProviderConfigured:   model.ProviderConfigured(),
 	}
 }
@@ -209,6 +217,9 @@ func ValidateDefinition(model Definition) error {
 		if _, ok := schema.(map[string]any); !ok {
 			return fmt.Errorf("public parameter schema must be a JSON object")
 		}
+	}
+	if model.AdapterKind == AdapterYDVideo && strings.TrimSpace(model.CredentialRef) != "" {
+		return fmt.Errorf("adapter %q uses account video credentials and cannot have a credential reference", AdapterYDVideo)
 	}
 	if model.Enabled && !model.ProviderConfigured() {
 		return fmt.Errorf("enabled model requires a credential reference and valid provider configuration")
