@@ -20,6 +20,7 @@ const (
 	AdapterJimengImage                  = "jimeng_image"
 	AdapterAccountOpenAICompatibleImage = "account_openai_compatible_image"
 	AdapterViduImageToVideo             = "vidu_image_to_video"
+	AdapterYDVideo                      = "yd_video"
 	AdapterGenericHTTP                  = "generic_http"
 )
 
@@ -133,7 +134,7 @@ func (model Definition) ProviderConfigured() bool {
 // adapter for this model. Legacy catalog rows can predate adapter validation.
 func (model Definition) SupportsTaskExecution() bool {
 	switch model.AdapterKind {
-	case AdapterJimengImage, AdapterAccountOpenAICompatibleImage, AdapterViduImageToVideo, AdapterGenericHTTP:
+	case AdapterJimengImage, AdapterAccountOpenAICompatibleImage, AdapterViduImageToVideo, AdapterYDVideo, AdapterGenericHTTP:
 		return true
 	default:
 		return false
@@ -153,11 +154,15 @@ func (model Definition) SupportsReferenceImages() bool {
 		strings.Contains(model.RequestTemplate, "{{reference_image_url}}")
 }
 
-// RequiresVideoImage identifies the fixed image-to-video adapter. Generic
-// video models may be configured as text-to-video and therefore receive an
-// empty ImageURL when the storyboard segment has no generated image.
+// RequiresVideoImage identifies fixed image-to-video adapters. Generic video
+// models may be configured as text-to-video and therefore receive an empty
+// ImageURL when the storyboard segment has no generated image.
 func (model Definition) RequiresVideoImage() bool {
-	return model.Kind == KindVideo && model.AdapterKind == AdapterViduImageToVideo
+	return model.Kind == KindVideo && IsAsyncVideoAdapter(model.AdapterKind)
+}
+
+func IsAsyncVideoAdapter(adapterKind string) bool {
+	return adapterKind == AdapterViduImageToVideo || adapterKind == AdapterYDVideo
 }
 
 func (model Definition) AvailableTo(role string, persistedReference bool) bool {
@@ -226,5 +231,6 @@ var adapterKinds = map[string]Kind{
 	AdapterJimengImage:                  KindImage,
 	AdapterAccountOpenAICompatibleImage: KindImage,
 	AdapterViduImageToVideo:             KindVideo,
+	AdapterYDVideo:                      KindVideo,
 	AdapterGenericHTTP:                  "",
 }

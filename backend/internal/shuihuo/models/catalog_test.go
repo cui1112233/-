@@ -31,12 +31,40 @@ func TestValidateDefinitionAcceptsAllModelKinds(t *testing.T) {
 		{ModelID: "text-completion", Name: "text", Kind: KindText, AdapterKind: AdapterTextCompletion, Enabled: true, CredentialRef: "text-provider"},
 		{ModelID: "image-jimeng", Name: "image", Kind: KindImage, AdapterKind: AdapterJimengImage, Enabled: true},
 		{ModelID: "video-vidu", Name: "video", Kind: KindVideo, AdapterKind: AdapterViduImageToVideo, Enabled: true, CredentialRef: "video-provider"},
+		{ModelID: "video-yd", Name: "video", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true, CredentialRef: "video-provider"},
 		{ModelID: "audio-generic", Name: "audio", Kind: KindAudio, AdapterKind: AdapterGenericHTTP, Enabled: true, CredentialRef: "audio-provider", Endpoint: "https://audio.example.com", RequestTemplate: `{}`, ResponseMapping: `{}`},
 	}
 	for _, model := range tests {
 		if err := ValidateDefinition(model); err != nil {
 			t.Fatalf("ValidateDefinition(%s) error = %v", model.Kind, err)
 		}
+	}
+}
+
+func TestYDVideoAdapterRequiresVideoKindAndSupportsExecution(t *testing.T) {
+	model := Definition{Kind: KindVideo, AdapterKind: AdapterYDVideo}
+	if err := ValidateDefinition(Definition{ModelID: "video-yd", Name: "YD", Kind: KindVideo, AdapterKind: AdapterYDVideo, Enabled: true, CredentialRef: "yd-key"}); err != nil {
+		t.Fatalf("ValidateDefinition() error = %v", err)
+	}
+	if !model.SupportsTaskExecution() {
+		t.Fatal("YD video adapter must support task execution")
+	}
+	if !model.RequiresVideoImage() {
+		t.Fatal("YD video adapter must require a scene image")
+	}
+
+	wrongKind := Definition{ModelID: "yd-image", Name: "YD image", Kind: KindImage, AdapterKind: AdapterYDVideo}
+	if err := ValidateDefinition(wrongKind); err == nil || !strings.Contains(err.Error(), "requires") {
+		t.Fatalf("ValidateDefinition() error = %v, want kind mismatch", err)
+	}
+}
+
+func TestIsAsyncVideoAdapter(t *testing.T) {
+	if !IsAsyncVideoAdapter(AdapterViduImageToVideo) || !IsAsyncVideoAdapter(AdapterYDVideo) {
+		t.Fatal("fixed async video adapters must be identified")
+	}
+	if IsAsyncVideoAdapter(AdapterGenericHTTP) || IsAsyncVideoAdapter(AdapterJimengImage) {
+		t.Fatal("non-async adapters must not be identified as async video")
 	}
 }
 

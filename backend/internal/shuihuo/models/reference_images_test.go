@@ -21,4 +21,7 @@ func TestOnlyViduVideoModelsRequireAnImage(t *testing.T) {
 	if (&Definition{Kind: KindVideo, AdapterKind: AdapterGenericHTTP}).RequiresVideoImage() {
 		t.Fatal("generic video model must allow prompt-only generation")
 	}
+	if !(&Definition{Kind: KindVideo, AdapterKind: AdapterYDVideo}).RequiresVideoImage() {
+		t.Fatal("YD video model must require a scene image")
+	}
 }

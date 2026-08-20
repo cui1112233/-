@@ -17,20 +17,15 @@ import (
 
 const maxViduReplyBytes = 2 << 20
 
-type ViduTaskState string
+type ViduTaskState = AsyncVideoState
 
 const (
-	ViduTaskRunning   ViduTaskState = "running"
-	ViduTaskSucceeded ViduTaskState = "succeeded"
-	ViduTaskFailed    ViduTaskState = "failed"
+	ViduTaskRunning   = AsyncVideoRunning
+	ViduTaskSucceeded = AsyncVideoSucceeded
+	ViduTaskFailed    = AsyncVideoFailed
 )
 
-type ViduTask struct {
-	ID        string
-	State     ViduTaskState
-	ResultURL string
-	Message   string
-}
+type ViduTask = AsyncVideoTask
 
 // Vidu uses a server-configured HTTPS API base. It does not accept user
 // supplied endpoints, request templates, or headers.
