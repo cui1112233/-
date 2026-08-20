@@ -97,6 +97,7 @@ func New(cfg config.Config) (*App, error) {
 		workerCtx, cancel := context.WithCancel(context.Background())
 		application.workerCancel = cancel
 		vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
+		yd := providers.NewYD(nil, cfg.ModelCredential)
 		worker := shuihuotasks.Worker{
 			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db), AssetImages: shuihuostore.NewAssetImages(db),
 			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
@@ -104,11 +105,15 @@ func New(cfg config.Config) (*App, error) {
 				shuihuomodels.AdapterJimengImage:                  providers.NewJimeng(nil, cfg.ModelCredential),
 				shuihuomodels.AdapterAccountOpenAICompatibleImage: providers.NewOpenAICompatibleImage(nil, imageConfigs),
 				shuihuomodels.AdapterViduImageToVideo:             vidu,
+				shuihuomodels.AdapterYDVideo:                      yd,
 				shuihuomodels.AdapterGenericHTTP:                  shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
 			},
 		}
 		poller := shuihuotasks.Poller{
-			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Provider: vidu,
+			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Providers: map[string]providers.AsyncVideoProvider{
+				shuihuomodels.AdapterViduImageToVideo: vidu,
+				shuihuomodels.AdapterYDVideo:          yd,
+			},
 			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
 		}
 		go func() { _ = worker.Run(workerCtx, queue) }()

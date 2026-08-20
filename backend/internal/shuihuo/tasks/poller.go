@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -30,14 +31,10 @@ type PollerModelRepository interface {
 	GetVersion(context.Context, int64, int64) (models.Definition, error)
 }
 
-type ViduPoller interface {
-	Poll(context.Context, models.Definition, string) (providers.ViduTask, error)
-}
-
 type Poller struct {
 	Tasks          PollerTaskRepository
 	Models         PollerModelRepository
-	Provider       ViduPoller
+	Providers      map[string]providers.AsyncVideoProvider
 	Objects        WorkerObjects
 	DownloadResult func(context.Context, string) ([]byte, string, error)
 	Now            func() time.Time
@@ -78,13 +75,20 @@ func (p Poller) PollDue(ctx context.Context) error {
 	if batch <= 0 {
 		batch = defaultPollBatchSize
 	}
-	tasks, err := p.Tasks.ListRunningByProvider(ctx, models.AdapterViduImageToVideo, now, batch)
-	if err != nil {
-		return err
+	providerKeys := make([]string, 0, len(p.Providers))
+	for providerKey := range p.Providers {
+		providerKeys = append(providerKeys, providerKey)
 	}
-	for _, task := range tasks {
-		if err := p.PollOnce(ctx, task); err != nil && !errors.Is(err, ErrTaskAlreadyCompleted) {
+	sort.Strings(providerKeys)
+	for _, providerKey := range providerKeys {
+		tasks, err := p.Tasks.ListRunningByProvider(ctx, providerKey, now, batch)
+		if err != nil {
 			return err
+		}
+		for _, task := range tasks {
+			if err := p.PollOnce(ctx, task); err != nil && !errors.Is(err, ErrTaskAlreadyCompleted) {
+				return err
+			}
 		}
 	}
 	return nil
@@ -94,33 +98,40 @@ func (p Poller) PollOnce(ctx context.Context, task domain.Task) error {
 	if task.Status != domain.TaskRunning {
 		return ErrTaskAlreadyCompleted
 	}
-	if p.Tasks == nil || p.Models == nil || p.Provider == nil || p.Objects == nil {
+	if p.Tasks == nil || p.Models == nil || p.Providers == nil || p.Objects == nil {
 		return fmt.Errorf("shuihuo poller is not configured")
 	}
-	if task.Kind != "video" || task.Provider != models.AdapterViduImageToVideo || task.ModelID == nil || task.ModelVersionID == nil || task.ProviderTaskID == "" {
+	if task.Kind != "video" || task.Provider == "" || task.ModelID == nil || task.ModelVersionID == nil || task.ProviderTaskID == "" {
 		return p.fail(ctx, task, "invalid_async_task", "视频异步任务快照不完整")
 	}
 	model, err := p.Models.GetVersion(ctx, *task.ModelID, *task.ModelVersionID)
 	if err != nil {
 		return p.fail(ctx, task, "model_unavailable", "视频模型不可用")
 	}
-	result, err := p.Provider.Poll(ctx, model, task.ProviderTaskID)
+	if model.Kind != models.KindVideo || model.AdapterKind != task.Provider {
+		return p.fail(ctx, task, "invalid_async_task", "视频异步任务与模型适配器不匹配")
+	}
+	provider := p.Providers[task.Provider]
+	if provider == nil {
+		return p.fail(ctx, task, "provider_unavailable", "视频服务未配置")
+	}
+	result, err := provider.Poll(ctx, model, task.ProviderTaskID)
 	if err != nil {
 		return p.fail(ctx, task, "model_poll_failed", "视频任务查询失败")
 	}
 	switch result.State {
-	case providers.ViduTaskRunning:
+	case providers.AsyncVideoRunning:
 		return p.Tasks.SetNextPoll(ctx, task.ID, p.now().Add(p.interval()))
-	case providers.ViduTaskFailed:
+	case providers.AsyncVideoFailed:
 		return p.fail(ctx, task, "provider_task_failed", result.Message)
-	case providers.ViduTaskSucceeded:
+	case providers.AsyncVideoSucceeded:
 		return p.persistResult(ctx, task, result)
 	default:
 		return p.fail(ctx, task, "invalid_provider_status", "视频服务返回未知状态")
 	}
 }
 
-func (p Poller) persistResult(ctx context.Context, task domain.Task, result providers.ViduTask) error {
+func (p Poller) persistResult(ctx context.Context, task domain.Task, result providers.AsyncVideoTask) error {
 	download := p.DownloadResult
 	if download == nil {
 		download = downloadModelResult
