@@ -13,7 +13,35 @@ import (
 	"time"
 
 	"qiantie/backend/internal/shuihuo/models"
+	"qiantie/backend/internal/store"
 )
+
+type YDAccountCredentialResolver func(context.Context, int64) (string, error)
+
+type YDVideoConfigStore interface {
+	Get(context.Context, int64) (store.VideoAPIConfig, error)
+}
+
+type YDCredentialCipher interface {
+	Decrypt(string) (string, error)
+}
+
+func NewYDAccountCredentialResolver(configs YDVideoConfigStore, cipher YDCredentialCipher) YDAccountCredentialResolver {
+	return func(ctx context.Context, ownerID int64) (string, error) {
+		if ownerID < 1 || configs == nil || cipher == nil {
+			return "", fmt.Errorf("YD credential is not configured")
+		}
+		config, err := configs.Get(ctx, ownerID)
+		if err != nil || !config.Configured() {
+			return "", fmt.Errorf("YD credential is not configured")
+		}
+		token, err := cipher.Decrypt(config.APIKeyCiphertext)
+		if err != nil || strings.TrimSpace(token) == "" {
+			return "", fmt.Errorf("YD credential is not configured")
+		}
+		return strings.TrimSpace(token), nil
+	}
+}
 
 const (
 	ydModelName       = "yd2.0-mini"
@@ -28,11 +56,11 @@ const (
 // request shape are intentionally not configurable through the model row.
 type YD struct {
 	client      *http.Client
-	credentials models.CredentialResolver
+	credentials YDAccountCredentialResolver
 	resolver    models.IPResolver
 }
 
-func NewYD(client *http.Client, credentials models.CredentialResolver) *YD {
+func NewYD(client *http.Client, credentials YDAccountCredentialResolver) *YD {
 	if client == nil {
 		client = &http.Client{Timeout: 90 * time.Second}
 	}
@@ -77,7 +105,7 @@ func (p *YD) Submit(ctx context.Context, model models.Definition, request models
 		images = append(images, imageURL)
 	}
 	images = append(images, sceneURL)
-	token, err := p.credential(model)
+	token, err := p.credential(ctx, request.OwnerID)
 	if err != nil {
 		return models.Response{}, err
 	}
@@ -116,7 +144,7 @@ func (p *YD) Submit(ctx context.Context, model models.Definition, request models
 	return models.Response{ProviderTaskID: taskID}, nil
 }
 
-func (p *YD) Poll(ctx context.Context, model models.Definition, providerTaskID string) (AsyncVideoTask, error) {
+func (p *YD) Poll(ctx context.Context, model models.Definition, ownerID int64, providerTaskID string) (AsyncVideoTask, error) {
 	if model.Kind != models.KindVideo || model.AdapterKind != models.AdapterYDVideo {
 		return AsyncVideoTask{}, fmt.Errorf("model adapter is not yd_video")
 	}
@@ -127,7 +155,7 @@ func (p *YD) Poll(ctx context.Context, model models.Definition, providerTaskID s
 	if err := p.validateURL(ctx, "YD status endpoint", ydStatusEndpoint); err != nil {
 		return AsyncVideoTask{}, err
 	}
-	token, err := p.credential(model)
+	token, err := p.credential(ctx, ownerID)
 	if err != nil {
 		return AsyncVideoTask{}, err
 	}
@@ -196,11 +224,11 @@ func (p *YD) get(ctx context.Context, endpoint, token string) ([]byte, error) {
 	return body, nil
 }
 
-func (p *YD) credential(model models.Definition) (string, error) {
+func (p *YD) credential(ctx context.Context, ownerID int64) (string, error) {
 	if p.credentials == nil {
 		return "", fmt.Errorf("YD credential resolver is required")
 	}
-	token, err := p.credentials(model.CredentialRef)
+	token, err := p.credentials(ctx, ownerID)
 	if err != nil || strings.TrimSpace(token) == "" {
 		return "", fmt.Errorf("YD credential is not configured")
 	}

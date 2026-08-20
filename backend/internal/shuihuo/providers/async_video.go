@@ -23,5 +23,5 @@ type AsyncVideoTask struct {
 
 type AsyncVideoProvider interface {
 	models.Adapter
-	Poll(context.Context, models.Definition, string) (AsyncVideoTask, error)
+	Poll(context.Context, models.Definition, int64, string) (AsyncVideoTask, error)
 }

@@ -107,16 +107,18 @@ func (r pollerModelRepo) GetVersion(_ context.Context, modelID, _ int64) (models
 }
 
 type pollerProvider struct {
-	result    providers.AsyncVideoTask
-	pollCalls []string
+	result     providers.AsyncVideoTask
+	pollCalls  []string
+	pollOwners []int64
 }
 
 func (p *pollerProvider) Submit(context.Context, models.Definition, models.Request) (models.Response, error) {
 	return models.Response{}, errors.New("not implemented")
 }
 
-func (p *pollerProvider) Poll(_ context.Context, model models.Definition, providerTaskID string) (providers.AsyncVideoTask, error) {
+func (p *pollerProvider) Poll(_ context.Context, model models.Definition, ownerID int64, providerTaskID string) (providers.AsyncVideoTask, error) {
 	p.pollCalls = append(p.pollCalls, model.AdapterKind+":"+providerTaskID)
+	p.pollOwners = append(p.pollOwners, ownerID)
 	return p.result, nil
 }
 
@@ -186,6 +188,9 @@ func TestPollerPersistsCompletedYDVideoExactlyOnce(t *testing.T) {
 	}
 	if len(yd.pollCalls) != 1 || yd.pollCalls[0] != models.AdapterYDVideo+":yd-42" {
 		t.Fatalf("YD poll calls = %#v", yd.pollCalls)
+	}
+	if len(yd.pollOwners) != 1 || yd.pollOwners[0] != 17 {
+		t.Fatalf("YD poll owners = %#v, want task owner", yd.pollOwners)
 	}
 	if err := poller.PollOnce(context.Background(), taskRepo.task); err != nil && !errors.Is(err, ErrTaskAlreadyCompleted) {
 		t.Fatal(err)

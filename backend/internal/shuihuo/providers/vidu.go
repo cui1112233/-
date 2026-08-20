@@ -96,7 +96,7 @@ func (p *Vidu) Submit(ctx context.Context, model models.Definition, request mode
 	return models.Response{ProviderTaskID: taskID}, nil
 }
 
-func (p *Vidu) Poll(ctx context.Context, model models.Definition, providerTaskID string) (ViduTask, error) {
+func (p *Vidu) Poll(ctx context.Context, model models.Definition, _ int64, providerTaskID string) (ViduTask, error) {
 	if strings.TrimSpace(providerTaskID) == "" {
 		return ViduTask{}, fmt.Errorf("Vidu provider task ID is required")
 	}

@@ -252,7 +252,7 @@ func taskCreationStatus(err error) int {
 		return http.StatusBadRequest
 	case "分段不存在":
 		return http.StatusNotFound
-	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先在设置中完成 OpenAI 兼容生图配置", "请先保存对应提示词", "所选图片模型不支持分镜预设参考图，请在模型配置中使用参考图占位符或改选支持参考图的模型", "所选视频模型需要当前分镜画面图片，请先生成图片或改选文生视频模型":
+	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先在设置中完成 OpenAI 兼容生图配置", "请先在工作台设置中配置中转亚迪 API Key", "请先保存对应提示词", "所选图片模型不支持分镜预设参考图，请在模型配置中使用参考图占位符或改选支持参考图的模型", "所选视频模型需要当前分镜画面图片，请先生成图片或改选文生视频模型":
 		return http.StatusConflict
 	case "分镜已变更，请刷新后重试":
 		return http.StatusConflict
@@ -311,6 +311,15 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		}
 		if !model.ProviderConfigured() {
 			return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
+		}
+		if model.AdapterKind == models.AdapterYDVideo {
+			configured, configErr := api.ydVideoConfigured(ctx, user.ID)
+			if configErr != nil {
+				return domain.Task{}, taskCreationError("读取账号视频配置失败")
+			}
+			if !configured {
+				return domain.Task{}, taskCreationError("请先在工作台设置中配置中转亚迪 API Key")
+			}
 		}
 	}
 	prompt := segment.ImagePrompt
@@ -407,6 +416,17 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	}
 	task.Status = domain.TaskQueued
 	return task, nil
+}
+
+func (api *API) ydVideoConfigured(ctx context.Context, userID int64) (bool, error) {
+	if api.deps.VideoConfigs == nil || api.deps.CredentialCipher == nil {
+		return false, nil
+	}
+	config, err := api.deps.VideoConfigs.Get(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return config.Configured(), nil
 }
 
 func normalizedYDVideoTaskSettings(input *shuihuoVideoTaskSettings) (string, error) {

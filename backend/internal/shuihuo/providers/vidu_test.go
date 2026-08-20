@@ -44,7 +44,7 @@ func TestViduUsesServerEndpointAndMapsTaskID(t *testing.T) {
 			t.Fatalf("URL = %s", request.URL)
 		}
 		if request.Header.Get("Authorization") != "Token token" {
-			t.Fatalf("authorization header = %q", request.Header.Get("Authorization"))
+			t.Fatal("Vidu authorization header was not set")
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"task_id":"vidu-42"}`))}, nil
 	})
@@ -55,6 +55,36 @@ func TestViduUsesServerEndpointAndMapsTaskID(t *testing.T) {
 	}
 	if result.ProviderTaskID != "vidu-42" || result.ResultURL != "" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestViduPollIgnoresOwnerIDAndUsesGlobalModelCredential(t *testing.T) {
+	credentialCalls := 0
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.String() != "https://api.vidu.example/ent/v2/tasks/vidu-42" {
+			t.Fatal("Vidu poll used an unexpected endpoint")
+		}
+		if request.Header.Get("Authorization") != "Token token" {
+			t.Fatal("Vidu poll did not use the global model credential")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"task_id":"vidu-42","state":"processing"}`))}, nil
+	})
+	adapter := NewVidu(&http.Client{Transport: transport}, func(reference string) (string, error) {
+		credentialCalls++
+		if reference != "VIDU_CREDENTIAL" {
+			t.Fatal("Vidu resolved an unexpected credential reference")
+		}
+		return "token", nil
+	}, func(string) string { return "https://api.vidu.example/ent/v2" })
+
+	result, err := adapter.Poll(context.Background(), models.Definition{
+		Kind: models.KindVideo, AdapterKind: models.AdapterViduImageToVideo, CredentialRef: "VIDU_CREDENTIAL",
+	}, 101, "vidu-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != ViduTaskRunning || credentialCalls != 1 {
+		t.Fatal("Vidu poll did not retain its global credential behavior")
 	}
 }
 

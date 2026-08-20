@@ -51,6 +51,7 @@ func New(cfg config.Config) (*App, error) {
 	}
 	configs := store.NewConfigs(db)
 	imageConfigs := store.NewImageConfigs(db)
+	videoConfigs := store.NewVideoConfigs(db)
 	histories := store.NewHistories(db)
 	redisHealth := httpapi.ShuihuoDependencyHealth{Reason: "Redis 未配置"}
 	var queue shuihuotasks.Queue
@@ -85,6 +86,8 @@ func New(cfg config.Config) (*App, error) {
 		Users:             users,
 		Configs:           configs,
 		ImageConfigs:      imageConfigs,
+		VideoConfigs:      videoConfigs,
+		CredentialCipher:  cfg.CredentialCipher,
 		Histories:         histories,
 		Objects:           objects,
 		Queue:             queue,
@@ -96,7 +99,7 @@ func New(cfg config.Config) (*App, error) {
 	workerCtx, cancel := context.WithCancel(context.Background())
 	application.workerCancel = cancel
 	vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
-	yd := providers.NewYD(nil, cfg.ModelCredential)
+	yd := providers.NewYD(nil, providers.NewYDAccountCredentialResolver(videoConfigs, cfg.CredentialCipher))
 	poller := shuihuotasks.Poller{
 		Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Providers: map[string]providers.AsyncVideoProvider{
 			shuihuomodels.AdapterViduImageToVideo: vidu,

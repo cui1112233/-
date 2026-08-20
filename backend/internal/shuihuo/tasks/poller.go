@@ -115,7 +115,7 @@ func (p Poller) PollOnce(ctx context.Context, task domain.Task) error {
 	if provider == nil {
 		return p.fail(ctx, task, "provider_unavailable", "视频服务未配置")
 	}
-	result, err := provider.Poll(ctx, model, task.ProviderTaskID)
+	result, err := provider.Poll(ctx, model, task.UserID, task.ProviderTaskID)
 	if err != nil {
 		return p.fail(ctx, task, "model_poll_failed", "视频任务查询失败")
 	}

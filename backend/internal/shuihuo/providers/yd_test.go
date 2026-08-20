@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"qiantie/backend/internal/credentials"
 	"qiantie/backend/internal/shuihuo/models"
+	"qiantie/backend/internal/store"
 )
 
 var ydModel = models.Definition{
@@ -20,12 +22,108 @@ var ydModel = models.Definition{
 }
 
 func newYDTestProvider(transport roundTripFunc) *YD {
-	return NewYD(&http.Client{Transport: transport}, func(reference string) (string, error) {
-		if reference != ydModel.CredentialRef {
-			return "", io.ErrUnexpectedEOF
-		}
+	return NewYD(&http.Client{Transport: transport}, func(context.Context, int64) (string, error) {
 		return "yd-secret", nil
 	})
+}
+
+type ydConfigStore struct {
+	configs map[int64]store.VideoAPIConfig
+}
+
+func (s ydConfigStore) Get(_ context.Context, ownerID int64) (store.VideoAPIConfig, error) {
+	return s.configs[ownerID], nil
+}
+
+func ydTestCipher(t *testing.T) *credentials.Cipher {
+	t.Helper()
+	cipher, err := credentials.NewFromBase64("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cipher
+}
+
+func TestYDSubmitUsesRequestOwnerCredentialInsteadOfModelCredential(t *testing.T) {
+	const ownerAKey = "test-owner-a-key"
+	const ownerBKey = "test-owner-b-key"
+	cipher := ydTestCipher(t)
+	ownerACiphertext, err := cipher.Encrypt(ownerAKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerBCiphertext, err := cipher.Encrypt(ownerBKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := NewYD(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "Bearer "+ownerAKey {
+			t.Fatal("YD submit authorization did not use the request owner's credential")
+		}
+		return jsonResponse(http.StatusOK, `{"task_id":"yd-owner-a"}`), nil
+	})}, NewYDAccountCredentialResolver(ydConfigStore{configs: map[int64]store.VideoAPIConfig{
+		101: {Provider: store.YDVideoProvider, APIKeyCiphertext: ownerACiphertext},
+		202: {Provider: store.YDVideoProvider, APIKeyCiphertext: ownerBCiphertext},
+	}}, cipher))
+
+	_, err = provider.Submit(context.Background(), models.Definition{
+		Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, CredentialRef: "owner-b",
+	}, models.Request{OwnerID: 101, Prompt: "镜头推进", ImageURL: "https://example.com/scene.png", AspectRatio: "9:16"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestYDPollUsesTaskOwnerCredentialInsteadOfModelCredential(t *testing.T) {
+	const ownerAKey = "test-poll-owner-a-key"
+	const ownerBKey = "test-poll-owner-b-key"
+	cipher := ydTestCipher(t)
+	ownerACiphertext, err := cipher.Encrypt(ownerAKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerBCiphertext, err := cipher.Encrypt(ownerBKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := NewYD(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "Bearer "+ownerAKey {
+			t.Fatal("YD poll authorization did not use the task owner's credential")
+		}
+		return jsonResponse(http.StatusOK, `{"status":"RUNNING"}`), nil
+	})}, NewYDAccountCredentialResolver(ydConfigStore{configs: map[int64]store.VideoAPIConfig{
+		101: {Provider: store.YDVideoProvider, APIKeyCiphertext: ownerACiphertext},
+		202: {Provider: store.YDVideoProvider, APIKeyCiphertext: ownerBCiphertext},
+	}}, cipher))
+
+	_, err = provider.Poll(context.Background(), models.Definition{
+		Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, CredentialRef: "owner-b",
+	}, 101, "yd-owner-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestYDPollRedactsAccountCredentialFromProviderFailure(t *testing.T) {
+	const ownerKey = "test-redaction-owner-key"
+	cipher := ydTestCipher(t)
+	ciphertext, err := cipher.Encrypt(ownerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := NewYD(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"status":"FAILED","errorMessage":"provider rejected test-redaction-owner-key"}`), nil
+	})}, NewYDAccountCredentialResolver(ydConfigStore{configs: map[int64]store.VideoAPIConfig{
+		101: {Provider: store.YDVideoProvider, APIKeyCiphertext: ciphertext},
+	}}, cipher))
+
+	result, err := provider.Poll(context.Background(), ydModel, 101, "yd-redacted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Message, ownerKey) || !strings.Contains(result.Message, "[redacted]") {
+		t.Fatal("YD provider failure did not redact the account credential")
+	}
 }
 
 func TestYDSubmitBuildsFixedPayloadWithAuthAndImageOrder(t *testing.T) {
@@ -33,8 +131,8 @@ func TestYDSubmitBuildsFixedPayloadWithAuthAndImageOrder(t *testing.T) {
 		if request.Method != http.MethodPost || request.URL.String() != ydCreateEndpoint {
 			t.Fatalf("request = %s %s, want POST %s", request.Method, request.URL, ydCreateEndpoint)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer yd-secret" {
-			t.Fatalf("Authorization = %q", got)
+		if request.Header.Get("Authorization") != "Bearer yd-secret" {
+			t.Fatal("YD submit authorization was not set")
 		}
 		if request.Header.Get("Cookie") != "" {
 			t.Fatal("YD request must not use a cookie")
@@ -137,7 +235,7 @@ func TestYDPollMapsStatusesAndFetchesResult(t *testing.T) {
 				}
 				return jsonResponse(http.StatusOK, `{"status":"`+test.status+`","errorMessage":"  failed safely  "}`), nil
 			})
-			result, err := provider.Poll(context.Background(), ydModel, "yd-42")
+			result, err := provider.Poll(context.Background(), ydModel, 17, "yd-42")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +265,7 @@ func TestYDPollUsesFirstValidURLFromURLsThenOutputs(t *testing.T) {
 				}
 				return jsonResponse(http.StatusOK, `{"status":"SUCCESS"}`), nil
 			})
-			result, err := provider.Poll(context.Background(), ydModel, "yd-42")
+			result, err := provider.Poll(context.Background(), ydModel, 17, "yd-42")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +286,7 @@ func TestYDWrapsHTTPClientCancellationErrors(t *testing.T) {
 			return err
 		}},
 		{name: "poll", call: func(provider *YD) error {
-			_, err := provider.Poll(context.Background(), ydModel, "yd-42")
+			_, err := provider.Poll(context.Background(), ydModel, 17, "yd-42")
 			return err
 		}},
 	} {
@@ -223,7 +321,7 @@ func TestYDValidatesResultURLWithRequestContextAndInjectedResolver(t *testing.T)
 		return []net.IPAddr{{IP: net.ParseIP("8.8.8.8")}}, nil
 	})
 
-	result, err := provider.Poll(ctx, ydModel, "yd-42")
+	result, err := provider.Poll(ctx, ydModel, 17, "yd-42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +343,7 @@ func TestYDPollRejectsUnknownMalformedHTTPAndLeakyResponses(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			provider := newYDTestProvider(func(*http.Request) (*http.Response, error) { return test.resp, nil })
-			_, err := provider.Poll(context.Background(), ydModel, "yd-42")
+			_, err := provider.Poll(context.Background(), ydModel, 17, "yd-42")
 			if err == nil {
 				t.Fatal("Poll() unexpectedly succeeded")
 			}

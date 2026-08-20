@@ -2269,3 +2269,29 @@ func (r *batchTaskRows) Next(dest []driver.Value) error {
 	r.index++
 	return nil
 }
+
+func TestYDVideoTaskRequiresCurrentUserAccountKeyBeforeQueueing(t *testing.T) {
+	api, queue := newBatchTaskTestAPI(t)
+	api.deps.VideoConfigs = &videoConfigTestStore{configs: map[int64]store.VideoAPIConfig{}}
+	api.deps.CredentialCipher = testCredentialCipher(t)
+	batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true, CredentialRef: "YD_API_KEY"}
+	segment := batchTaskTestState.segments[11]
+	segment.VideoPrompt = "镜头缓慢推进"
+	batchTaskTestState.segments[11] = segment
+
+	req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks", "producer", false)
+	req.Body = io.NopCloser(strings.NewReader(`{"segmentId":11,"kind":"video","modelId":7}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("create YD video task = %d, want conflict", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), "请先在工作台设置中配置中转亚迪 API Key") {
+		t.Fatalf("create YD video task returned unexpected setup error")
+	}
+	if len(queue.ids) != 0 || len(batchTaskTestState.tasks) != 0 {
+		t.Fatalf("YD task was persisted or queued without an account key")
+	}
+}
