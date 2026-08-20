@@ -32,6 +32,8 @@ const videoDefaults = {
   sendCharacterAudio: false
 };
 
+const YD_VIDEO_RATIOS = ['9:16', '16:9'];
+
 function optionsFor(models, kind) {
   return models.filter(model => model.kind === kind).map(model => ({ value: model.id, label: model.name }));
 }
@@ -45,6 +47,8 @@ export function EngineSettingsModal({ open, onClose, onSaved }) {
   const imageModels = useMemo(() => optionsFor(models, 'image'), [models]);
   const videoModels = useMemo(() => optionsFor(models, 'video'), [models]);
   const audioModels = useMemo(() => optionsFor(models, 'audio'), [models]);
+  const selectedVideoModel = useMemo(() => models.find(model => model.id === config.videoModelId), [config.videoModelId, models]);
+  const isYDVideoModel = selectedVideoModel?.adapterKind === 'yd_video';
 
   useEffect(() => {
     if (!open) return;
@@ -92,9 +96,15 @@ export function EngineSettingsModal({ open, onClose, onSaved }) {
       <label><span>提示词前缀</span><Input.TextArea value={config.videoPrefix} rows={3} onChange={event => updateConfig({ videoPrefix: event.target.value })} placeholder="输入提示词前缀" /></label>
       <label><span>提示词后缀</span><Input.TextArea value={config.videoSuffix} rows={3} onChange={event => updateConfig({ videoSuffix: event.target.value })} placeholder="输入提示词后缀" /></label>
       <label><span>视频模型</span><Select value={config.videoModelId ?? undefined} onChange={videoModelId => updateConfig({ videoModelId: videoModelId ?? null })} placeholder="选择模型" options={videoModels} /></label>
-      <label><span>视频时长</span><Select value={uiConfig.videoDuration} onChange={videoDuration => updateUIConfig({ videoDuration })} options={['5', '8', '10'].map(value => ({ value, label: `${value}秒` }))} /></label>
-      <label><span>视频尺寸</span><Select value={uiConfig.videoRatio} onChange={videoRatio => updateUIConfig({ videoRatio })} options={['9:16', '16:9', '1:1'].map(value => ({ value, label: value }))} /></label>
-      <label><span>视频分辨率</span><Select value={uiConfig.videoResolution} onChange={videoResolution => updateUIConfig({ videoResolution })} options={['720p', '1080p'].map(value => ({ value, label: value }))} /></label>
+      {isYDVideoModel ? <>
+        <label><span>视频时长</span><Input value="固定 1 秒" readOnly /></label>
+        <label><span>视频尺寸</span><Select value={uiConfig.videoRatio} onChange={videoRatio => updateUIConfig({ videoRatio })} options={YD_VIDEO_RATIOS.map(value => ({ value, label: value }))} /></label>
+        <label><span>视频分辨率</span><Input value="固定 720p" readOnly /></label>
+      </> : <>
+        <label><span>视频时长</span><Select value={uiConfig.videoDuration} onChange={videoDuration => updateUIConfig({ videoDuration })} options={['5', '8', '10'].map(value => ({ value, label: `${value}秒` }))} /></label>
+        <label><span>视频尺寸</span><Select value={uiConfig.videoRatio} onChange={videoRatio => updateUIConfig({ videoRatio })} options={['9:16', '16:9', '1:1'].map(value => ({ value, label: value }))} /></label>
+        <label><span>视频分辨率</span><Select value={uiConfig.videoResolution} onChange={videoResolution => updateUIConfig({ videoResolution })} options={['720p', '1080p'].map(value => ({ value, label: value }))} /></label>
+      </>}
       <label className="wide"><span>参考类型</span><Select value={uiConfig.referenceType} onChange={referenceType => updateUIConfig({ referenceType })} options={[{ value: 'all', label: '全能参考' }, { value: 'first-frame', label: '首帧参考' }, { value: 'image', label: '图片参考' }]} /></label>
       <div className="shuihuo-engine-switches"><label>参考字幕时长<Switch checked={uiConfig.keepSubtitleTiming} onChange={keepSubtitleTiming => updateUIConfig({ keepSubtitleTiming })} /></label><label>发送角色音频<Switch checked={uiConfig.sendCharacterAudio} onChange={sendCharacterAudio => updateUIConfig({ sendCharacterAudio })} /></label></div>
     </div> : null}

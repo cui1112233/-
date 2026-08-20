@@ -19,9 +19,12 @@ function defaultModelIdFor(config, kind) {
   return undefined;
 }
 
+const YD_VIDEO_RATIOS = ['9:16', '16:9'];
+
 export function BatchTaskModal({ open, projectId, segments, media, kind, availability, models: initialModels = [], initialSegmentIds = [], initialScope = 'all', audioSettingsBySegment = {}, onClose, onSubmitted }) {
   const [models, setModels] = useState(initialModels);
   const [modelId, setModelId] = useState();
+  const [videoAspectRatio, setVideoAspectRatio] = useState('9:16');
   const [selectedSegmentIds, setSelectedSegmentIds] = useState([]);
   const [scope, setScope] = useState(initialScope);
   const [rangeStart, setRangeStart] = useState();
@@ -41,6 +44,8 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
   )).map(segment => segment.id), [kind, primaryImageSegmentIds, segments]);
   const eligibleIdSet = useMemo(() => new Set(eligibleSegmentIds), [eligibleSegmentIds]);
   const availableModels = useMemo(() => models.filter(model => model.kind === kind), [kind, models]);
+  const selectedModel = useMemo(() => models.find(model => model.id === modelId), [modelId, models]);
+  const isYDVideoModel = kind === 'video' && selectedModel?.adapterKind === 'yd_video';
   const rangeBounds = useMemo(() => {
     const orders = (segments || []).map(segment => segment.orderIndex).filter(Number.isFinite);
     return { start: orders.length ? Math.min(...orders) : undefined, end: orders.length ? Math.max(...orders) : undefined };
@@ -59,6 +64,7 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
     if (!open) return undefined;
     let active = true;
     setModelId(undefined);
+    setVideoAspectRatio('9:16');
     setModels([]);
     setSelectedSegmentIds(initialSegmentIds);
     setScope(initialScope);
@@ -96,7 +102,7 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
 
     setSubmitting(true);
     try {
-      const response = await createBatchTasks(projectId, { segmentIds: selectedIds, kind, modelId, ...(kind === 'audio' ? { audioSettingsBySegment: Object.fromEntries(selectedIds.map(id => [id, audioSettingsBySegment[id] || { speechRate: 1, pitch: 0 }])) } : {}) });
+      const response = await createBatchTasks(projectId, { segmentIds: selectedIds, kind, modelId, ...(isYDVideoModel ? { videoSettings: { aspectRatio: videoAspectRatio } } : {}), ...(kind === 'audio' ? { audioSettingsBySegment: Object.fromEntries(selectedIds.map(id => [id, audioSettingsBySegment[id] || { speechRate: 1, pitch: 0 }])) } : {}) });
       const results = Array.isArray(response?.results) ? response.results : [];
       const failed = results.filter(result => result?.error);
       const succeeded = results.filter(result => result?.task).length;
@@ -145,6 +151,11 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
       loading={loadingModels}
       disabled={loadingModels || !availableModels.length}
     />
+    {isYDVideoModel ? <>
+      <label className="shuihuo-form-label">视频比例</label>
+      <Select value={videoAspectRatio} onChange={setVideoAspectRatio} options={YD_VIDEO_RATIOS.map(value => ({ value, label: value }))} />
+      <p className="shuihuo-task-empty-note">固定 1 秒，固定 720p。</p>
+    </> : null}
     {!loadingModels && !loadError && !availableModels.length ? <p className="shuihuo-task-empty-note">当前没有启用的{kind === 'image' ? '图片' : kind === 'video' ? '视频' : '配音'}模型，不能提交生成任务。</p> : null}
     <label className="shuihuo-form-label">批量范围</label>
     <Select value={scope} onChange={setScope} options={[{ value: 'all', label: '全部已确认' }, { value: 'incomplete', label: '未完成' }, { value: 'range', label: '指定编号范围' }, { value: 'selected', label: '手工勾选' }]} />
