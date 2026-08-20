@@ -93,11 +93,21 @@ func New(cfg config.Config) (*App, error) {
 		TextModelEndpoint: cfg.ModelEndpoint,
 	})
 	application := &App{cfg: cfg, db: db, api: api, objects: objects}
+	workerCtx, cancel := context.WithCancel(context.Background())
+	application.workerCancel = cancel
+	vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
+	yd := providers.NewYD(nil, cfg.ModelCredential)
+	poller := shuihuotasks.Poller{
+		Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Providers: map[string]providers.AsyncVideoProvider{
+			shuihuomodels.AdapterViduImageToVideo: vidu,
+			shuihuomodels.AdapterYDVideo:          yd,
+		},
+		Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
+	}
+	// Polling resumes existing provider tasks after a restart even when Redis is
+	// temporarily unavailable. Redis only gates submission of new worker jobs.
+	go func() { _ = poller.Run(workerCtx) }()
 	if queue != nil {
-		workerCtx, cancel := context.WithCancel(context.Background())
-		application.workerCancel = cancel
-		vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
-		yd := providers.NewYD(nil, cfg.ModelCredential)
 		worker := shuihuotasks.Worker{
 			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db), AssetImages: shuihuostore.NewAssetImages(db),
 			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
@@ -109,15 +119,7 @@ func New(cfg config.Config) (*App, error) {
 				shuihuomodels.AdapterGenericHTTP:                  shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
 			},
 		}
-		poller := shuihuotasks.Poller{
-			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Providers: map[string]providers.AsyncVideoProvider{
-				shuihuomodels.AdapterViduImageToVideo: vidu,
-				shuihuomodels.AdapterYDVideo:          yd,
-			},
-			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
-		}
 		go func() { _ = worker.Run(workerCtx, queue) }()
-		go func() { _ = poller.Run(workerCtx) }()
 	}
 	return application, nil
 }
