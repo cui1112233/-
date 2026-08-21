@@ -206,6 +206,23 @@ func TestYDSubmitBuildsFixedPayloadWithAuthAndImageOrder(t *testing.T) {
 	}
 }
 
+func TestDecodeYDTaskIDReadsTaskIDFromSuccessEnvelope(t *testing.T) {
+	taskID, err := decodeYDTaskID([]byte(`{"code":0,"msg":"success","data":{"task_id":"yd-nested-42"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskID != "yd-nested-42" {
+		t.Fatalf("task ID = %q, want yd-nested-42", taskID)
+	}
+}
+
+func TestDecodeYDTaskIDReportsSafeProviderMessage(t *testing.T) {
+	_, err := decodeYDTaskID([]byte(`{"code":500,"msg":"Missing API key","data":null}`))
+	if err == nil || !strings.Contains(err.Error(), "Missing API key") || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("error = %v, want safe upstream code and message", err)
+	}
+}
+
 func TestYDSubmitRejectsInvalidRequestsBeforeHTTP(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -300,6 +317,23 @@ func TestYDPollUsesFirstValidURLFromURLsThenOutputs(t *testing.T) {
 				t.Fatalf("result = %#v", result)
 			}
 		})
+	}
+}
+
+func TestYDPollReadsNestedSuccessEnvelope(t *testing.T) {
+	provider := newYDTestProvider(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, "/result") {
+			return jsonResponse(http.StatusOK, `{"code":0,"msg":"success","data":{"urls":["https://example.com/yd-result.mp4"]}}`), nil
+		}
+		return jsonResponse(http.StatusOK, `{"code":0,"msg":"success","data":{"status":"SUCCESS"}}`), nil
+	})
+
+	result, err := provider.Poll(context.Background(), ydModel, 17, "yd-nested-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != AsyncVideoSucceeded || result.ResultURL != "https://example.com/yd-result.mp4" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

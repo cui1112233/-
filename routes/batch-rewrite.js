@@ -49,6 +49,34 @@ function snakeTask(task = {}) {
 function legacyMeta(meta = {}) { return snakeTask(meta); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function idFrom(value) { return String(value || '').trim(); }
+function countEntries(value) { return Array.isArray(value) ? value.length : 0; }
+
+function summarizeKnowledge(knowledge) {
+  const source = object(knowledge);
+  const highImitation = object(source.high_imitation);
+  const openingPhrases = object(source.opening_phrases);
+  const rewriteTemplates = object(source.rewrite_templates);
+  const layoutRules = object(source.layout_rules);
+  const symbolRules = object(source.symbol_rules);
+  const chapterRules = object(source.chapter_rules);
+  const openingStyles = countEntries(openingPhrases.styles)
+    || new Set((openingPhrases.items || []).map(item => String(item?.style || item?.category || '').trim()).filter(Boolean)).size;
+
+  return {
+    opening_phrases: countEntries(openingPhrases.items),
+    opening_styles: openingStyles,
+    rewrite_profiles: countEntries(rewriteTemplates.profiles) || countEntries(rewriteTemplates.items),
+    temporary_instructions: countEntries(rewriteTemplates.temporary_instructions),
+    high_imitation_prompts: countEntries(highImitation.prompts),
+    high_imitation_references: countEntries(highImitation.references) || countEntries(highImitation.items),
+    sensitive_rules: countEntries(layoutRules.sensitive_rules) || countEntries(layoutRules.sensitiveKeywords),
+    symbol_rules: countEntries(symbolRules.symbol_rules),
+    pair_fill_rules: countEntries(symbolRules.pair_fill_rules),
+    chapter_exact_rules: countEntries(chapterRules.chapter_exact_rules),
+    chapter_inline_rules: countEntries(chapterRules.chapter_inline_rules)
+  };
+}
+
 function isFailed(task) {
   return [task.status, task.originalStatus, task.aiStatus, task.classifyStatus, task.error]
     .join(' ').toLowerCase().includes('failed');
@@ -102,10 +130,10 @@ function createBatchRewriteRouter({
       workflow: {
         auto_classify_missing: current.workflow?.auto_classify_missing !== false,
         auto_fetch_original: current.workflow?.auto_fetch_original !== false,
-        auto_rewrite_after_fetch: current.workflow?.auto_rewrite_after_fetch === true,
-        auto_submit_after_rewrite: current.workflow?.auto_submit_after_rewrite === true,
-        auto_sync_site_styles: current.workflow?.auto_sync_site_styles === true,
-        auto_reclassify_invalid_style: current.workflow?.auto_reclassify_invalid_style === true,
+        auto_rewrite_after_fetch: current.workflow?.auto_rewrite_after_fetch !== false,
+        auto_submit_after_rewrite: current.workflow?.auto_submit_after_rewrite !== false,
+        auto_sync_site_styles: current.workflow?.auto_sync_site_styles !== false,
+        auto_reclassify_invalid_style: current.workflow?.auto_reclassify_invalid_style !== false,
         ...object(current.workflow)
       }
     };
@@ -120,11 +148,23 @@ function createBatchRewriteRouter({
         sensitive: current.sensitive || { groups: [] },
         web_submit: publicWebSubmit(current.web_submit),
         knowledge: knowledgeData,
-        knowledge_summary: knowledge.getSummary(),
+        knowledge_summary: summarizeKnowledge(knowledgeData),
         parse_modes: parse.PARSE_MODES.map(id => ({ id, name: id })),
         column_presets: parse.COLUMN_PRESETS,
         work_form: current.work_form || {}
       }
+    };
+  }
+
+  async function requestKnowledge(req) {
+    return (await readConfig(req)).response.knowledge;
+  }
+
+  function ruleKnowledge(knowledgeData) {
+    return {
+      layout_rules: object(knowledgeData.layout_rules),
+      symbol_rules: object(knowledgeData.symbol_rules),
+      chapter_rules: object(knowledgeData.chapter_rules)
     };
   }
 
@@ -333,22 +373,22 @@ function createBatchRewriteRouter({
   router.get('/tasks', async (req, res) => { try { res.json({ tasks: await listTasks(req) }); } catch (error) { res.status(500).json({ error: error.message }); } });
   router.post('/tasks/batch-delete', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); const result = await tasks.deleteTasks(req.username, ids); res.json({ ...result, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/batch-retry', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); let retried = 0; let failed = 0; for (const id of ids) { const task = await tasks.getTask(req.username, id); if (!task) { failed++; continue; } const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000); if (result?.status !== 'done') { failed++; continue; } if (store.getConfig().workflow?.auto_rewrite_after_fetch) await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: (await tasks.getTask(req.username, id)).meta, count: task.meta.aiCount || 1 }); retried++; } res.json({ retried, failed, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/apply-rules', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); let applied = 0; for (const id of ids) { const text = await tasks.readOriginal(req.username, id); if (!text) continue; const processed = rules.processDocumentText(text, 'original', {}, { layout_rules: knowledge.list('layout_rules'), symbol_rules: knowledge.list('symbol_rules'), chapter_rules: knowledge.list('chapter_rules') }); if (typeof tasks.saveOriginalText === 'function') await tasks.saveOriginalText(req.username, id, processed); applied++; } res.json({ applied, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/apply-rules', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); const accountKnowledge = ruleKnowledge(await requestKnowledge(req)); let applied = 0; for (const id of ids) { const text = await tasks.readOriginal(req.username, id); if (!text) continue; const processed = rules.processDocumentText(text, 'original', {}, accountKnowledge); if (typeof tasks.saveOriginalText === 'function') await tasks.saveOriginalText(req.username, id, processed); applied++; } res.json({ applied, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const count = Number(task.meta.aiGeneratedCount) || 0; const aiTexts = []; for (let index = 1; index <= count; index++) aiTexts.push({ name: `AI${index}`, text: await tasks.readVersionText(req.username, req.params.id, `ai${index}`) }); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try { const { tasks } = await resources(req); res.json({ task: await tasks.restoreOriginal(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task.meta, count: Number(req.body?.count) || 1 }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/sensitive-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); res.json({ meta: legacyMeta(task?.meta || {}), sensitive_hits: { hits: [] }, sensitive_fixed: { items: [] }, logs: task ? await tasks.readLogs(req.username, req.params.id) : [] }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processDocumentTrace(text, 'original', {}, { layout_rules: knowledge.list('layout_rules'), symbol_rules: knowledge.list('symbol_rules'), chapter_rules: knowledge.list('chapter_rules') }) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processDocumentTrace(text, 'original', {}, ruleKnowledge(await requestKnowledge(req))) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/site-submit-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const logs = typeof tasks.readSiteSubmitLog === 'function' ? await tasks.readSiteSubmitLog(req.username, req.params.id) : []; res.json({ meta: legacyMeta(task?.meta || {}), result: logs.at(-1) || {}, logs }); } catch (error) { res.status(400).json({ error: error.message }); } });
 
-  router.get('/knowledge', (req, res) => res.json({ summary: knowledge.getSummary() }));
+  router.get('/knowledge', async (req, res) => { try { res.json({ summary: summarizeKnowledge(await requestKnowledge(req)) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/knowledge/optimize', async (req, res) => { try { const kind = req.body?.library_type; const item = object(req.body?.item); const saved = knowledge.save(kind, item); const { configStore: store } = await resources(req); const settings = ai.resolveAiSettings(store, 'rewrite'); res.json(await knowledge.optimizeItem({ kind, id: saved.item.id }, ai, settings)); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/opening/analyze', async (req, res) => { try { const { configStore: store } = await resources(req); const settings = ai.resolveAiSettings(store, 'rewrite'); res.json(await opening.analyze(ai, settings, req.body?.source_text)); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/opening/save', (req, res) => { try { res.json(opening.save(req.body?.item)); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/opening/normalize', (req, res) => { try { res.json(opening.normalize()); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/ai/test', async (req, res) => { try { const { configStore: store } = await resources(req); const settings = req.body?.settings || ai.resolveAiSettings(store, req.body?.purpose || 'classifier'); const result = await ai.chatCompletion(settings, [{ role: 'user', content: '请只回复：ok' }], { temperature: 0 }); res.json({ ok: true, content: result.text || '' }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/rules/preview', (req, res) => { try { const text = String(req.body?.text || ''); res.json({ processed: rules.processDocumentText(text, req.body?.scope || 'original', {}, { layout_rules: knowledge.list('layout_rules'), symbol_rules: knowledge.list('symbol_rules'), chapter_rules: knowledge.list('chapter_rules') }) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/rules/preview', async (req, res) => { try { const text = String(req.body?.text || ''); res.json({ processed: rules.processDocumentText(text, req.body?.scope || 'original', {}, ruleKnowledge(await requestKnowledge(req))) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/rules/ai-suggest', async (req, res) => {
     try {
       const { configStore: store } = await resources(req);

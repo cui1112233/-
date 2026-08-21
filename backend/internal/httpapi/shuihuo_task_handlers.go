@@ -493,20 +493,17 @@ func (api *API) imageToVideoSnapshot(ctx context.Context, ownerID, projectID, se
 	if err != nil {
 		return "", nil, fmt.Errorf("读取场景预设图片失败")
 	}
-	sourceObjectKey := sceneObjectKey
-	if sourceObjectKey == "" {
-		primaryImage, mediaErr := shuihuostore.NewMedia(api.deps.DB).PrimaryImage(ctx, projectID, segmentID)
-		if mediaErr != nil && !errors.Is(mediaErr, sql.ErrNoRows) {
-			return "", nil, fmt.Errorf("读取分镜画面图片失败")
-		}
-		sourceObjectKey = primaryImage.ObjectKey
+	primaryImage, mediaErr := shuihuostore.NewMedia(api.deps.DB).PrimaryImage(ctx, projectID, segmentID)
+	if mediaErr != nil && !errors.Is(mediaErr, sql.ErrNoRows) {
+		return "", nil, fmt.Errorf("读取分镜画面图片失败")
 	}
-	if sourceObjectKey == "" && len(visualKeys) > 0 {
-		sourceObjectKey = visualKeys[0]
-	}
+
+	// A stale media row must not become a signed but unusable YD input URL.
+	// Keep the intended priority while falling back to a surviving bound asset.
+	sourceObjectKey := api.firstAvailableVideoImageObject(ctx, append([]string{sceneObjectKey, primaryImage.ObjectKey}, visualKeys...)...)
 	refs := make([]string, 0, 3)
 	for _, key := range visualKeys {
-		if key == "" || key == sourceObjectKey {
+		if key == "" || key == sourceObjectKey || !api.videoImageObjectAvailable(ctx, key) {
 			continue
 		}
 		refs = append(refs, key)
@@ -515,6 +512,35 @@ func (api *API) imageToVideoSnapshot(ctx context.Context, ownerID, projectID, se
 		}
 	}
 	return sourceObjectKey, refs, nil
+}
+
+func (api *API) firstAvailableVideoImageObject(ctx context.Context, keys ...string) string {
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		if api.videoImageObjectAvailable(ctx, key) {
+			return key
+		}
+	}
+	return ""
+}
+
+func (api *API) videoImageObjectAvailable(ctx context.Context, key string) bool {
+	if api.deps.Objects == nil {
+		return true
+	}
+	body, _, err := api.deps.Objects.Get(ctx, key)
+	if err != nil {
+		return false
+	}
+	return body.Close() == nil
 }
 
 func (api *API) accountOpenAICompatibleImageConfig(ctx context.Context, userID int64) (store.ImageAPIConfig, bool, error) {

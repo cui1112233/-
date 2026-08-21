@@ -2,9 +2,11 @@
 // 覆盖 /process 解析建任务、/tasks 列表、/tasks/:bookId 详情、/config 读取，
 // 以及 /process 含自动分类/抓取/改文的完整链路（注入 mock 的 classifier/rewrite/fetch）。
 const express = require('express');
+const os = require('node:os');
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { createNovelFetchWorkshopRouter } = require('../routes/novel-fetch-workshop');
+const { createBatchRewriteRouter } = require('../routes/batch-rewrite');
 
 // 请求辅助：简单 fetch 风格
 function req(app, { method = 'GET', path, body }) {
@@ -70,6 +72,29 @@ test('GET /config 与 POST /ai/test', async () => {
   const r1 = await req(app, { path: '/api/novel-fetch-workshop/config' });
   assert.equal(r1.status, 200);
   assert.ok(r1.body.appConfig);
+});
+
+test('GET /config 默认开启全部自动处理选项', async () => {
+  const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (request, response, next) => { request.username = 'u1'; next(); },
+    tasksFactory: async () => ({
+      tasks: {},
+      config: {},
+      configStore,
+    }),
+    systemDir: os.tmpdir(),
+  }));
+  const response = await req(app, { path: '/api/batch-rewrite/config' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.app_config.workflow, {
+    auto_classify_missing: true,
+    auto_fetch_original: true,
+    auto_rewrite_after_fetch: true,
+    auto_submit_after_rewrite: true,
+    auto_sync_site_styles: true,
+    auto_reclassify_invalid_style: true,
+  });
 });
 
 test('DELETE /tasks 批量删除任务并返回最新列表', async () => {

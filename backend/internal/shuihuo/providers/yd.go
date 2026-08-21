@@ -137,7 +137,7 @@ func (p *YD) Submit(ctx context.Context, model models.Definition, request models
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return models.Response{}, fmt.Errorf("YD returned HTTP %d", response.StatusCode)
 	}
-	taskID, err := decodeYDTaskID(body)
+	taskID, err := decodeYDTaskID(body, token)
 	if err != nil {
 		return models.Response{}, err
 	}
@@ -167,23 +167,42 @@ func (p *YD) Poll(ctx context.Context, model models.Definition, ownerID int64, p
 	if err != nil {
 		return AsyncVideoTask{}, err
 	}
+	statusPayload, err := decodeYDPayload(statusBody, "status", token)
+	if err != nil {
+		return AsyncVideoTask{}, err
+	}
 	var status struct {
 		Status       string `json:"status"`
 		State        string `json:"state"`
 		ErrorMessage string `json:"errorMessage"`
+		Task         struct {
+			Status       string `json:"status"`
+			State        string `json:"state"`
+			ErrorMessage string `json:"errorMessage"`
+		} `json:"task"`
 	}
-	if err := json.Unmarshal(statusBody, &status); err != nil {
+	if err := json.Unmarshal(statusPayload, &status); err != nil {
 		return AsyncVideoTask{}, fmt.Errorf("decode YD status response")
 	}
 	state := strings.ToUpper(strings.TrimSpace(status.Status))
 	if state == "" {
 		state = strings.ToUpper(strings.TrimSpace(status.State))
 	}
+	if state == "" {
+		state = strings.ToUpper(strings.TrimSpace(status.Task.Status))
+	}
+	if state == "" {
+		state = strings.ToUpper(strings.TrimSpace(status.Task.State))
+	}
 	switch state {
 	case "QUEUED", "SUBMITTED", "RUNNING":
 		return AsyncVideoTask{ID: providerTaskID, State: AsyncVideoRunning}, nil
 	case "FAILED":
-		return AsyncVideoTask{ID: providerTaskID, State: AsyncVideoFailed, Message: safeYDMessage(status.ErrorMessage, token)}, nil
+		message := status.ErrorMessage
+		if message == "" {
+			message = status.Task.ErrorMessage
+		}
+		return AsyncVideoTask{ID: providerTaskID, State: AsyncVideoFailed, Message: safeYDMessage(message, token)}, nil
 	case "SUCCESS":
 		resultEndpoint := ydStatusEndpoint + "/" + url.PathEscape(providerTaskID) + "/result"
 		if err := p.validateURL(ctx, "YD result endpoint", resultEndpoint); err != nil {
@@ -193,7 +212,7 @@ func (p *YD) Poll(ctx context.Context, model models.Definition, ownerID int64, p
 		if err != nil {
 			return AsyncVideoTask{}, err
 		}
-		resultURL, err := p.decodeResultURL(ctx, resultBody)
+		resultURL, err := p.decodeResultURL(ctx, resultBody, token)
 		if err != nil {
 			return AsyncVideoTask{}, err
 		}
@@ -262,13 +281,73 @@ func readYDResponse(response *http.Response) ([]byte, error) {
 	return body, nil
 }
 
-func decodeYDTaskID(body []byte) (string, error) {
+type ydEnvelope struct {
+	Code         json.RawMessage `json:"code"`
+	Message      string          `json:"message"`
+	Msg          string          `json:"msg"`
+	Error        string          `json:"error"`
+	ErrorMessage string          `json:"errorMessage"`
+	Data         json.RawMessage `json:"data"`
+	Result       json.RawMessage `json:"result"`
+}
+
+func decodeYDPayload(body []byte, operation string, token string) ([]byte, error) {
+	var envelope ydEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("decode YD %s response", operation)
+	}
+	if ydFailureCode(envelope.Code) {
+		message := firstYDMessage(envelope)
+		if message == "" {
+			return nil, fmt.Errorf("YD %s failed (code %s)", operation, ydCode(envelope.Code))
+		}
+		return nil, fmt.Errorf("YD %s failed (code %s): %s", operation, ydCode(envelope.Code), safeYDMessage(message, token))
+	}
+	for _, payload := range []json.RawMessage{envelope.Data, envelope.Result} {
+		if len(payload) > 0 && string(payload) != "null" {
+			return payload, nil
+		}
+	}
+	return body, nil
+}
+
+func ydFailureCode(raw json.RawMessage) bool {
+	code := strings.ToLower(ydCode(raw))
+	return code != "" && code != "0" && code != "200" && code != "10000" && code != "success"
+}
+
+func ydCode(raw json.RawMessage) string {
+	return strings.Trim(strings.TrimSpace(string(raw)), `"`)
+}
+
+func firstYDMessage(envelope ydEnvelope) string {
+	for _, candidate := range []string{envelope.Msg, envelope.Message, envelope.ErrorMessage, envelope.Error} {
+		if message := strings.TrimSpace(candidate); message != "" {
+			return message
+		}
+	}
+	return ""
+}
+
+func decodeYDTaskID(body []byte, tokens ...string) (string, error) {
+	token := ""
+	if len(tokens) > 0 {
+		token = tokens[0]
+	}
+	payloadBody, err := decodeYDPayload(body, "submit", token)
+	if err != nil {
+		return "", err
+	}
 	var payload struct {
 		TaskIDSnake string `json:"task_id"`
 		TaskID      string `json:"taskId"`
 		ID          string `json:"id"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := json.Unmarshal(payloadBody, &payload); err != nil {
+		var taskID string
+		if stringErr := json.Unmarshal(payloadBody, &taskID); stringErr == nil && strings.TrimSpace(taskID) != "" {
+			return strings.TrimSpace(taskID), nil
+		}
 		return "", fmt.Errorf("decode YD submit response")
 	}
 	for _, candidate := range []string{payload.TaskID, payload.TaskIDSnake, payload.ID} {
@@ -279,14 +358,22 @@ func decodeYDTaskID(body []byte) (string, error) {
 	return "", fmt.Errorf("YD submit response did not contain a task ID")
 }
 
-func (p *YD) decodeResultURL(ctx context.Context, body []byte) (string, error) {
+func (p *YD) decodeResultURL(ctx context.Context, body []byte, tokens ...string) (string, error) {
+	token := ""
+	if len(tokens) > 0 {
+		token = tokens[0]
+	}
+	payloadBody, err := decodeYDPayload(body, "result", token)
+	if err != nil {
+		return "", err
+	}
 	var payload struct {
 		URLs    []string `json:"urls"`
 		Outputs []struct {
 			URL string `json:"url"`
 		} `json:"outputs"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := json.Unmarshal(payloadBody, &payload); err != nil {
 		return "", fmt.Errorf("decode YD result response")
 	}
 	candidates := make([]string, 0, len(payload.URLs)+len(payload.Outputs))

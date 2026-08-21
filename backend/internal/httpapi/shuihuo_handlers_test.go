@@ -2674,3 +2674,37 @@ func TestYDVideoTaskAllowsAccountKeyWithoutModelCredentialRef(t *testing.T) {
 		t.Fatal("YD task snapshot did not retain only generation input")
 	}
 }
+
+func TestYDVideoTaskFallsBackToAvailableBoundAssetWhenPrimaryImageIsMissing(t *testing.T) {
+	api, queue := newBatchTaskTestAPI(t)
+	api.deps.Objects = &recordingObjects{putBodies: map[string][]byte{
+		"shuihuo-production/100/1/asset-images/hero.png": []byte("available asset image"),
+	}}
+	batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true}
+	segment := batchTaskTestState.segments[11]
+	segment.VideoPrompt = "镜头缓慢推进"
+	batchTaskTestState.segments[11] = segment
+	segmentID := int64(11)
+	batchTaskTestState.primaryImages[segmentID] = domain.Media{
+		ID: 88, ProjectID: 1, SegmentID: &segmentID, Kind: "image",
+		ObjectKey: "shuihuo-production/100/1/images/missing.png", IsPrimary: true,
+	}
+	batchTaskTestState.assets[101] = domain.Asset{
+		ID: 101, ProjectID: 1, Category: "character", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/hero.png", IsCurrent: true,
+	}
+	batchTaskTestState.segmentAssetMappings[segmentID] = []int64{101}
+
+	req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks", "producer", false)
+	req.Body = io.NopCloser(strings.NewReader(`{"segmentId":11,"kind":"video","modelId":7}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusCreated || len(queue.ids) != 1 {
+		t.Fatalf("create YD video task = %d %s, queued = %#v", response.Code, response.Body.String(), queue.ids)
+	}
+	task := batchTaskTestState.tasks[queue.ids[0]]
+	if !strings.Contains(task.Input, `"sourceImageObjectKey":"shuihuo-production/100/1/asset-images/hero.png"`) {
+		t.Fatalf("task input did not fall back to the available asset: %s", task.Input)
+	}
+}

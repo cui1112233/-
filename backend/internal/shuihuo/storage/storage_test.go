@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +105,52 @@ func TestLocalStorageRoundTripAndAuthenticatedURL(t *testing.T) {
 	}
 	if _, _, err := store.Get(context.Background(), key); err == nil {
 		t.Fatal("Get() succeeded after Delete()")
+	}
+}
+
+func TestTOSStorageReturnsSignedPrivateURL(t *testing.T) {
+	store, err := NewTOS(TOSConfig{
+		Bucket:    "qiantie",
+		Endpoint:  "tos-cn-beijing.volces.com",
+		Region:    "cn-beijing",
+		AccessKey: "test-access-key",
+		SecretKey: "test-secret-key",
+	})
+	if err != nil {
+		t.Fatalf("NewTOS() error = %v", err)
+	}
+	key, err := ObjectKey(7, 9, "images", "shot.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedURL, err := store.URL(context.Background(), key, time.Minute)
+	if err != nil {
+		t.Fatalf("URL() error = %v", err)
+	}
+	parsed, err := url.Parse(signedURL)
+	if err != nil {
+		t.Fatalf("parse signed URL: %v", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host != "qiantie.tos-cn-beijing.volces.com" {
+		t.Fatalf("signed URL host = %q, want private bucket domain", parsed.Host)
+	}
+	if parsed.Path != "/"+key {
+		t.Fatalf("signed URL path = %q, want %q", parsed.Path, "/"+key)
+	}
+	if parsed.Query().Get("X-Tos-Algorithm") == "" || parsed.Query().Get("X-Tos-Signature") == "" {
+		t.Fatal("signed URL is missing TOS signature fields")
+	}
+	if strings.Contains(signedURL, "test-secret-key") {
+		t.Fatal("signed URL leaked the TOS secret key")
+	}
+}
+
+func TestTOSStorageRejectsUnsafeSignedURLKey(t *testing.T) {
+	store, err := NewTOS(TOSConfig{Bucket: "qiantie", Endpoint: "tos-cn-beijing.volces.com", Region: "cn-beijing", AccessKey: "test-access-key", SecretKey: "test-secret-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.URL(context.Background(), "../../private", time.Minute); err == nil {
+		t.Fatal("URL() accepted an unsafe object key")
 	}
 }
