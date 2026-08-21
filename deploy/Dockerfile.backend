@@ -1,0 +1,10 @@
+ARG NODE_IMAGE=node:24-alpine
+FROM ${NODE_IMAGE} AS certificates
+
+FROM scratch
+COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ARG BACKEND_BINARY
+COPY ${BACKEND_BINARY} /qiantie
+
+EXPOSE 4000
+ENTRYPOINT ["/qiantie"]

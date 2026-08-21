@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const API_BASE = 'http://127.0.0.1:3000';
+const API_BASE = process.env.QIANTIE_API_BASE || 'http://127.0.0.1:18081';
 const USERNAME = process.env.QIANTIE_USERNAME || 'choushiyiguai';
 const PASSWORD = process.env.QIANTIE_PASSWORD || '123456';
 

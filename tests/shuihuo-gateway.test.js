@@ -133,6 +133,16 @@ function startAccountAIConfigSyncStub(t, secret) {
           res.end(JSON.stringify({ tasks: [] }));
           return;
         }
+        if (req.method === 'POST' && req.url === '/api/shuihuo-production/projects/12/tasks/batch') {
+          res.statusCode = 201;
+          res.end(JSON.stringify({ tasks: [] }));
+          return;
+        }
+        if (req.method === 'POST' && req.url === '/api/shuihuo-production/projects/12/tasks') {
+          res.statusCode = 201;
+          res.end(JSON.stringify({ id: 23, kind: 'video', status: 'queued' }));
+          return;
+        }
         res.statusCode = 404;
         res.end(JSON.stringify({ error: 'unexpected route' }));
       });
@@ -294,6 +304,95 @@ test('settings save a separate image provider without exposing or discarding its
   assert.doesNotMatch(secondSave.body, /image-secret/);
   assert.equal(readConfig('choushiyiguai1').image.apiKey, 'image-secret');
   assert.equal(backend.calls[1].body.image.apiKey, 'image-secret');
+});
+
+test('settings save the video provider without exposing or discarding its key', async t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-shuihuo-account-video-config-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  const secret = 'test-bridge-secret';
+  const backend = await startAccountAIConfigSyncStub(t, secret);
+  const priorConfig = readConfig('choushiyiguai1');
+  t.after(() => writeConfig('choushiyiguai1', priorConfig));
+  const app = createApp({
+    accountStore: createAccountStore({ systemDir }),
+    tokenMap: new Map(),
+    sessionsPath: path.join(systemDir, 'sessions.json'),
+    shuihuoGateway: { targetBaseUrl: backend.targetBaseUrl, bridgeSecret: secret }
+  });
+  const login = await request(app, { method: 'POST', requestPath: '/api/login', body: { username: 'choushiyiguai1', password: '123456' } });
+  const token = JSON.parse(login.body).token;
+  const video = { apiKey: 'video-secret' };
+
+  const firstSave = await request(app, { method: 'POST', requestPath: '/api/config', token, body: { video } });
+  assert.equal(firstSave.status, 200);
+  assert.doesNotMatch(firstSave.body, /video-secret/);
+  assert.equal(JSON.parse(firstSave.body).video.hasApiKey, true);
+  assert.equal(readConfig('choushiyiguai1').video.apiKey, 'video-secret');
+  assert.deepEqual(backend.calls[0].body.video, { provider: 'yd_video', apiKey: 'video-secret' });
+
+  const secondSave = await request(app, { method: 'POST', requestPath: '/api/config', token, body: { video: { apiKey: '' } } });
+  assert.equal(secondSave.status, 200);
+  assert.doesNotMatch(secondSave.body, /video-secret/);
+  assert.equal(readConfig('choushiyiguai1').video.apiKey, 'video-secret');
+  assert.equal(backend.calls[1].body.video.apiKey, 'video-secret');
+});
+
+test('video batch task synchronizes the saved YD account configuration', async t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-shuihuo-video-task-sync-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  const secret = 'test-bridge-secret';
+  const backend = await startAccountAIConfigSyncStub(t, secret);
+  const priorConfig = readConfig('choushiyiguai1');
+  t.after(() => writeConfig('choushiyiguai1', priorConfig));
+  writeConfig('choushiyiguai1', { ...priorConfig, video: { apiKey: 'video-secret' } });
+  const app = createApp({
+    accountStore: createAccountStore({ systemDir }),
+    tokenMap: new Map(),
+    sessionsPath: path.join(systemDir, 'sessions.json'),
+    shuihuoGateway: { targetBaseUrl: backend.targetBaseUrl, bridgeSecret: secret }
+  });
+  const login = await request(app, { method: 'POST', requestPath: '/api/login', body: { username: 'choushiyiguai1', password: '123456' } });
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/shuihuo-production/projects/12/tasks/batch',
+    token: JSON.parse(login.body).token,
+    body: { kind: 'video', modelId: 2, segmentIds: [8] }
+  });
+
+  assert.equal(result.status, 201);
+  assert.deepEqual(backend.calls.map(call => [call.method, call.pathname]), [
+    ['PUT', '/api/shuihuo-production/account-ai-config'],
+    ['POST', '/api/shuihuo-production/projects/12/tasks/batch']
+  ]);
+  assert.deepEqual(backend.calls[0].body.video, { provider: 'yd_video', apiKey: 'video-secret' });
+});
+
+test('single video task synchronizes the saved YD account configuration', async t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-shuihuo-single-video-task-sync-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+  const secret = 'test-bridge-secret';
+  const backend = await startAccountAIConfigSyncStub(t, secret);
+  const priorConfig = readConfig('choushiyiguai1');
+  t.after(() => writeConfig('choushiyiguai1', priorConfig));
+  writeConfig('choushiyiguai1', { ...priorConfig, video: { apiKey: 'video-secret' } });
+  const app = createApp({
+    accountStore: createAccountStore({ systemDir }),
+    tokenMap: new Map(),
+    sessionsPath: path.join(systemDir, 'sessions.json'),
+    shuihuoGateway: { targetBaseUrl: backend.targetBaseUrl, bridgeSecret: secret }
+  });
+  const login = await request(app, { method: 'POST', requestPath: '/api/login', body: { username: 'choushiyiguai1', password: '123456' } });
+  const result = await request(app, {
+    method: 'POST', requestPath: '/api/shuihuo-production/projects/12/tasks',
+    token: JSON.parse(login.body).token,
+    body: { kind: 'video', modelId: 2, segmentId: 8, videoSettings: { aspectRatio: '9:16' } }
+  });
+
+  assert.equal(result.status, 201);
+  assert.deepEqual(backend.calls.map(call => [call.method, call.pathname]), [
+    ['PUT', '/api/shuihuo-production/account-ai-config'],
+    ['POST', '/api/shuihuo-production/projects/12/tasks']
+  ]);
+  assert.deepEqual(backend.calls[0].body.video, { provider: 'yd_video', apiKey: 'video-secret' });
 });
 
 test('asset image generation synchronizes the saved account image configuration', async t => {

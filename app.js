@@ -29,6 +29,7 @@ const novelPanelApiRouter = require('./routes/novel-panel');
 const { createNovelFetchRouter } = require('./routes/novel-fetch');
 const { createNovelFetchUploadRouter } = require('./routes/novel-fetch-upload');
 const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
+const { createBatchRewriteRouter } = require('./routes/batch-rewrite');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -92,6 +93,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
         res.setHeader('Expires', '0');
       }
     }));
+    app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite'), {
+      setHeaders(res) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      }
+    }));
   }
 
   app.use('/pets', express.static(petsDir, {
@@ -137,7 +143,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopGateway: shuihuoGateway }));
-  app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(shuihuoGateway));
+  const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
+  app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
+  app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/config', createConfigRouter({ shuihuoGateway })); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts

@@ -139,11 +139,16 @@ func (api *API) handleSaveBridgeAccountAIConfig(w http.ResponseWriter, r *http.R
 		writeImageConfigError(w, err)
 		return
 	}
-	if !textProvided && req.Image == nil {
+	video, err := api.saveVideoConfig(r.Context(), user.ID, req.Video)
+	if err != nil {
+		writeVideoConfigError(w, err)
+		return
+	}
+	if !textProvided && req.Image == nil && req.Video == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "至少需要一项完整的 AI 配置"})
 		return
 	}
-	writePublicConfig(w, textConfig, image, store.VideoAPIConfig{Provider: store.YDVideoProvider})
+	writePublicConfig(w, textConfig, image, video)
 }
 
 func (api *API) handleTestConfig(w http.ResponseWriter, r *http.Request) {

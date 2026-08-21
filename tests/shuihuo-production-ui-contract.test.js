@@ -196,6 +196,26 @@ test('asset image generation keeps the required asset selection visible before s
   assert.match(assetsView, /disabled=\{!selectedImageAssetCount\}/);
 });
 
+test('asset editor previews the existing primary image while keeping replacement upload available', () => {
+  assert.match(api, /export function replaceAssetImage\(assetId, payload\)/);
+  assert.match(api, /assets\/\$\{assetId\}\/image.*method: 'PUT'/);
+  assert.match(assetsView, /function AssetEditorImagePreview/);
+  assert.match(assetsView, /assetImages\[editing\.id\]/);
+  assert.match(assetsView, /replaceAssetImage\(editing\.id/);
+  assert.match(assetsView, /downloadGeneratedAssetImage/);
+  assert.match(assetsView, /downloadAssetImage/);
+  assert.match(assetsView, /点击或拖放替换图片/);
+  assert.match(assetsView, /URL\.revokeObjectURL/);
+});
+
+test('asset image generation reports queued progress and completes only after backend tasks succeed', () => {
+  assert.match(api, /export function listTasks\(projectId\)/);
+  assert.match(assetsView, /listTasks/);
+  assert.match(assetsView, /生成 \$\{total\} 张图片中/);
+  assert.match(assetsView, /已生成 \$\{succeeded\} 张图片/);
+  assert.match(assetsView, /loading=\{generating\}/);
+});
+
 test('asset prompt ownership uses the published extraction selection', () => {
   assert.match(api, /export function listShuihuoPresetSlots\(\)/);
   assert.match(assetsView, /listShuihuoPresetSlots/);
@@ -235,7 +255,8 @@ test('subtitle, reversible split, and direct voice settings use the focused prod
   assert.match(storyboardRow, /const canSplit = sourceUnitIds\.length > 1/);
   assert.match(storyboardRow, /已按原文单元拆分/);
   assert.match(workbench, /配音设置/);
-  assert.match(workbench, /人物音色/);
+  assert.match(workbench, /角色音色绑定/);
+  assert.match(workbench, /resolveSpeakerVoiceAsset/);
   assert.match(workbench, /配音语速/);
   assert.match(workbench, /textToSpeech/);
   assert.match(workbench, /directNarrationReady/);
@@ -274,9 +295,13 @@ test('each storyboard row uses reversible structural actions and real media task
   assert.match(storyboardRow, /重生图/);
   assert.match(storyboardRow, /生成视频/);
   assert.match(storyboardRow, /真实媒体/);
-  assert.match(storyboardRow, /disabled=\{!imageReady\}/);
-  assert.match(storyboardRow, /const canCreateVideo = videoReady && Boolean\(primaryImage\)/);
-  assert.match(storyboardRow, /disabled=\{!canCreateVideo\}/);
+  assert.match(storyboardRow, /disabled=\{!imageReady \|\| taskSubmitting\}/);
+  assert.match(storyboardRow, /const canCreateVideo = videoReady;/);
+  assert.match(storyboardRow, /disabled=\{!canCreateVideo \|\| taskSubmitting\}/);
+  assert.match(storyboardRow, /onPreviewMedia\(primaryImage\)/);
+  assert.match(storyboardRow, /查看生成视频/);
+  assert.match(workbench, /图片预览/);
+  assert.match(workbench, /视频预览/);
 });
 
 test('production page loads the server readiness snapshot and renders its dependency strip', () => {
@@ -321,9 +346,9 @@ test('batch task modal sends only selected eligible segments to the batch endpoi
   assert.match(batchModal, /createBatchTasks/);
   assert.match(batchModal, /eligibleSegmentIds/);
   assert.match(batchModal, /segmentIds/);
-  assert.match(batchModal, /主图片/);
+  assert.match(batchModal, /图生视频使用当前分镜的预设图或主图片/);
   assert.match(batchModal, /segment\.confirmed/);
-  assert.match(batchModal, /item\?\.kind === 'image' && item\.isPrimary === true/);
+  assert.doesNotMatch(batchModal, /primaryImageSegmentIds/);
   assert.match(batchModal, /result\?\.error/);
   assert.match(batchModal, /failed\.map\(result => result\.segmentId\)\.filter\(id => eligibleIdSet\.has\(id\)\)/);
   assert.match(batchModal, /setSelectedSegmentIds\(failedSegmentIds\)/);
@@ -392,10 +417,10 @@ test('task drawer submits only image and video tasks; narration bypasses the que
   assert.doesNotMatch(drawer, /Promise\.allSettled/);
   assert.doesNotMatch(drawer, /targetSegments\.map/);
   assert.match(drawer, /item\?\.media \|\| item/);
-  assert.match(drawer, /item\?\.kind === 'image' && item\.isPrimary === true/);
-  assert.match(drawer, /kind !== 'video' \|\| primaryImageSegmentIds\.has\(segment\.id\)/);
+  assert.doesNotMatch(drawer, /primaryImageSegmentIds/);
+  assert.match(drawer, /segments\.filter\(segment => segment\.confirmed\)/);
   assert.match(drawer, /setSegmentId\(undefined\)/);
-  assert.match(drawer, /缺少主图片/);
+  assert.match(drawer, /场景预设图/);
 });
 
 test('admin catalog reports configuration safely without private provider fields', () => {

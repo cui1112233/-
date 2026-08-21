@@ -1,0 +1,91 @@
+services:
+  platform:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.platform
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+    image: qiantie-platform:test
+    environment:
+      NODE_ENV: production
+      QIANTIE_NODE_PORT: 3000
+      QIANTIE_GO_BASE_URL: http://backend:4000
+      QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
+    ports:
+      - "${QIANTIE_PLATFORM_PORT:-3000}:3000"
+    volumes:
+      - qiantie-test-platform:/app/data
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+        BACKEND_BINARY: backend/dist/qiantie-linux-${QIANTIE_ARCH}
+    image: qiantie-backend:test
+    environment:
+      QIANTIE_ADDR: :4000
+      QIANTIE_MYSQL_DSN: ${QIANTIE_TEST_MYSQL_DSN:-qiantie:${MYSQL_PASSWORD}@tcp(mysql:3306)/qiantie?parseTime=true&charset=utf8mb4&loc=UTC}
+      QIANTIE_REDIS_ADDR: redis:6379
+      QIANTIE_SEED_USERNAME: ${QIANTIE_SEED_USERNAME:-choushiyiguai}
+      QIANTIE_SEED_PASSWORD: ${QIANTIE_SEED_PASSWORD:-123456}
+      QIANTIE_TOKEN_SECRET: ${QIANTIE_TOKEN_SECRET}
+      QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
+      QIANTIE_CREDENTIAL_ENCRYPTION_KEY: ${QIANTIE_CREDENTIAL_ENCRYPTION_KEY}
+      QIANTIE_STORAGE_DRIVER: local
+      QIANTIE_STORAGE_LOCAL_DIR: /var/lib/qiantie/objects
+      QIANTIE_STORAGE_PUBLIC_BASE_URL: http://127.0.0.1:${QIANTIE_BACKEND_PORT:-14000}
+      QIANTIE_MODEL_CREDENTIALS: ${QIANTIE_MODEL_CREDENTIALS:-}
+      QIANTIE_MODEL_ENDPOINTS: ${QIANTIE_MODEL_ENDPOINTS:-}
+    ports:
+      - "${QIANTIE_BACKEND_PORT:-14000}:4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - qiantie-test-objects:/var/lib/qiantie/objects
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: qiantie
+      MYSQL_USER: qiantie
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - qiantie-test-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uqiantie -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - qiantie-test-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  qiantie-test-mysql:
+  qiantie-test-objects:
+  qiantie-test-platform:
+  qiantie-test-redis:

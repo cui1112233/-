@@ -47,6 +47,34 @@ func TestVideoAPIConfigMigrationCreatesIdempotentUserScopedTable(t *testing.T) {
 	}
 }
 
+func TestYDVideoModelMigrationSeedsAccountScopedModel(t *testing.T) {
+	migration := migrationForVersion(t, 34)
+	if migration.apply == nil {
+		t.Fatal("YD model migration must execute its seed statements individually")
+	}
+	for _, required := range []string{
+		"INSERT INTO model_definitions",
+		"yd2-mini-video",
+		"YD2.0 Mini",
+		"'video'",
+		"'yd_video'",
+		"TRUE",
+		"credential_ref, endpoint, request_template, response_mapping, created_by",
+		"SELECT d.id, 1, '', '', NULL, NULL, NULL",
+	} {
+		if !strings.Contains(migration.sql, required) {
+			t.Fatalf("YD model migration missing %q", required)
+		}
+	}
+}
+
+func TestShuihuoVideoGenerationModeMigrationPersistsImageToVideoDefault(t *testing.T) {
+	migration := migrationForVersion(t, 35)
+	if migration.apply == nil {
+		t.Fatal("video generation mode migration must repair existing config tables")
+	}
+}
+
 func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
 	migration := migrationForVersion(t, 31)
 	if !strings.Contains(migration.sql, "UPDATE shuihuo_tasks") || !strings.Contains(migration.sql, "provider_task_id = NULL") || !strings.Contains(migration.sql, "provider_task_id = ''") {
@@ -262,7 +290,7 @@ func TestModelCenterCatalogMigrationAddsCompatibilityColumns(t *testing.T) {
 		"model_key VARCHAR(128) NOT NULL DEFAULT ''",
 		"hidden BOOLEAN NOT NULL DEFAULT FALSE",
 		"sort_order INT NOT NULL DEFAULT 0",
-		"admin_note MEDIUMTEXT NOT NULL DEFAULT ''",
+		"admin_note MEDIUMTEXT NULL",
 		"base_domain VARCHAR(512) NOT NULL DEFAULT ''",
 		"base_path VARCHAR(1024) NOT NULL DEFAULT ''",
 		"polling_template MEDIUMTEXT NULL",

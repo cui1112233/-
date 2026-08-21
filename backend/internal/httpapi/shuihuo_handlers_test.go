@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -242,6 +243,39 @@ func TestPlatformAccountAIConfigSyncPersistsImageCredentialWithoutExposingIt(t *
 	}
 	if configs.userID != 0 {
 		t.Fatalf("image-only bridge save unexpectedly updated text config for user %d", configs.userID)
+	}
+}
+
+func TestPlatformAccountAIConfigSyncPersistsVideoCredentialWithoutExposingIt(t *testing.T) {
+	configs := &videoConfigTestStore{configs: map[int64]store.VideoAPIConfig{}}
+	api := New(Dependencies{
+		BridgeSecret:     "bridge-test-secret",
+		Users:            &memoryUserStore{users: map[int64]store.User{}},
+		Configs:          &recordingConfigStore{},
+		VideoConfigs:     configs,
+		CredentialCipher: testCredentialCipher(t),
+	})
+	req := bridgeRequest(t, http.MethodPut, "/api/shuihuo-production/account-ai-config", "video-producer", false)
+	plaintext := "video-secret"
+	req.Body = io.NopCloser(strings.NewReader(`{"video":{"provider":"yd_video","apiKey":"` + plaintext + `"}}`))
+	response := httptest.NewRecorder()
+
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("PUT account video config status = %d, body = %s", response.Code, response.Body.String())
+	}
+	userID := int64(100)
+	saved := configs.configs[userID]
+	if saved.Provider != store.YDVideoProvider || saved.APIKeyCiphertext == plaintext || saved.APIKeyCiphertext == "" {
+		t.Fatalf("saved video config = %#v", saved)
+	}
+	decrypted, err := api.deps.CredentialCipher.Decrypt(saved.APIKeyCiphertext)
+	if err != nil || decrypted != plaintext {
+		t.Fatalf("saved video ciphertext decrypt = %q, %v", decrypted, err)
+	}
+	if strings.Contains(response.Body.String(), plaintext) || strings.Contains(response.Body.String(), saved.APIKeyCiphertext) || !strings.Contains(response.Body.String(), `"video":{"displayName":"中转亚迪","hasApiKey":true,"provider":"yd_video"}`) {
+		t.Fatalf("public response leaked or omitted video credential state: %s", response.Body.String())
 	}
 }
 
@@ -867,6 +901,42 @@ func TestImportShuihuoProjectStoresOriginalDocumentAndReturnsReadModel(t *testin
 	}
 }
 
+func TestReplaceShuihuoAssetImageKeepsAssetAndReplacesItsReferenceObject(t *testing.T) {
+	api, _ := newBatchTaskTestAPI(t)
+	oldKey := "shuihuo-production/100/1/asset-images/old-hero.png"
+	objects := &recordingObjects{putBodies: map[string][]byte{oldKey: []byte("old image")}}
+	api.deps.Objects = objects
+	batchTaskTestState.assets[700] = domain.Asset{
+		ID: 700, ProjectID: 1, Category: "character", Name: "林鸢", Prompt: "旧提示词",
+		ReferenceObjectKey: oldKey, Source: "manual_image", ManuallyEdited: true, IsCurrent: true,
+	}
+
+	body := `{"filename":"hero.png","dataUrl":"data:image/png;base64,` + base64.StdEncoding.EncodeToString([]byte("new image")) + `"}`
+	request := batchTaskBridgeRequest(t, http.MethodPut, "/api/shuihuo-production/assets/700/image", "producer", false)
+	request.Body = io.NopCloser(strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	api.Router().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("replace asset image = %d %s", response.Code, response.Body.String())
+	}
+	updated := batchTaskTestState.assets[700]
+	if updated.ID != 700 || updated.ReferenceObjectKey == oldKey || updated.ReferenceObjectKey == "" {
+		t.Fatalf("updated asset = %#v, want same asset with a new image reference", updated)
+	}
+	if updated.Source != "manual_image" || !updated.ManuallyEdited {
+		t.Fatalf("updated asset source = %#v, want manual image metadata", updated)
+	}
+	if string(objects.putBodies[updated.ReferenceObjectKey]) != "new image" {
+		t.Fatalf("replacement object = %#v, want new image", objects.putBodies)
+	}
+	if len(objects.deleted) != 1 || objects.deleted[0] != oldKey {
+		t.Fatalf("deleted objects = %#v, want old reference %q", objects.deleted, oldKey)
+	}
+}
+
 func TestImportShuihuoProjectCleansObjectAndEmptyProjectWhenFinalPersistenceFails(t *testing.T) {
 	api, _ := newBatchTaskTestAPI(t)
 	objects := &recordingObjects{}
@@ -1338,6 +1408,169 @@ func TestBatchTasksReturnsPartialResultsWithoutRollingBackSuccessfulTasks(t *tes
 	}
 }
 
+func TestBatchYDVideoTasksApplySharedSettingsAndRejectInvalidRatioBeforeQueueing(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		aspectRatio string
+		wantStatus  int
+		wantQueued  int
+	}{
+		{name: "ignores batch override and uses saved engine ratio", aspectRatio: "16:9", wantStatus: http.StatusCreated, wantQueued: 2},
+		{name: "ignores unsupported batch override and uses saved engine ratio", aspectRatio: "1:1", wantStatus: http.StatusCreated, wantQueued: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, queue := newBatchTaskTestAPI(t)
+			batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true, CredentialRef: "YD_API_KEY"}
+			for _, segmentID := range []int64{11, 12} {
+				segment := batchTaskTestState.segments[segmentID]
+				segment.VideoPrompt = "镜头缓慢推进"
+				batchTaskTestState.segments[segmentID] = segment
+				batchTaskTestState.primaryImages[segmentID] = domain.Media{ID: segmentID + 80, ProjectID: 1, SegmentID: &segmentID, Kind: "image", ObjectKey: fmt.Sprintf("shuihuo-production/100/1/images/scene-%d.png", segmentID), IsPrimary: true}
+			}
+			batchTaskTestState.assets[101] = domain.Asset{ID: 101, ProjectID: 1, Category: "character", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/hero.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[102] = domain.Asset{ID: 102, ProjectID: 1, Category: "prop", IsCurrent: true}
+			batchTaskTestState.assets[103] = domain.Asset{ID: 103, ProjectID: 1, Category: "character", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/hero.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[104] = domain.Asset{ID: 104, ProjectID: 1, Category: "prop", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/sword.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[105] = domain.Asset{ID: 105, ProjectID: 1, Category: "prop", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/letter.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[106] = domain.Asset{ID: 106, ProjectID: 1, Category: "prop", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/extra.png", ManuallyEdited: true, IsCurrent: true}
+			for _, segmentID := range []int64{11, 12} {
+				batchTaskTestState.segmentAssetMappings[segmentID] = []int64{101, 102, 103, 104, 105, 106}
+			}
+
+			body := fmt.Sprintf(`{"segmentIds":[11,12],"kind":"video","modelId":7,"videoSettings":{"aspectRatio":%q},"videoSettingsBySegment":{"11":{"aspectRatio":"9:16"},"12":{"aspectRatio":"9:16"}}}`, tc.aspectRatio)
+			req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks/batch", "producer", false)
+			req.Body = io.NopCloser(strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			api.Router().ServeHTTP(response, req)
+
+			if response.Code != tc.wantStatus {
+				t.Fatalf("batch YD video tasks = %d %s", response.Code, response.Body.String())
+			}
+			if len(queue.ids) != tc.wantQueued {
+				t.Fatalf("queued tasks = %#v, want %d", queue.ids, tc.wantQueued)
+			}
+			if tc.wantQueued == 0 {
+				return
+			}
+			for _, taskID := range queue.ids {
+				var snapshot struct {
+					SourceImageObjectKey     string   `json:"sourceImageObjectKey"`
+					AspectRatio              string   `json:"aspectRatio"`
+					VideoReferenceObjectKeys []string `json:"videoReferenceObjectKeys"`
+				}
+				if err := json.Unmarshal([]byte(batchTaskTestState.tasks[taskID].Input), &snapshot); err != nil {
+					t.Fatal(err)
+				}
+				if snapshot.AspectRatio != "9:16" {
+					t.Fatalf("task %d aspect ratio = %q, want 9:16", taskID, snapshot.AspectRatio)
+				}
+				if want := fmt.Sprintf("shuihuo-production/100/1/images/scene-%d.png", *batchTaskTestState.tasks[taskID].SegmentID); snapshot.SourceImageObjectKey != want {
+					t.Fatalf("task %d source image = %q, want fallback %q", taskID, snapshot.SourceImageObjectKey, want)
+				}
+				wantReferences := []string{
+					"shuihuo-production/100/1/asset-images/hero.png",
+					"shuihuo-production/100/1/asset-images/sword.png",
+					"shuihuo-production/100/1/asset-images/letter.png",
+				}
+				if !reflect.DeepEqual(snapshot.VideoReferenceObjectKeys, wantReferences) {
+					t.Fatalf("task %d video references = %#v, want %#v", taskID, snapshot.VideoReferenceObjectKeys, wantReferences)
+				}
+			}
+		})
+	}
+}
+
+func TestYDVideoTaskRejectsSegmentWithoutScenePresetOrPrimaryImage(t *testing.T) {
+	api, queue := newBatchTaskTestAPI(t)
+	batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true}
+	segment := batchTaskTestState.segments[11]
+	segment.VideoPrompt = "镜头缓慢推进"
+	batchTaskTestState.segments[11] = segment
+
+	req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks", "producer", false)
+	req.Body = io.NopCloser(strings.NewReader(`{"segmentId":11,"kind":"video","modelId":7}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	api.Router().ServeHTTP(response, req)
+
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "预设图或主图片") {
+		t.Fatalf("missing YD image = %d %s", response.Code, response.Body.String())
+	}
+	if len(queue.ids) != 0 {
+		t.Fatalf("queued tasks = %#v, want none", queue.ids)
+	}
+}
+
+func TestYDVideoTasksSnapshotRatioAndBoundReferences(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		settings   string
+		wantStatus int
+		wantRatio  string
+		wantError  string
+	}{
+		{name: "defaults legacy request", settings: "", wantStatus: http.StatusCreated, wantRatio: "9:16"},
+		{name: "ignores landscape request override", settings: `,"videoSettings":{"aspectRatio":"16:9"}`, wantStatus: http.StatusCreated, wantRatio: "9:16"},
+		{name: "ignores unsupported request override", settings: `,"videoSettings":{"aspectRatio":"1:1"}`, wantStatus: http.StatusCreated, wantRatio: "9:16"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, queue := newBatchTaskTestAPI(t)
+			batchTaskTestState.model = models.Definition{ID: 7, ModelID: "yd-mini", VersionID: 8, Name: "YD2 Mini", Kind: models.KindVideo, AdapterKind: models.AdapterYDVideo, Enabled: true, CredentialRef: "YD_API_KEY"}
+			segment := batchTaskTestState.segments[11]
+			segment.VideoPrompt = "镜头缓慢推进"
+			batchTaskTestState.segments[11] = segment
+			batchTaskTestState.assets[101] = domain.Asset{ID: 101, ProjectID: 1, Category: "character", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/hero.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[102] = domain.Asset{ID: 102, ProjectID: 1, Category: "prop", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/sword.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[103] = domain.Asset{ID: 103, ProjectID: 1, Category: "scene", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/station.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[104] = domain.Asset{ID: 104, ProjectID: 1, Category: "prop", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/letter.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.assets[105] = domain.Asset{ID: 105, ProjectID: 1, Category: "character", ReferenceObjectKey: "shuihuo-production/100/1/asset-images/extra.png", ManuallyEdited: true, IsCurrent: true}
+			batchTaskTestState.segmentAssetMappings[11] = []int64{101, 102, 103, 104, 105}
+
+			req := batchTaskBridgeRequest(t, http.MethodPost, "/api/shuihuo-production/projects/1/tasks", "producer", false)
+			req.Body = io.NopCloser(strings.NewReader(`{"segmentId":11,"kind":"video","modelId":7` + tc.settings + `}`))
+			req.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			api.Router().ServeHTTP(response, req)
+
+			if response.Code != tc.wantStatus {
+				t.Fatalf("create YD video task = %d %s", response.Code, response.Body.String())
+			}
+			if tc.wantError != "" {
+				if !strings.Contains(response.Body.String(), tc.wantError) {
+					t.Fatalf("error = %s, want %q", response.Body.String(), tc.wantError)
+				}
+				if len(queue.ids) != 0 {
+					t.Fatalf("queued tasks = %#v, want none", queue.ids)
+				}
+				return
+			}
+			if len(queue.ids) != 1 {
+				t.Fatalf("queued tasks = %#v, want one", queue.ids)
+			}
+			var snapshot struct {
+				SourceImageObjectKey     string   `json:"sourceImageObjectKey"`
+				AspectRatio              string   `json:"aspectRatio"`
+				VideoReferenceObjectKeys []string `json:"videoReferenceObjectKeys"`
+			}
+			if err := json.Unmarshal([]byte(batchTaskTestState.tasks[queue.ids[0]].Input), &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.SourceImageObjectKey != "shuihuo-production/100/1/asset-images/station.png" || snapshot.AspectRatio != tc.wantRatio {
+				t.Fatalf("video snapshot = %#v", snapshot)
+			}
+			wantReferences := []string{
+				"shuihuo-production/100/1/asset-images/hero.png",
+				"shuihuo-production/100/1/asset-images/sword.png",
+				"shuihuo-production/100/1/asset-images/letter.png",
+			}
+			if !reflect.DeepEqual(snapshot.VideoReferenceObjectKeys, wantReferences) {
+				t.Fatalf("video references = %#v, want %#v", snapshot.VideoReferenceObjectKeys, wantReferences)
+			}
+		})
+	}
+}
+
 func TestTaskSubmissionRejectsStoryboardChangedBeforeQueueTransition(t *testing.T) {
 	api, queue := newBatchTaskTestAPI(t)
 	batchTaskTestState.transitionLockHook = func() {
@@ -1579,10 +1812,12 @@ func newBatchTaskTestAPI(t *testing.T) (*API, *batchTaskQueue) {
 	t.Cleanup(func() { _ = db.Close() })
 	queue := &batchTaskQueue{}
 	api := New(Dependencies{
-		DB:           db,
-		BridgeSecret: "batch-task-test-secret",
-		Queue:        queue,
-		Users:        &batchTaskUserStore{users: map[string]store.User{}},
+		DB:               db,
+		BridgeSecret:     "batch-task-test-secret",
+		Queue:            queue,
+		Users:            &batchTaskUserStore{users: map[string]store.User{}},
+		VideoConfigs:     &videoConfigTestStore{configs: map[int64]store.VideoAPIConfig{100: {Provider: store.YDVideoProvider, APIKeyCiphertext: "test-ciphertext"}}},
+		CredentialCipher: testCredentialCipher(t),
 	})
 	return api, queue
 }
@@ -1763,6 +1998,23 @@ func batchTaskTestExec(query string, args []driver.NamedValue) (driver.Result, e
 			project.SegmentationStatus = "draft"
 		}
 		batchTaskTestState.projects[projectID] = project
+		return batchTaskResult{rows: 1}, nil
+	case strings.HasPrefix(query, "UPDATE shuihuo_assets a JOIN shuihuo_projects p ON p.id = a.project_id SET a.asset_type_id = ?"):
+		assetID, ownerID := args[8].Value.(int64), args[9].Value.(int64)
+		asset, ok := batchTaskTestState.assets[assetID]
+		project, projectOK := batchTaskTestState.projects[asset.ProjectID]
+		if !ok || !projectOK || project.UserID != ownerID {
+			return batchTaskResult{}, nil
+		}
+		asset.AssetTypeID = namedValueInt64Pointer(args[0])
+		asset.Category = args[1].Value.(string)
+		asset.Name = args[2].Value.(string)
+		asset.Prompt = args[3].Value.(string)
+		asset.VoiceAssetID = namedValueInt64Pointer(args[4])
+		asset.ReferenceObjectKey = args[5].Value.(string)
+		asset.Source = args[6].Value.(string)
+		asset.ManuallyEdited = args[7].Value.(bool)
+		batchTaskTestState.assets[assetID] = asset
 		return batchTaskResult{rows: 1}, nil
 	case strings.HasPrefix(query, "DELETE FROM shuihuo_projects WHERE id = ?"):
 		if batchTaskTestState.failProjectDelete {
@@ -1960,6 +2212,8 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 	defer batchTaskTestState.mu.Unlock()
 	query = compactBatchTaskSQL(query)
 	switch {
+	case strings.Contains(query, "FROM shuihuo_user_configs"):
+		return &batchTaskRows{columns: []string{"character_prefix", "image_prefix", "image_suffix", "video_prefix", "video_suffix", "video_generation_mode", "text_model_id", "image_model_id", "video_model_id", "audio_model_id", "jianying_draft_directory"}}, nil
 	case strings.Contains(query, "FROM shuihuo_import_compensation_queue"):
 		values := make([][]driver.Value, 0, len(batchTaskTestState.importCleanups))
 		for projectID, cleanup := range batchTaskTestState.importCleanups {
@@ -2208,12 +2462,70 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 			}
 		}
 		return &batchTaskRows{columns: []string{"segment_id", "asset_id"}, values: values}, nil
+	case strings.Contains(query, "FROM shuihuo_segment_assets sa") && strings.Contains(query, "a.category IN ('character', 'scene', 'prop')"):
+		segmentID, ownerID := args[0].Value.(int64), args[1].Value.(int64)
+		segment, segmentOK := batchTaskTestState.segments[segmentID]
+		project, projectOK := batchTaskTestState.projects[segment.ProjectID]
+		if !segmentOK || !projectOK || project.UserID != ownerID {
+			return &batchTaskRows{columns: []string{"reference_object_key"}}, nil
+		}
+		assetIDs := append([]int64(nil), batchTaskTestState.segmentAssetMappings[segmentID]...)
+		sort.Slice(assetIDs, func(left, right int) bool { return assetIDs[left] < assetIDs[right] })
+		values := make([][]driver.Value, 0, len(assetIDs))
+		for _, assetID := range assetIDs {
+			asset := batchTaskTestState.assets[assetID]
+			if asset.IsCurrent && (asset.Category == "character" || asset.Category == "scene" || asset.Category == "prop") {
+				values = append(values, []driver.Value{asset.ReferenceObjectKey})
+			}
+		}
+		return &batchTaskRows{columns: []string{"reference_object_key"}, values: values}, nil
+	case strings.Contains(query, "FROM shuihuo_segment_assets sa") && strings.Contains(query, "a.category IN ('character', 'prop')"):
+		segmentID, ownerID := args[0].Value.(int64), args[1].Value.(int64)
+		segment, segmentOK := batchTaskTestState.segments[segmentID]
+		project, projectOK := batchTaskTestState.projects[segment.ProjectID]
+		if !segmentOK || !projectOK || project.UserID != ownerID {
+			return &batchTaskRows{columns: []string{"reference_object_key"}}, nil
+		}
+		assetIDs := append([]int64(nil), batchTaskTestState.segmentAssetMappings[segmentID]...)
+		sort.Slice(assetIDs, func(left, right int) bool { return assetIDs[left] < assetIDs[right] })
+		values := make([][]driver.Value, 0, len(assetIDs))
+		for _, assetID := range assetIDs {
+			asset := batchTaskTestState.assets[assetID]
+			if !asset.IsCurrent || (asset.Category != "character" && asset.Category != "prop") {
+				continue
+			}
+			values = append(values, []driver.Value{asset.ReferenceObjectKey})
+		}
+		return &batchTaskRows{columns: []string{"reference_object_key"}, values: values}, nil
+	case strings.Contains(query, "FROM shuihuo_segment_assets sa") && strings.Contains(query, "a.category = 'scene'"):
+		segmentID, ownerID := args[0].Value.(int64), args[1].Value.(int64)
+		segment, segmentOK := batchTaskTestState.segments[segmentID]
+		project, projectOK := batchTaskTestState.projects[segment.ProjectID]
+		if !segmentOK || !projectOK || project.UserID != ownerID {
+			return &batchTaskRows{columns: []string{"reference_object_key"}}, nil
+		}
+		assetIDs := append([]int64(nil), batchTaskTestState.segmentAssetMappings[segmentID]...)
+		sort.Slice(assetIDs, func(left, right int) bool { return assetIDs[left] < assetIDs[right] })
+		for _, assetID := range assetIDs {
+			asset := batchTaskTestState.assets[assetID]
+			if asset.IsCurrent && asset.Category == "scene" && asset.ReferenceObjectKey != "" {
+				return &batchTaskRows{columns: []string{"reference_object_key"}, values: [][]driver.Value{{asset.ReferenceObjectKey}}}, nil
+			}
+		}
+		return &batchTaskRows{columns: []string{"reference_object_key"}}, nil
 	case strings.HasPrefix(query, "SELECT id, project_id, segment_id, task_id, kind, object_key, source, manually_edited, width, height, duration_ms, is_primary FROM shuihuo_media WHERE project_id = ?"):
 		media, ok := batchTaskTestState.primaryImages[args[1].Value.(int64)]
 		if !ok || media.ProjectID != args[0].Value.(int64) {
 			return &batchTaskRows{columns: mediaColumns}, nil
 		}
 		return &batchTaskRows{columns: mediaColumns, values: [][]driver.Value{{media.ID, media.ProjectID, media.SegmentID, media.TaskID, media.Kind, media.ObjectKey, media.Source, media.ManuallyEdited, media.Width, media.Height, media.DurationMS, media.IsPrimary}}}, nil
+	case strings.HasPrefix(query, "SELECT a.id, a.project_id, a.asset_type_id, a.category, a.name, a.prompt, a.voice_asset_id, a.reference_object_key, a.source, a.manually_edited, a.is_current FROM shuihuo_assets a") && strings.Contains(query, "WHERE a.id = ? AND p.user_id = ?"):
+		asset, ok := batchTaskTestState.assets[args[0].Value.(int64)]
+		project, projectOK := batchTaskTestState.projects[asset.ProjectID]
+		if !ok || !projectOK || project.UserID != args[1].Value.(int64) {
+			return &batchTaskRows{columns: assetColumns}, nil
+		}
+		return &batchTaskRows{columns: assetColumns, values: [][]driver.Value{batchTaskAssetRow(asset)}}, nil
 	case strings.Contains(query, "FROM shuihuo_assets a"):
 		projectID, ownerID := args[0].Value.(int64), args[1].Value.(int64)
 		project, ok := batchTaskTestState.projects[projectID]
@@ -2221,7 +2533,7 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 		if ok && project.UserID == ownerID {
 			for _, asset := range batchTaskTestState.assets {
 				if asset.ProjectID == projectID {
-					values = append(values, []driver.Value{asset.ID, asset.ProjectID, asset.AssetTypeID, asset.Category, asset.Name, asset.Prompt, asset.VoiceAssetID, asset.ReferenceObjectKey, asset.Source, asset.ManuallyEdited, true})
+					values = append(values, batchTaskAssetRow(asset))
 				}
 			}
 		}
@@ -2239,7 +2551,7 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 			return &batchTaskRows{columns: modelColumns}, nil
 		}
 		model := batchTaskTestState.model
-		return &batchTaskRows{columns: modelColumns, values: [][]driver.Value{{model.ID, model.ModelID, model.VersionID, model.Name, string(model.Kind), model.AdapterKind, model.Enabled, []byte("[]"), []byte("{}"), "", "", "", ""}}}, nil
+		return &batchTaskRows{columns: modelColumns, values: [][]driver.Value{{model.ID, model.ModelID, model.VersionID, model.Name, string(model.Kind), model.AdapterKind, model.Enabled, []byte("[]"), []byte("{}"), model.CredentialRef, model.Endpoint, model.RequestTemplate, model.ResponseMapping}}}, nil
 	default:
 		return nil, fmt.Errorf("unexpected batch task query: %s", query)
 	}
@@ -2247,6 +2559,18 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 
 func batchTaskSegmentRow(segment domain.Segment) []driver.Value {
 	return []driver.Value{segment.ID, segment.ProjectID, segment.SourceText, segment.SubtitleText, segment.Speaker, int64(segment.OrderIndex), segment.Confirmed, segment.ManuallyEdited, segment.ImagePrompt, segment.VideoPrompt, segment.NegativePrompt, segment.ImagePromptLocked, segment.VideoPromptLocked, segment.NegativePromptLocked}
+}
+
+func batchTaskAssetRow(asset domain.Asset) []driver.Value {
+	return []driver.Value{asset.ID, asset.ProjectID, asset.AssetTypeID, asset.Category, asset.Name, asset.Prompt, asset.VoiceAssetID, asset.ReferenceObjectKey, asset.Source, asset.ManuallyEdited, asset.IsCurrent}
+}
+
+func namedValueInt64Pointer(value driver.NamedValue) *int64 {
+	if value.Value == nil {
+		return nil
+	}
+	result := value.Value.(int64)
+	return &result
 }
 
 func compactBatchTaskSQL(query string) string { return strings.Join(strings.Fields(query), " ") }
@@ -2259,6 +2583,7 @@ func (r batchTaskResult) RowsAffected() (int64, error) { return r.rows, nil }
 var projectColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version", "created_at", "updated_at"}
 var projectReadColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version"}
 var segmentColumns = []string{"id", "project_id", "source_text", "subtitle_text", "speaker", "order_index", "confirmed", "manually_edited", "image_prompt", "video_prompt", "negative_prompt", "image_prompt_locked", "video_prompt_locked", "negative_prompt_locked"}
+var assetColumns = []string{"id", "project_id", "asset_type_id", "category", "name", "prompt", "voice_asset_id", "reference_object_key", "source", "manually_edited", "is_current"}
 var mediaColumns = []string{"id", "project_id", "segment_id", "task_id", "kind", "object_key", "source", "manually_edited", "width", "height", "duration_ms", "is_primary"}
 var modelColumns = []string{"id", "model_key", "version_id", "name", "kind", "adapter_kind", "enabled", "allowed_roles_json", "parameter_schema_json", "credential_ref", "endpoint", "request_template", "response_mapping"}
 

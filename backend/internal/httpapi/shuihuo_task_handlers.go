@@ -227,28 +227,17 @@ func validBatchTaskRequest(req shuihuoBatchTaskRequest) bool {
 // the first task can be persisted. Per-segment settings remain a legacy path
 // and are validated by each individual task creation.
 func (api *API) validateBatchSharedVideoSettings(ctx context.Context, req shuihuoBatchTaskRequest) error {
-	if req.Kind != "video" || req.VideoSettings == nil {
-		return nil
-	}
-	model, err := shuihuostore.NewModels(api.deps.DB).GetEnabled(ctx, req.ModelID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return taskCreationError("所选模型未启用或不存在")
-	}
-	if err != nil {
-		return taskCreationError("读取模型失败")
-	}
-	if model.AdapterKind != models.AdapterYDVideo {
-		return nil
-	}
-	if _, err := normalizedYDVideoTaskSettings(req.VideoSettings); err != nil {
-		return taskCreationError("YD 视频比例仅支持 9:16 或 16:9")
-	}
+	// Display clients no longer choose rendering dimensions per batch. The
+	// server reads the saved engine settings for every task, so legacy payloads
+	// are intentionally ignored instead of overriding those settings.
+	_ = ctx
+	_ = req
 	return nil
 }
 
 func taskCreationStatus(err error) int {
 	switch taskCreationErrorMessage(err) {
-	case "任务参数无效", "模型类型与任务不匹配", "YD 视频比例仅支持 9:16 或 16:9":
+	case "任务参数无效", "模型类型与任务不匹配", "YD 视频比例仅支持 9:16 或 16:9", "图生视频需要当前分镜的预设图或主图片", "所选视频模型仅支持图生视频，请在引擎设置中切换图生视频":
 		return http.StatusBadRequest
 	case "分段不存在":
 		return http.StatusNotFound
@@ -282,6 +271,13 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	if !segment.Confirmed {
 		return domain.Task{}, taskCreationError("请先确认分段")
 	}
+	var config domain.UserProductionConfig
+	if kind == "image" || kind == "video" {
+		config, err = shuihuostore.NewProductionConfigs(api.deps.DB).Get(ctx, user.ID)
+		if err != nil {
+			return domain.Task{}, taskCreationError("读取引擎设置失败")
+		}
+	}
 	var model models.Definition
 	var accountImageConfig store.ImageAPIConfig
 	accountImageModel := modelID == accountOpenAICompatibleImageModelID
@@ -312,6 +308,9 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		if !model.ProviderConfigured() {
 			return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
 		}
+		if kind == "video" && config.VideoGenerationMode == domain.VideoGenerationModeText && model.RequiresVideoImage() {
+			return domain.Task{}, taskCreationError("所选视频模型仅支持图生视频，请在引擎设置中切换图生视频")
+		}
 		if model.AdapterKind == models.AdapterYDVideo {
 			configured, configErr := api.ydVideoConfigured(ctx, user.ID)
 			if configErr != nil {
@@ -335,11 +334,9 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	inputSnapshot := map[string]any{"prompt": prompt, "segmentId": segment.ID, "model": model.Name}
 	if kind == "image" {
 		assets := shuihuostore.NewAssets(api.deps.DB)
-		boundAssets, assetsErr := assets.ListBySegment(ctx, user.ID, segment.ID)
-		if assetsErr != nil {
-			return domain.Task{}, taskCreationError("读取分镜预设失败")
-		}
-		prompt = composeStoryboardImagePrompt(prompt, boundAssets)
+		inputSnapshot["aspectRatio"] = config.ImageAspectRatio
+		inputSnapshot["resolution"] = config.ImageResolution
+		prompt = composeConfiguredPrompt(config.ImagePrefix, prompt, config.ImageSuffix)
 		inputSnapshot["prompt"] = prompt
 		inputSnapshot["basePrompt"] = segment.ImagePrompt
 		referenceObjectKeys, referencesErr := assets.ListReferenceObjectKeysBySegment(ctx, user.ID, segment.ID)
@@ -354,26 +351,46 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		}
 	}
 	if kind == "video" {
-		primaryImage, mediaErr := shuihuostore.NewMedia(api.deps.DB).PrimaryImage(ctx, project.ID, segment.ID)
-		if mediaErr != nil && !errors.Is(mediaErr, sql.ErrNoRows) {
-			return domain.Task{}, taskCreationError("读取分镜画面图片失败")
+		assets := shuihuostore.NewAssets(api.deps.DB)
+		inputSnapshot["aspectRatio"] = config.VideoAspectRatio
+		inputSnapshot["resolution"] = config.VideoResolution
+		mode, modeErr := domain.NormalizeVideoGenerationMode(config.VideoGenerationMode)
+		if modeErr != nil {
+			return domain.Task{}, taskCreationError("视频生成模式无效")
 		}
-		if primaryImage.ObjectKey != "" {
-			inputSnapshot["sourceImageObjectKey"] = primaryImage.ObjectKey
-		} else if model.RequiresVideoImage() {
-			return domain.Task{}, taskCreationError("所选视频模型需要当前分镜画面图片，请先生成图片或改选文生视频模型")
+		inputSnapshot["videoGenerationMode"] = mode
+		if mode == domain.VideoGenerationModeText {
+			if model.RequiresVideoImage() {
+				return domain.Task{}, taskCreationError("所选视频模型仅支持图生视频，请在引擎设置中切换图生视频")
+			}
+			boundAssets, assetsErr := assets.ListBySegment(ctx, user.ID, segment.ID)
+			if assetsErr != nil {
+				return domain.Task{}, taskCreationError("读取分镜预设失败")
+			}
+			prompt = composeTextToVideoPrompt(config.VideoPrefix, boundAssets, prompt, config.VideoSuffix)
+			inputSnapshot["prompt"] = prompt
+			inputSnapshot["basePrompt"] = segment.VideoPrompt
+		} else {
+			prompt = composeConfiguredPrompt(config.VideoPrefix, prompt, config.VideoSuffix)
+			inputSnapshot["prompt"] = prompt
+			inputSnapshot["basePrompt"] = segment.VideoPrompt
+			sourceObjectKey, referenceObjectKeys, sourceErr := api.imageToVideoSnapshot(ctx, user.ID, project.ID, segment.ID, assets)
+			if sourceErr != nil {
+				return domain.Task{}, taskCreationError(sourceErr.Error())
+			}
+			if sourceObjectKey == "" {
+				return domain.Task{}, taskCreationError("图生视频需要当前分镜的预设图或主图片")
+			}
+			inputSnapshot["sourceImageObjectKey"] = sourceObjectKey
+			if len(referenceObjectKeys) > 0 {
+				inputSnapshot["videoReferenceObjectKeys"] = referenceObjectKeys
+			}
 		}
 		if model.AdapterKind == models.AdapterYDVideo {
-			aspectRatio, settingsErr := normalizedYDVideoTaskSettings(videoSettings)
-			if settingsErr != nil {
+			if config.VideoAspectRatio != "9:16" && config.VideoAspectRatio != "16:9" {
 				return domain.Task{}, taskCreationError("YD 视频比例仅支持 9:16 或 16:9")
 			}
-			referenceObjectKeys, referencesErr := shuihuostore.NewAssets(api.deps.DB).ListVideoReferenceObjectKeysBySegment(ctx, user.ID, segment.ID, 3)
-			if referencesErr != nil {
-				return domain.Task{}, taskCreationError("读取分镜视频参考图失败")
-			}
-			inputSnapshot["aspectRatio"] = aspectRatio
-			inputSnapshot["videoReferenceObjectKeys"] = referenceObjectKeys
+			inputSnapshot["resolution"] = "720p"
 		}
 	}
 	if accountImageModel {
@@ -440,19 +457,64 @@ func normalizedYDVideoTaskSettings(input *shuihuoVideoTaskSettings) (string, err
 	return aspectRatio, nil
 }
 
-func composeStoryboardImagePrompt(basePrompt string, assets []domain.Asset) string {
-	basePrompt = strings.TrimSpace(basePrompt)
-	context := make([]string, 0, len(assets))
-	for _, asset := range assets {
-		if asset.Category == "voice" || strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.Prompt) == "" {
+func composeConfiguredPrompt(parts ...string) string {
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return strings.Join(result, "\n\n")
+}
+
+func composeTextToVideoPrompt(prefix string, assets []domain.Asset, videoPrompt, suffix string) string {
+	parts := []string{prefix}
+	for _, category := range []string{"character", "scene", "prop"} {
+		for _, asset := range assets {
+			if asset.Category == category && strings.TrimSpace(asset.Prompt) != "" {
+				parts = append(parts, asset.Prompt)
+			}
+		}
+	}
+	parts = append(parts, videoPrompt, suffix)
+	return composeConfiguredPrompt(parts...)
+}
+
+// imageToVideoSnapshot freezes only the current segment's visual assets. The
+// scene is the preferred main frame; a generated storyboard image is the
+// fallback, then the first available bound asset image. Reference images are
+// capped at three because the strictest supported adapter accepts three.
+func (api *API) imageToVideoSnapshot(ctx context.Context, ownerID, projectID, segmentID int64, assets *shuihuostore.Assets) (string, []string, error) {
+	visualKeys, err := assets.ListReferenceObjectKeysBySegment(ctx, ownerID, segmentID)
+	if err != nil {
+		return "", nil, fmt.Errorf("读取分镜视频预设图片失败")
+	}
+	sceneObjectKey, err := assets.SceneObjectKeyBySegment(ctx, ownerID, segmentID)
+	if err != nil {
+		return "", nil, fmt.Errorf("读取场景预设图片失败")
+	}
+	sourceObjectKey := sceneObjectKey
+	if sourceObjectKey == "" {
+		primaryImage, mediaErr := shuihuostore.NewMedia(api.deps.DB).PrimaryImage(ctx, projectID, segmentID)
+		if mediaErr != nil && !errors.Is(mediaErr, sql.ErrNoRows) {
+			return "", nil, fmt.Errorf("读取分镜画面图片失败")
+		}
+		sourceObjectKey = primaryImage.ObjectKey
+	}
+	if sourceObjectKey == "" && len(visualKeys) > 0 {
+		sourceObjectKey = visualKeys[0]
+	}
+	refs := make([]string, 0, 3)
+	for _, key := range visualKeys {
+		if key == "" || key == sourceObjectKey {
 			continue
 		}
-		context = append(context, strings.TrimSpace(asset.Name)+"："+strings.TrimSpace(asset.Prompt))
+		refs = append(refs, key)
+		if len(refs) == 3 {
+			break
+		}
 	}
-	if len(context) == 0 {
-		return basePrompt
-	}
-	return basePrompt + "\n\n分镜绑定预设（人物、场景、道具须保持一致）：\n" + strings.Join(context, "\n")
+	return sourceObjectKey, refs, nil
 }
 
 func (api *API) accountOpenAICompatibleImageConfig(ctx context.Context, userID int64) (store.ImageAPIConfig, bool, error) {

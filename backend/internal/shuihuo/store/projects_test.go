@@ -288,6 +288,28 @@ func TestTaskCreateStoresUnassignedProviderTaskIDAsNull(t *testing.T) {
 	}
 }
 
+func TestScanTaskAcceptsNullProviderTaskID(t *testing.T) {
+	var task domain.Task
+	err := scanTask(taskScannerFunc(func(dest ...any) error {
+		if _, ok := dest[7].(*sql.NullString); !ok {
+			return fmt.Errorf("provider_task_id scan destination = %T, want *sql.NullString", dest[7])
+		}
+		*dest[0].(*int64) = 5
+		*dest[2].(*int64) = 11
+		*dest[4].(*string) = "asset_image"
+		*dest[5].(*domain.TaskStatus) = domain.TaskQueued
+		*dest[6].(*string) = "account_openai_compatible_image"
+		*dest[7].(*sql.NullString) = sql.NullString{}
+		return nil
+	}), &task)
+	if err != nil {
+		t.Fatalf("scanTask() error = %v", err)
+	}
+	if task.ID != 5 || task.ProjectID != 11 || task.ProviderTaskID != "" {
+		t.Fatalf("task = %#v, want queued task with an empty provider task ID", task)
+	}
+}
+
 func TestTaskStatusTransitionsRejectInvalidMoves(t *testing.T) {
 	if !domain.TaskDraft.CanTransitionTo(domain.TaskQueued) {
 		t.Fatal("draft -> queued must be allowed")
@@ -345,6 +367,10 @@ type shuihuoStoreState struct {
 }
 
 type shuihuoStoreTestDriver struct{}
+
+type taskScannerFunc func(...any) error
+
+func (f taskScannerFunc) Scan(dest ...any) error { return f(dest...) }
 
 func (shuihuoStoreTestDriver) Open(string) (driver.Conn, error) { return shuihuoStoreTestConn{}, nil }
 

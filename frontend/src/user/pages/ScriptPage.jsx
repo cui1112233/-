@@ -13,8 +13,7 @@ import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstr
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
-import { buildBaseSetupText, buildFinalSegments } from './scriptFinalSegment';
-import { joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
+import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
@@ -104,7 +103,6 @@ export function ScriptPage() {
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
-  const [expandedConstraintCategory, setExpandedConstraintCategory] = useState('');
   const [constraints, setConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
   const [draftConstraints, setDraftConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
   const [constraintCatalog, setConstraintCatalog] = useState([]);
@@ -122,12 +120,18 @@ export function ScriptPage() {
   const selectedMode = Form.useWatch('mode', form);
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
-  useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat, selectedMode]);
-  const shotCards = useMemo(
-    // 最终分段：模型输出切段后，每段注入“基础设定（人物/场景）+ 约束设置”
-    () => buildFinalSegments({ output, extractInfo, constraints, format: selectedFormat, duration: selectedDuration, mode: selectedMode }),
-    [output, extractInfo, constraints, selectedFormat, selectedDuration, selectedMode]
-  );
+  useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
+  const shotCards = useMemo(() => {
+    const parsed = getShotCards(selectedFormat, output);
+    if (parsed.length) return parsed;
+    // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
+    if (selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output) {
+      const seconds = selectedDuration === '15s' ? 15 : 10;
+      const segments = splitContinuousTimeline(output, seconds);
+      if (segments.length >= 2) return segments;
+    }
+    return parsed;
+  }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
@@ -205,7 +209,7 @@ export function ScriptPage() {
     setOutput(nextOutput);
     if (!preserveSelectedShots) setSelectedShotIndexes(new Set());
     else {
-      const nextCards = buildFinalSegments({ output: nextOutput, extractInfo, constraints, format: selectedFormat, duration: selectedDuration, mode: selectedMode });
+      const nextCards = getShotCards(selectedFormat, nextOutput);
       setSelectedShotIndexes(current => new Set([...current].filter(index => index < nextCards.length)));
     }
     persistDraft(undefined, { output: nextOutput });
@@ -546,7 +550,7 @@ export function ScriptPage() {
           id: 'react-' + Date.now().toString(36),
           mode: values.mode,
           format: values.format,
-          formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式' }[values.format] || '剧本',
+          formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式', q版: 'Q版模式' }[values.format] || '剧本',
           duration: values.duration,
           output: nextOutput
         });
@@ -776,7 +780,6 @@ export function ScriptPage() {
 
   function openConstraints() {
     const next = normalizeScriptConstraints(constraints);
-    setExpandedConstraintCategory('');
     setDraftConstraints(next);
     ['prefix', 'quality', 'restriction', 'negative'].forEach(category => {
       loadPersonalConstraintPrompts(category);
@@ -901,7 +904,8 @@ export function ScriptPage() {
                 { label: '画布模式', value: 'storyboard' },
                 { label: '剧本模式', value: 'shortdrama' },
                 { label: '剧情模式', value: 'screenplay' },
-                { label: '分镜模式', value: 'shotlist' }
+                { label: '分镜模式', value: 'shotlist' },
+                { label: 'Q版模式', value: 'q版' }
               ]}
             />
           </Form.Item>
@@ -1054,18 +1058,6 @@ export function ScriptPage() {
             <Typography.Text strong>启用本次及后续剧本输出约束</Typography.Text>
           </Space>
         </div>
-        <div className="script-constraint-section">
-          <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Typography.Text strong>基础设定（人物/场景）</Typography.Text>
-            <Switch
-              checked={draftConstraints.baseSetup?.enabled !== false}
-              onChange={enabled => updateDraftConstraint('baseSetup', { enabled })}
-            />
-          </Space>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 4 }}>
-            自动使用已提取的人物与场景生成【基础设定】，注入每个最终分段卡片；关闭后每张卡只保留模型输出的画面内容。
-          </Typography.Paragraph>
-        </div>
         {[
           ['prefix', '画面前缀词'],
           ['quality', '画质约束'],
@@ -1081,8 +1073,6 @@ export function ScriptPage() {
             personalPrompts={personalConstraintPrompts[category] || []}
             loadingPersonalPrompts={loadingPersonalConstraintPrompts[category]}
             saving={savingConstraintCategory === category}
-            expanded={expandedConstraintCategory === category}
-            onToggle={() => setExpandedConstraintCategory(current => current === category ? '' : category)}
             editingPersonalPromptId={editingPersonalPromptId}
             onChange={patch => updateDraftConstraint(category, patch)}
             onSelectSystem={presetId => selectSystemConstraint(category, presetId)}
@@ -1144,18 +1134,16 @@ export function ScriptPage() {
 
 export default ScriptPage;
 
-function ConstraintCategoryEditor({ category, label, value, systemOptions, personalPrompts, loadingPersonalPrompts, saving, expanded, onToggle, editingPersonalPromptId, onChange, onSelectSystem, onSelectPersonal, onSaveDraft, onSaveNamed, onEditPersonal, onDeletePersonal }) {
+function ConstraintCategoryEditor({ category, label, value, systemOptions, personalPrompts, loadingPersonalPrompts, saving, editingPersonalPromptId, onChange, onSelectSystem, onSelectPersonal, onSaveDraft, onSaveNamed, onEditPersonal, onDeletePersonal }) {
   const isSystem = value.source === 'system';
   const selectedPersonalPrompt = personalPrompts.find(item => item.id === value.personalPromptId);
   return (
     <div className="script-constraint-section">
       <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
-        <Button type="text" onClick={onToggle} style={{ padding: 0, height: 'auto', fontWeight: 600 }}>
-          {expanded ? '收起' : '展开'} {label}
-        </Button>
+        <Typography.Text strong>{label}</Typography.Text>
         <Switch checked={value.enabled} onChange={enabled => onChange({ enabled })} />
       </Space>
-      {expanded && value.enabled ? <>
+      {value.enabled ? <>
         <Segmented
           block
           options={[{ label: '系统预设', value: 'system' }, { label: '我的提示词', value: 'personal' }]}

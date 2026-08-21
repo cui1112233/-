@@ -20,8 +20,10 @@ type Request struct {
 }
 
 type Response struct {
-	ProviderTaskID string
-	ResultURL      string
+	ProviderTaskID    string
+	ResultURL         string
+	ResultData        []byte
+	ResultContentType string
 }
 
 type Adapter interface {

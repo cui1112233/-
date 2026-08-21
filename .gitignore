@@ -16,6 +16,8 @@ backend/.env
 backend/qiantie
 backend/.qiantie-backend-server
 backend/coverage.out
+backend/dist/
+deploy/.env.test-docker
 
 # 本地鉴权与内部过程文件
 .auth-token

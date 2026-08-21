@@ -1,6 +1,6 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig, writeConfig, publicConfig, normalizeImageConfig, DEFAULT_CONFIG } = require('../lib/shared');
+const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, DEFAULT_CONFIG } = require('../lib/shared');
 const { syncAccountAIConfig } = require('./shuihuo-production');
 const { normalizeStorageRoot } = require('../lib/storage-root');
 
@@ -81,6 +81,7 @@ function createConfigRouter({ shuihuoGateway } = {}) {
       apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
       storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
       image: normalizeImageConfig(body.image, oldConfig.image),
+      video: normalizeVideoConfig(body.video, oldConfig.video),
       pet: normalizePetConfig(body.pet, oldConfig.pet),
       tts: normalizeTtsConfig(body.tts, oldConfig.tts),
       notifications: normalizeNotifications(body.notifications, oldConfig.notifications),

@@ -116,16 +116,19 @@ ORDER BY a.created_at ASC, a.id ASC
 // request.
 func (s *Assets) ListReferenceObjectKeysBySegment(ctx context.Context, ownerID, segmentID int64) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT COALESCE(
-  (
+SELECT CASE
+  WHEN a.manually_edited = TRUE AND NULLIF(a.reference_object_key, '') IS NOT NULL THEN a.reference_object_key
+  ELSE COALESCE(
+    (
     SELECT ai.object_key
     FROM shuihuo_asset_images ai
     WHERE ai.asset_id = a.id AND ai.is_primary = TRUE
     ORDER BY ai.updated_at DESC, ai.id DESC
     LIMIT 1
-  ),
-  NULLIF(a.reference_object_key, '')
-)
+    ),
+    NULLIF(a.reference_object_key, '')
+  )
+END
 FROM shuihuo_segment_assets sa
 JOIN shuihuo_assets a ON a.id = sa.asset_id
 JOIN shuihuo_projects p ON p.id = a.project_id
@@ -216,6 +219,35 @@ ORDER BY a.created_at ASC, a.id ASC
 		}
 	}
 	return keys, rows.Err()
+}
+
+// SceneObjectKeyBySegment returns the bound scene preset's primary image. YD
+// requires this image as its final scene image; character and prop images are
+// supplied separately as references.
+func (s *Assets) SceneObjectKeyBySegment(ctx context.Context, ownerID, segmentID int64) (string, error) {
+	var objectKey sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+SELECT CASE
+  WHEN a.manually_edited = TRUE AND NULLIF(a.reference_object_key, '') IS NOT NULL THEN a.reference_object_key
+  ELSE COALESCE(
+    (SELECT ai.object_key FROM shuihuo_asset_images ai WHERE ai.asset_id = a.id AND ai.is_primary = TRUE ORDER BY ai.updated_at DESC, ai.id DESC LIMIT 1),
+    NULLIF(a.reference_object_key, '')
+  )
+END
+FROM shuihuo_segment_assets sa
+JOIN shuihuo_assets a ON a.id = sa.asset_id
+JOIN shuihuo_projects p ON p.id = a.project_id
+WHERE sa.segment_id = ? AND p.user_id = ? AND a.is_current = TRUE AND a.category = 'scene'
+ORDER BY a.created_at ASC, a.id ASC
+LIMIT 1
+`, segmentID, ownerID).Scan(&objectKey)
+	if errors.Is(err, sql.ErrNoRows) || !objectKey.Valid {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(objectKey.String), nil
 }
 
 func (s *Assets) Update(ctx context.Context, ownerID int64, asset domain.Asset) error {

@@ -2,6 +2,7 @@ import { Alert, Checkbox, InputNumber, Modal, Select, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { createBatchTasks, getProductionConfig, listModels } from '../../../shared/api/shuihuoProduction';
 import { selectBatchSegmentIds } from './batchSelection';
+import { defaultModelIdForKind } from './modelDefaults';
 
 function publicMedia(item) {
   return item?.media || item;
@@ -12,8 +13,8 @@ function segmentLabel(segment) {
   return `#${segment.orderIndex} ${text.slice(0, 36) || '未填写原文'}`;
 }
 
-function defaultModelIdFor(config, kind) {
-  if (kind === 'image') return config?.imageModelId;
+function defaultModelIdFor(config, models, kind) {
+  if (kind === 'image') return defaultModelIdForKind(models, kind, config?.imageModelId);
   if (kind === 'video') return config?.videoModelId;
   if (kind === 'audio') return config?.audioModelId;
   return undefined;
@@ -23,6 +24,7 @@ const YD_VIDEO_RATIOS = ['9:16', '16:9'];
 
 export function BatchTaskModal({ open, projectId, segments, media, kind, availability, models: initialModels = [], initialSegmentIds = [], initialScope = 'all', audioSettingsBySegment = {}, onClose, onSubmitted }) {
   const [models, setModels] = useState(initialModels);
+  const [productionConfig, setProductionConfig] = useState(null);
   const [modelId, setModelId] = useState();
   const [videoAspectRatio, setVideoAspectRatio] = useState('9:16');
   const [selectedSegmentIds, setSelectedSegmentIds] = useState([]);
@@ -34,14 +36,7 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
   const [loadError, setLoadError] = useState('');
   const [submissionSummary, setSubmissionSummary] = useState(null);
 
-  const primaryImageSegmentIds = useMemo(() => new Set(
-    (media || []).map(publicMedia)
-      .filter(item => item?.kind === 'image' && item.isPrimary === true && item.segmentId)
-      .map(item => item.segmentId)
-  ), [media]);
-  const eligibleSegmentIds = useMemo(() => (segments || []).filter(segment => (
-    segment.confirmed && (kind !== 'video' || primaryImageSegmentIds.has(segment.id))
-  )).map(segment => segment.id), [kind, primaryImageSegmentIds, segments]);
+  const eligibleSegmentIds = useMemo(() => (segments || []).filter(segment => segment.confirmed).map(segment => segment.id), [segments]);
   const eligibleIdSet = useMemo(() => new Set(eligibleSegmentIds), [eligibleSegmentIds]);
   const availableModels = useMemo(() => models.filter(model => model.kind === kind), [kind, models]);
   const selectedModel = useMemo(() => models.find(model => model.id === modelId), [modelId, models]);
@@ -66,6 +61,7 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
     setModelId(undefined);
     setVideoAspectRatio('9:16');
     setModels([]);
+    setProductionConfig(null);
     setSelectedSegmentIds(initialSegmentIds);
     setScope(initialScope);
     setRangeStart(rangeBounds.start);
@@ -77,7 +73,8 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
       if (!active) return;
       const nextModels = (result.models || []).filter(model => typeof model?.id === 'number' && model?.name && model?.kind);
       setModels(nextModels);
-      const savedModelId = defaultModelIdFor(config, kind);
+      setProductionConfig(config || {});
+      const savedModelId = defaultModelIdFor(config, nextModels, kind);
       if (savedModelId !== undefined && savedModelId !== null && nextModels.some(model => model.id === savedModelId && model.kind === kind)) {
         setModelId(savedModelId);
       }
@@ -98,6 +95,10 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
     const selectedIds = scopedSegmentIds;
     if (!availability?.ready) { message.warning(availability?.reason || '当前任务依赖未就绪'); return; }
     if (modelId === undefined || modelId === null) { message.warning('请选择生成模型'); return; }
+    if (kind === 'video' && productionConfig?.videoGenerationMode === 'text_to_video' && isYDVideoModel) {
+      message.warning('YD2.0 Mini 仅支持图生视频，请先在引擎设置中调整');
+      return;
+    }
     if (!selectedIds.length) { message.warning('请至少选择一个可提交分段'); return; }
 
     setSubmitting(true);
@@ -139,24 +140,11 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
     okButtonProps={{ disabled: !availability?.ready || loadingModels || !availableModels.length || !scopedSegmentIds.length }}
     width={720}
   >
-    <Alert type="info" showIcon message={kind === 'image' ? '图片任务按已确认分段提交' : kind === 'video' ? '视频任务需要分段已确认且已设置主图片' : '配音任务按已确认分段提交'} description="提交后请在任务中心查看后端返回的排队、运行、完成或失败状态。" />
+    <Alert type="info" showIcon message={kind === 'image' ? '图片任务按已确认分段提交' : kind === 'video' ? (productionConfig?.videoGenerationMode === 'text_to_video' ? '文生视频不发送图片' : '图生视频使用当前分镜的预设图或主图片') : '配音任务按已确认分段提交'} description={kind === 'video' ? '模型与生成方式来自引擎设置。服务端会在提交时冻结当前分镜的最终提示词和图片输入。' : '提交后请在任务中心查看后端返回的排队、运行、完成或失败状态。'} />
     {!availability?.ready ? <Alert className="shuihuo-inline-alert" type="warning" showIcon message="当前任务依赖未就绪" description={availability?.reason || '请检查运行配置'} /> : null}
     {loadError ? <Alert className="shuihuo-inline-alert" type="warning" showIcon message="无法读取可用模型" description={loadError} /> : null}
-    <label className="shuihuo-form-label">生成模型</label>
-    <Select
-      placeholder={loadingModels ? '正在读取可用模型' : availableModels.length ? '选择生成模型' : '当前没有可用模型'}
-      value={modelId}
-      onChange={setModelId}
-      options={availableModels.map(model => ({ value: model.id, label: model.name }))}
-      loading={loadingModels}
-      disabled={loadingModels || !availableModels.length}
-    />
-    {isYDVideoModel ? <>
-      <label className="shuihuo-form-label">视频比例</label>
-      <Select value={videoAspectRatio} onChange={setVideoAspectRatio} options={YD_VIDEO_RATIOS.map(value => ({ value, label: value }))} />
-      <p className="shuihuo-task-empty-note">固定 1 秒，固定 720p。</p>
-    </> : null}
-    {!loadingModels && !loadError && !availableModels.length ? <p className="shuihuo-task-empty-note">当前没有启用的{kind === 'image' ? '图片' : kind === 'video' ? '视频' : '配音'}模型，不能提交生成任务。</p> : null}
+    {isYDVideoModel ? <p className="shuihuo-task-empty-note">YD2.0 Mini 固定 1 秒、720p；仅可用于图生视频。</p> : null}
+    {!loadingModels && !loadError && (modelId === undefined || modelId === null) ? <p className="shuihuo-task-empty-note">请先在引擎设置中选择{kind === 'image' ? '生图' : kind === 'video' ? '视频' : '配音'}模型。</p> : null}
     <label className="shuihuo-form-label">批量范围</label>
     <Select value={scope} onChange={setScope} options={[{ value: 'all', label: '全部已确认' }, { value: 'incomplete', label: '未完成' }, { value: 'range', label: '指定编号范围' }, { value: 'selected', label: '手工勾选' }]} />
     {scope === 'range' ? <div className="shuihuo-batch-range"><InputNumber min={rangeBounds.start} max={rangeBounds.end} value={rangeStart} onChange={value => setRangeStart(value ?? rangeBounds.start)} addonBefore="从" /><InputNumber min={rangeBounds.start} max={rangeBounds.end} value={rangeEnd} onChange={value => setRangeEnd(value ?? rangeBounds.end)} addonBefore="到" /></div> : null}
@@ -165,7 +153,7 @@ export function BatchTaskModal({ open, projectId, segments, media, kind, availab
     <div className="shuihuo-batch-segments">
       {(segments || []).map(segment => {
         const eligible = eligibleIdSet.has(segment.id);
-        const reason = !segment.confirmed ? '分段未确认' : kind === 'video' && !primaryImageSegmentIds.has(segment.id) ? '缺少主图片' : '';
+        const reason = !segment.confirmed ? '分段未确认' : '';
         return <div className="shuihuo-batch-segment" key={segment.id}>
           <Checkbox checked={selectedSegmentIds.includes(segment.id)} disabled={!eligible} onChange={event => setSegmentSelected(segment.id, event.target.checked)}>{segmentLabel(segment)}</Checkbox>
           {!eligible ? <span>{reason}</span> : null}

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"qiantie/backend/internal/shuihuo/documents"
 	"qiantie/backend/internal/shuihuo/domain"
@@ -32,6 +34,11 @@ type shuihuoAssetImageUploadRequest struct {
 	Name         string `json:"name"`
 	Prompt       string `json:"prompt"`
 	VoiceAssetID *int64 `json:"voiceAssetId"`
+}
+
+type shuihuoAssetImageReplaceRequest struct {
+	Filename string `json:"filename"`
+	DataURL  string `json:"dataUrl"`
 }
 
 func (api *API) handleUploadShuihuoAssetImage(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +110,77 @@ func (api *API) handleDownloadShuihuoAssetImage(w http.ResponseWriter, r *http.R
 	defer body.Close()
 	w.Header().Set("Content-Type", object.ContentType)
 	_, _ = io.Copy(w, body)
+}
+
+func (api *API) handleReplaceShuihuoAssetImage(w http.ResponseWriter, r *http.Request) {
+	assetID, ok := parseShuihuoResourceID(w, r, "assetId", "资产")
+	if !ok {
+		return
+	}
+	if api.deps.Objects == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "素材存储未配置"})
+		return
+	}
+	var req shuihuoAssetImageReplaceRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "资产图片替换请求格式无效"})
+		return
+	}
+	if strings.TrimSpace(req.Filename) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "资产图片文件名无效"})
+		return
+	}
+	contentType, raw, err := decodeShuihuoImportDataURL(req.DataURL)
+	if err != nil || len(raw) == 0 || !strings.HasPrefix(contentType, "image/") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请上传有效图片"})
+		return
+	}
+
+	user, _ := currentUser(r)
+	assets := shuihuostore.NewAssets(api.deps.DB)
+	asset, err := assets.Get(r.Context(), user.ID, assetID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "资产不存在"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取资产失败"})
+		return
+	}
+	if asset.Category == "voice" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "音色资产不支持图片"})
+		return
+	}
+
+	if _, err := shuihuostorage.ObjectKey(user.ID, asset.ProjectID, "asset-images", req.Filename); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "资产图片文件名不安全"})
+		return
+	}
+	filename := fmt.Sprintf("%d-%d-%s", asset.ID, time.Now().UTC().UnixNano(), path.Base(req.Filename))
+	key, err := shuihuostorage.ObjectKey(user.ID, asset.ProjectID, "asset-images", filename)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "资产图片文件名不安全"})
+		return
+	}
+	if _, err := api.deps.Objects.Put(r.Context(), key, bytes.NewReader(raw), contentType); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存资产图片失败"})
+		return
+	}
+
+	oldKey := asset.ReferenceObjectKey
+	asset.ReferenceObjectKey, asset.Source, asset.ManuallyEdited = key, "manual_image", true
+	if err := assets.Update(r.Context(), user.ID, asset); err != nil {
+		_ = api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), key, "asset_image_replace_database_failure")
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新资产图片失败"})
+		return
+	}
+	if oldKey != "" && oldKey != key {
+		if err := api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), oldKey, "asset_image_replace"); err != nil {
+			writeJSON(w, http.StatusAccepted, map[string]any{"asset": asset, "warning": "资产图片已替换，旧图片清理已加入重试"})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"asset": asset})
 }
 
 func mediaCategory(kind string) (string, bool) {

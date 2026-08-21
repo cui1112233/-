@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Select, message } from 'antd';
 import { getProductionConfig, listModels, saveProductionConfig } from '../../../shared/api/shuihuoProduction';
+import { withDefaultImageModel } from './modelDefaults';
 
 const defaults = {
   characterPrefix: '', imagePrefix: '', imageSuffix: '', videoPrefix: '', videoSuffix: '',
@@ -16,8 +17,9 @@ export function ProductionConfigModal({ open, onClose, onSaved }) {
     if (!open) return;
     setLoading(true);
     Promise.all([getProductionConfig(), listModels()]).then(([config, modelResult]) => {
-      form.setFieldsValue({ ...defaults, ...config });
-      setModels(modelResult.models || modelResult || []);
+      const nextModels = modelResult.models || modelResult || [];
+      form.setFieldsValue(withDefaultImageModel({ ...defaults, ...config }, nextModels));
+      setModels(nextModels);
     }).catch(error => message.error(error.message || '读取默认配置失败')).finally(() => setLoading(false));
   }, [open, form]);
 

@@ -19,8 +19,7 @@ test('shot card component provides individual, selected and all-copy controls', 
 test('script page uses card output only for parsed non-shortdrama results', () => {
   const cards = read('frontend/src/user/components/ShotOutputCards.jsx');
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
-  assert.match(page, /buildFinalSegments\(\{ output, extractInfo, constraints, format: selectedFormat, duration: selectedDuration, mode: selectedMode \}\)/);
-  assert.match(page, /\[output, extractInfo, constraints, selectedFormat, selectedDuration, selectedMode\]/);
+  assert.match(page, /getShotCards\(selectedFormat, output\)/);
   assert.match(page, /getShotCardStarts/);
   assert.match(page, /useMemo\(\(\) => getShotCardStarts\(output, shotCards\)/);
   assert.doesNotMatch(page, /output\.indexOf\(card, cursor\)/);
@@ -94,23 +93,16 @@ test('script page provides find and replace only for selected shot cards', () =>
   assert.match(cards, /scrollIntoView/);
 });
 
-test('complete 分镜 unit headings drive cards and manual merge action stays available', () => {
+test('segmented mode auto-splits continuous timelines into cards and exposes merge action', () => {
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
-  const shot = read('frontend/src/user/pages/scriptShotOutput.js');
-  const final = read('frontend/src/user/pages/scriptFinalSegment.js');
-  assert.match(final, /export function buildFinalSegments/);
-  assert.match(final, /export function buildBaseSetupText/);
-  assert.match(final, /export function buildConstraintText/);
-  assert.match(shot, /export function getDisplayCards/);
-  assert.match(shot, /mode === 'segmented'/);
-  assert.ok(shot.includes('总时长\\s*[：:]?\\s*\\d+\\s*s'));
-  assert.match(page, /buildFinalSegments\(\{ output, extractInfo, constraints, format: selectedFormat, duration: selectedDuration, mode: selectedMode \}\)/);
-  assert.match(page, /\[output, extractInfo, constraints, selectedFormat, selectedDuration, selectedMode\]/);
+  const output = read('frontend/src/user/pages/scriptShotOutput.js');
   assert.match(page, /splitContinuousTimeline/);
   assert.match(page, /按秒分段并合并/);
+  assert.match(page, /selectedMode === 'segmented'/);
   assert.match(page, /selectedDuration === '15s' \? 15 : 10/);
-  assert.match(shot, /export function splitContinuousTimeline/);
-  assert.match(page, /基础设定（人物\/场景）/);
+  assert.match(page, /segments\.length >= 2\) return segments/);
+  assert.match(output, /export function splitContinuousTimeline/);
+  assert.match(output, /复制到每一段/);
 });
 
 test('shot cards recognize storyboard and screenplay headings', async () => {

@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -32,11 +33,70 @@ type UserProductionConfig struct {
 	ImageSuffix            string `json:"imageSuffix"`
 	VideoPrefix            string `json:"videoPrefix"`
 	VideoSuffix            string `json:"videoSuffix"`
+	VideoGenerationMode    string `json:"videoGenerationMode"`
+	ImageAspectRatio       string `json:"imageAspectRatio"`
+	ImageResolution        string `json:"imageResolution"`
+	VideoAspectRatio       string `json:"videoAspectRatio"`
+	VideoResolution        string `json:"videoResolution"`
 	TextModelID            *int64 `json:"textModelId"`
 	ImageModelID           *int64 `json:"imageModelId"`
 	VideoModelID           *int64 `json:"videoModelId"`
 	AudioModelID           *int64 `json:"audioModelId"`
 	JianyingDraftDirectory string `json:"jianyingDraftDirectory"`
+}
+
+const (
+	DefaultImageAspectRatio = "9:16"
+	DefaultImageResolution  = "1K"
+	DefaultVideoAspectRatio = "9:16"
+	DefaultVideoResolution  = "720p"
+)
+
+func NormalizeImageAspectRatio(value string) (string, error) {
+	return normalizeProductionOption(value, DefaultImageAspectRatio, "9:16", "16:9", "1:1", "3:4", "4:3")
+}
+
+func NormalizeImageResolution(value string) (string, error) {
+	return normalizeProductionOption(value, DefaultImageResolution, "1K", "2K")
+}
+
+func NormalizeVideoAspectRatio(value string) (string, error) {
+	return normalizeProductionOption(value, DefaultVideoAspectRatio, "9:16", "16:9", "1:1", "3:4", "4:3")
+}
+
+func NormalizeVideoResolution(value string) (string, error) {
+	return normalizeProductionOption(value, DefaultVideoResolution, "720p", "1080p", "2K")
+}
+
+func normalizeProductionOption(value, fallback string, allowed ...string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback, nil
+	}
+	for _, option := range allowed {
+		if value == option {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("unsupported production option %q", value)
+}
+
+const (
+	VideoGenerationModeImage = "image_to_video"
+	VideoGenerationModeText  = "text_to_video"
+)
+
+// NormalizeVideoGenerationMode keeps existing accounts on the historical
+// image-to-video behavior while rejecting unsupported persisted values.
+func NormalizeVideoGenerationMode(mode string) (string, error) {
+	switch mode {
+	case "", VideoGenerationModeImage:
+		return VideoGenerationModeImage, nil
+	case VideoGenerationModeText:
+		return VideoGenerationModeText, nil
+	default:
+		return "", fmt.Errorf("invalid video generation mode: %q", mode)
+	}
 }
 
 type Segment struct {
@@ -148,6 +208,15 @@ type Asset struct {
 	IsCurrent          bool      `json:"isCurrent"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
+// SegmentVoiceSettings keeps the MySQL-backed voice controls for one row.
+// Character voice selection is stored on the character asset itself.
+type SegmentVoiceSettings struct {
+	SegmentID    int64   `json:"segmentId"`
+	VoiceAssetID *int64  `json:"voiceAssetId"`
+	SpeechRate   float64 `json:"speechRate"`
+	Pitch        float64 `json:"pitch"`
 }
 
 // AssetGenerationConfig is the project-scoped preset selection used for asset

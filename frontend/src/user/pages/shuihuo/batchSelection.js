@@ -4,15 +4,10 @@ function publicMedia(item) {
 
 export function selectBatchSegmentIds({ segments = [], media = [], kind, scope = 'all', start, end, selectedIds = [] }) {
   const allMedia = media.map(publicMedia);
-  const primaryImageIDs = new Set(
-    allMedia
-      .filter(item => item?.kind === 'image' && item.isPrimary && item.segmentId)
-      .map(item => item.segmentId)
-  );
   const completedIDs = new Set(
     allMedia.filter(item => item?.kind === kind && item.segmentId).map(item => item.segmentId)
   );
-  const eligible = segments.filter(segment => segment.confirmed && (kind !== 'video' || primaryImageIDs.has(segment.id)));
+  const eligible = segments.filter(segment => segment.confirmed);
 
   if (scope === 'incomplete') return eligible.filter(segment => !completedIDs.has(segment.id)).map(segment => segment.id);
   if (scope === 'range') {

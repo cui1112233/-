@@ -127,6 +127,14 @@
   min-width: 0;
 }
 
+.novel-fetch-original-workbench {
+  display: block;
+  width: 100%;
+  min-height: calc(100vh - 72px);
+  border: 0;
+  background: #f6f7f9;
+}
+
 .novel-fetch-summary,
 .novel-fetch-panel {
   padding: 16px;

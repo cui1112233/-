@@ -156,7 +156,8 @@ test('seeds fixed server-only defaults once without overwriting a published edit
   const store = createStore(t);
 
   seedSystemPresets(store, 'owner');
-  assert.equal(store.listAll('script').length, 18);
+  assert.equal(store.listAll('script').length, 19);
+  assert.equal(store.getPublished('script-format-q版').protocolLock.slot, 'script.format.q版');
   assert.equal(store.listAll('novel-panel').length, 3);
   assert.deepEqual(
     store.listAll('shuihuo-production').map(preset => preset.name).sort(),

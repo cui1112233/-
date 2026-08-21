@@ -55,6 +55,11 @@ function downloadText(name, content) {
 }
 
 export function NovelFetchPage() {
+  // 保留原批量改文系统的静态工作台，不再以简化面板替代其完整布局。
+  return <iframe className="novel-fetch-original-workbench" title="批量原文改文系统" src="/batch-rewrite/index.html" />;
+}
+
+export function LegacyNovelFetchPage() {
   const [processForm] = Form.useForm();
   const [configForm] = Form.useForm();
   const [knowledgeForm] = Form.useForm();

@@ -16,6 +16,10 @@ type Tasks struct{ db *sql.DB }
 
 func NewTasks(db *sql.DB) *Tasks { return &Tasks{db: db} }
 
+type taskScanner interface {
+	Scan(...any) error
+}
+
 // ErrTaskSegmentUnavailable means a queued task would no longer have a valid
 // storyboard segment in its project. Callers must refresh the workbench before
 // creating another task.
@@ -92,25 +96,25 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 func (s *Tasks) Get(ctx context.Context, ownerID, taskID int64) (domain.Task, error) {
 	var task domain.Task
-	err := s.db.QueryRowContext(ctx, `
+	err := scanTask(s.db.QueryRowContext(ctx, `
 SELECT t.id, p.user_id, t.project_id, t.segment_id, t.kind, t.status, t.provider, t.provider_task_id, t.model_id, t.model_version_id, t.prompt_version_id,
        t.input_snapshot, t.output_snapshot, t.error_code, t.error_message, t.retry_count
 FROM shuihuo_tasks t
 JOIN shuihuo_projects p ON p.id = t.project_id
 WHERE t.id = ? AND p.user_id = ?
-`, taskID, ownerID).Scan(&task.ID, &task.UserID, &task.ProjectID, &task.SegmentID, &task.Kind, &task.Status, &task.Provider, &task.ProviderTaskID, &task.ModelID, &task.ModelVersionID, &task.PromptVersionID, &task.Input, &task.Output, &task.ErrorCode, &task.ErrorMessage, &task.RetryCount)
+`, taskID, ownerID), &task)
 	return task, err
 }
 
 func (s *Tasks) GetForWorker(ctx context.Context, taskID int64) (domain.Task, error) {
 	var task domain.Task
-	err := s.db.QueryRowContext(ctx, `
+	err := scanTask(s.db.QueryRowContext(ctx, `
 SELECT t.id, p.user_id, t.project_id, t.segment_id, t.kind, t.status, t.provider, t.provider_task_id, t.model_id, t.model_version_id, t.prompt_version_id,
        t.input_snapshot, t.output_snapshot, t.error_code, t.error_message, t.retry_count
 FROM shuihuo_tasks t
 JOIN shuihuo_projects p ON p.id = t.project_id
 WHERE t.id = ?
-`, taskID).Scan(&task.ID, &task.UserID, &task.ProjectID, &task.SegmentID, &task.Kind, &task.Status, &task.Provider, &task.ProviderTaskID, &task.ModelID, &task.ModelVersionID, &task.PromptVersionID, &task.Input, &task.Output, &task.ErrorCode, &task.ErrorMessage, &task.RetryCount)
+`, taskID), &task)
 	return task, err
 }
 
@@ -240,12 +244,21 @@ func scanTasks(rows *sql.Rows) ([]domain.Task, error) {
 	tasks := make([]domain.Task, 0)
 	for rows.Next() {
 		var task domain.Task
-		if err := rows.Scan(&task.ID, &task.UserID, &task.ProjectID, &task.SegmentID, &task.Kind, &task.Status, &task.Provider, &task.ProviderTaskID, &task.ModelID, &task.ModelVersionID, &task.PromptVersionID, &task.Input, &task.Output, &task.ErrorCode, &task.ErrorMessage, &task.RetryCount); err != nil {
+		if err := scanTask(rows, &task); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
+}
+
+func scanTask(row taskScanner, task *domain.Task) error {
+	var providerTaskID sql.NullString
+	if err := row.Scan(&task.ID, &task.UserID, &task.ProjectID, &task.SegmentID, &task.Kind, &task.Status, &task.Provider, &providerTaskID, &task.ModelID, &task.ModelVersionID, &task.PromptVersionID, &task.Input, &task.Output, &task.ErrorCode, &task.ErrorMessage, &task.RetryCount); err != nil {
+		return err
+	}
+	task.ProviderTaskID = providerTaskID.String
+	return nil
 }
 
 func (s *Tasks) ListByProject(ctx context.Context, ownerID, projectID int64) ([]domain.Task, error) {

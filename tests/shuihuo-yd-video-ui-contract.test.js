@@ -8,6 +8,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const adminPage = read('frontend/src/admin/pages/ShuihuoModelCatalogPage.jsx');
 const batchModal = read('frontend/src/user/pages/shuihuo/BatchTaskModal.jsx');
 const engineModal = read('frontend/src/user/pages/shuihuo/EngineSettingsModal.jsx');
+const drawer = read('frontend/src/user/pages/shuihuo/TaskDrawer.jsx');
+const row = read('frontend/src/user/pages/shuihuo/StoryboardRow.jsx');
 
 test('model catalog offers the fixed YD2.0 Mini image-to-video adapter without provider fields', () => {
   assert.match(adminPage, /value:\s*'yd_video',\s*label:\s*'YD2\.0 Mini 图生视频',\s*kind:\s*'video'/);
@@ -18,23 +20,28 @@ test('model catalog offers the fixed YD2.0 Mini image-to-video adapter without p
   assert.doesNotMatch(ydBranch[1], /endpoint|requestTemplate|responseMapping/);
 });
 
-test('YD batch tasks submit an aspect-ratio snapshot and expose only fixed supported controls', () => {
+test('YD batch tasks retain their fixed request snapshot and use the saved engine mode', () => {
   assert.match(batchModal, /selectedModel\?\.adapterKind === 'yd_video'/);
   assert.match(batchModal, /videoSettings:\s*\{\s*aspectRatio:\s*videoAspectRatio\s*\}/);
-  assert.match(batchModal, /const YD_VIDEO_RATIOS = \['9:16', '16:9'\]/);
   assert.match(batchModal, /固定 1 秒/);
-  assert.match(batchModal, /固定 720p/);
-  const ydBranch = batchModal.match(/isYDVideoModel \? <>([\s\S]*?)<\/> : null/);
-  assert.ok(ydBranch, 'YD model must have a dedicated batch-controls branch');
-  assert.doesNotMatch(ydBranch[1], /1:1|5秒|8秒|10秒/);
+  assert.match(batchModal, /仅可用于图生视频/);
+  assert.match(batchModal, /productionConfig\?\.videoGenerationMode === 'text_to_video'/);
 });
 
-test('YD engine controls retain only its fixed capability envelope', () => {
+test('YD task controls allow a bound scene preset without a storyboard primary image', () => {
+  for (const source of [batchModal, drawer]) {
+    assert.doesNotMatch(source, /kind !== 'video' \|\| primaryImageSegmentIds\.has/);
+    assert.doesNotMatch(source, /选择已确认且有主图片的分段/);
+  }
+  assert.doesNotMatch(row, /const canCreateVideo = videoReady && Boolean\(primaryImage\)/);
+  assert.match(row, /const canCreateVideo = videoReady/);
+  assert.match(row, /场景预设图或分镜主图片/);
+});
+
+test('YD engine controls report the image-to-video-only capability', () => {
   assert.match(engineModal, /selectedVideoModel\?\.adapterKind === 'yd_video'/);
-  assert.match(engineModal, /固定 1 秒/);
-  assert.match(engineModal, /固定 720p/);
-  assert.match(engineModal, /const YD_VIDEO_RATIOS = \['9:16', '16:9'\]/);
-  const ydBranch = engineModal.match(/isYDVideoModel \? <>([\s\S]*?)<\/> : </);
-  assert.ok(ydBranch, 'YD model must have a dedicated engine-controls branch');
-  assert.doesNotMatch(ydBranch[1], /1:1|5秒|8秒|10秒/);
+  assert.match(engineModal, /YD2\.0 Mini 仅支持图生视频/);
+  assert.match(engineModal, /videoGenerationMode/);
+  assert.match(engineModal, /value: 'image_to_video', label: '图生视频'/);
+  assert.match(engineModal, /value: 'text_to_video', label: '文生视频'/);
 });

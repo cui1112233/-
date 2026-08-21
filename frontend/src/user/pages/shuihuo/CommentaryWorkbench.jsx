@@ -5,13 +5,14 @@ import { AiReasoningModal } from './AiReasoningModal';
 import { BatchTaskModal } from './BatchTaskModal';
 import { EngineSettingsModal } from './EngineSettingsModal';
 import { MediaModal } from './MediaModal';
-import { StoryboardRow } from './StoryboardRow';
+import { MediaPreview, StoryboardRow } from './StoryboardRow';
 import { TaskDrawer } from './TaskDrawer';
 import { taskReadiness, textReadiness } from './taskReadiness';
-import { attachMedia, confirmSegmentation, deleteSegment, downloadGeneratedAssetImage, exportProject, fixedSegmentation, getProject, importSegmentation, insertStoryboard, listAssetImages, listModels, replaceSegmentAssets, smartSegmentation, updateSegment, uploadMedia } from '../../../shared/api/shuihuoProduction';
+import { attachMedia, confirmSegmentation, createTask, deleteSegment, downloadGeneratedAssetImage, exportProject, fixedSegmentation, getProductionConfig, getProject, importSegmentation, insertStoryboard, listAssetImages, listModels, listSegmentVoiceSettings, replaceSegmentAssets, saveSegmentVoiceSettings, smartSegmentation, updateAsset, updateSegment, uploadMedia } from '../../../shared/api/shuihuoProduction';
 import { textToSpeech } from '../../../shared/api/tts';
 import { getConfig } from '../../../shared/api/config';
 import { audioBlobToDataUrl, narrationFilename, resolveNarrationSettings, resolveSpeakerVoiceAsset } from './directNarration';
+import { defaultModelIdForKind } from './modelDefaults';
 import { contiguousFollowingSceneSegments, sameAssetSet, sceneAssetIdsForSegment } from './sceneContinuity';
 
 const blankInsert = { sourceText: '', subtitleText: '' };
@@ -20,18 +21,9 @@ const defaultVoiceSettings = { voiceAssetId: null, speechRate: 1, pitch: 0 };
 const segmentationPromptOptions = [{ value: 'default', label: '选择提示词' }];
 const assetCategoryLabels = { character: '角色', scene: '场景', prop: '道具' };
 
-function voiceSettingsStorageKey(projectId) { return `qiantie:shuihuo:voice-settings:${projectId}`; }
-
-function loadVoiceSettings(projectId) {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(voiceSettingsStorageKey(projectId)) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch { return {}; }
-}
-
 function countMedia(items, kind) { return (items || []).map(safeMedia).filter(item => item?.kind === kind).length; }
 
-function BindingAssetPreview({ asset }) {
+function BindingAssetPreview({ asset, onPreview }) {
   const [url, setUrl] = useState('');
 
   useEffect(() => {
@@ -53,7 +45,7 @@ function BindingAssetPreview({ asset }) {
     };
   }, [asset.id]);
 
-  if (url) return <img src={url} alt={`${asset.name}预设图`} />;
+  if (url) return <button type="button" className="shuihuo-binding-asset-preview" title="放大查看预设图" onClick={event => { event.preventDefault(); event.stopPropagation(); onPreview(asset); }}><img src={url} alt={`${asset.name}预设图`} /></button>;
   return <small>{asset.prompt || '未填写预设提示词'}</small>;
 }
 
@@ -79,9 +71,12 @@ export function CommentaryWorkbench({ data, readiness, importNotice, onBackToPro
   const [exporting, setExporting] = useState(false);
   const [expandedField, setExpandedField] = useState(null);
   const [mediaUpload, setMediaUpload] = useState(null);
-  const [voiceSettingsBySegment, setVoiceSettingsBySegment] = useState(() => loadVoiceSettings(data.project?.id));
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [assetPreview, setAssetPreview] = useState(null);
+  const [voiceSettingsBySegment, setVoiceSettingsBySegment] = useState({});
   const [voiceConfiguring, setVoiceConfiguring] = useState(null);
   const [narratingSegmentIds, setNarratingSegmentIds] = useState(() => new Set());
+  const [submittingTaskSegmentIds, setSubmittingTaskSegmentIds] = useState(() => new Set());
   const segmentationFileRef = useRef(null);
   const project = data.project;
   const media = data.media || [];
@@ -116,14 +111,45 @@ export function CommentaryWorkbench({ data, readiness, importNotice, onBackToPro
   }, [data.segments, project.sourceText, segmenting]);
 
   useEffect(() => {
-    setVoiceSettingsBySegment(loadVoiceSettings(project.id));
+    let active = true;
     setVoiceConfiguring(null);
+    setVoiceSettingsBySegment({});
+    listSegmentVoiceSettings(project.id).then(result => {
+      if (active) setVoiceSettingsBySegment(result.settings || {});
+    }).catch(error => { if (active) message.error(error.message || '读取配音设置失败'); });
+    return () => { active = false; };
   }, [project.id]);
+
+  useEffect(() => () => {
+    if (assetPreview?.url) URL.revokeObjectURL(assetPreview.url);
+  }, [assetPreview?.url]);
 
   function boundAssets(segment) { return (bindings[segment.id] || []).map(id => data.assets?.find(asset => asset.id === id)).filter(Boolean); }
   function settingsFor(segmentId) { return { ...defaultVoiceSettings, ...(voiceSettingsBySegment[segmentId] || {}) }; }
   function selectedVoiceAsset(segment, settings) {
     return resolveSpeakerVoiceAsset({ speaker: segment?.speaker, assets: data.assets || [], narratorVoiceAssetId: settings.voiceAssetId });
+  }
+  function openVoiceSettings(segment, focus = 'voice') {
+    const settings = settingsFor(segment.id);
+    const voice = selectedVoiceAsset(segment, settings);
+    setVoiceConfiguring({ segment, focus, settings: { ...settings, voiceAssetId: voice?.id ?? settings.voiceAssetId } });
+  }
+  async function openAssetPreview(asset) {
+    setAssetPreview({ asset, url: '' });
+    try {
+      const result = await listAssetImages(asset.id);
+      const image = (result.images || []).find(item => item.isPrimary) || result.images?.[0];
+      if (!image) throw new Error('该预设还没有生成图片');
+      const blob = await downloadGeneratedAssetImage(image.id);
+      const url = URL.createObjectURL(blob);
+      setAssetPreview(current => {
+        if (current?.url) URL.revokeObjectURL(current.url);
+        return { asset, url };
+      });
+    } catch (error) {
+      setAssetPreview(null);
+      message.error(error.message || '读取预设图片失败');
+    }
   }
   async function generateNarrationForSegment(segmentId, { refresh = true } = {}) {
     const segment = (data.segments || []).find(item => item.id === segmentId);
@@ -167,14 +193,31 @@ export function CommentaryWorkbench({ data, readiness, importNotice, onBackToPro
     if (completed) message.success(`已生成并保存 ${completed} 条配音`);
     if (failures.length) message.error(`${failures.length} 条配音未生成：${failures[0]}`);
   }
-  function saveVoiceSettings() {
+  async function saveVoiceSettings() {
     if (!voiceConfiguring) return;
     const { segment, settings } = voiceConfiguring;
-    const next = { ...voiceSettingsBySegment, [segment.id]: { ...defaultVoiceSettings, ...settings } };
-    setVoiceSettingsBySegment(next);
-    window.localStorage.setItem(voiceSettingsStorageKey(project.id), JSON.stringify(next));
-    setVoiceConfiguring(null);
-    message.success('配音设置已保存');
+    const speaker = String(segment.speaker || '旁白').trim() || '旁白';
+    setBusy(true);
+    try {
+      if (speaker !== '旁白') {
+        const character = (data.assets || []).find(asset => asset.category === 'character' && asset.name === speaker);
+        if (!character) throw new Error(`未找到“${speaker}”角色预设，无法绑定角色音色`);
+        await updateAsset(character.id, { ...character, voiceAssetId: settings.voiceAssetId ?? null });
+      }
+      const saved = await saveSegmentVoiceSettings(segment.id, {
+        voiceAssetId: speaker === '旁白' ? settings.voiceAssetId ?? null : null,
+        speechRate: Number(settings.speechRate ?? 1),
+        pitch: Number(settings.pitch ?? 0)
+      });
+      setVoiceSettingsBySegment(current => ({ ...current, [segment.id]: { ...defaultVoiceSettings, ...saved } }));
+      setVoiceConfiguring(null);
+      await refreshProject();
+      message.success('配音设置已保存');
+    } catch (error) {
+      message.error(error.message || '保存配音设置失败');
+    } finally {
+      setBusy(false);
+    }
   }
   async function refreshProject() { onDataChange(await getProject(project.id)); }
   function applyReadModel(next) { onDataChange(next); }
@@ -361,6 +404,34 @@ export function CommentaryWorkbench({ data, readiness, importNotice, onBackToPro
     }
   }
   async function removeStoryboard(segmentId) { await deleteSegment(segmentId); return getProject(project.id); }
+  async function createConfiguredTask(kind, segmentId) {
+    const label = kind === 'image' ? '图片' : kind === 'video' ? '视频' : '任务';
+    const segmentOrder = (data.segments || []).find(segment => segment.id === segmentId)?.orderIndex || segmentId;
+    setSubmittingTaskSegmentIds(current => new Set([...current, segmentId]));
+    try {
+      const [config, modelResult] = await Promise.all([getProductionConfig(), listModels()]);
+      const models = (modelResult.models || []).filter(model => model?.kind === kind);
+      const modelId = defaultModelIdForKind(models, kind, config?.[`${kind}ModelId`]);
+      if (modelId === undefined || modelId === null) {
+        throw new Error(`请先在引擎配置中选择${label}模型`);
+      }
+      const selectedModel = models.find(model => model.id === modelId);
+      if (kind === 'video' && config?.videoGenerationMode === 'text_to_video' && selectedModel?.adapterKind === 'yd_video') {
+        throw new Error('YD2.0 Mini 仅支持图生视频，请在引擎配置中切换图生视频或选择文生视频模型');
+      }
+      await createTask(project.id, { segmentId, kind, modelId });
+      await refreshProject();
+      message.success(`已提交第 ${segmentOrder} 个分镜${label}任务`);
+    } catch (error) {
+      message.error(error.message || `${label}任务提交失败`);
+    } finally {
+      setSubmittingTaskSegmentIds(current => {
+        const next = new Set(current);
+        next.delete(segmentId);
+        return next;
+      });
+    }
+  }
   async function downloadProjectExport() {
     setExporting(true);
     try {
@@ -398,7 +469,7 @@ export function CommentaryWorkbench({ data, readiness, importNotice, onBackToPro
   return <section className="shuihuo-workbench">
     <header className="shuihuo-workbench-header"><div className="shuihuo-workbench-heading"><button className="shuihuo-back-link" type="button" title="返回项目库" aria-label="返回项目库" onClick={onBackToProjects}><ArrowLeftOutlined /></button><strong>{project.name}</strong><div className="shuihuo-workbench-progress" aria-label={`完成度 ${completionPercent}%`}><div className="shuihuo-workbench-progress-track"><i style={{ width: `${completionPercent}%` }} /></div><span>{completionPercent}%</span></div></div><div className="shuihuo-workbench-toolbar" role="toolbar" aria-label="工作台工具栏"><Button type="text" icon={<BarsOutlined />} onClick={() => { setSegmentMode('fixed'); setSegmenting(true); }}>分镜调整</Button><Button type="text" icon={<AppstoreOutlined />} onClick={onOpenAssets}>人物场景预设</Button><Button type="text" icon={<SettingOutlined />} onClick={() => setEngineOpen(true)}>引擎配置</Button><Tooltip title={textReady ? '按模型生成并应用提示词候选' : '需要可用的文本模型'}><Button type="text" icon={<FileSearchOutlined />} disabled={!confirmed || !textReady} onClick={() => setAiReasoningOpen(true)}>AI 推理</Button></Tooltip><Dropdown menu={{ items: batchItems, onClick: ({ key }) => key === 'audio' ? generateNarrations(data.segments?.map(item => item.id) || []) : setBatch({ kind: key, segmentIds: data.segments?.map(item => item.id) || [], initialScope: 'all' }) }}><Button className="shuihuo-batch-button" type="text" icon={<PictureOutlined />} disabled={!confirmed}>批量操作</Button></Dropdown><Tooltip title="查看排队或运行中的任务并逐项取消"><Button className="shuihuo-cancel-button" type="text" onClick={openActiveTasks}>取消操作</Button></Tooltip></div><div className="shuihuo-workbench-export"><Button type="text" icon={<BarsOutlined />} onClick={openAllTasks}>任务/日志</Button><Tooltip title={confirmed ? '导出已确认分镜、字幕和已保存素材' : '请先确认至少一个分镜'}><Button icon={<ExportOutlined />} disabled={!confirmed || exporting} loading={exporting} onClick={downloadProjectExport}>导出剪映</Button></Tooltip></div><div className="shuihuo-project-stats"><span><b>{stats.storyboard}</b> 分镜</span><span><b>{stats.image}</b> 图片</span><span><b>{stats.video}</b> 视频</span><span><b>{stats.audio}</b> 音频</span></div>{importNotice ? <span className="shuihuo-import-success">成功导入 {importNotice} 条文本</span> : null}</header>
     {!confirmed ? <Alert showIcon type="info" className="shuihuo-workbench-notice" message="分镜尚未确认" description="候选分镜可反复修改；确认前不允许提交图片、视频或配音任务。" /> : null}
-    <div className="shuihuo-workbench-table" role="table" aria-label="漫剧解说分镜生产表"><div className="shuihuo-workbench-head" role="row">{['序号', '字幕', '配音', '预设', '提示词', '片段库', '操作'].map(item => <div role="columnheader" key={item}>{item}</div>)}</div>{(data.segments || []).map((segment, index) => { const settings = settingsFor(segment.id); const asset = selectedVoiceAsset(segment, settings); const speakers = [...new Set(['旁白', segment.speaker || '旁白', ...boundAssets(segment).filter(item => item.category === 'character').map(item => item.name)])]; return <StoryboardRow key={segment.id} index={index} segment={segment} assets={boundAssets(segment)} speakerOptions={speakers} media={media} sourceUnitIds={data.segmentSourceUnitIDs?.[segment.id] || []} voiceSettings={settings} voiceLabel={asset?.name} imageReady={imageReady} imageUnavailableReason={imageAvailability.reason} videoReady={videoReady} videoUnavailableReason={videoAvailability.reason} audioReady={directNarrationReady} audioUnavailableReason={directNarrationReason} narrationGenerating={narratingSegmentIds.has(segment.id)} onDataChange={applyReadModel} onRefresh={refreshProject} onConfigureVoice={(target, field = 'voice') => setVoiceConfiguring({ segment: target, focus: field, settings: settingsFor(target.id) })} onChangeSpeaker={saveSpeaker} onExpandField={({ segment: target, field, label }) => setExpandedField({ segment: target, field, label, value: target[field] || (field === 'subtitleText' ? target.sourceText || '' : '') })} onBindAssets={openBinding} onUploadMedia={(kind, target) => setMediaUpload({ kind, segmentId: target.id })} onGenerateNarration={target => generateNarrations([target.id])} onTask={(kind, segmentId) => setBatch({ kind, segmentIds: [segmentId], initialScope: 'selected' })} onDelete={removeStoryboard} onInsertAfter={target => setInsertAfter({ id: target.id, ...blankInsert })} />; })}{!data.segments?.length ? <div className="shuihuo-workbench-empty">还没有分镜。使用顶部“分镜调整”创建候选并确认。</div> : null}</div>
+    <div className="shuihuo-workbench-table" role="table" aria-label="漫剧解说分镜生产表"><div className="shuihuo-workbench-head" role="row">{['序号', '字幕', '配音', '预设', '提示词', '片段库', '操作'].map(item => <div role="columnheader" key={item}>{item}</div>)}</div>{(data.segments || []).map((segment, index) => { const settings = settingsFor(segment.id); const asset = selectedVoiceAsset(segment, settings); const speakers = [...new Set(['旁白', segment.speaker || '旁白', ...boundAssets(segment).filter(item => item.category === 'character').map(item => item.name)])]; return <StoryboardRow key={segment.id} index={index} segment={segment} assets={boundAssets(segment)} speakerOptions={speakers} media={media} sourceUnitIds={data.segmentSourceUnitIDs?.[segment.id] || []} voiceSettings={settings} voiceLabel={asset?.name} imageReady={imageReady} imageUnavailableReason={imageAvailability.reason} videoReady={videoReady} videoUnavailableReason={videoAvailability.reason} audioReady={directNarrationReady} audioUnavailableReason={directNarrationReason} narrationGenerating={narratingSegmentIds.has(segment.id)} taskSubmitting={submittingTaskSegmentIds.has(segment.id)} onDataChange={applyReadModel} onRefresh={refreshProject} onConfigureVoice={openVoiceSettings} onChangeSpeaker={saveSpeaker} onExpandField={({ segment: target, field, label }) => setExpandedField({ segment: target, field, label, value: target[field] || (field === 'subtitleText' ? target.sourceText || '' : '') })} onBindAssets={openBinding} onUploadMedia={(kind, target) => setMediaUpload({ kind, segmentId: target.id })} onPreviewMedia={setMediaPreview} onGenerateNarration={target => generateNarrations([target.id])} onTask={createConfiguredTask} onDelete={removeStoryboard} onInsertAfter={target => setInsertAfter({ id: target.id, ...blankInsert })} />; })}{!data.segments?.length ? <div className="shuihuo-workbench-empty">还没有分镜。使用顶部“分镜调整”创建候选并确认。</div> : null}</div>
     <Modal
       title={<span className="shuihuo-segmentation-title">分镜调整 <Tooltip title="导入、AI 分镜或按行拆分后，点击确认应用才会覆盖当前分镜。">?</Tooltip></span>}
       open={segmenting}
@@ -432,12 +503,14 @@ export function CommentaryWorkbench({ data, readiness, importNotice, onBackToPro
     </Modal>
     <Modal title="编辑字幕与提示词" open={Boolean(editing)} onCancel={() => setEditing(null)} onOk={saveEditing} okText="保存" confirmLoading={busy} width={760}><label className="shuihuo-form-label">字幕</label><Input.TextArea value={editing?.subtitleText || ''} onChange={event => setEditing(item => ({ ...item, subtitleText: event.target.value }))} rows={4} /><label className="shuihuo-form-label">发言者</label><Input value={editing?.speaker || '旁白'} onChange={event => setEditing(item => ({ ...item, speaker: event.target.value }))} placeholder="旁白或角色名" /><label className="shuihuo-form-label">图片提示词</label><Input.TextArea value={editing?.imagePrompt || ''} onChange={event => setEditing(item => ({ ...item, imagePrompt: event.target.value }))} rows={4} /><Checkbox checked={Boolean(editing?.imagePromptLocked)} onChange={event => setEditing(item => ({ ...item, imagePromptLocked: event.target.checked }))}>锁定图片提示词</Checkbox><label className="shuihuo-form-label">视频提示词</label><Input.TextArea value={editing?.videoPrompt || ''} onChange={event => setEditing(item => ({ ...item, videoPrompt: event.target.value }))} rows={4} /><Checkbox checked={Boolean(editing?.videoPromptLocked)} onChange={event => setEditing(item => ({ ...item, videoPromptLocked: event.target.checked }))}>锁定视频提示词</Checkbox></Modal>
     <Modal title="放大编辑" open={Boolean(expandedField)} onCancel={() => setExpandedField(null)} onOk={saveExpandedField} okText="保存" confirmLoading={busy} width={820}><label className="shuihuo-form-label">{expandedField?.label}</label><Input.TextArea value={expandedField?.value || ''} onChange={event => setExpandedField(item => ({ ...item, value: event.target.value }))} rows={16} autoFocus /></Modal>
-    <Modal title="配音设置" open={Boolean(voiceConfiguring)} onCancel={() => setVoiceConfiguring(null)} onOk={saveVoiceSettings} okText="保存配音设置">{(voiceConfiguring?.segment?.speaker || '旁白') === '旁白' ? <><label className="shuihuo-form-label">旁白音色</label><Select allowClear autoFocus={voiceConfiguring?.focus === 'voice'} value={voiceConfiguring?.settings.voiceAssetId ?? undefined} placeholder={voiceAssets.length ? '选择项目音色库中的旁白音色' : '暂无音色，请先在人物场景预设中创建'} options={voiceAssets.map(asset => ({ value: asset.id, label: asset.name }))} onChange={voiceAssetId => setVoiceConfiguring(current => ({ ...current, settings: { ...current.settings, voiceAssetId: voiceAssetId ?? null } }))} /></> : <p className="shuihuo-modal-note">当前发言者为“{voiceConfiguring?.segment?.speaker}”。其音色由“人物场景预设”中的角色音色绑定决定。</p>}<label className="shuihuo-form-label">配音语速</label><InputNumber autoFocus={voiceConfiguring?.focus === 'speechRate'} min={0.5} max={2} step={0.1} value={voiceConfiguring?.settings.speechRate ?? 1} onChange={speechRate => setVoiceConfiguring(current => ({ ...current, settings: { ...current.settings, speechRate: speechRate ?? 1 } }))} /><label className="shuihuo-form-label">音调</label><InputNumber autoFocus={voiceConfiguring?.focus === 'pitch'} min={-50} max={50} step={1} value={voiceConfiguring?.settings.pitch ?? 0} onChange={pitch => setVoiceConfiguring(current => ({ ...current, settings: { ...current.settings, pitch: pitch ?? 0 } }))} />{!voiceAssets.length ? <p className="shuihuo-modal-note">在“人物场景预设”创建分类为“音色”的项目预设后，即可选择旁白或绑定给角色。</p> : null}</Modal>
-    <Modal title={`添加${assetCategoryLabels[binding?.category] || '预设'}`} open={Boolean(binding)} onCancel={() => setBinding(null)} onOk={saveBinding} okText="保存绑定" confirmLoading={busy}><div className="shuihuo-binding-list">{bindingAssets.map(asset => <Checkbox key={asset.id} checked={selectedAssetIds.includes(asset.id)} onChange={event => setSelectedAssetIds(ids => event.target.checked ? [...new Set([...ids, asset.id])] : ids.filter(id => id !== asset.id))}><span className="shuihuo-binding-asset"><b>{asset.name}</b><BindingAssetPreview asset={asset} /></span></Checkbox>)}{!bindingAssets.length ? <span className="shuihuo-muted">还没有${assetCategoryLabels[binding?.category] || ''}预设，请先在人物场景预设中创建。</span> : null}</div></Modal>
+    <Modal title="配音设置" open={Boolean(voiceConfiguring)} onCancel={() => setVoiceConfiguring(null)} onOk={saveVoiceSettings} confirmLoading={busy} okText="保存配音设置"><label className="shuihuo-form-label">{(voiceConfiguring?.segment?.speaker || '旁白') === '旁白' ? '旁白音色' : `角色“${voiceConfiguring?.segment?.speaker}”音色`}</label><Select allowClear autoFocus={voiceConfiguring?.focus === 'voice'} value={voiceConfiguring?.settings.voiceAssetId ?? undefined} placeholder={voiceAssets.length ? '选择项目音色库中的可调用音色' : '暂无音色，请先在人物场景预设中创建'} options={voiceAssets.map(asset => ({ value: asset.id, label: asset.name }))} onChange={voiceAssetId => setVoiceConfiguring(current => ({ ...current, settings: { ...current.settings, voiceAssetId: voiceAssetId ?? null } }))} />{(voiceConfiguring?.segment?.speaker || '旁白') !== '旁白' ? <p className="shuihuo-modal-note">角色音色绑定保存后会写入该角色预设，之后同名角色分镜会自动使用这个音色。</p> : null}<label className="shuihuo-form-label">配音语速</label><InputNumber autoFocus={voiceConfiguring?.focus === 'speechRate'} min={0.5} max={2} step={0.1} value={voiceConfiguring?.settings.speechRate ?? 1} onChange={speechRate => setVoiceConfiguring(current => ({ ...current, settings: { ...current.settings, speechRate: speechRate ?? 1 } }))} /><label className="shuihuo-form-label">音调</label><InputNumber autoFocus={voiceConfiguring?.focus === 'pitch'} min={-50} max={50} step={1} value={voiceConfiguring?.settings.pitch ?? 0} onChange={pitch => setVoiceConfiguring(current => ({ ...current, settings: { ...current.settings, pitch: pitch ?? 0 } }))} />{!voiceAssets.length ? <p className="shuihuo-modal-note">在“人物场景预设”创建分类为“音色”的项目预设后，即可选择旁白或绑定给角色。</p> : null}</Modal>
+    <Modal title={`添加${assetCategoryLabels[binding?.category] || '预设'}`} open={Boolean(binding)} onCancel={() => setBinding(null)} onOk={saveBinding} okText="保存绑定" confirmLoading={busy}><div className="shuihuo-binding-list">{bindingAssets.map(asset => <Checkbox key={asset.id} checked={selectedAssetIds.includes(asset.id)} onChange={event => setSelectedAssetIds(ids => event.target.checked ? [...new Set([...ids, asset.id])] : ids.filter(id => id !== asset.id))}><span className="shuihuo-binding-asset"><b>{asset.name}</b><BindingAssetPreview asset={asset} onPreview={openAssetPreview} /></span></Checkbox>)}{!bindingAssets.length ? <span className="shuihuo-muted">还没有${assetCategoryLabels[binding?.category] || ''}预设，请先在人物场景预设中创建。</span> : null}</div></Modal>
     <Modal title="在后方新增分镜" open={Boolean(insertAfter)} onCancel={() => setInsertAfter(null)} onOk={saveInsert} okText="新增分镜" confirmLoading={busy}><label className="shuihuo-form-label">原文</label><Input.TextArea value={insertAfter?.sourceText || ''} onChange={event => setInsertAfter(item => ({ ...item, sourceText: event.target.value }))} rows={5} /><label className="shuihuo-form-label">字幕（可选）</label><Input.TextArea value={insertAfter?.subtitleText || ''} onChange={event => setInsertAfter(item => ({ ...item, subtitleText: event.target.value }))} rows={3} /></Modal>
     <EngineSettingsModal open={engineOpen} onClose={() => setEngineOpen(false)} />
     <AiReasoningModal open={aiReasoningOpen} projectId={project.id} segments={data.segments || []} onClose={() => setAiReasoningOpen(false)} onApplied={refreshProject} />
     <MediaModal open={Boolean(mediaUpload)} projectId={project.id} segments={data.segments || []} saving={busy} onCancel={() => setMediaUpload(null)} onUpload={saveMediaUpload} initialKind={mediaUpload?.kind || 'image'} initialSegmentId={mediaUpload?.segmentId} />
+    <Modal title={mediaPreview?.kind === 'video' ? '视频预览' : '图片预览'} open={Boolean(mediaPreview)} footer={null} onCancel={() => setMediaPreview(null)} width={mediaPreview?.kind === 'video' ? 900 : 760} destroyOnClose><div className={`shuihuo-media-modal-preview is-${mediaPreview?.kind || 'image'}`}>{mediaPreview ? <MediaPreview media={safeMedia(mediaPreview)} /> : null}</div></Modal>
+    <Modal title={assetPreview?.asset?.name ? `${assetPreview.asset.name}预设图` : '预设图预览'} open={Boolean(assetPreview)} footer={null} onCancel={() => setAssetPreview(null)} width={900} destroyOnClose><div className="shuihuo-media-modal-preview is-image">{assetPreview?.url ? <img src={assetPreview.url} alt={`${assetPreview.asset.name}预设图`} /> : <span className="shuihuo-muted">读取真实预设图片...</span>}</div></Modal>
     <BatchTaskModal open={Boolean(batch)} projectId={project.id} segments={data.segments || []} media={media} kind={batch?.kind || 'image'} availability={batch?.kind === 'video' ? videoAvailability : imageAvailability} initialSegmentIds={batch?.segmentIds || []} initialScope={batch?.initialScope || 'all'} onClose={() => setBatch(null)} onSubmitted={refreshProject} />
     <TaskDrawer open={tasksOpen} taskFilter={taskFilter} project={project} segments={data.segments || []} media={media} readiness={readiness} onClose={() => setTasksOpen(false)} onCompleted={refreshProject} />
   </section>;

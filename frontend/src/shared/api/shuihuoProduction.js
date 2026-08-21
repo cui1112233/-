@@ -12,6 +12,7 @@ export function listProjects() { return apiRequest(`${base}/projects`); }
 export function createProject(payload) { return apiRequest(`${base}/projects`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function importProject(payload) { return apiRequest(`${base}/projects/import`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function getProject(id) { return apiRequest(`${base}/projects/${id}`); }
+export function listSegmentVoiceSettings(projectId) { return apiRequest(`${base}/projects/${projectId}/voice-settings`); }
 export function replaceProjectSource(id, payload) { return apiRequest(`${base}/projects/${id}/source`, { method: 'PUT', body: JSON.stringify(payload) }); }
 export function deleteProject(id) { return apiRequest(`${base}/projects/${id}`, { method: 'DELETE' }); }
 export function listProjectFiles(projectId) { return apiRequest(`${base}/projects/${projectId}/files`); }
@@ -28,6 +29,7 @@ export function deleteAssetTemplate(id) { return apiRequest(`${base}/asset-templ
 export function createAsset(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function uploadAssetImage(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets/image`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function downloadAssetImage(assetId) { return apiRequest(`${base}/assets/${assetId}/image`, { responseType: 'blob' }); }
+export function replaceAssetImage(assetId, payload) { return apiRequest(`${base}/assets/${assetId}/image`, { method: 'PUT', body: JSON.stringify(payload) }); }
 export function generateAssetImages(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/assets/generate`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function listAssetImages(assetId) { return apiRequest(`${base}/assets/${assetId}/images`); }
 export function setPrimaryAssetImage(assetImageId) { return apiRequest(`${base}/asset-images/${assetImageId}/primary`, { method: 'PUT' }); }
@@ -47,6 +49,7 @@ export function applyPromptCandidates(projectId, kind, candidates) { return apiR
 export function confirmSegmentation(projectId, candidates) { return apiRequest(`${base}/projects/${projectId}/segmentation/confirm`, { method: 'POST', body: JSON.stringify({ candidates }) }); }
 export function createSegment(projectId, payload) { return apiRequest(`${base}/projects/${projectId}/segments`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function updateSegment(segmentId, payload) { return apiRequest(`${base}/segments/${segmentId}`, { method: 'PUT', body: JSON.stringify(payload) }); }
+export function saveSegmentVoiceSettings(segmentId, payload) { return apiRequest(`${base}/segments/${segmentId}/voice-settings`, { method: 'PUT', body: JSON.stringify(payload) }); }
 export function deleteSegment(segmentId) { return apiRequest(`${base}/segments/${segmentId}`, { method: 'DELETE' }); }
 export function mergeStoryboard(segmentId) { return apiRequest(`${base}/segments/${segmentId}/merge-up`, { method: 'POST' }); }
 export function splitStoryboard(segmentId) { return apiRequest(`${base}/segments/${segmentId}/split`, { method: 'POST' }); }

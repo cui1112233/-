@@ -7,7 +7,8 @@ const rows = [
   { key: 'screenplay', name: '剧情模式', type: '输出格式', status: '启用' },
   { key: 'storyboard', name: '画布模式', type: '输出格式', status: '启用' },
   { key: 'shortdrama', name: '剧本模式', type: '输出格式', status: '启用' },
-  { key: 'shotlist', name: '分镜模式', type: '输出格式', status: '启用' }
+  { key: 'shotlist', name: '分镜模式', type: '输出格式', status: '启用' },
+  { key: 'q版', name: 'Q版模式', type: '输出格式', status: '启用' }
 ];
 
 export function PromptStrategyPage() {

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>剧本生成 — 一战晟铭</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body data-active-page="script">
+
+<!-- ============================================
+     Sidebar
+     ============================================ -->
+<nav id="sidebar">
+  <div class="nav-header">
+    <button id="nav-toggle" type="button" title="收起/展开导航">☰</button>
+    <div class="nav-brand-container">
+      <img class="nav-logo" src="/assets/logo-transparent.png" alt="一战晟铭 logo">
+      <span class="nav-brand">一战晟铭</span>
+    </div>
+  </div>
+  <ul id="nav-list">
+    <li class="nav-item" data-href="/">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-text">首页</span>
+    </li>
+    <li class="nav-item active" data-href="/script">
+      <span class="nav-icon">📝</span>
+      <span class="nav-text">剧本生成</span>
+    </li>
+    <li class="nav-item" data-href="/agent">
+      <span class="nav-icon">🤖</span>
+      <span class="nav-text">Agent工作区</span>
+    </li>
+    <li class="nav-item" data-href="/tts">
+      <span class="nav-icon">🎙️</span>
+      <span class="nav-text">配音</span>
+    </li>
+  </ul>
+  <div class="nav-footer">
+    <button id="theme-toggle" class="nav-item theme-toggle-btn" type="button" title="切换主题">
+      <span class="nav-icon" id="theme-icon">🌙</span>
+      <span class="nav-text">切换主题</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ============================================
+     Main Area
+     ============================================ -->
+<div id="main">
+
+  <!-- Topbar -->
+  <div id="topbar">
+    <span id="page-title">剧本生成</span>
+    <button class="btn-open-settings" type="button" title="设置">⚙️</button>
+  </div>
+
+  <!-- Progress Bar -->
+  <div id="progress-bar">
+    <div id="step1" class="step1"></div>
+    <div class="step-divider"></div>
+    <div id="step2" class="step2"></div>
+  </div>
+
+  <!-- Page: Script -->
+  <div id="page-script" class="page-container active">
+    <!-- Left Panel -->
+    <div class="left-panel">
+      <div class="left-panel-scroll">
+        <textarea
+          id="novel-input"
+          class="novel-input"
+          placeholder="在此粘贴小说章节内容..."
+        ></textarea>
+
+        <button id="btn-generate" class="btn-generate" type="button">
+          🔍 提取人物与场景
+        </button>
+
+        <div id="gen-controls">
+          <select id="gen-format-select" class="gen-format-select">
+            <option value="storyboard" selected>画布模式</option>
+            <option value="shortdrama">剧本模式</option>
+            <option value="screenplay">剧情模式</option>
+            <option value="q版">Q版模式</option>
+          </select>
+          <button id="btn-exec-generate" class="btn-exec-generate" type="button">▶ 一键生成</button>
+        </div>
+
+        <div id="loading-status" class="loading-status">
+          <div class="spinner"></div>
+          <span id="loading-text">提取人物和场景中...</span>
+        </div>
+
+        <!-- Character Section -->
+        <div id="char-section" class="card-section">
+          <div class="card-section-header">
+            <span class="card-section-title">👤 人物 <span id="char-count" class="card-section-count">0</span></span>
+            <button class="card-section-regen" id="btn-regen-chars" title="重新提取人物">🔄</button>
+          </div>
+          <div id="char-list" class="card-list">
+            <!-- dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Scene Section -->
+        <div id="scene-section" class="card-section">
+          <div class="card-section-header">
+            <span class="card-section-title">🎬 场景 <span id="scene-count" class="card-section-count">0</span></span>
+            <button class="card-section-regen" id="btn-regen-scenes" title="重新提取场景">🔄</button>
+          </div>
+          <div id="scene-list" class="card-list">
+            <!-- dynamically populated -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <div class="resize-handle" id="resize-handle"></div>
+    <!-- Right Panel -->
+    <div class="right-panel">
+      <div id="format-tabs" class="format-tabs">
+        <div class="mode-switch" id="mode-switch" title="连续开头 / 爆款开头">
+          <span class="mode-switch-label left active" data-mode="continuous">连续开头</span>
+          <span class="mode-switch-label right" data-mode="hook">爆款开头</span>
+          <span class="mode-switch-slider left"></span>
+        </div>
+        <div class="format-tabs-spacer"></div>
+        <div class="duration-toggle" id="duration-toggle">
+          <button class="duration-btn active" data-dur="10s">10s</button>
+          <button class="duration-btn" data-dur="15s">15s</button>
+        </div>
+      </div>
+
+      <div class="canvas-toolbar" id="canvas-toolbar">
+        <span class="canvas-mode-name" id="canvas-mode-name">画布模式</span>
+        <div class="canvas-actions">
+          <button class="canvas-action-btn" id="canvas-btn-duration">10s ▼</button>
+          <button class="canvas-action-btn" id="canvas-btn-regenerate">🔄 重新生成</button>
+          <button class="canvas-action-btn" id="canvas-btn-copy">📋 复制</button>
+          <button class="canvas-action-btn" id="canvas-btn-export">💾 导出</button>
+          <button class="canvas-action-btn" id="canvas-btn-fullscreen">📺 全屏</button>
+        </div>
+      </div>
+
+      <div id="output-area" class="output-area">
+        <div class="empty-state">
+          <div class="empty-icon">📄</div>
+          <div class="empty-text">粘贴小说内容，点击"提取人物与场景"开始</div>
+        </div>
+      </div>
+    </div>
+    <div class="hidden-actions">
+      <button id="btn-regenerate">重新生成</button>
+      <button id="btn-copy">复制</button>
+      <button id="btn-export">导出</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Settings Modal
+     ============================================ -->
+<div id="settings-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">⚙️ API 设置</div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">API 提供商</label>
+        <select id="settings-provider" class="form-select">
+          <option value="openai">OpenAI</option>
+          <option value="claude">Claude</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="qwen">通义千问</option>
+          <option value="custom">自定义</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Key</label>
+        <input id="settings-apikey" class="form-input" type="password" placeholder="输入你的 API Key">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Base URL</label>
+        <input id="settings-baseurl" class="form-input" type="text" placeholder="https://api.openai.com/v1">
+      </div>
+      <div class="form-group">
+        <label class="form-label">模型名称</label>
+        <input id="settings-model" class="form-input" type="text" placeholder="gpt-4o">
+      </div>
+      <div id="test-result" class="test-result"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-test-connection" class="btn btn-secondary" type="button">🔌 测试连接</button>
+      <button id="btn-save-settings" class="btn btn-primary" type="button">保存</button>
+      <button id="btn-close-settings" class="btn btn-secondary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================
+     Edit Modal (character / scene)
+     ============================================ -->
+<div id="edit-modal" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-title" id="edit-modal-title">编辑</div>
+    <div class="modal-body">
+      <textarea id="edit-modal-textarea" class="form-textarea" placeholder="编辑内容..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-save-edit" class="btn btn-primary" type="button">保存</button>
+      <button id="btn-close-edit" class="btn btn-secondary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============================================
+     Toast Container
+     ============================================ -->
+<div id="toast-container"></div>
+
+<!-- ============================================
+     Mobile Sidebar Overlay
+     ============================================ -->
+<div id="mobile-overlay"></div>
+
+<script src="/js/common.js"></script>
+<script src="/js/script.js"></script>
+
+</body>
+</html>

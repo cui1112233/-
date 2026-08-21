@@ -367,6 +367,10 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
   CONSTRAINT fk_video_api_configs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `},
+	{version: 34, sql: ydVideoModelMigrationSQL, apply: applyYDVideoModelMigration},
+	{version: 35, apply: addShuihuoVideoGenerationMode},
+	{version: 36, apply: addShuihuoProductionRenderSettings},
+	{version: 37, sql: shuihuoSegmentVoiceSettingsMigrationSQL},
 }
 
 const shuihuoSourceUnitMigrationSQL = `
@@ -540,6 +544,21 @@ CREATE TABLE IF NOT EXISTS shuihuo_user_configs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 
+const shuihuoSegmentVoiceSettingsMigrationSQL = `
+CREATE TABLE IF NOT EXISTS shuihuo_segment_voice_settings (
+  segment_id BIGINT PRIMARY KEY,
+  project_id BIGINT NOT NULL,
+  voice_asset_id BIGINT NULL,
+  speech_rate DECIMAL(3,2) NOT NULL DEFAULT 1.00,
+  pitch DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_shuihuo_segment_voice_settings_project (project_id, segment_id),
+  CONSTRAINT fk_shuihuo_segment_voice_settings_segment FOREIGN KEY (segment_id) REFERENCES shuihuo_segments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_segment_voice_settings_project FOREIGN KEY (project_id) REFERENCES shuihuo_projects(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shuihuo_segment_voice_settings_voice FOREIGN KEY (voice_asset_id) REFERENCES shuihuo_assets(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
+
 const shuihuoAnalysisSnapshotsMigrationSQL = `
 CREATE TABLE IF NOT EXISTS shuihuo_prompt_snapshots (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -671,6 +690,18 @@ func addShuihuoUserConfigAudioModel(ctx context.Context, conn *sql.Conn) error {
 	return err
 }
 
+func addShuihuoVideoGenerationMode(ctx context.Context, conn *sql.Conn) error {
+	if err := applySQLStatements(ctx, conn, shuihuoUserConfigDefaultsMigrationSQL); err != nil {
+		return err
+	}
+	exists, err := mysqlColumnExists(ctx, conn, "shuihuo_user_configs", "video_generation_mode")
+	if err != nil || exists {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, "ALTER TABLE shuihuo_user_configs ADD COLUMN video_generation_mode VARCHAR(32) NOT NULL DEFAULT 'image_to_video' AFTER video_suffix")
+	return err
+}
+
 func applyShuihuoProductionSchema(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, shuihuoProductionMigrationSQL)
 }
@@ -686,6 +717,23 @@ func applyShuihuoSourceUnitSchema(ctx context.Context, conn *sql.Conn) error {
 func applyNovelFetchWorkshopSchema(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, novelFetchWorkshopMigrationSQL)
 }
+
+func applyYDVideoModelMigration(ctx context.Context, conn *sql.Conn) error {
+	return applySQLStatements(ctx, conn, ydVideoModelMigrationSQL)
+}
+
+const ydVideoModelMigrationSQL = `
+INSERT INTO model_definitions(model_key, name, kind, adapter_kind, enabled, allowed_roles_json, parameter_schema_json, hidden, sort_order, admin_note)
+VALUES('yd2-mini-video', 'YD2.0 Mini', 'video', 'yd_video', TRUE, JSON_ARRAY(), JSON_OBJECT(), FALSE, 0, '')
+ON DUPLICATE KEY UPDATE
+  id = LAST_INSERT_ID(id), name = VALUES(name), kind = VALUES(kind), adapter_kind = VALUES(adapter_kind), enabled = TRUE;
+
+INSERT INTO model_versions(model_definition_id, version_number, credential_ref, endpoint, request_template, response_mapping, created_by)
+SELECT d.id, 1, '', '', NULL, NULL, NULL
+FROM model_definitions d
+WHERE d.model_key = 'yd2-mini-video'
+  AND NOT EXISTS (SELECT 1 FROM model_versions v WHERE v.model_definition_id = d.id AND v.version_number = 1);
+`
 
 type migrationExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
@@ -949,7 +997,7 @@ var modelCenterCatalogColumns = []modelCenterCatalogColumn{
 	{table: "model_definitions", name: "model_key", definition: "VARCHAR(128) NOT NULL DEFAULT ''"},
 	{table: "model_definitions", name: "hidden", definition: "BOOLEAN NOT NULL DEFAULT FALSE"},
 	{table: "model_definitions", name: "sort_order", definition: "INT NOT NULL DEFAULT 0"},
-	{table: "model_definitions", name: "admin_note", definition: "MEDIUMTEXT NOT NULL DEFAULT ''"},
+	{table: "model_definitions", name: "admin_note", definition: "MEDIUMTEXT NULL"},
 	{table: "model_versions", name: "base_domain", definition: "VARCHAR(512) NOT NULL DEFAULT ''"},
 	{table: "model_versions", name: "base_path", definition: "VARCHAR(1024) NOT NULL DEFAULT ''"},
 	{table: "model_versions", name: "polling_template", definition: "MEDIUMTEXT NULL"},
@@ -997,6 +1045,29 @@ func addShuihuoSpeakerVoiceColumns(ctx context.Context, conn *sql.Conn) error {
 		}
 		if !exists {
 			if _, err := conn.ExecContext(ctx, "ALTER TABLE "+column.table+" ADD COLUMN "+column.name+" "+column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func addShuihuoProductionRenderSettings(ctx context.Context, conn *sql.Conn) error {
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "image_aspect_ratio", definition: "VARCHAR(8) NOT NULL DEFAULT '9:16'"},
+		{name: "image_resolution", definition: "VARCHAR(16) NOT NULL DEFAULT '1K'"},
+		{name: "video_aspect_ratio", definition: "VARCHAR(8) NOT NULL DEFAULT '9:16'"},
+		{name: "video_resolution", definition: "VARCHAR(16) NOT NULL DEFAULT '720p'"},
+	} {
+		exists, err := mysqlColumnExists(ctx, conn, "shuihuo_user_configs", column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := conn.ExecContext(ctx, "ALTER TABLE shuihuo_user_configs ADD COLUMN "+column.name+" "+column.definition); err != nil {
 				return err
 			}
 		}

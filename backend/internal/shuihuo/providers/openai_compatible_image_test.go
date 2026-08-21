@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -62,6 +63,29 @@ func TestOpenAICompatibleImageSubmitUsesOwnerConfiguration(t *testing.T) {
 	}
 	if resolver.userID != 42 {
 		t.Fatalf("resolver user ID = %d", resolver.userID)
+	}
+}
+
+func TestOpenAICompatibleImageSubmitAcceptsInlineBase64Image(t *testing.T) {
+	image := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(image)}}})
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleImage(server.Client(), &imageConfigResolver{config: store.ImageAPIConfig{
+		Provider: store.OpenAICompatibleImageProvider, BaseURL: server.URL, Model: "image-model", APIKeyCiphertext: "owner-secret",
+	}})
+	provider.validateURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+
+	result, err := provider.Submit(context.Background(), models.Definition{
+		Kind: models.KindImage, AdapterKind: models.AdapterAccountOpenAICompatibleImage,
+	}, models.Request{OwnerID: 42, Prompt: "雨夜车站"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ResultURL != "" || string(result.ResultData) != string(image) || result.ResultContentType != "image/png" {
+		t.Fatalf("result = %#v, want inline PNG image", result)
 	}
 }
 

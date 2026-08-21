@@ -5,6 +5,9 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const aiModule = require('../lib/novel-fetch-workshop/ai');
+const rulesModule = require('../lib/novel-fetch-workshop/rules');
+const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge');
+const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 
 function mergeConfig(current, patch) {
@@ -40,25 +43,42 @@ async function runWithConcurrency(items, limit, worker) {
 
 function createNovelFetchWorkshopRouter({
   auth = apiAuth,
+  tasks: injectedTasks,
+  configStore: injectedConfigStore,
   targetBaseUrl,
   bridgeSecret,
   classifier = require('../lib/novel-fetch-workshop/classifier'),
   rewrite = require('../lib/novel-fetch-workshop/rewrite'),
-  parse = require('../lib/novel-fetch-workshop/parse')
+  parse = require('../lib/novel-fetch-workshop/parse'),
+  systemDir,
+  knowledgeStore: injectedKnowledgeStore,
+  openingStore: injectedOpeningStore,
+  rules = rulesModule
 } = {}) {
   const router = express.Router();
   router.use(auth);
 
   async function resources(req) {
-    const tasks = createMySQLWorkshopStore({ targetBaseUrl, bridgeSecret, account: req.auth.account });
+    const tasks = injectedTasks || createMySQLWorkshopStore({ targetBaseUrl, bridgeSecret, account: req.auth?.account });
+    if (injectedTasks && injectedConfigStore) {
+      return { tasks, config: await injectedConfigStore.getConfig(), configStore: injectedConfigStore };
+    }
     const config = await tasks.getConfig();
-    const configStore = {
+    const configStore = injectedConfigStore || {
       getConfig: () => config,
       getAiConfig: () => ({ ai: config.ai || {}, ai_presets: config.ai_presets || [], ai_assignments: config.ai_assignments || {} }),
       getPlatforms: tasks.getPlatforms,
       getStyles: tasks.getStyles
     };
     return { tasks, config, configStore };
+  }
+
+  const knowledge = injectedKnowledgeStore || (systemDir ? createKnowledgeStore({ systemDir }) : null);
+  const opening = injectedOpeningStore || (systemDir ? createOpeningStore({ systemDir, styles: [] }) : null);
+
+  function readKnowledge(kind) {
+    if (!knowledge) throw new Error('知识库未启用（缺少 systemDir）');
+    return knowledge.list(kind);
   }
 
   // POST /process：解析批量清单 →（可选）AI 分类 → 保存任务 →（可选）并发抓原文 →（可选）AI 改文
@@ -201,6 +221,50 @@ function createNovelFetchWorkshopRouter({
     }
   });
 
+  // POST /tasks/batch-retry：兼容本地工作台的批量补跑；桥接存储仍可提供自己的实现。
+  router.post('/tasks/batch-retry', async (req, res) => {
+    try {
+      const username = req.username;
+      const { tasks, configStore } = await resources(req);
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      if (typeof tasks.batchRetry === 'function') {
+        const result = await tasks.batchRetry(username, ids, {
+          fetchOriginal: (user, id, maxTxt) => tasks.fetchOriginal(user, id, maxTxt),
+          generateAi: async (user, id, count) => {
+            const current = await tasks.getTask(user, id);
+            if (!current?.meta || current.meta.originalStatus !== 'done') return { status: 'skipped' };
+            return rewrite.generateAiVersions({ configStore, tasks, username: user, task: current.meta, count });
+          }
+        });
+        return res.json({ ok: true, ...result, tasks: await tasks.listTasks(username) });
+      }
+      for (const id of ids) {
+        const current = await tasks.getTask(username, id);
+        if (current && typeof tasks.fetchOriginal === 'function') {
+          await tasks.fetchOriginal(username, id, current.meta?.maxTxt || 4000);
+        }
+      }
+      return res.json({ ok: true, tasks: await tasks.listTasks(username) });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error.message || '批量重试失败' });
+    }
+  });
+
+  // POST /tasks/:bookId/restore-original：恢复原始备份。
+  router.post('/tasks/:bookId/restore-original', async (req, res) => {
+    try {
+      const username = req.username;
+      const { tasks } = await resources(req);
+      const bookId = String(req.params.bookId || '').trim();
+      const current = await tasks.getTask(username, bookId);
+      if (!current) return res.status(404).json({ ok: false, error: '任务不存在' });
+      const result = await tasks.restoreOriginal(username, bookId);
+      return res.json({ ok: true, task: await tasks.getTask(username, bookId), result });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '恢复原文失败' });
+    }
+  });
+
   // GET /tasks/:bookId：任务详情（meta + 清洗后原文 + 原始备份存在性 + 日志）
   router.get('/tasks/:bookId', async (req, res) => {
     try {
@@ -272,10 +336,104 @@ function createNovelFetchWorkshopRouter({
         appConfig: configStore.getConfig(),
         platforms: configStore.getPlatforms(),
         styles: configStore.getStyles(),
-        aiConfig: configStore.getAiConfig()
+        aiConfig: typeof configStore.getAiConfig === 'function' ? configStore.getAiConfig() : {}
       });
     } catch (error) {
       return res.status(500).json({ error: error.message || '读取配置失败' });
+    }
+  });
+
+  // 规则、知识库和爆款开头接口由本地工作台提供；桥接模式未配置时明确返回不可用。
+  router.post('/rules/preview', async (req, res) => {
+    try {
+      const { configStore } = await resources(req);
+      const { text = '', scope = 'original', layoutConfig = {}, knowledge: suppliedKnowledge } = req.body || {};
+      const knowledgeData = suppliedKnowledge || (knowledge ? {
+        layout_rules: readKnowledge('layout_rules'),
+        symbol_rules: readKnowledge('symbol_rules'),
+        chapter_rules: readKnowledge('chapter_rules')
+      } : {});
+      const trace = rules.processDocumentTrace(text, scope, layoutConfig, knowledgeData);
+      const result = rules.processDocumentText(text, scope, layoutConfig, knowledgeData);
+      return res.json({ ok: true, text: result, result, trace, config: configStore.getConfig() });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '规则排版预览失败' });
+    }
+  });
+
+  router.get('/knowledge/summary', (req, res) => {
+    try {
+      if (!knowledge) return res.status(500).json({ ok: false, error: '知识库未启用（缺少 systemDir）' });
+      return res.json({ ok: true, summary: knowledge.getSummary() });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error.message || '读取知识库汇总失败' });
+    }
+  });
+
+  router.get('/knowledge/:kind', (req, res) => {
+    try {
+      const data = readKnowledge(req.params.kind);
+      return res.json({ ok: true, kind: req.params.kind, data, ...(data && typeof data === 'object' ? data : {}) });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '读取知识库失败' });
+    }
+  });
+
+  router.post('/knowledge/:kind', (req, res) => {
+    try {
+      if (!knowledge) return res.status(500).json({ ok: false, error: '知识库未启用（缺少 systemDir）' });
+      return res.json(knowledge.save(req.params.kind, req.body?.item || req.body));
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '保存知识条目失败' });
+    }
+  });
+
+  router.delete('/knowledge/:kind/:id', (req, res) => {
+    try {
+      if (!knowledge) return res.status(500).json({ ok: false, error: '知识库未启用（缺少 systemDir）' });
+      return res.json(knowledge.remove(req.params.kind, req.params.id));
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '删除知识条目失败' });
+    }
+  });
+
+  router.post('/knowledge/:kind/:id/optimize', async (req, res) => {
+    try {
+      if (!knowledge) return res.status(500).json({ ok: false, error: '知识库未启用（缺少 systemDir）' });
+      const { configStore } = await resources(req);
+      const settings = aiModule.resolveAiSettings(configStore, 'rewrite');
+      return res.json(await knowledge.optimizeItem({ kind: req.params.kind, id: req.params.id }, aiModule, settings));
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '优化知识条目失败' });
+    }
+  });
+
+  router.post('/opening/analyze', async (req, res) => {
+    try {
+      if (!opening) return res.status(500).json({ ok: false, error: '开头词库未启用（缺少 systemDir）' });
+      const { configStore } = await resources(req);
+      const settings = aiModule.resolveAiSettings(configStore, 'rewrite');
+      return res.json(await opening.analyze(aiModule, settings, req.body?.text));
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '开头分析失败' });
+    }
+  });
+
+  router.post('/opening/save', (req, res) => {
+    try {
+      if (!opening) return res.status(500).json({ ok: false, error: '开头词库未启用（缺少 systemDir）' });
+      return res.json(opening.save(req.body?.item || req.body));
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '保存开头词失败' });
+    }
+  });
+
+  router.post('/opening/normalize', (req, res) => {
+    try {
+      if (!opening) return res.status(500).json({ ok: false, error: '开头词库未启用（缺少 systemDir）' });
+      return res.json(opening.normalize());
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: error.message || '规范化开头词失败' });
     }
   });
 

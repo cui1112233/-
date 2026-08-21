@@ -142,7 +142,12 @@ export function buildFinalSegments({ output, extractInfo, constraints, format, d
   let cards = [];
   if (mode === 'segmented' || mode === undefined) {
     // 分段开头（或未指定 mode）：优先保留 AI 的剧情单元边界（### 分镜N 标题），兜底按目标秒数切段
-    cards = getShotCards(format, textOutput, duration);
+    // 剧情模式的 [时间]镜头N 是单元内部镜头，先按模块/目标时长归并，避免一段剧情被拆成多张卡。
+    if (format === 'screenplay') {
+      const blocks = splitTimelineBlocks(textOutput, target);
+      if (blocks.length >= 2) cards = blocks;
+    }
+    if (!cards.length) cards = getShotCards(format, textOutput, duration);
     if (!cards.length && format !== 'shortdrama') {
       const segments = splitContinuousTimeline(textOutput, target);
       if (segments.length >= 2) cards = segments;

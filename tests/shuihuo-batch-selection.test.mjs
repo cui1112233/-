@@ -15,8 +15,8 @@ const media = [
   { kind: 'image', segmentId: 2, isPrimary: true }
 ];
 
-test('selectBatchSegmentIds respects confirmation, video primary images, completion and range', () => {
-  assert.deepEqual(selectBatchSegmentIds({ segments, media, kind: 'video', scope: 'all' }), [1, 2]);
-  assert.deepEqual(selectBatchSegmentIds({ segments, media, kind: 'video', scope: 'incomplete' }), [2]);
+test('selectBatchSegmentIds leaves YD scene-image eligibility to the backend', () => {
+  assert.deepEqual(selectBatchSegmentIds({ segments, media, kind: 'video', scope: 'all' }), [1, 2, 4]);
+  assert.deepEqual(selectBatchSegmentIds({ segments, media, kind: 'video', scope: 'incomplete' }), [2, 4]);
   assert.deepEqual(selectBatchSegmentIds({ segments, media, kind: 'image', scope: 'range', start: 2, end: 4 }), [2, 4]);
 });

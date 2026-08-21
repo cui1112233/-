@@ -16,7 +16,7 @@ test('taskReadiness identifies the first missing safe dependency', () => {
   );
   assert.deepEqual(
     taskReadiness(ready, 'video', { confirmed: true, hasPrimaryImage: false }),
-    { ready: false, reason: '请先上传或选择主图片' }
+    { ready: true, reason: '' }
   );
   assert.deepEqual(taskReadiness(ready, 'audio', { confirmed: true }), { ready: true, reason: '' });
 });

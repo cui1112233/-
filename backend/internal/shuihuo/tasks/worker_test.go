@@ -207,9 +207,9 @@ func TestWorkerUsesYDVideoSnapshotReferencesBeforeSceneAndAcceptsAsyncTask(t *te
 		Input: `{"prompt":"镜头推进","sourceImageObjectKey":"shuihuo-production/17/3/images/scene.png","aspectRatio":"16:9","videoReferenceObjectKeys":["shuihuo-production/17/3/asset-images/hero.png","shuihuo-production/17/3/asset-images/prop.png"]}`,
 	}}
 	objects := &workerObjects{urls: map[string]string{
-		"shuihuo-production/17/3/asset-images/hero.png": "https://storage.example.com/hero.png",
-		"shuihuo-production/17/3/asset-images/prop.png": "https://storage.example.com/prop.png",
-		"shuihuo-production/17/3/images/scene.png":      "https://storage.example.com/scene.png",
+		"shuihuo-production/17/3/asset-images/hero.png": "https://8.8.8.8/hero.png",
+		"shuihuo-production/17/3/asset-images/prop.png": "https://8.8.8.8/prop.png",
+		"shuihuo-production/17/3/images/scene.png":      "https://8.8.8.8/scene.png",
 	}}
 	adapter := &recordingWorkerAdapter{response: models.Response{ProviderTaskID: "yd-42"}}
 	worker := Worker{
@@ -228,10 +228,10 @@ func TestWorkerUsesYDVideoSnapshotReferencesBeforeSceneAndAcceptsAsyncTask(t *te
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("resolved object keys = %#v, want %#v", got, want)
 	}
-	if got, want := adapter.request.ReferenceImageURLs, []string{"https://storage.example.com/hero.png", "https://storage.example.com/prop.png"}; !reflect.DeepEqual(got, want) {
+	if got, want := adapter.request.ReferenceImageURLs, []string{"https://8.8.8.8/hero.png", "https://8.8.8.8/prop.png"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("reference URLs = %#v, want %#v", got, want)
 	}
-	if adapter.request.ImageURL != "https://storage.example.com/scene.png" || adapter.request.AspectRatio != "16:9" {
+	if adapter.request.ImageURL != "https://8.8.8.8/scene.png" || adapter.request.AspectRatio != "16:9" {
 		t.Fatalf("YD request = %#v", adapter.request)
 	}
 	if taskRepo.task.Status != domain.TaskRunning || taskRepo.task.ProviderTaskID != "yd-42" {
@@ -284,6 +284,27 @@ func TestWorkerSubmitsVideoPromptWithoutImageWhenTaskHasNoStoryboardImage(t *tes
 	}
 	if got, want := adapter.request.Prompt, "镜头从远景推至人物特写"; got != want {
 		t.Fatalf("video prompt = %q, want %q", got, want)
+	}
+}
+
+func TestWorkerTextToVideoNeverFallsBackToCurrentStoryboardImage(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 25, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"文生视频提示词","videoGenerationMode":"text_to_video"}`,
+	}}
+	adapter := &recordingWorkerAdapter{response: models.Response{ResultURL: "https://cdn.example/video.mp4"}}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterGenericHTTP}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media:    &memoryMediaRepo{primaryErr: errors.New("text-to-video must not read current image")}, Objects: &workerObjects{}, Adapter: adapter,
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("video"), "video/mp4", nil },
+	}
+
+	if err := worker.Process(context.Background(), 25); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if adapter.request.ImageURL != "" || len(adapter.request.ReferenceImageURLs) != 0 {
+		t.Fatalf("text-to-video request included images: %#v", adapter.request)
 	}
 }
 
@@ -407,5 +428,26 @@ func TestWorkerPersistsAssetImageWithoutCreatingStoryboardMedia(t *testing.T) {
 	}
 	if len(assetImages.items) != 1 || assetImages.items[0].AssetID != 21 {
 		t.Fatalf("asset images = %#v, want one image for asset 21", assetImages.items)
+	}
+}
+
+func TestWorkerPersistsInlineAssetImageWithoutDownloadingURL(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{ID: 16, UserID: 17, ProjectID: 3, Kind: "asset_image", Status: domain.TaskQueued, ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"白衣剑客，国风水墨","assetId":21}`}}
+	objects := &workerObjects{}
+	assetImages := &memoryAssetImageRepo{}
+	worker := Worker{
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindImage}},
+		AssetImages: assetImages, Objects: objects,
+		Adapter: workerAdapter{response: models.Response{ResultData: []byte("inline-png"), ResultContentType: "image/png"}},
+		DownloadResult: func(context.Context, string) ([]byte, string, error) {
+			t.Fatal("inline image must not be downloaded")
+			return nil, "", nil
+		},
+	}
+	if err := worker.Process(context.Background(), 16); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if taskRepo.task.Status != domain.TaskSucceeded || string(objects.bytes) != "inline-png" || len(assetImages.items) != 1 {
+		t.Fatalf("task/object/images = %#v / %#v / %#v", taskRepo.task, objects, assetImages.items)
 	}
 }

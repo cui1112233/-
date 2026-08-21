@@ -24,7 +24,10 @@ function isTextInferenceRequest(method, pathname) {
 
 function requiresAccountAIConfigSync(method, pathname) {
   return isTextInferenceRequest(method, pathname)
-    || (method === 'POST' && /^\/api\/shuihuo-production\/projects\/\d+\/assets\/generate$/.test(pathname));
+    || (method === 'POST' && (
+      /^\/api\/shuihuo-production\/projects\/\d+\/assets\/generate$/.test(pathname)
+      || /^\/api\/shuihuo-production\/projects\/\d+\/tasks(?:\/batch)?$/.test(pathname)
+    ));
 }
 
 function accountAIConfigPayload(config) {
@@ -38,16 +41,20 @@ function accountAIConfigPayload(config) {
   const imageBaseURL = String(config?.image?.baseUrl || '').trim();
   const imageModel = String(config?.image?.model || '').trim();
   const imageAPIKey = String(config?.image?.apiKey || '').trim();
+  const videoAPIKey = String(config?.video?.apiKey || '').trim();
   const text = baseUrl && model && apiKey
     ? { provider: provider || 'custom', baseUrl, model, apiKey }
     : null;
   const image = imageProvider === 'openai_compatible' && imageBaseURL && imageModel && imageAPIKey
     ? { mode: imageMode === 'custom' ? 'custom' : 'openai_compatible', provider: imageProvider, displayName: imageDisplayName, baseUrl: imageBaseURL, model: imageModel, apiKey: imageAPIKey }
     : null;
-  if (!text && !image) {
+  const video = videoAPIKey
+    ? { provider: 'yd_video', apiKey: videoAPIKey }
+    : null;
+  if (!text && !image && !video) {
     return null;
   }
-  return { ...(text || {}), ...(image ? { image } : {}) };
+  return { ...(text || {}), ...(image ? { image } : {}), ...(video ? { video } : {}) };
 }
 
 function syncAccountAIConfig({ targetBaseUrl, bridgeSecret, username, isOwner, config }) {

@@ -1,0 +1,15 @@
+services:
+  platform:
+    volumes:
+      - ${QIANTIE_HOST_PLATFORM_DATA_DIR:?set QIANTIE_HOST_PLATFORM_DATA_DIR}:/app/data
+
+  backend:
+    environment:
+      # Values are injected from the local service configuration at deployment time.
+      QIANTIE_MYSQL_DSN: ${QIANTIE_TEST_MYSQL_DSN:?set QIANTIE_TEST_MYSQL_DSN}
+      QIANTIE_CREDENTIAL_ENCRYPTION_KEY: ${QIANTIE_CREDENTIAL_ENCRYPTION_KEY:?set QIANTIE_CREDENTIAL_ENCRYPTION_KEY}
+      QIANTIE_STORAGE_DRIVER: local
+      QIANTIE_STORAGE_LOCAL_DIR: /var/lib/qiantie/objects
+      QIANTIE_STORAGE_PUBLIC_BASE_URL: ${QIANTIE_STORAGE_PUBLIC_BASE_URL:-http://host.docker.internal:4000}
+    volumes:
+      - ${QIANTIE_HOST_OBJECTS_DIR:?set QIANTIE_HOST_OBJECTS_DIR}:/var/lib/qiantie/objects

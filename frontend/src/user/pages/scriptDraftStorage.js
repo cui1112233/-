@@ -41,6 +41,12 @@ export function getScriptDraftTabId(sessionStorageLike, random = () => crypto.ra
 function normalizeDraft(draft) {
   if (!draft?.values || typeof draft.values !== 'object') return null;
   if (![1, 2, draftVersion].includes(draft.version)) return null;
+  const constraints = normalizeScriptConstraints(draft.constraints);
+  // v3 drafts predate the base-setup switch; preserve their stored shape and
+  // let the current page defaults add the new layer when it is needed.
+  if (draft.version === draftVersion && !Object.hasOwn(draft.constraints || {}, 'baseSetup')) {
+    delete constraints.baseSetup;
+  }
   return {
     ...draft,
     version: draftVersion,
@@ -49,7 +55,7 @@ function normalizeDraft(draft) {
       extractionPreset: normalizeExtractionPresetId(draft.values.extractionPreset)
     },
     extractInfo: normalizeExtractInfo(draft.extractInfo),
-    constraints: normalizeScriptConstraints(draft.constraints)
+    constraints
   };
 }
 
