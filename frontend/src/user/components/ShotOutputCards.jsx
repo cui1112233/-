@@ -1,10 +1,10 @@
 import { Button, Checkbox, Space } from 'antd';
-import { Copy } from 'lucide-react';
+import { Copy, Video } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { splitShotTextHighlight } from './shotTextHighlight';
 import { getShotMatchDisplayRange } from '../pages/scriptShotReplace';
 
-export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, output, activeMatch, cardStarts }) {
+export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, onGenerateVideo, generatingIndexes = new Set(), output, activeMatch, cardStarts }) {
   const selectedCount = selectedIndexes.size;
   const allSelected = cards.length > 0 && selectedCount === cards.length;
   const activeMatchRef = useRef(null);
@@ -29,7 +29,10 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
         return <div className="shot-output-card" key={`${index}-${card.slice(0, 24)}`}>
           <div className="shot-output-card-header">
             <Checkbox checked={selectedIndexes.has(index)} onChange={() => onToggle(index)}>分镜 {index + 1} · {cardDuration}</Checkbox>
-            <Button size="small" icon={<Copy size={15} aria-hidden="true" />} onClick={() => onCopy(card)}>复制本分镜</Button>
+            <Space size={8}>
+              <Button size="small" icon={<Copy size={15} aria-hidden="true" />} onClick={() => onCopy(card)}>复制本分镜</Button>
+              <Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} loading={generatingIndexes.has(index)} disabled={!onGenerateVideo || generatingIndexes.has(index)} onClick={() => onGenerateVideo(card, index)}>生成视频</Button>
+            </Space>
           </div>
           <pre className="shot-output-card-content">{highlight ? <>{highlight.before}<mark className="shot-output-card-match" ref={activeMatchRef}>{highlight.highlight}</mark>{highlight.after}</> : card}</pre>
         </div>;

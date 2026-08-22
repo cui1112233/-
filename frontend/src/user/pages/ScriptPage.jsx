@@ -16,6 +16,8 @@ import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntit
 import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { ShotOutputCards } from '../components/ShotOutputCards';
+import { confirmSegmentation, createProject, createTask, deleteProject, fixedSegmentation, getProductionConfig, getProject, listModels, updateSegment } from '../../shared/api/shuihuoProduction';
+import { defaultModelIdForKind } from './shuihuo/modelDefaults';
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -91,6 +93,7 @@ export function ScriptPage() {
   const [previousOutput, setPreviousOutput] = useState('');
   const [editingOutput, setEditingOutput] = useState(false);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
+  const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotReplaceOpen, setShotReplaceOpen] = useState(false);
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
@@ -246,6 +249,62 @@ export function ScriptPage() {
       message.success('已复制');
     } catch {
       message.error('复制失败，请检查浏览器权限');
+    }
+  }
+
+  async function generateVideoForShot(card, index) {
+    const prompt = String(card || '').trim();
+    if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
+    setGeneratingShotIndexes(current => new Set([...current, index]));
+    let projectId = null;
+    let taskSubmitted = false;
+    try {
+      const [config, modelResult] = await Promise.all([getProductionConfig(), listModels()]);
+      const videoModels = (modelResult.models || []).filter(model => model?.kind === 'video');
+      const modelId = defaultModelIdForKind(videoModels, 'video', config?.videoModelId);
+      if (modelId === undefined || modelId === null) throw new Error('请先在水货生产的引擎配置中选择视频模型');
+      const model = videoModels.find(item => item.id === modelId);
+      if (config?.videoGenerationMode !== 'text_to_video') {
+        throw new Error('剧本分镜目前只支持文生视频；请先在水货生产的引擎配置中切换为“文生视频”');
+      }
+      if (model?.adapterKind === 'yd_video') {
+        throw new Error('YD2.0 Mini 仅支持图生视频；请在引擎配置中选择支持文生视频的模型');
+      }
+
+      const project = await createProject({ name: `剧本生成 · 分镜 ${index + 1}`, sourceText: prompt });
+      projectId = project.id;
+      const segmentation = await fixedSegmentation(projectId, { text: prompt, linesPerSegment: 1 });
+      const candidates = segmentation?.candidates || [];
+      if (candidates.length !== 1) throw new Error('无法将当前分镜整理为单条视频任务');
+      await confirmSegmentation(projectId, candidates);
+      const readModel = await getProject(projectId);
+      const segment = readModel?.segments?.[0];
+      if (!segment?.id) throw new Error('视频分镜创建失败，请重试');
+      await updateSegment(segment.id, {
+        ...segment,
+        subtitleText: segment.subtitleText || prompt,
+        speaker: segment.speaker || '旁白',
+        imagePrompt: segment.imagePrompt || '',
+        videoPrompt: prompt,
+        negativePrompt: segment.negativePrompt || '',
+        imagePromptLocked: Boolean(segment.imagePromptLocked),
+        videoPromptLocked: true,
+        negativePromptLocked: Boolean(segment.negativePromptLocked)
+      });
+      await createTask(projectId, { segmentId: segment.id, kind: 'video', modelId });
+      taskSubmitted = true;
+      message.success(`已提交第 ${index + 1} 条分镜的视频任务，可在水货生产的项目库查看进度`);
+    } catch (error) {
+      message.error(error.message || '视频任务提交失败');
+    } finally {
+      if (projectId && !taskSubmitted) {
+        try { await deleteProject(projectId); } catch (_) { /* 保留原始错误；清理失败的项目可从项目库删除。 */ }
+      }
+      setGeneratingShotIndexes(current => {
+        const next = new Set(current);
+        next.delete(index);
+        return next;
+      });
     }
   }
 
@@ -952,6 +1011,8 @@ export function ScriptPage() {
               onToggleAll={() => setSelectedShotIndexes(current => current.size === shotCards.length ? new Set() : new Set(shotCards.map((_, index) => index)))}
               onCopy={copyText}
               onCopySelected={() => copyText(joinShotCards(shotCards, selectedShotIndexes))}
+              onGenerateVideo={generateVideoForShot}
+              generatingIndexes={generatingShotIndexes}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}

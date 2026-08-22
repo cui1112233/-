@@ -6,14 +6,19 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('shot card component provides individual, selected and all-copy controls', () => {
+test('shot card component provides individual copy and video-generation controls', () => {
   const cards = read('frontend/src/user/components/ShotOutputCards.jsx');
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   assert.match(cards, /复制本分镜/);
+  assert.match(cards, /生成视频/);
+  assert.match(cards, /onGenerateVideo/);
   assert.match(cards, /复制已选/);
   assert.match(cards, /全选/);
   assert.match(cards, /Checkbox/);
   assert.match(page, /ShotOutputCards/);
+  assert.match(page, /generateVideoForShot/);
+  assert.match(page, /createTask\(projectId, \{ segmentId: segment\.id, kind: 'video', modelId \}\)/);
+  assert.match(page, /videoGenerationMode !== 'text_to_video'/);
 });
 
 test('script page uses card output only for parsed non-shortdrama results', () => {
@@ -54,6 +59,7 @@ test('shot output cards render only the current active match', async () => {
     onToggleAll() {},
     onCopy() {},
     onCopySelected() {},
+    onGenerateVideo() {},
     output: '### 分镜一\n阿明\n\n---\n\n### 分镜二\n阿明',
     cardStarts: [0, 18]
   };
