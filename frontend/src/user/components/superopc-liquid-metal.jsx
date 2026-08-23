@@ -17,7 +17,7 @@ export default function SuperOpcLiquidMetalLogo({ theme = 'dark', className = ''
         offsetX={0}
         offsetY={0}
         fit="contain"
-        colorBack={isLight ? '#f7f8fb' : '#101218'}
+        colorBack="rgba(0, 0, 0, 0)"
         colorTint={isLight ? '#101218' : '#f5f7fb'}
         contour={0.4}
         distortion={0.07}
