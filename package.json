@@ -1,4 +1,5 @@
 {
+  "name": "qiantie",
   "scripts": {
     "start": "node server.js",
     "frontend:install": "npm --prefix frontend install",
