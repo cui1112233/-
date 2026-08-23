@@ -132,8 +132,10 @@
   width: 100%;
   min-height: calc(100vh - 72px);
   border: 0;
-  background: #f6f7f9;
+  background: #0d172b;
 }
+
+[data-theme='light'] .novel-fetch-original-workbench { background: #f6f7f9; }
 
 .novel-fetch-summary,
 .novel-fetch-panel {

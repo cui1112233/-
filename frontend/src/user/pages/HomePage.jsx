@@ -76,7 +76,7 @@ export function HomePage({ isLoggedIn, onOpenLogin }) {
   return (
     <div className="home-page">
       <section className="home-video-hero">
-        <video className="home-hero-video" autoPlay muted loop playsInline poster="/assets/logo.jpg">
+        <video className="home-hero-video" autoPlay muted loop playsInline>
           <source src="/assets/home-hero.mp4" type="video/mp4" />
         </video>
         <div className="home-video-overlay" />
