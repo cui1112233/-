@@ -89,9 +89,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   if (fs.existsSync(frontendDist)) {
     app.use('/assets', express.static(path.join(frontendDist, 'assets'), {
       setHeaders(res) {
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
+        // Vite asset filenames contain a content hash. Long caching avoids
+        // re-downloading the multi-megabyte app bundle on every navigation;
+        // a release emits new filenames, so users still receive new code.
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
     }));
     app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite'), {
