@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, Clock3, FilePenLine, MessageCircle, MessageSqua
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { askAgent, clearAgentTask, createAgentTask, createMyAgentSkill, deleteAgentTask, deleteMyAgentSkill, getAgentTask, getMyAgentSkill, listAgentSkills, listAgentTasks, renameAgentTask, updateMyAgentSkill } from '../../shared/api/agent';
 import { dispatchPetContext, dispatchPetSkills, dispatchPetState } from '../../shared/pet/stacky';
-import SuperOpcLiquidMetalLogo from '../components/superopc-liquid-metal';
+import SuperOpcLiquidMetalLogo from '../../shared/components/SuperOpcLiquidMetalLogo';
 
 const blankSkill = { name: '', description: '', category: '创作', inputTemplate: '', body: '' };
 function formatTaskTime(value) {

@@ -255,6 +255,19 @@ select {
   text-decoration: none;
 }
 
+.legacy-brand .legacy-brand-logo.superopc-liquid-metal {
+  display: block;
+  width: 52px;
+  height: 30px;
+  flex: 0 0 52px;
+}
+
+.legacy-brand .legacy-brand-logo.superopc-liquid-metal > div,
+.legacy-brand .legacy-brand-logo.superopc-liquid-metal canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .brand-logo {
   position: relative;
   display: inline-flex;

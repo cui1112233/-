@@ -2,6 +2,7 @@ import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal }
 import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, X } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
+import SuperOpcLiquidMetalLogo from '../components/SuperOpcLiquidMetalLogo';
 import { Lanyard } from '../components/lanyard/Lanyard';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
@@ -344,7 +345,7 @@ export function UserLayout({ children }) {
             {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           </button>
           <Link href="/" className="legacy-brand-link">
-            <BrandLogo className="legacy-brand-logo" />
+            <SuperOpcLiquidMetalLogo theme={theme} className="legacy-brand-logo" />
             <span className="legacy-brand-title">一战晟铭</span>
           </Link>
         </div>

@@ -1,7 +1,7 @@
 import { LiquidMetal } from '@paper-design/shaders-react';
 
 /**
- * Agent 空状态使用的品牌动效。图片始终来自项目自身的黑/白 Logo，
+ * 项目统一的品牌动效。图片始终来自项目自身的黑/白 Logo，
  * 而不是把编辑器导出的 Base64 图片写进业务代码。
  */
 export default function SuperOpcLiquidMetalLogo({ theme = 'dark', className = '' }) {
