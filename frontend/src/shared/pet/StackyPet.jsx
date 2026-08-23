@@ -261,6 +261,9 @@ export function StackyPet({ username, accountSessionKey }) {
 
   const quickQuestions = useMemo(() => {
     if (petContext.page === '剧本生成') {
+      if (petContext.entities?.hasOutput === 'true') {
+        return ['帮我优化分镜一', '帮我优化分镜二', '帮我优化当前剧本台词', '帮我检查分镜节奏与推进', '帮我检查人物外形一致性'];
+      }
       const names = String(petContext.entities?.characterNames || '').split('、').filter(Boolean).slice(0, 2);
       const characterQuestions = names.flatMap(name => [`帮我优化${name}`, `帮${name}换一套更符合剧情的衣服`]);
       if (petContext.entities?.constraintModalOpen === 'true') {
