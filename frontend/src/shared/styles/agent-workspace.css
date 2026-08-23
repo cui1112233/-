@@ -930,8 +930,8 @@
 
 .agent-page.utility-workbench.agent-workspace-v3 {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -1145,10 +1145,58 @@
 .agent-workspace-v3 .agent-workbench-empty strong { color: var(--agent-text); font-size: 20px; letter-spacing: -0.03em; }
 .agent-workspace-v3 .agent-workbench-empty span { font-size: 13px; letter-spacing: 0.08em; }
 
-.agent-workspace-v3 .agent-workbench-composer { width: min(760px, calc(100% - 44px)); margin-bottom: 22px; background: var(--agent-elevated); }
+.agent-workspace-v3 .agent-workbench-composer {
+  position: relative;
+  z-index: 9;
+  width: min(760px, calc(100% - 44px));
+  margin-bottom: 22px;
+  background: var(--agent-elevated);
+}
+
+/* The task list is a deliberate, top-down drawer.  It never consumes the
+ * conversation canvas or overlaps the composer at the bottom of the page. */
+.agent-workspace-v3 .agent-task-drawer {
+  position: relative;
+  z-index: 7;
+}
+
+.agent-workspace-v3 .agent-task-drawer .agent-task-new.ant-btn {
+  width: auto;
+  height: 34px;
+  border-color: var(--agent-border-strong);
+  background: var(--agent-surface);
+  color: var(--agent-text);
+}
+
+.agent-workspace-v3 .agent-task-drawer-body {
+  z-index: 8;
+  max-height: min(270px, calc(100vh - 154px));
+}
+
+.agent-workspace-v3 .agent-task-drawer .agent-task-list {
+  display: grid;
+  max-height: min(269px, calc(100vh - 155px));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 7px;
+  overflow-y: auto;
+  padding: 10px 16px 14px;
+}
+
+.agent-workspace-v3 .agent-task-drawer .agent-task-group { display: contents; }
+.agent-workspace-v3 .agent-task-drawer .agent-task-group h4 { display: none; }
+.agent-workspace-v3 .agent-task-drawer .agent-task-group + .agent-task-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.agent-workspace-v3 .agent-task-drawer .agent-task-row {
+  width: auto;
+  min-height: 68px;
+}
 
 @media (max-width: 840px) {
-  .agent-page.utility-workbench.agent-workspace-v3 { grid-template-columns: 1fr; grid-template-rows: minmax(120px, auto) minmax(0, 1fr); }
+  .agent-page.utility-workbench.agent-workspace-v3 { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .agent-workspace-v3 .agent-task-sidebar { border-right: 0; border-bottom: 1px solid var(--agent-border); }
   .agent-workspace-v3 .agent-task-sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; }
   .agent-workspace-v3 .agent-task-sidebar-header > div { margin: 0; }
@@ -1160,4 +1208,6 @@
   .agent-workspace-v3 .agent-task-row { width: 154px; flex: 0 0 154px; }
   .agent-workspace-v3 .agent-task-summary-strip > span:not(:first-child),
   .agent-workspace-v3 .agent-task-summary-strip .ant-tag { display: none; }
+
+  .agent-workspace-v3 .agent-task-drawer .agent-task-list { grid-template-columns: 1fr; }
 }

@@ -52,6 +52,7 @@ export function AgentPageV2() {
   const [selectedExpert, setSelectedExpert] = useState('CM 创作顾问');
   const [attachedFile, setAttachedFile] = useState(null);
   const [problemSearchMode, setProblemSearchMode] = useState(false);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskSummaryExpanded, setTaskSummaryExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
@@ -442,22 +443,28 @@ export function AgentPageV2() {
   }
 
   return (
-    <div className="agent-page utility-workbench agent-workspace-v3">
-      <aside className="agent-task-sidebar cm-conversation-frame" aria-label="CM 任务列表">
-        <header className="agent-task-sidebar-header">
-          <div><strong>任务列表</strong><span>{tasks.length}</span><ChevronDown size={15} /></div>
+    <div className={`agent-page utility-workbench agent-workspace-v3${taskDrawerOpen ? '' : ' agent-task-drawer-collapsed'}`}>
+      <section className="agent-task-drawer cm-conversation-frame" aria-label="CM 任务列表">
+        <header className="agent-task-drawer-header">
+          <button className="agent-task-drawer-toggle" type="button" aria-expanded={taskDrawerOpen} aria-controls="agent-task-drawer-body" onClick={() => setTaskDrawerOpen(open => !open)}>
+            <span className="agent-task-drawer-title">任务列表</span><span className="agent-task-count">{tasks.length}</span>
+            {!taskDrawerOpen && activeTask ? <span className="agent-task-current">当前：{activeTask.title}</span> : null}
+            {taskDrawerOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
           <Button className="agent-task-new" icon={<MessageSquarePlus size={15} />} onClick={() => createTask()}>新建任务</Button>
         </header>
-        <div className="agent-task-list" aria-live="polite">
-          {loading ? <div className="agent-task-loading" role="status">正在读取任务列表...</div> : null}
-          {!loading && tasks.length === 0 ? <div className="agent-task-empty">还没有任务<br />从一段新对话开始。</div> : null}
-          {Object.entries(taskGroups).map(([group, groupTasks]) => groupTasks.length ? <section className="agent-task-group" key={group}><h4>{group}</h4>{groupTasks.map(task => (
-            <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => selectTask(task.id, { historyMode: 'push' })}>
-              <strong>{task.title}</strong><span>{task.preview || '尚未开始对话'}</span>
-            </button>
-          ))}</section> : null)}
+        <div id="agent-task-drawer-body" className="agent-task-drawer-body" aria-hidden={!taskDrawerOpen}>
+          <div className="agent-task-list" aria-live="polite">
+            {loading ? <div className="agent-task-loading" role="status">正在读取任务列表...</div> : null}
+            {!loading && tasks.length === 0 ? <div className="agent-task-empty">还没有任务<br />从一段新对话开始。</div> : null}
+            {Object.entries(taskGroups).map(([group, groupTasks]) => groupTasks.length ? <section className="agent-task-group" key={group}><h4>{group}</h4>{groupTasks.map(task => (
+              <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => { setTaskDrawerOpen(false); selectTask(task.id, { historyMode: 'push' }); }}>
+                <strong>{task.title}</strong><span>{task.preview || '尚未开始对话'}</span>
+              </button>
+            ))}</section> : null)}
+          </div>
         </div>
-      </aside>
+      </section>
 
       <section className="agent-workbench cm-conversation-frame" aria-labelledby="agent-workbench-title">
         <header className="agent-workbench-header">
