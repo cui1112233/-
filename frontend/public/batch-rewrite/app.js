@@ -10,6 +10,7 @@ const state = {
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
 const WORK_FORM_STORAGE_KEY = "batchRewrite.workForm.v1";
+const LEGACY_WORK_INPUT_SAMPLE_PREFIX = "7674515088685943832\t";
 const API_ROOT = "/api/batch-rewrite";
 const REWRITE_METHOD_OPTIONS = [
   { id: "", name: "自动轮换" },
@@ -134,6 +135,14 @@ function newerWorkFormState(localState, serverState) {
   return localTime >= serverTime ? localState : serverState;
 }
 
+function removeLegacyWorkInputSample(formState) {
+  if (!formState || typeof formState !== "object") return { formState, removed: false };
+  if (typeof formState.input_text !== "string" || !formState.input_text.startsWith(LEGACY_WORK_INPUT_SAMPLE_PREFIX)) {
+    return { formState, removed: false };
+  }
+  return { formState: { ...formState, input_text: "" }, removed: true };
+}
+
 function restoreWorkFormState() {
   let localState = null;
   try {
@@ -141,7 +150,9 @@ function restoreWorkFormState() {
   } catch {
     localState = null;
   }
-  const saved = newerWorkFormState(localState, state.config?.work_form || null);
+  const local = removeLegacyWorkInputSample(localState);
+  const server = removeLegacyWorkInputSample(state.config?.work_form || null);
+  const saved = newerWorkFormState(local.formState, server.formState);
   if (!saved || typeof saved !== "object") return;
   const platformSelect = $("platformSelect");
   if (saved.platform_id && [...platformSelect.options].some((option) => option.value === String(saved.platform_id))) {
@@ -157,6 +168,7 @@ function restoreWorkFormState() {
   }
   if (typeof saved.column_order === "string") $("columnOrderInput").value = saved.column_order || DEFAULT_COLUMN_ORDER;
   if (typeof saved.input_text === "string") $("inputText").value = saved.input_text;
+  if (local.removed || server.removed) window.setTimeout(() => { saveWorkFormStateNow(); }, 0);
 }
 
 function bindWorkFormPersistence() {
