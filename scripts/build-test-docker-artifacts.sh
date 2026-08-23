@@ -16,7 +16,10 @@ command -v npm >/dev/null || { echo "npm is required to build the frontend." >&2
   cd "$ROOT"
   npm ci --omit=dev --prefer-offline
 )
-npm --prefix "$ROOT/frontend" ci --prefer-offline
+(
+  cd "$ROOT/frontend"
+  npm ci --prefer-offline
+)
 
 npm --prefix "$ROOT/frontend" run build
 
