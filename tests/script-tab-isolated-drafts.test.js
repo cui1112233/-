@@ -82,6 +82,24 @@ test('normalizes version 3 drafts when loading tab-scoped storage', async () => 
   });
 });
 
+test('persists completed and in-progress shot video tasks for reload recovery', async () => {
+  const { loadScriptDraft, saveScriptDraft } = await loadStorage();
+  const local = memoryStorage();
+  saveScriptDraft(local, 'alice', 'tab-video', {
+    values: { novelText: '小说' },
+    shotVideoTasks: {
+      0: { taskId: 'yd-1', status: 'processing' },
+      1: { taskId: 'yd-2', status: 'succeeded', videoUrl: 'https://videos.example/shot.mp4' },
+      2: { taskId: '', status: 'succeeded', videoUrl: 'https://invalid.example/no.mp4' }
+    }
+  });
+
+  assert.deepEqual(loadScriptDraft(local, 'alice', 'tab-video').shotVideoTasks, {
+    0: { taskId: 'yd-1', status: 'processing' },
+    1: { taskId: 'yd-2', status: 'succeeded', videoUrl: 'https://videos.example/shot.mp4' }
+  });
+});
+
 test('returns a stable tab id from the same session storage', async () => {
   const { getScriptDraftTabId } = await loadStorage();
   const session = memoryStorage();

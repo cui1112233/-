@@ -203,6 +203,7 @@ export function ScriptPage() {
       extractInfo,
       output,
       editingOutput,
+      shotVideoTasks,
       generationStage: generationStage === 'extracting' || generationStage === 'generating' ? 'idle' : generationStage
     };
   }
@@ -311,6 +312,10 @@ export function ScriptPage() {
       setGenerationStage(restoredDraft.generationStage || 'idle');
       setConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
+      setShotVideoTasks(restoredDraft.shotVideoTasks || {});
+      Object.entries(restoredDraft.shotVideoTasks || {}).forEach(([index, task]) => {
+        if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId);
+      });
     }
 
     // Wait for restored React state to commit before allowing auto-save.
@@ -332,7 +337,7 @@ export function ScriptPage() {
   useEffect(() => {
     if (!draftReadyRef.current) return;
     persistDraft();
-  }, [extractInfo, output, editingOutput, generationStage, constraints]);
+  }, [extractInfo, output, editingOutput, generationStage, constraints, shotVideoTasks]);
 
   useEffect(() => {
     let active = true;
@@ -527,6 +532,7 @@ export function ScriptPage() {
     const requestId = beginRequest('workflow');
     setExtractInfo(normalizeExtractInfo());
     setOutput('');
+    setShotVideoTasks({});
     setSelectedShotIndexes(new Set());
     setEditingOutput(false);
     setExtracting(true);
@@ -611,6 +617,7 @@ export function ScriptPage() {
         message.warning('生成成功，但保存历史失败');
       }
       if (!isCurrentRequest(requestId)) return;
+      setShotVideoTasks({});
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
       message.success('生成完成');
@@ -679,6 +686,7 @@ export function ScriptPage() {
 
   function invalidateEntityOutput(nextInfo) {
     setOutput('');
+    setShotVideoTasks({});
     setEditingOutput(false);
     setSelectedShotIndexes(new Set());
     setGenerationStage(nextInfo.characters.length || nextInfo.scenes.length ? 'extracted' : 'idle');

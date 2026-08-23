@@ -23,6 +23,8 @@ test('script workbench restores and synchronously persists tab-isolated drafts',
   assert.match(page, /onValuesChange=\{\(changed, allValues\)/);
   assert.match(page, /onChange=\{event => updateOutputDraft\(event\.target\.value\)\}/);
   assert.match(page, /persistDraft\(undefined, \{ output: nextOutput \}\)/);
+  assert.match(page, /shotVideoTasks/);
+  assert.match(page, /restoredDraft\.shotVideoTasks/);
   assert.match(page, /updateOutputDraft\(nextOutput\);/);
   assert.doesNotMatch(page, /function openRevisionPreview[\s\S]*?updateOutputDraft\(candidateOutput\)/);
   assert.match(page, /revisionPreview\.currentOutput !== output/);

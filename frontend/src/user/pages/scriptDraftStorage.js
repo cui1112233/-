@@ -4,7 +4,7 @@ import { normalizeExtractionPresetId } from './scriptExtractionPresets.js';
 
 const storagePrefix = 'qiantie:script-draft:';
 const tabStorageKey = 'qiantie:script-draft-tab-id';
-const draftVersion = 3;
+const draftVersion = 4;
 
 function usernameKey(username) {
   return `${storagePrefix}${encodeURIComponent(String(username || 'guest'))}`;
@@ -40,12 +40,24 @@ export function getScriptDraftTabId(sessionStorageLike, random = () => crypto.ra
 
 function normalizeDraft(draft) {
   if (!draft?.values || typeof draft.values !== 'object') return null;
-  if (![1, 2, draftVersion].includes(draft.version)) return null;
+  if (![1, 2, 3, draftVersion].includes(draft.version)) return null;
   const constraints = normalizeScriptConstraints(draft.constraints);
   // v3 drafts predate the base-setup switch; preserve their stored shape and
   // let the current page defaults add the new layer when it is needed.
-  if (draft.version === draftVersion && !Object.hasOwn(draft.constraints || {}, 'baseSetup')) {
+  if (draft.version <= 3 && !Object.hasOwn(draft.constraints || {}, 'baseSetup')) {
     delete constraints.baseSetup;
+  }
+  const shotVideoTasks = {};
+  if (draft.shotVideoTasks && typeof draft.shotVideoTasks === 'object' && !Array.isArray(draft.shotVideoTasks)) {
+    for (const [index, task] of Object.entries(draft.shotVideoTasks)) {
+      const taskId = typeof task?.taskId === 'string' ? task.taskId.trim() : '';
+      const status = ['processing', 'succeeded', 'failed'].includes(task?.status) ? task.status : '';
+      if (!/^\d+$/.test(index) || !taskId || !status) continue;
+      const entry = { taskId, status };
+      if (typeof task.error === 'string' && task.error.trim()) entry.error = task.error.trim();
+      if (typeof task.videoUrl === 'string' && /^https:\/\//i.test(task.videoUrl)) entry.videoUrl = task.videoUrl;
+      shotVideoTasks[index] = entry;
+    }
   }
   return {
     ...draft,
@@ -55,7 +67,8 @@ function normalizeDraft(draft) {
       extractionPreset: normalizeExtractionPresetId(draft.values.extractionPreset)
     },
     extractInfo: normalizeExtractInfo(draft.extractInfo),
-    constraints
+    constraints,
+    shotVideoTasks
   };
 }
 
