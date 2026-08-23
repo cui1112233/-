@@ -320,6 +320,52 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-asset-image-drop input { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; cursor: pointer; opacity: 0; }
 .shuihuo-asset-image-drop > img { width: 100%; height: 100%; min-height: 346px; object-fit: cover; }.shuihuo-asset-image-drop span { font-size: 34px; }.shuihuo-asset-image-drop b { font-size: 13px; font-weight: 500; }.shuihuo-asset-image-drop.is-voice { cursor: default; }
 .shuihuo-asset-image-placeholder { display: grid; place-items: center; align-content: center; gap: 12px; min-height: 346px; padding: 18px; text-align: center; }.shuihuo-asset-image-replace { position: absolute; right: 10px; bottom: 10px; z-index: 1; padding: 5px 8px; border-radius: 4px; color: #fff; background: rgba(0, 0, 0, .62); font-size: 12px !important; }
+
+/* The production editor originated as a dark-only workspace.  These scoped
+   light-theme overrides keep its data surfaces aligned with the app theme,
+   while deliberately leaving image/video previews and style swatches intact. */
+[data-theme='light'] .shuihuo-theme-active .shuihuo-project-card,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench-row,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-segmentation-table,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-prompt-row,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-image-card { border-color: var(--sh-line); background: var(--sh-panel); }
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench-header,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench-head { border-color: var(--sh-line); background: var(--sh-bg); }
+[data-theme='light'] .shuihuo-theme-active .shuihuo-project-card-cover,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-project-card-meta,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-voice-script,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-prompt-box,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-primary-media,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-media-tile,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-video-preview,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-segmentation-head,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-segmentation-toolbar .ant-btn,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-assets-modal .ant-modal-content,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-engine-modal .ant-modal-content,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-ai-modal .ant-modal-content,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-assets-modal .ant-modal-header,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-engine-modal .ant-modal-header,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-ai-modal .ant-modal-header { color: var(--sh-text) !important; border-color: var(--sh-line) !important; background: var(--sh-panel-strong) !important; }
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench-cell,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-segmentation-row,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-modal-tabs,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-asset-tabs { border-color: var(--sh-line); }
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench-heading > strong,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-workbench-cell p,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-project-card-meta strong,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-voice-script b,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-voice-script > span,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-prompt-row-head strong,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-image-card-title strong,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-segmentation-row > span,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-segmentation-row textarea { color: var(--sh-text) !important; }
+[data-theme='light'] .shuihuo-theme-active .shuihuo-project-card-meta span,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-prompt-box span,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-image-card > p,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-image-empty,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-image-empty b,
+[data-theme='light'] .shuihuo-theme-active .shuihuo-image-empty p { color: var(--sh-muted) !important; }
 .shuihuo-asset-editor-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; color: var(--sh-muted); border-top: 1px solid var(--sh-line); padding-top: 12px; }.shuihuo-asset-editor-footer > div { display: flex; gap: 8px; }.shuihuo-asset-binding-source { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }.shuihuo-asset-binding-source .active { color: var(--sh-accent); border-color: var(--sh-accent); }
 @media (max-width: 680px) { .shuihuo-asset-editor { grid-template-columns: 1fr; }.shuihuo-asset-image-drop, .shuihuo-asset-image-placeholder, .shuihuo-asset-image-drop > img { min-height: 180px; }.shuihuo-asset-editor-modal.ant-modal { width: calc(100vw - 24px) !important; } }
 .shuihuo-task-form, .shuihuo-batch-segments, .shuihuo-task-list { display: grid; gap: 10px; }
