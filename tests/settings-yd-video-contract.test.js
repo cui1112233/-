@@ -19,8 +19,9 @@ test('settings orders text, image, and fixed YD video services without editable 
   assert.match(settings, /name=\{\['video', 'apiKey'\]\}/);
   assert.match(settings, /<Input\.Password[^>]*placeholder="留空表示不修改已保存的 Key"/);
   assert.match(settings, /config\.video\?\.hasApiKey/);
-  assert.match(settings, /video:\s*\{\s*apiKey: values\.video\?\.apiKey \|\| ''\s*\}/);
+  assert.match(settings, /values = \{ video: \{ apiKey: form\.getFieldValue\(\['video', 'apiKey'\]\) \|\| '' \} \};/);
   assert.match(settings, /form\.setFieldValue\(\['video', 'apiKey'\], ''\)/);
+  assert.match(settings, />保存视频生成<\/Button>/);
   assert.match(settings, /中转亚迪/);
   assert.match(settings, /YD2\.0 Mini/);
   assert.match(settings, /720p/);

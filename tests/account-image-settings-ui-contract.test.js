@@ -108,7 +108,10 @@ test('settings test text and image connections independently without saving conf
   for (const functionName of ['handleTestText', 'handleTestImage']) {
     assert.doesNotMatch(functionBody(pageSource, functionName), /\bsaveConfig\s*\(/);
   }
-  assert.match(functionBody(pageSource, 'handleSave'), /\bsaveConfig\s*\(/);
+  assert.match(functionBody(pageSource, 'saveSection'), /\bsaveConfig\s*\(/);
+  assert.match(pageSource, />保存文本推理<\/Button>/);
+  assert.match(pageSource, />保存图片生成<\/Button>/);
+  assert.doesNotMatch(pageSource, />保存设置<\/Button>/);
 
   const textTestBody = functionBody(pageSource, 'handleTestText');
   const imageTestBody = functionBody(pageSource, 'handleTestImage');

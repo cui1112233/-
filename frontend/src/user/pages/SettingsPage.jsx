@@ -43,7 +43,7 @@ function connectionResponseMessage(candidate, fallback) {
 export function SettingsPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingSection, setSavingSection] = useState(null);
   const [testingText, setTestingText] = useState(false);
   const [testingImage, setTestingImage] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -101,34 +101,55 @@ export function SettingsPage() {
     return () => { alive = false; };
   }, [form]);
 
-  async function handleSave(values) {
-    setSaving(true);
+  async function saveSection(section) {
+    let values;
     try {
-      const saved = await saveConfig({
-        provider: values.provider,
-        baseUrl: values.baseUrl,
-        model: values.model,
-        apiKey: values.apiKey,
-        image: values.image,
-        video: { apiKey: values.video?.apiKey || '' },
-        storageRoot: values.storageRoot || '',
-        pet: values.petId === stackyPet.id ? stackyPet : undefined,
-        notifications: {
-          soundEnabled: values.soundEnabled !== false,
-          soundVolume: Number.isFinite(values.soundVolume) ? values.soundVolume : 60,
-          petVisible: values.petVisible !== false
-        }
-      });
-      window.dispatchEvent(new CustomEvent('qiantie:notifications-updated', { detail: saved.notifications }));
-      form.setFieldValue('apiKey', '');
-      form.setFieldValue(['image', 'apiKey'], '');
-      form.setFieldValue(['video', 'apiKey'], '');
-      setVideoHasApiKey(Boolean(saved.video?.hasApiKey ?? (values.video?.apiKey || videoHasApiKey)));
-      message.success('设置已保存');
+      if (section === 'text') {
+        values = await form.validateFields(['provider', 'baseUrl', 'model']);
+        values.apiKey = form.getFieldValue('apiKey');
+      } else if (section === 'image') {
+        const fieldNames = [['image', 'baseUrl'], ['image', 'model']];
+        if (form.getFieldValue(['image', 'mode']) === 'custom') fieldNames.push(['image', 'displayName']);
+        const result = await form.validateFields(fieldNames);
+        values = { image: { ...form.getFieldValue('image'), ...result.image } };
+      } else if (section === 'video') {
+        values = { video: { apiKey: form.getFieldValue(['video', 'apiKey']) || '' } };
+      } else if (section === 'workspace') {
+        const result = await form.validateFields(['petId', 'soundEnabled', 'soundVolume', 'petVisible']);
+        values = {
+          pet: result.petId === stackyPet.id ? stackyPet : undefined,
+          notifications: {
+            soundEnabled: result.soundEnabled !== false,
+            soundVolume: Number.isFinite(result.soundVolume) ? result.soundVolume : 60,
+            petVisible: result.petVisible !== false
+          }
+        };
+      } else if (section === 'storage') {
+        const result = await form.validateFields(['storageRoot']);
+        values = { storageRoot: result.storageRoot || '' };
+      }
+    } catch (error) {
+      if (!error?.errorFields) message.error(error.message || '保存失败');
+      return;
+    }
+
+    setSavingSection(section);
+    try {
+      const saved = await saveConfig(values);
+      if (section === 'text') form.setFieldValue('apiKey', '');
+      if (section === 'image') form.setFieldValue(['image', 'apiKey'], '');
+      if (section === 'video') {
+        form.setFieldValue(['video', 'apiKey'], '');
+        setVideoHasApiKey(Boolean(saved.video?.hasApiKey ?? values.video.apiKey));
+      }
+      if (section === 'workspace') {
+        window.dispatchEvent(new CustomEvent('qiantie:notifications-updated', { detail: saved.notifications }));
+      }
+      message.success(`${({ text: '文本推理', image: '图片生成', video: '视频生成', workspace: '工作台设置', storage: '本地存储' })[section]}已保存`);
     } catch (error) {
       message.error(error.message || '保存失败');
     } finally {
-      setSaving(false);
+      setSavingSection(null);
     }
   }
 
@@ -223,7 +244,6 @@ export function SettingsPage() {
         layout="vertical"
         disabled={loading}
         initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', image: { apiKey: '' }, video: { apiKey: '' }, storageRoot: '', petId: stackyPet.id, soundEnabled: true, soundVolume: 60, petVisible: true }}
-        onFinish={handleSave}
       >
         <section className="settings-section settings-model-services" aria-labelledby="settings-model-services-title">
           <div>
@@ -249,7 +269,10 @@ export function SettingsPage() {
               <Form.Item label="API Key" name="apiKey">
                 <Input.Password placeholder="留空表示不修改已保存的 Key" />
               </Form.Item>
-              <Button className="model-service-test" icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button>
+              <div className="model-service-actions">
+                <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button>
+                <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('text')} loading={savingSection === 'text'}>保存文本推理</Button>
+              </div>
             </div>
           </div>
 
@@ -279,7 +302,10 @@ export function SettingsPage() {
               <Form.Item label="生图模型名称" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型名称' }]}>
                 <Input placeholder="例如 gpt-image-1" />
               </Form.Item>
-              <Button className="model-service-test" icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestImage} loading={testingImage}>测试生图连接</Button>
+              <div className="model-service-actions">
+                <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestImage} loading={testingImage}>测试生图连接</Button>
+                <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('image')} loading={savingSection === 'image'}>保存图片生成</Button>
+              </div>
             </div>
           </div>
 
@@ -303,6 +329,7 @@ export function SettingsPage() {
                   {videoHasApiKey ? '已配置' : '未配置'}
                 </span>
               </div>
+              <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('video')} loading={savingSection === 'video'}>保存视频生成</Button>
             </div>
           </div>
         </section>
@@ -347,6 +374,7 @@ export function SettingsPage() {
               window.dispatchEvent(new CustomEvent(PET_COMPANION_SETTINGS_EVENT, { detail: { active: checked, username } }));
             }} />
           </Form.Item>
+          <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('workspace')} loading={savingSection === 'workspace'}>保存工作台与 CM</Button>
         </section>
 
         <section className="settings-section settings-storage-section" aria-labelledby="settings-storage-title">
@@ -358,6 +386,7 @@ export function SettingsPage() {
             <Input placeholder="例如 D:\我的小说工程" />
           </Form.Item>
           <div className="settings-storage-actions">
+            <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('storage')} loading={savingSection === 'storage'}>保存存储设置</Button>
             <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleRestore} loading={restoring}>恢复</Button>
             <Button icon={<FolderOpen size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleList} loading={listing}>查看文件清单</Button>
           </div>
@@ -411,12 +440,6 @@ export function SettingsPage() {
           )}
         </section>
 
-        <div className="settings-savebar">
-          <span>保存后仅更新当前账号的工作台连接配置。</span>
-          <div className="settings-savebar-actions">
-            <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving}>保存设置</Button>
-          </div>
-        </div>
       </Form>
       </div>
     </div>
