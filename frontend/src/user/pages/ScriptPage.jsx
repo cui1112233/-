@@ -448,6 +448,7 @@ export function ScriptPage() {
     dispatchPetContext({
       page: '剧本生成',
       pagePath: '/script',
+      mode: selectedMode || 'continuous',
       summary: `当前阶段：${stageLabel}；人物 ${characterCount} 个；场景 ${sceneCount} 个；剧本结果：${output.trim() ? '已生成' : '未生成'}`,
       entities: {
         characterCount,

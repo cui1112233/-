@@ -697,6 +697,7 @@ test('Agent chat preserves each bounded page-context field for script revision',
       prompt: '请根据原文和人物关系修改当前短剧剧本',
       context: {
         page: '剧本生成',
+        mode: 'segmented',
         novelText: 'NOVEL_PAYLOAD_MARKER' + 'N'.repeat(17900),
         extracted: { marker: 'EXTRACTED_PAYLOAD_MARKER', bulk: 'E'.repeat(6000) },
         scriptOutput: 'SCRIPT_PAYLOAD_MARKER' + 'S'.repeat(17900)
@@ -711,6 +712,8 @@ test('Agent chat preserves each bounded page-context field for script revision',
   assert.match(responderInput, /小说原文[\s\S]*NOVEL_PAYLOAD_MARKER/);
   assert.match(responderInput, /人物与场景[\s\S]*EXTRACTED_PAYLOAD_MARKER/);
   assert.match(responderInput, /当前剧本结果[\s\S]*SCRIPT_PAYLOAD_MARKER/);
+  assert.match(responderInput, /模式：segmented/);
+  assert.match(receivedMessages[0].content, /剧本开头模式规则/);
 });
 
 test('Agent chat truncates overlong model responses before persistence', async t => {
