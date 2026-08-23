@@ -7,6 +7,7 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "^0.0.77",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
     "@react-three/rapier": "^1.5.0",
