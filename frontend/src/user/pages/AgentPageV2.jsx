@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Clock3, FilePenLine, MessageCircle, MessageSqua
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { askAgent, clearAgentTask, createAgentTask, createMyAgentSkill, deleteAgentTask, deleteMyAgentSkill, getAgentTask, getMyAgentSkill, listAgentSkills, listAgentTasks, renameAgentTask, updateMyAgentSkill } from '../../shared/api/agent';
 import { dispatchPetContext, dispatchPetSkills, dispatchPetState } from '../../shared/pet/stacky';
+import SuperOpcLiquidMetalLogo from '../components/superopc-liquid-metal';
 
 const blankSkill = { name: '', description: '', category: '创作', inputTemplate: '', body: '' };
 function formatTaskTime(value) {
@@ -38,7 +39,7 @@ function createProblemSearchPrompt(text) {
   ].join('\n');
 }
 
-export function AgentPageV2() {
+export function AgentPageV2({ theme }) {
   const [tasks, setTasks] = useState([]);
   const [activeTaskId, setActiveTaskId] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
@@ -489,8 +490,8 @@ export function AgentPageV2() {
 
           <div ref={historyRef} className="agent-workbench-history" aria-live="polite">
             {taskDetailLoading ? <div className="agent-workbench-loading" role="status">正在读取任务详情...</div> : null}
-            {!loading && !activeTask ? <div className="agent-workbench-empty"><span className="agent-workbench-logo" role="img" aria-label="一战晟铭"><img className="agent-workbench-logo-white" src="/assets/brand-logo-white.png" alt="" /><img className="agent-workbench-logo-black" src="/assets/brand-logo-black.png" alt="" /></span><strong>一战晟铭 / CM</strong><span>你的 AI 创作工作空间</span></div> : null}
-            {activeTask && messages.length === 0 ? <div className="agent-workbench-empty"><span className="agent-workbench-logo" role="img" aria-label="一战晟铭"><img className="agent-workbench-logo-white" src="/assets/brand-logo-white.png" alt="" /><img className="agent-workbench-logo-black" src="/assets/brand-logo-black.png" alt="" /></span><strong>一战晟铭 / CM</strong><span>输入需求开始对话；也可以直接开启「找问题」。</span></div> : null}
+            {!loading && !activeTask ? <div className="agent-workbench-empty"><SuperOpcLiquidMetalLogo theme={theme} className="agent-workbench-logo" /><strong>一战晟铭 / CM</strong><span>你的 AI 创作工作空间</span></div> : null}
+            {activeTask && messages.length === 0 ? <div className="agent-workbench-empty"><SuperOpcLiquidMetalLogo theme={theme} className="agent-workbench-logo" /><strong>一战晟铭 / CM</strong><span>输入需求开始对话；也可以直接开启「找问题」。</span></div> : null}
             {messages.map((entry, index) => <article key={`${entry.createdAt || index}-${entry.role}`} className={`agent-workbench-message agent-workbench-message--${entry.role}`}><strong>{entry.role === 'assistant' ? 'CM' : '你'}</strong><span>{entry.content}</span></article>)}
           </div>
         </div>
