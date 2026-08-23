@@ -453,7 +453,9 @@ export function ScriptPage() {
         characterCount,
         sceneCount,
         generationStage,
-        hasOutput: Boolean(output.trim())
+        hasOutput: Boolean(output.trim()),
+        characterNames: extractInfo.characters.map(formatEntity).filter(Boolean).slice(0, 6).join('、'),
+        constraintModalOpen
       },
       actions: generationStage === 'extracted'
         ? ['检查人物与场景', '编辑人物与场景', '生成剧本']
@@ -466,7 +468,7 @@ export function ScriptPage() {
 
   useEffect(() => {
     syncPetContext();
-  }, [extractInfo, output, generationStage]);
+  }, [extractInfo, output, generationStage, constraintModalOpen]);
 
   useEffect(() => {
     function openRevisionPreview(event) {

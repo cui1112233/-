@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
 import { PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetPreview, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
@@ -59,6 +59,7 @@ export function StackyPet({ username, accountSessionKey }) {
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const [failedRequest, setFailedRequest] = useState(null);
+  const [petContext, setPetContext] = useState(() => normalizePetContext({ pagePath: window.location.pathname }));
   const [petTaskId, setPetTaskId] = useState(null);
   const spriteRef = useRef(null);
   const dragRef = useRef(null);
@@ -250,11 +251,26 @@ export function StackyPet({ username, accountSessionKey }) {
 
   useEffect(() => {
     function handleContext(event) {
-      contextRef.current = normalizePetContext(event.detail);
+      const next = normalizePetContext(event.detail);
+      contextRef.current = next;
+      setPetContext(next);
     }
     window.addEventListener(PET_CONTEXT_EVENT, handleContext);
     return () => window.removeEventListener(PET_CONTEXT_EVENT, handleContext);
   }, []);
+
+  const quickQuestions = useMemo(() => {
+    if (petContext.page === '剧本生成') {
+      const names = String(petContext.entities?.characterNames || '').split('、').filter(Boolean).slice(0, 2);
+      const characterQuestions = names.flatMap(name => [`帮我优化${name}`, `帮${name}换一套更符合剧情的衣服`]);
+      if (petContext.entities?.constraintModalOpen === 'true') {
+        return ['优化画面前缀词', '优化画质约束', '检查画面限制与负面提示词', ...characterQuestions].slice(0, 5);
+      }
+      return [...characterQuestions, '帮我检查人物外形一致性', '帮我优化当前分镜节奏'].slice(0, 5);
+    }
+    if (petContext.page === '小说面板') return ['帮我判断内容类型', '帮我优化统一风格', '帮我检查人物外形全局要求', '帮我优化镜头节奏', '帮我检查分镜额外要求'];
+    return ['分析当前页面下一步', '帮我检查当前内容', '给我一个优化建议'];
+  }, [petContext]);
 
   useEffect(() => {
     function keepOverlayVisible() {
@@ -567,6 +583,9 @@ export function StackyPet({ username, accountSessionKey }) {
                 ) : null}
               </div>
             ) : null}
+          </div>
+          <div className="stacky-agent-quick-questions" aria-label="推荐问题">
+            {quickQuestions.map(item => <button key={item} type="button" disabled={asking} onClick={() => sendQuestion(item)}>{item}</button>)}
           </div>
           <form className="stacky-agent-input" onSubmit={event => { event.preventDefault(); sendQuestion(question); }}>
             <input value={question} onChange={event => setQuestion(event.target.value)} placeholder="问问 CM..." aria-label="向 CM 提问" />

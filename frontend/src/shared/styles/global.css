@@ -2029,6 +2029,32 @@ select {
   cursor: pointer;
 }
 
+.stacky-agent-quick-questions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--legacy-border);
+  background: color-mix(in srgb, var(--legacy-panel) 88%, transparent);
+}
+
+.stacky-agent-quick-questions button {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--legacy-text);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stacky-agent-quick-questions button:hover:not(:disabled) { border-color: var(--legacy-primary); color: var(--legacy-primary); }
+.stacky-agent-quick-questions button:disabled { cursor: not-allowed; opacity: .55; }
+
 .stacky-agent-input {
   display: flex;
   gap: 8px;
