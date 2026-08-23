@@ -287,6 +287,11 @@ textarea:focus {
   line-height: 1.65;
 }
 
+#inputText::placeholder {
+  color: var(--muted);
+  opacity: 0.62;
+}
+
 .json-area {
   min-height: 280px;
   resize: vertical;
