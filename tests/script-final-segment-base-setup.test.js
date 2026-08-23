@@ -30,6 +30,8 @@ test('final shot cards show each enabled textual constraint and hide all of them
   assert.match(card, /【画面前缀】\n电影级写实镜头/);
   assert.match(card, /【画质约束】\n4K 清晰画质\n画面不得出现字幕/);
   assert.match(card, /负面提示词：\n模糊、畸形手指/);
+  assert.ok(card.indexOf('【画面前缀】') < card.indexOf('画面：女孩走进车站'));
+  assert.ok(card.indexOf('画面：女孩走进车站') < card.indexOf('负面提示词：'));
 
   const hidden = buildFinalSegmentCard('画面：女孩走进车站', {
     constraints: { ...constraints, enabled: false },

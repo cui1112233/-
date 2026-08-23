@@ -33,20 +33,27 @@ function enabledBody(layer) {
   return layer?.enabled === true ? text(layer?.body) : '';
 }
 
-// 程序按约束设置生成约束文本（画面前缀/画质约束/负面提示词），对齐 chat.js 组装格式
-export function buildConstraintText(constraints) {
-  // 总开关关闭时，所有文字约束都不应出现在最终分镜卡中；
-  // 各分类开关再决定对应分类是否显示。
-  if (constraints?.enabled !== true) return '';
+function buildConstraintParts(constraints) {
+  // 显式关闭总开关时，所有文字约束都不应出现在最终分镜卡中。
+  // 未带此字段的旧记录保持原有行为，避免历史内容意外丢失。
+  if (constraints?.enabled === false) return { leading: '', negative: '' };
   const prefix = enabledBody(constraints?.prefix);
   const quality = enabledBody(constraints?.quality);
   const restriction = enabledBody(constraints?.restriction);
   const negative = enabledBody(constraints?.negative);
-  return [
+  return {
+    leading: [
     prefix && `【画面前缀】\n${prefix}`,
-    (quality || restriction) && `【画质约束】\n${[quality, restriction].filter(Boolean).join('\n')}`,
-    negative && `负面提示词：\n${negative}`
-  ].filter(Boolean).join('\n\n');
+      (quality || restriction) && `【画质约束】\n${[quality, restriction].filter(Boolean).join('\n')}`
+    ].filter(Boolean).join('\n\n'),
+    negative: negative ? `负面提示词：\n${negative}` : ''
+  };
+}
+
+// 程序按约束设置生成完整约束文本；供规则预览和兼容调用使用。
+export function buildConstraintText(constraints) {
+  const { leading, negative } = buildConstraintParts(constraints);
+  return [leading, negative].filter(Boolean).join('\n\n');
 }
 
 // 移除模型输出中已有的【基础设定】段落（由程序生成版本替换，避免重复）
@@ -123,17 +130,18 @@ export function unitTotalSeconds(text) {
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
 export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0 }) {
   const baseOn = constraints?.baseSetup?.enabled !== false;
-  const constraintText = buildConstraintText(constraints);
+  const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints);
   // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
   let body = card;
   if (baseOn) body = stripBaseSetupSection(body);
   const total = unitTotalSeconds(card) ?? unitTotalSeconds(body);
   body = stripUnitHeading(body);
-  if (constraintText) body = stripConstraintLines(body);
+  if (leadingConstraints || negativeConstraint) body = stripConstraintLines(body);
   const parts = [`### 分镜${chineseOrdinal(index)}${total ? `（总时长：${total}s）` : ''}`];
   if (baseOn) parts.push(buildBaseSetupText(extractInfo));
-  if (constraintText) parts.push(constraintText);
+  if (leadingConstraints) parts.push(leadingConstraints);
   if (body) parts.push(body);
+  if (negativeConstraint) parts.push(negativeConstraint);
   return parts.join('\n\n');
 }
 
