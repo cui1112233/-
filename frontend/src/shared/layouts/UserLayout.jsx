@@ -400,7 +400,7 @@ export function UserLayout({ children }) {
       </aside>
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
-          <section className="legacy-content">{content}</section>
+          <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{content}</section>
         </main>
         {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>

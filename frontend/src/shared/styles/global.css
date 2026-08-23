@@ -662,6 +662,14 @@ select {
   overflow: hidden;
 }
 
+.legacy-content--agent {
+  display: flex;
+}
+
+.legacy-content--agent > .agent-page {
+  flex: 1 1 auto;
+}
+
 .legacy-login-overlay {
   position: fixed;
   inset: 0;
