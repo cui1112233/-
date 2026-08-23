@@ -31,7 +31,7 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export function generateScript({ mode, format, duration, novelText, characters, scenes, protagonists, constraints }) {
+export function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints }) {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -42,6 +42,7 @@ export function generateScript({ mode, format, duration, novelText, characters, 
       novelText,
       characters,
       scenes,
+      visualStyle,
       protagonists,
       constraints,
       max_tokens: 8192,

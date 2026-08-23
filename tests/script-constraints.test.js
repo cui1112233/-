@@ -50,6 +50,29 @@ test('uses the enabled system constraint preset without appending legacy additio
   assert.doesNotMatch(messages[0].content, /少女向暖色校园/);
 });
 
+test('uses the extracted novel visual style as the enabled picture prefix', () => {
+  const messages = chat._private.buildScriptMessages({
+    mode: 'segmented', format: 'shotlist', duration: '10s', novelText: '测试', characters: [], scenes: [],
+    visualStyle: '现代都市电影质感，冷调叙事构图', protagonists: [],
+    constraints: {
+      enabled: true,
+      prefix: { enabled: true, source: 'system', presetId: 'script-constraint-prefix-2d' },
+      quality: { enabled: false }, restriction: { enabled: false }, negative: { enabled: false }
+    }
+  }, presetStore);
+  assert.match(messages[0].content, /现代都市电影质感，冷调叙事构图/);
+  assert.match(messages[0].content, /高质量二维动画/);
+});
+
+test('does not inject extracted visual style when picture prefix is disabled', () => {
+  const messages = chat._private.buildScriptMessages({
+    mode: 'segmented', format: 'shotlist', duration: '10s', novelText: '测试', characters: [], scenes: [],
+    visualStyle: '不应出现的统一风格', protagonists: [],
+    constraints: { enabled: true, prefix: { enabled: false }, quality: { enabled: false }, restriction: { enabled: false }, negative: { enabled: false } }
+  }, presetStore);
+  assert.doesNotMatch(messages[0].content, /不应出现的统一风格/);
+});
+
 test('does not inject a category whose independent switch is off', () => {
   const messages = chat._private.buildScriptMessages({
     mode: 'continuous', format: 'storyboard', duration: '10s', novelText: '测试', characters: [], scenes: [], protagonists: [],

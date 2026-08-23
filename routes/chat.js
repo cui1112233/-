@@ -163,14 +163,17 @@ function resolveConstraintText(presetStore, category, value, personalPromptStore
   return String(preset.body || '').trim();
 }
 
-function buildConstraintWrapper(presetStore, constraints, format, duration, personalPromptStore, username) {
+function buildConstraintWrapper(presetStore, constraints, format, duration, personalPromptStore, username, visualStyle) {
   if (format === 'shortdrama' || constraints?.enabled !== true) return '';
   const prefix = resolveConstraintText(presetStore, 'prefix', constraints?.prefix, personalPromptStore, username);
+  // 统一风格来自本次小说的人物/场景提取。仅在用户开启画面前缀时写入，
+  // 以免未开启约束设置的剧本输出被静态视频提示词污染。
+  const extractedStyle = constraints?.prefix?.enabled === true ? String(visualStyle || '').trim() : '';
   const quality = resolveConstraintText(presetStore, 'quality', constraints?.quality, personalPromptStore, username);
   const restriction = resolveConstraintText(presetStore, 'restriction', constraints?.restriction, personalPromptStore, username);
   const negative = resolveConstraintText(presetStore, 'negative', constraints?.negative, personalPromptStore, username);
   const constraintText = [
-    prefix && `【画面前缀】\n${prefix}`,
+    (extractedStyle || prefix) && `【画面前缀】\n${[extractedStyle, prefix].filter(Boolean).join('\n')}`,
     (quality || restriction) && `【画质约束】\n${[quality, restriction].filter(Boolean).join('\n')}`,
     negative && `负面提示词：\n${negative}`
   ].filter(Boolean).join('\n\n');
@@ -208,7 +211,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   modeContent = modeContent.replace(/\{duration\}/g, duration);
   modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
 
-  const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
+  const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
   // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
   const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
