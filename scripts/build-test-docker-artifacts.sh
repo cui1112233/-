@@ -12,7 +12,10 @@ esac
 command -v go >/dev/null || { echo "Go is required to build the backend." >&2; exit 1; }
 command -v npm >/dev/null || { echo "npm is required to build the frontend." >&2; exit 1; }
 
-npm --prefix "$ROOT" ci --omit=dev --prefer-offline
+(
+  cd "$ROOT"
+  npm ci --omit=dev --prefer-offline
+)
 npm --prefix "$ROOT/frontend" ci --prefer-offline
 
 npm --prefix "$ROOT/frontend" run build
