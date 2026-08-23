@@ -40,6 +40,7 @@ const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diag
 const { createNovelPanelHistoryStore } = require('./lib/novel-panel/history-store');
 const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-store');
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
+const { createScriptVideoRouter } = require('./routes/script-video');
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore } = {}) {
   const app = express();
@@ -147,6 +148,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/config', createConfigRouter({ shuihuoGateway })); // GET/POST /api/config
+  app.use('/api/script-video', createScriptVideoRouter());
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt

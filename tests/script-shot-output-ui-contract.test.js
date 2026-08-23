@@ -17,8 +17,9 @@ test('shot card component provides individual copy and video-generation controls
   assert.match(cards, /Checkbox/);
   assert.match(page, /ShotOutputCards/);
   assert.match(page, /generateVideoForShot/);
-  assert.match(page, /createTask\(projectId, \{ segmentId: segment\.id, kind: 'video', modelId \}\)/);
-  assert.match(page, /videoGenerationMode !== 'text_to_video'/);
+  assert.match(page, /createScriptVideo\(\{ prompt \}\)/);
+  assert.doesNotMatch(page, /createTask\(projectId/);
+  assert.doesNotMatch(page, /getProductionConfig\(\)/);
 });
 
 test('script page uses card output only for parsed non-shortdrama results', () => {
