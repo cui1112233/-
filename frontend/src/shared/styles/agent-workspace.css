@@ -1141,7 +1141,13 @@
 .agent-workspace-v3 .agent-workbench-empty::before,
 .agent-workspace-v3 .agent-workbench-empty::after { display: none; }
 .agent-workspace-v3 .agent-workbench-empty { min-height: 0; gap: 10px; color: var(--agent-muted); }
-.agent-workspace-v3 .agent-workbench-empty > svg { color: var(--agent-accent); filter: drop-shadow(0 8px 17px var(--agent-accent-soft)); }
+.agent-workspace-v3 .agent-workbench-logo {
+  display: block;
+  width: clamp(112px, 15vw, 156px);
+  max-height: 108px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.26));
+}
 .agent-workspace-v3 .agent-workbench-empty strong { color: var(--agent-text); font-size: 20px; letter-spacing: -0.03em; }
 .agent-workspace-v3 .agent-workbench-empty span { font-size: 13px; letter-spacing: 0.08em; }
 

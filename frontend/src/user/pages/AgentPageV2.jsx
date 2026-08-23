@@ -1,5 +1,5 @@
 import { Button, Form, Input, Modal, Popconfirm, Segmented, Space, Tag, Tooltip, Typography, message } from 'antd';
-import { ChevronDown, ChevronUp, Clock3, FilePenLine, MessageCircle, MessageSquarePlus, MoreHorizontal, Pencil, Pin, RotateCcw, SearchCheck, Send, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock3, FilePenLine, MessageCircle, MessageSquarePlus, MoreHorizontal, Pencil, Pin, RotateCcw, SearchCheck, Send, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { askAgent, clearAgentTask, createAgentTask, createMyAgentSkill, deleteAgentTask, deleteMyAgentSkill, getAgentTask, getMyAgentSkill, listAgentSkills, listAgentTasks, renameAgentTask, updateMyAgentSkill } from '../../shared/api/agent';
 import { dispatchPetContext, dispatchPetSkills, dispatchPetState } from '../../shared/pet/stacky';
@@ -489,8 +489,8 @@ export function AgentPageV2() {
 
           <div ref={historyRef} className="agent-workbench-history" aria-live="polite">
             {taskDetailLoading ? <div className="agent-workbench-loading" role="status">正在读取任务详情...</div> : null}
-            {!loading && !activeTask ? <div className="agent-workbench-empty"><Sparkles size={42} /><strong>一战晟铭 / CM</strong><span>你的 AI 创作工作空间</span></div> : null}
-            {activeTask && messages.length === 0 ? <div className="agent-workbench-empty"><Sparkles size={42} /><strong>一战晟铭 / CM</strong><span>输入需求开始对话；也可以直接开启「找问题」。</span></div> : null}
+            {!loading && !activeTask ? <div className="agent-workbench-empty"><img className="agent-workbench-logo" src="/assets/logo-transparent.png" alt="一战晟铭" /><strong>一战晟铭 / CM</strong><span>你的 AI 创作工作空间</span></div> : null}
+            {activeTask && messages.length === 0 ? <div className="agent-workbench-empty"><img className="agent-workbench-logo" src="/assets/logo-transparent.png" alt="一战晟铭" /><strong>一战晟铭 / CM</strong><span>输入需求开始对话；也可以直接开启「找问题」。</span></div> : null}
             {messages.map((entry, index) => <article key={`${entry.createdAt || index}-${entry.role}`} className={`agent-workbench-message agent-workbench-message--${entry.role}`}><strong>{entry.role === 'assistant' ? 'CM' : '你'}</strong><span>{entry.content}</span></article>)}
           </div>
         </div>
