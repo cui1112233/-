@@ -21,6 +21,11 @@ let workFormSaveTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
+window.addEventListener('message', event => {
+  if (event.origin !== window.location.origin || event.data?.type !== 'qiantie-theme-sync') return;
+  document.documentElement.dataset.theme = event.data.theme === 'light' ? 'light' : 'dark';
+});
+
 function pretty(value) {
   return JSON.stringify(value, null, 2);
 }

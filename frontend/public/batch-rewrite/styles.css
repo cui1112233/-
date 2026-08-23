@@ -13,6 +13,27 @@
   --ok: #067647;
 }
 
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d172b;
+  --panel: #111c31;
+  --panel-soft: #1b2a40;
+  --line: #304158;
+  --text: #edf4ff;
+  --muted: #9aacc2;
+  --accent: #63dfc0;
+  --accent-strong: #80ebd2;
+  --danger: #f08a8a;
+  --warn: #f1c65d;
+  --ok: #72d8a9;
+}
+
+[data-theme="dark"] .topbar,
+[data-theme="dark"] button,
+[data-theme="dark"] select,
+[data-theme="dark"] input,
+[data-theme="dark"] textarea { background: var(--panel); color: var(--text); border-color: var(--line); }
+
 * {
   box-sizing: border-box;
 }

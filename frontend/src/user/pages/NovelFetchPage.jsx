@@ -1,6 +1,6 @@
 import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
 import { Download, Eye, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   checkWebSubmitEnvironment, fetchNovelContent, getWebSubmitConfig, previewWebSubmit,
   saveWebSubmitConfig, startWebSubmit, syncWebSubmitConfigs, syncWebSubmitStyles
@@ -54,9 +54,12 @@ function downloadText(name, content) {
   URL.revokeObjectURL(url);
 }
 
-export function NovelFetchPage() {
+export function NovelFetchPage({ theme }) {
   // 保留原批量改文系统的静态工作台，不再以简化面板替代其完整布局。
-  return <iframe className="novel-fetch-original-workbench" title="批量原文改文系统" src="/batch-rewrite/index.html" />;
+  const frameRef = useRef(null);
+  const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
+  useEffect(() => { syncTheme(); }, [theme]);
+  return <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src="/batch-rewrite/index.html" onLoad={syncTheme} />;
 }
 
 export function LegacyNovelFetchPage() {
