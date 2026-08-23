@@ -1580,6 +1580,7 @@ select {
 .entity-card-main { flex: 1; text-align: left; }
 .entity-protagonist-toggle { color: var(--legacy-muted) !important; }
 .entity-protagonist-toggle:hover { color: var(--legacy-accent) !important; }
+.entity-protagonist-toggle.is-protagonist { color: #f5b700 !important; }
 .entity-add-button { color: var(--legacy-accent) !important; }
 .entity-editor-danger { color: var(--legacy-danger, #ff4d4f) !important; }
 

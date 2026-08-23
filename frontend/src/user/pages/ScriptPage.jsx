@@ -11,7 +11,7 @@ import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetStat
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
-import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
+import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
@@ -525,7 +525,7 @@ export function ScriptPage() {
     if (!extraction.characters.length && !extraction.scenes.length) {
       throw new Error('模型未返回人物或场景，请检查提取模板或重试');
     }
-    return extraction;
+    return { ...extraction, protagonistIds: selectDefaultProtagonistIds(extraction, novelText) };
   }
 
   async function handleExtract(values) {
@@ -1329,7 +1329,7 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
             return <div className="entity-card-row" key={item.id}>
               <button className="entity-card entity-card-button entity-card-main" type="button" onClick={() => onEdit(item.id)}>{formatEntity(item)}</button>
               {isCharacter && <Button
-                className="entity-protagonist-toggle"
+                className={`entity-protagonist-toggle${isProtagonist ? ' is-protagonist' : ''}`}
                 type="text"
                 aria-label={isProtagonist ? '取消主角标记' : '设为主角'}
                 title={isProtagonist ? '取消主角标记' : '设为主角'}

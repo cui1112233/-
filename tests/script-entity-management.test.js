@@ -50,3 +50,16 @@ test('keeps existing entity IDs and returns only selected protagonists', async (
     protagonists: [{ name: '沈清' }]
   });
 });
+
+test('automatically selects explicitly labeled leads, otherwise the most-mentioned character', async () => {
+  const { selectDefaultProtagonistIds } = await loadEntities();
+  const characters = [
+    { id: 'lead', data: { name: '沈清', 角色定位: '女主角' } },
+    { id: 'supporting', data: { name: '顾言', 身份: '同事' } }
+  ];
+  assert.deepEqual(selectDefaultProtagonistIds({ characters, scenes: [] }, '顾言顾言顾言'), ['lead']);
+  assert.deepEqual(selectDefaultProtagonistIds({
+    characters: [{ id: 'a', data: { name: '林默' } }, { id: 'b', data: { name: '苏晚' } }],
+    scenes: []
+  }, '苏晚看见林默。苏晚转身。苏晚离开。'), ['b']);
+});

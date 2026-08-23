@@ -48,6 +48,35 @@ export function collectProtagonists(extractInfo) {
     .map(entityData);
 }
 
+function entityName(record) {
+  const data = entityData(record);
+  if (typeof data === 'string') return data.trim();
+  return String(data?.角色名称 || data?.名称 || data?.name || '').trim();
+}
+
+function occurrenceCount(text, value) {
+  if (value.length < 2) return 0;
+  return String(text || '').split(value).length - 1;
+}
+
+// 提取结果没有明确主角字段时，至少选择原文中最常出现的人物。
+// 若人物资料已写明“主角 / 男主 / 女主 / 视角角色”，则优先保留所有这些明确主角。
+export function selectDefaultProtagonistIds(extractInfo, novelText = '') {
+  const normalized = normalizeExtractInfo(extractInfo);
+  if (normalized.protagonistIds.length || !normalized.characters.length) return normalized.protagonistIds;
+  const explicit = normalized.characters.filter(item => {
+    const data = entityData(item);
+    const role = typeof data === 'object' ? JSON.stringify(data) : String(data || '');
+    return /(主角|男主|女主|主人公|第一视角|protagonist)/i.test(role);
+  }).map(item => item.id);
+  if (explicit.length) return explicit;
+  const selected = normalized.characters.reduce((best, item) => {
+    const score = occurrenceCount(novelText, entityName(item));
+    return score > best.score ? { id: item.id, score } : best;
+  }, { id: normalized.characters[0].id, score: occurrenceCount(novelText, entityName(normalized.characters[0])) });
+  return selected.id ? [selected.id] : [];
+}
+
 export function toGenerationEntities(extractInfo) {
   const normalized = normalizeExtractInfo(extractInfo);
   return {
