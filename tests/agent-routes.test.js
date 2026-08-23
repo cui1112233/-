@@ -561,6 +561,14 @@ test('Agent page context is bounded and degrades safely for circular or hostile 
   assert.match(hostileMessages.at(-1).content, /当前页面：未知页面/);
 });
 
+test('Agent asks one clarifying question instead of guessing ambiguous creative edits', () => {
+  const messages = buildAgentMessages({ history: [], prompt: '把人物改好看一点', context: { page: '小说面板' } });
+  const system = messages[0].content;
+  assert.match(system, /若修改目标、范围或影响层级不明确/);
+  assert.match(system, /每轮最多追问一个关键问题/);
+  assert.match(system, /你想改哪位人物/);
+});
+
 test('Agent chat includes bounded composer context only in the responder request', async t => {
   let receivedMessages;
   const { app, systemDir } = createFixture(t, {
