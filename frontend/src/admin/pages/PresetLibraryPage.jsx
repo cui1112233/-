@@ -1,4 +1,4 @@
-import { Alert, Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Collapse, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { createPresetDraft, listAdminPresetSlots, listAdminPresets, publishPreset, rollbackPreset } from '../../shared/api/admin';
 
@@ -14,6 +14,35 @@ const constraintCategories = [
   { label: '画质约束', value: 'quality' },
   { label: '画面限制', value: 'restriction' },
   { label: '负面提示词', value: 'negative' }
+];
+
+// 剧本页的提示词并非同一用途：按用户在剧本页看到的顺序分区，
+// 管理员才能快速定位该改哪一项，而版本仍由每个预设词自己的展开行管理。
+const scriptPresetSections = [
+  {
+    key: 'base-setup',
+    title: '基础设定（人物 / 场景）',
+    description: '对应剧本生成输入框的「切换指令 → 提取方案」，用于提取人物与场景。',
+    matches: preset => preset.protocolLock?.format === 'extract' || ['script-extract', 'script-extract-novel-panel'].includes(preset.id)
+  },
+  {
+    key: 'constraints',
+    title: '约束设置',
+    description: '按分镜写入顺序管理：画面前缀词 → 画质约束 / 画面限制 → 分镜正文 → 负面提示词。',
+    matches: preset => preset.id === 'script-constraint-wrapper' || preset.protocolLock?.format === 'constraint'
+  },
+  {
+    key: 'formats',
+    title: '剧本输出格式',
+    description: '控制生成剧本、分镜或短剧文本的输出结构。',
+    matches: preset => preset.id.startsWith('script-format-')
+  },
+  {
+    key: 'other',
+    title: '其他剧本提示词',
+    description: '未归入以上生成环节的剧本模块预设词。',
+    matches: () => true
+  }
 ];
 
 const formatPriority = [
@@ -230,6 +259,40 @@ export function PresetLibraryPage() {
     }
   ];
 
+  function presetTable(items) {
+    return (
+      <Table
+        rowKey={row => row.id}
+        dataSource={items}
+        columns={columns}
+        loading={loading}
+        size="middle"
+        expandable={{
+          rowExpandable: row => row.versions.length > 1,
+          expandedRowRender: row => (
+            <Table
+              rowKey={version => `${row.id}-${version.version}`}
+              size="small"
+              pagination={false}
+              dataSource={row.versions}
+              columns={versionColumns}
+            />
+          )
+        }}
+        pagination={false}
+      />
+    );
+  }
+
+  const scriptSections = useMemo(() => {
+    const remaining = new Set(grouped.map(item => item.id));
+    return scriptPresetSections.map(section => {
+      const items = grouped.filter(item => remaining.has(item.id) && section.matches(item.current));
+      items.forEach(item => remaining.delete(item.id));
+      return { ...section, items };
+    }).filter(section => section.items.length > 0);
+  }, [grouped]);
+
   return (
     <section className="admin-preset-library">
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -242,25 +305,36 @@ export function PresetLibraryPage() {
         </div>
         <Segmented options={modules} value={module} onChange={setModule} />
         {error && <Alert type="error" showIcon message="无法读取此模块预设词" description={error} />}
-        <Table
-          rowKey={row => row.id}
-          dataSource={grouped}
-          columns={columns}
-          loading={loading}
-          expandable={{
-            rowExpandable: row => row.versions.length > 1,
-            expandedRowRender: row => (
-              <Table
-                rowKey={version => `${row.id}-${version.version}`}
-                size="small"
-                pagination={false}
-                dataSource={row.versions}
-                columns={versionColumns}
-              />
-            )
-          }}
-          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: total => `共 ${total} 个预设词` }}
-        />
+        {module === 'script' ? (
+          <Collapse
+            defaultActiveKey={scriptSections.map(section => section.key)}
+            items={scriptSections.map(section => ({
+              key: section.key,
+              label: <Space direction="vertical" size={0}><Typography.Text strong>{section.title}</Typography.Text><Typography.Text type="secondary">{section.description}</Typography.Text></Space>,
+              children: presetTable(section.items)
+            }))}
+          />
+        ) : (
+          <Table
+            rowKey={row => row.id}
+            dataSource={grouped}
+            columns={columns}
+            loading={loading}
+            expandable={{
+              rowExpandable: row => row.versions.length > 1,
+              expandedRowRender: row => (
+                <Table
+                  rowKey={version => `${row.id}-${version.version}`}
+                  size="small"
+                  pagination={false}
+                  dataSource={row.versions}
+                  columns={versionColumns}
+                />
+              )
+            }}
+            pagination={{ pageSize: 10, showSizeChanger: false, showTotal: total => `共 ${total} 个预设词` }}
+          />
+        )}
       </Space>
       <Modal title="系统预设词草稿" open={editorOpen} onCancel={() => setEditorOpen(false)} footer={null} width={760} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={saveDraft} initialValues={emptyDraft(module)}>
