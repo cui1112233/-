@@ -1143,8 +1143,8 @@
 .agent-workspace-v3 .agent-workbench-empty { min-height: 0; gap: 10px; color: var(--agent-muted); }
 .agent-workspace-v3 .agent-workbench-logo {
   display: grid;
-  width: clamp(112px, 15vw, 156px);
-  height: clamp(66px, 8vw, 88px);
+  width: clamp(168px, 20vw, 232px);
+  height: clamp(98px, 12vw, 136px);
   place-items: center;
   filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.26));
 }
