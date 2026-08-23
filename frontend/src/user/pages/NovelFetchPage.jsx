@@ -59,7 +59,7 @@ export function NovelFetchPage({ theme }) {
   const frameRef = useRef(null);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
-  return <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src="/batch-rewrite/index.html" onLoad={syncTheme} />;
+  return <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={syncTheme} />;
 }
 
 export function LegacyNovelFetchPage() {

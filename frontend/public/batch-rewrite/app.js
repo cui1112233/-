@@ -21,6 +21,7 @@ let workFormSaveTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
+document.documentElement.dataset.theme = new URLSearchParams(window.location.search).get('theme') === 'light' ? 'light' : 'dark';
 window.addEventListener('message', event => {
   if (event.origin !== window.location.origin || event.data?.type !== 'qiantie-theme-sync') return;
   document.documentElement.dataset.theme = event.data.theme === 'light' ? 'light' : 'dark';

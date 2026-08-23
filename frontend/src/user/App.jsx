@@ -46,5 +46,18 @@ function getPage(pathname) {
 }
 
 export function UserApp() {
+  useEffect(() => {
+    const recoverChunk = event => {
+      const message = String(event?.reason?.message || event?.error?.message || event?.message || '');
+      if (!/Failed to fetch dynamically imported module|Unable to preload CSS/i.test(message)) return;
+      const key = 'qiantie:chunk-recovery';
+      if (sessionStorage.getItem(key) === window.location.href) return;
+      sessionStorage.setItem(key, window.location.href);
+      window.location.reload();
+    };
+    window.addEventListener('error', recoverChunk);
+    window.addEventListener('unhandledrejection', recoverChunk);
+    return () => { window.removeEventListener('error', recoverChunk); window.removeEventListener('unhandledrejection', recoverChunk); };
+  }, []);
   return <UserLayout>{getPage(usePathname())}</UserLayout>;
 }
