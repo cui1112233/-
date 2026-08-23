@@ -240,7 +240,7 @@ select {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  border-bottom: 1px solid var(--legacy-border);
+  border-bottom: 0;
   font-weight: 700;
   color: var(--legacy-accent);
   white-space: nowrap;
