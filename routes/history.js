@@ -29,6 +29,21 @@ function historyFilePath(username, filename) {
   return path.join(getUserOutputsDir(username), path.basename(filename));
 }
 
+function normalizeVideoTasks(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  for (const [index, task] of Object.entries(value)) {
+    const taskId = typeof task?.taskId === 'string' ? task.taskId.trim() : '';
+    const status = ['processing', 'succeeded', 'failed'].includes(task?.status) ? task.status : '';
+    if (!/^\d+$/.test(index) || !taskId || !status) continue;
+    const entry = { taskId, status };
+    if (typeof task.error === 'string' && task.error.trim()) entry.error = task.error.trim().slice(0, 1000);
+    if (typeof task.videoUrl === 'string' && /^https:\/\//i.test(task.videoUrl)) entry.videoUrl = task.videoUrl;
+    result[index] = entry;
+  }
+  return result;
+}
+
 // historyHasId — 判断历史索引中是否已含该 id（供本地存储恢复去重）
 function historyHasId(username, id) {
   if (isInvalidHistoryId(id)) return false;
@@ -48,6 +63,7 @@ function historyAppend(username, record) {
     duration: record.duration || '-',
     preview: String(record.title || record.id || '').replace(/\n/g, ' ').slice(0, 40),
     output: record.output || '',
+    videoTasks: normalizeVideoTasks(record.videoTasks),
     restoredFrom: record.restoredFrom || 'local',
     createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString()
   };
@@ -98,6 +114,7 @@ router.post('/', (req, res) => {
       duration: duration || '10s',
       preview: preview,
       output: output,
+      videoTasks: normalizeVideoTasks(req.body?.videoTasks),
       createdAt: new Date().toISOString()
     });
 
@@ -123,6 +140,17 @@ router.post('/', (req, res) => {
     console.error('保存历史记录失败:', e);
     res.status(500).json({ error: '保存失败: ' + e.message });
   }
+});
+
+router.patch('/:id', (req, res) => {
+  const id = req.params.id;
+  if (isInvalidHistoryId(id)) return res.status(400).json({ error: '无效的 ID' });
+  const data = readHistoryIndex(req.username);
+  const entry = data.entries.find(item => item.id === id);
+  if (!entry) return res.status(404).json({ error: '记录不存在' });
+  entry.videoTasks = normalizeVideoTasks(req.body?.videoTasks);
+  writeHistoryIndex(req.username, data);
+  res.json({ ok: true, entry });
 });
 
 // GET /api/history/:id — 读取单条记录内容

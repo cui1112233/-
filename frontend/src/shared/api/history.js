@@ -15,6 +15,12 @@ export function saveHistory(entry) {
   });
 }
 
+export function updateHistoryVideoTasks(id, videoTasks) {
+  return apiRequest(`/api/history/${encodeURIComponent(id)}`, {
+    method: 'PATCH', body: JSON.stringify({ videoTasks }), suppressGlobalError: true
+  });
+}
+
 export function deleteHistory(id) {
   return apiRequest(`/api/history/${encodeURIComponent(id)}`, {
     method: 'DELETE'

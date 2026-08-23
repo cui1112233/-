@@ -1,8 +1,8 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
-import { AudioLines, Copy, Download, FileText, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
+import { AudioLines, Copy, Download, FileText, History, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
-import { saveHistory } from '../../shared/api/history';
+import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
@@ -96,6 +96,10 @@ export function ScriptPage() {
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [currentHistoryId, setCurrentHistoryId] = useState('');
   const [shotReplaceOpen, setShotReplaceOpen] = useState(false);
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
@@ -302,6 +306,21 @@ export function ScriptPage() {
     window.setTimeout(poll, 2000);
   }
 
+  async function openScriptHistory() {
+    setHistoryOpen(true); setHistoryLoading(true);
+    try { const data = await listHistory(); setHistoryEntries(Array.isArray(data?.entries) ? data.entries : []); }
+    catch (error) { message.error(error.message || '历史记录加载失败'); }
+    finally { setHistoryLoading(false); }
+  }
+
+  function restoreHistory(entry) {
+    if (!entry?.output) return;
+    form.setFieldsValue({ mode: entry.mode || 'continuous', format: entry.format || 'storyboard', duration: entry.duration || '10s' });
+    setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
+    setShotVideoTasks(entry.videoTasks || {}); setCurrentHistoryId(entry.id); setHistoryOpen(false);
+    Object.entries(entry.videoTasks || {}).forEach(([index, task]) => { if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId); });
+  }
+
   useEffect(() => {
     const restoredDraft = loadScriptDraft(window.localStorage, draftUsernameRef.current, draftTabIdRef.current);
     if (restoredDraft) {
@@ -338,6 +357,10 @@ export function ScriptPage() {
     if (!draftReadyRef.current) return;
     persistDraft();
   }, [extractInfo, output, editingOutput, generationStage, constraints, shotVideoTasks]);
+
+  useEffect(() => {
+    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks).catch(() => {});
+  }, [currentHistoryId, shotVideoTasks]);
 
   useEffect(() => {
     let active = true;
@@ -604,14 +627,16 @@ export function ScriptPage() {
       if (!isCurrentRequest(requestId)) return;
 
       try {
+        const historyId = 'react-' + Date.now().toString(36);
         await saveHistory({
-          id: 'react-' + Date.now().toString(36),
+          id: historyId,
           mode: values.mode,
           format: values.format,
           formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式', q版: 'Q版模式' }[values.format] || '剧本',
           duration: values.duration,
           output: nextOutput
         });
+        setCurrentHistoryId(historyId);
       } catch (error) {
         if (!isCurrentRequest(requestId)) return;
         message.warning('生成成功，但保存历史失败');
@@ -941,6 +966,7 @@ export function ScriptPage() {
           <Form.Item name="duration" noStyle>
             <Segmented options={['10s', '15s']} />
           </Form.Item>
+          <Button type="text" icon={<History size={16} aria-hidden="true" />} onClick={openScriptHistory}>历史</Button>
         </div>
         <div className="script-toolbar">
           <Form.Item name="format" noStyle>
@@ -1022,6 +1048,9 @@ export function ScriptPage() {
       </div>
       <Modal title="生成的视频" open={Boolean(previewVideoTask?.videoUrl)} footer={null} onCancel={() => setPreviewVideoTask(null)} width={520}>
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
+      </Modal>
+      <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
+        {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length} 个</Typography.Text></Button>) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}
       </Modal>
       <Modal
         title="替换已选分镜文字"
