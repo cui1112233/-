@@ -1142,12 +1142,22 @@
 .agent-workspace-v3 .agent-workbench-empty::after { display: none; }
 .agent-workspace-v3 .agent-workbench-empty { min-height: 0; gap: 10px; color: var(--agent-muted); }
 .agent-workspace-v3 .agent-workbench-logo {
-  display: block;
+  display: grid;
   width: clamp(112px, 15vw, 156px);
-  max-height: 108px;
-  object-fit: contain;
+  height: clamp(66px, 8vw, 88px);
+  place-items: center;
   filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.26));
 }
+.agent-workspace-v3 .agent-workbench-logo img {
+  display: block;
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.agent-workspace-v3 .agent-workbench-logo-black { display: none !important; }
+[data-theme='light'] .agent-workspace-v3 .agent-workbench-logo-white { display: none !important; }
+[data-theme='light'] .agent-workspace-v3 .agent-workbench-logo-black { display: block !important; }
 .agent-workspace-v3 .agent-workbench-empty strong { color: var(--agent-text); font-size: 20px; letter-spacing: -0.03em; }
 .agent-workspace-v3 .agent-workbench-empty span { font-size: 13px; letter-spacing: 0.08em; }
 
