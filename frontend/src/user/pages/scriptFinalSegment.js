@@ -81,6 +81,32 @@ export function stripBaseSetupSection(text) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// 早期分镜模式会让模型自行输出“统一风格 / 统一人物 / 场景环境”。
+// 现在这三类内容由约束设置中的基础设定和画面前缀唯一负责，
+// 因此无论开关状态如何，都不能让旧格式模型输出绕过用户的开关。
+export function stripLegacySharedSetupSections(value) {
+  const lines = String(value || '').split('\n');
+  const result = [];
+  let skipping = false;
+  const startsLegacySetup = line => /^(?:统一风格|统一人物|场景环境)[：:]/.test(line);
+  const startsBody = line => /^(?:镜头画面[：:]|【|(?:#{1,6}\s*)?(?:镜头|分镜)\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)|\[?\d{1,2}:\d{2}\s*[-—~])/.test(line);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (startsLegacySetup(trimmed)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping) {
+      if (!trimmed) continue;
+      if (!startsBody(trimmed)) continue;
+      skipping = false;
+    }
+    result.push(line);
+  }
+  return result.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // 移除模型输出中已有的约束行（由程序生成版本替换）
 export function stripConstraintLines(text) {
   return String(text)
@@ -129,11 +155,11 @@ export function unitTotalSeconds(text) {
 
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
 export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0 }) {
-  const baseOn = constraints?.baseSetup?.enabled !== false;
+  const baseOn = constraints?.enabled === true && constraints?.baseSetup?.enabled !== false;
   const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints);
   // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
-  let body = card;
-  if (baseOn) body = stripBaseSetupSection(body);
+  let body = stripLegacySharedSetupSections(card);
+  body = stripBaseSetupSection(body);
   const total = unitTotalSeconds(card) ?? unitTotalSeconds(body);
   body = stripUnitHeading(body);
   if (leadingConstraints || negativeConstraint) body = stripConstraintLines(body);

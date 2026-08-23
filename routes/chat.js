@@ -241,7 +241,6 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     {
       role: 'user',
       content: '## 小说原文\n' + String(body.novelText || '') +
-        '\n\n## 统一风格\n' + String(body.visualStyle || '').trim() +
         '\n\n## 人物信息\n' + serializePromptSection(body.characters) +
         '\n\n## 场景信息\n' + serializePromptSection(body.scenes) +
         (protagonistPrompt ? '\n\n' + protagonistPrompt : '') +

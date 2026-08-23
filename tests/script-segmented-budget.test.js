@@ -57,7 +57,7 @@ test('segmented mode does not inject an extra complete-shot protocol', () => {
   assert.match(content, /分镜模式/);
 });
 
-test('script generation always passes extracted visual style to the model', () => {
+test('script generation does not pass extracted visual style outside the enabled picture-prefix constraint', () => {
   loadPresets();
   const presetStore = {
     getPublished(id) { return presets[id] || null; },
@@ -74,8 +74,8 @@ test('script generation always passes extracted visual style to the model', () =
     protagonists: [],
     constraints: undefined
   }, presetStore);
-  assert.match(messages[1].content, /## 统一风格\n现代都市短剧，冷调商务质感/);
-  assert.match(messages[0].content, /统一风格与故事一致性（全模式生效）/);
+  assert.doesNotMatch(messages[1].content, /现代都市短剧，冷调商务质感/);
+  assert.match(messages[0].content, /画面前缀与故事一致性/);
 });
 
 test('non-segmented mode keeps the original per-unit complete shot protocol', () => {

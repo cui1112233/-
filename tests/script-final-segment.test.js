@@ -100,7 +100,7 @@ test('buildFinalSegments 统一命名分镜一/分镜二，注入程序基础设
     '00:00-00:03 | 特写 | 丝帕',
     '00:03-00:10 | 近景 | 冷笑'
   ].join('\n');
-  const constraints = { baseSetup: { enabled: true }, quality: { enabled: true, body: '4K 画质' } };
+  const constraints = { enabled: true, baseSetup: { enabled: true }, quality: { enabled: true, body: '4K 画质' } };
   const cards = buildFinalSegments({ output, extractInfo, constraints, format: 'shotlist', duration: '10s' });
   assert.equal(cards.length, 2);
   assert.match(cards[0], /^### 分镜一（总时长：10s）/);
@@ -115,13 +115,13 @@ test('buildFinalSegments 统一命名分镜一/分镜二，注入程序基础设
   assert.match(cards[1], /00:03-00:10 \| 近景 \| 冷笑/);
 });
 
-test('关闭基础设定与约束时仍由程序统一命名，保留模型画面内容', async () => {
+test('关闭基础设定时不保留模型自行输出的基础设定', async () => {
   const { buildFinalSegments } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
   const output = '### 分镜一（总时长：10s）\n【基础设定】A\n00:00-00:03 | 全景 | A\n\n---\n\n### 分镜二（总时长：10s）\n【基础设定】B\n00:00-00:10 | C';
   const cards = buildFinalSegments({ output, extractInfo, constraints: { baseSetup: { enabled: false } }, format: 'storyboard', duration: '10s' });
   assert.equal(cards.length, 2);
-  assert.match(cards[0], /^### 分镜一（总时长：10s）\n\n【基础设定】A/);
-  assert.match(cards[1], /^### 分镜二（总时长：10s）\n\n【基础设定】B/);
+  assert.doesNotMatch(cards[0], /【基础设定】A/);
+  assert.doesNotMatch(cards[1], /【基础设定】B/);
   assert.match(cards[0], /00:00-00:03 \| 全景 \| A/);
 });
 
@@ -142,6 +142,21 @@ test('连续时间轴按秒切段并统一命名（10s 拆分规则）', async (
   assert.match(cards[1], /^### 分镜二（总时长：\d+s）/);
   assert.doesNotMatch(cards[0], /00:10-/);
   assert.match(cards[1], /00:00-00:03/); // 第二段从 00:00 重新排布
+  assert.doesNotMatch(cards[0], /统一人物|场景环境/);
+});
+
+test('旧分镜输出中的统一风格、统一人物和场景环境不绕过约束开关', async () => {
+  const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
+  const card = buildFinalSegmentCard([
+    '统一风格：现代都市写实',
+    '统一人物：叶澜（粉蓝色旗袍）',
+    '场景环境：豪宅客厅，白天',
+    '镜头画面：',
+    '00:00-00:10 | 中景 | 叶澜坐在沙发上。'
+  ].join('\n'), { extractInfo, constraints: { enabled: false, baseSetup: { enabled: true } }, index: 0 });
+  assert.doesNotMatch(card, /统一风格|统一人物|场景环境|粉蓝色旗袍/);
+  assert.match(card, /镜头画面：/);
+  assert.match(card, /00:00-00:10/);
 });
 
 test('剧情模式连续输出多个分镜模块且每个模块时间从 00:00 重置时应拆成多张卡片', async () => {
