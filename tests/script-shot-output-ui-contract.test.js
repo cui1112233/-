@@ -11,12 +11,15 @@ test('shot card component provides individual copy and video-generation controls
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   assert.match(cards, /复制本分镜/);
   assert.match(cards, /生成视频/);
+  assert.match(cards, /生成成功/);
+  assert.match(cards, /下载/);
   assert.match(cards, /onGenerateVideo/);
   assert.match(cards, /复制已选/);
   assert.match(cards, /全选/);
   assert.match(cards, /Checkbox/);
   assert.match(page, /ShotOutputCards/);
   assert.match(page, /generateVideoForShot/);
+  assert.match(page, /watchShotVideoTask/);
   assert.match(page, /createScriptVideo\(\{ prompt \}\)/);
   assert.doesNotMatch(page, /createTask\(projectId/);
   assert.doesNotMatch(page, /getProductionConfig\(\)/);

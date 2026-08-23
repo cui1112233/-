@@ -4,6 +4,7 @@ const { apiAuth } = require('../middleware/auth');
 const { readConfig } = require('../lib/shared');
 
 const YD_CREATE_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/create';
+const YD_TASKS_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/tasks';
 const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
@@ -42,7 +43,54 @@ function defaultSubmit({ apiKey, payload }) {
   });
 }
 
-function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit } = {}) {
+function upstreamRequest(url, apiKey) {
+  return new Promise((resolve, reject) => {
+    const request = https.request(url, { method: 'GET', timeout: 30000, headers: { Authorization: `Bearer ${apiKey}` } }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve({ statusCode: response.statusCode || 500, headers: response.headers, text: Buffer.concat(chunks).toString('utf8') }));
+      response.on('error', reject);
+    });
+    request.on('timeout', () => request.destroy(new Error('视频服务响应超时')));
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+function payloadOf(body) {
+  const payload = body?.data ?? body?.result ?? body;
+  return payload && typeof payload === 'object' ? payload : {};
+}
+
+function taskState(body) {
+  const payload = payloadOf(body);
+  const nested = payload.task && typeof payload.task === 'object' ? payload.task : {};
+  return String(payload.status || payload.state || nested.status || nested.state || '').trim().toUpperCase();
+}
+
+function taskError(body) {
+  const payload = payloadOf(body);
+  const nested = payload.task && typeof payload.task === 'object' ? payload.task : {};
+  return String(payload.errorMessage || payload.error || payload.message || nested.errorMessage || nested.error || nested.message || '视频生成失败').trim();
+}
+
+function resultURL(body) {
+  const payload = payloadOf(body);
+  const candidates = [
+    ...(Array.isArray(payload.urls) ? payload.urls : []),
+    ...(Array.isArray(payload.outputs) ? payload.outputs.map(item => item?.url) : []),
+    payload.url, payload.video_url, payload.videoUrl
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(String(candidate || '').trim());
+      if (parsed.protocol === 'https:') return parsed.toString();
+    } catch { /* ignore malformed result URLs */ }
+  }
+  return '';
+}
+
+function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest } = {}) {
   const router = express.Router();
   router.use(apiAuth);
   router.post('/', async (req, res) => {
@@ -65,7 +113,29 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
       return res.status(502).json({ error: error?.message === '视频服务响应超时' ? error.message : '视频服务暂不可用，请稍后重试' });
     }
   });
+  router.get('/:taskId', async (req, res) => {
+    const taskId = String(req.params.taskId || '').trim();
+    if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
+    const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
+    if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
+    try {
+      const statusReply = await request(`${YD_TASKS_URL}/${encodeURIComponent(taskId)}`, apiKey);
+      if (statusReply.statusCode < 200 || statusReply.statusCode >= 300) return res.status(502).json({ error: '视频任务状态查询失败' });
+      const statusBody = JSON.parse(statusReply.text);
+      const state = taskState(statusBody);
+      if (['QUEUED', 'SUBMITTED', 'RUNNING', 'PENDING'].includes(state)) return res.json({ ok: true, taskId, status: 'processing' });
+      if (state === 'FAILED') return res.json({ ok: true, taskId, status: 'failed', error: taskError(statusBody) });
+      if (state !== 'SUCCESS') return res.status(502).json({ error: '视频服务返回了无法识别的任务状态' });
+      const resultReply = await request(`${YD_TASKS_URL}/${encodeURIComponent(taskId)}/result`, apiKey);
+      if (resultReply.statusCode < 200 || resultReply.statusCode >= 300) return res.status(502).json({ error: '视频结果获取失败' });
+      const videoUrl = resultURL(JSON.parse(resultReply.text));
+      if (!videoUrl) return res.status(502).json({ error: '视频服务未返回可播放地址' });
+      return res.json({ ok: true, taskId, status: 'succeeded', videoUrl });
+    } catch (error) {
+      return res.status(502).json({ error: error?.message === '视频服务响应超时' ? error.message : '视频任务状态暂不可用，请稍后重试' });
+    }
+  });
   return router;
 }
 
-module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID };
+module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL };

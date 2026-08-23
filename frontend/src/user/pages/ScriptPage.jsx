@@ -17,7 +17,7 @@ import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptSh
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
-import { createScriptVideo } from '../../shared/api/scriptVideo';
+import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -94,6 +94,8 @@ export function ScriptPage() {
   const [editingOutput, setEditingOutput] = useState(false);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
+  const [shotVideoTasks, setShotVideoTasks] = useState({});
+  const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [shotReplaceOpen, setShotReplaceOpen] = useState(false);
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
@@ -263,6 +265,8 @@ export function ScriptPage() {
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const result = await createScriptVideo({ prompt });
+      setShotVideoTasks(current => ({ ...current, [index]: { taskId: result.taskId, status: 'processing' } }));
+      watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
       message.error(error.message || '视频任务提交失败');
@@ -273,6 +277,28 @@ export function ScriptPage() {
         return next;
       });
     }
+  }
+
+  function watchShotVideoTask(index, taskId) {
+    const poll = async () => {
+      try {
+        const task = await getScriptVideoTask(taskId);
+        if (task.status === 'succeeded') {
+          setShotVideoTasks(current => ({ ...current, [index]: task }));
+          message.success(`第 ${index + 1} 条分镜视频生成成功`);
+          return;
+        }
+        if (task.status === 'failed') {
+          setShotVideoTasks(current => ({ ...current, [index]: task }));
+          message.error(task.error || `第 ${index + 1} 条分镜视频生成失败`);
+          return;
+        }
+      } catch (error) {
+        // 上游短暂不可用时继续轮询，避免误判为任务失败。
+      }
+      if (mountedRef.current) window.setTimeout(poll, 4000);
+    };
+    window.setTimeout(poll, 2000);
   }
 
   useEffect(() => {
@@ -980,6 +1006,8 @@ export function ScriptPage() {
               onCopySelected={() => copyText(joinShotCards(shotCards, selectedShotIndexes))}
               onGenerateVideo={generateVideoForShot}
               generatingIndexes={generatingShotIndexes}
+              videoTasks={shotVideoTasks}
+              onOpenVideo={setPreviewVideoTask}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
@@ -1001,6 +1029,9 @@ export function ScriptPage() {
         </div>
         </div>
       </div>
+      <Modal title="生成的视频" open={Boolean(previewVideoTask?.videoUrl)} footer={null} onCancel={() => setPreviewVideoTask(null)} width={520}>
+        {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
+      </Modal>
       <Modal
         title="替换已选分镜文字"
         open={shotReplaceOpen}

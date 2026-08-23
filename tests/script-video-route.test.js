@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULT_FIRST_FRAME_URL, readTaskID, validOptionalImageURLs } = require('../routes/script-video');
+const { DEFAULT_FIRST_FRAME_URL, readTaskID, validOptionalImageURLs, taskState, resultURL } = require('../routes/script-video');
 
 test('script video keeps the fixed first PNG and accepts up to three optional HTTPS images', () => {
   assert.equal(DEFAULT_FIRST_FRAME_URL, 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png');
@@ -15,4 +15,10 @@ test('script video reads YD task IDs from common response envelopes', () => {
   assert.equal(readTaskID({ data: { taskId: 'task-data' } }), 'task-data');
   assert.equal(readTaskID({ result: { task_id: 42 } }), '42');
   assert.equal(readTaskID({ data: {} }), '');
+});
+
+test('script video recognizes YD completion status and HTTPS result URLs', () => {
+  assert.equal(taskState({ data: { task: { state: 'success' } } }), 'SUCCESS');
+  assert.equal(resultURL({ data: { outputs: [{ url: 'https://videos.example/shot.mp4' }] } }), 'https://videos.example/shot.mp4');
+  assert.equal(resultURL({ urls: ['http://videos.example/shot.mp4'] }), '');
 });
