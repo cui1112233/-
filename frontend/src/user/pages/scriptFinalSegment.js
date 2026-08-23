@@ -35,6 +35,9 @@ function enabledBody(layer) {
 
 // 程序按约束设置生成约束文本（画面前缀/画质约束/负面提示词），对齐 chat.js 组装格式
 export function buildConstraintText(constraints) {
+  // 总开关关闭时，所有文字约束都不应出现在最终分镜卡中；
+  // 各分类开关再决定对应分类是否显示。
+  if (constraints?.enabled !== true) return '';
   const prefix = enabledBody(constraints?.prefix);
   const quality = enabledBody(constraints?.quality);
   const restriction = enabledBody(constraints?.restriction);
