@@ -4,7 +4,7 @@ import { LiquidMetal } from '@paper-design/shaders-react';
  * 项目统一的品牌动效。图片始终来自项目自身的黑/白 Logo，
  * 而不是把编辑器导出的 Base64 图片写进业务代码。
  */
-export default function SuperOpcLiquidMetalLogo({ theme = 'dark', className = '' }) {
+export default function SuperOpcLiquidMetalLogo({ theme = 'dark', className = '', scale = 0.6 }) {
   const isLight = theme === 'light';
 
   return (
@@ -12,7 +12,7 @@ export default function SuperOpcLiquidMetalLogo({ theme = 'dark', className = ''
       <LiquidMetal
         image={isLight ? '/assets/brand-logo-black.png' : '/assets/brand-logo-white.png'}
         speed={0.65}
-        scale={0.6}
+        scale={scale}
         rotation={0}
         offsetX={0}
         offsetY={0}

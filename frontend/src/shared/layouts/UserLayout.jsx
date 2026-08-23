@@ -345,7 +345,7 @@ export function UserLayout({ children }) {
             {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           </button>
           <Link href="/" className="legacy-brand-link">
-            <SuperOpcLiquidMetalLogo theme={theme} className="legacy-brand-logo" />
+            <SuperOpcLiquidMetalLogo theme={theme} scale={1} className="legacy-brand-logo" />
             <span className="legacy-brand-title">一战晟铭</span>
           </Link>
         </div>
