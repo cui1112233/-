@@ -75,6 +75,7 @@ test('script generation always passes extracted visual style to the model', () =
     constraints: undefined
   }, presetStore);
   assert.match(messages[1].content, /## 统一风格\n现代都市短剧，冷调商务质感/);
+  assert.match(messages[0].content, /统一风格与故事一致性（全模式生效）/);
 });
 
 test('non-segmented mode keeps the original per-unit complete shot protocol', () => {
