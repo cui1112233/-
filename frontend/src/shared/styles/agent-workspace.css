@@ -1,38 +1,38 @@
-/* Agent workspace visual refresh.
- * Intentionally scoped to .agent-page so the rest of qiantie keeps its current theme.
- * Business logic and component behavior stay untouched.
+/* Agent workspace V2
+ * Scoped to .agent-page so the rest of qiantie keeps its existing visual system.
+ * The global site navigation remains the only left rail; Agent tasks live in a top drawer.
  */
 
 .agent-page.utility-workbench {
   --agent-canvas: #0b0c10;
-  --agent-sidebar: #0e1015;
-  --agent-surface: #12141b;
-  --agent-elevated: #181b23;
-  --agent-hover: #1d2029;
+  --agent-panel: #101218;
+  --agent-surface: #151820;
+  --agent-elevated: #191c24;
+  --agent-hover: #20242e;
   --agent-border: rgba(255, 255, 255, 0.07);
-  --agent-border-strong: rgba(255, 255, 255, 0.12);
+  --agent-border-strong: rgba(255, 255, 255, 0.13);
   --agent-text: #f2f3f5;
-  --agent-secondary: #9a9fab;
-  --agent-muted: #626875;
+  --agent-secondary: #9ca2ae;
+  --agent-muted: #646b77;
   --agent-accent: #f07167;
   --agent-accent-hover: #f78378;
   --agent-accent-soft: rgba(240, 113, 103, 0.11);
+  --agent-success: #5dba8a;
 
   display: grid;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
   padding: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at 58% -18%, rgba(240, 113, 103, 0.045), transparent 34%),
+    radial-gradient(circle at 52% -24%, rgba(240, 113, 103, 0.055), transparent 34%),
     var(--agent-canvas);
 }
 
-/* Kill the decorative CM card treatment inside the Agent workspace only. */
 .agent-page .cm-conversation-frame,
 .agent-page .cm-conversation-frame:hover,
 .agent-page .cm-conversation-frame:focus-within {
@@ -47,50 +47,96 @@
   display: none;
 }
 
-/* Conversation rail */
-.agent-page .agent-task-sidebar {
-  min-height: 0;
-  gap: 12px;
-  padding: 18px 12px 14px;
-  overflow: hidden;
-  border-right: 1px solid var(--agent-border);
-  background: var(--agent-sidebar);
+/* -------------------------------------------------------------------------- */
+/* Task drawer: collapses upward and slides down on demand.                    */
+/* -------------------------------------------------------------------------- */
+
+.agent-page .agent-task-drawer {
+  position: relative;
+  z-index: 6;
+  min-width: 0;
+  border-bottom: 1px solid var(--agent-border);
+  background: rgba(16, 18, 24, 0.96);
+  backdrop-filter: blur(18px);
 }
 
-.agent-page .agent-task-sidebar-header {
+.agent-page .agent-task-drawer-header {
+  display: flex;
+  min-height: 48px;
   align-items: center;
-  padding: 0 6px 2px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 16px;
 }
 
-.agent-page .agent-task-sidebar-header .ant-typography {
+.agent-page .agent-task-drawer-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: transparent;
   color: var(--agent-text);
-  font-size: 14px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.agent-page .agent-task-drawer-toggle:hover,
+.agent-page .agent-task-drawer-toggle:focus-visible {
+  background: var(--agent-hover);
+  outline: none;
+}
+
+.agent-page .agent-task-drawer-title {
+  flex: 0 0 auto;
+  font-size: 13px;
   font-weight: 650;
-  letter-spacing: -0.01em;
 }
 
-.agent-page .agent-task-sidebar-header .ant-typography + .ant-typography {
-  margin-top: 2px;
+.agent-page .agent-task-count {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  padding-inline: 6px;
+  background: var(--agent-surface);
+  color: var(--agent-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-page .agent-task-current {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
   color: var(--agent-muted);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Remove the duplicate icon-only new-chat control; keep the clear full-width action. */
-.agent-page .agent-task-sidebar-header > .ant-btn {
-  display: none;
+.agent-page .agent-task-drawer-toggle > svg {
+  flex: 0 0 auto;
+  color: var(--agent-secondary);
 }
 
 .agent-page .agent-task-new.ant-btn {
-  height: 38px;
-  justify-content: flex-start;
+  height: 34px;
+  flex: 0 0 auto;
   border: 1px solid var(--agent-border-strong);
   border-radius: 9px;
-  padding-inline: 12px;
-  background: var(--agent-elevated);
+  padding-inline: 11px;
+  background: var(--agent-surface);
   box-shadow: none;
   color: var(--agent-text);
-  font-weight: 550;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .agent-page .agent-task-new.ant-btn:hover,
@@ -100,74 +146,123 @@
   color: var(--agent-text);
 }
 
+.agent-page .agent-task-drawer-body {
+  max-height: 220px;
+  overflow: hidden;
+  border-top: 1px solid var(--agent-border);
+  opacity: 1;
+  transform: translateY(0);
+  transform-origin: top center;
+  transition:
+    max-height 220ms cubic-bezier(0.2, 0.75, 0.2, 1),
+    opacity 160ms ease,
+    transform 220ms cubic-bezier(0.2, 0.75, 0.2, 1),
+    border-color 160ms ease;
+}
+
+.agent-page.agent-task-drawer-collapsed .agent-task-drawer-body {
+  max-height: 0;
+  border-top-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-14px);
+}
+
 .agent-page .agent-task-list {
-  gap: 2px;
-  padding: 2px 0 8px;
+  display: grid;
+  max-height: 219px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 7px;
+  overflow-y: auto;
+  padding: 10px 16px 14px;
+  scrollbar-gutter: stable;
 }
 
 .agent-page .agent-task-row {
   position: relative;
+  display: grid;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 3px 8px;
-  border: 0;
-  border-radius: 8px;
-  padding: 9px 10px 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 11px 10px 13px;
   background: transparent;
   color: var(--agent-text);
-  transition: background 0.14s ease, color 0.14s ease;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
 .agent-page .agent-task-row::before {
   position: absolute;
-  top: 9px;
-  bottom: 9px;
-  left: 3px;
+  top: 10px;
+  bottom: 10px;
+  left: 4px;
   width: 2px;
-  border-radius: 2px;
+  border-radius: 999px;
   background: transparent;
   content: '';
 }
 
 .agent-page .agent-task-row:hover,
 .agent-page .agent-task-row:focus-visible {
-  border: 0;
+  border-color: var(--agent-border);
   background: var(--agent-hover);
   outline: none;
 }
 
 .agent-page .agent-task-row.active {
-  border: 0;
+  border-color: rgba(240, 113, 103, 0.2);
   background: var(--agent-accent-soft);
-  box-shadow: none;
 }
 
 .agent-page .agent-task-row.active::before {
   background: var(--agent-accent);
 }
 
+.agent-page .agent-task-row strong,
+.agent-page .agent-task-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-page .agent-task-row strong {
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 620;
 }
 
 .agent-page .agent-task-row span {
+  grid-column: 1 / -1;
   color: var(--agent-muted);
-  font-size: 11.5px;
+  font-size: 11px;
 }
 
 .agent-page .agent-task-row time {
+  align-self: center;
   color: var(--agent-muted);
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
+.agent-page .agent-task-loading,
 .agent-page .agent-task-empty {
-  min-height: 150px;
-  border: 0;
+  display: grid;
+  min-height: 68px;
+  place-items: center;
+  grid-column: 1 / -1;
   color: var(--agent-muted);
   font-size: 12px;
+  text-align: center;
 }
 
-/* Main stage */
+/* -------------------------------------------------------------------------- */
+/* Main Agent stage                                                           */
+/* -------------------------------------------------------------------------- */
+
 .agent-page .agent-workbench {
   position: relative;
   display: flex;
@@ -177,20 +272,22 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  background: transparent;
 }
 
 .agent-page .agent-workbench-header {
-  min-height: 66px;
+  display: grid;
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 18px;
-  padding: 14px 24px 12px;
+  gap: 14px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--agent-border);
-  background: rgba(11, 12, 16, 0.72);
+  background: rgba(11, 12, 16, 0.76);
   backdrop-filter: blur(18px);
 }
 
 .agent-page .agent-workbench-header .ant-typography {
+  margin: 0;
   color: var(--agent-text);
 }
 
@@ -203,15 +300,37 @@
 
 .agent-page .agent-workbench-header .ant-typography-paragraph {
   margin-top: 3px;
-  margin-bottom: 0;
   color: var(--agent-muted);
   font-size: 11px;
   line-height: 1.35;
 }
 
+.agent-page .agent-workbench-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: var(--agent-panel);
+  color: var(--agent-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agent-page .agent-workbench-status > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--agent-success);
+  box-shadow: 0 0 0 3px rgba(93, 186, 138, 0.08);
+}
+
 .agent-page .agent-task-actions .ant-btn {
-  width: 32px;
-  height: 32px;
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
   border-radius: 8px;
   color: var(--agent-secondary);
 }
@@ -222,27 +341,33 @@
 }
 
 .agent-page .agent-workbench-history {
+  display: flex;
   width: 100%;
   max-width: 940px;
-  margin: 0 auto;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
   gap: 18px;
-  padding: 34px 46px 28px;
+  margin: 0 auto;
+  overflow-y: auto;
+  padding: 30px 46px 26px;
   scrollbar-gutter: stable;
 }
 
 .agent-page .agent-workbench-loading {
   color: var(--agent-muted);
+  font-size: 12px;
 }
 
-/* Empty stage: brand logo is the focal point. */
+/* Empty state: existing qiantie logo is the visual center. */
 .agent-page .agent-workbench-empty {
   display: flex;
   height: 100%;
-  min-height: 300px;
+  min-height: 270px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 17px;
   color: var(--agent-secondary);
   font-size: 12px;
   line-height: 1.6;
@@ -255,24 +380,23 @@
   height: clamp(66px, 8vw, 88px);
   background: url('/assets/brand-logo-white.png') center / contain no-repeat;
   content: '';
-  opacity: 0.94;
+  opacity: 0.95;
   filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.28));
 }
 
 .agent-page .agent-workbench-empty::after {
   display: block;
-  margin-top: -12px;
+  margin-top: -11px;
   color: var(--agent-muted);
   content: '你的 AI 创作工作空间';
   font-size: 11px;
   letter-spacing: 0.12em;
 }
 
-/* Assistant output is a document stream, user intent remains a bubble. */
+/* CM uses a document-like stream; user instructions remain compact bubbles. */
 .agent-page .agent-workbench-message {
   max-width: 100%;
   border: 0;
-  border-radius: 0;
   color: var(--agent-text);
   white-space: pre-wrap;
 }
@@ -281,7 +405,6 @@
   color: var(--agent-secondary);
   font-size: 11px;
   font-weight: 650;
-  letter-spacing: 0.02em;
 }
 
 .agent-page .agent-workbench-message span {
@@ -312,7 +435,6 @@
   content: 'CM';
   font-size: 8px;
   font-weight: 750;
-  letter-spacing: -0.02em;
 }
 
 .agent-page .agent-workbench-message--assistant + .agent-workbench-message--assistant {
@@ -321,9 +443,9 @@
 }
 
 .agent-page .agent-workbench-message--user {
-  max-width: min(620px, 78%);
+  max-width: min(650px, 80%);
   align-self: flex-end;
-  gap: 6px;
+  gap: 5px;
   border: 1px solid var(--agent-border);
   border-radius: 16px 16px 5px 16px;
   padding: 11px 14px;
@@ -339,25 +461,42 @@
   line-height: 1.68;
 }
 
-/* Composer dock: the primary action surface. */
+/* -------------------------------------------------------------------------- */
+/* Composer dock                                                              */
+/* -------------------------------------------------------------------------- */
+
 .agent-page .agent-workbench-composer {
   position: relative;
-  width: min(860px, calc(100% - 64px));
-  margin: 0 auto 24px;
+  display: flex;
+  width: min(900px, calc(100% - 64px));
+  flex-wrap: wrap;
+  align-items: flex-end;
   gap: 8px;
+  margin: 0 auto 22px;
   border: 1px solid var(--agent-border-strong);
   border-radius: 18px;
-  padding: 10px 10px 9px;
-  background: rgba(24, 27, 35, 0.96);
+  padding: 9px 10px 9px;
+  background: rgba(25, 28, 36, 0.97);
   box-shadow:
-    0 18px 46px rgba(0, 0, 0, 0.28),
+    0 18px 46px rgba(0, 0, 0, 0.29),
     0 0 0 1px rgba(255, 255, 255, 0.02) inset;
   backdrop-filter: blur(22px);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.agent-page .agent-workbench-composer.is-problem-search {
+  border-color: rgba(240, 113, 103, 0.38);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.29),
+    0 0 0 1px rgba(240, 113, 103, 0.08) inset;
 }
 
 .agent-page .agent-selected-skills {
-  order: 1;
+  display: flex;
+  width: 100%;
   min-height: 0;
+  flex-wrap: wrap;
+  gap: 5px;
   padding: 0 3px;
 }
 
@@ -373,21 +512,20 @@
 }
 
 .agent-page .agent-workbench-composer .ant-input-textarea {
-  order: 2;
   width: 100%;
   flex: 1 1 100%;
 }
 
 .agent-page .agent-workbench-composer textarea.ant-input {
-  min-height: 52px !important;
+  min-height: 54px !important;
   border: 0;
   border-radius: 12px;
-  padding: 11px 10px 8px;
+  padding: 10px 10px 7px;
   background: transparent;
   box-shadow: none;
   color: var(--agent-text);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.62;
   resize: none;
 }
 
@@ -403,21 +541,44 @@
 }
 
 .agent-page .agent-composer-actions {
-  order: 3;
+  display: flex;
   width: 100%;
+  align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 0 2px 1px;
 }
 
+.agent-page .agent-composer-actions-left {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agent-page .agent-composer-actions-left::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-page .agent-composer-plus-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
 .agent-page .agent-composer-plus {
+  display: grid;
   width: 32px;
   height: 32px;
+  place-items: center;
   border: 1px solid var(--agent-border);
   border-radius: 9px;
   background: var(--agent-surface);
   color: var(--agent-secondary);
+  cursor: pointer;
   font-size: 20px;
-  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  line-height: 1;
 }
 
 .agent-page .agent-composer-plus:hover,
@@ -425,15 +586,49 @@
   border-color: var(--agent-border-strong);
   background: var(--agent-hover);
   color: var(--agent-text);
+  outline: none;
+}
+
+.agent-page .agent-context-chip {
+  display: inline-flex;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--agent-surface);
+  color: var(--agent-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.agent-page .agent-context-chip:hover,
+.agent-page .agent-context-chip:focus-visible {
+  border-color: var(--agent-border-strong);
+  background: var(--agent-hover);
+  color: var(--agent-text);
+  outline: none;
+}
+
+.agent-page .agent-problem-chip.active {
+  border-color: rgba(240, 113, 103, 0.42);
+  background: var(--agent-accent-soft);
+  color: var(--agent-text);
 }
 
 .agent-page .agent-composer-actions > .ant-btn-primary {
-  min-width: 64px;
-  height: 32px;
+  min-width: 76px;
+  height: 34px;
+  flex: 0 0 auto;
   border: 0;
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--agent-accent);
   box-shadow: none;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -446,40 +641,67 @@
   color: var(--agent-muted);
 }
 
-/* Context controls float above the dock rather than pushing the page around. */
+.agent-page .agent-attachment-input {
+  display: none;
+}
+
+/* Composer popovers */
 .agent-page .agent-composer-menu,
 .agent-page .agent-composer-context,
 .agent-page .agent-skill-panel {
   border: 1px solid var(--agent-border-strong);
-  background: rgba(24, 27, 35, 0.985);
+  background: rgba(24, 27, 35, 0.99);
   box-shadow: 0 22px 54px rgba(0, 0, 0, 0.38);
   backdrop-filter: blur(24px);
 }
 
 .agent-page .agent-composer-menu {
+  position: absolute;
+  z-index: 14;
   bottom: 40px;
+  left: 0;
+  display: grid;
   width: 196px;
+  overflow: hidden;
   border-radius: 12px;
   padding: 5px;
 }
 
 .agent-page .agent-composer-menu button {
+  display: grid;
+  grid-template-columns: 20px 1fr 12px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
   border-radius: 8px;
+  padding: 10px 11px;
+  background: transparent;
   color: var(--agent-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
 }
 
 .agent-page .agent-composer-menu button:hover {
   background: var(--agent-hover);
 }
 
+.agent-page .agent-composer-menu i {
+  color: var(--agent-muted);
+  font-style: normal;
+}
+
 .agent-page .agent-composer-context {
   position: absolute;
   right: 10px;
   bottom: calc(100% + 10px);
-  z-index: 12;
-  order: 4;
+  z-index: 13;
+  display: flex;
   width: max-content;
   max-width: min(520px, calc(100vw - 80px));
+  align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   border-radius: 12px;
   padding: 9px;
@@ -488,12 +710,18 @@
 .agent-page .agent-composer-context strong {
   padding-inline: 4px;
   color: var(--agent-muted);
+  font-size: 11px;
 }
 
 .agent-page .agent-composer-context button {
-  border-color: var(--agent-border);
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  padding: 5px 9px;
   background: var(--agent-surface);
   color: var(--agent-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
 }
 
 .agent-page .agent-composer-context button:hover,
@@ -508,9 +736,10 @@
   right: 0;
   bottom: calc(100% + 10px);
   left: 0;
-  z-index: 11;
-  order: 4;
+  z-index: 13;
+  display: flex;
   max-height: min(430px, 58vh);
+  flex-direction: column;
   gap: 12px;
   overflow: auto;
   border-radius: 16px;
@@ -518,31 +747,67 @@
 }
 
 .agent-page .agent-skill-panel > header {
-  padding-bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-page .agent-skill-panel > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.agent-page .agent-skill-panel > header strong {
+  color: var(--agent-text);
+}
+
+.agent-page .agent-skill-panel > header span {
+  color: var(--agent-muted);
+  font-size: 11px;
+}
+
+.agent-page .agent-skill-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 9px;
 }
 
 .agent-page .agent-skill-card {
-  border-color: var(--agent-border);
+  border: 1px solid var(--agent-border);
   border-radius: 11px;
   padding: 12px;
   background: var(--agent-surface);
 }
 
-.agent-page .agent-skill-card:hover {
-  border-color: var(--agent-border-strong);
-  background: var(--agent-hover);
-}
-
 .agent-page .agent-skill-card.selected {
   border-color: rgba(240, 113, 103, 0.42);
   background: var(--agent-accent-soft);
-  box-shadow: none;
 }
 
-/* Light theme */
+.agent-page .agent-skill-card > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--agent-text);
+}
+
+.agent-page .agent-skill-card p {
+  margin: 8px 0 10px;
+  color: var(--agent-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Light theme                                                                */
+/* -------------------------------------------------------------------------- */
+
 [data-theme='light'] .agent-page.utility-workbench {
   --agent-canvas: #f7f8fa;
-  --agent-sidebar: #f1f3f6;
+  --agent-panel: #f4f5f7;
   --agent-surface: #ffffff;
   --agent-elevated: #ffffff;
   --agent-hover: #e9edf2;
@@ -554,12 +819,13 @@
   --agent-accent-soft: rgba(240, 113, 103, 0.09);
 
   background:
-    radial-gradient(circle at 58% -18%, rgba(240, 113, 103, 0.05), transparent 34%),
+    radial-gradient(circle at 52% -24%, rgba(240, 113, 103, 0.05), transparent 34%),
     var(--agent-canvas);
 }
 
+[data-theme='light'] .agent-page .agent-task-drawer,
 [data-theme='light'] .agent-page .agent-workbench-header {
-  background: rgba(247, 248, 250, 0.78);
+  background: rgba(247, 248, 250, 0.9);
 }
 
 [data-theme='light'] .agent-page .agent-workbench-empty::before {
@@ -571,56 +837,61 @@
 [data-theme='light'] .agent-page .agent-composer-menu,
 [data-theme='light'] .agent-page .agent-composer-context,
 [data-theme='light'] .agent-page .agent-skill-panel {
-  background: rgba(255, 255, 255, 0.97);
+  background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 18px 44px rgba(31, 41, 55, 0.11);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Responsive                                                                 */
+/* -------------------------------------------------------------------------- */
+
 @media (max-width: 860px) {
-  .agent-page.utility-workbench {
-    height: 100%;
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(150px, 25vh) minmax(0, 1fr);
-    gap: 0;
-    padding: 0;
+  .agent-page .agent-task-drawer-header {
+    padding-inline: 10px;
   }
 
-  .agent-page .agent-task-sidebar {
-    max-height: none;
-    border-right: 0;
-    border-bottom: 1px solid var(--agent-border);
-    padding: 12px;
-  }
-
-  .agent-page .agent-task-sidebar-header .ant-typography + .ant-typography,
-  .agent-page .agent-task-row span {
+  .agent-page .agent-task-new.ant-btn span:not(.ant-btn-icon) {
     display: none;
   }
 
-  .agent-page .agent-workbench {
-    min-height: 0;
+  .agent-page .agent-task-list {
+    grid-template-columns: 1fr;
+    padding: 9px 10px 12px;
+  }
+
+  .agent-page .agent-task-drawer-body,
+  .agent-page .agent-task-list {
+    max-height: 250px;
   }
 
   .agent-page .agent-workbench-header {
     min-height: 56px;
-    padding: 10px 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 9px 13px;
   }
 
-  .agent-page .agent-workbench-header .ant-typography-paragraph {
+  .agent-page .agent-workbench-header .ant-typography-paragraph,
+  .agent-page .agent-workbench-status {
     display: none;
   }
 
   .agent-page .agent-workbench-history {
-    padding: 22px 16px 18px;
+    padding: 20px 15px 16px;
   }
 
   .agent-page .agent-workbench-message--user {
-    max-width: 88%;
+    max-width: 90%;
   }
 
   .agent-page .agent-workbench-composer {
-    width: calc(100% - 20px);
-    margin-bottom: 10px;
+    width: calc(100% - 18px);
+    margin-bottom: 9px;
     border-radius: 15px;
+  }
+
+  .agent-page .agent-context-chip:nth-of-type(3),
+  .agent-page .agent-context-chip:nth-of-type(4) {
+    display: none;
   }
 
   .agent-page .agent-composer-context {
