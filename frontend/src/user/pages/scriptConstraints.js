@@ -26,9 +26,14 @@ function normalizeLayer(value) {
 }
 
 export function normalizeScriptConstraints(value) {
+  const baseSetup = normalizeLayer(value?.baseSetup);
+  // Older saved drafts predate the visible base-setup switch. Keep their
+  // intended default: inject extracted characters and scenes unless disabled.
+  if (typeof value?.baseSetup?.enabled !== 'boolean') baseSetup.enabled = true;
   return {
     enabled: value?.enabled === true,
-    ...Object.fromEntries(categories.map(category => [category, normalizeLayer(value?.[category])]))
+    ...Object.fromEntries(categories.map(category => [category, normalizeLayer(value?.[category])])),
+    baseSetup
   };
 }
 

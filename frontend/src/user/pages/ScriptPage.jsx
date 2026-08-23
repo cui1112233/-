@@ -1080,6 +1080,18 @@ export function ScriptPage() {
             <Typography.Text strong>启用本次及后续剧本输出约束</Typography.Text>
           </Space>
         </div>
+        <div className="script-constraint-section">
+          <Space align="center">
+            <Switch
+              checked={draftConstraints.baseSetup?.enabled !== false}
+              onChange={enabled => updateDraftConstraint('baseSetup', { enabled })}
+            />
+            <div>
+              <Typography.Text strong>基础设定（人物 / 场景）</Typography.Text>
+              <Typography.Paragraph type="secondary" style={{ margin: '2px 0 0' }}>开启后，自动将已提取的人物设定和第一个场景加入每张分镜。</Typography.Paragraph>
+            </div>
+          </Space>
+        </div>
         {[
           ['prefix', '画面前缀词'],
           ['quality', '画质约束'],
