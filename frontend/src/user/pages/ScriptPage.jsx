@@ -1,7 +1,7 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
-import { AudioLines, Copy, Download, FileText, History, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
+import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
+import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateQuickDirectorStoryboard, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
@@ -109,6 +109,7 @@ export function ScriptPage() {
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
+  const [quickDirecting, setQuickDirecting] = useState(false);
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
@@ -187,6 +188,28 @@ export function ScriptPage() {
   function clearNovelText() {
     form.setFieldValue('novelText', '');
     persistDraft({ ...form.getFieldsValue(), novelText: '' });
+  }
+
+  async function quickDirectorStoryboard() {
+    const source = String(form.getFieldValue('novelText') || '').trim();
+    if (!source) return message.warning('请先粘贴小说原文');
+    const request = beginRequest('workflow');
+    setQuickDirecting(true);
+    try {
+      const result = await generateQuickDirectorStoryboard({ novelText: source, duration: form.getFieldValue('duration') || '10s' });
+      if (!isCurrentRequest(request)) return;
+      const nextOutput = aiText(result);
+      if (!nextOutput) throw new Error('模型未返回分镜内容');
+      setPreviousOutput(output);
+      updateOutputDraft(nextOutput);
+      setGenerationStage('complete');
+      setCurrentHistoryId('');
+      message.success('快速导演分镜已生成，可直接查看、复制或生成视频');
+    } catch (error) {
+      if (isCurrentRequest(request)) message.error(error.message || '快速导演分镜生成失败');
+    } finally {
+      if (isCurrentRequest(request)) setQuickDirecting(false);
+    }
   }
 
   function replaceSourceAudio(nextUrl) {
@@ -954,6 +977,7 @@ export function ScriptPage() {
                   setInstructionModalOpen(true);
                 }} disabled={extractionUnavailable}><Plus size={17} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" aria-label="配音原文" title="按当前配音预设生成原文配音" onClick={narrateSource} disabled={narrating}><AudioLines size={17} strokeWidth={1.8} aria-hidden="true" /></button>
+                <button type="button" aria-label="快速导演分镜" title="直接把原文生成导演级完整视频分镜" onClick={quickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
               </div>
               <Button className="script-chat-submit" type="primary" htmlType="submit" loading={extracting} disabled={generating || extractionUnavailable} aria-label="提取人物与场景" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />}>
                 <span>{generationStage === 'extracting' ? '提取中...' : '提取'}</span>

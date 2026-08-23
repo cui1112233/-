@@ -243,9 +243,22 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   ];
 }
 
+function buildQuickDirectorMessages(body, presetStore) {
+  const novelText = String(body?.novelText || '').trim();
+  if (!novelText) throw new Error('Novel text is required');
+  const duration = normalizeDuration(body?.duration);
+  const systemPrompt = resolveSystemPresetBody(presetStore, 'script-quick-director-storyboard')
+    .replace(/\{duration\}/g, duration);
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `## 小说原文\n${novelText}\n\n请直接交付完整导演分镜成品。` }
+  ];
+}
+
 function buildMessages(body, presetStore, personalPromptStore, username) {
   if (body.promptType === 'extract') return buildExtractMessages(body, presetStore);
   if (body.promptType === 'script') return buildScriptMessages(body, presetStore, personalPromptStore, username);
+  if (body.promptType === 'quick_director') return buildQuickDirectorMessages(body, presetStore);
   return Array.isArray(body.messages) ? body.messages : [];
 }
 
@@ -482,6 +495,7 @@ function createChatRouter({
   buildEntityEnrichmentMessages,
   buildExtractMessages,
   buildScriptMessages,
+  buildQuickDirectorMessages,
   buildMessages,
   buildConstraintWrapper,
   normalizeDuration,

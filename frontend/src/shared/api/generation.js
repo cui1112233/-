@@ -52,6 +52,20 @@ export function generateScript({ mode, format, duration, novelText, characters, 
   });
 }
 
+export function generateQuickDirectorStoryboard({ novelText, duration }) {
+  return apiRequest('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({
+      promptType: 'quick_director',
+      novelText,
+      duration,
+      max_tokens: 8192,
+      temperature: 0.55,
+      stream: false
+    })
+  });
+}
+
 export function listScriptPresetCatalog() {
   return apiRequest('/api/presets?module=script');
 }
