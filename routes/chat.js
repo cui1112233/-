@@ -204,6 +204,12 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   formatContent = formatContent.replace(/\{duration\}/g, duration);
   formatContent = formatContent.replace(/\{结束时间\}/g, endTime);
 
+  let directorMaster = format === 'shotlist'
+    ? resolveSystemPresetBody(presetStore, 'script-director-storyboard-master')
+    : '';
+  directorMaster = directorMaster.replace(/\{10s或15s\}/g, duration);
+  directorMaster = directorMaster.replace(/\{duration\}/g, duration);
+
   let modeContent = resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]);
   modeContent = modeContent.replace(/\{10s或15s\}/g, duration);
   modeContent = modeContent.replace(/\{X\}/g, secs);
@@ -223,7 +229,8 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     : '';
   const systemPrompt = [
     modeContent,
-    resolveSystemPresetBody(presetStore, 'script-general'),
+    resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
+    directorMaster,
     unitProtocol,
     constraintWrapper,
     formatContent

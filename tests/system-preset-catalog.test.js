@@ -156,7 +156,7 @@ test('seeds fixed server-only defaults once without overwriting a published edit
   const store = createStore(t);
 
   seedSystemPresets(store, 'owner');
-  assert.equal(store.listAll('script').length, 26);
+  assert.equal(store.listAll('script').length, 27);
   assert.equal(store.getPublished('script-quick-director-storyboard').protocolLock.slot, 'script.quick-director');
   assert.equal(store.getPublished('script-format-q版').protocolLock.slot, 'script.format.q版');
   assert.equal(store.listAll('novel-panel').length, 3);

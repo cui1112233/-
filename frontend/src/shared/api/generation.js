@@ -45,7 +45,7 @@ export function generateScript({ mode, format, duration, novelText, characters, 
       visualStyle,
       protagonists,
       constraints,
-      max_tokens: 8192,
+      max_tokens: format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false
     })

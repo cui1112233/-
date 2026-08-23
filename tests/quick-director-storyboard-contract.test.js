@@ -45,6 +45,16 @@ test('each quick director description mode is a managed preset in the same owner
   }
 });
 
+test('script shotlist prompt composes the panel-derived director master', () => {
+  const messages = chat._private.buildScriptMessages({
+    mode: 'segmented', format: 'shotlist', duration: '10s', novelText: '她把合同摔到桌上。',
+    characters: [{ name: '她', appearance: '短发' }], scenes: [{ name: '办公室' }]
+  });
+  assert.match(messages[0].content, /导演级分镜母版/);
+  assert.match(messages[0].content, /事件只发生一次/);
+  assert.match(messages[0].content, /180 度轴线/);
+});
+
 test('script workbench exposes quick director as the fourth source action', () => {
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   const api = read('frontend/src/shared/api/generation.js');
