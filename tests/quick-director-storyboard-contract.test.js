@@ -29,10 +29,20 @@ test('quick director route builds a duration-resolved auto-routed prompt from an
   assert.match(messages[0].content, /15s/);
   assert.doesNotMatch(messages[0].content, /\{duration\}/);
   assert.doesNotMatch(messages[0].content, /\{descriptionModeRules\}/);
-  assert.match(messages[0].content, /较细版/);
+  assert.match(messages[0].content, /通用小说较细版/);
   assert.match(messages[1].content, /角色在客厅发现证据/);
   assert.match(messages[1].content, /现代悬疑短剧电影质感/);
   assert.match(messages[1].content, /证据必须出现/);
+});
+
+test('each quick director description mode is a managed preset in the same ownership slot', () => {
+  const modes = ['strict', 'concise', 'balanced', 'detailed', 'example', 'reference'];
+  for (const mode of modes) {
+    const preset = SYSTEM_PRESETS.find(item => item.id === `script-quick-director-mode-${mode}`);
+    assert.ok(preset);
+    assert.equal(preset.module, 'script');
+    assert.equal(preset.protocolLock.slot, 'script.quick-director');
+  }
 });
 
 test('script workbench exposes quick director as the fourth source action', () => {

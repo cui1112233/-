@@ -247,18 +247,15 @@ function buildQuickDirectorMessages(body, presetStore) {
   const novelText = String(body?.novelText || '').trim();
   if (!novelText) throw new Error('Novel text is required');
   const duration = normalizeDuration(body?.duration);
-  const descriptionModes = {
-    strict: '导演级完整成品版：普通内容优先 2 镜；对白、情绪或多人关系优先 2–3 镜；冲突、揭示或明显前后反应优先 3–4 镜。每个小镜头 1–3 秒、约 40–110 个中文字符，只承担一个观看重点。',
-    concise: '通用小说精简版：保持必要的 2–3 镜切换；每个小镜头约 30–75 个中文字符，直接写主体动作、反应或关键细节，不删除原文重要内容。',
-    balanced: '通用小说标准版：普通内容 2 镜，情绪/对白 2–3 镜，复杂事件 3–4 镜；每个小镜头约 45–105 个中文字符，兼顾站位、动作/反应和镜头落点。',
-    detailed: '通用小说较细版：以 2–4 个镜头切换为主；每个小镜头约 60–130 个中文字符，可增加一层可见材质、环境动态或微表情，但不得写成冗长散文。',
-    example: '案例学习增强版：只抽象采用“场面→主体→反应/细节→结果”的切镜顺序与大白话表达；不复制任何案例人物、地点、台词或剧情。',
-    reference: '样例对照转换版：重点采用不同景别来回切换表达同一段内容；每个小镜头只保留一个观看重点，不复制样例的人物、地点、台词或剧情。'
+  const descriptionModeIds = {
+    strict: 'script-quick-director-mode-strict', concise: 'script-quick-director-mode-concise',
+    balanced: 'script-quick-director-mode-balanced', detailed: 'script-quick-director-mode-detailed',
+    example: 'script-quick-director-mode-example', reference: 'script-quick-director-mode-reference'
   };
-  const descriptionMode = Object.hasOwn(descriptionModes, body?.descriptionMode) ? body.descriptionMode : 'strict';
+  const descriptionMode = Object.hasOwn(descriptionModeIds, body?.descriptionMode) ? body.descriptionMode : 'strict';
   const systemPrompt = resolveSystemPresetBody(presetStore, 'script-quick-director-storyboard')
     .replace(/\{duration\}/g, duration)
-    .replace(/\{descriptionModeRules\}/g, descriptionModes[descriptionMode]);
+    .replace(/\{descriptionModeRules\}/g, resolveSystemPresetBody(presetStore, descriptionModeIds[descriptionMode]));
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: [
