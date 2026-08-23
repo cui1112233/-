@@ -110,6 +110,8 @@ export function ScriptPage() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
   const [quickDirecting, setQuickDirecting] = useState(false);
+  const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
+  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '' });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
@@ -190,13 +192,33 @@ export function ScriptPage() {
     persistDraft({ ...form.getFieldsValue(), novelText: '' });
   }
 
-  async function quickDirectorStoryboard() {
+  function openQuickDirectorStoryboard() {
     const source = String(form.getFieldValue('novelText') || '').trim();
     if (!source) return message.warning('请先粘贴小说原文');
+    setQuickDirectorOpen(true);
+  }
+
+  async function quickDirectorStoryboard() {
+    const source = String(form.getFieldValue('novelText') || '').trim();
+    if (!source) return;
     const request = beginRequest('workflow');
     setQuickDirecting(true);
+    setQuickDirectorOpen(false);
+    setGenerationStage('extracting');
+    dispatchPetState('working');
     try {
-      const result = await generateQuickDirectorStoryboard({ novelText: source, duration: form.getFieldValue('duration') || '10s' });
+      const extraction = await extractEntities(source);
+      if (!isCurrentRequest(request)) return;
+      setExtractInfo(extraction);
+      setGenerationStage('generating');
+      const result = await generateQuickDirectorStoryboard({
+        novelText: source,
+        duration: form.getFieldValue('duration') || '10s',
+        ...toGenerationEntities(extraction),
+        descriptionMode: quickDirectorOptions.descriptionMode,
+        mustCoverDetails: quickDirectorOptions.mustCoverDetails,
+        shotRhythmRequirements: quickDirectorOptions.shotRhythmRequirements
+      });
       if (!isCurrentRequest(request)) return;
       const nextOutput = aiText(result);
       if (!nextOutput) throw new Error('模型未返回分镜内容');
@@ -205,8 +227,15 @@ export function ScriptPage() {
       setGenerationStage('complete');
       setCurrentHistoryId('');
       message.success('快速导演分镜已生成，可直接查看、复制或生成视频');
+      playTaskSound('success', soundEnabled, soundVolume);
+      dispatchPetState('success');
     } catch (error) {
-      if (isCurrentRequest(request)) message.error(error.message || '快速导演分镜生成失败');
+      if (isCurrentRequest(request)) {
+        setGenerationStage('error');
+        message.error(error.message || '快速导演分镜生成失败');
+        playTaskSound('warning', soundEnabled, soundVolume);
+        dispatchPetState('error');
+      }
     } finally {
       if (isCurrentRequest(request)) setQuickDirecting(false);
     }
@@ -977,7 +1006,7 @@ export function ScriptPage() {
                   setInstructionModalOpen(true);
                 }} disabled={extractionUnavailable}><Plus size={17} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" aria-label="配音原文" title="按当前配音预设生成原文配音" onClick={narrateSource} disabled={narrating}><AudioLines size={17} strokeWidth={1.8} aria-hidden="true" /></button>
-                <button type="button" aria-label="快速导演分镜" title="直接把原文生成导演级完整视频分镜" onClick={quickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
+                <button type="button" aria-label="快速导演分镜" title="按小说面板导演逻辑生成完整视频分镜" onClick={openQuickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
               </div>
               <Button className="script-chat-submit" type="primary" htmlType="submit" loading={extracting} disabled={generating || extractionUnavailable} aria-label="提取人物与场景" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />}>
                 <span>{generationStage === 'extracting' ? '提取中...' : '提取'}</span>
@@ -1097,6 +1126,35 @@ export function ScriptPage() {
       </div>
       <Modal title="生成的视频" open={Boolean(previewVideoTask?.videoUrl)} footer={null} onCancel={() => setPreviewVideoTask(null)} width={520}>
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
+      </Modal>
+      <Modal
+        title="快速导演分镜"
+        open={quickDirectorOpen}
+        okText="分析并生成"
+        cancelText="取消"
+        confirmLoading={quickDirecting}
+        onCancel={() => setQuickDirectorOpen(false)}
+        onOk={quickDirectorStoryboard}
+      >
+        <Typography.Paragraph type="secondary">自动读取全文，先生成统一风格、人物与场景，再按所选画面描述模式路由导演规则生成分镜。</Typography.Paragraph>
+        <Typography.Text>画面描述模式</Typography.Text>
+        <Select
+          value={quickDirectorOptions.descriptionMode}
+          style={{ width: '100%', marginTop: 8, marginBottom: 14 }}
+          onChange={descriptionMode => setQuickDirectorOptions(current => ({ ...current, descriptionMode }))}
+          options={[
+            { value: 'strict', label: '导演级完整成品版（推荐）' },
+            { value: 'concise', label: '通用小说精简版' },
+            { value: 'balanced', label: '通用小说标准版' },
+            { value: 'detailed', label: '通用小说较细版' },
+            { value: 'example', label: '案例学习增强版' },
+            { value: 'reference', label: '样例对照转换版' }
+          ]}
+        />
+        <Typography.Text>必须拍出的原文细节（可选）</Typography.Text>
+        <Input.TextArea rows={3} style={{ marginTop: 8, marginBottom: 14 }} value={quickDirectorOptions.mustCoverDetails} placeholder="例如：产检单被拍照、手机语音、女主的反应不能遗漏" onChange={event => setQuickDirectorOptions(current => ({ ...current, mustCoverDetails: event.target.value }))} />
+        <Typography.Text>镜头节奏与推进要求（可选）</Typography.Text>
+        <Input.TextArea rows={3} style={{ marginTop: 8 }} value={quickDirectorOptions.shotRhythmRequirements} placeholder="例如：先铺场再切反应，关键动作单独拆镜，同场景避免重复" onChange={event => setQuickDirectorOptions(current => ({ ...current, shotRhythmRequirements: event.target.value }))} />
       </Modal>
       <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
         {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length} 个</Typography.Text></Button>) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}
