@@ -15,6 +15,7 @@ import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } 
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
+import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo } from '../../shared/api/scriptVideo';
 
@@ -123,7 +124,7 @@ export function ScriptPage() {
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
-  const shotCards = useMemo(() => {
+  const rawShotCards = useMemo(() => {
     const parsed = getShotCards(selectedFormat, output);
     if (parsed.length) return parsed;
     // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
@@ -134,10 +135,15 @@ export function ScriptPage() {
     }
     return parsed;
   }, [selectedMode, selectedFormat, selectedDuration, output]);
-  const shotCardStarts = useMemo(() => getShotCardStarts(output, shotCards), [output, shotCards]);
+  const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
+    extractInfo,
+    constraints: constraintsForFormat(constraints, selectedFormat),
+    index
+  })), [rawShotCards, extractInfo, constraints, selectedFormat]);
+  const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
-    () => getSelectedShotMatches(output, shotCards, selectedShotIndexes, shotFindText),
-    [output, shotCards, selectedShotIndexes, shotFindText]
+    () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
+    [output, rawShotCards, selectedShotIndexes, shotFindText]
   );
   const activeShotMatch = selectedShotMatches[shotMatchIndex] || null;
   useEffect(() => {
