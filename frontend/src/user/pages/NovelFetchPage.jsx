@@ -57,9 +57,10 @@ function downloadText(name, content) {
 export function NovelFetchPage({ theme }) {
   // 保留原批量改文系统的静态工作台，不再以简化面板替代其完整布局。
   const frameRef = useRef(null);
+  const [frameReady, setFrameReady] = useState(false);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
-  return <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={syncTheme} />;
+  return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}`}><iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={() => { syncTheme(); requestAnimationFrame(() => setFrameReady(true)); }} /></div>;
 }
 
 export function LegacyNovelFetchPage() {
