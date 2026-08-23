@@ -9607,6 +9607,48 @@ function getProjectData() {
   };
 }
 
+// 只向外层 CM 宠物提供当前工作台的受限创作摘要；不暴露项目保存记录、模型配置或内部运行状态。
+function postPetWorkbenchContext() {
+  if (window.parent === window) return;
+  const data = getProjectData();
+  const style = data.style || {};
+  const characters = Array.isArray(data.characters) ? data.characters.slice(0, 12).map((item) => ({
+    name: text(item?.name),
+    appearance: text(item?.appearance || item?.visual_description).slice(0, 900),
+  })).filter((item) => item.name) : [];
+  const scenes = Array.isArray(data.scenes) ? data.scenes.slice(0, 8).map((item) => ({
+    name: text(item?.name || item?.scene_name),
+    summary: text(item?.source_text || item?.prompt || item?.text).slice(0, 700),
+  })).filter((item) => item.name || item.summary) : [];
+  const shots = Array.isArray(data.outline_shots) ? data.outline_shots.slice(0, 8).map((item, index) => ({
+    index: index + 1,
+    prompt: text(item?.prompt).slice(0, 900),
+  })).filter((item) => item.prompt) : [];
+  window.parent.postMessage({
+    type: 'qiantie-novel-panel-pet-context',
+    context: {
+      summary: `内容类型：${text(style.genre) || '未判断'}；人物 ${characters.length} 个；场景 ${scenes.length} 个；已生成分镜 ${Array.isArray(data.outline_shots) ? data.outline_shots.length : 0} 条`,
+      novelText: text(data.novel_text).slice(0, 4500),
+      entities: {
+        contentType: text(style.genre),
+        visualStyle: text(style.trailer_style).slice(0, 1800),
+        globalAdvice: text(data.global_analysis_advice).slice(0, 1800),
+        appearanceReference: text(data.appearance_reference).slice(0, 1800),
+        mustCoverDetails: text(data.must_cover_details).slice(0, 1800),
+        shotRhythmRequirements: text(data.shot_rhythm_requirements).slice(0, 1800),
+        generatedShotCount: Array.isArray(data.outline_shots) ? data.outline_shots.length : 0,
+      },
+      extracted: { characters, scenes, shots },
+      actions: ['优化统一风格', '优化人物外形全局要求', '优化分镜额外要求', '优化镜头节奏与推进', '检查已生成分镜'],
+    },
+  }, '*');
+}
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window.parent || event.data?.type !== 'qiantie-novel-panel-pet-context-request') return;
+  try { postPetWorkbenchContext(); } catch (_) {}
+});
+
 function scheduleDraftSave() {
   clearTimeout(persistTimer);
   if (persistIdleHandle) {

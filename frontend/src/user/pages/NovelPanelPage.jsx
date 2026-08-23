@@ -149,6 +149,30 @@ export function NovelPanelPage({ theme }) {
     });
   }, [projectId, loading, error]);
 
+  useEffect(() => {
+    function receiveWorkbenchPetContext(event) {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      const data = event.data;
+      if (!data || data.type !== 'qiantie-novel-panel-pet-context' || !data.context || typeof data.context !== 'object') return;
+      const context = data.context;
+      dispatchPetContext({
+        page: '小说面板',
+        pagePath: '/novel-panel',
+        summary: String(context.summary || '小说面板工作台已就绪').slice(0, 1600),
+        entities: context.entities && typeof context.entities === 'object' ? context.entities : {},
+        actions: Array.isArray(context.actions) ? context.actions.slice(0, 6) : [],
+        novelText: String(context.novelText || '').slice(0, 4500),
+        extracted: context.extracted && typeof context.extracted === 'object' ? context.extracted : undefined
+      });
+    }
+    window.addEventListener('message', receiveWorkbenchPetContext);
+    return () => window.removeEventListener('message', receiveWorkbenchPetContext);
+  }, []);
+
+  function requestWorkbenchPetContext() {
+    frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-novel-panel-pet-context-request' }, '*');
+  }
+
   useLayoutEffect(() => {
     function closePort() {
       abortPendingRequests();
@@ -266,6 +290,7 @@ export function NovelPanelPage({ theme }) {
   function handleFrameLoad() {
     setLoading(false);
     syncTheme(frameRef.current, theme);
+    requestWorkbenchPetContext();
     if (!portRef.current) return;
     if (!channelLoadAcknowledgedRef.current) {
       channelLoadAcknowledgedRef.current = true;
