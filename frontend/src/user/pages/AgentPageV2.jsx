@@ -5,13 +5,13 @@ import { askAgent, clearAgentTask, createAgentTask, createMyAgentSkill, deleteAg
 import { dispatchPetContext, dispatchPetSkills, dispatchPetState } from '../../shared/pet/stacky';
 
 const blankSkill = { name: '', description: '', category: '创作', inputTemplate: '', body: '' };
-const TASK_DRAWER_STORAGE_KEY = 'qiantie-agent-task-drawer-open';
+const TASK_DRAWER_STORAGE_KEY = 'qiantie-agent-task-drawer-open-v2';
 
 function initialTaskDrawerOpen() {
   try {
-    return localStorage.getItem(TASK_DRAWER_STORAGE_KEY) !== 'false';
+    return localStorage.getItem(TASK_DRAWER_STORAGE_KEY) === 'true';
   } catch {
-    return true;
+    return false;
   }
 }
 

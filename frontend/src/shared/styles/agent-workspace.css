@@ -147,9 +147,16 @@
 }
 
 .agent-page .agent-task-drawer-body {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: 7;
   max-height: 220px;
   overflow: hidden;
   border-top: 1px solid var(--agent-border);
+  background: var(--agent-panel);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.26);
   opacity: 1;
   transform: translateY(0);
   transform-origin: top center;
