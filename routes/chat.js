@@ -260,9 +260,14 @@ function buildQuickDirectorMessages(body, presetStore) {
     example: 'script-quick-director-mode-example', reference: 'script-quick-director-mode-reference'
   };
   const descriptionMode = Object.hasOwn(descriptionModeIds, body?.descriptionMode) ? body.descriptionMode : 'strict';
-  const systemPrompt = resolveSystemPresetBody(presetStore, 'script-quick-director-storyboard')
+  const quickDirectorBase = resolveSystemPresetBody(presetStore, 'script-quick-director-storyboard')
     .replace(/\{duration\}/g, duration)
     .replace(/\{descriptionModeRules\}/g, resolveSystemPresetBody(presetStore, descriptionModeIds[descriptionMode]));
+  // 小说获取的自动入口与“分段开头 + 分镜模式”共用同一份导演母版；
+  // 它只省去人工逐步点击，并不降级场景、事件、连续性与质量规则。
+  const directorMaster = resolveSystemPresetBody(presetStore, 'script-director-storyboard-master')
+    .replace(/\{duration\}/g, duration);
+  const systemPrompt = [quickDirectorBase, directorMaster].filter(Boolean).join('\n\n---\n\n');
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: [

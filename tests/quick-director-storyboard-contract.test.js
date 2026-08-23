@@ -30,6 +30,8 @@ test('quick director route builds a duration-resolved auto-routed prompt from an
   assert.doesNotMatch(messages[0].content, /\{duration\}/);
   assert.doesNotMatch(messages[0].content, /\{descriptionModeRules\}/);
   assert.match(messages[0].content, /通用小说较细版/);
+  assert.match(messages[0].content, /导演级分镜母版/);
+  assert.match(messages[0].content, /事件只发生一次/);
   assert.match(messages[1].content, /角色在客厅发现证据/);
   assert.match(messages[1].content, /现代悬疑短剧电影质感/);
   assert.match(messages[1].content, /证据必须出现/);
