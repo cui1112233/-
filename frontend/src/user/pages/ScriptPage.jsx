@@ -269,8 +269,11 @@ export function ScriptPage() {
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
+      const historyId = await ensureCurrentHistory();
       const result = await createScriptVideo({ prompt });
-      setShotVideoTasks(current => ({ ...current, [index]: { taskId: result.taskId, status: 'processing' } }));
+      const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
+      setShotVideoTasks(nextVideoTasks);
+      if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
       watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
@@ -282,6 +285,24 @@ export function ScriptPage() {
         return next;
       });
     }
+  }
+
+  async function ensureCurrentHistory() {
+    if (currentHistoryId) return currentHistoryId;
+    if (!output) return '';
+    const values = form.getFieldsValue();
+    const historyId = 'react-' + Date.now().toString(36);
+    await saveHistory({
+      id: historyId,
+      mode: values.mode || 'continuous',
+      format: values.format || 'storyboard',
+      formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式', q版: 'Q版模式' }[values.format] || '剧本',
+      duration: values.duration || '10s',
+      output,
+      videoTasks: shotVideoTasks
+    });
+    setCurrentHistoryId(historyId);
+    return historyId;
   }
 
   function watchShotVideoTask(index, taskId) {

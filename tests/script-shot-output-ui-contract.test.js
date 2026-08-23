@@ -20,6 +20,7 @@ test('shot card component provides individual copy and video-generation controls
   assert.match(page, /ShotOutputCards/);
   assert.match(page, /generateVideoForShot/);
   assert.match(page, /watchShotVideoTask/);
+  assert.match(page, /ensureCurrentHistory/);
   assert.match(page, /createScriptVideo\(\{ prompt \}\)/);
   assert.doesNotMatch(page, /createTask\(projectId/);
   assert.doesNotMatch(page, /getProductionConfig\(\)/);
