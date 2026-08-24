@@ -44,6 +44,8 @@ test('q版 format loads the Q版模式 preset body and normalizes correctly', ()
   assert.match(content, /Q版模式/);
   assert.match(content, /迷你小人/);
   assert.match(content, /正常比例/);
+  assert.match(content, /Q版迷你小人条件守卫 v2/);
+  assert.match(content, /严禁出现 Q 版迷你版主角/);
   // format=q版 时 normalizeFormat 保持原值
   assert.equal(chat._private.normalizeFormat('q版'), 'q版');
 });

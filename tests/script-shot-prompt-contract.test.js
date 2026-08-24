@@ -20,6 +20,9 @@ test('Q版模式 prompt and catalog contract define the complete shot protocol',
   const content = fs.readFileSync(path.join(prompts, 'Q版模式.md'), 'utf8');
   assert.match(content, /核心转化规则/);
   assert.match(content, /迷你小人/);
+  assert.match(content, /Q版迷你小人条件守卫 v2/);
+  assert.match(content, /未触发心理内容/);
+  assert.match(content, /严禁出现 Q 版迷你版主角/);
   assert.match(content, /画面主体描述/);
   assert.match(content, /环境光影/);
   assert.match(content, /分类转化规则/);
@@ -36,7 +39,7 @@ test('Q版模式 prompt and catalog contract define the complete shot protocol',
   assert.match(content, /10s\/15s 拆分规则/);
   assert.match(content, /10s/);
   assert.match(content, /15s/);
-  assert.match(content, /四段式/);
+  assert.doesNotMatch(content, /四段式/);
   assert.match(content, /---/);
   assert.match(content, /硬性校验/);
   assert.match(content, /输出顺序/);

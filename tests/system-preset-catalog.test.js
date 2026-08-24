@@ -200,6 +200,24 @@ test('seeds fixed server-only defaults once without overwriting a published edit
   assert.equal(store.listAll('script').filter(preset => preset.id === 'script-extract').length, 2);
 });
 
+test('upgrades a legacy Q preset with the conditional mini-character guard while preserving its published body', t => {
+  const store = createStore(t);
+  const legacy = store.createDraft('owner', {
+    id: 'script-format-q版', module: 'script', name: 'Q版模式', kind: 'base',
+    description: '旧版 Q 提示词', compatibleBaseIds: [], body: 'CUSTOM_Q_BODY',
+    protocolLock: { format: 'q版', source: 'Q版模式.md', slot: 'script.format.q版' }
+  });
+  store.publish('owner', legacy.id, legacy.version);
+
+  seedSystemPresets(store, 'owner');
+
+  const upgraded = store.getPublished('script-format-q版');
+  assert.equal(upgraded.version, 2);
+  assert.match(upgraded.body, /CUSTOM_Q_BODY/);
+  assert.match(upgraded.body, /Q版迷你小人条件守卫 v2/);
+  assert.match(upgraded.body, /严禁出现 Q 版迷你版主角/);
+});
+
 test('upgrades a legacy water-production smart preset slot without replacing its published metadata', t => {
   const store = createStore(t);
   const legacy = store.createDraft('owner', {
