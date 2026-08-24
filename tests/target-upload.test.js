@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { STYLE_ID, PLATFORM_ID, GENDER_ID, PER_BOOK_MATERIAL_LIMIT, normalizeAdvanced, normalizeBookAdvanced, distributeBookMaterials, buildUploadFields, buildMultipart, buildTargetUploadFilename, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, PER_BOOK_MATERIAL_LIMIT, normalizeAdvanced, normalizeBookAdvanced, distributeBookMaterials, buildUploadFields, buildMultipart, buildTargetUploadFilename, buildTargetBookListUrl, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
 
 test('mappings cover platforms, genders and styles', () => {
   assert.equal(PLATFORM_ID['七猫付费'], 3);
@@ -75,6 +75,7 @@ test('121 上传文件名只能是书号或 UUID，不能附加 AI 版本后缀'
   assert.equal(buildTargetUploadFilename('2071717253981255675'), '2071717253981255675.txt');
   assert.equal(buildTargetUploadFilename('7d2fbec4-62e2-4bca-943e-2927d20ff10f'), '7d2fbec4-62e2-4bca-943e-2927d20ff10f.txt');
   assert.throws(() => buildTargetUploadFilename('2071717253981255675-ai1'), /纯数字书号或 UUID/);
+  assert.match(buildTargetBookListUrl('2071717253981255675'), /zbooklist_get\.php\?bookid=2071717253981255675&page=1&pageSize=10/);
 });
 
 test('buildLoginUrl encodes credentials', () => {

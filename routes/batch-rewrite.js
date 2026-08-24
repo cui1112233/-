@@ -146,6 +146,46 @@ function summarizeTargetReceipt(data) {
   };
 }
 
+function appendSubmitTrace(trace, step, status, detail, extra = {}) {
+  trace.push({ step, status, detail, time: new Date().toISOString(), ...extra });
+}
+
+function parseTargetJson(value) {
+  if (!value || typeof value !== 'string') return {};
+  try { return JSON.parse(value); } catch (_) { return {}; }
+}
+
+function summarizeRemoteBookRecord(data, bookId, fields, advanced) {
+  const rows = Array.isArray(data?.data) ? data.data : [];
+  const record = rows.find(item => String(object(item).bookid || '') === String(bookId)) || null;
+  if (!record) return { status: '待确认', found: false, detail: '121 上传接口已确认文件，但列表暂未返回该书号记录' };
+  const row = object(record);
+  const jianData = parseTargetJson(row.jian_data);
+  const actual = {
+    platform_id: String(row.book_platform ?? ''), gender: String(row.gender ?? ''), style: String(row.style ?? ''),
+    jieya_num: Number(jianData?.jieya?.jieya_num ?? -1), gunping_num: Number(jianData?.gunping?.gunping_num ?? -1)
+  };
+  const expected = {
+    platform_id: String(fields.platform_id), gender: String(fields.gender), style: String(fields.style),
+    jieya_num: Number(advanced.jieyaNum), gunping_num: Number(advanced.gunpingNum)
+  };
+  const mismatches = Object.keys(expected).filter(key => expected[key] !== actual[key]);
+  return {
+    status: mismatches.length ? '待确认' : '完成', found: true,
+    detail: mismatches.length ? `121 已找到记录，但参数待核对：${mismatches.join('、')}` : '121 后台已找到对应书号，平台、风格与素材数量一致',
+    remote_id: String(row.id || ''), remote_time: String(row.addtime || ''), expected, actual, mismatches
+  };
+}
+
+async function verifyTargetBookRecord(httpClient, sessionCookie, bookId, fields, advanced) {
+  const response = await httpClient({ method: 'GET', url: target.buildTargetBookListUrl(bookId), headers: { Cookie: sessionCookie } });
+  if (target.isLoginPage(response.body)) throw new Error('121 登录会话已失效，无法核验后台记录');
+  let data = {};
+  try { data = JSON.parse(response.body); } catch (_) { throw new Error('121 列表核验返回了非 JSON 内容'); }
+  if (data.success !== true) throw new Error(data.message || data.msg || '121 列表核验失败');
+  return summarizeRemoteBookRecord(data, bookId, fields, advanced);
+}
+
 function summarizeKnowledge(knowledge) {
   const source = object(knowledge);
   const highImitation = object(source.high_imitation);
@@ -561,31 +601,48 @@ function createBatchRewriteRouter({
       for (const item of group.items) {
         const task = await tasks.getTask(req.username, item.id);
         const content = await tasks.readVersionText(req.username, item.id, item.version);
+        const trace = [];
         try {
           const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: item.advanced || webConfig.advanced });
-          const upload = target.buildMultipart(fields, { filename: target.buildTargetUploadFilename(item.id), content });
+          appendSubmitTrace(trace, '本地参数校验', '完成', `121 参数：平台 ${fields.platform_id} / 性别 ${fields.gender} / 风格 ${fields.style} / 解压 ${fields.jieya_num} / 滚屏 ${fields.gunping_num}`, { fields: { platform_id: fields.platform_id, gender: fields.gender, style: fields.style, jieya_num: fields.jieya_num, gunping_num: fields.gunping_num } });
+          const filename = target.buildTargetUploadFilename(item.id);
+          const upload = target.buildMultipart(fields, { filename, content });
+          appendSubmitTrace(trace, '准备上传文件', '完成', `已生成 ${filename}，${Buffer.byteLength(content)} 字节`, { file: filename, bytes: Buffer.byteLength(content), version: item.version });
           let data = {};
           let attempts = 0;
           let lastError = null;
           for (let attempt = 0; attempt <= webConfig.retry_times; attempt += 1) {
             try {
               attempts += 1;
+              appendSubmitTrace(trace, '调用 121 上传接口', '提交中', `第 ${attempts} 次请求 ${target.TARGET_UPLOAD_PATH}`, { attempt: attempts });
               const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
               try { data = JSON.parse(response.body); } catch (_) { data = {}; }
               if (data.success === true) { lastError = null; break; }
               lastError = new Error(data.message || data.msg || '上传失败');
+              appendSubmitTrace(trace, '121 上传接口响应', '失败', lastError.message, { attempt: attempts });
             } catch (error) { lastError = error; }
           }
           if (lastError) throw lastError;
           const receipt = summarizeTargetReceipt(data);
-          if (receipt.upload_error) throw new Error(receipt.upload_error);
+          if (receipt.upload_error) {
+            appendSubmitTrace(trace, '121 文件处理结果', '失败', receipt.upload_error, { upload_success_count: receipt.upload_success_count, upload_failed_count: receipt.upload_failed_count });
+            throw new Error(receipt.upload_error);
+          }
+          appendSubmitTrace(trace, '121 文件处理结果', receipt.verified ? '完成' : '待确认', receipt.verified ? `121 已确认接收 ${receipt.upload_success_count} 个文件` : '121 未返回逐文件结果，等待人工核验', { upload_success_count: receipt.upload_success_count, upload_failed_count: receipt.upload_failed_count });
+          try {
+            receipt.remote_record = await verifyTargetBookRecord(httpClient, session.cookie, item.id, fields, item.advanced || webConfig.advanced);
+            appendSubmitTrace(trace, '121 后台记录核验', receipt.remote_record.status, receipt.remote_record.detail, receipt.remote_record);
+          } catch (error) {
+            receipt.remote_record = { status: '待确认', found: false, detail: error.message || '121 后台记录核验失败' };
+            appendSubmitTrace(trace, '121 后台记录核验', '待确认', receipt.remote_record.detail);
+          }
           if (receipt.verified) {
             await tasks.updateTaskMeta(req.username, item.id, {
               siteSubmitStatus: 'submitted',
               siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])],
               siteSubmitAcceptedVersions: (task.meta.siteSubmitAcceptedVersions || []).filter(version => version !== item.version)
             });
-            if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, time: new Date().toISOString() });
+            if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, execution_trace: trace, time: new Date().toISOString() });
           } else {
             groupAwaitingConfirmation = true;
             item.status = 'accepted_pending';
@@ -594,13 +651,14 @@ function createBatchRewriteRouter({
               siteSubmitStatus: 'accepted_pending',
               siteSubmitAcceptedVersions: [...new Set([...(task.meta.siteSubmitAcceptedVersions || []), item.version])]
             });
-            if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'accepted_pending', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, time: new Date().toISOString() });
+            if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'accepted_pending', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, execution_trace: trace, time: new Date().toISOString() });
           }
         } catch (error) {
           groupFailed = true;
           item.error = error.message || '上传失败';
+          appendSubmitTrace(trace, '提交结束', '失败', item.error);
           await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'failed', siteSubmitFailedVersions: [...new Set([...(task.meta.siteSubmitFailedVersions || []), item.version])] });
-          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, group_id: group.group_id, material_allocation: item.advanced, error: item.error, time: new Date().toISOString() });
+          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, group_id: group.group_id, material_allocation: item.advanced, error: item.error, execution_trace: trace, time: new Date().toISOString() });
         }
       }
       group.status = groupFailed ? 'failed' : groupAwaitingConfirmation ? 'accepted_pending' : 'submitted';

@@ -1789,7 +1789,7 @@ function renderWebSubmitGroups(data = {}) {
 function statusClass(value) {
   const text = String(value || "");
   if (text.includes("failed") || text.includes("失败")) return "status-error";
-  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("dry_run")) return "status-warn";
+  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("dry_run")) return "status-warn";
   if (text.includes("done") || text.includes("完成") || text.includes("classified") || text.includes("submitted") || text.includes("已提交")) return "status-ok";
   return "";
 }
@@ -2061,6 +2061,16 @@ function renderSiteSubmitLog(data) {
   }, {});
   const versionRows = Object.keys(savedVersions).map((key) => {
     const item = savedVersions[key] || {};
+    const traceRows = asArray(item.execution_trace).map((entry) => `
+      <div class="site-skipped-row submit-trace-row">
+        <code>${escapeHtml(entry.step || "执行步骤")}</code>
+        <span class="${statusClass(entry.status)}">${escapeHtml(entry.status || "")}</span>
+        <span>${escapeHtml(entry.detail || "")}</span>
+        <time>${escapeHtml(entry.time || "")}</time>
+      </div>
+    `).join("");
+    const receipt = item.remote_receipt || {};
+    const remote = receipt.remote_record || {};
     return `
       <div class="sensitive-log-card">
         <div class="sensitive-log-head">
@@ -2073,8 +2083,10 @@ function renderSiteSubmitLog(data) {
           ${metaItem("更新时间", item.updated_at || item.time || "")}
           ${metaItem("素材分配", item.material_allocation ? `解压 ${item.material_allocation.jieyaNum ?? 0} / 滚屏 ${item.material_allocation.gunpingNum ?? 0}` : "")}
           ${metaItem("错误", item.error || "")}
+          ${metaItem("121记录", remote.found ? `已找到 #${remote.remote_id || ""}` : remote.detail || "未核验")}
         </div>
-        ${item.remote_receipt ? `<pre class="site-output">${escapeHtml(JSON.stringify(item.remote_receipt, null, 2))}</pre>` : ""}
+        ${traceRows ? `<div class="text-block submit-trace"><h3>执行链路</h3><div class="site-skipped-list">${traceRows}</div></div>` : ""}
+        ${item.remote_receipt ? `<details class="submit-receipt"><summary>查看 121 原始回执</summary><pre class="site-output">${escapeHtml(JSON.stringify(item.remote_receipt, null, 2))}</pre></details>` : ""}
         ${item.profile ? `<pre class="site-output">${escapeHtml(JSON.stringify(item.profile, null, 2))}</pre>` : ""}
       </div>
     `;

@@ -127,15 +127,17 @@ test('121 返回文件处理失败时不能标记待确认，必须直接报出�
 
 test('121 明确返回成功文件时可确认提交', async () => {
   const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
+  const logs = [];
   const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); }, novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
     httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 1, files: [{ name: '2071717253981255675.txt' }] }, failed: { count: 0, files: [] } } }), headers: {} }),
-    tasksFactory: async () => ({ tasks: { getTask: async () => ({ meta }), readVersionText: async () => '可上传的 AI 文案', updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch), appendSiteSubmitLog: async () => {}, listTasks: async () => [{ ...meta }] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+    tasksFactory: async () => ({ tasks: { getTask: async () => ({ meta }), readVersionText: async () => '可上传的 AI 文案', updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch), appendSiteSubmitLog: async (_username, _id, entry) => logs.push(entry), listTasks: async () => [{ ...meta }] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
   }));
   const response = await request(app, '/api/batch-rewrite/web-submit/submit', { mode: 'selected', ids: ['2071717253981255675'], versions: ['ai1'] });
   assert.equal(response.status, 200);
   assert.equal(response.body.success_groups, 1);
   assert.equal(response.body.accepted_groups, 0);
   assert.deepEqual(meta.siteSubmitDoneVersions, ['ai1']);
+  assert.deepEqual(logs[0].execution_trace.map(item => item.step), ['本地参数校验', '准备上传文件', '调用 121 上传接口', '121 文件处理结果', '121 后台记录核验']);
 });
