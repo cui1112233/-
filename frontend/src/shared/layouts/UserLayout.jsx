@@ -1,5 +1,5 @@
 import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, X } from 'lucide-react';
+import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -11,9 +11,7 @@ import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
 
-// 3D 登录吊牌会携带 Three.js / Rapier；动态 Logo 也包含 WebGL shader。
-// 二者不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
-const Lanyard = lazy(() => import('../components/lanyard/Lanyard').then(module => ({ default: module.Lanyard })));
+// 动态 Logo 包含 WebGL shader，不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
 const SuperOpcLiquidMetalLogo = lazy(() => import('../components/SuperOpcLiquidMetalLogo'));
 
 const navItems = [
@@ -53,9 +51,7 @@ export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [loginExpanded, setLoginExpanded] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
-  const [loginCardTransitioning, setLoginCardTransitioning] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
@@ -64,7 +60,7 @@ export function UserLayout({ children }) {
   const [avatarPicking, setAvatarPicking] = useState(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const accountSessionGenerationRef = useRef(0);
-  const loginCardTransitionTimerRef = useRef(null);
+  const loginCardRef = useRef(null);
   const pathname = window.location.pathname;
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
@@ -87,8 +83,6 @@ export function UserLayout({ children }) {
     document.body.classList.add('user-theme-active');
     return () => document.body.classList.remove('user-theme-active');
   }, []);
-
-  useEffect(() => () => window.clearTimeout(loginCardTransitionTimerRef.current), []);
 
   useEffect(() => {
     function updatePetVisibility(event) {
@@ -162,7 +156,6 @@ export function UserLayout({ children }) {
       }
       accountSessionGenerationRef.current += 1;
       clearSession();
-      setLoginExpanded(true);
       setLoginDialogOpen(true);
     }
 
@@ -217,7 +210,6 @@ export function UserLayout({ children }) {
     setAvatar(null);
     setAvatarPicking(null);
     setAvatarEditorOpen(false);
-    setLoginExpanded(true);
     setLoginDialogOpen(true);
     message.success('已退出');
   }
@@ -238,24 +230,24 @@ export function UserLayout({ children }) {
   }
 
   function openLoginDialog() {
-    if (isHome && !loginDialogOpen && !loginCardTransitioning) {
-      setLoginCardTransitioning(true);
-      loginCardTransitionTimerRef.current = window.setTimeout(() => {
-        setLoginExpanded(true);
-        setLoginDialogOpen(true);
-        setLoginCardTransitioning(false);
-      }, 820);
-      return;
-    }
-    setLoginExpanded(true);
     setLoginDialogOpen(true);
   }
 
-  function dockLoginCard() {
-    window.clearTimeout(loginCardTransitionTimerRef.current);
-    setLoginCardTransitioning(false);
-    setLoginExpanded(false);
-    setLoginDialogOpen(false);
+  function updateLoginCardParallax(event) {
+    const card = loginCardRef.current;
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width - 0.5;
+    const y = (event.clientY - rect.top) / rect.height - 0.5;
+    card.style.setProperty('--login-card-rotate-x', `${-y * 5}deg`);
+    card.style.setProperty('--login-card-rotate-y', `${x * 5}deg`);
+  }
+
+  function resetLoginCardParallax() {
+    const card = loginCardRef.current;
+    if (!card) return;
+    card.style.removeProperty('--login-card-rotate-x');
+    card.style.removeProperty('--login-card-rotate-y');
   }
 
   function toggleSidebar() {
@@ -266,45 +258,15 @@ export function UserLayout({ children }) {
     setTheme(current => current === 'dark' ? 'light' : 'dark');
   }
 
-  const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen || loginCardTransitioning);
-  const loginCardDocked = isHome && !loginDialogOpen;
-  const showLanyardCard = isHome && (loginCardDocked || loginCardTransitioning);
+  const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen);
   const loginOverlay = showLoginCard ? (
-    <div className={`legacy-login-overlay${loginCardDocked ? ' is-card-docked' : ''}${loginCardTransitioning ? ' is-card-launching' : ''}`}>
-      {showLanyardCard ? (
-        <div className="login-lanyard-card">
-          <Suspense fallback={<BrandLogo className="login-lanyard-fallback" />}>
-            <Lanyard
-              position={[0, 0, 22]}
-              gravity={[0, -40, 0]}
-              frontImage="/assets/logo-transparent.png"
-              backImage="/assets/logo.jpg"
-              lanyardWidth={2.2}
-              onCardClick={openLoginDialog}
-            />
-          </Suspense>
-          <span className="login-lanyard-label">点击吊牌登录</span>
-        </div>
-      ) : (
-      <div className={`login-modal${loginExpanded ? ' is-expanded' : ''}`}>
-        <div className="login-concrete-texture" aria-hidden="true" />
-        <div className="login-background-logo login-background-logo--one" aria-hidden="true"><BrandLogo /></div>
-        <div className="login-background-logo login-background-logo--two" aria-hidden="true"><BrandLogo /></div>
-        <div className="login-background-logo login-background-logo--three" aria-hidden="true"><BrandLogo /></div>
-        {isHome ? (
-          <button className="login-card-dismiss" type="button" aria-label="收起登录卡" onClick={dockLoginCard}>
-            <X size={15} aria-hidden="true" />
-          </button>
-        ) : null}
-        <button
-          className="login-title"
-          type="button"
-          aria-expanded={loginExpanded}
-          onClick={openLoginDialog}
-        >
-          <span>一战晟铭登录</span>
-        </button>
-        <div className="login-form-wrap">
+    <div className="legacy-login-overlay nebula-login-overlay">
+      <div className="login-modal nebula-login-modal" ref={loginCardRef} onPointerMove={updateLoginCardParallax} onPointerLeave={resetLoginCardParallax}>
+        <div className="nebula-login-brand"><BrandLogo /></div>
+        <div className="nebula-login-icon"><BrandLogo /></div>
+        <h1>一战晟铭登录</h1>
+        <p className="nebula-login-subtitle">继续你的创作工作流</p>
+        <div className="login-form-wrap nebula-login-form-wrap">
           <Form layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
             <Form.Item label="账号" name="username" rules={[{ required: true, message: '请输入账号' }]}>
               <Input placeholder="请输入账号" autoComplete="username" />
@@ -315,12 +277,11 @@ export function UserLayout({ children }) {
             <Form.Item name="remember" valuePropName="checked">
               <Checkbox>30 天保持登录</Checkbox>
             </Form.Item>
-            <Button block type="primary" htmlType="submit" loading={loading}>登 录</Button>
+            <Button block type="primary" htmlType="submit" loading={loading}>登录并进入工作台</Button>
           </Form>
           <p className="login-hint">提示：请联系管理员获取账号</p>
         </div>
       </div>
-      )}
     </div>
   ) : null;
 
