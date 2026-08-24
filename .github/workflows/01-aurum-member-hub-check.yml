@@ -1,0 +1,39 @@
+name: 01 Aurum Member Hub Check
+
+on:
+  push:
+    branches:
+      - 01-aurum-member-hub
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Run Node tests
+        run: node --test tests/*.test.js
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
