@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Input, Modal, Segmented, Select, message } from 'antd';
 import { apiRequest } from '../../../shared/api/client';
+import { registerCmBridge } from '../../../shared/pet/cmBridge';
 import { attachMedia, confirmSegmentation, createSegment, deleteMedia, deleteSegment, fixedSegmentation, importSegmentation, listModels, reorderSegments, replaceSegmentAssets, setPrimaryMedia, smartSegmentation, updateSegment, uploadMedia } from '../../../shared/api/shuihuoProduction';
 import { MediaModal } from './MediaModal';
 import { SegmentAssetsModal } from './SegmentAssetsModal';
@@ -13,6 +14,7 @@ import { TemplateLibraryModal } from './TemplateLibraryModal';
 import { PromptCandidatesModal } from './PromptCandidatesModal';
 
 const blankSegment = { sourceText: '', subtitleText: '', imagePrompt: '', videoPrompt: '', imagePromptLocked: false, videoPromptLocked: false };
+const cmSegmentPatchKeys = ['sourceText', 'subtitleText', 'imagePrompt', 'videoPrompt', 'imagePromptLocked', 'videoPromptLocked'];
 
 export function StudioView({ data, readiness, onRefresh, onAssets }) {
   const [segmentOpen, setSegmentOpen] = useState(false);
@@ -45,6 +47,49 @@ export function StudioView({ data, readiness, onRefresh, onAssets }) {
   const taskReady = imageReady || videoReady;
 
   useEffect(() => { if (segmentOpen && mode === 'smart') listModels().then(result => setTextModels((result.models || []).filter(model => model.kind === 'text'))).catch(() => setTextModels([])); }, [segmentOpen, mode]);
+
+  useEffect(() => {
+    if (!confirmed) return undefined;
+    return registerCmBridge({
+      page: '水货生产 · 分段生产台',
+      pagePath: '/shuihuo-production',
+      capabilities: ['segment.update', 'segment.bindAsset'],
+      getContext: () => ({
+        page: '水货生产 · 分段生产台',
+        pagePath: '/shuihuo-production',
+        project: { id: project.id, name: project.name },
+        summary: `当前作品 ${project.name || '未命名'}，共 ${data.segments?.length || 0} 个已确认分段，可修改分段文本、字幕、图片提示词、视频提示词和资产绑定。`
+      }),
+      apply: async action => {
+        const segments = Array.isArray(data.segments) ? data.segments : [];
+        const target = segments.find(segment => segment.id === action.targetId);
+        if (!target) throw new Error('找不到要修改的分段，请重新点选后再试。');
+
+        if (action.type === 'segment.update') {
+          const patch = Object.fromEntries(cmSegmentPatchKeys
+            .filter(key => Object.prototype.hasOwnProperty.call(action.patch || {}, key))
+            .map(key => [key, action.patch[key]]));
+          if (!Object.keys(patch).length) throw new Error('CM 没有提供可应用的分段字段。');
+          await updateSegment(target.id, { ...target, ...patch });
+          await onRefresh();
+          return { ok: true, message: `已应用到分段 ${segments.indexOf(target) + 1}。` };
+        }
+
+        if (action.type === 'segment.bindAsset') {
+          const requested = Array.isArray(action.payload?.assetIds)
+            ? action.payload.assetIds
+            : Array.isArray(action.patch?.assetIds) ? action.patch.assetIds : [];
+          const validAssetIds = new Set((data.assets || []).map(asset => asset.id));
+          const assetIds = [...new Set(requested.filter(id => validAssetIds.has(id)))];
+          await replaceSegmentAssets(target.id, assetIds);
+          await onRefresh();
+          return { ok: true, message: `已更新分段 ${segments.indexOf(target) + 1} 的资产绑定。` };
+        }
+
+        throw new Error('当前分段不支持这个 CM 操作。');
+      }
+    });
+  }, [confirmed, project.id, project.name, data.segments, data.assets, onRefresh]);
 
   async function preview() {
     setBusy(true);
