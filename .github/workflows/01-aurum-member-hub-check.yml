@@ -25,13 +25,52 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
-      - name: Role, team and usage tests
-        run: node --test tests/member-center.test.js tests/member-usage-runtime.test.js tests/dev-permissions.test.js
+      - run: node --test tests/member-center.test.js tests/member-usage-runtime.test.js tests/dev-permissions.test.js
 
-  regression-tests:
-    name: Existing Node regression tests
+  regression:
+    name: Regression · ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: auth-admin
+            files: >-
+              tests/account-store.test.js tests/error-logging.test.js tests/governance-routes.test.js
+              tests/model-connection-routes.test.js tests/persistent-session.test.js tests/preset-store.test.js
+              tests/system-preset-catalog.test.js tests/upstream-proxy.test.js
+          - name: agent
+            files: >-
+              tests/agent-route-contract.test.js tests/agent-routes.test.js tests/agent-skill-routes.test.js
+              tests/agent-skill-store.test.js tests/agent-skill-ui-contract.test.js tests/agent-store.test.js
+              tests/cm-agent-ui-contract.test.js
+          - name: novel-panel
+            files: >-
+              tests/novel-panel-asset-contract.test.js tests/novel-panel-primary-button-style.test.js
+              tests/novel-panel-project-store.test.js tests/novel-panel-quality-gate.test.js
+              tests/novel-panel-runtime.test.js tests/novel-panel-stability.test.js
+              tests/novel-panel-theme-contract.test.js
+          - name: script
+            files: >-
+              tests/chat-route-output.test.js tests/script-constraint-prompt-store.test.js
+              tests/script-constraint-prompts-routes.test.js tests/script-constraints.test.js
+              tests/script-draft-persistence-contract.test.js tests/script-empty-state-card-contract.test.js
+              tests/script-entity-enrichment.test.js tests/script-entity-management.test.js
+              tests/script-entity-ui-contract.test.js tests/script-extraction-preset-ui-contract.test.js
+              tests/script-extraction-presets.test.js tests/script-protagonist-generation-contract.test.js
+              tests/script-shot-output-ui-contract.test.js tests/script-shot-output.test.js
+              tests/script-shot-prompt-contract.test.js tests/shotlist-required-header.test.js
+          - name: shuihuo
+            files: >-
+              tests/platform-projects-contract.test.js tests/shuihuo-comic-production-contract.test.js
+              tests/shuihuo-gateway.test.js tests/shuihuo-model-catalog-contract.test.js
+              tests/shuihuo-production-ui-contract.test.js
+          - name: ui-general
+            files: >-
+              tests/account-image-settings-ui-contract.test.js tests/cm-pet-companion-ui-contract.test.js
+              tests/home-gradient-button-style.test.js tests/home-splash-cursor.test.js
+              tests/theme-readability-contract.test.js tests/tts-preferences-contract.test.js
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,18 +79,7 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
-      - name: Run pre-existing test suite
-        shell: bash
-        run: |
-          set -euo pipefail
-          files=()
-          for file in tests/*.test.js; do
-            case "$file" in
-              tests/member-center.test.js|tests/member-usage-runtime.test.js|tests/dev-permissions.test.js) ;;
-              *) files+=("$file") ;;
-            esac
-          done
-          node --test "${files[@]}"
+      - run: node --test ${{ matrix.files }}
 
   frontend-build:
     name: Frontend production build
