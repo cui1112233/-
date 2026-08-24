@@ -69,7 +69,7 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
 
 test('121 仅确认文件接收时必须标为待确认，不能伪装成已执行成功', async () => {
   const meta = {
-    bookId: 'book-pending', bookName: '待确认书', platformId: '2', platformName: '番茄付费',
+    bookId: '2071717253981255675', bookName: '待确认书', platformId: '2', platformName: '番茄付费',
     gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: []
   };
   const logs = [];
@@ -94,7 +94,7 @@ test('121 仅确认文件接收时必须标为待确认，不能伪装成已执�
   }));
 
   const response = await request(app, '/api/batch-rewrite/web-submit/submit', {
-    mode: 'selected', ids: ['book-pending'], versions: ['ai1']
+    mode: 'selected', ids: ['2071717253981255675'], versions: ['ai1']
   });
 
   assert.equal(response.status, 200);
@@ -105,4 +105,37 @@ test('121 仅确认文件接收时必须标为待确认，不能伪装成已执�
   assert.deepEqual(meta.siteSubmitAcceptedVersions, ['ai1']);
   assert.equal(logs[0].status, 'accepted_pending');
   assert.equal(logs[0].remote_receipt.verified, false);
+});
+
+test('121 返回文件处理失败时不能标记待确认，必须直接报出拒绝原因', async () => {
+  const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
+  const logs = [];
+  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 0, files: [] }, failed: { count: 1, files: [{ name: '2071717253981255675-ai1.txt', reason: '文件名必须是纯数字(书号)或UUID格式' }] } } }), headers: {} }),
+    tasksFactory: async () => ({ tasks: { getTask: async () => ({ meta }), readVersionText: async () => '可上传的 AI 文案', updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch), appendSiteSubmitLog: async (_username, _id, entry) => logs.push(entry), listTasks: async () => [{ ...meta }] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/submit', { mode: 'selected', ids: ['2071717253981255675'], versions: ['ai1'] });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.failed_groups, 1);
+  assert.equal(response.body.accepted_groups, 0);
+  assert.match(response.body.groups[0].items[0].error, /文件名必须是纯数字/);
+  assert.equal(logs[0].status, 'failed');
+});
+
+test('121 明确返回成功文件时可确认提交', async () => {
+  const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
+  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); }, novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 1, files: [{ name: '2071717253981255675.txt' }] }, failed: { count: 0, files: [] } } }), headers: {} }),
+    tasksFactory: async () => ({ tasks: { getTask: async () => ({ meta }), readVersionText: async () => '可上传的 AI 文案', updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch), appendSiteSubmitLog: async () => {}, listTasks: async () => [{ ...meta }] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/submit', { mode: 'selected', ids: ['2071717253981255675'], versions: ['ai1'] });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.success_groups, 1);
+  assert.equal(response.body.accepted_groups, 0);
+  assert.deepEqual(meta.siteSubmitDoneVersions, ['ai1']);
 });

@@ -120,13 +120,27 @@ function readTargetField(data, names) {
 function summarizeTargetReceipt(data) {
   const remoteId = readTargetField(data, ['task_id', 'taskId', 'job_id', 'jobId', 'queue_id', 'queueId', 'execution_id', 'executionId']);
   const remoteStatus = readTargetField(data, ['task_status', 'taskStatus', 'job_status', 'jobStatus', 'queue_status', 'queueStatus', 'status']).toLowerCase();
-  const verified = Boolean(remoteId) || ['queued', 'queueing', 'running', 'executing', 'created'].includes(remoteStatus);
+  const uploadResult = object(data?.result);
+  const successResult = object(uploadResult.success);
+  const failedResult = object(uploadResult.failed);
+  const successFiles = Array.isArray(successResult.files) ? successResult.files : [];
+  const failedFiles = Array.isArray(failedResult.files) ? failedResult.files : [];
+  const successCount = Math.max(0, Number(successResult.count) || successFiles.length);
+  const failedCount = Math.max(0, Number(failedResult.count) || failedFiles.length);
+  const failedReasons = failedFiles.map(item => String(object(item).reason || object(item).message || '')).filter(Boolean);
+  const uploadError = failedCount > 0
+    ? `121 上传失败：${failedReasons.join('；') || `有 ${failedCount} 个文件被拒绝`}`
+    : (Object.keys(uploadResult).length > 0 && successCount < 1 ? '121 未确认接收到上传文件' : '');
+  const verified = !uploadError && (successCount > 0 || Boolean(remoteId) || ['queued', 'queueing', 'running', 'executing', 'created'].includes(remoteStatus));
   let raw = '';
   try { raw = JSON.stringify(data); } catch (_) { raw = String(data || ''); }
   return {
     remote_id: remoteId,
     remote_status: remoteStatus,
     verified,
+    upload_success_count: successCount,
+    upload_failed_count: failedCount,
+    upload_error: uploadError,
     response: raw.slice(0, 4000),
     message: readTargetField(data, ['message', 'msg'])
   };
@@ -549,7 +563,7 @@ function createBatchRewriteRouter({
         const content = await tasks.readVersionText(req.username, item.id, item.version);
         try {
           const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: item.advanced || webConfig.advanced });
-          const upload = target.buildMultipart(fields, { filename: `${item.id}-${item.version}.txt`, content });
+          const upload = target.buildMultipart(fields, { filename: target.buildTargetUploadFilename(item.id), content });
           let data = {};
           let attempts = 0;
           let lastError = null;
@@ -564,6 +578,7 @@ function createBatchRewriteRouter({
           }
           if (lastError) throw lastError;
           const receipt = summarizeTargetReceipt(data);
+          if (receipt.upload_error) throw new Error(receipt.upload_error);
           if (receipt.verified) {
             await tasks.updateTaskMeta(req.username, item.id, {
               siteSubmitStatus: 'submitted',

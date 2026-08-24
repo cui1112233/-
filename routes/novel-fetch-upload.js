@@ -109,7 +109,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
           results.push({ bookId, status: 'error', error: error.message });
           continue;
         }
-        const { boundary, body } = target.buildMultipart(fields, { filename: `${bookId}.txt`, content });
+        const { boundary, body } = target.buildMultipart(fields, { filename: target.buildTargetUploadFilename(bookId), content });
         try {
           const resp = await httpClient({
             method: 'POST',

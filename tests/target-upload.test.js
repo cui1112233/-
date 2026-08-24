@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { STYLE_ID, PLATFORM_ID, GENDER_ID, PER_BOOK_MATERIAL_LIMIT, normalizeAdvanced, normalizeBookAdvanced, distributeBookMaterials, buildUploadFields, buildMultipart, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, PER_BOOK_MATERIAL_LIMIT, normalizeAdvanced, normalizeBookAdvanced, distributeBookMaterials, buildUploadFields, buildMultipart, buildTargetUploadFilename, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
 
 test('mappings cover platforms, genders and styles', () => {
   assert.equal(PLATFORM_ID['七猫付费'], 3);
@@ -69,6 +69,12 @@ test('buildMultipart contains boundary, fields and file content', () => {
   assert.ok(text.includes('name="platform_id"'));
   assert.ok(text.includes('name="files[]"; filename="1.txt"'));
   assert.ok(text.includes('小说正文'));
+});
+
+test('121 上传文件名只能是书号或 UUID，不能附加 AI 版本后缀', () => {
+  assert.equal(buildTargetUploadFilename('2071717253981255675'), '2071717253981255675.txt');
+  assert.equal(buildTargetUploadFilename('7d2fbec4-62e2-4bca-943e-2927d20ff10f'), '7d2fbec4-62e2-4bca-943e-2927d20ff10f.txt');
+  assert.throws(() => buildTargetUploadFilename('2071717253981255675-ai1'), /纯数字书号或 UUID/);
 });
 
 test('buildLoginUrl encodes credentials', () => {
