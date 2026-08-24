@@ -2,6 +2,7 @@ import { Alert, Spin } from 'antd';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getToken } from '../../shared/api/client';
 import { dispatchPetContext } from '../../shared/pet/stacky';
+import { dispatchCmSelection, refreshCmBridgeContext, registerCmBridge } from '../../shared/pet/cmBridge';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
 const ALLOWED_HEADERS = new Set(['content-type', 'cache-control', 'pragma', 'x-videoprompttool-session']);
@@ -11,6 +12,7 @@ const MAX_HEADER_VALUE_LENGTH = 512;
 const MAX_ACTIVE_CONTROLLERS = 8;
 const MAX_RESPONSE_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_RESPONSE_HEADER_BYTES = 8 * 1024;
+const CM_COMMAND_TIMEOUT_MS = 8000;
 
 function normalizeTheme(theme) {
   return theme === 'light' ? 'light' : 'dark';
@@ -114,6 +116,10 @@ function createInstanceId() {
   return createSessionNonce();
 }
 
+function createCmCommandId() {
+  return `cm-parent-${createInstanceId()}`.slice(0, MAX_REQUEST_ID_LENGTH);
+}
+
 export function NovelPanelPage({ theme }) {
   const frameRef = useRef(null);
   const sessionNonceRef = useRef(createSessionNonce());
@@ -121,6 +127,8 @@ export function NovelPanelPage({ theme }) {
   const handshakeConsumedRef = useRef(false);
   const portRef = useRef(null);
   const controllersRef = useRef(new Map());
+  const cmPendingRef = useRef(new Map());
+  const cmContextRef = useRef({ ready: false, workspace: null, selection: null, summary: '小说工作台正在加载。' });
   const channelLoadAcknowledgedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -133,6 +141,77 @@ export function NovelPanelPage({ theme }) {
     controllersRef.current.clear();
   }
 
+  function rejectPendingCmCommands(message = '小说工作台连接已关闭。') {
+    for (const pending of cmPendingRef.current.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(message));
+    }
+    cmPendingRef.current.clear();
+  }
+
+  function requestWorkbenchCm(type, payload = {}) {
+    const port = portRef.current;
+    if (!port) return Promise.reject(new Error('小说工作台还没有准备好，请稍后再试。'));
+    const id = createCmCommandId();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cmPendingRef.current.delete(id);
+        reject(new Error('小说工作台响应超时，请重新尝试。'));
+      }, CM_COMMAND_TIMEOUT_MS);
+      cmPendingRef.current.set(id, { resolve, reject, timer });
+      try {
+        port.postMessage({ type, id, ...payload });
+      } catch (error) {
+        clearTimeout(timer);
+        cmPendingRef.current.delete(id);
+        reject(error);
+      }
+    });
+  }
+
+  function acceptCmContext(context) {
+    const next = context && typeof context === 'object'
+      ? context
+      : { ready: false, workspace: null, selection: null, summary: '小说工作台正在初始化。' };
+    cmContextRef.current = next;
+    const selection = next.selection && typeof next.selection === 'object' ? next.selection : null;
+    dispatchCmSelection(selection);
+    const workspace = next.workspace && typeof next.workspace === 'object' ? next.workspace : {};
+    dispatchPetContext({
+      page: '小说面板',
+      pagePath: '/novel-panel',
+      summary: String(next.summary || '小说工作台已连接。').slice(0, 1200),
+      entities: {
+        workspaceId: String(workspace.id || '').slice(0, 160),
+        historyId: String(workspace.historyId || '').slice(0, 160),
+        sourceLength: Number(workspace.sourceLength || 0),
+        characterCount: Number(workspace.characterCount || 0),
+        sceneCount: Number(workspace.sceneCount || 0),
+        shotCount: Number(workspace.shotCount || 0),
+        sourceDirty: workspace.sourceDirty === true
+      },
+      actions: ['分析当前工作区', '修改当前选中文字', '检查人物卡与分镜']
+    });
+    refreshCmBridgeContext();
+  }
+
+  function handleCmPortMessage(data) {
+    if (!data || typeof data.type !== 'string') return false;
+    const isContext = data.type === 'novel-panel-cm-context' || data.type === 'novel-panel-cm-context-changed';
+    const isResult = data.type === 'novel-panel-cm-action-result' || data.type === 'novel-panel-cm-undo-result';
+    if (!isContext && !isResult) return false;
+    if (isContext) acceptCmContext(data.context);
+    if (typeof data.id === 'string' && data.id) {
+      const pending = cmPendingRef.current.get(data.id);
+      if (pending) {
+        cmPendingRef.current.delete(data.id);
+        clearTimeout(pending.timer);
+        pending.resolve(data);
+      }
+    }
+    return true;
+  }
+
   useEffect(() => {
     syncTheme(frameRef.current, theme);
   }, [theme]);
@@ -140,29 +219,76 @@ export function NovelPanelPage({ theme }) {
   useEffect(() => {
     const stage = error ? '加载失败' : loading ? '加载中' : '可用';
     const opaqueProjectId = String(projectId || '').slice(0, 160);
+    if (cmContextRef.current?.ready) return;
     dispatchPetContext({
       page: '小说面板',
       pagePath: '/novel-panel',
-      summary: `当前项目：${opaqueProjectId || '未选择'}；工作台：${stage}`,
+      summary: `当前入口项目：${opaqueProjectId || '当前工作区'}；工作台：${stage}`,
       entities: { projectId: opaqueProjectId, stage },
-      actions: ['检查当前工作台', '继续编辑项目']
+      actions: ['检查当前工作台', '继续编辑工作区']
     });
   }, [projectId, loading, error]);
+
+  useEffect(() => registerCmBridge({
+    page: '小说面板',
+    pagePath: '/novel-panel',
+    capabilities: ['novel.source.update', 'novel.selection.replace'],
+    getContext: () => {
+      const context = cmContextRef.current || {};
+      const workspace = context.workspace && typeof context.workspace === 'object' ? context.workspace : {};
+      return {
+        page: '小说面板',
+        pagePath: '/novel-panel',
+        project: {
+          id: String(workspace.id || projectId || ''),
+          name: String(workspace.label || '当前工作区'),
+          historyId: String(workspace.historyId || ''),
+          sourceTargetId: String(context.sourceTargetId || workspace.sourceTargetId || ''),
+          sourceLength: Number(workspace.sourceLength || 0),
+          characterCount: Number(workspace.characterCount || 0),
+          sceneCount: Number(workspace.sceneCount || 0),
+          shotCount: Number(workspace.shotCount || 0),
+          sourceDirty: workspace.sourceDirty === true
+        },
+        selection: context.selection || null,
+        summary: String(context.summary || (error ? '小说工作台加载失败。' : loading ? '小说工作台正在加载。' : '小说工作台已连接。')).slice(0, 1200)
+      };
+    },
+    apply: async action => {
+      const response = await requestWorkbenchCm('novel-panel-cm-action-request', { action });
+      if (response?.ok !== true) throw new Error(response?.message || '小说工作台没有应用这次修改。');
+      return {
+        ok: true,
+        message: response.message || '小说工作台已应用修改。',
+        undoToken: response.undoToken || ''
+      };
+    },
+    undo: async undoToken => {
+      const response = await requestWorkbenchCm('novel-panel-cm-undo-request', { undoToken });
+      if (response?.ok !== true) throw new Error(response?.message || '小说工作台没有撤销这次修改。');
+      return response;
+    }
+  }), [projectId]);
 
   useLayoutEffect(() => {
     function closePort() {
       abortPendingRequests();
+      rejectPendingCmCommands();
       if (!portRef.current) return;
       portRef.current.onmessage = null;
       portRef.current.close();
       portRef.current = null;
       handshakeConsumedRef.current = false;
       channelLoadAcknowledgedRef.current = false;
+      cmContextRef.current = { ready: false, workspace: null, selection: null, summary: '小说工作台连接已关闭。' };
+      dispatchCmSelection(null);
+      refreshCmBridgeContext();
     }
 
     async function handlePortRequest(port, event) {
       if (port !== portRef.current) return;
       const data = event.data;
+      if (handleCmPortMessage(data)) return;
       if (data?.type === 'novel-panel-api-cancel' && typeof data.id === 'string') {
         const controller = controllersRef.current.get(data.id);
         controller?.abort();
@@ -245,6 +371,9 @@ export function NovelPanelPage({ theme }) {
       port1.onmessage = event => { void handlePortRequest(port1, event); };
       port1.start?.();
       event.source.postMessage({ type: 'qiantie-v77-port', nonce: sessionNonceRef.current }, '*', [channel.port2]);
+      void requestWorkbenchCm('novel-panel-cm-context-request')
+        .then(response => acceptCmContext(response?.context))
+        .catch(() => {});
     }
 
     function handlePageShow(event) {
@@ -269,14 +398,21 @@ export function NovelPanelPage({ theme }) {
     if (!portRef.current) return;
     if (!channelLoadAcknowledgedRef.current) {
       channelLoadAcknowledgedRef.current = true;
+      void requestWorkbenchCm('novel-panel-cm-context-request')
+        .then(response => acceptCmContext(response?.context))
+        .catch(() => {});
       return;
     }
     abortPendingRequests();
+    rejectPendingCmCommands('小说工作台已重新加载。');
     portRef.current.onmessage = null;
     portRef.current.close();
     portRef.current = null;
     handshakeConsumedRef.current = false;
     channelLoadAcknowledgedRef.current = false;
+    cmContextRef.current = { ready: false, workspace: null, selection: null, summary: '小说工作台正在重新连接。' };
+    dispatchCmSelection(null);
+    refreshCmBridgeContext();
   }
 
   return (
