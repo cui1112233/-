@@ -1,4 +1,4 @@
-import { Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
+import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
 import { AudioLines, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
@@ -28,6 +28,7 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
+  if (pathname === '/member') return '会员中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
 }
@@ -44,6 +45,16 @@ function canAccessAdmin(account) {
 
 function wait(ms) {
   return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+function roleLabel(role) {
+  if (role === 'dev') return 'DEV';
+  if (role === 'manager') return 'MANAGER';
+  return 'MEMBER';
+}
+
+function avatarFallback(account, username) {
+  return String(account?.displayName || username || '?').trim().slice(0, 1).toUpperCase();
 }
 
 export function UserLayout({ children }) {
@@ -126,10 +137,6 @@ export function UserLayout({ children }) {
     function showLogin(event) {
       const expiredToken = event?.detail?.token;
       const currentToken = getToken();
-      // Modern clients dispatch the token used by the failed request. Accept
-      // only an event for the currently active session. Legacy clients do not
-      // carry a token and can only be accepted after they cleared this effect's
-      // still-current session.
       if (expiredToken) {
         if (!currentToken || expiredToken !== currentToken) return;
       } else if (!sessionToken || currentToken || cancelled || accountSessionGenerationRef.current !== sessionGeneration) {
@@ -162,6 +169,26 @@ export function UserLayout({ children }) {
       window.removeEventListener('qiantie:auth-expired', showLogin);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn) return undefined;
+    let alive = true;
+    async function refreshProfile() {
+      try {
+        const current = await getCurrentAccount();
+        if (!alive) return;
+        setUsername(current.username);
+        setAccount(current);
+      } catch {
+        // The normal auth-expired flow owns session failures.
+      }
+    }
+    window.addEventListener('qiantie:profile-updated', refreshProfile);
+    return () => {
+      alive = false;
+      window.removeEventListener('qiantie:profile-updated', refreshProfile);
+    };
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (isLoggedIn || pathname === '/') return;
@@ -355,7 +382,11 @@ export function UserLayout({ children }) {
             <div className="legacy-userbar">
               {isLoggedIn ? (
                 <>
-                  <span className="legacy-muted">{username}</span>
+                  <Link href="/member" className="legacy-profile-link" title="会员中心">
+                    <Avatar size={28} src={account?.avatarUrl}>{avatarFallback(account, username)}</Avatar>
+                    <span className="legacy-profile-name">{account?.displayName || username}</span>
+                    <span className={`member-role-badge role-${account?.role || (account?.isOwner ? 'dev' : 'member')} compact`}>{roleLabel(account?.role || (account?.isOwner ? 'dev' : 'member'))}</span>
+                  </Link>
                   <Button size="small" onClick={handleLogout}>退出</Button>
                 </>
               ) : null}
