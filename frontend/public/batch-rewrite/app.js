@@ -2809,6 +2809,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiSuggestBtn").onclick = suggestCurrentRuleWithAi;
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("saveWebSubmitConfigBtn").onclick = () => saveWebSubmitConfig(false);
+  $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
+  $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
   $("webJieyaNum").oninput = syncGunpingMaterialCount;
   $("webJieyaNum").onchange = syncGunpingMaterialCount;
   $("testVisibleWebBtn").onclick = testVisibleWebFlow;
