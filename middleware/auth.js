@@ -11,6 +11,14 @@ function getRuntime(req) {
   return req.app?.locals?.authRuntime || createAuthRuntime();
 }
 
+function memberRole(req, username) {
+  try {
+    return req.app?.locals?.memberStore?.effectiveRole(username) || null;
+  } catch {
+    return null;
+  }
+}
+
 function checkRateLimit(ip) {
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
@@ -68,6 +76,7 @@ function optionalApiAuth(req, res, next) {
 function requireCapability(capability, getScope = () => '*') {
   return (req, res, next) => {
     const runtime = getRuntime(req);
+    if (req.auth && memberRole(req, req.auth.username) === 'dev') return next();
     if (!req.auth || !runtime.accountStore.can(req.auth.username, capability, getScope(req))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -75,13 +84,16 @@ function requireCapability(capability, getScope = () => '*') {
   };
 }
 
+// Legacy name kept for route compatibility. Owner is always DEV, and promoted
+// DEV accounts may enter the same operational backend routes. Owner-only data
+// invariants remain enforced by the underlying account store where applicable.
 function requireOwner(req, res, next) {
   const runtime = getRuntime(req);
   const account = req.auth && runtime.accountStore.getAccount(req.auth.username);
-  if (!account || !account.active || account.username !== PRIMARY_USER || !account.isOwner) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  next();
+  if (!account || !account.active) return res.status(403).json({ error: 'Forbidden' });
+  if (memberRole(req, account.username) === 'dev') return next();
+  if (account.username === PRIMARY_USER && account.isOwner) return next();
+  return res.status(403).json({ error: 'Forbidden' });
 }
 
 module.exports = { checkRateLimit, apiAuth, optionalApiAuth, requireCapability, requireOwner };
