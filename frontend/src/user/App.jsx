@@ -9,6 +9,7 @@ const AgentPage = lazy(() => import('./pages/AgentPageV2').then(module => ({ def
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
@@ -32,6 +33,7 @@ function getPage(pathname) {
     '/shuihuo-production': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,
+    '/member': MemberCenterPage,
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
