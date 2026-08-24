@@ -1,17 +1,30 @@
 import { Button, Checkbox, Space } from 'antd';
 import { Copy } from 'lucide-react';
 import { dispatchCmSelection } from '../../shared/pet/cmBridge';
+import { shotSelectionDescriptor } from '../pages/scriptShotOutput';
 
 export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected }) {
   const selectedCount = selectedIndexes.size;
   const allSelected = cards.length > 0 && selectedCount === cards.length;
 
   function focusShot(card, index, cardDuration) {
+    const descriptor = shotSelectionDescriptor(card, index);
     dispatchCmSelection({
       type: 'shot',
-      id: `shot-${index + 1}`,
+      id: descriptor.id,
       label: `分镜 ${index + 1}`,
-      meta: { index, duration: cardDuration, content: card }
+      meta: {
+        index,
+        duration: cardDuration,
+        text: String(card || '').slice(0, 1600),
+        sourceKind: descriptor.sourceKind,
+        editableFields: descriptor.editableFields.join(', '),
+        shotData: JSON.stringify({
+          sourceKind: descriptor.sourceKind,
+          editableFields: descriptor.editableFields,
+          data: descriptor.data
+        }).slice(0, 2400)
+      }
     });
   }
 
@@ -26,9 +39,10 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
       </div>
       {cards.map((card, index) => {
         const cardDuration = card.match(/总时长[：:]\s*(\d+s)/)?.[1] || duration;
+        const descriptor = shotSelectionDescriptor(card, index);
         return <div
           className="shot-output-card"
-          key={`${index}-${card.slice(0, 24)}`}
+          key={descriptor.id}
           tabIndex={0}
           onClick={() => focusShot(card, index, cardDuration)}
           onFocus={() => focusShot(card, index, cardDuration)}
