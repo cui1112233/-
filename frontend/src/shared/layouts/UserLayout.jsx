@@ -126,10 +126,6 @@ export function UserLayout({ children }) {
     function showLogin(event) {
       const expiredToken = event?.detail?.token;
       const currentToken = getToken();
-      // Modern clients dispatch the token used by the failed request. Accept
-      // only an event for the currently active session. Legacy clients do not
-      // carry a token and can only be accepted after they cleared this effect's
-      // still-current session.
       if (expiredToken) {
         if (!currentToken || expiredToken !== currentToken) return;
       } else if (!sessionToken || currentToken || cancelled || accountSessionGenerationRef.current !== sessionGeneration) {
@@ -248,17 +244,21 @@ export function UserLayout({ children }) {
         onPointerLeave={resetLoginParallax}
       >
         <div className="login-concrete-texture" aria-hidden="true" />
-        <div className="login-background-logo login-background-logo--one" aria-hidden="true"><BrandLogo /></div>
-        <div className="login-background-logo login-background-logo--two" aria-hidden="true"><BrandLogo /></div>
-        <div className="login-background-logo login-background-logo--three" aria-hidden="true"><BrandLogo /></div>
-        <button
-          className="login-title"
-          type="button"
-          aria-expanded={loginExpanded}
-          onClick={() => setLoginExpanded(value => !value)}
-        >
-          一战晟铭登录
-        </button>
+
+        <header className="login-brand-header">
+          <div className="login-background-logo login-background-logo--one">
+            <BrandLogo />
+            <div className="login-brand-copy">
+              <strong>一战晟铭</strong>
+              <span>AI CREATIVE WORKSPACE</span>
+            </div>
+          </div>
+          <div className="login-title">
+            <h1>欢迎回来</h1>
+            <p>继续你的一战晟铭创作工作流</p>
+          </div>
+        </header>
+
         <div className="login-form-wrap">
           <Form layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
             <Form.Item label="账号" name="username" rules={[{ required: true, message: '请输入账号' }]}>
@@ -270,14 +270,18 @@ export function UserLayout({ children }) {
             <Form.Item name="remember" valuePropName="checked">
               <Checkbox>30 天保持登录</Checkbox>
             </Form.Item>
-            <Button block type="primary" htmlType="submit" loading={loading}>登 录</Button>
+            <Button block type="primary" htmlType="submit" loading={loading}>
+              <span>进入工作台</span>
+              <span className="login-submit-arrow" aria-hidden="true">→</span>
+            </Button>
           </Form>
-          <p className="login-hint">提示：请联系管理员获取账号</p>
+          <p className="login-hint">还没有账号？请联系管理员开通</p>
         </div>
+
         <div className="login-success-state" aria-hidden={!loginSucceeded}>
           <span className="login-success-icon"><Check size={38} strokeWidth={2.2} /></span>
           <strong>登录成功</strong>
-          <span>正在进入工作台</span>
+          <span>正在进入一战晟铭工作台</span>
         </div>
       </div>
     </div>
