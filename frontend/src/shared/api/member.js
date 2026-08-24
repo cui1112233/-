@@ -46,7 +46,3 @@ export function setTeamMemberApi(username, enabled, scope = '*') {
 export function getTeamMemberUsage(username) {
   return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/usage`);
 }
-
-export function getTeamAudit(limit = 100) {
-  return apiRequest(`/api/member/audit?limit=${encodeURIComponent(limit)}`);
-}
