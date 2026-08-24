@@ -629,6 +629,21 @@ td.id-cell {
   width: auto;
 }
 
+.repeat-submit-toggle {
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.form-hint {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .notice {
   border: 1px solid var(--notice-border);
   border-radius: 6px;

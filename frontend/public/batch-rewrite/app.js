@@ -1425,7 +1425,7 @@ function renderWebSubmitConfig(settings = {}) {
   $("webUsername").value = cfg.username || "";
   $("webPassword").value = "";
   $("webEnabled").checked = cfg.enabled === true;
-  $("webSkipSubmitted").checked = cfg.skip_submitted !== false;
+  $("webAllowResubmit").checked = cfg.skip_submitted === false;
   $("webMinTextChars").value = cfg.min_text_chars ?? 0;
   $("webRetryTimes").value = cfg.retry_times ?? 1;
   $("webProfilesJson").value = JSON.stringify(cfg.upload_profiles || [], null, 2);
@@ -1453,6 +1453,15 @@ function renderWebSubmitConfig(settings = {}) {
     if (ai1) ai1.checked = true;
   }
   $("webPasswordState").textContent = cfg.password_masked ? "已保存" : "未保存";
+  updateResubmitHint();
+}
+
+function updateResubmitHint() {
+  const allow = $("webAllowResubmit")?.checked === true;
+  const hint = $("webResubmitHint");
+  if (hint) hint.textContent = allow
+    ? "已开启：已成功版本会再次上传。"
+    : "默认保护：已成功版本会跳过。";
 }
 
 function webSubmitVersionsFromForm() {
@@ -1468,7 +1477,7 @@ function syncFormToWebSubmitConfig() {
   cfg.enabled = $("webEnabled").checked;
   cfg.username = $("webUsername").value.trim();
   cfg.password = $("webPassword").value.trim();
-  cfg.skip_submitted = $("webSkipSubmitted").checked;
+  cfg.skip_submitted = !$("webAllowResubmit").checked;
   cfg.min_text_chars = numberValue("webMinTextChars", 0);
   cfg.retry_times = numberValue("webRetryTimes", 1);
   cfg.upload_profiles = parseJsonInput("webProfilesJson", []);
@@ -2790,6 +2799,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("submitWebAllBtn").onclick = () => submitWebSubmit("all");
   $("retryWebFailedBtn").onclick = () => submitWebSubmit("failed");
   $("refreshWebSubmitHistoryBtn").onclick = loadWebSubmitHistory;
+  $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
   await loadTasks();

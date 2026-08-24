@@ -497,10 +497,6 @@
               <input id="webEnabled" type="checkbox" />
               启用网站提交
             </label>
-            <label class="inline-check">
-              <input id="webSkipSubmitted" type="checkbox" />
-              跳过已提交
-            </label>
             <label>
               最小文案字数（0 不限制）
               <input id="webMinTextChars" type="number" min="0" max="100000" value="0" />
@@ -587,6 +583,11 @@
           <div class="actions">
             <button id="saveWebSubmitConfigBtn" class="primary">保存网站提交配置</button>
             <button id="testVisibleWebBtn">验证登录与上传通道</button>
+            <label class="inline-check repeat-submit-toggle" title="开启后，已成功提交过的文案也会再次上传">
+              <input id="webAllowResubmit" type="checkbox" />
+              允许二次提交已成功版本
+            </label>
+            <span id="webResubmitHint" class="form-hint"></span>
             <button id="previewWebSelectedBtn">预览选中分组</button>
             <button id="previewWebAllBtn">预览全部分组</button>
             <button id="clearWebPreviewBtn">隐藏预览</button>
@@ -615,6 +616,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260824-batch-upload-advanced"></script>
+    <script src="./app.js?v=20260824-allow-resubmit"></script>
   </body>
 </html>
