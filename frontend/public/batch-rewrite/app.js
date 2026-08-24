@@ -396,6 +396,19 @@ function ensureWebSubmitConfig() {
     password_masked: Boolean(current.password_masked),
     skip_submitted: current.skip_submitted !== false,
     submit_versions: submitVersions,
+    advanced: {
+      tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
+      jieyaNum: Number(current.advanced?.jieyaNum ?? 4),
+      jieyaAiHead: Number(current.advanced?.jieyaAiHead ?? 0),
+      jieyaSpeed: Number(current.advanced?.jieyaSpeed ?? 1.7),
+      jieyaPitch: Number(current.advanced?.jieyaPitch ?? 0),
+      gunpingNum: Number(current.advanced?.gunpingNum ?? 4),
+      gunpingSpeed: Number(current.advanced?.gunpingSpeed ?? 1),
+      ziti: Number(current.advanced?.ziti ?? 1),
+      zitidx: Number(current.advanced?.zitidx ?? 62),
+      biaohong: String(current.advanced?.biaohong || ''),
+      keywords: String(current.advanced?.keywords || '')
+    }
   };
   return state.config.web_submit;
 }
@@ -1390,6 +1403,18 @@ function renderWebSubmitConfig(settings = {}) {
   $("webPassword").value = "";
   $("webEnabled").checked = cfg.enabled === true;
   $("webSkipSubmitted").checked = cfg.skip_submitted !== false;
+  const advanced = cfg.advanced || {};
+  $("webTl5").value = String(Number(advanced.tl5) === 1 ? 1 : 0);
+  $("webJieyaNum").value = advanced.jieyaNum ?? 4;
+  $("webJieyaAiHead").value = advanced.jieyaAiHead ?? 0;
+  $("webJieyaSpeed").value = advanced.jieyaSpeed ?? 1.7;
+  $("webJieyaPitch").value = advanced.jieyaPitch ?? 0;
+  $("webGunpingNum").value = advanced.gunpingNum ?? 4;
+  $("webGunpingSpeed").value = advanced.gunpingSpeed ?? 1;
+  $("webZiti").value = advanced.ziti ?? 1;
+  $("webZitidx").value = advanced.zitidx ?? 62;
+  $("webBiaohong").value = advanced.biaohong || '';
+  $("webKeywords").value = advanced.keywords || '';
 
   const versionSet = new Set(asArray(cfg.submit_versions).map((item) => String(item || "").toLowerCase()));
   document.querySelectorAll(".web-version").forEach((input) => {
@@ -1416,6 +1441,19 @@ function syncFormToWebSubmitConfig() {
   cfg.password = $("webPassword").value.trim();
   cfg.skip_submitted = $("webSkipSubmitted").checked;
   cfg.submit_versions = webSubmitVersionsFromForm();
+  cfg.advanced = {
+    tl5: Number($("webTl5").value) === 1 ? 1 : 0,
+    jieyaNum: numberValue("webJieyaNum", 4),
+    jieyaAiHead: numberValue("webJieyaAiHead", 0),
+    jieyaSpeed: numberValue("webJieyaSpeed", 1.7),
+    jieyaPitch: numberValue("webJieyaPitch", 0),
+    gunpingNum: numberValue("webGunpingNum", 4),
+    gunpingSpeed: numberValue("webGunpingSpeed", 1),
+    ziti: numberValue("webZiti", 1),
+    zitidx: numberValue("webZitidx", 62),
+    biaohong: $("webBiaohong").value.trim(),
+    keywords: $("webKeywords").value.trim()
+  };
   return cfg;
 }
 
@@ -1613,6 +1651,7 @@ function siteSubmitText(task) {
 
 function groupCardHtml(group) {
   const summary = group.summary || {};
+  const advanced = group.advanced || {};
   const items = asArray(group.items);
   const status = group.status || "";
   const itemRows = items.slice(0, 24).map((item) => `
@@ -1633,9 +1672,10 @@ function groupCardHtml(group) {
         ${metaItem("男女频", `${summary.gender || ""} ${summary.gender_value || ""}`)}
         ${metaItem("风格", `${summary.style || ""} ${summary.style_value || ""}`)}
         ${metaItem("版本", group.version || summary.version || "")}
-        ${metaItem("配置档", summary.profile_name || group.profile?.name || "")}
         ${metaItem("任务数", String(items.length || group.count || 0))}
-        ${metaItem("时长", summary.duration || "")}
+        ${metaItem("时长", Number(advanced.tl5) === 1 ? "限制" : "不限制")}
+        ${metaItem("解压", `${advanced.jieyaNum ?? 4} 个 / ${advanced.jieyaSpeed ?? 1.7}x`)}
+        ${metaItem("滚屏", `${advanced.gunpingNum ?? 4} 个 / ${advanced.gunpingSpeed ?? 1}x`)}
         ${metaItem("错误", group.error || "")}
       </div>
       <div class="site-file-list">${itemRows || "暂无文件"}</div>

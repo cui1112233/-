@@ -336,6 +336,7 @@ function createBatchRewriteRouter({
       password_masked: Boolean(cfg.password_masked),
       submit_versions: Array.isArray(cfg.submit_versions) && cfg.submit_versions.length ? cfg.submit_versions : ['ai1'],
       skip_submitted: cfg.skip_submitted !== false,
+      advanced: target.normalizeAdvanced(cfg.advanced),
       target: target.TARGET_HOST
     };
   }
@@ -354,7 +355,8 @@ function createBatchRewriteRouter({
       username: String(received.username || existing.username || '').trim(),
       password_masked: Boolean(existing.password_masked),
       submit_versions: Array.isArray(received.submit_versions) && received.submit_versions.length ? received.submit_versions : ['ai1'],
-      skip_submitted: received.skip_submitted !== false
+      skip_submitted: received.skip_submitted !== false,
+      advanced: target.normalizeAdvanced(received.advanced)
     };
     if (typeof received.password === 'string') clean.password = received.password;
     const password = String(clean.password || '');
@@ -396,7 +398,7 @@ function createBatchRewriteRouter({
           continue;
         }
         const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}`;
-        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: snakeTask(task.meta), items: [] };
+        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: snakeTask(task.meta), advanced: target.normalizeAdvanced(webConfig.advanced), items: [] };
         group.items.push({ id, version, size: Buffer.byteLength(content) });
         groupsById.set(groupId, group);
       }
@@ -420,7 +422,7 @@ function createBatchRewriteRouter({
         const task = await tasks.getTask(req.username, item.id);
         const content = await tasks.readVersionText(req.username, item.id, item.version);
         try {
-          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: {} });
+          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: webConfig.advanced });
           const upload = target.buildMultipart(fields, { filename: `${item.id}-${item.version}.txt`, content });
           const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
           let data = {};

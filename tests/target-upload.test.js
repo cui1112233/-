@@ -26,10 +26,17 @@ test('normalizeAdvanced clamps values and fills defaults', () => {
 });
 
 test('buildUploadFields maps gender/style to ids', () => {
-  const f = buildUploadFields({ platformId: 3, gender: '女', style: '现代虐文', advanced: {} });
+  const f = buildUploadFields({ platformId: 3, gender: '女', style: '现代虐文', advanced: { tl5: 1, jieyaNum: 7, jieyaSpeed: 1.5, gunpingNum: 8, gunpingSpeed: 1.2, biaohong: '高亮', keywords: '关键词' } });
   assert.equal(f.platform_id, '3');
   assert.equal(f.gender, '2');
   assert.equal(f.style, '301');
+  assert.equal(f.tl5, '1');
+  assert.equal(f.jieya_num, '7');
+  assert.equal(f.jieya_speed, '1.5');
+  assert.equal(f.gunping_num, '8');
+  assert.equal(f.gunping_speed, '1.2');
+  assert.equal(f.biaohong, '高亮');
+  assert.equal(f.keywords, '关键词');
   assert.ok(f.font_color_styles.includes('1'));
 });
 
