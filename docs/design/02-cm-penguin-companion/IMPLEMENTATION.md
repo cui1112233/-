@@ -40,7 +40,7 @@ The user sees the natural-language reply and a separate modification proposal. N
 
 CM metadata is folded into the Agent server's existing safe context fields (`summary`, `entities`, `actions`) so the backend's page-context whitelist remains intact.
 
-Selected editor text is forwarded only through a bounded allow-list of CM selection metadata; credentials and arbitrary iframe state are not included.
+Selected editor text and shot metadata are forwarded only through bounded allow-lists; credentials and arbitrary iframe/page state are not included.
 
 ## Script workbench (`/script`)
 
@@ -53,14 +53,40 @@ Implemented:
 - Scene update.
 - Scene create.
 - Full script replacement.
+- Structured shot update with guarded undo.
 - Constraint update.
 - Entity-to-constraint binding.
 - Existing script revision preview remains compatible.
 - Missing `enrichScriptEntity` import fixed in the design branch.
 
+### Structured shot records
+
+`scriptShotOutput.js` now keeps a CM-facing Shot Record model instead of treating every card as an anonymous string.
+
+Each visible shot receives a snapshot target ID derived from its index and current content fingerprint. The target therefore stays valid for the exact visible revision and becomes stale automatically if the shot changes before the user applies a CM proposal.
+
+For JSON shot outputs:
+
+- the original object remains structured
+- CM receives current structured data plus an editable-field list
+- `shot.update` accepts only allow-listed shot fields such as duration, shot size, angle, movement, transition, visual context, prompt and character lists
+- unrelated object fields are preserved
+- the updated object is written back into the original JSON shot container
+
+For markdown/text shot outputs:
+
+- the shot still has a fingerprinted Shot Record target
+- direct field-level mutation is not guessed from prose
+- CM may replace only the complete shot-card `content`
+- surrounding shot boundaries/separators are preserved
+
+The Agent receives a bounded `shotData` snapshot so it knows whether the current card is structured JSON or a text card and which fields are editable.
+
+`shot.update` creates a dedicated undo token. Undo succeeds only while the complete script output still equals the revision produced by CM. If the user edits/regenerates after the CM change, stale undo is rejected instead of overwriting newer work.
+
 ### Stable constraint references
 
-`scriptConstraints.js` now stores `entityReferences` by entity ID rather than copying entity names/text.
+`scriptConstraints.js` stores `entityReferences` by entity ID rather than copying entity names/text.
 
 Supported reference modes:
 
@@ -137,7 +163,6 @@ The 1.3 MB V77 `app.js` bundle was not rewritten for this integration. The bridg
 These areas need additional structured models or stronger confirmation rules:
 
 - Novel Panel full-document rewrite: add a dedicated long-document editing protocol (diff/range/revision based) before exposing a whole-source action.
-- Shot-level direct mutation: current shot cards publish Selection, but `shot.update` is not registered as directly applicable yet because the shot output needs a stable structured shot data model rather than string replacement.
 - History: keep read-only/search-first; destructive actions should require explicit confirmation.
 - Settings: diagnostic context only; never expose secrets/API keys.
 - Rich undo tokens for entity/asset/TTS mutations. Existing script replace keeps its current one-step undo behavior.
@@ -154,6 +179,18 @@ These areas need additional structured models or stronger confirmation rules:
 8. Constraint stores that ID reference.
 9. Later generation resolves the reference against the latest character data.
 10. If analysis becomes complex, the existing Agent task can be opened directly in Agent Workspace without copying the question.
+
+## Shot editing acceptance scenario
+
+1. User clicks/focuses “分镜 7”.
+2. CM receives the shot snapshot ID, full visible card text and bounded structured `shotData`.
+3. User says: “这个镜头太平了，改成低机位推进，人物不要变。”
+4. For JSON output, Agent proposes `shot.update` with only the relevant structured fields (for example `shot_angle`, `movement`, `prompt`). For text-card output, it proposes a complete `content` replacement instead of inventing field parsing.
+5. CM shows the proposal and waits for **应用修改**.
+6. The Script Bridge re-parses the current output and requires the original fingerprinted target ID to still exist.
+7. Only the selected shot is updated; later shots and unrelated JSON fields remain unchanged.
+8. CM offers **撤销**.
+9. If the script has since been manually edited or regenerated, stale undo is refused instead of overwriting the newer output.
 
 ## Novel Panel acceptance scenario
 
