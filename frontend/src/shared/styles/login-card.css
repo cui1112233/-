@@ -118,6 +118,11 @@
   background: transparent !important;
   box-shadow: none !important;
 }
+.nebula-login-modal .nebula-login-form-wrap .ant-input-password input.ant-input {
+  background: #727786 !important;
+  -webkit-box-shadow: 0 0 0 1000px #727786 inset !important;
+  box-shadow: 0 0 0 1000px #727786 inset !important;
+}
 .nebula-login-modal .nebula-login-form-wrap input:-webkit-autofill,
 .nebula-login-modal .nebula-login-form-wrap input:-webkit-autofill:hover,
 .nebula-login-modal .nebula-login-form-wrap input:-webkit-autofill:focus {
@@ -126,6 +131,11 @@
   box-shadow: 0 0 0 1000px #727786 inset !important;
   caret-color: #fff;
   transition: background-color 9999s ease-out 0s;
+}
+.nebula-login-modal .nebula-login-form-wrap input:autofill {
+  -webkit-text-fill-color: #fff !important;
+  -webkit-box-shadow: 0 0 0 1000px #727786 inset !important;
+  box-shadow: 0 0 0 1000px #727786 inset !important;
 }
 .nebula-login-modal .nebula-login-form-wrap .ant-input:focus,
 .nebula-login-modal .nebula-login-form-wrap .ant-input-affix-wrapper:focus,

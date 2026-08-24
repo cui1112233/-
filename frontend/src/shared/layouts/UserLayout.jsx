@@ -271,7 +271,11 @@ export function UserLayout({ children }) {
               <Input placeholder="请输入账号" autoComplete="username" />
             </Form.Item>
             <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
-              <Input.Password placeholder="请输入密码" autoComplete="current-password" />
+              <Input.Password
+                placeholder="请输入密码"
+                autoComplete="current-password"
+                styles={{ input: { backgroundColor: '#727786', color: '#fff', boxShadow: 'none' } }}
+              />
             </Form.Item>
             <Form.Item name="remember" valuePropName="checked">
               <Checkbox>30 天保持登录</Checkbox>
