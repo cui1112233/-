@@ -25,6 +25,13 @@ export const CM_ACTION_TYPES = Object.freeze([
 ]);
 
 const actionTypes = new Set(CM_ACTION_TYPES);
+let activeBridge = null;
+
+const defaultCapabilities = {
+  '/script': ['character.update', 'character.create', 'character.setProtagonist', 'scene.update', 'scene.create', 'script.replace', 'script.insert', 'shot.update', 'constraint.bind', 'constraint.update'],
+  '/shuihuo-production': ['asset.update', 'asset.create', 'segment.update', 'segment.bindAsset'],
+  '/tts': ['tts.update']
+};
 
 function text(value, limit = 240) {
   return String(value ?? '').trim().slice(0, limit);
@@ -33,6 +40,10 @@ function text(value, limit = 240) {
 function makeRequestId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `cm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function inferredCapabilities(pagePath) {
+  return defaultCapabilities[text(pagePath, 240)] || [];
 }
 
 export function normalizeCmSelection(value) {
@@ -51,17 +62,19 @@ export function normalizeCmSelection(value) {
 
 export function normalizeCmCapabilities(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(item => text(item, 80)).filter(Boolean))].slice(0, 40);
+  return [...new Set(value.map(item => text(item, 80)).filter(item => actionTypes.has(item)))].slice(0, 40);
 }
 
 export function normalizeCmBridgeContext(value = {}) {
   const source = value && typeof value === 'object' ? value : {};
+  const pagePath = text(source.pagePath, 240);
+  const explicitCapabilities = normalizeCmCapabilities(source.capabilities);
   return {
     page: text(source.page, 120),
-    pagePath: text(source.pagePath, 240),
+    pagePath,
     project: source.project && typeof source.project === 'object' ? source.project : null,
     selection: normalizeCmSelection(source.selection),
-    capabilities: normalizeCmCapabilities(source.capabilities),
+    capabilities: explicitCapabilities.length ? explicitCapabilities : inferredCapabilities(pagePath),
     summary: text(source.summary, 1200),
     canApply: source.canApply === true
   };
@@ -94,21 +107,6 @@ export function normalizeCmAction(action) {
   };
 }
 
-export function dispatchCmAction(action, meta = {}) {
-  if (typeof window === 'undefined') return '';
-  const normalized = normalizeCmAction(action);
-  if (!normalized) return '';
-  const requestId = makeRequestId();
-  window.dispatchEvent(new CustomEvent(CM_BRIDGE_ACTION_EVENT, {
-    detail: {
-      requestId,
-      action: normalized,
-      meta: meta && typeof meta === 'object' ? meta : {}
-    }
-  }));
-  return requestId;
-}
-
 export function dispatchCmActionResult(requestId, result = {}) {
   if (typeof window === 'undefined' || !requestId) return;
   window.dispatchEvent(new CustomEvent(CM_BRIDGE_ACTION_RESULT_EVENT, {
@@ -121,9 +119,81 @@ export function dispatchCmActionResult(requestId, result = {}) {
   }));
 }
 
+export function refreshCmBridgeContext() {
+  if (!activeBridge) return;
+  let context = {};
+  try {
+    context = typeof activeBridge.getContext === 'function' ? activeBridge.getContext() || {} : {};
+  } catch {
+    context = {};
+  }
+  dispatchCmBridgeContext({
+    ...context,
+    page: context.page || activeBridge.page,
+    pagePath: context.pagePath || activeBridge.pagePath,
+    capabilities: activeBridge.capabilities,
+    canApply: typeof activeBridge.apply === 'function'
+  });
+}
+
+export function registerCmBridge(options = {}) {
+  const bridge = {
+    page: text(options.page, 120),
+    pagePath: text(options.pagePath, 240),
+    capabilities: normalizeCmCapabilities(options.capabilities),
+    getContext: typeof options.getContext === 'function' ? options.getContext : null,
+    apply: typeof options.apply === 'function' ? options.apply : null,
+    undo: typeof options.undo === 'function' ? options.undo : null
+  };
+  activeBridge = bridge;
+  refreshCmBridgeContext();
+
+  return () => {
+    if (activeBridge !== bridge) return;
+    activeBridge = null;
+    dispatchCmBridgeContext({ page: bridge.page, pagePath: bridge.pagePath, capabilities: inferredCapabilities(bridge.pagePath), canApply: false });
+    dispatchCmSelection(null);
+  };
+}
+
+export function dispatchCmAction(action, meta = {}) {
+  if (typeof window === 'undefined') return '';
+  const normalized = normalizeCmAction(action);
+  if (!normalized) return '';
+  const requestId = makeRequestId();
+  const detail = {
+    requestId,
+    action: normalized,
+    meta: meta && typeof meta === 'object' ? meta : {}
+  };
+  window.dispatchEvent(new CustomEvent(CM_BRIDGE_ACTION_EVENT, { detail }));
+
+  const bridge = activeBridge;
+  if (!bridge || typeof bridge.apply !== 'function' || !bridge.capabilities.includes(normalized.type)) return requestId;
+
+  Promise.resolve()
+    .then(() => bridge.apply(normalized, detail.meta))
+    .then(result => {
+      dispatchCmActionResult(requestId, {
+        ok: result?.ok !== false,
+        message: result?.message || '修改已应用。',
+        undoToken: result?.undoToken || ''
+      });
+      refreshCmBridgeContext();
+    })
+    .catch(error => {
+      dispatchCmActionResult(requestId, { ok: false, message: error?.message || '修改应用失败。' });
+    });
+
+  return requestId;
+}
+
 export function dispatchCmUndo(undoToken) {
   if (typeof window === 'undefined' || !undoToken) return;
-  window.dispatchEvent(new CustomEvent(CM_BRIDGE_UNDO_EVENT, {
-    detail: { undoToken: text(undoToken, 240) }
-  }));
+  const token = text(undoToken, 240);
+  window.dispatchEvent(new CustomEvent(CM_BRIDGE_UNDO_EVENT, { detail: { undoToken: token } }));
+  if (!activeBridge || typeof activeBridge.undo !== 'function') return;
+  Promise.resolve(activeBridge.undo(token))
+    .then(() => refreshCmBridgeContext())
+    .catch(() => undefined);
 }
