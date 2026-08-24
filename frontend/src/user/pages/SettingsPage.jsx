@@ -1,5 +1,5 @@
 import { AutoComplete, Button, Form, Input, List, Select, Slider, Switch, Typography, message } from 'antd';
-import { Cable, FolderOpen, RefreshCw, Save } from 'lucide-react';
+import { Cable, Download, FolderOpen, RefreshCw, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -33,6 +33,11 @@ const stackyPet = {
 const petOptions = [
   { label: 'CM', value: 'stacky' }
 ];
+
+const localExecutorDownloads = {
+  mac: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/%E4%B8%80%E6%88%98%E6%99%9F%E9%93%AD%E6%9C%AC%E5%9C%B0%E6%89%A7%E8%A1%8C%E5%99%A8-0.1.1-mac-arm64.dmg',
+  windows: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/%E4%B8%80%E6%88%98%E6%99%9F%E9%93%AD%E6%9C%AC%E5%9C%B0%E6%89%A7%E8%A1%8C%E5%99%A8-0.1.1-win-x64.exe'
+};
 
 function connectionResponseMessage(candidate, fallback) {
   if (typeof candidate === 'string') return candidate;
@@ -381,6 +386,8 @@ export function SettingsPage() {
                 在 Windows 客户端输入配对码：<Typography.Text copyable strong>{pairing.code}</Typography.Text>
               </Typography.Paragraph> : null}
               <div className="settings-action-row">
+                <Button icon={<Download size={16} aria-hidden="true" />} href={localExecutorDownloads.mac} target="_blank" rel="noreferrer">下载 Mac 版</Button>
+                <Button icon={<Download size={16} aria-hidden="true" />} href={localExecutorDownloads.windows} target="_blank" rel="noreferrer">下载 Windows 版</Button>
                 <Button onClick={loadLocalExecutors} loading={loadingExecutors} icon={<RefreshCw size={16} aria-hidden="true" />}>刷新状态</Button>
                 <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
               </div>
