@@ -5,7 +5,7 @@ import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
-import { StackyPet } from '../pet/StackyPet';
+import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
 
@@ -126,10 +126,6 @@ export function UserLayout({ children }) {
     function showLogin(event) {
       const expiredToken = event?.detail?.token;
       const currentToken = getToken();
-      // Modern clients dispatch the token used by the failed request. Accept
-      // only an event for the currently active session. Legacy clients do not
-      // carry a token and can only be accepted after they cleared this effect's
-      // still-current session.
       if (expiredToken) {
         if (!currentToken || expiredToken !== currentToken) return;
       } else if (!sessionToken || currentToken || cancelled || accountSessionGenerationRef.current !== sessionGeneration) {
@@ -363,7 +359,7 @@ export function UserLayout({ children }) {
           </header>
           <section className="legacy-content">{content}</section>
         </main>
-        <StackyPet username={username} accountSessionKey={accountSessionKey} />
+        <CmPenguinCompanion username={username} accountSessionKey={accountSessionKey} />
       </Fragment>
       {loginOverlay}
       </div>
