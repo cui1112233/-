@@ -159,6 +159,17 @@
 .nebula-login-modal .nebula-login-form-wrap .ant-btn-primary::after { display: none; }
 .nebula-login-modal .login-hint { margin: 11px 0 0; padding: 0; color: rgba(196, 199, 224, 0.5); }
 
+.auth-expired-modal .ant-modal-content {
+  border: 1px solid rgba(255, 126, 105, 0.68);
+  background: linear-gradient(145deg, #29223b, #17172a) !important;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.52), 0 0 34px rgba(249, 101, 117, 0.22);
+}
+.auth-expired-modal .ant-modal-title,
+.auth-expired-modal .ant-modal-confirm-content { color: #f7f3ff !important; }
+.auth-expired-modal .ant-modal-confirm-content { margin-top: 10px; color: rgba(234, 231, 247, 0.82) !important; }
+.auth-expired-modal .ant-modal-confirm-title { color: #fff !important; font-size: 18px; font-weight: 750; }
+.auth-expired-modal .ant-modal-confirm-btns .ant-btn-primary { border: 0; background: linear-gradient(100deg, #ef5e71, #786df4); }
+
 @keyframes nebula-login-border-flow { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
 @keyframes nebula-login-card-in { from { opacity: 0; transform: translateY(18px) scale(.96); filter: blur(10px); } to { opacity: 1; filter: none; } }
 

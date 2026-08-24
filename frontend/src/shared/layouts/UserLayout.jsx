@@ -104,6 +104,20 @@ export function UserLayout({ children }) {
       if (dialogOpen) return;
       dialogOpen = true;
       const { source, method, status, message: detail } = event.detail || {};
+      if (status === 401) {
+        setUsername('');
+        setAccount(null);
+        setLoginDialogOpen(true);
+        Modal.warning({
+          className: 'auth-expired-modal',
+          title: '登录已失效',
+          content: '当前登录状态已过期，已切换到登录页面。请重新登录后继续使用。',
+          okText: '重新登录',
+          onOk: () => { setLoginDialogOpen(true); dialogOpen = false; },
+          afterClose: () => { dialogOpen = false; }
+        });
+        return;
+      }
       const sourceLabel = source ? `${method || 'GET'} ${source}` : '服务请求';
       const statusLabel = status ? `（${status}）` : '';
       Modal.error({
