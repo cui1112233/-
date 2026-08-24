@@ -358,6 +358,38 @@ textarea:focus {
   font-size: 12px;
 }
 
+.upload-execution-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.upload-common-settings {
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+.upload-execution-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.upload-execution-group {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.upload-execution-group h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.upload-execution-group .control-grid {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
 .result-box {
   min-height: 78px;
   margin: 14px 0 0;
@@ -708,7 +740,8 @@ td.id-cell {
   .config-grid,
   .knowledge-layout,
   .rules-layout,
-  .version-profile-bindings {
+  .version-profile-bindings,
+  .upload-execution-groups {
     grid-template-columns: 1fr;
   }
 
@@ -738,6 +771,11 @@ td.id-cell {
   }
 
   .control-grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-common-settings,
+  .upload-execution-group .control-grid {
     grid-template-columns: 1fr;
   }
 

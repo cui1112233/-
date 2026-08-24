@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>批量原文改文系统</title>
-    <link rel="stylesheet" href="./styles.css?v=20260820-integrated" />
+    <link rel="stylesheet" href="./styles.css?v=20260824-submit-groups" />
   </head>
   <body>
     <header class="topbar">
@@ -508,13 +508,26 @@
             <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
             <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
           </div>
-          <section class="section full">
+          <section class="section full upload-execution-settings">
             <div class="section-title"><h3>上传执行参数</h3><span>批量任务共用；平台、男女频、风格仍以每本任务的分析结果为准</span></div>
-            <div class="control-grid">
+            <div class="control-grid upload-common-settings">
               <label>
                 时长限制
                 <select id="webTl5"><option value="0">不限制</option><option value="1">限制</option></select>
               </label>
+              <label>
+                高亮文案
+                <input id="webBiaohong" placeholder="可留空" />
+              </label>
+              <label>
+                关键词
+                <input id="webKeywords" placeholder="可留空" />
+              </label>
+            </div>
+            <div class="upload-execution-groups">
+              <section class="upload-execution-group">
+                <div class="section-title compact"><h4>解压视频设置</h4><span>控制解压视频的数量、开头与配音参数</span></div>
+                <div class="control-grid">
               <label>
                 解压视频数量
                 <input id="webJieyaNum" type="number" min="0" max="20" value="4" />
@@ -531,6 +544,11 @@
                 解压音调
                 <input id="webJieyaPitch" type="number" min="-50" max="50" value="0" />
               </label>
+                </div>
+              </section>
+              <section class="upload-execution-group">
+                <div class="section-title compact"><h4>滚屏视频设置</h4><span>控制滚屏视频的数量、字幕展示速度与样式</span></div>
+                <div class="control-grid">
               <label>
                 滚屏数量
                 <input id="webGunpingNum" type="number" min="0" max="20" value="4" />
@@ -547,14 +565,8 @@
                 字号
                 <input id="webZitidx" type="number" min="30" max="162" value="62" />
               </label>
-              <label>
-                高亮文案
-                <input id="webBiaohong" placeholder="可留空" />
-              </label>
-              <label>
-                关键词
-                <input id="webKeywords" placeholder="可留空" />
-              </label>
+                </div>
+              </section>
             </div>
           </section>
           <div class="actions">
