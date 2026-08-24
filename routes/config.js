@@ -51,7 +51,27 @@ function normalizeAvatar(value, fallback = null) {
   return emoji && background ? { emoji, background } : fallback;
 }
 
-function createConfigRouter({ shuihuoGateway } = {}) {
+function apiManagementState(req, memberStore) {
+  const member = memberStore?.getMember?.(req.username);
+  return { member, canManageApi: !member || member.role !== 'member' };
+}
+
+function managedPublicConfig(config, member) {
+  const safe = publicConfig(config);
+  return {
+    ...safe,
+    provider: 'managed',
+    baseUrl: '',
+    model: '',
+    hasApiKey: false,
+    image: { ...safe.image, baseUrl: '', model: '', displayName: '', hasApiKey: false },
+    video: { ...safe.video, baseUrl: '', model: '', displayName: '', hasApiKey: false },
+    canManageApi: false,
+    managedBy: member?.boundTo || null
+  };
+}
+
+function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
 
@@ -62,7 +82,9 @@ function createConfigRouter({ shuihuoGateway } = {}) {
     config.tts = normalizeTtsConfig(config.tts);
     config.notifications = normalizeNotifications(config.notifications);
     config.avatar = normalizeAvatar(config.avatar);
-    res.json(publicConfig(config));
+    const { member, canManageApi } = apiManagementState(req, memberStore);
+    if (!canManageApi) return res.json(managedPublicConfig(config, member));
+    return res.json({ ...publicConfig(config), canManageApi: true, managedBy: null });
   });
 
   // POST /api/config — 保存配置
@@ -74,6 +96,19 @@ function createConfigRouter({ shuihuoGateway } = {}) {
       body.storageRoot = storageRoot.value;
     }
     const oldConfig = readConfig(req.username);
+    const { member, canManageApi } = apiManagementState(req, memberStore);
+    if (!canManageApi) {
+      const nextConfig = {
+        ...oldConfig,
+        storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
+        pet: normalizePetConfig(body.pet, oldConfig.pet),
+        tts: normalizeTtsConfig(body.tts, oldConfig.tts),
+        notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
+        avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
+      };
+      writeConfig(req.username, nextConfig);
+      return res.json(managedPublicConfig(nextConfig, member));
+    }
     const nextConfig = {
       provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
       baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
@@ -100,10 +135,10 @@ function createConfigRouter({ shuihuoGateway } = {}) {
       }
     }
     writeConfig(req.username, nextConfig);
-    res.json(publicConfig(nextConfig));
+    res.json({ ...publicConfig(nextConfig), canManageApi: true, managedBy: null });
   });
 
   return router;
 }
 
-module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar };
+module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar, managedPublicConfig };

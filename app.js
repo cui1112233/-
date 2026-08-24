@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
+const { apiAuth } = require('./middleware/auth');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets, validatePresetSlot } = require('./lib/system-preset-catalog');
@@ -42,12 +43,40 @@ const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-stor
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { createScriptVideoRouter } = require('./routes/script-video');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
+const { createMemberStore } = require('./lib/member-store');
+const { createUsageStore } = require('./lib/usage-store');
+const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder, estimateTextTokens } = require('./lib/team-model-runtime');
+const { resolveTeamAuthorization } = require('./lib/api-access');
+const { createMemberCenterRouter } = require('./routes/member-center');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore } = {}) {
+const NOVEL_PANEL_MODEL_PATHS = new Set([
+  '/analyze', '/optimize-character-copy', '/optimize-character', '/optimize-all-characters',
+  '/outline-scenes', '/regenerate-scene-outline', '/generate-scene-prompts',
+  '/optimize-style-copy', '/instruction-assist', '/character-core/analyze', '/settings/test'
+]);
+
+function shuihuoAiRequestMeta(req) {
+  if (req.method !== 'POST') return null;
+  const pathname = req.path || '';
+  if (/\/analysis\/assets$/.test(pathname) || /\/prompt-candidates\/[^/]+$/.test(pathname) || /\/segmentation\/smart$/.test(pathname)) {
+    return { scope: 'text', feature: 'script', tokenEstimate: true };
+  }
+  if (/\/tasks(?:\/batch)?$/.test(pathname) || /\/tasks\/[^/]+\/retry$/.test(pathname)) {
+    return { scope: 'image', feature: 'image', tokenEstimate: false };
+  }
+  return null;
+}
+
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
+  const systemDir = path.dirname(authRuntime.accountStore.files.audit);
+  const dataDir = path.dirname(systemDir);
+  const avatarsDir = path.join(dataDir, 'avatars');
+  const resolvedMemberStore = memberStore || createMemberStore({ systemDir, accountStore: authRuntime.accountStore });
+  const resolvedUsageStore = usageStore || createUsageStore({ systemDir });
   const resolvedPresetStore = presetStore || createPresetStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit),
+    systemDir,
     validatePresetSlot
   });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
@@ -64,8 +93,100 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
   const resolvedNovelFetchStore = novelFetchStore || createNovelFetchStore({ usersDir });
+  const teamConfigReader = createTeamConfigReader({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore
+  });
+  const resolvedChatRouter = chatRouter.createChatRouter({
+    configReader: teamConfigReader,
+    upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' })
+  });
+  const resolvedAgentResponder = agentResponder || createTeamAgentResponder({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore
+  });
+
+  function requireOwnModelConfig(req, res, next) {
+    const member = resolvedMemberStore.getMember(req.username);
+    if (member?.role === 'member') {
+      return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
+    }
+    return next();
+  }
+
+  function restrictMemberNovelPanelSettings(req, res, next) {
+    const member = resolvedMemberStore.getMember(req.username);
+    if (member?.role === 'member' && req.method !== 'GET') {
+      return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
+    }
+    return next();
+  }
+
+  function trackNovelPanelUsage(req, res, next) {
+    if (req.method !== 'POST' || !NOVEL_PANEL_MODEL_PATHS.has(req.path)) return next();
+    let access;
+    try {
+      access = teamConfigReader(req.username)?.__qiantieAccess;
+    } catch {
+      return next();
+    }
+    if (!access) return next();
+    const startedAt = Date.now();
+    const originalJson = res.json.bind(res);
+    let recorded = false;
+    res.json = body => {
+      if (!recorded) {
+        recorded = true;
+        const inputTokens = estimateTextTokens(req.body || {});
+        const outputTokens = estimateTextTokens(body || {});
+        resolvedUsageStore.record({
+          username: access.member.username,
+          billedTo: access.billedTo,
+          teamOwner: access.teamOwner,
+          feature: 'novel-panel',
+          provider: access.config?.provider || '',
+          model: access.config?.model || '',
+          status: res.statusCode < 400 ? 'success' : 'completed_error',
+          usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens },
+          metadata: { operation: req.path, statusCode: res.statusCode, usageEstimated: true, estimateBasis: 'request-response-text', elapsedMs: Math.max(0, Date.now() - startedAt) }
+        });
+      }
+      return originalJson(body);
+    };
+    return next();
+  }
+
+  function requireShuihuoAiAccess(req, res, next) {
+    const meta = shuihuoAiRequestMeta(req);
+    if (!meta) return next();
+    let authorization;
+    try {
+      authorization = resolveTeamAuthorization({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, username: req.username, scope: meta.scope });
+    } catch (error) {
+      return res.status(error?.status || 403).json({ error: error?.message || '当前账号没有 AI 使用权限', ...(error?.code ? { code: error.code } : {}) });
+    }
+    const inputTokens = meta.tokenEstimate ? estimateTextTokens(req.body || {}) : 0;
+    const startedAt = Date.now();
+    res.once('finish', () => {
+      resolvedUsageStore.record({
+        username: authorization.member.username,
+        billedTo: authorization.billedTo,
+        teamOwner: authorization.teamOwner,
+        feature: meta.feature,
+        provider: 'shuihuo-service',
+        status: res.statusCode < 400 ? 'success' : 'completed_error',
+        usage: meta.tokenEstimate ? { prompt_tokens: inputTokens, completion_tokens: 0, total_tokens: inputTokens } : null,
+        metadata: { operation: req.path, statusCode: res.statusCode, usageEstimated: meta.tokenEstimate, estimateBasis: meta.tokenEstimate ? 'request-only' : null, nonTokenModelCall: !meta.tokenEstimate, elapsedMs: Math.max(0, Date.now() - startedAt) }
+      });
+    });
+    return next();
+  }
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
+  app.locals.memberStore = resolvedMemberStore;
+  app.locals.usageStore = resolvedUsageStore;
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
@@ -74,6 +195,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelHistoryStore = resolvedNovelPanelHistoryStore;
   app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
   app.locals.novelFetchStore = resolvedNovelFetchStore;
+  app.locals.novelPanelConfig = username => teamConfigReader(username);
 
   // 请求日志
   app.use((req, res, next) => {
@@ -110,6 +232,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
       res.setHeader('Expires', '0');
     }
   }));
+  app.use('/user-content/avatars', express.static(avatarsDir, {
+    index: false,
+    dotfiles: 'deny',
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    }
+  }));
 
   // 静态文件服务
   // Workbench assets need dedicated CSP and no-store handling before public static files.
@@ -139,28 +268,36 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.get('/api/build-info', (req, res) => {
     res.json({ app_version: 'v78.3.0.3', build_id: 'v78.3.0.3-remote-workbench-20260819-r1' });
   });
-  app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
+  app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore)); // POST /api/login
+  app.use('/api/member', createMemberCenterRouter({
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore,
+    avatarsDir,
+    accountStore: authRuntime.accountStore
+  }));
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
-  app.use('/api/novel-panel', novelPanelApiRouter);
+  app.use('/api/novel-panel/settings', apiAuth, restrictMemberNovelPanelSettings);
+  app.use('/api/novel-panel', apiAuth, trackNovelPanelUsage, novelPanelApiRouter);
   app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopGateway: shuihuoGateway }));
   const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
-  app.use('/api/config', createConfigRouter({ shuihuoGateway })); // GET/POST /api/config
+  app.use('/api/config', createConfigRouter({ shuihuoGateway, memberStore: resolvedMemberStore })); // GET/POST /api/config
   app.use('/api/script-video', createScriptVideoRouter());
-  app.use('/api', chatRouter); // POST /api/test, POST /api/chat
+  app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
+  app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt
   app.use('/api/history', historyRouter); // /api/history CRUD
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
-  app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: agentResponder }));
-  app.use('/api/shuihuo-production', createShuihuoProductionRouter({ ...shuihuoGateway, presetStore: resolvedPresetStore }));
+  app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
+  app.use('/api/shuihuo-production', apiAuth, requireShuihuoAiAccess, createShuihuoProductionRouter({ ...shuihuoGateway, presetStore: resolvedPresetStore }));
   // 本地存储文件夹：createStorageRouter 返回的子应用内部自带 /api/storage 前缀，
   // 此处无前缀挂载，避免前缀叠加（见 routes/storage.js）。
   app.use(createStorageRouter());
