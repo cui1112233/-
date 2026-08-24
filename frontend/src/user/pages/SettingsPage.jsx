@@ -149,8 +149,11 @@ export function SettingsPage() {
         result.message,
         result.modelListed === false ? '连接已建立，但服务未返回当前生图模型' : '生图连接成功'
       );
-      if (result.modelListed === false) message.warning(imageMessage);
-      else message.success(imageMessage);
+      if (result.modelListed === false) {
+        message.warning(imageMessage);
+      } else {
+        message.success(imageMessage);
+      }
     } catch (error) {
       if (error?.errorFields) return;
       message.error(error.message || '生图连接测试失败');
