@@ -33,11 +33,16 @@ function enabledBody(layer) {
   return layer?.enabled === true ? text(layer?.body) : '';
 }
 
-function buildConstraintParts(constraints) {
+function buildConstraintParts(constraints, visualStyle = '') {
   // 显式关闭总开关时，所有文字约束都不应出现在最终分镜卡中。
   // 未带此字段的旧记录保持原有行为，避免历史内容意外丢失。
   if (constraints?.enabled === false) return { leading: '', negative: '' };
-  const prefix = enabledBody(constraints?.prefix);
+  // 与服务端生成请求保持一致：开启画面前缀时，小说提取阶段得到的统一风格
+  // 也属于本次前缀。否则 AI 实际收到了风格，最终卡片却看不到它。
+  const prefix = [
+    constraints?.prefix?.enabled === true ? text(visualStyle) : '',
+    enabledBody(constraints?.prefix)
+  ].filter(Boolean).join('\n');
   const quality = enabledBody(constraints?.quality);
   const restriction = enabledBody(constraints?.restriction);
   const negative = enabledBody(constraints?.negative);
@@ -155,8 +160,9 @@ export function unitTotalSeconds(text) {
 
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
 export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0 }) {
-  const baseOn = constraints?.enabled === true && constraints?.baseSetup?.enabled !== false;
-  const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints);
+  // 历史草稿没有总开关字段时，基础设定沿用原本默认开启的行为；只有明确关闭才隐藏。
+  const baseOn = constraints?.enabled !== false && constraints?.baseSetup?.enabled !== false;
+  const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints, extractInfo?.visualStyle);
   // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
   let body = stripLegacySharedSetupSections(card);
   body = stripBaseSetupSection(body);

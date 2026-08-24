@@ -26,12 +26,13 @@ test('shot card component provides individual copy and video-generation controls
   assert.doesNotMatch(page, /getProductionConfig\(\)/);
 });
 
-test('script page uses card output only for parsed non-shortdrama results', () => {
+test('script page uses card output for every non-shortdrama result', () => {
   const cards = read('frontend/src/user/components/ShotOutputCards.jsx');
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   assert.match(page, /getShotCards\(selectedFormat, output\)/);
   assert.match(page, /buildFinalSegmentCard\(card, \{/);
   assert.match(page, /rawShotCards\.map/);
+  assert.match(page, /selectedFormat !== 'shortdrama' && output \? \[output\] : \[\]/);
   assert.match(page, /getShotCardStarts/);
   assert.match(page, /useMemo\(\(\) => getShotCardStarts\(output, rawShotCards\)/);
   assert.doesNotMatch(page, /output\.indexOf\(card, cursor\)/);

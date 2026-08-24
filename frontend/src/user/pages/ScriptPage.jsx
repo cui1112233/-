@@ -143,7 +143,9 @@ export function ScriptPage() {
       const segments = splitContinuousTimeline(output, seconds);
       if (segments.length >= 2) return segments;
     }
-    return parsed;
+    // 单条分镜或模型标题未被识别时，以前会退回原始文本框，导致程序组装的
+    // 基础设定、画面前缀和其他已开启约束完全不可见。非剧本模式也要走卡片组装。
+    return selectedFormat !== 'shortdrama' && output ? [output] : [];
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,

@@ -40,3 +40,13 @@ test('final shot cards show each enabled textual constraint and hide all of them
   });
   assert.doesNotMatch(hidden, /电影级写实镜头|4K 清晰画质|画面不得出现字幕|模糊、畸形手指/);
 });
+
+test('enabled picture prefix shows the extracted visual style in the final card', async () => {
+  const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
+  const card = buildFinalSegmentCard('画面：女孩走进车站', {
+    constraints: { enabled: true, baseSetup: { enabled: false }, prefix: { enabled: true, body: '超高清实拍质感' } },
+    extractInfo: { visualStyle: '现代都市电影质感，冷调叙事构图' },
+    index: 0
+  });
+  assert.match(card, /【画面前缀】\n现代都市电影质感，冷调叙事构图\n超高清实拍质感/);
+});
