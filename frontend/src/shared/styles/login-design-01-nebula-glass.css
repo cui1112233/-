@@ -58,7 +58,11 @@
   background-size: 30px 30px;
 }
 
-/* Actual repository logo + brand name */
+.login-brand-header {
+  position: relative;
+  z-index: 3;
+}
+
 .login-background-logo--one {
   position: relative;
   top: auto;
@@ -66,7 +70,7 @@
   z-index: 3;
   display: flex;
   width: fit-content;
-  margin: 0 auto 24px;
+  margin: 0 auto 25px;
   align-items: center;
   gap: 14px;
   opacity: 1;
@@ -89,8 +93,20 @@
   display: block !important;
 }
 
-.login-background-logo--one::after {
-  content: '一战晟铭';
+.login-background-logo--two,
+.login-background-logo--three {
+  display: none;
+}
+
+.login-brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+}
+
+.login-brand-copy strong {
   color: #f8fbff;
   font-size: 27px;
   font-weight: 760;
@@ -99,28 +115,29 @@
   text-shadow: 0 0 24px rgba(184, 220, 255, 0.12);
 }
 
-.login-background-logo--two,
-.login-background-logo--three {
-  display: none;
+.login-brand-copy span {
+  color: rgba(184, 202, 228, 0.42);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
-/* Re-purpose the existing accessible title button visually as the welcome header. */
 .login-title,
 .login-modal.is-expanded .login-title {
+  display: block;
   min-height: 0;
   margin: 0 0 28px;
   padding: 0;
-  gap: 7px;
-  cursor: default;
+  color: inherit;
   pointer-events: none;
-  font-size: 0;
-  letter-spacing: 0;
+  text-align: center;
   text-shadow: none;
 }
 
-.login-title::before {
-  content: '欢迎回来';
-  display: block;
+.login-title h1 {
+  margin: 0;
   color: #f7faff;
   font-size: 25px;
   font-weight: 720;
@@ -128,9 +145,8 @@
   line-height: 1.2;
 }
 
-.login-title::after {
-  content: '继续你的一战晟铭创作工作流';
-  display: block;
+.login-title p {
+  margin: 8px 0 0;
   color: rgba(206, 219, 239, 0.56);
   font-size: 12px;
   font-weight: 450;
@@ -195,8 +211,12 @@
 }
 
 .login-form-wrap .ant-btn-primary {
+  display: inline-flex;
   min-height: 51px;
   margin-top: 1px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border-radius: 14px !important;
   background: linear-gradient(108deg, var(--design01-coral), var(--design01-rose) 48%, var(--design01-blue)) !important;
   background-size: 190% 190% !important;
@@ -205,20 +225,18 @@
     -10px 0 30px rgba(214, 83, 134, 0.11),
     10px 0 30px rgba(90, 142, 208, 0.11);
   font-size: 14px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
 }
 
-.login-form-wrap .ant-btn-primary::after {
-  content: '→';
-  position: relative;
-  margin-left: 8px;
+.login-submit-arrow {
+  display: inline-block;
   font-size: 17px;
   font-weight: 500;
   line-height: 1;
   transition: transform 180ms ease;
 }
 
-.login-form-wrap .ant-btn-primary:hover::after {
+.login-form-wrap .ant-btn-primary:hover .login-submit-arrow {
   transform: translateX(3px);
 }
 
@@ -265,11 +283,16 @@
     flex-basis: 62px;
   }
 
-  .login-background-logo--one::after {
+  .login-brand-copy strong {
     font-size: 23px;
   }
 
-  .login-title::before {
+  .login-brand-copy span {
+    font-size: 8px;
+    letter-spacing: 0.16em;
+  }
+
+  .login-title h1 {
     font-size: 23px;
   }
 }
