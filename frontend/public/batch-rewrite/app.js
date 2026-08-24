@@ -1434,6 +1434,7 @@ function renderWebSubmitConfig(settings = {}) {
   $("webProfilesJson").value = JSON.stringify(cfg.upload_profiles || [], null, 2);
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
+  renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
   const advanced = cfg.advanced || {};
   $("webTl5").value = String(Number(advanced.tl5) === 1 ? 1 : 0);
   $("webJieyaNum").value = advanced.jieyaNum ?? 4;
@@ -1486,6 +1487,38 @@ function renderWebDefaultProfileOptions(profiles, selectedProfile) {
   select.innerHTML = options.join("");
 }
 
+function profileIdFromIdentity(profiles, identity) {
+  const value = String(identity || "");
+  return asArray(profiles).find((profile) => String(profile?.id || "") === value || String(profile?.name || "") === value)?.id || "";
+}
+
+function renderWebVersionProfileBindings(profiles, bindings) {
+  const fields = { original: "webProfileBindingOriginal", ai1: "webProfileBindingAi1", ai2: "webProfileBindingAi2", ai3: "webProfileBindingAi3" };
+  const items = asArray(profiles);
+  for (const [version, id] of Object.entries(fields)) {
+    const select = $(id);
+    if (!select) continue;
+    const selected = profileIdFromIdentity(items, bindings?.[version]);
+    const options = ["<option value=\"\">跟随默认配置档</option>"];
+    for (const profile of items) {
+      const profileId = String(profile?.id || "").trim();
+      const name = String(profile?.name || profileId).trim();
+      if (!profileId) continue;
+      options.push(`<option value="${escapeHtml(profileId)}" ${profileId === selected ? "selected" : ""}>${escapeHtml(name)}</option>`);
+    }
+    select.innerHTML = options.join("");
+  }
+}
+
+function webProfileBindingsFromForm() {
+  return {
+    original: $("webProfileBindingOriginal")?.value || "",
+    ai1: $("webProfileBindingAi1")?.value || "",
+    ai2: $("webProfileBindingAi2")?.value || "",
+    ai3: $("webProfileBindingAi3")?.value || ""
+  };
+}
+
 function updateResubmitHint() {
   const allow = $("webAllowResubmit")?.checked === true;
   const hint = $("webResubmitHint");
@@ -1512,7 +1545,8 @@ function syncFormToWebSubmitConfig() {
   cfg.min_text_chars = numberValue("webMinTextChars", 0);
   cfg.retry_times = numberValue("webRetryTimes", 1);
   cfg.upload_profiles = parseJsonInput("webProfilesJson", []);
-  cfg.profile_bindings = parseJsonInput("webProfileBindingsJson", {});
+  cfg.profile_bindings = webProfileBindingsFromForm();
+  $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
   cfg.submit_versions = webSubmitVersionsFromForm();
   cfg.advanced = {

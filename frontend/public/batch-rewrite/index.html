@@ -525,9 +525,17 @@
             <div class="section-title compact"><h3>版本配置</h3><span>选择顺序：版本绑定 → 默认配置档 → 平台/男女频/风格匹配 → 121 默认档；最终平台、男女频、风格仍以当前书籍分析结果为准</span></div>
             <div class="control-grid two">
               <label>默认配置档<select id="webDefaultProfile"><option value="">请先同步 121 配置档</option></select></label>
-              <label class="form-wide">上传配置档（JSON 数组，配置档可覆盖速度、字体、字号、高亮、关键词等）<textarea id="webProfilesJson" class="small-area mono" spellcheck="false" placeholder='[{"id":"modern-female","name":"现代女频","platform_id":"2","gender":"女","style":"现代女主","is_default":true,"advanced":{"jieyaSpeed":1.8,"ziti":1}}]'></textarea></label>
-              <label>版本绑定（JSON 对象）<textarea id="webProfileBindingsJson" class="small-area mono" spellcheck="false" placeholder='{"ai1":"modern-female","ai2":""}'></textarea></label>
             </div>
+            <div class="version-profile-bindings">
+              <div class="binding-title">版本对应配置档</div>
+              <label>原文<select id="webProfileBindingOriginal"></select></label>
+              <label>AI1<select id="webProfileBindingAi1"></select></label>
+              <label>AI2<select id="webProfileBindingAi2"></select></label>
+              <label>AI3<select id="webProfileBindingAi3"></select></label>
+              <div class="binding-note">“跟随默认配置档”会继续按上方的默认配置档或书籍类型自动选择；单独选择后，该版本始终优先使用该配置档。</div>
+            </div>
+            <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
+            <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
             <div class="actions">
               <button id="syncWebProfilesBtn">同步 121 配置档</button>
               <button id="syncWebStylesBtn">同步 121 风格类型</button>
@@ -629,6 +637,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260824-submit-modes"></script>
+    <script src="./app.js?v=20260824-version-profile-selects"></script>
   </body>
 </html>
