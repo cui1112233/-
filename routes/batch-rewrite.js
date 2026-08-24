@@ -92,21 +92,10 @@ function normalizeProfileBindings(value) {
   return Object.fromEntries(['original', 'ai1', 'ai2', 'ai3'].map(version => [version, String(source[version] || '').trim()]));
 }
 
-function selectUploadProfile(cfg, meta, version) {
+function selectBoundUploadProfile(cfg, version) {
   const profiles = normalizeUploadProfiles(cfg.upload_profiles).filter(item => item.enabled);
-  if (!profiles.length) return null;
-  const bindings = normalizeProfileBindings(cfg.profile_bindings);
-  const bound = profiles.find(item => item.id === bindings[version]);
-  if (bound) return bound;
-  const gender = String(meta.gender || '').replace('频', '').trim();
-  const platformId = String(meta.platformId || '').trim();
-  const style = String(meta.style || '').trim();
-  const scored = profiles.map(profile => ({ profile, score:
-    (profile.platform_id && profile.platform_id === platformId ? 4 : profile.platform_id ? -100 : 0) +
-    (profile.gender && profile.gender === gender ? 2 : profile.gender ? -100 : 0) +
-    (profile.style && profile.style === style ? 1 : profile.style ? -100 : 0)
-  })).filter(item => item.score >= 0).sort((left, right) => right.score - left.score);
-  return scored[0]?.profile || profiles.find(item => item.is_default) || profiles[0];
+  const profileId = normalizeProfileBindings(cfg.profile_bindings)[version];
+  return profiles.find(item => item.id === profileId) || null;
 }
 
 function normalizeStyleCatalog(value) {
@@ -682,6 +671,7 @@ function createBatchRewriteRouter({
       skip_submitted: cfg.skip_submitted !== false,
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
+      submit_mode: cfg.submit_mode === 'version' ? 'version' : 'free',
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
       profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
@@ -697,6 +687,7 @@ function createBatchRewriteRouter({
       ...cfg,
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
+      submit_mode: cfg.submit_mode === 'version' ? 'version' : 'free',
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
       profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
@@ -716,6 +707,7 @@ function createBatchRewriteRouter({
       skip_submitted: received.skip_submitted !== false,
       min_text_chars: Math.max(0, Math.min(Number(received.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(received.retry_times) || 1, 5)),
+      submit_mode: received.submit_mode === 'version' ? 'version' : 'free',
       advanced: target.normalizeBookAdvanced(received.advanced),
       upload_profiles: normalizeUploadProfiles(received.upload_profiles),
       profile_bindings: normalizeProfileBindings(received.profile_bindings),
@@ -795,6 +787,7 @@ function createBatchRewriteRouter({
   async function planSubmission(req, body) {
     const ids = await selectTaskIds(req, body);
     const webConfig = await currentWebConfig(req);
+    const submitMode = webConfig.submit_mode === 'version' ? 'version' : 'free';
     const versions = Array.isArray(body?.versions) && body.versions.length
       ? body.versions
       : (Array.isArray(webConfig.submit_versions) && webConfig.submit_versions.length ? webConfig.submit_versions : ['ai1']);
@@ -820,8 +813,13 @@ function createBatchRewriteRouter({
           skipped.push({ id, version, status: 'awaiting_confirmation', error: '121 已接收文件，但尚未确认生成任务；如需重新上传请开启“允许二次提交已成功版本”' });
           continue;
         }
+        const profile = submitMode === 'version' ? selectBoundUploadProfile(webConfig, version) : null;
+        if (submitMode === 'version' && !profile) {
+          skipped.push({ id, version, status: 'skipped', error: `版本配置模式：${version.toUpperCase()} 未绑定可用的 121 配置档` });
+          continue;
+        }
         const candidates = candidatesByBook.get(id) || [];
-        candidates.push({ id, version, size, task, profile: selectUploadProfile(webConfig, task.meta, version) });
+        candidates.push({ id, version, size, task, profile });
         candidatesByBook.set(id, candidates);
       }
     }
@@ -830,11 +828,14 @@ function createBatchRewriteRouter({
       const allocations = target.distributeBookMaterials(webConfig.advanced, candidates.length);
       candidates.forEach((candidate, index) => {
         const { id, version, size, task, profile } = candidate;
-        const profileAdvanced = target.normalizeAdvanced({ ...webConfig.advanced, ...(profile?.advanced || {}), jieyaNum: allocations[index].jieyaNum, gunpingNum: allocations[index].gunpingNum });
-        const profileId = profile?.id || 'default';
+        const profileAdvanced = submitMode === 'version'
+          ? target.normalizeAdvanced(profile?.advanced || {})
+          : target.normalizeAdvanced({ ...webConfig.advanced, jieyaNum: allocations[index].jieyaNum, gunpingNum: allocations[index].gunpingNum });
+        const profileId = profile?.id || 'free';
         const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}-${profileId}`;
-        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: { ...snakeTask(task.meta), profile_id: profileId, profile_name: profile?.name || '默认上传参数' }, advanced: target.normalizeBookAdvanced(webConfig.advanced), items: [] };
-        group.items.push({ id, version, size, advanced: profileAdvanced, profile_id: profileId, profile_name: profile?.name || '默认上传参数' });
+        const profileName = profile?.name || '自由配置';
+        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: { ...snakeTask(task.meta), profile_id: profileId, profile_name: profileName }, advanced: profileAdvanced, items: [] };
+        group.items.push({ id, version, size, advanced: profileAdvanced, profile_id: profileId, profile_name: profileName });
         groupsById.set(groupId, group);
       });
     }

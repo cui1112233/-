@@ -512,15 +512,28 @@
             <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
             <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
           </div>
-          <section class="section full">
-            <div class="section-title compact"><h3>上传配置档与版本绑定</h3><span>系统按“版本绑定 → 平台/男女频/风格匹配 → 默认配置档”自动选用；素材数量仍按每本书总 8 个均分</span></div>
+          <section class="section full submit-mode-selector">
+            <div class="section-title compact"><h3>提交方式</h3><span>二选一启用；两种方式的素材分配逻辑互不叠加</span></div>
+            <div class="actions">
+              <label class="inline-check"><input name="webSubmitMode" value="free" type="radio" checked /> 自由配置</label>
+              <span class="form-hint">按本页设置的解压/滚屏总数，为同一本书的已选文案自动均分。</span>
+              <label class="inline-check"><input name="webSubmitMode" value="version" type="radio" /> 版本配置</label>
+              <span class="form-hint">每个文案版本只使用你绑定的 121 配置档。</span>
+            </div>
+          </section>
+          <section id="webVersionConfigSection" class="section full">
+            <div class="section-title compact"><h3>版本配置</h3><span>先同步 121 配置档，再为原文 / AI1 / AI2 / AI3 绑定对应配置档；未绑定的版本不会提交</span></div>
             <div class="control-grid two">
               <label class="form-wide">上传配置档（JSON 数组，配置档可覆盖速度、字体、字号、高亮、关键词等）<textarea id="webProfilesJson" class="small-area mono" spellcheck="false" placeholder='[{"id":"modern-female","name":"现代女频","platform_id":"2","gender":"女","style":"现代女主","is_default":true,"advanced":{"jieyaSpeed":1.8,"ziti":1}}]'></textarea></label>
               <label>版本绑定（JSON 对象）<textarea id="webProfileBindingsJson" class="small-area mono" spellcheck="false" placeholder='{"ai1":"modern-female","ai2":""}'></textarea></label>
             </div>
+            <div class="actions">
+              <button id="syncWebProfilesBtn">同步 121 配置档</button>
+              <button id="syncWebStylesBtn">同步 121 风格类型</button>
+            </div>
           </section>
-          <section class="section full upload-execution-settings">
-            <div class="section-title"><h3>上传执行参数</h3><span>每本书素材总数固定为 8；多个已选文案会自动均分，平台、男女频、风格仍以每本任务的分析结果为准</span></div>
+          <section id="webFreeConfigSection" class="section full upload-execution-settings">
+            <div class="section-title"><h3>自由配置</h3><span>每本书素材总数固定为 8；多个已选文案会自动均分，平台、男女频、风格仍以每本任务的分析结果为准</span></div>
             <div class="control-grid upload-common-settings">
               <label>
                 时长限制
@@ -583,8 +596,6 @@
           <div class="actions">
             <button id="saveWebSubmitConfigBtn" class="primary">保存网站提交配置</button>
             <button id="testVisibleWebBtn">验证登录会话</button>
-            <button id="syncWebProfilesBtn">同步 121 配置档</button>
-            <button id="syncWebStylesBtn">同步 121 风格类型</button>
             <label class="inline-check repeat-submit-toggle" title="开启后，已成功提交过的文案也会再次上传">
               <input id="webAllowResubmit" type="checkbox" />
               允许二次提交已成功版本
@@ -617,6 +628,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260824-remove-submit-summary"></script>
+    <script src="./app.js?v=20260824-submit-modes"></script>
   </body>
 </html>

@@ -30,7 +30,8 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
       submit_versions: ['ai1', 'ai2'],
       advanced: { jieyaNum: 4, gunpingNum: 4, jieyaSpeed: 1.7, keywords: '全局关键词' },
       upload_profiles: [{ id: 'ai2-fast', name: 'AI2 快速配置', advanced: { jieyaSpeed: 1.9, ziti: 6 } }],
-      profile_bindings: { ai2: 'ai2-fast' }
+      profile_bindings: { ai2: 'ai2-fast' },
+      submit_mode: 'free'
     },
     platforms: [], styles: []
   };
@@ -61,10 +62,32 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
     .sort((left, right) => left[0].localeCompare(right[0]));
   assert.deepEqual(allocations, [['ai1', 2, 2], ['ai2', 2, 2]]);
   const ai2 = response.body.groups.flatMap(group => group.items).find(item => item.version === 'ai2');
-  assert.equal(ai2.profile_name, 'AI2 快速配置');
-  assert.equal(ai2.advanced.jieyaSpeed, 1.9);
-  assert.equal(ai2.advanced.ziti, 6);
+  assert.equal(ai2.profile_name, '自由配置');
+  assert.equal(ai2.advanced.jieyaSpeed, 1.7);
+  assert.equal(ai2.advanced.ziti, 1);
   assert.equal(ai2.advanced.keywords, '全局关键词');
+});
+
+test('版本配置只使用已绑定的 121 配置档，不再套用自由配置的素材均分', async () => {
+  const task = { meta: { bookId: 'book-1', bookName: '示例书', platformId: '2', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [] } };
+  const config = {
+    web_submit: {
+      submit_mode: 'version', submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 },
+      upload_profiles: [{ id: '121-9', name: '121 AI1 配置', config_id: '9', source: '121', advanced: { jieyaNum: 3, gunpingNum: 5, jieyaSpeed: 1.9, ziti: 6 } }],
+      profile_bindings: { ai1: '121-9' }
+    }, platforms: [], styles: []
+  };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    tasksFactory: async () => ({ tasks: { getTask: async () => task, readVersionText: async () => 'AI1 文案', listTasks: async () => [] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/preview', { mode: 'selected', ids: ['book-1'], versions: ['ai1'] });
+  assert.equal(response.status, 200);
+  const item = response.body.groups.flatMap(group => group.items)[0];
+  assert.equal(item.profile_name, '121 AI1 配置');
+  assert.equal(item.advanced.jieyaNum, 3);
+  assert.equal(item.advanced.gunpingNum, 5);
+  assert.equal(item.advanced.jieyaSpeed, 1.9);
 });
 
 test('121 仅确认文件接收时必须标为待确认，不能伪装成已执行成功', async () => {

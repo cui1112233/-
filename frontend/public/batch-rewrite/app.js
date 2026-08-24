@@ -1425,6 +1425,9 @@ function renderWebSubmitConfig(settings = {}) {
   $("webUsername").value = cfg.username || "";
   $("webPassword").value = "";
   $("webEnabled").checked = cfg.enabled === true;
+  const mode = cfg.submit_mode === "version" ? "version" : "free";
+  const modeInput = document.querySelector(`input[name="webSubmitMode"][value="${mode}"]`);
+  if (modeInput) modeInput.checked = true;
   $("webAllowResubmit").checked = cfg.skip_submitted === false;
   $("webMinTextChars").value = cfg.min_text_chars ?? 0;
   $("webRetryTimes").value = cfg.retry_times ?? 1;
@@ -1453,6 +1456,17 @@ function renderWebSubmitConfig(settings = {}) {
     if (ai1) ai1.checked = true;
   }
   updateResubmitHint();
+  renderWebSubmitMode();
+}
+
+function webSubmitModeFromForm() {
+  return document.querySelector('input[name="webSubmitMode"]:checked')?.value === "version" ? "version" : "free";
+}
+
+function renderWebSubmitMode() {
+  const isVersion = webSubmitModeFromForm() === "version";
+  $("webFreeConfigSection")?.classList.toggle("hidden", isVersion);
+  $("webVersionConfigSection")?.classList.toggle("hidden", !isVersion);
 }
 
 function updateResubmitHint() {
@@ -1477,6 +1491,7 @@ function syncFormToWebSubmitConfig() {
   cfg.username = $("webUsername").value.trim();
   cfg.password = $("webPassword").value.trim();
   cfg.skip_submitted = !$("webAllowResubmit").checked;
+  cfg.submit_mode = webSubmitModeFromForm();
   cfg.min_text_chars = numberValue("webMinTextChars", 0);
   cfg.retry_times = numberValue("webRetryTimes", 1);
   cfg.upload_profiles = parseJsonInput("webProfilesJson", []);
@@ -2810,6 +2825,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("saveWebSubmitConfigBtn").onclick = () => saveWebSubmitConfig(false);
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
+  document.querySelectorAll('input[name="webSubmitMode"]').forEach((input) => { input.onchange = renderWebSubmitMode; });
   $("webJieyaNum").oninput = syncGunpingMaterialCount;
   $("webJieyaNum").onchange = syncGunpingMaterialCount;
   $("testVisibleWebBtn").onclick = testVisibleWebFlow;
