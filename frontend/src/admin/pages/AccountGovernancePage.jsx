@@ -52,7 +52,6 @@ export function AccountGovernancePage() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [creating, setCreating] = useState(false);
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [grantDrawerOpen, setGrantDrawerOpen] = useState(false);
   const [passwordAccount, setPasswordAccount] = useState(null);
@@ -62,6 +61,7 @@ export function AccountGovernancePage() {
   const [passwordForm] = Form.useForm();
 
   const isOwner = session?.isOwner === true;
+  const isDev = isOwner || session?.role === 'dev';
   const pendingApplications = applications.filter(item => item.status === 'pending');
   const grantsBySubject = useMemo(() => grants.reduce((map, grant) => {
     map[grant.subject] = [...(map[grant.subject] || []), grant];
@@ -77,7 +77,7 @@ export function AccountGovernancePage() {
       const [accountResult, applicationResult, grantResult] = await Promise.all([
         listAdminAccounts(),
         listAdminApplications(),
-        current.isOwner ? listAdminGrants() : Promise.resolve({ grants: [] })
+        (current.isOwner || current.role === 'dev') ? listAdminGrants() : Promise.resolve({ grants: [] })
       ]);
       setAccounts(accountResult.accounts || []);
       setApplications(applicationResult.applications || []);
@@ -199,7 +199,7 @@ export function AccountGovernancePage() {
       </div>
       <div className="admin-governance-grid">
         <section className="admin-surface admin-account-table">
-          <div className="admin-surface-heading"><strong>账号列表</strong>{isOwner ? <Button size="small" onClick={() => setGrantDrawerOpen(true)}>授予权限</Button> : null}</div>
+          <div className="admin-surface-heading"><strong>账号列表</strong>{isDev ? <Button size="small" onClick={() => setGrantDrawerOpen(true)}>授予权限</Button> : null}</div>
           <Table rowKey="username" columns={columns} dataSource={accounts} loading={loading} pagination={false} size="middle" scroll={{ x: 860 }} />
         </section>
         <aside className="admin-side-stack">
@@ -210,7 +210,7 @@ export function AccountGovernancePage() {
               <Space size="small"><Popconfirm title="通过后将创建账号" onConfirm={() => reviewApplication(application, true)}><Button size="small" type="primary">通过</Button></Popconfirm><Popconfirm title="确认拒绝此申请" onConfirm={() => reviewApplication(application, false)}><Button size="small">拒绝</Button></Popconfirm></Space>
             </div>) : <div className="admin-empty">暂无待审核申请</div>}
           </section>
-          {isOwner ? <section className="admin-surface">
+          {isDev ? <section className="admin-surface">
             <div className="admin-surface-heading"><strong>当前授权</strong><span>{grants.length} 项</span></div>
             {grants.length ? grants.map(grant => <div className="admin-grant" key={grant.id}><div><strong>{grant.subject}</strong><p>{capabilityLabel(grant.capability)} · {scopeLabel(grant.scope)}</p></div><Popconfirm title="确认撤销此权限" onConfirm={() => revokeGrant(grant.id)}><Button type="link" danger size="small">撤销</Button></Popconfirm></div>) : <div className="admin-empty">暂无额外授权</div>}
           </section> : null}
