@@ -1433,6 +1433,7 @@ function renderWebSubmitConfig(settings = {}) {
   $("webRetryTimes").value = cfg.retry_times ?? 1;
   $("webProfilesJson").value = JSON.stringify(cfg.upload_profiles || [], null, 2);
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
+  renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   const advanced = cfg.advanced || {};
   $("webTl5").value = String(Number(advanced.tl5) === 1 ? 1 : 0);
   $("webJieyaNum").value = advanced.jieyaNum ?? 4;
@@ -1469,6 +1470,22 @@ function renderWebSubmitMode() {
   $("webVersionConfigSection")?.classList.toggle("hidden", !isVersion);
 }
 
+function renderWebDefaultProfileOptions(profiles, selectedProfile) {
+  const select = $("webDefaultProfile");
+  if (!select) return;
+  const items = asArray(profiles);
+  const saved = String(selectedProfile || "");
+  const selected = items.find((profile) => String(profile?.id || "") === saved || String(profile?.name || "") === saved)?.id || "";
+  const options = ["<option value=\"\">按书籍自动匹配</option>"];
+  for (const profile of items) {
+    const id = String(profile?.id || "").trim();
+    const name = String(profile?.name || id).trim();
+    if (!id) continue;
+    options.push(`<option value="${escapeHtml(id)}" ${id === selected ? "selected" : ""}>${escapeHtml(name)}</option>`);
+  }
+  select.innerHTML = options.join("");
+}
+
 function updateResubmitHint() {
   const allow = $("webAllowResubmit")?.checked === true;
   const hint = $("webResubmitHint");
@@ -1496,6 +1513,7 @@ function syncFormToWebSubmitConfig() {
   cfg.retry_times = numberValue("webRetryTimes", 1);
   cfg.upload_profiles = parseJsonInput("webProfilesJson", []);
   cfg.profile_bindings = parseJsonInput("webProfileBindingsJson", {});
+  cfg.selected_profile = $("webDefaultProfile").value;
   cfg.submit_versions = webSubmitVersionsFromForm();
   cfg.advanced = {
     tl5: Number($("webTl5").value) === 1 ? 1 : 0,

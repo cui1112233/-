@@ -68,7 +68,7 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
   assert.equal(ai2.advanced.keywords, '全局关键词');
 });
 
-test('版本配置只使用已绑定的 121 配置档，不再套用自由配置的素材均分', async () => {
+test('版本配置优先使用已绑定的 121 配置档，不再套用自由配置的素材均分', async () => {
   const task = { meta: { bookId: 'book-1', bookName: '示例书', platformId: '2', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [] } };
   const config = {
     web_submit: {
@@ -88,6 +88,27 @@ test('版本配置只使用已绑定的 121 配置档，不再套用自由配置
   assert.equal(item.advanced.jieyaNum, 3);
   assert.equal(item.advanced.gunpingNum, 5);
   assert.equal(item.advanced.jieyaSpeed, 1.9);
+});
+
+test('版本配置未绑定时会按平台、男女频、风格匹配 121 配置档', async () => {
+  const task = { meta: { bookId: 'book-2', bookName: '示例书', platformId: '2', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [] } };
+  const config = {
+    web_submit: {
+      submit_mode: 'version', submit_versions: ['ai1'],
+      upload_profiles: [
+        { id: 'wrong', name: '不匹配', platform_id: '2', gender: '女', style: '古风虐文', advanced: { jieyaNum: 8, gunpingNum: 0 } },
+        { id: 'matched', name: '现代女主档', platform_id: '2', gender: '女', style: '现代女主', advanced: { jieyaNum: 1, gunpingNum: 7 } }
+      ], profile_bindings: {}
+    }, platforms: [], styles: []
+  };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    tasksFactory: async () => ({ tasks: { getTask: async () => task, readVersionText: async () => 'AI1 文案', listTasks: async () => [] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/preview', { mode: 'selected', ids: ['book-2'], versions: ['ai1'] });
+  const item = response.body.groups.flatMap(group => group.items)[0];
+  assert.equal(item.profile_id, 'matched');
+  assert.equal(item.advanced.gunpingNum, 7);
 });
 
 test('121 仅确认文件接收时必须标为待确认，不能伪装成已执行成功', async () => {

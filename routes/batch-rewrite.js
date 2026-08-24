@@ -94,8 +94,29 @@ function normalizeProfileBindings(value) {
 
 function selectBoundUploadProfile(cfg, version) {
   const profiles = normalizeUploadProfiles(cfg.upload_profiles).filter(item => item.enabled);
-  const profileId = normalizeProfileBindings(cfg.profile_bindings)[version];
-  return profiles.find(item => item.id === profileId) || null;
+  const findProfile = (identity) => {
+    const value = String(identity || '').trim();
+    return profiles.find(item => item.id === value || item.name === value) || null;
+  };
+  const bound = findProfile(normalizeProfileBindings(cfg.profile_bindings)[version]);
+  if (bound) return bound;
+  const selected = findProfile(cfg.selected_profile);
+  if (selected) return selected;
+  return null;
+}
+
+function selectVersionUploadProfile(cfg, meta, version) {
+  const profiles = normalizeUploadProfiles(cfg.upload_profiles).filter(item => item.enabled);
+  const chosen = selectBoundUploadProfile(cfg, version);
+  if (chosen) return chosen;
+  const gender = String(meta.gender || '').replace('频', '').trim();
+  const platformId = String(meta.platformId || '').trim();
+  const style = String(meta.style || '').trim();
+  const exact = profiles.find(item => item.platform_id === platformId && item.gender === gender && item.style === style);
+  if (exact) return exact;
+  const platformGender = profiles.find(item => item.platform_id === platformId && item.gender === gender);
+  if (platformGender) return platformGender;
+  return profiles.find(item => item.is_default) || profiles[0] || null;
 }
 
 function normalizeStyleCatalog(value) {
@@ -672,6 +693,7 @@ function createBatchRewriteRouter({
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
       submit_mode: cfg.submit_mode === 'version' ? 'version' : 'free',
+      selected_profile: String(cfg.selected_profile || ''),
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
       profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
@@ -688,6 +710,7 @@ function createBatchRewriteRouter({
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
       submit_mode: cfg.submit_mode === 'version' ? 'version' : 'free',
+      selected_profile: String(cfg.selected_profile || ''),
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
       profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
@@ -708,6 +731,7 @@ function createBatchRewriteRouter({
       min_text_chars: Math.max(0, Math.min(Number(received.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(received.retry_times) || 1, 5)),
       submit_mode: received.submit_mode === 'version' ? 'version' : 'free',
+      selected_profile: String(received.selected_profile || ''),
       advanced: target.normalizeBookAdvanced(received.advanced),
       upload_profiles: normalizeUploadProfiles(received.upload_profiles),
       profile_bindings: normalizeProfileBindings(received.profile_bindings),
@@ -813,9 +837,9 @@ function createBatchRewriteRouter({
           skipped.push({ id, version, status: 'awaiting_confirmation', error: '121 已接收文件，但尚未确认生成任务；如需重新上传请开启“允许二次提交已成功版本”' });
           continue;
         }
-        const profile = submitMode === 'version' ? selectBoundUploadProfile(webConfig, version) : null;
+        const profile = submitMode === 'version' ? selectVersionUploadProfile(webConfig, task.meta, version) : null;
         if (submitMode === 'version' && !profile) {
-          skipped.push({ id, version, status: 'skipped', error: `版本配置模式：${version.toUpperCase()} 未绑定可用的 121 配置档` });
+          skipped.push({ id, version, status: 'skipped', error: '版本配置模式：未找到可用的 121 配置档，请先同步配置档' });
           continue;
         }
         const candidates = candidatesByBook.get(id) || [];

@@ -522,8 +522,9 @@
             </div>
           </section>
           <section id="webVersionConfigSection" class="section full">
-            <div class="section-title compact"><h3>版本配置</h3><span>先同步 121 配置档，再为原文 / AI1 / AI2 / AI3 绑定对应配置档；未绑定的版本不会提交</span></div>
+            <div class="section-title compact"><h3>版本配置</h3><span>选择顺序：版本绑定 → 默认配置档 → 平台/男女频/风格匹配 → 121 默认档；最终平台、男女频、风格仍以当前书籍分析结果为准</span></div>
             <div class="control-grid two">
+              <label>默认配置档<select id="webDefaultProfile"><option value="">请先同步 121 配置档</option></select></label>
               <label class="form-wide">上传配置档（JSON 数组，配置档可覆盖速度、字体、字号、高亮、关键词等）<textarea id="webProfilesJson" class="small-area mono" spellcheck="false" placeholder='[{"id":"modern-female","name":"现代女频","platform_id":"2","gender":"女","style":"现代女主","is_default":true,"advanced":{"jieyaSpeed":1.8,"ziti":1}}]'></textarea></label>
               <label>版本绑定（JSON 对象）<textarea id="webProfileBindingsJson" class="small-area mono" spellcheck="false" placeholder='{"ai1":"modern-female","ai2":""}'></textarea></label>
             </div>
