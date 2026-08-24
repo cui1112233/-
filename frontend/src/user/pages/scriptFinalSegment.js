@@ -168,7 +168,10 @@ export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 
   body = stripBaseSetupSection(body);
   const total = unitTotalSeconds(card) ?? unitTotalSeconds(body);
   body = stripUnitHeading(body);
-  if (leadingConstraints || negativeConstraint) body = stripConstraintLines(body);
+  // 无论用户是否启用文字约束，都先清理模型擅自输出的约束标题。
+  // 这样 Q 版等格式不能通过返回“【画面前缀】”绕过前缀开关；
+  // 最终只由下方按当前开关重新注入的约束决定是否展示。
+  body = stripConstraintLines(body);
   const parts = [`### 分镜${chineseOrdinal(index)}${total ? `（总时长：${total}s）` : ''}`];
   if (baseOn) parts.push(buildBaseSetupText(extractInfo));
   if (leadingConstraints) parts.push(leadingConstraints);

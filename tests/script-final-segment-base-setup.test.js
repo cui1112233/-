@@ -50,3 +50,21 @@ test('enabled picture prefix shows the extracted visual style in the final card'
   });
   assert.match(card, /【画面前缀】\n现代都市电影质感，冷调叙事构图\n超高清实拍质感/);
 });
+
+test('model generated prefix headings cannot bypass a disabled prefix switch', async () => {
+  const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
+  const card = buildFinalSegmentCard('【画面前缀】Q版赛璐璐动画\n【画面主体描述】女孩走进车站', {
+    constraints: {
+      enabled: true,
+      baseSetup: { enabled: false },
+      prefix: { enabled: false },
+      quality: { enabled: false },
+      restriction: { enabled: false },
+      negative: { enabled: false }
+    },
+    extractInfo: { visualStyle: '不应由系统注入的统一风格' },
+    index: 0
+  });
+  assert.doesNotMatch(card, /【画面前缀】|不应由系统注入的统一风格/);
+  assert.match(card, /【画面主体描述】女孩走进车站/);
+});
