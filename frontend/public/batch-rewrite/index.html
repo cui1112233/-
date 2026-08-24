@@ -166,14 +166,6 @@
                 <input id="rewriteTemp" type="number" step="0.01" min="0" max="2" value="0.45" />
               </label>
               <label>
-                改文方案
-                <select id="rewriteStrategy">
-                  <option value="instruction">指令改文</option>
-                  <option value="opening_instruction">开头词 + 指令改文</option>
-                  <option value="high_imitation">高仿文章改文</option>
-                </select>
-              </label>
-              <label>
                 出文轮换顺序
                 <input id="methodSequenceInput" placeholder="high_imitation,opening_instruction,instruction" />
               </label>
@@ -204,9 +196,7 @@
               <label><input id="workflowAutoClassify" type="checkbox" /> 自动补齐风格/男女频</label>
               <label><input id="workflowAutoFetch" type="checkbox" /> 自动抓取原文</label>
               <label><input id="workflowAutoRewrite" type="checkbox" /> 抓取后自动生成AI文案</label>
-              <label><input id="workflowAutoSubmit" type="checkbox" /> 改文后自动提交网站</label>
-              <label><input id="workflowAutoSyncStyles" type="checkbox" /> 处理前自动同步网站风格</label>
-              <label><input id="workflowAutoReclassifyStyle" type="checkbox" /> 风格失效后自动重新判断</label>
+              <label><input id="workflowAutoSubmit" type="checkbox" /> 改文后自动提交网站（需已启用并验证登录）</label>
             </div>
             <label>
               改文提示词
@@ -270,7 +260,6 @@
               <label><input id="aiJsonMode" type="checkbox" /> JSON模式</label>
               <label><input id="aiEnableThinking" type="checkbox" /> 启用思考</label>
               <label><input id="aiDisableThinking" type="checkbox" /> 禁用思考</label>
-              <label><input id="aiForceSerial" type="checkbox" /> 批量强制串行</label>
             </div>
             <label>
               额外JSON
@@ -301,10 +290,6 @@
               <label>
                 原文改文模型
                 <select id="rewriteSelect"></select>
-              </label>
-              <label>
-                敏感词修复模型
-                <select id="sensitiveFixSelect"></select>
               </label>
             </div>
             <div class="actions">
@@ -497,13 +482,9 @@
         <section class="section full">
           <div class="section-title">
             <h2>网站提交闭环</h2>
-            <span id="siteSubmitStatus">按任务平台、男女频、风格类型自动分组上传</span>
+            <span id="siteSubmitStatus">直接提交到 121；提交前可先预览，不会启动浏览器自动化</span>
           </div>
           <div class="control-grid">
-            <label>
-              网站地址
-              <input id="webBaseUrl" placeholder="http://two.121w.com/tttadmin/booklist.php" />
-            </label>
             <label>
               账号
               <input id="webUsername" />
@@ -511,37 +492,6 @@
             <label>
               密码
               <input id="webPassword" type="password" placeholder="留空表示不修改已保存密码" />
-            </label>
-            <label>
-              浏览器模式
-              <select id="webBrowserMode">
-                <option value="headless">后台执行</option>
-                <option value="visible">可视化执行</option>
-              </select>
-            </label>
-            <label>
-              Python路径
-              <input id="webPythonPath" />
-            </label>
-            <label>
-              浏览器路径
-              <input id="webBrowserPath" placeholder="可留空，或指向 chrome.exe" />
-            </label>
-            <label>
-              并发组数
-              <input id="webWorkers" type="number" min="1" max="4" />
-            </label>
-            <label>
-              重试次数
-              <input id="webRetries" type="number" min="0" max="5" />
-            </label>
-            <label>
-              最小文件字节
-              <input id="webMinFileSize" type="number" min="0" />
-            </label>
-            <label>
-              默认配置档
-              <select id="webProfileSelect"></select>
             </label>
             <label class="inline-check">
               <input id="webEnabled" type="checkbox" />
@@ -558,32 +508,9 @@
             <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
             <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
           </div>
-          <div class="version-profile-bindings">
-            <div class="binding-title">版本对应配置档</div>
-            <label>
-              原文
-              <select id="webBindOriginal"></select>
-            </label>
-            <label>
-              AI1
-              <select id="webBindAi1"></select>
-            </label>
-            <label>
-              AI2
-              <select id="webBindAi2"></select>
-            </label>
-            <label>
-              AI3
-              <select id="webBindAi3"></select>
-            </label>
-            <div class="binding-note">每个版本可以单独选配置，也可以重复使用同一个配置；留空就跟随默认配置档。</div>
-          </div>
           <div class="actions">
             <button id="saveWebSubmitConfigBtn" class="primary">保存网站提交配置</button>
-            <button id="webEnvCheckBtn">环境自检</button>
             <button id="testVisibleWebBtn">验证登录与上传通道</button>
-            <button id="syncWebProfilesBtn">刷新本地提交配置</button>
-            <button id="syncWebStylesBtn">同步网站风格类型</button>
             <button id="previewWebSelectedBtn">预览选中分组</button>
             <button id="previewWebAllBtn">预览全部分组</button>
             <button id="clearWebPreviewBtn">隐藏预览</button>
@@ -591,11 +518,7 @@
             <button id="submitWebAllBtn">提交全部</button>
             <button id="retryWebFailedBtn">重试提交失败</button>
           </div>
-          <div class="site-submit-summary">
-            <div>配置档：<b id="webProfileCount">0</b></div>
-            <div>风格映射：<b id="webStyleCount">0</b></div>
-            <div>密码：<b id="webPasswordState">未保存</b></div>
-          </div>
+          <div class="site-submit-summary"><div>目标站：<b>121 后台</b></div><div>密码：<b id="webPasswordState">未保存</b></div></div>
           <div id="siteSubmitGroups" class="site-submit-groups"></div>
         </section>
       </section>

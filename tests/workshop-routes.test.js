@@ -74,7 +74,7 @@ test('GET /config 与 POST /ai/test', async () => {
   assert.ok(r1.body.appConfig);
 });
 
-test('GET /config 默认开启全部自动处理选项', async () => {
+test('GET /config 默认不启用对外网站提交', async () => {
   const configStore = { getStyles: () => [], getPlatforms: () => [], getConfig: () => ({}) };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (request, response, next) => { request.username = 'u1'; next(); },
@@ -91,9 +91,7 @@ test('GET /config 默认开启全部自动处理选项', async () => {
     auto_classify_missing: true,
     auto_fetch_original: true,
     auto_rewrite_after_fetch: true,
-    auto_submit_after_rewrite: true,
-    auto_sync_site_styles: true,
-    auto_reclassify_invalid_style: true,
+    auto_submit_after_rewrite: false,
   });
 });
 

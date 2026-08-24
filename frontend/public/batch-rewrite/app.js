@@ -273,9 +273,7 @@ function renderWorkflowConfig(appCfg) {
   $("workflowAutoClassify").checked = workflow.auto_classify_missing !== false;
   $("workflowAutoFetch").checked = workflow.auto_fetch_original !== false;
   $("workflowAutoRewrite").checked = workflow.auto_rewrite_after_fetch !== false;
-  $("workflowAutoSubmit").checked = workflow.auto_submit_after_rewrite !== false;
-  $("workflowAutoSyncStyles").checked = workflow.auto_sync_site_styles !== false;
-  $("workflowAutoReclassifyStyle").checked = workflow.auto_reclassify_invalid_style !== false;
+  $("workflowAutoSubmit").checked = workflow.auto_submit_after_rewrite === true;
   $("fetchEndpoint").value = fetch.endpoint || "https://txt.121w.com/api.php";
   $("fetchMaxTxt").value = fetch.default_max_txt || 4000;
   $("fetchConcurrency").value = fetch.concurrency || 4;
@@ -287,7 +285,6 @@ function renderWorkflowConfig(appCfg) {
   $("processLineCount").value = rewrite.process_line_count || 5;
   $("anchorLineCount").value = rewrite.anchor_line_count || 5;
   $("rewriteTemp").value = rewrite.temperature ?? 0.45;
-  $("rewriteStrategy").value = rewrite.strategy || "instruction";
   $("methodSequenceInput").value = Array.isArray(rewrite.method_sequence)
     ? rewrite.method_sequence.join(",")
     : (rewrite.method_sequence || "high_imitation,opening_instruction,instruction");
@@ -393,76 +390,14 @@ function ensureWebSubmitConfig() {
   const current = state.config.web_submit || {};
   const submitVersions = asArray(current.submit_versions).length ? asArray(current.submit_versions) : ["ai1"];
   state.config.web_submit = {
-    enabled: current.enabled !== false,
-    base_url: current.base_url || "http://two.121w.com/tttadmin/booklist.php",
+    enabled: current.enabled === true,
     username: current.username || "",
     password: "",
     password_masked: Boolean(current.password_masked),
-    python_path: current.python_path || "{ROOT}/runtime/python/python.exe",
-    browser_executable_path: current.browser_executable_path || "{ROOT}/runtime/chrome-win64/chrome.exe",
-    browser_mode: current.browser_mode || (current.browser_background === false ? "visible" : "headless"),
-    parallel_upload_workers: current.parallel_upload_workers || 1,
-    retries: current.retries ?? 1,
-    min_file_size: current.min_file_size ?? 3072,
     skip_submitted: current.skip_submitted !== false,
-    selected_profile: current.selected_profile || "",
     submit_versions: submitVersions,
-    upload_profiles: asArray(current.upload_profiles),
-    style_catalog: asArray(current.style_catalog),
-    profile_bindings: current.profile_bindings || {},
   };
   return state.config.web_submit;
-}
-
-const WEB_PROFILE_BINDING_FIELDS = [
-  { version: "original", id: "webBindOriginal" },
-  { version: "ai1", id: "webBindAi1", alias: "ai" },
-  { version: "ai2", id: "webBindAi2" },
-  { version: "ai3", id: "webBindAi3" },
-];
-
-function webProfileName(item) {
-  return String(item?.name || item?.config_name || item?.config_id || "").trim();
-}
-
-function webProfileOptionsHtml(profiles, selectedValue = "", allowFollowDefault = false) {
-  const selected = String(selectedValue || "");
-  const options = [];
-  if (allowFollowDefault) {
-    options.push(`<option value="" ${selected ? "" : "selected"}>跟随默认配置档</option>`);
-  }
-  for (const item of profiles) {
-    const name = webProfileName(item) || "未命名配置";
-    const isSelected = selected === name ? "selected" : "";
-    options.push(`<option value="${escapeHtml(name)}" ${isSelected}>${escapeHtml(name)}</option>`);
-  }
-  if (!profiles.length && !allowFollowDefault) {
-    options.push(`<option value="">暂无配置档</option>`);
-  }
-  return options.join("");
-}
-
-function renderWebProfileBindings(cfg, profiles) {
-  const bindings = cfg.profile_bindings || {};
-  for (const field of WEB_PROFILE_BINDING_FIELDS) {
-    const select = $(field.id);
-    if (!select) continue;
-    const saved = bindings[field.version] || (field.alias ? bindings[field.alias] : "");
-    select.innerHTML = webProfileOptionsHtml(profiles, saved, true);
-    const exists = profiles.some((item) => webProfileName(item) === String(saved || ""));
-    select.value = exists ? saved : "";
-  }
-}
-
-function webProfileBindingsFromForm() {
-  const result = {};
-  for (const field of WEB_PROFILE_BINDING_FIELDS) {
-    const select = $(field.id);
-    const value = String(select?.value || "").trim();
-    if (value) result[field.version] = value;
-  }
-  if (result.ai1) result.ai = result.ai1;
-  return result;
 }
 
 function getHighPrompt() {
@@ -1417,7 +1352,6 @@ function applyAiSettingsToForm(settings) {
   $("aiFrequency").value = settings.frequency_penalty ?? 0;
   $("aiEnableThinking").checked = Boolean(settings.enable_thinking);
   $("aiDisableThinking").checked = Boolean(settings.disable_thinking);
-  $("aiForceSerial").checked = Boolean(settings.force_serial_batch);
   $("aiExtraJson").value = settings.extra_body_json || "";
 }
 
@@ -1438,7 +1372,6 @@ function readAiSettingsFromForm() {
     frequency_penalty: numberValue("aiFrequency", 0),
     enable_thinking: $("aiEnableThinking").checked,
     disable_thinking: $("aiDisableThinking").checked,
-    force_serial_batch: $("aiForceSerial").checked,
     extra_body_json: $("aiExtraJson").value.trim(),
   };
 }
@@ -1450,27 +1383,13 @@ function updatePlatformHint() {
 }
 
 function renderWebSubmitConfig(settings = {}) {
-  if (!$("webBaseUrl")) return;
+  if (!$("webUsername")) return;
   const cfg = ensureWebSubmitConfig();
   Object.assign(cfg, settings || {});
-  $("webBaseUrl").value = cfg.base_url || "";
   $("webUsername").value = cfg.username || "";
   $("webPassword").value = "";
-  $("webBrowserMode").value = cfg.browser_mode || "headless";
-  $("webPythonPath").value = cfg.python_path || "";
-  $("webBrowserPath").value = cfg.browser_executable_path || "";
-  $("webWorkers").value = cfg.parallel_upload_workers || 1;
-  $("webRetries").value = cfg.retries ?? 1;
-  $("webMinFileSize").value = cfg.min_file_size ?? 3072;
-  $("webEnabled").checked = cfg.enabled !== false;
+  $("webEnabled").checked = cfg.enabled === true;
   $("webSkipSubmitted").checked = cfg.skip_submitted !== false;
-
-  const profiles = asArray(cfg.upload_profiles).filter((item) => item && typeof item === "object");
-  $("webProfileSelect").innerHTML = webProfileOptionsHtml(profiles, cfg.selected_profile, false);
-  if (cfg.selected_profile && profiles.some((item) => webProfileName(item) === String(cfg.selected_profile))) {
-    $("webProfileSelect").value = cfg.selected_profile;
-  }
-  renderWebProfileBindings(cfg, profiles);
 
   const versionSet = new Set(asArray(cfg.submit_versions).map((item) => String(item || "").toLowerCase()));
   document.querySelectorAll(".web-version").forEach((input) => {
@@ -1480,8 +1399,6 @@ function renderWebSubmitConfig(settings = {}) {
     const ai1 = document.querySelector('.web-version[value="ai1"]');
     if (ai1) ai1.checked = true;
   }
-  $("webProfileCount").textContent = String(profiles.length);
-  $("webStyleCount").textContent = String(asArray(cfg.style_catalog).length);
   $("webPasswordState").textContent = cfg.password_masked ? "已保存" : "未保存";
 }
 
@@ -1495,20 +1412,10 @@ function webSubmitVersionsFromForm() {
 function syncFormToWebSubmitConfig() {
   const cfg = clone(ensureWebSubmitConfig());
   cfg.enabled = $("webEnabled").checked;
-  cfg.base_url = $("webBaseUrl").value.trim() || "http://two.121w.com/tttadmin/booklist.php";
   cfg.username = $("webUsername").value.trim();
   cfg.password = $("webPassword").value.trim();
-  cfg.python_path = $("webPythonPath").value.trim();
-  cfg.browser_executable_path = $("webBrowserPath").value.trim();
-  cfg.browser_mode = $("webBrowserMode").value || "headless";
-  cfg.browser_background = cfg.browser_mode !== "visible";
-  cfg.parallel_upload_workers = numberValue("webWorkers", 1);
-  cfg.retries = numberValue("webRetries", 1);
-  cfg.min_file_size = numberValue("webMinFileSize", 3072);
   cfg.skip_submitted = $("webSkipSubmitted").checked;
-  cfg.selected_profile = $("webProfileSelect").value || "";
   cfg.submit_versions = webSubmitVersionsFromForm();
-  cfg.profile_bindings = webProfileBindingsFromForm();
   return cfg;
 }
 
@@ -2413,8 +2320,8 @@ function syncFormToAppConfig() {
     auto_fetch_original: $("workflowAutoFetch").checked,
     auto_rewrite_after_fetch: $("workflowAutoRewrite").checked,
     auto_submit_after_rewrite: $("workflowAutoSubmit").checked,
-    auto_sync_site_styles: $("workflowAutoSyncStyles").checked,
-    auto_reclassify_invalid_style: $("workflowAutoReclassifyStyle").checked,
+    // 旧版本的默认值曾自动开启；只有用户在新版界面重新保存过该开关才允许对外提交。
+    auto_submit_confirmed: $("workflowAutoSubmit").checked,
   };
   cfg.fetch = {
     ...(cfg.fetch || {}),
@@ -2432,7 +2339,6 @@ function syncFormToAppConfig() {
     process_line_count: numberValue("processLineCount", 5),
     anchor_line_count: numberValue("anchorLineCount", 5),
     temperature: numberValue("rewriteTemp", 0.45),
-    strategy: $("rewriteStrategy").value || "instruction",
     method_sequence: $("methodSequenceInput").value.split(/[\s,，、|\/]+/).map((item) => item.trim()).filter(Boolean),
     ai_slot_methods: readAiSlotMethods(),
     default_template_id: $("rewriteTemplateSelect").value || "",
@@ -2752,10 +2658,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiSuggestBtn").onclick = suggestCurrentRuleWithAi;
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("saveWebSubmitConfigBtn").onclick = () => saveWebSubmitConfig(false);
-  $("webEnvCheckBtn").onclick = checkWebEnvironment;
   $("testVisibleWebBtn").onclick = testVisibleWebFlow;
-  $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
-  $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
   $("previewWebSelectedBtn").onclick = () => previewWebSubmit("selected");
   $("previewWebAllBtn").onclick = () => previewWebSubmit("all");
   $("clearWebPreviewBtn").onclick = clearWebPreview;

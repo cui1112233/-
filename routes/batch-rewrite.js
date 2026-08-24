@@ -18,6 +18,22 @@ const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
 
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const count = Math.max(1, Math.floor(Number(limit) || 1));
+  const runners = Array.from({ length: Math.min(count, items.length) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      try { results[index] = { ok: true, value: await worker(items[index]) }; }
+      catch (error) { results[index] = { ok: false, error }; }
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
 function snakeTask(task = {}) {
   const aiCount = Number(task.aiCount) || 1;
   const aiGenerated = Number(task.aiGeneratedCount) || 0;
@@ -102,7 +118,13 @@ function createBatchRewriteRouter({
   async function resources(req) {
     if (tasksFactory) return tasksFactory(req);
     const tasks = createMySQLWorkshopStore({ targetBaseUrl, bridgeSecret, account: req.auth?.account });
-    const config = await tasks.getConfig();
+    const savedConfig = await tasks.getConfig();
+    const savedKnowledge = object(savedConfig.knowledge);
+    const fallbackKnowledge = {};
+    if (!Object.keys(savedKnowledge).length) {
+      for (const kind of LEGACY_KINDS) fallbackKnowledge[kind] = knowledge.list(kind);
+    }
+    const config = Object.keys(savedKnowledge).length ? savedConfig : { ...savedConfig, knowledge: fallbackKnowledge };
     return {
       tasks,
       config,
@@ -131,9 +153,7 @@ function createBatchRewriteRouter({
         auto_classify_missing: current.workflow?.auto_classify_missing !== false,
         auto_fetch_original: current.workflow?.auto_fetch_original !== false,
         auto_rewrite_after_fetch: current.workflow?.auto_rewrite_after_fetch !== false,
-        auto_submit_after_rewrite: current.workflow?.auto_submit_after_rewrite !== false,
-        auto_sync_site_styles: current.workflow?.auto_sync_site_styles !== false,
-        auto_reclassify_invalid_style: current.workflow?.auto_reclassify_invalid_style !== false,
+        auto_submit_after_rewrite: current.workflow?.auto_submit_after_rewrite === true,
         ...object(current.workflow)
       }
     };
@@ -172,15 +192,23 @@ function createBatchRewriteRouter({
     return rules.processConfiguredDocumentText(text, scope, config);
   }
 
-  async function applySavedRulesToOriginal(tasks, username, bookId, config) {
+  async function applySavedRulesToVersion(tasks, username, bookId, version, config) {
     // 规则入口与真实存储分开，以便兼容只负责抓取的测试/桥接实现。
-    if (typeof tasks.readOriginal !== 'function' || typeof tasks.saveOriginalText !== 'function') return false;
-    const original = await tasks.readOriginal(username, bookId);
-    if (!original) return false;
-    const processed = processSavedRules(original, 'original', config);
-    if (processed === original) return false;
-    await tasks.saveOriginalText(username, bookId, processed);
+    const isOriginal = version === 'original';
+    const read = isOriginal ? tasks.readOriginal : tasks.readVersionText;
+    const save = isOriginal ? tasks.saveOriginalText : tasks.saveVersionText;
+    if (typeof read !== 'function' || typeof save !== 'function') return false;
+    const text = isOriginal ? await read.call(tasks, username, bookId) : await read.call(tasks, username, bookId, version);
+    if (!text) return false;
+    const processed = processSavedRules(text, isOriginal ? 'original' : 'ai', config);
+    if (processed === text) return false;
+    if (isOriginal) await save.call(tasks, username, bookId, processed);
+    else await save.call(tasks, username, bookId, version, processed);
     return true;
+  }
+
+  function applySavedRulesToOriginal(tasks, username, bookId, config) {
+    return applySavedRulesToVersion(tasks, username, bookId, 'original', config);
   }
 
   async function saveConfig(req, payload) {
@@ -226,12 +254,14 @@ function createBatchRewriteRouter({
     const platforms = store.getPlatforms?.() || [];
     const platform = platforms.find(item => String(item.id) === String(payload.platform_id || '2')) || {};
     const workflow = object(config.workflow);
+    const maxAiCount = Math.max(1, Math.min(Number(config.rewrite?.max_ai_count) || 5, 20));
+    const defaultAiCount = Math.max(1, Math.min(Number(config.rewrite?.default_ai_count) || 1, maxAiCount));
     const prepared = (parsed.tasks || []).map(item => ({
       ...item,
       platformId: String(payload.platform_id || '2'),
       platformName: platform.name || String(payload.platform_id || '2'),
       maxTxt: Number(payload.max_txt) || Number(config.fetch?.default_max_txt) || 4000,
-      aiCount: Number(payload.ai_count) || Number(config.rewrite?.default_ai_count) || 1
+      aiCount: Math.max(1, Math.min(Number(payload.ai_count) || defaultAiCount, maxAiCount))
     }));
     report({ type: 'parse', status: 'done', message: `解析完成：有效 ${prepared.length} 个任务。` });
     let classified = prepared;
@@ -247,33 +277,40 @@ function createBatchRewriteRouter({
     let fetchFailed = 0;
     const fetchedIds = [];
     if (workflow.auto_fetch_original !== false) {
-      for (const task of classified) {
+      const fetchedResults = await runWithConcurrency(classified, config.fetch?.concurrency || 1, async task => {
         const result = await tasks.fetchOriginal(req.username, task.bookId, task.maxTxt);
-        if (result?.status === 'done') {
-          await applySavedRulesToOriginal(tasks, req.username, task.bookId, config);
+        if (result?.status !== 'done') return { task, done: false };
+        await applySavedRulesToOriginal(tasks, req.username, task.bookId, config);
+        return { task, done: true };
+      });
+      for (const [index, item] of fetchedResults.entries()) {
+        const task = item?.value?.task || classified[index];
+        if (item?.ok && item.value?.done) {
           fetched++;
           fetchedIds.push(task.bookId);
           report({ type: 'fetch', status: 'done', book_id: task.bookId, message: `${task.bookId} 原文已抓取并套用处理规则。` });
+        } else {
+          fetchFailed++;
+          report({ type: 'fetch', status: 'failed', book_id: task?.bookId || '', message: `${task?.bookId || '任务'} 原文抓取失败。` });
         }
-        else { fetchFailed++; report({ type: 'fetch', status: 'failed', book_id: task.bookId, message: `${task.bookId} 原文抓取失败。` }); }
       }
     }
     let generated = 0;
     if (workflow.auto_rewrite_after_fetch) {
-      for (const bookId of fetchedIds) {
+      const rewriteResults = await runWithConcurrency(fetchedIds, config.ai?.max_concurrency || 1, async bookId => {
         const task = await tasks.getTask(req.username, bookId);
-        const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task?.meta, count: task?.meta?.aiCount || 1 });
-        generated += (result.generated || []).filter(item => item.status === 'done').length;
-      }
+        return rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task?.meta, count: task?.meta?.aiCount || 1 });
+      });
+      for (const item of rewriteResults) generated += (item?.value?.generated || []).filter(entry => entry.status === 'done').length;
       report({ type: 'rewrite', status: 'done', message: `AI 文案生成 ${generated} 个版本。` });
     } else {
       report({ type: 'rewrite', status: 'skipped', message: '配置未开启抓取后自动改文。' });
     }
-    if (workflow.auto_submit_after_rewrite && fetchedIds.length) {
+    if (workflow.auto_submit_after_rewrite === true && workflow.auto_submit_confirmed === true && config.web_submit?.enabled === true && fetchedIds.length) {
       const submitted = await submitTasks(req, { mode: 'selected', ids: fetchedIds, versions: ['ai1'] });
       report({ type: 'submit', status: submitted.failed_groups ? 'warning' : 'done', message: `网站提交：成功 ${submitted.success_groups || 0} 组，失败 ${submitted.failed_groups || 0} 组。` });
     } else {
-      report({ type: 'submit', status: 'skipped', message: '配置未开启改文后自动提交。' });
+      report({ type: 'submit', status: 'skipped', message: '未开启自动网站提交；文案已保留，需在网站提交页确认后再提交。' });
     }
     return {
       parsed: parsed.parsed || prepared.length,
@@ -292,7 +329,15 @@ function createBatchRewriteRouter({
 
   function publicWebSubmit(value = {}) {
     const cfg = object(value);
-    return { ...cfg, password: '', password_masked: Boolean(cfg.password_masked), username: cfg.username || '', enabled: cfg.enabled !== false, style_catalog: cfg.style_catalog || Object.keys(target.STYLE_ID), upload_profiles: cfg.upload_profiles || [] };
+    return {
+      enabled: cfg.enabled === true,
+      username: cfg.username || '',
+      password: '',
+      password_masked: Boolean(cfg.password_masked),
+      submit_versions: Array.isArray(cfg.submit_versions) && cfg.submit_versions.length ? cfg.submit_versions : ['ai1'],
+      skip_submitted: cfg.skip_submitted !== false,
+      target: target.TARGET_HOST
+    };
   }
 
   async function currentWebConfig(req) {
@@ -302,7 +347,16 @@ function createBatchRewriteRouter({
 
   async function saveWebConfig(req, incoming) {
     const { tasks, current } = await readConfig(req);
-    const clean = { ...object(current.web_submit), ...object(incoming) };
+    const existing = object(current.web_submit);
+    const received = object(incoming);
+    const clean = {
+      enabled: received.enabled === true,
+      username: String(received.username || existing.username || '').trim(),
+      password_masked: Boolean(existing.password_masked),
+      submit_versions: Array.isArray(received.submit_versions) && received.submit_versions.length ? received.submit_versions : ['ai1'],
+      skip_submitted: received.skip_submitted !== false
+    };
+    if (typeof received.password === 'string') clean.password = received.password;
     const password = String(clean.password || '');
     delete clean.password;
     if (password && novelFetchStore) {
@@ -324,9 +378,12 @@ function createBatchRewriteRouter({
 
   async function planSubmission(req, body) {
     const ids = await selectTaskIds(req, body);
-    const versions = Array.isArray(body?.versions) && body.versions.length ? body.versions : ['ai1'];
+    const webConfig = await currentWebConfig(req);
+    const versions = Array.isArray(body?.versions) && body.versions.length
+      ? body.versions
+      : (Array.isArray(webConfig.submit_versions) && webConfig.submit_versions.length ? webConfig.submit_versions : ['ai1']);
     const { tasks } = await resources(req);
-    const groups = [];
+    const groupsById = new Map();
     const skipped = [];
     for (const id of ids) {
       const task = await tasks.getTask(req.username, id);
@@ -334,14 +391,23 @@ function createBatchRewriteRouter({
       for (const version of versions) {
         const content = await tasks.readVersionText(req.username, id, version);
         if (!content) { skipped.push({ id, version, status: 'skipped', error: '未找到正文版本' }); continue; }
-        groups.push({ group_id: `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}`, status: 'ready', version, summary: snakeTask(task.meta), items: [{ id, version, size: Buffer.byteLength(content) }] });
+        if (webConfig.skip_submitted !== false && (task.meta.siteSubmitDoneVersions || []).includes(version)) {
+          skipped.push({ id, version, status: 'skipped', error: '该版本已提交；如需重复提交请关闭“跳过已提交”' });
+          continue;
+        }
+        const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}`;
+        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: snakeTask(task.meta), items: [] };
+        group.items.push({ id, version, size: Buffer.byteLength(content) });
+        groupsById.set(groupId, group);
       }
     }
-    return { groups, skipped };
+    return { groups: [...groupsById.values()], skipped };
   }
 
   async function submitTasks(req, body) {
     if (!novelFetchStore) throw new Error('目标站会话存储未启用');
+    const webConfig = await currentWebConfig(req);
+    if (webConfig.enabled !== true) throw new Error('网站提交尚未启用；请先保存账号并勾选“启用网站提交”');
     const session = novelFetchStore.getSession(req.username);
     if (!session?.cookie) throw new Error('请先在网站提交页保存账号密码并登录目标站');
     const plan = await planSubmission(req, body);
@@ -349,27 +415,29 @@ function createBatchRewriteRouter({
     let successGroups = 0;
     let failedGroups = 0;
     for (const group of plan.groups) {
-      const item = group.items[0];
-      const task = await tasks.getTask(req.username, item.id);
-      const content = await tasks.readVersionText(req.username, item.id, item.version);
-      try {
-        const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: {} });
-        const upload = target.buildMultipart(fields, { filename: `${item.id}-${item.version}.txt`, content });
-        const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
-        let data = {};
-        try { data = JSON.parse(response.body); } catch (_) {}
-        if (data.success !== true) throw new Error(data.message || data.msg || '上传失败');
-        group.status = 'submitted';
-        successGroups++;
-        await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'submitted', siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])] });
-        if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, time: new Date().toISOString() });
-      } catch (error) {
-        group.status = 'failed';
-        group.error = error.message || '上传失败';
-        failedGroups++;
-        await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'failed', siteSubmitFailedVersions: [...new Set([...(task.meta.siteSubmitFailedVersions || []), item.version])] });
-        if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, error: group.error, time: new Date().toISOString() });
+      let groupFailed = false;
+      for (const item of group.items) {
+        const task = await tasks.getTask(req.username, item.id);
+        const content = await tasks.readVersionText(req.username, item.id, item.version);
+        try {
+          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: {} });
+          const upload = target.buildMultipart(fields, { filename: `${item.id}-${item.version}.txt`, content });
+          const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
+          let data = {};
+          try { data = JSON.parse(response.body); } catch (_) {}
+          if (data.success !== true) throw new Error(data.message || data.msg || '上传失败');
+          await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'submitted', siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])] });
+          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, time: new Date().toISOString() });
+        } catch (error) {
+          groupFailed = true;
+          item.error = error.message || '上传失败';
+          await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'failed', siteSubmitFailedVersions: [...new Set([...(task.meta.siteSubmitFailedVersions || []), item.version])] });
+          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, error: item.error, time: new Date().toISOString() });
+        }
       }
+      group.status = groupFailed ? 'failed' : 'submitted';
+      if (groupFailed) failedGroups++;
+      else successGroups++;
     }
     return { ...plan, success_groups: successGroups, failed_groups: failedGroups, tasks: await listTasks(req) };
   }
@@ -395,11 +463,32 @@ function createBatchRewriteRouter({
   router.get('/tasks', async (req, res) => { try { res.json({ tasks: await listTasks(req) }); } catch (error) { res.status(500).json({ error: error.message }); } });
   router.post('/tasks/batch-delete', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); const result = await tasks.deleteTasks(req.username, ids); res.json({ ...result, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/batch-retry', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); const config = object(store.getConfig()); let retried = 0; let failed = 0; for (const id of ids) { const task = await tasks.getTask(req.username, id); if (!task) { failed++; continue; } const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000); if (result?.status !== 'done') { failed++; continue; } await applySavedRulesToOriginal(tasks, req.username, id, config); if (config.workflow?.auto_rewrite_after_fetch) await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: (await tasks.getTask(req.username, id)).meta, count: task.meta.aiCount || 1 }); retried++; } res.json({ retried, failed, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/apply-rules', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); const config = object(store.getConfig()); let applied = 0; for (const id of ids) if (await applySavedRulesToOriginal(tasks, req.username, id, config)) applied++; res.json({ applied, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/apply-rules', async (req, res) => { try {
+    const ids = await selectTaskIds(req, req.body);
+    const { tasks, configStore: store } = await resources(req);
+    const config = object(store.getConfig());
+    const scope = ['original', 'ai', 'both'].includes(req.body?.scope) ? req.body.scope : 'both';
+    let applied = 0;
+    for (const id of ids) {
+      if (scope === 'original' || scope === 'both') if (await applySavedRulesToVersion(tasks, req.username, id, 'original', config)) applied++;
+      if (scope === 'ai' || scope === 'both') {
+        const task = await tasks.getTask(req.username, id);
+        const count = Number(task?.meta?.aiGeneratedCount) || 0;
+        for (let index = 1; index <= count; index++) if (await applySavedRulesToVersion(tasks, req.username, id, `ai${index}`, config)) applied++;
+      }
+    }
+    res.json({ applied, failed: 0, tasks: await listTasks(req) });
+  } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const count = Number(task.meta.aiGeneratedCount) || 0; const aiTexts = []; for (let index = 1; index <= count; index++) aiTexts.push({ name: `AI${index}`, text: await tasks.readVersionText(req.username, req.params.id, `ai${index}`) }); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig())); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/restore-original', async (req, res) => { try { const { tasks } = await resources(req); res.json({ task: await tasks.restoreOriginal(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task.meta, count: Number(req.body?.count) || 1 }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/restore-original', async (req, res) => { try {
+    const { tasks, configStore: store } = await resources(req);
+    if (typeof tasks.restoreOriginal !== 'function') throw new Error('当前存储不支持恢复原文');
+    await tasks.restoreOriginal(req.username, req.params.id);
+    await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig()));
+    res.json({ task: await tasks.getTask(req.username, req.params.id) });
+  } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const config = object(store.getConfig()); const max = Math.max(1, Math.min(Number(config.rewrite?.max_ai_count) || 5, 20)); const count = Math.max(1, Math.min(Number(req.body?.count) || 1, max)); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task.meta, count }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/sensitive-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); res.json({ meta: legacyMeta(task?.meta || {}), sensitive_hits: { hits: [] }, sensitive_fixed: { items: [] }, logs: task ? await tasks.readLogs(req.username, req.params.id) : [] }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processConfiguredDocumentTrace(text, 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/site-submit-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const logs = typeof tasks.readSiteSubmitLog === 'function' ? await tasks.readSiteSubmitLog(req.username, req.params.id) : []; res.json({ meta: legacyMeta(task?.meta || {}), result: logs.at(-1) || {}, logs }); } catch (error) { res.status(400).json({ error: error.message }); } });
