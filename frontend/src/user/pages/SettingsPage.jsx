@@ -1,5 +1,5 @@
 import { AutoComplete, Button, Form, Input, Select, Switch, Typography, message } from 'antd';
-import { Cable, Save } from 'lucide-react';
+import { Cable, KeyRound, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -46,6 +46,8 @@ export function SettingsPage() {
   const [testingText, setTestingText] = useState(false);
   const [testingImage, setTestingImage] = useState(false);
   const [provider, setProvider] = useState('openai');
+  const [canManageApi, setCanManageApi] = useState(true);
+  const [managedBy, setManagedBy] = useState(null);
   const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -60,8 +62,10 @@ export function SettingsPage() {
     getConfig()
       .then(config => {
         if (!alive) return;
+        setCanManageApi(config.canManageApi !== false);
+        setManagedBy(config.managedBy || null);
         form.setFieldsValue({
-          provider: config.provider || 'openai',
+          provider: config.canManageApi === false ? 'openai' : (config.provider || 'openai'),
           baseUrl: config.baseUrl || 'https://api.openai.com/v1',
           model: config.model || 'gpt-4o-mini',
           apiKey: '',
@@ -75,7 +79,7 @@ export function SettingsPage() {
           },
           petId: config.pet?.id || stackyPet.id
         });
-        setProvider(config.provider || 'openai');
+        setProvider(config.canManageApi === false ? 'openai' : (config.provider || 'openai'));
       })
       .catch(error => message.error(error.message || '读取设置失败'))
       .finally(() => {
@@ -87,14 +91,19 @@ export function SettingsPage() {
   async function handleSave(values) {
     setSaving(true);
     try {
-      await saveConfig({
-        provider: values.provider,
-        baseUrl: values.baseUrl,
-        model: values.model,
-        apiKey: values.apiKey,
-        image: values.image,
+      const payload = {
         pet: values.petId === stackyPet.id ? stackyPet : undefined
-      });
+      };
+      if (canManageApi) {
+        Object.assign(payload, {
+          provider: values.provider,
+          baseUrl: values.baseUrl,
+          model: values.model,
+          apiKey: values.apiKey,
+          image: values.image
+        });
+      }
+      await saveConfig(payload);
       form.setFieldValue('apiKey', '');
       form.setFieldValue(['image', 'apiKey'], '');
       message.success('设置已保存');
@@ -116,6 +125,7 @@ export function SettingsPage() {
   }
 
   async function handleTestText() {
+    if (!canManageApi) return;
     try {
       const values = await form.validateFields(['provider', 'baseUrl', 'model']);
       setTestingText(true);
@@ -130,6 +140,7 @@ export function SettingsPage() {
   }
 
   async function handleTestImage() {
+    if (!canManageApi) return;
     try {
       const { image } = await form.validateFields([['image', 'baseUrl'], ['image', 'model']]);
       setTestingImage(true);
@@ -138,11 +149,8 @@ export function SettingsPage() {
         result.message,
         result.modelListed === false ? '连接已建立，但服务未返回当前生图模型' : '生图连接成功'
       );
-      if (result.modelListed === false) {
-        message.warning(imageMessage);
-      } else {
-        message.success(imageMessage);
-      }
+      if (result.modelListed === false) message.warning(imageMessage);
+      else message.success(imageMessage);
     } catch (error) {
       if (error?.errorFields) return;
       message.error(error.message || '生图连接测试失败');
@@ -159,9 +167,9 @@ export function SettingsPage() {
         <div className="settings-heading">
           <div>
             <Typography.Title level={3}>工作台设置</Typography.Title>
-            <Typography.Paragraph>配置模型服务与前贴桌面宠物。</Typography.Paragraph>
+            <Typography.Paragraph>{canManageApi ? '配置模型服务与前贴桌面宠物。' : '管理你的工作台偏好；模型服务由团队管理员统一提供。'}</Typography.Paragraph>
           </div>
-          <span className="settings-status">本账号配置</span>
+          <span className="settings-status">{canManageApi ? '本账号配置' : '团队托管'}</span>
         </div>
       <Form
         className="settings-form"
@@ -171,41 +179,34 @@ export function SettingsPage() {
         initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: stackyPet.id }}
         onFinish={handleSave}
       >
-        <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
+        {!canManageApi ? <section className="settings-section settings-connection-section" aria-label="团队 API 托管">
+          <div>
+            <h2>模型连接由团队托管</h2>
+            <p>你的 MEMBER 身份不会显示或保存 API Key。{managedBy ? `当前服务绑定至 @${managedBy}。` : '绑定管理员后即可使用团队模型服务。'}</p>
+          </div>
+          <div className="member-managed-note"><KeyRound size={16} /> API 地址、模型和密钥仅 DEV / MANAGER 可以配置；你仍可在下方修改宠物等个人偏好。</div>
+        </section> : null}
+
+        {canManageApi ? <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
           <div>
             <h2 id="settings-connection-title">连接配置</h2>
             <p>选择模型服务并填写访问地址。</p>
           </div>
-          <Form.Item label="API 提供商" name="provider">
-            <Select options={providers} onChange={handleProviderChange} />
-          </Form.Item>
-          <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}>
-            <Input placeholder="https://api.openai.com/v1" />
-          </Form.Item>
-          <Form.Item label="API Key" name="apiKey">
-            <Input.Password placeholder="留空表示不修改已保存的 Key" />
-          </Form.Item>
-        </section>
+          <Form.Item label="API 提供商" name="provider"><Select options={providers} onChange={handleProviderChange} /></Form.Item>
+          <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}><Input placeholder="https://api.openai.com/v1" /></Form.Item>
+          <Form.Item label="API Key" name="apiKey"><Input.Password placeholder="留空表示不修改已保存的 Key" /></Form.Item>
+        </section> : null}
 
         <section className="settings-section settings-model-section" aria-labelledby="settings-model-title">
           <div>
-            <h2 id="settings-model-title">模型与助手</h2>
-            <p>指定默认模型，并确认当前桌面宠物。</p>
+            <h2 id="settings-model-title">{canManageApi ? '模型与助手' : '助手偏好'}</h2>
+            <p>{canManageApi ? '指定默认模型，并确认当前桌面宠物。' : '确认当前桌面宠物和个人交互偏好。'}</p>
           </div>
-          <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}>
-            <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption />
-          </Form.Item>
-          <Form.Item label="前贴宠物" name="petId">
-            <Select options={petOptions} />
-          </Form.Item>
+          {canManageApi ? <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}><AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption /></Form.Item> : null}
+          <Form.Item label="前贴宠物" name="petId"><Select options={petOptions} /></Form.Item>
           <div className="settings-pet-preview" aria-label="当前前贴宠物 CM">
-            <div className="settings-pet-frame">
-              <img src={stackyPet.spritesheetPath} alt="CM" />
-            </div>
-            <div>
-              <Typography.Text strong>{stackyPet.displayName}</Typography.Text>
-              <Typography.Paragraph type="secondary">{stackyPet.description}</Typography.Paragraph>
-            </div>
+            <div className="settings-pet-frame"><img src={stackyPet.spritesheetPath} alt="CM" /></div>
+            <div><Typography.Text strong>{stackyPet.displayName}</Typography.Text><Typography.Paragraph type="secondary">{stackyPet.description}</Typography.Paragraph></div>
           </div>
           <Form.Item label="宠物主动说话" valuePropName="checked">
             <Switch checked={companionActive} onChange={checked => {
@@ -214,42 +215,23 @@ export function SettingsPage() {
               window.dispatchEvent(new CustomEvent(PET_COMPANION_SETTINGS_EVENT, { detail: { active: checked, username } }));
             }} />
           </Form.Item>
-          <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button>
+          {canManageApi ? <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestText} loading={testingText}>测试文本连接</Button> : null}
         </section>
 
-        <section className="settings-section settings-image-section" aria-labelledby="settings-image-title">
-          <div>
-            <h2 id="settings-image-title">生图服务</h2>
-            <p>独立用于水货生产的图片生成，不会复用文本模型的地址或密钥。</p>
-          </div>
-          <Form.Item label="API 提供商" name={['image', 'provider']}>
-            <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }]} disabled />
-          </Form.Item>
-          <Form.Item label="生图模式" name={['image', 'mode']}>
-            <Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }, { label: '自定义（OpenAI 兼容）', value: 'custom' }]} onChange={mode => {
-              if (mode !== 'custom') form.setFieldValue(['image', 'displayName'], '');
-            }} />
-          </Form.Item>
-          {imageMode === 'custom' ? <Form.Item label="供应商名称" name={['image', 'displayName']} rules={[{ required: true, whitespace: true, message: '请输入供应商名称' }]}>
-            <Input placeholder="例如 My image gateway" maxLength={80} />
-          </Form.Item> : null}
-          <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}>
-            <Input placeholder="https://api.openai.com/v1" />
-          </Form.Item>
-          <Form.Item label="API Key" name={['image', 'apiKey']}>
-            <Input.Password placeholder="留空表示不修改已保存的 Key" />
-          </Form.Item>
-          <Form.Item label="生图模型名称" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型名称' }]}>
-            <Input placeholder="例如 gpt-image-1" />
-          </Form.Item>
+        {canManageApi ? <section className="settings-section settings-image-section" aria-labelledby="settings-image-title">
+          <div><h2 id="settings-image-title">生图服务</h2><p>独立用于水货生产的图片生成，不会复用文本模型的地址或密钥。</p></div>
+          <Form.Item label="API 提供商" name={['image', 'provider']}><Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }]} disabled /></Form.Item>
+          <Form.Item label="生图模式" name={['image', 'mode']}><Select options={[{ label: 'OpenAI 兼容', value: 'openai_compatible' }, { label: '自定义（OpenAI 兼容）', value: 'custom' }]} onChange={mode => { if (mode !== 'custom') form.setFieldValue(['image', 'displayName'], ''); }} /></Form.Item>
+          {imageMode === 'custom' ? <Form.Item label="供应商名称" name={['image', 'displayName']} rules={[{ required: true, whitespace: true, message: '请输入供应商名称' }]}><Input placeholder="例如 My image gateway" maxLength={80} /></Form.Item> : null}
+          <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}><Input placeholder="https://api.openai.com/v1" /></Form.Item>
+          <Form.Item label="API Key" name={['image', 'apiKey']}><Input.Password placeholder="留空表示不修改已保存的 Key" /></Form.Item>
+          <Form.Item label="生图模型名称" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型名称' }]}><Input placeholder="例如 gpt-image-1" /></Form.Item>
           <Button icon={<Cable size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleTestImage} loading={testingImage}>测试生图连接</Button>
-        </section>
+        </section> : null}
 
         <div className="settings-savebar">
-          <span>保存后仅更新当前账号的工作台连接配置。</span>
-          <div className="settings-savebar-actions">
-            <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving}>保存设置</Button>
-          </div>
+          <span>{canManageApi ? '保存后仅更新当前账号的工作台连接配置。' : '保存后仅更新当前账号的个人工作台偏好。'}</span>
+          <div className="settings-savebar-actions"><Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} htmlType="submit" loading={saving}>保存设置</Button></div>
         </div>
       </Form>
       </div>
