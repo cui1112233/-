@@ -2,7 +2,7 @@
   display: grid;
   place-items: center;
   padding: 28px;
-  background: linear-gradient(90deg, rgba(2, 4, 12, 0.08), rgba(2, 4, 12, 0.26));
+  background: linear-gradient(90deg, rgba(2, 4, 12, 0.02), rgba(2, 4, 12, 0.10));
   backdrop-filter: none;
 }
 
@@ -20,9 +20,9 @@
   isolation: isolate;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 29px;
-  background: linear-gradient(145deg, rgba(22, 23, 52, 0.8), rgba(8, 10, 25, 0.76));
-  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.42), 0 0 58px rgba(100, 92, 244, 0.19);
-  backdrop-filter: blur(23px) saturate(132%);
+  background: linear-gradient(145deg, rgba(28, 30, 57, 0.52), rgba(8, 10, 25, 0.40));
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.30), 0 0 58px rgba(100, 92, 244, 0.14);
+  backdrop-filter: blur(13px) saturate(118%);
   transform: perspective(1100px) rotateX(var(--login-card-rotate-x)) rotateY(var(--login-card-rotate-y));
   transition: transform 180ms ease-out, box-shadow 240ms ease;
   animation: nebula-login-card-in 620ms cubic-bezier(0.2, 0.85, 0.24, 1) both;
@@ -61,20 +61,6 @@
 
 .nebula-login-brand .brand-logo { width: 126px; height: 30px; }
 
-.nebula-login-icon {
-  display: grid;
-  width: 54px;
-  height: 54px;
-  margin-bottom: 27px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 17px;
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: inset 0 0 24px rgba(160, 143, 255, 0.07), 0 0 22px rgba(134, 121, 255, 0.18);
-}
-
-.nebula-login-icon .brand-logo { width: 34px; height: 34px; filter: drop-shadow(0 0 9px rgba(255, 255, 255, 0.62)); }
-
 .nebula-login-modal h1 {
   margin: 0;
   color: #fbfbff;
@@ -104,16 +90,33 @@
 .nebula-login-modal .nebula-login-form-wrap .ant-form-item-label { padding-bottom: 7px; }
 .nebula-login-modal .nebula-login-form-wrap .ant-form-item-label > label,
 .nebula-login-modal .nebula-login-form-wrap .ant-checkbox-wrapper { color: rgba(230, 232, 248, 0.9); font-size: 12px; }
-.nebula-login-modal .nebula-login-form-wrap .ant-input,
 .nebula-login-modal .nebula-login-form-wrap .ant-input-affix-wrapper {
-  height: 51px;
+  min-height: 51px;
   padding-inline: 14px;
-  border-color: rgba(255, 255, 255, 0.13) !important;
+  border-color: rgba(194, 198, 213, 0.24) !important;
   border-radius: 14px;
-  background: rgba(2, 3, 14, 0.29) !important;
+  background: rgba(86, 90, 108, 0.48) !important;
   color: #fff !important;
   box-shadow: none;
   transition: border-color .2s ease, box-shadow .2s ease;
+}
+.nebula-login-modal .nebula-login-form-wrap > .ant-form .ant-input {
+  height: 51px;
+  padding-inline: 14px;
+  border-color: rgba(194, 198, 213, 0.24) !important;
+  border-radius: 14px;
+  background: rgba(86, 90, 108, 0.48) !important;
+  color: #fff !important;
+  box-shadow: none;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.nebula-login-modal .nebula-login-form-wrap .ant-input-affix-wrapper .ant-input {
+  height: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 .nebula-login-modal .nebula-login-form-wrap .ant-input:focus,
 .nebula-login-modal .nebula-login-form-wrap .ant-input-affix-wrapper:focus,
@@ -144,7 +147,6 @@
   .nebula-login-overlay { padding: 18px; }
   .nebula-login-modal { padding: 30px 24px 25px; }
   .nebula-login-brand { margin-bottom: 19px; }
-  .nebula-login-icon { margin-bottom: 21px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

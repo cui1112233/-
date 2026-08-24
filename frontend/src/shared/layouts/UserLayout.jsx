@@ -263,7 +263,6 @@ export function UserLayout({ children }) {
     <div className="legacy-login-overlay nebula-login-overlay">
       <div className="login-modal nebula-login-modal" ref={loginCardRef} onPointerMove={updateLoginCardParallax} onPointerLeave={resetLoginCardParallax}>
         <div className="nebula-login-brand"><BrandLogo /></div>
-        <div className="nebula-login-icon"><BrandLogo /></div>
         <h1>一战晟铭登录</h1>
         <p className="nebula-login-subtitle">继续你的创作工作流</p>
         <div className="login-form-wrap nebula-login-form-wrap">
