@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>02 · CM Penguin Companion</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0b10;
+      --panel: #11131a;
+      --panel-2: #171a23;
+      --panel-3: #1d2130;
+      --line: rgba(255,255,255,.08);
+      --line-strong: rgba(255,255,255,.14);
+      --text: #f6f7fb;
+      --muted: #9298a8;
+      --faint: #666d7d;
+      --accent: #8f7dff;
+      --accent-2: #66d8ff;
+      --good: #67d7a1;
+      --warn: #ffd27a;
+      --shadow: 0 28px 70px rgba(0,0,0,.42);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 74% 12%, rgba(143,125,255,.10), transparent 28%),
+        radial-gradient(circle at 20% 80%, rgba(102,216,255,.06), transparent 32%),
+        var(--bg);
+      color: var(--text);
+      font: 14px/1.55 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .app { height: 100vh; display: grid; grid-template-columns: 218px minmax(0,1fr); }
+    .sidebar {
+      border-right: 1px solid var(--line);
+      padding: 22px 14px;
+      background: rgba(11,12,17,.88);
+      backdrop-filter: blur(18px);
+    }
+    .brand { display:flex; align-items:center; gap:10px; padding: 0 10px 23px; font-weight: 760; letter-spacing: .02em; }
+    .brand-mark { width: 31px; height: 31px; border-radius: 10px; display:grid; place-items:center; background: linear-gradient(145deg,#8174ff,#54c8ff); box-shadow:0 8px 24px rgba(99,113,255,.28); }
+    .nav-title { margin: 20px 10px 8px; color: var(--faint); font-size: 11px; letter-spacing: .12em; }
+    .nav { display:grid; gap:4px; }
+    .nav button { width:100%; border:0; border-radius:10px; padding:10px 12px; background:transparent; color:var(--muted); text-align:left; cursor:pointer; }
+    .nav button.active { color: var(--text); background: rgba(255,255,255,.065); box-shadow: inset 2px 0 var(--accent); }
+    .workspace { min-width:0; display:flex; flex-direction:column; }
+    .topbar { height:58px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--line); background:rgba(10,11,16,.76); backdrop-filter:blur(18px); }
+    .crumb { color:var(--muted); font-size:13px; }
+    .design-tag { border:1px solid var(--line-strong); border-radius:999px; padding:5px 10px; color:#c8c4ff; background:rgba(143,125,255,.08); font-size:12px; }
+    .content { min-height:0; flex:1; display:grid; grid-template-columns:minmax(330px, .8fr) minmax(520px,1.2fr); gap:14px; padding:14px; }
+    .column { min-height:0; border:1px solid var(--line); border-radius:16px; background:rgba(17,19,26,.78); overflow:hidden; box-shadow:0 14px 50px rgba(0,0,0,.16); }
+    .column-head { display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--line); }
+    .column-head strong { font-size:14px; }
+    .column-head small { color:var(--muted); }
+    .left-scroll { height:calc(100% - 57px); overflow:auto; padding:16px; }
+    .source { min-height:128px; border:1px solid var(--line); border-radius:14px; padding:14px; background:#0d0f15; color:#b7bdca; }
+    .section-title { display:flex; align-items:center; justify-content:space-between; margin:18px 2px 9px; }
+    .section-title span { color:var(--muted); font-size:12px; }
+    .entity { position:relative; border:1px solid var(--line); border-radius:14px; padding:13px 14px; margin-bottom:8px; background:rgba(255,255,255,.025); cursor:pointer; transition:.2s ease; }
+    .entity:hover { transform:translateY(-1px); border-color:var(--line-strong); }
+    .entity.selected { border-color:rgba(143,125,255,.68); background:linear-gradient(120deg,rgba(143,125,255,.10),rgba(102,216,255,.035)); box-shadow:0 0 0 1px rgba(143,125,255,.12) inset; }
+    .entity-line { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .entity strong { font-size:14px; }
+    .entity p { margin:7px 0 0; color:var(--muted); font-size:12px; }
+    .pill { border:1px solid var(--line); border-radius:999px; padding:2px 7px; color:var(--muted); font-size:11px; }
+    .right { display:flex; flex-direction:column; }
+    .toolbar { display:flex; gap:8px; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); }
+    .toolbar button { border:1px solid var(--line); border-radius:9px; padding:7px 10px; background:var(--panel-2); color:var(--muted); }
+    .toolbar button.primary { margin-left:auto; color:white; border-color:transparent; background:linear-gradient(135deg,#7968ff,#646fff); }
+    .script { flex:1; overflow:auto; padding:24px 28px; color:#c1c6d1; line-height:1.9; }
+    .script h2 { color:#fff; margin:0 0 18px; font-size:18px; }
+    .constraint-strip { margin:0 28px 24px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+    .constraint-strip > span:first-child { color:var(--muted); font-size:12px; margin-right:2px; }
+    .constraint-ref { display:flex; align-items:center; gap:6px; border:1px solid rgba(102,216,255,.22); background:rgba(102,216,255,.055); border-radius:999px; padding:5px 9px; color:#c9f2ff; font-size:12px; }
+    .constraint-ref i { width:6px; height:6px; border-radius:50%; background:var(--good); box-shadow:0 0 10px rgba(103,215,161,.7); }
+
+    /* Companion */
+    .cm-shell { position:fixed; z-index:30; right:26px; bottom:20px; width:150px; height:155px; pointer-events:none; }
+    .cm-aura { position:absolute; left:31px; bottom:7px; width:90px; height:25px; border-radius:50%; background:radial-gradient(ellipse,rgba(117,103,255,.25),transparent 68%); filter:blur(5px); opacity:.65; }
+    .cm-sprite { position:absolute; right:15px; bottom:0; width:120px; height:130px; overflow:hidden; pointer-events:auto; cursor:pointer; filter:drop-shadow(0 12px 12px rgba(0,0,0,.28)); animation:bob 2.2s ease-in-out infinite; }
+    .cm-sprite img { display:block; width:960px; height:1430px; transform:translate(0,0); image-rendering:pixelated; }
+    @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
+    .cm-status { position:absolute; right:12px; bottom:1px; pointer-events:none; border-radius:999px; padding:3px 7px; background:#151923; border:1px solid var(--line-strong); color:#aab1c2; font-size:10px; box-shadow:0 5px 14px rgba(0,0,0,.3); }
+    .cm-bubble { position:fixed; z-index:29; right:116px; bottom:128px; width:240px; padding:12px 14px; border:1px solid var(--line-strong); border-radius:16px 16px 5px 16px; background:rgba(20,23,31,.94); box-shadow:var(--shadow); color:#e9ebf2; backdrop-filter:blur(18px); transform-origin:right bottom; transition:.18s ease; }
+    .cm-bubble.hidden { opacity:0; transform:scale(.92) translateY(8px); pointer-events:none; }
+    .cm-bubble small { display:block; margin-top:4px; color:var(--muted); }
+
+    .cm-panel { position:fixed; z-index:28; right:128px; bottom:50px; width:390px; max-height:min(610px, calc(100vh - 100px)); display:flex; flex-direction:column; overflow:hidden; border:1px solid rgba(255,255,255,.13); border-radius:22px 22px 9px 22px; background:rgba(18,20,27,.96); box-shadow:0 30px 90px rgba(0,0,0,.5); backdrop-filter:blur(24px); transform-origin:right bottom; transition:.2s ease; }
+    .cm-panel.hidden { opacity:0; transform:scale(.94) translate(10px,8px); pointer-events:none; }
+    .cm-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:16px 17px 13px; border-bottom:1px solid var(--line); }
+    .cm-title { display:flex; align-items:center; gap:9px; }
+    .cm-mini { width:27px; height:29px; overflow:hidden; border-radius:8px; background:#0f1118; }
+    .cm-mini img { width:216px; height:321.75px; transform:translate(0,0); image-rendering:pixelated; }
+    .cm-title strong { display:block; line-height:1.1; }
+    .cm-title span { color:var(--muted); font-size:11px; }
+    .cm-close { border:0; border-radius:8px; width:28px; height:28px; background:transparent; color:var(--muted); cursor:pointer; }
+    .context-row { display:flex; gap:6px; flex-wrap:wrap; padding:11px 16px 0; }
+    .context-chip { border:1px solid rgba(143,125,255,.22); border-radius:999px; padding:4px 8px; background:rgba(143,125,255,.07); color:#c9c4ff; font-size:11px; }
+    .context-chip.selection { border-color:rgba(102,216,255,.25); background:rgba(102,216,255,.055); color:#caf3ff; }
+    .history { min-height:0; overflow:auto; display:flex; flex-direction:column; gap:11px; padding:14px 16px; }
+    .msg { max-width:92%; border-radius:14px; padding:10px 12px; white-space:pre-wrap; }
+    .msg.cm { align-self:flex-start; background:var(--panel-2); border:1px solid var(--line); }
+    .msg.user { align-self:flex-end; background:rgba(143,125,255,.13); border:1px solid rgba(143,125,255,.18); }
+    .proposal { border:1px solid rgba(103,215,161,.2); border-radius:15px; overflow:hidden; background:rgba(103,215,161,.035); }
+    .proposal-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid rgba(103,215,161,.12); }
+    .proposal-head strong { font-size:12px; color:#cbf4df; }
+    .proposal-head span { color:var(--muted); font-size:10px; }
+    .change { padding:10px 12px; }
+    .change label { display:block; color:var(--muted); font-size:10px; margin-bottom:3px; }
+    .change del { display:block; color:#8c929f; text-decoration-color:#b45f6d; font-size:12px; }
+    .change ins { display:block; margin-top:5px; color:#e8ebf1; text-decoration:none; font-size:12px; }
+    .proposal-actions { display:flex; gap:7px; padding:0 12px 12px; }
+    .proposal-actions button { flex:1; border:1px solid var(--line); border-radius:9px; padding:7px 9px; background:var(--panel-2); cursor:pointer; }
+    .proposal-actions button.apply { border-color:rgba(103,215,161,.3); background:rgba(103,215,161,.12); color:#cff6e1; }
+    .quick-actions { display:flex; gap:6px; padding:0 16px 11px; overflow:auto; }
+    .quick-actions button { flex:0 0 auto; border:1px solid var(--line); border-radius:999px; padding:5px 9px; background:transparent; color:var(--muted); font-size:11px; cursor:pointer; }
+    .composer { display:grid; grid-template-columns:minmax(0,1fr) 36px; gap:8px; padding:12px; border-top:1px solid var(--line); background:rgba(11,13,18,.76); }
+    .composer input { min-width:0; border:1px solid var(--line-strong); border-radius:11px; padding:9px 11px; outline:0; background:#0d0f15; color:var(--text); }
+    .composer input:focus { border-color:rgba(143,125,255,.55); box-shadow:0 0 0 3px rgba(143,125,255,.08); }
+    .send { border:0; border-radius:11px; background:linear-gradient(135deg,#7968ff,#6679ff); cursor:pointer; }
+    .agent-link { display:flex; justify-content:space-between; align-items:center; margin:0 16px 12px; border:1px solid var(--line); border-radius:11px; padding:8px 10px; color:var(--muted); background:rgba(255,255,255,.02); font-size:11px; cursor:pointer; }
+    .toast { position:fixed; left:50%; bottom:28px; z-index:50; transform:translate(-50%,20px); opacity:0; pointer-events:none; border:1px solid rgba(103,215,161,.28); border-radius:999px; padding:8px 13px; background:#15221c; color:#d9f7e7; box-shadow:var(--shadow); transition:.2s ease; }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+    .hint { position:fixed; z-index:2; left:242px; bottom:18px; color:#5f6675; font-size:11px; }
+    @media(max-width:900px){ .app{grid-template-columns:1fr}.sidebar{display:none}.content{grid-template-columns:1fr}.left-scroll{display:none}.content>.column:first-child{display:none}.cm-panel{right:18px;width:min(390px,calc(100vw - 36px))}.cm-bubble{right:92px}.hint{left:16px} }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">一</div><span>一战晟铭</span></div>
+      <div class="nav-title">创作</div>
+      <div class="nav">
+        <button>首页</button>
+        <button class="active">剧本生成</button>
+        <button>小说面板</button>
+        <button>水货生产</button>
+        <button>配音</button>
+      </div>
+      <div class="nav-title">AI</div>
+      <div class="nav"><button>Agent 工作区</button><button>历史记录</button></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="crumb">剧本生成 / 人物与场景</div>
+        <div class="design-tag">02 · CM Penguin Companion</div>
+      </header>
+      <div class="content">
+        <section class="column">
+          <div class="column-head"><strong>小说原文与实体</strong><small>已提取</small></div>
+          <div class="left-scroll">
+            <div class="source">林晚站在雨里，看着周泽从巷口走来。她没有退，只是把手里的文件攥得更紧。周泽停在她面前，两个人沉默了很久……</div>
+            <div class="section-title"><strong>人物</strong><span>2 个</span></div>
+            <article class="entity selected" data-entity="linwan">
+              <div class="entity-line"><strong>林晚</strong><span class="pill">主角</span></div>
+              <p id="linwanSummary">金融公司高管 · 冷静、理性、强势 · 黑色长发</p>
+            </article>
+            <article class="entity"><div class="entity-line"><strong>周泽</strong><span class="pill">人物</span></div><p>自由摄影师 · 温和但固执 · 黑色短发</p></article>
+            <div class="section-title"><strong>场景</strong><span>1 个</span></div>
+            <article class="entity"><div class="entity-line"><strong>旧城区雨巷</strong><span class="pill">夜</span></div><p>潮湿、狭窄、路灯偏冷，适合压迫和重逢情绪。</p></article>
+          </div>
+        </section>
+
+        <section class="column right">
+          <div class="column-head"><strong>剧本结果</strong><small>画布模式 · 15s</small></div>
+          <div class="toolbar"><button>约束设置</button><button>编辑</button><button>撤销</button><button class="primary">生成剧本</button></div>
+          <div class="script">
+            <h2>镜头 01 · 雨巷重逢</h2>
+            <p>夜。雨线斜切过昏暗的巷口。林晚站在路灯下，肩背挺得很直，手里的文件边角已经被攥皱。</p>
+            <p><b>周泽：</b>“你还是来了。”</p>
+            <p><b>林晚：</b>“我只是来把该说的话说完。”</p>
+            <p>她语气很硬，却在周泽抬眼看她的一刻，下意识避开视线。</p>
+          </div>
+          <div class="constraint-strip">
+            <span>约束引用</span>
+            <div class="constraint-ref" id="constraintRef"><i></i><span>林晚 · 外貌一致性</span></div>
+            <div class="constraint-ref"><i></i><span>旧城区雨巷 · 场景一致性</span></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="cm-bubble" id="bubble">又在改人物啊？<small>点我，直接说哪里不满意。</small></div>
+  <section class="cm-panel hidden" id="panel" aria-label="CM 宠物对话原型">
+    <header class="cm-panel-head">
+      <div class="cm-title">
+        <div class="cm-mini"><img src="../../../pets/stacky/spritesheet.webp" alt="" /></div>
+        <div><strong>CM</strong><span>你的创作搭档</span></div>
+      </div>
+      <button class="cm-close" id="close">×</button>
+    </header>
+    <div class="context-row">
+      <span class="context-chip">剧本生成</span>
+      <span class="context-chip">人物</span>
+      <span class="context-chip selection">当前：林晚</span>
+    </div>
+    <div class="history" id="history">
+      <div class="msg cm">我看到你现在选中了「林晚」。你可以直接说“她哪里不对”，不用再把人物设定复制给我。</div>
+      <div class="msg user">她太强势了。我想要外表强势，其实很没安全感；跟周泽说话也不要那么咄咄逼人。还有，右眼下加一颗泪痣，以后生成都要保持。</div>
+      <div class="msg cm">明白。我会保留她的外在控制感，但把核心变成“用强势保护脆弱”，同时降低她面对周泽时的攻击性。泪痣我会作为稳定视觉特征，并继续由约束引用这个人物实体。</div>
+      <div class="proposal" id="proposal">
+        <div class="proposal-head"><strong>准备修改 · 林晚</strong><span>character.update + constraint.bind</span></div>
+        <div class="change"><label>性格</label><del>冷静、理性、强势</del><ins>表面冷静强势，习惯掌控局面；内心缺乏安全感，对亲密关系敏感。面对周泽时更克制，更多表现为试探和嘴硬。</ins></div>
+        <div class="change"><label>外形</label><del>黑色长发</del><ins>黑色齐肩短发，右眼下方一颗浅色泪痣。</ins></div>
+        <div class="proposal-actions"><button>继续调整</button><button class="apply" id="apply">应用修改</button></div>
+      </div>
+    </div>
+    <div class="quick-actions"><button data-prompt="分析当前人物">分析当前人物</button><button data-prompt="检查人物冲突">检查设定冲突</button><button data-prompt="优化当前剧本">优化当前剧本</button></div>
+    <button class="agent-link" id="agentLink"><span>问题变复杂了？带着当前上下文继续</span><b>Agent 工作区 ↗</b></button>
+    <form class="composer" id="composer"><input id="question" placeholder="直接问 CM，例如：她再嘴硬一点" /><button class="send" type="submit">↑</button></form>
+  </section>
+  <div class="cm-shell">
+    <div class="cm-aura"></div>
+    <div class="cm-sprite" id="pet" role="button" tabindex="0" aria-label="打开 CM"><img src="../../../pets/stacky/spritesheet.webp" alt="CM" /></div>
+    <div class="cm-status">CM · 空闲</div>
+  </div>
+  <div class="toast" id="toast">已应用：人物表和约束引用已同步</div>
+  <div class="hint">原型操作：点右下角 CM → “应用修改” → 查看左侧人物与约束引用变化</div>
+
+  <script>
+    const panel = document.querySelector('#panel');
+    const bubble = document.querySelector('#bubble');
+    const pet = document.querySelector('#pet');
+    const close = document.querySelector('#close');
+    const apply = document.querySelector('#apply');
+    const toast = document.querySelector('#toast');
+    const summary = document.querySelector('#linwanSummary');
+    const constraintRef = document.querySelector('#constraintRef span');
+    const history = document.querySelector('#history');
+    const composer = document.querySelector('#composer');
+    const question = document.querySelector('#question');
+
+    function openPanel() {
+      panel.classList.remove('hidden');
+      bubble.classList.add('hidden');
+      window.setTimeout(() => question.focus(), 120);
+    }
+    function closePanel() {
+      panel.classList.add('hidden');
+      bubble.classList.remove('hidden');
+    }
+    pet.addEventListener('click', openPanel);
+    pet.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') openPanel(); });
+    close.addEventListener('click', closePanel);
+
+    apply.addEventListener('click', () => {
+      summary.textContent = '金融公司高管 · 外强内脆弱、缺乏安全感 · 黑色齐肩短发 · 右眼下泪痣';
+      constraintRef.textContent = '林晚 · 外貌一致性（已同步新特征）';
+      document.querySelector('#proposal').style.opacity = '.58';
+      apply.textContent = '已应用 ✓';
+      apply.disabled = true;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    });
+
+    document.querySelectorAll('[data-prompt]').forEach(button => {
+      button.addEventListener('click', () => { question.value = button.dataset.prompt; question.focus(); });
+    });
+
+    composer.addEventListener('submit', event => {
+      event.preventDefault();
+      const text = question.value.trim();
+      if (!text) return;
+      const user = document.createElement('div');
+      user.className = 'msg user';
+      user.textContent = text;
+      const cm = document.createElement('div');
+      cm.className = 'msg cm';
+      cm.textContent = '原型里我会继续沿用当前选择「林晚」和这个页面的能力，不需要你重新说明上下文。正式实现时这里会返回结构化修改建议和可应用操作。';
+      history.append(user, cm);
+      question.value = '';
+      history.scrollTop = history.scrollHeight;
+    });
+
+    document.querySelector('#agentLink').addEventListener('click', () => {
+      toast.textContent = '正式版：携带当前对话 + 页面 + 林晚上下文进入 Agent';
+      toast.classList.add('show');
+      setTimeout(() => { toast.classList.remove('show'); toast.textContent = '已应用：人物表和约束引用已同步'; }, 2400);
+    });
+  </script>
+</body>
+</html>
