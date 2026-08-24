@@ -1,6 +1,6 @@
 {
   "name": "yizhan-local-executor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "author": "一战晟铭",
   "description": "一战晟铭本地视频执行器",
@@ -14,6 +14,7 @@
     "appId": "com.yizhan.shengming.executor",
     "productName": "一战晟铭本地执行器",
     "directories": { "output": "release" },
+    "icon": "src/assets/app-icon",
     "files": ["src/**/*", "package.json"],
     "win": { "target": ["portable"], "artifactName": "一战晟铭本地执行器-${version}-win-x64.${ext}" },
     "mac": { "target": ["dmg"], "artifactName": "一战晟铭本地执行器-${version}-mac-arm64.${ext}", "category": "public.app-category.productivity" }
