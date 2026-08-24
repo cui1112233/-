@@ -1,9 +1,7 @@
 import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
 import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, X } from 'lucide-react';
-import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
+import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
-import SuperOpcLiquidMetalLogo from '../components/SuperOpcLiquidMetalLogo';
-import { Lanyard } from '../components/lanyard/Lanyard';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
@@ -12,6 +10,11 @@ import { AVATAR_PRESETS, avatarDisplay } from '../avatars';
 import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
+
+// 3D 登录吊牌会携带 Three.js / Rapier；动态 Logo 也包含 WebGL shader。
+// 二者不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
+const Lanyard = lazy(() => import('../components/lanyard/Lanyard').then(module => ({ default: module.Lanyard })));
+const SuperOpcLiquidMetalLogo = lazy(() => import('../components/SuperOpcLiquidMetalLogo'));
 
 const navItems = [
   { href: '/', icon: Home, label: '首页' },
@@ -270,14 +273,16 @@ export function UserLayout({ children }) {
     <div className={`legacy-login-overlay${loginCardDocked ? ' is-card-docked' : ''}${loginCardTransitioning ? ' is-card-launching' : ''}`}>
       {showLanyardCard ? (
         <div className="login-lanyard-card">
-          <Lanyard
-            position={[0, 0, 22]}
-            gravity={[0, -40, 0]}
-            frontImage="/assets/logo-transparent.png"
-            backImage="/assets/logo.jpg"
-            lanyardWidth={2.2}
-            onCardClick={openLoginDialog}
-          />
+          <Suspense fallback={<BrandLogo className="login-lanyard-fallback" />}>
+            <Lanyard
+              position={[0, 0, 22]}
+              gravity={[0, -40, 0]}
+              frontImage="/assets/logo-transparent.png"
+              backImage="/assets/logo.jpg"
+              lanyardWidth={2.2}
+              onCardClick={openLoginDialog}
+            />
+          </Suspense>
           <span className="login-lanyard-label">点击吊牌登录</span>
         </div>
       ) : (
@@ -345,7 +350,9 @@ export function UserLayout({ children }) {
             {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           </button>
           <Link href="/" className="legacy-brand-link">
-            <SuperOpcLiquidMetalLogo theme={theme} scale={1} className="legacy-brand-logo" />
+            <Suspense fallback={<BrandLogo className="legacy-brand-logo" />}>
+              <SuperOpcLiquidMetalLogo theme={theme} scale={1} className="legacy-brand-logo" />
+            </Suspense>
             <span className="legacy-brand-title">一战晟铭</span>
           </Link>
         </div>
