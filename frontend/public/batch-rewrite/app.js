@@ -1622,23 +1622,28 @@ function renderWebSubmitHistory(records = []) {
   const rows = asArray(records).map((item) => {
     const allocation = item.material_allocation || {};
     const allocationText = allocation.jieyaNum === undefined ? "" : `解压 ${allocation.jieyaNum} / 滚屏 ${allocation.gunpingNum}`;
-    return `<div class="site-file-row">
-      <code>${escapeHtml(item.book_id || "")}</code>
-      <span>${escapeHtml(item.book_name || "")}</span>
-      <span>${escapeHtml(item.version || "")}</span>
-      <span class="${statusClass(item.status)}">${escapeHtml(item.status || "")}</span>
-      <span>${escapeHtml(allocationText)}</span>
-      <span>${escapeHtml(item.time || "")}</span>
-      <span>${escapeHtml(item.error || "")}</span>
+    return `<div class="site-history-row">
+      <code title="${escapeHtml(item.book_id || "")}">${escapeHtml(item.book_id || "")}</code>
+      <span class="site-history-name" title="${escapeHtml(item.book_name || "")}">${escapeHtml(item.book_name || "-")}</span>
+      <span>${escapeHtml(item.version || "-")}</span>
+      <span class="${statusClass(item.status)}">${escapeHtml(item.status || "-")}</span>
+      <span>${escapeHtml(allocationText || "-")}</span>
+      <time title="${escapeHtml(item.time || "")}">${escapeHtml(item.time || "-")}</time>
+      <span class="site-history-error" title="${escapeHtml(item.error || "")}">${escapeHtml(item.error || "-")}</span>
     </div>`;
   }).join("");
-  box.innerHTML = rows || `<div class="log-row">暂无实际网站提交记录。</div>`;
+  box.innerHTML = rows ? `<div class="site-history-table">
+    <div class="site-history-row site-history-head"><span>书籍 ID</span><span>书名</span><span>版本</span><span>状态</span><span>素材</span><span>提交时间</span><span>结果 / 错误</span></div>
+    ${rows}
+  </div>` : `<div class="log-row">暂无实际网站提交记录。</div>`;
 }
 
 async function loadWebSubmitHistory() {
   try {
     const data = await api("/api/web-submit/history");
     renderWebSubmitHistory(data.records || []);
+    // 刷新或重新进入页面时，继续展示最近一次真实提交组的状态，避免只剩单条日志。
+    if (asArray(data.groups).length) renderWebSubmitGroups({ groups: data.groups, skipped: [] });
   } catch (error) {
     const box = $("siteSubmitHistory");
     if (box) box.innerHTML = `<div class="log-row">${escapeHtml(error.message || "提交历史读取失败")}</div>`;

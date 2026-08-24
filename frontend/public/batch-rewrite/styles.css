@@ -751,6 +751,58 @@ td.id-cell {
   font-weight: 700;
 }
 
+.site-submit-history {
+  margin-top: 16px;
+}
+
+.site-history-table {
+  min-width: 980px;
+}
+
+.site-history-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.1fr) minmax(130px, 1fr) 70px 100px 130px minmax(150px, 1fr) minmax(210px, 1.6fr);
+  align-items: start;
+  gap: 12px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.site-history-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-top: 0;
+  color: var(--text);
+  font-weight: 700;
+  background: var(--panel-soft);
+}
+
+.site-history-row code {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.site-history-name,
+.site-history-error {
+  overflow-wrap: anywhere;
+}
+
+.site-history-row time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.site-submit-history .logs-list {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
 .site-output {
   margin: 10px 0 0;
   max-height: 220px;
