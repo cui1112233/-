@@ -152,7 +152,9 @@ export function registerCmBridge(options = {}) {
     if (activeBridge !== bridge) return;
     activeBridge = null;
     dispatchCmBridgeContext({ page: bridge.page, pagePath: bridge.pagePath, capabilities: inferredCapabilities(bridge.pagePath), canApply: false });
-    dispatchCmSelection(null);
+    Promise.resolve().then(() => {
+      if (!activeBridge || activeBridge.pagePath !== bridge.pagePath) dispatchCmSelection(null);
+    });
   };
 }
 
@@ -171,8 +173,12 @@ export function dispatchCmAction(action, meta = {}) {
   const bridge = activeBridge;
   if (!bridge || typeof bridge.apply !== 'function' || !bridge.capabilities.includes(normalized.type)) return requestId;
 
-  Promise.resolve()
-    .then(() => bridge.apply(normalized, detail.meta))
+  actionTail = actionTail
+    .catch(() => undefined)
+    .then(() => {
+      if (activeBridge !== bridge) throw new Error('页面已经切换，本次修改未应用。');
+      return bridge.apply(normalized, detail.meta);
+    })
     .then(result => {
       dispatchCmActionResult(requestId, {
         ok: result?.ok !== false,
@@ -192,8 +198,14 @@ export function dispatchCmUndo(undoToken) {
   if (typeof window === 'undefined' || !undoToken) return;
   const token = text(undoToken, 240);
   window.dispatchEvent(new CustomEvent(CM_BRIDGE_UNDO_EVENT, { detail: { undoToken: token } }));
-  if (!activeBridge || typeof activeBridge.undo !== 'function') return;
-  Promise.resolve(activeBridge.undo(token))
+  const bridge = activeBridge;
+  if (!bridge || typeof bridge.undo !== 'function') return;
+  actionTail = actionTail
+    .catch(() => undefined)
+    .then(() => {
+      if (activeBridge !== bridge) return undefined;
+      return bridge.undo(token);
+    })
     .then(() => refreshCmBridgeContext())
     .catch(() => undefined);
 }
