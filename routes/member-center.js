@@ -26,10 +26,15 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   if (!memberStore) throw new Error('memberStore is required');
   if (!usageStore) throw new Error('usageStore is required');
   if (!avatarsDir) throw new Error('avatarsDir is required');
-  if (!accountStore) throw new Error('accountStore is required');
 
   const router = express.Router();
   router.use(apiAuth);
+
+  function getAccountStore(req) {
+    const resolved = accountStore || req.app?.locals?.authRuntime?.accountStore;
+    if (!resolved) throw new Error('accountStore is required');
+    return resolved;
+  }
 
   function requireDev(req, res) {
     const self = memberStore.getMember(req.username);
@@ -129,7 +134,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
         boundTo: resolvedBoundTo
       });
       if (member.role === 'dev') {
-        ensureDevBackendPermissions(accountStore, member);
+        ensureDevBackendPermissions(getAccountStore(req), member);
         member = memberStore.getMember(member.username);
       }
       return res.status(201).json({ member });
@@ -142,7 +147,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     try {
       let member = memberStore.updateManagedMember(req.username, req.params.username, req.body || {});
       if (member.role === 'dev') {
-        ensureDevBackendPermissions(accountStore, member);
+        ensureDevBackendPermissions(getAccountStore(req), member);
         member = memberStore.getMember(member.username);
       }
       return res.json({ member });
@@ -184,7 +189,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   router.get('/team/backend-grants', (req, res) => {
     try {
       if (!requireDev(req, res)) return;
-      return res.json({ grants: accountStore.listGrants() });
+      return res.json({ grants: getAccountStore(req).listGrants() });
     } catch (error) {
       return sendMemberError(res, error);
     }
@@ -193,11 +198,12 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   router.post('/team/backend-grants', (req, res) => {
     try {
       if (!requireDev(req, res)) return;
+      const store = getAccountStore(req);
       const subject = req.body?.subject;
       const target = memberStore.getMember(subject);
       if (!target || target.isOwner) return res.status(400).json({ error: '目标成员不合法' });
-      const actor = devGrantActor(accountStore, req.username);
-      const grant = accountStore.grant(actor, subject, {
+      const actor = devGrantActor(store, req.username);
+      const grant = store.grant(actor, subject, {
         capability: req.body?.capability,
         scope: req.body?.scope || '*'
       });
@@ -210,8 +216,9 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   router.delete('/team/backend-grants/:id', (req, res) => {
     try {
       if (!requireDev(req, res)) return;
-      const actor = devGrantActor(accountStore, req.username);
-      const grant = accountStore.revokeGrant(actor, req.params.id);
+      const store = getAccountStore(req);
+      const actor = devGrantActor(store, req.username);
+      const grant = store.revokeGrant(actor, req.params.id);
       return res.json({ grant });
     } catch (error) {
       return sendMemberError(res, error);
