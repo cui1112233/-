@@ -1640,9 +1640,21 @@ function webSubmitRequestPayload(mode, force = false) {
   };
 }
 
+function showWebSubmitSelectionRequired() {
+  $("siteSubmitGroups").innerHTML = `
+    <div class="site-group-card">
+      <div class="site-group-head"><b>还没有选中任务</b><span class="status-warn">需要先选择</span></div>
+      <div class="site-skipped-list">
+        <div class="site-skipped-row"><code>下一步</code><span>切换到“任务列表”，勾选每条任务最左侧的复选框；再回到这里预览或提交选中任务。</span></div>
+      </div>
+    </div>
+  `;
+}
+
 async function previewWebSubmit(mode) {
   if (mode === "selected" && !selectedTaskIds().length) {
     setSiteSubmitStatus("先选择任务");
+    showWebSubmitSelectionRequired();
     return;
   }
   setSiteSubmitStatus("正在预览网站提交分组...");
@@ -1662,6 +1674,7 @@ async function previewWebSubmit(mode) {
 async function submitWebSubmit(mode) {
   if (mode === "selected" && !selectedTaskIds().length) {
     setSiteSubmitStatus("先选择任务");
+    showWebSubmitSelectionRequired();
     return;
   }
   const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedTaskIds().length} 个选中任务`);
