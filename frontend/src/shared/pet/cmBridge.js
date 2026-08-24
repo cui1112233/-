@@ -21,7 +21,9 @@ export const CM_ACTION_TYPES = Object.freeze([
   'asset.create',
   'segment.update',
   'segment.bindAsset',
-  'tts.update'
+  'tts.update',
+  'novel.source.update',
+  'novel.selection.replace'
 ]);
 
 const actionTypes = new Set(CM_ACTION_TYPES);
@@ -31,7 +33,8 @@ let actionTail = Promise.resolve();
 const defaultCapabilities = {
   '/script': ['character.update', 'character.create', 'character.setProtagonist', 'scene.update', 'scene.create', 'script.replace', 'script.insert', 'shot.update', 'constraint.bind', 'constraint.update'],
   '/shuihuo-production': ['asset.update', 'asset.create', 'segment.update', 'segment.bindAsset'],
-  '/tts': ['tts.update']
+  '/tts': ['tts.update'],
+  '/novel-panel': ['novel.source.update', 'novel.selection.replace']
 };
 
 function text(value, limit = 240) {
