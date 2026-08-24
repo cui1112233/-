@@ -9,7 +9,7 @@ const { createScriptConstraintPromptStore } = require('./lib/script-constraint-p
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
-const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder } = require('./lib/team-model-runtime');
+const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder, estimateTextTokens } = require('./lib/team-model-runtime');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
@@ -37,6 +37,20 @@ const { seedAgentSkills } = require('./lib/agent-skill-catalog');
 const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
+
+const NOVEL_PANEL_MODEL_PATHS = new Set([
+  '/analyze',
+  '/optimize-character-copy',
+  '/optimize-character',
+  '/optimize-all-characters',
+  '/outline-scenes',
+  '/regenerate-scene-outline',
+  '/generate-scene-prompts',
+  '/optimize-style-copy',
+  '/instruction-assist',
+  '/character-core/analyze',
+  '/settings/test'
+]);
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, memberStore, usageStore } = {}) {
   const app = express();
@@ -94,6 +108,51 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
         ...(error?.code ? { code: error.code } : {})
       });
     }
+  }
+
+  function trackNovelPanelUsage(req, res, next) {
+    if (req.method !== 'POST' || !NOVEL_PANEL_MODEL_PATHS.has(req.path)) return next();
+    let access;
+    try {
+      access = teamConfigReader(req.username)?.__qiantieAccess;
+    } catch {
+      return next();
+    }
+    if (!access) return next();
+
+    const startedAt = Date.now();
+    const originalJson = res.json.bind(res);
+    let recorded = false;
+    res.json = body => {
+      if (!recorded) {
+        recorded = true;
+        const inputTokens = estimateTextTokens(req.body || {});
+        const outputTokens = estimateTextTokens(body || {});
+        resolvedUsageStore.record({
+          username: access.member.username,
+          billedTo: access.billedTo,
+          teamOwner: access.teamOwner,
+          feature: 'novel-panel',
+          provider: access.config?.provider || '',
+          model: access.config?.model || '',
+          status: res.statusCode < 400 ? 'success' : 'completed_error',
+          usage: {
+            prompt_tokens: inputTokens,
+            completion_tokens: outputTokens,
+            total_tokens: inputTokens + outputTokens
+          },
+          metadata: {
+            operation: req.path,
+            statusCode: res.statusCode,
+            usageEstimated: true,
+            estimateBasis: 'request-response-text',
+            elapsedMs: Math.max(0, Date.now() - startedAt)
+          }
+        });
+      }
+      return originalJson(body);
+    };
+    return next();
   }
 
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
@@ -171,7 +230,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   // 路由挂载
   app.get('/api/build-info', (req, res) => {
-    res.json({ app_version: 'v78-member-center', build_id: 'v78-member-center-v1' });
+    res.json({ app_version: 'v78-member-center', build_id: '01-aurum-member-hub' });
   });
   app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore)); // POST /api/login
   app.use('/api/member', createMemberCenterRouter({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, avatarsDir }));
@@ -189,7 +248,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     }
     return next();
   });
-  app.use('/api/novel-panel', novelPanelApiRouter);
+  app.use('/api/novel-panel', apiAuth, trackNovelPanelUsage, novelPanelApiRouter);
 
   app.use('/api/config', configRouter); // GET/POST /api/config
 
