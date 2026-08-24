@@ -6,8 +6,24 @@ const { apiAuth } = require('../middleware/auth');
 
 const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
-function createAuthRouter(runtime = createAuthRuntime()) {
+function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
   const router = express.Router();
+
+  function sessionShape(account, effectivePermissions) {
+    const member = memberStore?.getMember(account.username);
+    return {
+      username: account.username,
+      displayName: member?.displayName || account.username,
+      avatarUrl: member?.avatarUrl || null,
+      role: member?.role || (account.isOwner ? 'dev' : 'member'),
+      boundTo: member?.boundTo || null,
+      monthlyTokenLimit: member?.monthlyTokenLimit ?? null,
+      apiEnabled: member?.apiEnabled ?? account.isOwner,
+      active: account.active,
+      isOwner: account.isOwner,
+      effectivePermissions
+    };
+  }
 
   // POST /api/login — 登录（无需鉴权）
   router.post('/', (req, res) => {
@@ -39,10 +55,7 @@ function createAuthRouter(runtime = createAuthRuntime()) {
     }
     res.json({
       token,
-      username: account.username,
-      active: account.active,
-      isOwner: account.isOwner,
-      effectivePermissions: runtime.accountStore.effectivePermissions(account)
+      ...sessionShape(account, runtime.accountStore.effectivePermissions(account))
     });
   });
 
@@ -57,12 +70,7 @@ function createAuthRouter(runtime = createAuthRuntime()) {
   });
 
   router.get('/session', apiAuth, (req, res) => {
-    res.json({
-      username: req.auth.username,
-      active: req.auth.account.active,
-      isOwner: req.auth.account.isOwner,
-      effectivePermissions: req.auth.effectivePermissions
-    });
+    res.json(sessionShape(req.auth.account, req.auth.effectivePermissions));
   });
 
   return router;
