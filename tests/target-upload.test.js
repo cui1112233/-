@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginUrl, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, normalizeAdvanced, buildUploadFields, buildMultipart, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
 
 test('mappings cover platforms, genders and styles', () => {
   assert.equal(PLATFORM_ID['七猫付费'], 3);
@@ -52,6 +52,16 @@ test('buildLoginUrl encodes credentials', () => {
   const url = buildLoginUrl('u&x', 'p=x');
   assert.ok(url.includes('username=u%26x'));
   assert.ok(url.includes('password=p%3Dx'));
+});
+
+test('buildLoginRequest uses the target JSON POST login protocol and keeps the PHP session', () => {
+  const request = buildLoginRequest('u&x', 'p=x', 'PHPSESSID=seed');
+  assert.equal(request.method, 'POST');
+  assert.match(request.url, /\/tttadmin\/api\/login\.php$/);
+  assert.equal(request.headers.Cookie, 'PHPSESSID=seed');
+  assert.deepEqual(JSON.parse(request.body.toString('utf8')), { username: 'u&x', password: 'p=x' });
+  assert.equal(cookieHeaderFromSetCookie({ 'set-cookie': ['PHPSESSID=next; path=/', 'mode=admin; path=/'] }), 'PHPSESSID=next; mode=admin');
+  assert.equal(mergeCookieHeaders('PHPSESSID=seed; keep=1', 'PHPSESSID=next; mode=admin'), 'PHPSESSID=next; keep=1; mode=admin');
 });
 
 test('isLoginPage / isDashboard', () => {

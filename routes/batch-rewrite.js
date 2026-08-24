@@ -306,12 +306,14 @@ function createBatchRewriteRouter({
     const password = String(clean.password || '');
     delete clean.password;
     if (password && novelFetchStore) {
-      const login = await httpClient({ method: 'GET', url: target.buildLoginUrl(String(clean.username || ''), password) });
+      // 目标站登录页先建立 PHP 会话，再向当前的 JSON 登录接口提交凭据。
+      const loginPage = await httpClient({ method: 'GET', url: target.buildLoginPageUrl() });
+      const initialCookie = target.cookieHeaderFromSetCookie(loginPage.headers);
+      const login = await httpClient(target.buildLoginRequest(String(clean.username || ''), password, initialCookie));
       let data = {};
       try { data = JSON.parse(login.body); } catch (_) {}
       if (data.success !== true) throw new Error(data.message || '目标站登录失败');
-      const cookies = login.headers?.['set-cookie'];
-      const cookie = Array.isArray(cookies) ? cookies.map(item => item.split(';')[0]).join('; ') : '';
+      const cookie = target.mergeCookieHeaders(initialCookie, target.cookieHeaderFromSetCookie(login.headers));
       if (!cookie) throw new Error('目标站登录未返回会话');
       novelFetchStore.setSession(req.username, cookie);
       clean.password_masked = true;
