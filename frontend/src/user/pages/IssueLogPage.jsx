@@ -14,6 +14,10 @@ function readableKind(kind) {
   if (kind === 'client.window-error') return '页面运行异常';
   if (kind === 'client.unhandledrejection') return '操作未完成';
   if (kind === 'novel-panel.ai') return '小说面板 AI 异常';
+  if (kind.startsWith('client.batch-rewrite.submit')) return '小说获取：网站提交问题';
+  if (kind.startsWith('client.batch-rewrite.processing')) return '小说获取：批量处理问题';
+  if (kind.startsWith('client.batch-rewrite.rules')) return '小说获取：处理规则问题';
+  if (kind.startsWith('client.batch-rewrite.api')) return '小说获取：接口问题';
   return '系统记录';
 }
 

@@ -19,7 +19,7 @@
         <button class="tab" data-tab="knowledge">知识库</button>
         <button class="tab" data-tab="rules">处理规则</button>
         <button class="tab" data-tab="siteSubmit">网站提交</button>
-        <button class="tab" data-tab="logs">日志</button>
+        <button class="tab" data-tab="logs">记录</button>
       </nav>
     </header>
 
@@ -72,6 +72,9 @@
           <div class="section-title">
             <h2>任务列表</h2>
             <div class="batch-actions">
+              <label>查看日期 <input id="taskDateFilter" type="date" /></label>
+              <button id="taskTodayBtn">今天</button>
+              <button id="taskToggleBtn" type="button">收起任务</button>
               <span id="selectedCount">已选 0 个</span>
               <span id="batchStatus"></span>
               <button id="taskRefreshBtn">刷新</button>
@@ -91,8 +94,10 @@
               <button id="deleteAllBtn" class="danger">删除全部</button>
             </div>
           </div>
-          <div class="table-wrap">
-            <table>
+          <details id="taskListDetails" open>
+            <summary>任务列表（默认仅显示所选日期；切换日期可回看历史）</summary>
+            <div class="table-wrap">
+              <table>
               <thead>
                 <tr>
                   <th><input id="selectAllTasks" type="checkbox" aria-label="全选任务" /></th>
@@ -111,8 +116,9 @@
                 </tr>
               </thead>
               <tbody id="tasksBody"></tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </details>
         </section>
       </section>
 
@@ -537,8 +543,8 @@
             <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
             <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
             <div class="actions">
-              <button id="syncWebProfilesBtn">同步 121 配置档</button>
-              <button id="syncWebStylesBtn">同步 121 风格类型</button>
+              <button id="syncWebProfilesBtn">同步批量后台配置</button>
+              <button id="syncWebStylesBtn">同步批量风格类型</button>
             </div>
           </section>
           <section id="webFreeConfigSection" class="section full upload-execution-settings">
@@ -616,27 +622,29 @@
             <button id="submitWebSelectedBtn" class="primary">提交选中</button>
             <button id="submitWebAllBtn">提交全部</button>
             <button id="retryWebFailedBtn">重试提交失败</button>
-            <button id="refreshWebSubmitHistoryBtn">刷新提交历史</button>
           </div>
           <div id="siteSubmitGroups" class="site-submit-groups"></div>
-          <section class="site-submit-history">
-            <div class="section-title compact"><h3>网站提交记录</h3><span>仅记录实际提交；预览不会写入历史</span></div>
-            <div id="siteSubmitHistory" class="logs-list"><div class="log-row">加载中…</div></div>
-          </section>
         </section>
       </section>
 
       <section id="logs" class="panel">
         <section class="section full">
           <div class="section-title">
-            <h2>处理日志</h2>
+            <h2>记录</h2>
             <button id="logsRefreshBtn">刷新</button>
           </div>
+          <section class="site-submit-history">
+            <div class="section-title compact"><h3>网站提交记录</h3><span>仅记录真实提交；预览不会写入记录</span></div>
+            <div id="siteSubmitHistory" class="logs-list"><div class="log-row">加载中…</div></div>
+          </section>
+          <section class="site-submit-history">
+            <div class="section-title compact"><h3>处理记录</h3><span>异常会归入左侧“问题日志”，并按类型展示</span></div>
           <div id="logsList" class="logs-list"></div>
+          </section>
         </section>
       </section>
     </main>
 
-    <script src="./app.js?v=20260824-version-profile-selects"></script>
+    <script src="./app.js?v=20260824-records-and-daily-tasks"></script>
   </body>
 </html>

@@ -6,6 +6,7 @@ const state = {
   pendingRuleSuggestions: null,
   pendingOpeningItem: null,
   activeProcessJobId: "",
+  taskDate: "",
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -64,10 +65,13 @@ async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem("auth_token") || "";
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${API_ROOT}${legacyPath}`, {
-    headers,
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_ROOT}${legacyPath}`, { headers, ...options });
+  } catch (error) {
+    reportBatchIssue("network", path, error.message || "网络请求失败");
+    throw error;
+  }
   const text = await response.text();
   let data = {};
   try {
@@ -77,9 +81,27 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     // 兼容本工作台接口使用的 { error } 结构，避免把可操作的原因吞成“HTTP 400”。
-    throw new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
+    const error = new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
+    reportBatchIssue("response", path, error.message, response.status, options.method || "GET");
+    throw error;
   }
   return data;
+}
+
+function reportBatchIssue(kind, path, message, status, method) {
+  const section = String(path || "").includes("web-submit") ? "submit"
+    : String(path || "").includes("rules") ? "rules"
+      : String(path || "").includes("process") ? "processing" : "api";
+  const token = localStorage.getItem("auth_token") || "";
+  const payload = JSON.stringify({
+    kind: `batch-rewrite.${section}.${kind}`,
+    message: String(message || "小说获取操作失败").slice(0, 4000),
+    source: "小说获取",
+    path: `${API_ROOT}${String(path || "")}`,
+    method: method || "GET",
+    status: Number.isInteger(status) ? status : undefined
+  });
+  void fetch("/api/client-errors", { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: payload, keepalive: true }).catch(() => {});
 }
 
 function activateTab(name) {
@@ -1589,7 +1611,7 @@ async function saveWebSubmitConfig(silent = false) {
 }
 
 async function syncWebSubmit(kind) {
-  const label = kind === "styles" ? "风格类型" : "本地提交配置";
+  const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
   try {
     await saveWebSubmitConfig(true);
@@ -1603,8 +1625,8 @@ async function syncWebSubmit(kind) {
     const styleText = result.style_sync
       ? `，AI风格 ${result.style_sync.new_count || 0} 个，新增 ${result.style_sync.added?.length || 0}，删除 ${result.style_sync.removed?.length || 0}`
       : "";
-    setSiteSubmitStatus(`已同步${label}${styleText}`);
-    renderWebSubmitGroups(result);
+    const configText = kind === "configs" ? `：${result.groups?.length || 0} 个配置档已更新` : "";
+    setSiteSubmitStatus(`已同步${label}${configText}${styleText}`);
   } catch (error) {
     setSiteSubmitStatus(error.message);
   }
@@ -1708,8 +1730,6 @@ async function loadWebSubmitHistory() {
   try {
     const data = await api("/api/web-submit/history");
     renderWebSubmitHistory(data.records || []);
-    // 刷新或重新进入页面时，继续展示最近一次真实提交组的状态，避免只剩单条日志。
-    if (asArray(data.groups).length) renderWebSubmitGroups({ groups: data.groups, skipped: [] });
   } catch (error) {
     const box = $("siteSubmitHistory");
     if (box) box.innerHTML = `<div class="log-row">${escapeHtml(error.message || "提交历史读取失败")}</div>`;
@@ -1776,6 +1796,7 @@ async function submitWebSubmit(mode) {
     renderWebSubmitGroups(result);
     renderTasks(result.tasks || state.tasks);
     await loadWebSubmitHistory();
+    if (Number(result.failed_groups) > 0) reportBatchIssue("result", "/api/web-submit/submit", `网站提交失败 ${result.failed_groups} 组`);
     setSiteSubmitStatus(`提交完成：已确认 ${result.success_groups || 0} 组，121 待确认 ${result.accepted_groups || 0} 组，失败 ${result.failed_groups || 0} 组`);
   } catch (error) {
     setSiteSubmitStatus(error.message);
@@ -1889,25 +1910,51 @@ function updateSelectedCount() {
 function originalStatusText(task) {
   if (task.original_status === "done") return `${task.original_chars || 0}字`;
   if (task.original_status === "process_failed") {
-    return `raw已抓${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
+    return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
   }
   if (task.original_raw_status === "done" && String(task.original_status || "").includes("failed")) {
-    return `raw已抓${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
+    return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
   }
   if (task.original_raw_status === "done") {
-    return `raw已抓${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 待处理`;
+    return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 待处理`;
   }
-  return task.original_status || "未抓取";
+  return taskStatusText(task.original_status, "未抓取");
+}
+
+function taskStatusText(value, fallback = "") {
+  const text = String(value || "").trim();
+  const labels = {
+    created: "待处理", queued: "等待处理", running: "处理中", classified: "已完成判断", classifying: "正在判断", classify_failed: "判断失败",
+    fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
+    generating: "正在生成", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
+    submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
+  };
+  return labels[text] || text || fallback;
+}
+
+function taskDateKey(task) {
+  const value = task.updated_at || task.updatedAt || task.created_at || task.createdAt || "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function todayDateKey() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function renderTasks(tasks) {
-  state.tasks = tasks || [];
+  const selectedDate = state.taskDate || todayDateKey();
+  state.taskDate = selectedDate;
+  if ($("taskDateFilter")) $("taskDateFilter").value = selectedDate;
+  state.tasks = (tasks || []).filter((task) => taskDateKey(task) === selectedDate);
   const visibleIds = new Set(state.tasks.map((task) => String(task.id || "")));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => visibleIds.has(id)));
   const body = $("tasksBody");
   body.innerHTML = "";
   if (!state.tasks.length) {
-    body.innerHTML = `<tr><td colspan="13">暂无任务</td></tr>`;
+    body.innerHTML = `<tr><td colspan="13">${selectedDate === todayDateKey() ? "今日暂无任务" : `${selectedDate} 暂无任务`}</td></tr>`;
     updateSelectedCount();
     return;
   }
@@ -1915,21 +1962,21 @@ function renderTasks(tasks) {
     const id = String(task.id || "");
     const tr = document.createElement("tr");
     const originalText = originalStatusText(task);
-    const aiText = task.ai_status || `${task.ai_files?.length || 0}/${task.ai_count || 1}`;
+    const aiText = task.ai_status ? taskStatusText(task.ai_status) : `已生成 ${task.ai_files?.length || 0}/${task.ai_count || 1}`;
     const siteText = siteSubmitText(task);
     tr.innerHTML = `
       <td><input class="task-check" type="checkbox" data-id="${escapeHtml(id)}" ${state.selectedIds.has(id) ? "checked" : ""} /></td>
       <td class="id-cell"><button class="task-id-link" data-action="detail" data-id="${escapeHtml(id)}" title="查看任务详情">${escapeHtml(id)}</button></td>
       <td>${escapeHtml(task.book_name || "")}</td>
       <td>${escapeHtml(task.platform_name || "")}</td>
-      <td>${escapeHtml(task.parse_mode || "")}</td>
+      <td>${escapeHtml(task.parse_mode === "smart" ? "智能解析" : task.parse_mode || "")}</td>
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
-      <td class="${statusClass(task.classify_status)}">${escapeHtml(task.classify_status || task.classifier_model || "")}</td>
+      <td class="${statusClass(task.classify_status)}">${escapeHtml(taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断"))}</td>
       <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}</td>
       <td class="${statusClass(task.ai_status)}">${escapeHtml(aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
-      <td class="${statusClass(task.status)}">${escapeHtml(task.status || "")}</td>
+      <td class="${statusClass(task.status)}">${escapeHtml(taskStatusText(task.status, "待处理"))}</td>
       <td class="task-actions">
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
@@ -2210,20 +2257,24 @@ async function loadConfig() {
 async function loadTasks() {
   const data = await api("/api/tasks");
   renderTasks(data.tasks || []);
-  $("summaryText").textContent = `当前账号任务 ${data.tasks?.length || 0} 个，数据已写入工作台存储`;
+  $("summaryText").textContent = `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
 }
 
 async function loadLogs() {
   const data = await api("/api/logs");
   const list = $("logsList");
   list.innerHTML = "";
-  for (const item of data.logs || []) {
+  for (const item of (data.logs || []).filter((item) => !/failed|error/i.test(`${item.event || ""} ${JSON.stringify(item.data || {})}`))) {
     const div = document.createElement("div");
     div.className = "log-row";
     div.innerHTML = `<code>${escapeHtml(item.book_id || "")}</code> ${escapeHtml(item.time || "")} ${escapeHtml(item.event || "")}<br>${escapeHtml(JSON.stringify(item.data || item.raw || {}, null, 0))}`;
     list.appendChild(div);
   }
   if (!list.innerHTML) list.textContent = "暂无日志";
+}
+
+async function loadRecords() {
+  await Promise.all([loadWebSubmitHistory(), loadLogs()]);
 }
 
 function renderProcessResult(result) {
@@ -2787,8 +2838,8 @@ document.addEventListener("click", async (event) => {
     if (button.dataset.tab === "tasks") await loadTasks();
     if (button.dataset.tab === "knowledge") renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
     if (button.dataset.tab === "rules") renderRuleEditor();
-    if (button.dataset.tab === "siteSubmit") { renderWebSubmitConfig(state.config?.web_submit || {}); await loadWebSubmitHistory(); }
-    if (button.dataset.tab === "logs") await loadLogs();
+    if (button.dataset.tab === "siteSubmit") renderWebSubmitConfig(state.config?.web_submit || {});
+    if (button.dataset.tab === "logs") await loadRecords();
     return;
   }
   const action = button.dataset.action;
@@ -2810,6 +2861,10 @@ document.addEventListener("change", (event) => {
     renderSensitiveRuleEditor();
   }
   if (target.id === "ruleItemSelect") renderRuleEditor(Number(target.value || 0));
+  if (target.id === "taskDateFilter") {
+    state.taskDate = target.value || todayDateKey();
+    void loadTasks();
+  }
 });
 
 document.addEventListener("change", (event) => {
@@ -2839,6 +2894,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = loadTasks;
   $("taskRefreshBtn").onclick = loadTasks;
+  $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await loadTasks(); };
+  $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;
   $("clearSelectedBtn").onclick = clearSelectedTasks;
   $("retrySelectedBtn").onclick = () => batchRetry("selected");
@@ -2848,7 +2905,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("deleteSelectedBtn").onclick = () => batchDelete("selected");
   $("deleteFailedBtn").onclick = () => batchDelete("failed");
   $("deleteAllBtn").onclick = () => batchDelete("all");
-  $("logsRefreshBtn").onclick = loadLogs;
+  $("logsRefreshBtn").onclick = loadRecords;
   $("saveConfigBtn").onclick = saveConfig;
   $("saveKnowledgeConfigBtn").onclick = saveConfig;
   $("saveRulesConfigBtn").onclick = saveConfig;
@@ -2887,7 +2944,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("submitWebSelectedBtn").onclick = () => submitWebSubmit("selected");
   $("submitWebAllBtn").onclick = () => submitWebSubmit("all");
   $("retryWebFailedBtn").onclick = () => submitWebSubmit("failed");
-  $("refreshWebSubmitHistoryBtn").onclick = loadWebSubmitHistory;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
