@@ -1,18 +1,20 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
 import { AudioLines, Copy, Download, FileText, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
+import { deleteScriptConstraintPrompt, enrichScriptEntity, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { saveHistory } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards } from './scriptShotOutput';
+import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 
 function extractJSON(value) {
@@ -197,7 +199,6 @@ export function ScriptPage() {
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
     }
 
-    // Wait for restored React state to commit before allowing auto-save.
     const readyTimer = window.setTimeout(() => {
       draftReadyRef.current = true;
       if (restoredDraft) {
@@ -267,7 +268,8 @@ export function ScriptPage() {
         characterCount,
         sceneCount,
         generationStage,
-        hasOutput: Boolean(output.trim())
+        hasOutput: Boolean(output.trim()),
+        constraintReferenceCount: constraints.entityReferences?.length || 0
       },
       actions: generationStage === 'extracted'
         ? ['检查人物与场景', '编辑人物与场景', '生成剧本']
@@ -280,7 +282,7 @@ export function ScriptPage() {
 
   useEffect(() => {
     syncPetContext();
-  }, [extractInfo, output, generationStage]);
+  }, [extractInfo, output, generationStage, constraints]);
 
   useEffect(() => {
     function openRevisionPreview(event) {
@@ -449,7 +451,7 @@ export function ScriptPage() {
         duration: values.duration,
         novelText: values.novelText,
         ...entities,
-        constraints: constraintsForFormat(constraints, values.format)
+        constraints: constraintsForFormat(constraints, values.format, extractInfo)
       });
       const nextOutput = aiText(scriptResponse);
 
@@ -526,7 +528,25 @@ export function ScriptPage() {
     setGenerationStage(nextInfo.characters.length || nextInfo.scenes.length ? 'extracted' : 'idle');
   }
 
+  useScriptCmBridge({
+    form,
+    extractInfo,
+    setExtractInfo,
+    output,
+    updateOutputDraft,
+    setPreviousOutput,
+    setEditingOutput,
+    constraints,
+    setConstraints,
+    setDraftConstraints,
+    generationStage,
+    invalidateEntityOutput
+  });
+
   function openEntityEditor(type, id) {
+    const item = extractInfo[type]?.find(entity => entity.id === id);
+    const selection = scriptEntitySelection(type, item);
+    if (selection) dispatchCmSelection(selection);
     setActiveEntity({ type, id, isNew: false });
     setFullscreenEditor(false);
   }
@@ -555,18 +575,22 @@ export function ScriptPage() {
 
   function deleteActiveEntity() {
     if (!activeEntity || activeEntity.isNew) return;
+    const deletedEntityId = activeEntity.id;
     setExtractInfo(current => {
       const normalized = normalizeExtractInfo(current);
       const next = {
         ...normalized,
-        [activeEntity.type]: normalized[activeEntity.type].filter(item => item.id !== activeEntity.id),
+        [activeEntity.type]: normalized[activeEntity.type].filter(item => item.id !== deletedEntityId),
         protagonistIds: activeEntity.type === 'characters'
-          ? normalized.protagonistIds.filter(id => id !== activeEntity.id)
+          ? normalized.protagonistIds.filter(id => id !== deletedEntityId)
           : normalized.protagonistIds
       };
       invalidateEntityOutput(next);
       return next;
     });
+    setConstraints(current => removeEntityConstraintReferences(current, deletedEntityId));
+    setDraftConstraints(current => removeEntityConstraintReferences(current, deletedEntityId));
+    dispatchCmSelection(null);
     setActiveEntity(null);
   }
 
@@ -670,6 +694,21 @@ export function ScriptPage() {
     } catch (error) {
       message.error(error.message || '删除失败');
     }
+  }
+
+  function constraintReferenceLabel(reference) {
+    const source = reference.entityType === 'scene' ? extractInfo.scenes : extractInfo.characters;
+    const entity = source.find(item => item.id === reference.entityId);
+    const typeLabel = reference.entityType === 'scene' ? '场景' : '人物';
+    const modeLabel = reference.mode === 'identity-lock' ? '身份一致性' : reference.mode === 'visual-lock' ? '视觉一致性' : '内容一致性';
+    return `${typeLabel} · ${entity ? formatEntity(entity) : '已失效引用'} · ${modeLabel}`;
+  }
+
+  function removeDraftConstraintReference(reference) {
+    setDraftConstraints(current => normalizeScriptConstraints({
+      ...current,
+      entityReferences: (current.entityReferences || []).filter(item => !(item.entityId === reference.entityId && item.mode === reference.mode))
+    }));
   }
 
   function openConstraints() {
@@ -913,6 +952,20 @@ export function ScriptPage() {
             <Typography.Text strong>启用本次及后续剧本输出约束</Typography.Text>
           </Space>
         </div>
+        <div className="script-constraint-section">
+          <Typography.Text strong>实体一致性引用</Typography.Text>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 10 }}>
+            CM 可以把人物或场景按实体 ID 绑定到约束。修改名称、外形或性格后引用不会断，生成时会读取最新设定。
+          </Typography.Paragraph>
+          {(draftConstraints.entityReferences || []).length ? <Space wrap>
+            {draftConstraints.entityReferences.map(reference => <Button
+              key={`${reference.entityType}-${reference.entityId}-${reference.mode}`}
+              size="small"
+              onClick={() => removeDraftConstraintReference(reference)}
+              title="点击移除此引用"
+            >{constraintReferenceLabel(reference)} ×</Button>)}
+          </Space> : <Typography.Text type="secondary">暂无引用。可以直接告诉 CM：“以后这个人物的外形要保持一致”。</Typography.Text>}
+        </div>
         {[
           ['prefix', '画面前缀词'],
           ['quality', '画质约束'],
@@ -933,12 +986,12 @@ export function ScriptPage() {
             onSelectSystem={presetId => selectSystemConstraint(category, presetId)}
             onSelectPersonal={promptId => selectPersonalConstraint(category, promptId)}
             onSaveDraft={() => { setEditingPersonalPromptId(''); setEditingPersonalPromptName(''); savePersonalConstraint(category, null); }}
-             onSaveNamed={() => setPersonalPromptNameModal({ open: true, category, name: editingPersonalPromptName })}
-             onEditPersonal={prompt => {
-               setEditingPersonalPromptId(prompt.id);
-               setEditingPersonalPromptName(prompt.name || '');
-               updateDraftConstraint(category, { source: 'draft', presetId: '', personalPromptId: '', body: prompt.body });
-             }}
+            onSaveNamed={() => setPersonalPromptNameModal({ open: true, category, name: editingPersonalPromptName })}
+            onEditPersonal={prompt => {
+              setEditingPersonalPromptId(prompt.id);
+              setEditingPersonalPromptName(prompt.name || '');
+              updateDraftConstraint(category, { source: 'draft', presetId: '', personalPromptId: '', body: prompt.body });
+            }}
             onDeletePersonal={id => deletePersonalConstraint(category, id)}
           />
         ))}
