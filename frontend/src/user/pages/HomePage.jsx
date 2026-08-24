@@ -85,7 +85,7 @@ export function HomePage({ isLoggedIn, onOpenLogin }) {
             {navItems.map(item => <Link key={item.href} href={item.href} onClick={item.href === '/' ? undefined : requireLogin}>{item.label}</Link>)}
           </div>
           <div className="home-hero-actions-right">
-            {!isLoggedIn ? <GradientButton onMouseEnter={onOpenLogin} onFocus={onOpenLogin} onClick={onOpenLogin}>登录</GradientButton> : null}
+            {!isLoggedIn ? <GradientButton onMouseEnter={onOpenLogin} onFocus={onOpenLogin} onClick={onOpenLogin}>登录</GradientButton> : <GradientButton as="a" href="/member">会员中心</GradientButton>}
             <GradientButton as="a" href="#contact">联系</GradientButton>
           </div>
         </nav>
