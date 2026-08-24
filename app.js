@@ -8,6 +8,7 @@ const { createScriptConstraintPromptStore } = require('./lib/script-constraint-p
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
+const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder } = require('./lib/team-model-runtime');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
@@ -19,8 +20,8 @@ const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const { createMemberCenterRouter } = require('./routes/member-center');
+const chatRouterModule = require('./routes/chat');
 const configRouter = require('./routes/config');
-const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
 const historyRouter = require('./routes/history');
@@ -54,6 +55,20 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
   const usersDir = path.join(systemDir, '..', 'users');
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
+  const teamConfigReader = createTeamConfigReader({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore
+  });
+  const resolvedChatRouter = chatRouterModule.createChatRouter({
+    configReader: teamConfigReader,
+    upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' })
+  });
+  const resolvedAgentResponder = agentResponder || createTeamAgentResponder({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore
+  });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
   app.locals.memberStore = resolvedMemberStore;
@@ -139,13 +154,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/config', configRouter); // GET/POST /api/config
-  app.use('/api', chatRouter); // POST /api/test, POST /api/chat
+  app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt
   app.use('/api/history', historyRouter); // /api/history CRUD
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
-  app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: agentResponder }));
+  app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
   app.use('/api/shuihuo-production', createShuihuoProductionRouter(shuihuoGateway));
 
   // 404 处理
