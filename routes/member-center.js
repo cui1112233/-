@@ -102,7 +102,21 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir } = {}) 
 
   router.post('/team/members', (req, res) => {
     try {
-      const member = memberStore.createManagedMember(req.username, req.body || {});
+      const self = memberStore.getMember(req.username);
+      if (!self || !['dev', 'manager'].includes(self.role)) {
+        return res.status(403).json({ error: '当前身份没有成员创建权限' });
+      }
+      const body = req.body || {};
+      const requestedRole = self.role === 'manager' ? 'member' : (body.role || 'member');
+      const resolvedBoundTo = self.role === 'manager' ? self.username : (body.boundTo || null);
+      if (requestedRole === 'member' && body.apiEnabled === true && !resolvedBoundTo) {
+        return res.status(400).json({ error: '请先绑定 MANAGER，再开启团队 API。' });
+      }
+      const member = memberStore.createManagedMember(req.username, {
+        ...body,
+        role: requestedRole,
+        boundTo: resolvedBoundTo
+      });
       return res.status(201).json({ member });
     } catch (error) {
       return sendMemberError(res, error);
@@ -141,14 +155,6 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir } = {}) 
         month: usageStore.summaryForUser(req.params.username, 'month'),
         recent: usageStore.recentForUser(req.params.username, 50)
       });
-    } catch (error) {
-      return sendMemberError(res, error);
-    }
-  });
-
-  router.get('/audit', (req, res) => {
-    try {
-      return res.json({ audit: memberStore.listAudit(req.username, req.query.limit) });
     } catch (error) {
       return sendMemberError(res, error);
     }
