@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Popconfirm, Tag, message } from 'antd';
 import { downloadMedia } from '../../../shared/api/shuihuoProduction';
+import { dispatchCmSelection } from '../../../shared/pet/cmBridge';
 
 function MediaThumbnail({ media, label }) {
   const [url, setURL] = useState('');
@@ -89,7 +90,23 @@ export function SegmentProductionCard({
 }) {
   const { images: imageMedia, audio: audioMedia, videos: videoMedia } = splitSegmentMedia(media);
 
-  return <article className="shuihuo-production-card">
+  function focusSegment() {
+    dispatchCmSelection({
+      type: 'segment',
+      id: segment.id || `segment-${index + 1}`,
+      label: `分段 ${index + 1}`,
+      meta: {
+        index,
+        sourceText: segment.sourceText || '',
+        subtitleText: segment.subtitleText || '',
+        imagePrompt: segment.imagePrompt || '',
+        videoPrompt: segment.videoPrompt || '',
+        assetIds: assets.map(asset => asset.id)
+      }
+    });
+  }
+
+  return <article className="shuihuo-production-card" tabIndex={0} onClick={focusSegment} onFocus={focusSegment}>
     <div className="shuihuo-production-column">
       <span className="shuihuo-production-column-title">内容</span>
       <p className="shuihuo-production-source">{segment.sourceText || '未填写原文'}</p>
