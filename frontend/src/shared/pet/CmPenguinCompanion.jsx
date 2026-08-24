@@ -4,6 +4,7 @@ import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
 import {
   PET_CONTEXT_EVENT,
   PET_EVENT,
+  PET_SKILLS_EVENT,
   dispatchPetPreview,
   dispatchPetState,
   normalizePetContext,
@@ -89,12 +90,14 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
   const [lastUndoToken, setLastUndoToken] = useState('');
   const petContextRef = useRef(normalizePetContext({ pagePath: window.location.pathname }));
   const petTaskIdRef = useRef(petTaskId);
+  const skillIdsRef = useRef([]);
   const spriteRef = useRef(null);
   const dragRef = useRef(null);
   const draggedRef = useRef(false);
   const historyRef = useRef(null);
   const speechRef = useRef(null);
   const speechTimerRef = useRef(null);
+  const scheduleTimerRef = useRef(null);
   const clickSpeechIndexRef = useRef(-1);
   const requestRef = useRef(0);
 
@@ -107,6 +110,11 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
     speechTimerRef.current = null;
   }
 
+  function clearScheduleTimer() {
+    if (scheduleTimerRef.current) window.clearTimeout(scheduleTimerRef.current);
+    scheduleTimerRef.current = null;
+  }
+
   function clearCompanionSpeech() {
     clearSpeechTimer();
     speechRef.current = null;
@@ -114,8 +122,8 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
   }
 
   function showSpeech(candidate) {
-    if (!candidate?.text || reply) return;
-    if (speechRef.current && candidate.priority < speechRef.current.priority) return;
+    if (!candidate?.text || reply) return false;
+    if (speechRef.current && candidate.priority < speechRef.current.priority) return false;
     clearSpeechTimer();
     speechRef.current = candidate;
     setCompanionSpeech(candidate);
@@ -126,6 +134,7 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
         setCompanionSpeech(null);
       }, bubbleDurationMs);
     }
+    return true;
   }
 
   function clearConversation(messageText = '') {
@@ -149,7 +158,13 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
     setActionStatus(null);
     setLastUndoToken('');
     setCompanionActive(readCompanionSpeechState(username).active);
+    clearScheduleTimer();
     clearCompanionSpeech();
+    return () => {
+      requestRef.current += 1;
+      clearScheduleTimer();
+      clearCompanionSpeech();
+    };
   }, [username, accountSessionKey]);
 
   useEffect(() => {
@@ -162,6 +177,14 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
     }
     window.addEventListener(PET_EVENT, handleState);
     return () => window.removeEventListener(PET_EVENT, handleState);
+  }, []);
+
+  useEffect(() => {
+    function handleSkills(event) {
+      skillIdsRef.current = Array.isArray(event.detail?.skillIds) ? event.detail.skillIds : [];
+    }
+    window.addEventListener(PET_SKILLS_EVENT, handleSkills);
+    return () => window.removeEventListener(PET_SKILLS_EVENT, handleSkills);
   }, []);
 
   useEffect(() => {
@@ -201,7 +224,10 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
       if (event.detail?.username !== username) return;
       const active = event.detail?.active === true;
       setCompanionActive(active);
-      if (!active) clearCompanionSpeech();
+      if (!active) {
+        clearScheduleTimer();
+        clearCompanionSpeech();
+      }
     }
     window.addEventListener(PET_COMPANION_SETTINGS_EVENT, handleSettings);
     return () => window.removeEventListener(PET_COMPANION_SETTINGS_EVENT, handleSettings);
@@ -220,30 +246,56 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
   }, []);
 
   useEffect(() => {
-    if (state !== 'idle' || !companionActive || chatOpen || asking) return undefined;
-    const stored = readCompanionSpeechState(username);
-    const candidate = getCompanionCandidate({
-      now: new Date(),
-      username,
-      storage: window.localStorage,
-      active: stored.active,
-      visible: document.visibilityState === 'visible',
-      chatOpen,
-      asking,
-      dragging: Boolean(dragRef.current)
-    });
-    if (candidate) showSpeech(candidate);
-    const next = readCompanionSpeechState(username);
-    const delay = Math.max(1000, next.nextIdleAt - Date.now());
-    const id = window.setTimeout(() => {
-      const upcoming = getCompanionCandidate({
-        now: new Date(), username, storage: window.localStorage,
-        active: next.active, visible: document.visibilityState === 'visible',
-        chatOpen: false, asking: false, dragging: false
+    if (state !== 'idle') {
+      clearScheduleTimer();
+      return undefined;
+    }
+
+    function scheduleSpeech() {
+      clearScheduleTimer();
+      if (!companionActive || chatOpen || asking || dragRef.current || document.visibilityState !== 'visible') return;
+      const stored = readCompanionSpeechState(username);
+      const candidate = getCompanionCandidate({
+        now: new Date(),
+        username,
+        storage: window.localStorage,
+        active: stored.active,
+        visible: true,
+        chatOpen: false,
+        asking: false,
+        dragging: false
       });
-      if (upcoming) showSpeech(upcoming);
-    }, delay);
-    return () => window.clearTimeout(id);
+      if (candidate) showSpeech(candidate);
+      const next = readCompanionSpeechState(username);
+      if (!next.active || !Number.isFinite(next.nextIdleAt)) return;
+      scheduleTimerRef.current = window.setTimeout(scheduleSpeech, Math.max(1000, next.nextIdleAt - Date.now()));
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState !== 'visible') {
+        getCompanionCandidate({
+          now: new Date(),
+          username,
+          storage: window.localStorage,
+          active: companionActive,
+          visible: false,
+          chatOpen,
+          asking,
+          dragging: Boolean(dragRef.current)
+        });
+        clearScheduleTimer();
+        clearCompanionSpeech();
+        return;
+      }
+      scheduleSpeech();
+    }
+
+    scheduleSpeech();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearScheduleTimer();
+    };
   }, [username, accountSessionKey, state, companionActive, chatOpen, asking]);
 
   useEffect(() => {
@@ -277,6 +329,14 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
     historyRef.current.scrollTop = historyRef.current.scrollHeight;
   }, [chatOpen, messages, asking]);
 
+  useEffect(() => {
+    function handleEscape(event) {
+      if (event.key === 'Escape' && chatOpen) closeChat();
+    }
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [chatOpen]);
+
   async function loadTask(taskId) {
     const requestId = ++requestRef.current;
     try {
@@ -294,6 +354,14 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
     setChatOpen(true);
     clearCompanionSpeech();
     if (petTaskIdRef.current) await loadTask(petTaskIdRef.current);
+  }
+
+  function closeChat() {
+    requestRef.current += 1;
+    clearCompanionSpeech();
+    setChatOpen(false);
+    setAsking(false);
+    spriteRef.current?.focus();
   }
 
   async function ensureTask(requestId) {
@@ -332,6 +400,7 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
           cmCapabilities: bridgeContext.capabilities,
           cmResponseContract: cmResponseContract(bridgeContext.capabilities)
         },
+        skillIds: skillIdsRef.current,
         suppressGlobalError: true
       });
       if (requestRef.current !== requestId) return;
@@ -374,6 +443,7 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
     if (event.button !== 0) return;
     const rect = spriteRef.current?.getBoundingClientRect();
     if (!rect) return;
+    clearScheduleTimer();
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top };
     draggedRef.current = false;
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -446,7 +516,7 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
             <div className="cm-penguin-header-actions">
               <button type="button" title="分析当前内容" aria-label="分析当前内容" onClick={analyzePage} disabled={asking}><ScanSearch size={16} /></button>
               <button type="button" title="在 Agent 工作区继续" aria-label="在 Agent 工作区继续" onClick={openAgent} disabled={!petTaskId}><ExternalLink size={16} /></button>
-              <button type="button" title="关闭" aria-label="关闭 CM 对话" onClick={() => setChatOpen(false)}><X size={16} /></button>
+              <button type="button" title="关闭" aria-label="关闭 CM 对话" onClick={closeChat}><X size={16} /></button>
             </div>
           </header>
 
