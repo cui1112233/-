@@ -876,7 +876,13 @@ export function ScriptPage() {
   }
 
   function updateDraftConstraint(category, patch) {
-    setDraftConstraints(current => ({ ...current, [category]: { ...current[category], ...patch } }));
+    setDraftConstraints(current => ({
+      ...current,
+      // 任一子项被打开时，总开关同步打开；否则“基础设定”会呈现为已开启，
+      // 却被总开关拦截而不显示在分镜卡中。
+      ...(patch?.enabled === true ? { enabled: true } : {}),
+      [category]: { ...current[category], ...patch }
+    }));
   }
 
   async function selectSystemConstraint(category, presetId) {

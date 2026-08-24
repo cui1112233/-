@@ -44,6 +44,11 @@ test('script page uses card output for every non-shortdrama result', () => {
   assert.match(page, /onCopy=\{copyText\}/);
 });
 
+test('enabling a constraint category also enables the master constraint switch', () => {
+  const page = read('frontend/src/user/pages/ScriptPage.jsx');
+  assert.match(page, /function updateDraftConstraint\(category, patch\)[\s\S]*?patch\?\.enabled === true \? \{ enabled: true \} : \{\}/);
+});
+
 test('shot card starts use parsed JSON and card ranges consistently', async () => {
   const { getShotCardStarts } = await import('../frontend/src/user/pages/scriptShotReplace.js');
   const first = '### 分镜一\n阿明';

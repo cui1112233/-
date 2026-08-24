@@ -19,8 +19,9 @@ test('normalizes legacy populated categories as enabled', async () => {
 });
 
 test('defaults new categories to disabled', async () => {
-  const { normalizeScriptConstraints } = await constraintsModule();
+  const { DEFAULT_SCRIPT_CONSTRAINTS, normalizeScriptConstraints } = await constraintsModule();
   const constraints = normalizeScriptConstraints({ enabled: true });
+  assert.equal(DEFAULT_SCRIPT_CONSTRAINTS.baseSetup.enabled, false);
   assert.equal(constraints.prefix.enabled, false);
   assert.equal(constraints.prefix.presetId, '');
   assert.equal(constraints.prefix.personalPromptId, '');

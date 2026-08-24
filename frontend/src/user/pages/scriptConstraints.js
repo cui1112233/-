@@ -1,6 +1,7 @@
 export const DEFAULT_SCRIPT_CONSTRAINTS = Object.freeze({
   enabled: false,
-  baseSetup: { enabled: true, source: 'system', presetId: '', personalPromptId: '', body: '' },
+  // 新草稿必须由用户明确开启基础设定，避免子项显示为“已开”但总开关仍关闭的误导。
+  baseSetup: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   prefix: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   quality: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   restriction: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
