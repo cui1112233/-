@@ -1,5 +1,6 @@
 const express = require('express');
 const { apiAuth, requireCapability, requireOwner } = require('../middleware/auth');
+const { devGrantActor } = require('../lib/dev-permissions');
 
 function sendStoreError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: 'Not found' });
@@ -88,7 +89,8 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/grants', requireOwner, (req, res) => {
     try {
-      res.status(201).json({ grant: accountStore.grant(req.username, req.body?.subject, req.body) });
+      const actor = devGrantActor(accountStore, req.username);
+      res.status(201).json({ grant: accountStore.grant(actor, req.body?.subject, req.body) });
     } catch (error) {
       sendStoreError(res, error);
     }
@@ -104,7 +106,8 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.delete('/grants/:id', requireOwner, (req, res) => {
     try {
-      res.json({ grant: accountStore.revokeGrant(req.username, req.params.id) });
+      const actor = devGrantActor(accountStore, req.username);
+      res.json({ grant: accountStore.revokeGrant(actor, req.params.id) });
     } catch (error) {
       sendStoreError(res, error);
     }
