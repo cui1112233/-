@@ -52,6 +52,9 @@ export function SettingsPage() {
   const [fileList, setFileList] = useState(null);
   const [provider, setProvider] = useState('openai');
   const [videoHasApiKey, setVideoHasApiKey] = useState(false);
+  const [localExecutors, setLocalExecutors] = useState([]);
+  const [loadingExecutors, setLoadingExecutors] = useState(false);
+  const [pairing, setPairing] = useState(null);
   const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -100,6 +103,32 @@ export function SettingsPage() {
       });
     return () => { alive = false; };
   }, [form]);
+
+  async function loadLocalExecutors() {
+    setLoadingExecutors(true);
+    try {
+      const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
+      setLocalExecutors(Array.isArray(result.executors) ? result.executors : []);
+    } catch (error) {
+      message.error(error.message || '读取本地执行器失败');
+    } finally {
+      setLoadingExecutors(false);
+    }
+  }
+
+  useEffect(() => { loadLocalExecutors(); }, []);
+
+  async function createLocalExecutorPairing() {
+    try {
+      const result = await apiRequest('/api/shuihuo-production/local-executors/pairings', {
+        method: 'POST', body: JSON.stringify({ platform: 'doubao' }), suppressGlobalError: true
+      });
+      setPairing(result);
+      message.success('配对码已生成，请在本地执行器中输入');
+    } catch (error) {
+      message.error(error.message || '生成配对码失败');
+    }
+  }
 
   async function saveSection(section) {
     let values;
@@ -330,6 +359,34 @@ export function SettingsPage() {
                 </span>
               </div>
               <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('video')} loading={savingSection === 'video'}>保存视频生成</Button>
+            </div>
+          </div>
+
+          <div className="model-service-row model-service-video-row">
+            <div className="model-service-summary">
+              <div className="model-service-title-line">
+                <h3>豆包本地执行器</h3>
+                <span className="model-service-provider">本机多账号渠道</span>
+              </div>
+              <p>账号登录状态只保存在用户电脑。完成配对后可保持在线，为后续视频任务提供本机执行通道。</p>
+            </div>
+            <div className="model-service-video-fields">
+              <div className="model-service-video-meta" aria-label="本地执行器状态">
+                <span>{localExecutors.length} 台已配对</span>
+                <span className={`model-service-key-status ${localExecutors.some(item => item.online) ? 'is-configured' : 'is-unconfigured'}`}>
+                  {localExecutors.some(item => item.online) ? '至少一台在线' : '暂无在线设备'}
+                </span>
+              </div>
+              {pairing ? <Typography.Paragraph style={{ margin: 0 }}>
+                在 Windows 客户端输入配对码：<Typography.Text copyable strong>{pairing.code}</Typography.Text>
+              </Typography.Paragraph> : null}
+              <div className="settings-action-row">
+                <Button onClick={loadLocalExecutors} loading={loadingExecutors} icon={<RefreshCw size={16} aria-hidden="true" />}>刷新状态</Button>
+                <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
+              </div>
+              {localExecutors.map(item => <Typography.Text key={item.id} type="secondary">
+                {item.displayName} · 豆包 · {item.online ? '在线' : '离线'}
+              </Typography.Text>)}
             </div>
           </div>
         </section>

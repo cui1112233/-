@@ -371,7 +371,37 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
 	{version: 35, apply: addShuihuoVideoGenerationMode},
 	{version: 36, apply: addShuihuoProductionRenderSettings},
 	{version: 37, sql: shuihuoSegmentVoiceSettingsMigrationSQL},
+	{version: 38, apply: applyLocalExecutorMigration},
 }
+
+const localExecutorMigrationSQL = `
+CREATE TABLE IF NOT EXISTS local_executor_pairings (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  code_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_local_executor_pairing_code (code_hash),
+  KEY idx_local_executor_pairings_user_created (user_id, created_at),
+  CONSTRAINT fk_local_executor_pairings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS local_executors (
+  id CHAR(36) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  platform VARCHAR(32) NOT NULL DEFAULT 'doubao',
+  display_name VARCHAR(128) NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  last_seen_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_local_executor_token (token_hash),
+  KEY idx_local_executors_user_created (user_id, created_at),
+  CONSTRAINT fk_local_executors_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
 
 const shuihuoSourceUnitMigrationSQL = `
 CREATE TABLE IF NOT EXISTS shuihuo_source_units (
@@ -1269,6 +1299,10 @@ func seedShuihuoAnalysisPrompts(ctx context.Context, conn *sql.Conn) error {
 
 func applySQLStatements(ctx context.Context, conn *sql.Conn, script string) error {
 	return applySQLStatementsWithExecutor(ctx, conn, script)
+}
+
+func applyLocalExecutorMigration(ctx context.Context, conn *sql.Conn) error {
+	return applySQLStatements(ctx, conn, localExecutorMigrationSQL)
 }
 
 func applySQLStatementsWithExecutor(ctx context.Context, executor migrationExecutor, script string) error {

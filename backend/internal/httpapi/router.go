@@ -58,6 +58,11 @@ func (api *API) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", api.handleLogin)
 		r.Post("/logout", api.handleLogout)
+		// Local executors authenticate with an opaque device token issued through
+		// a short-lived, user-authorized pairing code. They never receive the
+		// browser session token or any provider account credentials.
+		r.Post("/local-executors/pair", api.handlePairLocalExecutor)
+		r.Post("/local-executors/heartbeat", api.handleLocalExecutorHeartbeat)
 		r.With(api.requireAuth).Get("/me", api.handleMe)
 		r.With(api.requireAuth).Get("/config", api.handleGetConfig)
 		r.With(api.requireAuth).Post("/config", api.handleSaveConfig)
@@ -76,6 +81,8 @@ func (api *API) Router() http.Handler {
 			r.Get("/novel-fetch-workshop/tasks/{bookId}", api.handleGetNovelFetchWorkshopTask)
 			r.Put("/novel-fetch-workshop/tasks/{bookId}", api.handleSaveNovelFetchWorkshopTask)
 			r.Get("/shuihuo-production/health", api.handleShuihuoHealth)
+			r.Get("/shuihuo-production/local-executors", api.handleListLocalExecutors)
+			r.Post("/shuihuo-production/local-executors/pairings", api.handleCreateLocalExecutorPairing)
 			r.Get("/shuihuo-production/config", api.handleGetShuihuoProductionConfig)
 			r.Put("/shuihuo-production/config", api.handleSaveShuihuoProductionConfig)
 			r.Put("/shuihuo-production/account-ai-config", api.handleSaveBridgeAccountAIConfig)
