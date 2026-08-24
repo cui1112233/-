@@ -26,6 +26,7 @@ export const CM_ACTION_TYPES = Object.freeze([
 
 const actionTypes = new Set(CM_ACTION_TYPES);
 let activeBridge = null;
+let actionTail = Promise.resolve();
 
 const defaultCapabilities = {
   '/script': ['character.update', 'character.create', 'character.setProtagonist', 'scene.update', 'scene.create', 'script.replace', 'script.insert', 'shot.update', 'constraint.bind', 'constraint.update'],
@@ -171,7 +172,8 @@ export function dispatchCmAction(action, meta = {}) {
   const bridge = activeBridge;
   if (!bridge || typeof bridge.apply !== 'function' || !bridge.capabilities.includes(normalized.type)) return requestId;
 
-  Promise.resolve()
+  actionTail = actionTail
+    .catch(() => undefined)
     .then(() => bridge.apply(normalized, detail.meta))
     .then(result => {
       dispatchCmActionResult(requestId, {
@@ -193,7 +195,9 @@ export function dispatchCmUndo(undoToken) {
   const token = text(undoToken, 240);
   window.dispatchEvent(new CustomEvent(CM_BRIDGE_UNDO_EVENT, { detail: { undoToken: token } }));
   if (!activeBridge || typeof activeBridge.undo !== 'function') return;
-  Promise.resolve(activeBridge.undo(token))
+  actionTail = actionTail
+    .catch(() => undefined)
+    .then(() => activeBridge.undo(token))
     .then(() => refreshCmBridgeContext())
     .catch(() => undefined);
 }
