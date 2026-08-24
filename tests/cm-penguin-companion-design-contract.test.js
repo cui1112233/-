@@ -33,6 +33,7 @@ test('CM bridge only dispatches allow-listed structured actions and serializes p
   assert.match(bridge, /registerCmBridge/);
   assert.match(bridge, /let actionTail = Promise\.resolve\(\)/);
   assert.match(bridge, /actionTail = actionTail/);
+  assert.match(bridge, /页面已经切换，本次修改未应用/);
   assert.match(parser, /```cm-actions/);
   assert.match(parser, /JSON\.parse/);
   assert.match(companion, /dispatchCmAction/);
@@ -108,4 +109,19 @@ test('script constraints keep entity references by stable id and resolve the lat
   assert.match(script, /constraintsForFormat\(constraints, values\.format, extractInfo\)/);
   assert.match(script, /实体一致性引用/);
   assert.match(script, /removeEntityConstraintReferences/);
+});
+
+test('TTS cards expose focus and accept allow-listed CM parameter edits', () => {
+  const tts = read('frontend/src/user/pages/TtsPage.jsx');
+
+  assert.match(tts, /registerCmBridge/);
+  assert.match(tts, /capabilities: \['tts\.update'\]/);
+  assert.match(tts, /dispatchCmSelection/);
+  assert.match(tts, /label: `配音卡片 \$\{index \+ 1\}`/);
+  assert.match(tts, /voiceValues\.has\(patch\.voice\)/);
+  assert.match(tts, /styleValues\.has\(patch\.style\)/);
+  assert.match(tts, /clamp\(patch\.speed, 0\.5, 2/);
+  assert.match(tts, /clamp\(patch\.pitch, -50, 50/);
+  assert.match(tts, /audioUrl: ''/);
+  assert.match(tts, /请重新生成试听/);
 });
