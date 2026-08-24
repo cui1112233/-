@@ -1452,7 +1452,6 @@ function renderWebSubmitConfig(settings = {}) {
     const ai1 = document.querySelector('.web-version[value="ai1"]');
     if (ai1) ai1.checked = true;
   }
-  $("webPasswordState").textContent = cfg.password_masked ? "已保存" : "未保存";
   updateResubmitHint();
 }
 
