@@ -9,6 +9,7 @@ const { createScriptConstraintPromptStore } = require('./lib/script-constraint-p
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
+const { resolveTeamAuthorization } = require('./lib/api-access');
 const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder, estimateTextTokens } = require('./lib/team-model-runtime');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
@@ -51,6 +52,20 @@ const NOVEL_PANEL_MODEL_PATHS = new Set([
   '/character-core/analyze',
   '/settings/test'
 ]);
+
+function shuihuoAiRequestMeta(req) {
+  if (req.method !== 'POST') return null;
+  const pathname = req.path || '';
+  if (/\/analysis\/assets$/.test(pathname)
+    || /\/prompt-candidates\/[^/]+$/.test(pathname)
+    || /\/segmentation\/smart$/.test(pathname)) {
+    return { scope: 'text', feature: 'script', tokenEstimate: true };
+  }
+  if (/\/tasks(?:\/batch)?$/.test(pathname) || /\/tasks\/[^/]+\/retry$/.test(pathname)) {
+    return { scope: 'image', feature: 'image', tokenEstimate: false };
+  }
+  return null;
+}
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, memberStore, usageStore } = {}) {
   const app = express();
@@ -108,6 +123,53 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
         ...(error?.code ? { code: error.code } : {})
       });
     }
+  }
+
+  function requireShuihuoAiAccess(req, res, next) {
+    const meta = shuihuoAiRequestMeta(req);
+    if (!meta) return next();
+    let authorization;
+    try {
+      authorization = resolveTeamAuthorization({
+        memberStore: resolvedMemberStore,
+        usageStore: resolvedUsageStore,
+        username: req.username,
+        scope: meta.scope
+      });
+    } catch (error) {
+      return res.status(error?.status || 403).json({
+        error: error?.message || '当前账号没有 AI 使用权限',
+        ...(error?.code ? { code: error.code } : {})
+      });
+    }
+
+    const inputTokens = meta.tokenEstimate ? estimateTextTokens(req.body || {}) : 0;
+    const startedAt = Date.now();
+    res.once('finish', () => {
+      resolvedUsageStore.record({
+        username: authorization.member.username,
+        billedTo: authorization.billedTo,
+        teamOwner: authorization.teamOwner,
+        feature: meta.feature,
+        provider: 'shuihuo-service',
+        model: '',
+        status: res.statusCode < 400 ? 'success' : 'completed_error',
+        usage: meta.tokenEstimate ? {
+          prompt_tokens: inputTokens,
+          completion_tokens: 0,
+          total_tokens: inputTokens
+        } : null,
+        metadata: {
+          operation: req.path,
+          statusCode: res.statusCode,
+          usageEstimated: meta.tokenEstimate,
+          estimateBasis: meta.tokenEstimate ? 'request-only' : null,
+          nonTokenModelCall: !meta.tokenEstimate,
+          elapsedMs: Math.max(0, Date.now() - startedAt)
+        }
+      });
+    });
+    return next();
   }
 
   function trackNovelPanelUsage(req, res, next) {
@@ -263,7 +325,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent/chat', apiAuth, requireTeamModelAccess);
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
-  app.use('/api/shuihuo-production', createShuihuoProductionRouter(shuihuoGateway));
+  app.use('/api/shuihuo-production', apiAuth, requireShuihuoAiAccess, createShuihuoProductionRouter(shuihuoGateway));
 
   // 404 处理
   app.use((req, res) => {
