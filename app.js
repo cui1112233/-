@@ -70,6 +70,32 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore
   });
+
+  function requireOwnModelConfig(req, res, next) {
+    try {
+      const member = resolvedMemberStore.getMember(req.username);
+      if (member?.role === 'member') {
+        return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
+      }
+      return next();
+    } catch (error) {
+      return res.status(500).json({ error: error.message || '无法读取成员权限' });
+    }
+  }
+
+  function requireTeamModelAccess(req, res, next) {
+    try {
+      teamConfigReader(req.username);
+      return next();
+    } catch (error) {
+      const missingConfig = /^(?:Base URL|Model|API Key) is required$/.test(error?.message || '');
+      return res.status(error?.status || (missingConfig ? 422 : 500)).json({
+        error: error?.message || '模型服务暂不可用',
+        ...(error?.code ? { code: error.code } : {})
+      });
+    }
+  }
+
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
   app.locals.memberStore = resolvedMemberStore;
@@ -166,12 +192,17 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-panel', novelPanelApiRouter);
 
   app.use('/api/config', configRouter); // GET/POST /api/config
+
+  // MEMBER 不能用连接测试接口提交临时 Key 绕过团队托管。
+  app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
+  app.use('/api/chat', apiAuth, requireTeamModelAccess);
   app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
   app.use('/api/prompt', promptRouter); // GET /api/prompt
   app.use('/api/history', historyRouter); // /api/history CRUD
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
+  app.use('/api/agent/chat', apiAuth, requireTeamModelAccess);
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
   app.use('/api/shuihuo-production', createShuihuoProductionRouter(shuihuoGateway));
 
