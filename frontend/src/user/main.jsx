@@ -5,6 +5,7 @@ import '../shared/styles/global.css';
 import '../shared/styles/agent-workspace.css';
 import '../shared/styles/login-card.css';
 import '../shared/styles/login-card-motion.css';
+import '../shared/styles/login-design-01-nebula-glass.css';
 import { installClientErrorReporting } from '../shared/error-reporting';
 import { UserApp } from './App';
 
