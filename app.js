@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
+const { apiAuth } = require('./middleware/auth');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
@@ -78,6 +79,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.agentSkillStore = resolvedAgentSkillStore;
   app.locals.errorLogStore = resolvedErrorLogStore;
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
+  app.locals.novelPanelConfig = username => teamConfigReader(username);
 
   // 请求日志
   app.use((req, res, next) => {
@@ -152,7 +154,17 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
+
+  // 小说面板保留自己的超时等个人设置，但 MEMBER 不得写入或测试独立模型凭据。
+  app.use('/api/novel-panel/settings', apiAuth, (req, res, next) => {
+    const member = resolvedMemberStore.getMember(req.username);
+    if (member?.role === 'member' && req.method !== 'GET') {
+      return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
+    }
+    return next();
+  });
   app.use('/api/novel-panel', novelPanelApiRouter);
+
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
