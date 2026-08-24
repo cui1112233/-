@@ -168,6 +168,21 @@ function createBatchRewriteRouter({
     };
   }
 
+  function processSavedRules(text, scope, config) {
+    return rules.processConfiguredDocumentText(text, scope, config);
+  }
+
+  async function applySavedRulesToOriginal(tasks, username, bookId, config) {
+    // 规则入口与真实存储分开，以便兼容只负责抓取的测试/桥接实现。
+    if (typeof tasks.readOriginal !== 'function' || typeof tasks.saveOriginalText !== 'function') return false;
+    const original = await tasks.readOriginal(username, bookId);
+    if (!original) return false;
+    const processed = processSavedRules(original, 'original', config);
+    if (processed === original) return false;
+    await tasks.saveOriginalText(username, bookId, processed);
+    return true;
+  }
+
   async function saveConfig(req, payload) {
     const { tasks, current } = await readConfig(req);
     const body = object(payload);
@@ -234,7 +249,12 @@ function createBatchRewriteRouter({
     if (workflow.auto_fetch_original !== false) {
       for (const task of classified) {
         const result = await tasks.fetchOriginal(req.username, task.bookId, task.maxTxt);
-        if (result?.status === 'done') { fetched++; fetchedIds.push(task.bookId); report({ type: 'fetch', status: 'done', book_id: task.bookId, message: `${task.bookId} 原文已抓取。` }); }
+        if (result?.status === 'done') {
+          await applySavedRulesToOriginal(tasks, req.username, task.bookId, config);
+          fetched++;
+          fetchedIds.push(task.bookId);
+          report({ type: 'fetch', status: 'done', book_id: task.bookId, message: `${task.bookId} 原文已抓取并套用处理规则。` });
+        }
         else { fetchFailed++; report({ type: 'fetch', status: 'failed', book_id: task.bookId, message: `${task.bookId} 原文抓取失败。` }); }
       }
     }
@@ -372,14 +392,14 @@ function createBatchRewriteRouter({
 
   router.get('/tasks', async (req, res) => { try { res.json({ tasks: await listTasks(req) }); } catch (error) { res.status(500).json({ error: error.message }); } });
   router.post('/tasks/batch-delete', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); const result = await tasks.deleteTasks(req.username, ids); res.json({ ...result, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/batch-retry', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); let retried = 0; let failed = 0; for (const id of ids) { const task = await tasks.getTask(req.username, id); if (!task) { failed++; continue; } const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000); if (result?.status !== 'done') { failed++; continue; } if (store.getConfig().workflow?.auto_rewrite_after_fetch) await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: (await tasks.getTask(req.username, id)).meta, count: task.meta.aiCount || 1 }); retried++; } res.json({ retried, failed, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/apply-rules', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); const accountKnowledge = ruleKnowledge(await requestKnowledge(req)); let applied = 0; for (const id of ids) { const text = await tasks.readOriginal(req.username, id); if (!text) continue; const processed = rules.processDocumentText(text, 'original', {}, accountKnowledge); if (typeof tasks.saveOriginalText === 'function') await tasks.saveOriginalText(req.username, id, processed); applied++; } res.json({ applied, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/batch-retry', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); const config = object(store.getConfig()); let retried = 0; let failed = 0; for (const id of ids) { const task = await tasks.getTask(req.username, id); if (!task) { failed++; continue; } const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000); if (result?.status !== 'done') { failed++; continue; } await applySavedRulesToOriginal(tasks, req.username, id, config); if (config.workflow?.auto_rewrite_after_fetch) await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: (await tasks.getTask(req.username, id)).meta, count: task.meta.aiCount || 1 }); retried++; } res.json({ retried, failed, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/apply-rules', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); const config = object(store.getConfig()); let applied = 0; for (const id of ids) if (await applySavedRulesToOriginal(tasks, req.username, id, config)) applied++; res.json({ applied, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const count = Number(task.meta.aiGeneratedCount) || 0; const aiTexts = []; for (let index = 1; index <= count; index++) aiTexts.push({ name: `AI${index}`, text: await tasks.readVersionText(req.username, req.params.id, `ai${index}`) }); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig())); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try { const { tasks } = await resources(req); res.json({ task: await tasks.restoreOriginal(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task.meta, count: Number(req.body?.count) || 1 }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/sensitive-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); res.json({ meta: legacyMeta(task?.meta || {}), sensitive_hits: { hits: [] }, sensitive_fixed: { items: [] }, logs: task ? await tasks.readLogs(req.username, req.params.id) : [] }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processDocumentTrace(text, 'original', {}, ruleKnowledge(await requestKnowledge(req))) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processConfiguredDocumentTrace(text, 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/site-submit-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const logs = typeof tasks.readSiteSubmitLog === 'function' ? await tasks.readSiteSubmitLog(req.username, req.params.id) : []; res.json({ meta: legacyMeta(task?.meta || {}), result: logs.at(-1) || {}, logs }); } catch (error) { res.status(400).json({ error: error.message }); } });
 
   router.get('/knowledge', async (req, res) => { try { res.json({ summary: summarizeKnowledge(await requestKnowledge(req)) }); } catch (error) { res.status(400).json({ error: error.message }); } });
@@ -388,7 +408,7 @@ function createBatchRewriteRouter({
   router.post('/opening/save', (req, res) => { try { res.json(opening.save(req.body?.item)); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/opening/normalize', (req, res) => { try { res.json(opening.normalize()); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/ai/test', async (req, res) => { try { const { configStore: store } = await resources(req); const settings = req.body?.settings || ai.resolveAiSettings(store, req.body?.purpose || 'classifier'); const result = await ai.chatCompletion(settings, [{ role: 'user', content: '请只回复：ok' }], { temperature: 0 }); res.json({ ok: true, content: result.text || '' }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/rules/preview', async (req, res) => { try { const text = String(req.body?.text || ''); res.json({ processed: rules.processDocumentText(text, req.body?.scope || 'original', {}, ruleKnowledge(await requestKnowledge(req))) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/rules/preview', async (req, res) => { try { const { configStore: store } = await resources(req); const text = String(req.body?.text || ''); res.json({ processed: processSavedRules(text, req.body?.scope || 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/rules/ai-suggest', async (req, res) => {
     try {
       const { configStore: store } = await resources(req);

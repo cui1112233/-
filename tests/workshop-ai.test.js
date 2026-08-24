@@ -2,6 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { buildAiPayload, resolveAiSettings, parseAiJsonContent } = require('../lib/novel-fetch-workshop/ai');
+const { processConfiguredDocumentText } = require('../lib/novel-fetch-workshop/rules');
 
 test('buildAiPayload 追加 response_format/thinking/extra json', () => {
   const p = buildAiPayload({
@@ -44,4 +45,23 @@ test('parseAiJsonContent 剥离代码块与前后缀', () => {
   assert.deepEqual(parseAiJsonContent('```json\n{"a":1}\n```'), { a: 1 });
   assert.deepEqual(parseAiJsonContent('前缀 {"a":1} 后缀'), { a: 1 });
   assert.equal(parseAiJsonContent('纯文本没有json'), null);
+});
+
+test('已保存处理配置在原文和 AI 文案按各自开关统一生效', () => {
+  const config = {
+    layout: { apply_to_original: true, apply_to_ai: false, apply_sensitive: true },
+    sensitive: {
+      groups: [{
+        name: '默认词组',
+        enabled: true,
+        apply_to_original: true,
+        apply_to_ai: false,
+        rules: [{ find: '敏感词', replace: '合规词', enabled: true }]
+      }]
+    },
+    knowledge: { layout_rules: { apply_sensitive_replace: true } }
+  };
+
+  assert.equal(processConfiguredDocumentText('敏感词', 'original', config), '合规词');
+  assert.equal(processConfiguredDocumentText('敏感词', 'ai', config), '敏感词');
 });
