@@ -79,3 +79,33 @@ test('production workbench applies CM segment and asset edits through existing A
   assert.match(assets, /await updateAsset\(asset\.id/);
   assert.match(assets, /await createAsset\(data\.project\.id/);
 });
+
+test('script workbench exposes stable entity focus and applies CM edits through React state', () => {
+  const script = read('frontend/src/user/pages/ScriptPage.jsx');
+  const bridge = read('frontend/src/user/pages/scriptCmBridge.js');
+
+  assert.match(script, /useScriptCmBridge\(\{/);
+  assert.match(script, /scriptEntitySelection\(type, item\)/);
+  assert.match(script, /dispatchCmSelection\(selection\)/);
+  assert.match(script, /enrichScriptEntity/);
+  assert.match(bridge, /character\.update/);
+  assert.match(bridge, /scene\.update/);
+  assert.match(bridge, /script\.replace/);
+  assert.match(bridge, /constraint\.bind/);
+  assert.match(bridge, /setExtractInfo\(next\)/);
+  assert.match(bridge, /items\[index\] = \{ \.\.\.items\[index\], data:/);
+});
+
+test('script constraints keep entity references by stable id and resolve the latest entity data at generation time', () => {
+  const constraints = read('frontend/src/user/pages/scriptConstraints.js');
+  const script = read('frontend/src/user/pages/ScriptPage.jsx');
+
+  assert.match(constraints, /entityReferences: \[\]/);
+  assert.match(constraints, /entityId/);
+  assert.match(constraints, /identity-lock/);
+  assert.match(constraints, /resolvedReferenceText/);
+  assert.match(constraints, /【实体一致性引用】/);
+  assert.match(script, /constraintsForFormat\(constraints, values\.format, extractInfo\)/);
+  assert.match(script, /实体一致性引用/);
+  assert.match(script, /removeEntityConstraintReferences/);
+});
