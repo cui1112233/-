@@ -1,0 +1,281 @@
+/*
+ * Design 01 | 星云玻璃登录卡 (Nebula Glass Login)
+ * Brand: 一战晟铭
+ * Uses the repository's existing BrandLogo assets.
+ */
+
+.legacy-login-overlay {
+  --design01-coral: #f07167;
+  --design01-rose: #d65386;
+  --design01-blue: #5a8ed0;
+  --design01-ice: #b8dcff;
+  background:
+    radial-gradient(circle at 16% 48%, rgba(240, 92, 106, 0.22), transparent 27%),
+    radial-gradient(circle at 84% 42%, rgba(73, 132, 224, 0.24), transparent 30%),
+    radial-gradient(circle at 50% 8%, rgba(118, 75, 176, 0.12), transparent 22%),
+    linear-gradient(180deg, rgba(2, 4, 11, 0.76), rgba(2, 4, 12, 0.93));
+  backdrop-filter: blur(16px) saturate(132%);
+}
+
+.login-modal,
+.login-modal.is-expanded {
+  width: min(438px, 92vw);
+  min-height: 0;
+  padding: 38px 34px 30px;
+  border: 1px solid transparent;
+  border-radius: 30px;
+  background:
+    linear-gradient(148deg, rgba(12, 18, 34, 0.86), rgba(6, 10, 22, 0.72)) padding-box,
+    linear-gradient(118deg,
+      rgba(240, 113, 103, 0.92),
+      rgba(214, 83, 134, 0.72) 30%,
+      rgba(99, 102, 211, 0.68) 54%,
+      rgba(90, 142, 208, 0.92) 78%,
+      rgba(184, 220, 255, 0.72)) border-box;
+  background-size: 100% 100%, 240% 240%;
+  box-shadow:
+    0 34px 100px rgba(0, 0, 0, 0.54),
+    -18px 0 46px rgba(240, 113, 103, 0.11),
+    18px 0 52px rgba(90, 142, 208, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(34px) saturate(148%);
+}
+
+.login-modal::after {
+  opacity: 0.9;
+  background:
+    radial-gradient(circle at var(--login-mx) var(--login-my), rgba(210, 229, 255, 0.13), transparent 22%),
+    radial-gradient(circle at 14% 8%, rgba(240, 113, 103, 0.2), transparent 34%),
+    radial-gradient(circle at 92% 72%, rgba(90, 142, 208, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 35%);
+}
+
+.login-concrete-texture {
+  opacity: 0.1;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+/* Actual repository logo + brand name */
+.login-background-logo--one {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: 3;
+  display: flex;
+  width: fit-content;
+  margin: 0 auto 24px;
+  align-items: center;
+  gap: 14px;
+  opacity: 1;
+  filter: none;
+  transform: none;
+  animation: design01-brand-breathe 5.2s ease-in-out infinite;
+}
+
+.login-background-logo--one .brand-logo {
+  width: 72px;
+  height: 42px;
+  flex: 0 0 72px;
+}
+
+.login-background-logo--one .brand-logo-black {
+  display: none !important;
+}
+
+.login-background-logo--one .brand-logo-white {
+  display: block !important;
+}
+
+.login-background-logo--one::after {
+  content: '一战晟铭';
+  color: #f8fbff;
+  font-size: 27px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-shadow: 0 0 24px rgba(184, 220, 255, 0.12);
+}
+
+.login-background-logo--two,
+.login-background-logo--three {
+  display: none;
+}
+
+/* Re-purpose the existing accessible title button visually as the welcome header. */
+.login-title,
+.login-modal.is-expanded .login-title {
+  min-height: 0;
+  margin: 0 0 28px;
+  padding: 0;
+  gap: 7px;
+  cursor: default;
+  pointer-events: none;
+  font-size: 0;
+  letter-spacing: 0;
+  text-shadow: none;
+}
+
+.login-title::before {
+  content: '欢迎回来';
+  display: block;
+  color: #f7faff;
+  font-size: 25px;
+  font-weight: 720;
+  letter-spacing: 0.025em;
+  line-height: 1.2;
+}
+
+.login-title::after {
+  content: '继续你的一战晟铭创作工作流';
+  display: block;
+  color: rgba(206, 219, 239, 0.56);
+  font-size: 12px;
+  font-weight: 450;
+  letter-spacing: 0.045em;
+  line-height: 1.5;
+}
+
+.login-form-wrap,
+.login-modal.is-expanded .login-form-wrap {
+  max-height: 460px;
+  overflow: visible;
+  opacity: 1;
+  transform: none;
+}
+
+.login-form-wrap .ant-form-item {
+  margin-bottom: 17px;
+}
+
+.login-form-wrap .ant-form-item-label {
+  padding-bottom: 7px;
+}
+
+.login-form-wrap .ant-form-item-label > label {
+  color: rgba(232, 239, 250, 0.78) !important;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.login-form-wrap .ant-input,
+.login-form-wrap .ant-input-affix-wrapper {
+  min-height: 49px;
+  border: 1px solid rgba(161, 187, 222, 0.17) !important;
+  border-radius: 13px !important;
+  background: rgba(4, 9, 20, 0.56) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    0 12px 30px rgba(0, 0, 0, 0.09);
+}
+
+.login-form-wrap .ant-input:hover,
+.login-form-wrap .ant-input-affix-wrapper:hover {
+  border-color: rgba(133, 173, 229, 0.4) !important;
+  background: rgba(6, 12, 26, 0.68) !important;
+}
+
+.login-form-wrap .ant-input:focus,
+.login-form-wrap .ant-input-focused,
+.login-form-wrap .ant-input-affix-wrapper-focused {
+  border-color: rgba(103, 157, 228, 0.82) !important;
+  background: rgba(6, 12, 27, 0.8) !important;
+  box-shadow:
+    0 0 0 3px rgba(90, 142, 208, 0.1),
+    12px 0 32px rgba(90, 142, 208, 0.12),
+    -12px 0 28px rgba(214, 83, 134, 0.08) !important;
+}
+
+.login-form-wrap .ant-checkbox-wrapper {
+  color: rgba(225, 234, 247, 0.72) !important;
+  font-size: 12px;
+}
+
+.login-form-wrap .ant-btn-primary {
+  min-height: 51px;
+  margin-top: 1px;
+  border-radius: 14px !important;
+  background: linear-gradient(108deg, var(--design01-coral), var(--design01-rose) 48%, var(--design01-blue)) !important;
+  background-size: 190% 190% !important;
+  box-shadow:
+    0 14px 34px rgba(13, 23, 46, 0.34),
+    -10px 0 30px rgba(214, 83, 134, 0.11),
+    10px 0 30px rgba(90, 142, 208, 0.11);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+}
+
+.login-form-wrap .ant-btn-primary::after {
+  content: '→';
+  position: relative;
+  margin-left: 8px;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+
+.login-form-wrap .ant-btn-primary:hover::after {
+  transform: translateX(3px);
+}
+
+.login-hint {
+  margin-top: 12px;
+  color: rgba(185, 200, 222, 0.38);
+  font-size: 10px;
+  letter-spacing: 0.045em;
+}
+
+.login-success-state strong::after {
+  content: ' · 一战晟铭';
+  color: rgba(218, 232, 245, 0.56);
+  font-weight: 500;
+}
+
+@keyframes design01-brand-breathe {
+  0%, 100% {
+    opacity: 0.94;
+    filter: drop-shadow(0 0 14px rgba(240, 113, 103, 0.08));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 24px rgba(90, 142, 208, 0.14));
+  }
+}
+
+@media (max-width: 640px) {
+  .login-modal,
+  .login-modal.is-expanded {
+    width: min(100%, 394px);
+    padding: 32px 22px 24px;
+    border-radius: 25px;
+  }
+
+  .login-background-logo--one {
+    margin-bottom: 22px;
+    gap: 11px;
+  }
+
+  .login-background-logo--one .brand-logo {
+    width: 62px;
+    height: 36px;
+    flex-basis: 62px;
+  }
+
+  .login-background-logo--one::after {
+    font-size: 23px;
+  }
+
+  .login-title::before {
+    font-size: 23px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-background-logo--one {
+    animation: none !important;
+  }
+}
