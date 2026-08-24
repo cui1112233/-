@@ -1,0 +1,23 @@
+{
+  "name": "yizhan-local-executor",
+  "version": "0.1.0",
+  "private": true,
+  "author": "一战晟铭",
+  "description": "一战晟铭本地视频执行器",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack:win": "electron-builder --win portable --x64"
+  },
+  "build": {
+    "appId": "com.yizhan.shengming.executor",
+    "productName": "一战晟铭本地执行器",
+    "directories": { "output": "release" },
+    "files": ["src/**/*", "package.json"],
+    "win": { "target": ["portable"], "artifactName": "一战晟铭本地执行器-${version}-win-x64.${ext}" }
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  }
+}
