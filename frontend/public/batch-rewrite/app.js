@@ -280,6 +280,7 @@ function renderWorkflowConfig(appCfg) {
   $("fetchConcurrency").value = fetch.concurrency || 4;
   $("fetchRetries").value = fetch.retries ?? 1;
   $("fetchTimeout").value = fetch.timeout_seconds || 30;
+  $("fetchAutoDetectPlatform").checked = fetch.auto_detect_platform !== false;
   $("aiCountDefault").value = rewrite.default_ai_count || 1;
   $("aiCountMax").value = rewrite.max_ai_count || 5;
   $("processLineCount").value = rewrite.process_line_count || 5;
@@ -2393,6 +2394,7 @@ function syncFormToAppConfig() {
     concurrency: numberValue("fetchConcurrency", 4),
     retries: numberValue("fetchRetries", 1),
     timeout_seconds: numberValue("fetchTimeout", 30),
+    auto_detect_platform: $("fetchAutoDetectPlatform").checked,
   };
   cfg.rewrite = {
     ...(cfg.rewrite || {}),
