@@ -20,8 +20,8 @@
   isolation: isolate;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 29px;
-  background: linear-gradient(145deg, rgba(28, 30, 57, 0.52), rgba(8, 10, 25, 0.40));
-  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.30), 0 0 58px rgba(100, 92, 244, 0.14);
+  background: linear-gradient(145deg, rgba(28, 30, 57, 0.70), rgba(8, 10, 25, 0.62));
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.36), 0 0 58px rgba(100, 92, 244, 0.14);
   backdrop-filter: blur(13px) saturate(118%);
   transform: perspective(1100px) rotateX(var(--login-card-rotate-x)) rotateY(var(--login-card-rotate-y));
   transition: transform 180ms ease-out, box-shadow 240ms ease;
@@ -117,6 +117,15 @@
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+.nebula-login-modal .nebula-login-form-wrap input:-webkit-autofill,
+.nebula-login-modal .nebula-login-form-wrap input:-webkit-autofill:hover,
+.nebula-login-modal .nebula-login-form-wrap input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #fff !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(86, 90, 108, 0.48) inset !important;
+  box-shadow: 0 0 0 1000px rgba(86, 90, 108, 0.48) inset !important;
+  caret-color: #fff;
+  transition: background-color 9999s ease-out 0s;
 }
 .nebula-login-modal .nebula-login-form-wrap .ant-input:focus,
 .nebula-login-modal .nebula-login-form-wrap .ant-input-affix-wrapper:focus,
