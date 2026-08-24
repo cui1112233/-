@@ -6,6 +6,8 @@ const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
+const { createMemberStore } = require('./lib/member-store');
+const { createUsageStore } = require('./lib/usage-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
@@ -16,6 +18,7 @@ const { createApplicationsRouter } = require('./routes/applications');
 const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
+const { createMemberCenterRouter } = require('./routes/member-center');
 const configRouter = require('./routes/config');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -33,25 +36,28 @@ const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, memberStore, usageStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
-  const resolvedPresetStore = presetStore || createPresetStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
-  });
+  const systemDir = path.dirname(authRuntime.accountStore.files.audit);
+  const dataDir = path.dirname(systemDir);
+  const avatarsDir = path.join(dataDir, 'avatars');
+  const resolvedMemberStore = memberStore || createMemberStore({ systemDir, accountStore: authRuntime.accountStore });
+  const resolvedUsageStore = usageStore || createUsageStore({ systemDir });
+  const resolvedPresetStore = presetStore || createPresetStore({ systemDir });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
-  const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
-  });
+  const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({ systemDir });
   const resolvedAgentSkillStore = agentSkillStore || createAgentSkillStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit),
-    usersDir: path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users')
+    systemDir,
+    usersDir: path.join(systemDir, '..', 'users')
   });
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
-  const usersDir = path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users');
+  const usersDir = path.join(systemDir, '..', 'users');
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
+  app.locals.memberStore = resolvedMemberStore;
+  app.locals.usageStore = resolvedUsageStore;
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
@@ -88,6 +94,16 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     }
   }));
 
+  app.use('/user-content/avatars', express.static(avatarsDir, {
+    index: false,
+    dotfiles: 'deny',
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }));
+
   // 静态文件服务
   // Workbench assets need dedicated CSP and no-store handling before public static files.
   app.use('/novel-panel', novelPanelRouter);
@@ -112,9 +128,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   // 路由挂载
   app.get('/api/build-info', (req, res) => {
-    res.json({ app_version: 'v77-hotfix26', build_id: 'v77-hotfix26-style-reuse-r1' });
+    res.json({ app_version: 'v78-member-center', build_id: 'v78-member-center-v1' });
   });
-  app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
+  app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore)); // POST /api/login
+  app.use('/api/member', createMemberCenterRouter({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, avatarsDir }));
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
