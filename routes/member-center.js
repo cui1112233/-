@@ -3,6 +3,7 @@ const path = require('node:path');
 const express = require('express');
 
 const { apiAuth } = require('../middleware/auth');
+const { ensureDevBackendPermissions, devGrantActor } = require('../lib/dev-permissions');
 
 function sendMemberError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: error.message });
@@ -21,13 +22,23 @@ function parseAvatarDataUrl(value) {
   return { buffer, extension };
 }
 
-function createMemberCenterRouter({ memberStore, usageStore, avatarsDir } = {}) {
+function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, accountStore } = {}) {
   if (!memberStore) throw new Error('memberStore is required');
   if (!usageStore) throw new Error('usageStore is required');
   if (!avatarsDir) throw new Error('avatarsDir is required');
+  if (!accountStore) throw new Error('accountStore is required');
 
   const router = express.Router();
   router.use(apiAuth);
+
+  function requireDev(req, res) {
+    const self = memberStore.getMember(req.username);
+    if (!self || self.role !== 'dev') {
+      res.status(403).json({ error: '仅 DEV 可以执行此操作' });
+      return null;
+    }
+    return self;
+  }
 
   router.get('/me', (req, res) => {
     try {
@@ -112,11 +123,15 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir } = {}) 
       if (requestedRole === 'member' && body.apiEnabled === true && !resolvedBoundTo) {
         return res.status(400).json({ error: '请先绑定 MANAGER，再开启团队 API。' });
       }
-      const member = memberStore.createManagedMember(req.username, {
+      let member = memberStore.createManagedMember(req.username, {
         ...body,
         role: requestedRole,
         boundTo: resolvedBoundTo
       });
+      if (member.role === 'dev') {
+        ensureDevBackendPermissions(accountStore, member);
+        member = memberStore.getMember(member.username);
+      }
       return res.status(201).json({ member });
     } catch (error) {
       return sendMemberError(res, error);
@@ -125,7 +140,11 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir } = {}) 
 
   router.patch('/team/members/:username', (req, res) => {
     try {
-      const member = memberStore.updateManagedMember(req.username, req.params.username, req.body || {});
+      let member = memberStore.updateManagedMember(req.username, req.params.username, req.body || {});
+      if (member.role === 'dev') {
+        ensureDevBackendPermissions(accountStore, member);
+        member = memberStore.getMember(member.username);
+      }
       return res.json({ member });
     } catch (error) {
       return sendMemberError(res, error);
@@ -155,6 +174,45 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir } = {}) 
         month: usageStore.summaryForUser(req.params.username, 'month'),
         recent: usageStore.recentForUser(req.params.username, 50)
       });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
+  // 继续复用原有 grants.json 作为后台模块权限来源；DEV 通过这里分配，
+  // account-store 仍由真实 Owner 作为写入 actor 保持旧数据约束。
+  router.get('/team/backend-grants', (req, res) => {
+    try {
+      if (!requireDev(req, res)) return;
+      return res.json({ grants: accountStore.listGrants() });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
+  router.post('/team/backend-grants', (req, res) => {
+    try {
+      if (!requireDev(req, res)) return;
+      const subject = req.body?.subject;
+      const target = memberStore.getMember(subject);
+      if (!target || target.isOwner) return res.status(400).json({ error: '目标成员不合法' });
+      const actor = devGrantActor(accountStore, req.username);
+      const grant = accountStore.grant(actor, subject, {
+        capability: req.body?.capability,
+        scope: req.body?.scope || '*'
+      });
+      return res.status(201).json({ grant });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
+  router.delete('/team/backend-grants/:id', (req, res) => {
+    try {
+      if (!requireDev(req, res)) return;
+      const actor = devGrantActor(accountStore, req.username);
+      const grant = accountStore.revokeGrant(actor, req.params.id);
+      return res.json({ grant });
     } catch (error) {
       return sendMemberError(res, error);
     }
