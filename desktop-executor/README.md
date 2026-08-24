@@ -19,8 +19,14 @@ Windows x64 本地客户端。它用于把用户自行登录、已获授权的�
 cd desktop-executor
 npm install
 npm run pack:win
+npm run pack:mac
 ```
 
-输出：`release/一战晟铭本地执行器-<version>-win-x64.exe`。
+输出：
+
+- Windows x64：`release/一战晟铭本地执行器-<version>-win-x64.exe`；
+- macOS Apple Silicon：`release/一战晟铭本地执行器-<version>-mac-arm64.dmg`。
+
+macOS 版本在拥有 Apple Developer 签名和公证前，首次运行需要在 Finder 中右键应用并选择“打开”。
 
 配对时，填写部署后端地址（当前内网环境为 `http://10.0.100.183:14000`），再输入平台“设置 → 豆包本地执行器”生成的配对码。

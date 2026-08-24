@@ -7,14 +7,16 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
-    "pack:win": "electron-builder --win portable --x64"
+    "pack:win": "electron-builder --win portable --x64",
+    "pack:mac": "electron-builder --mac dmg --arm64"
   },
   "build": {
     "appId": "com.yizhan.shengming.executor",
     "productName": "一战晟铭本地执行器",
     "directories": { "output": "release" },
     "files": ["src/**/*", "package.json"],
-    "win": { "target": ["portable"], "artifactName": "一战晟铭本地执行器-${version}-win-x64.${ext}" }
+    "win": { "target": ["portable"], "artifactName": "一战晟铭本地执行器-${version}-win-x64.${ext}" },
+    "mac": { "target": ["dmg"], "artifactName": "一战晟铭本地执行器-${version}-mac-arm64.${ext}", "category": "public.app-category.productivity" }
   },
   "devDependencies": {
     "electron": "^37.2.6",
