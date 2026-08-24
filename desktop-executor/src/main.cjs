@@ -1,11 +1,11 @@
-const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
 const statePath = () => path.join(app.getPath('userData'), 'executor-state.bin');
 let heartbeatTimer = null;
-let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '' };
+let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [] };
 
 function normalizeServerUrl(value) {
   const url = new URL(String(value || '').trim());
@@ -94,6 +94,24 @@ ipcMain.handle('executor:unpair', () => {
   state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '' };
   try { fs.rmSync(statePath(), { force: true }); } catch (_) {}
   return { paired: false };
+});
+
+ipcMain.handle('accounts:list', () => state.accounts.map(({ id, name, status }) => ({ id, name, status })));
+ipcMain.handle('accounts:add', (_, rawName) => {
+  const name = String(rawName || '').trim().slice(0, 80);
+  if (!name) throw new Error('请输入账号备注');
+  const account = { id: crypto.randomUUID(), name, status: '未登录' };
+  state.accounts.push(account); saveState();
+  const loginWindow = new BrowserWindow({ width: 1120, height: 760, title: `登录豆包：${name}`, webPreferences: { partition: `persist:doubao-${account.id}`, contextIsolation: true, nodeIntegration: false } });
+  loginWindow.loadURL('https://www.doubao.com/');
+  loginWindow.on('close', () => { account.status = '已登录（请在任务前确认）'; saveState(); });
+  return account;
+});
+ipcMain.handle('accounts:remove', async (_, id) => {
+  const index = state.accounts.findIndex(item => item.id === id);
+  if (index < 0) return;
+  await session.fromPartition(`persist:doubao-${id}`).clearStorageData();
+  state.accounts.splice(index, 1); saveState();
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
