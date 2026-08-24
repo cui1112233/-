@@ -29,6 +29,8 @@ test('CM bridge only dispatches allow-listed structured actions and serializes p
   assert.match(bridge, /constraint\.bind/);
   assert.match(bridge, /segment\.update/);
   assert.match(bridge, /tts\.update/);
+  assert.match(bridge, /novel\.selection\.replace/);
+  assert.doesNotMatch(bridge, /'novel\.source\.update'/);
   assert.match(bridge, /normalizeCmAction/);
   assert.match(bridge, /registerCmBridge/);
   assert.match(bridge, /let actionTail = Promise\.resolve\(\)/);
@@ -46,7 +48,9 @@ test('CM metadata is folded into the server-approved agent context fields', () =
   assert.match(api, /function prepareAgentContext/);
   assert.match(api, /cmSelection/);
   assert.match(api, /cmCapabilities/);
+  assert.match(api, /safeSelectionMeta/);
   assert.match(api, /CM 当前选中对象/);
+  assert.match(api, /CM 当前选中的实际内容/);
   assert.match(api, /CM 当前页面允许申请的动作/);
   assert.match(api, /summary:/);
   assert.match(api, /entities:/);
@@ -124,4 +128,32 @@ test('TTS cards expose focus and accept allow-listed CM parameter edits', () => 
   assert.match(tts, /clamp\(patch\.pitch, -50, 50/);
   assert.match(tts, /audioUrl: ''/);
   assert.match(tts, /请重新生成试听/);
+});
+
+test('Novel Panel uses its existing MessageChannel for bounded CM context, selection edits and guarded undo', () => {
+  const page = read('frontend/src/user/pages/NovelPanelPage.jsx');
+  const workbenchBridge = read('public/novel-panel/workbench/bridge.js');
+  const centralBridge = read('frontend/src/shared/pet/cmBridge.js');
+
+  assert.match(page, /registerCmBridge/);
+  assert.match(page, /novel\.selection\.replace/);
+  assert.match(page, /novel-panel-cm-context-request/);
+  assert.match(page, /novel-panel-cm-action-request/);
+  assert.match(page, /novel-panel-cm-undo-request/);
+  assert.match(page, /handleCmPortMessage\(data\)/);
+
+  assert.match(workbenchBridge, /cmEditableFields/);
+  assert.match(workbenchBridge, /novel-editor-selection/);
+  assert.match(workbenchBridge, /selectionStart/);
+  assert.match(workbenchBridge, /selectionEnd/);
+  assert.match(workbenchBridge, /novel-panel-cm-context-changed/);
+  assert.match(workbenchBridge, /action\.type === 'novel\.selection\.replace'/);
+  assert.match(workbenchBridge, /action\.targetId !== selection\.id/);
+  assert.match(workbenchBridge, /commitLatestEditableUiState/);
+  assert.match(workbenchBridge, /scheduleDraftSave/);
+  assert.match(workbenchBridge, /String\(element\.value \|\| ''\) !== entry\.appliedValue/);
+  assert.match(workbenchBridge, /为避免覆盖新编辑，本次撤销已取消/);
+
+  assert.match(centralBridge, /'\/novel-panel': \['novel\.selection\.replace'\]/);
+  assert.doesNotMatch(centralBridge, /'novel\.source\.update'/);
 });
