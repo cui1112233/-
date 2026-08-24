@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { textToSpeech } from '../../shared/api/tts';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { dispatchCmSelection, registerCmBridge } from '../../shared/pet/cmBridge';
 
 const voices = [
   { label: '晓晓（女声·温柔）', value: 'zh-CN-XiaoxiaoNeural' },
@@ -21,6 +22,9 @@ const styles = [
   { label: '友好', value: 'friendly' },
   { label: '聊天', value: 'chat' }
 ];
+
+const voiceValues = new Set(voices.map(item => item.value));
+const styleValues = new Set(styles.map(item => item.value));
 
 function createCard(text = '') {
   return {
@@ -44,6 +48,11 @@ function NumberSlider({ ariaLabel, min, max, step, value, onChange }) {
       <InputNumber aria-label={`${ariaLabel}数值`} min={min} max={max} step={step} value={safeValue} onChange={next => onChange(next ?? safeValue)} />
     </div>
   );
+}
+
+function clamp(value, min, max, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
 }
 
 export function TtsPage() {
@@ -104,8 +113,59 @@ export function TtsPage() {
     });
   }, [cards, defaults]);
 
+  useEffect(() => registerCmBridge({
+    page: '配音',
+    pagePath: '/tts',
+    capabilities: ['tts.update'],
+    getContext: () => ({
+      page: '配音',
+      pagePath: '/tts',
+      summary: `当前有 ${cards.length} 张配音卡。CM 可以调整选中卡片的文本、音色、风格、语速和音调；修改参数后需要用户重新生成音频。`
+    }),
+    apply: async action => {
+      if (action.type !== 'tts.update') throw new Error('配音页面暂不支持这个 CM 操作。');
+      const index = cards.findIndex(card => card.id === action.targetId);
+      if (index < 0) throw new Error('找不到要修改的配音卡片，请重新点选后再试。');
+      const current = cards[index];
+      const patch = action.patch || {};
+      const next = {
+        ...current,
+        ...(Object.prototype.hasOwnProperty.call(patch, 'input') ? { input: String(patch.input || '').slice(0, 12000) } : {}),
+        ...(voiceValues.has(patch.voice) ? { voice: patch.voice } : {}),
+        ...(styleValues.has(patch.style) ? { style: patch.style } : {}),
+        ...(Object.prototype.hasOwnProperty.call(patch, 'speed') ? { speed: clamp(patch.speed, 0.5, 2, current.speed) } : {}),
+        ...(Object.prototype.hasOwnProperty.call(patch, 'pitch') ? { pitch: clamp(patch.pitch, -50, 50, current.pitch) } : {}),
+        loading: false,
+        audioUrl: '',
+        audioBlob: null
+      };
+      if (current.audioUrl) {
+        URL.revokeObjectURL(current.audioUrl);
+        audioUrlsRef.current.delete(current.audioUrl);
+      }
+      nextCardRequest(current.id);
+      setCards(items => items.map(card => card.id === current.id ? next : card));
+      return { ok: true, message: `已更新配音卡片 ${index + 1}，请重新生成试听。` };
+    }
+  }), [cards]);
+
   function updateCard(id, patch) {
     setCards(current => current.map(card => card.id === id ? { ...card, ...patch } : card));
+  }
+
+  function focusCard(card, index) {
+    dispatchCmSelection({
+      type: 'tts-card',
+      id: card.id,
+      label: `配音卡片 ${index + 1}`,
+      meta: {
+        input: card.input || '',
+        voice: card.voice,
+        style: card.style,
+        speed: card.speed,
+        pitch: card.pitch
+      }
+    });
   }
 
   function addCard(text) {
@@ -243,6 +303,7 @@ export function TtsPage() {
             key={card.id}
             card={card}
             index={index}
+            onFocus={() => focusCard(card, index)}
             onChange={patch => updateCard(card.id, patch)}
             onGenerate={() => generateCard(card.id)}
             onDownload={() => downloadCard(card)}
@@ -256,7 +317,7 @@ export function TtsPage() {
 
 export default TtsPage;
 
-function TtsCard({ card, index, onChange, onGenerate, onDownload, onRemove }) {
+function TtsCard({ card, index, onFocus, onChange, onGenerate, onDownload, onRemove }) {
   const stat = useMemo(() => {
     const text = card.input || '';
     return {
@@ -267,7 +328,7 @@ function TtsCard({ card, index, onChange, onGenerate, onDownload, onRemove }) {
   }, [card.input]);
 
   return (
-    <div className="tts-card legacy-panel-card">
+    <div className="tts-card legacy-panel-card" tabIndex={0} onClick={onFocus} onFocus={onFocus}>
       <div className="tts-card-header">
         <strong>配音卡片 {index + 1}</strong>
         <Button size="small" danger icon={<Trash2 size={15} strokeWidth={1.8} aria-hidden="true" />} onClick={onRemove}>删除</Button>
