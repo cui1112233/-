@@ -12,6 +12,7 @@ const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评�
 const WORK_FORM_STORAGE_KEY = "batchRewrite.workForm.v1";
 const LEGACY_WORK_INPUT_SAMPLE_PREFIX = "7674515088685943832\t";
 const API_ROOT = "/api/batch-rewrite";
+const PER_BOOK_MATERIAL_LIMIT = 8;
 const REWRITE_METHOD_OPTIONS = [
   { id: "", name: "自动轮换" },
   { id: "high_imitation", name: "高仿文章库" },
@@ -39,6 +40,17 @@ function clone(value) {
 function numberValue(id, fallback) {
   const value = Number($(id).value);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function materialJieyaValue(value) {
+  const count = Math.round(Number(value));
+  return Number.isFinite(count) ? Math.max(0, Math.min(PER_BOOK_MATERIAL_LIMIT, count)) : 4;
+}
+
+function syncGunpingMaterialCount() {
+  const jieya = materialJieyaValue($("webJieyaNum")?.value);
+  if ($("webJieyaNum")) $("webJieyaNum").value = jieya;
+  if ($("webGunpingNum")) $("webGunpingNum").value = PER_BOOK_MATERIAL_LIMIT - jieya;
 }
 
 async function api(path, options = {}) {
@@ -389,6 +401,7 @@ function ensureWebSubmitConfig() {
   state.config = state.config || {};
   const current = state.config.web_submit || {};
   const submitVersions = asArray(current.submit_versions).length ? asArray(current.submit_versions) : ["ai1"];
+  const jieyaNum = materialJieyaValue(current.advanced?.jieyaNum ?? 4);
   state.config.web_submit = {
     enabled: current.enabled === true,
     username: current.username || "",
@@ -398,11 +411,11 @@ function ensureWebSubmitConfig() {
     submit_versions: submitVersions,
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
-      jieyaNum: Number(current.advanced?.jieyaNum ?? 4),
+      jieyaNum,
       jieyaAiHead: Number(current.advanced?.jieyaAiHead ?? 0),
       jieyaSpeed: Number(current.advanced?.jieyaSpeed ?? 1.7),
       jieyaPitch: Number(current.advanced?.jieyaPitch ?? 0),
-      gunpingNum: Number(current.advanced?.gunpingNum ?? 4),
+      gunpingNum: PER_BOOK_MATERIAL_LIMIT - jieyaNum,
       gunpingSpeed: Number(current.advanced?.gunpingSpeed ?? 1),
       ziti: Number(current.advanced?.ziti ?? 1),
       zitidx: Number(current.advanced?.zitidx ?? 62),
@@ -1415,6 +1428,7 @@ function renderWebSubmitConfig(settings = {}) {
   $("webZitidx").value = advanced.zitidx ?? 62;
   $("webBiaohong").value = advanced.biaohong || '';
   $("webKeywords").value = advanced.keywords || '';
+  syncGunpingMaterialCount();
 
   const versionSet = new Set(asArray(cfg.submit_versions).map((item) => String(item || "").toLowerCase()));
   document.querySelectorAll(".web-version").forEach((input) => {
@@ -1436,6 +1450,7 @@ function webSubmitVersionsFromForm() {
 
 function syncFormToWebSubmitConfig() {
   const cfg = clone(ensureWebSubmitConfig());
+  const jieyaNum = materialJieyaValue($("webJieyaNum").value);
   cfg.enabled = $("webEnabled").checked;
   cfg.username = $("webUsername").value.trim();
   cfg.password = $("webPassword").value.trim();
@@ -1443,11 +1458,11 @@ function syncFormToWebSubmitConfig() {
   cfg.submit_versions = webSubmitVersionsFromForm();
   cfg.advanced = {
     tl5: Number($("webTl5").value) === 1 ? 1 : 0,
-    jieyaNum: numberValue("webJieyaNum", 4),
+    jieyaNum,
     jieyaAiHead: numberValue("webJieyaAiHead", 0),
     jieyaSpeed: numberValue("webJieyaSpeed", 1.7),
     jieyaPitch: numberValue("webJieyaPitch", 0),
-    gunpingNum: numberValue("webGunpingNum", 4),
+    gunpingNum: PER_BOOK_MATERIAL_LIMIT - jieyaNum,
     gunpingSpeed: numberValue("webGunpingSpeed", 1),
     ziti: numberValue("webZiti", 1),
     zitidx: numberValue("webZitidx", 62),
@@ -1654,13 +1669,17 @@ function groupCardHtml(group) {
   const advanced = group.advanced || {};
   const items = asArray(group.items);
   const status = group.status || "";
-  const itemRows = items.slice(0, 24).map((item) => `
+  const itemRows = items.slice(0, 24).map((item) => {
+    const itemAdvanced = item.advanced || advanced;
+    return `
     <div class="site-file-row">
       <code>${escapeHtml(item.id || "")}</code>
       <span>${escapeHtml(item.version || group.version || "")}</span>
+      <span>${escapeHtml(`解压 ${itemAdvanced.jieyaNum ?? 0} / 滚屏 ${itemAdvanced.gunpingNum ?? 0}`)}</span>
       <span>${escapeHtml(item.size ? `${item.size}字节` : "")}</span>
     </div>
-  `).join("");
+  `;
+  }).join("");
   return `
     <div class="site-group-card">
       <div class="site-group-head">
@@ -1674,8 +1693,8 @@ function groupCardHtml(group) {
         ${metaItem("版本", group.version || summary.version || "")}
         ${metaItem("任务数", String(items.length || group.count || 0))}
         ${metaItem("时长", Number(advanced.tl5) === 1 ? "限制" : "不限制")}
-        ${metaItem("解压", `${advanced.jieyaNum ?? 4} 个 / ${advanced.jieyaSpeed ?? 1.7}x`)}
-        ${metaItem("滚屏", `${advanced.gunpingNum ?? 4} 个 / ${advanced.gunpingSpeed ?? 1}x`)}
+        ${metaItem("每本书解压总量", `${advanced.jieyaNum ?? 4} 个 / ${advanced.jieyaSpeed ?? 1.7}x`)}
+        ${metaItem("每本书滚屏总量", `${advanced.gunpingNum ?? 4} 个 / ${advanced.gunpingSpeed ?? 1}x`)}
         ${metaItem("错误", group.error || "")}
       </div>
       <div class="site-file-list">${itemRows || "暂无文件"}</div>
@@ -2698,6 +2717,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiSuggestBtn").onclick = suggestCurrentRuleWithAi;
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("saveWebSubmitConfigBtn").onclick = () => saveWebSubmitConfig(false);
+  $("webJieyaNum").oninput = syncGunpingMaterialCount;
+  $("webJieyaNum").onchange = syncGunpingMaterialCount;
   $("testVisibleWebBtn").onclick = testVisibleWebFlow;
   $("previewWebSelectedBtn").onclick = () => previewWebSubmit("selected");
   $("previewWebAllBtn").onclick = () => previewWebSubmit("all");

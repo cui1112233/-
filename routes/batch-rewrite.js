@@ -387,6 +387,7 @@ function createBatchRewriteRouter({
     const { tasks } = await resources(req);
     const groupsById = new Map();
     const skipped = [];
+    const candidatesByBook = new Map();
     for (const id of ids) {
       const task = await tasks.getTask(req.username, id);
       if (!task?.meta) { skipped.push({ id, status: 'failed', error: '任务不存在' }); continue; }
@@ -397,13 +398,23 @@ function createBatchRewriteRouter({
           skipped.push({ id, version, status: 'skipped', error: '该版本已提交；如需重复提交请关闭“跳过已提交”' });
           continue;
         }
-        const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}`;
-        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: snakeTask(task.meta), advanced: target.normalizeAdvanced(webConfig.advanced), items: [] };
-        group.items.push({ id, version, size: Buffer.byteLength(content) });
-        groupsById.set(groupId, group);
+        const candidates = candidatesByBook.get(id) || [];
+        candidates.push({ id, version, size: Buffer.byteLength(content), task });
+        candidatesByBook.set(id, candidates);
       }
     }
-    return { groups: [...groupsById.values()], skipped };
+    for (const candidates of candidatesByBook.values()) {
+      // 同一本书的素材额度只使用一次；按本书本次选中的文案版本均分给每次上传。
+      const allocations = target.distributeBookMaterials(webConfig.advanced, candidates.length);
+      candidates.forEach((candidate, index) => {
+        const { id, version, size, task } = candidate;
+        const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}`;
+        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: snakeTask(task.meta), advanced: target.normalizeAdvanced(webConfig.advanced), items: [] };
+        group.items.push({ id, version, size, advanced: allocations[index] });
+        groupsById.set(groupId, group);
+      });
+    }
+    return { material_limit: target.PER_BOOK_MATERIAL_LIMIT, groups: [...groupsById.values()], skipped };
   }
 
   async function submitTasks(req, body) {
@@ -422,14 +433,14 @@ function createBatchRewriteRouter({
         const task = await tasks.getTask(req.username, item.id);
         const content = await tasks.readVersionText(req.username, item.id, item.version);
         try {
-          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: webConfig.advanced });
+          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: item.advanced || webConfig.advanced });
           const upload = target.buildMultipart(fields, { filename: `${item.id}-${item.version}.txt`, content });
           const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
           let data = {};
           try { data = JSON.parse(response.body); } catch (_) {}
           if (data.success !== true) throw new Error(data.message || data.msg || '上传失败');
           await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'submitted', siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])] });
-          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, time: new Date().toISOString() });
+          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, material_allocation: item.advanced, time: new Date().toISOString() });
         } catch (error) {
           groupFailed = true;
           item.error = error.message || '上传失败';

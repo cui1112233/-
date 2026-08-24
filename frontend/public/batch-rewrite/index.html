@@ -509,7 +509,7 @@
             <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
           </div>
           <section class="section full upload-execution-settings">
-            <div class="section-title"><h3>上传执行参数</h3><span>批量任务共用；平台、男女频、风格仍以每本任务的分析结果为准</span></div>
+            <div class="section-title"><h3>上传执行参数</h3><span>每本书素材总数固定为 8；多个已选文案会自动均分，平台、男女频、风格仍以每本任务的分析结果为准</span></div>
             <div class="control-grid upload-common-settings">
               <label>
                 时长限制
@@ -529,8 +529,8 @@
                 <div class="section-title compact"><h4>解压视频设置</h4><span>控制解压视频的数量、开头与配音参数</span></div>
                 <div class="control-grid">
               <label>
-                解压视频数量
-                <input id="webJieyaNum" type="number" min="0" max="20" value="4" />
+                解压视频总数（每本书）
+                <input id="webJieyaNum" type="number" min="0" max="8" value="4" />
               </label>
               <label>
                 解压 AI 开头
@@ -550,8 +550,8 @@
                 <div class="section-title compact"><h4>滚屏视频设置</h4><span>控制滚屏视频的数量、字幕展示速度与样式</span></div>
                 <div class="control-grid">
               <label>
-                滚屏数量
-                <input id="webGunpingNum" type="number" min="0" max="20" value="4" />
+                滚屏数量（自动补足至 8）
+                <input id="webGunpingNum" type="number" min="0" max="8" value="4" readonly aria-readonly="true" />
               </label>
               <label>
                 滚屏速度
