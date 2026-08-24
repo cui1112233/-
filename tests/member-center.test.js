@@ -70,6 +70,21 @@ test('MANAGER can only create MEMBER accounts bound to itself', t => {
   assert.deepEqual(member.apiScopes, ['*']);
 });
 
+test('DEV cannot leave a half-created account when API is requested without a manager', t => {
+  const { accountStore, memberStore } = fixture(t);
+
+  assert.throws(
+    () => memberStore.createManagedMember('choushiyiguai', {
+      username: 'orphan001',
+      password: 'password01',
+      role: 'member',
+      apiEnabled: true
+    }),
+    /未绑定 manager/
+  );
+  assert.equal(accountStore.getAccount('orphan001'), null);
+});
+
 test('manager cannot authorize a member owned by another manager', t => {
   const { memberStore } = fixture(t);
   const managerA = memberStore.createManagedMember('choushiyiguai', {
@@ -182,4 +197,19 @@ test('DEV cannot demote a MANAGER until its members are transferred', t => {
     () => memberStore.updateManagedMember('choushiyiguai', manager.username, { role: 'member' }),
     error => error?.code === 'CONFLICT'
   );
+});
+
+test('MANAGER audit filtering does not reacquire the member-store lock', t => {
+  const { memberStore } = fixture(t);
+  const manager = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager07', password: 'password01', role: 'manager'
+  });
+  const member = memberStore.createManagedMember(manager.username, {
+    username: 'member007', password: 'password01'
+  });
+  memberStore.setApiAccess(manager.username, member.username, true);
+
+  const audit = memberStore.listAudit(manager.username);
+  assert.ok(audit.some(entry => entry.action === 'member.created' && entry.target === member.username));
+  assert.ok(audit.some(entry => entry.action === 'api.enabled' && entry.target === member.username));
 });
