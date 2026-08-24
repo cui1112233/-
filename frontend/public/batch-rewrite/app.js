@@ -1837,7 +1837,7 @@ function renderTasks(tasks) {
     const siteText = siteSubmitText(task);
     tr.innerHTML = `
       <td><input class="task-check" type="checkbox" data-id="${escapeHtml(id)}" ${state.selectedIds.has(id) ? "checked" : ""} /></td>
-      <td class="id-cell">${escapeHtml(id)}</td>
+      <td class="id-cell"><button class="task-id-link" data-action="detail" data-id="${escapeHtml(id)}" title="查看任务详情">${escapeHtml(id)}</button></td>
       <td>${escapeHtml(task.book_name || "")}</td>
       <td>${escapeHtml(task.platform_name || "")}</td>
       <td>${escapeHtml(task.parse_mode || "")}</td>
@@ -2279,6 +2279,11 @@ async function showTask(id) {
   const data = await api(`/api/tasks/${id}`);
   renderDetail(data);
   activateTab("work");
+  focusTaskDetail();
+}
+
+function focusTaskDetail() {
+  requestAnimationFrame(() => $("detail")?.scrollIntoView({ behavior: "smooth", block: "start" }));
 }
 
 async function showSensitiveLog(id) {
@@ -2286,6 +2291,7 @@ async function showSensitiveLog(id) {
   const data = await api(`/api/tasks/${id}/sensitive-log`);
   renderSensitiveLog(data);
   activateTab("work");
+  focusTaskDetail();
 }
 
 async function showRulesTrace(id) {
@@ -2293,6 +2299,7 @@ async function showRulesTrace(id) {
   const data = await api(`/api/tasks/${id}/rules-trace`);
   renderRulesTrace(data);
   activateTab("work");
+  focusTaskDetail();
 }
 
 async function showSiteSubmitLog(id) {
@@ -2300,6 +2307,7 @@ async function showSiteSubmitLog(id) {
   const data = await api(`/api/tasks/${id}/site-submit-log`);
   renderSiteSubmitLog(data);
   activateTab("work");
+  focusTaskDetail();
 }
 
 async function refetchTask(id) {
@@ -2355,7 +2363,7 @@ async function batchDelete(mode) {
       state.selectedId = "";
       $("detailTitle").textContent = "未选择";
       $("detail").className = "detail-empty";
-      $("detail").textContent = "点击任务 ID 查看内容";
+      $("detail").textContent = "在“任务”页点击书籍 ID 或“查看”，这里会展示该书的原文、AI 文案、处理规则和提交记录。";
     }
     renderTasks(result.tasks || []);
     setBatchStatus(`已删除 ${result.deleted || 0} 个，失败 ${result.failed || 0} 个`);

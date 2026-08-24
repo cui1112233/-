@@ -470,6 +470,19 @@ td.id-cell {
   min-height: auto;
 }
 
+.task-id-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));
