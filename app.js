@@ -41,6 +41,7 @@ const { createNovelPanelHistoryStore } = require('./lib/novel-panel/history-stor
 const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-store');
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { createScriptVideoRouter } = require('./routes/script-video');
+const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore } = {}) {
   const app = express();
@@ -131,6 +132,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
       res.setHeader('Expires', '0');
     }
   }));
+
+  app.use('/downloads/local-executor', createLocalExecutorDownloadsRouter());
 
   // 路由挂载
   app.get('/api/build-info', (req, res) => {

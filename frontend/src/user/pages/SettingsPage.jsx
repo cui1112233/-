@@ -35,8 +35,8 @@ const petOptions = [
 ];
 
 const localExecutorDownloads = {
-  mac: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/-0.1.1-mac-arm64.dmg',
-  windows: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/-0.1.1-win-x64.exe'
+  mac: '/downloads/local-executor/yizhan-local-executor-0.1.1-mac-arm64.dmg',
+  windows: '/downloads/local-executor/yizhan-local-executor-0.1.1-win-x64.exe'
 };
 
 function connectionResponseMessage(candidate, fallback) {
