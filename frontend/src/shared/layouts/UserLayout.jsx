@@ -1,5 +1,5 @@
 import { Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { AudioLines, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -21,6 +21,7 @@ const navItems = [
 ];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
+const LOGIN_SUCCESS_ANIMATION_MS = 760;
 
 function initialTheme() {
   return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
@@ -41,15 +42,21 @@ function canAccessAdmin(account) {
   ));
 }
 
+function wait(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
 export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loginExpanded, setLoginExpanded] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [loginSucceeded, setLoginSucceeded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const accountSessionGenerationRef = useRef(0);
+  const loginModalRef = useRef(null);
   const pathname = window.location.pathname;
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
@@ -130,6 +137,7 @@ export function UserLayout({ children }) {
       }
       accountSessionGenerationRef.current += 1;
       clearSession();
+      setLoginSucceeded(false);
       setLoginExpanded(true);
       setLoginDialogOpen(true);
     }
@@ -161,16 +169,44 @@ export function UserLayout({ children }) {
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, [isLoggedIn, pathname]);
 
+  function resetLoginParallax() {
+    const modal = loginModalRef.current;
+    if (!modal) return;
+    modal.style.setProperty('--login-rx', '0deg');
+    modal.style.setProperty('--login-ry', '0deg');
+    modal.style.setProperty('--login-mx', '50%');
+    modal.style.setProperty('--login-my', '50%');
+  }
+
+  function handleLoginPointerMove(event) {
+    if (loginSucceeded || event.pointerType === 'touch') return;
+    const modal = loginModalRef.current;
+    if (!modal) return;
+    const rect = modal.getBoundingClientRect();
+    const x = Math.min(1, Math.max(-1, ((event.clientX - rect.left) / rect.width - 0.5) * 2));
+    const y = Math.min(1, Math.max(-1, ((event.clientY - rect.top) / rect.height - 0.5) * 2));
+    modal.style.setProperty('--login-rx', `${(-y * 2.6).toFixed(2)}deg`);
+    modal.style.setProperty('--login-ry', `${(x * 3.4).toFixed(2)}deg`);
+    modal.style.setProperty('--login-mx', `${((x + 1) * 50).toFixed(1)}%`);
+    modal.style.setProperty('--login-my', `${((y + 1) * 50).toFixed(1)}%`);
+  }
+
   async function handleLogin(values) {
     accountSessionGenerationRef.current += 1;
+    setLoginSucceeded(false);
     setLoading(true);
     try {
       const data = await login(values.username, values.password, values.remember);
       setUsername(data.username);
       setAccount(data);
-      setLoginDialogOpen(false);
+      setLoginSucceeded(true);
+      resetLoginParallax();
       message.success('登录成功');
+      await wait(LOGIN_SUCCESS_ANIMATION_MS);
+      setLoginDialogOpen(false);
+      setLoginSucceeded(false);
     } catch (error) {
+      setLoginSucceeded(false);
       message.error(error.message || '登录失败');
     } finally {
       setLoading(false);
@@ -182,12 +218,14 @@ export function UserLayout({ children }) {
     await logout();
     setUsername('');
     setAccount(null);
+    setLoginSucceeded(false);
     setLoginExpanded(true);
     setLoginDialogOpen(true);
     message.success('已退出');
   }
 
   function openLoginDialog() {
+    setLoginSucceeded(false);
     setLoginExpanded(true);
     setLoginDialogOpen(true);
   }
@@ -200,10 +238,15 @@ export function UserLayout({ children }) {
     setTheme(current => current === 'dark' ? 'light' : 'dark');
   }
 
-  const showLoginOverlay = !isLoggedIn && loginDialogOpen;
+  const showLoginOverlay = loginDialogOpen && (!isLoggedIn || loginSucceeded);
   const loginOverlay = showLoginOverlay ? (
-    <div className="legacy-login-overlay">
-      <div className={`login-modal${loginExpanded ? ' is-expanded' : ''}`}>
+    <div className={`legacy-login-overlay${loginSucceeded ? ' is-success' : ''}`}>
+      <div
+        ref={loginModalRef}
+        className={`login-modal${loginExpanded ? ' is-expanded' : ''}${loginSucceeded ? ' is-success' : ''}`}
+        onPointerMove={handleLoginPointerMove}
+        onPointerLeave={resetLoginParallax}
+      >
         <div className="login-concrete-texture" aria-hidden="true" />
         <div className="login-background-logo login-background-logo--one" aria-hidden="true"><BrandLogo /></div>
         <div className="login-background-logo login-background-logo--two" aria-hidden="true"><BrandLogo /></div>
@@ -230,6 +273,11 @@ export function UserLayout({ children }) {
             <Button block type="primary" htmlType="submit" loading={loading}>登 录</Button>
           </Form>
           <p className="login-hint">提示：请联系管理员获取账号</p>
+        </div>
+        <div className="login-success-state" aria-hidden={!loginSucceeded}>
+          <span className="login-success-icon"><Check size={38} strokeWidth={2.2} /></span>
+          <strong>登录成功</strong>
+          <span>正在进入工作台</span>
         </div>
       </div>
     </div>
