@@ -232,7 +232,7 @@ export function NovelPanelPage({ theme }) {
   useEffect(() => registerCmBridge({
     page: '小说面板',
     pagePath: '/novel-panel',
-    capabilities: ['novel.source.update', 'novel.selection.replace'],
+    capabilities: ['novel.selection.replace'],
     getContext: () => {
       const context = cmContextRef.current || {};
       const workspace = context.workspace && typeof context.workspace === 'object' ? context.workspace : {};
