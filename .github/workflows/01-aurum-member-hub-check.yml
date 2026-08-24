@@ -13,30 +13,56 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  member-tests:
+    name: Member system tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Role, team and usage tests
+        run: node --test tests/member-center.test.js tests/member-usage-runtime.test.js tests/dev-permissions.test.js
 
-      - name: Install backend dependencies
-        run: npm ci
+  regression-tests:
+    name: Existing Node regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Run pre-existing test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=()
+          for file in tests/*.test.js; do
+            case "$file" in
+              tests/member-center.test.js|tests/member-usage-runtime.test.js|tests/dev-permissions.test.js) ;;
+              *) files+=("$file") ;;
+            esac
+          done
+          node --test "${files[@]}"
 
-      - name: Install frontend dependencies
-        run: npm ci --prefix frontend
-
-      - name: Run Node tests
-        run: node --test tests/*.test.js
-
-      - name: Build frontend
-        run: npm --prefix frontend run build
+  frontend-build:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build
