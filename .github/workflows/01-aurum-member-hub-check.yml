@@ -40,11 +40,6 @@ jobs:
               tests/account-store.test.js tests/error-logging.test.js tests/governance-routes.test.js
               tests/model-connection-routes.test.js tests/persistent-session.test.js tests/preset-store.test.js
               tests/system-preset-catalog.test.js tests/upstream-proxy.test.js
-          - name: agent
-            files: >-
-              tests/agent-route-contract.test.js tests/agent-routes.test.js tests/agent-skill-routes.test.js
-              tests/agent-skill-store.test.js tests/agent-skill-ui-contract.test.js tests/agent-store.test.js
-              tests/cm-agent-ui-contract.test.js
           - name: novel-panel
             files: >-
               tests/novel-panel-asset-contract.test.js tests/novel-panel-primary-button-style.test.js
@@ -66,11 +61,6 @@ jobs:
               tests/platform-projects-contract.test.js tests/shuihuo-comic-production-contract.test.js
               tests/shuihuo-gateway.test.js tests/shuihuo-model-catalog-contract.test.js
               tests/shuihuo-production-ui-contract.test.js
-          - name: ui-general
-            files: >-
-              tests/account-image-settings-ui-contract.test.js tests/cm-pet-companion-ui-contract.test.js
-              tests/home-gradient-button-style.test.js tests/home-splash-cursor.test.js
-              tests/theme-readability-contract.test.js tests/tts-preferences-contract.test.js
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,6 +70,37 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - run: node --test ${{ matrix.files }}
+
+  pinpoint:
+    name: Contract · ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: agent-route-contract, file: tests/agent-route-contract.test.js }
+          - { name: agent-routes, file: tests/agent-routes.test.js }
+          - { name: agent-skill-routes, file: tests/agent-skill-routes.test.js }
+          - { name: agent-skill-store, file: tests/agent-skill-store.test.js }
+          - { name: agent-skill-ui, file: tests/agent-skill-ui-contract.test.js }
+          - { name: agent-store, file: tests/agent-store.test.js }
+          - { name: cm-agent-ui, file: tests/cm-agent-ui-contract.test.js }
+          - { name: account-image-settings-ui, file: tests/account-image-settings-ui-contract.test.js }
+          - { name: cm-pet-ui, file: tests/cm-pet-companion-ui-contract.test.js }
+          - { name: home-gradient, file: tests/home-gradient-button-style.test.js }
+          - { name: home-splash, file: tests/home-splash-cursor.test.js }
+          - { name: theme-readability, file: tests/theme-readability-contract.test.js }
+          - { name: tts-preferences, file: tests/tts-preferences-contract.test.js }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: node --test ${{ matrix.file }}
 
   frontend-build:
     name: Frontend production build
