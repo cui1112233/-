@@ -35,8 +35,8 @@ const petOptions = [
 ];
 
 const localExecutorDownloads = {
-  mac: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/%E4%B8%80%E6%88%98%E6%99%9F%E9%93%AD%E6%9C%AC%E5%9C%B0%E6%89%A7%E8%A1%8C%E5%99%A8-0.1.1-mac-arm64.dmg',
-  windows: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/%E4%B8%80%E6%88%98%E6%99%9F%E9%93%AD%E6%9C%AC%E5%9C%B0%E6%89%A7%E8%A1%8C%E5%99%A8-0.1.1-win-x64.exe'
+  mac: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/-0.1.1-mac-arm64.dmg',
+  windows: 'https://github.com/cui1112233/-/releases/download/local-executor-v0.1.1/-0.1.1-win-x64.exe'
 };
 
 function connectionResponseMessage(candidate, fallback) {
