@@ -335,6 +335,106 @@ textarea:focus {
   margin-top: 12px;
 }
 
+.no-top-margin { margin-top: 0; }
+
+.site-submit-layout { display: grid; gap: 14px; }
+
+.site-submit-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.site-submit-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.site-submit-card-header h3 { margin: 0; font-size: 16px; }
+
+.site-submit-card-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.site-submit-enable {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.site-submit-connection-fields { max-width: 720px; }
+
+.site-submit-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 36px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.site-submit-status {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.site-submit-version-select,
+.site-submit-mode-selector {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.site-submit-field-label {
+  flex: 0 0 76px;
+  padding-top: 7px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.site-submit-version-select .actions,
+.site-submit-mode-selector .actions { flex: 1 1 0; }
+
+.site-submit-mode-content {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.site-submit-guard-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(145px, 1fr));
+  gap: 10px;
+  width: min(100%, 400px);
+}
+
+.site-submit-guard-fields label { color: var(--muted); font-size: 12px; }
+.site-submit-guard-fields input { margin-top: 5px; }
+
+.site-submit-execution-actions { border-top: 0; padding-top: 0; }
+.site-submit-action-divider { width: 1px; height: 24px; background: var(--line); }
+.site-submit-preview { padding-top: 14px; border-top: 1px solid var(--line); }
+
 .version-profile-bindings {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
@@ -835,6 +935,15 @@ td.id-cell {
   .topbar {
     display: block;
   }
+
+  .site-submit-card-header,
+  .site-submit-version-select,
+  .site-submit-mode-selector {
+    display: grid;
+  }
+
+  .site-submit-field-label { padding-top: 0; }
+  .site-submit-guard-fields { width: 100%; }
 
   .tabs {
     margin-top: 14px;
