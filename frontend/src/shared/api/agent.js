@@ -52,10 +52,13 @@ function safeSelectionMeta(selection) {
   const meta = selection?.meta;
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
   const output = {};
-  const textFields = ['fieldId', 'fieldLabel', 'text', 'input', 'name', 'description', 'appearance', 'voice', 'style'];
+  const textFields = ['fieldId', 'fieldLabel', 'text', 'input', 'name', 'description', 'appearance', 'voice', 'style', 'sourceKind', 'editableFields', 'shotData', 'duration'];
   const numberFields = ['start', 'end', 'totalLength', 'index', 'speed', 'pitch'];
   for (const key of textFields) {
-    if (typeof meta[key] === 'string') output[key] = text(meta[key], key === 'text' || key === 'input' || key === 'description' || key === 'appearance' ? 1600 : 240);
+    if (typeof meta[key] === 'string') {
+      const limit = key === 'shotData' ? 2000 : key === 'text' || key === 'input' || key === 'description' || key === 'appearance' ? 1600 : 240;
+      output[key] = text(meta[key], limit);
+    }
   }
   for (const key of numberFields) {
     if (Number.isFinite(Number(meta[key]))) output[key] = Number(meta[key]);
@@ -95,11 +98,13 @@ function prepareAgentContext(context) {
   const selectionType = text(selection?.type, 48);
   const selectionId = text(selection?.id, 160);
   const selectionMeta = safeSelectionMeta(selection);
-  const selectedText = text(selectionMeta?.text || selectionMeta?.input, 1200);
+  const shotData = selectionType === 'shot' ? text(selectionMeta?.shotData, 1400) : '';
+  const selectedText = text(selectionMeta?.text || selectionMeta?.input, shotData ? 700 : 1200);
   const cmSummary = [
     project ? `CM 当前工作区：${project.name || '当前工作区'}${project.id ? `；工作区ID ${project.id}` : ''}${project.sourceTargetId ? `；整段原文 targetId ${project.sourceTargetId}` : ''}` : '',
     selection ? `CM 当前选中对象：${selectionLabel || '未命名对象'}${selectionType ? `；类型 ${selectionType}` : ''}${selectionId ? `；ID ${selectionId}` : ''}` : '',
     selectedText ? `CM 当前选中的实际内容：${selectedText}` : '',
+    shotData ? `CM 当前分镜结构化数据：${shotData}` : '',
     capabilities.length ? `CM 当前页面允许申请的动作：${capabilities.join('、')}` : '',
     contract ? 'CM 交互约定：先正常回答；只有用户明确要求修改且动作在允许范围内时，才在回答末尾追加 ```cm-actions JSON```，格式为 {"summary":"修改摘要","actions":[{"type":"动作类型","targetId":"实体ID","label":"给用户看的动作名称","patch":{}}]}。不能声称已执行，必须等待用户点击应用。' : ''
   ].filter(Boolean).join('\n');
@@ -111,7 +116,7 @@ function prepareAgentContext(context) {
 
   return {
     ...context,
-    summary: [String(context.summary || '').trim(), cmSummary].filter(Boolean).join('\n').slice(0, 2400),
+    summary: [String(context.summary || '').trim(), cmSummary].filter(Boolean).join('\n').slice(0, 2800),
     entities: {
       ...sourceEntities,
       ...(project ? { cmProject: project } : {}),
