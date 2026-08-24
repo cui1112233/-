@@ -482,7 +482,7 @@
         <section class="section full">
           <div class="section-title">
             <h2>网站提交闭环</h2>
-            <span id="siteSubmitStatus">直接提交到 121；提交前可先预览，不会启动浏览器自动化</span>
+            <span id="siteSubmitStatus">提交后会显示“已确认”或“121 待确认”；接口接收不再误报为执行成功</span>
           </div>
           <div class="control-grid">
             <label>
@@ -582,7 +582,7 @@
           </section>
           <div class="actions">
             <button id="saveWebSubmitConfigBtn" class="primary">保存网站提交配置</button>
-            <button id="testVisibleWebBtn">验证登录与上传通道</button>
+            <button id="testVisibleWebBtn">验证登录会话</button>
             <label class="inline-check repeat-submit-toggle" title="开启后，已成功提交过的文案也会再次上传">
               <input id="webAllowResubmit" type="checkbox" />
               允许二次提交已成功版本

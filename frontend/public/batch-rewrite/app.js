@@ -1573,7 +1573,7 @@ async function testVisibleWebFlow() {
   const originalLabel = button.textContent;
   button.disabled = true;
   button.textContent = "验证中…";
-  setSiteSubmitStatus("正在验证登录会话和上传通道...");
+  setSiteSubmitStatus("正在验证 121 登录会话...");
   try {
     await saveWebSubmitConfig(true);
     const result = await api("/api/web-submit/test-visible", {
@@ -1589,17 +1589,17 @@ async function testVisibleWebFlow() {
     `).join("");
     $("siteSubmitGroups").innerHTML = `
       <div class="site-group-card">
-        <div class="site-group-head"><b>登录与上传通道验证</b><span class="${result.ok ? "status-ok" : "status-error"}">${result.ok ? "完成" : "失败"}</span></div>
+        <div class="site-group-head"><b>121 登录会话验证</b><span class="${result.ok ? "status-ok" : "status-error"}">${result.ok ? "完成" : "失败"}</span></div>
         <div class="site-skipped-list">${checkRows || "暂无检查项"}</div>
         <pre class="site-output">${escapeHtml(asArray(result.output).join("\n"))}</pre>
       </div>
     `;
-    setSiteSubmitStatus(result.ok ? "登录与上传通道验证完成，未上传文件" : "登录与上传通道验证失败");
+    setSiteSubmitStatus(result.ok ? "121 登录会话有效；此检查不会上传文件或确认生成任务" : "121 登录会话验证失败");
   } catch (error) {
     setSiteSubmitStatus(error.message);
     $("siteSubmitGroups").innerHTML = `
       <div class="site-group-card">
-        <div class="site-group-head"><b>登录与上传通道验证</b><span class="status-error">未通过</span></div>
+        <div class="site-group-head"><b>121 登录会话验证</b><span class="status-error">未通过</span></div>
         <div class="site-skipped-list">
           <div class="site-skipped-row"><code>需要处理</code><span>${escapeHtml(error.message || "验证失败")}</span></div>
         </div>
@@ -1705,7 +1705,7 @@ async function submitWebSubmit(mode) {
     renderWebSubmitGroups(result);
     renderTasks(result.tasks || state.tasks);
     await loadWebSubmitHistory();
-    setSiteSubmitStatus(`提交完成：成功组 ${result.success_groups || 0}，失败组 ${result.failed_groups || 0}`);
+    setSiteSubmitStatus(`提交完成：已确认 ${result.success_groups || 0} 组，121 待确认 ${result.accepted_groups || 0} 组，失败 ${result.failed_groups || 0} 组`);
   } catch (error) {
     setSiteSubmitStatus(error.message);
     await loadTasks();
@@ -1714,8 +1714,10 @@ async function submitWebSubmit(mode) {
 
 function siteSubmitText(task) {
   const done = asArray(task.site_submit_done_versions);
+  const accepted = asArray(task.site_submit_accepted_versions);
   const failed = asArray(task.site_submit_failed_versions);
   if (failed.length) return `失败：${failed.join(",")}`;
+  if (accepted.length) return `待确认：${accepted.join(",")}`;
   if (done.length) return `已提交：${done.join(",")}`;
   if (task.site_submit_status) return task.site_submit_status;
   return "未提交";
@@ -1787,7 +1789,7 @@ function renderWebSubmitGroups(data = {}) {
 function statusClass(value) {
   const text = String(value || "");
   if (text.includes("failed") || text.includes("失败")) return "status-error";
-  if (text.includes("waiting") || text.includes("等待") || text.includes("partial") || text.includes("submitting") || text.includes("dry_run")) return "status-warn";
+  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("dry_run")) return "status-warn";
   if (text.includes("done") || text.includes("完成") || text.includes("classified") || text.includes("submitted") || text.includes("已提交")) return "status-ok";
   return "";
 }
@@ -2072,6 +2074,7 @@ function renderSiteSubmitLog(data) {
           ${metaItem("素材分配", item.material_allocation ? `解压 ${item.material_allocation.jieyaNum ?? 0} / 滚屏 ${item.material_allocation.gunpingNum ?? 0}` : "")}
           ${metaItem("错误", item.error || "")}
         </div>
+        ${item.remote_receipt ? `<pre class="site-output">${escapeHtml(JSON.stringify(item.remote_receipt, null, 2))}</pre>` : ""}
         ${item.profile ? `<pre class="site-output">${escapeHtml(JSON.stringify(item.profile, null, 2))}</pre>` : ""}
       </div>
     `;

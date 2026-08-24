@@ -58,6 +58,7 @@ function snakeTask(task = {}) {
     sensitive_failed_count: task.sensitiveFailedCount || 0,
     site_submit_status: task.siteSubmitStatus || '',
     site_submit_done_versions: task.siteSubmitDoneVersions || [],
+    site_submit_accepted_versions: task.siteSubmitAcceptedVersions || [],
     site_submit_failed_versions: task.siteSubmitFailedVersions || []
   };
 }
@@ -103,6 +104,32 @@ function selectUploadProfile(cfg, meta, version) {
     (profile.style && profile.style === style ? 1 : profile.style ? -100 : 0)
   })).filter(item => item.score >= 0).sort((left, right) => right.score - left.score);
   return scored[0]?.profile || profiles.find(item => item.is_default) || profiles[0];
+}
+
+function readTargetField(data, names) {
+  const sources = [object(data), object(data?.data), object(data?.result)];
+  for (const source of sources) {
+    for (const name of names) {
+      const value = source[name];
+      if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+    }
+  }
+  return '';
+}
+
+function summarizeTargetReceipt(data) {
+  const remoteId = readTargetField(data, ['task_id', 'taskId', 'job_id', 'jobId', 'queue_id', 'queueId', 'execution_id', 'executionId']);
+  const remoteStatus = readTargetField(data, ['task_status', 'taskStatus', 'job_status', 'jobStatus', 'queue_status', 'queueStatus', 'status']).toLowerCase();
+  const verified = Boolean(remoteId) || ['queued', 'queueing', 'running', 'executing', 'created'].includes(remoteStatus);
+  let raw = '';
+  try { raw = JSON.stringify(data); } catch (_) { raw = String(data || ''); }
+  return {
+    remote_id: remoteId,
+    remote_status: remoteStatus,
+    verified,
+    response: raw.slice(0, 4000),
+    message: readTargetField(data, ['message', 'msg'])
+  };
 }
 
 function summarizeKnowledge(knowledge) {
@@ -472,8 +499,14 @@ function createBatchRewriteRouter({
         if (!content) { skipped.push({ id, version, status: 'skipped', error: '未找到正文版本' }); continue; }
         const size = Buffer.byteLength(content);
         if (webConfig.min_text_chars > 0 && String(content).length < webConfig.min_text_chars) { skipped.push({ id, version, status: 'file_too_small', error: `文案少于 ${webConfig.min_text_chars} 字`, size }); continue; }
-        if (webConfig.skip_submitted !== false && (task.meta.siteSubmitDoneVersions || []).includes(version)) {
-          skipped.push({ id, version, status: 'skipped', error: '该版本已提交；如需重复提交请关闭“跳过已提交”' });
+        const submitted = task.meta.siteSubmitDoneVersions || [];
+        const acceptedPending = task.meta.siteSubmitAcceptedVersions || [];
+        if (webConfig.skip_submitted !== false && submitted.includes(version)) {
+          skipped.push({ id, version, status: 'skipped', error: '该版本已确认提交；如需重复提交请开启“允许二次提交已成功版本”' });
+          continue;
+        }
+        if (webConfig.skip_submitted !== false && acceptedPending.includes(version)) {
+          skipped.push({ id, version, status: 'awaiting_confirmation', error: '121 已接收文件，但尚未确认生成任务；如需重新上传请开启“允许二次提交已成功版本”' });
           continue;
         }
         const candidates = candidatesByBook.get(id) || [];
@@ -506,9 +539,11 @@ function createBatchRewriteRouter({
     const plan = await planSubmission(req, body);
     const { tasks } = await resources(req);
     let successGroups = 0;
+    let acceptedGroups = 0;
     let failedGroups = 0;
     for (const group of plan.groups) {
       let groupFailed = false;
+      let groupAwaitingConfirmation = false;
       for (const item of group.items) {
         const task = await tasks.getTask(req.username, item.id);
         const content = await tasks.readVersionText(req.username, item.id, item.version);
@@ -528,8 +563,24 @@ function createBatchRewriteRouter({
             } catch (error) { lastError = error; }
           }
           if (lastError) throw lastError;
-          await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'submitted', siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])] });
-          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), time: new Date().toISOString() });
+          const receipt = summarizeTargetReceipt(data);
+          if (receipt.verified) {
+            await tasks.updateTaskMeta(req.username, item.id, {
+              siteSubmitStatus: 'submitted',
+              siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])],
+              siteSubmitAcceptedVersions: (task.meta.siteSubmitAcceptedVersions || []).filter(version => version !== item.version)
+            });
+            if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, time: new Date().toISOString() });
+          } else {
+            groupAwaitingConfirmation = true;
+            item.status = 'accepted_pending';
+            item.remote_receipt = receipt;
+            await tasks.updateTaskMeta(req.username, item.id, {
+              siteSubmitStatus: 'accepted_pending',
+              siteSubmitAcceptedVersions: [...new Set([...(task.meta.siteSubmitAcceptedVersions || []), item.version])]
+            });
+            if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'accepted_pending', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, time: new Date().toISOString() });
+          }
         } catch (error) {
           groupFailed = true;
           item.error = error.message || '上传失败';
@@ -537,11 +588,12 @@ function createBatchRewriteRouter({
           if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, group_id: group.group_id, material_allocation: item.advanced, error: item.error, time: new Date().toISOString() });
         }
       }
-      group.status = groupFailed ? 'failed' : 'submitted';
+      group.status = groupFailed ? 'failed' : groupAwaitingConfirmation ? 'accepted_pending' : 'submitted';
       if (groupFailed) failedGroups++;
+      else if (groupAwaitingConfirmation) acceptedGroups++;
       else successGroups++;
     }
-    return { ...plan, success_groups: successGroups, failed_groups: failedGroups, tasks: await listTasks(req) };
+    return { ...plan, success_groups: successGroups, accepted_groups: acceptedGroups, failed_groups: failedGroups, tasks: await listTasks(req) };
   }
 
   router.get('/config', async (req, res) => { try { res.json((await readConfig(req)).response); } catch (error) { res.status(500).json({ error: error.message }); } });

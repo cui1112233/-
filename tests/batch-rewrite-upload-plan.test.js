@@ -66,3 +66,43 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
   assert.equal(ai2.advanced.ziti, 6);
   assert.equal(ai2.advanced.keywords, '全局关键词');
 });
+
+test('121 仅确认文件接收时必须标为待确认，不能伪装成已执行成功', async () => {
+  const meta = {
+    bookId: 'book-pending', bookName: '待确认书', platformId: '2', platformName: '番茄付费',
+    gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: []
+  };
+  const logs = [];
+  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) },
+    knowledgeStore: { list: () => ({}) },
+    openingStore: {},
+    httpClient: async () => ({ body: JSON.stringify({ success: true, message: '文件已接收' }), headers: {} }),
+    tasksFactory: async () => ({
+      tasks: {
+        getTask: async () => ({ meta }),
+        readVersionText: async () => '可上传的 AI 文案',
+        updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch),
+        appendSiteSubmitLog: async (_username, _id, entry) => logs.push(entry),
+        listTasks: async () => [{ ...meta }]
+      },
+      config,
+      configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] }
+    })
+  }));
+
+  const response = await request(app, '/api/batch-rewrite/web-submit/submit', {
+    mode: 'selected', ids: ['book-pending'], versions: ['ai1']
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.success_groups, 0);
+  assert.equal(response.body.accepted_groups, 1);
+  assert.equal(response.body.groups[0].status, 'accepted_pending');
+  assert.deepEqual(meta.siteSubmitDoneVersions, []);
+  assert.deepEqual(meta.siteSubmitAcceptedVersions, ['ai1']);
+  assert.equal(logs[0].status, 'accepted_pending');
+  assert.equal(logs[0].remote_receipt.verified, false);
+});
