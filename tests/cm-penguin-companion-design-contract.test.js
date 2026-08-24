@@ -29,6 +29,7 @@ test('CM bridge only dispatches allow-listed structured actions and serializes p
   assert.match(bridge, /constraint\.bind/);
   assert.match(bridge, /segment\.update/);
   assert.match(bridge, /tts\.update/);
+  assert.match(bridge, /shot\.update/);
   assert.match(bridge, /novel\.selection\.replace/);
   assert.doesNotMatch(bridge, /'novel\.source\.update'/);
   assert.match(bridge, /normalizeCmAction/);
@@ -49,8 +50,10 @@ test('CM metadata is folded into the server-approved agent context fields', () =
   assert.match(api, /cmSelection/);
   assert.match(api, /cmCapabilities/);
   assert.match(api, /safeSelectionMeta/);
+  assert.match(api, /shotData/);
   assert.match(api, /CM 当前选中对象/);
   assert.match(api, /CM 当前选中的实际内容/);
+  assert.match(api, /CM 当前分镜结构化数据/);
   assert.match(api, /CM 当前页面允许申请的动作/);
   assert.match(api, /summary:/);
   assert.match(api, /entities:/);
@@ -64,11 +67,40 @@ test('shot and production cards publish the current focus to CM', () => {
   const assets = read('frontend/src/user/pages/shuihuo/AssetsView.jsx');
 
   assert.match(shots, /dispatchCmSelection/);
+  assert.match(shots, /shotSelectionDescriptor/);
+  assert.match(shots, /descriptor\.id/);
+  assert.match(shots, /shotData/);
+  assert.match(shots, /editableFields/);
   assert.match(shots, /label: `分镜 \$\{index \+ 1\}`/);
   assert.match(segmentCard, /dispatchCmSelection/);
   assert.match(segmentCard, /label: `分段 \$\{index \+ 1\}`/);
   assert.match(assets, /dispatchCmSelection/);
   assert.match(assets, /label: asset\.name/);
+});
+
+test('script shot records preserve structure, guard stale targets and expose controlled updates', () => {
+  const shots = read('frontend/src/user/pages/scriptShotOutput.js');
+  const bridge = read('frontend/src/user/pages/scriptCmBridge.js');
+
+  assert.match(shots, /shotSnapshotId/);
+  assert.match(shots, /hashText/);
+  assert.match(shots, /getShotRecords/);
+  assert.match(shots, /STRUCTURED_SHOT_PATCH_KEYS/);
+  assert.match(shots, /shot_size/);
+  assert.match(shots, /shot_angle/);
+  assert.match(shots, /movement/);
+  assert.match(shots, /transition/);
+  assert.match(shots, /visual_context/);
+  assert.match(shots, /updateShotOutput/);
+  assert.match(shots, /当前分镜已经变化，请重新点选后再让 CM 修改/);
+  assert.match(shots, /replaceMarkdownRecord/);
+  assert.match(shots, /当前分镜是文本卡片/);
+
+  assert.match(bridge, /'shot\.update'/);
+  assert.match(bridge, /updateShotOutput/);
+  assert.match(bridge, /shotUndoEntriesRef/);
+  assert.match(bridge, /undoToken/);
+  assert.match(bridge, /剧本在 CM 修改后又发生了变化，为避免覆盖新编辑，本次撤销已取消/);
 });
 
 test('production workbench applies CM segment and asset edits through existing APIs', () => {
