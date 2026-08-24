@@ -58,7 +58,8 @@ async function api(path, options = {}) {
     data = { raw: text };
   }
   if (!response.ok) {
-    throw new Error(data.detail || data.raw || `HTTP ${response.status}`);
+    // 兼容本工作台接口使用的 { error } 结构，避免把可操作的原因吞成“HTTP 400”。
+    throw new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
   }
   return data;
 }
@@ -1581,6 +1582,10 @@ async function checkWebEnvironment() {
 }
 
 async function testVisibleWebFlow() {
+  const button = $("testVisibleWebBtn");
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "验证中…";
   setSiteSubmitStatus("正在验证登录会话和上传通道...");
   try {
     await saveWebSubmitConfig(true);
@@ -1605,6 +1610,17 @@ async function testVisibleWebFlow() {
     setSiteSubmitStatus(result.ok ? "登录与上传通道验证完成，未上传文件" : "登录与上传通道验证失败");
   } catch (error) {
     setSiteSubmitStatus(error.message);
+    $("siteSubmitGroups").innerHTML = `
+      <div class="site-group-card">
+        <div class="site-group-head"><b>登录与上传通道验证</b><span class="status-error">未通过</span></div>
+        <div class="site-skipped-list">
+          <div class="site-skipped-row"><code>需要处理</code><span>${escapeHtml(error.message || "验证失败")}</span></div>
+        </div>
+      </div>
+    `;
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
   }
 }
 
