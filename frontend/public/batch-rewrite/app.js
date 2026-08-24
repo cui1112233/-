@@ -47,6 +47,12 @@ function materialJieyaValue(value) {
   return Number.isFinite(count) ? Math.max(0, Math.min(PER_BOOK_MATERIAL_LIMIT, count)) : 4;
 }
 
+function parseJsonInput(id, fallback) {
+  const text = String($(id)?.value || '').trim();
+  if (!text) return fallback;
+  try { return JSON.parse(text); } catch (_) { throw new Error(`${id === 'webProfilesJson' ? '上传配置档' : '版本绑定'} 不是有效 JSON`); }
+}
+
 function syncGunpingMaterialCount() {
   const jieya = materialJieyaValue($("webJieyaNum")?.value);
   if ($("webJieyaNum")) $("webJieyaNum").value = jieya;
@@ -408,6 +414,10 @@ function ensureWebSubmitConfig() {
     password: "",
     password_masked: Boolean(current.password_masked),
     skip_submitted: current.skip_submitted !== false,
+    min_text_chars: Math.max(0, Number(current.min_text_chars) || 0),
+    retry_times: Math.max(0, Number(current.retry_times) || 1),
+    upload_profiles: asArray(current.upload_profiles),
+    profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
     submit_versions: submitVersions,
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
@@ -1416,6 +1426,10 @@ function renderWebSubmitConfig(settings = {}) {
   $("webPassword").value = "";
   $("webEnabled").checked = cfg.enabled === true;
   $("webSkipSubmitted").checked = cfg.skip_submitted !== false;
+  $("webMinTextChars").value = cfg.min_text_chars ?? 0;
+  $("webRetryTimes").value = cfg.retry_times ?? 1;
+  $("webProfilesJson").value = JSON.stringify(cfg.upload_profiles || [], null, 2);
+  $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   const advanced = cfg.advanced || {};
   $("webTl5").value = String(Number(advanced.tl5) === 1 ? 1 : 0);
   $("webJieyaNum").value = advanced.jieyaNum ?? 4;
@@ -1455,6 +1469,10 @@ function syncFormToWebSubmitConfig() {
   cfg.username = $("webUsername").value.trim();
   cfg.password = $("webPassword").value.trim();
   cfg.skip_submitted = $("webSkipSubmitted").checked;
+  cfg.min_text_chars = numberValue("webMinTextChars", 0);
+  cfg.retry_times = numberValue("webRetryTimes", 1);
+  cfg.upload_profiles = parseJsonInput("webProfilesJson", []);
+  cfg.profile_bindings = parseJsonInput("webProfileBindingsJson", {});
   cfg.submit_versions = webSubmitVersionsFromForm();
   cfg.advanced = {
     tl5: Number($("webTl5").value) === 1 ? 1 : 0,
@@ -1589,6 +1607,35 @@ function clearWebPreview() {
   setSiteSubmitStatus("预览已隐藏，不影响任务和提交记录");
 }
 
+function renderWebSubmitHistory(records = []) {
+  const box = $("siteSubmitHistory");
+  if (!box) return;
+  const rows = asArray(records).map((item) => {
+    const allocation = item.material_allocation || {};
+    const allocationText = allocation.jieyaNum === undefined ? "" : `解压 ${allocation.jieyaNum} / 滚屏 ${allocation.gunpingNum}`;
+    return `<div class="site-file-row">
+      <code>${escapeHtml(item.book_id || "")}</code>
+      <span>${escapeHtml(item.book_name || "")}</span>
+      <span>${escapeHtml(item.version || "")}</span>
+      <span class="${statusClass(item.status)}">${escapeHtml(item.status || "")}</span>
+      <span>${escapeHtml(allocationText)}</span>
+      <span>${escapeHtml(item.time || "")}</span>
+      <span>${escapeHtml(item.error || "")}</span>
+    </div>`;
+  }).join("");
+  box.innerHTML = rows || `<div class="log-row">暂无实际网站提交记录。</div>`;
+}
+
+async function loadWebSubmitHistory() {
+  try {
+    const data = await api("/api/web-submit/history");
+    renderWebSubmitHistory(data.records || []);
+  } catch (error) {
+    const box = $("siteSubmitHistory");
+    if (box) box.innerHTML = `<div class="log-row">${escapeHtml(error.message || "提交历史读取失败")}</div>`;
+  }
+}
+
 function webSubmitRequestPayload(mode, force = false) {
   const ids = mode === "selected" ? selectedTaskIds() : [];
   return {
@@ -1648,6 +1695,7 @@ async function submitWebSubmit(mode) {
     });
     renderWebSubmitGroups(result);
     renderTasks(result.tasks || state.tasks);
+    await loadWebSubmitHistory();
     setSiteSubmitStatus(`提交完成：成功组 ${result.success_groups || 0}，失败组 ${result.failed_groups || 0}`);
   } catch (error) {
     setSiteSubmitStatus(error.message);
@@ -1691,6 +1739,7 @@ function groupCardHtml(group) {
         ${metaItem("男女频", `${summary.gender || ""} ${summary.gender_value || ""}`)}
         ${metaItem("风格", `${summary.style || ""} ${summary.style_value || ""}`)}
         ${metaItem("版本", group.version || summary.version || "")}
+        ${metaItem("配置档", summary.profile_name || "默认上传参数")}
         ${metaItem("任务数", String(items.length || group.count || 0))}
         ${metaItem("时长", Number(advanced.tl5) === 1 ? "限制" : "不限制")}
         ${metaItem("每本书解压总量", `${advanced.jieyaNum ?? 4} 个 / ${advanced.jieyaSpeed ?? 1.7}x`)}
@@ -1994,8 +2043,13 @@ function renderSiteSubmitLog(data) {
   const meta = data.meta || {};
   const result = data.result || {};
   const versions = result.versions || {};
-  const versionRows = Object.keys(versions).map((key) => {
-    const item = versions[key] || {};
+  const savedVersions = Object.keys(versions).length ? versions : asArray(data.logs).reduce((result, entry) => {
+    const version = entry?.version || entry?.data?.version;
+    if (version) result[version] = { ...(entry?.data || entry), status: entry?.status || entry?.data?.status || "" };
+    return result;
+  }, {});
+  const versionRows = Object.keys(savedVersions).map((key) => {
+    const item = savedVersions[key] || {};
     return `
       <div class="sensitive-log-card">
         <div class="sensitive-log-head">
@@ -2005,7 +2059,8 @@ function renderSiteSubmitLog(data) {
         <div class="meta-grid compact">
           ${metaItem("提交组", item.group_id || "")}
           ${metaItem("文件", item.file || "")}
-          ${metaItem("更新时间", item.updated_at || "")}
+          ${metaItem("更新时间", item.updated_at || item.time || "")}
+          ${metaItem("素材分配", item.material_allocation ? `解压 ${item.material_allocation.jieyaNum ?? 0} / 滚屏 ${item.material_allocation.gunpingNum ?? 0}` : "")}
           ${metaItem("错误", item.error || "")}
         </div>
         ${item.profile ? `<pre class="site-output">${escapeHtml(JSON.stringify(item.profile, null, 2))}</pre>` : ""}
@@ -2629,7 +2684,7 @@ document.addEventListener("click", async (event) => {
     if (button.dataset.tab === "tasks") await loadTasks();
     if (button.dataset.tab === "knowledge") renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
     if (button.dataset.tab === "rules") renderRuleEditor();
-    if (button.dataset.tab === "siteSubmit") renderWebSubmitConfig(state.config?.web_submit || {});
+    if (button.dataset.tab === "siteSubmit") { renderWebSubmitConfig(state.config?.web_submit || {}); await loadWebSubmitHistory(); }
     if (button.dataset.tab === "logs") await loadLogs();
     return;
   }
@@ -2726,6 +2781,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("submitWebSelectedBtn").onclick = () => submitWebSubmit("selected");
   $("submitWebAllBtn").onclick = () => submitWebSubmit("all");
   $("retryWebFailedBtn").onclick = () => submitWebSubmit("failed");
+  $("refreshWebSubmitHistoryBtn").onclick = loadWebSubmitHistory;
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
   await loadTasks();

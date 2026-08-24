@@ -28,7 +28,9 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
   const config = {
     web_submit: {
       submit_versions: ['ai1', 'ai2'],
-      advanced: { jieyaNum: 4, gunpingNum: 4 }
+      advanced: { jieyaNum: 4, gunpingNum: 4, jieyaSpeed: 1.7, keywords: '全局关键词' },
+      upload_profiles: [{ id: 'ai2-fast', name: 'AI2 快速配置', advanced: { jieyaSpeed: 1.9, ziti: 6 } }],
+      profile_bindings: { ai2: 'ai2-fast' }
     },
     platforms: [], styles: []
   };
@@ -58,4 +60,9 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
     .map(item => [item.version, item.advanced.jieyaNum, item.advanced.gunpingNum])
     .sort((left, right) => left[0].localeCompare(right[0]));
   assert.deepEqual(allocations, [['ai1', 2, 2], ['ai2', 2, 2]]);
+  const ai2 = response.body.groups.flatMap(group => group.items).find(item => item.version === 'ai2');
+  assert.equal(ai2.profile_name, 'AI2 快速配置');
+  assert.equal(ai2.advanced.jieyaSpeed, 1.9);
+  assert.equal(ai2.advanced.ziti, 6);
+  assert.equal(ai2.advanced.keywords, '全局关键词');
 });

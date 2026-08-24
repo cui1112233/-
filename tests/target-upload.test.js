@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { STYLE_ID, PLATFORM_ID, GENDER_ID, PER_BOOK_MATERIAL_LIMIT, normalizeAdvanced, distributeBookMaterials, buildUploadFields, buildMultipart, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
+const { STYLE_ID, PLATFORM_ID, GENDER_ID, PER_BOOK_MATERIAL_LIMIT, normalizeAdvanced, normalizeBookAdvanced, distributeBookMaterials, buildUploadFields, buildMultipart, buildLoginUrl, buildLoginRequest, cookieHeaderFromSetCookie, mergeCookieHeaders, isLoginPage, isDashboard, DEFAULT_ADVANCED, requestHttp } = require('../lib/target-upload');
 
 test('mappings cover platforms, genders and styles', () => {
   assert.equal(PLATFORM_ID['七猫付费'], 3);
@@ -14,7 +14,7 @@ test('mappings cover platforms, genders and styles', () => {
 
 test('normalizeAdvanced clamps values and fills defaults', () => {
   const a = normalizeAdvanced({ jieyaNum: 99, gunpingNum: -5, jieyaSpeed: 9, jieyaPitch: 999, gunpingSpeed: -1 });
-  assert.equal(a.jieyaNum, PER_BOOK_MATERIAL_LIMIT);
+  assert.equal(a.jieyaNum, 20);
   assert.equal(a.gunpingNum, 0);
   assert.equal(a.jieyaSpeed, 2.0);
   assert.equal(a.jieyaPitch, 50);
@@ -26,6 +26,7 @@ test('normalizeAdvanced clamps values and fills defaults', () => {
 });
 
 test('每本书的解压与滚屏素材固定为 8，并按选中文案均分', () => {
+  assert.deepEqual([normalizeBookAdvanced({ jieyaNum: 2, gunpingNum: 99 }).jieyaNum, normalizeBookAdvanced({ jieyaNum: 2, gunpingNum: 99 }).gunpingNum], [2, 6]);
   const oneVersion = distributeBookMaterials({ jieyaNum: 4, gunpingNum: 4 }, 1);
   assert.deepEqual(oneVersion.map(item => [item.jieyaNum, item.gunpingNum]), [[4, 4]]);
 
@@ -45,11 +46,14 @@ test('buildUploadFields maps gender/style to ids', () => {
   assert.equal(f.tl5, '1');
   assert.equal(f.jieya_num, '7');
   assert.equal(f.jieya_speed, '1.5');
-  assert.equal(f.gunping_num, '1');
+  assert.equal(f.gunping_num, '8');
   assert.equal(f.gunping_speed, '1.2');
   assert.equal(f.biaohong, '高亮');
   assert.equal(f.keywords, '关键词');
   assert.ok(f.font_color_styles.includes('1'));
+  const allocated = buildUploadFields({ platformId: 3, gender: '女', style: '现代虐文', advanced: { jieyaNum: 2, gunpingNum: 2 } });
+  assert.equal(allocated.jieya_num, '2');
+  assert.equal(allocated.gunping_num, '2');
 });
 
 test('buildUploadFields throws on invalid platform/gender/style', () => {

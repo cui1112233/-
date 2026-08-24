@@ -67,6 +67,44 @@ function object(value) { return value && typeof value === 'object' && !Array.isA
 function idFrom(value) { return String(value || '').trim(); }
 function countEntries(value) { return Array.isArray(value) ? value.length : 0; }
 
+function normalizeUploadProfiles(value) {
+  return (Array.isArray(value) ? value : []).map((item, index) => {
+    const source = object(item);
+    const name = String(source.name || `配置档 ${index + 1}`).trim();
+    return {
+      id: String(source.id || `profile_${index + 1}`).trim(), name, enabled: source.enabled !== false,
+      platform_id: String(source.platform_id || source.platformId || '').trim(),
+      gender: String(source.gender || '').replace('频', '').trim(), style: String(source.style || '').trim(),
+      is_default: source.is_default === true,
+      // 配置档只保存用户明确填写的覆盖项；不能在这里补默认值，
+      // 否则“仅改速度”的配置档会意外覆盖全局的字体、关键词等设置。
+      advanced: { ...object(source.advanced || source.config_data) }
+    };
+  }).filter(item => item.id && item.name);
+}
+
+function normalizeProfileBindings(value) {
+  const source = object(value);
+  return Object.fromEntries(['original', 'ai1', 'ai2', 'ai3'].map(version => [version, String(source[version] || '').trim()]));
+}
+
+function selectUploadProfile(cfg, meta, version) {
+  const profiles = normalizeUploadProfiles(cfg.upload_profiles).filter(item => item.enabled);
+  if (!profiles.length) return null;
+  const bindings = normalizeProfileBindings(cfg.profile_bindings);
+  const bound = profiles.find(item => item.id === bindings[version]);
+  if (bound) return bound;
+  const gender = String(meta.gender || '').replace('频', '').trim();
+  const platformId = String(meta.platformId || '').trim();
+  const style = String(meta.style || '').trim();
+  const scored = profiles.map(profile => ({ profile, score:
+    (profile.platform_id && profile.platform_id === platformId ? 4 : profile.platform_id ? -100 : 0) +
+    (profile.gender && profile.gender === gender ? 2 : profile.gender ? -100 : 0) +
+    (profile.style && profile.style === style ? 1 : profile.style ? -100 : 0)
+  })).filter(item => item.score >= 0).sort((left, right) => right.score - left.score);
+  return scored[0]?.profile || profiles.find(item => item.is_default) || profiles[0];
+}
+
 function summarizeKnowledge(knowledge) {
   const source = object(knowledge);
   const highImitation = object(source.high_imitation);
@@ -231,6 +269,28 @@ function createBatchRewriteRouter({
     return (await tasks.listTasks(req.username)).map(snakeTask);
   }
 
+  async function listSiteSubmitHistory(req) {
+    const { tasks } = await resources(req);
+    const records = await listTasks(req);
+    const entries = [];
+    for (const record of records) {
+      if (typeof tasks.readSiteSubmitLog !== 'function') continue;
+      const logs = await tasks.readSiteSubmitLog(req.username, record.id);
+      for (const item of logs) entries.push({
+        book_id: record.id,
+        book_name: record.book_name || '',
+        platform_name: record.platform_name || '',
+        version: item?.version || '',
+        status: item?.status || '',
+        group_id: item?.group_id || '',
+        material_allocation: item?.material_allocation || null,
+        error: item?.error || '',
+        time: item?.time || item?.updated_at || ''
+      });
+    }
+    return entries.sort((left, right) => String(right.time).localeCompare(String(left.time))).slice(0, 200);
+  }
+
   async function selectTaskIds(req, body) {
     const requested = Array.isArray(body?.ids) ? body.ids.map(idFrom).filter(Boolean) : [];
     if (body?.mode === 'selected') return requested;
@@ -336,14 +396,26 @@ function createBatchRewriteRouter({
       password_masked: Boolean(cfg.password_masked),
       submit_versions: Array.isArray(cfg.submit_versions) && cfg.submit_versions.length ? cfg.submit_versions : ['ai1'],
       skip_submitted: cfg.skip_submitted !== false,
-      advanced: target.normalizeAdvanced(cfg.advanced),
+      min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
+      retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
+      advanced: target.normalizeBookAdvanced(cfg.advanced),
+      upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
+      profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
       target: target.TARGET_HOST
     };
   }
 
   async function currentWebConfig(req) {
     const { current } = await readConfig(req);
-    return object(current.web_submit);
+    const cfg = object(current.web_submit);
+    return {
+      ...cfg,
+      min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
+      retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
+      advanced: target.normalizeBookAdvanced(cfg.advanced),
+      upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
+      profile_bindings: normalizeProfileBindings(cfg.profile_bindings)
+    };
   }
 
   async function saveWebConfig(req, incoming) {
@@ -356,7 +428,11 @@ function createBatchRewriteRouter({
       password_masked: Boolean(existing.password_masked),
       submit_versions: Array.isArray(received.submit_versions) && received.submit_versions.length ? received.submit_versions : ['ai1'],
       skip_submitted: received.skip_submitted !== false,
-      advanced: target.normalizeAdvanced(received.advanced)
+      min_text_chars: Math.max(0, Math.min(Number(received.min_text_chars) || 0, 100000)),
+      retry_times: Math.max(0, Math.min(Number(received.retry_times) || 1, 5)),
+      advanced: target.normalizeBookAdvanced(received.advanced),
+      upload_profiles: normalizeUploadProfiles(received.upload_profiles),
+      profile_bindings: normalizeProfileBindings(received.profile_bindings)
     };
     if (typeof received.password === 'string') clean.password = received.password;
     const password = String(clean.password || '');
@@ -394,12 +470,14 @@ function createBatchRewriteRouter({
       for (const version of versions) {
         const content = await tasks.readVersionText(req.username, id, version);
         if (!content) { skipped.push({ id, version, status: 'skipped', error: '未找到正文版本' }); continue; }
+        const size = Buffer.byteLength(content);
+        if (webConfig.min_text_chars > 0 && String(content).length < webConfig.min_text_chars) { skipped.push({ id, version, status: 'file_too_small', error: `文案少于 ${webConfig.min_text_chars} 字`, size }); continue; }
         if (webConfig.skip_submitted !== false && (task.meta.siteSubmitDoneVersions || []).includes(version)) {
           skipped.push({ id, version, status: 'skipped', error: '该版本已提交；如需重复提交请关闭“跳过已提交”' });
           continue;
         }
         const candidates = candidatesByBook.get(id) || [];
-        candidates.push({ id, version, size: Buffer.byteLength(content), task });
+        candidates.push({ id, version, size, task, profile: selectUploadProfile(webConfig, task.meta, version) });
         candidatesByBook.set(id, candidates);
       }
     }
@@ -407,10 +485,12 @@ function createBatchRewriteRouter({
       // 同一本书的素材额度只使用一次；按本书本次选中的文案版本均分给每次上传。
       const allocations = target.distributeBookMaterials(webConfig.advanced, candidates.length);
       candidates.forEach((candidate, index) => {
-        const { id, version, size, task } = candidate;
-        const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}`;
-        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: snakeTask(task.meta), advanced: target.normalizeAdvanced(webConfig.advanced), items: [] };
-        group.items.push({ id, version, size, advanced: allocations[index] });
+        const { id, version, size, task, profile } = candidate;
+        const profileAdvanced = target.normalizeAdvanced({ ...webConfig.advanced, ...(profile?.advanced || {}), jieyaNum: allocations[index].jieyaNum, gunpingNum: allocations[index].gunpingNum });
+        const profileId = profile?.id || 'default';
+        const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}-${profileId}`;
+        const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: { ...snakeTask(task.meta), profile_id: profileId, profile_name: profile?.name || '默认上传参数' }, advanced: target.normalizeBookAdvanced(webConfig.advanced), items: [] };
+        group.items.push({ id, version, size, advanced: profileAdvanced, profile_id: profileId, profile_name: profile?.name || '默认上传参数' });
         groupsById.set(groupId, group);
       });
     }
@@ -435,17 +515,26 @@ function createBatchRewriteRouter({
         try {
           const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: item.advanced || webConfig.advanced });
           const upload = target.buildMultipart(fields, { filename: `${item.id}-${item.version}.txt`, content });
-          const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
           let data = {};
-          try { data = JSON.parse(response.body); } catch (_) {}
-          if (data.success !== true) throw new Error(data.message || data.msg || '上传失败');
+          let attempts = 0;
+          let lastError = null;
+          for (let attempt = 0; attempt <= webConfig.retry_times; attempt += 1) {
+            try {
+              attempts += 1;
+              const response = await httpClient({ method: 'POST', url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`, headers: { 'Content-Type': `multipart/form-data; boundary=${upload.boundary}`, Cookie: session.cookie }, body: upload.body });
+              try { data = JSON.parse(response.body); } catch (_) { data = {}; }
+              if (data.success === true) { lastError = null; break; }
+              lastError = new Error(data.message || data.msg || '上传失败');
+            } catch (error) { lastError = error; }
+          }
+          if (lastError) throw lastError;
           await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'submitted', siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])] });
-          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, material_allocation: item.advanced, time: new Date().toISOString() });
+          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), time: new Date().toISOString() });
         } catch (error) {
           groupFailed = true;
           item.error = error.message || '上传失败';
           await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'failed', siteSubmitFailedVersions: [...new Set([...(task.meta.siteSubmitFailedVersions || []), item.version])] });
-          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, error: item.error, time: new Date().toISOString() });
+          if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, group_id: group.group_id, material_allocation: item.advanced, error: item.error, time: new Date().toISOString() });
         }
       }
       group.status = groupFailed ? 'failed' : 'submitted';
@@ -527,6 +616,7 @@ function createBatchRewriteRouter({
   });
 
   router.get('/web-submit/config', async (req, res) => res.json({ settings: publicWebSubmit(await currentWebConfig(req)) }));
+  router.get('/web-submit/history', async (req, res) => { try { res.json({ records: await listSiteSubmitHistory(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/web-submit/config', async (req, res) => { try { res.json({ ok: true, settings: await saveWebConfig(req, req.body?.settings), tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/web-submit/environment', (req, res) => { const session = novelFetchStore?.getSession(req.username); res.json({ ok: Boolean(session), checks: [{ name: '目标站登录会话', ok: Boolean(session), detail: session ? '已登录' : '未登录' }, { name: '上传接口', ok: true, detail: target.TARGET_UPLOAD_PATH }] }); });
   router.post('/web-submit/sync-configs', async (req, res) => res.json({ ok: true, settings: publicWebSubmit(await currentWebConfig(req)), groups: [] }));

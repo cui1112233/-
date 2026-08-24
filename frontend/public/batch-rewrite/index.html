@@ -501,6 +501,14 @@
               <input id="webSkipSubmitted" type="checkbox" />
               跳过已提交
             </label>
+            <label>
+              最小文案字数（0 不限制）
+              <input id="webMinTextChars" type="number" min="0" max="100000" value="0" />
+            </label>
+            <label>
+              单文案失败重试
+              <input id="webRetryTimes" type="number" min="0" max="5" value="1" />
+            </label>
           </div>
           <div class="actions">
             <label class="inline-check"><input class="web-version" value="original" type="checkbox" /> 原文</label>
@@ -508,6 +516,13 @@
             <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
             <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
           </div>
+          <section class="section full">
+            <div class="section-title compact"><h3>上传配置档与版本绑定</h3><span>系统按“版本绑定 → 平台/男女频/风格匹配 → 默认配置档”自动选用；素材数量仍按每本书总 8 个均分</span></div>
+            <div class="control-grid two">
+              <label class="form-wide">上传配置档（JSON 数组，配置档可覆盖速度、字体、字号、高亮、关键词等）<textarea id="webProfilesJson" class="small-area mono" spellcheck="false" placeholder='[{"id":"modern-female","name":"现代女频","platform_id":"2","gender":"女","style":"现代女主","is_default":true,"advanced":{"jieyaSpeed":1.8,"ziti":1}}]'></textarea></label>
+              <label>版本绑定（JSON 对象）<textarea id="webProfileBindingsJson" class="small-area mono" spellcheck="false" placeholder='{"ai1":"modern-female","ai2":""}'></textarea></label>
+            </div>
+          </section>
           <section class="section full upload-execution-settings">
             <div class="section-title"><h3>上传执行参数</h3><span>每本书素材总数固定为 8；多个已选文案会自动均分，平台、男女频、风格仍以每本任务的分析结果为准</span></div>
             <div class="control-grid upload-common-settings">
@@ -578,9 +593,14 @@
             <button id="submitWebSelectedBtn" class="primary">提交选中</button>
             <button id="submitWebAllBtn">提交全部</button>
             <button id="retryWebFailedBtn">重试提交失败</button>
+            <button id="refreshWebSubmitHistoryBtn">刷新提交历史</button>
           </div>
           <div class="site-submit-summary"><div>目标站：<b>121 后台</b></div><div>密码：<b id="webPasswordState">未保存</b></div></div>
           <div id="siteSubmitGroups" class="site-submit-groups"></div>
+          <section class="site-submit-history">
+            <div class="section-title compact"><h3>网站提交记录</h3><span>仅记录实际提交；预览不会写入历史</span></div>
+            <div id="siteSubmitHistory" class="logs-list"><div class="log-row">加载中…</div></div>
+          </section>
         </section>
       </section>
 
