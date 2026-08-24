@@ -26,7 +26,9 @@ A function area registers:
 - apply(action)
 - optional undo(token)
 
-CM never manipulates DOM fields directly. Actions are allow-listed and applied by the current function area's existing business state/API.
+For normal React workbenches, CM does not manipulate DOM fields directly. Actions are allow-listed and applied by the current function area's existing business state/API.
+
+The Novel Panel is an iframe exception: it uses its existing authenticated `MessageChannel` boundary and a small workbench bridge. The parent still owns authentication; CM receives only an explicitly shaped context and sends allow-listed commands through the port.
 
 Mutations are serialized, and queued actions are rejected if the user has switched away from the bridge that accepted them.
 
@@ -37,6 +39,8 @@ Mutations are serialized, and queued actions are rejected if the user has switch
 The user sees the natural-language reply and a separate modification proposal. Nothing is written until the user clicks **应用修改**.
 
 CM metadata is folded into the Agent server's existing safe context fields (`summary`, `entities`, `actions`) so the backend's page-context whitelist remains intact.
+
+Selected editor text is forwarded only through a bounded allow-list of CM selection metadata; credentials and arbitrary iframe state are not included.
 
 ## Script workbench (`/script`)
 
@@ -94,11 +98,45 @@ Deleting an entity also removes its dangling constraint references.
 - Speed and pitch are clamped to the same UI limits.
 - Existing generated audio is invalidated after parameter changes so stale audio cannot be mistaken for the new settings.
 
+## Novel Panel (`/novel-panel`)
+
+Implemented through the existing iframe `MessageChannel` rather than DOM automation from the parent page.
+
+### Context
+
+The workbench reports a bounded CM context containing:
+
+- current workspace/history identity and label
+- source length
+- character, scene, shot and segment counts
+- whether the source has changed since the current generated outline
+- the active allow-listed editor field
+- the exact current selected text, with length limits
+
+The active selection becomes CM Selection, so the companion can show what the user is editing and the Agent receives the actual selected text rather than only a label.
+
+### Safe write path
+
+Publicly exposed capability: `novel.selection.replace`.
+
+- Works only on an explicit non-empty selection inside an allow-listed input/textarea.
+- Target ID contains field/range/context fingerprint data.
+- Apply is rejected if the selection changed after the Agent created the proposal.
+- Apply goes through the workbench's own editable-state commit and local draft-save flow.
+- Undo is supported.
+- Undo is rejected if the user manually changed the field after CM applied the edit, preventing a stale undo from overwriting newer work.
+
+The iframe bridge also contains an internal whole-source update implementation for future use, but `novel.source.update` is deliberately **not** an allow-listed/public CM action in this version. The Agent is not given the complete long-form source, so exposing whole-document replacement would create an unsafe grounding/overwrite path.
+
+Authentication remains in `NovelPanelPage.jsx`; the iframe CM protocol never receives the account token.
+
+The 1.3 MB V77 `app.js` bundle was not rewritten for this integration. The bridge reuses the workbench's existing `writeFieldValue`, editable-state commit and draft-save interfaces at runtime.
+
 ## Still intentionally pending
 
-These areas need their own page bridges rather than DOM automation:
+These areas need additional structured models or stronger confirmation rules:
 
-- Novel Panel iframe: add CM context/action messages to its existing MessageChannel bridge.
+- Novel Panel full-document rewrite: add a dedicated long-document editing protocol (diff/range/revision based) before exposing a whole-source action.
 - Shot-level direct mutation: current shot cards publish Selection, but `shot.update` is not registered as directly applicable yet because the shot output needs a stable structured shot data model rather than string replacement.
 - History: keep read-only/search-first; destructive actions should require explicit confirmation.
 - Settings: diagnostic context only; never expose secrets/API keys.
@@ -116,3 +154,15 @@ These areas need their own page bridges rather than DOM automation:
 8. Constraint stores that ID reference.
 9. Later generation resolves the reference against the latest character data.
 10. If analysis becomes complex, the existing Agent task can be opened directly in Agent Workspace without copying the question.
+
+## Novel Panel acceptance scenario
+
+1. User highlights a sentence or phrase in an allow-listed Novel Panel editor field.
+2. CM changes its context chip to that selection.
+3. User says what is wrong with the selected text and asks CM to rewrite it.
+4. Agent receives the exact selected text and can propose `novel.selection.replace` using the current selection target ID.
+5. CM shows the proposed edit; no write occurs yet.
+6. User clicks **应用修改**.
+7. The iframe validates that the selection fingerprint is still current, then commits the new value and schedules the existing local draft save.
+8. CM offers **撤销**.
+9. If the user has already edited the field again, stale undo is refused instead of overwriting the newer edit.
