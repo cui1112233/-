@@ -7,6 +7,7 @@ const {
   estimateUsage,
   resolveUsage
 } = require('../lib/team-model-runtime');
+const { isBillableEntry } = require('../lib/usage-store');
 
 test('streaming SSE usage uses the final upstream usage payload when available', () => {
   const sse = [
@@ -66,4 +67,22 @@ test('token estimator handles Chinese and ASCII input deterministically', () => 
   );
   assert.ok(usage.prompt_tokens > 0);
   assert.ok(usage.completion_tokens > 0);
+});
+
+test('failed estimated usage never consumes quota, but provider-reported billed usage can', () => {
+  assert.equal(isBillableEntry({
+    status: 'completed_error',
+    usageKnown: true,
+    metadata: { usageEstimated: true }
+  }), false);
+  assert.equal(isBillableEntry({
+    status: 'cancelled',
+    usageKnown: true,
+    metadata: { usageEstimated: false }
+  }), true);
+  assert.equal(isBillableEntry({
+    status: 'success',
+    usageKnown: true,
+    metadata: { usageEstimated: true }
+  }), true);
 });
