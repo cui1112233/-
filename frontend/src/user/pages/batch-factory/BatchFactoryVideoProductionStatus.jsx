@@ -1,8 +1,8 @@
 import { Alert, Button, Card, Collapse, Divider, Space, Tag, Typography, message } from 'antd';
-import { Download, RefreshCw, Sparkles } from 'lucide-react';
+import { Download, Play, RefreshCw, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getBatchFactoryProductionStatus } from '../../../shared/api/batchFactory';
-import { retryTask } from '../../../shared/api/shuihuoProduction';
+import { downloadMedia, retryTask } from '../../../shared/api/shuihuoProduction';
 
 const ACTIVE_TASK_STATUSES = new Set(['draft', 'queued', 'running']);
 
@@ -111,15 +111,64 @@ function ProductionStatusTag({ production }) {
 }
 
 function VideoResultPreview({ production }) {
-  if (!production?.media) return null;
+  const mediaId = Number(production?.media?.id || 0);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+
+  useEffect(() => {
+    setPreviewUrl(current => {
+      if (current) URL.revokeObjectURL(current);
+      return '';
+    });
+    return () => {
+      setPreviewUrl(current => {
+        if (current) URL.revokeObjectURL(current);
+        return '';
+      });
+    };
+  }, [mediaId]);
+
+  if (!mediaId) return null;
+
+  async function loadPreview() {
+    setPreviewLoading(true);
+    try {
+      const blob = await downloadMedia(mediaId);
+      const objectUrl = URL.createObjectURL(blob);
+      setPreviewUrl(current => {
+        if (current) URL.revokeObjectURL(current);
+        return objectUrl;
+      });
+    } catch (error) {
+      message.error(error.message || '加载视频预览失败');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function downloadResult() {
+    setDownloadLoading(true);
+    try {
+      const blob = await downloadMedia(mediaId);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `批量工厂-VIDEO-${mediaId}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (error) {
+      message.error(error.message || '下载视频成品失败');
+    } finally {
+      setDownloadLoading(false);
+    }
+  }
+
   return <Space direction="vertical" size={10} style={{ width: '100%' }}>
-    <video
-      controls
-      preload="metadata"
-      src={production.media.downloadPath}
-      style={{ width: '100%', maxWidth: 560, borderRadius: 8 }}
-    />
-    <Button icon={<Download size={15} />} href={production.media.downloadPath} target="_blank" rel="noreferrer">打开 / 下载成品</Button>
+    {previewUrl ? <video controls preload="metadata" src={previewUrl} style={{ width: '100%', maxWidth: 560, borderRadius: 8 }} /> : <Button icon={<Play size={15} />} loading={previewLoading} onClick={loadPreview}>加载视频预览</Button>}
+    <Button icon={<Download size={15} />} loading={downloadLoading} onClick={downloadResult}>下载成品</Button>
   </Space>;
 }
 
