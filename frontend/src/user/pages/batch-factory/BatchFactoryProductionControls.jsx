@@ -3,6 +3,7 @@ import { Clapperboard, ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { generateBatchFactoryVideos } from '../../../shared/api/batchFactory';
 import { listModels } from '../../../shared/api/shuihuoProduction';
+import { reportClientError } from '../../../shared/error-reporting';
 
 let modelCatalogPromise = null;
 
@@ -26,6 +27,22 @@ function batchFactoryCompatibleModels(models, batch) {
     && Number(model.maxVideoDuration) >= 1
     && (!requiredDuration || Number(model.maxVideoDuration) >= requiredDuration)
   ));
+}
+
+function reportProductionIssue(batch, item, messageText) {
+  reportClientError({
+    kind: 'batch-factory.production-submit-failed',
+    message: messageText || '视频提交失败',
+    source: '/api/batch-factory/production',
+    context: {
+      batchId: batch?.id || '',
+      itemId: item?.id || '',
+      bookTitle: item?.title || '',
+      bookId: item?.bookId || '',
+      projectId: item?.production?.projectId || '',
+      modelName: batch?.settings?.videoModelName || ''
+    }
+  });
 }
 
 export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
@@ -66,9 +83,14 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
       await onRefresh?.();
       const queued = result.production?.queued ?? 0;
       const total = result.production?.total ?? 0;
-      if (result.production?.failed) message.warning(`已提交生产：${queued}/${total} 个 VIDEO 进入队列，部分任务需要检查。`);
-      else message.success(`已提交生产：${queued}/${total} 个 VIDEO 已进入视频队列。`);
+      if (result.production?.failed) {
+        reportProductionIssue(batch, item, `${result.production.failed} 个 VIDEO 提交失败，${queued}/${total} 已进入队列`);
+        message.warning(`已提交生产：${queued}/${total} 个 VIDEO 进入队列，部分任务需要检查。`);
+      } else {
+        message.success(`已提交生产：${queued}/${total} 个 VIDEO 已进入视频队列。`);
+      }
     } catch (error) {
+      reportProductionIssue(batch, item, error.message || '提交视频生产失败');
       message.error(error.message || '提交视频生产失败');
     } finally {
       setSubmitting(false);
