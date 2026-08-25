@@ -1636,6 +1636,23 @@ async function saveWebSubmitConfig(silent = false) {
   }
 }
 
+async function confirmWebSubmitSelection() {
+  const status = $("webSubmitSelectionStatus");
+  const versions = webSubmitVersionsFromForm();
+  if (!versions.length) {
+    if (status) status.textContent = "请至少选择一份提交文案。";
+    return;
+  }
+  if (status) status.textContent = "正在确认文案与提交方案...";
+  const result = await saveWebSubmitConfig(true);
+  if (result) {
+    const modeText = webSubmitModeFromForm() === "version" ? "版本配置" : "自由配置";
+    if (status) status.textContent = `已确认：${versions.map(version => version.toUpperCase()).join("、")}；${modeText}已保存。`;
+  } else if (status) {
+    status.textContent = "确认失败，请检查连接与设置。";
+  }
+}
+
 async function syncWebSubmit(kind) {
   const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
@@ -3008,6 +3025,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("submitWebSelectedBtn").onclick = () => submitWebSubmit("selected");
   $("submitWebAllBtn").onclick = () => submitWebSubmit("all");
   $("retryWebFailedBtn").onclick = () => submitWebSubmit("failed");
+  $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
