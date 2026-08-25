@@ -1,5 +1,5 @@
 import { Alert, Button, Drawer, Form, Input, InputNumber, Select, Switch, Table, Tag, Typography, message } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createAdminModel, listAdminModels } from '../../shared/api/shuihuoProduction';
 
 const adapters = [
@@ -32,6 +32,20 @@ const genericPollingExample = JSON.stringify({
   failed: ['failed', 'cancelled']
 }, null, 2);
 
+function withVideoMaxDuration(rawSchema, maxVideoDuration) {
+  let schema;
+  try {
+    schema = JSON.parse(rawSchema || '{}');
+  } catch (_) {
+    throw new Error('公开参数 Schema 不是合法 JSON');
+  }
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    throw new Error('公开参数 Schema 必须是 JSON 对象');
+  }
+  schema.maxVideoDuration = maxVideoDuration;
+  return JSON.stringify(schema, null, 2);
+}
+
 export function ShuihuoModelCatalogPage() {
   const [models, setModels] = useState([]);
   const [open, setOpen] = useState(false);
@@ -39,6 +53,7 @@ export function ShuihuoModelCatalogPage() {
   const [form] = Form.useForm();
   const adapterKind = Form.useWatch('adapterKind', form);
   const isGenericHTTP = adapterKind === 'generic_http';
+  const isVideoModel = useMemo(() => adapters.find(item => item.value === adapterKind)?.kind === 'video', [adapterKind]);
 
   const refresh = async () => {
     try {
@@ -62,6 +77,7 @@ export function ShuihuoModelCatalogPage() {
       sortOrder: 0,
       adminNote: '',
       parameterSchema: '{}',
+      maxVideoDuration: null,
       credentialRef: '',
       endpoint: '',
       requestTemplate: '',
@@ -78,9 +94,13 @@ export function ShuihuoModelCatalogPage() {
     try {
       const values = await form.validateFields();
       setSaving(true);
+      const { maxVideoDuration, ...payload } = values;
+      const parameterSchema = isVideoModel
+        ? withVideoMaxDuration(values.parameterSchema || '{}', Number(maxVideoDuration))
+        : (values.parameterSchema || '{}');
       await createAdminModel({
-        ...values,
-        parameterSchema: values.parameterSchema || '{}',
+        ...payload,
+        parameterSchema,
         credentialRef: values.credentialRef || '',
         runtimePolicyJson: values.runtimePolicyJson || '{}'
       });
@@ -103,12 +123,13 @@ export function ShuihuoModelCatalogPage() {
       if (!form.getFieldValue('responseMapping')) form.setFieldValue('responseMapping', genericResponseExample);
       if (!form.getFieldValue('pollingTemplate')) form.setFieldValue('pollingTemplate', genericPollingExample);
     }
+    if (definition?.kind !== 'video') form.setFieldValue('maxVideoDuration', null);
   }
 
   return <>
     <Typography.Title level={3}>水货生产模型</Typography.Title>
     <Typography.Paragraph>
-      管理文本、图片与视频模型。批量工厂会直接读取这里已启用的文生视频模型；通用 HTTP 模型可以配置 Seedance 等服务端接口，密钥只保存引用，不向普通用户返回。
+      管理文本、图片与视频模型。批量工厂会在导演开始前读取已启用文生视频模型的单次最大生成时长，并锁定该模型；通用 HTTP 模型可以配置 Seedance 等服务端接口，密钥只保存引用，不向普通用户返回。
     </Typography.Paragraph>
     <Button type="primary" onClick={openCreate}>新增模型</Button>
     <Table rowKey="id" style={{ marginTop: 16 }} dataSource={models} pagination={false} columns={[
@@ -120,6 +141,12 @@ export function ShuihuoModelCatalogPage() {
         title: '视频输入', width: 110,
         render: (_, model) => model.kind === 'video'
           ? <Tag color={model.requiresImageInput ? 'gold' : 'blue'}>{model.requiresImageInput ? '图生视频' : '文生视频'}</Tag>
+          : <Typography.Text type="secondary">—</Typography.Text>
+      },
+      {
+        title: '单次最大时长', width: 120,
+        render: (_, model) => model.kind === 'video'
+          ? (model.maxVideoDuration ? <Tag color="blue">{model.maxVideoDuration}s</Tag> : <Tag color="red">未配置</Tag>)
           : <Typography.Text type="secondary">—</Typography.Text>
       },
       { title: '状态', dataIndex: 'enabled', width: 90, render: value => <Tag color={value ? 'green' : 'default'}>{value ? '已启用' : '已停用'}</Tag> },
@@ -141,7 +168,19 @@ export function ShuihuoModelCatalogPage() {
         <Form.Item label="隐藏于普通用户模型列表" name="hidden" valuePropName="checked"><Switch /></Form.Item>
         <Form.Item label="排序" name="sortOrder"><InputNumber style={{ width: 180 }} /></Form.Item>
         <Form.Item label="管理员备注" name="adminNote"><Input.TextArea rows={2} /></Form.Item>
-        <Form.Item label="公开参数 Schema" name="parameterSchema"><Input.TextArea rows={3} spellCheck={false} /></Form.Item>
+
+        {isVideoModel ? <Form.Item
+          label="单次最大生成时长（秒）"
+          name="maxVideoDuration"
+          rules={[{ required: true, message: '请填写这个视频模型单次生成允许的最大秒数' }]}
+          extra="这是每个 VIDEO 的上限，不是要求输出的目标时长。批量工厂会把这个值交给导演 AI 做自然拆分。"
+        >
+          <InputNumber min={1} max={60} precision={0} style={{ width: 220 }} placeholder="例如 10 或 15" />
+        </Form.Item> : null}
+
+        <Form.Item label="公开参数 Schema" name="parameterSchema" extra={isVideoModel ? '保存时会自动把上面的单次最大时长写入 maxVideoDuration，不需要重复手填。' : ''}>
+          <Input.TextArea rows={3} spellCheck={false} />
+        </Form.Item>
 
         {isGenericHTTP ? <>
           <Alert
