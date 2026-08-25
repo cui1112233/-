@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
 
+# Final verification for the current 03 branch head, including collaboration UI.
 jobs:
   collaboration-tests:
     name: Identity collaboration acceptance
