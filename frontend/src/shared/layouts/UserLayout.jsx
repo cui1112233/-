@@ -497,7 +497,11 @@ export function UserLayout({ children }) {
               className="legacy-sidebar-avatar"
               title="打开个人中心"
               aria-label="进入个人中心"
-              onClick={() => setAccountCenterOpen(true)}
+              onClick={() => {
+                setAccountCenterOpen(true);
+                // 头像是个人中心入口：进入资料页并展开导航，而不是仅在当前业务页上浮出一张卡。
+                if (!isAccountCenterRoute) window.location.assign('/profile');
+              }}
             >
               <Avatar size={28} src={account?.avatarUrl} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
             </button>
