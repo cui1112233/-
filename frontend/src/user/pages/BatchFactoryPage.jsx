@@ -1,5 +1,5 @@
-import { Alert, Button, Card, Collapse, Divider, Empty, Input, List, Modal, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message } from 'antd';
-import { Check, FilePlus2, RefreshCw, Sparkles, UploadCloud, WandSparkles, Zap } from 'lucide-react';
+import { Alert, Button, Card, Collapse, Divider, Empty, Input, List, Modal, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, message } from 'antd';
+import { Check, FilePlus2, Pencil, RefreshCw, Sparkles, UploadCloud, WandSparkles, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   approveBatchFactoryHook,
@@ -9,7 +9,8 @@ import {
   listBatchFactoryBatches,
   regenerateBatchFactoryDirector,
   rewriteBatchFactoryHook,
-  startBatchFactoryBatch
+  startBatchFactoryBatch,
+  updateBatchFactoryDirectorResult
 } from '../../shared/api/batchFactory';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
@@ -58,12 +59,16 @@ export function BatchFactoryPage() {
   const [prefixMode, setPrefixMode] = useState('auto');
   const [customPrefix, setCustomPrefix] = useState('');
   const [style, setStyle] = useState('高质量动漫短视频');
+  const [quality, setQuality] = useState('');
+  const [restriction, setRestriction] = useState('');
+  const [negative, setNegative] = useState('');
   const [creating, setCreating] = useState(false);
   const [activeBatch, setActiveBatch] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [hookEdits, setHookEdits] = useState({});
   const [compiled, setCompiled] = useState({ open: false, loading: false, title: '', prompt: '', payload: null });
+  const [directorEditor, setDirectorEditor] = useState({ open: false, saving: false, itemId: '', title: '', value: '' });
   const fileInputRef = useRef(null);
 
   const hasActiveJobs = useMemo(() => activeBatch?.items?.some(item => activeStatuses.has(item.status)), [activeBatch]);
@@ -154,7 +159,10 @@ export function BatchFactoryPage() {
           aspectRatio,
           prefixMode,
           customPrefix,
-          style
+          style,
+          quality,
+          restriction,
+          negative
         }
       });
       const started = await startBatchFactoryBatch(created.batch.id);
@@ -200,6 +208,36 @@ export function BatchFactoryPage() {
       setActiveBatch(result.batch);
     } catch (error) {
       message.error(error.message || '重新导演失败');
+    }
+  }
+
+  function openDirectorEditor(item) {
+    setDirectorEditor({
+      open: true,
+      saving: false,
+      itemId: item.id,
+      title: `${item.title} · 手动编辑导演结果`,
+      value: JSON.stringify(item.directorResult, null, 2)
+    });
+  }
+
+  async function saveDirectorEditor() {
+    let directorResult;
+    try {
+      directorResult = JSON.parse(directorEditor.value);
+    } catch (_) {
+      return message.error('导演结果必须是合法 JSON');
+    }
+    setDirectorEditor(current => ({ ...current, saving: true }));
+    try {
+      await updateBatchFactoryDirectorResult(activeBatch.id, directorEditor.itemId, directorResult);
+      const refreshed = await getBatchFactoryBatch(activeBatch.id);
+      setActiveBatch(refreshed.batch);
+      setDirectorEditor({ open: false, saving: false, itemId: '', title: '', value: '' });
+      message.success('人工修改已保存；不会额外调用 AI');
+    } catch (error) {
+      setDirectorEditor(current => ({ ...current, saving: false }));
+      message.error(error.message || '导演结果保存失败');
     }
   }
 
@@ -284,6 +322,19 @@ export function BatchFactoryPage() {
                 <Typography.Text strong>项目风格</Typography.Text>
                 <Input value={style} onChange={event => setStyle(event.target.value)} style={{ marginTop: 8, maxWidth: 700 }} />
               </div>
+              <Collapse
+                style={{ width: '100%' }}
+                items={[{
+                  key: 'advanced-video-constraints',
+                  label: '高级视频约束（沿用剧本生成约束思路）',
+                  children: <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    <div><Typography.Text strong>画质约束</Typography.Text><Input.TextArea rows={3} value={quality} onChange={event => setQuality(event.target.value)} placeholder="例如：4K超清、电影级细节与光影层次" style={{ marginTop: 6 }} /></div>
+                    <div><Typography.Text strong>画面限制</Typography.Text><Input.TextArea rows={3} value={restriction} onChange={event => setRestriction(event.target.value)} placeholder="例如：禁止无关文字、横幅、漂浮UI、字幕、水印和Logo" style={{ marginTop: 6 }} /></div>
+                    <div><Typography.Text strong>负面提示词</Typography.Text><Input.TextArea rows={3} value={negative} onChange={event => setNegative(event.target.value)} placeholder="填写每个 Video 都要携带的负面提示词" style={{ marginTop: 6 }} /></div>
+                    <Typography.Text type="secondary">这些内容会在视频生成前由服务器复制到每一个独立 VIDEO 的最终 Prompt，不会只写在整批开头。</Typography.Text>
+                  </Space>
+                }]}
+              />
               <Button type="primary" size="large" icon={<WandSparkles size={17} />} loading={creating} onClick={createAndStart} disabled={!draftItems.length}>创建批次并开始</Button>
             </Space>
           </Card>
@@ -307,7 +358,7 @@ export function BatchFactoryPage() {
 
           <Collapse items={(activeBatch.items || []).map((item, index) => ({
             key: item.id,
-            label: <Space><Typography.Text strong>{String(index + 1).padStart(2, '0')} · {item.title}</Typography.Text>{statusTag(item.status)}</Space>,
+            label: <Space><Typography.Text strong>{String(index + 1).padStart(2, '0')} · {item.title}</Typography.Text>{statusTag(item.status)}{item.manuallyEdited ? <Tag color="blue">人工已修改</Tag> : null}</Space>,
             children: <Space direction="vertical" size={14} style={{ width: '100%' }}>
               {item.error ? <Alert type="error" showIcon message={item.error} /> : null}
               {activeBatch.mode === 'viral' && item.hookDraft ? <Card size="small" title="爆款开头审核" extra={item.status === 'hook_review' ? <Space><Button onClick={() => rewriteHook(item)}>重新改编</Button><Button type="primary" icon={<Check size={15} />} onClick={() => approveHook(item)}>通过并导演</Button></Space> : null}>
@@ -319,8 +370,9 @@ export function BatchFactoryPage() {
 
               {item.directorResult ? <>
                 <Tabs items={[
-                  { key: 'characters', label: `人物 ${item.directorResult.characters?.length || 0}`, children: <List bordered size="small" dataSource={item.directorResult.characters || []} renderItem={entry => <List.Item><Typography.Text strong>{entry.name}</Typography.Text><Typography.Paragraph style={{ margin: '4px 0 0' }}>{entry.prompt}</Typography.Paragraph></List.Item>} /> },
-                  { key: 'scenes', label: `场景 ${item.directorResult.scenes?.length || 0}`, children: <List bordered size="small" dataSource={item.directorResult.scenes || []} renderItem={entry => <List.Item><Typography.Text strong>{entry.name}</Typography.Text><Typography.Paragraph style={{ margin: '4px 0 0' }}>{entry.prompt}</Typography.Paragraph></List.Item>} /> },
+                  { key: 'characters', label: `人物 ${item.directorResult.characters?.length || 0}`, children: <List bordered size="small" dataSource={item.directorResult.characters || []} renderItem={entry => <List.Item><List.Item.Meta title={entry.name} description={entry.prompt} /></List.Item>} /> },
+                  { key: 'scenes', label: `场景 ${item.directorResult.scenes?.length || 0}`, children: <List bordered size="small" dataSource={item.directorResult.scenes || []} renderItem={entry => <List.Item><List.Item.Meta title={entry.name} description={entry.prompt} /></List.Item>} /> },
+                  { key: 'props', label: `道具 ${item.directorResult.props?.length || 0}`, children: <List bordered size="small" dataSource={item.directorResult.props || []} renderItem={entry => <List.Item><List.Item.Meta title={entry.name} description={entry.prompt} /></List.Item>} /> },
                   { key: 'videos', label: `视频方案 ${item.directorResult.storyboard?.length || 0}`, children: <Space direction="vertical" size={12} style={{ width: '100%' }}>{(item.directorResult.storyboard || []).map(video => <Card key={video.id} size="small" title={`VIDEO ${video.id} · ${video.duration_sec}秒`} extra={<Button icon={<Sparkles size={15} />} onClick={() => compileVideo(item, video)}>查看最终上传 Prompt</Button>}>
                     <Space wrap style={{ marginBottom: 8 }}><Tag>{video.scene || '未指定场景'}</Tag><Tag>{video.prefix_key || 'general_anime'}</Tag><Tag>{video.characters?.join('、') || '无人'}</Tag></Space>
                     <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{video.video_desc}</Typography.Paragraph>
@@ -328,7 +380,11 @@ export function BatchFactoryPage() {
                     {(video.shots || []).map((shot, shotIndex) => <div key={`${video.id}-${shotIndex}`} style={{ marginBottom: 8 }}><Typography.Text strong>{shot.start_sec}-{shot.end_sec}秒 {shot.shot_type ? `· ${shot.shot_type}` : ''} {shot.camera ? `· ${shot.camera}` : ''}</Typography.Text><div>{shot.description}</div></div>)}
                   </Card>)}</Space> }
                 ]} />
-                <Space><Button onClick={() => regenerateDirector(item)}>使用当前预设重新导演</Button>{item.promptVersions ? <Typography.Text type="secondary">已记录本次元提示词版本</Typography.Text> : null}</Space>
+                <Space wrap>
+                  <Button icon={<Pencil size={15} />} onClick={() => openDirectorEditor(item)}>手动编辑导演结果</Button>
+                  <Button onClick={() => regenerateDirector(item)}>使用当前预设重新导演</Button>
+                  {item.promptVersions ? <Typography.Text type="secondary">已记录本次元提示词版本</Typography.Text> : null}
+                </Space>
               </> : item.status === 'hook_review' ? null : <Spin tip={activeStatuses.has(item.status) ? '生成中' : '等待结果'} />}
             </Space>
           }))} />
@@ -340,6 +396,19 @@ export function BatchFactoryPage() {
           {compiled.payload ? <Alert type="info" showIcon message={`实际提交参数：duration=${compiled.payload.duration} · aspect_ratio=${compiled.payload.aspect_ratio}`} style={{ marginBottom: 12 }} /> : null}
           <Input.TextArea rows={24} value={compiled.prompt} readOnly />
         </>}
+      </Modal>
+
+      <Modal
+        title={directorEditor.title || '手动编辑导演结果'}
+        open={directorEditor.open}
+        onCancel={() => setDirectorEditor({ open: false, saving: false, itemId: '', title: '', value: '' })}
+        onOk={saveDirectorEditor}
+        confirmLoading={directorEditor.saving}
+        okText="校验并保存"
+        width={1100}
+      >
+        <Alert type="info" showIcon message="手动修改不会调用 AI" description="保存时服务器仍会强制检查整数秒、固定单镜头、时间轴连续性，以及人物/场景/道具引用。修改后最终上传 Prompt 会重新编译。" style={{ marginBottom: 12 }} />
+        <Input.TextArea rows={30} value={directorEditor.value} onChange={event => setDirectorEditor(current => ({ ...current, value: event.target.value }))} spellCheck={false} />
       </Modal>
     </div>
   );
