@@ -1,15 +1,17 @@
-import { Avatar, Button, Form, Input, Progress, Skeleton, Tag, message } from 'antd';
-import { Camera, CheckCircle2, Mail, MailCheck, Phone, Save, Sparkles, UsersRound } from 'lucide-react';
+import { Avatar, Button, Form, Input, Modal, Skeleton, Tag, message } from 'antd';
+import { Camera, CheckCircle2, CircleGauge, Crown, Mail, MailCheck, Pencil, Phone, Save, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMemberCenter, updateMemberProfile, uploadMemberAvatar } from '../../shared/api/member';
 import { getEmailVerificationStatus, requestEmailVerification } from '../../shared/api/accountRecovery';
 import { PageHeader, Panel, RoleBadge, avatarFallback, formatDate } from './accountCenterShared';
+import { Link } from '../../shared/components/Link';
 
 export default function ProfilePage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [mailing, setMailing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [center, setCenter] = useState(null);
   const [emailStatus, setEmailStatus] = useState(null);
   const fileRef = useRef(null);
@@ -45,6 +47,7 @@ export default function ProfilePage() {
       const previousEmail = center?.member?.email || '';
       const result = await updateMemberProfile(values);
       setCenter(current => ({ ...current, member: result.member }));
+      setEditing(false);
       window.dispatchEvent(new CustomEvent('qiantie:profile-updated'));
       if ((result.member?.email || '') !== previousEmail) {
         setEmailStatus(await getEmailVerificationStatus().catch(() => null));
@@ -102,78 +105,29 @@ export default function ProfilePage() {
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
   if (!member) return <div className="account-center-page"><div className="ac-empty">无法读取资料</div></div>;
 
+  const monthTokens = Number(center?.usage?.month?.totalTokens || 0);
+  const monthlyLimit = member.monthlyTokenLimit;
+  const remainingTokens = monthlyLimit === null || monthlyLimit === undefined ? '不限额' : Math.max(0, Number(monthlyLimit) - monthTokens).toLocaleString('zh-CN');
+  const securityScore = Math.min(100, 65 + (emailStatus?.verified ? 15 : 0) + (member.mfaEnabled ? 20 : 0));
+  const isGovernanceEnabled = ['dev', 'manager'].includes(member.role);
+
   return <div className="account-center-page profile-page">
-    <PageHeader title="个人资料" subtitle="管理你的个人信息、验证邮箱与团队名片" />
-
-    <section className={`ac-profile-hero role-${member.role}`}>
-      <button className="ac-profile-avatar-button" type="button" onClick={() => fileRef.current?.click()} disabled={saving}>
-        <Avatar size={118} src={member.avatarUrl}>{avatarFallback(member)}</Avatar>
-        <span><Camera size={16} /> 更换头像</span>
-      </button>
-      <input ref={fileRef} className="member-hidden-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={upload} />
-      <div className="ac-profile-hero-copy">
-        <div><h2>{member.displayName}</h2><RoleBadge role={member.role} /></div>
-        <p>@{member.username}</p>
-        <div className="ac-profile-facts">
-          <span><UsersRound size={15} /> {center?.team?.name || 'qiantie'}</span>
-          <span><Sparkles size={15} /> {member.role === 'dev' ? '开发 · 最高权限' : member.role === 'manager' ? '团队管理' : '团队成员'}</span>
-          <span>加入 {formatDate(member.createdAt).slice(0, 10)}</span>
-        </div>
-      </div>
-    </section>
-
-    <div className="ac-two-column profile-grid">
-      <Panel title="基本资料" className="ac-form-panel">
-        <Form form={form} layout="vertical" onFinish={save}>
-          <div className="ac-form-row two">
-            <Form.Item label="显示名称" name="displayName" rules={[{ required: true, whitespace: true, max: 40, message: '请输入 1-40 个字符的显示名称' }]}><Input maxLength={40} /></Form.Item>
-            <Form.Item label="账号 ID"><Input value={member.username} disabled /></Form.Item>
-          </div>
-          <div className="ac-form-row two">
-            <Form.Item label="手机号" name="phone"><Input prefix={<Phone size={15} />} placeholder="可选" maxLength={32} /></Form.Item>
-            <Form.Item label="邮箱" name="email"><Input prefix={<Mail size={15} />} placeholder="可选" maxLength={120} /></Form.Item>
-          </div>
-          <Form.Item label="团队职务" name="teamTitle"><Input placeholder="例如：核心开发者、内容负责人" maxLength={60} /></Form.Item>
-          <Form.Item label="个人简介" name="bio"><Input.TextArea rows={4} maxLength={240} showCount placeholder="向团队成员介绍一下自己" /></Form.Item>
-          <div className="ac-form-actions"><Button type="primary" htmlType="submit" icon={<Save size={16} />} loading={saving}>保存修改</Button></div>
-        </Form>
+    <PageHeader title="个人资料" subtitle="管理您的个人信息、会员权益、安全状态与治理权限" />
+    <div className="ac-profile-summary-grid">
+      <Panel title="我的信息" className="ac-profile-information">
+        <div className="ac-profile-information-copy"><div><span>显示名称</span><strong>{member.displayName}</strong><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => setEditing(true)} /></div><div><span>账号</span><strong>@{member.username}</strong></div><div><span>角色</span><RoleBadge role={member.role} compact /></div><div><span>邮箱</span><strong>{member.email || '未填写'}</strong></div><div><span>加入时间</span><strong>{formatDate(member.createdAt).slice(0, 10)}</strong></div><div><span>所在团队</span><strong>{center?.team?.name || 'qiantie 核心团队'}</strong></div></div>
+        <button className="ac-profile-summary-avatar" type="button" onClick={() => fileRef.current?.click()} disabled={saving} aria-label="更换头像"><Avatar size={118} src={member.avatarUrl}>{avatarFallback(member)}</Avatar><i><Camera size={15} /></i></button>
       </Panel>
-
-      <div className="ac-side-stack">
-        <Panel title="邮箱验证" eyebrow="ACCOUNT RECOVERY">
-          <div className="ac-api-status-line">
-            <span className="ac-security-card-icon"><MailCheck size={20} /></span>
-            <div><strong>{member.email || '尚未填写邮箱'}</strong><small>只有验证后的邮箱可以用于找回密码</small></div>
-            <Tag color={emailStatus?.verified ? 'green' : 'gold'}>{emailStatus?.verified ? '已验证' : '未验证'}</Tag>
-          </div>
-          {member.email ? <Button block type={emailStatus?.verified ? 'default' : 'primary'} disabled={emailStatus?.verified || !emailStatus?.deliveryConfigured} loading={mailing} onClick={sendVerification}>
-            {emailStatus?.verified ? '邮箱已验证' : emailStatus?.deliveryConfigured ? '发送验证邮件' : '邮件通道未配置'}
-          </Button> : <p className="ac-muted-copy">先在左侧填写邮箱并保存，再发送验证邮件。</p>}
-          {emailStatus?.verifiedAt ? <p className="ac-security-note">验证时间：{formatDate(emailStatus.verifiedAt)}</p> : null}
-        </Panel>
-
-        <Panel title="资料完整度">
-          <div className="ac-completion-ring"><Progress type="circle" percent={completion} size={138} strokeWidth={7} /></div>
-          <p className="ac-center-note">完善资料后，团队成员更容易识别你的身份与职责。</p>
-          <div className="ac-check-list">
-            {[
-              ['设置头像', Boolean(member.avatarUrl)],
-              ['设置显示名称', Boolean(member.displayName)],
-              ['填写个人简介', Boolean(member.bio)],
-              ['填写联系方式', Boolean(member.phone || member.email)],
-              ['验证找回邮箱', Boolean(emailStatus?.verified)],
-              ['设置团队职务', Boolean(member.teamTitle)]
-            ].map(([label, done]) => <div key={label}><CheckCircle2 size={15} className={done ? 'done' : ''} /><span>{label}</span><b>{done ? '已完成' : '待完善'}</b></div>)}
-          </div>
-        </Panel>
-
-        <Panel title="资料预览" eyebrow="TEAM CARD">
-          <div className="ac-profile-preview">
-            <Avatar size={58} src={member.avatarUrl}>{avatarFallback(member)}</Avatar>
-            <div><div><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /></div><small>@{member.username}</small><p>{member.teamTitle || '暂未设置团队职务'}</p></div>
-          </div>
-        </Panel>
-      </div>
+      <Panel title="账户概览" className="ac-account-overview"><div className="ac-account-overview-grid"><div><span>本月 Token 使用</span><strong>{monthTokens.toLocaleString('zh-CN')}</strong><small>{monthlyLimit === null || monthlyLimit === undefined ? '当前没有设置上限' : `额度上限 ${Number(monthlyLimit).toLocaleString('zh-CN')}`}</small></div><div><span>可用剩余额度</span><strong>{remainingTokens}</strong><small>{monthlyLimit === null || monthlyLimit === undefined ? 'Tokens' : 'Tokens'}</small></div><div><span>资料完整度</span><strong>{completion}%</strong><small>可在编辑资料中补充</small></div><div><span>安全评分</span><strong>{securityScore}</strong><small>{emailStatus?.verified ? '邮箱已验证' : '建议验证邮箱'}</small></div></div></Panel>
     </div>
+    <div className="ac-profile-cards-grid">
+      <Panel title="会员权益" className="ac-profile-summary-card"><div className="ac-profile-card-title"><Crown size={23} /><div><strong>{member.role === 'dev' ? 'DEV 会员' : member.role === 'manager' ? 'MANAGER 会员' : 'MEMBER 会员'}</strong><small>{monthlyLimit === null || monthlyLimit === undefined ? 'Token 不限额' : `每月 ${Number(monthlyLimit).toLocaleString('zh-CN')} Tokens`}</small></div></div><div className="ac-profile-checks"><span><CheckCircle2 size={15} />账号资料与团队名片</span><span><CheckCircle2 size={15} />{member.role === 'member' ? '已授权 AI 服务范围' : '团队 AI 服务管理'}</span><span><CheckCircle2 size={15} />会员中心与用量统计</span></div><Link href="/member" className="ac-profile-card-link">查看会员中心 <span>›</span></Link></Panel>
+      <Panel title="安全状态" className="ac-profile-summary-card"><div className="ac-profile-security-score"><span><ShieldCheck size={25} /></span><div><small>安全评分</small><strong>{securityScore}<i>/100</i></strong><b>{securityScore >= 90 ? '优秀' : '建议完善'}</b></div></div><div className="ac-profile-checks"><span><CheckCircle2 size={15} />登录保护</span><span><CheckCircle2 size={15} />邮箱验证 {emailStatus?.verified ? '已验证' : '待验证'}</span><span><CheckCircle2 size={15} />MFA {member.mfaEnabled ? '已启用' : '未启用'}</span></div>{member.email && !emailStatus?.verified ? <Button type="link" loading={mailing} disabled={!emailStatus?.deliveryConfigured} onClick={sendVerification}>发送邮箱验证</Button> : <Link href="/security" className="ac-profile-card-link">查看安全详情 <span>›</span></Link>}</Panel>
+      <Panel title="联合治理权限" className="ac-profile-summary-card"><div className="ac-profile-governance"><UsersRound size={26} /><div><strong>{isGovernanceEnabled ? '已开启联合治理' : '当前为成员权限'}</strong><small>{isGovernanceEnabled ? '可以进入团队与成员治理工作区' : '由所属团队管理员统一治理'}</small></div></div><div className="ac-profile-checks"><span><CheckCircle2 size={15} />{isGovernanceEnabled ? '团队治理' : '团队协作'}</span><span><CheckCircle2 size={15} />{isGovernanceEnabled ? '成员授权管理' : '个人资料管理'}</span><span><CheckCircle2 size={15} />安全审计</span></div>{isGovernanceEnabled ? <Link href="/advanced-team-admin" className="ac-profile-card-link">前往联合治理中心 <span>›</span></Link> : <Link href="/team" className="ac-profile-card-link">查看所在团队 <span>›</span></Link>}</Panel>
+    </div>
+    <input ref={fileRef} className="member-hidden-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={upload} />
+    <Modal title="编辑个人资料" open={editing} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="保存修改" confirmLoading={saving}>
+      <Form form={form} layout="vertical" onFinish={save}><Form.Item label="显示名称" name="displayName" rules={[{ required: true, whitespace: true, max: 40 }]}><Input maxLength={40} /></Form.Item><Form.Item label="手机号" name="phone"><Input prefix={<Phone size={15} />} maxLength={32} /></Form.Item><Form.Item label="邮箱" name="email"><Input prefix={<Mail size={15} />} maxLength={120} /></Form.Item><Form.Item label="团队职务" name="teamTitle"><Input maxLength={60} /></Form.Item><Form.Item label="个人简介" name="bio"><Input.TextArea rows={4} maxLength={240} showCount /></Form.Item></Form>
+    </Modal>
   </div>;
 }

@@ -465,6 +465,18 @@
     radial-gradient(circle at 12% 44%, rgba(239,189,100,.1), transparent 26%),
     linear-gradient(118deg, #111820, #0c141d 62%, #0b121a);
 }
+
+/* 个人资料总览：按参考图固定为“信息 + 概览”上排与三张状态卡下排。
+   编辑行为收进弹窗，主画布始终只呈现可快速判断账号状态的信息。 */
+.ac-profile-summary-grid { display:grid; grid-template-columns:minmax(360px,.98fr) minmax(420px,1.42fr); gap:16px; margin-bottom:16px; }
+.ac-profile-information { display:grid; grid-template-columns:minmax(0,1fr) 132px; min-height:290px; }
+.ac-profile-information .ac-panel-header, .ac-account-overview .ac-panel-header { grid-column:1 / -1; }
+.ac-profile-information-copy { display:grid; gap:13px; align-content:start; padding:4px 8px 8px 0; }
+.ac-profile-information-copy > div { display:grid; grid-template-columns:88px minmax(0,1fr) auto; gap:10px; align-items:center; min-height:23px; }
+.ac-profile-information-copy span { color:#8290a4; font-size:11px; }.ac-profile-information-copy strong { overflow:hidden; color:#e5ebf3; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }.ac-profile-information-copy .ant-btn { color:#8fa1ff; }
+.ac-profile-summary-avatar { position:relative; display:grid; width:118px; height:118px; place-items:center; align-self:center; justify-self:end; padding:0; border:2px solid rgba(139,119,255,.58); border-radius:50%; background:#0b121c; cursor:pointer; box-shadow:0 0 0 8px rgba(139,119,255,.055); }.ac-profile-summary-avatar .ant-avatar { overflow:hidden; }.ac-profile-summary-avatar i { position:absolute; right:-4px; bottom:5px; display:grid; width:30px; height:30px; place-items:center; border:1px solid rgba(174,188,255,.38); border-radius:50%; color:#d8deff; background:#20274a; }
+.ac-account-overview { min-height:290px; }.ac-account-overview-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; overflow:hidden; border:1px solid var(--ac-line); border-radius:11px; background:var(--ac-line); }.ac-account-overview-grid > div { min-height:91px; padding:17px; background:rgba(7,13,22,.64); }.ac-account-overview-grid span,.ac-account-overview-grid small { display:block; color:#7d8ba0; font-size:10px; }.ac-account-overview-grid strong { display:block; margin:8px 0 5px; color:#edf2f7; font-size:24px; letter-spacing:-.03em; }
+.ac-profile-cards-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }.ac-profile-summary-card { display:flex; min-height:310px; flex-direction:column; }.ac-profile-card-title,.ac-profile-security-score,.ac-profile-governance { display:flex; gap:12px; align-items:center; min-height:66px; }.ac-profile-card-title > svg { color:#f0bd65; }.ac-profile-card-title strong,.ac-profile-governance strong { display:block; color:#eef3f9; font-size:16px; }.ac-profile-card-title small,.ac-profile-governance small { display:block; margin-top:5px; color:#8190a4; font-size:11px; }.ac-profile-security-score > span { display:grid; width:58px; height:58px; place-items:center; border:1px solid rgba(72,213,163,.38); border-radius:50%; color:#4cd8a6; background:rgba(72,213,163,.08); box-shadow:0 0 0 7px rgba(72,213,163,.035); }.ac-profile-security-score small { display:block; color:#8391a3; font-size:10px; }.ac-profile-security-score strong { display:block; color:#eff6f3; font-size:26px; }.ac-profile-security-score strong i { color:#8998a9; font-size:11px; font-style:normal; }.ac-profile-security-score b { color:#54d9a7; font-size:11px; }.ac-profile-governance > svg { color:#a191ff; }.ac-profile-checks { display:grid; gap:11px; margin:24px 0; color:#aeb9c7; font-size:11px; }.ac-profile-checks span { display:flex; gap:8px; align-items:center; }.ac-profile-checks svg { color:#55d7a5; }.ac-profile-card-link { display:flex; justify-content:space-between; margin-top:auto; padding:12px 14px; border:1px solid var(--ac-line); border-radius:9px; color:#aebdff; background:rgba(255,255,255,.018); font-size:12px; text-decoration:none; }.ac-profile-card-link:hover { color:#fff; border-color:rgba(138,120,255,.45); background:rgba(138,120,255,.09); }
 .ac-two-column { gap: 16px; }
 .ac-security-grid { gap: 14px; }
 .ac-security-score p { color: var(--ac-muted); }
@@ -579,6 +591,7 @@
   .ac-member-side { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .ac-security-grid { grid-template-columns: 1fr 1fr; }
   .ac-security-overview { grid-column: 1 / -1; }
+  .ac-profile-summary-grid { grid-template-columns:1fr; }.ac-profile-cards-grid { grid-template-columns:1fr 1fr; }.ac-profile-cards-grid > :last-child { grid-column:1 / -1; }
   .ac-metrics-grid.four,
   .ac-metrics-grid.five { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .ac-governance-row { grid-template-columns: 1fr 1fr; }
@@ -598,6 +611,7 @@
   .ac-hero-profile { align-items: flex-start; flex-direction: column; }
   .ac-hero-facts { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .ac-security-overview { grid-column: auto; }
+  .ac-profile-cards-grid { grid-template-columns:1fr; }.ac-profile-cards-grid > :last-child { grid-column:auto; }.ac-profile-summary-grid { grid-template-columns:1fr; }.ac-profile-information { grid-template-columns:1fr; }.ac-profile-summary-avatar { justify-self:start; }.ac-account-overview-grid { grid-template-columns:1fr; }
   .ac-form-row.two,
   .ac-form-row.three,
   .ac-team-toolbar,
