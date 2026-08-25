@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
-const { normalizeSourceItem } = require('../lib/batch-factory/store');
+const { normalizeSettings, normalizeSourceItem } = require('../lib/batch-factory/store');
+const { boundModelError } = require('../routes/batch-factory-production');
 
 function baseResult(videos) {
   return {
@@ -57,6 +58,29 @@ test('小说获取交接保留超长书ID并固定 TXT 文件名', () => {
 test('小说获取交接缺少任务ID或书ID时拒绝进入批量工厂', () => {
   assert.throws(() => normalizeSourceItem({ bookId: '123', sourceText: '正文' }, 0, { sourceType: 'novel-fetch' }), /任务ID/);
   assert.throws(() => normalizeSourceItem({ sourceTaskId: '8', sourceText: '正文' }, 0, { sourceType: 'novel-fetch' }), /书ID/);
+});
+
+test('批量设置保存导演绑定的视频模型与时长能力快照', () => {
+  const settings = normalizeSettings({
+    videoModelId: 18,
+    videoModelVersionId: 42,
+    videoModelName: 'Seedance 2.0',
+    maxVideoDuration: 15,
+    fixedSingleVideo: true,
+    aspectRatio: '9:16'
+  });
+  assert.equal(settings.videoModelId, 18);
+  assert.equal(settings.videoModelVersionId, 42);
+  assert.equal(settings.videoModelName, 'Seedance 2.0');
+  assert.equal(settings.maxVideoDuration, 15);
+  assert.equal(settings.exactDuration, 15);
+});
+
+test('生成阶段拒绝把已导演批次换成另一视频模型', () => {
+  const batch = { settings: { videoModelId: 18, videoModelName: 'Seedance 2.0' } };
+  assert.equal(boundModelError(batch, 18), '');
+  assert.match(boundModelError(batch, 19), /已绑定 Seedance 2\.0/);
+  assert.equal(boundModelError({ settings: {} }, 19), '');
 });
 
 test('普通 15s 模式允许按剧情输出 13s、12s、10s 多个 VIDEO', () => {
