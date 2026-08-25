@@ -28,7 +28,9 @@ function issueContext(entry) {
   if (context.bookTitle) labels.push(context.bookTitle);
   if (context.bookId) labels.push(`书ID ${context.bookId}`);
   if (context.videoId !== undefined && context.videoId !== null && context.videoId !== '') labels.push(`VIDEO ${context.videoId}`);
+  if (context.projectId) labels.push(`项目 #${context.projectId}`);
   if (context.taskId) labels.push(`Task #${context.taskId}`);
+  if (context.providerTaskId) labels.push(`Provider ${context.providerTaskId}`);
   if (context.modelName) labels.push(context.modelName);
   return labels.length ? labels : null;
 }
@@ -73,7 +75,7 @@ export function IssueLogPage() {
 
   return <section className="utility-page issue-log-page">
     <div className="issue-log-heading">
-      <div><Typography.Title level={3}>问题日志</Typography.Title><Typography.Paragraph>系统自动记录使用过程中的异常；批量工厂的问题会附带书ID、VIDEO、任务等排查上下文，但不会记录密钥或认证信息。</Typography.Paragraph></div>
+      <div><Typography.Title level={3}>问题日志</Typography.Title><Typography.Paragraph>系统自动记录使用过程中的异常；批量工厂的问题会附带书ID、VIDEO、项目、任务和模型等排查上下文，但不会记录密钥或认证信息。</Typography.Paragraph></div>
       <div className="issue-log-actions">
         <Button icon={<RefreshCw size={16} aria-hidden="true" />} loading={loading} onClick={loadEntries}>刷新</Button>
       </div>
