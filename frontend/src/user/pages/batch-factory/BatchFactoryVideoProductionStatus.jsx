@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Collapse, Divider, Space, Tag, Typography, message } from 'antd';
 import { Download, Play, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getBatchFactoryProductionStatus } from '../../../shared/api/batchFactory';
 import { downloadMedia, retryTask } from '../../../shared/api/shuihuoProduction';
 
@@ -115,17 +115,15 @@ function VideoResultPreview({ production }) {
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const previewUrlRef = useRef('');
 
   useEffect(() => {
-    setPreviewUrl(current => {
-      if (current) URL.revokeObjectURL(current);
-      return '';
-    });
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = '';
+    setPreviewUrl('');
     return () => {
-      setPreviewUrl(current => {
-        if (current) URL.revokeObjectURL(current);
-        return '';
-      });
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = '';
     };
   }, [mediaId]);
 
@@ -136,10 +134,9 @@ function VideoResultPreview({ production }) {
     try {
       const blob = await downloadMedia(mediaId);
       const objectUrl = URL.createObjectURL(blob);
-      setPreviewUrl(current => {
-        if (current) URL.revokeObjectURL(current);
-        return objectUrl;
-      });
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = objectUrl;
+      setPreviewUrl(objectUrl);
     } catch (error) {
       message.error(error.message || '加载视频预览失败');
     } finally {
