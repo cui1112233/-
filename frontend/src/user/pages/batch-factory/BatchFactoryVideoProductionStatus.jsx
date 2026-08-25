@@ -1,10 +1,11 @@
-import { Alert, Button, Card, Collapse, Divider, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Collapse, Divider, Segmented, Select, Space, Tag, Typography, message } from 'antd';
 import { Download, Play, RefreshCw, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getBatchFactoryProductionStatus } from '../../../shared/api/batchFactory';
 import { downloadMedia, retryTask } from '../../../shared/api/shuihuoProduction';
 
 const ACTIVE_TASK_STATUSES = new Set(['draft', 'queued', 'running']);
+const PREVIEW_SPEED_OPTIONS = [1, 1.1, 1.2, 1.3, 1.5, 1.7, 2];
 
 const taskStatusMeta = {
   draft: ['待生成', 'default'],
@@ -169,6 +170,54 @@ function VideoResultPreview({ production }) {
   </Space>;
 }
 
+function MergeTimingPreview({ item, videoStates }) {
+  const [speed, setSpeed] = useState(1.5);
+  const storyboardTotal = (item.directorResult?.storyboard || []).reduce((sum, video) => sum + Number(video.duration_sec || 0), 0);
+  const completedMediaDurations = videoStates
+    .map(entry => Number(entry.production?.media?.durationMs || 0))
+    .filter(duration => duration > 0);
+  const completedTotalMs = completedMediaDurations.length === videoStates.length && videoStates.length
+    ? completedMediaDurations.reduce((sum, duration) => sum + duration, 0)
+    : 0;
+  const sourceDuration = completedTotalMs > 0 ? completedTotalMs / 1000 : storyboardTotal;
+  const estimatedDuration = sourceDuration > 0 ? sourceDuration / speed : 0;
+
+  return <Card size="small" title={<Space wrap><span>合并成品设置</span><Tag color="blue">UI 预留</Tag></Space>}>
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      <div>
+        <Typography.Text strong>成品时长处理</Typography.Text>
+        <div style={{ marginTop: 8 }}>
+          <Segmented
+            value="speed"
+            options={[
+              { value: 'speed', label: '倍率' },
+              { value: 'audio', label: '跟随音频时长 · 即将支持', disabled: true }
+            ]}
+          />
+        </div>
+      </div>
+      <Space wrap>
+        <Typography.Text strong>倍率</Typography.Text>
+        <Select
+          value={speed}
+          onChange={setSpeed}
+          style={{ width: 140 }}
+          options={PREVIEW_SPEED_OPTIONS.map(value => ({ value, label: `${value.toFixed(1)}x` }))}
+        />
+        <Tag>原始总时长 {sourceDuration ? `${sourceDuration.toFixed(1)}s` : '—'}</Tag>
+        <Tag color="processing">预计成品 {estimatedDuration ? `${estimatedDuration.toFixed(1)}s` : '—'}</Tag>
+      </Space>
+      <Alert
+        type="info"
+        showIcon
+        message="跟随音频时长暂不执行"
+        description="配音流程接入后，该模式会根据最终配音的实际时长自动反推视频倍率，使合并成品时长与音频一致。当前仅展示入口，不保存或执行音频联动逻辑。"
+      />
+      <Typography.Text type="secondary">这里的倍率属于“合并成品视频”的时长处理，与后续外部后台的“解压倍速”是两个独立参数。</Typography.Text>
+    </Space>
+  </Card>;
+}
+
 export function BatchFactoryBatchProductionStatus({ batch }) {
   const { byProjectId, error, projectIds, refreshNow } = useBatchFactoryProductionStatus(batch);
   const [retryingTaskId, setRetryingTaskId] = useState(null);
@@ -249,6 +298,7 @@ export function BatchFactoryBatchProductionStatus({ batch }) {
                 <VideoResultPreview production={production} />
               </Space>
             </Card>)}
+            <MergeTimingPreview item={item} videoStates={videoStates} />
           </Space>
         };
       })} />
