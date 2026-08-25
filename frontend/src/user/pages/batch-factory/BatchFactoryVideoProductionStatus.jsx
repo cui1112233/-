@@ -9,6 +9,7 @@ const ACTIVE_TASK_STATUSES = new Set(['draft', 'queued', 'running']);
 const PREVIEW_SPEED_OPTIONS = [1, 1.1, 1.2, 1.3, 1.5, 1.7, 2];
 const MERGE_SOURCE = 'batch_merge';
 const BULK_MERGE_CONCURRENCY = 2;
+const AI_ITEM_STATUSES = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
 
 const taskStatusMeta = {
   draft: ['待生成', 'default'],
@@ -18,6 +19,19 @@ const taskStatusMeta = {
   failed: ['失败', 'red'],
   cancelled: ['失败', 'red']
 };
+
+const bookStatusMeta = [
+  { key: 'all', label: '全部' },
+  { key: 'pending', label: '待开始' },
+  { key: 'review', label: '待审核', color: 'gold' },
+  { key: 'ai_processing', label: 'AI处理中', color: 'processing' },
+  { key: 'ready_generate', label: '待生成', color: 'blue' },
+  { key: 'queued', label: '排队中', color: 'processing' },
+  { key: 'generating', label: '视频生成中', color: 'processing' },
+  { key: 'failed', label: '异常', color: 'red' },
+  { key: 'ready_merge', label: '待合并', color: 'cyan' },
+  { key: 'merged', label: '已合并', color: 'green' }
+];
 
 function normalizeProjectIds(batch) {
   const ids = (batch?.items || [])
@@ -171,6 +185,24 @@ function resolveMergeCandidate(item, projectStatus) {
     validBookId,
     readyForFirstMerge: allVideosReady && validBookId && !mergedMedia
   };
+}
+
+function resolveBookStatus(item, projectStatus) {
+  if (item?.status === 'failed' || Number(item?.production?.failed || 0) > 0) return 'failed';
+  if (item?.status === 'hook_review') return 'review';
+  if (AI_ITEM_STATUSES.has(item?.status)) return 'ai_processing';
+  if (!item?.production?.projectId) {
+    if (item?.status === 'complete' && item?.directorResult?.storyboard?.length) return 'ready_generate';
+    return 'pending';
+  }
+
+  const candidate = resolveMergeCandidate(item, projectStatus);
+  const states = candidate.videoStates.map(entry => entry.production?.status || 'draft');
+  if (states.some(status => status === 'failed' || status === 'cancelled')) return 'failed';
+  if (states.some(status => status === 'running')) return 'generating';
+  if (!projectStatus || states.some(status => status === 'queued' || status === 'draft')) return 'queued';
+  if (candidate.allVideosReady) return candidate.mergedMedia ? 'merged' : 'ready_merge';
+  return 'queued';
 }
 
 function ProductionStatusTag({ production }) {
@@ -340,7 +372,9 @@ export function BatchFactoryBatchProductionStatus({ batch }) {
   const [bulkMergeSpeed, setBulkMergeSpeed] = useState(1.5);
   const [bulkMerging, setBulkMerging] = useState(false);
   const [bulkMergeProgress, setBulkMergeProgress] = useState(null);
-  const producedItems = (batch?.items || []).filter(item => item.production?.projectId);
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => { setStatusFilter('all'); }, [batch?.id]);
 
   useEffect(() => {
     if (!projectIds.length) return undefined;
@@ -351,14 +385,30 @@ export function BatchFactoryBatchProductionStatus({ batch }) {
     return () => { active = false; };
   }, [projectIds.join(',')]);
 
-  if (!projectIds.length || !producedItems.length) return null;
+  const statusRows = (batch?.items || []).map(item => {
+    const projectStatus = item.production?.projectId ? byProjectId[String(item.production.projectId)] : null;
+    return { item, projectStatus, status: resolveBookStatus(item, projectStatus) };
+  });
+  const statusCounts = statusRows.reduce((result, row) => {
+    result[row.status] = (result[row.status] || 0) + 1;
+    return result;
+  }, {});
+  const selectedMeta = bookStatusMeta.find(entry => entry.key === statusFilter) || bookStatusMeta[0];
+  const matchedRows = statusFilter === 'all' ? statusRows : statusRows.filter(row => row.status === statusFilter);
+  const matchedProducedIds = new Set(matchedRows.filter(row => row.item.production?.projectId).map(row => row.item.id));
+  const allProducedItems = (batch?.items || []).filter(item => item.production?.projectId);
+  const producedItems = statusFilter === 'all' ? allProducedItems : allProducedItems.filter(item => matchedProducedIds.has(item.id));
 
   const mergeCandidates = producedItems.map(item => {
     const projectStatus = byProjectId[String(item.production.projectId)];
     return resolveMergeCandidate(item, projectStatus);
   });
-  const firstMergeCandidates = mergeCandidates.filter(candidate => candidate.readyForFirstMerge);
-  const alreadyMergedCount = mergeCandidates.filter(candidate => candidate.mergedMedia).length;
+  const allMergeCandidates = allProducedItems.map(item => {
+    const projectStatus = byProjectId[String(item.production.projectId)];
+    return resolveMergeCandidate(item, projectStatus);
+  });
+  const firstMergeCandidates = allMergeCandidates.filter(candidate => candidate.readyForFirstMerge);
+  const alreadyMergedCount = allMergeCandidates.filter(candidate => candidate.mergedMedia).length;
 
   const states = mergeCandidates.flatMap(candidate => candidate.videoStates.map(entry => entry.production).filter(Boolean));
   const counts = states.reduce((result, state) => {
@@ -438,124 +488,170 @@ export function BatchFactoryBatchProductionStatus({ batch }) {
     }
   }
 
-  return <Card title="视频生成进度">
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      {error ? <Alert type="warning" showIcon message="生产状态暂时读取失败，系统会自动重试" description={error} /> : null}
-      <Space wrap>
-        <Tag>总计 {states.length}</Tag>
-        <Tag>待生成 {counts.draft || 0}</Tag>
-        <Tag color="processing">排队中 {counts.queued || 0}</Tag>
-        <Tag color="processing">生成中 {counts.running || 0}</Tag>
-        <Tag color="green">已完成 {counts.succeeded || 0}</Tag>
-        <Tag color="red">失败 {(counts.failed || 0) + (counts.cancelled || 0)}</Tag>
-        <Typography.Text type="secondary">活动任务每 3 秒整批刷新一次；全部结束后自动停止。</Typography.Text>
+  return <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Card title="批次状态中心" extra={<Typography.Text type="secondary">按小说计数 · 点击筛选</Typography.Text>}>
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space wrap>
+          {bookStatusMeta.map(meta => {
+            const count = meta.key === 'all' ? statusRows.length : (statusCounts[meta.key] || 0);
+            const active = statusFilter === meta.key;
+            return <Button
+              key={meta.key}
+              type={active ? 'primary' : 'default'}
+              danger={meta.key === 'failed'}
+              onClick={() => setStatusFilter(meta.key)}
+            >
+              {meta.label} {count}
+            </Button>;
+          })}
+        </Space>
+        {statusFilter !== 'all' ? <>
+          <Divider style={{ margin: '0' }} />
+          <Space wrap>
+            <Typography.Text strong>当前筛选：{selectedMeta.label}</Typography.Text>
+            <Tag color={selectedMeta.color}>{matchedRows.length} 本</Tag>
+            <Button type="link" size="small" onClick={() => setStatusFilter('all')}>清除筛选</Button>
+          </Space>
+          {matchedRows.length ? <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid rgba(127,127,127,0.18)', borderRadius: 8 }}>
+            {matchedRows.map((row, index) => <div
+              key={row.item.id}
+              style={{ padding: '9px 12px', borderBottom: index === matchedRows.length - 1 ? 'none' : '1px solid rgba(127,127,127,0.12)' }}
+            >
+              <Space wrap>
+                <Typography.Text strong>{row.item.title}</Typography.Text>
+                {row.item.bookId ? <Tag>书ID {row.item.bookId}</Tag> : null}
+                {row.item.platform ? <Tag color="blue">{row.item.platform}</Tag> : null}
+                {row.item.manuallyEdited || row.item.settingOverrides ? <Tag color="purple">单书已调整</Tag> : null}
+                {row.status === 'failed' ? <Tag color="red">需要处理</Tag> : null}
+              </Space>
+            </div>)}
+          </div> : <Typography.Text type="secondary">当前没有属于这个状态的小说。</Typography.Text>}
+        </> : <Typography.Text type="secondary">异常状态优先级最高；一本小说即使有多个 VIDEO 失败，在这里也只计算为 1 本异常小说。</Typography.Text>}
       </Space>
+    </Card>
 
-      <Collapse
-        size="small"
-        items={[{
-          key: 'bulk-merge',
-          label: <Space wrap><Combine size={16} /><span>批量合并</span><Tag color="blue">可合并 {firstMergeCandidates.length}</Tag><Tag color="green">已合并 {alreadyMergedCount}</Tag></Space>,
-          children: <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Space wrap>
-              <Typography.Text strong>批量倍率</Typography.Text>
-              <Select
-                value={bulkMergeSpeed}
-                onChange={setBulkMergeSpeed}
-                disabled={bulkMerging}
-                style={{ width: 140 }}
-                options={PREVIEW_SPEED_OPTIONS.map(value => ({ value, label: `${value.toFixed(1)}x` }))}
-              />
-              <Button
-                type="primary"
-                icon={<Combine size={15} />}
-                loading={bulkMerging}
-                disabled={mergeCapability?.ready !== true || !firstMergeCandidates.length}
-                onClick={mergeAllCompleted}
-              >
-                合并全部已完成小说
-              </Button>
-            </Space>
-            <Typography.Text type="secondary">只处理全部 VIDEO 已成功、书ID有效且尚未生成合并成品的小说；已有合并成品不会重复执行。服务器同时最多处理 {BULK_MERGE_CONCURRENCY} 本。</Typography.Text>
-            {mergeCapability && mergeCapability.ready === false ? <Alert type="warning" showIcon message="视频合并服务未就绪" description={mergeCapability.reason || '服务器未检测到 FFmpeg'} /> : null}
-            {bulkMergeProgress ? <Alert
-              type={bulkMerging ? 'info' : (bulkMergeProgress.failed.length ? 'warning' : 'success')}
-              showIcon
-              message={bulkMerging
-                ? `批量合并中：${bulkMergeProgress.completed}/${bulkMergeProgress.total}`
-                : `批量合并完成：成功 ${bulkMergeProgress.succeeded} 本，失败 ${bulkMergeProgress.failed.length} 本`}
-              description={bulkMergeProgress.failed.length
-                ? `失败：${bulkMergeProgress.failed.map(entry => `${entry.title}（${entry.error}）`).join('；')}`
-                : `倍率 ${bulkMergeSpeed.toFixed(1)}x；已有合并成品不会重复处理。`}
-            /> : null}
+    {projectIds.length && allProducedItems.length ? <Card title="视频生成进度">
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        {error ? <Alert type="warning" showIcon message="生产状态暂时读取失败，系统会自动重试" description={error} /> : null}
+        {statusFilter !== 'all' && !producedItems.length ? <Alert type="info" showIcon message={`当前“${selectedMeta.label}”筛选中没有已提交视频的小说`} description="匹配小说已列在上方状态中心；待审核、AI处理中、待生成等状态尚未进入视频生产，所以这里不会重复显示。" /> : <>
+          <Space wrap>
+            <Tag>当前显示 VIDEO {states.length}</Tag>
+            <Tag>待生成 {counts.draft || 0}</Tag>
+            <Tag color="processing">排队中 {counts.queued || 0}</Tag>
+            <Tag color="processing">生成中 {counts.running || 0}</Tag>
+            <Tag color="green">已完成 {counts.succeeded || 0}</Tag>
+            <Tag color="red">失败 {(counts.failed || 0) + (counts.cancelled || 0)}</Tag>
+            <Typography.Text type="secondary">活动任务每 3 秒整批刷新一次；全部结束后自动停止。</Typography.Text>
           </Space>
-        }]}
-      />
 
-      <Collapse items={mergeCandidates.map((candidate, itemIndex) => {
-        const { item, projectStatus, videoStates, mergedMedia } = candidate;
-        const completed = videoStates.filter(entry => entry.production?.status === 'succeeded').length;
-        const failed = videoStates.filter(entry => ['failed', 'cancelled'].includes(entry.production?.status)).length;
-        return {
-          key: item.id,
-          label: <Space wrap>
-            <Typography.Text strong>{String(itemIndex + 1).padStart(2, '0')} · {item.title}</Typography.Text>
-            <Tag color={completed === videoStates.length && videoStates.length ? 'green' : 'processing'}>{completed}/{videoStates.length} 完成</Tag>
-            {failed ? <Tag color="red">{failed} 失败</Tag> : null}
-            {mergedMedia ? <Tag color="cyan">已合并</Tag> : null}
-          </Space>,
-          children: <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Typography.Text type="secondary">生产项目 #{item.production.projectId}</Typography.Text>
-            <Collapse
-              size="small"
-              items={videoStates.map(({ video, production }) => ({
-                key: `${item.id}-${video.id}`,
-                label: <Space wrap>
-                  <Typography.Text strong>VIDEO {video.id} · {video.duration_sec}秒</Typography.Text>
-                  <ProductionStatusTag production={production} />
-                  {production?.media?.durationMs ? <Tag>{Math.round(production.media.durationMs / 1000)}秒成品</Tag> : null}
-                </Space>,
-                children: <Space direction="vertical" size={9} style={{ width: '100%' }}>
-                  {production?.status === 'draft' ? <Alert type="info" showIcon message="待生成" description="导演方案已经存在，但这个 VIDEO 尚未进入正式视频生成任务。" /> : null}
-                  {production?.status === 'queued' ? <Alert type="info" showIcon message="排队中" description="任务已经成功提交，正在等待视频生成服务处理。" /> : null}
-                  {production?.status === 'running' ? <Alert type="info" showIcon message="生成中" description="视频生成服务正在处理这个 VIDEO，状态会自动刷新。" /> : null}
-                  {['failed', 'cancelled'].includes(production?.status) ? <Alert type="error" showIcon message="视频生成失败" description={production?.error || '生成任务未成功完成'} /> : null}
-                  <Space wrap>
-                    {production?.task?.providerTaskId ? <Tag>提供方任务 {production.task.providerTaskId}</Tag> : null}
-                    {['failed', 'cancelled'].includes(production?.status) && production?.task?.id ? <Button
-                      size="small"
-                      icon={<RefreshCw size={14} />}
-                      loading={retryingTaskId === Number(production.task.id)}
-                      onClick={() => retry(production)}
-                    >重试这个 VIDEO</Button> : null}
-                    {['failed', 'cancelled'].includes(production?.status) ? <Button
-                      size="small"
-                      icon={<Bug size={14} />}
-                      onClick={() => {
-                        reportBatchFactoryIssue('batch-factory.video-failed', { batch, item, video, production });
-                        message.info('已提交到问题日志，开发者可按书ID和 VIDEO 定位。');
-                      }}
-                    >标记问题</Button> : null}
-                  </Space>
-                  {production?.error && !['failed', 'cancelled'].includes(production?.status) ? <Typography.Text type="danger">{production.error}</Typography.Text> : null}
-                  <VideoResultPreview production={production} />
+          <Collapse
+            size="small"
+            items={[{
+              key: 'bulk-merge',
+              label: <Space wrap><Combine size={16} /><span>批量合并</span><Tag color="blue">可合并 {firstMergeCandidates.length}</Tag><Tag color="green">已合并 {alreadyMergedCount}</Tag></Space>,
+              children: <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                <Space wrap>
+                  <Typography.Text strong>批量倍率</Typography.Text>
+                  <Select
+                    value={bulkMergeSpeed}
+                    onChange={setBulkMergeSpeed}
+                    disabled={bulkMerging}
+                    style={{ width: 140 }}
+                    options={PREVIEW_SPEED_OPTIONS.map(value => ({ value, label: `${value.toFixed(1)}x` }))}
+                  />
+                  <Button
+                    type="primary"
+                    icon={<Combine size={15} />}
+                    loading={bulkMerging}
+                    disabled={mergeCapability?.ready !== true || !firstMergeCandidates.length}
+                    onClick={mergeAllCompleted}
+                  >
+                    合并全部已完成小说
+                  </Button>
                 </Space>
-              }))}
-            />
-            <MergeTimingPanel
-              batch={batch}
-              item={item}
-              videoStates={videoStates}
-              projectStatus={projectStatus}
-              mergeCapability={mergeCapability}
-              refreshNow={refreshNow}
-              bulkMerging={bulkMerging}
-            />
-          </Space>
-        };
-      })} />
-    </Space>
-  </Card>;
+                <Typography.Text type="secondary">只处理全部 VIDEO 已成功、书ID有效且尚未生成合并成品的小说；已有合并成品不会重复执行。服务器同时最多处理 {BULK_MERGE_CONCURRENCY} 本。</Typography.Text>
+                {mergeCapability && mergeCapability.ready === false ? <Alert type="warning" showIcon message="视频合并服务未就绪" description={mergeCapability.reason || '服务器未检测到 FFmpeg'} /> : null}
+                {bulkMergeProgress ? <Alert
+                  type={bulkMerging ? 'info' : (bulkMergeProgress.failed.length ? 'warning' : 'success')}
+                  showIcon
+                  message={bulkMerging
+                    ? `批量合并中：${bulkMergeProgress.completed}/${bulkMergeProgress.total}`
+                    : `批量合并完成：成功 ${bulkMergeProgress.succeeded} 本，失败 ${bulkMergeProgress.failed.length} 本`}
+                  description={bulkMergeProgress.failed.length
+                    ? `失败：${bulkMergeProgress.failed.map(entry => `${entry.title}（${entry.error}）`).join('；')}`
+                    : `倍率 ${bulkMergeSpeed.toFixed(1)}x；已有合并成品不会重复处理。`}
+                /> : null}
+              </Space>
+            }]}
+          />
+
+          <Collapse items={mergeCandidates.map((candidate, itemIndex) => {
+            const { item, projectStatus, videoStates, mergedMedia } = candidate;
+            const completed = videoStates.filter(entry => entry.production?.status === 'succeeded').length;
+            const failed = videoStates.filter(entry => ['failed', 'cancelled'].includes(entry.production?.status)).length;
+            return {
+              key: item.id,
+              label: <Space wrap>
+                <Typography.Text strong>{String(itemIndex + 1).padStart(2, '0')} · {item.title}</Typography.Text>
+                <Tag color={completed === videoStates.length && videoStates.length ? 'green' : 'processing'}>{completed}/{videoStates.length} 完成</Tag>
+                {failed ? <Tag color="red">{failed} 失败</Tag> : null}
+                {mergedMedia ? <Tag color="cyan">已合并</Tag> : null}
+                {item.manuallyEdited || item.settingOverrides ? <Tag color="purple">单书已调整</Tag> : null}
+              </Space>,
+              children: <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                <Typography.Text type="secondary">生产项目 #{item.production.projectId}</Typography.Text>
+                <Collapse
+                  size="small"
+                  items={videoStates.map(({ video, production }) => ({
+                    key: `${item.id}-${video.id}`,
+                    label: <Space wrap>
+                      <Typography.Text strong>VIDEO {video.id} · {video.duration_sec}秒</Typography.Text>
+                      <ProductionStatusTag production={production} />
+                      {production?.media?.durationMs ? <Tag>{Math.round(production.media.durationMs / 1000)}秒成品</Tag> : null}
+                    </Space>,
+                    children: <Space direction="vertical" size={9} style={{ width: '100%' }}>
+                      {production?.status === 'draft' ? <Alert type="info" showIcon message="待生成" description="导演方案已经存在，但这个 VIDEO 尚未进入正式视频生成任务。" /> : null}
+                      {production?.status === 'queued' ? <Alert type="info" showIcon message="排队中" description="任务已经成功提交，正在等待视频生成服务处理。" /> : null}
+                      {production?.status === 'running' ? <Alert type="info" showIcon message="生成中" description="视频生成服务正在处理这个 VIDEO，状态会自动刷新。" /> : null}
+                      {['failed', 'cancelled'].includes(production?.status) ? <Alert type="error" showIcon message="视频生成失败" description={production?.error || '生成任务未成功完成'} /> : null}
+                      <Space wrap>
+                        {production?.task?.providerTaskId ? <Tag>提供方任务 {production.task.providerTaskId}</Tag> : null}
+                        {['failed', 'cancelled'].includes(production?.status) && production?.task?.id ? <Button
+                          size="small"
+                          icon={<RefreshCw size={14} />}
+                          loading={retryingTaskId === Number(production.task.id)}
+                          onClick={() => retry(production)}
+                        >重试这个 VIDEO</Button> : null}
+                        {['failed', 'cancelled'].includes(production?.status) ? <Button
+                          size="small"
+                          icon={<Bug size={14} />}
+                          onClick={() => {
+                            reportBatchFactoryIssue('batch-factory.video-failed', { batch, item, video, production });
+                            message.info('已提交到问题日志，开发者可按书ID和 VIDEO 定位。');
+                          }}
+                        >标记问题</Button> : null}
+                      </Space>
+                      {production?.error && !['failed', 'cancelled'].includes(production?.status) ? <Typography.Text type="danger">{production.error}</Typography.Text> : null}
+                      <VideoResultPreview production={production} />
+                    </Space>
+                  }))}
+                />
+                <MergeTimingPanel
+                  batch={batch}
+                  item={item}
+                  videoStates={videoStates}
+                  projectStatus={projectStatus}
+                  mergeCapability={mergeCapability}
+                  refreshNow={refreshNow}
+                  bulkMerging={bulkMerging}
+                />
+              </Space>
+            };
+          })} />
+        </>}
+      </Space>
+    </Card> : null}
+  </Space>;
 }
 
 export function BatchFactoryVideoPlanCard({ item, video, videoIndex, projectStatus, onCompile }) {
