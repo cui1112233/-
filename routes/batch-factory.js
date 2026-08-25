@@ -312,6 +312,25 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     return res.json({ ok: true });
   });
 
+  router.put('/batches/:batchId/items/:itemId/director-result', (req, res) => {
+    try {
+      const batch = store.getBatch(req.username, req.params.batchId);
+      const item = batch?.items?.find(entry => entry.id === req.params.itemId);
+      if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
+      const source = req.body?.directorResult ?? req.body;
+      const directorResult = normalizeDirectorOutput(source, directorSettings(batch));
+      store.updateItem(req.username, batch.id, item.id, target => {
+        target.directorResult = directorResult;
+        target.status = 'complete';
+        target.error = '';
+        target.manuallyEdited = true;
+      });
+      return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || '导演结果校验失败' });
+    }
+  });
+
   router.post('/batches/:batchId/items/:itemId/videos/:videoId/compile', (req, res) => {
     try {
       const batch = store.getBatch(req.username, req.params.batchId);
