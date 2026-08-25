@@ -18,10 +18,12 @@ const quickActions = [
 const navItems = [
   { href: '/', label: '首页' },
   { href: '/script', label: '剧本生成' },
+  { href: '/novel-fetch', label: '小说获取' },
   { href: '/novel-panel', label: '小说面板' },
   { href: '/shuihuo-production', label: '水货生产' },
   { href: '/agent', label: 'Agent 工作区' },
   { href: '/history', label: '历史' },
+  { href: '/issues', label: '问题日志' },
   { href: '/tts', label: '配音' },
   { href: '/settings', label: '设置' }
 ];

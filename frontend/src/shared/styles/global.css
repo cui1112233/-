@@ -5,23 +5,31 @@
 }
 
 :root {
-  --legacy-sidebar: 220px;
-  --legacy-topbar: 56px;
-  --legacy-bg: #0a0a14;
-  --legacy-panel: rgba(22, 22, 46, 0.72);
-  --legacy-card: rgba(30, 30, 54, 0.64);
-  --legacy-card-hover: rgba(40, 40, 70, 0.72);
-  --legacy-input: rgba(10, 10, 24, 0.68);
-  --legacy-border: rgba(255, 255, 255, 0.08);
-  --legacy-border-strong: rgba(255, 255, 255, 0.14);
-  --legacy-text: #e8e8f0;
-  --legacy-muted: #8b8ba0;
-  --legacy-dim: #555570;
+  /* Shared shell geometry: every workspace, including the home entry, uses
+     the same alignment rhythm. Feature pages may still style their content. */
+  --app-sidebar-width: 220px;
+  --app-sidebar-collapsed-width: 60px;
+  --app-topbar-height: 56px;
+  --app-page-gutter: 24px;
+  --app-content-max-width: 1480px;
+  --app-radius: 10px;
+  --legacy-sidebar: var(--app-sidebar-width);
+  --legacy-topbar: var(--app-topbar-height);
+  --legacy-bg: #070b11;
+  --legacy-panel: rgba(11, 17, 26, 0.96);
+  --legacy-card: rgba(14, 22, 33, 0.96);
+  --legacy-card-hover: rgba(20, 31, 45, 0.98);
+  --legacy-input: #0b111a;
+  --legacy-border: rgba(151, 168, 190, 0.12);
+  --legacy-border-strong: rgba(176, 195, 219, 0.2);
+  --legacy-text: #f5f7fb;
+  --legacy-muted: #8391a4;
+  --legacy-dim: #586679;
   --legacy-accent: #f07167;
   --legacy-accent-hover: #f08a7d;
   --legacy-accent-dim: rgba(240, 113, 103, 0.14);
   --legacy-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
-  --theme-button: rgb(75, 45, 106);
+  --theme-button: #0b111a;
   --admin-bg: #10161f;
   --admin-sidebar: #151d28;
   --admin-panel: #17212d;
@@ -157,7 +165,7 @@ select {
   min-height: 100vh;
   height: 100vh;
   overflow: hidden;
-  background: #05050c;
+  background: var(--legacy-bg);
 }
 
 .route-loading {
@@ -634,6 +642,10 @@ select {
 .global-task-center-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .global-task-center-copy small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; }
 .global-task-center-item time { padding-top: 1px; white-space: nowrap; }
+.global-task-toast { display: flex; align-items: center; gap: 12px; max-width: min(560px, calc(100vw - 48px)); color: var(--legacy-text); cursor: pointer; }
+.global-task-toast > span { min-width: 0; line-height: 1.45; }
+.global-task-toast strong { margin-right: 3px; }
+.global-task-toast .ant-btn-link { flex: none; padding: 0; color: var(--legacy-accent); }
 .global-task-center-empty { margin: 0; padding: 20px 14px; line-height: 1.65; }
 
 .legacy-sidebar-user {
@@ -2809,7 +2821,7 @@ select {
 .home-page {
   height: 100%;
   overflow: auto;
-  padding: 0 40px 40px;
+  padding: 0 var(--app-page-gutter) 40px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -2821,8 +2833,8 @@ select {
 .home-video-hero {
   position: relative;
   min-height: 100vh;
-  margin: 0 -40px;
-  padding: 0 40px;
+  margin: 0 calc(var(--app-page-gutter) * -1);
+  padding: 0 var(--app-page-gutter);
   display: flex;
   align-items: center;
   overflow: hidden;
@@ -2876,19 +2888,20 @@ select {
 
 .home-hero-nav {
   position: absolute;
-  top: 24px;
-  left: 40px;
-  right: 40px;
+  top: 0;
+  left: var(--app-page-gutter);
+  right: var(--app-page-gutter);
   z-index: 2;
-  height: 58px;
+  height: var(--app-topbar-height);
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto minmax(120px, 1fr);
   align-items: center;
   gap: 24px;
-  padding: 0 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  background: rgba(10, 10, 20, 0.42);
+  padding: 0 20px;
+  border: 1px solid var(--legacy-border);
+  border-top: 0;
+  border-radius: 0 0 var(--app-radius) var(--app-radius);
+  background: color-mix(in srgb, var(--legacy-panel) 78%, transparent);
   backdrop-filter: blur(18px) saturate(160%);
 }
 
@@ -2928,8 +2941,22 @@ select {
   transition: color 0.18s ease;
 }
 
+.home-hero-links a[href="/"] {
+  color: var(--legacy-text);
+  font-weight: 650;
+}
+
 .home-hero-links a:hover {
   color: #fff;
+}
+
+[data-theme='light'] .home-hero-links a {
+  color: var(--legacy-muted);
+}
+
+[data-theme='light'] .home-hero-links a:hover,
+[data-theme='light'] .home-hero-links a[href="/"] {
+  color: var(--legacy-text);
 }
 
 .contact-button {
