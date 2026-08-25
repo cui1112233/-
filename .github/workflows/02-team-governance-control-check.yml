@@ -28,6 +28,7 @@ jobs:
       - run: >-
           node --test
           tests/team-governance-control.test.js
+          tests/team-governance-zero-quota.test.js
           tests/account-center-acceptance.test.js
           tests/member-center.test.js
           tests/member-usage-runtime.test.js
