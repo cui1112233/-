@@ -12,6 +12,14 @@ import {
   formatTokens
 } from './accountCenterShared';
 
+const CONTENT_FEATURES = new Set(['script', 'novel-panel', 'novel-fetch', 'image', 'shuihuo-production']);
+
+function contentProductionCalls(usage) {
+  return Object.entries(usage?.callsByFeature || {})
+    .filter(([feature]) => CONTENT_FEATURES.has(feature))
+    .reduce((sum, [, calls]) => sum + Number(calls || 0), 0);
+}
+
 function formatCost(summary) {
   if (!summary?.costCurrency || summary.estimatedCost === null || summary.estimatedCost === undefined) return '未计价';
   return `${summary.costCurrency} ${Number(summary.estimatedCost).toFixed(4)}`;
@@ -45,6 +53,8 @@ export default function UsageStatsPage() {
   const teamCalls = useMemo(() => members.reduce((sum, item) => sum + Number(item.usage?.month?.calls || 0), 0), [members]);
   const teamCost = useMemo(() => members.reduce((sum, item) => sum + Number(item.usage?.month?.estimatedCost || 0), 0), [members]);
   const teamCurrency = members.find(item => item.usage?.month?.costCurrency)?.usage?.month?.costCurrency || null;
+  const productionCalls = contentProductionCalls(month);
+  const teamProductionCalls = members.reduce((sum, item) => sum + contentProductionCalls(item.usage?.month), 0);
   const ranking = useMemo(() => [...members].sort((a, b) => (b.usage?.month?.totalTokens || 0) - (a.usage?.month?.totalTokens || 0)).slice(0, 6), [members]);
   const maxRecent = Math.max(1, ...recent.slice(0, 12).map(item => Number(item.totalTokens || 0)));
 
@@ -52,7 +62,7 @@ export default function UsageStatsPage() {
   if (!self) return <div className="account-center-page"><div className="ac-empty">无法读取用量</div></div>;
 
   return <div className="account-center-page usage-page">
-    <PageHeader title="用量统计" subtitle="查看 Token、调用次数、费用估算、功能构成与团队排名" />
+    <PageHeader title="用量与制作" subtitle="查看 Token、调用次数、费用估算、功能构成与内容制作调用" />
 
     <div className="ac-metrics-grid five">
       <MetricCard label="今日消耗" value={formatTokens(day.totalTokens)} suffix="Tokens" icon={Zap} accent="coral" hint={`${day.calls || 0} 次调用`} />
@@ -68,6 +78,8 @@ export default function UsageStatsPage() {
     {center?.teamGovernance?.quota?.level && center.teamGovernance.quota.level !== 'unlimited' ? <div className={`ac-quota-alert is-${center.teamGovernance.quota.level}`}>
       <strong>团队月额度：{center.teamGovernance.quota.percent}%</strong><span>{formatTokens(center.teamGovernance.quota.used)} / {formatTokens(center.teamGovernance.quota.limit)} Tokens · 70/90/100% 分级预警</span>
     </div> : null}
+
+    <div className={`ac-production-summary${isAdmin ? ' is-team' : ''}`}><div><span>本月内容制作调用</span><strong>{productionCalls.toLocaleString('zh-CN')} 次</strong></div>{isAdmin ? <div><span>本月组员制作调用</span><strong>{teamProductionCalls.toLocaleString('zh-CN')} 次</strong></div> : null}<small>按已计费模型调用汇总，当前不等同于按书籍去重的制作量。</small></div>
 
     <div className="ac-usage-layout">
       <Panel title="最近调用强度" eyebrow="RECENT CALLS" className="ac-usage-chart-panel">
@@ -97,12 +109,12 @@ export default function UsageStatsPage() {
               <span className={`rank rank-${index + 1}`}>{index + 1}</span>
               <MemberIdentity member={member} size={34} />
               <Progress percent={percent} showInfo={false} />
-              <div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>{member.usage?.month?.costCurrency ? `${member.usage.month.costCurrency} ${Number(member.usage.month.estimatedCost || 0).toFixed(4)}` : `${percent}%`}</small></div>
+              <div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>{contentProductionCalls(member.usage?.month)} 次制作 · {member.usage?.month?.costCurrency ? `${member.usage.month.costCurrency} ${Number(member.usage.month.estimatedCost || 0).toFixed(4)}` : `${percent}%`}</small></div>
             </div>;
           })}
           {!ranking.length ? <div className="ac-empty">暂无团队用量</div> : null}
         </div>
-        <div className="ac-side-summary"><span>团队本月合计</span><strong>{formatTokens(teamMonth)} Tokens · {teamCalls} 次调用{teamCurrency ? ` · 估算 ${teamCurrency} ${teamCost.toFixed(4)}` : ''}</strong></div>
+        <div className="ac-side-summary"><span>团队本月合计</span><strong>{formatTokens(teamMonth)} Tokens · {teamCalls} 次调用 · {teamProductionCalls} 次制作{teamCurrency ? ` · 估算 ${teamCurrency} ${teamCost.toFixed(4)}` : ''}</strong></div>
       </Panel> : null}
     </div>
 

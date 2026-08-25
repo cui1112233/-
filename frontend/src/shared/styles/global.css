@@ -2530,6 +2530,9 @@ select {
   color: var(--admin-text);
   background: var(--admin-bg);
 }
+.admin-access-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; color: var(--admin-text); background: var(--admin-bg); }
+.admin-access-screen .ant-result-title,
+.admin-access-screen .ant-result-subtitle { color: var(--admin-text); }
 
 .admin-sidebar {
   width: 244px;
@@ -2603,6 +2606,10 @@ select {
 .admin-grant:last-child { border-bottom: 0; }
 .admin-empty { padding: 20px 16px; color: var(--admin-muted); font-size: 13px; }
 .admin-dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.admin-legacy-redirect { max-width: 620px; padding: 28px; border: 1px solid var(--admin-border); border-radius: 8px; background: var(--admin-panel); }
+.admin-legacy-redirect h2 { margin: 0; color: var(--admin-heading); font-size: 20px; }
+.admin-legacy-redirect p { margin: 10px 0 18px; color: var(--admin-muted); line-height: 1.6; }
+.admin-legacy-redirect a { color: var(--admin-link); }
 .admin-dashboard-grid .admin-surface { min-height: 200px; padding: 22px; }
 .admin-dashboard-grid h3 { margin: 0; color: var(--admin-heading); font-size: 16px; }
 .admin-dashboard-grid p { min-height: 52px; color: var(--admin-muted); font-size: 13px; line-height: 1.6; }

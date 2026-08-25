@@ -48,7 +48,7 @@ export default function MemberCenterPage() {
   const teamName = center?.team?.name || (self.role === 'dev' ? 'qiantie 核心' : '未加入独立团队');
 
   return <div className="account-center-page member-dashboard-page">
-    <PageHeader title="会员中心" subtitle="身份、团队、额度、通知与 AI 服务状态总览" />
+    <PageHeader title="会员中心" subtitle="身份、授权、团队、额度与 AI 服务状态总览" />
 
     <div className="ac-member-layout">
       <div className="ac-member-main">
@@ -72,13 +72,13 @@ export default function MemberCenterPage() {
       </div>
 
       <aside className="ac-member-side">
-        <Panel title="团队概览" action={canManageTeam ? <Link href="/team" className="ac-text-link">查看团队 <ArrowUpRight size={14} /></Link> : null}><div className="ac-team-brand"><span className="ac-team-logo">{teamName.slice(0, 1).toUpperCase()}</span><div><strong>{teamName}</strong><small>{center?.team ? `Team ID · ${center.team.id.slice(0, 8)}` : '核心团队'}</small></div></div><div className="ac-team-kpis"><div><small>成员</small><strong>{members.length || (self.role === 'member' ? 1 : 0)}</strong></div><div><small>已授权</small><strong>{members.filter(item => item.apiEnabled).length}</strong></div><div><small>本月消耗</small><strong>{formatTokens(canManageTeam ? teamMonth : month.totalTokens)}</strong></div></div><div className="ac-side-summary"><span>今日消耗</span><strong>{formatTokens(canManageTeam ? teamDay : day.totalTokens)} Tokens</strong></div></Panel>
+        <Panel title="团队概览" action={canManageTeam ? <Link href="/team" className="ac-text-link">查看组员 <ArrowUpRight size={14} /></Link> : null}><div className="ac-team-brand"><span className="ac-team-logo">{teamName.slice(0, 1).toUpperCase()}</span><div><strong>{teamName}</strong><small>{center?.team ? `Team ID · ${center.team.id.slice(0, 8)}` : '核心团队'}</small></div></div><div className="ac-team-kpis"><div><small>组员</small><strong>{members.length || (self.role === 'member' ? 1 : 0)}</strong></div><div><small>已授权</small><strong>{members.filter(item => item.apiEnabled).length}</strong></div><div><small>本月消耗</small><strong>{formatTokens(canManageTeam ? teamMonth : month.totalTokens)}</strong></div></div><div className="ac-side-summary"><span>今日消耗</span><strong>{formatTokens(canManageTeam ? teamDay : day.totalTokens)} Tokens</strong></div></Panel>
 
         <Panel title="通知"><div className="ac-team-kpis"><div><small>未读</small><strong>{unread}</strong></div><div><small>最近</small><strong>{notifications.length}</strong></div><div><small>MFA</small><strong>{self.mfaEnabled ? 'ON' : '—'}</strong></div></div><div className="ac-side-summary"><span><Bell size={14} /> 安全与团队动态</span><strong>{unread ? `${unread} 条待查看` : '已清空'}</strong></div></Panel>
 
-        {canManageTeam ? <Panel title="成员消耗 TOP5" action={<Link href="/team" className="ac-text-link">查看全部</Link>}><div className="ac-ranking-list">{ranking.map((member, index) => <div className="ac-ranking-row" key={member.username}><span className={`rank rank-${index + 1}`}>{index + 1}</span><MemberIdentity member={member} size={34} /><div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>Tokens</small></div></div>)}{!ranking.length ? <div className="ac-empty">还没有成员用量</div> : null}</div></Panel> : null}
+        {canManageTeam ? <Panel title="组员消耗 TOP5" action={<Link href="/team" className="ac-text-link">查看全部</Link>}><div className="ac-ranking-list">{ranking.map((member, index) => <div className="ac-ranking-row" key={member.username}><span className={`rank rank-${index + 1}`}>{index + 1}</span><MemberIdentity member={member} size={34} /><div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>Tokens</small></div></div>)}{!ranking.length ? <div className="ac-empty">还没有组员用量</div> : null}</div></Panel> : null}
 
-        <Panel title="快捷入口"><div className="ac-quick-grid"><Link href="/profile"><span><Sparkles size={18} /></span><b>个人资料</b></Link><Link href="/usage"><span><Gauge size={18} /></span><b>用量统计</b></Link><Link href="/api-config"><span><KeyRound size={18} /></span><b>API 配置</b></Link>{canManageTeam ? <><Link href="/team"><span><UsersRound size={18} /></span><b>团队管理</b></Link><Link href="/advanced-team-admin"><span><ShieldCheck size={18} /></span><b>联合治理</b></Link></> : <Link href="/security"><span><Activity size={18} /></span><b>账号安全</b></Link>}</div></Panel>
+        <Panel title="快捷入口"><div className="ac-quick-grid"><Link href="/profile"><span><Sparkles size={18} /></span><b>个人资料</b></Link><Link href="/usage"><span><Gauge size={18} /></span><b>用量与制作</b></Link><Link href="/api-config"><span><KeyRound size={18} /></span><b>API 配置</b></Link>{canManageTeam ? <><Link href="/team"><span><UsersRound size={18} /></span><b>组员管理</b></Link><Link href="/advanced-team-admin"><span><ShieldCheck size={18} /></span><b>联合治理</b></Link></> : <Link href="/security"><span><Activity size={18} /></span><b>账号安全</b></Link>}</div></Panel>
       </aside>
     </div>
   </div>;

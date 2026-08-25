@@ -1,5 +1,5 @@
-import { Avatar, Badge, Button, Checkbox, ConfigProvider, Form, Input, message, Modal, Popover } from 'antd';
-import { AudioLines, Bell, BookOpen, Bot, Bug, ChartNoAxesCombined, CheckCircle2, ChevronDown, Clapperboard, Crown, FilePenLine, Fingerprint, FolderClock, Home, KeyRound, LogOut, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound, X, XCircle } from 'lucide-react';
+import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
+import { AudioLines, BookOpen, Bot, Bug, ChartNoAxesCombined, ChevronDown, Clapperboard, Crown, FilePenLine, Fingerprint, FolderClock, Home, KeyRound, LogOut, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound, X } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -27,10 +27,9 @@ const navItems = [
   { href: '/tts', icon: AudioLines, label: '配音' }
 ];
 
+const ACCOUNT_CENTER_ROUTES = ['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team'];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
-const TASK_NOTIFICATION_STORAGE_KEY_PREFIX = 'qiantie:task-center:';
-const MAX_TASK_NOTIFICATIONS = 20;
 
 function initialTheme() {
   return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
@@ -42,47 +41,21 @@ function pageTitle(pathname) {
   return item ? item.label : '一战晟铭';
 }
 
-function taskNotificationStorageKey(username) {
-  return username ? `${TASK_NOTIFICATION_STORAGE_KEY_PREFIX}${username}` : '';
-}
-
-function readTaskNotifications(username) {
-  const key = taskNotificationStorageKey(username);
-  if (!key) return [];
-  try {
-    const rows = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(rows) ? rows.map(normalizeGlobalTaskNotification).slice(0, MAX_TASK_NOTIFICATIONS) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeTaskNotifications(username, notifications) {
-  const key = taskNotificationStorageKey(username);
-  if (!key) return;
-  try {
-    localStorage.setItem(key, JSON.stringify(notifications.slice(0, MAX_TASK_NOTIFICATIONS)));
-  } catch {
-    // Storage can be unavailable in private or restricted browser contexts.
-  }
-}
-
-function formatNotificationTime(timestamp) {
-  try {
-    return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp));
-  } catch {
-    return '';
-  }
-}
-
 function canAccessAdmin(account) {
-  if (!account) return false;
-  if (account.isOwner) return true;
-  return (account.effectivePermissions || []).some(({ capability }) => (
-    capability === 'account:review'
-    || capability === 'preset:draft'
-    || capability === 'preset:publish'
-  ));
+  // The admin console is a developer workspace. Team members receive API
+  // scopes and usage visibility in the account center, never the console.
+  return account?.role === 'dev';
+}
+
+function normalizeAccountCenterReturnPath(value) {
+  if (!value) return '/';
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin || ACCOUNT_CENTER_ROUTES.includes(url.pathname)) return '/';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/';
+  }
 }
 
 export function UserLayout({ children }) {
@@ -98,13 +71,11 @@ export function UserLayout({ children }) {
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
   const [avatar, setAvatar] = useState(null);
-  const [taskNotifications, setTaskNotifications] = useState(() => readTaskNotifications(getCurrentUsername()));
-  const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
+  const accountCenterReturnPathRef = useRef(null);
   const pathname = window.location.pathname;
-  const accountCenterRoutes = ['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team'];
-  const isAccountCenterRoute = accountCenterRoutes.includes(pathname);
+  const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
   const displayAvatar = avatarDisplay(avatar, username);
@@ -124,31 +95,42 @@ export function UserLayout({ children }) {
   }, [theme]);
 
   useEffect(() => {
-    // 账号页从头像入口进入后，保持个人中心栏展开；直接访问账号页也不会丢失导航上下文。
-    if (isAccountCenterRoute) setAccountCenterOpen(true);
+    // 个人中心是一个完整工作区：账号页保持抽屉展开，普通业务页则记住返回位置。
+    if (isAccountCenterRoute) {
+      setAccountCenterOpen(true);
+      return;
+    }
+    // 主导航切到普通功能页时，个人中心抽屉必须随路由一起退出。
+    setAccountCenterOpen(false);
+    const currentPath = `${window.location.pathname}${window.location.search}`;
+    accountCenterReturnPathRef.current = currentPath;
+    sessionStorage.setItem('qiantie:account-center-return-path', currentPath);
   }, [isAccountCenterRoute]);
 
-  useEffect(() => {
-    setTaskNotifications(readTaskNotifications(username));
-  }, [username]);
+  function closeAccountCenter() {
+    setAccountCenterOpen(false);
+    if (!isAccountCenterRoute) return;
+    const returnPath = normalizeAccountCenterReturnPath(
+      accountCenterReturnPathRef.current
+        || sessionStorage.getItem('qiantie:account-center-return-path')
+    );
+    window.location.assign(returnPath);
+  }
 
   useEffect(() => {
     if (!isLoggedIn) return undefined;
     const appendTaskNotification = event => {
       const notification = normalizeGlobalTaskNotification(event.detail || {});
       if (notification.status === 'working') return;
-      setTaskNotifications(current => {
-        const next = [notification, ...current.filter(item => item.id !== notification.id)].slice(0, MAX_TASK_NOTIFICATIONS);
-        writeTaskNotifications(username, next);
-        return next;
-      });
       const kind = notification.status === 'error' ? 'error' : 'success';
+      const targetPath = notification.pagePath && notification.pagePath !== window.location.pathname ? notification.pagePath : '';
       message.open({
         key: `task-${notification.id}`,
         type: kind,
-        content: `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`,
+        content: <div className="global-task-toast" role={targetPath ? 'link' : undefined} tabIndex={targetPath ? 0 : undefined} onClick={() => targetPath && window.location.assign(targetPath)} onKeyDown={event => { if (targetPath && (event.key === 'Enter' || event.key === ' ')) window.location.assign(targetPath); }}><span><strong>{notification.title}</strong>{notification.detail ? `：${notification.detail}` : ''}</span>{targetPath ? <Button type="link" size="small" onClick={event => { event.stopPropagation(); window.location.assign(targetPath); }}>返回查看</Button> : null}</div>,
         duration: notification.status === 'error' ? 6 : 4,
-        style: { marginTop: 12 }
+        style: { marginTop: 12 },
+        onClick: () => targetPath && window.location.assign(targetPath)
       });
     };
     const receiveEmbeddedTaskNotification = event => {
@@ -370,29 +352,6 @@ export function UserLayout({ children }) {
     setTheme(current => current === 'dark' ? 'light' : 'dark');
   }
 
-  function clearTaskNotifications() {
-    setTaskNotifications([]);
-    writeTaskNotifications(username, []);
-  }
-
-  const taskCenterContent = (
-    <section className="global-task-center" aria-label="任务通知">
-      <div className="global-task-center-heading">
-        <div><strong>任务通知</strong><span>跨页面保留最近 {MAX_TASK_NOTIFICATIONS} 条</span></div>
-        {taskNotifications.length ? <Button type="link" size="small" onClick={clearTaskNotifications}>清空</Button> : null}
-      </div>
-      {taskNotifications.length ? <div className="global-task-center-list">
-        {taskNotifications.map(item => (
-          <Link key={item.id} href={item.pagePath || window.location.pathname} className={`global-task-center-item ${item.status}`} onClick={() => setTaskCenterOpen(false)}>
-            {item.status === 'error' ? <XCircle size={17} aria-hidden="true" /> : <CheckCircle2 size={17} aria-hidden="true" />}
-            <span className="global-task-center-copy"><strong>{item.title}</strong>{item.detail ? <small>{item.detail}</small> : null}</span>
-            <time>{formatNotificationTime(item.createdAt)}</time>
-          </Link>
-        ))}
-      </div> : <p className="global-task-center-empty">暂时没有已完成的任务。生成结束后，无论你在哪个功能页面，结果都会显示在这里。</p>}
-    </section>
-  );
-
   const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen);
   const loginOverlay = showLoginCard ? (
     <div className="legacy-login-overlay nebula-login-overlay">
@@ -483,12 +442,6 @@ export function UserLayout({ children }) {
             <span className="legacy-nav-icon"><Settings2 size={18} strokeWidth={1.8} aria-hidden="true" /></span>
             <span className="legacy-nav-label">设置</span>
           </Link>
-          {canAccessAdmin(account) ? (
-            <Link href="/admin/presets" reload className="legacy-sidebar-tool" title="管理后台">
-              <span className="legacy-nav-icon"><ShieldCheck size={18} strokeWidth={1.8} aria-hidden="true" /></span>
-              <span className="legacy-nav-label">管理后台</span>
-            </Link>
-          ) : null}
         </div>
         {isLoggedIn ? (
           <div className="legacy-sidebar-user">
@@ -499,8 +452,13 @@ export function UserLayout({ children }) {
               aria-label="进入个人中心"
               onClick={() => {
                 setAccountCenterOpen(true);
-                // 头像是个人中心入口：进入资料页并展开导航，而不是仅在当前业务页上浮出一张卡。
-                if (!isAccountCenterRoute) window.location.assign('/profile');
+                // 个人中心作为完整工作区打开：记住业务页，关闭时回到这里。
+                if (!isAccountCenterRoute) {
+                  const currentPath = `${window.location.pathname}${window.location.search}`;
+                  accountCenterReturnPathRef.current = currentPath;
+                  sessionStorage.setItem('qiantie:account-center-return-path', currentPath);
+                  window.location.assign('/profile');
+                }
               }}
             >
               <Avatar size={28} src={account?.avatarUrl} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
@@ -511,26 +469,20 @@ export function UserLayout({ children }) {
         ) : null}
       </aside>
       {isLoggedIn && accountCenterOpen ? <aside className="account-center-popover" role="dialog" aria-label="个人中心">
-        <div className="account-center-popover-head"><strong>个人中心</strong><button type="button" aria-label="收起个人中心" onClick={() => setAccountCenterOpen(false)}><X size={19} /></button></div>
+        <div className="account-center-popover-head"><strong>个人中心</strong><button type="button" aria-label="关闭个人中心" onClick={closeAccountCenter}><X size={19} /></button></div>
         <div className="account-center-popover-profile"><Avatar size={54} src={account?.avatarUrl}>{displayAvatar.emoji}</Avatar><div><strong>{account?.displayName || username}</strong><small>@{username}</small><em>{account?.role === 'dev' ? 'DEV' : account?.role === 'manager' ? 'MANAGER' : 'MEMBER'}</em></div></div>
         <div className="account-center-popover-group"><div className="account-center-popover-parent"><Link href="/profile" className={pathname === '/profile' ? 'active' : ''}><UserRound size={18} />个人资料</Link><button type="button" aria-label={accountProfileOpen ? '收起个人资料菜单' : '展开个人资料菜单'} onClick={() => setAccountProfileOpen(value => !value)}><ChevronDown size={17} className={accountProfileOpen ? 'expanded' : ''} /></button></div>
           {accountProfileOpen ? <div className="account-center-popover-submenu"><Link href="/member" className={pathname === '/member' ? 'active' : ''}><Crown size={17} />会员中心</Link><Link href="/security" className={pathname === '/security' ? 'active' : ''}><ShieldCheck size={17} />账号安全</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/advanced-team-admin" className={pathname === '/advanced-team-admin' ? 'active' : ''}><UsersRound size={17} />联合治理</Link> : null}</div> : null}
         </div>
-        <div className="account-center-popover-links"><Link href="/api-config" className={pathname === '/api-config' ? 'active' : ''}><KeyRound size={17} />API 配置</Link><Link href="/usage" className={pathname === '/usage' ? 'active' : ''}><ChartNoAxesCombined size={17} />用量统计</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/team" className={pathname === '/team' ? 'active' : ''}><UsersRound size={17} />团队管理</Link> : null}</div>
+        <div className="account-center-popover-links"><Link href="/api-config" className={pathname === '/api-config' ? 'active' : ''}><KeyRound size={17} />API 配置</Link><Link href="/usage" className={pathname === '/usage' ? 'active' : ''}><ChartNoAxesCombined size={17} />用量与制作</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/team" className={pathname === '/team' ? 'active' : ''}><UsersRound size={17} />组员管理</Link> : null}</div>
+        {canAccessAdmin(account) ? <div className="account-center-popover-links account-center-popover-developer-links"><span className="account-center-popover-section-label">开发者工具</span><Link href="/admin/presets" reload><ShieldCheck size={17} />管理后台</Link></div> : null}
         <button type="button" className="account-center-popover-logout" onClick={handleLogout}><LogOut size={17} />退出登录</button>
       </aside> : null}
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
           <header className="legacy-topbar">
             <span className="legacy-page-title">{pageTitle(pathname)}</span>
-            <div className="legacy-userbar">
-              <Popover content={taskCenterContent} trigger="click" open={taskCenterOpen} onOpenChange={setTaskCenterOpen} placement="bottomRight" overlayClassName="global-task-center-popover">
-                <Button className="legacy-task-center-button" type="text" aria-label="打开任务通知" title="任务通知">
-                  <Badge count={taskNotifications.length} size="small" overflowCount={9} offset={[-1, 2]}><Bell size={19} aria-hidden="true" /></Badge>
-                  <span>任务</span>
-                </Button>
-              </Popover>
-            </div>
+            <div className="legacy-userbar" aria-hidden="true" />
           </header>
           <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{content}</section>
         </main>

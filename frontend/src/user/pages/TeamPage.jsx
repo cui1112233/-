@@ -25,6 +25,7 @@ const SCOPE_OPTIONS = [
   { label: '生图', value: 'image' },
   { label: '配音', value: 'tts' }
 ];
+const CONTENT_FEATURES = new Set(['script', 'novel-panel', 'novel-fetch', 'image', 'shuihuo-production']);
 
 function scopesOf(member) {
   const scopes = Array.isArray(member?.apiScopes) ? member.apiScopes : [];
@@ -34,6 +35,12 @@ function scopesOf(member) {
 function memberStatus(member) {
   if (member?.archive?.archivedAt) return { color: 'default', text: '已归档' };
   return member?.active ? { color: 'green', text: '正常' } : { color: 'red', text: '已停用' };
+}
+
+function contentProductionCalls(usage) {
+  return Object.entries(usage?.callsByFeature || {})
+    .filter(([feature]) => CONTENT_FEATURES.has(feature))
+    .reduce((sum, [, calls]) => sum + Number(calls || 0), 0);
 }
 
 export default function TeamPage() {
@@ -77,6 +84,7 @@ export default function TeamPage() {
   }, [managerUsername, self?.role, teamResult?.members]);
   const memberCount = members.filter(member => member.role === 'member').length;
   const totalTokens = members.reduce((sum, member) => sum + Number(member.usage?.month?.totalTokens || 0), 0);
+  const productionCalls = members.reduce((sum, member) => sum + contentProductionCalls(member.usage?.month), 0);
   const activeGovernance = useMemo(() => governance.find(item => (item.manager?.username || item.managerUsername) === activeManager?.username) || teamResult?.teamGovernance || null, [activeManager?.username, governance, teamResult?.teamGovernance]);
   const teamLimit = activeGovernance?.monthlyTokenLimit ?? null;
   const quotaPercent = teamLimit === null ? 0 : Math.min(100, Math.round(totalTokens / Math.max(teamLimit, 1) * 100));
@@ -250,7 +258,7 @@ export default function TeamPage() {
   if (!self || !['dev', 'manager'].includes(self.role)) return <div className="account-center-page"><div className="ac-empty">当前身份没有团队管理权限</div></div>;
 
   return <div className="account-center-page team-page">
-    <PageHeader title="团队管理" subtitle="成员、邀请、配额、权限与成员生命周期管理" actions={<Button icon={<RefreshCw size={15} />} loading={saving} onClick={refresh}>刷新</Button>} />
+    <PageHeader title="组员管理" subtitle="普通组员的 API 授权、额度、用量与内容制作调用管理" actions={<Button icon={<RefreshCw size={15} />} loading={saving} onClick={refresh}>刷新</Button>} />
 
     {self.role === 'dev' ? <div className="ac-team-admin-toolbar">
       {availableTeams.length > 1 ? <div className="ac-team-selector"><span>管理团队</span><Select value={managerUsername} onChange={changeManager} options={availableTeams.map(item => ({ value: item.manager.username, label: `${item.team.name} · @${item.manager.username}` }))} /></div> : <span className="ac-team-toolbar-note">DEV 可管理所有团队</span>}
@@ -269,6 +277,7 @@ export default function TeamPage() {
           <div className="ac-team-owner-line"><span>主要负责人</span><MemberIdentity member={activeManager} size={28} /></div>
           <div className="ac-team-quota-line"><div><span>本月团队用量</span><strong>{formatTokens(totalTokens)} <i>/ {teamLimit === null ? '不限额' : `${formatTokens(teamLimit)} Tokens`}</i></strong></div><b>{teamLimit === null ? '—' : `${quotaPercent}%`}</b></div>
           <Progress percent={quotaPercent} showInfo={false} status={quotaPercent >= 100 ? 'exception' : 'active'} />
+          <div className="ac-team-production-note"><div><span>本月内容制作调用</span><strong>{productionCalls.toLocaleString('zh-CN')} 次</strong></div><small>按已计费模型调用汇总，不等同于去重书籍数。</small></div>
         </Panel>
         <Panel title="快捷操作" className="ac-team-quick-panel">
           <div className="ac-team-quick-actions"><Button icon={<UserPlus size={16} />} onClick={() => { memberForm.resetFields(); setMemberOpen(true); }}>创建成员</Button><Button icon={<Link2 size={16} />} onClick={() => { inviteForm.setFieldsValue({ expiresInHours: 72, apiScopes: ['text'] }); setInviteOpen(true); }}>生成邀请</Button><Button icon={<Pencil size={16} />} onClick={() => { renameForm.setFieldsValue({ name: activeTeam.name }); setRenameOpen(true); }}>重命名团队</Button></div>
