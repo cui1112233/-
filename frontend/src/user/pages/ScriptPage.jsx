@@ -96,6 +96,7 @@ export function ScriptPage() {
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
+  const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -325,7 +326,7 @@ export function ScriptPage() {
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
-      const result = await createScriptVideo({ prompt });
+      const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey });
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
@@ -1074,6 +1075,13 @@ export function ScriptPage() {
             disabled={!constraintsAllowed}
             title={constraintsAllowed ? '约束设置' : '剧本模式不支持视频提示词约束设置'}
           >约束设置</Button>
+          <Select
+            style={{ width: 164 }}
+            value={scriptVideoModelKey}
+            onChange={setScriptVideoModelKey}
+            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
+            title="单分镜视频模型"
+          />
           <Space>
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>
             <Button icon={<Copy size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => copyText(isShotCardView ? shotCards.join('\n\n') : output)} disabled={!output}>复制</Button>

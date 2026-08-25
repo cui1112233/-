@@ -374,6 +374,7 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
 	{version: 38, apply: applyLocalExecutorMigration},
 	{version: 39, apply: applyLocalExecutorJobMigration},
 	{version: 40, sql: localExecutorVideoModelMigrationSQL, apply: applyLocalExecutorVideoModelMigration},
+	{version: 41, sql: scriptVideoTaskMigrationSQL},
 }
 
 const localExecutorMigrationSQL = `
@@ -444,6 +445,21 @@ SELECT d.id, 1, '', '', NULL, NULL, NULL
 FROM model_definitions d
 WHERE d.model_key = 'local-doubao-executor-video'
   AND NOT EXISTS (SELECT 1 FROM model_versions v WHERE v.model_definition_id = d.id AND v.version_number = 1);
+`
+
+const scriptVideoTaskMigrationSQL = `
+CREATE TABLE IF NOT EXISTS script_video_tasks (
+  id CHAR(36) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  prompt MEDIUMTEXT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'queued',
+  object_key VARCHAR(1024) NOT NULL DEFAULT '',
+  error_message MEDIUMTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_script_video_tasks_user_created (user_id, created_at),
+  CONSTRAINT fk_script_video_tasks_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 
 const shuihuoSourceUnitMigrationSQL = `

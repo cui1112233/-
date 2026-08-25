@@ -30,12 +30,22 @@ type ObjectStorage interface {
 }
 
 var allowedCategories = map[string]struct{}{
-	"source":       {},
-	"images":       {},
-	"videos":       {},
-	"audio":        {},
-	"exports":      {},
-	"asset-images": {},
+	"source":        {},
+	"images":        {},
+	"videos":        {},
+	"audio":         {},
+	"exports":       {},
+	"asset-images":  {},
+	"script-videos": {},
+}
+
+// ScriptVideoObjectKey stores standalone script-page videos without creating
+// an artificial Shuihuo project just to satisfy object ownership.
+func ScriptVideoObjectKey(userID int64, taskID, filename string) (string, error) {
+	if userID < 1 || strings.TrimSpace(taskID) == "" || !isSafeFilename(filename) {
+		return "", ErrInvalidObjectKey
+	}
+	return fmt.Sprintf("script-videos/%d/%s/%s", userID, taskID, filename), nil
 }
 
 const maxObjectKeyLength = 768
@@ -58,6 +68,9 @@ func validObjectKey(key string) bool {
 		return false
 	}
 	parts := strings.Split(key, "/")
+	if len(parts) == 4 && parts[0] == "script-videos" {
+		return isPositiveID(parts[1]) && parts[2] != "" && isSafeFilename(parts[3])
+	}
 	if len(parts) != 5 || parts[0] != "shuihuo-production" {
 		return false
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -280,22 +281,40 @@ func (api *API) handleClaimLocalExecutorJob(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取任务失败"})
 		return
 	}
-	if sourceKind != "shuihuo_video" || !sourceTaskID.Valid {
+	if sourceKind == "script_video" {
+		var scriptInput struct {
+			ScriptTaskID string `json:"scriptTaskId"`
+		}
+		if json.Unmarshal([]byte(input), &scriptInput) != nil || strings.TrimSpace(scriptInput.ScriptTaskID) == "" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "剧本视频任务来源无效"})
+			return
+		}
+		result, updateErr := tx.ExecContext(r.Context(), `UPDATE script_video_tasks SET status='running' WHERE id=? AND user_id=? AND status='queued'`, scriptInput.ScriptTaskID, userID)
+		if updateErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "启动剧本视频任务失败"})
+			return
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			writeJSON(w, 409, map[string]string{"error": "剧本视频任务已变更，请刷新后重试"})
+			return
+		}
+	} else if sourceKind != "shuihuo_video" || !sourceTaskID.Valid {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "本地任务来源无效"})
 		return
-	}
-	result, err := tx.ExecContext(r.Context(), `UPDATE shuihuo_tasks SET status = 'running' WHERE id = ? AND status = 'queued'`, sourceTaskID.Int64)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "启动生成任务失败"})
-		return
-	}
-	if affected, _ := result.RowsAffected(); affected != 1 {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "生成任务已变更，请刷新后重试"})
-		return
-	}
-	if _, err = tx.ExecContext(r.Context(), `INSERT INTO shuihuo_task_events(task_id, status, message) VALUES(?, 'running', '本地执行器开始处理')`, sourceTaskID.Int64); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "记录生成任务失败"})
-		return
+	} else {
+		result, updateErr := tx.ExecContext(r.Context(), `UPDATE shuihuo_tasks SET status = 'running' WHERE id = ? AND status = 'queued'`, sourceTaskID.Int64)
+		if updateErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "启动生成任务失败"})
+			return
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			writeJSON(w, 409, map[string]string{"error": "生成任务已变更，请刷新后重试"})
+			return
+		}
+		if _, updateErr = tx.ExecContext(r.Context(), `INSERT INTO shuihuo_task_events(task_id, status, message) VALUES(?, 'running', '本地执行器开始处理')`, sourceTaskID.Int64); updateErr != nil {
+			writeJSON(w, 500, map[string]string{"error": "记录生成任务失败"})
+			return
+		}
 	}
 	_, err = tx.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='running', executor_id=?, claimed_at=UTC_TIMESTAMP(), progress_message='本地执行器已领取' WHERE id=? AND status='queued'`, executorID, id)
 	if err != nil {
@@ -417,6 +436,15 @@ func (api *API) handleUploadLocalExecutorJobResult(w http.ResponseWriter, r *htt
 		return
 	}
 	jobID := strings.TrimSpace(chi.URLParam(r, "jobId"))
+	var sourceKind, inputJSON string
+	if err = api.deps.DB.QueryRowContext(r.Context(), `SELECT source_kind, input_json FROM local_executor_jobs WHERE id=? AND executor_id=? AND user_id=? AND status='running'`, jobID, executorID, userID).Scan(&sourceKind, &inputJSON); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "没有可回传的运行中视频任务"})
+		return
+	}
+	if sourceKind == "script_video" {
+		api.handleUploadLocalScriptVideoResult(w, r, file, header.Filename, contentType, jobID, executorID, userID, inputJSON)
+		return
+	}
 	var projectID int64
 	var segmentID sql.NullInt64
 	err = api.deps.DB.QueryRowContext(r.Context(), `
@@ -470,6 +498,56 @@ WHERE j.id=? AND j.executor_id=? AND j.user_id=? AND j.source_kind='shuihuo_vide
 	}
 	if _, err = api.deps.DB.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='succeeded', progress_message='视频已回传到平台', result_object_key=?, completed_at=UTC_TIMESTAMP() WHERE id=? AND executor_id=? AND status='running'`, key, jobID, executorID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "视频已保存，但任务回传状态更新失败"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "objectKey": key})
+}
+
+func (api *API) handleUploadLocalScriptVideoResult(w http.ResponseWriter, r *http.Request, file io.Reader, sourceFilename, contentType, jobID, executorID string, userID int64, inputJSON string) {
+	var input struct {
+		ScriptTaskID string `json:"scriptTaskId"`
+	}
+	if json.Unmarshal([]byte(inputJSON), &input) != nil || strings.TrimSpace(input.ScriptTaskID) == "" {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "剧本视频任务来源无效"})
+		return
+	}
+	ext := strings.ToLower(path.Ext(sourceFilename))
+	if ext == "" || len(ext) > 12 {
+		writeJSON(w, 400, map[string]string{"error": "视频文件名无效"})
+		return
+	}
+	key, err := shuihuostorage.ScriptVideoObjectKey(userID, input.ScriptTaskID, fmt.Sprintf("local-%d%s", time.Now().UTC().UnixNano(), ext))
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "视频文件名无效"})
+		return
+	}
+	if _, err = api.deps.Objects.Put(r.Context(), key, file, contentType); err != nil {
+		_ = api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), key, "local_executor_script_video_upload_failure")
+		writeJSON(w, 500, map[string]string{"error": "保存回传视频失败"})
+		return
+	}
+	tx, err := api.deps.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeJSON(w, 503, map[string]string{"error": "更新视频任务失败"})
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(r.Context(), `UPDATE script_video_tasks SET status='succeeded',object_key=?,error_message=NULL WHERE id=? AND user_id=? AND status='running'`, key, input.ScriptTaskID, userID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "更新剧本视频任务失败"})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		_ = api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), key, "local_executor_script_video_completion_failure")
+		writeJSON(w, 409, map[string]string{"error": "视频状态已变更，未保存重复回传"})
+		return
+	}
+	if _, err = tx.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='succeeded',progress_message='视频已回传到平台',result_object_key=?,completed_at=UTC_TIMESTAMP() WHERE id=? AND executor_id=? AND status='running'`, key, jobID, executorID); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "更新执行任务失败"})
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "更新视频任务失败"})
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "objectKey": key})

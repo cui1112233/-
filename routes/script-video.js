@@ -1,4 +1,6 @@
 const express = require('express');
+const crypto = require('crypto');
+const http = require('http');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig } = require('../lib/shared');
@@ -90,13 +92,35 @@ function resultURL(body) {
   return '';
 }
 
-function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest } = {}) {
+function bridgeJSON(gateway, account, method, pathname, payload) {
+  const target = new URL(gateway?.targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
+  const secret = gateway?.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
+  const body = payload === undefined ? null : Buffer.from(JSON.stringify(payload));
+  const issuedAt = String(Math.floor(Date.now() / 1000));
+  const signature = crypto.createHmac('sha256', secret).update([account.username, issuedAt, String(account.isOwner === true), method, pathname].join('\n')).digest('hex');
+  const transport = target.protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const request = transport.request({ protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, method, path: pathname, headers: { Accept:'application/json','X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature,...(body?{'Content-Type':'application/json','Content-Length':String(body.length)}:{}) } }, response => { const chunks=[]; response.on('data',chunk=>chunks.push(chunk)); response.on('end',()=>{ let data={}; try{data=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}')}catch{}; if((response.statusCode||500)>=400){const error=new Error(data.error||'本地执行器服务不可用');error.status=response.statusCode;return reject(error)} resolve(data) }) });
+    request.on('error',()=>reject(Object.assign(new Error('本地执行器服务暂不可用'),{status:503}))); if(body)request.write(body); request.end();
+  });
+}
+
+function bridgeDownload(gateway, account, pathname, res) {
+  const target = new URL(gateway?.targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000'); const secret = gateway?.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me'; const issuedAt=String(Math.floor(Date.now()/1000)); const signature=crypto.createHmac('sha256',secret).update([account.username,issuedAt,String(account.isOwner===true),'GET',pathname].join('\n')).digest('hex'); const transport=target.protocol==='https:'?https:http;
+  const upstream=transport.request({protocol:target.protocol,hostname:target.hostname,port:target.port||undefined,method:'GET',path:pathname,headers:{'X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature}},response=>{res.status(response.statusCode||502); if(response.headers['content-type'])res.setHeader('Content-Type',response.headers['content-type']); response.pipe(res)}); upstream.on('error',()=>res.status(503).json({error:'视频下载服务暂不可用'})); upstream.end();
+}
+
+function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway } = {}) {
   const router = express.Router();
   router.use(apiAuth);
   router.post('/', async (req, res) => {
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
+    if (req.body?.modelKey === 'local-doubao-executor-video') {
+      try { return res.status(202).json(await bridgeJSON(shuihuoGateway, req.auth.account, 'POST', '/api/script-videos/local', { prompt })); }
+      catch (error) { return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' }); }
+    }
     let imageUrls;
     try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
     const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
@@ -116,6 +140,12 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   router.get('/:taskId', async (req, res) => {
     const taskId = String(req.params.taskId || '').trim();
     if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
+    try {
+      const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/script-videos/${encodeURIComponent(taskId)}`);
+      return res.json(local);
+    } catch (error) {
+      if (error.status !== 404) return res.status(error.status || 503).json({ error: error.message || '本地执行器任务状态查询失败' });
+    }
     const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {
@@ -135,6 +165,7 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
       return res.status(502).json({ error: error?.message === '视频服务响应超时' ? error.message : '视频任务状态暂不可用，请稍后重试' });
     }
   });
+  router.get('/:taskId/download', (req, res) => bridgeDownload(shuihuoGateway, req.auth.account, `/api/script-videos/${encodeURIComponent(String(req.params.taskId || ''))}/download`, res));
   return router;
 }
 
