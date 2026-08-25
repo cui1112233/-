@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -19,6 +19,31 @@ function normalizeServerUrl(value) {
   const url = new URL(String(value || '').trim());
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('服务地址必须是 http 或 https');
   return url.origin;
+}
+
+function platformOrigin() {
+  const url = new URL(state.serverUrl);
+  if (url.port === '14000') url.port = '3000';
+  return url.origin;
+}
+
+function isNewerVersion(candidate, current) {
+  const left = String(candidate || '').split('.').map(part => Number(part) || 0);
+  const right = String(current || '').split('.').map(part => Number(part) || 0);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    if ((left[index] || 0) !== (right[index] || 0)) return (left[index] || 0) > (right[index] || 0);
+  }
+  return false;
+}
+
+async function checkForUpdate() {
+  if (!state.serverUrl) throw new Error('请先完成平台配对');
+  const response = await fetch(`${platformOrigin()}/downloads/local-executor/manifest.json`);
+  const manifest = await response.json().catch(() => ({}));
+  if (!response.ok || !manifest.version) throw new Error(manifest.error || '检查更新失败');
+  const platformKey = process.platform === 'darwin' ? 'mac' : 'windows';
+  const currentVersion = app.getVersion();
+  return { currentVersion, latestVersion: manifest.version, updateAvailable: isNewerVersion(manifest.version, currentVersion), url: manifest.downloads?.[platformKey] || '' };
 }
 
 function loadState() {
@@ -278,6 +303,15 @@ ipcMain.handle('executor:pair', async (_, input) => {
 });
 
 ipcMain.handle('executor:heartbeat', () => heartbeat());
+
+ipcMain.handle('executor:check-update', () => checkForUpdate());
+
+ipcMain.handle('executor:download-update', async () => {
+  const update = await checkForUpdate();
+  if (!update.updateAvailable || !update.url) return update;
+  await shell.openExternal(update.url);
+  return update;
+});
 
 ipcMain.handle('executor:set-auto-submit', (_, enabled) => {
   state.autoSubmit = Boolean(enabled);

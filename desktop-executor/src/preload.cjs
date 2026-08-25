@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('executor', {
   state: () => ipcRenderer.invoke('executor:state'),
   pair: input => ipcRenderer.invoke('executor:pair', input),
   heartbeat: () => ipcRenderer.invoke('executor:heartbeat'),
+  checkUpdate: () => ipcRenderer.invoke('executor:check-update'),
+  downloadUpdate: () => ipcRenderer.invoke('executor:download-update'),
   setAutoSubmit: enabled => ipcRenderer.invoke('executor:set-auto-submit', enabled),
   unpair: () => ipcRenderer.invoke('executor:unpair'),
   accounts: () => ipcRenderer.invoke('accounts:list'),
