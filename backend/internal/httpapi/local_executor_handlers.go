@@ -370,12 +370,13 @@ func (api *API) handleUpdateLocalExecutorJobStatus(w http.ResponseWriter, r *htt
 	}
 	defer tx.Rollback()
 	var sourceTaskID sql.NullInt64
-	err = tx.QueryRowContext(r.Context(), `SELECT source_task_id FROM local_executor_jobs WHERE id=? AND executor_id=? AND status='running' FOR UPDATE`, jobID, executorID).Scan(&sourceTaskID)
+	var sourceKind, inputJSON string
+	err = tx.QueryRowContext(r.Context(), `SELECT source_kind, source_task_id, input_json FROM local_executor_jobs WHERE id=? AND executor_id=? AND status='running' FOR UPDATE`, jobID, executorID).Scan(&sourceKind, &sourceTaskID, &inputJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "任务不存在或不属于此设备"})
 		return
 	}
-	if err != nil || !sourceTaskID.Valid {
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取任务状态失败"})
 		return
 	}
@@ -385,6 +386,29 @@ func (api *API) handleUpdateLocalExecutorJobStatus(w http.ResponseWriter, r *htt
 	}
 	if _, err = tx.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='failed', progress_message=?, completed_at=UTC_TIMESTAMP() WHERE id=?`, message, jobID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
+		return
+	}
+	if sourceKind == "script_video" {
+		var input struct {
+			ScriptTaskID string `json:"scriptTaskId"`
+		}
+		if json.Unmarshal([]byte(inputJSON), &input) != nil || input.ScriptTaskID == "" {
+			writeJSON(w, 500, map[string]string{"error": "剧本视频任务来源无效"})
+			return
+		}
+		if _, err = tx.ExecContext(r.Context(), `UPDATE script_video_tasks SET status='failed',error_message=? WHERE id=? AND status='running'`, message, input.ScriptTaskID); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "更新剧本视频任务失败"})
+			return
+		}
+		if err = tx.Commit(); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "更新任务状态失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+	if !sourceTaskID.Valid {
+		writeJSON(w, 500, map[string]string{"error": "读取任务状态失败"})
 		return
 	}
 	if _, err = tx.ExecContext(r.Context(), `UPDATE shuihuo_tasks SET status='failed', error_code='local_executor_failed', error_message=? WHERE id=? AND status='running'`, message, sourceTaskID.Int64); err != nil {

@@ -10,6 +10,8 @@ app.commandLine.appendSwitch('lang', 'zh-CN');
 
 const statePath = () => path.join(app.getPath('userData'), 'executor-state.bin');
 let heartbeatTimer = null;
+let claimTimer = null;
+let claimInFlight = false;
 let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null };
 const configuredAccountSessions = new Set();
 
@@ -116,6 +118,82 @@ function configureAccountSession(account) {
   return accountSession;
 }
 
+function availableAccounts() {
+  const now = Date.now();
+  return state.accounts.filter(account => !account.unavailableUntil || account.unavailableUntil <= now);
+}
+
+function accountRestrictionReason(text) {
+  const value = String(text || '').replace(/\s+/g, ' ');
+  const patterns = [
+    [/次数已用完|次数不足|额度不足|额度已用完|今日.*上限|达到.*上限/, '生成额度已用完'],
+    [/登录失效|请重新登录|登录已过期|账号已退出/, '登录状态已失效'],
+    [/账号异常|账号受限|暂时无法使用|操作频繁/, '账号当前受限']
+  ];
+  const match = patterns.find(([pattern]) => pattern.test(value));
+  return match ? match[1] : '';
+}
+
+async function detectAccountRestriction(webContents) {
+  const text = await webContents.executeJavaScript('document.body ? document.body.innerText.slice(0, 12000) : ""', true).catch(() => '');
+  return accountRestrictionReason(text);
+}
+
+async function markAccountUnavailable(account, reason) {
+  account.status = `暂不可用：${reason}`;
+  account.unavailableUntil = Date.now() + 6 * 60 * 60 * 1000;
+  account.lastFailureReason = reason;
+  saveState();
+  await request(`/api/local-executors/jobs/${encodeURIComponent(state.activeJob.id)}/status`, {
+    method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'running', message: `${account.name} ${reason}，正在切换下一账号` }
+  }).catch(() => {});
+}
+
+async function openJobForAccount(job, account) {
+  const accountSession = configureAccountSession(account);
+  const taskWindow = new BrowserWindow({ width: 1120, height: 760, title: `豆包生成：${account.name}`, webPreferences: { partition: `persist:doubao-${account.id}`, contextIsolation: true, nodeIntegration: false } });
+  taskWindow.loadURL('https://www.doubao.com/?locale=zh-CN');
+  taskWindow.webContents.once('did-finish-load', async () => {
+    const result = await prefillDoubaoPrompt(taskWindow.webContents, job.prompt);
+    taskWindow.setTitle(result.ok ? `豆包生成：${account.name}（提示词已填入）` : `豆包生成：${account.name}（请手动粘贴提示词）`);
+  });
+  const restrictionTimer = setInterval(async () => {
+    if (taskWindow.isDestroyed() || !state.activeJob || state.activeJob.id !== job.id) return clearInterval(restrictionTimer);
+    const reason = await detectAccountRestriction(taskWindow.webContents);
+    if (!reason) return;
+    clearInterval(restrictionTimer);
+    await markAccountUnavailable(account, reason);
+    if (!taskWindow.isDestroyed()) taskWindow.close();
+    await dispatchActiveJob();
+  }, 5000);
+  state.activeJob = { ...job, accountId: account.id, accountName: account.name };
+  saveState();
+  await request(`/api/local-executors/jobs/${encodeURIComponent(job.id)}/status`, { method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'running', message: `已使用 ${account.name} 打开豆包生成窗口` } });
+  return { accountName: account.name, promptLength: job.prompt.length, downloadsWatched: true, session: Boolean(accountSession) };
+}
+
+async function dispatchActiveJob() {
+  const job = state.activeJob;
+  if (!job) return null;
+  const account = availableAccounts().find(item => item.id !== job.accountId) || availableAccounts()[0];
+  if (!account) {
+    await request(`/api/local-executors/jobs/${encodeURIComponent(job.id)}/status`, { method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'failed', message: '所有本地豆包账号均不可用' } });
+    state.activeJob = null; saveState(); return null;
+  }
+  return openJobForAccount({ ...job, accountId: undefined }, account);
+}
+
+async function claimAndDispatch() {
+  if (claimInFlight || state.activeJob || !state.deviceToken || !availableAccounts().length) return null;
+  claimInFlight = true;
+  try {
+    const result = await request('/api/local-executors/jobs/claim', { method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` } });
+    if (!result.job) return null;
+    state.activeJob = result.job; saveState();
+    return dispatchActiveJob();
+  } finally { claimInFlight = false; }
+}
+
 async function heartbeat() {
   if (!state.serverUrl || !state.deviceToken) return { online: false, reason: '未配对' };
   await request('/api/local-executors/heartbeat', {
@@ -130,6 +208,9 @@ function startHeartbeat() {
   clearInterval(heartbeatTimer);
   heartbeat().catch(() => {});
   heartbeatTimer = setInterval(() => heartbeat().catch(() => {}), 30000);
+  clearInterval(claimTimer);
+  claimAndDispatch().catch(() => {});
+  claimTimer = setInterval(() => claimAndDispatch().catch(() => {}), 15000);
 }
 
 app.whenReady().then(() => {
@@ -169,6 +250,7 @@ ipcMain.handle('executor:heartbeat', () => heartbeat());
 
 ipcMain.handle('executor:unpair', () => {
   clearInterval(heartbeatTimer);
+  clearInterval(claimTimer);
   state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null };
   try { fs.rmSync(statePath(), { force: true }); } catch (_) {}
   return { paired: false };
@@ -213,20 +295,7 @@ ipcMain.handle('executor:open-job', async (_, accountId) => {
   const account = state.accounts.find(item => item.id === accountId) || state.accounts[0];
   if (!job) throw new Error('请先领取一个任务');
   if (!account) throw new Error('请先添加并登录一个豆包账号');
-  const accountSession = configureAccountSession(account);
-  const taskWindow = new BrowserWindow({
-    width: 1120, height: 760, title: `豆包生成：${account.name}`,
-    webPreferences: { partition: `persist:doubao-${account.id}`, contextIsolation: true, nodeIntegration: false }
-  });
-  taskWindow.loadURL('https://www.doubao.com/?locale=zh-CN');
-  taskWindow.webContents.once('did-finish-load', async () => {
-    const result = await prefillDoubaoPrompt(taskWindow.webContents, job.prompt);
-    taskWindow.setTitle(result.ok ? `豆包生成：${account.name}（提示词已填入）` : `豆包生成：${account.name}（请手动粘贴提示词）`);
-  });
-  await request(`/api/local-executors/jobs/${encodeURIComponent(job.id)}/status`, {
-    method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'running', message: `已在 ${account.name} 打开豆包生成窗口` }
-  });
-  return { accountName: account.name, promptLength: job.prompt.length, downloadsWatched: true, session: Boolean(accountSession) };
+  return openJobForAccount(job, account);
 });
 
 ipcMain.handle('executor:upload-result', async () => {
