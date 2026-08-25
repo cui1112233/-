@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const RELEASE_VERSION = '0.1.9';
+const RELEASE_VERSION = '0.1.10';
 
 const DOWNLOADS = {
   'yizhan-local-executor-0.1.9-mac-arm64.dmg': {
