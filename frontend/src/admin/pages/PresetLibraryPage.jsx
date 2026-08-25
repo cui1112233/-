@@ -4,7 +4,8 @@ import { createPresetDraft, listAdminPresets, publishPreset, rollbackPreset } fr
 
 const modules = [
   { label: '剧本生成', value: 'script' },
-  { label: '小说面板', value: 'novel-panel' }
+  { label: '小说面板', value: 'novel-panel' },
+  { label: '批量工厂', value: 'batch-factory' }
 ];
 
 const constraintCategories = [
@@ -18,7 +19,13 @@ const formatPriority = [
   'script-format-shotlist',
   'script-format-storyboard',
   'script-format-shortdrama',
-  'script-format-screenplay'
+  'script-format-screenplay',
+  'batch-hook-adaptation',
+  'batch-original-director',
+  'batch-viral-director',
+  'batch-character-meta',
+  'batch-scene-meta',
+  'batch-video-meta'
 ];
 
 function sortPresets(items) {
@@ -79,7 +86,7 @@ export function PresetLibraryPage() {
   useEffect(() => { load(); }, [module]);
 
   function openCreate() {
-    form.setFieldsValue({ ...emptyDraft(module), kind: 'addon' });
+    form.setFieldsValue({ ...emptyDraft(module), kind: module === 'script' ? 'addon' : 'base' });
     setEditingExisting(false);
     setEditorOpen(true);
   }
@@ -149,8 +156,8 @@ export function PresetLibraryPage() {
   }
 
   const columns = [
-    { title: '名称', dataIndex: 'name', width: 170 },
-    { title: '预设词 ID', dataIndex: 'id', width: 190, ellipsis: true },
+    { title: '名称', dataIndex: 'name', width: 190 },
+    { title: '预设词 ID', dataIndex: 'id', width: 220, ellipsis: true },
     { title: '说明', dataIndex: 'description', ellipsis: true },
     { title: '版本', dataIndex: 'version', width: 72 },
     {
@@ -180,6 +187,7 @@ export function PresetLibraryPage() {
           <Button type="primary" onClick={openCreate}>添加预设词</Button>
         </div>
         <Segmented options={modules} value={module} onChange={setModule} />
+        {module === 'batch-factory' ? <Alert type="info" showIcon message="批量工厂提示词控制中心" description="爆款改编、两套导演元提示词、人物/场景/视频元提示词和视频前缀库都在此版本化管理；导演运行时会组合所需模块，但不会因此增加文本 AI 调用次数。" /> : null}
         {error && <Alert type="error" showIcon message="无法读取此模块预设词" description={error} />}
         <Table
           rowKey={preset => `${preset.id}-${preset.version}`}
@@ -193,14 +201,15 @@ export function PresetLibraryPage() {
         <Form form={form} layout="vertical" onFinish={saveDraft} initialValues={emptyDraft(module)}>
           <Space size="middle" style={{ width: '100%' }} align="start">
             <Form.Item label="预设词 ID" name="id" rules={[{ required: true, message: '请输入固定 ID' }, { pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/, message: '只能使用字母、数字、点、下划线或短横线' }]} style={{ flex: 1 }}>
-              <Input placeholder="例如 script-custom" />
+              <Input placeholder={module === 'batch-factory' ? '例如 batch-custom' : '例如 script-custom'} />
             </Form.Item>
             <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入名称' }]} style={{ flex: 1 }}>
               <Input placeholder="供管理员识别" />
             </Form.Item>
           </Space>
           <Form.Item name="kind" hidden><Input /></Form.Item>
-          {!editingExisting && <Alert type="info" showIcon message="普通补充预设发布后会自动追加到模块请求；约束类别预设只会在用户明确选择时注入。" />}
+          {!editingExisting && module === 'script' ? <Alert type="info" showIcon message="普通补充预设发布后会自动追加到模块请求；约束类别预设只会在用户明确选择时注入。" /> : null}
+          {!editingExisting && module === 'batch-factory' ? <Alert type="info" showIcon message="建议优先编辑已有批量工厂固定预设 ID，而不是新建未被运行链引用的预设。" /> : null}
           {module === 'script' && <Form.Item label="约束类别（可选）" name="constraintCategory">
             <Select allowClear placeholder="普通模块补充规则" options={constraintCategories} />
           </Form.Item>}
