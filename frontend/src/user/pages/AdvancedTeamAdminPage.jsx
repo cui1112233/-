@@ -130,7 +130,7 @@ export default function AdvancedTeamAdminPage() {
   if (!self || !['dev', 'manager'].includes(self.role)) return <div className="account-center-page"><div className="ac-empty">当前身份没有联合管理权限</div></div>;
 
   return <div className="account-center-page advanced-team-admin-page">
-    <PageHeader title="联合管理与账号治理" subtitle="Co-Manager 跨团队协作、强权限操作与不可逆删除" actions={self.role === 'dev' ? <Button danger icon={<Trash2 size={16} />} onClick={() => setPurgeOpen(true)}>永久删除已归档 MEMBER</Button> : null} />
+    <PageHeader title="联合治理" subtitle="Co-Manager 跨团队协作、强权限操作与不可逆删除" actions={self.role === 'dev' ? <Button danger icon={<Trash2 size={16} />} onClick={() => setPurgeOpen(true)}>永久删除已归档 MEMBER</Button> : null} />
 
     <div className="ac-two-column">
       <Panel title="可管理团队" eyebrow="TEAM ADMINISTRATION">

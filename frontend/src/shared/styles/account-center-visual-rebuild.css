@@ -24,8 +24,10 @@
   --text-secondary: var(--ac-muted);
   --border-subtle: var(--ac-line);
   background:
-    radial-gradient(circle at 78% -8%, rgba(72, 105, 168, 0.12), transparent 33%),
+    radial-gradient(circle at 78% -8%, rgba(72, 105, 168, 0.16), transparent 33%),
     radial-gradient(circle at 36% 115%, rgba(59, 121, 126, 0.08), transparent 34%),
+    radial-gradient(circle at 72% 10%, rgba(255,255,255,.62) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 88% 24%, rgba(176,194,255,.52) 0 1px, transparent 1.8px),
     var(--ac-bg);
   color: var(--ac-text);
 }
@@ -35,7 +37,7 @@
   z-index: 70;
   top: 18px;
   bottom: 18px;
-  left: 252px;
+  left: 272px;
   display: flex;
   width: 284px;
   padding: 22px 16px 18px;
@@ -53,8 +55,8 @@
 .legacy-sidebar.collapsed + .account-center-popover { left:84px; }
 
 .account-center-shell .legacy-sidebar {
-  width: 232px;
-  flex-basis: 232px;
+  width: 252px;
+  flex-basis: 252px;
   border-right: 1px solid rgba(174, 193, 218, 0.1);
   background:
     linear-gradient(180deg, rgba(255,255,255,.018), transparent 16%),
@@ -97,21 +99,7 @@
 
 .account-center-shell .legacy-nav {
   gap: 5px;
-  padding: 22px 12px 18px;
-}
-
-.account-center-shell .legacy-nav::before {
-  display: block;
-  margin: 0 10px 10px;
-  color: #4f5d6f;
-  content: 'ACCOUNT CENTER';
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .18em;
-}
-
-.account-center-shell .legacy-sidebar.collapsed .legacy-nav::before {
-  display: none;
+  padding: 18px 12px;
 }
 
 .account-center-shell .legacy-nav a {
@@ -170,7 +158,7 @@
 }
 
 .account-center-shell.account-center-drawer-open .legacy-main {
-  margin-left: 320px;
+  margin-left: 324px;
 }
 
 .account-center-shell .legacy-topbar {
@@ -188,6 +176,8 @@
   font-weight: 650;
   letter-spacing: .02em;
 }
+
+.account-center-shell .legacy-page-title { color: transparent; user-select: none; }
 
 .account-center-shell .legacy-userbar { gap: 12px; }
 .account-center-shell .legacy-profile-link {
@@ -212,6 +202,12 @@
   background: transparent;
   scrollbar-gutter: stable;
 }
+
+.account-center-shell * { scrollbar-color: rgba(135, 150, 181, .45) rgba(255,255,255,.025); }
+.account-center-shell ::-webkit-scrollbar { width: 8px; height: 8px; }
+.account-center-shell ::-webkit-scrollbar-track { background: rgba(255,255,255,.025); }
+.account-center-shell ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(125, 139, 169, .42); background-clip: padding-box; }
+.account-center-shell ::-webkit-scrollbar-thumb:hover { background: rgba(153, 166, 198, .62); background-clip: padding-box; }
 
 .account-center-page {
   width: min(1420px, 100%);
