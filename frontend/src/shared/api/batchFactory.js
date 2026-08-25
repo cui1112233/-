@@ -43,3 +43,10 @@ export function updateBatchFactoryDirectorResult(batchId, itemId, directorResult
 export function compileBatchFactoryVideo(batchId, itemId, videoId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/compile`, { method: 'POST' });
 }
+
+export function generateBatchFactoryVideos(batchId, itemId, modelId, { force = false } = {}) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ modelId, force })
+  });
+}
