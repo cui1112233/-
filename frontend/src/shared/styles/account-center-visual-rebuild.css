@@ -482,6 +482,15 @@
 .ac-security-score p { color: var(--ac-muted); }
 .ac-session-list > div { min-height: 58px; }
 
+/* 账号安全按参考图组织为安全总览工作区，而不是纵向堆叠的设置表单。 */
+.security-page .ac-security-grid,
+.security-page .security-session-grid { display:grid; gap:14px; margin-bottom:14px; }
+.security-page .ac-security-grid { grid-template-columns:minmax(0,1.04fr) minmax(300px,.96fr); }
+.security-page .ac-security-overview { grid-column:1; grid-row:span 2; min-height:230px; }.security-page .ac-security-grid > .ac-panel:nth-child(2) { grid-column:2; }.security-page .ac-security-grid > .ac-panel:nth-child(3) { grid-column:1; }
+.security-page .ac-security-score { display:grid; grid-template-columns:150px minmax(0,1fr); gap:22px; align-items:center; }.security-page .ac-security-score .ant-progress { justify-self:center; }.security-page .security-checks { margin-top:18px; }.security-page .security-checks > div { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; min-height:32px; border-bottom:1px solid var(--ac-line); }.security-page .security-checks > div:last-child { border-bottom:0; }
+.security-page .security-session-grid { grid-template-columns:minmax(0,1.04fr) minmax(300px,.96fr); }.security-page .security-session-grid > :first-child { grid-column:2; }.security-page .security-session-grid > :last-child { grid-column:1; grid-row:1; }.security-page .ac-session-list { display:grid; gap:8px; margin-top:16px; }.security-page .ac-session-list > div { display:grid; grid-template-columns:32px minmax(0,1fr) auto; gap:9px; align-items:center; padding:10px; border:1px solid var(--ac-line); border-radius:9px; background:rgba(255,255,255,.014); }.security-page .ac-session-icon { display:grid; width:30px; height:30px; place-items:center; border-radius:8px; }
+.security-page > .ac-panel:last-of-type { max-width:calc(50% - 7px); min-height:128px; }.security-page > .ac-panel:last-of-type .ac-session-control { display:flex; gap:12px; align-items:center; }.security-page .ac-session-control > span { display:grid; width:42px; height:42px; place-items:center; border-radius:10px; color:#9d90ff; background:rgba(138,120,255,.1); }.security-page .ac-session-control h3 { margin:0 0 4px; font-size:13px; }.security-page .ac-session-control p { margin:0; color:var(--ac-muted); font-size:11px; line-height:1.55; }
+
 /* Team tables */
 .ac-team-table-panel { border-radius: 14px; }
 .ac-team-toolbar {
@@ -676,4 +685,7 @@
   .profile-page .ac-profile-summary-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
+  .security-page .ac-security-grid { grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr); }
+  .security-page .security-session-grid { grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr); }
+  .security-page .ac-security-overview { grid-column:1; grid-row:span 2; }
 }
