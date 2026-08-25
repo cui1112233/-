@@ -289,8 +289,8 @@ export default function MemberCenterPage() {
         </div>
       </section>
 
-      <nav className="member-tabs" aria-label="会员中心导航">
-        <button className={tab === 'membership' ? 'active' : ''} onClick={() => setTab('membership')} type="button">会员中心</button>
+      <nav className="member-tabs" aria-label="个人中心导航">
+        <button className={tab === 'membership' ? 'active' : ''} onClick={() => setTab('membership')} type="button">会员区</button>
         {isTeamAdmin ? <button className={tab === 'team' ? 'active' : ''} onClick={() => setTab('team')} type="button">团队管理</button> : null}
       </nav>
 

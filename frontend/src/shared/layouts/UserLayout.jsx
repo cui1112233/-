@@ -1,12 +1,12 @@
 import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UsersRound } from 'lucide-react';
+import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
 import { getToken } from '../api/client';
-import { getConfig, saveAvatar } from '../api/config';
-import { AVATAR_PRESETS, avatarDisplay } from '../avatars';
+import { getConfig } from '../api/config';
+import { avatarDisplay } from '../avatars';
 import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
@@ -21,7 +21,6 @@ const navItems = [
   { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
   { href: '/shuihuo-production', icon: Clapperboard, label: '水货生产' },
   { href: '/agent', icon: Bot, label: 'Agent 工作区' },
-  { href: '/member', icon: UsersRound, label: '会员中心' },
   { href: '/history', icon: FolderClock, label: '历史' },
   { href: '/issues', icon: Bug, label: '问题日志' },
   { href: '/tts', icon: AudioLines, label: '配音' }
@@ -34,6 +33,7 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
+  if (pathname === '/member') return '个人中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
 }
@@ -57,9 +57,6 @@ export function UserLayout({ children }) {
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
   const [avatar, setAvatar] = useState(null);
-  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
-  const [avatarPicking, setAvatarPicking] = useState(null);
-  const [avatarSaving, setAvatarSaving] = useState(false);
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
   const pathname = window.location.pathname;
@@ -235,25 +232,8 @@ export function UserLayout({ children }) {
     setUsername('');
     setAccount(null);
     setAvatar(null);
-    setAvatarPicking(null);
-    setAvatarEditorOpen(false);
     setLoginDialogOpen(true);
     message.success('已退出');
-  }
-
-  async function handleSaveAvatar() {
-    if (!avatarPicking) return;
-    setAvatarSaving(true);
-    try {
-      await saveAvatar(avatarPicking);
-      setAvatar(avatarPicking);
-      setAvatarEditorOpen(false);
-      message.success('头像已更新');
-    } catch (error) {
-      message.error(error.message || '保存头像失败');
-    } finally {
-      setAvatarSaving(false);
-    }
   }
 
   function openLoginDialog() {
@@ -383,16 +363,15 @@ export function UserLayout({ children }) {
         </div>
         {isLoggedIn ? (
           <div className="legacy-sidebar-user">
-            <button
-              type="button"
+            <Link
+              href="/member"
               className="legacy-sidebar-avatar"
-              onClick={() => { setAvatarPicking(avatar); setAvatarEditorOpen(true); }}
-              title="点击更换头像"
-              aria-label="更换头像"
+              title="进入个人中心"
+              aria-label="进入个人中心"
             >
-              <Avatar size={28} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
-            </button>
-            <span className="legacy-sidebar-username" title={username}>{username}</span>
+              <Avatar size={28} src={account?.avatarUrl} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
+            </Link>
+            <span className="legacy-sidebar-username" title={account?.displayName || username}>{account?.displayName || username}</span>
             <Button size="small" onClick={handleLogout}>退出</Button>
           </div>
         ) : null}
@@ -404,29 +383,6 @@ export function UserLayout({ children }) {
         {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
-      <Modal title="更换头像" open={avatarEditorOpen} onCancel={() => setAvatarEditorOpen(false)} footer={null} width={440}>
-        <div className="avatar-picker-grid" role="listbox" aria-label="选择头像">
-          {AVATAR_PRESETS.map(preset => {
-            const selected = avatarPicking?.emoji === preset.emoji && avatarPicking?.background === preset.background;
-            return (
-              <button
-                key={preset.emoji}
-                type="button"
-                className={`avatar-option${selected ? ' selected' : ''}`}
-                aria-pressed={selected}
-                onClick={() => setAvatarPicking(preset)}
-              >
-                <Avatar size={40} style={{ backgroundColor: preset.background }}>{preset.emoji}</Avatar>
-                <span className="avatar-option-label">{preset.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="avatar-picker-footer">
-          <Button onClick={() => setAvatarEditorOpen(false)}>取消</Button>
-          <Button type="primary" loading={avatarSaving} disabled={!avatarPicking} onClick={handleSaveAvatar}>保存头像</Button>
-        </div>
-      </Modal>
       </div>
     </ConfigProvider>
   );
