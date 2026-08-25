@@ -5,6 +5,7 @@ const { createAuthRuntime, userSessions } = require('../lib/shared');
 const { createPersistentSession, revokePersistentSession } = require('../lib/session-store');
 const { createMfaStore } = require('../lib/mfa-store');
 const { createTeamCollaborationStore } = require('../lib/team-collaboration-store');
+const { createPasskeyStore } = require('../lib/passkey-store');
 const { apiAuth } = require('../middleware/auth');
 
 const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -55,11 +56,22 @@ function sessionMetadata(req) {
   };
 }
 
-function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
+function requestOrigin(req) {
+  const header = req.headers.origin;
+  if (header) return String(header);
+  return `${req.protocol}://${req.get('host')}`;
+}
+
+function requestRpId(req) {
+  return String(req.hostname || req.get('host') || '').replace(/:\d+$/, '');
+}
+
+function createAuthRouter(runtime = createAuthRuntime(), memberStore, { passkeyStore: injectedPasskeyStore } = {}) {
   const router = express.Router();
   const systemDir = path.dirname(runtime.accountStore.files.audit);
   const mfaStore = createMfaStore({ systemDir });
   const collaborationStore = createTeamCollaborationStore({ systemDir });
+  const passkeyStore = injectedPasskeyStore || createPasskeyStore({ systemDir });
 
   function sessionShape(account, effectivePermissions) {
     const member = memberStore?.getMember(account.username);
@@ -72,10 +84,33 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
       monthlyTokenLimit: member?.monthlyTokenLimit ?? null,
       apiEnabled: member?.apiEnabled ?? account.isOwner,
       mfaEnabled: mfaStore.status(account.username).enabled,
+      passkeyCount: passkeyStore.listCredentials(account.username).length,
       active: account.active,
       isOwner: account.isOwner,
       effectivePermissions
     };
+  }
+
+  function issueSession(req, res, account, { remember = true, authMethod = 'password', extra = {} } = {}) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const issuedAt = Date.now();
+    const device = sessionMetadata(req);
+    runtime.tokenMap.set(token, { username: account.username, issuedAt, authMethod, ...device });
+    if (remember === true) {
+      try {
+        createPersistentSession(runtime.sessionsPath, token, account.username, REMEMBER_DURATION_MS, issuedAt, { ...device, authMethod });
+      } catch {
+        runtime.tokenMap.delete(token);
+        return res.status(503).json({ error: '登录服务暂不可用，请稍后重试' });
+      }
+    }
+    if (!userSessions.has(account.username)) userSessions.set(account.username, {});
+    return res.json({
+      token,
+      authMethod,
+      ...extra,
+      ...sessionShape(account, runtime.accountStore.effectivePermissions(account))
+    });
   }
 
   router.get('/invite/:token', (req, res) => {
@@ -103,26 +138,19 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
       collaborationStore.claimInvite(req.params.token, username);
       claimed = true;
       let member = memberStore.createManagedMember(manager.username, {
-        username,
-        password,
-        displayName,
-        role: 'member',
-        boundTo: manager.username,
-        monthlyTokenLimit: invite.monthlyTokenLimit,
-        apiEnabled: false
+        username, password, displayName, role: 'member', boundTo: manager.username,
+        monthlyTokenLimit: invite.monthlyTokenLimit, apiEnabled: false
       });
       for (const scope of INVITE_SCOPES) memberStore.setApiAccess(manager.username, member.username, false, scope);
       for (const scope of invite.apiScopes || []) memberStore.setApiAccess(manager.username, member.username, true, scope);
       member = memberStore.getMember(member.username);
       collaborationStore.notify(manager.username, {
-        type: 'member.joined',
-        title: '新成员已加入团队',
+        type: 'member.joined', title: '新成员已加入团队',
         message: `${member.displayName}（@${member.username}）通过邀请加入了团队。`,
         metadata: { username: member.username, teamId: invite.teamId }
       });
       collaborationStore.notify(member.username, {
-        type: 'team.joined',
-        title: `欢迎加入 ${invite.teamName}`,
+        type: 'team.joined', title: `欢迎加入 ${invite.teamName}`,
         message: `你已加入 ${invite.teamName}，API 权限与月度额度已按邀请策略配置。`,
         metadata: { teamId: invite.teamId, managerUsername: manager.username }
       });
@@ -134,19 +162,47 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
     }
   });
 
+  router.post('/passkey/options', (req, res) => {
+    try {
+      const username = String(req.body?.username || '').trim();
+      const account = runtime.accountStore.getAccount(username);
+      if (!account || !account.active) return res.status(404).json({ error: '当前账号没有可用 Passkey' });
+      const options = passkeyStore.beginAuthentication(username, { rpId: requestRpId(req), origin: requestOrigin(req) });
+      return res.json(options);
+    } catch (error) {
+      const status = error?.code === 'NOT_FOUND' ? 404 : error?.code === 'FORBIDDEN' ? 403 : 400;
+      return res.status(status).json({ error: error?.message || '无法开始 Passkey 登录' });
+    }
+  });
+
+  router.post('/passkey/verify', (req, res) => {
+    try {
+      const username = String(req.body?.username || '').trim();
+      const account = runtime.accountStore.getAccount(username);
+      if (!account || !account.active) return res.status(401).json({ error: 'Passkey 登录失败' });
+      passkeyStore.finishAuthentication(username, {
+        ...(req.body?.credential || {}),
+        challenge: req.body?.challenge,
+        origin: requestOrigin(req),
+        rpId: requestRpId(req)
+      });
+      collaborationStore.notify(username, {
+        type: 'security.passkey_login', title: 'Passkey 登录成功',
+        message: `${sessionMetadata(req).browser} · ${sessionMetadata(req).os} 使用 Passkey 登录了账号。`
+      });
+      return issueSession(req, res, account, { remember: req.body?.remember === true, authMethod: 'passkey' });
+    } catch (error) {
+      return res.status(error?.code === 'FORBIDDEN' ? 401 : 400).json({ error: error?.message || 'Passkey 登录失败' });
+    }
+  });
+
   router.post('/', (req, res) => {
     const { username, password, remember, mfaCode } = req.body || {};
-    if (!username || !password) {
-      return res.status(400).json({ error: '用户名和密码不能为空' });
-    }
-    if (!runtime.accountStore.verifyPassword(username, password)) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
+    if (!username || !password) return res.status(400).json({ error: '用户名和密码不能为空' });
+    if (!runtime.accountStore.verifyPassword(username, password)) return res.status(401).json({ error: '用户名或密码错误' });
 
     const account = runtime.accountStore.getAccount(username);
-    if (!account || !account.active || account.pending === true) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
+    if (!account || !account.active || account.pending === true) return res.status(401).json({ error: '用户名或密码错误' });
 
     const mfa = mfaStore.status(account.username);
     let recoveryUsed = false;
@@ -156,31 +212,16 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
       if (!verified.ok) return res.status(401).json({ error: 'MFA 动态验证码或恢复码不正确', code: 'MFA_INVALID' });
       recoveryUsed = verified.recoveryUsed;
     }
-
-    const token = crypto.randomBytes(32).toString('hex');
-    const issuedAt = Date.now();
-    const device = sessionMetadata(req);
-    runtime.tokenMap.set(token, { username: account.username, issuedAt, ...device });
-    if (remember === true) {
-      try {
-        createPersistentSession(runtime.sessionsPath, token, account.username, REMEMBER_DURATION_MS, issuedAt, device);
-      } catch {
-        runtime.tokenMap.delete(token);
-        return res.status(503).json({ error: '登录服务暂不可用，请稍后重试' });
-      }
-    }
-    if (!userSessions.has(account.username)) userSessions.set(account.username, {});
     if (recoveryUsed) {
       collaborationStore.notify(account.username, {
-        type: 'security.recovery_code_used',
-        title: 'MFA 恢复码已使用',
+        type: 'security.recovery_code_used', title: 'MFA 恢复码已使用',
         message: '刚刚有一个一次性恢复码用于登录。若非本人操作，请立即修改密码并重新配置 MFA。'
       });
     }
-    res.json({
-      token,
-      mfaRecoveryUsed: recoveryUsed,
-      ...sessionShape(account, runtime.accountStore.effectivePermissions(account))
+    return issueSession(req, res, account, {
+      remember: remember === true,
+      authMethod: 'password',
+      extra: { mfaRecoveryUsed: recoveryUsed }
     });
   });
 
@@ -207,5 +248,7 @@ module.exports = {
   browserFromUserAgent,
   osFromUserAgent,
   maskedIp,
-  sessionMetadata
+  sessionMetadata,
+  requestOrigin,
+  requestRpId
 };
