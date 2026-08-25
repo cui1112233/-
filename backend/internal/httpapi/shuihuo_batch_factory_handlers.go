@@ -33,6 +33,25 @@ type batchFactoryVideoImportResult struct {
 	Error     string             `json:"error,omitempty"`
 }
 
+type batchFactoryProductionStatusRequest struct {
+	ProjectIDs []int64 `json:"projectIds"`
+}
+
+type batchFactoryProductionMedia struct {
+	ID           int64  `json:"id"`
+	ProjectID    int64  `json:"projectId"`
+	SegmentID    *int64 `json:"segmentId,omitempty"`
+	TaskID       *int64 `json:"taskId,omitempty"`
+	DurationMS   *int64 `json:"durationMs,omitempty"`
+	DownloadPath string `json:"downloadPath"`
+}
+
+type batchFactoryProductionProject struct {
+	ProjectID int64                         `json:"projectId"`
+	Tasks     []domain.PublicTask           `json:"tasks"`
+	Media     []batchFactoryProductionMedia `json:"media"`
+}
+
 // handleImportBatchFactoryVideos is deliberately a single server-side
 // orchestration call. A staged batch-factory item becomes a persistent
 // production project only when the user explicitly asks to generate video.
@@ -136,4 +155,89 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		"model":   models.ToPublic(model),
 		"results": results,
 	})
+}
+
+// handleBatchFactoryProductionStatus returns the production state for many
+// batch-factory projects in one request. Both repositories apply user ownership
+// filters, and the response deliberately omits task input/output snapshots and
+// object storage keys.
+func (api *API) handleBatchFactoryProductionStatus(w http.ResponseWriter, r *http.Request) {
+	if !api.requireShuihuoDatabase(w) {
+		return
+	}
+	var req batchFactoryProductionStatusRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	if len(req.ProjectIDs) == 0 || len(req.ProjectIDs) > 200 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "生产项目范围无效"})
+		return
+	}
+	seen := make(map[int64]struct{}, len(req.ProjectIDs))
+	projectIDs := make([]int64, 0, len(req.ProjectIDs))
+	for _, projectID := range req.ProjectIDs {
+		if projectID < 1 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "生产项目ID无效"})
+			return
+		}
+		if _, duplicate := seen[projectID]; duplicate {
+			continue
+		}
+		seen[projectID] = struct{}{}
+		projectIDs = append(projectIDs, projectID)
+	}
+	user, _ := currentUser(r)
+	tasks, err := shuihuostore.NewTasks(api.deps.DB).ListByProjects(r.Context(), user.ID, projectIDs)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量视频任务状态失败"})
+		return
+	}
+	media, err := shuihuostore.NewMedia(api.deps.DB).ListByProjects(r.Context(), user.ID, projectIDs)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量视频成品失败"})
+		return
+	}
+
+	byProject := make(map[int64]*batchFactoryProductionProject)
+	ensureProject := func(projectID int64) *batchFactoryProductionProject {
+		if current := byProject[projectID]; current != nil {
+			return current
+		}
+		current := &batchFactoryProductionProject{
+			ProjectID: projectID,
+			Tasks:     make([]domain.PublicTask, 0),
+			Media:     make([]batchFactoryProductionMedia, 0),
+		}
+		byProject[projectID] = current
+		return current
+	}
+	for _, task := range tasks {
+		if task.Kind != "video" {
+			continue
+		}
+		project := ensureProject(task.ProjectID)
+		project.Tasks = append(project.Tasks, domain.ToPublicTask(task))
+	}
+	for _, item := range media {
+		if item.Kind != "video" {
+			continue
+		}
+		project := ensureProject(item.ProjectID)
+		project.Media = append(project.Media, batchFactoryProductionMedia{
+			ID:           item.ID,
+			ProjectID:    item.ProjectID,
+			SegmentID:    item.SegmentID,
+			TaskID:       item.TaskID,
+			DurationMS:   item.DurationMS,
+			DownloadPath: "/api/shuihuo-production/media/" + strconv.FormatInt(item.ID, 10) + "/download",
+		})
+	}
+	projects := make([]batchFactoryProductionProject, 0, len(projectIDs))
+	for _, projectID := range projectIDs {
+		if project := byProject[projectID]; project != nil {
+			projects = append(projects, *project)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 }
