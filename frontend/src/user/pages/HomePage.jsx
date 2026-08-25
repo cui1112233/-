@@ -1,5 +1,5 @@
 import { Button } from 'antd';
-import { AudioLines, Bot, ChevronRight, Clapperboard, FilePenLine, FolderClock, LayoutPanelTop } from 'lucide-react';
+import { AudioLines, Bot, ChevronRight, Clapperboard, FilePenLine, FolderClock, LayoutPanelTop, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { BrandLogo } from '../../shared/components/BrandLogo';
 import { GradientButton } from '../../shared/components/GradientButton';
@@ -9,6 +9,7 @@ import HomeSplashCursor from '../components/HomeSplashCursor';
 
 const quickActions = [
   { href: '/script', className: 'card-write', icon: FilePenLine, title: '新建剧本项目', desc: '导入小说，生成可编辑剧本与制作素材' },
+  { href: '/batch-factory', className: 'card-batch-factory', icon: Zap, title: '批量工厂', desc: '多篇小说开篇批量导演、审核并生成视频方案' },
   { href: '/novel-panel', className: 'card-panel', icon: LayoutPanelTop, title: '小说面板', desc: '分析人物、场景与分镜，保存完整项目' },
   { href: '/shuihuo-production', className: 'card-shuihuo', icon: Clapperboard, title: '水货生产', desc: '分段、提示词、素材和视频任务生产' },
   { href: '/agent', className: 'card-agent', icon: Bot, title: 'AI 智能 Agent', desc: '专属助手对话，辅助精细化剧本包装' },
@@ -18,6 +19,7 @@ const quickActions = [
 const navItems = [
   { href: '/', label: '首页' },
   { href: '/script', label: '剧本生成' },
+  { href: '/batch-factory', label: '批量工厂' },
   { href: '/novel-panel', label: '小说面板' },
   { href: '/shuihuo-production', label: '水货生产' },
   { href: '/agent', label: 'Agent 工作区' },
@@ -28,6 +30,7 @@ const navItems = [
 
 const projectIcons = {
   'script-history': FilePenLine,
+  'batch-factory': Zap,
   'novel-panel': LayoutPanelTop,
   'shuihuo-production': Clapperboard
 };
