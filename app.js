@@ -125,7 +125,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
-  app.use('/api/batch-factory', createBatchFactoryRouter({ presetStore: resolvedPresetStore }));
+  app.use('/api/batch-factory', createBatchFactoryRouter({ presetStore: resolvedPresetStore, shuihuoGateway }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ presetStore: resolvedPresetStore, shuihuoGateway }));
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
