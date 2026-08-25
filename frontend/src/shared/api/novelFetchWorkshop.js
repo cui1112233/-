@@ -2,6 +2,10 @@ import { apiRequest } from './client';
 
 // 改文工作台：后端接口封装（apiRequest 统一处理鉴权与错误上报）
 
+export function listBatchRewriteIssues() {
+  return apiRequest('/api/batch-rewrite/issues');
+}
+
 // 批量处理清单：解析 →（可选）分类 → 建任务 →（可选）抓原文 →（可选）AI 改文
 export function processBatch(payload) {
   return apiRequest('/api/novel-fetch-workshop/process', {

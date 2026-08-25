@@ -552,19 +552,75 @@ function createBatchRewriteRouter({
     for (const record of records) {
       if (typeof tasks.readSiteSubmitLog !== 'function') continue;
       const logs = await tasks.readSiteSubmitLog(req.username, record.id);
-      for (const item of logs) entries.push({
-        book_id: record.id,
-        book_name: record.book_name || '',
-        platform_name: record.platform_name || '',
-        version: item?.version || '',
-        status: item?.status || '',
-        group_id: item?.group_id || '',
-        material_allocation: item?.material_allocation || null,
-        error: item?.error || '',
-        time: item?.time || item?.updated_at || ''
-      });
+      for (const item of logs) {
+        const receipt = object(item?.remote_receipt);
+        const remoteRecord = object(receipt.remote_record);
+        const result = item?.error
+          || receipt.upload_error
+          || (item?.status === 'submitted' && receipt.verified
+            ? `121 已确认接收 ${Number(receipt.upload_success_count) || 0} 个文件${remoteRecord.detail ? `；${remoteRecord.detail}` : ''}`
+            : item?.status === 'accepted_pending'
+              ? (remoteRecord.detail || '121 已接收，等待后台确认')
+              : '');
+        entries.push({
+          book_id: record.id,
+          book_name: record.book_name || '',
+          platform_name: record.platform_name || '',
+          version: item?.version || '',
+          status: item?.status || '',
+          group_id: item?.group_id || '',
+          material_allocation: item?.material_allocation || null,
+          result,
+          error: item?.error || receipt.upload_error || '',
+          time: item?.time || item?.updated_at || ''
+        });
+      }
     }
     return entries.sort((left, right) => String(right.time).localeCompare(String(left.time))).slice(0, 200);
+  }
+
+  function taskIssueEntry(task, item, index) {
+    const data = object(item?.data);
+    const event = String(item?.event || 'task_error');
+    const status = String(data.status || '');
+    const failedItem = (Array.isArray(data.items) ? data.items : []).find(entry => entry?.status === 'failed');
+    const detail = String(data.error || data.upload_error || failedItem?.error || task.error || task.ai_error || '').trim();
+    const failed = /(?:failed|error|失败|错误)/i.test(`${event} ${status}`)
+      || Number(data.failed_count) > 0
+      || status === 'partial';
+    if (!failed) return null;
+    const kind = event === 'site_submit'
+      ? 'batch-rewrite.submit'
+      : event.includes('sensitive')
+        ? 'batch-rewrite.sensitive'
+        : event.includes('ai')
+          ? 'batch-rewrite.ai'
+          : 'batch-rewrite.processing';
+    const message = detail || `书籍 ${task.id} 的${event === 'site_submit' ? '网站提交' : event.includes('sensitive') ? '敏感词处理' : event.includes('ai') ? 'AI 文案处理' : '原文处理'}失败`;
+    return {
+      id: `batch-rewrite:${task.id}:${event}:${item?.time || index}`,
+      kind,
+      message: `书籍 ${task.id}${task.book_name ? `《${task.book_name}》` : ''}：${message}`,
+      at: item?.time || task.updated_at || task.updatedAt || new Date(0).toISOString(),
+      path: '/novel-fetch',
+      method: event,
+      status: /(?:未登录|会话|认证)/.test(message) ? 401 : undefined
+    };
+  }
+
+  async function listWorkshopIssues(req) {
+    const { tasks } = await resources(req);
+    const entries = [];
+    for (const task of await listTasks(req)) {
+      if (task.error || task.ai_error || task.aiError) {
+        entries.push(taskIssueEntry(task, { event: task.ai_error || task.aiError ? 'ai_generate_failed' : 'task_failed', time: task.updated_at || task.updatedAt, data: { error: task.ai_error || task.aiError || task.error, status: 'failed' } }, 0));
+      }
+      for (const [index, item] of (await tasks.readLogs(req.username, task.id)).entries()) {
+        const entry = taskIssueEntry(task, item, index);
+        if (entry) entries.push(entry);
+      }
+    }
+    return entries.filter(Boolean).sort((left, right) => String(right.at).localeCompare(String(left.at))).slice(0, 200);
   }
 
   async function readSensitiveLog(tasks, username, bookId) {
@@ -1075,6 +1131,7 @@ function createBatchRewriteRouter({
 
   router.get('/web-submit/config', async (req, res) => res.json({ settings: publicWebSubmit(await currentWebConfig(req)) }));
   router.get('/web-submit/history', async (req, res) => { try { res.json({ records: await listSiteSubmitHistory(req), groups: await listPersistedSiteSubmitGroups(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.get('/issues', async (req, res) => { try { res.json({ entries: await listWorkshopIssues(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/web-submit/config', async (req, res) => { try { res.json({ ok: true, settings: await saveWebConfig(req, req.body?.settings), tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/web-submit/environment', (req, res) => { const session = novelFetchStore?.getSession(req.username); res.json({ ok: Boolean(session), checks: [{ name: '目标站登录会话', ok: Boolean(session), detail: session ? '已登录' : '未登录' }, { name: '上传接口', ok: true, detail: target.TARGET_UPLOAD_PATH }] }); });
   router.post('/web-submit/sync-configs', async (req, res) => { try { res.json(await sync121Profiles(req)); } catch (error) { res.status(400).json({ error: error.message }); } });

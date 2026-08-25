@@ -1761,7 +1761,7 @@ function renderWebSubmitHistory(records = []) {
       <span class="${statusClass(item.status)}">${escapeHtml(item.status || "-")}</span>
       <span>${escapeHtml(allocationText || "-")}</span>
       <time title="${escapeHtml(item.time || "")}">${escapeHtml(item.time || "-")}</time>
-      <span class="site-history-error" title="${escapeHtml(item.error || "")}">${escapeHtml(item.error || "-")}</span>
+      <span class="site-history-error" title="${escapeHtml(item.result || item.error || "")}">${escapeHtml(item.result || item.error || "-")}</span>
     </div>`;
   }).join("");
   box.innerHTML = rows ? `<div class="site-history-table">
