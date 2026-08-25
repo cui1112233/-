@@ -1,3 +1,5 @@
+import { dispatchGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
+
 export const PET_EVENT = 'qiantie:pet-state';
 export const PET_CONTEXT_EVENT = 'qiantie:pet-context';
 export const PET_APPLY_EVENT = 'qiantie:pet-apply';
@@ -39,6 +41,7 @@ const MAX_NOVEL_TEXT_CHARS = 4500;
 const MAX_EXTRACTED_CHARS = 2500;
 const MAX_SCRIPT_OUTPUT_CHARS = 4500;
 const SENSITIVE_ENTITY_KEY = /token|key|secret|password|authorization|credential/i;
+let latestPetContext = {};
 
 export function normalizePetState(state) {
   return PET_STATES.includes(state) ? state : 'idle';
@@ -231,16 +234,30 @@ export function normalizePetContext(context = {}) {
   };
 }
 
-export function dispatchPetState(state) {
+export function dispatchPetState(state, task = {}) {
   if (typeof window === 'undefined') return;
+  const normalizedState = normalizePetState(state);
+  const context = latestPetContext;
   window.dispatchEvent(new CustomEvent(PET_EVENT, {
-    detail: { state: normalizePetState(state) }
+    detail: { state: normalizedState, task: task || {}, context }
   }));
+  if (normalizedState !== 'success' && normalizedState !== 'error') return;
+  const page = String(task?.page || context.page || '').trim();
+  const pagePath = String(task?.pagePath || context.pagePath || '').trim();
+  const title = String(task?.title || '').trim() || `${page || '当前功能'}${normalizedState === 'success' ? '已完成' : '执行失败'}`;
+  dispatchGlobalTaskNotification({
+    status: normalizedState,
+    title,
+    detail: task?.detail || (normalizedState === 'success' ? `${page || '任务'}的处理结果已就绪。` : `${page || '任务'}未能完成，请查看页面中的具体原因。`),
+    page,
+    pagePath
+  });
 }
 
 export function dispatchPetContext(context) {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(PET_CONTEXT_EVENT, { detail: context || {} }));
+  latestPetContext = normalizePetContext(context);
+  window.dispatchEvent(new CustomEvent(PET_CONTEXT_EVENT, { detail: latestPetContext }));
 }
 
 export function dispatchPetApply(content) {

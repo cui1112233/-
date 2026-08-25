@@ -144,7 +144,7 @@ export function TtsPage() {
 
     const requestId = nextCardRequest(id);
     updateCard(id, { loading: true });
-    dispatchPetState('working');
+    dispatchPetState('working', { title: '配音正在生成' });
     try {
       const blob = await textToSpeech(card);
       if (!blob || blob.size === 0) throw new Error('TTS 服务返回空音频');
@@ -166,12 +166,12 @@ export function TtsPage() {
         loading: false
       });
       message.success('语音生成成功');
-      dispatchPetState('success');
+      dispatchPetState('success', { title: '配音生成完成', detail: '音频已经可以播放和下载。' });
     } catch (error) {
       if (!isCurrentCardRequest(id, requestId) || !cardStillExists(id)) return;
       updateCard(id, { loading: false, audioUrl: '', audioBlob: null });
       message.error(error.message || '生成失败');
-      dispatchPetState('error');
+      dispatchPetState('error', { title: '配音生成失败', detail: error.message || '请检查配音模型配置后重试。' });
     }
   }
 

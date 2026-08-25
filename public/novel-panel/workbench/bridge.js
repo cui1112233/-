@@ -15,6 +15,23 @@
   let channelPort = null;
   let handshakeRetryTimer = null;
 
+  function notifyParentTask(status, title, detail = '') {
+    if (window.parent === window) return;
+    window.parent.postMessage({
+      type: 'qiantie:task-notification',
+      source: '小说面板',
+      status: status === 'error' ? 'error' : 'success',
+      title: String(title || '小说面板任务已完成').slice(0, 120),
+      detail: String(detail || '').replace(/\s+/g, ' ').trim().slice(0, 280),
+      page: '小说面板',
+      pagePath: '/novel-panel'
+    }, '*');
+  }
+
+  // The workbench is a classic static application. Expose a deliberately
+  // narrow notifier instead of exposing the parent window or session bridge.
+  globalThis.__QIANTE_NOTIFY_TASK__ = notifyParentTask;
+
   function apiPath(input) {
     try {
       const value = input instanceof Request ? input.url : input instanceof URL ? input.href : input;

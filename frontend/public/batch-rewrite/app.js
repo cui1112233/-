@@ -2560,6 +2560,17 @@ function setBatchStatus(text) {
 
 let batchToastTimer = null;
 function showBatchToast(text, type = "success") {
+  if (window.parent !== window) {
+    window.parent.postMessage({
+      type: "qiantie:task-notification",
+      source: "小说获取",
+      status: type === "warning" || type === "error" ? "error" : "success",
+      title: type === "warning" || type === "error" ? "小说获取任务需要处理" : "小说获取任务已完成",
+      detail: String(text || "").replace(/\s+/g, " ").trim().slice(0, 280),
+      page: "小说获取",
+      pagePath: "/novel-fetch",
+    }, "*");
+  }
   let toast = $("batchToast");
   if (!toast) {
     toast = document.createElement("div");
