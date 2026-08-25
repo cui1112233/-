@@ -27,12 +27,6 @@ const navItems = [
   { href: '/tts', icon: AudioLines, label: '配音' }
 ];
 
-const accountNavItems = [
-  { href: '/member', icon: ShieldCheck, label: '会员中心' },
-  { href: '/profile', icon: Settings2, label: '个人资料' },
-  { href: '/security', icon: ShieldCheck, label: '账号安全' },
-  { href: '/advanced-team-admin', icon: ShieldCheck, label: '联合治理', roles: ['dev', 'manager'] }
-];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
 const TASK_NOTIFICATION_STORAGE_KEY_PREFIX = 'qiantie:task-center:';
@@ -96,6 +90,8 @@ export function UserLayout({ children }) {
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [accountCenterOpen, setAccountCenterOpen] = useState(false);
+  const [accountProfileOpen, setAccountProfileOpen] = useState(true);
   const [loginForm] = Form.useForm();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -111,7 +107,7 @@ export function UserLayout({ children }) {
   const isHome = pathname === '/';
   const displayAvatar = avatarDisplay(avatar, username);
   const accountSessionKey = username || 'anonymous';
-  const visibleNavItems = [...navItems, ...accountNavItems].filter(item => !item.roles || item.roles.includes(account?.role));
+  const visibleNavItems = navItems;
   const content = isValidElement(children)
     ? cloneElement(
       children,
@@ -489,19 +485,29 @@ export function UserLayout({ children }) {
         </div>
         {isLoggedIn ? (
           <div className="legacy-sidebar-user">
-            <Link
-              href="/member"
+            <button
+              type="button"
               className="legacy-sidebar-avatar"
-              title="进入个人中心"
+              title="打开个人中心"
               aria-label="进入个人中心"
+              onClick={() => setAccountCenterOpen(true)}
             >
               <Avatar size={28} src={account?.avatarUrl} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
-            </Link>
+            </button>
             <span className="legacy-sidebar-username" title={account?.displayName || username}>{account?.displayName || username}</span>
             <Button size="small" onClick={handleLogout}>退出</Button>
           </div>
         ) : null}
       </aside>
+      {isLoggedIn && accountCenterOpen ? <div className="account-center-popover" role="dialog" aria-label="个人中心">
+        <div className="account-center-popover-head"><strong>个人中心</strong><button type="button" onClick={() => setAccountCenterOpen(false)}>×</button></div>
+        <div className="account-center-popover-profile"><Avatar size={48} src={account?.avatarUrl}>{displayAvatar.emoji}</Avatar><div><strong>{account?.displayName || username}</strong><small>@{username}</small><em>{account?.role === 'dev' ? 'DEV' : account?.role === 'manager' ? 'MANAGER' : 'MEMBER'}</em></div></div>
+        <div className="account-center-popover-group"><button type="button" className="account-center-popover-parent" onClick={() => setAccountProfileOpen(value => !value)}>个人资料 <span>{accountProfileOpen ? '⌃' : '⌄'}</span></button>
+          {accountProfileOpen ? <div className="account-center-popover-submenu"><Link href="/profile" onClick={() => setAccountCenterOpen(false)}>个人资料</Link><Link href="/member" onClick={() => setAccountCenterOpen(false)}>会员中心</Link><Link href="/security" onClick={() => setAccountCenterOpen(false)}>账号安全</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/advanced-team-admin" onClick={() => setAccountCenterOpen(false)}>联合治理</Link> : null}</div> : null}
+        </div>
+        <div className="account-center-popover-links"><Link href="/api-config" onClick={() => setAccountCenterOpen(false)}>API 配置</Link><Link href="/usage" onClick={() => setAccountCenterOpen(false)}>用量统计</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/team" onClick={() => setAccountCenterOpen(false)}>团队管理</Link> : null}</div>
+        <button type="button" className="account-center-popover-logout" onClick={handleLogout}>退出登录</button>
+      </div> : null}
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
           <header className="legacy-topbar">
