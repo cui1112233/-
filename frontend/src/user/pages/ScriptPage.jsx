@@ -8,10 +8,12 @@ import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
+import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
@@ -150,7 +152,7 @@ export function ScriptPage() {
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(constraints, selectedFormat),
+    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
     index
   })), [rawShotCards, extractInfo, constraints, selectedFormat]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
@@ -700,7 +702,7 @@ export function ScriptPage() {
         duration: values.duration,
         novelText: values.novelText,
         ...entities,
-        constraints: constraintsForFormat(constraints, values.format)
+        constraints: constraintsForFormat(constraints, values.format, extractInfo)
       });
       const nextOutput = aiText(scriptResponse);
 
@@ -812,6 +814,7 @@ export function ScriptPage() {
 
   function deleteActiveEntity() {
     if (!activeEntity || activeEntity.isNew) return;
+    const deletedEntityId = activeEntity.id;
     setExtractInfo(current => {
       const normalized = normalizeExtractInfo(current);
       const next = {
@@ -824,6 +827,8 @@ export function ScriptPage() {
       invalidateEntityOutput(next);
       return next;
     });
+    setConstraints(current => removeEntityConstraintReferences(current, deletedEntityId));
+    setDraftConstraints(current => removeEntityConstraintReferences(current, deletedEntityId));
     setActiveEntity(null);
   }
 
@@ -962,6 +967,30 @@ export function ScriptPage() {
   const selectedExtractionPreset = extractionPresets.find(item => item.id === extractionPreset);
   const extractionPresetName = selectedExtractionPreset?.name || extractionPresetError || '正在加载提取指令';
   const extractionUnavailable = loadingExtractionPresets || Boolean(extractionPresetError) || !extractionPresets.length;
+
+  useScriptCmBridge({
+    form,
+    extractInfo,
+    setExtractInfo,
+    output,
+    updateOutputDraft,
+    setPreviousOutput,
+    setEditingOutput,
+    constraints,
+    setConstraints,
+    setDraftConstraints,
+    generationStage,
+    invalidateEntityOutput
+  });
+
+  useEffect(() => {
+    if (!activeEntity || activeEntity.isNew) {
+      dispatchCmSelection(null);
+      return;
+    }
+    const item = extractInfo[activeEntity.type]?.find(candidate => candidate.id === activeEntity.id);
+    dispatchCmSelection(scriptEntitySelection(activeEntity.type, item));
+  }, [activeEntity, extractInfo]);
 
   return (
     <Form

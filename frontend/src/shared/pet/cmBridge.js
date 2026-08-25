@@ -27,6 +27,7 @@ export const CM_ACTION_TYPES = Object.freeze([
 
 const actionTypes = new Set(CM_ACTION_TYPES);
 let activeBridge = null;
+let actionTail = Promise.resolve();
 
 const defaultCapabilities = {
   '/script': ['character.update', 'character.create', 'character.setProtagonist', 'scene.update', 'scene.create', 'script.replace', 'script.insert', 'shot.update', 'constraint.bind', 'constraint.update'],

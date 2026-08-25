@@ -1,8 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { registerCmBridge } from '../../shared/pet/cmBridge';
 import { createEntity, entityData, normalizeExtractInfo } from './scriptEntities';
 import { normalizeScriptConstraints } from './scriptConstraints';
-import { updateShotOutput } from './scriptShotOutput';
 
 const characterPatchKeys = ['名称', '角色名称', 'name', '身份', 'identity', '外形', 'appearance', '外观描述', '性格', 'personality', '关系', 'relation', '描述', 'description'];
 const scenePatchKeys = ['名称', '场景名称', 'name', '场景', 'scene', '时段', 'time', '氛围', 'atmosphere', '氛围概述', '描述', 'description', '场景描述'];
@@ -50,11 +49,6 @@ function nextReference(constraints, action, extractInfo) {
   });
 }
 
-function makeShotUndoToken() {
-  if (globalThis.crypto?.randomUUID) return `script-shot:${globalThis.crypto.randomUUID()}`;
-  return `script-shot:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export function useScriptCmBridge({
   form,
   extractInfo,
@@ -69,8 +63,6 @@ export function useScriptCmBridge({
   generationStage,
   invalidateEntityOutput
 }) {
-  const shotUndoEntriesRef = useRef(new Map());
-
   useEffect(() => registerCmBridge({
     page: '剧本生成',
     pagePath: '/script',
@@ -81,7 +73,6 @@ export function useScriptCmBridge({
       'scene.update',
       'scene.create',
       'script.replace',
-      'shot.update',
       'constraint.bind',
       'constraint.update'
     ],
@@ -141,22 +132,6 @@ export function useScriptCmBridge({
         return { ok: true, message: '剧本修改已应用，可使用原有撤销按钮恢复。' };
       }
 
-      if (action.type === 'shot.update') {
-        const format = form.getFieldValue('format') || '';
-        const result = updateShotOutput(format, output, action.targetId, action.patch || {});
-        const undoToken = makeShotUndoToken();
-        shotUndoEntriesRef.current.set(undoToken, { before: output, after: result.output, targetId: action.targetId });
-        while (shotUndoEntriesRef.current.size > 20) shotUndoEntriesRef.current.delete(shotUndoEntriesRef.current.keys().next().value);
-        setPreviousOutput(output);
-        updateOutputDraft(result.output);
-        setEditingOutput(false);
-        return {
-          ok: true,
-          message: result.kind === 'json-object' ? '已更新当前分镜的结构化字段。' : '已更新当前分镜卡片。',
-          undoToken
-        };
-      }
-
       if (action.type === 'constraint.bind') {
         const next = nextReference(constraints, action, normalized);
         setConstraints(next);
@@ -182,16 +157,6 @@ export function useScriptCmBridge({
       }
 
       throw new Error('剧本工作台暂不支持这个 CM 操作。');
-    },
-    undo: async undoToken => {
-      const entry = shotUndoEntriesRef.current.get(String(undoToken || ''));
-      if (!entry) throw new Error('这次分镜修改已经无法撤销。');
-      if (output !== entry.after) throw new Error('剧本在 CM 修改后又发生了变化，为避免覆盖新编辑，本次撤销已取消。');
-      updateOutputDraft(entry.before);
-      setPreviousOutput('');
-      setEditingOutput(false);
-      shotUndoEntriesRef.current.delete(String(undoToken || ''));
-      return { ok: true, message: '已撤销 CM 的本次分镜修改。' };
     }
   }), [
     form,

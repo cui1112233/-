@@ -7,7 +7,7 @@ import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/aut
 import { getToken } from '../api/client';
 import { getConfig } from '../api/config';
 import { avatarDisplay } from '../avatars';
-import { StackyPet } from '../pet/StackyPet';
+import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
 
@@ -380,7 +380,7 @@ export function UserLayout({ children }) {
         <main className="legacy-main">
           <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{content}</section>
         </main>
-        {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
+        {isLoggedIn && pathname !== '/' && petVisible ? <CmPenguinCompanion username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
       </div>
