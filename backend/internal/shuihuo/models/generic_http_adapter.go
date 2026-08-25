@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -101,6 +102,11 @@ func (a *GenericHTTPAdapter) Submit(ctx context.Context, model Definition, reque
 func renderTemplateValue(value any, request Request, credential string) any {
 	switch typed := value.(type) {
 	case string:
+		if typed == "{{duration}}" && strings.TrimSpace(request.Duration) != "" {
+			if duration, err := strconv.Atoi(strings.TrimSpace(request.Duration)); err == nil {
+				return duration
+			}
+		}
 		return renderTemplateString(typed, request, credential)
 	case []any:
 		items := make([]any, len(typed))
