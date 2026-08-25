@@ -10,6 +10,11 @@ const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage')
 const TtsPage = lazy(() => import('./pages/TtsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
+const TeamManagementPage = lazy(() => import('./pages/TeamManagementPage'));
+const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
@@ -34,6 +39,11 @@ function getPage(pathname) {
     '/tts': TtsPage,
     '/settings': SettingsPage,
     '/member': MemberCenterPage,
+    '/team': TeamManagementPage,
+    '/usage': UsageStatsPage,
+    '/profile': ProfilePage,
+    '/security': SecurityPage,
+    '/api-config': ApiConfigPage,
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
