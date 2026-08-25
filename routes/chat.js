@@ -218,6 +218,11 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
+  const sourceText = String(body.novelText || '').trim();
+  const compactSourceGuard = sourceText.length <= 600
+    ? `## 短原文时长硬校验\n原文仅 ${sourceText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得为了填满内容新增事件、人物、对白或空镜。`
+    : '';
+  const durationGuard = `## 时长硬校验（最高优先级）\n每个分镜单元的总时长只能是 ${duration}；时间轴必须从 00:00 连续到 ${endTime}，任何结束时间不得超过 ${endTime}。禁止输出 60s、100s、01:00 或跨单元累计时间；内容不足时保持动作简洁，不得用重复动作填时长。`;
   // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
   const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
@@ -232,6 +237,8 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
     directorMaster,
     unitProtocol,
+    durationGuard,
+    compactSourceGuard,
     constraintWrapper,
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
@@ -266,7 +273,12 @@ function buildQuickDirectorMessages(body, presetStore) {
   // 它只省去人工逐步点击，并不降级场景、事件、连续性与质量规则。
   const directorMaster = resolveSystemPresetBody(presetStore, 'script-director-storyboard-master')
     .replace(/\{duration\}/g, duration);
-  const systemPrompt = [quickDirectorBase, directorMaster].filter(Boolean).join('\n\n---\n\n');
+  const endTime = duration === '15s' ? '00:15' : '00:10';
+  const compactSourceGuard = novelText.length <= 600
+    ? `## 短原文时长硬校验\n原文仅 ${novelText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得新增事件、人物、对白或重复动作。`
+    : '';
+  const durationGuard = `## 时长硬校验（最高优先级）\n每个分镜单元总时长只能是 ${duration}，从 00:00 连续到 ${endTime}；禁止输出 60s、100s、01:00 或跨单元累计时间。内容不足时保持动作简洁，不得用重复动作填时长。`;
+  const systemPrompt = [quickDirectorBase, directorMaster, durationGuard, compactSourceGuard].filter(Boolean).join('\n\n---\n\n');
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: [

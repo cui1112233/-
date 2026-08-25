@@ -242,3 +242,20 @@ test('剧情模式 [00:00-00:XX]镜头N 块级时间轴按秒切分并统一命�
   assert.match(cards[1], /^### 分镜二（总时长：\d+s）/);
   assert.match(cards[1], /\[00:00-00:03\]镜头4:/); // 第二段从 00:00 重新排布
 });
+
+test('最终卡片不会保留超过所选 15 秒上限的时间轴', async () => {
+  const { buildFinalSegments } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
+  const cards = buildFinalSegments({
+    output: '00:00-01:40 | 她从门口走到窗边，放下手机并回头。',
+    extractInfo: { characters: [], scenes: [] },
+    constraints: { baseSetup: { enabled: false } },
+    format: 'shotlist', duration: '15s', mode: 'continuous'
+  });
+  assert.equal(cards.length, 7);
+  for (const card of cards) {
+    const range = card.match(/(\d{2}):(\d{2})-(\d{2}):(\d{2})/);
+    assert.ok(range);
+    assert.ok(Number(range[3]) * 60 + Number(range[4]) <= 15);
+    assert.match(card, /总时长：(?:[1-9]|1[0-5])s/);
+  }
+});

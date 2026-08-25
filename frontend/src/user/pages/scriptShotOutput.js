@@ -3,7 +3,9 @@ const SHOT_ARRAY_KEYS = ['shots', 'scenes', 'storyboard', '分镜'];
 //   - 分镜模式：### 分镜一（总时长：10s） / 镜头一：
 //   - 画布模式：分镜1：xxx（0-10s）
 //   - 剧情模式：[00:00-00:10]镜头1:xxx(...)
-const UNIT_HEADING = /^(?:#{3,6}\s*分镜\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)[（(：:].*|\[?[X\d]{1,2}:[X\d]{2}-[X\d]{1,2}:[X\d]{2}\]?\s*(?:分镜|镜头)\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)[：:].*|(?:分镜|镜头)\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)[：:].*)$/gim;
+// 兼容模型常见的轻微格式漂移，但不把普通“镜头画面/画面描述”行误判成新卡。
+const UNIT_HEADING = /^(?:#{1,6}\s*)?(?:\[?\d{1,2}:\d{2}\s*[-—~]\d{1,2}:\d{2}\]?\s*)?(?:分镜|镜头)\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)\s*(?:(?:[：:]|[（(]|[-—])[^\n]*)?$/gim;
+const TIMELINE_LINE_RE = /^(\s*)(\d{1,2}:\d{2})\s*[-—~]\s*(\d{1,2}:\d{2})(\s*\|.*)$/;
 
 export function isShotCardFormat(format) {
   return format !== 'shortdrama';
@@ -33,6 +35,33 @@ function parseShotUnits(output) {
       return preamble ? `${preamble}\n\n${unit}` : unit;
     })
     .filter(Boolean);
+}
+
+function expandLongTimelineRows(rows, limit) {
+  const expanded = [];
+  rows.forEach(row => {
+    if (row.start === null || row.end === null || row.end - row.start <= limit) {
+      expanded.push(row);
+      return;
+    }
+    // 模型偶尔把两三行原文夸成 60/100 秒。按上限拆成可执行片段，
+    // 保留原动作描述并标明“延续”，避免任何单卡越过视频引擎时长。
+    let cursor = row.start;
+    while (cursor < row.end) {
+      const next = Math.min(row.end, cursor + limit);
+      const start = formatSeconds(cursor);
+      const end = formatSeconds(next);
+      const suffix = cursor === row.start ? '' : '（动作延续）';
+      expanded.push({
+        ...row,
+        line: row.line.replace(/^\s*\d{1,2}:\d{2}\s*[-—~]\s*\d{1,2}:\d{2}/, `${start}-${end}`) + suffix,
+        start: cursor,
+        end: next
+      });
+      cursor = next;
+    }
+  });
+  return expanded;
 }
 
 // Q 版等预设会要求每个独立镜头单元用 --- 分隔。但模型有时会省略
@@ -76,6 +105,16 @@ export function getShotCards(format, output) {
   return cards.length >= 2 ? cards : [];
 }
 
+export function getShotCardsWithinDuration(format, output, duration) {
+  const cards = getShotCards(format, output);
+  const limit = Math.max(1, Number.parseInt(String(duration), 10) || 10);
+  if (!cards.length) return cards;
+  return cards.flatMap(card => {
+    const segments = splitContinuousTimeline(card, limit);
+    return segments.length > 1 ? segments : [card];
+  });
+}
+
 export function joinShotCards(cards, selectedIndexes) {
   return cards.filter((_, index) => selectedIndexes.has(index)).join('\n\n');
 }
@@ -108,7 +147,10 @@ export function splitContinuousTimeline(output, maxSeconds) {
     if (!match) return { line, start: null, end: null };
     return { line, start: toSeconds(match[1]), end: toSeconds(match[2]) };
   });
-  const timelineRows = rows.filter(row => row.start !== null && row.end !== null && row.end > row.start);
+  const timelineRows = expandLongTimelineRows(
+    rows.filter(row => row.start !== null && row.end !== null && row.end > row.start),
+    limit
+  );
   if (timelineRows.length === 0) return [];
 
   // 前言：第一个时间轴行之前的所有非空行（统一人物/场景/负面提示词等）

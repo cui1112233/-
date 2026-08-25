@@ -1,7 +1,7 @@
 // 剧本生成“最终分段”：模型只管输出提示词（画面内容），
 // 程序把「已提取的人物/场景生成的基础设定 + 用户约束设置」注入每个分段卡片，
 // 与小说面板“按秒数分段并合并”的最终组装逻辑一致。
-import { getShotCards, splitContinuousTimeline, splitTimelineBlocks } from './scriptShotOutput.js';
+import { getShotCardsWithinDuration, splitContinuousTimeline, splitTimelineBlocks } from './scriptShotOutput.js';
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -9,6 +9,33 @@ function text(value) {
 
 function targetSeconds(duration) {
   return Number.parseInt(String(duration), 10) || 10;
+}
+
+function clampTimelineToTarget(value, limit) {
+  const textValue = String(value || '');
+  const ranges = [...textValue.matchAll(/(\d{1,2}:\d{2})\s*[-—~]\s*(\d{1,2}:\d{2})/g)];
+  if (!ranges.length || !limit) return textValue;
+  const starts = ranges.map(match => {
+    const [m, s] = match[1].split(':').map(Number);
+    return m * 60 + s;
+  });
+  const offset = Math.min(...starts);
+  return textValue.split('\n').map(line => line.replace(
+    /(\d{1,2}:\d{2})\s*[-—~]\s*(\d{1,2}:\d{2})/,
+    (full, startText, endText) => {
+      const [sm, ss] = startText.split(':').map(Number);
+      const [em, es] = endText.split(':').map(Number);
+      const start = Math.max(0, sm * 60 + ss - offset);
+      const end = Math.min(limit, em * 60 + es - offset);
+      if (end <= start) return `${formatClock(start)}-${formatClock(start)}`;
+      return `${formatClock(start)}-${formatClock(end)}`;
+    }
+  )).join('\n');
+}
+
+function formatClock(seconds) {
+  const value = Math.max(0, Math.round(seconds));
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
 }
 
 // 程序从已提取的人物/场景生成【基础设定】文本
@@ -159,19 +186,22 @@ export function unitTotalSeconds(text) {
 }
 
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
-export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0 }) {
+export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0, duration }) {
   // 历史草稿没有总开关字段时，基础设定沿用原本默认开启的行为；只有明确关闭才隐藏。
   const baseOn = constraints?.enabled !== false && constraints?.baseSetup?.enabled !== false;
   const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints, extractInfo?.visualStyle);
   // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
+  const target = targetSeconds(duration);
   let body = stripLegacySharedSetupSections(card);
   body = stripBaseSetupSection(body);
-  const total = unitTotalSeconds(card) ?? unitTotalSeconds(body);
+  const rawTotal = unitTotalSeconds(card) ?? unitTotalSeconds(body);
+  const total = rawTotal ? Math.min(rawTotal, target) : null;
   body = stripUnitHeading(body);
   // 无论用户是否启用文字约束，都先清理模型擅自输出的约束标题。
   // 这样 Q 版等格式不能通过返回“【画面前缀】”绕过前缀开关；
   // 最终只由下方按当前开关重新注入的约束决定是否展示。
   body = stripConstraintLines(body);
+  body = clampTimelineToTarget(body, target);
   const parts = [`### 分镜${chineseOrdinal(index)}${total ? `（总时长：${total}s）` : ''}`];
   if (baseOn) parts.push(buildBaseSetupText(extractInfo));
   if (leadingConstraints) parts.push(leadingConstraints);
@@ -193,7 +223,11 @@ export function buildFinalSegments({ output, extractInfo, constraints, format, d
       const blocks = splitTimelineBlocks(textOutput, target);
       if (blocks.length >= 2) cards = blocks;
     }
-    if (!cards.length) cards = getShotCards(format, textOutput, duration);
+    if (!cards.length) cards = getShotCardsWithinDuration(format, textOutput, duration);
+    else cards = cards.flatMap(card => {
+      const pieces = splitContinuousTimeline(card, target);
+      return pieces.length > 1 ? pieces : [card];
+    });
     if (!cards.length && format !== 'shortdrama') {
       const segments = splitContinuousTimeline(textOutput, target);
       if (segments.length >= 2) cards = segments;
@@ -214,6 +248,6 @@ export function buildFinalSegments({ output, extractInfo, constraints, format, d
   }
   if (!cards.length) cards = [textOutput];
   return cards
-    .map((card, index) => buildFinalSegmentCard(card, { extractInfo, constraints, index }))
+    .map((card, index) => buildFinalSegmentCard(card, { extractInfo, constraints, index, duration }))
     .filter(Boolean);
 }

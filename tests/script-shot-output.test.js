@@ -9,7 +9,7 @@ test('returns only complete 分镜 units and retains internal timestamps', async
     '### 分镜二（总时长 10s）\n【基础设定】B\n00:00-00:10 | C'
   ]);
   assert.deepEqual(getShotCards('storyboard', '### 分镜一（总时长 10s）\n00:00-00:03 | A\n00:03-00:10 | B'), []);
-  assert.deepEqual(getShotCards('storyboard', '镜头一\n00:00-00:10 | A\n\n镜头二\n00:00-00:10 | B'), []);
+  assert.equal(getShotCards('storyboard', '镜头一\n00:00-00:10 | A\n---\n镜头二\n00:00-00:10 | B').length, 2);
   assert.equal(joinShotCards(['一', '二', '三'], new Set([0, 2])), '一\n\n三');
 });
 
@@ -192,4 +192,25 @@ test('splitContinuousTimeline returns empty when no timeline rows exist', async 
   const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   assert.deepEqual(splitContinuousTimeline('统一人物：林默\n没有时间轴', 10), []);
   assert.deepEqual(splitContinuousTimeline('', 10), []);
+});
+
+test('splitContinuousTimeline caps an overlong single timeline row into executable cards', async () => {
+  const { splitContinuousTimeline } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const segments = splitContinuousTimeline('00:00-01:40 | 两三行原文被模型错误拉成长动作', 10);
+  assert.equal(segments.length, 10);
+  assert.match(segments[0], /总时长：10s/);
+  assert.match(segments[0], /00:00-00:10/);
+  assert.match(segments[9], /00:00-00:10/);
+});
+
+test('shot headings tolerate markdown and separator drift', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '## 分镜 1 - 客厅',
+    '00:00-00:05 | 她放下手机。',
+    '---',
+    '镜头 2',
+    '00:00-00:05 | 她抬头。'
+  ].join('\n');
+  assert.equal(getShotCards('storyboard', output).length, 2);
 });

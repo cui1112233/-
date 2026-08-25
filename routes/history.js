@@ -15,7 +15,8 @@ const FORMAT_NAME_MAP = {
   screenplay: '剧情模式',
   storyboard: '画布模式',
   shortdrama: '剧本模式',
-  shotlist: '分镜模式'
+  shotlist: '分镜模式',
+  q版: 'Q版模式'
 };
 
 const router = express.Router();
@@ -63,6 +64,9 @@ function historyAppend(username, record) {
     duration: record.duration || '-',
     preview: String(record.title || record.id || '').replace(/\n/g, ' ').slice(0, 40),
     output: record.output || '',
+    novelText: typeof record.novelText === 'string' ? record.novelText.slice(0, 200000) : '',
+    extractInfo: record.extractInfo && typeof record.extractInfo === 'object' ? record.extractInfo : null,
+    constraints: record.constraints && typeof record.constraints === 'object' ? record.constraints : null,
     videoTasks: normalizeVideoTasks(record.videoTasks),
     restoredFrom: record.restoredFrom || 'local',
     createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString()
@@ -87,8 +91,8 @@ router.get('/', (req, res) => {
 // POST /api/history — 保存一条记录
 router.post('/', (req, res) => {
   try {
-    const { id, format, formatName, mode, duration, output } = req.body;
-    if (isInvalidHistoryId(id) || !output) {
+    const { id, format, formatName, mode, duration, output, novelText, extractInfo, constraints } = req.body;
+    if (isInvalidHistoryId(id) || typeof output !== 'string' || !output.trim()) {
       return res.status(400).json({ error: 'id 和 output 为必填项' });
     }
 
@@ -114,6 +118,9 @@ router.post('/', (req, res) => {
       duration: duration || '10s',
       preview: preview,
       output: output,
+      novelText: typeof novelText === 'string' ? novelText.slice(0, 200000) : '',
+      extractInfo: extractInfo && typeof extractInfo === 'object' ? extractInfo : null,
+      constraints: constraints && typeof constraints === 'object' ? constraints : null,
       videoTasks: normalizeVideoTasks(req.body?.videoTasks),
       createdAt: new Date().toISOString()
     });

@@ -16,7 +16,7 @@ import { filterExtractionPresets, selectAvailableExtractionPreset } from './scri
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
-import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
+import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
@@ -140,7 +140,7 @@ export function ScriptPage() {
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
-    const parsed = getShotCards(selectedFormat, output);
+    const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
     if (parsed.length) return parsed;
     // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
     if (selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output) {
@@ -155,8 +155,9 @@ export function ScriptPage() {
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
     constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
-    index
-  })), [rawShotCards, extractInfo, constraints, selectedFormat]);
+    index,
+    duration: selectedDuration
+  })), [rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
@@ -228,14 +229,37 @@ export function ScriptPage() {
       });
       if (!isCurrentRequest(request)) return;
       const nextOutput = aiText(result);
-      if (!nextOutput) throw new Error('模型未返回分镜内容');
+      if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回分镜内容');
+      const historyId = 'react-' + Date.now().toString(36);
       setPreviousOutput(output);
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
       setCurrentHistoryId('');
+      let historySaved = false;
+      try {
+        await saveHistory({
+          id: historyId,
+          mode: form.getFieldValue('mode') || 'continuous',
+          format: form.getFieldValue('format') || 'storyboard',
+          duration: form.getFieldValue('duration') || '10s',
+          output: nextOutput,
+          novelText: source,
+          extractInfo: extraction,
+          constraints
+        });
+        if (!isCurrentRequest(request)) return;
+        setCurrentHistoryId(historyId);
+        historySaved = true;
+      } catch {
+        if (!isCurrentRequest(request)) return;
+        message.warning('分镜已生成，但保存历史失败');
+      }
       message.success('快速导演分镜已生成，可直接查看、复制或生成视频');
       playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success', { title: '快速导演分镜已生成', detail: '完整分镜已写入当前剧本，可直接查看或生成视频。' });
+      dispatchPetState('success', {
+        title: '快速导演分镜已生成',
+        detail: historySaved ? '完整分镜已写入当前剧本和生成历史。' : '完整分镜已写入当前剧本，但生成历史保存失败。'
+      });
     } catch (error) {
       if (isCurrentRequest(request)) {
         setGenerationStage('error');
@@ -284,7 +308,7 @@ export function ScriptPage() {
     setOutput(nextOutput);
     if (!preserveSelectedShots) setSelectedShotIndexes(new Set());
     else {
-      const nextCards = getShotCards(selectedFormat, nextOutput);
+      const nextCards = getShotCardsWithinDuration(selectedFormat, nextOutput, selectedDuration);
       setSelectedShotIndexes(current => new Set([...current].filter(index => index < nextCards.length)));
     }
     persistDraft(undefined, { output: nextOutput });
@@ -377,6 +401,9 @@ export function ScriptPage() {
       formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式', q版: 'Q版模式' }[values.format] || '剧本',
       duration: values.duration || '10s',
       output,
+      novelText: values.novelText || '',
+      extractInfo,
+      constraints: constraintsForFormat(constraints, values.format, extractInfo),
       videoTasks: shotVideoTasks
     });
     setCurrentHistoryId(historyId);
@@ -414,7 +441,11 @@ export function ScriptPage() {
 
   function restoreHistory(entry) {
     if (!entry?.output) return;
-    form.setFieldsValue({ mode: entry.mode || 'continuous', format: entry.format || 'storyboard', duration: entry.duration || '10s' });
+    form.setFieldsValue({ mode: entry.mode || 'continuous', format: entry.format || 'storyboard', duration: entry.duration || '10s', novelText: entry.novelText || '' });
+    setExtractInfo(normalizeExtractInfo(entry.extractInfo));
+    const restoredConstraints = normalizeScriptConstraints(entry.constraints || DEFAULT_SCRIPT_CONSTRAINTS);
+    setConstraints(restoredConstraints);
+    setDraftConstraints(restoredConstraints);
     setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
     setShotVideoTasks(entry.videoTasks || {}); setCurrentHistoryId(entry.id); setHistoryOpen(false);
     Object.entries(entry.videoTasks || {}).forEach(([index, task]) => { if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId); });
@@ -725,9 +756,15 @@ export function ScriptPage() {
         constraints: constraintsForFormat(constraints, values.format, extractInfo)
       });
       const nextOutput = aiText(scriptResponse);
+      if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回剧本内容');
 
       if (!isCurrentRequest(requestId)) return;
 
+      setShotVideoTasks({});
+      updateOutputDraft(nextOutput);
+      setGenerationStage('complete');
+      setCurrentHistoryId('');
+      let historySaved = false;
       try {
         const historyId = 'react-' + Date.now().toString(36);
         await saveHistory({
@@ -736,20 +773,25 @@ export function ScriptPage() {
           format: values.format,
           formatName: { storyboard: '画布模式', shortdrama: '剧本模式', screenplay: '剧情模式', shotlist: '分镜模式', q版: 'Q版模式' }[values.format] || '剧本',
           duration: values.duration,
-          output: nextOutput
+          output: nextOutput,
+          novelText: values.novelText,
+          extractInfo,
+          constraints: constraintsForFormat(constraints, values.format, extractInfo)
         });
+        if (!isCurrentRequest(requestId)) return;
         setCurrentHistoryId(historyId);
-      } catch (error) {
+        historySaved = true;
+      } catch {
         if (!isCurrentRequest(requestId)) return;
         message.warning('生成成功，但保存历史失败');
       }
       if (!isCurrentRequest(requestId)) return;
-      setShotVideoTasks({});
-      updateOutputDraft(nextOutput);
-      setGenerationStage('complete');
       message.success('生成完成');
       playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success', { title: '剧本生成完成', detail: '结果已保存到当前工作台和生成历史。' });
+      dispatchPetState('success', {
+        title: '剧本生成完成',
+        detail: historySaved ? '结果已保存到当前工作台和生成历史。' : '结果已保存到当前工作台，但生成历史保存失败。'
+      });
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
@@ -1055,6 +1097,13 @@ export function ScriptPage() {
         persistDraft(allValues);
         if (Object.hasOwn(changed, 'novelText')) {
           invalidateRequests();
+          setExtractInfo(normalizeExtractInfo());
+          setOutput('');
+          setShotVideoTasks({});
+          setSelectedShotIndexes(new Set());
+          setCurrentHistoryId('');
+          setEditingOutput(false);
+          setGenerationStage('idle');
           setExtracting(false);
           setGenerating(false);
           setRegeneratingEntities(false);

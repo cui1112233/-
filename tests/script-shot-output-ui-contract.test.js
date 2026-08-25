@@ -29,7 +29,7 @@ test('shot card component provides individual copy and video-generation controls
 test('script page uses card output for every non-shortdrama result', () => {
   const cards = read('frontend/src/user/components/ShotOutputCards.jsx');
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
-  assert.match(page, /getShotCards\(selectedFormat, output\)/);
+  assert.match(page, /getShotCardsWithinDuration\(selectedFormat, output, selectedDuration\)/);
   assert.match(page, /buildFinalSegmentCard\(card, \{/);
   assert.match(page, /rawShotCards\.map/);
   assert.match(page, /selectedFormat !== 'shortdrama' && output \? \[output\] : \[\]/);
@@ -132,7 +132,7 @@ test('shot cards recognize storyboard and screenplay headings', async () => {
   assert.equal(getShotCards('screenplay', screenplay).length, 2);
 });
 
-test('script source textarea clears without deleting prior results until extraction starts', () => {
+test('changing script source invalidates extracted entities and generated results immediately', () => {
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
   const styles = read('frontend/src/shared/styles/global.css');
   assert.match(page, /Form\.useWatch\('novelText', form\)/);
@@ -141,8 +141,10 @@ test('script source textarea clears without deleting prior results until extract
   assert.match(page, /persistDraft\(\{ \.\.\.form\.getFieldsValue\(\), novelText: '' \}\)/);
   assert.match(page, /function handleExtract\(values\)[\s\S]*?setExtractInfo\(normalizeExtractInfo\(\)\)[\s\S]*?setOutput\(''\)/);
   const sourceChange = page.match(/if \(Object\.hasOwn\(changed, 'novelText'\)\) \{([\s\S]*?)\n        \}/)?.[1] || '';
-  assert.doesNotMatch(sourceChange, /setExtractInfo\(normalizeExtractInfo\(\)\)/);
-  assert.doesNotMatch(sourceChange, /setOutput\(''\)/);
+  assert.match(sourceChange, /setExtractInfo\(normalizeExtractInfo\(\)\)/);
+  assert.match(sourceChange, /setOutput\(''\)/);
+  assert.match(sourceChange, /setCurrentHistoryId\(''\)/);
+  assert.match(sourceChange, /setGenerationStage\('idle'\)/);
   assert.match(styles, /script-source-input/);
   assert.match(styles, /script-source-clear/);
 });
