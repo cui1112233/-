@@ -1,0 +1,298 @@
+/* 05 · Personal center information architecture
+   Workspace navigation always stays primary. Account routes live inside this nested shell. */
+
+.legacy-account-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--legacy-border);
+}
+
+.legacy-account-entry {
+  display: flex;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 7px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--legacy-text);
+  text-decoration: none;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+
+.legacy-account-entry:hover,
+.legacy-account-card.active .legacy-account-entry {
+  border-color: var(--legacy-border-strong);
+  background: var(--legacy-card);
+}
+
+.legacy-account-entry:hover { transform: translateY(-1px); }
+
+.legacy-account-entry .ant-avatar {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,.11);
+  background: #151d2a;
+}
+
+.legacy-account-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.legacy-account-copy strong,
+.legacy-account-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legacy-account-copy strong {
+  color: var(--legacy-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.legacy-account-copy small {
+  color: var(--legacy-muted);
+  font-size: 9px;
+}
+
+.legacy-account-logout {
+  appearance: none;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--legacy-dim);
+  background: transparent;
+  cursor: pointer;
+}
+
+.legacy-account-logout:hover {
+  border-color: rgba(255,111,114,.18);
+  color: #ff7b7e;
+  background: rgba(255,111,114,.08);
+}
+
+.legacy-sidebar.collapsed .legacy-account-card {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.legacy-sidebar.collapsed .legacy-account-entry {
+  width: 48px;
+  min-height: 48px;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 50%;
+}
+
+.legacy-sidebar.collapsed .legacy-account-copy { display: none; }
+.legacy-sidebar.collapsed .legacy-account-logout { width: 32px; height: 32px; }
+
+/* Account center keeps the workspace sidebar. The account navigation is nested in content. */
+.account-center-shell .legacy-nav::before { content: 'WORKSPACE'; }
+
+.account-center-shell .legacy-account-card {
+  border-top-color: var(--ac-line);
+}
+
+.account-center-shell .legacy-account-entry {
+  color: var(--ac-text-soft);
+}
+
+.account-center-shell .legacy-account-entry:hover,
+.account-center-shell .legacy-account-card.active .legacy-account-entry {
+  border-color: rgba(239,189,100,.18);
+  background: linear-gradient(100deg, rgba(239,189,100,.07), rgba(255,255,255,.018));
+}
+
+.account-center-shell .legacy-account-card.active .legacy-account-entry .ant-avatar {
+  box-shadow: 0 0 0 3px rgba(239,189,100,.07);
+  border-color: rgba(239,189,100,.42);
+}
+
+.account-center-shell .legacy-account-copy strong { color: #eef3f8; }
+.account-center-shell .legacy-account-copy small { color: #6f7d90; }
+
+.account-center-stage {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  min-height: 100%;
+}
+
+.account-center-subnav {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  align-self: start;
+  height: calc(100vh - 72px);
+  padding: 28px 14px 24px;
+  overflow: auto;
+  border-right: 1px solid var(--ac-line);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.012), transparent 18%),
+    rgba(7, 12, 19, .74);
+  backdrop-filter: blur(14px);
+}
+
+.account-center-subnav-head {
+  display: grid;
+  gap: 4px;
+  padding: 0 10px 18px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--ac-line);
+}
+
+.account-center-subnav-head small {
+  color: #566477;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .18em;
+}
+
+.account-center-subnav-head strong {
+  color: #f0f4f9;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.account-center-subnav-head span {
+  color: #657489;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.account-center-subnav nav {
+  display: grid;
+  gap: 4px;
+}
+
+.account-center-subnav nav a {
+  display: grid;
+  grid-template-columns: 28px minmax(0,1fr);
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #7e8ca0;
+  text-decoration: none;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.account-center-subnav nav a > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: #647287;
+}
+
+.account-center-subnav nav a b {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-center-subnav nav a:hover {
+  color: #dce4ee;
+  border-color: rgba(255,255,255,.025);
+  background: rgba(255,255,255,.024);
+}
+
+.account-center-subnav nav a.active {
+  color: #f2c36f;
+  border-color: rgba(239,189,100,.15);
+  background: linear-gradient(90deg, rgba(239,189,100,.1), rgba(239,189,100,.025));
+}
+
+.account-center-subnav nav a.active > span {
+  color: #efbd64;
+  background: rgba(239,189,100,.075);
+}
+
+.account-center-subcontent {
+  min-width: 0;
+  min-height: 100%;
+}
+
+.account-center-subcontent .account-center-page {
+  width: min(1236px, 100%);
+  min-height: calc(100vh - 72px);
+  padding-left: 30px;
+  padding-right: 30px;
+}
+
+/* The top bar no longer duplicates the personal-center avatar entry. */
+.account-center-shell .legacy-userbar:empty { display: none; }
+
+@container (max-width: 1080px) {
+  .account-center-stage { grid-template-columns: 164px minmax(0,1fr); }
+  .account-center-subnav { padding-left: 10px; padding-right: 10px; }
+  .account-center-subcontent .account-center-page { padding-left: 24px; padding-right: 24px; }
+}
+
+@container (max-width: 820px) {
+  .account-center-stage { grid-template-columns: 1fr; }
+  .account-center-subnav {
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    height: auto;
+    padding: 10px 14px;
+    overflow: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--ac-line);
+    background: rgba(7,11,17,.94);
+  }
+  .account-center-subnav-head { display: none; }
+  .account-center-subnav nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .account-center-subnav nav::-webkit-scrollbar { display: none; }
+  .account-center-subnav nav a {
+    grid-template-columns: 22px auto;
+    min-width: max-content;
+    min-height: 38px;
+    padding: 0 10px;
+  }
+  .account-center-subnav nav a > span { width: 22px; height: 22px; }
+  .account-center-subcontent .account-center-page { min-height: auto; }
+}
+
+@container (max-width: 560px) {
+  .account-center-subnav { padding-left: 10px; padding-right: 10px; }
+  .account-center-subnav nav a { grid-template-columns: 1fr; min-width: 40px; padding: 0 10px; text-align: center; }
+  .account-center-subnav nav a > span { margin: 0 auto; }
+  .account-center-subnav nav a b { display: none; }
+  .account-center-subcontent .account-center-page { padding-left: 14px; padding-right: 14px; }
+}
+
+[data-theme='light'] .account-center-subnav {
+  background: rgba(248,250,252,.92);
+}
+
+[data-theme='light'] .account-center-subnav-head strong { color: #1b2737; }
+[data-theme='light'] .account-center-subnav-head span,
+[data-theme='light'] .account-center-subnav nav a { color: #68788d; }
+[data-theme='light'] .account-center-subnav nav a:hover { color: #273649; background: rgba(26,39,57,.035); }
+[data-theme='light'] .account-center-subnav nav a.active { color: #a56d12; background: rgba(219,159,56,.09); }
