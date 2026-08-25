@@ -33,6 +33,13 @@ export function regenerateBatchFactoryDirector(batchId, itemId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/regenerate-director`, { method: 'POST' });
 }
 
+export function updateBatchFactoryDirectorResult(batchId, itemId, directorResult) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/director-result`, {
+    method: 'PUT',
+    body: JSON.stringify({ directorResult })
+  });
+}
+
 export function compileBatchFactoryVideo(batchId, itemId, videoId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/compile`, { method: 'POST' });
 }
