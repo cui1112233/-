@@ -113,6 +113,7 @@ func (api *API) Router() http.Handler {
 			r.Post("/shuihuo-production/tasks/{taskId}/retry", api.handleRetryShuihuoTask)
 			r.With(api.requireOwner).Get("/shuihuo-production/admin/models", api.handleAdminModelList)
 			r.With(api.requireOwner).Post("/shuihuo-production/admin/models", api.handleCreateAdminModel)
+			r.With(api.requireOwner).Put("/shuihuo-production/admin/models/{modelId}", api.handleUpdateAdminModel)
 		})
 	})
 	return r
