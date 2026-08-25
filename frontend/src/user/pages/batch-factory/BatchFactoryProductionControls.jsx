@@ -4,6 +4,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { generateBatchFactoryVideos } from '../../../shared/api/batchFactory';
 import { listModels } from '../../../shared/api/shuihuoProduction';
 
+let modelCatalogPromise = null;
+
+export function loadBatchFactoryVideoModels() {
+  if (!modelCatalogPromise) {
+    modelCatalogPromise = listModels()
+      .then(result => (result.models || []).filter(model => model.kind === 'video'))
+      .catch(error => {
+        modelCatalogPromise = null;
+        throw error;
+      });
+  }
+  return modelCatalogPromise;
+}
+
 export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   const [models, setModels] = useState([]);
   const [modelId, setModelId] = useState(null);
@@ -13,10 +27,9 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   useEffect(() => {
     let active = true;
     setLoadingModels(true);
-    listModels()
-      .then(result => {
+    loadBatchFactoryVideoModels()
+      .then(videoModels => {
         if (!active) return;
-        const videoModels = (result.models || []).filter(model => model.kind === 'video');
         setModels(videoModels);
         const directModels = videoModels.filter(model => model.requiresImageInput !== true);
         if (directModels.length) setModelId(current => current || directModels[0].id);
