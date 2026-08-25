@@ -4,6 +4,7 @@ const path = require('path');
 
 const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const { apiAuth } = require('./middleware/auth');
+const { createDeletedAccountGuard } = require('./middleware/deleted-account-guard');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
@@ -17,7 +18,6 @@ const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentRespon
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
-// 路由模块
 const pagesRouter = require('./routes/pages');
 const { createAuthRouter } = require('./routes/auth');
 const { createAccountRecoveryRouter } = require('./routes/account-recovery');
@@ -83,6 +83,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedPasskeyStore = passkeyStore || createPasskeyStore({ systemDir });
   const resolvedAccountRecoveryStore = accountRecoveryStore || createAccountRecoveryStore({ systemDir });
   const resolvedMailer = mailer || createMailerFromEnv();
+  const deletedAccountGuard = createDeletedAccountGuard(resolvedAccountRecoveryStore);
   const resolvedPresetStore = presetStore || createPresetStore({ systemDir });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
   const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({ systemDir });
@@ -271,6 +272,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     res.json({ app_version: 'v81-advanced-auth', build_id: '04-account-recovery-advanced-auth' });
   });
   app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore, { passkeyStore: resolvedPasskeyStore }));
+
+  // Permanent-deletion tombstones remain authoritative across all older member mutation paths.
+  app.use('/api/account-recovery/purge/:username', apiAuth, deletedAccountGuard);
+  app.use('/api/member/team/members/:username', apiAuth, deletedAccountGuard);
+  app.use('/api/team-admin/teams/:teamId/members/:username', apiAuth, deletedAccountGuard);
+
   app.use('/api/account-recovery', createAccountRecoveryRouter({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
