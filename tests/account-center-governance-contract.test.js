@@ -51,4 +51,6 @@ test('member center owns authorization and team page owns MEMBER operations', ()
   assert.match(usage, /callsByFeature/);
   assert.match(usage, /不等同于按书籍去重的制作量/);
   assert.match(css, /\.ac-production-summary/);
+  assert.match(css, /\.ac-metrics-grid\s*\{[^}]*display:grid/);
+  assert.match(css, /\.ac-usage-layout\s*\{[^}]*display:grid/);
 });

@@ -584,7 +584,9 @@
 .ac-team-admin-toolbar .ac-team-selector { margin: 0; }
 
 /* Metrics / profile / usage / security */
-.ac-metrics-grid { gap: 12px; }
+.ac-metrics-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.ac-metrics-grid.five { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.ac-usage-layout { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr); gap:16px; align-items:start; }
 .ac-metric-card {
   min-height: 124px;
   padding: 17px 18px;
