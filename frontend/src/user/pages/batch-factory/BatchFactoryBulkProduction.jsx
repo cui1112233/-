@@ -3,6 +3,7 @@ import { Factory } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { generateBatchFactoryBatch } from '../../../shared/api/batchFactory';
 import { loadBatchFactoryVideoModels } from './BatchFactoryProductionControls';
+import { BatchFactoryBatchProductionStatus } from './BatchFactoryVideoProductionStatus';
 
 function compatibleLegacyModels(models, batch) {
   const requiredDuration = Number(batch?.settings?.maxVideoDuration || 0);
@@ -69,43 +70,46 @@ export function BatchFactoryBulkProduction({ batch, onRefresh }) {
 
   const boundUnavailable = boundModelId && !loadingModels && !boundModel;
 
-  return <Card title={<Space><Factory size={17} /><span>整批视频生产</span></Space>}>
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <Space wrap size="large">
-        <Statistic title="待生产开篇" value={readyItems.length} />
-        <Statistic title="已创建生产项目" value={producedItems.length} />
-        <Tag color="blue">浏览器只提交 1 次请求</Tag>
-        <Tag>服务端并发 3</Tag>
-      </Space>
+  return <Space direction="vertical" size={14} style={{ width: '100%' }}>
+    <Card title={<Space><Factory size={17} /><span>整批视频生产</span></Space>}>
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space wrap size="large">
+          <Statistic title="待生产开篇" value={readyItems.length} />
+          <Statistic title="已创建生产项目" value={producedItems.length} />
+          <Tag color="blue">浏览器只提交 1 次请求</Tag>
+          <Tag>服务端并发 3</Tag>
+        </Space>
 
-      {boundModelId ? <>
-        <Typography.Text type="secondary">整批生产直接沿用导演前锁定的视频模型。所有已完成且尚未生产的小说逐篇创建正式生产项目，每篇内部的全部 VIDEO 一次入队。</Typography.Text>
-        <Space wrap>
-          <Tag color="blue">{batch.settings?.videoModelName || boundModel?.name || `模型 #${boundModelId}`}</Tag>
-          <Tag>单次最大 {batch.settings?.maxVideoDuration || '—'}s</Tag>
-          <Tag>{batch.settings?.aspectRatio || '9:16'}</Tag>
-        </Space>
-        {boundUnavailable ? <Alert type="warning" showIcon message="已绑定模型当前不可用" description="模型可能已停用或不再公开。请恢复原模型后再生产；不能在这里换成另一模型，因为导演方案已经按原模型时长能力生成。" /> : null}
-        <Button type="primary" icon={<Factory size={15} />} loading={submitting} disabled={!readyItems.length || boundUnavailable || !modelId} onClick={generateAll} style={{ alignSelf: 'flex-start' }}>生成全部已完成开篇</Button>
-      </> : legacyModels.length ? <>
-        <Alert type="info" showIcon message="历史批次兼容模式" description={`这个批次创建时没有绑定视频模型，只允许选择单次最大时长不小于导演上限 ${batch?.settings?.maxVideoDuration || '—'}s 的文生视频模型。`} />
-        <Space wrap>
-          <Select
-            loading={loadingModels}
-            value={legacyModelId}
-            onChange={setLegacyModelId}
-            style={{ minWidth: 320 }}
-            options={legacyModels.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration}s` }))}
-            placeholder="选择兼容视频模型"
-          />
-          <Button type="primary" icon={<Factory size={15} />} loading={submitting} disabled={!readyItems.length} onClick={generateAll}>生成全部已完成开篇</Button>
-        </Space>
-      </> : <Alert
-        type="warning"
-        showIcon
-        message="暂无兼容的文生视频模型"
-        description="管理员需要先配置已启用的文生视频模型及单次最大生成时长。新批次会在导演前直接锁定模型。"
-      />}
-    </Space>
-  </Card>;
+        {boundModelId ? <>
+          <Typography.Text type="secondary">整批生产直接沿用导演前锁定的视频模型。所有已完成且尚未生产的小说逐篇创建正式生产项目，每篇内部的全部 VIDEO 一次入队。</Typography.Text>
+          <Space wrap>
+            <Tag color="blue">{batch.settings?.videoModelName || boundModel?.name || `模型 #${boundModelId}`}</Tag>
+            <Tag>单次最大 {batch.settings?.maxVideoDuration || '—'}s</Tag>
+            <Tag>{batch.settings?.aspectRatio || '9:16'}</Tag>
+          </Space>
+          {boundUnavailable ? <Alert type="warning" showIcon message="已绑定模型当前不可用" description="模型可能已停用或不再公开。请恢复原模型后再生产；不能在这里换成另一模型，因为导演方案已经按原模型时长能力生成。" /> : null}
+          <Button type="primary" icon={<Factory size={15} />} loading={submitting} disabled={!readyItems.length || boundUnavailable || !modelId} onClick={generateAll} style={{ alignSelf: 'flex-start' }}>生成全部已完成开篇</Button>
+        </> : legacyModels.length ? <>
+          <Alert type="info" showIcon message="历史批次兼容模式" description={`这个批次创建时没有绑定视频模型，只允许选择单次最大时长不小于导演上限 ${batch?.settings?.maxVideoDuration || '—'}s 的文生视频模型。`} />
+          <Space wrap>
+            <Select
+              loading={loadingModels}
+              value={legacyModelId}
+              onChange={setLegacyModelId}
+              style={{ minWidth: 320 }}
+              options={legacyModels.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration}s` }))}
+              placeholder="选择兼容视频模型"
+            />
+            <Button type="primary" icon={<Factory size={15} />} loading={submitting} disabled={!readyItems.length} onClick={generateAll}>生成全部已完成开篇</Button>
+          </Space>
+        </> : <Alert
+          type="warning"
+          showIcon
+          message="暂无兼容的文生视频模型"
+          description="管理员需要先配置已启用的文生视频模型及单次最大生成时长。新批次会在导演前直接锁定模型。"
+        />}
+      </Space>
+    </Card>
+    <BatchFactoryBatchProductionStatus batch={batch} />
+  </Space>;
 }
