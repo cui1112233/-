@@ -312,7 +312,8 @@ app.whenReady().then(() => {
 
 ipcMain.handle('executor:state', () => ({
   serverUrl: state.serverUrl, executorId: state.executorId, displayName: state.displayName,
-  paired: Boolean(state.deviceToken), encryptionAvailable: safeStorage.isEncryptionAvailable(), activeJob: state.activeJob, autoSubmit: state.autoSubmit !== false
+  paired: Boolean(state.deviceToken), encryptionAvailable: safeStorage.isEncryptionAvailable(), activeJob: state.activeJob, autoSubmit: state.autoSubmit !== false,
+  version: app.getVersion()
 }));
 
 ipcMain.handle('executor:pair', async (_, input) => {
