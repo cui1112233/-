@@ -1927,6 +1927,7 @@ function taskStatusText(value, fallback = "") {
     created: "待处理", queued: "等待处理", running: "处理中", classified: "已完成判断", classifying: "正在判断", classify_failed: "判断失败",
     fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
     generating: "正在生成", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
+    waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
     submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
   };
   return labels[text] || text || fallback;
@@ -2024,13 +2025,13 @@ function renderDetail(data) {
       ${metaItem("解析", meta.parse_mode)}
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
-      ${metaItem("AI判断", meta.classify_status)}
+      ${metaItem("AI判断", taskStatusText(meta.classify_status))}
       ${metaItem("分类模型", meta.classifier_model)}
-      ${metaItem("状态", meta.status)}
+      ${metaItem("状态", taskStatusText(meta.status))}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
-      ${metaItem("AI状态", meta.ai_status || "")}
+      ${metaItem("AI状态", taskStatusText(meta.ai_status))}
       ${metaItem("改文模型", meta.rewrite_model)}
       ${metaItem("改文方案", knowledge.strategy_name || knowledge.strategy || "")}
       ${metaItem("改文模板", knowledge.rewrite_template_name || "")}
