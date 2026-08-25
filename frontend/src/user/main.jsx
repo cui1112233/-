@@ -8,6 +8,9 @@ import '../shared/styles/team-governance.css';
 import '../shared/styles/team-collaboration.css';
 import '../shared/styles/login-card.css';
 import '../shared/styles/login-card-motion.css';
+// Final visual contract for all account-center routes. Keep this import last so
+// legacy workspace and 01-04 incremental styles cannot override the unified UI.
+import '../shared/styles/account-center-visual-rebuild.css';
 import { installClientErrorReporting } from '../shared/error-reporting';
 import { UserApp } from './App';
 
