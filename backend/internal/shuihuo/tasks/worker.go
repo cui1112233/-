@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -121,11 +122,10 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	if !taskKindMatchesModel(task.Kind, model.Kind) {
 		return fail("model_kind_mismatch", errors.New("模型能力与任务类型不匹配"))
 	}
-	prompt, err := promptFromTask(task)
+	request, err := requestFromTask(task)
 	if err != nil {
 		return fail("invalid_input", err)
 	}
-	request := models.Request{Prompt: prompt}
 	if task.Kind == "video" {
 		primary, primaryErr := w.Media.PrimaryImage(ctx, task.ProjectID, *task.SegmentID)
 		if primaryErr != nil || primary.ObjectKey == "" {
@@ -186,17 +186,33 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	return nil
 }
 
-func promptFromTask(task domain.Task) (string, error) {
+func requestFromTask(task domain.Task) (models.Request, error) {
 	var input struct {
-		Prompt string `json:"prompt"`
+		Prompt      string `json:"prompt"`
+		Duration    int    `json:"duration"`
+		AspectRatio string `json:"aspectRatio"`
 	}
 	if err := json.Unmarshal([]byte(task.Input), &input); err != nil {
-		return "", fmt.Errorf("读取任务提示词: %w", err)
+		return models.Request{}, fmt.Errorf("读取任务输入: %w", err)
 	}
 	if strings.TrimSpace(input.Prompt) == "" {
-		return "", errors.New("任务提示词为空")
+		return models.Request{}, errors.New("任务提示词为空")
 	}
-	return input.Prompt, nil
+	request := models.Request{Prompt: input.Prompt}
+	if input.Duration != 0 {
+		if input.Duration < 1 || input.Duration > 60 {
+			return models.Request{}, errors.New("任务视频时长无效")
+		}
+		request.Duration = strconv.Itoa(input.Duration)
+	}
+	if input.AspectRatio != "" {
+		input.AspectRatio = strings.TrimSpace(input.AspectRatio)
+		if input.AspectRatio != "9:16" && input.AspectRatio != "16:9" {
+			return models.Request{}, errors.New("任务视频画幅无效")
+		}
+		request.AspectRatio = input.AspectRatio
+	}
+	return request, nil
 }
 
 func taskKindMatchesModel(kind string, modelKind models.Kind) bool {
