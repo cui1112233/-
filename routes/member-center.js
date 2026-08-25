@@ -5,11 +5,14 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { ensureDevBackendPermissions, devGrantActor } = require('../lib/dev-permissions');
 const { createProfileDetailsStore } = require('../lib/profile-details-store');
+const { governanceStoreForMemberStore, quotaState } = require('../lib/team-governance-store');
 const {
   listPersistentSessionsForUser,
   revokePersistentSessionsForUser,
   persistentSessionIdForToken
 } = require('../lib/session-store');
+
+const MANAGED_API_SCOPES = ['text', 'image', 'tts'];
 
 function sendMemberError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: error.message });
@@ -45,6 +48,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   const router = express.Router();
   router.use(apiAuth);
   let profileDetailsStore = null;
+  let governanceStore = null;
 
   function getAccountStore(req) {
     const resolved = accountStore || req.app?.locals?.authRuntime?.accountStore;
@@ -58,6 +62,11 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       profileDetailsStore = createProfileDetailsStore({ systemDir: path.dirname(store.files.audit) });
     }
     return profileDetailsStore;
+  }
+
+  function getGovernanceStore() {
+    if (!governanceStore) governanceStore = governanceStoreForMemberStore(memberStore);
+    return governanceStore;
   }
 
   function mergedSelf(req) {
@@ -75,18 +84,53 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     return self;
   }
 
-  function revokeOtherRuntimeSessions(req) {
+  function manageableTarget(req, targetUsername) {
+    const self = memberStore.getMember(req.username);
+    const target = memberStore.getMember(targetUsername);
+    if (!self || !self.active) {
+      const error = new Error('当前账号不可用');
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+    if (!target) {
+      const error = new Error('目标成员不存在');
+      error.code = 'NOT_FOUND';
+      throw error;
+    }
+    if (target.isOwner) {
+      const error = new Error('Owner 不可被其他成员管理');
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+    if (self.role === 'dev') return { self, target };
+    if (self.role === 'manager' && target.role === 'member' && target.boundTo === self.username) return { self, target };
+    const error = new Error('无权管理该成员');
+    error.code = 'FORBIDDEN';
+    throw error;
+  }
+
+  function revokeUserSessions(req, username, keepToken = '') {
     const runtime = req.app?.locals?.authRuntime;
     if (!runtime) return { runtime: 0, persistent: 0 };
-    const currentToken = bearerToken(req);
     let runtimeRemoved = 0;
     for (const [token, value] of runtime.tokenMap.entries()) {
-      if (token === currentToken || sessionUsername(value) !== req.username) continue;
+      if (token === keepToken || sessionUsername(value) !== username) continue;
       runtime.tokenMap.delete(token);
       runtimeRemoved += 1;
     }
-    const persistentRemoved = revokePersistentSessionsForUser(runtime.sessionsPath, req.username, currentToken);
+    const persistentRemoved = revokePersistentSessionsForUser(runtime.sessionsPath, username, keepToken);
     return { runtime: runtimeRemoved, persistent: persistentRemoved };
+  }
+
+  function revokeOtherRuntimeSessions(req) {
+    return revokeUserSessions(req, req.username, bearerToken(req));
+  }
+
+  function teamPolicySummary(managerUsername) {
+    if (!managerUsername) return null;
+    const policy = getGovernanceStore().get(managerUsername);
+    const usage = usageStore.summaryForTeam(managerUsername, 'month');
+    return { ...policy, usage, quota: quotaState(usage.totalTokens, policy.monthlyTokenLimit) };
   }
 
   router.get('/me', (req, res) => {
@@ -94,12 +138,16 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const member = mergedSelf(req);
       if (!member) return res.status(404).json({ error: '账号不存在' });
       const manager = member.boundTo ? memberStore.getMember(member.boundTo) : null;
+      const month = usageStore.summaryForUser(req.username, 'month');
+      const teamOwner = member.role === 'manager' ? member.username : member.boundTo;
       return res.json({
         member,
         manager,
+        memberQuota: quotaState(month.totalTokens, member.monthlyTokenLimit),
+        teamGovernance: teamPolicySummary(teamOwner),
         usage: {
           day: usageStore.summaryForUser(req.username, 'day'),
-          month: usageStore.summaryForUser(req.username, 'month'),
+          month,
           recent: usageStore.recentForUser(req.username, 30)
         }
       });
@@ -110,9 +158,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
 
   router.patch('/profile', (req, res) => {
     try {
-      const member = memberStore.updateOwnProfile(req.username, {
-        displayName: req.body?.displayName
-      });
+      const member = memberStore.updateOwnProfile(req.username, { displayName: req.body?.displayName });
       const details = getProfileDetailsStore(req).update(req.username, {
         bio: req.body?.bio,
         phone: req.body?.phone,
@@ -159,13 +205,15 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
           runtimeSessions.push({
             id: candidateToken.slice(0, 10),
             current: candidateToken === token,
-            issuedAt: typeof value === 'object' ? value.issuedAt || null : null
+            issuedAt: typeof value === 'object' ? value.issuedAt || null : null,
+            browser: typeof value === 'object' ? value.browser || null : null,
+            os: typeof value === 'object' ? value.os || null : null,
+            ipHint: typeof value === 'object' ? value.ipHint || null : null
           });
         }
       }
       const persistentSessions = runtime
-        ? listPersistentSessionsForUser(runtime.sessionsPath, req.username, token)
-          .filter(item => !activePersistentIds.has(item.id))
+        ? listPersistentSessionsForUser(runtime.sessionsPath, req.username, token).filter(item => !activePersistentIds.has(item.id))
         : [];
       return res.json({
         account: mergedSelf(req),
@@ -183,15 +231,9 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const currentPassword = req.body?.currentPassword;
       const newPassword = req.body?.newPassword;
       const store = getAccountStore(req);
-      if (!store.verifyPassword(req.username, currentPassword)) {
-        return res.status(400).json({ error: '当前密码不正确' });
-      }
-      if (typeof newPassword !== 'string' || newPassword.length < 8) {
-        return res.status(400).json({ error: '新密码至少需要 8 位' });
-      }
-      if (currentPassword === newPassword) {
-        return res.status(400).json({ error: '新密码不能与当前密码相同' });
-      }
+      if (!store.verifyPassword(req.username, currentPassword)) return res.status(400).json({ error: '当前密码不正确' });
+      if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: '新密码至少需要 8 位' });
+      if (currentPassword === newPassword) return res.status(400).json({ error: '新密码不能与当前密码相同' });
       store.resetPassword(devGrantActor(store, req.username), req.username, newPassword);
       const revoked = revokeOtherRuntimeSessions(req);
       return res.json({ changed: true, revoked });
@@ -211,17 +253,17 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   router.get('/team', (req, res) => {
     try {
       const self = memberStore.getMember(req.username);
-      if (!self || !['dev', 'manager'].includes(self.role)) {
-        return res.status(403).json({ error: '当前身份没有团队管理权限' });
-      }
+      if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队管理权限' });
       const members = memberStore.visibleTeam(req.username);
       const usernames = members.map(item => item.username);
       const usageOptions = self.role === 'manager' ? { teamOwner: self.username } : {};
       const month = usageStore.summariesForUsers(usernames, 'month', usageOptions);
       const day = usageStore.summariesForUsers(usernames, 'day', usageOptions);
       return res.json({
+        teamGovernance: self.role === 'manager' ? teamPolicySummary(self.username) : null,
         members: members.map(member => ({
           ...member,
+          quota: quotaState(month[member.username]?.totalTokens || 0, member.monthlyTokenLimit),
           usage: { day: day[member.username], month: month[member.username] }
         }))
       });
@@ -230,25 +272,52 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     }
   });
 
+  router.get('/team/governance', (req, res) => {
+    try {
+      const self = memberStore.getMember(req.username);
+      if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队额度管理权限' });
+      const managers = self.role === 'manager'
+        ? [self]
+        : memberStore.listMembers().filter(item => item.role === 'manager');
+      return res.json({ teams: managers.map(manager => ({ manager, ...teamPolicySummary(manager.username) })) });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
+  router.patch('/team/governance/:username', (req, res) => {
+    try {
+      const self = memberStore.getMember(req.username);
+      const manager = memberStore.getMember(req.params.username);
+      if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队额度管理权限' });
+      if (!manager || manager.role !== 'manager') return res.status(400).json({ error: '目标账号不是 MANAGER' });
+      if (self.role === 'manager' && self.username !== manager.username) return res.status(403).json({ error: 'MANAGER 只能设置自己团队的总额度' });
+      getGovernanceStore().update(manager.username, { monthlyTokenLimit: req.body?.monthlyTokenLimit }, self.username);
+      return res.json({ manager, ...teamPolicySummary(manager.username) });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
   router.post('/team/members', (req, res) => {
     try {
       const self = memberStore.getMember(req.username);
-      if (!self || !['dev', 'manager'].includes(self.role)) {
-        return res.status(403).json({ error: '当前身份没有成员创建权限' });
-      }
+      if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有成员创建权限' });
       const body = req.body || {};
       const requestedRole = self.role === 'manager' ? 'member' : (body.role || 'member');
       const resolvedBoundTo = self.role === 'manager' ? self.username : (body.boundTo || null);
-      if (requestedRole === 'member' && body.apiEnabled === true && !resolvedBoundTo) {
-        return res.status(400).json({ error: '请先绑定 MANAGER，再开启团队 API。' });
-      }
-      let member = memberStore.createManagedMember(req.username, {
-        ...body,
-        role: requestedRole,
-        boundTo: resolvedBoundTo
-      });
+      if (requestedRole === 'member' && body.apiEnabled === true && !resolvedBoundTo) return res.status(400).json({ error: '请先绑定 MANAGER，再开启团队 API。' });
+      let member = memberStore.createManagedMember(req.username, { ...body, role: requestedRole, boundTo: resolvedBoundTo });
       if (member.role === 'dev') {
         ensureDevBackendPermissions(getAccountStore(req), member);
+        member = memberStore.getMember(member.username);
+      }
+      if (member.role === 'member' && Array.isArray(body.apiScopes)) {
+        memberStore.setApiAccess(req.username, member.username, false, '*');
+        for (const scope of MANAGED_API_SCOPES) memberStore.setApiAccess(req.username, member.username, false, scope);
+        for (const scope of [...new Set(body.apiScopes.filter(item => MANAGED_API_SCOPES.includes(item)))]) {
+          memberStore.setApiAccess(req.username, member.username, true, scope);
+        }
         member = memberStore.getMember(member.username);
       }
       return res.status(201).json({ member });
@@ -270,15 +339,52 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     }
   });
 
+  router.post('/team/members/:username/status', (req, res) => {
+    try {
+      const active = req.body?.active;
+      if (typeof active !== 'boolean') return res.status(400).json({ error: '账号状态不合法' });
+      const { target } = manageableTarget(req, req.params.username);
+      const store = getAccountStore(req);
+      store.setActive(devGrantActor(store, req.username), target.username, active);
+      const revoked = active ? { runtime: 0, persistent: 0 } : revokeUserSessions(req, target.username);
+      return res.json({ member: memberStore.getMember(target.username), revoked });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
+  router.post('/team/members/:username/reset-password', (req, res) => {
+    try {
+      const password = req.body?.password;
+      if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: '新密码至少需要 8 位' });
+      const { target } = manageableTarget(req, req.params.username);
+      const store = getAccountStore(req);
+      store.resetPassword(devGrantActor(store, req.username), target.username, password);
+      const revoked = revokeUserSessions(req, target.username);
+      return res.json({ changed: true, member: memberStore.getMember(target.username), revoked });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
   router.post('/team/members/:username/api', (req, res) => {
     try {
-      const member = memberStore.setApiAccess(
-        req.username,
-        req.params.username,
-        req.body?.enabled,
-        req.body?.scope || '*'
-      );
+      const member = memberStore.setApiAccess(req.username, req.params.username, req.body?.enabled, req.body?.scope || '*');
       return res.json({ member });
+    } catch (error) {
+      return sendMemberError(res, error);
+    }
+  });
+
+  router.put('/team/members/:username/api-scopes', (req, res) => {
+    try {
+      const scopes = Array.isArray(req.body?.scopes) ? [...new Set(req.body.scopes)] : null;
+      if (!scopes || scopes.some(scope => !MANAGED_API_SCOPES.includes(scope))) return res.status(400).json({ error: 'API scopes 不合法' });
+      manageableTarget(req, req.params.username);
+      memberStore.setApiAccess(req.username, req.params.username, false, '*');
+      for (const scope of MANAGED_API_SCOPES) memberStore.setApiAccess(req.username, req.params.username, false, scope);
+      for (const scope of scopes) memberStore.setApiAccess(req.username, req.params.username, true, scope);
+      return res.json({ member: memberStore.getMember(req.params.username) });
     } catch (error) {
       return sendMemberError(res, error);
     }
@@ -290,9 +396,12 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const visible = new Set(memberStore.visibleTeam(req.username).map(item => item.username));
       if (!visible.has(req.params.username)) return res.status(403).json({ error: '无权查看该成员用量' });
       const usageOptions = self?.role === 'manager' ? { teamOwner: self.username } : {};
+      const month = usageStore.summaryForUser(req.params.username, 'month', usageOptions);
+      const target = memberStore.getMember(req.params.username);
       return res.json({
         day: usageStore.summaryForUser(req.params.username, 'day', usageOptions),
-        month: usageStore.summaryForUser(req.params.username, 'month', usageOptions),
+        month,
+        quota: quotaState(month.totalTokens, target?.monthlyTokenLimit ?? null),
         recent: usageStore.recentForUser(req.params.username, 50, usageOptions)
       });
     } catch (error) {
@@ -327,10 +436,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const target = memberStore.getMember(subject);
       if (!target || target.isOwner) return res.status(400).json({ error: '目标成员不合法' });
       const actor = devGrantActor(store, req.username);
-      const grant = store.grant(actor, subject, {
-        capability: req.body?.capability,
-        scope: req.body?.scope || '*'
-      });
+      const grant = store.grant(actor, subject, { capability: req.body?.capability, scope: req.body?.scope || '*' });
       return res.status(201).json({ grant });
     } catch (error) {
       return sendMemberError(res, error);
@@ -352,4 +458,4 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   return router;
 }
 
-module.exports = { createMemberCenterRouter, parseAvatarDataUrl };
+module.exports = { createMemberCenterRouter, parseAvatarDataUrl, MANAGED_API_SCOPES };
