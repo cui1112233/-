@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -73,11 +74,11 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 	}
 	for index, video := range req.Videos {
 		if strings.TrimSpace(video.VideoPrompt) == "" || strings.TrimSpace(video.SourceText) == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + itoa(index+1) + " 个 VIDEO 缺少内容或提示词"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + strconv.Itoa(index+1) + " 个 VIDEO 缺少内容或提示词"})
 			return
 		}
 		if _, err := normalizedVideoTaskSettings(&shuihuoVideoTaskSettings{Duration: video.Duration, AspectRatio: video.AspectRatio}); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + itoa(index+1) + " 个 VIDEO 的时长或画幅无效"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + strconv.Itoa(index+1) + " 个 VIDEO 的时长或画幅无效"})
 			return
 		}
 	}
@@ -126,19 +127,4 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		"model":   models.ToPublic(model),
 		"results": results,
 	})
-}
-
-func itoa(value int) string {
-	if value == 0 {
-		return "0"
-	}
-	digits := make([]byte, 0, 12)
-	for value > 0 {
-		digits = append(digits, byte('0'+value%10))
-		value /= 10
-	}
-	for left, right := 0, len(digits)-1; left < right; left, right = left+1, right-1 {
-		digits[left], digits[right] = digits[right], digits[left]
-	}
-	return string(digits)
 }
