@@ -27,6 +27,7 @@ async function refresh() {
   document.querySelector('#jobs').hidden = !current.paired;
   form.hidden = current.paired;
   if (current.paired) document.querySelector('#paired-name').textContent = `${current.displayName} · ${current.executorId}`;
+  document.querySelector('#auto-submit').checked = current.autoSubmit !== false;
   if (current.paired) { await refreshAccounts(); renderJob(current.activeJob); }
   if (!current.encryptionAvailable) setNotice('此设备不能使用系统加密存储，配对令牌将以受限文件权限保存。', 'warning');
 }
@@ -35,6 +36,7 @@ form.addEventListener('submit', async event => {
   try { await window.executor.pair({ serverUrl: document.querySelector('#server-url').value, displayName: document.querySelector('#display-name').value, code: document.querySelector('#pair-code').value }); setNotice('配对成功，执行器已在线。', 'success'); await refresh(); } catch (error) { setNotice(error.message || '配对失败', 'error'); }
 });
 document.querySelector('#heartbeat').addEventListener('click', async () => { try { await window.executor.heartbeat(); setNotice('在线状态已刷新。', 'success'); } catch (error) { setNotice(error.message || '刷新失败', 'error'); } });
+document.querySelector('#auto-submit').addEventListener('change', async event => { try { await window.executor.setAutoSubmit(event.target.checked); setNotice(event.target.checked ? '已开启自动点击生成。' : '已关闭自动点击生成。'); } catch (error) { setNotice(error.message || '设置失败', 'error'); } });
 document.querySelector('#unpair').addEventListener('click', async () => { await window.executor.unpair(); setNotice('已解除这台电脑的配对。'); await refresh(); });
 document.querySelector('#account-form').addEventListener('submit', async e => { e.preventDefault(); try { await window.executor.addAccount(document.querySelector('#account-name').value); document.querySelector('#account-name').value = ''; setNotice('已打开豆包登录窗口。', 'success'); refreshAccounts(); } catch (error) { setNotice(error.message || '添加账号失败', 'error'); } });
 document.querySelector('#claim-job').addEventListener('click', async () => { try { setNotice('正在领取视频任务…'); const job = await window.executor.claimJob(); renderJob(job); setNotice(job ? '任务已领取，请打开豆包生成。' : '暂无等待领取的视频任务。', job ? 'success' : ''); } catch (error) { setNotice(error.message || '领取任务失败', 'error'); } });

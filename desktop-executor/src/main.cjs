@@ -12,7 +12,7 @@ const statePath = () => path.join(app.getPath('userData'), 'executor-state.bin')
 let heartbeatTimer = null;
 let claimTimer = null;
 let claimInFlight = false;
-let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null };
+let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null, autoSubmit: true };
 const configuredAccountSessions = new Set();
 
 function normalizeServerUrl(value) {
@@ -96,6 +96,28 @@ function prefillDoubaoPrompt(webContents, prompt) {
   return webContents.executeJavaScript(script, true).catch(() => ({ ok: false }));
 }
 
+function autoSubmitDoubaoPrompt(webContents) {
+  const script = `(() => {
+    const labels = new Set(['生成', '立即生成', '开始生成', '生成视频']);
+    const candidates = [...document.querySelectorAll('button, [role="button"]')]
+      .filter(element => element.offsetParent !== null && !element.disabled && labels.has((element.innerText || element.textContent || '').trim()));
+    const target = candidates.at(-1);
+    if (!target) return { ok: false, reason: '未找到可点击的生成按钮' };
+    target.click();
+    return { ok: true, label: (target.innerText || target.textContent || '').trim() };
+  })()`;
+  return webContents.executeJavaScript(script, true).catch(() => ({ ok: false, reason: '页面尚未就绪' }));
+}
+
+async function tryAutoSubmitDoubaoPrompt(webContents) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const result = await autoSubmitDoubaoPrompt(webContents);
+    if (result.ok) return result;
+    await new Promise(resolve => setTimeout(resolve, 600));
+  }
+  return { ok: false, reason: '未找到生成按钮，请在豆包页面手动确认' };
+}
+
 function configureAccountSession(account) {
   const accountSession = session.fromPartition(`persist:doubao-${account.id}`);
   if (configuredAccountSessions.has(account.id)) return accountSession;
@@ -155,7 +177,16 @@ async function openJobForAccount(job, account) {
   taskWindow.loadURL('https://www.doubao.com/?locale=zh-CN');
   taskWindow.webContents.once('did-finish-load', async () => {
     const result = await prefillDoubaoPrompt(taskWindow.webContents, job.prompt);
-    taskWindow.setTitle(result.ok ? `豆包生成：${account.name}（提示词已填入）` : `豆包生成：${account.name}（请手动粘贴提示词）`);
+    if (!result.ok) {
+      taskWindow.setTitle(`豆包生成：${account.name}（请手动粘贴提示词）`);
+      return;
+    }
+    if (!state.autoSubmit) {
+      taskWindow.setTitle(`豆包生成：${account.name}（提示词已填入，等待确认）`);
+      return;
+    }
+    const submitted = await tryAutoSubmitDoubaoPrompt(taskWindow.webContents);
+    taskWindow.setTitle(submitted.ok ? `豆包生成：${account.name}（已自动点击${submitted.label}）` : `豆包生成：${account.name}（${submitted.reason}）`);
   });
   const restrictionTimer = setInterval(async () => {
     if (taskWindow.isDestroyed() || !state.activeJob || state.activeJob.id !== job.id) return clearInterval(restrictionTimer);
@@ -228,7 +259,7 @@ app.whenReady().then(() => {
 
 ipcMain.handle('executor:state', () => ({
   serverUrl: state.serverUrl, executorId: state.executorId, displayName: state.displayName,
-  paired: Boolean(state.deviceToken), encryptionAvailable: safeStorage.isEncryptionAvailable(), activeJob: state.activeJob
+  paired: Boolean(state.deviceToken), encryptionAvailable: safeStorage.isEncryptionAvailable(), activeJob: state.activeJob, autoSubmit: state.autoSubmit !== false
 }));
 
 ipcMain.handle('executor:pair', async (_, input) => {
@@ -248,10 +279,16 @@ ipcMain.handle('executor:pair', async (_, input) => {
 
 ipcMain.handle('executor:heartbeat', () => heartbeat());
 
+ipcMain.handle('executor:set-auto-submit', (_, enabled) => {
+  state.autoSubmit = Boolean(enabled);
+  saveState();
+  return state.autoSubmit;
+});
+
 ipcMain.handle('executor:unpair', () => {
   clearInterval(heartbeatTimer);
   clearInterval(claimTimer);
-  state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null };
+  state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null, autoSubmit: true };
   try { fs.rmSync(statePath(), { force: true }); } catch (_) {}
   return { paired: false };
 });
