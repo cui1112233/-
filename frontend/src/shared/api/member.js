@@ -4,10 +4,11 @@ export function getMemberCenter() {
   return apiRequest('/api/member/me');
 }
 
-export function updateMemberProfile(displayName) {
+export function updateMemberProfile(profile) {
+  const payload = typeof profile === 'string' ? { displayName: profile } : (profile || {});
   return apiRequest('/api/member/profile', {
     method: 'PATCH',
-    body: JSON.stringify({ displayName })
+    body: JSON.stringify(payload)
   });
 }
 
@@ -16,6 +17,21 @@ export function uploadMemberAvatar(avatarDataUrl) {
     method: 'POST',
     body: JSON.stringify({ avatarDataUrl })
   });
+}
+
+export function getSecurityOverview() {
+  return apiRequest('/api/member/security');
+}
+
+export function changeOwnPassword(currentPassword, newPassword) {
+  return apiRequest('/api/member/security/password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+}
+
+export function revokeOtherSessions() {
+  return apiRequest('/api/member/security/sessions/revoke-others', { method: 'POST' });
 }
 
 export function getTeamMembers() {
@@ -45,4 +61,8 @@ export function setTeamMemberApi(username, enabled, scope = '*') {
 
 export function getTeamMemberUsage(username) {
   return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/usage`);
+}
+
+export function getTeamAudit(limit = 100) {
+  return apiRequest(`/api/member/team/audit?limit=${encodeURIComponent(limit)}`);
 }
