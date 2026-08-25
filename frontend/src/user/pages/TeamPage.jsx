@@ -4,12 +4,19 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createTeamInvite,
   createTeamMember,
+  archiveTeamMember,
   getMemberCenter,
   getTeamInvites,
   getTeamMembers,
   getTeamMeta,
+  getTeamGovernance,
   renameTeam,
-  setTeamMemberStatus
+  resetTeamMemberPassword,
+  restoreArchivedMember,
+  setTeamMemberApiScopes,
+  setTeamMemberStatus,
+  updateTeamGovernance,
+  updateTeamMember
 } from '../../shared/api/member';
 import { MemberIdentity, PageHeader, Panel, RoleBadge, formatDate, formatTokens } from './accountCenterShared';
 
@@ -37,12 +44,21 @@ export default function TeamPage() {
   const [meta, setMeta] = useState(null);
   const [managerUsername, setManagerUsername] = useState('');
   const [invites, setInvites] = useState([]);
+  const [governance, setGovernance] = useState([]);
+  const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [memberOpen, setMemberOpen] = useState(false);
+  const [memberManageOpen, setMemberManageOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [quotaOpen, setQuotaOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [selectedMember, setSelectedMember] = useState(null);
   const [memberForm] = Form.useForm();
+  const [memberManageForm] = Form.useForm();
   const [inviteForm] = Form.useForm();
   const [renameForm] = Form.useForm();
+  const [quotaForm] = Form.useForm();
+  const [passwordForm] = Form.useForm();
 
   const self = center?.member;
   const availableTeams = useMemo(() => meta?.teams || [], [meta]);
@@ -59,13 +75,14 @@ export default function TeamPage() {
   }, [managerUsername, self?.role, teamResult?.members]);
   const memberCount = members.filter(member => member.role === 'member').length;
   const totalTokens = members.reduce((sum, member) => sum + Number(member.usage?.month?.totalTokens || 0), 0);
-  const teamLimit = teamResult?.teamGovernance?.monthlyTokenLimit ?? null;
+  const activeGovernance = useMemo(() => governance.find(item => (item.manager?.username || item.managerUsername) === activeManager?.username) || teamResult?.teamGovernance || null, [activeManager?.username, governance, teamResult?.teamGovernance]);
+  const teamLimit = activeGovernance?.monthlyTokenLimit ?? null;
   const quotaPercent = teamLimit === null ? 0 : Math.min(100, Math.round(totalTokens / Math.max(teamLimit, 1) * 100));
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
     try {
-      const [nextCenter, nextTeam, nextMeta] = await Promise.all([getMemberCenter(), getTeamMembers(), getTeamMeta()]);
+      const [nextCenter, nextTeam, nextMeta, nextGovernance] = await Promise.all([getMemberCenter(), getTeamMembers(), getTeamMeta(), getTeamGovernance().catch(() => ({ teams: [] }))]);
       const nextManager = nextCenter.member?.role === 'dev'
         ? (managerUsername || nextMeta.teams?.[0]?.manager?.username || '')
         : (nextCenter.member?.username || '');
@@ -73,6 +90,7 @@ export default function TeamPage() {
       setCenter(nextCenter);
       setTeamResult(nextTeam);
       setMeta(nextMeta);
+      setGovernance(nextGovernance.teams || []);
       setManagerUsername(nextManager);
       setInvites(inviteResult.invites || []);
     } catch (error) { message.error(error.message || '团队管理加载失败'); }
@@ -132,7 +150,10 @@ export default function TeamPage() {
     setSaving(true);
     try {
       const created = await createTeamInvite({ managerUsername: activeManager.username, ...values, apiScopes: values.apiScopes || [] });
-      message.success('邀请已生成，可在邀请管理中查看状态');
+      const inviteUrl = new URL(created.inviteUrl, window.location.origin).toString();
+      setLatestInviteUrl(inviteUrl);
+      try { await navigator.clipboard.writeText(inviteUrl); message.success('邀请已生成，链接已复制'); }
+      catch { message.success('邀请已生成，请在邀请管理中复制链接'); }
       inviteForm.resetFields();
       setInviteOpen(false);
       setInvites(current => [{ ...created.invite, inviteUrl: created.inviteUrl }, ...current]);
@@ -150,6 +171,66 @@ export default function TeamPage() {
     finally { setSaving(false); }
   }
 
+  function openMemberManage(member) {
+    setSelectedMember(member);
+    memberManageForm.setFieldsValue({ displayName: member.displayName, monthlyTokenLimit: member.monthlyTokenLimit, apiScopes: scopesOf(member) });
+    setMemberManageOpen(true);
+  }
+
+  async function saveMemberManage(values) {
+    if (!selectedMember) return;
+    setSaving(true);
+    try {
+      await updateTeamMember(selectedMember.username, { displayName: values.displayName, monthlyTokenLimit: values.monthlyTokenLimit ?? null });
+      if (selectedMember.active && !selectedMember.archive?.archivedAt) await setTeamMemberApiScopes(selectedMember.username, values.apiScopes || []);
+      message.success('成员资料、额度与 API 权限已更新');
+      setMemberManageOpen(false);
+      await load({ silent: true });
+    } catch (error) { message.error(error.message || '成员保存失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function archiveOrRestoreMember() {
+    if (!selectedMember) return;
+    setSaving(true);
+    try {
+      if (selectedMember.archive?.archivedAt) {
+        await restoreArchivedMember(selectedMember.username);
+        message.success('成员已恢复，请重新确认 API 权限');
+      } else {
+        await archiveTeamMember(selectedMember.username, '团队管理归档');
+        message.success('成员已归档，历史用量和审计记录保留');
+      }
+      setMemberManageOpen(false);
+      await load({ silent: true });
+    } catch (error) { message.error(error.message || '成员状态更新失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function savePassword(values) {
+    if (!selectedMember) return;
+    setSaving(true);
+    try {
+      await resetTeamMemberPassword(selectedMember.username, values.password);
+      message.success('密码已重置，成员其他会话已撤销');
+      passwordForm.resetFields();
+      setPasswordOpen(false);
+    } catch (error) { message.error(error.message || '密码重置失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function saveQuota(values) {
+    if (!activeManager?.username) return;
+    setSaving(true);
+    try {
+      await updateTeamGovernance(activeManager.username, values.monthlyTokenLimit ?? null);
+      message.success('团队月度总额度已更新');
+      setQuotaOpen(false);
+      await load({ silent: true });
+    } catch (error) { message.error(error.message || '团队额度保存失败'); }
+    finally { setSaving(false); }
+  }
+
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 11 }} /></div>;
   if (!self || !['dev', 'manager'].includes(self.role)) return <div className="account-center-page"><div className="ac-empty">当前身份没有团队管理权限</div></div>;
 
@@ -160,7 +241,7 @@ export default function TeamPage() {
 
     {!activeTeam ? <Panel title="尚未选择团队"><div className="ac-empty">当前没有可管理团队。</div></Panel> : <>
       <div className="ac-team-reference-top">
-        <Panel title="团队概览" className="ac-team-overview">
+        <Panel title="团队概览" className="ac-team-overview" action={<Button type="text" size="small" onClick={() => { quotaForm.setFieldsValue({ monthlyTokenLimit: teamLimit }); setQuotaOpen(true); }}>管理额度</Button>}>
           <div className="ac-team-overview-grid">
             <div className="ac-team-mark"><UsersRound size={25} /></div>
             <div><small>团队名称</small><strong>{activeTeam.name}</strong><button type="button" className="ac-inline-icon-button" onClick={() => { renameForm.setFieldsValue({ name: activeTeam.name }); setRenameOpen(true); }} aria-label="重命名团队"><Pencil size={14} /></button></div>
@@ -173,14 +254,14 @@ export default function TeamPage() {
         </Panel>
         <Panel title="快捷操作" className="ac-team-quick-panel">
           <div className="ac-team-quick-actions"><Button icon={<UserPlus size={16} />} onClick={() => { memberForm.resetFields(); setMemberOpen(true); }}>创建成员</Button><Button icon={<Link2 size={16} />} onClick={() => { inviteForm.setFieldsValue({ expiresInHours: 72, apiScopes: ['text'] }); setInviteOpen(true); }}>生成邀请</Button><Button icon={<Pencil size={16} />} onClick={() => { renameForm.setFieldsValue({ name: activeTeam.name }); setRenameOpen(true); }}>重命名团队</Button></div>
-          <div className="ac-invite-default"><div><strong>默认邀请设置</strong><small>新建邀请时可在弹窗内单独调整。</small></div><span><b>默认 API 范围</b><Tag>文本</Tag><Tag>生图</Tag><Tag>TTS</Tag></span><span><b>默认月度额度</b><em>由邀请时设置</em></span></div>
+          <div className="ac-invite-default"><div><strong>邀请策略</strong><small>每张邀请在生成时单独配置权限、额度和有效期。</small></div><span><b>可分配 API</b><Tag>文本</Tag><Tag>生图</Tag><Tag>TTS</Tag></span><span><b>团队月度额度</b><em>{teamLimit === null ? '不限额' : `${formatTokens(teamLimit)} Tokens`}</em></span>{latestInviteUrl ? <Button size="small" type="link" icon={<Copy size={13} />} onClick={() => navigator.clipboard.writeText(latestInviteUrl).then(() => message.success('邀请链接已复制')).catch(() => message.info(latestInviteUrl))}>复制最新邀请链接</Button> : null}</div>
         </Panel>
       </div>
 
       <div className="ac-team-reference-bottom">
         <Panel title="成员列表" className="ac-team-members-panel" action={<span className="ac-panel-count">共 {memberCount} 位成员</span>}>
           <div className="ac-reference-table"><div className="ac-reference-table-head"><span>成员</span><span>显示名称</span><span>角色</span><span>账号状态</span><span>API 范围</span><span>月度额度</span><span>已用 Tokens</span><span>操作</span></div>
-            {members.filter(member => member.role !== 'manager').map(member => { const status = memberStatus(member); const scopes = scopesOf(member); return <div className="ac-reference-table-row" key={member.username}><MemberIdentity member={member} size={30} showUsername /><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /><Tag color={status.color}>{status.text}</Tag><span>{scopes.length ? scopes.map(scope => <Tag key={scope}>{SCOPE_OPTIONS.find(item => item.value === scope)?.label || scope}</Tag>) : '未授权'}</span><span>{member.monthlyTokenLimit === null ? '不限额' : `${formatTokens(member.monthlyTokenLimit)} Tokens`}</span><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><Tooltip title={member.active ? '停用成员' : '恢复成员'}><Button type="text" icon={<MoreHorizontal size={18} />} loading={saving} onClick={() => toggleMember(member)} /></Tooltip></div>; })}
+            {members.filter(member => member.role !== 'manager').map(member => { const status = memberStatus(member); const scopes = scopesOf(member); return <div className="ac-reference-table-row" key={member.username}><MemberIdentity member={member} size={30} showUsername /><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /><Tag color={status.color}>{status.text}</Tag><span>{scopes.length ? scopes.map(scope => <Tag key={scope}>{SCOPE_OPTIONS.find(item => item.value === scope)?.label || scope}</Tag>) : '未授权'}</span><span>{member.monthlyTokenLimit === null ? '不限额' : `${formatTokens(member.monthlyTokenLimit)} Tokens`}</span><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><Tooltip title="管理成员"><Button type="text" icon={<MoreHorizontal size={18} />} loading={saving} onClick={() => openMemberManage(member)} /></Tooltip></div>; })}
             {!memberCount ? <div className="ac-empty">尚无成员，先创建成员或生成邀请。</div> : null}
           </div>
         </Panel>
@@ -197,6 +278,12 @@ export default function TeamPage() {
     <Modal title="生成成员邀请" open={inviteOpen} onCancel={() => setInviteOpen(false)} onOk={() => inviteForm.submit()} okText="生成邀请" confirmLoading={saving}>
       <Form form={inviteForm} layout="vertical" onFinish={saveInvite}><Form.Item name="expiresInHours" label="有效期" rules={[{ required: true }]}><InputNumber min={1} max={720} style={{ width: '100%' }} addonAfter="小时" /></Form.Item><Form.Item name="monthlyTokenLimit" label="成员月度额度"><InputNumber min={0} style={{ width: '100%' }} addonAfter="Tokens" placeholder="不限额" /></Form.Item><Form.Item name="apiScopes" label="AI 能力权限"><Checkbox.Group options={SCOPE_OPTIONS} /></Form.Item></Form>
     </Modal>
+    <Modal title={selectedMember ? `管理 ${selectedMember.displayName}` : '管理成员'} open={memberManageOpen} onCancel={() => setMemberManageOpen(false)} onOk={() => memberManageForm.submit()} okText="保存成员" confirmLoading={saving}>
+      <Form form={memberManageForm} layout="vertical" onFinish={saveMemberManage}><Form.Item name="displayName" label="显示名称" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="monthlyTokenLimit" label="月度额度"><InputNumber min={0} style={{ width: '100%' }} addonAfter="Tokens" placeholder="不限额" /></Form.Item><Form.Item name="apiScopes" label="AI 能力权限"><Checkbox.Group options={SCOPE_OPTIONS} disabled={!selectedMember?.active || Boolean(selectedMember?.archive?.archivedAt)} /></Form.Item></Form>
+      <div className="ac-member-actions"><Button danger={selectedMember?.active} loading={saving} onClick={() => selectedMember && toggleMember(selectedMember)}>{selectedMember?.active ? '停用账号' : '恢复账号'}</Button><Button loading={saving} onClick={() => { passwordForm.resetFields(); setPasswordOpen(true); }}>重置密码</Button><Button danger={!selectedMember?.archive?.archivedAt} loading={saving} onClick={archiveOrRestoreMember}>{selectedMember?.archive?.archivedAt ? '从归档恢复' : '归档成员'}</Button></div>
+    </Modal>
+    <Modal title={selectedMember ? `重置 ${selectedMember.displayName} 的密码` : '重置密码'} open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => passwordForm.submit()} okText="确认重置" confirmLoading={saving}><Form form={passwordForm} layout="vertical" onFinish={savePassword}><Form.Item name="password" label="新密码" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item><Form.Item name="confirm" label="确认新密码" dependencies={['password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator(_, value) { return value === getFieldValue('password') ? Promise.resolve() : Promise.reject(new Error('两次密码不一致')); } })]}><Input.Password /></Form.Item></Form></Modal>
+    <Modal title="团队月度总额度" open={quotaOpen} onCancel={() => setQuotaOpen(false)} onOk={() => quotaForm.submit()} okText="保存额度" confirmLoading={saving}><Form form={quotaForm} layout="vertical" onFinish={saveQuota}><Form.Item name="monthlyTokenLimit" label="自然月总额度"><InputNumber min={0} style={{ width: '100%' }} addonAfter="Tokens" placeholder="不限额" /></Form.Item><p className="ac-muted-copy">额度为 0 时团队调用会被立即拦截；留空表示不限额。</p></Form></Modal>
     <Modal title="重命名团队" open={renameOpen} onCancel={() => setRenameOpen(false)} onOk={() => renameForm.submit()} okText="保存" confirmLoading={saving}><Form form={renameForm} layout="vertical" onFinish={saveRename}><Form.Item name="name" label="团队名称" rules={[{ required: true, max: 60 }]}><Input autoFocus /></Form.Item></Form></Modal>
   </div>;
 }

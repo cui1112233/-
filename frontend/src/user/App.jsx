@@ -16,6 +16,9 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage'));
 const TeamPage = lazy(() => import('./pages/TeamPage'));
+const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
+const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
+const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'));
 const RecoveryPage = lazy(() => import('./pages/RecoveryPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
@@ -42,9 +45,8 @@ function getPage(pathname) {
     '/shuihuo-production': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,
-    // 个人中心的三个工具入口复用已有、可实际保存数据的工作台，避免点击后回退首页。
-    '/api-config': SettingsPage,
-    '/usage': MemberCenterPage,
+    '/api-config': ApiConfigPage,
+    '/usage': UsageStatsPage,
     '/team': TeamPage,
     '/member': MemberCenterPage,
     '/profile': ProfilePage,
@@ -74,6 +76,9 @@ export function UserApp() {
     return () => { window.removeEventListener('error', recoverChunk); window.removeEventListener('unhandledrejection', recoverChunk); };
   }, []);
   const pathname = usePathname();
+  if (/^\/invite\/[^/]+$/.test(pathname)) {
+    return <Suspense fallback={<div className="route-loading" role="status">正在加载团队邀请</div>}><InviteAcceptPage /></Suspense>;
+  }
   if (pathname === '/recover') {
     return <Suspense fallback={<div className="route-loading" role="status">正在加载账号恢复</div>}><RecoveryPage /></Suspense>;
   }

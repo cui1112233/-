@@ -37,7 +37,7 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
-  if (pathname === '/member') return '个人中心';
+  if (['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team'].includes(pathname)) return '个人中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
 }
@@ -509,8 +509,8 @@ export function UserLayout({ children }) {
       {isLoggedIn && accountCenterOpen ? <aside className="account-center-popover" role="dialog" aria-label="个人中心">
         <div className="account-center-popover-head"><strong>个人中心</strong><button type="button" aria-label="收起个人中心" onClick={() => setAccountCenterOpen(false)}><X size={19} /></button></div>
         <div className="account-center-popover-profile"><Avatar size={54} src={account?.avatarUrl}>{displayAvatar.emoji}</Avatar><div><strong>{account?.displayName || username}</strong><small>@{username}</small><em>{account?.role === 'dev' ? 'DEV' : account?.role === 'manager' ? 'MANAGER' : 'MEMBER'}</em></div></div>
-        <div className="account-center-popover-group"><button type="button" className="account-center-popover-parent" onClick={() => setAccountProfileOpen(value => !value)}><span><UserRound size={18} />个人资料</span><ChevronDown size={17} className={accountProfileOpen ? 'expanded' : ''} /></button>
-          {accountProfileOpen ? <div className="account-center-popover-submenu"><Link href="/profile" className={pathname === '/profile' ? 'active' : ''}><UserRound size={17} />个人资料</Link><Link href="/member" className={pathname === '/member' ? 'active' : ''}><Crown size={17} />会员中心</Link><Link href="/security" className={pathname === '/security' ? 'active' : ''}><ShieldCheck size={17} />账号安全</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/advanced-team-admin" className={pathname === '/advanced-team-admin' ? 'active' : ''}><UsersRound size={17} />联合治理</Link> : null}</div> : null}
+        <div className="account-center-popover-group"><div className="account-center-popover-parent"><Link href="/profile" className={pathname === '/profile' ? 'active' : ''}><UserRound size={18} />个人资料</Link><button type="button" aria-label={accountProfileOpen ? '收起个人资料菜单' : '展开个人资料菜单'} onClick={() => setAccountProfileOpen(value => !value)}><ChevronDown size={17} className={accountProfileOpen ? 'expanded' : ''} /></button></div>
+          {accountProfileOpen ? <div className="account-center-popover-submenu"><Link href="/member" className={pathname === '/member' ? 'active' : ''}><Crown size={17} />会员中心</Link><Link href="/security" className={pathname === '/security' ? 'active' : ''}><ShieldCheck size={17} />账号安全</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/advanced-team-admin" className={pathname === '/advanced-team-admin' ? 'active' : ''}><UsersRound size={17} />联合治理</Link> : null}</div> : null}
         </div>
         <div className="account-center-popover-links"><Link href="/api-config" className={pathname === '/api-config' ? 'active' : ''}><KeyRound size={17} />API 配置</Link><Link href="/usage" className={pathname === '/usage' ? 'active' : ''}><ChartNoAxesCombined size={17} />用量统计</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/team" className={pathname === '/team' ? 'active' : ''}><UsersRound size={17} />团队管理</Link> : null}</div>
         <button type="button" className="account-center-popover-logout" onClick={handleLogout}><LogOut size={17} />退出登录</button>
