@@ -1,6 +1,6 @@
-import { Alert, Button, Drawer, Form, Input, InputNumber, Select, Switch, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Drawer, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { createAdminModel, listAdminModels } from '../../shared/api/shuihuoProduction';
+import { createAdminModel, listAdminModels, updateAdminModel } from '../../shared/api/shuihuoProduction';
 
 const adapters = [
   { value: 'text_completion', label: '文本分析', kind: 'text' },
@@ -46,10 +46,36 @@ function withVideoMaxDuration(rawSchema, maxVideoDuration) {
   return JSON.stringify(schema, null, 2);
 }
 
+function modelFormValues(model) {
+  return {
+    name: model?.name || '',
+    modelId: model?.modelId || '',
+    kind: model?.kind || 'image',
+    adapterKind: model?.adapterKind || 'jimeng_image',
+    enabled: model?.enabled === true,
+    hidden: model?.hidden === true,
+    sortOrder: model?.sortOrder || 0,
+    adminNote: model?.adminNote || '',
+    parameterSchema: model?.parameterSchema || '{}',
+    maxVideoDuration: model?.kind === 'video' && model?.maxVideoDuration ? Number(model.maxVideoDuration) : null,
+    credentialRef: model?.credentialRef || '',
+    endpoint: model?.endpoint || '',
+    baseDomain: model?.baseDomain || '',
+    basePath: model?.basePath || '',
+    requestTemplate: model?.requestTemplate || '',
+    responseMapping: model?.responseMapping || '',
+    pollingTemplate: model?.pollingTemplate || '',
+    imageInputFormat: model?.imageInputFormat || 'url',
+    imageRequestMode: model?.imageRequestMode || 'json',
+    runtimePolicyJson: model?.runtimePolicyJson || '{}'
+  };
+}
+
 export function ShuihuoModelCatalogPage() {
   const [models, setModels] = useState([]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingModel, setEditingModel] = useState(null);
   const [form] = Form.useForm();
   const adapterKind = Form.useWatch('adapterKind', form);
   const isGenericHTTP = adapterKind === 'generic_http';
@@ -67,27 +93,21 @@ export function ShuihuoModelCatalogPage() {
   useEffect(() => { refresh(); }, []);
 
   function openCreate() {
-    form.setFieldsValue({
-      name: '',
-      modelId: '',
-      kind: 'image',
-      adapterKind: 'jimeng_image',
-      enabled: false,
-      hidden: false,
-      sortOrder: 0,
-      adminNote: '',
-      parameterSchema: '{}',
-      maxVideoDuration: null,
-      credentialRef: '',
-      endpoint: '',
-      requestTemplate: '',
-      responseMapping: '',
-      pollingTemplate: '',
-      imageInputFormat: 'url',
-      imageRequestMode: 'json',
-      runtimePolicyJson: '{}'
-    });
+    setEditingModel(null);
+    form.setFieldsValue(modelFormValues(null));
     setOpen(true);
+  }
+
+  function openEdit(model) {
+    setEditingModel(model);
+    form.setFieldsValue(modelFormValues(model));
+    setOpen(true);
+  }
+
+  function closeDrawer() {
+    setOpen(false);
+    setEditingModel(null);
+    form.resetFields();
   }
 
   async function submit() {
@@ -98,16 +118,18 @@ export function ShuihuoModelCatalogPage() {
       const parameterSchema = isVideoModel
         ? withVideoMaxDuration(values.parameterSchema || '{}', Number(maxVideoDuration))
         : (values.parameterSchema || '{}');
-      await createAdminModel({
+      const request = {
         ...payload,
+        allowedRoles: editingModel?.allowedRoles || [],
         parameterSchema,
         credentialRef: values.credentialRef || '',
         runtimePolicyJson: values.runtimePolicyJson || '{}'
-      });
-      setOpen(false);
-      form.resetFields();
+      };
+      if (editingModel?.id) await updateAdminModel(editingModel.id, request);
+      else await createAdminModel(request);
+      closeDrawer();
       await refresh();
-      message.success('模型已保存');
+      message.success(editingModel?.id ? '模型新版本已保存' : '模型已保存');
     } catch (error) {
       if (!error?.errorFields) message.error(error.message || '保存模型失败');
     } finally {
@@ -129,12 +151,13 @@ export function ShuihuoModelCatalogPage() {
   return <>
     <Typography.Title level={3}>水货生产模型</Typography.Title>
     <Typography.Paragraph>
-      管理文本、图片与视频模型。批量工厂会在导演开始前读取已启用文生视频模型的单次最大生成时长，并锁定该模型；通用 HTTP 模型可以配置 Seedance 等服务端接口，密钥只保存引用，不向普通用户返回。
+      管理文本、图片与视频模型。批量工厂会在导演开始前读取已启用文生视频模型的单次最大生成时长，并锁定该模型；编辑已有模型会创建新的运行版本，已经提交的旧任务继续使用它们记录的旧版本。
     </Typography.Paragraph>
     <Button type="primary" onClick={openCreate}>新增模型</Button>
     <Table rowKey="id" style={{ marginTop: 16 }} dataSource={models} pagination={false} columns={[
       { title: '名称', dataIndex: 'name' },
       { title: '模型标识', dataIndex: 'modelId', ellipsis: true },
+      { title: '版本', dataIndex: 'versionId', width: 80, render: value => value ? `#${value}` : '—' },
       { title: '能力', dataIndex: 'kind', width: 90 },
       { title: '适配器', dataIndex: 'adapterKind', width: 160 },
       {
@@ -151,17 +174,19 @@ export function ShuihuoModelCatalogPage() {
       },
       { title: '状态', dataIndex: 'enabled', width: 90, render: value => <Tag color={value ? 'green' : 'default'}>{value ? '已启用' : '已停用'}</Tag> },
       { title: '凭据引用', dataIndex: 'credentialConfigured', width: 100, render: value => <Tag color={value ? 'green' : 'gold'}>{value ? '已登记' : '未登记'}</Tag> },
-      { title: '运行配置', dataIndex: 'providerConfigured', width: 110, render: value => <Tag color={value ? 'green' : 'gold'}>{value ? '模型记录完整' : '待完善'}</Tag> }
+      { title: '运行配置', dataIndex: 'providerConfigured', width: 110, render: value => <Tag color={value ? 'green' : 'gold'}>{value ? '模型记录完整' : '待完善'}</Tag> },
+      { title: '操作', width: 80, fixed: 'right', render: (_, model) => <Button size="small" onClick={() => openEdit(model)}>编辑</Button> }
     ]} />
 
-    <Drawer title="新增模型" open={open} onClose={() => setOpen(false)} width={760} extra={<Button type="primary" loading={saving} onClick={submit}>保存</Button>}>
-      <Form form={form} layout="vertical" initialValues={{ kind: 'image', adapterKind: 'jimeng_image', enabled: false, hidden: false, sortOrder: 0, parameterSchema: '{}', runtimePolicyJson: '{}' }}>
+    <Drawer title={editingModel ? `编辑模型 · ${editingModel.name}` : '新增模型'} open={open} onClose={closeDrawer} width={760} extra={<Button type="primary" loading={saving} onClick={submit}>{editingModel ? '保存新版本' : '保存'}</Button>}>
+      {editingModel ? <Alert type="info" showIcon style={{ marginBottom: 16 }} message="稳定身份不会改变" description="编辑时模型标识、能力类型和适配器保持不变；运行配置保存为新版本，避免影响已创建任务。" /> : null}
+      <Form form={form} layout="vertical" initialValues={modelFormValues(null)}>
         <Form.Item label="名称" name="name" rules={[{ required: true, message: '请填写模型名称' }]}><Input placeholder="例如 Seedance 1.5 Pro" /></Form.Item>
         <Form.Item label="模型标识" name="modelId" rules={[{ pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/, message: '仅支持小写 kebab-case，例如 seedance-1-5-pro' }]}>
-          <Input placeholder="建议填写稳定标识，例如 seedance-1-5-pro" />
+          <Input disabled={Boolean(editingModel)} placeholder="建议填写稳定标识，例如 seedance-1-5-pro" />
         </Form.Item>
         <Form.Item label="适配器" name="adapterKind" rules={[{ required: true }]}>
-          <Select options={adapters} onChange={handleAdapterChange} />
+          <Select disabled={Boolean(editingModel)} options={adapters} onChange={handleAdapterChange} />
         </Form.Item>
         <Form.Item name="kind" hidden><Input /></Form.Item>
         <Form.Item label="启用" name="enabled" valuePropName="checked"><Switch /></Form.Item>
@@ -205,9 +230,11 @@ export function ShuihuoModelCatalogPage() {
           <Form.Item label="轮询模板" name="pollingTemplate" extra="只有提交响应返回 providerTaskId 时需要。支持 {{provider_task_id}} 和 {{credential}}。">
             <Input.TextArea rows={12} spellCheck={false} />
           </Form.Item>
+          <Space size="large" style={{ marginBottom: 16 }}>
+            <Form.Item label="图片输入格式" name="imageInputFormat" style={{ marginBottom: 0 }}><Input /></Form.Item>
+            <Form.Item label="图片请求模式" name="imageRequestMode" style={{ marginBottom: 0 }}><Input /></Form.Item>
+          </Space>
           <Form.Item label="运行策略 JSON" name="runtimePolicyJson"><Input.TextArea rows={3} spellCheck={false} /></Form.Item>
-          <Form.Item name="imageInputFormat" hidden><Input /></Form.Item>
-          <Form.Item name="imageRequestMode" hidden><Input /></Form.Item>
         </> : <Form.Item label="密钥引用" name="credentialRef"><Input.Password placeholder="需要时填写服务器密钥引用名" /></Form.Item>}
       </Form>
     </Drawer>
