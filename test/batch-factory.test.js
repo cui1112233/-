@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
 const { normalizeSettings, normalizeSourceItem } = require('../lib/batch-factory/store');
+const { canonicalModelSettings } = require('../routes/batch-factory');
 const { boundModelError } = require('../routes/batch-factory-production');
 
 function baseResult(videos) {
@@ -74,6 +75,26 @@ test('批量设置保存导演绑定的视频模型与时长能力快照', () =>
   assert.equal(settings.videoModelName, 'Seedance 2.0');
   assert.equal(settings.maxVideoDuration, 15);
   assert.equal(settings.exactDuration, 15);
+});
+
+test('创建批次时服务端模型能力覆盖客户端伪造值', () => {
+  const settings = canonicalModelSettings({
+    videoModelId: 18,
+    videoModelVersionId: 1,
+    videoModelName: '伪造名称',
+    maxVideoDuration: 60,
+    aspectRatio: '9:16'
+  }, {
+    id: 18,
+    versionId: 42,
+    name: 'Seedance 2.0',
+    maxVideoDuration: 15
+  });
+  assert.equal(settings.videoModelId, 18);
+  assert.equal(settings.videoModelVersionId, 42);
+  assert.equal(settings.videoModelName, 'Seedance 2.0');
+  assert.equal(settings.maxVideoDuration, 15);
+  assert.equal(settings.aspectRatio, '9:16');
 });
 
 test('生成阶段拒绝把已导演批次换成另一视频模型', () => {
