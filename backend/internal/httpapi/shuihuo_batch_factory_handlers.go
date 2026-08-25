@@ -43,6 +43,7 @@ type batchFactoryProductionMedia struct {
 	SegmentID    *int64 `json:"segmentId,omitempty"`
 	TaskID       *int64 `json:"taskId,omitempty"`
 	DurationMS   *int64 `json:"durationMs,omitempty"`
+	Source       string `json:"source,omitempty"`
 	DownloadPath string `json:"downloadPath"`
 }
 
@@ -230,6 +231,7 @@ func (api *API) handleBatchFactoryProductionStatus(w http.ResponseWriter, r *htt
 			SegmentID:    item.SegmentID,
 			TaskID:       item.TaskID,
 			DurationMS:   item.DurationMS,
+			Source:       item.Source,
 			DownloadPath: "/api/shuihuo-production/media/" + strconv.FormatInt(item.ID, 10) + "/download",
 		})
 	}
