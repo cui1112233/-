@@ -2316,6 +2316,16 @@ async function loadTasks() {
   $("summaryText").textContent = `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
 }
 
+async function refreshTasksAndSubmitHistory() {
+  setBatchStatus("正在刷新任务和网站提交记录...");
+  try {
+    await Promise.all([loadTasks(), loadWebSubmitHistory()]);
+    setBatchStatus("任务和网站提交记录已更新");
+  } catch (error) {
+    setBatchStatus(`刷新失败：${error.message || "请稍后重试"}`);
+  }
+}
+
 async function loadLogs() {
   const data = await api("/api/logs");
   const list = $("logsList");
@@ -2960,7 +2970,7 @@ document.addEventListener("click", async (event) => {
   }
   if (button.classList.contains("tab")) {
     activateTab(button.dataset.tab);
-    if (button.dataset.tab === "tasks") await loadTasks();
+    if (button.dataset.tab === "tasks") await refreshTasksAndSubmitHistory();
     if (button.dataset.tab === "knowledge") renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
     if (button.dataset.tab === "rules") renderRuleEditor();
     if (button.dataset.tab === "siteSubmit") renderWebSubmitConfig(state.config?.web_submit || {});
@@ -3017,9 +3027,9 @@ document.addEventListener("change", (event) => {
 window.addEventListener("DOMContentLoaded", async () => {
   bindWorkFormPersistence();
   $("processBtn").onclick = processInput;
-  $("refreshBtn").onclick = loadTasks;
-  $("taskRefreshBtn").onclick = loadTasks;
-  $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await loadTasks(); };
+  $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
+  $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
+  $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
   $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;
   $("clearSelectedBtn").onclick = clearSelectedTasks;
