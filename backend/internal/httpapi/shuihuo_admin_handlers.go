@@ -9,15 +9,25 @@ import (
 )
 
 type shuihuoAdminModelRequest struct {
-	Name            string      `json:"name"`
-	Kind            models.Kind `json:"kind"`
-	AdapterKind     string      `json:"adapterKind"`
-	Enabled         bool        `json:"enabled"`
-	ParameterSchema string      `json:"parameterSchema"`
-	CredentialRef   string      `json:"credentialRef"`
-	Endpoint        string      `json:"endpoint"`
-	RequestTemplate string      `json:"requestTemplate"`
-	ResponseMapping string      `json:"responseMapping"`
+	ModelID           string      `json:"modelId"`
+	Name              string      `json:"name"`
+	Kind              models.Kind `json:"kind"`
+	AdapterKind       string      `json:"adapterKind"`
+	Enabled           bool        `json:"enabled"`
+	Hidden            bool        `json:"hidden"`
+	SortOrder         int         `json:"sortOrder"`
+	AdminNote         string      `json:"adminNote"`
+	ParameterSchema   string      `json:"parameterSchema"`
+	CredentialRef     string      `json:"credentialRef"`
+	Endpoint          string      `json:"endpoint"`
+	BaseDomain        string      `json:"baseDomain"`
+	BasePath          string      `json:"basePath"`
+	RequestTemplate   string      `json:"requestTemplate"`
+	ResponseMapping   string      `json:"responseMapping"`
+	PollingTemplate   string      `json:"pollingTemplate"`
+	ImageInputFormat  string      `json:"imageInputFormat"`
+	ImageRequestMode  string      `json:"imageRequestMode"`
+	RuntimePolicyJSON string      `json:"runtimePolicyJson"`
 }
 
 func (api *API) handleAdminModelList(w http.ResponseWriter, r *http.Request) {
@@ -47,18 +57,21 @@ func (api *API) handleCreateAdminModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	definition := models.Definition{
-		Name: strings.TrimSpace(req.Name), Kind: req.Kind, AdapterKind: req.AdapterKind, Enabled: req.Enabled,
-		ParameterSchema: req.ParameterSchema, CredentialRef: strings.TrimSpace(req.CredentialRef),
-		Endpoint: strings.TrimSpace(req.Endpoint), RequestTemplate: req.RequestTemplate, ResponseMapping: req.ResponseMapping,
+		ModelID: strings.TrimSpace(req.ModelID), Name: strings.TrimSpace(req.Name), Kind: req.Kind, AdapterKind: req.AdapterKind,
+		Enabled: req.Enabled, Hidden: req.Hidden, SortOrder: req.SortOrder, AdminNote: strings.TrimSpace(req.AdminNote),
+		ParameterSchema: req.ParameterSchema, CredentialRef: strings.TrimSpace(req.CredentialRef), Endpoint: strings.TrimSpace(req.Endpoint),
+		BaseDomain: strings.TrimSpace(req.BaseDomain), BasePath: strings.TrimSpace(req.BasePath), RequestTemplate: req.RequestTemplate,
+		ResponseMapping: req.ResponseMapping, PollingTemplate: req.PollingTemplate, ImageInputFormat: strings.TrimSpace(req.ImageInputFormat),
+		ImageRequestMode: strings.TrimSpace(req.ImageRequestMode), RuntimePolicyJSON: req.RuntimePolicyJSON,
 	}
 	if err := models.ValidateDefinition(definition); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效：" + err.Error()})
 		return
 	}
 	user, _ := currentUser(r)
 	model, err := shuihuostore.NewModels(api.deps.DB).Create(r.Context(), user.ID, definition)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效或名称重复"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效或模型标识/名称重复"})
 		return
 	}
 	writeJSON(w, http.StatusCreated, models.ToAdmin(model))
