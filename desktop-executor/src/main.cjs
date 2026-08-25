@@ -144,6 +144,19 @@ async function tryAutoSubmitDoubaoPrompt(webContents) {
   return { ok: false, reason: '未找到生成按钮，请在豆包页面手动确认' };
 }
 
+function autoDownloadDoubaoVideo(webContents) {
+  const script = `(() => {
+    const labels = new Set(['下载', '下载视频', '保存视频', '下载到本地']);
+    const candidates = [...document.querySelectorAll('button, [role="button"], a')]
+      .filter(element => element.offsetParent !== null && !element.disabled && labels.has((element.innerText || element.textContent || '').trim()));
+    const target = candidates.at(-1);
+    if (!target) return { ok: false };
+    target.click();
+    return { ok: true, label: (target.innerText || target.textContent || '').trim() };
+  })()`;
+  return webContents.executeJavaScript(script, true).catch(() => ({ ok: false }));
+}
+
 function configureAccountSession(account) {
   const accountSession = session.fromPartition(`persist:doubao-${account.id}`);
   if (configuredAccountSessions.has(account.id)) return accountSession;
@@ -222,6 +235,16 @@ async function openJobForAccount(job, account) {
     await markAccountUnavailable(account, reason);
     if (!taskWindow.isDestroyed()) taskWindow.close();
     await dispatchActiveJob(account.id);
+  }, 5000);
+  const downloadTimer = setInterval(async () => {
+    if (taskWindow.isDestroyed() || !state.activeJob || state.activeJob.id !== job.id) return clearInterval(downloadTimer);
+    if (state.activeJob.autoDownloadRequestedAt) return;
+    const downloaded = await autoDownloadDoubaoVideo(taskWindow.webContents);
+    if (!downloaded.ok) return;
+    state.activeJob = { ...state.activeJob, autoDownloadRequestedAt: Date.now() };
+    saveState();
+    taskWindow.setTitle(`豆包生成：${account.name}（已自动点击${downloaded.label}，等待回传）`);
+    clearInterval(downloadTimer);
   }, 5000);
   state.activeJob = { ...job, accountId: account.id, accountName: account.name };
   saveState();
