@@ -23,6 +23,7 @@ const workspaceNavItems = [
 const accountNavItems = [
   { href: '/member', icon: Gem, label: '会员中心' },
   { href: '/team', icon: UsersRound, label: '团队管理', roles: ['dev', 'manager'] },
+  { href: '/advanced-team-admin', icon: ShieldCheck, label: '联合治理', roles: ['dev', 'manager'] },
   { href: '/api-config', icon: KeyRound, label: 'API 配置' },
   { href: '/usage', icon: BarChart3, label: '用量统计' },
   { href: '/profile', icon: UserRound, label: '个人资料' },
