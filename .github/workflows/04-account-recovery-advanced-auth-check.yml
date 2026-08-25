@@ -1,0 +1,55 @@
+name: 04 Account Recovery Advanced Auth Check
+
+on:
+  push:
+    branches:
+      - 04-account-recovery-advanced-auth
+  pull_request:
+    branches:
+      - 03-identity-team-collaboration
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advanced-auth-tests:
+    name: Advanced auth acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: >-
+          node --test
+          tests/account-recovery-advanced-auth.test.js
+          tests/identity-team-collaboration.test.js
+          tests/team-governance-control.test.js
+          tests/team-governance-zero-quota.test.js
+          tests/account-center-acceptance.test.js
+          tests/member-center.test.js
+          tests/member-usage-runtime.test.js
+          tests/dev-permissions.test.js
+          tests/persistent-session.test.js
+          tests/tts-preferences-contract.test.js
+          tests/agent-routes.test.js
+          tests/agent-skill-routes.test.js
+
+  frontend-build:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build
