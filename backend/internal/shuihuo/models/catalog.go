@@ -61,6 +61,7 @@ type PublicModel struct {
 	ImageRequestMode   string   `json:"imageRequestMode"`
 	AllowedRoles       []string `json:"allowedRoles"`
 	RequiresImageInput bool     `json:"requiresImageInput"`
+	MaxVideoDuration   int      `json:"maxVideoDuration"`
 }
 
 // AdminModel exposes operational configuration and credential reference IDs,
@@ -88,7 +89,7 @@ func ToPublic(model Definition) PublicModel {
 		Kind: model.Kind, AdapterKind: model.AdapterKind, SortOrder: model.SortOrder,
 		ParameterSchema: model.ParameterSchema, ImageInputFormat: model.ImageInputFormat,
 		ImageRequestMode: model.ImageRequestMode, AllowedRoles: append([]string(nil), model.AllowedRoles...),
-		RequiresImageInput: model.RequiresImageInput(),
+		RequiresImageInput: model.RequiresImageInput(), MaxVideoDuration: model.MaxVideoDuration(),
 	}
 }
 
@@ -128,6 +129,60 @@ func (model Definition) RequiresImageInput() bool {
 		return true
 	}
 	return model.AdapterKind == AdapterGenericHTTP && strings.Contains(model.RequestTemplate, "{{image_url}}")
+}
+
+// MaxVideoDuration returns the provider capability used to constrain one
+// generated VIDEO. The public parameter schema is the preferred source because
+// this value is a user-visible capability. Runtime policy is accepted as a
+// backwards-compatible fallback. A value of 0 means the model has not declared
+// a provider-specific maximum yet.
+func (model Definition) MaxVideoDuration() int {
+	if model.Kind != KindVideo {
+		return 0
+	}
+	if value := maxVideoDurationFromJSON(model.ParameterSchema); value > 0 {
+		return value
+	}
+	return maxVideoDurationFromJSON(model.RuntimePolicyJSON)
+}
+
+func maxVideoDurationFromJSON(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	var data map[string]any
+	if json.Unmarshal([]byte(raw), &data) != nil {
+		return 0
+	}
+	for _, key := range []string{"maxVideoDuration", "maxDuration"} {
+		if value := normalizedDurationCapability(data[key]); value > 0 {
+			return value
+		}
+	}
+	properties, _ := data["properties"].(map[string]any)
+	duration, _ := properties["duration"].(map[string]any)
+	if value := normalizedDurationCapability(duration["maximum"]); value > 0 {
+		return value
+	}
+	if values, ok := duration["enum"].([]any); ok {
+		maximum := 0
+		for _, candidate := range values {
+			if value := normalizedDurationCapability(candidate); value > maximum {
+				maximum = value
+			}
+		}
+		return maximum
+	}
+	return 0
+}
+
+func normalizedDurationCapability(value any) int {
+	number, ok := value.(float64)
+	if !ok || number < 1 || number > 60 || number != float64(int(number)) {
+		return 0
+	}
+	return int(number)
 }
 
 func (model Definition) ProviderConfigured() bool {
