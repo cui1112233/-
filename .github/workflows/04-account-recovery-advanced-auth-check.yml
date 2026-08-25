@@ -53,3 +53,87 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --prefix frontend
       - run: npm --prefix frontend run build
+
+  runtime-smoke:
+    name: Real server runtime smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build
+      - name: Start server and exercise account center
+        shell: bash
+        run: |
+          set -euo pipefail
+          node server.js > /tmp/qiantie-server.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            kill "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          READY=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/build-info > /tmp/build-info.json; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" != "1" ]; then
+            cat /tmp/qiantie-server.log
+            exit 1
+          fi
+
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const info = JSON.parse(fs.readFileSync('/tmp/build-info.json', 'utf8'));
+          if (info.build_id !== '04-account-recovery-advanced-auth') {
+            throw new Error(`unexpected build id: ${info.build_id}`);
+          }
+          NODE
+
+          for path in / /member /team /api-config /usage /profile /security /advanced-team-admin '/recover?reset=smoke' /invite/smoke; do
+            status=$(curl -sS -o /tmp/page.html -w '%{http_code}' "http://127.0.0.1:3000${path}")
+            if [ "$status" != "200" ]; then
+              echo "page failed: ${path} -> ${status}"
+              cat /tmp/qiantie-server.log
+              exit 1
+            fi
+          done
+
+          curl -fsS \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"choushiyiguai","password":"123456","remember":false}' \
+            http://127.0.0.1:3000/api/login > /tmp/login.json
+          TOKEN=$(node - <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/login.json', 'utf8'));
+          if (!payload.token || payload.role !== 'dev') throw new Error('owner runtime login failed');
+          process.stdout.write(payload.token);
+          NODE
+          )
+
+          for endpoint in \
+            /api/login/session \
+            /api/member/me \
+            /api/member/security \
+            /api/member/team \
+            /api/member/team/meta \
+            /api/account-recovery/email/status \
+            /api/team-admin/teams; do
+            curl -fsS -H "Authorization: Bearer ${TOKEN}" "http://127.0.0.1:3000${endpoint}" > /dev/null
+          done
+
+          curl -fsS -X POST -H "Authorization: Bearer ${TOKEN}" http://127.0.0.1:3000/api/login/logout > /dev/null
+          echo 'runtime smoke passed'
