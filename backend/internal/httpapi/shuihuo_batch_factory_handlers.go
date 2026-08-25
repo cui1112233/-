@@ -72,6 +72,11 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "该模型需要主图片。批量工厂直接生成当前请选择文生视频模型；图生视频可转为生产项目后绑定图片再生成。"})
 		return
 	}
+	maxVideoDuration := model.MaxVideoDuration()
+	if maxVideoDuration < 1 {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "所选视频模型未配置单次最大生成时长，请管理员先在模型中心补充该能力。"})
+		return
+	}
 	for index, video := range req.Videos {
 		if strings.TrimSpace(video.VideoPrompt) == "" || strings.TrimSpace(video.SourceText) == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + strconv.Itoa(index+1) + " 个 VIDEO 缺少内容或提示词"})
@@ -79,6 +84,10 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		}
 		if _, err := normalizedVideoTaskSettings(&shuihuoVideoTaskSettings{Duration: video.Duration, AspectRatio: video.AspectRatio}); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + strconv.Itoa(index+1) + " 个 VIDEO 的时长或画幅无效"})
+			return
+		}
+		if video.Duration > maxVideoDuration {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + strconv.Itoa(index+1) + " 个 VIDEO 为 " + strconv.Itoa(video.Duration) + " 秒，超过所选模型单次最大 " + strconv.Itoa(maxVideoDuration) + " 秒，请重新导演拆分。"})
 			return
 		}
 	}
