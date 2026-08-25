@@ -8,10 +8,12 @@ import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
+import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
+import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCards, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
@@ -150,7 +152,7 @@ export function ScriptPage() {
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(constraints, selectedFormat),
+    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
     index
   })), [rawShotCards, extractInfo, constraints, selectedFormat]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
@@ -208,7 +210,7 @@ export function ScriptPage() {
     setQuickDirecting(true);
     setQuickDirectorOpen(false);
     setGenerationStage('extracting');
-    dispatchPetState('working');
+    dispatchPetState('working', { title: '快速导演分镜正在生成' });
     try {
       const extraction = await extractEntities(source);
       if (!isCurrentRequest(request)) return;
@@ -231,13 +233,13 @@ export function ScriptPage() {
       setCurrentHistoryId('');
       message.success('快速导演分镜已生成，可直接查看、复制或生成视频');
       playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success');
+      dispatchPetState('success', { title: '快速导演分镜已生成', detail: '完整分镜已写入当前剧本，可直接查看或生成视频。' });
     } catch (error) {
       if (isCurrentRequest(request)) {
         setGenerationStage('error');
         message.error(error.message || '快速导演分镜生成失败');
         playTaskSound('warning', soundEnabled, soundVolume);
-        dispatchPetState('error');
+        dispatchPetState('error', { title: '快速导演分镜生成失败', detail: error.message || '请检查模型配置后重试。' });
       }
     } finally {
       if (isCurrentRequest(request)) setQuickDirecting(false);
@@ -569,7 +571,7 @@ export function ScriptPage() {
     if (!input) return message.warning('请先输入或添加小说原文');
     const requestId = beginRequest('narrate');
     setNarrating(true);
-    dispatchPetState('working');
+    dispatchPetState('working', { title: '原文配音正在生成' });
     try {
       const config = await getConfig();
       const blob = await textToSpeech({ input, ...(config.tts || {}) });
@@ -581,11 +583,11 @@ export function ScriptPage() {
       }
       replaceSourceAudio(nextAudioUrl);
       message.success('已按当前配音预设生成原文配音');
-      dispatchPetState('success');
+      dispatchPetState('success', { title: '原文配音已生成', detail: '音频已经可以在剧本生成页面播放。' });
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       message.error(error.message || '原文配音失败');
-      dispatchPetState('error');
+      dispatchPetState('error', { title: '原文配音生成失败', detail: error.message || '请检查配音模型配置后重试。' });
     } finally {
       if (isCurrentRequest(requestId)) setNarrating(false);
     }
@@ -640,7 +642,7 @@ export function ScriptPage() {
     setEditingOutput(false);
     setExtracting(true);
     setGenerationStage('extracting');
-    dispatchPetState('working');
+    dispatchPetState('working', { title: '人物与场景正在提取' });
     try {
       const extraction = await extractEntities(values.novelText);
       if (!isCurrentRequest(requestId)) return;
@@ -648,13 +650,13 @@ export function ScriptPage() {
       setGenerationStage('extracted');
       message.success(`已提取 ${extraction.characters.length} 个人物和 ${extraction.scenes.length} 个场景`);
       playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success');
+      dispatchPetState('success', { title: '人物与场景提取完成', detail: `已提取 ${extraction.characters.length} 个人物和 ${extraction.scenes.length} 个场景。` });
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
       message.error(error.message || '人物与场景提取失败');
       playTaskSound('warning', soundEnabled, soundVolume);
-      dispatchPetState('error');
+      dispatchPetState('error', { title: '人物与场景提取失败', detail: error.message || '请检查文本或提取模型后重试。' });
     } finally {
       if (isCurrentRequest(requestId)) setExtracting(false);
     }
@@ -666,19 +668,19 @@ export function ScriptPage() {
     const requestId = beginRequest('workflow');
     setRegeneratingEntities(true);
     setGenerationStage('extracting');
-    dispatchPetState('working');
+    dispatchPetState('working', { title: '人物与场景正在重新提取' });
     try {
       const extraction = await extractEntities(novelText);
       if (!isCurrentRequest(requestId)) return;
       setExtractInfo(extraction);
       setGenerationStage('extracted');
       message.success('人物与场景已重新提取');
-      dispatchPetState('success');
+      dispatchPetState('success', { title: '人物与场景已重新提取' });
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
       message.error(error.message || '人物与场景重生失败');
-      dispatchPetState('error');
+      dispatchPetState('error', { title: '人物与场景重新提取失败', detail: error.message || '请检查模型配置后重试。' });
     } finally {
       if (isCurrentRequest(requestId)) setRegeneratingEntities(false);
     }
@@ -690,7 +692,7 @@ export function ScriptPage() {
     const requestId = beginRequest('workflow');
     setGenerating(true);
     setGenerationStage('generating');
-    dispatchPetState('working');
+    dispatchPetState('working', { title: '剧本正在生成' });
     setEditingOutput(false);
     try {
       const entities = toGenerationEntities(extractInfo);
@@ -700,7 +702,7 @@ export function ScriptPage() {
         duration: values.duration,
         novelText: values.novelText,
         ...entities,
-        constraints: constraintsForFormat(constraints, values.format)
+        constraints: constraintsForFormat(constraints, values.format, extractInfo)
       });
       const nextOutput = aiText(scriptResponse);
 
@@ -727,13 +729,13 @@ export function ScriptPage() {
       setGenerationStage('complete');
       message.success('生成完成');
       playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success');
+      dispatchPetState('success', { title: '剧本生成完成', detail: '结果已保存到当前工作台和生成历史。' });
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
       message.error(error.message || '剧本生成失败');
       playTaskSound('warning', soundEnabled, soundVolume);
-      dispatchPetState('error');
+      dispatchPetState('error', { title: '剧本生成失败', detail: error.message || '请检查模型配置后重试。' });
     } finally {
       if (isCurrentRequest(requestId)) setGenerating(false);
     }
@@ -812,6 +814,7 @@ export function ScriptPage() {
 
   function deleteActiveEntity() {
     if (!activeEntity || activeEntity.isNew) return;
+    const deletedEntityId = activeEntity.id;
     setExtractInfo(current => {
       const normalized = normalizeExtractInfo(current);
       const next = {
@@ -824,6 +827,8 @@ export function ScriptPage() {
       invalidateEntityOutput(next);
       return next;
     });
+    setConstraints(current => removeEntityConstraintReferences(current, deletedEntityId));
+    setDraftConstraints(current => removeEntityConstraintReferences(current, deletedEntityId));
     setActiveEntity(null);
   }
 
@@ -962,6 +967,30 @@ export function ScriptPage() {
   const selectedExtractionPreset = extractionPresets.find(item => item.id === extractionPreset);
   const extractionPresetName = selectedExtractionPreset?.name || extractionPresetError || '正在加载提取指令';
   const extractionUnavailable = loadingExtractionPresets || Boolean(extractionPresetError) || !extractionPresets.length;
+
+  useScriptCmBridge({
+    form,
+    extractInfo,
+    setExtractInfo,
+    output,
+    updateOutputDraft,
+    setPreviousOutput,
+    setEditingOutput,
+    constraints,
+    setConstraints,
+    setDraftConstraints,
+    generationStage,
+    invalidateEntityOutput
+  });
+
+  useEffect(() => {
+    if (!activeEntity || activeEntity.isNew) {
+      dispatchCmSelection(null);
+      return;
+    }
+    const item = extractInfo[activeEntity.type]?.find(candidate => candidate.id === activeEntity.id);
+    dispatchCmSelection(scriptEntitySelection(activeEntity.type, item));
+  }, [activeEntity, extractInfo]);
 
   return (
     <Form

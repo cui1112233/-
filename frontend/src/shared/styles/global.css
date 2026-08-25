@@ -566,6 +566,76 @@ select {
   gap: 10px;
 }
 
+.legacy-task-center-button.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  color: var(--legacy-muted);
+}
+
+.legacy-task-center-button.ant-btn:hover,
+.legacy-task-center-button.ant-btn:focus-visible {
+  color: var(--legacy-accent) !important;
+  background: var(--legacy-accent-dim) !important;
+}
+
+.global-task-center-popover {
+  width: min(390px, calc(100vw - 24px));
+}
+
+.global-task-center-popover .ant-popover-inner {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--legacy-border);
+  background: var(--legacy-panel);
+}
+
+.global-task-center {
+  color: var(--legacy-text);
+}
+
+.global-task-center-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 11px;
+  border-bottom: 1px solid var(--legacy-border);
+}
+
+.global-task-center-heading > div { display: grid; gap: 2px; }
+.global-task-center-heading strong { font-size: 14px; }
+.global-task-center-heading span,
+.global-task-center-empty,
+.global-task-center-item small,
+.global-task-center-item time { color: var(--legacy-muted); font-size: 12px; }
+.global-task-center-heading .ant-btn-link { padding: 0; color: var(--legacy-accent); }
+
+.global-task-center-list { max-height: min(440px, 62vh); overflow: auto; }
+
+.global-task-center-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  color: var(--legacy-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--legacy-border);
+  transition: background .18s ease;
+}
+
+.global-task-center-item:last-child { border-bottom: 0; }
+.global-task-center-item:hover { color: var(--legacy-text); background: var(--legacy-card-hover); }
+.global-task-center-item.success > svg { color: #39c87a; margin-top: 1px; }
+.global-task-center-item.error > svg { color: #ff6b7a; margin-top: 1px; }
+.global-task-center-copy { display: grid; min-width: 0; gap: 3px; }
+.global-task-center-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.global-task-center-copy small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; }
+.global-task-center-item time { padding-top: 1px; white-space: nowrap; }
+.global-task-center-empty { margin: 0; padding: 20px 14px; line-height: 1.65; }
+
 .legacy-sidebar-user {
   flex: 0 0 auto;
   display: flex;

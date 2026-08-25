@@ -1,5 +1,5 @@
-import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, BookOpen, Bot, Bug, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { Avatar, Badge, Button, Checkbox, ConfigProvider, Form, Input, message, Modal, Popover } from 'antd';
+import { AudioLines, Bell, BookOpen, Bot, Bug, CheckCircle2, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, XCircle } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -7,8 +7,9 @@ import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/aut
 import { getToken } from '../api/client';
 import { getConfig } from '../api/config';
 import { avatarDisplay } from '../avatars';
-import { StackyPet } from '../pet/StackyPet';
+import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
+import { GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
 import { createAntTheme } from '../styles/theme';
 
 // 动态 Logo 包含 WebGL shader，不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
@@ -27,6 +28,8 @@ const navItems = [
 ];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
+const TASK_NOTIFICATION_STORAGE_KEY_PREFIX = 'qiantie:task-center:';
+const MAX_TASK_NOTIFICATIONS = 20;
 
 function initialTheme() {
   return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
@@ -36,6 +39,39 @@ function pageTitle(pathname) {
   if (pathname === '/member') return '个人中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
+}
+
+function taskNotificationStorageKey(username) {
+  return username ? `${TASK_NOTIFICATION_STORAGE_KEY_PREFIX}${username}` : '';
+}
+
+function readTaskNotifications(username) {
+  const key = taskNotificationStorageKey(username);
+  if (!key) return [];
+  try {
+    const rows = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(rows) ? rows.map(normalizeGlobalTaskNotification).slice(0, MAX_TASK_NOTIFICATIONS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTaskNotifications(username, notifications) {
+  const key = taskNotificationStorageKey(username);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(notifications.slice(0, MAX_TASK_NOTIFICATIONS)));
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+}
+
+function formatNotificationTime(timestamp) {
+  try {
+    return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp));
+  } catch {
+    return '';
+  }
 }
 
 function canAccessAdmin(account) {
@@ -57,6 +93,8 @@ export function UserLayout({ children }) {
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
   const [avatar, setAvatar] = useState(null);
+  const [taskNotifications, setTaskNotifications] = useState(() => readTaskNotifications(getCurrentUsername()));
+  const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
   const pathname = window.location.pathname;
@@ -76,6 +114,42 @@ export function UserLayout({ children }) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    setTaskNotifications(readTaskNotifications(username));
+  }, [username]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return undefined;
+    const appendTaskNotification = event => {
+      const notification = normalizeGlobalTaskNotification(event.detail || {});
+      if (notification.status === 'working') return;
+      setTaskNotifications(current => {
+        const next = [notification, ...current.filter(item => item.id !== notification.id)].slice(0, MAX_TASK_NOTIFICATIONS);
+        writeTaskNotifications(username, next);
+        return next;
+      });
+      const kind = notification.status === 'error' ? 'error' : 'success';
+      message.open({
+        key: `task-${notification.id}`,
+        type: kind,
+        content: `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`,
+        duration: notification.status === 'error' ? 6 : 4,
+        style: { marginTop: 12 }
+      });
+    };
+    const receiveEmbeddedTaskNotification = event => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'qiantie:task-notification') return;
+      appendTaskNotification({ detail: event.data });
+    };
+    window.addEventListener(GLOBAL_TASK_NOTIFICATION_EVENT, appendTaskNotification);
+    window.addEventListener('message', receiveEmbeddedTaskNotification);
+    return () => {
+      window.removeEventListener(GLOBAL_TASK_NOTIFICATION_EVENT, appendTaskNotification);
+      window.removeEventListener('message', receiveEmbeddedTaskNotification);
+    };
+  }, [isLoggedIn, username]);
 
   useEffect(() => {
     document.body.classList.add('user-theme-active');
@@ -265,6 +339,29 @@ export function UserLayout({ children }) {
     setTheme(current => current === 'dark' ? 'light' : 'dark');
   }
 
+  function clearTaskNotifications() {
+    setTaskNotifications([]);
+    writeTaskNotifications(username, []);
+  }
+
+  const taskCenterContent = (
+    <section className="global-task-center" aria-label="任务通知">
+      <div className="global-task-center-heading">
+        <div><strong>任务通知</strong><span>跨页面保留最近 {MAX_TASK_NOTIFICATIONS} 条</span></div>
+        {taskNotifications.length ? <Button type="link" size="small" onClick={clearTaskNotifications}>清空</Button> : null}
+      </div>
+      {taskNotifications.length ? <div className="global-task-center-list">
+        {taskNotifications.map(item => (
+          <Link key={item.id} href={item.pagePath || window.location.pathname} className={`global-task-center-item ${item.status}`} onClick={() => setTaskCenterOpen(false)}>
+            {item.status === 'error' ? <XCircle size={17} aria-hidden="true" /> : <CheckCircle2 size={17} aria-hidden="true" />}
+            <span className="global-task-center-copy"><strong>{item.title}</strong>{item.detail ? <small>{item.detail}</small> : null}</span>
+            <time>{formatNotificationTime(item.createdAt)}</time>
+          </Link>
+        ))}
+      </div> : <p className="global-task-center-empty">暂时没有已完成的任务。生成结束后，无论你在哪个功能页面，结果都会显示在这里。</p>}
+    </section>
+  );
+
   const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen);
   const loginOverlay = showLoginCard ? (
     <div className="legacy-login-overlay nebula-login-overlay">
@@ -378,9 +475,20 @@ export function UserLayout({ children }) {
       </aside>
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
+          <header className="legacy-topbar">
+            <span className="legacy-page-title">{pageTitle(pathname)}</span>
+            <div className="legacy-userbar">
+              <Popover content={taskCenterContent} trigger="click" open={taskCenterOpen} onOpenChange={setTaskCenterOpen} placement="bottomRight" overlayClassName="global-task-center-popover">
+                <Button className="legacy-task-center-button" type="text" aria-label="打开任务通知" title="任务通知">
+                  <Badge count={taskNotifications.length} size="small" overflowCount={9} offset={[-1, 2]}><Bell size={19} aria-hidden="true" /></Badge>
+                  <span>任务</span>
+                </Button>
+              </Popover>
+            </div>
+          </header>
           <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{content}</section>
         </main>
-        {isLoggedIn && pathname !== '/' && petVisible ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
+        {isLoggedIn && pathname !== '/' && petVisible ? <CmPenguinCompanion username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
       </div>

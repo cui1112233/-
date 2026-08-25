@@ -4734,6 +4734,14 @@ function writeTextContent(selector, value) {
 }
 
 function showAIStatusNotice(message, kind = "warning", timeoutMs = 4000) {
+  const taskMessage = String(message || "").replace(/\s+/g, " ").trim();
+  if (/完成|已生成|生成失败|请求或返回解析失败|未写入新结果/.test(taskMessage)) {
+    globalThis.__QIANTE_NOTIFY_TASK__?.(
+      kind === "ready" ? "success" : "error",
+      kind === "ready" ? "小说面板任务已完成" : "小说面板任务需要处理",
+      taskMessage,
+    );
+  }
   const status = $("#aiStatus");
   if (!status || !text(message)) return;
   if (aiStatusTimer) {

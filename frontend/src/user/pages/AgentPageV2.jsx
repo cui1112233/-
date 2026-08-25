@@ -305,7 +305,7 @@ export function AgentPageV2({ theme }) {
     setAsking(true);
     setQuestion('');
     setTaskSummaryExpanded(false);
-    dispatchPetState('working');
+    dispatchPetState('working', { title: 'CM 正在处理任务' });
     try {
       const createdTask = activeTask ? { task: activeTask, requestId } : await createTask(requestId);
       if (!createdTask) return;
@@ -329,7 +329,7 @@ export function AgentPageV2({ theme }) {
       if (!isCurrentTaskRequest()) return;
       setActiveTask(nextTask);
       await refreshTasks(isCurrentTaskRequest);
-      if (isCurrentTaskRequest()) dispatchPetState('success');
+      if (isCurrentTaskRequest()) dispatchPetState('success', { title: 'CM 已完成本次处理', detail: '回复已写入当前任务对话。' });
     } catch (error) {
       if (!isCurrentTaskRequest()) return;
       message.error(error.message || 'CM 暂时无法回答');
@@ -339,7 +339,7 @@ export function AgentPageV2({ theme }) {
           .catch(() => undefined);
       }
       refreshTasks(isCurrentTaskRequest).catch(() => undefined);
-      if (isCurrentTaskRequest()) dispatchPetState('error');
+      if (isCurrentTaskRequest()) dispatchPetState('error', { title: 'CM 本次处理失败', detail: error.message || '请稍后重试。' });
     } finally {
       if (isCurrentTaskRequest()) setAsking(false);
     }
