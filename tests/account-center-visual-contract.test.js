@@ -87,6 +87,6 @@ test('server refuses stale frontend and can rebuild ignored dist from source', (
   assert.match(server, /ensureFrontendBuild\(\)/);
   assert.match(runtimeBuild, /frontendSourceFingerprint/);
   assert.match(runtimeBuild, /SOURCE_MARKER/);
-  assert.match(runtimeBuild, /npm', '--prefix', 'frontend', 'run', 'build'/);
-  assert.match(runtimeBuild, /npm', 'ci', '--prefix', 'frontend'/);
+  assert.match(runtimeBuild, /runNpm\(\['--prefix', 'frontend', 'run', 'build'\]/);
+  assert.match(runtimeBuild, /runNpm\(\['ci', '--prefix', 'frontend'\]/);
 });
