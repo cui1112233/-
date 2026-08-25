@@ -5,7 +5,11 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { ensureDevBackendPermissions, devGrantActor } = require('../lib/dev-permissions');
 const { createProfileDetailsStore } = require('../lib/profile-details-store');
-const { listPersistentSessionsForUser, revokePersistentSessionsForUser } = require('../lib/session-store');
+const {
+  listPersistentSessionsForUser,
+  revokePersistentSessionsForUser,
+  persistentSessionIdForToken
+} = require('../lib/session-store');
 
 function sendMemberError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: error.message });
@@ -146,9 +150,12 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const runtime = req.app?.locals?.authRuntime;
       const token = bearerToken(req);
       const runtimeSessions = [];
+      const activePersistentIds = new Set();
       if (runtime) {
         for (const [candidateToken, value] of runtime.tokenMap.entries()) {
           if (sessionUsername(value) !== req.username) continue;
+          const persistentId = persistentSessionIdForToken(candidateToken);
+          if (persistentId) activePersistentIds.add(persistentId);
           runtimeSessions.push({
             id: candidateToken.slice(0, 10),
             current: candidateToken === token,
@@ -158,6 +165,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       }
       const persistentSessions = runtime
         ? listPersistentSessionsForUser(runtime.sessionsPath, req.username, token)
+          .filter(item => !activePersistentIds.has(item.id))
         : [];
       return res.json({
         account: mergedSelf(req),
@@ -184,8 +192,6 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       if (currentPassword === newPassword) {
         return res.status(400).json({ error: '新密码不能与当前密码相同' });
       }
-      // Legacy account-store records password changes through its reviewer-safe reset path.
-      // We authenticate the requester first, then use the immutable owner actor only for the durable audit write.
       store.resetPassword(devGrantActor(store, req.username), req.username, newPassword);
       const revoked = revokeOtherRuntimeSessions(req);
       return res.json({ changed: true, revoked });
