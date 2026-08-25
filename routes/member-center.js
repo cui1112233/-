@@ -216,8 +216,9 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       }
       const members = memberStore.visibleTeam(req.username);
       const usernames = members.map(item => item.username);
-      const month = usageStore.summariesForUsers(usernames, 'month');
-      const day = usageStore.summariesForUsers(usernames, 'day');
+      const usageOptions = self.role === 'manager' ? { teamOwner: self.username } : {};
+      const month = usageStore.summariesForUsers(usernames, 'month', usageOptions);
+      const day = usageStore.summariesForUsers(usernames, 'day', usageOptions);
       return res.json({
         members: members.map(member => ({
           ...member,
@@ -285,12 +286,14 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
 
   router.get('/team/members/:username/usage', (req, res) => {
     try {
+      const self = memberStore.getMember(req.username);
       const visible = new Set(memberStore.visibleTeam(req.username).map(item => item.username));
       if (!visible.has(req.params.username)) return res.status(403).json({ error: '无权查看该成员用量' });
+      const usageOptions = self?.role === 'manager' ? { teamOwner: self.username } : {};
       return res.json({
-        day: usageStore.summaryForUser(req.params.username, 'day'),
-        month: usageStore.summaryForUser(req.params.username, 'month'),
-        recent: usageStore.recentForUser(req.params.username, 50)
+        day: usageStore.summaryForUser(req.params.username, 'day', usageOptions),
+        month: usageStore.summaryForUser(req.params.username, 'month', usageOptions),
+        recent: usageStore.recentForUser(req.params.username, 50, usageOptions)
       });
     } catch (error) {
       return sendMemberError(res, error);
