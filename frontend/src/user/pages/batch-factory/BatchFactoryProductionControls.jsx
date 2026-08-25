@@ -45,6 +45,17 @@ function reportProductionIssue(batch, item, messageText) {
   });
 }
 
+function SubmissionErrorAlert({ error }) {
+  if (!error?.message) return null;
+  const promptFailure = error.stage === 'prompt';
+  return <Alert
+    type="error"
+    showIcon
+    message={promptFailure ? 'VIDEO 提示词编译失败' : '上次视频提交未成功'}
+    description={error.message}
+  />;
+}
+
 export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   const [models, setModels] = useState([]);
   const [legacyModelId, setLegacyModelId] = useState(null);
@@ -74,6 +85,7 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   const imageModels = useMemo(() => models.filter(model => model.requiresImageInput === true), [models]);
   const boundModel = useMemo(() => models.find(model => Number(model.id) === boundModelId) || null, [models, boundModelId]);
   const production = item?.production;
+  const submissionError = item?.productionSubmissionError;
 
   async function generate() {
     if (!modelId) return message.warning('当前批次没有可用的视频模型');
@@ -91,6 +103,7 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
       }
     } catch (error) {
       reportProductionIssue(batch, item, error.message || '提交视频生产失败');
+      await onRefresh?.().catch?.(() => {});
       message.error(error.message || '提交视频生产失败');
     } finally {
       setSubmitting(false);
@@ -99,12 +112,15 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
 
   if (production?.projectId) {
     return <Card size="small" title="视频生产" style={{ width: '100%' }}>
-      <Space wrap>
-        <Tag color={production.status === 'partial' ? 'gold' : 'processing'}>生产项目 #{production.projectId}</Tag>
-        <Tag>{production.modelName || `模型 #${production.modelId}`}</Tag>
-        <Typography.Text>{production.queued}/{production.total} 个 VIDEO 已排队</Typography.Text>
-        {production.failed ? <Tag color="red">{production.failed} 个提交失败</Tag> : null}
-        <Button icon={<ExternalLink size={14} />} onClick={() => { window.location.href = '/shuihuo-production'; }}>打开视频生产</Button>
+      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+        <Space wrap>
+          <Tag color={production.status === 'partial' ? 'gold' : 'processing'}>生产项目 #{production.projectId}</Tag>
+          <Tag>{production.modelName || `模型 #${production.modelId}`}</Tag>
+          <Typography.Text>{production.queued}/{production.total} 个 VIDEO 已排队</Typography.Text>
+          {production.failed ? <Tag color="red">{production.failed} 个提交失败</Tag> : null}
+          <Button icon={<ExternalLink size={14} />} onClick={() => { window.location.href = '/shuihuo-production'; }}>打开视频生产</Button>
+        </Space>
+        {production.failed ? <Alert type="warning" showIcon message="部分 VIDEO 没有成功进入队列" description="展开上方的视频生成进度，可以看到每个 VIDEO 的实际状态和失败原因。" /> : null}
       </Space>
     </Card>;
   }
@@ -120,8 +136,9 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
           <Tag>单次最大 {batch.settings?.maxVideoDuration || '—'}s</Tag>
           <Tag>{batch.settings?.aspectRatio || '9:16'}</Tag>
         </Space>
+        <SubmissionErrorAlert error={submissionError} />
         {unavailable ? <Alert type="warning" showIcon message="已绑定模型当前不在可用模型列表中" description="模型可能已被停用或隐藏。恢复该模型后再生成；不要用另一模型直接替换已经完成的导演方案。" /> : null}
-        <Button type="primary" icon={<Clapperboard size={15} />} loading={submitting} disabled={unavailable || !modelId} onClick={generate} style={{ alignSelf: 'flex-start' }}>生成全部 VIDEO</Button>
+        <Button type="primary" icon={<Clapperboard size={15} />} loading={submitting} disabled={unavailable || !modelId} onClick={generate} style={{ alignSelf: 'flex-start' }}>{submissionError ? '重新提交全部 VIDEO' : '生成全部 VIDEO'}</Button>
       </Space>
     </Card>;
   }
@@ -129,6 +146,7 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   return <Card size="small" title="生成视频 · 历史批次兼容" style={{ width: '100%' }}>
     {directModels.length ? <Space direction="vertical" size={10} style={{ width: '100%' }}>
       <Alert type="info" showIcon message="这是旧批次，创建时没有绑定视频模型" description={`只能选择单次最大时长不小于当前导演上限 ${batch?.settings?.maxVideoDuration || '—'}s 的文生视频模型。新批次会在导演前锁定模型。`} />
+      <SubmissionErrorAlert error={submissionError} />
       <Space wrap>
         <Select
           loading={loadingModels}
@@ -138,7 +156,7 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
           options={directModels.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration}s` }))}
           placeholder="选择兼容文生视频模型"
         />
-        <Button type="primary" icon={<Clapperboard size={15} />} loading={submitting} onClick={generate}>生成全部 VIDEO</Button>
+        <Button type="primary" icon={<Clapperboard size={15} />} loading={submitting} onClick={generate}>{submissionError ? '重新提交全部 VIDEO' : '生成全部 VIDEO'}</Button>
       </Space>
       {imageModels.length ? <Typography.Text type="secondary">另有 {imageModels.length} 个图生视频模型未显示；它们不能从批量工厂无图直出。</Typography.Text> : null}
     </Space> : <Alert
