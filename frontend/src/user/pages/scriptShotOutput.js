@@ -35,11 +35,39 @@ function parseShotUnits(output) {
     .filter(Boolean);
 }
 
+// Q 版等预设会要求每个独立镜头单元用 --- 分隔。但模型有时会省略
+// “镜头一：/分镜一：”标题，只保留每单元的画面结构；此前这种合规输出
+// 被当成一整段普通文本，无法显示为独立卡片。
+function parseDividerUnits(output) {
+  const parts = String(output || '')
+    .split(/^\s*---+\s*$/m)
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return [];
+
+  const isShotUnit = part => {
+    UNIT_HEADING.lastIndex = 0;
+    return UNIT_HEADING.test(part)
+      || /^\s*\d{1,2}:\d{2}\s*[-—~]\s*\d{1,2}:\d{2}\s*\|/m.test(part)
+      || /【(?:画面主体描述|环境光影|迷你小人细节|迷你内心小人)】/.test(part);
+  };
+
+  // 通常每段都是完整分镜。若第一段只是共享基础设定，则复制进每张卡，
+  // 保持“复制本分镜”仍可直接用于生成。
+  if (parts.every(isShotUnit)) return parts;
+  if (!isShotUnit(parts[0]) && parts.slice(1).every(isShotUnit)) {
+    return parts.slice(1).map(part => `${parts[0]}\n\n${part}`);
+  }
+  return [];
+}
+
 export function parseShotOutput(output) {
   const text = String(output || '').trim();
   if (!text) return [];
   const jsonShots = parseJsonShots(text);
-  return jsonShots.length ? jsonShots : parseShotUnits(text);
+  if (jsonShots.length) return jsonShots;
+  const headedUnits = parseShotUnits(text);
+  return headedUnits.length ? headedUnits : parseDividerUnits(text);
 }
 
 export function getShotCards(format, output) {
