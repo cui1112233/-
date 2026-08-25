@@ -28,7 +28,7 @@ function compileItemVideos(presetStore, batch, item) {
   });
 }
 
-async function submitItemProduction({ presetStore, batch, item, modelId, username, isOwner }) {
+async function submitItemProduction({ presetStore, batch, item, modelId, username, isOwner, shuihuoGateway }) {
   const videos = compileItemVideos(presetStore, batch, item);
   const sourceText = batch.mode === 'viral'
     ? String(item.approvedHookScript || item.hookDraft || item.sourceText)
@@ -36,6 +36,8 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
   const upstream = await requestProductionBridge({
     username,
     isOwner,
+    targetBaseUrl: shuihuoGateway?.targetBaseUrl,
+    bridgeSecret: shuihuoGateway?.bridgeSecret,
     pathname: '/api/shuihuo-production/batch-factory/import-videos',
     body: {
       name: `批量工厂 · ${item.title}`.slice(0, 255),
@@ -94,7 +96,7 @@ async function mapBounded(items, concurrency, worker) {
   return output;
 }
 
-function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(), presetStore } = {}) {
+function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(), presetStore, shuihuoGateway } = {}) {
   const router = express.Router();
   router.use(apiAuth);
 
@@ -115,7 +117,8 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
       item,
       modelId,
       username: req.auth.account.username,
-      isOwner: req.auth.account.isOwner === true
+      isOwner: req.auth.account.isOwner === true,
+      shuihuoGateway
     });
     if (!result.ok) return res.status(result.statusCode || 503).json({ error: result.error });
     store.updateItem(req.username, batch.id, item.id, target => {
@@ -143,7 +146,8 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
       item,
       modelId,
       username: req.auth.account.username,
-      isOwner: req.auth.account.isOwner === true
+      isOwner: req.auth.account.isOwner === true,
+      shuihuoGateway
     }));
 
     // Persist sequentially because the staging store is file-backed. Network
