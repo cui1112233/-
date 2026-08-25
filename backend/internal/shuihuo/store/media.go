@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"qiantie/backend/internal/shuihuo/domain"
 )
@@ -44,6 +45,18 @@ WHERE m.id = ? AND p.user_id = ?
 	return media, err
 }
 
+func scanMedia(rows *sql.Rows) ([]domain.Media, error) {
+	media := make([]domain.Media, 0)
+	for rows.Next() {
+		var item domain.Media
+		if err := rows.Scan(&item.ID, &item.ProjectID, &item.SegmentID, &item.TaskID, &item.Kind, &item.ObjectKey, &item.Source, &item.ManuallyEdited, &item.Width, &item.Height, &item.DurationMS, &item.IsPrimary); err != nil {
+			return nil, err
+		}
+		media = append(media, item)
+	}
+	return media, rows.Err()
+}
+
 func (s *Media) ListByProject(ctx context.Context, ownerID, projectID int64) ([]domain.Media, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT m.id, m.project_id, m.segment_id, m.task_id, m.kind, m.object_key, m.source, m.manually_edited, m.width, m.height, m.duration_ms, m.is_primary
@@ -56,15 +69,31 @@ ORDER BY m.created_at ASC, m.id ASC
 		return nil, err
 	}
 	defer rows.Close()
-	media := make([]domain.Media, 0)
-	for rows.Next() {
-		var item domain.Media
-		if err := rows.Scan(&item.ID, &item.ProjectID, &item.SegmentID, &item.TaskID, &item.Kind, &item.ObjectKey, &item.Source, &item.ManuallyEdited, &item.Width, &item.Height, &item.DurationMS, &item.IsPrimary); err != nil {
-			return nil, err
-		}
-		media = append(media, item)
+	return scanMedia(rows)
+}
+
+func (s *Media) ListByProjects(ctx context.Context, ownerID int64, projectIDs []int64) ([]domain.Media, error) {
+	if len(projectIDs) == 0 {
+		return []domain.Media{}, nil
 	}
-	return media, rows.Err()
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(projectIDs)), ",")
+	args := make([]any, 0, len(projectIDs)+1)
+	for _, projectID := range projectIDs {
+		args = append(args, projectID)
+	}
+	args = append(args, ownerID)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT m.id, m.project_id, m.segment_id, m.task_id, m.kind, m.object_key, m.source, m.manually_edited, m.width, m.height, m.duration_ms, m.is_primary
+FROM shuihuo_media m
+JOIN shuihuo_projects p ON p.id = m.project_id
+WHERE m.project_id IN (`+placeholders+`) AND p.user_id = ?
+ORDER BY m.project_id ASC, m.created_at ASC, m.id ASC
+`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMedia(rows)
 }
 
 func (s *Media) Update(ctx context.Context, ownerID int64, media domain.Media) error {
