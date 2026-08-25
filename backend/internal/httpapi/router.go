@@ -63,6 +63,8 @@ func (api *API) Router() http.Handler {
 		// browser session token or any provider account credentials.
 		r.Post("/local-executors/pair", api.handlePairLocalExecutor)
 		r.Post("/local-executors/heartbeat", api.handleLocalExecutorHeartbeat)
+		r.Post("/local-executors/jobs/claim", api.handleClaimLocalExecutorJob)
+		r.Post("/local-executors/jobs/{jobId}/status", api.handleUpdateLocalExecutorJobStatus)
 		r.With(api.requireAuth).Get("/me", api.handleMe)
 		r.With(api.requireAuth).Get("/config", api.handleGetConfig)
 		r.With(api.requireAuth).Post("/config", api.handleSaveConfig)

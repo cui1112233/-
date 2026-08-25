@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -11,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 const localExecutorPairingTTL = 10 * time.Minute
@@ -27,6 +30,11 @@ type localExecutorPairRequest struct {
 
 type localExecutorHeartbeatRequest struct {
 	DisplayName string `json:"displayName"`
+}
+
+type localExecutorJobStatusRequest struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
 }
 
 type localExecutorPublic struct {
@@ -222,6 +230,89 @@ WHERE token_hash = ? AND revoked_at IS NULL`, strings.TrimSpace(req.DisplayName)
 	rows, _ := result.RowsAffected()
 	if rows != 1 {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "设备令牌无效"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (api *API) localExecutorIdentity(ctx context.Context, token string) (string, int64, error) {
+	var id string
+	var userID int64
+	err := api.deps.DB.QueryRowContext(ctx, `SELECT id, user_id FROM local_executors WHERE token_hash = ? AND revoked_at IS NULL`, localExecutorHash(token)).Scan(&id, &userID)
+	return id, userID, err
+}
+
+func (api *API) handleClaimLocalExecutorJob(w http.ResponseWriter, r *http.Request) {
+	if !api.requireLocalExecutorDatabase(w) {
+		return
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if token == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "设备令牌无效"})
+		return
+	}
+	executorID, userID, err := api.localExecutorIdentity(r.Context(), token)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "设备令牌无效"})
+		return
+	}
+	tx, err := api.deps.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "任务服务暂不可用"})
+		return
+	}
+	defer tx.Rollback()
+	var id, sourceKind, prompt, input string
+	err = tx.QueryRowContext(r.Context(), `SELECT id, source_kind, prompt, input_json FROM local_executor_jobs WHERE user_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, userID).Scan(&id, &sourceKind, &prompt, &input)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusOK, map[string]any{"job": nil})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取任务失败"})
+		return
+	}
+	_, err = tx.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='running', executor_id=?, claimed_at=UTC_TIMESTAMP(), progress_message='本地执行器已领取' WHERE id=? AND status='queued'`, executorID, id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "领取任务失败"})
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "领取任务失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"job": map[string]any{"id": id, "sourceKind": sourceKind, "prompt": prompt, "input": input, "status": "running"}})
+}
+
+func (api *API) handleUpdateLocalExecutorJobStatus(w http.ResponseWriter, r *http.Request) {
+	if !api.requireLocalExecutorDatabase(w) {
+		return
+	}
+	var req localExecutorJobStatusRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "状态参数无效"})
+		return
+	}
+	if req.Status != "running" && req.Status != "succeeded" && req.Status != "failed" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "不支持的任务状态"})
+		return
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	executorID, _, err := api.localExecutorIdentity(r.Context(), token)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "设备令牌无效"})
+		return
+	}
+	jobID := strings.TrimSpace(chi.URLParam(r, "jobId"))
+	query := `UPDATE local_executor_jobs SET status=?, progress_message=?, completed_at=CASE WHEN ? IN ('succeeded','failed') THEN UTC_TIMESTAMP() ELSE completed_at END WHERE id=? AND executor_id=? AND status='running'`
+	result, err := api.deps.DB.ExecContext(r.Context(), query, req.Status, strings.TrimSpace(req.Message), req.Status, jobID, executorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
+		return
+	}
+	count, _ := result.RowsAffected()
+	if count != 1 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "任务不存在或不属于此设备"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

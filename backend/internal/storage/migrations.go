@@ -372,6 +372,7 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
 	{version: 36, apply: addShuihuoProductionRenderSettings},
 	{version: 37, sql: shuihuoSegmentVoiceSettingsMigrationSQL},
 	{version: 38, apply: applyLocalExecutorMigration},
+	{version: 39, apply: applyLocalExecutorJobMigration},
 }
 
 const localExecutorMigrationSQL = `
@@ -400,6 +401,30 @@ CREATE TABLE IF NOT EXISTS local_executors (
   UNIQUE KEY uniq_local_executor_token (token_hash),
   KEY idx_local_executors_user_created (user_id, created_at),
   CONSTRAINT fk_local_executors_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
+
+const localExecutorJobMigrationSQL = `
+CREATE TABLE IF NOT EXISTS local_executor_jobs (
+  id CHAR(36) PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  executor_id CHAR(36) NULL,
+  source_kind VARCHAR(32) NOT NULL,
+  source_task_id BIGINT NULL,
+  prompt MEDIUMTEXT NOT NULL,
+  input_json JSON NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'queued',
+  progress_message VARCHAR(255) NOT NULL DEFAULT '',
+  result_object_key VARCHAR(1024) NOT NULL DEFAULT '',
+  error_message MEDIUMTEXT NULL,
+  claimed_at DATETIME NULL,
+  completed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_local_executor_jobs_user_status_created (user_id, status, created_at),
+  KEY idx_local_executor_jobs_executor_status (executor_id, status),
+  CONSTRAINT fk_local_executor_jobs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_local_executor_jobs_executor FOREIGN KEY (executor_id) REFERENCES local_executors(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 
@@ -1303,6 +1328,10 @@ func applySQLStatements(ctx context.Context, conn *sql.Conn, script string) erro
 
 func applyLocalExecutorMigration(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, localExecutorMigrationSQL)
+}
+
+func applyLocalExecutorJobMigration(ctx context.Context, conn *sql.Conn) error {
+	return applySQLStatements(ctx, conn, localExecutorJobMigrationSQL)
 }
 
 func applySQLStatementsWithExecutor(ctx context.Context, executor migrationExecutor, script string) error {
