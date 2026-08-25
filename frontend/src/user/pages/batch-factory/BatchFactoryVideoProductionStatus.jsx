@@ -1,7 +1,8 @@
-import { Alert, Button, Card, Collapse, Divider, Space, Tag, Typography } from 'antd';
-import { Download, Sparkles } from 'lucide-react';
+import { Alert, Button, Card, Collapse, Divider, Space, Tag, Typography, message } from 'antd';
+import { Download, RefreshCw, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getBatchFactoryProductionStatus } from '../../../shared/api/batchFactory';
+import { retryTask } from '../../../shared/api/shuihuoProduction';
 
 const ACTIVE_TASK_STATUSES = new Set(['draft', 'queued', 'running']);
 
@@ -26,6 +27,7 @@ export function useBatchFactoryProductionStatus(batch) {
   const projectKey = projectIds.join(',');
   const [byProjectId, setByProjectId] = useState({});
   const [error, setError] = useState('');
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
     if (!projectIds.length) {
@@ -62,9 +64,14 @@ export function useBatchFactoryProductionStatus(batch) {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [projectKey]);
+  }, [projectKey, refreshVersion]);
 
-  return { byProjectId, error, projectIds };
+  return {
+    byProjectId,
+    error,
+    projectIds,
+    refreshNow: () => setRefreshVersion(version => version + 1)
+  };
 }
 
 export function resolveBatchFactoryVideoProduction(item, videoIndex, projectStatus) {
@@ -117,7 +124,8 @@ function VideoResultPreview({ production }) {
 }
 
 export function BatchFactoryBatchProductionStatus({ batch }) {
-  const { byProjectId, error, projectIds } = useBatchFactoryProductionStatus(batch);
+  const { byProjectId, error, projectIds, refreshNow } = useBatchFactoryProductionStatus(batch);
+  const [retryingTaskId, setRetryingTaskId] = useState(null);
   const producedItems = (batch?.items || []).filter(item => item.production?.projectId);
   if (!projectIds.length || !producedItems.length) return null;
 
@@ -130,6 +138,21 @@ export function BatchFactoryBatchProductionStatus({ batch }) {
     result[key] = (result[key] || 0) + 1;
     return result;
   }, {});
+
+  async function retry(production) {
+    const taskId = Number(production?.task?.id || 0);
+    if (!taskId) return message.warning('这个 VIDEO 没有可重试的正式任务，请检查首次提交错误。');
+    setRetryingTaskId(taskId);
+    try {
+      await retryTask(taskId);
+      message.success('VIDEO 已重新进入生成队列');
+      refreshNow();
+    } catch (retryError) {
+      message.error(retryError.message || '重试视频任务失败');
+    } finally {
+      setRetryingTaskId(null);
+    }
+  }
 
   return <Card title="视频生成进度">
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
@@ -169,6 +192,12 @@ export function BatchFactoryBatchProductionStatus({ batch }) {
                 <Space wrap>
                   {production?.task?.providerTaskId ? <Tag>提供方任务 {production.task.providerTaskId}</Tag> : null}
                   {production?.media?.durationMs ? <Tag>{Math.round(production.media.durationMs / 1000)}秒成品</Tag> : null}
+                  {['failed', 'cancelled'].includes(production?.status) && production?.task?.id ? <Button
+                    size="small"
+                    icon={<RefreshCw size={14} />}
+                    loading={retryingTaskId === Number(production.task.id)}
+                    onClick={() => retry(production)}
+                  >重试这个 VIDEO</Button> : null}
                 </Space>
                 {production?.error ? <Typography.Text type="danger">{production.error}</Typography.Text> : null}
                 <VideoResultPreview production={production} />
