@@ -218,6 +218,35 @@ main {
   text-align: right;
 }
 
+.batch-toast {
+  position: fixed;
+  z-index: 1000;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border: 1px solid rgba(78, 205, 152, 0.5);
+  border-radius: 10px;
+  background: rgba(18, 43, 35, 0.96);
+  color: #d8ffeb;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.batch-toast.warning {
+  border-color: rgba(245, 185, 82, 0.58);
+  background: rgba(65, 48, 20, 0.96);
+  color: #fff0c7;
+}
+
+.batch-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .control-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr));

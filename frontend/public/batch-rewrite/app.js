@@ -2536,6 +2536,23 @@ function setBatchStatus(text) {
   $("batchStatus").textContent = text || "";
 }
 
+let batchToastTimer = null;
+function showBatchToast(text, type = "success") {
+  let toast = $("batchToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "batchToast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    document.body.appendChild(toast);
+  }
+  toast.className = `batch-toast ${type}`;
+  toast.textContent = text || "";
+  requestAnimationFrame(() => toast.classList.add("visible"));
+  clearTimeout(batchToastTimer);
+  batchToastTimer = setTimeout(() => toast.classList.remove("visible"), 4200);
+}
+
 async function batchDelete(mode) {
   const ids = mode === "selected" ? selectedTaskIds() : [];
   if (mode === "selected" && !ids.length) {
@@ -2623,7 +2640,9 @@ async function reprocessSensitive(ids, restoreFromBackup) {
       body: JSON.stringify({ ids: selected, restore_from_backup: restoreFromBackup }),
     });
     renderTasks(result.tasks || []);
-    setBatchStatus(`${label}完成 ${result.processed || 0} 个${restoreFromBackup ? `，已恢复 ${result.restored || 0} 个` : ""}，失败 ${result.failed || 0} 个`);
+    const summary = `${label}完成：已处理 ${result.processed || 0} 个${restoreFromBackup ? `，已恢复 ${result.restored || 0} 个` : ""}，失败 ${result.failed || 0} 个`;
+    setBatchStatus(summary);
+    showBatchToast(summary, Number(result.failed || 0) ? "warning" : "success");
     // 重跑完成后刷新当前任务详情。此前调用了不存在的 showDetail，
     // 后端虽然已成功处理，前端却会抛错并误报为“重跑失败”。
     if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
