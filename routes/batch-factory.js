@@ -5,6 +5,7 @@ const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { parseDirectorJson, normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
+const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
 const PREFIX_PRESETS = Object.freeze({
   general_anime: 'batch-prefix-general-anime',
@@ -107,7 +108,7 @@ function directorSystemPrompt(presetStore, mode, settings) {
   const video = resolveSystemPresetBody(presetStore, 'batch-video-meta');
   const durationRule = settings.fixedSingleVideo
     ? `固定单镜头已开启：只允许输出 1 个 storyboard；duration_sec 必须严格等于 ${settings.exactDuration}。输入再长也不要输出第二个 storyboard。只能从开头选择能在 ${settings.exactDuration} 秒内完整承载的连续内容，不得从一句对白或完整动作中间截断。后续内容标记为 has_remaining_source=true。`
-    : `固定单镜头未开启：单个 storyboard 的最大时长为 ${settings.maxVideoDuration} 秒。每个单元根据实际剧情在 1-${settings.maxVideoDuration} 秒内选择最合适的整数时长；内容较多时自然拆成多个 storyboard，完整覆盖本次输入。`;
+    : `固定单镜头未开启：当前绑定视频模型单次生成最大支持 ${settings.maxVideoDuration} 秒。请先完整理解内容，根据剧情节点、动作完整性、视觉连续性和节奏，将整段内容自然拆成一个或多个 Video。每个 Video 的实际生成时长必须为 1-${settings.maxVideoDuration} 之间的整数，不要求用满 ${settings.maxVideoDuration} 秒。不要为了凑时长加入无意义停顿，也不要用简单固定长度机械切分。`;
   return [base, character, scene, video, prefixCatalogPrompt(), durationRule, DIRECTOR_SCHEMA].filter(Boolean).join('\n\n---\n\n');
 }
 
@@ -121,6 +122,12 @@ function directorUserPrompt(batch, item) {
     current_content_to_direct: content,
     style: settings.style,
     synopsis: settings.synopsis,
+    video_model: {
+      id: settings.videoModelId,
+      version_id: settings.videoModelVersionId,
+      name: settings.videoModelName,
+      max_video_duration: settings.maxVideoDuration
+    },
     max_video_duration: settings.maxVideoDuration,
     fixed_single_video: settings.fixedSingleVideo,
     exact_duration: settings.exactDuration,
@@ -173,7 +180,60 @@ async function generateDirector(username, presetStore, batch, item) {
   };
 }
 
-function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetStore, maxConcurrency = 3 } = {}) {
+function createHttpError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function canonicalModelSettings(inputSettings, model) {
+  return {
+    ...(inputSettings || {}),
+    videoModelId: Number(model.id),
+    videoModelVersionId: Number(model.versionId),
+    videoModelName: String(model.name || '').trim(),
+    maxVideoDuration: Number(model.maxVideoDuration)
+  };
+}
+
+async function resolveBoundVideoSettings(req, inputSettings, shuihuoGateway) {
+  const modelId = Number(inputSettings?.videoModelId);
+  if (!Number.isInteger(modelId) || modelId < 1) {
+    throw createHttpError('请选择已配置时长能力的文生视频模型');
+  }
+  let upstream;
+  try {
+    upstream = await requestProductionBridge({
+      username: req.auth.account.username,
+      isOwner: req.auth.account.isOwner === true,
+      method: 'GET',
+      pathname: '/api/shuihuo-production/models',
+      targetBaseUrl: shuihuoGateway?.targetBaseUrl,
+      bridgeSecret: shuihuoGateway?.bridgeSecret
+    });
+  } catch (error) {
+    throw createHttpError(error?.message || '无法读取视频模型能力', 503);
+  }
+  if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
+    throw createHttpError(upstream.payload?.error || '无法验证视频模型能力', upstream.statusCode >= 500 ? 503 : 409);
+  }
+  const models = Array.isArray(upstream.payload?.models) ? upstream.payload.models : [];
+  const model = models.find(entry => Number(entry.id) === modelId);
+  if (!model || model.kind !== 'video' || model.requiresImageInput === true) {
+    throw createHttpError('所选模型当前不是可用的文生视频模型', 409);
+  }
+  const role = req.auth.account.isOwner === true ? 'owner' : 'user';
+  if (Array.isArray(model.allowedRoles) && model.allowedRoles.length && !model.allowedRoles.includes(role)) {
+    throw createHttpError('当前账号不能使用所选视频模型', 403);
+  }
+  const maxDuration = Number(model.maxVideoDuration);
+  if (!Number.isInteger(maxDuration) || maxDuration < 1 || maxDuration > 60) {
+    throw createHttpError('所选视频模型未配置单次最大生成时长，请管理员先在模型中心补充该能力', 409);
+  }
+  return canonicalModelSettings(inputSettings, model);
+}
+
+function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetStore, maxConcurrency = 3, shuihuoGateway } = {}) {
   const router = express.Router();
   const jobs = [];
   const queued = new Set();
@@ -252,12 +312,14 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
 
   router.get('/batches', (req, res) => res.json({ batches: store.listBatches(req.username) }));
 
-  router.post('/batches', (req, res) => {
+  router.post('/batches', async (req, res) => {
     try {
-      const batch = store.createBatch(req.username, req.body || {});
+      const payload = req.body || {};
+      const settings = await resolveBoundVideoSettings(req, payload.settings || {}, shuihuoGateway);
+      const batch = store.createBatch(req.username, { ...payload, settings });
       return res.status(201).json({ batch });
     } catch (error) {
-      return res.status(400).json({ error: error.message || '创建批次失败' });
+      return res.status(error.statusCode || 400).json({ error: error.message || '创建批次失败' });
     }
   });
 
@@ -350,4 +412,4 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
   return router;
 }
 
-module.exports = { createBatchFactoryRouter, PREFIX_PRESETS };
+module.exports = { createBatchFactoryRouter, PREFIX_PRESETS, canonicalModelSettings, resolveBoundVideoSettings };
