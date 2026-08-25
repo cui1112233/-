@@ -7,6 +7,7 @@ import { getConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
+import { apiRequest } from '../../shared/api/client';
 import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
 import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
@@ -326,6 +327,24 @@ export function ScriptPage() {
   async function generateVideoForShot(card, index) {
     const prompt = String(card || '').trim();
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
+    if (scriptVideoModelKey === 'local-doubao-executor-video') {
+      try {
+        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
+        const executors = Array.isArray(result?.items) ? result.items : [];
+        if (!executors.some(item => item.online)) {
+          Modal.info({
+            title: '本地执行器未连接',
+            content: executors.length ? '已配对的执行器当前离线。请打开一战晟铭本地执行器，确认已配对并保持在线后再生成。' : '请先下载并打开一战晟铭本地执行器，在“设置”中生成配对码完成配对。',
+            okText: '前往设置',
+            onOk: () => { window.location.assign('/settings'); }
+          });
+          return;
+        }
+      } catch {
+        message.error('无法检查本地执行器状态，请稍后重试');
+        return;
+      }
+    }
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
