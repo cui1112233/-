@@ -65,14 +65,32 @@ export default function SecurityPage() {
     finally { setSaving(false); }
   }
 
-  async function addPasskey() {
-    setSaving(true);
-    try {
-      await registerPasskey(`Passkey ${passkeys.length + 1}`);
-      message.success('Passkey 已绑定，现在登录页可以直接使用');
-      await load();
-    } catch (error) { message.error(error.message || 'Passkey 添加失败'); }
-    finally { setSaving(false); }
+  function addPasskey() {
+    let currentPassword = '';
+    Modal.confirm({
+      title: '绑定当前设备 Passkey',
+      content: <div className="ac-passkey-confirm"><p className="ac-muted-copy">为防止已登录设备被他人直接绑定新的强认证凭据，请先再次验证当前密码。验证通过后浏览器会继续请求 Windows Hello、Touch ID、Face ID 或安全密钥确认。</p><Input.Password autoFocus autoComplete="current-password" placeholder="请输入当前密码" onChange={event => { currentPassword = event.target.value; }} /></div>,
+      okText: '验证并继续',
+      cancelText: '取消',
+      async onOk() {
+        if (!currentPassword) {
+          message.warning('请输入当前密码');
+          return Promise.reject(new Error('password required'));
+        }
+        setSaving(true);
+        try {
+          await registerPasskey(currentPassword, `Passkey ${passkeys.length + 1}`);
+          message.success('Passkey 已绑定，现在登录页可以直接使用');
+          await load();
+        } catch (error) {
+          message.error(error.message || 'Passkey 添加失败');
+          return Promise.reject(error);
+        } finally {
+          setSaving(false);
+        }
+        return undefined;
+      }
+    });
   }
 
   async function deletePasskey(id) {
