@@ -37,7 +37,19 @@ function boundModelError(batch, modelId) {
 }
 
 async function submitItemProduction({ presetStore, batch, item, modelId, username, isOwner, shuihuoGateway }) {
-  const videos = compileItemVideos(presetStore, batch, item);
+  let videos;
+  try {
+    videos = compileItemVideos(presetStore, batch, item);
+  } catch (error) {
+    return {
+      ok: false,
+      itemId: item.id,
+      title: item.title,
+      statusCode: 400,
+      stage: 'prompt',
+      error: `视频提示词编译失败：${error?.message || '未知错误'}`
+    };
+  }
   const sourceText = batch.mode === 'viral'
     ? String(item.approvedHookScript || item.hookDraft || item.sourceText)
     : item.sourceText;
@@ -60,6 +72,7 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
       itemId: item.id,
       title: item.title,
       statusCode: upstream.statusCode,
+      stage: 'production-submit',
       error: upstream.payload?.error || '提交视频生产失败'
     };
   }
@@ -95,13 +108,47 @@ async function mapBounded(items, concurrency, worker) {
       try {
         output[index] = await worker(items[index], index);
       } catch (error) {
-        output[index] = { ok: false, itemId: items[index]?.id, title: items[index]?.title, statusCode: 503, error: error?.message || '生产服务暂不可用' };
+        output[index] = { ok: false, itemId: items[index]?.id, title: items[index]?.title, statusCode: 503, stage: 'production-submit', error: error?.message || '生产服务暂不可用' };
       }
     }
   }
   const runners = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, () => runner());
   await Promise.all(runners);
   return output;
+}
+
+function persistProductionFailure(store, username, batchId, result) {
+  const timestamp = new Date().toISOString();
+  store.updateItem(username, batchId, result.itemId, target => {
+    target.productionSubmissionError = {
+      at: timestamp,
+      stage: result.stage || 'production-submit',
+      statusCode: Number(result.statusCode) || 0,
+      message: result.error || '视频提交失败'
+    };
+  });
+  store.appendItemActivity?.(username, batchId, result.itemId, {
+    at: timestamp,
+    type: 'error',
+    message: result.error || '视频提交失败',
+    status: result.stage || 'production-submit'
+  });
+}
+
+function persistProductionSuccess(store, username, batchId, result) {
+  store.updateItem(username, batchId, result.itemId, target => {
+    target.production = result.production;
+    target.productionResults = result.results;
+    target.productionSubmissionError = null;
+  });
+  store.appendItemActivity?.(username, batchId, result.itemId, {
+    at: result.production.submittedAt,
+    type: result.production.failed ? 'error' : 'production',
+    message: result.production.failed
+      ? `视频生产已提交：${result.production.queued}/${result.production.total} 个 VIDEO 入队，${result.production.failed} 个提交失败`
+      : `视频生产已提交：${result.production.total} 个 VIDEO 全部进入队列`,
+    status: result.production.status
+  });
 }
 
 function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(), presetStore, shuihuoGateway } = {}) {
@@ -130,11 +177,11 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
       isOwner: req.auth.account.isOwner === true,
       shuihuoGateway
     });
-    if (!result.ok) return res.status(result.statusCode || 503).json({ error: result.error });
-    store.updateItem(req.username, batch.id, item.id, target => {
-      target.production = result.production;
-      target.productionResults = result.results;
-    });
+    if (!result.ok) {
+      persistProductionFailure(store, req.username, batch.id, result);
+      return res.status(result.statusCode || 503).json({ error: result.error, stage: result.stage });
+    }
+    persistProductionSuccess(store, req.username, batch.id, result);
     return res.status(result.statusCode).json({ production: result.production, project: result.project, results: result.results });
   });
 
@@ -150,7 +197,7 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
       && item.directorResult?.storyboard?.length
       && !item.production?.projectId
     ));
-    if (!targets.length) return res.status(409).json({ error: '没有待提交生产的已完成开篇' });
+    if (!targets.length) return res.status(409).json({ error: '没有待提交生产的导演完成小说' });
 
     const results = await mapBounded(targets, 3, item => submitItemProduction({
       presetStore,
@@ -165,11 +212,8 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     // Persist sequentially because the staging store is file-backed. Network
     // submissions may run concurrently, but writes must not race each other.
     for (const result of results) {
-      if (!result?.ok) continue;
-      store.updateItem(req.username, batch.id, result.itemId, target => {
-        target.production = result.production;
-        target.productionResults = result.results;
-      });
+      if (result?.ok) persistProductionSuccess(store, req.username, batch.id, result);
+      else if (result?.itemId) persistProductionFailure(store, req.username, batch.id, result);
     }
 
     const succeeded = results.filter(result => result?.ok).length;
