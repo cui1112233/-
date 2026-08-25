@@ -1,8 +1,13 @@
 import { Button, Form, Input, Modal, Progress, Skeleton, Tag, message } from 'antd';
-import { KeyRound, LockKeyhole, LogOut, ShieldCheck, Smartphone, TimerReset } from 'lucide-react';
+import { KeyRound, Laptop, LockKeyhole, LogOut, ShieldCheck, Smartphone, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { changeOwnPassword, getSecurityOverview, revokeOtherSessions } from '../../shared/api/member';
 import { formatDate, PageHeader, Panel } from './accountCenterShared';
+
+function deviceLabel(session) {
+  const parts = [session?.browser, session?.os].filter(Boolean);
+  return parts.length ? parts.join(' · ') : '未知设备';
+}
 
 export default function SecurityPage() {
   const [loading, setLoading] = useState(true);
@@ -58,7 +63,7 @@ export default function SecurityPage() {
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
 
   return <div className="account-center-page security-page">
-    <PageHeader title="账号安全" subtitle="管理密码与登录会话，保护你的 qiantie 账号" />
+    <PageHeader title="账号安全" subtitle="管理密码与登录设备，保护你的 qiantie 账号" />
 
     <div className="ac-security-grid">
       <Panel title="安全总览" className="ac-security-overview">
@@ -85,24 +90,30 @@ export default function SecurityPage() {
       </Panel>
 
       <Panel title="会话状态">
-        <div className="ac-security-card-icon violet"><Smartphone size={22} /></div>
+        <div className="ac-security-card-icon violet"><Laptop size={22} /></div>
         <h3>{security?.otherSessionCount || 0} 个其他会话</h3>
-        <p className="ac-muted-copy">包含浏览器内存会话和 30 天保持登录的持久会话。</p>
+        <p className="ac-muted-copy">记录浏览器、系统与模糊网络提示，不展示精确定位。</p>
         <Button block danger disabled={!security?.otherSessionCount} loading={saving} onClick={revokeOthers}>退出其他会话</Button>
       </Panel>
     </div>
 
     <div className="ac-two-column security-session-grid">
-      <Panel title="当前与活动会话" eyebrow="ACTIVE SESSIONS">
+      <Panel title="当前与活动设备" eyebrow="ACTIVE DEVICES">
         <div className="ac-session-list">
           {(security?.sessions || []).map(session => <div key={`runtime-${session.id}`}>
-            <span className="ac-session-icon"><Smartphone size={17} /></span>
-            <div><strong>{session.current ? '当前浏览器会话' : '其他浏览器会话'}</strong><small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)}` : '活动登录会话'}</small></div>
+            <span className="ac-session-icon"><Laptop size={17} /></span>
+            <div>
+              <strong>{session.current ? `当前设备 · ${deviceLabel(session)}` : deviceLabel(session)}</strong>
+              <small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)}` : '活动登录会话'}{session.ipHint ? ` · ${session.ipHint}` : ''}</small>
+            </div>
             <Tag color={session.current ? 'green' : 'blue'}>{session.current ? '当前设备' : '活动'}</Tag>
           </div>)}
           {(security?.persistentSessions || []).map(session => <div key={`persist-${session.id}`}>
             <span className="ac-session-icon"><TimerReset size={17} /></span>
-            <div><strong>{session.current ? '当前保持登录会话' : '已记住登录会话'}</strong><small>有效期至 {formatDate(session.expiresAt)}</small></div>
+            <div>
+              <strong>{deviceLabel(session)}</strong>
+              <small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)} · ` : ''}有效期至 {formatDate(session.expiresAt)}{session.ipHint ? ` · ${session.ipHint}` : ''}</small>
+            </div>
             <Tag>{session.current ? '当前' : '已记住'}</Tag>
           </div>)}
           {!sessionCount ? <div className="ac-empty">当前仅有本次登录会话</div> : null}
@@ -115,7 +126,7 @@ export default function SecurityPage() {
           <div><h3>退出其他设备</h3><p>撤销同一账号的其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div>
         </div>
         <Button danger loading={saving} disabled={!security?.otherSessionCount} onClick={revokeOthers}>退出其他设备</Button>
-        <p className="ac-security-note">如果你怀疑账号凭据泄露，建议先修改密码，再退出所有其他会话。</p>
+        <p className="ac-security-note">网络信息只保留类似 192.168.*.* 的模糊提示，不做精确位置跟踪。</p>
       </Panel>
     </div>
 
