@@ -5,9 +5,11 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const entry = fs.readFileSync(path.join(root, 'frontend/src/user/main.jsx'), 'utf8');
+const layout = fs.readFileSync(path.join(root, 'frontend/src/shared/layouts/UserLayout.jsx'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'frontend/src/shared/styles/account-center-visual-rebuild.css'), 'utf8');
 const collaborationCss = fs.readFileSync(path.join(root, 'frontend/src/shared/styles/team-collaboration.css'), 'utf8');
 const advancedPage = fs.readFileSync(path.join(root, 'frontend/src/user/pages/AdvancedTeamAdminPage.jsx'), 'utf8');
+const teamPage = fs.readFileSync(path.join(root, 'frontend/src/user/pages/TeamPage.jsx'), 'utf8');
 
 function indexOfImport(file) {
   const needle = `../shared/styles/${file}`;
@@ -28,6 +30,11 @@ test('layout responds to real content width rather than browser viewport only', 
   assert.match(css, /@container\s*\(max-width:\s*1120px\)/);
   assert.match(css, /@container\s*\(max-width:\s*900px\)/);
   assert.match(css, /@container\s*\(max-width:\s*620px\)/);
+});
+
+test('account drawer reserves its own width without duplicating the sidebar gutter', () => {
+  assert.match(css, /\.account-center-shell\.account-center-drawer-open \.legacy-main\s*\{[^}]*margin-left:\s*284px/s);
+  assert.doesNotMatch(css, /account-center-drawer-open \.legacy-main\s*\{[^}]*margin-left:\s*calc\(var\(--app-sidebar-width\)/s);
 });
 
 test('03 collaboration css uses the account-center token system instead of missing legacy variables', () => {
@@ -55,4 +62,21 @@ test('member dashboard keeps reference composition and fixed right rail', () => 
   assert.match(css, /\.ac-member-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+326px/s);
   assert.match(css, /\.ac-identity-hero\s*\{[^}]*min-height:\s*224px/s);
   assert.match(css, /\.ac-dashboard-grid-3\s*\{[^}]*repeat\(3,/s);
+});
+
+test('closing the account drawer never redirects back into another account-center route', () => {
+  assert.match(layout, /function normalizeAccountCenterReturnPath\(value\)/);
+  assert.match(layout, /url\.origin !== window\.location\.origin \|\| ACCOUNT_CENTER_ROUTES\.includes\(url\.pathname\)/);
+  assert.match(layout, /window\.location\.assign\(returnPath\)/);
+});
+
+test('switching to a regular navigation route closes the account drawer', () => {
+  assert.match(layout, /if \(isAccountCenterRoute\) \{[\s\S]*?setAccountCenterOpen\(true\);[\s\S]*?return;[\s\S]*?\}\s*\/\/ 主导航切到普通功能页时[\s\S]*?setAccountCenterOpen\(false\)/);
+});
+
+test('DEV team management exposes a guarded manager authorization flow', () => {
+  assert.match(teamPage, /self\.role === 'dev' \? <div className="ac-team-admin-toolbar"/);
+  assert.match(teamPage, /授权管理者/);
+  assert.match(teamPage, /updateTeamMember\(values\.username, \{ role: 'manager', boundTo: null \}\)/);
+  assert.match(teamPage, /member\.role === 'member' && member\.active/);
 });

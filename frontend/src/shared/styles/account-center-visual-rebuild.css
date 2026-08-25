@@ -160,7 +160,10 @@
 }
 
 .account-center-shell.account-center-drawer-open .legacy-main {
-  margin-left: calc(var(--app-sidebar-width) + 284px);
+  /* .legacy-main already follows the fixed sidebar in the flex row; only
+     reserve the drawer width here, otherwise the content gets a second
+     sidebar-sized blank gutter. */
+  margin-left: 284px;
 }
 
 .account-center-shell .legacy-topbar {
@@ -450,6 +453,134 @@
 .account-center-shell .ant-progress-inner { background: rgba(255,255,255,.055) !important; }
 .account-center-shell .ant-progress-bg { background: linear-gradient(90deg, #6673f2, #8472f8) !important; }
 
+/* API 配置是一个高密度工作区：主表单和状态侧栏必须保持同一视线层级。 */
+.api-config-page .ac-api-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 310px);
+  gap: 18px;
+  align-items: start;
+}
+.api-config-page .ac-api-main,
+.api-config-page .ac-side-stack {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+.api-config-page .ac-form-panel {
+  padding: 22px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.028), transparent 42%),
+    rgba(16, 27, 40, .98);
+}
+.api-config-page .ac-panel-header {
+  margin-bottom: 20px;
+}
+.api-config-page .ac-panel-header small {
+  color: #91a4bb;
+}
+.api-config-page .ac-api-status-line {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 18px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--ac-line);
+}
+.api-config-page .ac-api-status-line > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.api-config-page .ac-api-status-line strong {
+  color: #eef4fb;
+  font-size: 13px;
+}
+.api-config-page .ac-api-status-line small {
+  color: #a7b5c6;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.api-config-page .ac-form-row {
+  display: grid;
+  gap: 14px;
+}
+.api-config-page .ac-form-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.api-config-page .ac-form-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.api-config-page .ac-api-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+  margin-top: 4px;
+}
+.api-config-page .ac-api-health {
+  display: grid;
+  gap: 9px;
+}
+.api-config-page .ac-api-health > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 31px;
+  color: #b7c4d3;
+  font-size: 11px;
+}
+.api-config-page .ac-api-health > div > span { flex: 1; }
+.api-config-page .ac-api-health > div > b {
+  color: #edf4fa;
+  font-size: 11px;
+  font-weight: 680;
+  text-align: right;
+}
+.api-config-page .ac-api-health svg { color: #708096; }
+.api-config-page .ac-api-health svg.ok { color: var(--ac-green); }
+.api-config-page .ac-form-tip {
+  color: #a4b2c2;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.api-config-page .ac-managed-api-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 20px 22px;
+  color: var(--ac-text);
+}
+.api-config-page .ac-managed-api-card > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border-radius: 11px;
+  color: #9eafff;
+  background: rgba(111, 129, 255, .13);
+}
+.api-config-page .ac-managed-api-card > div { min-width: 0; flex: 1; }
+.api-config-page .ac-managed-api-card h2 { margin: 0; color: #eef4fb; font-size: 15px; }
+.api-config-page .ac-managed-api-card p { margin: 6px 0 0; color: #aab8c8; font-size: 11px; line-height: 1.6; }
+.api-config-page .ant-form-item-label > label { color: #c7d2df !important; font-size: 12px; }
+.api-config-page .ant-form-item-extra { color: #91a2b5; }
+.api-config-page .ant-tag { color: #d5e2ef; border-color: rgba(159, 182, 211, .24); background: rgba(116, 143, 176, .14); }
+.api-config-page .ant-tag-green { color: #7ee5bc; border-color: rgba(72, 213, 163, .32); background: rgba(72, 213, 163, .12); }
+.api-config-page .ant-tag-gold { color: #f2ce79; border-color: rgba(239, 189, 100, .32); background: rgba(239, 189, 100, .12); }
+.api-config-page .ant-tag-purple { color: #c4baff; border-color: rgba(138, 120, 255, .32); background: rgba(138, 120, 255, .12); }
+.api-config-page .ac-sticky-save { min-width: 132px; }
+
+.ac-team-admin-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px 0 16px;
+}
+.ac-team-toolbar-note {
+  color: var(--ac-muted);
+  font-size: 11px;
+}
+.ac-team-admin-toolbar .ac-team-selector { margin: 0; }
+
 /* Metrics / profile / usage / security */
 .ac-metrics-grid { gap: 12px; }
 .ac-metric-card {
@@ -660,6 +791,13 @@
 }
 [data-theme='light'] .account-center-shell .legacy-topbar { background: rgba(255,255,255,.88); }
 [data-theme='light'] .account-center-shell .legacy-sidebar { box-shadow: 12px 0 30px rgba(37,51,70,.035); }
+[data-theme='light'] .account-center-shell .legacy-brand { color: #182333; }
+[data-theme='light'] .account-center-shell .legacy-brand-title { color: #182333; }
+[data-theme='light'] .account-center-shell .legacy-nav a { color: #526174; }
+[data-theme='light'] .account-center-shell .legacy-nav a:hover { color: #1f2d40; background: rgba(37, 99, 235, .06); }
+[data-theme='light'] .account-center-shell .legacy-sidebar-tool { color: #5d6d80; }
+[data-theme='light'] .account-center-shell .legacy-sidebar-tool:hover { color: #1f2d40; background: rgba(37, 99, 235, .06); }
+[data-theme='light'] .account-center-shell .legacy-profile-name { color: #344256; }
 [data-theme='light'] .ac-panel,
 [data-theme='light'] .ac-metric-card,
 [data-theme='light'] .ac-managed-api-card { box-shadow: 0 10px 28px rgba(37,51,70,.045); }
@@ -696,6 +834,24 @@
 [data-theme='light'] .account-center-page .ac-text-link { color: #1d4ed8; }
 [data-theme='light'] .account-center-page .ac-account-overview-grid > div,
 [data-theme='light'] .account-center-page .ac-session-list > div { background: var(--ac-panel-soft); }
+[data-theme='light'] .api-config-page .ac-form-panel { background: #fff; }
+[data-theme='light'] .api-config-page .ant-form-item-label > label,
+[data-theme='light'] .api-config-page .ant-form-item-label > label span { color: #334155 !important; }
+[data-theme='light'] .api-config-page .ant-input::placeholder,
+[data-theme='light'] .api-config-page .ant-input-affix-wrapper input::placeholder { color: #7b8b9e; }
+[data-theme='light'] .api-config-page .ant-btn-primary { color: #fff !important; background: linear-gradient(115deg, #4f46e5, #6366f1); }
+[data-theme='light'] .api-config-page .ac-panel-header small { color: #60738a; }
+[data-theme='light'] .api-config-page .ac-api-status-line strong,
+[data-theme='light'] .api-config-page .ac-managed-api-card h2,
+[data-theme='light'] .api-config-page .ac-api-health > div > b { color: #1d2b3d; }
+[data-theme='light'] .api-config-page .ac-api-status-line small,
+[data-theme='light'] .api-config-page .ac-api-health > div,
+[data-theme='light'] .api-config-page .ac-managed-api-card p,
+[data-theme='light'] .api-config-page .ac-form-tip { color: #5e7085; }
+[data-theme='light'] .api-config-page .ant-tag { color: #42556c; border-color: #c9d3df; background: #f0f4f8; }
+[data-theme='light'] .api-config-page .ant-tag-green { color: #16734f; border-color: #9dd9c0; background: #e8f8f1; }
+[data-theme='light'] .api-config-page .ant-tag-gold { color: #89600c; border-color: #e7c77b; background: #fff7df; }
+[data-theme='light'] .api-config-page .ant-tag-purple { color: #5b48a8; border-color: #c8bdf5; background: #f1efff; }
 
 @media (max-width: 980px) {
   .account-center-shell.account-center-drawer-open .legacy-main { margin-left: 0; }

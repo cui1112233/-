@@ -199,6 +199,22 @@ test('DEV cannot demote a MANAGER until its members are transferred', t => {
   );
 });
 
+test('DEV can promote an existing MEMBER to MANAGER', t => {
+  const { memberStore } = fixture(t);
+  const member = memberStore.createManagedMember('choushiyiguai', {
+    username: 'promote001', password: 'password01', displayName: '待授权管理者'
+  });
+
+  const promoted = memberStore.updateManagedMember('choushiyiguai', member.username, {
+    role: 'manager',
+    boundTo: null
+  });
+
+  assert.equal(promoted.role, 'manager');
+  assert.equal(promoted.boundTo, null);
+  assert.equal(promoted.apiEnabled, false);
+});
+
 test('MANAGER audit filtering does not reacquire the member-store lock', t => {
   const { memberStore } = fixture(t);
   const manager = memberStore.createManagedMember('choushiyiguai', {
