@@ -119,6 +119,7 @@ export function ScriptPage() {
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
+  const [activeConstraintCategory, setActiveConstraintCategory] = useState('prefix');
   const [constraints, setConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
   const [draftConstraints, setDraftConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
   const [constraintCatalog, setConstraintCatalog] = useState([]);
@@ -992,6 +993,39 @@ export function ScriptPage() {
     dispatchCmSelection(scriptEntitySelection(activeEntity.type, item));
   }, [activeEntity, extractInfo]);
 
+  useEffect(() => {
+    if (!constraintModalOpen) {
+      if (!activeEntity || activeEntity.isNew) dispatchCmSelection(null);
+      else {
+        const item = extractInfo[activeEntity.type]?.find(candidate => candidate.id === activeEntity.id);
+        dispatchCmSelection(scriptEntitySelection(activeEntity.type, item));
+      }
+      return;
+    }
+    const categoryLabels = {
+      baseSetup: '基础设定（人物 / 场景）',
+      prefix: '画面前缀词',
+      quality: '画质约束',
+      restriction: '画面限制',
+      negative: '负面提示词'
+    };
+    const category = categoryLabels[activeConstraintCategory] ? activeConstraintCategory : 'prefix';
+    const current = draftConstraints[category] || {};
+    dispatchCmSelection({
+      type: 'constraint',
+      id: category,
+      label: categoryLabels[category],
+      meta: {
+        data: {
+          category,
+          enabled: current.enabled === true,
+          source: current.source || 'draft',
+          body: String(current.body || '')
+        }
+      }
+    });
+  }, [constraintModalOpen, activeConstraintCategory, draftConstraints, activeEntity, extractInfo]);
+
   return (
     <Form
       className="script-workbench-form"
@@ -1295,7 +1329,7 @@ export function ScriptPage() {
               checked={draftConstraints.baseSetup?.enabled !== false}
               onChange={enabled => updateDraftConstraint('baseSetup', { enabled })}
             />
-            <div>
+            <div onClick={() => setActiveConstraintCategory('baseSetup')}>
               <Typography.Text strong>基础设定（人物 / 场景）</Typography.Text>
               <Typography.Paragraph type="secondary" style={{ margin: '2px 0 0' }}>开启后，自动将已提取的人物设定和第一个场景加入每张分镜。</Typography.Paragraph>
             </div>
@@ -1317,6 +1351,7 @@ export function ScriptPage() {
             loadingPersonalPrompts={loadingPersonalConstraintPrompts[category]}
             saving={savingConstraintCategory === category}
             editingPersonalPromptId={editingPersonalPromptId}
+            onFocus={() => setActiveConstraintCategory(category)}
             onChange={patch => updateDraftConstraint(category, patch)}
             onSelectSystem={presetId => selectSystemConstraint(category, presetId)}
             onSelectPersonal={promptId => selectPersonalConstraint(category, promptId)}
@@ -1377,7 +1412,7 @@ export function ScriptPage() {
 
 export default ScriptPage;
 
-function ConstraintCategoryEditor({ category, label, value, systemOptions, personalPrompts, loadingPersonalPrompts, saving, editingPersonalPromptId, onChange, onSelectSystem, onSelectPersonal, onSaveDraft, onSaveNamed, onEditPersonal, onDeletePersonal }) {
+function ConstraintCategoryEditor({ category, label, value, systemOptions, personalPrompts, loadingPersonalPrompts, saving, editingPersonalPromptId, onFocus, onChange, onSelectSystem, onSelectPersonal, onSaveDraft, onSaveNamed, onEditPersonal, onDeletePersonal }) {
   const isSystem = value.source === 'system';
   const selectedPersonalPrompt = personalPrompts.find(item => item.id === value.personalPromptId);
   return (
@@ -1423,6 +1458,7 @@ function ConstraintCategoryEditor({ category, label, value, systemOptions, perso
           rows={6}
           placeholder="选择系统预设后可在此编辑完整提示词内容，保存不会影响系统预设。"
           value={value.body}
+          onFocus={onFocus}
           onChange={event => onChange({ source: 'draft', personalPromptId: '', body: event.target.value })}
           style={{ marginTop: 6 }}
         />

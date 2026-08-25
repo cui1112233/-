@@ -71,6 +71,23 @@ function messageKey(message, index) {
   return `${message?.createdAt || index}-${message?.role || 'message'}`;
 }
 
+function actionCandidatePrompt(action) {
+  const patch = action?.patch && typeof action.patch === 'object' ? action.patch : {};
+  const payload = action?.payload && typeof action.payload === 'object' ? action.payload : {};
+  const value = payload.value && typeof payload.value === 'object' ? payload.value : {};
+  const preferred = [
+    patch.外形, patch.appearance,
+    patch.场景描述, patch.description, patch.场景, patch.scene,
+    value.body, patch.body, payload.body
+  ].find(item => typeof item === 'string' && item.trim());
+  if (preferred) return preferred.trim().slice(0, 1800);
+  const entries = Object.entries(patch)
+    .filter(([, item]) => typeof item === 'string' && item.trim())
+    .slice(0, 8)
+    .map(([key, item]) => `${key}：${item}`);
+  return entries.join('\n').slice(0, 1800);
+}
+
 export function CmPenguinCompanion({ username, accountSessionKey }) {
   const [state, setState] = useState('idle');
   const [frame, setFrame] = useState(0);
@@ -538,8 +555,15 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
                     <div className="cm-penguin-proposal-list">
                       {message.proposal.actions.map((action, index) => <span key={`${action.type}-${action.targetId}-${index}`}>{action.label || action.type}</span>)}
                     </div>
-                    <button type="button" disabled={!canApply || asking} title={canApply ? '应用这些修改' : '当前功能区还没有接入直接应用'} onClick={() => applyProposal(message.proposal)}>
-                      {canApply ? '应用修改' : '等待功能区接入'}
+                    {message.proposal.actions.map((action, index) => {
+                      const candidate = actionCandidatePrompt(action);
+                      return candidate ? <div className="cm-penguin-proposal-preview" key={`preview-${action.type}-${action.targetId}-${index}`}>
+                        <span>候选提示词</span>
+                        <pre>{candidate}</pre>
+                      </div> : null;
+                    })}
+                    <button type="button" disabled={!canApply || asking} title={canApply ? '确认后应用这份候选提示词' : '当前功能区还没有接入直接应用'} onClick={() => applyProposal(message.proposal)}>
+                      {canApply ? '应用这份提示词' : '等待功能区接入'}
                     </button>
                   </div>
                 ) : null}

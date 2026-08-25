@@ -5,7 +5,7 @@ import { normalizeScriptConstraints } from './scriptConstraints';
 
 const characterPatchKeys = ['名称', '角色名称', 'name', '身份', 'identity', '外形', 'appearance', '外观描述', '性格', 'personality', '关系', 'relation', '描述', 'description'];
 const scenePatchKeys = ['名称', '场景名称', 'name', '场景', 'scene', '时段', 'time', '氛围', 'atmosphere', '氛围概述', '描述', 'description', '场景描述'];
-const constraintCategories = new Set(['prefix', 'quality', 'restriction', 'negative']);
+const constraintCategories = new Set(['baseSetup', 'prefix', 'quality', 'restriction', 'negative']);
 
 function allowedPatch(patch, keys) {
   const source = patch && typeof patch === 'object' ? patch : {};
