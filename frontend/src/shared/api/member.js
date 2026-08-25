@@ -38,6 +38,17 @@ export function getTeamMembers() {
   return apiRequest('/api/member/team');
 }
 
+export function getTeamGovernance() {
+  return apiRequest('/api/member/team/governance');
+}
+
+export function updateTeamGovernance(username, monthlyTokenLimit) {
+  return apiRequest(`/api/member/team/governance/${encodeURIComponent(username)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ monthlyTokenLimit })
+  });
+}
+
 export function createTeamMember(payload) {
   return apiRequest('/api/member/team/members', {
     method: 'POST',
@@ -52,10 +63,31 @@ export function updateTeamMember(username, payload) {
   });
 }
 
+export function setTeamMemberStatus(username, active) {
+  return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/status`, {
+    method: 'POST',
+    body: JSON.stringify({ active })
+  });
+}
+
+export function resetTeamMemberPassword(username, password) {
+  return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ password })
+  });
+}
+
 export function setTeamMemberApi(username, enabled, scope = '*') {
   return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/api`, {
     method: 'POST',
     body: JSON.stringify({ enabled, scope })
+  });
+}
+
+export function setTeamMemberApiScopes(username, scopes) {
+  return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/api-scopes`, {
+    method: 'PUT',
+    body: JSON.stringify({ scopes })
   });
 }
 
