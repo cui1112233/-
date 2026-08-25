@@ -4,6 +4,7 @@ const path = require('path');
 
 const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const { apiAuth } = require('./middleware/auth');
+const { createDeletedAccountGuard } = require('./middleware/deleted-account-guard');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets, validatePresetSlot } = require('./lib/system-preset-catalog');
@@ -45,9 +46,14 @@ const { createScriptVideoRouter } = require('./routes/script-video');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
+const { createPasskeyStore } = require('./lib/passkey-store');
+const { createAccountRecoveryStore } = require('./lib/account-recovery-store');
+const { createMailerFromEnv } = require('./lib/mail-delivery');
 const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder, estimateTextTokens } = require('./lib/team-model-runtime');
 const { resolveTeamAuthorization } = require('./lib/api-access');
 const { createMemberCenterRouter } = require('./routes/member-center');
+const { createAccountRecoveryRouter } = require('./routes/account-recovery');
+const { createTeamAdminRouter } = require('./routes/team-admin');
 
 const NOVEL_PANEL_MODEL_PATHS = new Set([
   '/analyze', '/optimize-character-copy', '/optimize-character', '/optimize-all-characters',
@@ -67,7 +73,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -75,6 +81,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const avatarsDir = path.join(dataDir, 'avatars');
   const resolvedMemberStore = memberStore || createMemberStore({ systemDir, accountStore: authRuntime.accountStore });
   const resolvedUsageStore = usageStore || createUsageStore({ systemDir });
+  const resolvedPasskeyStore = passkeyStore || createPasskeyStore({ systemDir });
+  const resolvedAccountRecoveryStore = accountRecoveryStore || createAccountRecoveryStore({ systemDir });
+  const resolvedMailer = mailer || createMailerFromEnv();
+  const deletedAccountGuard = createDeletedAccountGuard(resolvedAccountRecoveryStore);
   const resolvedPresetStore = presetStore || createPresetStore({
     systemDir,
     validatePresetSlot
@@ -187,6 +197,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.authRuntime = authRuntime;
   app.locals.memberStore = resolvedMemberStore;
   app.locals.usageStore = resolvedUsageStore;
+  app.locals.passkeyStore = resolvedPasskeyStore;
+  app.locals.accountRecoveryStore = resolvedAccountRecoveryStore;
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
@@ -268,7 +280,26 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.get('/api/build-info', (req, res) => {
     res.json({ app_version: 'v78.3.0.3', build_id: 'v78.3.0.3-remote-workbench-20260819-r1' });
   });
-  app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore)); // POST /api/login
+  app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore, { passkeyStore: resolvedPasskeyStore })); // POST /api/login
+  // Deleted-account tombstones are checked before legacy mutation paths.
+  app.use('/api/account-recovery/purge/:username', apiAuth, deletedAccountGuard);
+  app.use('/api/member/team/members/:username', apiAuth, deletedAccountGuard);
+  app.use('/api/team-admin/teams/:teamId/members/:username', apiAuth, deletedAccountGuard);
+  app.use('/api/account-recovery', createAccountRecoveryRouter({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    authRuntime,
+    mailer: resolvedMailer,
+    recoveryStore: resolvedAccountRecoveryStore,
+    passkeyStore: resolvedPasskeyStore,
+    avatarsDir
+  }));
+  app.use('/api/team-admin', createTeamAdminRouter({
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore,
+    accountStore: authRuntime.accountStore,
+    authRuntime
+  }));
   app.use('/api/member', createMemberCenterRouter({
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore,

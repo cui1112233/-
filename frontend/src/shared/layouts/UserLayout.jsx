@@ -1,9 +1,9 @@
 import { Avatar, Badge, Button, Checkbox, ConfigProvider, Form, Input, message, Modal, Popover } from 'antd';
-import { AudioLines, Bell, BookOpen, Bot, Bug, CheckCircle2, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, XCircle } from 'lucide-react';
+import { AudioLines, Bell, BookOpen, Bot, Bug, CheckCircle2, Clapperboard, FilePenLine, Fingerprint, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, XCircle } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
-import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
+import { getCurrentAccount, getCurrentUsername, login, loginWithPasskey, logout } from '../api/auth';
 import { getToken } from '../api/client';
 import { getConfig } from '../api/config';
 import { avatarDisplay } from '../avatars';
@@ -25,6 +25,13 @@ const navItems = [
   { href: '/history', icon: FolderClock, label: '历史' },
   { href: '/issues', icon: Bug, label: '问题日志' },
   { href: '/tts', icon: AudioLines, label: '配音' }
+];
+
+const accountNavItems = [
+  { href: '/member', icon: ShieldCheck, label: '会员中心' },
+  { href: '/profile', icon: Settings2, label: '个人资料' },
+  { href: '/security', icon: ShieldCheck, label: '账号安全' },
+  { href: '/advanced-team-admin', icon: ShieldCheck, label: '联合治理', roles: ['dev', 'manager'] }
 ];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
@@ -88,6 +95,8 @@ export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [loginForm] = Form.useForm();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
@@ -102,6 +111,7 @@ export function UserLayout({ children }) {
   const isHome = pathname === '/';
   const displayAvatar = avatarDisplay(avatar, username);
   const accountSessionKey = username || 'anonymous';
+  const visibleNavItems = [...navItems, ...accountNavItems].filter(item => !item.roles || item.roles.includes(account?.role));
   const content = isValidElement(children)
     ? cloneElement(
       children,
@@ -300,6 +310,24 @@ export function UserLayout({ children }) {
     }
   }
 
+  async function handlePasskeyLogin() {
+    const values = loginForm.getFieldsValue(['username', 'remember']);
+    if (!values.username) return message.warning('请先填写账号，再使用 Passkey 登录');
+    accountSessionGenerationRef.current += 1;
+    setPasskeyLoading(true);
+    try {
+      const data = await loginWithPasskey(values.username, values.remember !== false);
+      setUsername(data.username);
+      setAccount(data);
+      setLoginDialogOpen(false);
+      message.success('Passkey 登录成功');
+    } catch (error) {
+      message.error(error.message || 'Passkey 登录失败');
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }
+
   async function handleLogout() {
     accountSessionGenerationRef.current += 1;
     await logout();
@@ -370,7 +398,7 @@ export function UserLayout({ children }) {
         <h1>一战晟铭登录</h1>
         <p className="nebula-login-subtitle">继续你的创作工作流</p>
         <div className="login-form-wrap nebula-login-form-wrap">
-          <Form layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
+          <Form form={loginForm} layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
             <Form.Item label="账号" name="username" rules={[{ required: true, message: '请输入账号' }]}>
               <Input placeholder="请输入账号" autoComplete="username" />
             </Form.Item>
@@ -385,8 +413,9 @@ export function UserLayout({ children }) {
               <Checkbox>30 天保持登录</Checkbox>
             </Form.Item>
             <Button block type="primary" htmlType="submit" loading={loading}>登录并进入工作台</Button>
+            <Button block icon={<Fingerprint size={17} />} loading={passkeyLoading} onClick={handlePasskeyLogin}>使用 Passkey 登录</Button>
           </Form>
-          <p className="login-hint">提示：请联系管理员获取账号</p>
+          <p className="login-hint"><a href="/recover">忘记密码？</a>　提示：请联系管理员获取账号</p>
         </div>
       </div>
     </div>
@@ -425,7 +454,7 @@ export function UserLayout({ children }) {
           </Link>
         </div>
         <nav className="legacy-nav">
-          {navItems.map(item => {
+          {visibleNavItems.map(item => {
             const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>

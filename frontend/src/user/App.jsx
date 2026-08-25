@@ -12,6 +12,10 @@ const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const SecurityPage = lazy(() => import('./pages/SecurityPage'));
+const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage'));
+const RecoveryPage = lazy(() => import('./pages/RecoveryPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
@@ -38,6 +42,9 @@ function getPage(pathname) {
     '/tts': TtsPage,
     '/settings': SettingsPage,
     '/member': MemberCenterPage,
+    '/profile': ProfilePage,
+    '/security': SecurityPage,
+    '/advanced-team-admin': AdvancedTeamAdminPage,
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
@@ -61,5 +68,9 @@ export function UserApp() {
     window.addEventListener('unhandledrejection', recoverChunk);
     return () => { window.removeEventListener('error', recoverChunk); window.removeEventListener('unhandledrejection', recoverChunk); };
   }, []);
-  return <UserLayout>{getPage(usePathname())}</UserLayout>;
+  const pathname = usePathname();
+  if (pathname === '/recover') {
+    return <Suspense fallback={<div className="route-loading" role="status">正在加载账号恢复</div>}><RecoveryPage /></Suspense>;
+  }
+  return <UserLayout>{getPage(pathname)}</UserLayout>;
 }
