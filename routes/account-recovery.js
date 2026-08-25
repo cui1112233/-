@@ -147,7 +147,6 @@ function createAccountRecoveryRouter({ accountStore, memberStore, authRuntime, m
           throw error;
         }
       }
-      // Always return the same response so this endpoint does not disclose whether an email exists.
       return res.status(202).json({ accepted: true, message: '如果该邮箱已验证并绑定账号，重置邮件将会发送。' });
     } catch (error) { return routeError(res, error); }
   });
@@ -173,6 +172,9 @@ function createAccountRecoveryRouter({ accountStore, memberStore, authRuntime, m
 
   router.post('/passkeys/options', apiAuth, (req, res) => {
     try {
+      if (!accountStore.verifyPassword(req.username, req.body?.currentPassword)) {
+        return res.status(400).json({ error: '当前密码不正确，无法绑定 Passkey' });
+      }
       const member = memberStore.getMember(req.username);
       return res.json(passkeyStore.beginRegistration(req.username, {
         rpId: requestRpId(req), origin: requestOrigin(req), displayName: member?.displayName || req.username
