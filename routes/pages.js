@@ -30,6 +30,11 @@ router.get('/agent', serveReactEntry('index.html', 'views/agent.html'));
 router.get('/tts', serveReactEntry('index.html', 'views/tts.html'));
 router.get('/settings', serveReactEntry('index.html', 'index.html'));
 router.get('/member', serveReactEntry('index.html', 'index.html'));
+router.get('/team', serveReactEntry('index.html', 'index.html'));
+router.get('/api-config', serveReactEntry('index.html', 'index.html'));
+router.get('/usage', serveReactEntry('index.html', 'index.html'));
+router.get('/profile', serveReactEntry('index.html', 'index.html'));
+router.get('/security', serveReactEntry('index.html', 'index.html'));
 router.get('/issues', serveReactEntry('index.html', 'index.html'));
 router.get(/^\/admin(?:\/.*)?$/, serveReactEntry('admin.html', 'index.html'));
 
