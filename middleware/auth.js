@@ -72,6 +72,11 @@ function optionalApiAuth(req, res, next) {
 function requireCapability(capability, getScope = () => '*') {
   return (req, res, next) => {
     const runtime = getRuntime(req);
+    try {
+      if (req.auth && req.app?.locals?.memberStore?.effectiveRole(req.auth.username) === 'dev') return next();
+    } catch {
+      // Keep legacy account capability checks as the safe fallback.
+    }
     if (!req.auth || !runtime.accountStore.can(req.auth.username, capability, getScope(req))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -82,6 +87,11 @@ function requireCapability(capability, getScope = () => '*') {
 function requireOwner(req, res, next) {
   const runtime = getRuntime(req);
   const account = req.auth && runtime.accountStore.getAccount(req.auth.username);
+  try {
+    if (account?.active && req.app?.locals?.memberStore?.effectiveRole(account.username) === 'dev') return next();
+  } catch {
+    // Keep the existing Owner-only behaviour if membership data cannot be read.
+  }
   if (!account || !account.active || account.username !== PRIMARY_USER || !account.isOwner) {
     return res.status(403).json({ error: 'Forbidden' });
   }
