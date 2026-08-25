@@ -30,8 +30,11 @@ test('layout responds to real content width rather than browser viewport only', 
   assert.match(css, /@container\s*\(max-width:\s*620px\)/);
 });
 
-test('03 collaboration variables are bridged into the account-center token system', () => {
-  assert.match(collaborationCss, /--text-secondary|--border-subtle/);
+test('03 collaboration css uses the account-center token system instead of missing legacy variables', () => {
+  assert.doesNotMatch(collaborationCss, /var\(--text-secondary\)/);
+  assert.doesNotMatch(collaborationCss, /var\(--border-subtle\)/);
+  assert.match(collaborationCss, /var\(--ac-muted,/);
+  assert.match(collaborationCss, /var\(--ac-line,/);
   assert.match(css, /--text-secondary:\s*var\(--ac-muted\)/);
   assert.match(css, /--border-subtle:\s*var\(--ac-line\)/);
 });
@@ -41,6 +44,11 @@ test('04 delegated team control can never fall back to an unstyled browser butto
   assert.match(css, /\.ac-delegated-team\s*\{/);
   assert.match(css, /appearance:\s*none/);
   assert.match(css, /grid-template-columns:\s*34px\s+minmax\(0,1fr\)\s+auto/);
+});
+
+test('advanced governance has a dedicated six-column table instead of inheriting the normal seven-column table', () => {
+  assert.match(collaborationCss, /\.advanced-team-admin-page \.ac-team-table-head,/);
+  assert.match(collaborationCss, /grid-template-columns:\s*minmax\(190px,1\.3fr\)\s+92px\s+90px\s+minmax\(170px,\.9fr\)\s+110px\s+66px/);
 });
 
 test('member dashboard keeps reference composition and fixed right rail', () => {
