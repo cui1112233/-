@@ -18,11 +18,23 @@ export function loadBatchFactoryVideoModels() {
   return modelCatalogPromise;
 }
 
+function batchFactoryCompatibleModels(models, batch) {
+  const requiredDuration = Number(batch?.settings?.maxVideoDuration || 0);
+  return models.filter(model => (
+    model.requiresImageInput !== true
+    && Number.isInteger(Number(model.maxVideoDuration))
+    && Number(model.maxVideoDuration) >= 1
+    && (!requiredDuration || Number(model.maxVideoDuration) >= requiredDuration)
+  ));
+}
+
 export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   const [models, setModels] = useState([]);
-  const [modelId, setModelId] = useState(null);
+  const [legacyModelId, setLegacyModelId] = useState(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const boundModelId = Number(batch?.settings?.videoModelId || 0) || null;
+  const modelId = boundModelId || legacyModelId;
 
   useEffect(() => {
     let active = true;
@@ -31,20 +43,23 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
       .then(videoModels => {
         if (!active) return;
         setModels(videoModels);
-        const directModels = videoModels.filter(model => model.requiresImageInput !== true);
-        if (directModels.length) setModelId(current => current || directModels[0].id);
+        if (!boundModelId) {
+          const compatible = batchFactoryCompatibleModels(videoModels, batch);
+          if (compatible.length) setLegacyModelId(current => current || compatible[0].id);
+        }
       })
       .catch(error => { if (active) message.error(error.message || '读取视频模型失败'); })
       .finally(() => { if (active) setLoadingModels(false); });
     return () => { active = false; };
-  }, []);
+  }, [boundModelId, batch?.settings?.maxVideoDuration]);
 
-  const directModels = useMemo(() => models.filter(model => model.requiresImageInput !== true), [models]);
+  const directModels = useMemo(() => batchFactoryCompatibleModels(models, batch), [models, batch]);
   const imageModels = useMemo(() => models.filter(model => model.requiresImageInput === true), [models]);
+  const boundModel = useMemo(() => models.find(model => Number(model.id) === boundModelId) || null, [models, boundModelId]);
   const production = item?.production;
 
   async function generate() {
-    if (!modelId) return message.warning('请选择文生视频模型');
+    if (!modelId) return message.warning('当前批次没有可用的视频模型');
     setSubmitting(true);
     try {
       const result = await generateBatchFactoryVideos(batch.id, item.id, modelId);
@@ -72,26 +87,43 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
     </Card>;
   }
 
-  return <Card size="small" title="生成视频" style={{ width: '100%' }}>
+  if (boundModelId) {
+    const boundName = batch.settings?.videoModelName || boundModel?.name || `模型 #${boundModelId}`;
+    const unavailable = !loadingModels && !boundModel;
+    return <Card size="small" title="生成视频" style={{ width: '100%' }}>
+      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+        <Typography.Text type="secondary">本篇会沿用导演开始前锁定的视频模型；模型与时长能力不会在生成阶段再次改变。</Typography.Text>
+        <Space wrap>
+          <Tag color="blue">{boundName}</Tag>
+          <Tag>单次最大 {batch.settings?.maxVideoDuration || '—'}s</Tag>
+          <Tag>{batch.settings?.aspectRatio || '9:16'}</Tag>
+        </Space>
+        {unavailable ? <Alert type="warning" showIcon message="已绑定模型当前不在可用模型列表中" description="模型可能已被停用或隐藏。恢复该模型后再生成；不要用另一模型直接替换已经完成的导演方案。" /> : null}
+        <Button type="primary" icon={<Clapperboard size={15} />} loading={submitting} disabled={unavailable || !modelId} onClick={generate} style={{ alignSelf: 'flex-start' }}>生成全部 VIDEO</Button>
+      </Space>
+    </Card>;
+  }
+
+  return <Card size="small" title="生成视频 · 历史批次兼容" style={{ width: '100%' }}>
     {directModels.length ? <Space direction="vertical" size={10} style={{ width: '100%' }}>
-      <Typography.Text type="secondary">这里会一次编译本篇全部 VIDEO，并由服务端一次性创建正式生产项目和 Redis 视频任务。未点击前不会污染生产项目列表。</Typography.Text>
+      <Alert type="info" showIcon message="这是旧批次，创建时没有绑定视频模型" description={`只能选择单次最大时长不小于当前导演上限 ${batch?.settings?.maxVideoDuration || '—'}s 的文生视频模型。新批次会在导演前锁定模型。`} />
       <Space wrap>
         <Select
           loading={loadingModels}
-          value={modelId}
-          onChange={setModelId}
-          style={{ minWidth: 280 }}
-          options={directModels.map(model => ({ value: model.id, label: `${model.name} · 文生视频` }))}
-          placeholder="选择文生视频模型"
+          value={legacyModelId}
+          onChange={setLegacyModelId}
+          style={{ minWidth: 320 }}
+          options={directModels.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration}s` }))}
+          placeholder="选择兼容文生视频模型"
         />
         <Button type="primary" icon={<Clapperboard size={15} />} loading={submitting} onClick={generate}>生成全部 VIDEO</Button>
       </Space>
-      {imageModels.length ? <Typography.Text type="secondary">另有 {imageModels.length} 个图生视频模型未显示；它们需要先在正式生产项目中绑定主图片。</Typography.Text> : null}
+      {imageModels.length ? <Typography.Text type="secondary">另有 {imageModels.length} 个图生视频模型未显示；它们不能从批量工厂无图直出。</Typography.Text> : null}
     </Space> : <Alert
       type="warning"
       showIcon
-      message="暂无可直接生成的文生视频模型"
-      description="请管理员在「水货生产模型」新增或启用 generic_http 视频模型，并确保请求模板不包含 {{image_url}}。Vidu 等图生视频模型不能从这里无图直出。"
+      message="暂无兼容的文生视频模型"
+      description="请管理员启用文生视频模型并配置单次最大生成时长；其能力必须覆盖这个历史批次的导演时长上限。"
     />}
   </Card>;
 }
