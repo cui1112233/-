@@ -1,6 +1,7 @@
 import { apiRequest } from './client';
 
 const base = '/api/batch-factory';
+const productionBase = '/api/shuihuo-production';
 
 export function createBatchFactoryNovelFetchIntake(payload) {
   return apiRequest(`${base}/intakes/novel-fetch`, { method: 'POST', body: JSON.stringify(payload) });
@@ -63,5 +64,12 @@ export function generateBatchFactoryBatch(batchId, modelId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/generate`, {
     method: 'POST',
     body: JSON.stringify({ modelId })
+  });
+}
+
+export function getBatchFactoryProductionStatus(projectIds) {
+  return apiRequest(`${productionBase}/batch-factory/status`, {
+    method: 'POST',
+    body: JSON.stringify({ projectIds })
   });
 }
