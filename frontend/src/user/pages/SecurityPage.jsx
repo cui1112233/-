@@ -1,5 +1,5 @@
 import { Button, Form, Input, Modal, Progress, Skeleton, Tag, message } from 'antd';
-import { Copy, KeyRound, Laptop, LockKeyhole, LogOut, RotateCcwKey, ShieldCheck, Smartphone, TimerReset } from 'lucide-react';
+import { Copy, Fingerprint, KeyRound, Laptop, LockKeyhole, LogOut, RotateCcwKey, ShieldCheck, Smartphone, TimerReset, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   beginMfaSetup,
@@ -10,6 +10,8 @@ import {
   revokeOtherSessions,
   rotateMfaRecoveryCodes
 } from '../../shared/api/member';
+import { listPasskeys, registerPasskey, removePasskey } from '../../shared/api/accountRecovery';
+import { passkeySupported } from '../../shared/webauthn';
 import { formatDate, PageHeader, Panel } from './accountCenterShared';
 
 function deviceLabel(session) {
@@ -20,6 +22,7 @@ function deviceLabel(session) {
 export default function SecurityPage() {
   const [loading, setLoading] = useState(true);
   const [security, setSecurity] = useState(null);
+  const [passkeys, setPasskeys] = useState([]);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [mfaOpen, setMfaOpen] = useState(false);
   const [mfaSetup, setMfaSetup] = useState(null);
@@ -30,8 +33,11 @@ export default function SecurityPage() {
 
   async function load() {
     setLoading(true);
-    try { setSecurity(await getSecurityOverview()); }
-    catch (error) { message.error(error.message || '安全信息加载失败'); }
+    try {
+      const [nextSecurity, passkeyResult] = await Promise.all([getSecurityOverview(), listPasskeys().catch(() => ({ passkeys: [] }))]);
+      setSecurity(nextSecurity);
+      setPasskeys(passkeyResult.passkeys || []);
+    } catch (error) { message.error(error.message || '安全信息加载失败'); }
     finally { setLoading(false); }
   }
 
@@ -56,6 +62,26 @@ export default function SecurityPage() {
       message.success('其他登录会话已退出');
       await load();
     } catch (error) { message.error(error.message || '退出其他会话失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function addPasskey() {
+    setSaving(true);
+    try {
+      await registerPasskey(`Passkey ${passkeys.length + 1}`);
+      message.success('Passkey 已绑定，现在登录页可以直接使用');
+      await load();
+    } catch (error) { message.error(error.message || 'Passkey 添加失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function deletePasskey(id) {
+    setSaving(true);
+    try {
+      await removePasskey(id);
+      message.success('Passkey 已移除');
+      await load();
+    } catch (error) { message.error(error.message || 'Passkey 删除失败'); }
     finally { setSaving(false); }
   }
 
@@ -118,23 +144,24 @@ export default function SecurityPage() {
 
   const sessionCount = useMemo(() => (security?.sessions?.length || 0) + (security?.persistentSessions?.length || 0), [security]);
   const mfaEnabled = Boolean(security?.mfa?.enabled);
-  const score = security ? Math.min(100, 72 + (security.otherSessionCount === 0 ? 12 : 4) + (mfaEnabled ? 16 : 0)) : 0;
+  const hasPasskey = passkeys.length > 0;
+  const score = security ? Math.min(100, 66 + (security.otherSessionCount === 0 ? 10 : 4) + (mfaEnabled ? 14 : 0) + (hasPasskey ? 10 : 0)) : 0;
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
 
   return <div className="account-center-page security-page">
-    <PageHeader title="账号安全" subtitle="密码、MFA 与登录设备安全" />
+    <PageHeader title="账号安全" subtitle="密码、MFA、Passkey 与登录设备安全" />
 
     <div className="ac-security-grid">
       <Panel title="安全总览" className="ac-security-overview">
         <div className="ac-security-score">
           <Progress type="circle" percent={score} size={150} strokeWidth={6} format={value => <><strong>{value}</strong><small>安全评分</small></>} />
-          <div><Tag color={mfaEnabled ? 'green' : 'gold'}>{mfaEnabled ? 'MFA 防护已开启' : '建议开启 MFA'}</Tag><p>动态验证码与恢复码都只在服务端验证，恢复码每个只能使用一次。</p></div>
+          <div><Tag color={mfaEnabled || hasPasskey ? 'green' : 'gold'}>{mfaEnabled || hasPasskey ? '强认证已配置' : '建议开启强认证'}</Tag><p>Passkey 使用设备安全密钥验签；MFA 恢复码每个只能使用一次。</p></div>
         </div>
         <div className="ac-check-list security-checks">
           <div><ShieldCheck size={16} className="done" /><span>账号状态</span><b>正常</b></div>
           <div><KeyRound size={16} className="done" /><span>登录密码</span><b>已设置</b></div>
-          <div><Smartphone size={16} className="done" /><span>当前会话</span><b>{sessionCount || 1} 个</b></div>
+          <div><Fingerprint size={16} className={hasPasskey ? 'done' : ''} /><span>Passkey</span><b>{hasPasskey ? `${passkeys.length} 个` : '未绑定'}</b></div>
           <div><LockKeyhole size={16} className={mfaEnabled ? 'done' : ''} /><span>二步验证 / MFA</span><b>{mfaEnabled ? '已启用' : '未启用'}</b></div>
         </div>
       </Panel>
@@ -154,6 +181,20 @@ export default function SecurityPage() {
     </div>
 
     <div className="ac-two-column security-session-grid">
+      <Panel title="Passkey / 安全密钥" eyebrow="PASSWORDLESS">
+        <div className="ac-session-control"><span><Fingerprint size={22} /></span><div><h3>使用设备解锁登录</h3><p>Passkey 可使用 Windows Hello、Touch ID、Face ID 或硬件安全密钥，不需要把私钥发送给服务器。</p></div></div>
+        <Button type="primary" icon={<Fingerprint size={16} />} disabled={!passkeySupported()} loading={saving} onClick={addPasskey}>添加当前设备 Passkey</Button>
+        {!passkeySupported() ? <p className="ac-security-note">Passkey 需要 HTTPS 或本机安全环境，以及支持 WebAuthn 的现代浏览器。</p> : null}
+        <div className="ac-session-list ac-passkey-list">
+          {passkeys.map(item => <div key={item.id}>
+            <span className="ac-session-icon"><Fingerprint size={17} /></span>
+            <div><strong>{item.name}</strong><small>创建于 {formatDate(item.createdAt)}{item.lastUsedAt ? ` · 最近使用 ${formatDate(item.lastUsedAt)}` : ''}</small></div>
+            <Button type="text" danger icon={<Trash2 size={15} />} disabled={saving} onClick={() => deletePasskey(item.id)} />
+          </div>)}
+          {!passkeys.length ? <div className="ac-empty">尚未绑定 Passkey</div> : null}
+        </div>
+      </Panel>
+
       <Panel title="当前与活动设备" eyebrow="ACTIVE DEVICES">
         <div className="ac-session-list">
           {(security?.sessions || []).map(session => <div key={`runtime-${session.id}`}><span className="ac-session-icon"><Laptop size={17} /></span><div><strong>{session.current ? `当前设备 · ${deviceLabel(session)}` : deviceLabel(session)}</strong><small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)}` : '活动登录会话'}{session.ipHint ? ` · ${session.ipHint}` : ''}</small></div><Tag color={session.current ? 'green' : 'blue'}>{session.current ? '当前设备' : '活动'}</Tag></div>)}
@@ -161,13 +202,13 @@ export default function SecurityPage() {
           {!sessionCount ? <div className="ac-empty">当前仅有本次登录会话</div> : null}
         </div>
       </Panel>
-
-      <Panel title="会话管理" eyebrow="SESSION CONTROL">
-        <div className="ac-session-control"><span><LogOut size={22} /></span><div><h3>退出其他设备</h3><p>撤销其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div></div>
-        <Button danger loading={saving} disabled={!security?.otherSessionCount} onClick={revokeOthers}>退出其他设备</Button>
-        <p className="ac-security-note">网络信息只保留类似 192.168.*.* 的模糊提示，不做精确位置跟踪。</p>
-      </Panel>
     </div>
+
+    <Panel title="会话管理" eyebrow="SESSION CONTROL">
+      <div className="ac-session-control"><span><LogOut size={22} /></span><div><h3>退出其他设备</h3><p>撤销其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div></div>
+      <Button danger loading={saving} disabled={!security?.otherSessionCount} onClick={revokeOthers}>退出其他设备</Button>
+      <p className="ac-security-note">网络信息只保留类似 192.168.*.* 的模糊提示，不做精确位置跟踪。</p>
+    </Panel>
 
     <Modal title="修改登录密码" open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => form.submit()} okText="确认修改" confirmLoading={saving}>
       <Form form={form} layout="vertical" onFinish={changePassword}>
