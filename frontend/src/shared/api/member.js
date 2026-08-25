@@ -1,6 +1,20 @@
 import { apiRequest } from './client';
 
-export function getMemberCenter() { return apiRequest('/api/member/me'); }
+export async function getMemberCenter() {
+  const [center, security, notifications] = await Promise.all([
+    apiRequest('/api/member/me'),
+    apiRequest('/api/member/security').catch(() => null),
+    apiRequest('/api/member/notifications?limit=100').catch(() => null)
+  ]);
+  return {
+    ...center,
+    member: center?.member ? { ...center.member, mfaEnabled: Boolean(security?.mfa?.enabled) } : center?.member,
+    notificationSummary: notifications ? {
+      unread: Number(notifications.unread || 0),
+      recent: (notifications.entries || []).slice(0, 8)
+    } : center?.notificationSummary
+  };
+}
 
 export function updateMemberProfile(profile) {
   const payload = typeof profile === 'string' ? { displayName: profile } : (profile || {});
