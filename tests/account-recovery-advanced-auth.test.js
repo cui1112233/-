@@ -148,13 +148,13 @@ function createTestPasskey(store, username, { origin = 'http://localhost', rpId 
   return { ...keys, credential, credentialId, origin, rpId };
 }
 
-function signAssertion(store, username, keys, counter) {
+function signAssertion(store, username, keys, counter, flags = 0x05) {
   const options = store.beginAuthentication(username, { rpId: keys.rpId, origin: keys.origin });
   const client = clientData('webauthn.get', options.challenge, keys.origin);
   const rpHash = crypto.createHash('sha256').update(keys.rpId).digest();
   const count = Buffer.alloc(4);
   count.writeUInt32BE(counter);
-  const authenticatorData = Buffer.concat([rpHash, Buffer.from([0x01]), count]);
+  const authenticatorData = Buffer.concat([rpHash, Buffer.from([flags]), count]);
   const clientHash = crypto.createHash('sha256').update(client).digest();
   const signature = crypto.sign('sha256', Buffer.concat([authenticatorData, clientHash]), keys.privateKey);
   return {
@@ -253,7 +253,29 @@ test('email verification never pretends to send when delivery is unavailable', a
   assert.equal(fx.recoveryStore.emailStatus('choushiyiguai', 'owner@example.com').verified, false);
 });
 
-test('native passkey verification checks signature, rp hash and monotonic counter', t => {
+test('passkey enrollment requires the current password', async t => {
+  const fx = fixture(t);
+  const owner = await login(fx.app, 'choushiyiguai', 'owner-password');
+  assert.equal(owner.status, 200);
+  const missing = await request(fx.app, {
+    method: 'POST', requestPath: '/api/account-recovery/passkeys/options', token: owner.body.token, body: {}
+  });
+  assert.equal(missing.status, 400);
+  const wrong = await request(fx.app, {
+    method: 'POST', requestPath: '/api/account-recovery/passkeys/options', token: owner.body.token,
+    body: { currentPassword: 'wrong-password' }
+  });
+  assert.equal(wrong.status, 400);
+  const allowed = await request(fx.app, {
+    method: 'POST', requestPath: '/api/account-recovery/passkeys/options', token: owner.body.token,
+    body: { currentPassword: 'owner-password' }
+  });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.userVerification, undefined);
+  assert.ok(allowed.body.challenge);
+});
+
+test('native passkey verification checks user verification, signature, rp hash and monotonic counter', t => {
   const fx = fixture(t);
   const keys = createTestPasskey(fx.passkeyStore, 'choushiyiguai');
   assert.equal(fx.passkeyStore.listCredentials('choushiyiguai').length, 1);
@@ -262,6 +284,12 @@ test('native passkey verification checks signature, rp hash and monotonic counte
   const verified = fx.passkeyStore.finishAuthentication('choushiyiguai', assertion);
   assert.equal(verified.signCount, 1);
   assert.ok(verified.lastUsedAt);
+
+  const noUv = signAssertion(fx.passkeyStore, 'choushiyiguai', keys, 2, 0x01);
+  assert.throws(
+    () => fx.passkeyStore.finishAuthentication('choushiyiguai', noUv),
+    error => error?.code === 'FORBIDDEN' && /用户验证/.test(error.message)
+  );
 
   const replayCounter = signAssertion(fx.passkeyStore, 'choushiyiguai', keys, 1);
   assert.throws(
@@ -273,7 +301,7 @@ test('native passkey verification checks signature, rp hash and monotonic counte
   const badClient = clientData('webauthn.get', badRp.challenge, 'http://localhost');
   const wrongHash = crypto.createHash('sha256').update('evil.example').digest();
   const count = Buffer.alloc(4); count.writeUInt32BE(2);
-  const authData = Buffer.concat([wrongHash, Buffer.from([0x01]), count]);
+  const authData = Buffer.concat([wrongHash, Buffer.from([0x05]), count]);
   const signature = crypto.sign('sha256', Buffer.concat([authData, crypto.createHash('sha256').update(badClient).digest()]), keys.privateKey);
   assert.throws(
     () => fx.passkeyStore.finishAuthentication('choushiyiguai', {
