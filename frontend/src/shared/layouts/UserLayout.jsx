@@ -1,5 +1,5 @@
 import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { AudioLines, BarChart3, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Gem, Home, KeyRound, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -9,7 +9,7 @@ import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
 import { createAntTheme } from '../styles/theme';
 
-const navItems = [
+const workspaceNavItems = [
   { href: '/', icon: Home, label: '首页' },
   { href: '/script', icon: FilePenLine, label: '剧本生成' },
   { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
@@ -20,6 +20,16 @@ const navItems = [
   { href: '/tts', icon: AudioLines, label: '配音' }
 ];
 
+const accountNavItems = [
+  { href: '/member', icon: Gem, label: '会员中心' },
+  { href: '/team', icon: UsersRound, label: '团队管理', roles: ['dev', 'manager'] },
+  { href: '/api-config', icon: KeyRound, label: 'API 配置' },
+  { href: '/usage', icon: BarChart3, label: '用量统计' },
+  { href: '/profile', icon: UserRound, label: '个人资料' },
+  { href: '/security', icon: ShieldCheck, label: '账号安全' }
+];
+
+const ACCOUNT_CENTER_PATHS = new Set(accountNavItems.map(item => item.href));
 const THEME_STORAGE_KEY = 'yizhan-theme';
 const LOGIN_SUCCESS_ANIMATION_MS = 760;
 
@@ -28,9 +38,12 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
-  if (pathname === '/member') return '会员中心';
-  const item = navItems.find(nav => nav.href === pathname);
-  return item ? item.label : '一战晟铭';
+  const accountItem = accountNavItems.find(nav => nav.href === pathname);
+  if (accountItem) return accountItem.label;
+  const item = workspaceNavItems.find(nav => nav.href === pathname);
+  if (item) return item.label;
+  if (pathname === '/settings') return '工作台设置';
+  return '一战晟铭';
 }
 
 function canAccessAdmin(account) {
@@ -71,6 +84,11 @@ export function UserLayout({ children }) {
   const pathname = window.location.pathname;
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
+  const isAccountCenter = ACCOUNT_CENTER_PATHS.has(pathname);
+  const currentRole = account?.role || (account?.isOwner ? 'dev' : 'member');
+  const currentNavItems = isAccountCenter
+    ? accountNavItems.filter(item => !item.roles || item.roles.includes(currentRole))
+    : workspaceNavItems;
   const accountSessionKey = username || 'anonymous';
   const content = isValidElement(children)
     ? cloneElement(
@@ -323,8 +341,8 @@ export function UserLayout({ children }) {
 
   return (
     <ConfigProvider theme={createAntTheme(theme)}>
-      <div className="legacy-shell">
-      <aside className={`legacy-sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
+      <div className={`legacy-shell${isAccountCenter ? ' account-center-shell' : ''}`}>
+      <aside className={`legacy-sidebar${sidebarCollapsed ? ' collapsed' : ''}${isAccountCenter ? ' account-center-sidebar' : ''}`}>
         <div className="legacy-brand">
           <button
             className="legacy-sidebar-toggle"
@@ -341,7 +359,7 @@ export function UserLayout({ children }) {
           </Link>
         </div>
         <nav className="legacy-nav">
-          {navItems.map(item => {
+          {currentNavItems.map(item => {
             const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}>
@@ -353,6 +371,10 @@ export function UserLayout({ children }) {
           })}
         </nav>
         <div className="legacy-sidebar-tools">
+          {isAccountCenter ? <Link href="/" className="legacy-sidebar-tool" title="返回工作台">
+            <span className="legacy-nav-icon"><Home size={18} strokeWidth={1.8} aria-hidden="true" /></span>
+            <span className="legacy-nav-label">返回工作台</span>
+          </Link> : null}
           <button
             className="legacy-sidebar-tool legacy-theme-toggle"
             type="button"
@@ -363,10 +385,10 @@ export function UserLayout({ children }) {
             <span className="legacy-nav-icon">{theme === 'dark' ? <Sun size={18} strokeWidth={1.8} aria-hidden="true" /> : <Moon size={18} strokeWidth={1.8} aria-hidden="true" />}</span>
             <span className="legacy-nav-label">主题</span>
           </button>
-          <Link href="/settings" className="legacy-sidebar-tool" title="设置">
+          {!isAccountCenter ? <Link href="/settings" className="legacy-sidebar-tool" title="设置">
             <span className="legacy-nav-icon"><Settings2 size={18} strokeWidth={1.8} aria-hidden="true" /></span>
             <span className="legacy-nav-label">设置</span>
-          </Link>
+          </Link> : null}
           {canAccessAdmin(account) ? (
             <Link href="/admin/presets" reload className="legacy-sidebar-tool" title="管理后台">
               <span className="legacy-nav-icon"><ShieldCheck size={18} strokeWidth={1.8} aria-hidden="true" /></span>
@@ -385,7 +407,7 @@ export function UserLayout({ children }) {
                   <Link href="/member" className="legacy-profile-link" title="会员中心">
                     <Avatar size={28} src={account?.avatarUrl}>{avatarFallback(account, username)}</Avatar>
                     <span className="legacy-profile-name">{account?.displayName || username}</span>
-                    <span className={`member-role-badge role-${account?.role || (account?.isOwner ? 'dev' : 'member')} compact`}>{roleLabel(account?.role || (account?.isOwner ? 'dev' : 'member'))}</span>
+                    <span className={`member-role-badge role-${currentRole} compact`}>{roleLabel(currentRole)}</span>
                   </Link>
                   <Button size="small" onClick={handleLogout}>退出</Button>
                 </>
@@ -394,7 +416,7 @@ export function UserLayout({ children }) {
           </header>
           <section className="legacy-content">{content}</section>
         </main>
-        <StackyPet username={username} accountSessionKey={accountSessionKey} />
+        {!isAccountCenter ? <StackyPet username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
       {loginOverlay}
       </div>
