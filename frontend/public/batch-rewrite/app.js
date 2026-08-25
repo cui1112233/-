@@ -2624,7 +2624,9 @@ async function reprocessSensitive(ids, restoreFromBackup) {
     });
     renderTasks(result.tasks || []);
     setBatchStatus(`${label}完成 ${result.processed || 0} 个${restoreFromBackup ? `，已恢复 ${result.restored || 0} 个` : ""}，失败 ${result.failed || 0} 个`);
-    if (state.selectedId && selected.includes(String(state.selectedId))) await showDetail(state.selectedId);
+    // 重跑完成后刷新当前任务详情。此前调用了不存在的 showDetail，
+    // 后端虽然已成功处理，前端却会抛错并误报为“重跑失败”。
+    if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
   } catch (error) {
     setBatchStatus(error.message);
   }
