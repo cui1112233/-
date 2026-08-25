@@ -3,6 +3,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+// Force the embedded Chromium renderer and the account-login partition to ask
+// for Simplified Chinese. Some provider pages fall back to untranslated i18n
+// keys when Electron sends the default English locale.
+app.commandLine.appendSwitch('lang', 'zh-CN');
+
 const statePath = () => path.join(app.getPath('userData'), 'executor-state.bin');
 let heartbeatTimer = null;
 let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [] };
@@ -102,8 +107,12 @@ ipcMain.handle('accounts:add', (_, rawName) => {
   if (!name) throw new Error('请输入账号备注');
   const account = { id: crypto.randomUUID(), name, status: '未登录' };
   state.accounts.push(account); saveState();
+  const accountSession = session.fromPartition(`persist:doubao-${account.id}`);
+  accountSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    callback({ requestHeaders: { ...details.requestHeaders, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.2' } });
+  });
   const loginWindow = new BrowserWindow({ width: 1120, height: 760, title: `登录豆包：${name}`, webPreferences: { partition: `persist:doubao-${account.id}`, contextIsolation: true, nodeIntegration: false } });
-  loginWindow.loadURL('https://www.doubao.com/');
+  loginWindow.loadURL('https://www.doubao.com/?locale=zh-CN');
   loginWindow.on('close', () => { account.status = '已登录（请在任务前确认）'; saveState(); });
   return account;
 });
