@@ -1,9 +1,10 @@
 import { apiRequest, setToken } from './client';
 
-export async function login(username, password, remember = true) {
+export async function login(username, password, remember = true, mfaCode = '') {
   const data = await apiRequest('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password, remember })
+    body: JSON.stringify({ username, password, remember, mfaCode }),
+    suppressGlobalError: true
   });
   setToken(data.token);
   localStorage.setItem('auth_username', data.username);
