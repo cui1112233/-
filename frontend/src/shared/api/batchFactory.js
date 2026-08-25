@@ -50,3 +50,10 @@ export function generateBatchFactoryVideos(batchId, itemId, modelId, { force = f
     body: JSON.stringify({ modelId, force })
   });
 }
+
+export function generateBatchFactoryBatch(batchId, modelId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ modelId })
+  });
+}
