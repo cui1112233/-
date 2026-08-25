@@ -49,17 +49,18 @@ type Definition struct {
 }
 
 type PublicModel struct {
-	ID               int64    `json:"id"`
-	ModelID          string   `json:"modelId"`
-	VersionID        int64    `json:"versionId"`
-	Name             string   `json:"name"`
-	Kind             Kind     `json:"kind"`
-	AdapterKind      string   `json:"adapterKind"`
-	SortOrder        int      `json:"sortOrder"`
-	ParameterSchema  string   `json:"parameterSchema"`
-	ImageInputFormat string   `json:"imageInputFormat"`
-	ImageRequestMode string   `json:"imageRequestMode"`
-	AllowedRoles     []string `json:"allowedRoles"`
+	ID                 int64    `json:"id"`
+	ModelID            string   `json:"modelId"`
+	VersionID          int64    `json:"versionId"`
+	Name               string   `json:"name"`
+	Kind               Kind     `json:"kind"`
+	AdapterKind        string   `json:"adapterKind"`
+	SortOrder          int      `json:"sortOrder"`
+	ParameterSchema    string   `json:"parameterSchema"`
+	ImageInputFormat   string   `json:"imageInputFormat"`
+	ImageRequestMode   string   `json:"imageRequestMode"`
+	AllowedRoles       []string `json:"allowedRoles"`
+	RequiresImageInput bool     `json:"requiresImageInput"`
 }
 
 // AdminModel exposes operational configuration and credential reference IDs,
@@ -87,6 +88,7 @@ func ToPublic(model Definition) PublicModel {
 		Kind: model.Kind, AdapterKind: model.AdapterKind, SortOrder: model.SortOrder,
 		ParameterSchema: model.ParameterSchema, ImageInputFormat: model.ImageInputFormat,
 		ImageRequestMode: model.ImageRequestMode, AllowedRoles: append([]string(nil), model.AllowedRoles...),
+		RequiresImageInput: model.RequiresImageInput(),
 	}
 }
 
@@ -111,6 +113,21 @@ func ToAdmin(model Definition) AdminModel {
 
 func (model Definition) PubliclySelectable() bool {
 	return model.Enabled && !model.Hidden
+}
+
+// RequiresImageInput is derived from the server-side adapter contract instead of
+// a mutable database flag. Vidu is always image-to-video. Generic HTTP video
+// models are image-to-video only when the request template actually consumes
+// {{image_url}}; otherwise they can be used as text-to-video models such as
+// Seedance-style endpoints.
+func (model Definition) RequiresImageInput() bool {
+	if model.Kind != KindVideo {
+		return false
+	}
+	if model.AdapterKind == AdapterViduImageToVideo {
+		return true
+	}
+	return model.AdapterKind == AdapterGenericHTTP && strings.Contains(model.RequestTemplate, "{{image_url}}")
 }
 
 func (model Definition) ProviderConfigured() bool {
@@ -155,14 +172,12 @@ func ValidateDefinition(model Definition) error {
 	if model.Kind != KindText && model.Kind != KindImage && model.Kind != KindVideo && model.Kind != KindAudio {
 		return fmt.Errorf("unsupported model kind %q", model.Kind)
 	}
-	if strings.TrimSpace(model.ModelID) == "" {
-		// Rows created before the model-center migration have a numeric ID and
-		// may be validated while their stable model key is being backfilled.
-		if model.ID == 0 {
-			return fmt.Errorf("modelId is required for new definitions")
+	// modelId is optional until the database model-center migration persists it.
+	// When supplied, keep validating the stable key strictly.
+	if strings.TrimSpace(model.ModelID) != "" {
+		if err := ValidateModelID(model.ModelID); err != nil {
+			return err
 		}
-	} else if err := ValidateModelID(model.ModelID); err != nil {
-		return err
 	}
 	if strings.TrimSpace(model.ParameterSchema) != "" {
 		var schema any
