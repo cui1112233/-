@@ -44,16 +44,17 @@ type batchFactoryMergeCapability struct {
 func resolveBatchFactoryFFmpeg() (string, error) {
 	configured := strings.TrimSpace(os.Getenv("QIANTIE_FFMPEG_PATH"))
 	if configured != "" {
-		if filepath.IsAbs(configured) {
-			info, err := os.Stat(configured)
-			if err != nil || info.IsDir() {
-				return "", errors.New("QIANTIE_FFMPEG_PATH 指向的 FFmpeg 不可用")
-			}
-			return configured, nil
+		path, err := exec.LookPath(configured)
+		if err != nil {
+			return "", errors.New("QIANTIE_FFMPEG_PATH 指向的 FFmpeg 不可用")
 		}
-		return exec.LookPath(configured)
+		return path, nil
 	}
 	return exec.LookPath("ffmpeg")
+}
+
+func validBatchFactoryMergeSpeed(speed float64) bool {
+	return speed >= 1 && speed <= 2
 }
 
 func (api *API) handleBatchFactoryMergeCapability(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +96,7 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 	if req.Speed == 0 {
 		req.Speed = 1
 	}
-	if req.Speed < 1 || req.Speed > 2 {
+	if !validBatchFactoryMergeSpeed(req.Speed) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "当前合并倍率仅支持 1.0x–2.0x"})
 		return
 	}
@@ -132,8 +133,8 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("第 %d 个 VIDEO 成品不存在", index+1)})
 			return
 		}
-		if item.ProjectID != req.ProjectID || item.Kind != "video" || item.SegmentID == nil || item.Source == batchFactoryMergeSource {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("第 %d 个素材不是当前小说的原始 VIDEO 成品", index+1)})
+		if item.ProjectID != req.ProjectID || item.Kind != "video" || item.SegmentID == nil || item.TaskID == nil || item.Source == batchFactoryMergeSource {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("第 %d 个素材不是当前小说由生成任务产出的 VIDEO 成品", index+1)})
 			return
 		}
 		inputs = append(inputs, item)
@@ -161,14 +162,12 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("读取 VIDEO %02d 成品失败", index+1)})
 			return
 		}
-		if object.Size > 0 {
-			totalInputBytes += object.Size
-			if totalInputBytes > batchFactoryMergeMaxInputSize {
-				reader.Close()
-				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "参与合并的视频总大小超过 2GB"})
-				return
-			}
+		if object.Size > 0 && totalInputBytes+object.Size > batchFactoryMergeMaxInputSize {
+			reader.Close()
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "参与合并的视频总大小超过 2GB"})
+			return
 		}
+
 		filename := fmt.Sprintf("part-%03d.mp4", index+1)
 		path := filepath.Join(tempDir, filename)
 		file, createErr := os.Create(path)
@@ -177,9 +176,15 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "写入视频临时文件失败"})
 			return
 		}
-		_, copyErr := io.Copy(file, reader)
+		remaining := batchFactoryMergeMaxInputSize - totalInputBytes
+		written, copyErr := io.Copy(file, io.LimitReader(reader, remaining+1))
 		closeErr := file.Close()
 		reader.Close()
+		totalInputBytes += written
+		if totalInputBytes > batchFactoryMergeMaxInputSize {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "参与合并的视频总大小超过 2GB"})
+			return
+		}
 		if copyErr != nil || closeErr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存视频临时文件失败"})
 			return
@@ -248,19 +253,12 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Keep only the latest merge record. The object key is stable ({bookId}.mp4),
-	// so re-merging updates the upload candidate without deleting the original VIDEO media.
-	if existing, listErr := mediaRepo.ListByProject(r.Context(), user.ID, req.ProjectID); listErr == nil {
-		for _, item := range existing {
-			if item.Kind == "video" && item.Source == batchFactoryMergeSource {
-				_ = mediaRepo.Delete(r.Context(), user.ID, item.ID)
-			}
-		}
-	}
 	var mergedDurationMS *int64
+	var sourceDurationValue any
 	if hasCompleteDuration && sourceDurationMS > 0 {
 		value := int64(float64(sourceDurationMS) / req.Speed)
 		mergedDurationMS = &value
+		sourceDurationValue = sourceDurationMS
 	}
 	merged, err := mediaRepo.Create(r.Context(), user.ID, req.ProjectID, domain.Media{
 		Kind:           "video",
@@ -274,6 +272,17 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// The object key is stable ({bookId}.mp4). Create the new row first so a
+	// database failure never removes the previous usable merge record. Then
+	// retire only older merge rows; original VIDEO media remain untouched.
+	if existing, listErr := mediaRepo.ListByProject(r.Context(), user.ID, req.ProjectID); listErr == nil {
+		for _, item := range existing {
+			if item.ID != merged.ID && item.Kind == "video" && item.Source == batchFactoryMergeSource {
+				_ = mediaRepo.Delete(r.Context(), user.ID, item.ID)
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"media": map[string]any{
 			"id":           merged.ID,
@@ -284,7 +293,7 @@ func (api *API) handleBatchFactoryMergeVideos(w http.ResponseWriter, r *http.Req
 		},
 		"filename":         req.BookID + ".mp4",
 		"speed":            req.Speed,
-		"sourceDurationMs": func() any { if hasCompleteDuration { return sourceDurationMS }; return nil }(),
+		"sourceDurationMs": sourceDurationValue,
 		"ffmpeg":           true,
 	})
 }
