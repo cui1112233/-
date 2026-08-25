@@ -12,6 +12,7 @@ import {
   startBatchFactoryBatch,
   updateBatchFactoryDirectorResult
 } from '../../shared/api/batchFactory';
+import { BatchFactoryBulkProduction } from './batch-factory/BatchFactoryBulkProduction';
 import { BatchFactoryProductionControls } from './batch-factory/BatchFactoryProductionControls';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
@@ -347,9 +348,11 @@ export function BatchFactoryPage() {
             </Space>
           </Card>
 
+          <BatchFactoryBulkProduction batch={activeBatch} onRefresh={refreshActiveBatch} />
+
           <Collapse items={(activeBatch.items || []).map((item, index) => ({
             key: item.id,
-            label: <Space><Typography.Text strong>{String(index + 1).padStart(2, '0')} · {item.title}</Typography.Text>{statusTag(item.status)}{item.manuallyEdited ? <Tag color="blue">人工已修改</Tag> : null}</Space>,
+            label: <Space><Typography.Text strong>{String(index + 1).padStart(2, '0')} · {item.title}</Typography.Text>{statusTag(item.status)}{item.manuallyEdited ? <Tag color="blue">人工已修改</Tag> : null}{item.production?.projectId ? <Tag color="purple">已进生产</Tag> : null}</Space>,
             children: <Space direction="vertical" size={14} style={{ width: '100%' }}>
               {item.error ? <Alert type="error" showIcon message={item.error} /> : null}
               {activeBatch.mode === 'viral' && item.hookDraft ? <Card size="small" title="爆款开头审核" extra={item.status === 'hook_review' ? <Space><Button onClick={() => rewriteHook(item)}>重新改编</Button><Button type="primary" icon={<Check size={15} />} onClick={() => approveHook(item)}>通过并导演</Button></Space> : null}>
