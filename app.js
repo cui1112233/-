@@ -9,6 +9,9 @@ const { createScriptConstraintPromptStore } = require('./lib/script-constraint-p
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
+const { createPasskeyStore } = require('./lib/passkey-store');
+const { createAccountRecoveryStore } = require('./lib/account-recovery-store');
+const { createMailerFromEnv } = require('./lib/mail-delivery');
 const { resolveTeamAuthorization } = require('./lib/api-access');
 const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder, estimateTextTokens } = require('./lib/team-model-runtime');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
@@ -17,6 +20,8 @@ const petsDir = path.join(__dirname, 'pets');
 // 路由模块
 const pagesRouter = require('./routes/pages');
 const { createAuthRouter } = require('./routes/auth');
+const { createAccountRecoveryRouter } = require('./routes/account-recovery');
+const { createTeamAdminRouter } = require('./routes/team-admin');
 const { createApplicationsRouter } = require('./routes/applications');
 const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
@@ -67,7 +72,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, memberStore, usageStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -75,6 +80,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const avatarsDir = path.join(dataDir, 'avatars');
   const resolvedMemberStore = memberStore || createMemberStore({ systemDir, accountStore: authRuntime.accountStore });
   const resolvedUsageStore = usageStore || createUsageStore({ systemDir });
+  const resolvedPasskeyStore = passkeyStore || createPasskeyStore({ systemDir });
+  const resolvedAccountRecoveryStore = accountRecoveryStore || createAccountRecoveryStore({ systemDir });
+  const resolvedMailer = mailer || createMailerFromEnv();
   const resolvedPresetStore = presetStore || createPresetStore({ systemDir });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
   const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({ systemDir });
@@ -94,6 +102,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     configReader: teamConfigReader,
     upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' })
   });
+  const usesTeamAgentResponder = !agentResponder;
   const resolvedAgentResponder = agentResponder || createTeamAgentResponder({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
@@ -103,9 +112,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   function requireOwnModelConfig(req, res, next) {
     try {
       const member = resolvedMemberStore.getMember(req.username);
-      if (member?.role === 'member') {
-        return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
-      }
+      if (member?.role === 'member') return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
       return next();
     } catch (error) {
       return res.status(500).json({ error: error.message || '无法读取成员权限' });
@@ -130,17 +137,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     if (!meta) return next();
     let authorization;
     try {
-      authorization = resolveTeamAuthorization({
-        memberStore: resolvedMemberStore,
-        usageStore: resolvedUsageStore,
-        username: req.username,
-        scope: meta.scope
-      });
+      authorization = resolveTeamAuthorization({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, username: req.username, scope: meta.scope });
     } catch (error) {
-      return res.status(error?.status || 403).json({
-        error: error?.message || '当前账号没有 AI 使用权限',
-        ...(error?.code ? { code: error.code } : {})
-      });
+      return res.status(error?.status || 403).json({ error: error?.message || '当前账号没有 AI 使用权限', ...(error?.code ? { code: error.code } : {}) });
     }
 
     const inputTokens = meta.tokenEstimate ? estimateTextTokens(req.body || {}) : 0;
@@ -154,11 +153,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
         provider: 'shuihuo-service',
         model: '',
         status: res.statusCode < 400 ? 'success' : 'completed_error',
-        usage: meta.tokenEstimate ? {
-          prompt_tokens: inputTokens,
-          completion_tokens: 0,
-          total_tokens: inputTokens
-        } : null,
+        usage: meta.tokenEstimate ? { prompt_tokens: inputTokens, completion_tokens: 0, total_tokens: inputTokens } : null,
         metadata: {
           operation: req.path,
           statusCode: res.statusCode,
@@ -175,11 +170,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   function trackNovelPanelUsage(req, res, next) {
     if (req.method !== 'POST' || !NOVEL_PANEL_MODEL_PATHS.has(req.path)) return next();
     let access;
-    try {
-      access = teamConfigReader(req.username)?.__qiantieAccess;
-    } catch {
-      return next();
-    }
+    try { access = teamConfigReader(req.username)?.__qiantieAccess; } catch { return next(); }
     if (!access) return next();
 
     const startedAt = Date.now();
@@ -198,11 +189,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
           provider: access.config?.provider || '',
           model: access.config?.model || '',
           status: res.statusCode < 400 ? 'success' : 'completed_error',
-          usage: {
-            prompt_tokens: inputTokens,
-            completion_tokens: outputTokens,
-            total_tokens: inputTokens + outputTokens
-          },
+          usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens },
           metadata: {
             operation: req.path,
             statusCode: res.statusCode,
@@ -221,6 +208,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.authRuntime = authRuntime;
   app.locals.memberStore = resolvedMemberStore;
   app.locals.usageStore = resolvedUsageStore;
+  app.locals.passkeyStore = resolvedPasskeyStore;
+  app.locals.accountRecoveryStore = resolvedAccountRecoveryStore;
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
@@ -228,7 +217,6 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
   app.locals.novelPanelConfig = username => teamConfigReader(username);
 
-  // 请求日志
   app.use((req, res, next) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const ts = new Date().toISOString();
@@ -236,10 +224,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     next();
   });
 
-  // JSON body 解析（解除上限）
   app.use(express.json({ limit: '50mb' }));
 
-  // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {
     app.use('/assets', express.static(path.join(frontendDist, 'assets'), {
       setHeaders(res) {
@@ -268,33 +254,33 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     }
   }));
 
-  // 静态文件服务
-  // Workbench assets need dedicated CSP and no-store handling before public static files.
   app.use('/novel-panel', novelPanelRouter);
-
-  // Page routes must run before public static handling so /novel-panel is not
-  // mistaken for the workbench asset directory.
-  app.use('/', pagesRouter); // 页面路由: /, /script, /agent, /tts
+  app.use('/', pagesRouter);
 
   app.use(express.static(PUBLIC_DIR, {
     setHeaders(res, filePath) {
-      if (filePath.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css; charset=utf-8');
-      }
-      if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      }
+      if (filePath.endsWith('.css')) res.setHeader('Content-Type', 'text/css; charset=utf-8');
+      if (filePath.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     }
   }));
 
-  // 路由挂载
   app.get('/api/build-info', (req, res) => {
-    res.json({ app_version: 'v78-member-center', build_id: '01-aurum-member-hub' });
+    res.json({ app_version: 'v81-advanced-auth', build_id: '04-account-recovery-advanced-auth' });
   });
-  app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore)); // POST /api/login
+  app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore, { passkeyStore: resolvedPasskeyStore }));
+  app.use('/api/account-recovery', createAccountRecoveryRouter({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    authRuntime,
+    mailer: resolvedMailer,
+    recoveryStore: resolvedAccountRecoveryStore,
+    passkeyStore: resolvedPasskeyStore,
+    avatarsDir
+  }));
+  app.use('/api/team-admin', createTeamAdminRouter({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, accountStore: authRuntime.accountStore, authRuntime }));
   app.use('/api/member', createMemberCenterRouter({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, avatarsDir }));
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
@@ -302,32 +288,27 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
 
-  // 小说面板保留自己的超时等个人设置，但 MEMBER 不得写入或测试独立模型凭据。
   app.use('/api/novel-panel/settings', apiAuth, (req, res, next) => {
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member' && req.method !== 'GET') {
-      return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
-    }
+    if (member?.role === 'member' && req.method !== 'GET') return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
     return next();
   });
   app.use('/api/novel-panel', apiAuth, trackNovelPanelUsage, novelPanelApiRouter);
 
-  app.use('/api/config', configRouter); // GET/POST /api/config
-
-  // MEMBER 不能用连接测试接口提交临时 Key 绕过团队托管。
+  app.use('/api/config', configRouter);
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
   app.use('/api/chat', apiAuth, requireTeamModelAccess);
-  app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
-  app.use('/api/tts', ttsRouter); // POST /api/tts
-  app.use('/api/prompt', promptRouter); // GET /api/prompt
-  app.use('/api/history', historyRouter); // /api/history CRUD
+  app.use('/api', resolvedChatRouter);
+  app.use('/api/tts', ttsRouter);
+  app.use('/api/prompt', promptRouter);
+  app.use('/api/history', historyRouter);
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
-  app.use('/api/agent/chat', apiAuth, requireTeamModelAccess);
+  if (usesTeamAgentResponder) app.use('/api/agent/chat', apiAuth, requireTeamModelAccess);
+  else app.use('/api/agent/chat', apiAuth);
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
   app.use('/api/shuihuo-production', apiAuth, requireShuihuoAiAccess, createShuihuoProductionRouter(shuihuoGateway));
 
-  // 404 处理
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
   });
