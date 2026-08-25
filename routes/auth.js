@@ -6,6 +6,51 @@ const { apiAuth } = require('../middleware/auth');
 
 const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
+function browserFromUserAgent(userAgent) {
+  const ua = String(userAgent || '');
+  if (/Edg\//i.test(ua)) return 'Microsoft Edge';
+  if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) return 'Chrome';
+  if (/Firefox\//i.test(ua)) return 'Firefox';
+  if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) return 'Safari';
+  return ua ? '其他浏览器' : '未知浏览器';
+}
+
+function osFromUserAgent(userAgent) {
+  const ua = String(userAgent || '');
+  if (/Windows NT/i.test(ua)) return 'Windows';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS';
+  if (/Mac OS X|Macintosh/i.test(ua)) return 'macOS';
+  if (/Linux/i.test(ua)) return 'Linux';
+  return ua ? '其他系统' : '未知系统';
+}
+
+function maskedIp(rawValue) {
+  let value = String(rawValue || '').trim();
+  if (!value) return null;
+  if (value.startsWith('::ffff:')) value = value.slice('::ffff:'.length);
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) {
+    const parts = value.split('.');
+    return `${parts[0]}.${parts[1]}.*.*`;
+  }
+  if (value.includes(':')) {
+    const parts = value.split(':').filter(Boolean).slice(0, 3);
+    return parts.length ? `${parts.join(':')}::*` : 'IPv6';
+  }
+  return '未知网络';
+}
+
+function sessionMetadata(req) {
+  const userAgent = req.headers['user-agent'] || '';
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const ip = forwarded || req.ip || req.socket?.remoteAddress || '';
+  return {
+    browser: browserFromUserAgent(userAgent),
+    os: osFromUserAgent(userAgent),
+    ipHint: maskedIp(ip)
+  };
+}
+
 function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
   const router = express.Router();
 
@@ -25,7 +70,6 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
     };
   }
 
-  // POST /api/login — 登录（无需鉴权）
   router.post('/', (req, res) => {
     const { username, password, remember } = req.body || {};
     if (!username || !password) {
@@ -41,10 +85,12 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    runtime.tokenMap.set(token, { username: account.username, issuedAt: Date.now() });
+    const issuedAt = Date.now();
+    const device = sessionMetadata(req);
+    runtime.tokenMap.set(token, { username: account.username, issuedAt, ...device });
     if (remember === true) {
       try {
-        createPersistentSession(runtime.sessionsPath, token, account.username, REMEMBER_DURATION_MS);
+        createPersistentSession(runtime.sessionsPath, token, account.username, REMEMBER_DURATION_MS, issuedAt, device);
       } catch {
         runtime.tokenMap.delete(token);
         return res.status(503).json({ error: '登录服务暂不可用，请稍后重试' });
@@ -76,4 +122,11 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
   return router;
 }
 
-module.exports = { createAuthRouter, REMEMBER_DURATION_MS };
+module.exports = {
+  createAuthRouter,
+  REMEMBER_DURATION_MS,
+  browserFromUserAgent,
+  osFromUserAgent,
+  maskedIp,
+  sessionMetadata
+};
