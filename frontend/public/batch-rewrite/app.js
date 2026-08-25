@@ -2070,6 +2070,7 @@ function renderDetail(data) {
       <button id="detailFetchBtn">重新抓原文</button>
       <button id="detailAiBtn">生成AI文案</button>
       <button id="detailTraceBtn">规则追踪</button>
+      <button id="detailSensitiveBtn">重跑敏感词（当前文案）</button>
       ${data.has_original_raw ? `<button id="detailRestoreBtn">从备份恢复原文</button>` : ""}
     </div>
     <div class="text-block">
@@ -2081,6 +2082,7 @@ function renderDetail(data) {
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
   $("detailAiBtn").onclick = () => generateAi(meta.book_id || meta.id);
   $("detailTraceBtn").onclick = () => showRulesTrace(meta.book_id || meta.id);
+  $("detailSensitiveBtn").onclick = () => reprocessSensitive([meta.book_id || meta.id], false);
   const restoreBtn = $("detailRestoreBtn");
   if (restoreBtn) restoreBtn.onclick = () => restoreOriginal(meta.book_id || meta.id);
 }
@@ -2589,6 +2591,28 @@ async function applyRules(mode) {
   }
 }
 
+async function reprocessSensitive(ids, restoreFromBackup) {
+  const selected = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  if (!selected.length) {
+    setBatchStatus("先选择任务");
+    return;
+  }
+  if (restoreFromBackup && !confirm("将从原文备份恢复后，按当前敏感词规则重新处理。当前处理后原文会被覆盖，是否继续？")) return;
+  const label = restoreFromBackup ? "从备份重跑敏感词" : "重跑敏感词";
+  setBatchStatus(`${label}中...`);
+  try {
+    const result = await api("/api/tasks/reprocess-sensitive", {
+      method: "POST",
+      body: JSON.stringify({ ids: selected, restore_from_backup: restoreFromBackup }),
+    });
+    renderTasks(result.tasks || []);
+    setBatchStatus(`${label}完成 ${result.processed || 0} 个${restoreFromBackup ? `，已恢复 ${result.restored || 0} 个` : ""}，失败 ${result.failed || 0} 个`);
+    if (state.selectedId && selected.includes(String(state.selectedId))) await showDetail(state.selectedId);
+  } catch (error) {
+    setBatchStatus(error.message);
+  }
+}
+
 function selectAllVisibleTasks() {
   for (const task of state.tasks) {
     if (task.id) state.selectedIds.add(String(task.id));
@@ -2940,6 +2964,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("retryFailedBtn").onclick = () => batchRetry("failed");
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
+  $("reprocessSensitiveSelectedBtn").onclick = () => reprocessSensitive(selectedTaskIds(), false);
+  $("reprocessSensitiveBackupBtn").onclick = () => reprocessSensitive(selectedTaskIds(), true);
   $("deleteSelectedBtn").onclick = () => batchDelete("selected");
   $("deleteFailedBtn").onclick = () => batchDelete("failed");
   $("deleteAllBtn").onclick = () => batchDelete("all");

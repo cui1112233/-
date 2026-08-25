@@ -1008,6 +1008,37 @@ function createBatchRewriteRouter({
     }
     res.json({ applied, failed: 0, tasks: await listTasks(req) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/reprocess-sensitive', async (req, res) => { try {
+    const ids = await selectTaskIds(req, req.body);
+    const { tasks, configStore: store } = await resources(req);
+    const config = object(store.getConfig());
+    const restoreFromBackup = req.body?.restore_from_backup === true;
+    let processed = 0;
+    let restored = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const task = await tasks.getTask(req.username, id);
+        if (!task?.meta) throw new Error('任务不存在');
+        if (restoreFromBackup) {
+          if (typeof tasks.restoreOriginal !== 'function') throw new Error('当前存储不支持恢复原文备份');
+          await tasks.restoreOriginal(req.username, id);
+          restored++;
+        }
+        await applySavedRulesToOriginal(tasks, req.username, id, config);
+        if (typeof tasks.appendLog === 'function') {
+          await tasks.appendLog(req.username, id, 'sensitive_reprocessed', {
+            source: restoreFromBackup ? 'original_backup' : 'current_text',
+            sensitive_ai_enabled: object(config.sensitive_ai).enabled === true
+          });
+        }
+        processed++;
+      } catch (_) {
+        failed++;
+      }
+    }
+    res.json({ processed, restored, failed, tasks: await listTasks(req) });
+  } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const count = Number(task.meta.aiGeneratedCount) || 0; const aiTexts = []; for (let index = 1; index <= count; index++) aiTexts.push({ name: `AI${index}`, text: await tasks.readVersionText(req.username, req.params.id, `ai${index}`) }); const sensitiveLog = await readSensitiveLog(tasks, req.username, req.params.id); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, ...sensitiveLog, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig())); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try {
