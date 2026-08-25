@@ -73,3 +73,14 @@ export function getBatchFactoryProductionStatus(projectIds) {
     body: JSON.stringify({ projectIds })
   });
 }
+
+export function getBatchFactoryMergeCapability() {
+  return apiRequest(`${productionBase}/batch-factory/merge-capability`);
+}
+
+export function mergeBatchFactoryVideos(payload) {
+  return apiRequest(`${productionBase}/batch-factory/merge-videos`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
