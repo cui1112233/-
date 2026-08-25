@@ -47,6 +47,34 @@ func TestGenericHTTPAdapterSubmitsRenderedPromptAndReadsImmediateResult(t *testi
 	}
 }
 
+func TestGenericHTTPAdapterSubmitsNumericDurationAndAspectRatio(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(body), `{"aspect_ratio":"9:16","duration":13,"prompt":"镜头推进"}`; got != want {
+			t.Fatalf("body = %s, want %s", got, want)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"url":"https://cdn.example.com/result.mp4"}}`))
+	}))
+	defer server.Close()
+
+	adapter := NewGenericHTTPAdapter(server.Client(), func(string) (string, error) { return "", nil })
+	adapter.validateURL = func(raw string) (*url.URL, error) { return url.Parse(raw) }
+	_, err := adapter.Submit(context.Background(), Definition{
+		Kind:            KindVideo,
+		AdapterKind:     "generic_http",
+		Endpoint:        server.URL,
+		RequestTemplate: `{"method":"POST","body":{"prompt":"{{prompt}}","duration":"{{duration}}","aspect_ratio":"{{aspect_ratio}}"}}`,
+		ResponseMapping: `{"resultUrl":"data.url"}`,
+	}, Request{Prompt: "镜头推进", Duration: "13", AspectRatio: "9:16"})
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+}
+
 func TestGenericHTTPAdapterRejectsTemplateWithoutResultMapping(t *testing.T) {
 	adapter := NewGenericHTTPAdapter(http.DefaultClient, func(string) (string, error) { return "", nil })
 	_, err := adapter.Submit(context.Background(), Definition{
