@@ -126,7 +126,7 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	if err != nil {
 		return fail("invalid_input", err)
 	}
-	if task.Kind == "video" {
+	if task.Kind == "video" && model.RequiresImageInput() {
 		primary, primaryErr := w.Media.PrimaryImage(ctx, task.ProjectID, *task.SegmentID)
 		if primaryErr != nil || primary.ObjectKey == "" {
 			if primaryErr == nil {
@@ -145,8 +145,11 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	}
 	if response.ProviderTaskID != "" && response.ResultURL == "" {
 		asyncTasks, ok := w.Tasks.(AsyncVideoTaskRepository)
-		if !ok || task.Kind != "video" || model.AdapterKind != models.AdapterViduImageToVideo {
+		if !ok || task.Kind != "video" || (model.AdapterKind != models.AdapterViduImageToVideo && model.AdapterKind != models.AdapterGenericHTTP) {
 			return fail("async_model_not_configured", errors.New("模型已返回上游任务 ID，但未配置受控视频轮询"))
+		}
+		if model.AdapterKind == models.AdapterGenericHTTP && strings.TrimSpace(model.PollingTemplate) == "" {
+			return fail("async_model_not_configured", errors.New("通用视频模型返回任务 ID，但没有配置 polling_template"))
 		}
 		if err := asyncTasks.SetProviderTask(ctx, task.ID, response.ProviderTaskID, time.Now().UTC()); err != nil {
 			return fail("save_provider_task_failed", err)
