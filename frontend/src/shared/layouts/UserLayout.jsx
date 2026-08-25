@@ -1,9 +1,9 @@
 import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, BarChart3, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Gem, Home, KeyRound, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound } from 'lucide-react';
+import { AudioLines, BarChart3, Bot, Bug, Check, Clapperboard, FilePenLine, Fingerprint, FolderClock, Gem, Home, KeyRound, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
-import { getCurrentAccount, getCurrentUsername, login, logout } from '../api/auth';
+import { getCurrentAccount, getCurrentUsername, login, loginWithPasskey, logout } from '../api/auth';
 import { getToken } from '../api/client';
 import { StackyPet } from '../pet/StackyPet';
 import { dispatchPetContext } from '../pet/stacky';
@@ -74,11 +74,13 @@ export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [loginExpanded, setLoginExpanded] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [loginSucceeded, setLoginSucceeded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
+  const [loginForm] = Form.useForm();
   const accountSessionGenerationRef = useRef(0);
   const loginModalRef = useRef(null);
   const pathname = window.location.pathname;
@@ -129,11 +131,7 @@ export function UserLayout({ children }) {
   }, []);
 
   useEffect(() => {
-    dispatchPetContext({
-      page: pageTitle(pathname),
-      pagePath: pathname,
-      workspace: 'qiantie'
-    });
+    dispatchPetContext({ page: pageTitle(pathname), pagePath: pathname, workspace: 'qiantie' });
   }, [pathname]);
 
   useEffect(() => {
@@ -236,26 +234,48 @@ export function UserLayout({ children }) {
     modal.style.setProperty('--login-my', `${((y + 1) * 50).toFixed(1)}%`);
   }
 
+  async function completeLogin(data, successMessage = '登录成功') {
+    setUsername(data.username);
+    setAccount(data);
+    setLoginSucceeded(true);
+    resetLoginParallax();
+    message.success(successMessage);
+    await wait(LOGIN_SUCCESS_ANIMATION_MS);
+    setLoginDialogOpen(false);
+    setLoginSucceeded(false);
+  }
+
   async function handleLogin(values) {
     accountSessionGenerationRef.current += 1;
     setLoginSucceeded(false);
     setLoading(true);
     try {
       const data = await login(values.username, values.password, values.remember, values.mfaCode || '');
-      setUsername(data.username);
-      setAccount(data);
-      setLoginSucceeded(true);
-      resetLoginParallax();
-      message.success(data.mfaRecoveryUsed ? '登录成功，已使用一个恢复码' : '登录成功');
-      await wait(LOGIN_SUCCESS_ANIMATION_MS);
-      setLoginDialogOpen(false);
-      setLoginSucceeded(false);
+      await completeLogin(data, data.mfaRecoveryUsed ? '登录成功，已使用一个恢复码' : '登录成功');
     } catch (error) {
       setLoginSucceeded(false);
       if (error.status === 428) message.warning('此账号已开启 MFA，请填写动态验证码或恢复码');
       else message.error(error.message || '登录失败');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePasskeyLogin() {
+    const values = loginForm.getFieldsValue(['username', 'remember']);
+    if (!values.username) {
+      message.warning('请先输入账号，再使用 Passkey 登录');
+      return;
+    }
+    accountSessionGenerationRef.current += 1;
+    setPasskeyLoading(true);
+    try {
+      const data = await loginWithPasskey(values.username, values.remember !== false);
+      await completeLogin(data, 'Passkey 登录成功');
+    } catch (error) {
+      message.error(error.message || 'Passkey 登录失败');
+    } finally {
+      setPasskeyLoading(false);
     }
   }
 
@@ -297,16 +317,11 @@ export function UserLayout({ children }) {
         <div className="login-background-logo login-background-logo--one" aria-hidden="true"><BrandLogo /></div>
         <div className="login-background-logo login-background-logo--two" aria-hidden="true"><BrandLogo /></div>
         <div className="login-background-logo login-background-logo--three" aria-hidden="true"><BrandLogo /></div>
-        <button
-          className="login-title"
-          type="button"
-          aria-expanded={loginExpanded}
-          onClick={() => setLoginExpanded(value => !value)}
-        >
+        <button className="login-title" type="button" aria-expanded={loginExpanded} onClick={() => setLoginExpanded(value => !value)}>
           一战晟铭登录
         </button>
         <div className="login-form-wrap">
-          <Form layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
+          <Form form={loginForm} layout="vertical" initialValues={{ remember: true }} onFinish={handleLogin}>
             <Form.Item label="账号" name="username" rules={[{ required: true, message: '请输入账号' }]}>
               <Input placeholder="请输入账号" autoComplete="username" />
             </Form.Item>
@@ -320,8 +335,9 @@ export function UserLayout({ children }) {
               <Checkbox>30 天保持登录</Checkbox>
             </Form.Item>
             <Button block type="primary" htmlType="submit" loading={loading}>登 录</Button>
+            <Button block icon={<Fingerprint size={17} />} loading={passkeyLoading} onClick={handlePasskeyLogin}>使用 Passkey 登录</Button>
           </Form>
-          <p className="login-hint">提示：已开启 MFA 的账号需要动态验证码或一次性恢复码</p>
+          <div className="login-recovery-links"><a href="/recover">忘记密码？</a><span>Passkey 登录只需要先填写账号</span></div>
         </div>
         <div className="login-success-state" aria-hidden={!loginSucceeded}>
           <span className="login-success-icon"><Check size={38} strokeWidth={2.2} /></span>
@@ -348,13 +364,7 @@ export function UserLayout({ children }) {
       <div className={`legacy-shell${isAccountCenter ? ' account-center-shell' : ''}`}>
       <aside className={`legacy-sidebar${sidebarCollapsed ? ' collapsed' : ''}${isAccountCenter ? ' account-center-sidebar' : ''}`}>
         <div className="legacy-brand">
-          <button
-            className="legacy-sidebar-toggle"
-            type="button"
-            aria-label={sidebarCollapsed ? '展开导航' : '收起导航'}
-            aria-expanded={!sidebarCollapsed}
-            onClick={toggleSidebar}
-          >
+          <button className="legacy-sidebar-toggle" type="button" aria-label={sidebarCollapsed ? '展开导航' : '收起导航'} aria-expanded={!sidebarCollapsed} onClick={toggleSidebar}>
             {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           </button>
           <Link href="/" className="legacy-brand-link">
@@ -379,13 +389,7 @@ export function UserLayout({ children }) {
             <span className="legacy-nav-icon"><Home size={18} strokeWidth={1.8} aria-hidden="true" /></span>
             <span className="legacy-nav-label">返回工作台</span>
           </Link> : null}
-          <button
-            className="legacy-sidebar-tool legacy-theme-toggle"
-            type="button"
-            aria-label={theme === 'dark' ? '切换至浅色主题' : '切换至深色主题'}
-            title={theme === 'dark' ? '切换至浅色主题' : '切换至深色主题'}
-            onClick={toggleTheme}
-          >
+          <button className="legacy-sidebar-tool legacy-theme-toggle" type="button" aria-label={theme === 'dark' ? '切换至浅色主题' : '切换至深色主题'} title={theme === 'dark' ? '切换至浅色主题' : '切换至深色主题'} onClick={toggleTheme}>
             <span className="legacy-nav-icon">{theme === 'dark' ? <Sun size={18} strokeWidth={1.8} aria-hidden="true" /> : <Moon size={18} strokeWidth={1.8} aria-hidden="true" />}</span>
             <span className="legacy-nav-label">主题</span>
           </button>
