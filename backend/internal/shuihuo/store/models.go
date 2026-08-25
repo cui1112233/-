@@ -15,7 +15,7 @@ type Models struct{ db *sql.DB }
 
 func NewModels(db *sql.DB) *Models { return &Models{db: db} }
 
-const modelSelectColumns = `d.id, COALESCE(d.model_key, ''), v.id, d.name, d.kind, d.adapter_kind, d.enabled, d.hidden, d.sort_order, d.admin_note,
+const modelSelectColumns = `d.id, COALESCE(d.model_key, ''), COALESCE(v.id, 0), d.name, d.kind, d.adapter_kind, d.enabled, d.hidden, d.sort_order, d.admin_note,
        d.allowed_roles_json, d.parameter_schema_json,
        COALESCE(v.credential_ref, ''), COALESCE(v.endpoint, ''), COALESCE(v.base_domain, ''), COALESCE(v.base_path, ''),
        COALESCE(v.request_template, ''), COALESCE(v.response_mapping, ''), COALESCE(v.polling_template, ''),
