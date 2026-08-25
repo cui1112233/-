@@ -1,4 +1,4 @@
-import { Button, Card, Divider, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Collapse, Divider, Space, Tag, Typography } from 'antd';
 import { Download, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getBatchFactoryProductionStatus } from '../../../shared/api/batchFactory';
@@ -103,6 +103,84 @@ function ProductionStatusTag({ production }) {
   return <Tag color={color}>{label}</Tag>;
 }
 
+function VideoResultPreview({ production }) {
+  if (!production?.media) return null;
+  return <Space direction="vertical" size={10} style={{ width: '100%' }}>
+    <video
+      controls
+      preload="metadata"
+      src={production.media.downloadPath}
+      style={{ width: '100%', maxWidth: 560, borderRadius: 8 }}
+    />
+    <Button icon={<Download size={15} />} href={production.media.downloadPath} target="_blank" rel="noreferrer">打开 / 下载成品</Button>
+  </Space>;
+}
+
+export function BatchFactoryBatchProductionStatus({ batch }) {
+  const { byProjectId, error, projectIds } = useBatchFactoryProductionStatus(batch);
+  const producedItems = (batch?.items || []).filter(item => item.production?.projectId);
+  if (!projectIds.length || !producedItems.length) return null;
+
+  const states = producedItems.flatMap(item => {
+    const projectStatus = byProjectId[String(item.production.projectId)];
+    return (item.directorResult?.storyboard || []).map((_, videoIndex) => resolveBatchFactoryVideoProduction(item, videoIndex, projectStatus)).filter(Boolean);
+  });
+  const counts = states.reduce((result, state) => {
+    const key = state.status || 'draft';
+    result[key] = (result[key] || 0) + 1;
+    return result;
+  }, {});
+
+  return <Card title="视频生成进度">
+    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+      {error ? <Alert type="warning" showIcon message="生产状态暂时读取失败，系统会自动重试" description={error} /> : null}
+      <Space wrap>
+        <Tag>总计 {states.length}</Tag>
+        <Tag>待生成 {counts.draft || 0}</Tag>
+        <Tag color="processing">排队中 {counts.queued || 0}</Tag>
+        <Tag color="processing">生成中 {counts.running || 0}</Tag>
+        <Tag color="green">已完成 {counts.succeeded || 0}</Tag>
+        <Tag color="red">失败 {(counts.failed || 0) + (counts.cancelled || 0)}</Tag>
+        <Typography.Text type="secondary">活动任务每 3 秒整批刷新一次；全部结束后自动停止。</Typography.Text>
+      </Space>
+      <Collapse items={producedItems.map((item, itemIndex) => {
+        const projectStatus = byProjectId[String(item.production.projectId)];
+        const videoStates = (item.directorResult?.storyboard || []).map((video, videoIndex) => ({
+          video,
+          production: resolveBatchFactoryVideoProduction(item, videoIndex, projectStatus)
+        }));
+        const completed = videoStates.filter(entry => entry.production?.status === 'succeeded').length;
+        const failed = videoStates.filter(entry => ['failed', 'cancelled'].includes(entry.production?.status)).length;
+        return {
+          key: item.id,
+          label: <Space wrap>
+            <Typography.Text strong>{String(itemIndex + 1).padStart(2, '0')} · {item.title}</Typography.Text>
+            <Tag>项目 #{item.production.projectId}</Tag>
+            <Tag color={completed === videoStates.length && videoStates.length ? 'green' : 'processing'}>{completed}/{videoStates.length} 完成</Tag>
+            {failed ? <Tag color="red">{failed} 失败</Tag> : null}
+          </Space>,
+          children: <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            {videoStates.map(({ video, production }) => <Card
+              key={`${item.id}-${video.id}`}
+              size="small"
+              title={<Space wrap><span>VIDEO {video.id} · {video.duration_sec}秒</span><ProductionStatusTag production={production} /></Space>}
+            >
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Space wrap>
+                  {production?.task?.providerTaskId ? <Tag>提供方任务 {production.task.providerTaskId}</Tag> : null}
+                  {production?.media?.durationMs ? <Tag>{Math.round(production.media.durationMs / 1000)}秒成品</Tag> : null}
+                </Space>
+                {production?.error ? <Typography.Text type="danger">{production.error}</Typography.Text> : null}
+                <VideoResultPreview production={production} />
+              </Space>
+            </Card>)}
+          </Space>
+        };
+      })} />
+    </Space>
+  </Card>;
+}
+
 export function BatchFactoryVideoPlanCard({ item, video, videoIndex, projectStatus, onCompile }) {
   const production = resolveBatchFactoryVideoProduction(item, videoIndex, projectStatus);
   return <Card
@@ -126,16 +204,8 @@ export function BatchFactoryVideoPlanCard({ item, video, videoIndex, projectStat
     {production?.error ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{production.error}</Typography.Paragraph> : null}
     {production?.media ? <>
       <Divider style={{ margin: '14px 0' }} />
-      <Space direction="vertical" size={10} style={{ width: '100%' }}>
-        <Typography.Text strong>视频成品</Typography.Text>
-        <video
-          controls
-          preload="metadata"
-          src={production.media.downloadPath}
-          style={{ width: '100%', maxWidth: 560, borderRadius: 8 }}
-        />
-        <Button icon={<Download size={15} />} href={production.media.downloadPath} target="_blank" rel="noreferrer">打开 / 下载成品</Button>
-      </Space>
+      <Typography.Text strong>视频成品</Typography.Text>
+      <div style={{ marginTop: 10 }}><VideoResultPreview production={production} /></div>
     </> : null}
   </Card>;
 }
