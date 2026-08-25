@@ -37,8 +37,11 @@ export function listPasskeys() {
   return apiRequest('/api/account-recovery/passkeys');
 }
 
-export async function registerPasskey(name = '当前设备') {
-  const options = await apiRequest('/api/account-recovery/passkeys/options', { method: 'POST' });
+export async function registerPasskey(currentPassword, name = '当前设备') {
+  const options = await apiRequest('/api/account-recovery/passkeys/options', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword })
+  });
   const credential = await createPasskeyCredential(options);
   return apiRequest('/api/account-recovery/passkeys', {
     method: 'POST',
