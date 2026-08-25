@@ -420,12 +420,28 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		return domain.Task{}, taskCreationError("创建任务失败")
 	}
 	tasks := shuihuostore.NewTasks(api.deps.DB)
-	if err := tasks.Transition(ctx, user.ID, task.ID, domain.TaskDraft, domain.TaskQueued, "已进入 Redis 队列"); err != nil {
+	queueMessage := "已进入 Redis 队列"
+	if model.AdapterKind == models.AdapterLocalExecutorVideo {
+		queueMessage = "等待本地执行器领取"
+	}
+	if err := tasks.Transition(ctx, user.ID, task.ID, domain.TaskDraft, domain.TaskQueued, queueMessage); err != nil {
 		_ = tasks.Delete(ctx, user.ID, task.ID)
 		if errors.Is(err, shuihuostore.ErrTaskSegmentUnavailable) {
 			return domain.Task{}, taskCreationError("分镜已变更，请刷新后重试")
 		}
 		return domain.Task{}, taskCreationErrorWithSingleMessage("更新任务状态失败", fmt.Sprintf("更新任务状态失败: %v", err))
+	}
+	if model.AdapterKind == models.AdapterLocalExecutorVideo {
+		jobID, idErr := localExecutorIdentifier()
+		if idErr != nil {
+			return domain.Task{}, taskCreationError("创建本地执行任务失败")
+		}
+		if _, insertErr := api.deps.DB.ExecContext(ctx, `INSERT INTO local_executor_jobs(id, user_id, source_kind, source_task_id, prompt, input_json) VALUES(?, ?, 'shuihuo_video', ?, ?, CAST(? AS JSON))`, jobID, user.ID, task.ID, prompt, string(input)); insertErr != nil {
+			_ = tasks.Transition(ctx, user.ID, task.ID, domain.TaskQueued, domain.TaskCancelled, "创建本地执行任务失败")
+			return domain.Task{}, taskCreationError("创建本地执行任务失败")
+		}
+		task.Status = domain.TaskQueued
+		return task, nil
 	}
 	if err := api.deps.Queue.Enqueue(ctx, task.ID); err != nil {
 		_ = tasks.Transition(ctx, user.ID, task.ID, domain.TaskQueued, domain.TaskCancelled, "任务队列提交失败")

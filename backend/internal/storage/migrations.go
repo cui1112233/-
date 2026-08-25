@@ -373,6 +373,7 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
 	{version: 37, sql: shuihuoSegmentVoiceSettingsMigrationSQL},
 	{version: 38, apply: applyLocalExecutorMigration},
 	{version: 39, apply: applyLocalExecutorJobMigration},
+	{version: 40, sql: localExecutorVideoModelMigrationSQL, apply: applyLocalExecutorVideoModelMigration},
 }
 
 const localExecutorMigrationSQL = `
@@ -426,6 +427,23 @@ CREATE TABLE IF NOT EXISTS local_executor_jobs (
   CONSTRAINT fk_local_executor_jobs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_local_executor_jobs_executor FOREIGN KEY (executor_id) REFERENCES local_executors(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
+
+// The local executor is a platform-owned dispatch channel: it has no cloud
+// credential on the server. The paired desktop app keeps every provider login
+// session on the user's machine and claims queued jobs over the device token.
+const localExecutorVideoModelMigrationSQL = `
+INSERT INTO model_definitions(model_key, name, kind, adapter_kind, enabled, allowed_roles_json, parameter_schema_json, hidden, sort_order, admin_note)
+VALUES('local-doubao-executor-video', '本地豆包执行器', 'video', 'local_executor_video', TRUE, JSON_ARRAY(), JSON_OBJECT(), FALSE, 0, '需要已配对且在线的本地执行器；豆包登录态仅保存在用户本机。')
+ON DUPLICATE KEY UPDATE
+  id = LAST_INSERT_ID(id), name = VALUES(name), kind = VALUES(kind), adapter_kind = VALUES(adapter_kind), enabled = TRUE,
+  admin_note = VALUES(admin_note);
+
+INSERT INTO model_versions(model_definition_id, version_number, credential_ref, endpoint, request_template, response_mapping, created_by)
+SELECT d.id, 1, '', '', NULL, NULL, NULL
+FROM model_definitions d
+WHERE d.model_key = 'local-doubao-executor-video'
+  AND NOT EXISTS (SELECT 1 FROM model_versions v WHERE v.model_definition_id = d.id AND v.version_number = 1);
 `
 
 const shuihuoSourceUnitMigrationSQL = `
@@ -1332,6 +1350,10 @@ func applyLocalExecutorMigration(ctx context.Context, conn *sql.Conn) error {
 
 func applyLocalExecutorJobMigration(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, localExecutorJobMigrationSQL)
+}
+
+func applyLocalExecutorVideoModelMigration(ctx context.Context, conn *sql.Conn) error {
+	return applySQLStatements(ctx, conn, localExecutorVideoModelMigrationSQL)
 }
 
 func applySQLStatementsWithExecutor(ctx context.Context, executor migrationExecutor, script string) error {

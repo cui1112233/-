@@ -21,6 +21,7 @@ const (
 	AdapterAccountOpenAICompatibleImage = "account_openai_compatible_image"
 	AdapterViduImageToVideo             = "vidu_image_to_video"
 	AdapterYDVideo                      = "yd_video"
+	AdapterLocalExecutorVideo           = "local_executor_video"
 	AdapterGenericHTTP                  = "generic_http"
 )
 
@@ -124,7 +125,7 @@ func (model Definition) PubliclySelectable() bool {
 }
 
 func (model Definition) ProviderConfigured() bool {
-	if model.AdapterKind == AdapterJimengImage || model.AdapterKind == AdapterYDVideo {
+	if model.AdapterKind == AdapterJimengImage || model.AdapterKind == AdapterYDVideo || model.AdapterKind == AdapterLocalExecutorVideo {
 		// Jimeng uses platform credentials and YD resolves an account-scoped
 		// ciphertext. Neither provider has a model-row credential reference.
 		return true
@@ -142,7 +143,7 @@ func (model Definition) ProviderConfigured() bool {
 // adapter for this model. Legacy catalog rows can predate adapter validation.
 func (model Definition) SupportsTaskExecution() bool {
 	switch model.AdapterKind {
-	case AdapterJimengImage, AdapterAccountOpenAICompatibleImage, AdapterViduImageToVideo, AdapterYDVideo, AdapterGenericHTTP:
+	case AdapterJimengImage, AdapterAccountOpenAICompatibleImage, AdapterViduImageToVideo, AdapterYDVideo, AdapterGenericHTTP, AdapterLocalExecutorVideo:
 		return true
 	default:
 		return false
@@ -243,5 +244,6 @@ var adapterKinds = map[string]Kind{
 	AdapterAccountOpenAICompatibleImage: KindImage,
 	AdapterViduImageToVideo:             KindVideo,
 	AdapterYDVideo:                      KindVideo,
+	AdapterLocalExecutorVideo:           KindVideo,
 	AdapterGenericHTTP:                  "",
 }

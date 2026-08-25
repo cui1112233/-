@@ -7,6 +7,7 @@ const adapters = [
   { value: 'jimeng_image', label: '即梦生图', kind: 'image' },
   { value: 'vidu_image_to_video', label: 'Vidu 图生视频', kind: 'video' },
   { value: 'yd_video', label: 'YD2.0 Mini 图生视频', kind: 'video' },
+  { value: 'local_executor_video', label: '本地豆包执行器', kind: 'video' },
   { value: 'generic_http', label: '通用 HTTP 配音（仅管理员）', kind: 'audio' }
 ];
 
@@ -18,6 +19,7 @@ export function ShuihuoModelCatalogPage() {
   const adapterKind = Form.useWatch('adapterKind', form);
   const isGenericAdapter = adapterKind === 'generic_http';
   const isYDVideoAdapter = adapterKind === 'yd_video';
+  const isLocalExecutorAdapter = adapterKind === 'local_executor_video';
 
   const refresh = async () => {
     try {
@@ -77,6 +79,7 @@ export function ShuihuoModelCatalogPage() {
         {isYDVideoAdapter ? <>
           <Typography.Paragraph type="secondary">固定服务商：YD2.0 Mini 图生视频。服务端按适配器内置协议调用，固定 1 秒、720p，仅支持 9:16 或 16:9。</Typography.Paragraph>
         </> : null}
+        {isLocalExecutorAdapter ? <Typography.Paragraph type="secondary">本地执行器会从平台领取任务；豆包账号登录态仅保存在用户自己的电脑。本模型不需要填写服务器密钥或请求地址。</Typography.Paragraph> : null}
         {isGenericAdapter ? <>
           <Form.Item label="服务端请求地址" name="endpoint" rules={[{ required: true, message: '请填写 HTTPS 配音接口地址' }]}><Input placeholder="https://provider.example.com/v1/audio/speech" /></Form.Item>
           <Form.Item label="请求模板" name="requestTemplate" rules={[{ required: true, message: '请填写请求模板 JSON' }]} extra="可用占位符：{{prompt}}、{{voice}}、{{speech_rate}}、{{pitch}}、{{credential}}"><Input.TextArea rows={7} placeholder={'{"method":"POST","headers":{"Authorization":"Bearer {{credential}}"},"body":{"text":"{{prompt}}","voice":"{{voice}}","rate":"{{speech_rate}}","pitch":"{{pitch}}"}}'} /></Form.Item>

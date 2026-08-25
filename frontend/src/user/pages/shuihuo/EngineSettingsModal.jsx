@@ -31,6 +31,7 @@ export function EngineSettingsModal({ open, onClose, onSaved }) {
   const audioModels = useMemo(() => optionsFor(models, 'audio'), [models]);
   const selectedVideoModel = useMemo(() => models.find(model => model.id === config.videoModelId), [config.videoModelId, models]);
   const isYDVideoModel = selectedVideoModel?.adapterKind === 'yd_video';
+  const isLocalExecutorVideoModel = selectedVideoModel?.adapterKind === 'local_executor_video';
 
   useEffect(() => {
     if (!open) return;
@@ -74,6 +75,7 @@ export function EngineSettingsModal({ open, onClose, onSaved }) {
       <label><span>提示词前缀</span><Input.TextArea value={config.videoPrefix} rows={3} onChange={event => updateConfig({ videoPrefix: event.target.value })} placeholder="输入提示词前缀" /></label>
       <label><span>提示词后缀</span><Input.TextArea value={config.videoSuffix} rows={3} onChange={event => updateConfig({ videoSuffix: event.target.value })} placeholder="输入提示词后缀" /></label>
       {isYDVideoModel ? <Alert className="wide" type="warning" showIcon message="YD2.0 Mini 仅支持图生视频" description="图生视频会使用本分镜已绑定的预设图或主图片；切换到文生视频后，请选择支持文生视频的模型。" /> : null}
+      {isLocalExecutorVideoModel ? <Alert className="wide" type="info" showIcon message="本地豆包执行器" description="提交后任务会等待你已配对、在线的本地执行器领取。豆包账号仅在本机登录；当前阶段会可靠入队和领取，视频下载回传将在下一阶段接通。" /> : null}
       <Alert className="wide" type="info" showIcon message={config.videoGenerationMode === 'text_to_video' ? '文生视频提示词顺序' : '图生视频提示词顺序'} description={config.videoGenerationMode === 'text_to_video' ? '提示词前缀 -> 人物提示词 -> 场景提示词 -> 道具提示词 -> 视频提示词 -> 提示词后缀。不会发送任何图片。' : '提示词前缀 -> 视频提示词 -> 提示词后缀。会发送当前分镜已绑定的人物、场景、道具图；场景图优先作为主画面。'} />
     </div> : null}
     {activeTab === 'audio' ? <div className="shuihuo-engine-form single">
