@@ -2735,14 +2735,18 @@ async function deleteSelectedPreset() {
 async function testAi() {
   $("aiTestStatus").textContent = "测试中...";
   try {
+    const settings = readAiSettingsFromForm();
+    // 密钥可能不会回填到密码框。此时不能把空密钥覆盖到测试请求里，
+    // 应改用服务端已保存、且已被“当前预设”选中的改文模型。
+    const completeInForm = Boolean(settings.base_url && settings.api_key && settings.model);
     const result = await api("/api/ai/test", {
       method: "POST",
       body: JSON.stringify({
-        purpose: "classifier",
-        settings: readAiSettingsFromForm(),
+        purpose: "rewrite",
+        ...(completeInForm ? { settings } : {}),
       }),
     });
-    $("aiTestStatus").textContent = `成功：${result.content || "ok"}`;
+    $("aiTestStatus").textContent = `成功：${result.content || "ok"}${completeInForm ? "" : "（已使用已保存的当前预设）"}`;
   } catch (error) {
     $("aiTestStatus").textContent = error.message;
   }
