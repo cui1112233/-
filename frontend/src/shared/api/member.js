@@ -4,7 +4,7 @@ export async function getMemberCenter() {
   const [center, security, notifications] = await Promise.all([
     apiRequest('/api/member/me'),
     apiRequest('/api/member/security').catch(() => null),
-    apiRequest('/api/member/notifications?limit=100').catch(() => null)
+    apiRequest('/api/member/notifications?limit=5000').catch(() => null)
   ]);
   return {
     ...center,
