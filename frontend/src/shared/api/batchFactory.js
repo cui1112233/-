@@ -2,6 +2,14 @@ import { apiRequest } from './client';
 
 const base = '/api/batch-factory';
 
+export function createBatchFactoryNovelFetchIntake(payload) {
+  return apiRequest(`${base}/intakes/novel-fetch`, { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function getBatchFactoryIntake(intakeId) {
+  return apiRequest(`${base}/intakes/${encodeURIComponent(intakeId)}`);
+}
+
 export function listBatchFactoryBatches() {
   return apiRequest(`${base}/batches`);
 }
