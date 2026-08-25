@@ -984,7 +984,8 @@ function createBatchRewriteRouter({
             await tasks.updateTaskMeta(req.username, item.id, {
               siteSubmitStatus: 'submitted',
               siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])],
-              siteSubmitAcceptedVersions: (task.meta.siteSubmitAcceptedVersions || []).filter(version => version !== item.version)
+              siteSubmitAcceptedVersions: (task.meta.siteSubmitAcceptedVersions || []).filter(version => version !== item.version),
+              siteSubmitFailedVersions: (task.meta.siteSubmitFailedVersions || []).filter(version => version !== item.version)
             });
             if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'submitted', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, execution_trace: trace, time: new Date().toISOString() });
           } else {
@@ -993,7 +994,8 @@ function createBatchRewriteRouter({
             item.remote_receipt = receipt;
             await tasks.updateTaskMeta(req.username, item.id, {
               siteSubmitStatus: 'accepted_pending',
-              siteSubmitAcceptedVersions: [...new Set([...(task.meta.siteSubmitAcceptedVersions || []), item.version])]
+              siteSubmitAcceptedVersions: [...new Set([...(task.meta.siteSubmitAcceptedVersions || []), item.version])],
+              siteSubmitFailedVersions: (task.meta.siteSubmitFailedVersions || []).filter(version => version !== item.version)
             });
             if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'accepted_pending', version: item.version, group_id: group.group_id, material_allocation: item.advanced, retries: Math.max(0, attempts - 1), remote_receipt: receipt, execution_trace: trace, time: new Date().toISOString() });
           }

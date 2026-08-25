@@ -1852,9 +1852,11 @@ function siteSubmitText(task) {
   const done = asArray(task.site_submit_done_versions);
   const accepted = asArray(task.site_submit_accepted_versions);
   const failed = asArray(task.site_submit_failed_versions);
-  if (failed.length) return `失败：${failed.join(",")}`;
-  if (accepted.length) return `待确认：${accepted.join(",")}`;
+  // 同一版本曾失败但后来已成功提交时，成功结果才是当前状态；
+  // 失败记录仍保留在“记录”和“问题日志”中供追溯。
   if (done.length) return `已提交：${done.join(",")}`;
+  if (accepted.length) return `待确认：${accepted.join(",")}`;
+  if (failed.length) return `失败：${failed.join(",")}`;
   if (task.site_submit_status) return task.site_submit_status;
   return "未提交";
 }
