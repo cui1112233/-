@@ -1,0 +1,52 @@
+name: 03 Identity Team Collaboration Check
+
+on:
+  push:
+    branches:
+      - 03-identity-team-collaboration
+  pull_request:
+    branches:
+      - 02-team-governance-control
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collaboration-tests:
+    name: Identity collaboration acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: >-
+          node --test
+          tests/identity-team-collaboration.test.js
+          tests/team-governance-control.test.js
+          tests/team-governance-zero-quota.test.js
+          tests/account-center-acceptance.test.js
+          tests/member-center.test.js
+          tests/member-usage-runtime.test.js
+          tests/dev-permissions.test.js
+          tests/persistent-session.test.js
+          tests/tts-preferences-contract.test.js
+
+  frontend-build:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build
