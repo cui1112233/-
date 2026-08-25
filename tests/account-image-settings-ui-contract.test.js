@@ -64,22 +64,19 @@ function functionBody(source, functionName) {
   assert.fail(`unterminated function ${functionName}`);
 }
 
-test('settings expose independent OpenAI-compatible image fields without loading the key', () => {
+test('model configuration lives in account center API configuration, not workspace settings', () => {
   const source = read('frontend/src/user/pages/SettingsPage.jsx');
-
-  for (const field of ['mode', 'provider', 'displayName', 'baseUrl', 'apiKey', 'model']) {
-    assert.ok(source.includes("name={['image', '" + field + "']}"), "missing image field " + field);
-  }
-  assert.match(source, /OpenAI 兼容/);
-  assert.match(source, /自定义（OpenAI 兼容）/);
-  assert.match(source, /供应商名称/);
-  assert.match(source, /image:\s*\{[\s\S]*?apiKey:\s*''/);
-  assert.doesNotMatch(source, /image:\s*\{[\s\S]*?apiKey:\s*config\.image/);
+  const apiConfig = read('frontend/src/user/pages/ApiConfigPage.jsx');
+  assert.doesNotMatch(source, /settings-model-services/);
+  assert.doesNotMatch(source, /测试文本连接|测试生图连接|保存视频生成/);
+  assert.match(apiConfig, /文本模型连接/);
+  assert.match(apiConfig, /生图服务/);
+  assert.match(apiConfig, /视频生成服务/);
 });
 
-test('settings test text and image connections independently without saving configuration', () => {
+test('account API configuration keeps independent text and image connection tests', () => {
   const apiSource = read('frontend/src/shared/api/config.js');
-  const pageSource = read('frontend/src/user/pages/SettingsPage.jsx');
+  const pageSource = read('frontend/src/user/pages/ApiConfigPage.jsx');
 
   assert.match(apiSource, /export function testTextConfig\(config\)/);
   assert.match(apiSource, /apiRequest\('\/api\/test\/text'/);
@@ -94,40 +91,35 @@ test('settings test text and image connections independently without saving conf
 
   assert.match(pageSource, /const \[testingText, setTestingText\] = useState\(false\);/);
   assert.match(pageSource, /const \[testingImage, setTestingImage\] = useState\(false\);/);
-  assert.match(pageSource, /async function handleTestText\(\)/);
-  assert.match(pageSource, /async function handleTestImage\(\)/);
+  assert.match(pageSource, /async function testText\(\)/);
+  assert.match(pageSource, /async function testImage\(\)/);
   assert.match(pageSource, /form\.validateFields\(\['provider', 'baseUrl', 'model'\]\)/);
   assert.match(pageSource, /testTextConfig\(\{ \.\.\.values, apiKey: form\.getFieldValue\('apiKey'\) \}\)/);
-  assert.match(pageSource, /form\.validateFields\(\[\['image', 'baseUrl'\], \['image', 'model'\]\]\)/);
   assert.match(pageSource, /testImageConfig\(\{ \.\.\.image, apiKey: form\.getFieldValue\(\['image', 'apiKey'\]\) \}\)/);
   assert.match(pageSource, />测试文本连接<\/Button>/);
   assert.match(pageSource, />测试生图连接<\/Button>/);
-  assert.doesNotMatch(pageSource, /handleTest\(\)/);
   assert.doesNotMatch(pageSource, />测试连接<\/Button>/);
 
-  for (const functionName of ['handleTestText', 'handleTestImage']) {
+  for (const functionName of ['testText', 'testImage']) {
     assert.doesNotMatch(functionBody(pageSource, functionName), /\bsaveConfig\s*\(/);
   }
-  assert.match(functionBody(pageSource, 'saveSection'), /\bsaveConfig\s*\(/);
-  assert.match(pageSource, />保存文本推理<\/Button>/);
-  assert.match(pageSource, />保存图片生成<\/Button>/);
-  assert.doesNotMatch(pageSource, />保存设置<\/Button>/);
+  assert.match(functionBody(pageSource, 'save'), /\bsaveConfig\s*\(/);
+  assert.match(pageSource, />保存 API 配置<\/Button>/);
+  assert.match(pageSource, />保存视频生成<\/Button>/);
 
-  const textTestBody = functionBody(pageSource, 'handleTestText');
-  const imageTestBody = functionBody(pageSource, 'handleTestImage');
-  assert.match(pageSource, /function connectionResponseMessage\(candidate, fallback\)/);
+  const textTestBody = functionBody(pageSource, 'testText');
+  const imageTestBody = functionBody(pageSource, 'testImage');
+  assert.match(pageSource, /function connectionMessage\(candidate, fallback\)/);
   assert.match(pageSource, /typeof candidate\?\.content === 'string'/);
-  assert.match(textTestBody, /message\.success\(connectionResponseMessage\(result\.message, '连接成功'\)\)/);
+  assert.match(textTestBody, /message\.success\(connectionMessage\(result\.message, '文本模型连接成功'\)\)/);
   assert.doesNotMatch(textTestBody, /\$\{result\.message\}/);
-  assert.match(imageTestBody, /if \(result\.modelListed === false\) \{\s*message\.warning\(imageMessage\);/);
-  assert.match(imageTestBody, /\} else \{\s*message\.success\(imageMessage\);/);
 });
 
 test('connection-test save guard detects an unsafe function body', () => {
-  const unsafeSource = 'async function handleTestText() { await saveConfig({}); }';
+  const unsafeSource = 'async function testText() { await saveConfig({}); }';
 
   assert.throws(() => {
-    assert.doesNotMatch(functionBody(unsafeSource, 'handleTestText'), /\bsaveConfig\s*\(/);
+    assert.doesNotMatch(functionBody(unsafeSource, 'testText'), /\bsaveConfig\s*\(/);
   }, assert.AssertionError);
 });
 

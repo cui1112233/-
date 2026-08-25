@@ -6,33 +6,19 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('settings orders text, image, and fixed YD video services without editable video endpoint fields', () => {
+test('model services live in account API configuration while settings keeps workspace controls', () => {
   const settings = read('frontend/src/user/pages/SettingsPage.jsx');
+  const apiConfig = read('frontend/src/user/pages/ApiConfigPage.jsx');
 
-  const textIndex = settings.indexOf('<h3>文本推理</h3>');
-  const imageIndex = settings.indexOf('<h3>图片生成</h3>');
-  const videoIndex = settings.indexOf('<h3>视频生成</h3>');
-  assert.ok(textIndex >= 0, 'missing text inference service label');
-  assert.ok(imageIndex > textIndex, 'image service must follow text inference');
-  assert.ok(videoIndex > imageIndex, 'video service must follow image generation');
-
-  assert.match(settings, /name=\{\['video', 'apiKey'\]\}/);
-  assert.match(settings, /<Input\.Password[^>]*placeholder="留空表示不修改已保存的 Key"/);
-  assert.match(settings, /config\.video\?\.hasApiKey/);
-  assert.match(settings, /values = \{ video: \{ apiKey: form\.getFieldValue\(\['video', 'apiKey'\]\) \|\| '' \} \};/);
-  assert.match(settings, /form\.setFieldValue\(\['video', 'apiKey'\], ''\)/);
-  assert.match(settings, />保存视频生成<\/Button>/);
-  assert.match(settings, /中转亚迪/);
-  assert.match(settings, /YD2\.0 Mini/);
-  assert.match(settings, /720p/);
-  assert.match(settings, /1 秒/);
-  assert.match(settings, /已配置/);
-  assert.match(settings, /未配置/);
-
-  const videoSection = settings.slice(videoIndex, settings.indexOf('</section>', videoIndex));
-  assert.doesNotMatch(videoSection, /Base URL/);
-  assert.doesNotMatch(videoSection, /测试.*视频.*连接/);
-  assert.doesNotMatch(videoSection, /name=\{\['video', '(?:provider|baseUrl|model|duration|resolution)'\]\}/);
+  assert.doesNotMatch(settings, /settings-model-services/);
+  assert.doesNotMatch(settings, /name=\{\['video', 'apiKey'\]\}/);
+  assert.match(settings, /工作台与 CM/);
+  assert.match(settings, /服务器归档文件夹/);
+  assert.match(apiConfig, /文本模型连接/);
+  assert.match(apiConfig, /生图服务/);
+  assert.match(apiConfig, /视频生成服务/);
+  assert.match(apiConfig, /豆包本地执行器/);
+  assert.match(apiConfig, /本机视频执行通道/);
 });
 
 test('model service rows use divider layout and stack below 700px', () => {

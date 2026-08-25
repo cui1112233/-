@@ -24,5 +24,5 @@ test('settings exposes notification and CM visibility switches and layout follow
   assert.match(settings, /控制右下角 CM 助手是否显示，关闭后可减少界面干扰。/);
   assert.match(settings, /qiantie:notifications-updated/);
   assert.match(layout, /qiantie:notifications-updated/);
-  assert.match(layout, /petVisible \? <StackyPet/);
+  assert.match(layout, /petVisible \? <CmPenguinCompanion/);
 });
