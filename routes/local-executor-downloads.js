@@ -5,14 +5,14 @@ const path = require('path');
 const RELEASE_VERSION = '0.1.10';
 
 const DOWNLOADS = {
-  'yizhan-local-executor-0.1.9-mac-arm64.dmg': {
-    diskName: '一战晟铭本地执行器-0.1.9-mac-arm64.dmg',
-    downloadName: '一战晟铭本地执行器-0.1.9-mac-arm64.dmg',
+  'yizhan-local-executor-0.1.10-mac-arm64.dmg': {
+    diskName: '一战晟铭本地执行器-0.1.10-mac-arm64.dmg',
+    downloadName: '一战晟铭本地执行器-0.1.10-mac-arm64.dmg',
     contentType: 'application/x-apple-diskimage'
   },
-  'yizhan-local-executor-0.1.9-win-x64.exe': {
-    diskName: '一战晟铭本地执行器-0.1.9-win-x64.exe',
-    downloadName: '一战晟铭本地执行器-0.1.9-win-x64.exe',
+  'yizhan-local-executor-0.1.10-win-x64.exe': {
+    diskName: '一战晟铭本地执行器-0.1.10-win-x64.exe',
+    downloadName: '一战晟铭本地执行器-0.1.10-win-x64.exe',
     contentType: 'application/vnd.microsoft.portable-executable'
   }
 };
