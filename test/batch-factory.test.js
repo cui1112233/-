@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
+const { normalizeSourceItem } = require('../lib/batch-factory/store');
 
 function baseResult(videos) {
   return {
@@ -33,6 +34,30 @@ function video(id, duration, ranges, overrides = {}) {
     ...overrides
   };
 }
+
+test('小说获取交接保留超长书ID并固定 TXT 文件名', () => {
+  const item = normalizeSourceItem({
+    sourceTaskId: 174263,
+    bookId: '2074141710842647315',
+    title: '余生不逢云',
+    platform: '知乎付费',
+    sourceText: '用于制作的视频开篇文本',
+    txtText: '需要后续原样上传的小说TXT',
+    metadata: { gender: '女频' }
+  }, 0, { sourceType: 'novel-fetch' });
+
+  assert.equal(item.sourceTaskId, '174263');
+  assert.equal(item.bookId, '2074141710842647315');
+  assert.equal(item.platform, '知乎付费');
+  assert.equal(item.txtFileName, '2074141710842647315.txt');
+  assert.equal(item.txtText, '需要后续原样上传的小说TXT');
+  assert.equal(item.sourceMetadata.gender, '女频');
+});
+
+test('小说获取交接缺少任务ID或书ID时拒绝进入批量工厂', () => {
+  assert.throws(() => normalizeSourceItem({ bookId: '123', sourceText: '正文' }, 0, { sourceType: 'novel-fetch' }), /任务ID/);
+  assert.throws(() => normalizeSourceItem({ sourceTaskId: '8', sourceText: '正文' }, 0, { sourceType: 'novel-fetch' }), /书ID/);
+});
 
 test('普通 15s 模式允许按剧情输出 13s、12s、10s 多个 VIDEO', () => {
   const result = normalizeDirectorOutput(baseResult([
