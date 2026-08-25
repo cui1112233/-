@@ -11,6 +11,7 @@ const TtsPage = lazy(() => import('./pages/TtsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const TeamManagementPage = lazy(() => import('./pages/TeamManagementPage'));
+const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage'));
 const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
@@ -40,6 +41,7 @@ function getPage(pathname) {
     '/settings': SettingsPage,
     '/member': MemberCenterPage,
     '/team': TeamManagementPage,
+    '/advanced-team-admin': AdvancedTeamAdminPage,
     '/usage': UsageStatsPage,
     '/profile': ProfilePage,
     '/security': SecurityPage,
