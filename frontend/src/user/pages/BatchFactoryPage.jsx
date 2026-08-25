@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Collapse, Divider, Empty, Input, List, Modal, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Collapse, Divider, Empty, Input, List, Modal, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message } from 'antd';
 import { Check, FilePlus2, Pencil, RefreshCw, Sparkles, UploadCloud, WandSparkles, Zap } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -14,7 +14,7 @@ import {
   updateBatchFactoryDirectorResult
 } from '../../shared/api/batchFactory';
 import { BatchFactoryBulkProduction } from './batch-factory/BatchFactoryBulkProduction';
-import { BatchFactoryProductionControls } from './batch-factory/BatchFactoryProductionControls';
+import { BatchFactoryProductionControls, loadBatchFactoryVideoModels } from './batch-factory/BatchFactoryProductionControls';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
 
@@ -49,7 +49,8 @@ function statusTag(status) {
 function settingSummary(batch) {
   if (!batch) return '';
   const duration = batch.settings?.maxVideoDuration || 10;
-  return `${batch.mode === 'viral' ? '爆款开头' : '原文直转'} · ${batch.settings?.fixedSingleVideo ? `固定单镜头 ${duration}s` : `单段最大 ${duration}s`} · ${batch.settings?.aspectRatio || '9:16'}`;
+  const model = batch.settings?.videoModelName ? `${batch.settings.videoModelName} · ` : '';
+  return `${batch.mode === 'viral' ? '爆款开头' : '原文直转'} · ${model}${batch.settings?.fixedSingleVideo ? `固定单VIDEO ${duration}s` : `单个VIDEO最大 ${duration}s`} · ${batch.settings?.aspectRatio || '9:16'}`;
 }
 
 export function BatchFactoryPage() {
@@ -57,7 +58,9 @@ export function BatchFactoryPage() {
   const [draftItems, setDraftItems] = useState([]);
   const [sourceIntakeId, setSourceIntakeId] = useState('');
   const [mode, setMode] = useState('original');
-  const [maxVideoDuration, setMaxVideoDuration] = useState(10);
+  const [videoModels, setVideoModels] = useState([]);
+  const [videoModelId, setVideoModelId] = useState(null);
+  const [videoModelsLoading, setVideoModelsLoading] = useState(false);
   const [fixedSingleVideo, setFixedSingleVideo] = useState(false);
   const [aspectRatio, setAspectRatio] = useState('9:16');
   const [prefixMode, setPrefixMode] = useState('auto');
@@ -77,6 +80,17 @@ export function BatchFactoryPage() {
   const intakeLoadedRef = useRef('');
 
   const hasActiveJobs = useMemo(() => activeBatch?.items?.some(item => activeStatuses.has(item.status)), [activeBatch]);
+  const directVideoModels = useMemo(() => videoModels.filter(model => (
+    model.requiresImageInput !== true
+    && Number.isInteger(Number(model.maxVideoDuration))
+    && Number(model.maxVideoDuration) >= 1
+  )), [videoModels]);
+  const incompleteVideoModels = useMemo(() => videoModels.filter(model => (
+    model.requiresImageInput !== true
+    && (!Number.isInteger(Number(model.maxVideoDuration)) || Number(model.maxVideoDuration) < 1)
+  )), [videoModels]);
+  const selectedVideoModel = useMemo(() => directVideoModels.find(model => Number(model.id) === Number(videoModelId)) || null, [directVideoModels, videoModelId]);
+  const maxVideoDuration = Number(selectedVideoModel?.maxVideoDuration || 0);
 
   async function refreshHistory() {
     setHistoryLoading(true);
@@ -91,6 +105,25 @@ export function BatchFactoryPage() {
   }
 
   useEffect(() => { refreshHistory(); }, []);
+
+  useEffect(() => {
+    let active = true;
+    setVideoModelsLoading(true);
+    loadBatchFactoryVideoModels()
+      .then(models => {
+        if (!active) return;
+        setVideoModels(models);
+        const compatible = models.filter(model => (
+          model.requiresImageInput !== true
+          && Number.isInteger(Number(model.maxVideoDuration))
+          && Number(model.maxVideoDuration) >= 1
+        ));
+        if (compatible.length) setVideoModelId(current => current || compatible[0].id);
+      })
+      .catch(error => { if (active) message.error(error.message || '读取视频模型失败'); })
+      .finally(() => { if (active) setVideoModelsLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const intakeId = new URLSearchParams(window.location.search).get('intake') || '';
@@ -180,6 +213,7 @@ export function BatchFactoryPage() {
 
   async function createAndStart() {
     if (!draftItems.length) return message.warning('至少添加一篇小说开篇');
+    if (!selectedVideoModel) return message.warning('请先选择已配置单次最大时长的文生视频模型');
     setCreating(true);
     try {
       const created = await createBatchFactoryBatch({
@@ -187,6 +221,9 @@ export function BatchFactoryPage() {
         sourceIntakeId,
         items: draftItems,
         settings: {
+          videoModelId: selectedVideoModel.id,
+          videoModelVersionId: selectedVideoModel.versionId,
+          videoModelName: selectedVideoModel.name,
           maxVideoDuration,
           fixedSingleVideo,
           aspectRatio,
@@ -334,13 +371,43 @@ export function BatchFactoryPage() {
                 <div style={{ marginTop: 8 }}><Segmented value={mode} onChange={setMode} options={[{ value: 'original', label: '原文直转 · 1回AI' }, { value: 'viral', label: '爆款开头 · 2回AI' }]} /></div>
               </div>
               <div>
-                <Typography.Text strong>视频模型单次时长能力</Typography.Text>
-                <div style={{ marginTop: 8 }}><Segmented value={maxVideoDuration} onChange={setMaxVideoDuration} options={[{ value: 10, label: '10s' }, { value: 15, label: '15s' }]} /></div>
-                <Typography.Text type="secondary">{fixedSingleVideo ? `固定单镜头开启后，只输出一个完整 ${maxVideoDuration}s Video。` : `普通模式中 ${maxVideoDuration}s 是单个 Video 的最大时长，AI 可在 1-${maxVideoDuration}s 内选择整数秒，并按内容拆成多个 Video。`}</Typography.Text>
+                <Typography.Text strong>视频模型</Typography.Text>
+                <div style={{ marginTop: 8 }}>
+                  <Select
+                    loading={videoModelsLoading}
+                    value={videoModelId}
+                    onChange={setVideoModelId}
+                    style={{ width: '100%', maxWidth: 620 }}
+                    options={directVideoModels.map(model => ({
+                      value: model.id,
+                      label: `${model.name} · 文生视频 · 单次最大 ${model.maxVideoDuration}s`
+                    }))}
+                    placeholder="选择已配置时长能力的文生视频模型"
+                  />
+                </div>
+                {selectedVideoModel ? <Typography.Text type="secondary">
+                  当前模型单次最大生成时长为 {maxVideoDuration}s。{fixedSingleVideo
+                    ? `固定单VIDEO开启后，只输出一个完整 ${maxVideoDuration}s VIDEO。`
+                    : `普通模式中 AI 会在 1-${maxVideoDuration}s 内选择最合适的整数秒；内容较长时自然拆成多个 VIDEO，不会为了凑满时长补空镜。`}
+                </Typography.Text> : null}
+                {!videoModelsLoading && !directVideoModels.length ? <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 10 }}
+                  message="暂无可用于批量工厂的文生视频模型"
+                  description="请管理员先在「水货生产模型」中启用文生视频模型，并配置单次最大生成时长。"
+                /> : null}
+                {incompleteVideoModels.length ? <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 10 }}
+                  message={`${incompleteVideoModels.length} 个文生视频模型缺少时长能力`}
+                  description={`未参与选择：${incompleteVideoModels.map(model => model.name).join('、')}。请先在模型中心补充“单次最大生成时长”。`}
+                /> : null}
               </div>
               <Space align="center">
-                <Switch checked={fixedSingleVideo} onChange={setFixedSingleVideo} />
-                <div><Typography.Text strong>固定单镜头</Typography.Text><br /><Typography.Text type="secondary">输入再多也只输出一个 Video；内部仍可有 3~5 个镜头切换。</Typography.Text></div>
+                <Switch checked={fixedSingleVideo} onChange={setFixedSingleVideo} disabled={!selectedVideoModel} />
+                <div><Typography.Text strong>固定单VIDEO</Typography.Text><br /><Typography.Text type="secondary">开启后每本小说只输出一个 VIDEO，并严格等于当前模型最大时长；VIDEO 内部仍可有 3~5 个镜头切换。</Typography.Text></div>
               </Space>
               <div>
                 <Typography.Text strong>视频画幅</Typography.Text>
@@ -365,7 +432,7 @@ export function BatchFactoryPage() {
                   <Typography.Text type="secondary">这些内容会在视频生成前由服务器复制到每一个独立 VIDEO 的最终 Prompt，不会只写在整批开头。</Typography.Text>
                 </Space>
               }]} />
-              <Button type="primary" size="large" icon={<WandSparkles size={17} />} loading={creating} onClick={createAndStart} disabled={!draftItems.length}>创建批次并开始</Button>
+              <Button type="primary" size="large" icon={<WandSparkles size={17} />} loading={creating} onClick={createAndStart} disabled={!draftItems.length || !selectedVideoModel}>创建批次并开始</Button>
             </Space>
           </Card>
 
@@ -441,7 +508,7 @@ export function BatchFactoryPage() {
         okText="校验并保存"
         width={1100}
       >
-        <Alert type="info" showIcon message="手动修改不会调用 AI" description="保存时服务器仍会强制检查整数秒、固定单镜头、时间轴连续性，以及人物/场景/道具引用。修改后最终上传 Prompt 会重新编译。" style={{ marginBottom: 12 }} />
+        <Alert type="info" showIcon message="手动修改不会调用 AI" description="保存时服务器仍会强制检查整数秒、固定单VIDEO、时间轴连续性，以及人物/场景/道具引用。修改后最终上传 Prompt 会重新编译。" style={{ marginBottom: 12 }} />
         <Input.TextArea rows={30} value={directorEditor.value} onChange={event => setDirectorEditor(current => ({ ...current, value: event.target.value }))} spellCheck={false} />
       </Modal>
     </div>
