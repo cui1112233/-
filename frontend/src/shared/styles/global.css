@@ -1957,6 +1957,39 @@ select {
 .model-service-key-status.is-configured { color: var(--legacy-text); border-color: var(--legacy-border-strong); background: var(--legacy-accent-dim); }
 .model-service-key-status.is-unconfigured { color: var(--legacy-muted); }
 .settings-model-section { display: flex; flex-direction: column; }
+.settings-executor-section { grid-column: 1 / -1; }
+.settings-executor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 16px 24px;
+  align-items: center;
+  padding-top: 18px;
+  border-top: 1px solid var(--legacy-border);
+}
+.settings-executor-status {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.settings-executor-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid rgba(240, 113, 103, .25);
+  border-radius: 10px;
+  color: var(--legacy-accent);
+  background: var(--legacy-accent-dim);
+}
+.settings-executor-status > div:last-child { display: grid; gap: 4px; min-width: 0; }
+.settings-executor-status strong { color: var(--legacy-text); font-size: 13px; }
+.settings-executor-status span,
+.settings-executor-pairing { color: var(--legacy-muted); font-size: 12px; line-height: 1.55; }
+.settings-executor-actions { display: flex; flex-wrap: wrap; gap: 9px; justify-content: flex-end; }
+.settings-executor-pairing { grid-column: 1 / -1; margin: 0; padding: 9px 12px; border: 1px solid var(--legacy-border-strong); border-radius: 7px; background: var(--legacy-input); }
+.settings-executor-pairing strong { color: var(--legacy-text); letter-spacing: .12em; }
 .settings-pet-preview {
   display: flex;
   align-items: center;
@@ -1990,6 +2023,8 @@ select {
   .model-service-fields { grid-template-columns: minmax(0, 1fr); }
   .model-service-video-fields { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .model-service-video-meta { justify-content: flex-start; }
+  .settings-executor-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-executor-actions { justify-content: flex-start; }
 }
 
 .stacky-pet-shell {

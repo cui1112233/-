@@ -1,9 +1,8 @@
 import { AutoComplete, Button, Form, Input, InputNumber, Select, Skeleton, Tag, message } from 'antd';
-import { Cable, CheckCircle2, Coins, Download, Image, KeyRound, RefreshCw, Save, Server, ShieldCheck, Video } from 'lucide-react';
+import { Cable, CheckCircle2, Coins, Image, KeyRound, Save, Server, ShieldCheck, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getMemberCenter } from '../../shared/api/member';
-import { apiRequest } from '../../shared/api/client';
 import { PageHeader, Panel, RoleBadge } from './accountCenterShared';
 
 const providers = [
@@ -38,9 +37,6 @@ export default function ApiConfigPage() {
   const [provider, setProvider] = useState('openai');
   const [config, setConfig] = useState(null);
   const [center, setCenter] = useState(null);
-  const [localExecutors, setLocalExecutors] = useState([]);
-  const [loadingExecutors, setLoadingExecutors] = useState(false);
-  const [pairing, setPairing] = useState(null);
   const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
 
   useEffect(() => {
@@ -79,28 +75,6 @@ export default function ApiConfigPage() {
   const canManageApi = config?.canManageApi !== false;
   const member = center?.member;
   const modelOptions = (providerDefaults[provider]?.models || []).map(model => ({ label: model, value: model }));
-
-  async function loadLocalExecutors() {
-    setLoadingExecutors(true);
-    try {
-      const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
-      setLocalExecutors(Array.isArray(result.executors) ? result.executors : []);
-    } catch (error) {
-      message.error(error.message || '读取本地执行器失败');
-    } finally { setLoadingExecutors(false); }
-  }
-
-  useEffect(() => {
-    if (config && canManageApi) loadLocalExecutors();
-  }, [config, canManageApi]);
-
-  async function createLocalExecutorPairing() {
-    try {
-      const result = await apiRequest('/api/shuihuo-production/local-executors/pairings', { method: 'POST', body: JSON.stringify({ platform: 'doubao' }), suppressGlobalError: true });
-      setPairing(result);
-      message.success('配对码已生成，请在本地执行器中输入');
-    } catch (error) { message.error(error.message || '生成配对码失败'); }
-  }
 
   function changeProvider(nextProvider) {
     setProvider(nextProvider);
@@ -181,7 +155,7 @@ export default function ApiConfigPage() {
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
 
   return <div className="account-center-page api-config-page">
-    <PageHeader title="API 配置" subtitle="管理模型连接与调用价格快照" />
+    <PageHeader title="API 配置" subtitle="管理云端模型连接与调用价格快照；本地视频执行器请前往设置" />
 
     {!canManageApi ? <div className="ac-managed-api-card">
       <span><ShieldCheck size={28} /></span>
@@ -231,20 +205,6 @@ export default function ApiConfigPage() {
             <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>独立视频生成凭据</strong><small>视频服务按自己的保存入口维护，不会覆盖文本或图片配置。</small></div></div>
             <Form.Item label="视频服务 API Key" name={['video', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Save size={16} />} onClick={saveVideo} loading={savingVideo}>保存视频生成</Button></div>
-          </Panel>
-          <Panel title="豆包本地执行器" eyebrow="LOCAL EXECUTOR" className="ac-form-panel">
-            <div className="ac-api-status-line"><span className="ac-security-card-icon"><Video size={20} /></span><div><strong>本机视频执行通道</strong><small>账号登录状态只保存在本机，平台只接收任务状态和视频结果。</small></div></div>
-            <div className="ac-api-health">
-              <div><span>已配对设备</span><b>{localExecutors.length} 台</b></div>
-              <div><span>在线设备</span><b>{localExecutors.filter(item => item.online).length} 台</b></div>
-            </div>
-            {pairing ? <p className="ac-form-tip">请在本地执行器中输入配对码：<strong>{pairing.code}</strong></p> : null}
-            <div className="ac-api-actions">
-              <Button icon={<RefreshCw size={16} />} onClick={loadLocalExecutors} loading={loadingExecutors}>刷新状态</Button>
-              <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
-              <Button icon={<Download size={16} />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-mac-arm64.dmg">下载 Mac 版</Button>
-              <Button icon={<Download size={16} />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-win-x64.exe">下载 Windows 版</Button>
-            </div>
           </Panel>
         </div>
 

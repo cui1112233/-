@@ -69,9 +69,12 @@ test('model configuration lives in account center API configuration, not workspa
   const apiConfig = read('frontend/src/user/pages/ApiConfigPage.jsx');
   assert.doesNotMatch(source, /settings-model-services/);
   assert.doesNotMatch(source, /测试文本连接|测试生图连接|保存视频生成/);
+  assert.match(source, /豆包本地执行器/);
+  assert.match(source, /local-executors/);
   assert.match(apiConfig, /文本模型连接/);
   assert.match(apiConfig, /生图服务/);
   assert.match(apiConfig, /视频生成服务/);
+  assert.doesNotMatch(apiConfig, /豆包本地执行器|local-executors/);
 });
 
 test('account API configuration keeps independent text and image connection tests', () => {

@@ -1,5 +1,5 @@
 import { Button, Form, Input, List, Select, Slider, Switch, Typography, message } from 'antd';
-import { FolderOpen, RefreshCw, Save } from 'lucide-react';
+import { Download, FolderOpen, RefreshCw, Save, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -26,6 +26,9 @@ export function SettingsPage() {
   const [listing, setListing] = useState(false);
   const [restoreReport, setRestoreReport] = useState(null);
   const [fileList, setFileList] = useState(null);
+  const [localExecutors, setLocalExecutors] = useState([]);
+  const [loadingExecutors, setLoadingExecutors] = useState(false);
+  const [pairing, setPairing] = useState(null);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
   const soundEnabled = Form.useWatch('soundEnabled', form);
@@ -35,6 +38,26 @@ export function SettingsPage() {
   useEffect(() => {
     setCompanionActive(readCompanionSpeechState(username).active);
   }, [username]);
+
+  async function loadLocalExecutors() {
+    setLoadingExecutors(true);
+    try {
+      const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
+      setLocalExecutors(Array.isArray(result.executors) ? result.executors : []);
+    } catch (error) {
+      message.error(error.message || '读取本地执行器失败');
+    } finally { setLoadingExecutors(false); }
+  }
+
+  useEffect(() => { loadLocalExecutors(); }, []);
+
+  async function createLocalExecutorPairing() {
+    try {
+      const result = await apiRequest('/api/shuihuo-production/local-executors/pairings', { method: 'POST', body: JSON.stringify({ platform: 'doubao' }), suppressGlobalError: true });
+      setPairing(result);
+      message.success('配对码已生成，请在本地执行器中输入');
+    } catch (error) { message.error(error.message || '生成配对码失败'); }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -126,7 +149,7 @@ export function SettingsPage() {
         <div className="settings-heading">
           <div>
             <Typography.Title level={3}>工作台设置</Typography.Title>
-            <Typography.Paragraph>管理前贴桌面宠物、工作提醒与服务器归档。模型服务统一在个人中心配置。</Typography.Paragraph>
+            <Typography.Paragraph>管理前贴桌面宠物、工作提醒、本地视频执行器与服务器归档。模型服务统一在个人中心配置。</Typography.Paragraph>
           </div>
           <span className="settings-status">本账号配置</span>
         </div>
@@ -241,6 +264,29 @@ export function SettingsPage() {
               />
             </div>
           )}
+        </section>
+
+        <section className="settings-section settings-executor-section" aria-labelledby="settings-executor-title">
+          <div>
+            <h2 id="settings-executor-title">豆包本地执行器</h2>
+            <p>本机账号登录状态只保存在本地，平台仅接收任务状态和视频结果。请先下载客户端，再生成配对码完成绑定。</p>
+          </div>
+          <div className="settings-executor-layout">
+            <div className="settings-executor-status">
+              <div className="settings-executor-icon"><Video size={20} /></div>
+              <div>
+                <strong>本机视频执行通道</strong>
+                <span>{localExecutors.length} 台已配对 · {localExecutors.filter(item => item.online).length} 台在线</span>
+              </div>
+            </div>
+            {pairing ? <p className="settings-executor-pairing">请在本地执行器中输入配对码：<strong>{pairing.code}</strong></p> : null}
+            <div className="settings-executor-actions">
+              <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadLocalExecutors} loading={loadingExecutors}>刷新状态</Button>
+              <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-mac-arm64.dmg">下载 Mac 版</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-win-x64.exe">下载 Windows 版</Button>
+            </div>
+          </div>
         </section>
 
       </Form>
