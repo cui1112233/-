@@ -61,3 +61,9 @@ export function createAdminModel(payload) {
     body: JSON.stringify(payload || {})
   });
 }
+export function updateAdminModel(modelId, payload) {
+  return apiRequest(`${base}/admin/models/${encodeURIComponent(modelId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload || {})
+  });
+}
