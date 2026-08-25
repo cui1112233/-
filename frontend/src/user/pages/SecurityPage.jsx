@@ -1,5 +1,5 @@
 import { Button, Form, Input, Modal, Progress, Skeleton, Tag, message } from 'antd';
-import { Copy, Fingerprint, KeyRound, Laptop, LockKeyhole, LogOut, RotateCcwKey, ShieldCheck, Smartphone, TimerReset, Trash2 } from 'lucide-react';
+import { Copy, Fingerprint, KeyRound, Laptop, LockKeyhole, LogOut, Mail, RotateCcwKey, ShieldCheck, Smartphone, TimerReset, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   beginMfaSetup,
@@ -11,6 +11,7 @@ import {
   rotateMfaRecoveryCodes
 } from '../../shared/api/member';
 import { listPasskeys, registerPasskey, removePasskey } from '../../shared/api/accountRecovery';
+import { getEmailVerificationStatus, requestEmailVerification } from '../../shared/api/accountRecovery';
 import { passkeySupported } from '../../shared/webauthn';
 import { formatDate, PageHeader, Panel } from './accountCenterShared';
 
@@ -23,6 +24,8 @@ export default function SecurityPage() {
   const [loading, setLoading] = useState(true);
   const [security, setSecurity] = useState(null);
   const [passkeys, setPasskeys] = useState([]);
+  const [emailStatus, setEmailStatus] = useState(null);
+  const [mailing, setMailing] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [mfaOpen, setMfaOpen] = useState(false);
   const [mfaSetup, setMfaSetup] = useState(null);
@@ -34,9 +37,10 @@ export default function SecurityPage() {
   async function load() {
     setLoading(true);
     try {
-      const [nextSecurity, passkeyResult] = await Promise.all([getSecurityOverview(), listPasskeys().catch(() => ({ passkeys: [] }))]);
+      const [nextSecurity, passkeyResult, nextEmailStatus] = await Promise.all([getSecurityOverview(), listPasskeys().catch(() => ({ passkeys: [] })), getEmailVerificationStatus().catch(() => null)]);
       setSecurity(nextSecurity);
       setPasskeys(passkeyResult.passkeys || []);
+      setEmailStatus(nextEmailStatus);
     } catch (error) { message.error(error.message || '安全信息加载失败'); }
     finally { setLoading(false); }
   }
@@ -63,6 +67,16 @@ export default function SecurityPage() {
       await load();
     } catch (error) { message.error(error.message || '退出其他会话失败'); }
     finally { setSaving(false); }
+  }
+
+  async function sendRecoveryVerification() {
+    setMailing(true);
+    try {
+      const result = await requestEmailVerification();
+      message.success(`验证邮件已发送到 ${result.email}`);
+      setEmailStatus(await getEmailVerificationStatus().catch(() => emailStatus));
+    } catch (error) { message.error(error.message || '验证邮件发送失败'); }
+    finally { setMailing(false); }
   }
 
   function addPasskey() {
@@ -222,11 +236,17 @@ export default function SecurityPage() {
       </Panel>
     </div>
 
-    <Panel title="会话管理" eyebrow="SESSION CONTROL">
-      <div className="ac-session-control"><span><LogOut size={22} /></span><div><h3>退出其他设备</h3><p>撤销其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div></div>
-      <Button danger loading={saving} disabled={!security?.otherSessionCount} onClick={revokeOthers}>退出其他设备</Button>
-      <p className="ac-security-note">网络信息只保留类似 192.168.*.* 的模糊提示，不做精确位置跟踪。</p>
-    </Panel>
+    <div className="security-recovery-grid">
+      <Panel title="会话管理" eyebrow="SESSION CONTROL">
+        <div className="ac-session-control"><span><LogOut size={22} /></span><div><h3>退出其他设备</h3><p>撤销其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div></div>
+        <Button danger loading={saving} disabled={!security?.otherSessionCount} onClick={revokeOthers}>退出其他设备</Button>
+        <p className="ac-security-note">网络信息只保留类似 192.168.*.* 的模糊提示，不做精确位置跟踪。</p>
+      </Panel>
+      <Panel title="邮箱恢复" eyebrow="ACCOUNT RECOVERY">
+        <div className="ac-session-control"><span><Mail size={22} /></span><div><h3>{emailStatus?.email || '尚未设置恢复邮箱'}</h3><p>{emailStatus?.verified ? '已验证邮箱可用于找回密码。' : '请完成邮箱验证，以便在忘记密码时安全找回账号。'}</p></div></div>
+        {emailStatus?.verified ? <Tag color="green">已验证</Tag> : <Button type="primary" loading={mailing} disabled={!emailStatus?.email || !emailStatus?.deliveryConfigured} onClick={sendRecoveryVerification}>{emailStatus?.email ? '发送验证邮件' : '请先在个人资料填写邮箱'}</Button>}
+      </Panel>
+    </div>
 
     <Modal title="修改登录密码" open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => form.submit()} okText="确认修改" confirmLoading={saving}>
       <Form form={form} layout="vertical" onFinish={changePassword}>

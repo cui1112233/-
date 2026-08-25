@@ -41,6 +41,10 @@ function getPage(pathname) {
     '/shuihuo-production': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,
+    // 个人中心的三个工具入口复用已有、可实际保存数据的工作台，避免点击后回退首页。
+    '/api-config': SettingsPage,
+    '/usage': MemberCenterPage,
+    '/team': AdvancedTeamAdminPage,
     '/member': MemberCenterPage,
     '/profile': ProfilePage,
     '/security': SecurityPage,
