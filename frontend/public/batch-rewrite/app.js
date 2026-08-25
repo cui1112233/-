@@ -1434,6 +1434,32 @@ function readAiSettingsFromForm() {
   };
 }
 
+// 当前填写的 AI 接口不是一次性表单值：保存时同步为一个可见的“当前预设”，
+// 并让三个工作用途优先使用它。手动创建的其他预设不受影响。
+function syncCurrentAiPreset(cfg) {
+  const settings = cfg.ai || {};
+  if (!settings.base_url || !settings.api_key || !settings.model) return "";
+  const id = "preset_current_auto";
+  const preset = {
+    ...settings,
+    id,
+    name: `当前预设（自动同步）· ${settings.model}`,
+    auto_managed: true,
+  };
+  const presets = Array.isArray(cfg.ai_presets) ? [...cfg.ai_presets] : [];
+  const index = presets.findIndex((item) => item?.id === id);
+  if (index >= 0) presets[index] = preset;
+  else presets.unshift(preset);
+  cfg.ai_presets = presets;
+  cfg.ai_assignments = {
+    ...(cfg.ai_assignments || {}),
+    classifier: id,
+    rewrite: id,
+    sensitive_fix: id,
+  };
+  return id;
+}
+
 function updatePlatformHint() {
   const id = $("platformSelect").value;
   const found = (state.config?.platforms || []).find((item) => String(item.id) === String(id));
@@ -2622,6 +2648,7 @@ function syncFormToAppConfig() {
     sensitive_fix: $("sensitiveFixSelect")?.value || "__current__",
   };
   cfg.ai_presets = cfg.ai_presets || [];
+  syncCurrentAiPreset(cfg);
   return cfg;
 }
 
@@ -2630,8 +2657,10 @@ async function saveConfig() {
   try {
     saveLibraryItem(true);
     saveRuleEditor(true);
+    const appConfig = syncFormToAppConfig();
+    const activePresetId = appConfig.ai_assignments?.rewrite === "preset_current_auto" ? "preset_current_auto" : "";
     const payload = {
-      app_config: syncFormToAppConfig(),
+      app_config: appConfig,
       platforms: JSON.parse($("platformsText").value),
       styles: JSON.parse($("stylesText").value),
       sensitive: state.config.sensitive || { groups: [] },
@@ -2643,7 +2672,11 @@ async function saveConfig() {
     });
     state.config = data.config;
     renderConfig();
-    $("configStatus").textContent = "已保存";
+    if (activePresetId && $("presetSelect")) {
+      $("presetSelect").value = activePresetId;
+      $("presetName").value = state.config.app_config?.ai_presets?.find((item) => item?.id === activePresetId)?.name || "当前预设（自动同步）";
+    }
+    $("configStatus").textContent = activePresetId ? "已保存，并已更新当前预设" : "已保存";
     const knowledgeSave = $("knowledgeSaveStatus");
     if (knowledgeSave) knowledgeSave.textContent = "已保存";
     const rulesSave = $("rulesSaveStatus");
