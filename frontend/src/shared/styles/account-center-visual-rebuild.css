@@ -670,3 +670,10 @@
     min-height: 78px;
   }
 }
+
+/* 个人资料的首排是参考设计的核心信息密度：在抽屉打开后的中等宽度下仍保持并排。 */
+@container (min-width: 760px) {
+  .profile-page .ac-profile-summary-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+}
