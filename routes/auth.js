@@ -1,10 +1,14 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('node:path');
 const { createAuthRuntime, userSessions } = require('../lib/shared');
 const { createPersistentSession, revokePersistentSession } = require('../lib/session-store');
+const { createMfaStore } = require('../lib/mfa-store');
+const { createTeamCollaborationStore } = require('../lib/team-collaboration-store');
 const { apiAuth } = require('../middleware/auth');
 
 const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const INVITE_SCOPES = ['text', 'image', 'tts'];
 
 function browserFromUserAgent(userAgent) {
   const ua = String(userAgent || '');
@@ -53,6 +57,9 @@ function sessionMetadata(req) {
 
 function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
   const router = express.Router();
+  const systemDir = path.dirname(runtime.accountStore.files.audit);
+  const mfaStore = createMfaStore({ systemDir });
+  const collaborationStore = createTeamCollaborationStore({ systemDir });
 
   function sessionShape(account, effectivePermissions) {
     const member = memberStore?.getMember(account.username);
@@ -64,14 +71,71 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
       boundTo: member?.boundTo || null,
       monthlyTokenLimit: member?.monthlyTokenLimit ?? null,
       apiEnabled: member?.apiEnabled ?? account.isOwner,
+      mfaEnabled: mfaStore.status(account.username).enabled,
       active: account.active,
       isOwner: account.isOwner,
       effectivePermissions
     };
   }
 
+  router.get('/invite/:token', (req, res) => {
+    const invite = collaborationStore.inspectInvite(req.params.token);
+    if (!invite) return res.status(404).json({ error: '邀请不存在' });
+    const manager = memberStore?.getMember(invite.managerUsername) || null;
+    return res.json({ invite, manager: manager ? { username: manager.username, displayName: manager.displayName } : null });
+  });
+
+  router.post('/invite/:token', (req, res) => {
+    if (!memberStore) return res.status(503).json({ error: '团队邀请服务暂不可用' });
+    const { username, password, displayName } = req.body || {};
+    if (typeof username !== 'string' || !/^[A-Za-z0-9_-]{3,32}$/.test(username)) {
+      return res.status(400).json({ error: '登录账号需为 3-32 位字母、数字、下划线或短横线' });
+    }
+    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: '密码至少需要 8 位' });
+    const invite = collaborationStore.inspectInvite(req.params.token);
+    if (!invite) return res.status(404).json({ error: '邀请不存在' });
+    if (!invite.available) return res.status(409).json({ error: invite.expired ? '邀请已过期' : '邀请已被使用' });
+    const manager = memberStore.getMember(invite.managerUsername);
+    if (!manager || !manager.active || manager.role !== 'manager') return res.status(409).json({ error: '邀请所属团队当前不可用' });
+
+    let claimed = false;
+    try {
+      collaborationStore.claimInvite(req.params.token, username);
+      claimed = true;
+      let member = memberStore.createManagedMember(manager.username, {
+        username,
+        password,
+        displayName,
+        role: 'member',
+        boundTo: manager.username,
+        monthlyTokenLimit: invite.monthlyTokenLimit,
+        apiEnabled: false
+      });
+      for (const scope of INVITE_SCOPES) memberStore.setApiAccess(manager.username, member.username, false, scope);
+      for (const scope of invite.apiScopes || []) memberStore.setApiAccess(manager.username, member.username, true, scope);
+      member = memberStore.getMember(member.username);
+      collaborationStore.notify(manager.username, {
+        type: 'member.joined',
+        title: '新成员已加入团队',
+        message: `${member.displayName}（@${member.username}）通过邀请加入了团队。`,
+        metadata: { username: member.username, teamId: invite.teamId }
+      });
+      collaborationStore.notify(member.username, {
+        type: 'team.joined',
+        title: `欢迎加入 ${invite.teamName}`,
+        message: `你已加入 ${invite.teamName}，API 权限与月度额度已按邀请策略配置。`,
+        metadata: { teamId: invite.teamId, managerUsername: manager.username }
+      });
+      return res.status(201).json({ member, team: collaborationStore.getTeam(invite.teamId) });
+    } catch (error) {
+      if (claimed) collaborationStore.releaseInviteClaim(req.params.token, username);
+      const status = error?.code === 'CONFLICT' ? 409 : error?.code === 'NOT_FOUND' ? 404 : 400;
+      return res.status(status).json({ error: error?.message || '接受邀请失败' });
+    }
+  });
+
   router.post('/', (req, res) => {
-    const { username, password, remember } = req.body || {};
+    const { username, password, remember, mfaCode } = req.body || {};
     if (!username || !password) {
       return res.status(400).json({ error: '用户名和密码不能为空' });
     }
@@ -82,6 +146,15 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
     const account = runtime.accountStore.getAccount(username);
     if (!account || !account.active || account.pending === true) {
       return res.status(401).json({ error: '用户名或密码错误' });
+    }
+
+    const mfa = mfaStore.status(account.username);
+    let recoveryUsed = false;
+    if (mfa.enabled) {
+      if (!mfaCode) return res.status(428).json({ error: '请输入 MFA 动态验证码或恢复码', code: 'MFA_REQUIRED' });
+      const verified = mfaStore.verify(account.username, mfaCode);
+      if (!verified.ok) return res.status(401).json({ error: 'MFA 动态验证码或恢复码不正确', code: 'MFA_INVALID' });
+      recoveryUsed = verified.recoveryUsed;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -96,11 +169,17 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore) {
         return res.status(503).json({ error: '登录服务暂不可用，请稍后重试' });
       }
     }
-    if (!userSessions.has(account.username)) {
-      userSessions.set(account.username, {});
+    if (!userSessions.has(account.username)) userSessions.set(account.username, {});
+    if (recoveryUsed) {
+      collaborationStore.notify(account.username, {
+        type: 'security.recovery_code_used',
+        title: 'MFA 恢复码已使用',
+        message: '刚刚有一个一次性恢复码用于登录。若非本人操作，请立即修改密码并重新配置 MFA。'
+      });
     }
     res.json({
       token,
+      mfaRecoveryUsed: recoveryUsed,
       ...sessionShape(account, runtime.accountStore.effectivePermissions(account))
     });
   });
