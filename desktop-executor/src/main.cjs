@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, session } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -10,7 +10,8 @@ app.commandLine.appendSwitch('lang', 'zh-CN');
 
 const statePath = () => path.join(app.getPath('userData'), 'executor-state.bin');
 let heartbeatTimer = null;
-let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [] };
+let state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null };
+const configuredAccountSessions = new Set();
 
 function normalizeServerUrl(value) {
   const url = new URL(String(value || '').trim());
@@ -44,6 +45,77 @@ async function request(pathname, options = {}) {
   return payload;
 }
 
+async function uploadVideo(jobId, filename) {
+  if (!state.deviceToken || !state.serverUrl) throw new Error('执行器尚未完成配对');
+  const stat = await fs.promises.stat(filename);
+  if (!stat.isFile()) throw new Error('下载的视频文件不存在');
+  if (stat.size > 512 * 1024 * 1024) throw new Error('视频超过平台允许的 512MB 回传上限');
+  const body = new FormData();
+  const extension = path.extname(filename).toLowerCase();
+  const contentType = extension === '.webm' ? 'video/webm' : extension === '.mov' ? 'video/quicktime' : 'video/mp4';
+  body.append('video', new Blob([await fs.promises.readFile(filename)], { type: contentType }), path.basename(filename));
+  const response = await fetch(`${state.serverUrl}/api/local-executors/jobs/${encodeURIComponent(jobId)}/result`, {
+    method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `视频回传失败（${response.status}）`);
+  if (state.activeJob && state.activeJob.id === jobId) {
+    state.activeJob = null;
+    saveState();
+  }
+  return payload;
+}
+
+function prefillDoubaoPrompt(webContents, prompt) {
+  const script = `(() => {
+    const text = ${JSON.stringify(String(prompt || ''))};
+    const candidates = [
+      'textarea',
+      '[contenteditable="true"]',
+      'input[type="text"]'
+    ];
+    for (const selector of candidates) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (element.offsetParent === null || element.disabled || element.readOnly) continue;
+        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+          const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set;
+          setter ? setter.call(element, text) : (element.value = text);
+        } else {
+          element.textContent = text;
+        }
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.focus();
+        return { ok: true, selector };
+      }
+    }
+    return { ok: false };
+  })()`;
+  return webContents.executeJavaScript(script, true).catch(() => ({ ok: false }));
+}
+
+function configureAccountSession(account) {
+  const accountSession = session.fromPartition(`persist:doubao-${account.id}`);
+  if (configuredAccountSessions.has(account.id)) return accountSession;
+  configuredAccountSessions.add(account.id);
+  accountSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    callback({ requestHeaders: { ...details.requestHeaders, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.2' } });
+  });
+  accountSession.on('will-download', (event, item) => {
+    const job = state.activeJob;
+    if (!job) return;
+    const downloadsDir = path.join(app.getPath('downloads'), '一战晟铭视频回传');
+    fs.mkdirSync(downloadsDir, { recursive: true });
+    const savedFile = path.join(downloadsDir, `${job.id}-${Date.now()}-${item.getFilename()}`);
+    item.setSavePath(savedFile);
+    item.once('done', async (_, status) => {
+      if (status !== 'completed') return;
+      try { await uploadVideo(job.id, savedFile); } catch (_) { /* The user can retry from the executor panel. */ }
+    });
+  });
+  return accountSession;
+}
+
 async function heartbeat() {
   if (!state.serverUrl || !state.deviceToken) return { online: false, reason: '未配对' };
   await request('/api/local-executors/heartbeat', {
@@ -62,6 +134,7 @@ function startHeartbeat() {
 
 app.whenReady().then(() => {
   loadState();
+  state.accounts.forEach(configureAccountSession);
   const window = new BrowserWindow({
     width: 520, height: 660, minWidth: 460, minHeight: 580,
     title: '一战晟铭本地执行器',
@@ -74,7 +147,7 @@ app.whenReady().then(() => {
 
 ipcMain.handle('executor:state', () => ({
   serverUrl: state.serverUrl, executorId: state.executorId, displayName: state.displayName,
-  paired: Boolean(state.deviceToken), encryptionAvailable: safeStorage.isEncryptionAvailable()
+  paired: Boolean(state.deviceToken), encryptionAvailable: safeStorage.isEncryptionAvailable(), activeJob: state.activeJob
 }));
 
 ipcMain.handle('executor:pair', async (_, input) => {
@@ -96,7 +169,7 @@ ipcMain.handle('executor:heartbeat', () => heartbeat());
 
 ipcMain.handle('executor:unpair', () => {
   clearInterval(heartbeatTimer);
-  state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '' };
+  state = { serverUrl: '', executorId: '', deviceToken: '', displayName: '', accounts: [], activeJob: null };
   try { fs.rmSync(statePath(), { force: true }); } catch (_) {}
   return { paired: false };
 });
@@ -107,10 +180,7 @@ ipcMain.handle('accounts:add', (_, rawName) => {
   if (!name) throw new Error('请输入账号备注');
   const account = { id: crypto.randomUUID(), name, status: '未登录' };
   state.accounts.push(account); saveState();
-  const accountSession = session.fromPartition(`persist:doubao-${account.id}`);
-  accountSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    callback({ requestHeaders: { ...details.requestHeaders, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.2' } });
-  });
+  configureAccountSession(account);
   const loginWindow = new BrowserWindow({ width: 1120, height: 760, title: `登录豆包：${name}`, webPreferences: { partition: `persist:doubao-${account.id}`, contextIsolation: true, nodeIntegration: false } });
   loginWindow.loadURL('https://www.doubao.com/?locale=zh-CN');
   loginWindow.on('close', () => { account.status = '已登录（请在任务前确认）'; saveState(); });
@@ -121,6 +191,60 @@ ipcMain.handle('accounts:remove', async (_, id) => {
   if (index < 0) return;
   await session.fromPartition(`persist:doubao-${id}`).clearStorageData();
   state.accounts.splice(index, 1); saveState();
+});
+
+ipcMain.handle('executor:claim-job', async () => {
+  const result = await request('/api/local-executors/jobs/claim', {
+    method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }
+  });
+  state.activeJob = result.job || null;
+  saveState();
+  return state.activeJob;
+});
+
+ipcMain.handle('executor:copy-job-prompt', () => {
+  if (!state.activeJob?.prompt) throw new Error('当前没有可复制的任务提示词');
+  clipboard.writeText(state.activeJob.prompt);
+  return true;
+});
+
+ipcMain.handle('executor:open-job', async (_, accountId) => {
+  const job = state.activeJob;
+  const account = state.accounts.find(item => item.id === accountId) || state.accounts[0];
+  if (!job) throw new Error('请先领取一个任务');
+  if (!account) throw new Error('请先添加并登录一个豆包账号');
+  const accountSession = configureAccountSession(account);
+  const taskWindow = new BrowserWindow({
+    width: 1120, height: 760, title: `豆包生成：${account.name}`,
+    webPreferences: { partition: `persist:doubao-${account.id}`, contextIsolation: true, nodeIntegration: false }
+  });
+  taskWindow.loadURL('https://www.doubao.com/?locale=zh-CN');
+  taskWindow.webContents.once('did-finish-load', async () => {
+    const result = await prefillDoubaoPrompt(taskWindow.webContents, job.prompt);
+    taskWindow.setTitle(result.ok ? `豆包生成：${account.name}（提示词已填入）` : `豆包生成：${account.name}（请手动粘贴提示词）`);
+  });
+  await request(`/api/local-executors/jobs/${encodeURIComponent(job.id)}/status`, {
+    method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'running', message: `已在 ${account.name} 打开豆包生成窗口` }
+  });
+  return { accountName: account.name, promptLength: job.prompt.length, downloadsWatched: true, session: Boolean(accountSession) };
+});
+
+ipcMain.handle('executor:upload-result', async () => {
+  if (!state.activeJob) throw new Error('当前没有等待回传的任务');
+  const selected = await dialog.showOpenDialog({ title: '选择已下载的生成视频', properties: ['openFile'], filters: [{ name: '视频', extensions: ['mp4', 'mov', 'webm', 'mkv'] }] });
+  if (selected.canceled || !selected.filePaths[0]) return { cancelled: true };
+  return uploadVideo(state.activeJob.id, selected.filePaths[0]);
+});
+
+ipcMain.handle('executor:fail-job', async (_, message) => {
+  if (!state.activeJob) throw new Error('当前没有运行中的任务');
+  const jobID = state.activeJob.id;
+  await request(`/api/local-executors/jobs/${encodeURIComponent(jobID)}/status`, {
+    method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'failed', message: String(message || '').trim() || '本地执行器中止任务' }
+  });
+  state.activeJob = null;
+  saveState();
+  return true;
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

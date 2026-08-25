@@ -10,14 +10,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"qiantie/backend/internal/shuihuo/domain"
+	shuihuostorage "qiantie/backend/internal/shuihuo/storage"
+	shuihuostore "qiantie/backend/internal/shuihuo/store"
 )
 
 const localExecutorPairingTTL = 10 * time.Minute
 const localExecutorOnlineWindow = 90 * time.Second
+const localExecutorMaxVideoBytes = 512 << 20
 
 type localExecutorPairingRequest struct {
 	Platform string `json:"platform"`
@@ -263,13 +270,31 @@ func (api *API) handleClaimLocalExecutorJob(w http.ResponseWriter, r *http.Reque
 	}
 	defer tx.Rollback()
 	var id, sourceKind, prompt, input string
-	err = tx.QueryRowContext(r.Context(), `SELECT id, source_kind, prompt, input_json FROM local_executor_jobs WHERE user_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, userID).Scan(&id, &sourceKind, &prompt, &input)
+	var sourceTaskID sql.NullInt64
+	err = tx.QueryRowContext(r.Context(), `SELECT id, source_kind, source_task_id, prompt, input_json FROM local_executor_jobs WHERE user_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, userID).Scan(&id, &sourceKind, &sourceTaskID, &prompt, &input)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusOK, map[string]any{"job": nil})
 		return
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取任务失败"})
+		return
+	}
+	if sourceKind != "shuihuo_video" || !sourceTaskID.Valid {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "本地任务来源无效"})
+		return
+	}
+	result, err := tx.ExecContext(r.Context(), `UPDATE shuihuo_tasks SET status = 'running' WHERE id = ? AND status = 'queued'`, sourceTaskID.Int64)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "启动生成任务失败"})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "生成任务已变更，请刷新后重试"})
+		return
+	}
+	if _, err = tx.ExecContext(r.Context(), `INSERT INTO shuihuo_task_events(task_id, status, message) VALUES(?, 'running', '本地执行器开始处理')`, sourceTaskID.Int64); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "记录生成任务失败"})
 		return
 	}
 	_, err = tx.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='running', executor_id=?, claimed_at=UTC_TIMESTAMP(), progress_message='本地执行器已领取' WHERE id=? AND status='queued'`, executorID, id)
@@ -293,7 +318,7 @@ func (api *API) handleUpdateLocalExecutorJobStatus(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "状态参数无效"})
 		return
 	}
-	if req.Status != "running" && req.Status != "succeeded" && req.Status != "failed" {
+	if req.Status != "running" && req.Status != "failed" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "不支持的任务状态"})
 		return
 	}
@@ -304,16 +329,156 @@ func (api *API) handleUpdateLocalExecutorJobStatus(w http.ResponseWriter, r *htt
 		return
 	}
 	jobID := strings.TrimSpace(chi.URLParam(r, "jobId"))
-	query := `UPDATE local_executor_jobs SET status=?, progress_message=?, completed_at=CASE WHEN ? IN ('succeeded','failed') THEN UTC_TIMESTAMP() ELSE completed_at END WHERE id=? AND executor_id=? AND status='running'`
-	result, err := api.deps.DB.ExecContext(r.Context(), query, req.Status, strings.TrimSpace(req.Message), req.Status, jobID, executorID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
+	if req.Status == "running" {
+		result, err := api.deps.DB.ExecContext(r.Context(), `UPDATE local_executor_jobs SET progress_message=? WHERE id=? AND executor_id=? AND status='running'`, strings.TrimSpace(req.Message), jobID, executorID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
+			return
+		}
+		count, _ := result.RowsAffected()
+		if count != 1 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "任务不存在或不属于此设备"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
-	count, _ := result.RowsAffected()
-	if count != 1 {
+
+	tx, err := api.deps.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "更新任务状态失败"})
+		return
+	}
+	defer tx.Rollback()
+	var sourceTaskID sql.NullInt64
+	err = tx.QueryRowContext(r.Context(), `SELECT source_task_id FROM local_executor_jobs WHERE id=? AND executor_id=? AND status='running' FOR UPDATE`, jobID, executorID).Scan(&sourceTaskID)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "任务不存在或不属于此设备"})
 		return
 	}
+	if err != nil || !sourceTaskID.Valid {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取任务状态失败"})
+		return
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		message = "本地执行器任务失败"
+	}
+	if _, err = tx.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='failed', progress_message=?, completed_at=UTC_TIMESTAMP() WHERE id=?`, message, jobID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
+		return
+	}
+	if _, err = tx.ExecContext(r.Context(), `UPDATE shuihuo_tasks SET status='failed', error_code='local_executor_failed', error_message=? WHERE id=? AND status='running'`, message, sourceTaskID.Int64); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新生成任务失败"})
+		return
+	}
+	if _, err = tx.ExecContext(r.Context(), `INSERT INTO shuihuo_task_events(task_id, status, message) VALUES(?, 'failed', ?)`, sourceTaskID.Int64, message); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "记录生成任务失败"})
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "更新任务状态失败"})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleUploadLocalExecutorJobResult accepts the finished video from a paired
+// device. The browser account itself never leaves the local executor; the
+// device token is scoped to one paired device and one of its claimed jobs.
+func (api *API) handleUploadLocalExecutorJobResult(w http.ResponseWriter, r *http.Request) {
+	if !api.requireLocalExecutorDatabase(w) {
+		return
+	}
+	if api.deps.Objects == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "素材存储未配置"})
+		return
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	executorID, userID, err := api.localExecutorIdentity(r.Context(), token)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "设备令牌无效"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, localExecutorMaxVideoBytes)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "视频文件无效或超过 512MB"})
+		return
+	}
+	file, header, err := r.FormFile("video")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "请选择要回传的视频文件"})
+		return
+	}
+	defer file.Close()
+	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
+	if !strings.HasPrefix(contentType, "video/") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "只支持视频文件回传"})
+		return
+	}
+	jobID := strings.TrimSpace(chi.URLParam(r, "jobId"))
+	var projectID int64
+	var segmentID sql.NullInt64
+	err = api.deps.DB.QueryRowContext(r.Context(), `
+SELECT t.project_id, t.segment_id
+FROM local_executor_jobs j
+JOIN shuihuo_tasks t ON t.id = j.source_task_id
+WHERE j.id=? AND j.executor_id=? AND j.user_id=? AND j.source_kind='shuihuo_video' AND j.status='running' AND t.status='running'
+`, jobID, executorID, userID).Scan(&projectID, &segmentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "没有可回传的运行中视频任务"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取回传任务失败"})
+		return
+	}
+	ext := strings.ToLower(path.Ext(header.Filename))
+	if ext == "" || len(ext) > 12 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "视频文件名无效"})
+		return
+	}
+	filename := fmt.Sprintf("local-%s-%d%s", jobID, time.Now().UTC().UnixNano(), ext)
+	key, err := shuihuostorage.ObjectKey(userID, projectID, "videos", filename)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "视频文件名无效"})
+		return
+	}
+	if _, err = api.deps.Objects.Put(r.Context(), key, file, contentType); err != nil {
+		_ = api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), key, "local_executor_video_upload_failure")
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存回传视频失败"})
+		return
+	}
+	var durationMS *int64
+	if rawDuration := strings.TrimSpace(r.FormValue("durationMs")); rawDuration != "" {
+		if value, parseErr := strconv.ParseInt(rawDuration, 10, 64); parseErr == nil && value >= 0 {
+			durationMS = &value
+		}
+	}
+	tasks := shuihuostore.NewTasks(api.deps.DB)
+	var taskID int64
+	if err = api.deps.DB.QueryRowContext(r.Context(), `SELECT source_task_id FROM local_executor_jobs WHERE id=? AND executor_id=? AND status='running'`, jobID, executorID).Scan(&taskID); err != nil {
+		_ = api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), key, "local_executor_video_task_lookup_failure")
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "回传任务已变更，请重新领取"})
+		return
+	}
+	completed, err := tasks.CompleteWithGeneratedMedia(r.Context(), taskID, domain.Media{ProjectID: projectID, SegmentID: nullableInt64Pointer(segmentID), TaskID: &taskID, Kind: "video", ObjectKey: key, Source: "local_executor", DurationMS: durationMS}, "本地豆包执行器已回传视频")
+	if err != nil || !completed {
+		_ = api.deleteShuihuoObjectWithDeferredCleanup(r.Context(), key, "local_executor_video_completion_failure")
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "视频状态已变更，未保存重复回传"})
+		return
+	}
+	if _, err = api.deps.DB.ExecContext(r.Context(), `UPDATE local_executor_jobs SET status='succeeded', progress_message='视频已回传到平台', result_object_key=?, completed_at=UTC_TIMESTAMP() WHERE id=? AND executor_id=? AND status='running'`, key, jobID, executorID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "视频已保存，但任务回传状态更新失败"})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "objectKey": key})
+}
+
+func nullableInt64Pointer(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Int64
+	return &result
 }

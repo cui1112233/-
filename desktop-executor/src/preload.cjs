@@ -7,5 +7,10 @@ contextBridge.exposeInMainWorld('executor', {
   unpair: () => ipcRenderer.invoke('executor:unpair'),
   accounts: () => ipcRenderer.invoke('accounts:list'),
   addAccount: name => ipcRenderer.invoke('accounts:add', name),
-  removeAccount: id => ipcRenderer.invoke('accounts:remove', id)
+  removeAccount: id => ipcRenderer.invoke('accounts:remove', id),
+  claimJob: () => ipcRenderer.invoke('executor:claim-job'),
+  copyJobPrompt: () => ipcRenderer.invoke('executor:copy-job-prompt'),
+  openJob: accountId => ipcRenderer.invoke('executor:open-job', accountId),
+  uploadResult: () => ipcRenderer.invoke('executor:upload-result'),
+  failJob: message => ipcRenderer.invoke('executor:fail-job', message)
 });

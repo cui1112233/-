@@ -65,6 +65,7 @@ func (api *API) Router() http.Handler {
 		r.Post("/local-executors/heartbeat", api.handleLocalExecutorHeartbeat)
 		r.Post("/local-executors/jobs/claim", api.handleClaimLocalExecutorJob)
 		r.Post("/local-executors/jobs/{jobId}/status", api.handleUpdateLocalExecutorJobStatus)
+		r.Post("/local-executors/jobs/{jobId}/result", api.handleUploadLocalExecutorJobResult)
 		r.With(api.requireAuth).Get("/me", api.handleMe)
 		r.With(api.requireAuth).Get("/config", api.handleGetConfig)
 		r.With(api.requireAuth).Post("/config", api.handleSaveConfig)
