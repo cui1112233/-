@@ -90,10 +90,7 @@ WHERE d.id = ? AND v.id = ? AND d.enabled = TRUE`, modelID, versionID).Scan(
 	return model, nil
 }
 
-func (s *Models) Create(ctx context.Context, ownerID int64, model models.Definition) (models.Definition, error) {
-	if strings.TrimSpace(model.ModelID) == "" {
-		model.ModelID = fmt.Sprintf("legacy-%s-%d", strings.ToLower(string(model.Kind)), time.Now().UnixNano())
-	}
+func normalizeModelDefaults(model *models.Definition) {
 	if model.ImageInputFormat == "" {
 		model.ImageInputFormat = "url"
 	}
@@ -103,15 +100,22 @@ func (s *Models) Create(ctx context.Context, ownerID int64, model models.Definit
 	if strings.TrimSpace(model.RuntimePolicyJSON) == "" {
 		model.RuntimePolicyJSON = "{}"
 	}
+	if strings.TrimSpace(model.ParameterSchema) == "" {
+		model.ParameterSchema = "{}"
+	}
+}
+
+func (s *Models) Create(ctx context.Context, ownerID int64, model models.Definition) (models.Definition, error) {
+	if strings.TrimSpace(model.ModelID) == "" {
+		model.ModelID = fmt.Sprintf("legacy-%s-%d", strings.ToLower(string(model.Kind)), time.Now().UnixNano())
+	}
+	normalizeModelDefaults(&model)
 	if err := models.ValidateDefinition(model); err != nil {
 		return models.Definition{}, err
 	}
 	rolesJSON, err := json.Marshal(model.AllowedRoles)
 	if err != nil {
 		return models.Definition{}, err
-	}
-	if model.ParameterSchema == "" {
-		model.ParameterSchema = "{}"
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -131,6 +135,64 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))`, model.ModelID, model.Name, 
 model_definition_id, version_number, credential_ref, endpoint, base_domain, base_path, request_template, response_mapping, polling_template,
 image_input_format, image_request_mode, runtime_policy_json, created_by)
 VALUES(?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`, model.ID, model.CredentialRef, model.Endpoint, model.BaseDomain, model.BasePath,
+		model.RequestTemplate, model.ResponseMapping, model.PollingTemplate, model.ImageInputFormat, model.ImageRequestMode, model.RuntimePolicyJSON, ownerID)
+	if err != nil {
+		return models.Definition{}, err
+	}
+	model.VersionID, err = result.LastInsertId()
+	if err != nil {
+		return models.Definition{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return models.Definition{}, err
+	}
+	return model, nil
+}
+
+// Update keeps the stable model identity and adapter kind immutable, updates
+// user/admin-visible definition metadata, and appends a new immutable provider
+// version. Existing tasks keep their previously recorded model_version_id.
+func (s *Models) Update(ctx context.Context, ownerID, modelID int64, model models.Definition) (models.Definition, error) {
+	if modelID < 1 {
+		return models.Definition{}, fmt.Errorf("invalid model id")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return models.Definition{}, err
+	}
+	defer tx.Rollback()
+
+	var existingKey string
+	var existingKind models.Kind
+	var existingAdapter string
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(model_key, ''), kind, adapter_kind FROM model_definitions WHERE id = ? FOR UPDATE`, modelID).Scan(&existingKey, &existingKind, &existingAdapter); err != nil {
+		return models.Definition{}, err
+	}
+	model.ID = modelID
+	model.ModelID = existingKey
+	model.Kind = existingKind
+	model.AdapterKind = existingAdapter
+	normalizeModelDefaults(&model)
+	if err := models.ValidateDefinition(model); err != nil {
+		return models.Definition{}, err
+	}
+	rolesJSON, err := json.Marshal(model.AllowedRoles)
+	if err != nil {
+		return models.Definition{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE model_definitions
+SET name = ?, enabled = ?, hidden = ?, sort_order = ?, admin_note = ?, allowed_roles_json = ?, parameter_schema_json = CAST(? AS JSON)
+WHERE id = ?`, model.Name, model.Enabled, model.Hidden, model.SortOrder, model.AdminNote, rolesJSON, model.ParameterSchema, modelID); err != nil {
+		return models.Definition{}, err
+	}
+	var nextVersion int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version_number), 0) + 1 FROM model_versions WHERE model_definition_id = ?`, modelID).Scan(&nextVersion); err != nil {
+		return models.Definition{}, err
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO model_versions(
+model_definition_id, version_number, credential_ref, endpoint, base_domain, base_path, request_template, response_mapping, polling_template,
+image_input_format, image_request_mode, runtime_policy_json, created_by)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`, modelID, nextVersion, model.CredentialRef, model.Endpoint, model.BaseDomain, model.BasePath,
 		model.RequestTemplate, model.ResponseMapping, model.PollingTemplate, model.ImageInputFormat, model.ImageRequestMode, model.RuntimePolicyJSON, ownerID)
 	if err != nil {
 		return models.Definition{}, err
