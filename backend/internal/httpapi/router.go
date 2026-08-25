@@ -87,6 +87,7 @@ func (api *API) Router() http.Handler {
 			r.Post("/shuihuo-production/projects/{id}/prompt-candidates/{kind}", api.handleGenerateShuihuoPromptCandidates)
 			r.Put("/shuihuo-production/projects/{id}/prompt-candidates/{kind}/apply", api.handleApplyShuihuoPromptCandidates)
 			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
+			r.Post("/shuihuo-production/batch-factory/import-videos", api.handleImportBatchFactoryVideos)
 			r.Get("/shuihuo-production/projects/{id}/tasks", api.handleListShuihuoTasks)
 			r.Post("/shuihuo-production/projects/{id}/tasks", api.handleCreateShuihuoTask)
 			r.Post("/shuihuo-production/projects/{id}/tasks/batch", api.handleCreateShuihuoBatchTasks)
