@@ -33,6 +33,37 @@ test('recognizes 镜头N： headings emitted by the shotlist preset', async () =
   assert.match(cards[1], /00:07-00:10/);
 });
 
+test('Q版输出仅用 --- 分隔且省略镜头标题时，仍拆为独立卡片', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '【画面主体描述】林晚在酒店大厅接过邀请函，手指微颤。',
+    '【迷你小人细节】Q版迷你林晚悬在她右肩旁，抱头震惊。',
+    '【环境光影】暖金色吊灯与浅景深。',
+    '---',
+    '【画面主体描述】林晚收紧邀请函，转身走向电梯。',
+    '【环境光影】电梯门反射冷白光，镜头跟随推进。'
+  ].join('\n');
+  const cards = getShotCards('q版', output);
+  assert.equal(cards.length, 2);
+  assert.match(cards[0], /迷你小人细节/);
+  assert.match(cards[1], /转身走向电梯/);
+});
+
+test('Q版输出的共享基础设定会复制到每张 --- 分隔卡片', async () => {
+  const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
+  const output = [
+    '【基础设定】生成视频不带字幕 | 9:16',
+    '林晚：二十四岁，黑色长发，浅蓝连衣裙。',
+    '---',
+    '00:00-00:05 | 近景 | 林晚接过邀请函。',
+    '---',
+    '00:00-00:05 | 中景 | 林晚走向电梯。'
+  ].join('\n');
+  const cards = getShotCards('q版', output);
+  assert.equal(cards.length, 2);
+  for (const card of cards) assert.match(card, /【基础设定】生成视频不带字幕/);
+});
+
 test('recognizes 画布分镜N： headings (storyboard preset)', async () => {
   const { getShotCards } = await import('../frontend/src/user/pages/scriptShotOutput.js');
   const output = [
