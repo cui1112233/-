@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -218,6 +219,31 @@ JOIN shuihuo_projects p ON p.id = t.project_id
 WHERE t.project_id = ? AND p.user_id = ?
 ORDER BY t.created_at DESC, t.id DESC
 `, projectID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+func (s *Tasks) ListByProjects(ctx context.Context, ownerID int64, projectIDs []int64) ([]domain.Task, error) {
+	if len(projectIDs) == 0 {
+		return []domain.Task{}, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(projectIDs)), ",")
+	args := make([]any, 0, len(projectIDs)+1)
+	for _, projectID := range projectIDs {
+		args = append(args, projectID)
+	}
+	args = append(args, ownerID)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT t.id, p.user_id, t.project_id, t.segment_id, t.kind, t.status, t.provider, t.provider_task_id, t.model_id, t.model_version_id, t.prompt_version_id,
+       t.input_snapshot, t.output_snapshot, t.error_code, t.error_message, t.retry_count
+FROM shuihuo_tasks t
+JOIN shuihuo_projects p ON p.id = t.project_id
+WHERE t.project_id IN (`+placeholders+`) AND p.user_id = ?
+ORDER BY t.project_id ASC, t.created_at ASC, t.id ASC
+`, args...)
 	if err != nil {
 		return nil, err
 	}
