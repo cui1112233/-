@@ -1,11 +1,16 @@
 package httpapi
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"qiantie/backend/internal/shuihuo/models"
 	shuihuostore "qiantie/backend/internal/shuihuo/store"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type shuihuoAdminModelRequest struct {
@@ -17,6 +22,7 @@ type shuihuoAdminModelRequest struct {
 	Hidden            bool        `json:"hidden"`
 	SortOrder         int         `json:"sortOrder"`
 	AdminNote         string      `json:"adminNote"`
+	AllowedRoles      []string    `json:"allowedRoles"`
 	ParameterSchema   string      `json:"parameterSchema"`
 	CredentialRef     string      `json:"credentialRef"`
 	Endpoint          string      `json:"endpoint"`
@@ -28,6 +34,18 @@ type shuihuoAdminModelRequest struct {
 	ImageInputFormat  string      `json:"imageInputFormat"`
 	ImageRequestMode  string      `json:"imageRequestMode"`
 	RuntimePolicyJSON string      `json:"runtimePolicyJson"`
+}
+
+func adminModelDefinition(req shuihuoAdminModelRequest) models.Definition {
+	return models.Definition{
+		ModelID: strings.TrimSpace(req.ModelID), Name: strings.TrimSpace(req.Name), Kind: req.Kind, AdapterKind: req.AdapterKind,
+		Enabled: req.Enabled, Hidden: req.Hidden, SortOrder: req.SortOrder, AdminNote: strings.TrimSpace(req.AdminNote),
+		AllowedRoles: append([]string(nil), req.AllowedRoles...), ParameterSchema: req.ParameterSchema,
+		CredentialRef: strings.TrimSpace(req.CredentialRef), Endpoint: strings.TrimSpace(req.Endpoint),
+		BaseDomain: strings.TrimSpace(req.BaseDomain), BasePath: strings.TrimSpace(req.BasePath), RequestTemplate: req.RequestTemplate,
+		ResponseMapping: req.ResponseMapping, PollingTemplate: req.PollingTemplate, ImageInputFormat: strings.TrimSpace(req.ImageInputFormat),
+		ImageRequestMode: strings.TrimSpace(req.ImageRequestMode), RuntimePolicyJSON: req.RuntimePolicyJSON,
+	}
 }
 
 func (api *API) handleAdminModelList(w http.ResponseWriter, r *http.Request) {
@@ -56,14 +74,7 @@ func (api *API) handleCreateAdminModel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
 		return
 	}
-	definition := models.Definition{
-		ModelID: strings.TrimSpace(req.ModelID), Name: strings.TrimSpace(req.Name), Kind: req.Kind, AdapterKind: req.AdapterKind,
-		Enabled: req.Enabled, Hidden: req.Hidden, SortOrder: req.SortOrder, AdminNote: strings.TrimSpace(req.AdminNote),
-		ParameterSchema: req.ParameterSchema, CredentialRef: strings.TrimSpace(req.CredentialRef), Endpoint: strings.TrimSpace(req.Endpoint),
-		BaseDomain: strings.TrimSpace(req.BaseDomain), BasePath: strings.TrimSpace(req.BasePath), RequestTemplate: req.RequestTemplate,
-		ResponseMapping: req.ResponseMapping, PollingTemplate: req.PollingTemplate, ImageInputFormat: strings.TrimSpace(req.ImageInputFormat),
-		ImageRequestMode: strings.TrimSpace(req.ImageRequestMode), RuntimePolicyJSON: req.RuntimePolicyJSON,
-	}
+	definition := adminModelDefinition(req)
 	if err := models.ValidateDefinition(definition); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效：" + err.Error()})
 		return
@@ -75,4 +86,33 @@ func (api *API) handleCreateAdminModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, models.ToAdmin(model))
+}
+
+func (api *API) handleUpdateAdminModel(w http.ResponseWriter, r *http.Request) {
+	if !api.requireShuihuoDatabase(w) {
+		return
+	}
+	modelID, err := strconv.ParseInt(chi.URLParam(r, "modelId"), 10, 64)
+	if err != nil || modelID < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型ID无效"})
+		return
+	}
+	var req shuihuoAdminModelRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	definition := adminModelDefinition(req)
+	definition.ID = modelID
+	user, _ := currentUser(r)
+	updated, err := shuihuostore.NewModels(api.deps.DB).Update(r.Context(), user.ID, modelID, definition)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "模型不存在"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "模型配置无效：" + err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, models.ToAdmin(updated))
 }
