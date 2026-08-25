@@ -28,6 +28,14 @@ function compileItemVideos(presetStore, batch, item) {
   });
 }
 
+function boundModelError(batch, modelId) {
+  const boundModelId = Number(batch?.settings?.videoModelId);
+  if (!Number.isInteger(boundModelId) || boundModelId < 1) return '';
+  if (boundModelId === modelId) return '';
+  const name = String(batch?.settings?.videoModelName || `模型 #${boundModelId}`).trim();
+  return `该导演方案已绑定 ${name}。如需更换视频模型，请回到生产设置重新创建/导演，避免模型时长能力不一致。`;
+}
+
 async function submitItemProduction({ presetStore, batch, item, modelId, username, isOwner, shuihuoGateway }) {
   const videos = compileItemVideos(presetStore, batch, item);
   const sourceText = batch.mode === 'viral'
@@ -106,6 +114,8 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     const batch = store.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
+    const modelError = boundModelError(batch, modelId);
+    if (modelError) return res.status(409).json({ error: modelError });
     if (!item.directorResult?.storyboard?.length || item.status !== 'complete') return res.status(409).json({ error: '请先完成导演方案' });
     if (item.production?.projectId && req.body?.force !== true) {
       return res.status(409).json({ error: '该开篇已经提交过视频生产', production: item.production });
@@ -133,6 +143,8 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     if (!Number.isInteger(modelId) || modelId < 1) return res.status(400).json({ error: '请选择文生视频模型' });
     const batch = store.getBatch(req.username, req.params.batchId);
     if (!batch) return res.status(404).json({ error: '批次不存在' });
+    const modelError = boundModelError(batch, modelId);
+    if (modelError) return res.status(409).json({ error: modelError });
     const targets = batch.items.filter(item => (
       item.status === 'complete'
       && item.directorResult?.storyboard?.length
@@ -179,4 +191,4 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
   return router;
 }
 
-module.exports = { createBatchFactoryProductionRouter };
+module.exports = { createBatchFactoryProductionRouter, boundModelError };
