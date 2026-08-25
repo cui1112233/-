@@ -12,6 +12,7 @@ import {
   startBatchFactoryBatch,
   updateBatchFactoryDirectorResult
 } from '../../shared/api/batchFactory';
+import { BatchFactoryProductionControls } from './batch-factory/BatchFactoryProductionControls';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
 
@@ -119,6 +120,13 @@ export function BatchFactoryPage() {
     }
   }
 
+  async function refreshActiveBatch() {
+    if (!activeBatch?.id) return;
+    const result = await getBatchFactoryBatch(activeBatch.id);
+    setActiveBatch(result.batch);
+    await refreshHistory();
+  }
+
   function addPasted() {
     const items = splitPastedText(pasted);
     if (!items.length) return message.warning('请先粘贴小说开篇');
@@ -183,8 +191,7 @@ export function BatchFactoryPage() {
     if (!text) return message.warning('爆款开头不能为空');
     try {
       await approveBatchFactoryHook(activeBatch.id, item.id, text);
-      const result = await getBatchFactoryBatch(activeBatch.id);
-      setActiveBatch(result.batch);
+      await refreshActiveBatch();
       message.success('已锁定爆款开头，开始导演生成');
     } catch (error) {
       message.error(error.message || '通过失败');
@@ -194,8 +201,7 @@ export function BatchFactoryPage() {
   async function rewriteHook(item) {
     try {
       await rewriteBatchFactoryHook(activeBatch.id, item.id);
-      const result = await getBatchFactoryBatch(activeBatch.id);
-      setActiveBatch(result.batch);
+      await refreshActiveBatch();
     } catch (error) {
       message.error(error.message || '重写失败');
     }
@@ -204,8 +210,7 @@ export function BatchFactoryPage() {
   async function regenerateDirector(item) {
     try {
       await regenerateBatchFactoryDirector(activeBatch.id, item.id);
-      const result = await getBatchFactoryBatch(activeBatch.id);
-      setActiveBatch(result.batch);
+      await refreshActiveBatch();
     } catch (error) {
       message.error(error.message || '重新导演失败');
     }
@@ -231,8 +236,7 @@ export function BatchFactoryPage() {
     setDirectorEditor(current => ({ ...current, saving: true }));
     try {
       await updateBatchFactoryDirectorResult(activeBatch.id, directorEditor.itemId, directorResult);
-      const refreshed = await getBatchFactoryBatch(activeBatch.id);
-      setActiveBatch(refreshed.batch);
+      await refreshActiveBatch();
       setDirectorEditor({ open: false, saving: false, itemId: '', title: '', value: '' });
       message.success('人工修改已保存；不会额外调用 AI');
     } catch (error) {
@@ -269,12 +273,7 @@ export function BatchFactoryPage() {
 
         {!activeBatch ? <>
           <Card title="1. 导入小说开篇">
-            <Input.TextArea
-              rows={8}
-              value={pasted}
-              onChange={event => setPasted(event.target.value)}
-              placeholder={'粘贴一篇或多篇小说开篇。多篇之间可以用一行 --- 分隔。'}
-            />
+            <Input.TextArea rows={8} value={pasted} onChange={event => setPasted(event.target.value)} placeholder="粘贴一篇或多篇小说开篇。多篇之间可以用一行 --- 分隔。" />
             <Space wrap style={{ marginTop: 12 }}>
               <Button icon={<FilePlus2 size={16} />} onClick={addPasted}>加入文案</Button>
               <Button icon={<UploadCloud size={16} />} onClick={() => fileInputRef.current?.click()}>上传 TXT / MD</Button>
@@ -282,13 +281,8 @@ export function BatchFactoryPage() {
               <Typography.Text type="secondary">当前 {draftItems.length} / 200 篇</Typography.Text>
             </Space>
             {draftItems.length ? <List
-              size="small"
-              style={{ marginTop: 14 }}
-              bordered
-              dataSource={draftItems}
-              renderItem={(item, index) => <List.Item
-                actions={[<Button key="delete" size="small" type="text" danger onClick={() => setDraftItems(current => current.filter((_, itemIndex) => itemIndex !== index))}>删除</Button>]}
-              >
+              size="small" style={{ marginTop: 14 }} bordered dataSource={draftItems}
+              renderItem={(item, index) => <List.Item actions={[<Button key="delete" size="small" type="text" danger onClick={() => setDraftItems(current => current.filter((_, itemIndex) => itemIndex !== index))}>删除</Button>]}>
                 <List.Item.Meta title={`${String(index + 1).padStart(2, '0')} · ${item.title}`} description={`${item.sourceText.length.toLocaleString()} 字符`} />
               </List.Item>}
             /> : null}
@@ -322,19 +316,16 @@ export function BatchFactoryPage() {
                 <Typography.Text strong>项目风格</Typography.Text>
                 <Input value={style} onChange={event => setStyle(event.target.value)} style={{ marginTop: 8, maxWidth: 700 }} />
               </div>
-              <Collapse
-                style={{ width: '100%' }}
-                items={[{
-                  key: 'advanced-video-constraints',
-                  label: '高级视频约束（沿用剧本生成约束思路）',
-                  children: <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    <div><Typography.Text strong>画质约束</Typography.Text><Input.TextArea rows={3} value={quality} onChange={event => setQuality(event.target.value)} placeholder="例如：4K超清、电影级细节与光影层次" style={{ marginTop: 6 }} /></div>
-                    <div><Typography.Text strong>画面限制</Typography.Text><Input.TextArea rows={3} value={restriction} onChange={event => setRestriction(event.target.value)} placeholder="例如：禁止无关文字、横幅、漂浮UI、字幕、水印和Logo" style={{ marginTop: 6 }} /></div>
-                    <div><Typography.Text strong>负面提示词</Typography.Text><Input.TextArea rows={3} value={negative} onChange={event => setNegative(event.target.value)} placeholder="填写每个 Video 都要携带的负面提示词" style={{ marginTop: 6 }} /></div>
-                    <Typography.Text type="secondary">这些内容会在视频生成前由服务器复制到每一个独立 VIDEO 的最终 Prompt，不会只写在整批开头。</Typography.Text>
-                  </Space>
-                }]}
-              />
+              <Collapse style={{ width: '100%' }} items={[{
+                key: 'advanced-video-constraints',
+                label: '高级视频约束（沿用剧本生成约束思路）',
+                children: <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <div><Typography.Text strong>画质约束</Typography.Text><Input.TextArea rows={3} value={quality} onChange={event => setQuality(event.target.value)} placeholder="例如：4K超清、电影级细节与光影层次" style={{ marginTop: 6 }} /></div>
+                  <div><Typography.Text strong>画面限制</Typography.Text><Input.TextArea rows={3} value={restriction} onChange={event => setRestriction(event.target.value)} placeholder="例如：禁止无关文字、横幅、漂浮UI、字幕、水印和Logo" style={{ marginTop: 6 }} /></div>
+                  <div><Typography.Text strong>负面提示词</Typography.Text><Input.TextArea rows={3} value={negative} onChange={event => setNegative(event.target.value)} placeholder="填写每个 Video 都要携带的负面提示词" style={{ marginTop: 6 }} /></div>
+                  <Typography.Text type="secondary">这些内容会在视频生成前由服务器复制到每一个独立 VIDEO 的最终 Prompt，不会只写在整批开头。</Typography.Text>
+                </Space>
+              }]} />
               <Button type="primary" size="large" icon={<WandSparkles size={17} />} loading={creating} onClick={createAndStart} disabled={!draftItems.length}>创建批次并开始</Button>
             </Space>
           </Card>
@@ -385,6 +376,7 @@ export function BatchFactoryPage() {
                   <Button onClick={() => regenerateDirector(item)}>使用当前预设重新导演</Button>
                   {item.promptVersions ? <Typography.Text type="secondary">已记录本次元提示词版本</Typography.Text> : null}
                 </Space>
+                <BatchFactoryProductionControls batch={activeBatch} item={item} onRefresh={refreshActiveBatch} />
               </> : item.status === 'hook_review' ? null : <Spin tip={activeStatuses.has(item.status) ? '生成中' : '等待结果'} />}
             </Space>
           }))} />
