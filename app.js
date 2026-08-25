@@ -26,6 +26,7 @@ const { createPlatformProjectsRouter } = require('./routes/platform-projects');
 const novelPanelRouter = require('./routes/novel-panel-page');
 const novelPanelApiRouter = require('./routes/novel-panel');
 const { createBatchFactoryRouter } = require('./routes/batch-factory');
+const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -123,6 +124,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryRouter({ presetStore: resolvedPresetStore }));
+  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ presetStore: resolvedPresetStore }));
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
