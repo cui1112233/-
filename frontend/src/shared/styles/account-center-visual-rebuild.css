@@ -640,3 +640,19 @@
   .account-center-shell.account-center-drawer-open .legacy-main { margin-left: 0; }
   .account-center-popover { left: 84px; width: min(284px, calc(100vw - 100px)); }
 }
+
+/* 联合治理在个人中心抽屉打开时仍是“选择团队 + 策略配置”的双工作区，
+   不能因为外层内容宽度小于通用断点而退化成连续的纵向表单。 */
+@container (min-width: 720px) {
+  .advanced-team-admin-page .ac-two-column {
+    grid-template-columns: minmax(0, 1.15fr) minmax(282px, .85fr);
+  }
+  .advanced-team-admin-page .ac-ranking-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 286px;
+  }
+  .advanced-team-admin-page .ac-delegated-team {
+    min-height: 78px;
+  }
+}
