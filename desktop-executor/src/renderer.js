@@ -49,7 +49,7 @@ async function checkUpdate(silent = false) {
   } catch (error) { if (!silent) setNotice(error.message || '检查更新失败', 'error'); }
 }
 document.querySelector('#check-update').addEventListener('click', () => checkUpdate(false));
-document.querySelector('#download-update').addEventListener('click', async () => { try { await window.executor.downloadUpdate(); setNotice('已在浏览器打开新安装包下载。下载后按系统提示安装即可。', 'success'); } catch (error) { setNotice(error.message || '下载更新失败', 'error'); } });
+document.querySelector('#download-update').addEventListener('click', async () => { try { const result = await window.executor.downloadUpdate(); setNotice(result.installedDirectly ? '更新已下载，执行器正在自动替换并重启。' : '已在浏览器打开新安装包下载。下载后按系统提示安装即可。', 'success'); } catch (error) { setNotice(error.message || '下载更新失败', 'error'); } });
 document.querySelector('#auto-submit').addEventListener('change', async event => { try { await window.executor.setAutoSubmit(event.target.checked); setNotice(event.target.checked ? '已开启自动点击生成。' : '已关闭自动点击生成。'); } catch (error) { setNotice(error.message || '设置失败', 'error'); } });
 document.querySelector('#unpair').addEventListener('click', async () => { await window.executor.unpair(); setNotice('已解除这台电脑的配对。'); await refresh(); });
 document.querySelector('#account-form').addEventListener('submit', async e => { e.preventDefault(); try { await window.executor.addAccount(document.querySelector('#account-name').value); document.querySelector('#account-name').value = ''; setNotice('已打开豆包登录窗口。', 'success'); refreshAccounts(); } catch (error) { setNotice(error.message || '添加账号失败', 'error'); } });

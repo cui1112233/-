@@ -2,6 +2,7 @@ const { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, session, sh
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { spawn } = require('node:child_process');
 
 // Force the embedded Chromium renderer and the account-login partition to ask
 // for Simplified Chinese. Some provider pages fall back to untranslated i18n
@@ -220,7 +221,7 @@ async function openJobForAccount(job, account) {
     clearInterval(restrictionTimer);
     await markAccountUnavailable(account, reason);
     if (!taskWindow.isDestroyed()) taskWindow.close();
-    await dispatchActiveJob();
+    await dispatchActiveJob(account.id);
   }, 5000);
   state.activeJob = { ...job, accountId: account.id, accountName: account.name };
   saveState();
@@ -228,10 +229,10 @@ async function openJobForAccount(job, account) {
   return { accountName: account.name, promptLength: job.prompt.length, downloadsWatched: true, session: Boolean(accountSession) };
 }
 
-async function dispatchActiveJob() {
+async function dispatchActiveJob(excludedAccountID = '') {
   const job = state.activeJob;
   if (!job) return null;
-  const account = availableAccounts().find(item => item.id !== job.accountId) || availableAccounts()[0];
+  const account = availableAccounts().find(item => item.id !== excludedAccountID) || availableAccounts()[0];
   if (!account) {
     await request(`/api/local-executors/jobs/${encodeURIComponent(job.id)}/status`, { method: 'POST', headers: { Authorization: `Bearer ${state.deviceToken}` }, body: { status: 'failed', message: '所有本地豆包账号均不可用' } });
     state.activeJob = null; saveState(); return null;
@@ -265,8 +266,12 @@ function startHeartbeat() {
   heartbeat().catch(() => {});
   heartbeatTimer = setInterval(() => heartbeat().catch(() => {}), 30000);
   clearInterval(claimTimer);
-  claimAndDispatch().catch(() => {});
-  claimTimer = setInterval(() => claimAndDispatch().catch(() => {}), 15000);
+  const dispatchOrClaim = () => {
+    if (state.activeJob && !state.activeJob.accountId) return dispatchActiveJob();
+    return claimAndDispatch();
+  };
+  dispatchOrClaim().catch(() => {});
+  claimTimer = setInterval(() => dispatchOrClaim().catch(() => {}), 15000);
 }
 
 app.whenReady().then(() => {
@@ -309,6 +314,16 @@ ipcMain.handle('executor:check-update', () => checkForUpdate());
 ipcMain.handle('executor:download-update', async () => {
   const update = await checkForUpdate();
   if (!update.updateAvailable || !update.url) return update;
+  if (process.platform === 'win32') {
+    const response = await fetch(update.url);
+    if (!response.ok) throw new Error(`下载安装包失败（${response.status}）`);
+    const pendingPath = `${process.execPath}.update.exe`;
+    await fs.promises.writeFile(pendingPath, Buffer.from(await response.arrayBuffer()));
+    const command = `ping 127.0.0.1 -n 3 > nul & move /Y "${pendingPath}" "${process.execPath}" & start "" "${process.execPath}"`;
+    spawn('cmd.exe', ['/c', command], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    setTimeout(() => app.quit(), 250);
+    return { ...update, installedDirectly: true };
+  }
   await shell.openExternal(update.url);
   return update;
 });
@@ -352,6 +367,7 @@ ipcMain.handle('executor:claim-job', async () => {
   });
   state.activeJob = result.job || null;
   saveState();
+  if (state.activeJob) await dispatchActiveJob();
   return state.activeJob;
 });
 
