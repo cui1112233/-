@@ -6,6 +6,7 @@ import {
   compileBatchFactoryVideo,
   createBatchFactoryBatch,
   getBatchFactoryBatch,
+  getBatchFactoryIntake,
   listBatchFactoryBatches,
   regenerateBatchFactoryDirector,
   rewriteBatchFactoryHook,
@@ -54,6 +55,7 @@ function settingSummary(batch) {
 export function BatchFactoryPage() {
   const [pasted, setPasted] = useState('');
   const [draftItems, setDraftItems] = useState([]);
+  const [sourceIntakeId, setSourceIntakeId] = useState('');
   const [mode, setMode] = useState('original');
   const [maxVideoDuration, setMaxVideoDuration] = useState(10);
   const [fixedSingleVideo, setFixedSingleVideo] = useState(false);
@@ -72,6 +74,7 @@ export function BatchFactoryPage() {
   const [compiled, setCompiled] = useState({ open: false, loading: false, title: '', prompt: '', payload: null });
   const [directorEditor, setDirectorEditor] = useState({ open: false, saving: false, itemId: '', title: '', value: '' });
   const fileInputRef = useRef(null);
+  const intakeLoadedRef = useRef('');
 
   const hasActiveJobs = useMemo(() => activeBatch?.items?.some(item => activeStatuses.has(item.status)), [activeBatch]);
 
@@ -88,6 +91,26 @@ export function BatchFactoryPage() {
   }
 
   useEffect(() => { refreshHistory(); }, []);
+
+  useEffect(() => {
+    const intakeId = new URLSearchParams(window.location.search).get('intake') || '';
+    if (!intakeId || intakeLoadedRef.current === intakeId) return;
+    intakeLoadedRef.current = intakeId;
+    getBatchFactoryIntake(intakeId)
+      .then(result => {
+        const intake = result.intake;
+        if (intake?.batchId) {
+          loadBatch(intake.batchId);
+          message.info('这组小说获取任务已经建立批次，已为你打开。');
+          return;
+        }
+        const items = Array.isArray(intake?.items) ? intake.items : [];
+        setSourceIntakeId(intakeId);
+        setDraftItems(items);
+        if (items.length) message.success(`已从小说获取转入 ${items.length} 本小说，请统一选择生产设置。`);
+      })
+      .catch(error => message.error(error.message || '读取小说获取任务失败'));
+  }, []);
 
   useEffect(() => {
     if (!activeBatch?.id || !hasActiveJobs) return undefined;
@@ -161,6 +184,7 @@ export function BatchFactoryPage() {
     try {
       const created = await createBatchFactoryBatch({
         mode,
+        sourceIntakeId,
         items: draftItems,
         settings: {
           maxVideoDuration,
@@ -177,7 +201,11 @@ export function BatchFactoryPage() {
       const started = await startBatchFactoryBatch(created.batch.id);
       setActiveBatch(started.batch);
       setDraftItems([]);
+      setSourceIntakeId('');
       setHookEdits({});
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.delete('intake');
+      window.history.replaceState({}, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
       await refreshHistory();
       message.success(mode === 'viral' ? '批次已进入爆款开头生成队列' : '批次已进入导演生成队列');
     } catch (error) {
@@ -267,14 +295,15 @@ export function BatchFactoryPage() {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
           <div>
             <Typography.Title level={2} style={{ marginBottom: 4 }}><Zap size={25} style={{ verticalAlign: -4, marginRight: 8 }} />批量工厂</Typography.Title>
-            <Typography.Paragraph type="secondary">批量导入小说开篇；原文直转一回导演 AI，爆款模式先审核文案再进入第二回导演。</Typography.Paragraph>
+            <Typography.Paragraph type="secondary">小说获取任务可直接转入；批量工厂只负责生产设置、AI导演、视频方案和后续生成。</Typography.Paragraph>
           </div>
           {activeBatch ? <Button onClick={() => { setActiveBatch(null); refreshHistory(); }}>新建批次</Button> : null}
         </div>
 
         {!activeBatch ? <>
-          <Card title="1. 导入小说开篇">
-            <Input.TextArea rows={8} value={pasted} onChange={event => setPasted(event.target.value)} placeholder="粘贴一篇或多篇小说开篇。多篇之间可以用一行 --- 分隔。" />
+          <Card title="1. 待制作小说">
+            {sourceIntakeId ? <Alert type="success" showIcon message={`已接收小说获取任务 · ${draftItems.length} 本`} description="书ID、平台、来源任务ID和原始TXT会跟随每一本书一直保留；这里不重新获取小说，也不重新判断已有平台。" style={{ marginBottom: 14 }} /> : null}
+            <Input.TextArea rows={8} value={pasted} onChange={event => setPasted(event.target.value)} placeholder="备用入口：也可以手动粘贴一篇或多篇小说开篇，多篇之间用一行 --- 分隔。" />
             <Space wrap style={{ marginTop: 12 }}>
               <Button icon={<FilePlus2 size={16} />} onClick={addPasted}>加入文案</Button>
               <Button icon={<UploadCloud size={16} />} onClick={() => fileInputRef.current?.click()}>上传 TXT / MD</Button>
@@ -284,7 +313,16 @@ export function BatchFactoryPage() {
             {draftItems.length ? <List
               size="small" style={{ marginTop: 14 }} bordered dataSource={draftItems}
               renderItem={(item, index) => <List.Item actions={[<Button key="delete" size="small" type="text" danger onClick={() => setDraftItems(current => current.filter((_, itemIndex) => itemIndex !== index))}>删除</Button>]}>
-                <List.Item.Meta title={`${String(index + 1).padStart(2, '0')} · ${item.title}`} description={`${item.sourceText.length.toLocaleString()} 字符`} />
+                <List.Item.Meta
+                  title={`${String(index + 1).padStart(2, '0')} · ${item.title}`}
+                  description={<Space wrap size={[4, 4]}>
+                    {item.bookId ? <Tag>书ID {item.bookId}</Tag> : null}
+                    {item.platform ? <Tag color="blue">{item.platform}</Tag> : null}
+                    {item.sourceTaskId ? <Tag color="default">任务 #{item.sourceTaskId}</Tag> : null}
+                    <Typography.Text type="secondary">{item.sourceText.length.toLocaleString()} 字符</Typography.Text>
+                    {item.txtFileName ? <Typography.Text type="secondary">后续TXT：{item.txtFileName}</Typography.Text> : null}
+                  </Space>}
+                />
               </List.Item>}
             /> : null}
           </Card>
@@ -352,8 +390,9 @@ export function BatchFactoryPage() {
 
           <Collapse items={(activeBatch.items || []).map((item, index) => ({
             key: item.id,
-            label: <Space><Typography.Text strong>{String(index + 1).padStart(2, '0')} · {item.title}</Typography.Text>{statusTag(item.status)}{item.manuallyEdited ? <Tag color="blue">人工已修改</Tag> : null}{item.production?.projectId ? <Tag color="purple">已进生产</Tag> : null}</Space>,
+            label: <Space wrap><Typography.Text strong>{String(index + 1).padStart(2, '0')} · {item.title}</Typography.Text>{item.bookId ? <Tag>书ID {item.bookId}</Tag> : null}{item.platform ? <Tag color="blue">{item.platform}</Tag> : null}{statusTag(item.status)}{item.manuallyEdited ? <Tag color="blue">人工已修改</Tag> : null}{item.production?.projectId ? <Tag color="purple">已进生产</Tag> : null}</Space>,
             children: <Space direction="vertical" size={14} style={{ width: '100%' }}>
+              {item.sourceType === 'novel-fetch' ? <Alert type="info" showIcon message={`来源：小说获取任务 #${item.sourceTaskId}`} description={`书ID：${item.bookId} · 平台：${item.platform || '未提供'} · 原始TXT：${item.txtFileName || `${item.bookId}.txt`}`} /> : null}
               {item.error ? <Alert type="error" showIcon message={item.error} /> : null}
               {activeBatch.mode === 'viral' && item.hookDraft ? <Card size="small" title="爆款开头审核" extra={item.status === 'hook_review' ? <Space><Button onClick={() => rewriteHook(item)}>重新改编</Button><Button type="primary" icon={<Check size={15} />} onClick={() => approveHook(item)}>通过并导演</Button></Space> : null}>
                 <Tabs items={[
