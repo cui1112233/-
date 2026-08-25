@@ -3,6 +3,7 @@ const state = {
   tasks: [],
   selectedId: "",
   selectedIds: new Set(),
+  sensitiveProcessingIds: new Set(),
   pendingRuleSuggestions: null,
   pendingOpeningItem: null,
   activeProcessJobId: "",
@@ -2004,6 +2005,15 @@ function renderTasks(tasks) {
   }
   for (const task of state.tasks) {
     const id = String(task.id || "");
+    const sensitiveRunning = state.sensitiveProcessingIds.has(id);
+    const sensitiveHits = Number(task.sensitive_hit_count || 0);
+    const sensitiveFixed = Number(task.sensitive_fixed_count || 0);
+    const sensitiveFailed = Number(task.sensitive_failed_count || 0);
+    const sensitiveLabel = sensitiveRunning
+      ? `<span class="task-spinner" aria-hidden="true"></span>敏感词执行中…`
+      : sensitiveHits > 0
+        ? `敏感日志 ${sensitiveHits}/${sensitiveFixed}${sensitiveFailed ? `/${sensitiveFailed}` : ""}`
+        : "无敏感词命中";
     const tr = document.createElement("tr");
     const originalText = originalStatusText(task);
     const aiText = task.ai_status ? taskStatusText(task.ai_status) : `已生成 ${task.ai_files?.length || 0}/${task.ai_count || 1}`;
@@ -2025,7 +2035,7 @@ function renderTasks(tasks) {
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
         <button data-action="ai" data-id="${escapeHtml(id)}">生成AI</button>
-        <button data-action="sensitive" data-id="${escapeHtml(id)}">敏感日志 ${escapeHtml(task.sensitive_hit_count || 0)}/${escapeHtml(task.sensitive_fixed_count || 0)}/${escapeHtml(task.sensitive_failed_count || 0)}</button>
+        <button data-action="sensitive" data-id="${escapeHtml(id)}" ${sensitiveRunning ? "disabled" : ""}>${sensitiveLabel}</button>
         <button data-action="siteLog" data-id="${escapeHtml(id)}">提交日志</button>
       </td>
     `;
@@ -2633,22 +2643,37 @@ async function reprocessSensitive(ids, restoreFromBackup) {
   }
   if (restoreFromBackup && !confirm("将从原文备份恢复后，按当前敏感词规则重新处理。当前处理后原文会被覆盖，是否继续？")) return;
   const label = restoreFromBackup ? "从备份重跑敏感词" : "重跑敏感词";
-  setBatchStatus(`${label}中...`);
-  try {
-    const result = await api("/api/tasks/reprocess-sensitive", {
-      method: "POST",
-      body: JSON.stringify({ ids: selected, restore_from_backup: restoreFromBackup }),
-    });
-    renderTasks(result.tasks || []);
-    const summary = `${label}完成：已处理 ${result.processed || 0} 个${restoreFromBackup ? `，已恢复 ${result.restored || 0} 个` : ""}，失败 ${result.failed || 0} 个`;
-    setBatchStatus(summary);
-    showBatchToast(summary, Number(result.failed || 0) ? "warning" : "success");
-    // 重跑完成后刷新当前任务详情。此前调用了不存在的 showDetail，
-    // 后端虽然已成功处理，前端却会抛错并误报为“重跑失败”。
-    if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
-  } catch (error) {
-    setBatchStatus(error.message);
+  let processed = 0;
+  let restored = 0;
+  let failed = 0;
+  let latestTasks = state.tasks;
+  let firstError = "";
+  for (let index = 0; index < selected.length; index += 1) {
+    const id = selected[index];
+    state.sensitiveProcessingIds.add(id);
+    setBatchStatus(`${label}中：第 ${index + 1}/${selected.length} 条`);
+    renderTasks(latestTasks);
+    try {
+      const result = await api("/api/tasks/reprocess-sensitive", {
+        method: "POST",
+        body: JSON.stringify({ ids: [id], restore_from_backup: restoreFromBackup }),
+      });
+      processed += Number(result.processed || 0);
+      restored += Number(result.restored || 0);
+      failed += Number(result.failed || 0);
+      latestTasks = result.tasks || latestTasks;
+    } catch (error) {
+      failed += 1;
+      firstError ||= error.message || "请求失败";
+    } finally {
+      state.sensitiveProcessingIds.delete(id);
+      renderTasks(latestTasks);
+    }
   }
+  const summary = `${label}完成：已处理 ${processed} 个${restoreFromBackup ? `，已恢复 ${restored} 个` : ""}，失败 ${failed} 个`;
+  setBatchStatus(firstError ? `${summary}（${firstError}）` : summary);
+  showBatchToast(firstError || failed ? `${summary}${firstError ? `：${firstError}` : ""}` : summary, failed ? "warning" : "success");
+  if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
 }
 
 function selectAllVisibleTasks() {

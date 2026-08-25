@@ -573,6 +573,22 @@ td.id-cell {
   white-space: nowrap;
 }
 
+.task-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: task-spin 700ms linear infinite;
+}
+
+@keyframes task-spin {
+  to { transform: rotate(360deg); }
+}
+
 .status-ok {
   color: var(--ok);
 }
