@@ -2,7 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-const page = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8');
+const page = [
+  fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8'),
+  fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8')
+].join('\n');
 const layout = fs.readFileSync('frontend/src/shared/layouts/UserLayout.jsx', 'utf8');
 const shuihuo = fs.readFileSync('frontend/src/user/pages/shuihuo/ProjectsView.jsx', 'utf8');
 
