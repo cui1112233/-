@@ -81,6 +81,12 @@ test('batch factory stays out of global navigation', () => {
   assert.equal(batchIndex, -1);
 });
 
+test('batch factory automatically collapses the global navigation for the workbench', () => {
+  const source = fs.readFileSync('frontend/src/shared/layouts/UserLayout.jsx', 'utf8');
+  assert.match(source, /pathname === '\/batch-factory'/);
+  assert.match(source, /setSidebarCollapsed\(true\)/);
+});
+
 test('shuihuo creation header exposes batch factory beside comic creation', () => {
   assert.match(shuihuo, /创作漫剧/);
   assert.match(shuihuo, /onOpenBatchFactory/);

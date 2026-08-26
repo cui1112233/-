@@ -74,6 +74,7 @@ export function UserLayout({ children }) {
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
   const accountCenterReturnPathRef = useRef(null);
+  const batchFactorySidebarStateRef = useRef(null);
   const pathname = window.location.pathname;
   const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
@@ -93,6 +94,18 @@ export function UserLayout({ children }) {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (pathname === '/batch-factory') {
+      if (batchFactorySidebarStateRef.current === null) batchFactorySidebarStateRef.current = sidebarCollapsed;
+      setSidebarCollapsed(true);
+      return;
+    }
+    if (batchFactorySidebarStateRef.current !== null) {
+      setSidebarCollapsed(batchFactorySidebarStateRef.current);
+      batchFactorySidebarStateRef.current = null;
+    }
+  }, [pathname]);
 
   useEffect(() => {
     // 个人中心是一个完整工作区：账号页保持抽屉展开，普通业务页则记住返回位置。
