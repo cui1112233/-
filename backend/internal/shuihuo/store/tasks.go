@@ -277,6 +277,18 @@ ORDER BY t.created_at DESC, t.id DESC
 	return scanTasks(rows)
 }
 
+func (s *Tasks) ListByProjects(ctx context.Context, ownerID int64, projectIDs []int64) ([]domain.Task, error) {
+	all := make([]domain.Task, 0)
+	for _, projectID := range projectIDs {
+		items, err := s.ListByProject(ctx, ownerID, projectID)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+	}
+	return all, nil
+}
+
 func (s *Tasks) Update(ctx context.Context, ownerID int64, task domain.Task) error {
 	result, err := s.db.ExecContext(ctx, `
 UPDATE shuihuo_tasks t

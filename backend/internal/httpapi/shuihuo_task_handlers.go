@@ -44,6 +44,7 @@ type shuihuoAudioTaskSettings struct {
 }
 
 type shuihuoVideoTaskSettings struct {
+	Duration    int    `json:"duration"`
 	AspectRatio string `json:"aspectRatio"`
 }
 
@@ -469,6 +470,24 @@ func normalizedYDVideoTaskSettings(input *shuihuoVideoTaskSettings) (string, err
 	}
 	if aspectRatio != "9:16" && aspectRatio != "16:9" {
 		return "", errors.New("invalid YD aspect ratio")
+	}
+	return aspectRatio, nil
+}
+
+func normalizedVideoTaskSettings(input *shuihuoVideoTaskSettings) (string, error) {
+	if input != nil && input.Duration != 0 && (input.Duration < 1 || input.Duration > 60) {
+		return "", errors.New("invalid video duration")
+	}
+	return normalizedVideoAspectRatio(input)
+}
+
+func normalizedVideoAspectRatio(input *shuihuoVideoTaskSettings) (string, error) {
+	aspectRatio := "9:16"
+	if input != nil && strings.TrimSpace(input.AspectRatio) != "" {
+		aspectRatio = strings.TrimSpace(input.AspectRatio)
+	}
+	if aspectRatio != "9:16" && aspectRatio != "16:9" {
+		return "", errors.New("invalid video aspect ratio")
 	}
 	return aspectRatio, nil
 }

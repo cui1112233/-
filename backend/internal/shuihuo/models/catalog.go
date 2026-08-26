@@ -52,17 +52,19 @@ type Definition struct {
 }
 
 type PublicModel struct {
-	ID               int64    `json:"id"`
-	ModelID          string   `json:"modelId"`
-	VersionID        int64    `json:"versionId"`
-	Name             string   `json:"name"`
-	Kind             Kind     `json:"kind"`
-	AdapterKind      string   `json:"adapterKind"`
-	SortOrder        int      `json:"sortOrder"`
-	ParameterSchema  string   `json:"parameterSchema"`
-	ImageInputFormat string   `json:"imageInputFormat"`
-	ImageRequestMode string   `json:"imageRequestMode"`
-	AllowedRoles     []string `json:"allowedRoles"`
+	ID                 int64    `json:"id"`
+	ModelID            string   `json:"modelId"`
+	VersionID          int64    `json:"versionId"`
+	Name               string   `json:"name"`
+	Kind               Kind     `json:"kind"`
+	AdapterKind        string   `json:"adapterKind"`
+	SortOrder          int      `json:"sortOrder"`
+	ParameterSchema    string   `json:"parameterSchema"`
+	ImageInputFormat   string   `json:"imageInputFormat"`
+	ImageRequestMode   string   `json:"imageRequestMode"`
+	AllowedRoles       []string `json:"allowedRoles"`
+	RequiresImageInput bool     `json:"requiresImageInput"`
+	MaxVideoDuration   int      `json:"maxVideoDuration"`
 }
 
 // AdminModel exposes operational configuration and credential reference IDs,
@@ -90,6 +92,7 @@ func ToPublic(model Definition) PublicModel {
 		Kind: model.Kind, AdapterKind: model.AdapterKind, SortOrder: model.SortOrder,
 		ParameterSchema: model.ParameterSchema, ImageInputFormat: model.ImageInputFormat,
 		ImageRequestMode: model.ImageRequestMode, AllowedRoles: append([]string(nil), model.AllowedRoles...),
+		RequiresImageInput: model.RequiresVideoImage(), MaxVideoDuration: model.MaxVideoDuration(),
 	}
 }
 
@@ -168,6 +171,46 @@ func (model Definition) SupportsReferenceImages() bool {
 // ImageURL when the storyboard segment has no generated image.
 func (model Definition) RequiresVideoImage() bool {
 	return model.Kind == KindVideo && IsAsyncVideoAdapter(model.AdapterKind)
+}
+
+func (model Definition) RequiresImageInput() bool { return model.RequiresVideoImage() }
+
+// MaxVideoDuration is the server-declared per-video capability used by the
+// batch factory to reject oversized or fabricated client settings.
+func (model Definition) MaxVideoDuration() int {
+	if model.Kind != KindVideo {
+		return 0
+	}
+	for _, raw := range []string{model.ParameterSchema, model.RuntimePolicyJSON} {
+		var payload map[string]any
+		if json.Unmarshal([]byte(raw), &payload) != nil {
+			continue
+		}
+		for _, key := range []string{"maxVideoDuration", "maxDuration"} {
+			if value, ok := payload[key].(float64); ok && value >= 1 && value <= 60 && value == float64(int(value)) {
+				return int(value)
+			}
+		}
+		if properties, ok := payload["properties"].(map[string]any); ok {
+			if duration, ok := properties["duration"].(map[string]any); ok {
+				if value, ok := duration["maximum"].(float64); ok && value >= 1 && value <= 60 && value == float64(int(value)) {
+					return int(value)
+				}
+				if values, ok := duration["enum"].([]any); ok {
+					maximum := 0
+					for _, candidate := range values {
+						if value, ok := candidate.(float64); ok && value >= 1 && value <= 60 && value == float64(int(value)) && int(value) > maximum {
+							maximum = int(value)
+						}
+					}
+					if maximum > 0 {
+						return maximum
+					}
+				}
+			}
+		}
+	}
+	return 0
 }
 
 func IsAsyncVideoAdapter(adapterKind string) bool {

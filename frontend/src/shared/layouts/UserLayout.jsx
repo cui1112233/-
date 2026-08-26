@@ -1,5 +1,5 @@
 import { Avatar, Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, BookOpen, Bot, Bug, ChartNoAxesCombined, ChevronDown, Clapperboard, Crown, FilePenLine, Fingerprint, FolderClock, Home, KeyRound, LogOut, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound, X } from 'lucide-react';
+import { AudioLines, BookOpen, Bot, Bug, ChartNoAxesCombined, ChevronDown, Clapperboard, Crown, FilePenLine, Fingerprint, FolderClock, Home, KeyRound, LogOut, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, UserRound, UsersRound, X, Zap } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -19,6 +19,7 @@ const navItems = [
   { href: '/', icon: Home, label: '首页' },
   { href: '/script', icon: FilePenLine, label: '剧本生成' },
   { href: '/novel-fetch', icon: BookOpen, label: '小说获取' },
+  { href: '/batch-factory', icon: Zap, label: '批量工厂' },
   { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
   { href: '/shuihuo-production', icon: Clapperboard, label: '水货生产' },
   { href: '/agent', icon: Bot, label: 'Agent 工作区' },

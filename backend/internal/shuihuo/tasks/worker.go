@@ -151,6 +151,13 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 		return fail("invalid_input", err)
 	}
 	request := models.Request{Prompt: prompt, OwnerID: task.UserID}
+	if task.Kind == "video" {
+		videoRequest, requestErr := requestFromTask(task)
+		if requestErr != nil {
+			return fail("invalid_input", requestErr)
+		}
+		request.Duration = videoRequest.Duration
+	}
 	if task.Kind == "image" {
 		aspectRatio, resolution, settingsErr := renderSettingsFromTask(task, "image")
 		if settingsErr != nil {
@@ -264,7 +271,7 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	}
 	if response.ProviderTaskID != "" && response.ResultURL == "" && len(response.ResultData) == 0 {
 		asyncTasks, ok := w.Tasks.(AsyncVideoTaskRepository)
-		if !ok || task.Kind != "video" || !models.IsAsyncVideoAdapter(model.AdapterKind) {
+		if !ok || task.Kind != "video" || (!models.IsAsyncVideoAdapter(model.AdapterKind) && model.AdapterKind != models.AdapterGenericHTTP) {
 			return fail("async_model_not_configured", errors.New("模型已返回上游任务 ID，但未配置受控视频轮询"))
 		}
 		if err := asyncTasks.SetProviderTask(ctx, task.ID, response.ProviderTaskID, time.Now().UTC()); err != nil {
@@ -340,6 +347,32 @@ func promptFromTask(task domain.Task) (string, error) {
 		return "", errors.New("任务提示词为空")
 	}
 	return input.Prompt, nil
+}
+
+func requestFromTask(task domain.Task) (models.Request, error) {
+	var input struct {
+		Prompt      string      `json:"prompt"`
+		Duration    json.Number `json:"duration"`
+		AspectRatio string      `json:"aspectRatio"`
+	}
+	if err := json.Unmarshal([]byte(task.Input), &input); err != nil {
+		return models.Request{}, fmt.Errorf("读取任务提示词: %w", err)
+	}
+	if strings.TrimSpace(input.Prompt) == "" {
+		return models.Request{}, errors.New("任务提示词为空")
+	}
+	request := models.Request{Prompt: input.Prompt, AspectRatio: input.AspectRatio}
+	if input.Duration != "" {
+		value, err := input.Duration.Int64()
+		if err != nil || value < 1 || value > 60 {
+			return models.Request{}, errors.New("视频时长无效")
+		}
+		request.Duration = fmt.Sprintf("%d", value)
+	}
+	if request.AspectRatio != "" && request.AspectRatio != "9:16" && request.AspectRatio != "16:9" {
+		return models.Request{}, errors.New("视频比例无效")
+	}
+	return request, nil
 }
 
 func assetIDFromTask(task domain.Task) (int64, error) {

@@ -32,6 +32,10 @@ const { createNovelFetchRouter } = require('./routes/novel-fetch');
 const { createNovelFetchUploadRouter } = require('./routes/novel-fetch-upload');
 const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
 const { createBatchRewriteRouter } = require('./routes/batch-rewrite');
+const { createBatchFactoryRouter } = require('./routes/batch-factory');
+const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
+const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
+const { createBatchFactoryStore } = require('./lib/batch-factory/store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -103,6 +107,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
   const resolvedNovelFetchStore = novelFetchStore || createNovelFetchStore({ usersDir });
+  const resolvedBatchFactoryStore = createBatchFactoryStore();
   const teamConfigReader = createTeamConfigReader({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
@@ -318,6 +323,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
+  app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
+  app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
+  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
   app.use('/api/config', createConfigRouter({ shuihuoGateway, memberStore: resolvedMemberStore })); // GET/POST /api/config
   app.use('/api/script-video', createScriptVideoRouter({ shuihuoGateway }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);

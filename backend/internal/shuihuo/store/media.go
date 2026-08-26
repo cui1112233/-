@@ -78,6 +78,18 @@ ORDER BY m.created_at ASC, m.id ASC
 	return media, rows.Err()
 }
 
+func (s *Media) ListByProjects(ctx context.Context, ownerID int64, projectIDs []int64) ([]domain.Media, error) {
+	all := make([]domain.Media, 0)
+	for _, projectID := range projectIDs {
+		items, err := s.ListByProject(ctx, ownerID, projectID)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+	}
+	return all, nil
+}
+
 func (s *Media) Update(ctx context.Context, ownerID int64, media domain.Media) error {
 	result, err := s.db.ExecContext(ctx, `
 UPDATE shuihuo_media m
