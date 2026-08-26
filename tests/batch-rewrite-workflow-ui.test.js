@@ -10,6 +10,8 @@ test('处理页默认收起提交设置并提供登录状态入口', () => {
   assert.match(html, /id="webLoginStatus"/);
   assert.doesNotMatch(html, /site-submit-connection/);
   assert.doesNotMatch(html, /id="webUsername"/);
+  assert.doesNotMatch(html, /id="startSensitiveBtn"/);
+  assert.doesNotMatch(html, /启动敏感词处理/);
   assert.match(js, /details\.open = false/);
   assert.match(js, /登录批量后台/);
   assert.match(js, /closest\("#webLoginStatus"\)/);

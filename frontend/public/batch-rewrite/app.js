@@ -3192,7 +3192,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
   bindWorkFormPersistence();
   $("processBtn").onclick = processInput;
-  $("startSensitiveBtn").onclick = startSensitiveProcessing;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
