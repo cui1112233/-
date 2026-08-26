@@ -25,7 +25,9 @@ import {
   Video,
 } from "lucide-react";
 import {
+  compileBatchFactoryVideo,
   createBatchFactoryBatch,
+  generateBatchFactoryVideos,
   generateBatchFactoryBatch,
   getBatchFactoryBatch,
   listBatchFactoryBatches,
@@ -127,10 +129,13 @@ function summaryText(batch) {
 
 function BookList({ entries, selectedId, onSelect }) {
   const [search, setSearch] = useState("");
-  const shown = entries.filter((item) =>
-    `${item.title} ${item.bookId}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
+  const [status, setStatus] = useState("all");
+  const shown = entries.filter(
+    (item) =>
+      `${item.title} ${item.bookId}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()) &&
+      (status === "all" || item.displayStatus === status),
   );
   return (
     <aside className="bf-preview-books">
@@ -146,10 +151,25 @@ function BookList({ entries, selectedId, onSelect }) {
           onChange={(event) => setSearch(event.target.value)}
           placeholder="搜索书名 / Book ID"
         />
-        <select defaultValue="all">
+        <select
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+        >
           <option value="all">全部状态</option>
+          {STATUS_ORDER.slice(1).map((label) => (
+            <option key={label} value={label}>
+              {label}
+            </option>
+          ))}
         </select>
-        <button aria-label="列表设置">
+        <button
+          aria-label="列表设置"
+          title="清除搜索和状态筛选"
+          onClick={() => {
+            setSearch("");
+            setStatus("all");
+          }}
+        >
           <Settings2 size={15} />
         </button>
       </div>
@@ -179,8 +199,62 @@ function BookList({ entries, selectedId, onSelect }) {
   );
 }
 
-function CurrentBook({ item }) {
+function CurrentBook({ item, onRetry, canProduce }) {
   const failed = item?.displayStatus === "异常";
+  const [openSections, setOpenSections] = useState(["source"]);
+  const toggle = (section) =>
+    setOpenSections((current) =>
+      current.includes(section)
+        ? current.filter((entry) => entry !== section)
+        : [...current, section],
+    );
+  const storyboard = item?.directorResult?.storyboard || [];
+  const sections = [
+    [
+      "source",
+      <FileText size={16} />,
+      "原文",
+      item?.sourceText || "暂无原文内容。",
+    ],
+    [
+      "hook",
+      <Sparkles size={16} />,
+      "爆款钩子",
+      item?.approvedHookScript || item?.hookDraft || "原著直出模式不生成钩子。",
+    ],
+    [
+      "assets",
+      <FolderOpen size={16} />,
+      "人物 / 场景 / 道具",
+      "导演完成后会在这里显示本书的视觉设定。",
+    ],
+    [
+      "prompts",
+      <Video size={16} />,
+      "VIDEO 提示词",
+      storyboard.length
+        ? storyboard
+            .map(
+              (video) =>
+                `VIDEO ${video.id} · ${video.duration_sec || 0}s\n${video.video_desc || ""}`,
+            )
+            .join("\n\n")
+        : "导演完成后会生成分卡 VIDEO 提示词。",
+    ],
+    [
+      "activity",
+      <Clock3 size={16} />,
+      "操作记录",
+      (item?.activityLog || [])
+        .slice()
+        .reverse()
+        .map(
+          (entry) =>
+            `${entry.at || ""} · ${entry.message || entry.status || "已更新"}`,
+        )
+        .join("\n") || "暂无操作记录。",
+    ],
+  ];
   return (
     <section className="bf-preview-center">
       <div className="bf-preview-current">
@@ -192,7 +266,13 @@ function CurrentBook({ item }) {
           </Tag>
           {item?.settingOverrides ? <Tag color="purple">单书已调整</Tag> : null}
         </div>
-        <Button icon={<Settings2 size={15} />}>单书设置</Button>
+        <Button
+          icon={<Settings2 size={15} />}
+          disabled
+          title="单书生产设置需要 MySQL 配置快照接口后才可保存"
+        >
+          单书设置
+        </Button>
       </div>
       {failed ? (
         <div className="bf-preview-alert">
@@ -201,37 +281,33 @@ function CurrentBook({ item }) {
             <strong>存在异常 VIDEO</strong>
             <small>{item.error || "视频生成失败，请检查后重试。"}</small>
           </div>
-          <Button danger>重试</Button>
+          <Button danger disabled={!canProduce} onClick={onRetry}>
+            重试
+          </Button>
         </div>
       ) : null}
       <div className="bf-preview-content-grid">
         <div className="bf-preview-folds">
-          <button>
-            <FileText size={16} /> 原文 <ChevronDown size={15} />
-          </button>
-          <div className="bf-preview-readonly">
-            {item?.sourceText || "选择小说后在此查看原文、编辑记录和锁定状态。"}
-          </div>
-          <button>
-            <Sparkles size={16} /> 爆款钩子 <ChevronDown size={15} />
-          </button>
-          <button>
-            <FolderOpen size={16} /> 人物 / 场景 / 道具{" "}
-            <ChevronDown size={15} />
-          </button>
-          <button>
-            <Video size={16} /> VIDEO 提示词 <ChevronDown size={15} />
-          </button>
-          <button>
-            <Clock3 size={16} /> 操作记录 <ChevronDown size={15} />
-          </button>
+          {sections.map(([key, icon, label, content]) => (
+            <div key={key}>
+              <button
+                onClick={() => toggle(key)}
+                aria-expanded={openSections.includes(key)}
+              >
+                {icon} {label} <ChevronDown size={15} />
+              </button>
+              {openSections.includes(key) ? (
+                <div className="bf-preview-readonly">{content}</div>
+              ) : null}
+            </div>
+          ))}
         </div>
       </div>
     </section>
   );
 }
 
-function VideoOperations({ item }) {
+function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
   const [choice, setChoice] = useState("merged");
   const videos = item?.directorResult?.storyboard || [
     { id: "01", duration_sec: 13 },
@@ -282,10 +358,21 @@ function VideoOperations({ item }) {
           </div>
         </div>
         <div className="bf-preview-player-actions">
-          <Button size="small" icon={<RotateCcw size={14} />}>
+          <Button
+            size="small"
+            icon={<RotateCcw size={14} />}
+            disabled={choice === "merged" || !canProduce}
+            onClick={() => onRetry(choice)}
+          >
             重试
           </Button>
-          <Button size="small">查看 Prompt</Button>
+          <Button
+            size="small"
+            disabled={choice === "merged" || !canProduce}
+            onClick={() => onViewPrompt(choice)}
+          >
+            查看 Prompt
+          </Button>
         </div>
       </section>
       <section className="bf-preview-composer">
@@ -300,7 +387,12 @@ function VideoOperations({ item }) {
         <select defaultValue="1.5">
           <option value="1.5">1.5x</option>
         </select>
-        <Button type="primary" block>
+        <Button
+          type="primary"
+          block
+          disabled
+          title="合并需等待所有 VIDEO 成品完成并同步状态后开放"
+        >
           合并当前小说
         </Button>
       </section>
@@ -315,6 +407,40 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
   const [modelId, setModelId] = useState(null);
   const [creating, setCreating] = useState(false);
   const fileInputRef = useRef(null);
+
+  function updateItems(updater) {
+    setItems((current) => updater(current).slice(0, 200));
+  }
+
+  function inspectItems(drafts = items) {
+    const titleCounts = new Map();
+    const bookIdCounts = new Map();
+    for (const item of drafts) {
+      const title = String(item.title || "").trim();
+      const bookId = String(item.bookId || "").trim();
+      if (title) titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+      if (bookId) bookIdCounts.set(bookId, (bookIdCounts.get(bookId) || 0) + 1);
+    }
+    return drafts.map((item) => ({
+      ...item,
+      duplicateFields: [
+        ...(titleCounts.get(String(item.title || "").trim()) > 1
+          ? ["title"]
+          : []),
+        ...(bookIdCounts.get(String(item.bookId || "").trim()) > 1
+          ? ["bookId"]
+          : []),
+      ],
+      validationError:
+        item.bookId && !/^\d+$/.test(String(item.bookId).trim())
+          ? "Book ID 只能填写数字"
+          : !String(item.sourceText || "").trim()
+            ? "正文不能为空"
+            : "",
+    }));
+  }
+
+  const inspectedItems = inspectItems();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -342,7 +468,7 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
   function addPasted() {
     const next = parseManualNovels(pasted);
     if (!next.length) return message.warning("请先粘贴小说正文");
-    setItems((current) => [...current, ...next].slice(0, 200));
+    updateItems((current) => [...current, ...next]);
     setPasted("");
   }
 
@@ -352,12 +478,18 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
     const supported = files.filter((file) => /\.(txt|md)$/i.test(file.name));
     if (supported.length !== files.length)
       message.warning("只支持 TXT / MD 文件");
+    const allowed = supported.filter((file) => file.size <= 2 * 1024 * 1024);
+    if (allowed.length !== supported.length)
+      message.error("单个文件不能超过 2 MB");
     const next = await Promise.all(
-      supported.map(async (file) => fileToDraft(file.name, await file.text())),
+      allowed.map(async (file) => {
+        const draft = fileToDraft(file.name, await file.text());
+        return { ...draft, fileName: file.name };
+      }),
     );
-    setItems((current) =>
-      [...current, ...next.filter((item) => item.sourceText)].slice(0, 200),
-    );
+    const valid = next.filter((item) => item.sourceText);
+    if (valid.length !== next.length) message.error("文件正文不能为空");
+    if (valid.length) updateItems((current) => [...current, ...valid]);
   }
 
   async function submit(drafts) {
@@ -395,7 +527,7 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
 
   function create() {
     try {
-      const drafts = validateDraftItems(items);
+      const drafts = validateDraftItems(inspectedItems);
       const duplicates = drafts.some((item) => item.duplicateFields?.length);
       if (!duplicates) return submit(drafts);
       Modal.confirm({
@@ -455,17 +587,59 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
         />
         <div className="bf-intake-list">
           <strong>待导入小说 {items.length}/200</strong>
-          {items.map((item, index) => (
+          {inspectedItems.map((item, index) => (
             <div key={`${item.title}-${index}`}>
               <span>{String(index + 1).padStart(2, "0")}</span>
-              <b>{item.title || "未命名小说"}</b>
-              {item.bookId ? <small>Book ID {item.bookId}</small> : null}
+              <div className="bf-intake-fields">
+                <Input
+                  size="small"
+                  title="更新书名"
+                  aria-label={`第 ${index + 1} 本书名`}
+                  value={item.title}
+                  placeholder="书名"
+                  onChange={(event) =>
+                    updateItems((current) =>
+                      current.map((entry, itemIndex) =>
+                        itemIndex === index
+                          ? { ...entry, title: event.target.value }
+                          : entry,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  size="small"
+                  title="更新 Book ID"
+                  aria-label={`第 ${index + 1} 本 Book ID`}
+                  value={item.bookId}
+                  placeholder="Book ID（可留空）"
+                  onChange={(event) =>
+                    updateItems((current) =>
+                      current.map((entry, itemIndex) =>
+                        itemIndex === index
+                          ? { ...entry, bookId: event.target.value }
+                          : entry,
+                      ),
+                    )
+                  }
+                />
+                <small>{item.fileName || `${item.sourceText.length} 字`}</small>
+                {item.duplicateFields?.includes("title") ? (
+                  <Tag color="orange">书名重复</Tag>
+                ) : null}
+                {item.duplicateFields?.includes("bookId") ? (
+                  <Tag color="orange">ID 重复</Tag>
+                ) : null}
+                {item.validationError ? (
+                  <Tag color="red">{item.validationError}</Tag>
+                ) : null}
+              </div>
               <Button
                 type="text"
                 danger
                 size="small"
                 onClick={() =>
-                  setItems((current) =>
+                  updateItems((current) =>
                     current.filter((_, itemIndex) => itemIndex !== index),
                   )
                 }
@@ -479,7 +653,11 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
           type="primary"
           block
           loading={creating}
-          disabled={!items.length || !modelId}
+          disabled={
+            !items.length ||
+            !modelId ||
+            inspectedItems.some((item) => item.validationError)
+          }
           onClick={create}
         >
           创建批次
@@ -520,6 +698,12 @@ export function BatchFactoryPreviewPage() {
   }, [batch]);
   const summary = summarise(entries);
   const selected = entries.find((item) => item.id === selectedId) || entries[0];
+  const canProduceSelected = Boolean(
+    batch?.id &&
+    selected?.id &&
+    Number.isInteger(Number(batch?.settings?.videoModelId)) &&
+    Number(batch.settings.videoModelId) > 0,
+  );
   const currentItems =
     currentFilter === "全部"
       ? entries
@@ -579,10 +763,59 @@ export function BatchFactoryPreviewPage() {
       setGenerating(false);
     }
   }
+  async function refreshActiveBatch() {
+    if (!batch?.id) return;
+    const refreshed = await getBatchFactoryBatch(batch.id);
+    setBatch(refreshed.batch);
+  }
+  async function retryCurrentBookVideo() {
+    const modelId = Number(batch?.settings?.videoModelId);
+    if (
+      !batch?.id ||
+      !selected?.id ||
+      !Number.isInteger(modelId) ||
+      modelId < 1
+    )
+      return;
+    try {
+      await generateBatchFactoryVideos(batch.id, selected.id, modelId, {
+        force: true,
+      });
+      await refreshActiveBatch();
+      message.success("已重新提交当前小说的视频生成任务。");
+    } catch (error) {
+      message.error(error.message || "重新提交视频失败");
+    }
+  }
+  async function viewVideoPrompt(choice) {
+    if (!batch?.id || !selected?.id || choice === "merged") return;
+    const video = (selected.directorResult?.storyboard || []).find(
+      (entry, index) =>
+        String(entry.id || index + 1).padStart(2, "0") === String(choice),
+    );
+    if (!video) return message.warning("该 VIDEO 还没有可查看的提示词");
+    try {
+      const result = await compileBatchFactoryVideo(
+        batch.id,
+        selected.id,
+        video.id,
+      );
+      Modal.info({
+        title: `VIDEO ${String(video.id).padStart(2, "0")} 提示词`,
+        width: 760,
+        content: (
+          <pre className="bf-preview-prompt">
+            {result.payload?.prompt || "暂无提示词"}
+          </pre>
+        ),
+      });
+    } catch (error) {
+      message.error(error.message || "读取提示词失败");
+    }
+  }
   return (
     <div className="bf-preview-page">
       <header className="bf-preview-header">
-        <div className="bf-preview-brand">一战晟铭</div>
         <div className="bf-preview-heading">
           <div>
             <Button
@@ -615,11 +848,20 @@ export function BatchFactoryPreviewPage() {
             <strong>批次</strong>
             <b>{batch?.name || "待创建批次"}</b>
             <span>· {entries.length} 本小说</span>
-            <button aria-label="编辑批次">
+            <button
+              aria-label="编辑批次"
+              disabled
+              title="批次名称编辑需要持久化接口后开放"
+            >
               <FileText size={14} />
             </button>
             <div className="bf-preview-tabs">
-              <Button type="primary" icon={<Settings2 size={15} />}>
+              <Button
+                type="primary"
+                icon={<Settings2 size={15} />}
+                disabled
+                title="统一设置需要 MySQL 配置快照接口后开放"
+              >
                 生产统一设置
               </Button>
               <Button icon={<Upload size={15} />} disabled>
@@ -636,7 +878,13 @@ export function BatchFactoryPreviewPage() {
             </div>
           </div>
           <div className="bf-preview-actions">
-            <Button icon={<Settings2 size={15} />}>高级设置</Button>
+            <Button
+              icon={<Settings2 size={15} />}
+              disabled
+              title="高级设置随生产统一设置一起开放"
+            >
+              高级设置
+            </Button>
             <Button
               type="primary"
               icon={<Play size={15} />}
@@ -649,12 +897,20 @@ export function BatchFactoryPreviewPage() {
             <Button
               icon={<Sparkles size={15} />}
               loading={generating}
-              disabled={!batch?.id || !summary['待生成'] || !Number(batch.settings?.videoModelId)}
+              disabled={
+                !batch?.id ||
+                !summary["待生成"] ||
+                !Number(batch.settings?.videoModelId)
+              }
               onClick={generatePendingVideos}
             >
               生成待生成 <small>{summary["待生成"]}</small>
             </Button>
-            <Button icon={<RotateCcw size={15} />}>
+            <Button
+              icon={<RotateCcw size={15} />}
+              disabled
+              title="批量合并需要先同步视频成品状态后开放"
+            >
               合并待合并 <small>{summary["待合并"]}</small>
             </Button>
           </div>
@@ -698,8 +954,17 @@ export function BatchFactoryPreviewPage() {
             selectedId={selected?.id}
             onSelect={selectBook}
           />
-          <CurrentBook item={selected} />
-          <VideoOperations item={selected} />
+          <CurrentBook
+            item={selected}
+            onRetry={retryCurrentBookVideo}
+            canProduce={canProduceSelected}
+          />
+          <VideoOperations
+            item={selected}
+            onRetry={retryCurrentBookVideo}
+            onViewPrompt={viewVideoPrompt}
+            canProduce={canProduceSelected}
+          />
           <aside className="bf-preview-rail">
             <h3>
               视频生成进度 <ChevronDown size={15} />

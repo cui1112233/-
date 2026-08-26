@@ -48,7 +48,36 @@ test("new batch stays inside the workbench and creates an imported pending batch
   assert.match(source, /parseManualNovels/);
   assert.match(source, /上传 TXT \/ MD/);
   assert.match(source, /创建批次/);
-  assert.match(source, /disabled=\{!items\.length \|\| !modelId\}/);
+  assert.match(
+    source,
+    /disabled=\{\s*!items\.length \|\|\s*!modelId \|\|\s*inspectedItems\.some/,
+  );
+});
+
+test("batch intake detects invalid files and exposes editable duplicate draft fields", () => {
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
+  assert.match(source, /超过 2 MB/);
+  assert.match(source, /文件正文不能为空/);
+  assert.match(source, /Book ID 只能填写数字/);
+  assert.match(source, /duplicateFields/);
+  assert.match(source, /更新书名/);
+  assert.match(source, /更新 Book ID/);
+});
+
+test("batch factory entry is gold and the workbench has no duplicate brand title", () => {
+  const styles = fs.readFileSync(
+    "frontend/src/user/pages/shuihuo-production.css",
+    "utf8",
+  );
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
+  assert.match(styles, /\.shuihuo-create-batch[^{]*\{[^}]*#d9a441/);
+  assert.doesNotMatch(source, /className="bf-preview-brand"/);
 });
 
 test("start director uses the active batch API and refreshes the workbench state", () => {
