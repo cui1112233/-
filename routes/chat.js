@@ -30,8 +30,6 @@ const CONSTRAINT_CATEGORY_PREFIXES = {
   negative: 'script-constraint-negative-'
 };
 
-const REQUIRED_SHOT_BASE = '【基础设定】生成视频不带字幕 | 9:16';
-
 function shotHeaderText(value) {
   if (typeof value !== 'string') return '';
   const text = value.trim().replace(/\s+/g, ' ');
@@ -47,7 +45,7 @@ function shotHeaderValue(entity, fields) {
 }
 
 function buildRequiredShotHeader(characters, scenes) {
-  const lines = [REQUIRED_SHOT_BASE];
+  const lines = [];
   const names = new Set();
   for (const character of Array.isArray(characters) ? characters : []) {
     if (!character || typeof character !== 'object' || Array.isArray(character)) continue;
@@ -89,7 +87,7 @@ function enforceShotlistHeaders(output, requiredShotHeader) {
   const text = String(output);
   const titlePattern = /^###\s*分镜[^\n]*（总时长：[^）]+）\s*$/gm;
   const titles = [...text.matchAll(titlePattern)];
-  if (!titles.length) return text;
+  if (!titles.length || !String(requiredShotHeader || '').trim()) return text;
   const headerNames = new Set();
   for (const line of String(requiredShotHeader).split('\n')) {
     const trimmed = line.trim();
@@ -299,12 +297,12 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   formatContent = formatContent.replace(/\{结束时间\}/g, endTime);
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
-  const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n当前选择的是 ${duration} 拆分模式。10s / 15s 只定义单个完整分镜的时长上限或目标区间，不代表每个分镜都必须刚好等于该时长。只输出一个或多个独立完整分镜；每个分镜标题必须使用 ### 分镜N（总时长：Xs），其中 Xs 是该分镜根据内容与空间切换得到的真实时长。每个完整分镜内部时间轴都从 00:00 开始，并精确结束于标题声明的真实总时长。10s 模式下每个完整分镜必须 ≤10s；15s 模式下原则上 10s<单元时长≤15s，空间切换、自然断点或最终收尾允许低于10s。空间切换优先于时长上限；同一空间超长时再按当前模式上限继续拆分。禁止用 --- 作为分镜边界，禁止顶层镜头标题或共享前言。每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
+  const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n当前选择的是 ${duration} 拆分模式。10s / 15s 只定义单个完整分镜的时长上限或目标区间，不代表每个分镜都必须刚好等于该时长。只输出一个或多个独立完整分镜；每个分镜标题必须使用 ### 分镜N（总时长：Xs），其中 Xs 是该分镜根据内容与空间切换得到的真实时长。每个完整分镜内部时间轴都从 00:00 开始，并精确结束于标题声明的真实总时长。10s 模式下每个完整分镜必须 ≤10s；15s 模式下原则上 10s<单元时长≤15s，空间切换、自然断点或最终收尾允许低于10s。空间切换优先于时长上限；同一空间超长时再按当前模式上限继续拆分。禁止用 --- 作为分镜边界，禁止顶层镜头标题或共享前言。每个分镜自身必须写入当前格式需要的人物、场景及所有已启用约束，确保可独立复制提交。`;
   const requiredShotHeader = format === 'shotlist'
     ? buildRequiredShotHeader(body.characters, body.scenes)
     : '';
   const requiredShotHeaderProtocol = requiredShotHeader
-    ? `## 强制基础设定结构\n以下内容由服务器根据已提取人物和场景生成。每个 ### 分镜 标题后、镜头画面：前必须逐字使用服务器提供的固定头部；不得省略、改名、重排、写成 JSON、花括号占位符或共享前言。\n\n${requiredShotHeader}`
+    ? `## 强制人物场景固定结构\n以下内容由服务器根据已提取并确认的人物和场景生成。每个 ### 分镜 标题后、镜头画面：前必须逐字使用服务器提供的人物与场景固定行；不得省略、改名、重排、写成 JSON、花括号占位符或共享前言。比例、字幕、画质、前缀、限制和负面词不属于此固定结构，只能由约束设置决定。\n\n${requiredShotHeader}`
     : '';
   const protagonists = sanitizeProtagonists(body.characters, body.protagonists);
   const protagonistPrompt = protagonists.length
