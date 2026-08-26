@@ -798,6 +798,14 @@ export function BatchFactoryPage() {
             })} />
           </Card>
             </main>
+            <aside className="batch-factory-video-operations" aria-label="当前小说视频与合并">
+              <div className="batch-factory-panel-heading"><Typography.Text strong>当前小说视频</Typography.Text><Typography.Text type="secondary">VIDEO / 合并成片</Typography.Text></div>
+              {selectedItem?.directorResult?.storyboard?.length ? <Collapse defaultActiveKey={['videos']} items={[{
+                key: 'videos', label: `VIDEO ${selectedItem.directorResult.storyboard.length}`,
+                children: <List size="small" dataSource={selectedItem.directorResult.storyboard} renderItem={video => <List.Item><Space direction="vertical" size={4}><Typography.Text strong>VIDEO {video.id} · {video.duration_sec}秒</Typography.Text><Typography.Text type="secondary">{video.video_desc}</Typography.Text><Button size="small" icon={<Sparkles size={14} />} onClick={() => compileVideo(selectedItem, video)}>查看 Prompt</Button></Space></List.Item>} />
+              }]} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="导演完成后在这里操作 VIDEO" />}
+              <div className="batch-factory-single-merge"><Typography.Text strong>合并成品</Typography.Text><Typography.Paragraph type="secondary">合并参数、倍率和唯一视频预览将在此栏展示。</Typography.Paragraph><Button type="primary" disabled={!selectedItem?.production?.projectId} onClick={() => focusBatchSection('batch-factory-bulk-merge', '请在右侧执行可用的合并操作')}>查看合并操作</Button></div>
+            </aside>
             <aside className="batch-factory-right-rail" aria-label="视频生成进度与批量合并">
               <div className="batch-factory-panel-heading"><Typography.Text strong>视频生成进度</Typography.Text><Typography.Text type="secondary">每 2.5 秒刷新</Typography.Text></div>
               <div className="batch-factory-video-progress-ring" role="img" aria-label="VIDEO 生成进度">
