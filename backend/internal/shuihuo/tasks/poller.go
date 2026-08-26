@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -34,10 +35,15 @@ type ViduPoller interface {
 	Poll(context.Context, models.Definition, string) (providers.ViduTask, error)
 }
 
+type GenericPoller interface {
+	Poll(context.Context, models.Definition, string) (models.GenericTask, error)
+}
+
 type Poller struct {
 	Tasks          PollerTaskRepository
 	Models         PollerModelRepository
 	Provider       ViduPoller
+	Generic        GenericPoller
 	Objects        WorkerObjects
 	DownloadResult func(context.Context, string) ([]byte, string, error)
 	Now            func() time.Time
@@ -78,13 +84,15 @@ func (p Poller) PollDue(ctx context.Context) error {
 	if batch <= 0 {
 		batch = defaultPollBatchSize
 	}
-	tasks, err := p.Tasks.ListRunningByProvider(ctx, models.AdapterViduImageToVideo, now, batch)
-	if err != nil {
-		return err
-	}
-	for _, task := range tasks {
-		if err := p.PollOnce(ctx, task); err != nil && !errors.Is(err, ErrTaskAlreadyCompleted) {
+	for _, provider := range []string{models.AdapterViduImageToVideo, models.AdapterGenericHTTP} {
+		tasks, err := p.Tasks.ListRunningByProvider(ctx, provider, now, batch)
+		if err != nil {
 			return err
+		}
+		for _, task := range tasks {
+			if err := p.PollOnce(ctx, task); err != nil && !errors.Is(err, ErrTaskAlreadyCompleted) {
+				return err
+			}
 		}
 	}
 	return nil
@@ -94,38 +102,71 @@ func (p Poller) PollOnce(ctx context.Context, task domain.Task) error {
 	if task.Status != domain.TaskRunning {
 		return ErrTaskAlreadyCompleted
 	}
-	if p.Tasks == nil || p.Models == nil || p.Provider == nil || p.Objects == nil {
+	if p.Tasks == nil || p.Models == nil || p.Objects == nil {
 		return fmt.Errorf("shuihuo poller is not configured")
 	}
-	if task.Kind != "video" || task.Provider != models.AdapterViduImageToVideo || task.ModelID == nil || task.ModelVersionID == nil || task.ProviderTaskID == "" {
+	if task.Kind != "video" || task.ModelID == nil || task.ModelVersionID == nil || strings.TrimSpace(task.ProviderTaskID) == "" {
 		return p.fail(ctx, task, "invalid_async_task", "视频异步任务快照不完整")
 	}
 	model, err := p.Models.GetVersion(ctx, *task.ModelID, *task.ModelVersionID)
 	if err != nil {
 		return p.fail(ctx, task, "model_unavailable", "视频模型不可用")
 	}
-	result, err := p.Provider.Poll(ctx, model, task.ProviderTaskID)
-	if err != nil {
-		return p.fail(ctx, task, "model_poll_failed", "视频任务查询失败")
+	if model.AdapterKind != task.Provider {
+		return p.fail(ctx, task, "invalid_async_task", "视频模型适配器与任务快照不一致")
 	}
-	switch result.State {
-	case providers.ViduTaskRunning:
-		return p.Tasks.SetNextPoll(ctx, task.ID, p.now().Add(p.interval()))
-	case providers.ViduTaskFailed:
-		return p.fail(ctx, task, "provider_task_failed", result.Message)
-	case providers.ViduTaskSucceeded:
-		return p.persistResult(ctx, task, result)
+
+	switch task.Provider {
+	case models.AdapterViduImageToVideo:
+		if p.Provider == nil {
+			return p.fail(ctx, task, "async_model_not_configured", "Vidu 视频轮询器未配置")
+		}
+		result, pollErr := p.Provider.Poll(ctx, model, task.ProviderTaskID)
+		if pollErr != nil {
+			return p.fail(ctx, task, "model_poll_failed", "视频任务查询失败")
+		}
+		switch result.State {
+		case providers.ViduTaskRunning:
+			return p.Tasks.SetNextPoll(ctx, task.ID, p.now().Add(p.interval()))
+		case providers.ViduTaskFailed:
+			return p.fail(ctx, task, "provider_task_failed", result.Message)
+		case providers.ViduTaskSucceeded:
+			return p.persistResult(ctx, task, result.ResultURL)
+		default:
+			return p.fail(ctx, task, "invalid_provider_status", "视频服务返回未知状态")
+		}
+	case models.AdapterGenericHTTP:
+		if strings.TrimSpace(model.PollingTemplate) == "" || p.Generic == nil {
+			return p.fail(ctx, task, "async_model_not_configured", "通用异步视频轮询器未配置")
+		}
+		result, pollErr := p.Generic.Poll(ctx, model, task.ProviderTaskID)
+		if pollErr != nil {
+			if models.IsTransientGenericPollError(pollErr) {
+				return p.Tasks.SetNextPoll(ctx, task.ID, p.now().Add(p.interval()))
+			}
+			return p.fail(ctx, task, "model_poll_failed", pollErr.Error())
+		}
+		switch result.State {
+		case models.GenericTaskRunning:
+			return p.Tasks.SetNextPoll(ctx, task.ID, p.now().Add(p.interval()))
+		case models.GenericTaskFailed:
+			return p.fail(ctx, task, "provider_task_failed", result.Message)
+		case models.GenericTaskSucceeded:
+			return p.persistResult(ctx, task, result.ResultURL)
+		default:
+			return p.fail(ctx, task, "invalid_provider_status", "视频服务返回未知状态")
+		}
 	default:
-		return p.fail(ctx, task, "invalid_provider_status", "视频服务返回未知状态")
+		return p.fail(ctx, task, "invalid_async_task", "当前视频适配器不支持异步轮询")
 	}
 }
 
-func (p Poller) persistResult(ctx context.Context, task domain.Task, result providers.ViduTask) error {
+func (p Poller) persistResult(ctx context.Context, task domain.Task, resultURL string) error {
 	download := p.DownloadResult
 	if download == nil {
 		download = downloadModelResult
 	}
-	body, contentType, err := download(ctx, result.ResultURL)
+	body, contentType, err := download(ctx, resultURL)
 	if err != nil {
 		return p.fail(ctx, task, "download_result_failed", "下载视频结果失败")
 	}
