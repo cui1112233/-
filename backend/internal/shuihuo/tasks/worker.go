@@ -214,10 +214,10 @@ func promptFromTask(task domain.Task) (string, error) {
 }
 
 func videoRequiresPrimaryImage(model models.Definition) bool {
-	if model.AdapterKind == models.AdapterViduImageToVideo {
-		return true
+	if model.AdapterKind == models.AdapterGenericHTTP {
+		return strings.TrimSpace(model.ImageInputFormat) != "" || strings.TrimSpace(model.ImageRequestMode) != ""
 	}
-	return strings.TrimSpace(model.ImageInputFormat) != "" || strings.TrimSpace(model.ImageRequestMode) != ""
+	return true
 }
 
 func supportsAsyncVideo(model models.Definition) bool {
