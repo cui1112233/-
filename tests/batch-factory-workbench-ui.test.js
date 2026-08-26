@@ -6,6 +6,45 @@ const page = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'ut
 const layout = fs.readFileSync('frontend/src/shared/layouts/UserLayout.jsx', 'utf8');
 const shuihuo = fs.readFileSync('frontend/src/user/pages/shuihuo/ProjectsView.jsx', 'utf8');
 
+test('screenshot workbench title bar exposes title and return action', () => {
+  assert.match(page, /批量工厂/);
+  assert.match(page, /返回水货生产/);
+  assert.match(page, /href:\s*['\"]\/shuihuo-production['\"]|location(?:\.href)?\s*=\s*['\"]\/shuihuo-production['\"]/);
+  assert.match(page, /batch-factory-page-header|batch-factory-topbar/);
+});
+
+test('screenshot workbench batch action bar exposes production and publish tabs', () => {
+  assert.match(page, /batch-factory-action-bar/);
+  assert.match(page, /生产统一设置/);
+  assert.match(page, /发布统一设置/);
+  assert.match(page, /production[^\n]*tab|tab[^\n]*production/i);
+  assert.match(page, /publish[^\n]*tab|tab[^\n]*publish/i);
+});
+
+test('screenshot workbench status center includes abnormal summary', () => {
+  assert.match(page, /batch-factory-status-center/);
+  assert.match(page, /异常/);
+  assert.match(page, /batch-factory-abnormal-summary/);
+});
+
+test('screenshot workbench keeps three-column regions', () => {
+  assert.match(page, /batch-factory-workbench-grid/);
+  assert.match(page, /batch-factory-novel-list/);
+  assert.match(page, /batch-factory-center/);
+  assert.match(page, /batch-factory-right-rail/);
+});
+
+test('screenshot workbench right rail exposes video progress ring', () => {
+  assert.match(page, /视频生成进度/);
+  assert.match(page, /batch-factory-video-progress-ring/);
+  assert.match(page, /VIDEO/);
+});
+
+test('screenshot workbench right rail exposes bulk merge section', () => {
+  assert.match(page, /batch-factory-bulk-merge/);
+  assert.match(page, /批量合并|合并待合并/);
+});
+
 test('batch factory exposes the four-zone workbench shell', () => {
   for (const marker of [
     'batch-factory-workbench',
