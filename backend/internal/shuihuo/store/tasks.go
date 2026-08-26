@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"qiantie/backend/internal/shuihuo/domain"
@@ -156,7 +157,9 @@ func (s *Tasks) SetNextPoll(ctx context.Context, taskID int64, nextPollAt time.T
 
 // CompleteWithGeneratedMedia is the terminal compare-and-set. The media row
 // and task transition commit together, so a restart or duplicate poll cannot
-// expose an extra video record.
+// expose an extra video record. The committed task output is enriched with the
+// generated media ID so synchronous and asynchronous task outputs share the
+// same result contract.
 func (s *Tasks) CompleteWithGeneratedMedia(ctx context.Context, taskID int64, media domain.Media, output string) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -165,9 +168,9 @@ func (s *Tasks) CompleteWithGeneratedMedia(ctx context.Context, taskID int64, me
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
 UPDATE shuihuo_tasks
-SET status = 'succeeded', output_snapshot = ?, error_code = '', error_message = '', next_poll_at = NULL
+SET status = 'succeeded', error_code = '', error_message = '', next_poll_at = NULL
 WHERE id = ? AND status = 'running'
-`, output, taskID)
+`, taskID)
 	if err != nil {
 		return false, err
 	}
@@ -185,7 +188,20 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	if err != nil {
 		return false, err
 	}
-	if _, err := result.LastInsertId(); err != nil {
+	mediaID, err := result.LastInsertId()
+	if err != nil {
+		return false, err
+	}
+	outputPayload := map[string]any{}
+	if err := json.Unmarshal([]byte(output), &outputPayload); err != nil || outputPayload == nil {
+		outputPayload = map[string]any{"result": output}
+	}
+	outputPayload["mediaId"] = mediaID
+	finalOutput, err := json.Marshal(outputPayload)
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE shuihuo_tasks SET output_snapshot = ? WHERE id = ? AND status = 'succeeded'`, string(finalOutput), taskID); err != nil {
 		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO shuihuo_task_events(task_id, status, message) VALUES(?, 'succeeded', '生成素材已保存')`, taskID); err != nil {
