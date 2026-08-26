@@ -18,7 +18,7 @@ import (
 )
 
 const generatedObjectPrefix = "generated"
-const maxGeneratedResultBytes = 64 << 20
+const maxGeneratedResultBytes = 256 << 20
 
 type WorkerTaskRepository interface {
 	GetForWorker(context.Context, int64) (domain.Task, error)
@@ -121,12 +121,11 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	if !taskKindMatchesModel(task.Kind, model.Kind) {
 		return fail("model_kind_mismatch", errors.New("模型能力与任务类型不匹配"))
 	}
-	prompt, err := promptFromTask(task)
+	request, err := requestFromTask(task)
 	if err != nil {
 		return fail("invalid_input", err)
 	}
-	request := models.Request{Prompt: prompt}
-	if task.Kind == "video" {
+	if task.Kind == "video" && videoRequiresPrimaryImage(model) {
 		primary, primaryErr := w.Media.PrimaryImage(ctx, task.ProjectID, *task.SegmentID)
 		if primaryErr != nil || primary.ObjectKey == "" {
 			if primaryErr == nil {
@@ -145,7 +144,7 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	}
 	if response.ProviderTaskID != "" && response.ResultURL == "" {
 		asyncTasks, ok := w.Tasks.(AsyncVideoTaskRepository)
-		if !ok || task.Kind != "video" || model.AdapterKind != models.AdapterViduImageToVideo {
+		if !ok || task.Kind != "video" || !supportsAsyncVideo(model) {
 			return fail("async_model_not_configured", errors.New("模型已返回上游任务 ID，但未配置受控视频轮询"))
 		}
 		if err := asyncTasks.SetProviderTask(ctx, task.ID, response.ProviderTaskID, time.Now().UTC()); err != nil {
@@ -186,17 +185,46 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 	return nil
 }
 
-func promptFromTask(task domain.Task) (string, error) {
+func requestFromTask(task domain.Task) (models.Request, error) {
 	var input struct {
-		Prompt string `json:"prompt"`
+		Prompt      string `json:"prompt"`
+		Duration    string `json:"duration"`
+		AspectRatio string `json:"aspectRatio"`
+		Resolution  string `json:"resolution"`
+		CallbackURL string `json:"callbackUrl"`
 	}
 	if err := json.Unmarshal([]byte(task.Input), &input); err != nil {
-		return "", fmt.Errorf("读取任务提示词: %w", err)
+		return models.Request{}, fmt.Errorf("读取任务提示词: %w", err)
 	}
 	if strings.TrimSpace(input.Prompt) == "" {
-		return "", errors.New("任务提示词为空")
+		return models.Request{}, errors.New("任务提示词为空")
 	}
-	return input.Prompt, nil
+	return models.Request{
+		Prompt:      input.Prompt,
+		Duration:    input.Duration,
+		AspectRatio: input.AspectRatio,
+		Resolution:  input.Resolution,
+		CallbackURL: input.CallbackURL,
+	}, nil
+}
+
+func promptFromTask(task domain.Task) (string, error) {
+	request, err := requestFromTask(task)
+	return request.Prompt, err
+}
+
+func videoRequiresPrimaryImage(model models.Definition) bool {
+	if model.AdapterKind == models.AdapterViduImageToVideo {
+		return true
+	}
+	return strings.TrimSpace(model.ImageInputFormat) != "" || strings.TrimSpace(model.ImageRequestMode) != ""
+}
+
+func supportsAsyncVideo(model models.Definition) bool {
+	if model.AdapterKind == models.AdapterViduImageToVideo {
+		return true
+	}
+	return model.AdapterKind == models.AdapterGenericHTTP && strings.TrimSpace(model.PollingTemplate) != ""
 }
 
 func taskKindMatchesModel(kind string, modelKind models.Kind) bool {
@@ -223,8 +251,19 @@ func downloadModelResult(ctx context.Context, raw string) ([]byte, string, error
 	if err != nil {
 		return nil, "", fmt.Errorf("模型结果 URL 必须是公共 HTTPS 地址: %w", err)
 	}
-	client := &http.Client{Timeout: 90 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("模型结果 URL 重定向次数过多")
+			}
+			if _, err := models.ValidateOutboundURL(request.URL.String()); err != nil {
+				return fmt.Errorf("模型结果重定向 URL 无效: %w", err)
+			}
+			return nil
+		},
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, resultURL.String(), nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -242,7 +281,7 @@ func downloadModelResult(ctx context.Context, raw string) ([]byte, string, error
 	}
 	contentType := response.Header.Get("Content-Type")
 	if contentType == "" {
-		contentType = mime.TypeByExtension(path.Ext(resultURL.Path))
+		contentType = mime.TypeByExtension(path.Ext(response.Request.URL.Path))
 	}
 	if contentType == "" {
 		contentType = "application/octet-stream"
