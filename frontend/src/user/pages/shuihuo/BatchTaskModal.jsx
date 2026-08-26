@@ -40,6 +40,7 @@ function fieldOptions(field) {
 
 function videoModelRequiresImage(model) {
   if (!model) return false;
+  if (typeof model.requiresImage === 'boolean') return model.requiresImage;
   if (model.adapterKind !== 'generic_http') return true;
   return Boolean((model.imageInputFormat || '').trim() || (model.imageRequestMode || '').trim());
 }
