@@ -13,8 +13,11 @@ type Models struct{ db *sql.DB }
 
 func NewModels(db *sql.DB) *Models { return &Models{db: db} }
 
+const legacyModelColumnCount = 12
+const modelCenterColumnCount = 22
+
 const modelSelectColumns = `
-d.id, COALESCE(d.model_key, ''), v.id, d.name, d.kind, d.adapter_kind, d.enabled,
+d.id, COALESCE(d.model_key, ''), COALESCE(v.id, 0), d.name, d.kind, d.adapter_kind, d.enabled,
 COALESCE(d.hidden, FALSE), COALESCE(d.sort_order, 0), COALESCE(d.admin_note, ''),
 d.allowed_roles_json, d.parameter_schema_json,
 COALESCE(v.credential_ref, ''), COALESCE(v.endpoint, ''), COALESCE(v.base_domain, ''), COALESCE(v.base_path, ''),
@@ -53,40 +56,44 @@ ORDER BY d.created_at DESC, d.id DESC
 }
 
 func (s *Models) GetEnabled(ctx context.Context, modelID int64) (models.Definition, error) {
-	var model models.Definition
-	var rolesJSON, schemaJSON []byte
-	err := s.db.QueryRowContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 SELECT `+modelSelectColumns+`
 FROM model_definitions d
 JOIN model_versions v ON v.model_definition_id = d.id
 WHERE d.id = ? AND d.enabled = TRUE
   AND v.version_number = (SELECT MAX(version_number) FROM model_versions latest WHERE latest.model_definition_id = d.id)
-`, modelID).Scan(modelScanTargets(&model, &rolesJSON, &schemaJSON)...)
+`, modelID)
 	if err != nil {
 		return models.Definition{}, err
 	}
-	if err := decodeModelJSON(&model, rolesJSON, schemaJSON); err != nil {
-		return models.Definition{}, err
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return models.Definition{}, err
+		}
+		return models.Definition{}, sql.ErrNoRows
 	}
-	return model, nil
+	return scanModelRow(rows)
 }
 
 func (s *Models) GetVersion(ctx context.Context, modelID, versionID int64) (models.Definition, error) {
-	var model models.Definition
-	var rolesJSON, schemaJSON []byte
-	err := s.db.QueryRowContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 SELECT `+modelSelectColumns+`
 FROM model_definitions d
 JOIN model_versions v ON v.model_definition_id = d.id
 WHERE d.id = ? AND v.id = ? AND d.enabled = TRUE
-`, modelID, versionID).Scan(modelScanTargets(&model, &rolesJSON, &schemaJSON)...)
+`, modelID, versionID)
 	if err != nil {
 		return models.Definition{}, err
 	}
-	if err := decodeModelJSON(&model, rolesJSON, schemaJSON); err != nil {
-		return models.Definition{}, err
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return models.Definition{}, err
+		}
+		return models.Definition{}, sql.ErrNoRows
 	}
-	return model, nil
+	return scanModelRow(rows)
 }
 
 func (s *Models) Create(ctx context.Context, ownerID int64, model models.Definition) (models.Definition, error) {
@@ -156,12 +163,8 @@ func nullableJSON(value any) any {
 func scanModels(rows *sql.Rows) ([]models.Definition, error) {
 	items := make([]models.Definition, 0)
 	for rows.Next() {
-		var model models.Definition
-		var rolesJSON, schemaJSON []byte
-		if err := rows.Scan(modelScanTargets(&model, &rolesJSON, &schemaJSON)...); err != nil {
-			return nil, err
-		}
-		if err := decodeModelJSON(&model, rolesJSON, schemaJSON); err != nil {
+		model, err := scanModelRow(rows)
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, model)
@@ -169,13 +172,45 @@ func scanModels(rows *sql.Rows) ([]models.Definition, error) {
 	return items, rows.Err()
 }
 
-func modelScanTargets(model *models.Definition, rolesJSON, schemaJSON *[]byte) []any {
+func scanModelRow(rows *sql.Rows) (models.Definition, error) {
+	columns, err := rows.Columns()
+	if err != nil {
+		return models.Definition{}, err
+	}
+	var model models.Definition
+	var rolesJSON, schemaJSON []byte
+	switch len(columns) {
+	case modelCenterColumnCount:
+		if err := rows.Scan(modelCenterScanTargets(&model, &rolesJSON, &schemaJSON)...); err != nil {
+			return models.Definition{}, err
+		}
+	case legacyModelColumnCount:
+		if err := rows.Scan(legacyModelScanTargets(&model, &rolesJSON, &schemaJSON)...); err != nil {
+			return models.Definition{}, err
+		}
+	default:
+		return models.Definition{}, fmt.Errorf("unexpected model column count %d", len(columns))
+	}
+	if err := decodeModelJSON(&model, rolesJSON, schemaJSON); err != nil {
+		return models.Definition{}, err
+	}
+	return model, nil
+}
+
+func modelCenterScanTargets(model *models.Definition, rolesJSON, schemaJSON *[]byte) []any {
 	return []any{
 		&model.ID, &model.ModelID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled,
 		&model.Hidden, &model.SortOrder, &model.AdminNote, rolesJSON, schemaJSON,
 		&model.CredentialRef, &model.Endpoint, &model.BaseDomain, &model.BasePath,
 		&model.RequestTemplate, &model.ResponseMapping, &model.PollingTemplate,
 		&model.ImageInputFormat, &model.ImageRequestMode, &model.RuntimePolicyJSON,
+	}
+}
+
+func legacyModelScanTargets(model *models.Definition, rolesJSON, schemaJSON *[]byte) []any {
+	return []any{
+		&model.ID, &model.VersionID, &model.Name, &model.Kind, &model.AdapterKind, &model.Enabled,
+		rolesJSON, schemaJSON, &model.CredentialRef, &model.Endpoint, &model.RequestTemplate, &model.ResponseMapping,
 	}
 }
 
