@@ -125,6 +125,17 @@ test('关闭基础设定时不保留模型自行输出的基础设定', async ()
   assert.match(cards[0], /00:00-00:03 \| 全景 \| A/);
 });
 
+test('关闭基础设定时不保留模型自行输出的人物与场景区块', async () => {
+  const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
+  const card = buildFinalSegmentCard('【人物与场景】\n林溪：完整外形。\n场景：农家小院。\n【时间轴】\n00:00-00:10 | 林溪转身。', {
+    extractInfo,
+    constraints: { baseSetup: { enabled: false } },
+    duration: '10s'
+  });
+  assert.doesNotMatch(card, /人物与场景|完整外形|农家小院/);
+  assert.match(card, /00:00-00:10 \| 林溪转身/);
+});
+
 test('连续时间轴按秒切段并统一命名（10s 拆分规则）', async () => {
   const { buildFinalSegments } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
   const output = [
@@ -145,7 +156,7 @@ test('连续时间轴按秒切段并统一命名（10s 拆分规则）', async (
   assert.doesNotMatch(cards[0], /统一人物|场景环境/);
 });
 
-test('旧分镜输出中的统一风格、统一人物和场景环境不绕过约束开关', async () => {
+test('旧分镜输出中的统一风格、统一人物和场景环境不绕过基础设定开关', async () => {
   const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
   const card = buildFinalSegmentCard([
     '统一风格：现代都市写实',
@@ -153,7 +164,7 @@ test('旧分镜输出中的统一风格、统一人物和场景环境不绕过�
     '场景环境：豪宅客厅，白天',
     '镜头画面：',
     '00:00-00:10 | 中景 | 叶澜坐在沙发上。'
-  ].join('\n'), { extractInfo, constraints: { enabled: false, baseSetup: { enabled: true } }, index: 0 });
+  ].join('\n'), { extractInfo, constraints: { enabled: false, baseSetup: { enabled: false } }, index: 0 });
   assert.doesNotMatch(card, /统一风格|统一人物|场景环境|粉蓝色旗袍/);
   assert.match(card, /镜头画面：/);
   assert.match(card, /00:00-00:10/);

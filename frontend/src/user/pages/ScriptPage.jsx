@@ -11,7 +11,7 @@ import { apiRequest } from '../../shared/api/client';
 import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
 import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
-import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, normalizeScriptConstraints } from './scriptConstraints';
+import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, constraintsForNextGeneration, normalizeScriptConstraints } from './scriptConstraints';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
@@ -122,6 +122,7 @@ export function ScriptPage() {
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
   const [activeConstraintCategory, setActiveConstraintCategory] = useState('prefix');
   const [constraints, setConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
+  const [outputConstraints, setOutputConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
   const [draftConstraints, setDraftConstraints] = useState(DEFAULT_SCRIPT_CONSTRAINTS);
   const [constraintCatalog, setConstraintCatalog] = useState([]);
   const [constraintTexts, setConstraintTexts] = useState({});
@@ -154,10 +155,10 @@ export function ScriptPage() {
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
+    constraints: constraintsForFormat(outputConstraints, selectedFormat, extractInfo),
     index,
     duration: selectedDuration
-  })), [rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration]);
+  })), [rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
@@ -287,7 +288,8 @@ export function ScriptPage() {
         novelText: values.novelText || '',
         extractionPreset: values.extractionPreset || 'standard'
       },
-      constraints: normalizeScriptConstraints(constraints),
+      constraints: constraintsForNextGeneration(constraints),
+      outputConstraints: normalizeScriptConstraints(outputConstraints),
       extractInfo,
       output,
       editingOutput,
@@ -403,7 +405,7 @@ export function ScriptPage() {
       output,
       novelText: values.novelText || '',
       extractInfo,
-      constraints: constraintsForFormat(constraints, values.format, extractInfo),
+      constraints: constraintsForFormat(outputConstraints, values.format, extractInfo),
       videoTasks: shotVideoTasks
     });
     setCurrentHistoryId(historyId);
@@ -445,6 +447,7 @@ export function ScriptPage() {
     setExtractInfo(normalizeExtractInfo(entry.extractInfo));
     const restoredConstraints = normalizeScriptConstraints(entry.constraints || DEFAULT_SCRIPT_CONSTRAINTS);
     setConstraints(restoredConstraints);
+    setOutputConstraints(restoredConstraints);
     setDraftConstraints(restoredConstraints);
     setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
     setShotVideoTasks(entry.videoTasks || {}); setCurrentHistoryId(entry.id); setHistoryOpen(false);
@@ -461,6 +464,7 @@ export function ScriptPage() {
       setGenerationStage(restoredDraft.generationStage || 'idle');
       setConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
+      setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
       setShotVideoTasks(restoredDraft.shotVideoTasks || {});
       Object.entries(restoredDraft.shotVideoTasks || {}).forEach(([index, task]) => {
         if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId);
@@ -747,13 +751,14 @@ export function ScriptPage() {
     setEditingOutput(false);
     try {
       const entities = toGenerationEntities(extractInfo);
+      const requestConstraints = constraintsForFormat(constraints, values.format, extractInfo);
       const scriptResponse = await generateScript({
         mode: values.mode,
         format: values.format,
         duration: values.duration,
         novelText: values.novelText,
         ...entities,
-        constraints: constraintsForFormat(constraints, values.format, extractInfo)
+        constraints: requestConstraints
       });
       const nextOutput = aiText(scriptResponse);
       if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回剧本内容');
@@ -761,6 +766,7 @@ export function ScriptPage() {
       if (!isCurrentRequest(requestId)) return;
 
       setShotVideoTasks({});
+      setOutputConstraints(requestConstraints);
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
       setCurrentHistoryId('');
@@ -776,7 +782,7 @@ export function ScriptPage() {
           output: nextOutput,
           novelText: values.novelText,
           extractInfo,
-          constraints: constraintsForFormat(constraints, values.format, extractInfo)
+          constraints: requestConstraints
         });
         if (!isCurrentRequest(requestId)) return;
         setCurrentHistoryId(historyId);
@@ -786,6 +792,12 @@ export function ScriptPage() {
         message.warning('生成成功，但保存历史失败');
       }
       if (!isCurrentRequest(requestId)) return;
+      if (!constraints.enabled) {
+        const nextConstraints = constraintsForNextGeneration(constraints);
+        setConstraints(nextConstraints);
+        setDraftConstraints(nextConstraints);
+        persistDraft(undefined, { constraints: nextConstraints, outputConstraints: requestConstraints });
+      }
       message.success('生成完成');
       playTaskSound('success', soundEnabled, soundVolume);
       dispatchPetState('success', {
@@ -946,9 +958,6 @@ export function ScriptPage() {
   function updateDraftConstraint(category, patch) {
     setDraftConstraints(current => ({
       ...current,
-      // 任一子项被打开时，总开关同步打开；否则“基础设定”会呈现为已开启，
-      // 却被总开关拦截而不显示在分镜卡中。
-      ...(patch?.enabled === true ? { enabled: true } : {}),
       [category]: { ...current[category], ...patch }
     }));
   }
@@ -1017,14 +1026,13 @@ export function ScriptPage() {
     const next = normalizeScriptConstraints(draftConstraints);
     setConstraints(next);
     setConstraintModalOpen(false);
-    persistDraft(undefined, { constraints: next });
+    persistDraft(undefined, { constraints: constraintsForNextGeneration(next) });
   }
 
   const activeItem = activeEntity?.isNew
     ? activeEntity.data
     : activeEntity ? extractInfo[activeEntity.type].find(item => item.id === activeEntity.id) : null;
   const canGenerateScript = generationStage === 'extracted' || generationStage === 'complete';
-  const constraintsAllowed = selectedFormat !== 'shortdrama';
   const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
   const selectedExtractionPreset = extractionPresets.find(item => item.id === extractionPreset);
   const extractionPresetName = selectedExtractionPreset?.name || extractionPresetError || '正在加载提取指令';
@@ -1203,8 +1211,7 @@ export function ScriptPage() {
             className="script-constraint-button"
             icon={<Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />}
             onClick={openConstraints}
-            disabled={!constraintsAllowed}
-            title={constraintsAllowed ? '约束设置' : '剧本模式不支持视频提示词约束设置'}
+            title="约束设置"
           >约束设置</Button>
           <Select
             style={{ width: 164 }}
@@ -1379,7 +1386,7 @@ export function ScriptPage() {
         open={constraintModalOpen}
         onCancel={() => setConstraintModalOpen(false)}
         onOk={saveConstraints}
-        okText="保存并启用"
+        okText="保存本次设置"
         width={720}
       >
         <div className="script-constraint-section">
@@ -1388,7 +1395,7 @@ export function ScriptPage() {
               checked={draftConstraints.enabled}
               onChange={enabled => setDraftConstraints(current => ({ ...current, enabled }))}
             />
-            <Typography.Text strong>启用本次及后续剧本输出约束</Typography.Text>
+            <Typography.Text strong>后续剧本输出约束</Typography.Text>
           </Space>
         </div>
         <div className="script-constraint-section">
@@ -1434,7 +1441,7 @@ export function ScriptPage() {
           />
         ))}
         <Typography.Paragraph className="script-constraint-help" type="secondary">
-          可以只选择一个类别，也可以不选择任何类别。关闭总开关后会保留当前选择，但后续生成不会注入约束。
+          子开关始终作用于本次生成。打开“后续剧本输出约束”才会把当前选择保存并自动用于下次生成。
         </Typography.Paragraph>
       </Modal>
       <Modal

@@ -218,6 +218,27 @@ test('upgrades a legacy Q preset with the conditional mini-character guard while
   assert.match(upgraded.body, /严禁出现 Q 版迷你版主角/);
 });
 
+test('upgrades legacy script format presets with the base-setup guard without replacing published bodies', t => {
+  const store = createStore(t);
+  for (const id of ['script-format-screenplay', 'script-format-storyboard', 'script-format-shortdrama', 'script-format-shotlist', 'script-format-q版']) {
+    const legacy = store.createDraft('owner', {
+      id, module: 'script', name: id, kind: 'base', description: '旧提示词',
+      compatibleBaseIds: [], body: `CUSTOM_${id}`,
+      protocolLock: { slot: `script.format.${id.replace('script-format-', '')}` }
+    });
+    store.publish('owner', legacy.id, legacy.version);
+  }
+
+  seedSystemPresets(store, 'owner');
+
+  for (const id of ['script-format-screenplay', 'script-format-storyboard', 'script-format-shortdrama', 'script-format-shotlist', 'script-format-q版']) {
+    const published = store.getPublished(id);
+    assert.match(published.body, new RegExp(`CUSTOM_${id}`));
+    assert.match(published.body, /基础设定开关守卫 v1/);
+    assert.equal(published.version, 2);
+  }
+});
+
 test('upgrades a legacy water-production smart preset slot without replacing its published metadata', t => {
   const store = createStore(t);
   const legacy = store.createDraft('owner', {

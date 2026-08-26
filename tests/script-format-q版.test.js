@@ -87,3 +87,16 @@ test('invalid format falls back to the default screenplay preset', () => {
   }, presetStore);
   assert.match(messages[0].content, /剧情模式/);
 });
+
+test('base setup disabled removes entity cards from every script format', () => {
+  loadPresets();
+  const presetStore = { getPublished(id) { return presets[id] || { id, module: 'script', kind: 'base', body: 'FORMAT', protocolLock: {} }; }, listAll() { return []; } };
+  for (const format of ['screenplay', 'storyboard', 'shortdrama', 'shotlist', 'q版']) {
+    const messages = chat._private.buildScriptMessages({
+      mode: 'continuous', format, duration: '10s', novelText: '原文',
+      characters: [{ 名称: '林溪', 外形: '完整外形' }], scenes: [{ 名称: '农家小院', 描述: '完整场景' }],
+      protagonists: [{ 名称: '林溪' }], constraints: { enabled: false, baseSetup: { enabled: false } }
+    }, presetStore);
+    assert.doesNotMatch(messages[1].content, /## 人物信息|## 场景信息|主角白名单|完整外形|完整场景/);
+  }
+});

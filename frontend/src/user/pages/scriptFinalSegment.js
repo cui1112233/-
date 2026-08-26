@@ -61,9 +61,7 @@ function enabledBody(layer) {
 }
 
 function buildConstraintParts(constraints, visualStyle = '') {
-  // 显式关闭总开关时，所有文字约束都不应出现在最终分镜卡中。
-  // 未带此字段的旧记录保持原有行为，避免历史内容意外丢失。
-  if (constraints?.enabled === false) return { leading: '', negative: '' };
+  // 后续沿用开关不影响本次卡片；是否展示文字约束只由各子开关决定。
   // 与服务端生成请求保持一致：开启画面前缀时，小说提取阶段得到的统一风格
   // 也属于本次前缀。否则 AI 实际收到了风格，最终卡片却看不到它。
   const prefix = [
@@ -111,6 +109,32 @@ export function stripBaseSetupSection(text) {
     out.push(line);
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// 模型偶尔会使用旧版“人物与场景 / 人物卡 / 场景卡”格式绕过基础设定开关。
+// 这些是独立共享设定，而不是时间轴中的正常人名或地点，必须始终剥离，
+// 最后只由 baseSetup 开关决定是否注入程序生成的基础设定。
+export function stripStandaloneSetupSections(value) {
+  const lines = String(value || '').split('\n');
+  const result = [];
+  let skipping = false;
+  const startsSetup = line => /^(?:【|\[)?(?:人物与场景|人物卡|场景卡)(?:】|\])?(?:[：:].*)?$/.test(line);
+  const startsContent = line => /^(?:【|\[)?(?:时间轴|画面内容|声音设计|氛围与画质规范)(?:】|\])?|^(?:镜头画面[：:]|(?:#{1,6}\s*)?(?:镜头|分镜)\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)|\[?\d{1,2}:\d{2}\s*[-—~])/.test(line);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (startsSetup(trimmed)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping) {
+      if (!trimmed) continue;
+      if (!startsContent(trimmed)) continue;
+      skipping = false;
+    }
+    result.push(line);
+  }
+  return result.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // 早期分镜模式会让模型自行输出“统一风格 / 统一人物 / 场景环境”。
@@ -188,12 +212,13 @@ export function unitTotalSeconds(text) {
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
 export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0, duration }) {
   // 历史草稿没有总开关字段时，基础设定沿用原本默认开启的行为；只有明确关闭才隐藏。
-  const baseOn = constraints?.enabled !== false && constraints?.baseSetup?.enabled !== false;
+  const baseOn = constraints?.baseSetup?.enabled === true;
   const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints, extractInfo?.visualStyle);
   // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
   const target = targetSeconds(duration);
   let body = stripLegacySharedSetupSections(card);
   body = stripBaseSetupSection(body);
+  body = stripStandaloneSetupSections(body);
   const rawTotal = unitTotalSeconds(card) ?? unitTotalSeconds(body);
   const total = rawTotal ? Math.min(rawTotal, target) : null;
   body = stripUnitHeading(body);

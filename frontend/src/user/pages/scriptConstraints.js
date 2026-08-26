@@ -70,6 +70,12 @@ export function normalizeScriptConstraints(value) {
   };
 }
 
+// 总开关只控制下次是否沿用；子开关可以单独作用于本次生成。
+export function constraintsForNextGeneration(value) {
+  const normalized = normalizeScriptConstraints(value);
+  return normalized.enabled ? normalized : normalizeScriptConstraints(DEFAULT_SCRIPT_CONSTRAINTS);
+}
+
 function entityLabel(data, fallback) {
   if (!data || typeof data !== 'object') return fallback;
   return data.角色名称 || data.场景名称 || data.名称 || data.name || data.人物 || data.场景 || fallback;
@@ -97,10 +103,9 @@ function resolvedReferenceText(references, extractInfo) {
 }
 
 export function constraintsForFormat(value, format, extractInfo) {
-  if (format === 'shortdrama') return normalizeScriptConstraints(DEFAULT_SCRIPT_CONSTRAINTS);
   const normalized = normalizeScriptConstraints(value);
   const referenceText = resolvedReferenceText(normalized.entityReferences, extractInfo);
-  if (!normalized.enabled || !referenceText) return normalized;
+  if (!referenceText) return normalized;
   return {
     ...normalized,
     restriction: {
