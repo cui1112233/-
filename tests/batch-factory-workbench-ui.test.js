@@ -1,30 +1,48 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
 
 const page = [
-  fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8'),
-  fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8')
-].join('\n');
-const layout = fs.readFileSync('frontend/src/shared/layouts/UserLayout.jsx', 'utf8');
-const shuihuo = fs.readFileSync('frontend/src/user/pages/shuihuo/ProjectsView.jsx', 'utf8');
+  fs.readFileSync("frontend/src/user/pages/BatchFactoryPage.jsx", "utf8"),
+  fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  ),
+].join("\n");
+const layout = fs.readFileSync(
+  "frontend/src/shared/layouts/UserLayout.jsx",
+  "utf8",
+);
+const shuihuo = fs.readFileSync(
+  "frontend/src/user/pages/shuihuo/ProjectsView.jsx",
+  "utf8",
+);
 
-test('screenshot workbench title bar exposes title and return action', () => {
+test("screenshot workbench title bar exposes title and return action", () => {
   assert.match(page, /批量工厂/);
   assert.match(page, /返回水货生产/);
-  assert.match(page, /href:\s*['\"]\/shuihuo-production['\"]|location(?:\.href)?\s*=\s*['\"]\/shuihuo-production['\"]/);
+  assert.match(
+    page,
+    /href:\s*['\"]\/shuihuo-production['\"]|location(?:\.href)?\s*=\s*['\"]\/shuihuo-production['\"]/,
+  );
   assert.match(page, /batch-factory-page-header|batch-factory-topbar/);
 });
 
-test('screenshot frame loads real batch data instead of only fixed sample rows', () => {
-  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+test("screenshot frame loads real batch data instead of only fixed sample rows", () => {
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
   assert.match(source, /getBatchFactoryBatch/);
   assert.match(source, /listBatchFactoryBatches/);
   assert.match(source, /const \[batch, setBatch\]/);
 });
 
-test('new batch stays inside the workbench and creates an imported pending batch', () => {
-  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+test("new batch stays inside the workbench and creates an imported pending batch", () => {
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
   assert.match(source, /BatchIntakeDrawer/);
   assert.match(source, /createBatchFactoryBatch/);
   assert.match(source, /parseManualNovels/);
@@ -33,14 +51,27 @@ test('new batch stays inside the workbench and creates an imported pending batch
   assert.match(source, /disabled=\{!items\.length \|\| !modelId\}/);
 });
 
-test('start director uses the active batch API and refreshes the workbench state', () => {
-  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+test("start director uses the active batch API and refreshes the workbench state", () => {
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
   assert.match(source, /startBatchFactoryBatch/);
   assert.match(source, /function startDirector\(\)/);
   assert.match(source, /setBatch\(result\.batch\)/);
 });
 
-test('screenshot workbench batch action bar exposes production and publish tabs', () => {
+test("generate pending videos uses the batch model binding and refreshes the workbench", () => {
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
+  assert.match(source, /generateBatchFactoryBatch/);
+  assert.match(source, /function generatePendingVideos\(\)/);
+  assert.match(source, /batch\.settings\?\.videoModelId/);
+});
+
+test("screenshot workbench batch action bar exposes production and publish tabs", () => {
   assert.match(page, /batch-factory-action-bar/);
   assert.match(page, /生产统一设置/);
   assert.match(page, /发布统一设置/);
@@ -48,63 +79,73 @@ test('screenshot workbench batch action bar exposes production and publish tabs'
   assert.match(page, /publish[^\n]*tab|tab[^\n]*publish/i);
 });
 
-test('screenshot workbench status center includes abnormal summary', () => {
+test("screenshot workbench status center includes abnormal summary", () => {
   assert.match(page, /batch-factory-status-center/);
   assert.match(page, /异常/);
   assert.match(page, /batch-factory-abnormal-summary/);
 });
 
-test('status center locates matching novels without filtering the book list', () => {
-  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+test("status center locates matching novels without filtering the book list", () => {
+  const source = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
   assert.match(source, /function locateStatus\(label\)/);
   assert.match(source, /scrollIntoView/);
   assert.match(source, /currentFilter/);
-  assert.doesNotMatch(source, /filter\(item\s*=>\s*item\.status\s*===\s*currentFilter/);
+  assert.doesNotMatch(
+    source,
+    /filter\(item\s*=>\s*item\.status\s*===\s*currentFilter/,
+  );
 });
 
-test('screenshot workbench keeps three-column regions', () => {
+test("screenshot workbench keeps three-column regions", () => {
   assert.match(page, /batch-factory-workbench-grid/);
   assert.match(page, /batch-factory-novel-list/);
   assert.match(page, /batch-factory-center/);
   assert.match(page, /batch-factory-right-rail/);
 });
 
-test('screenshot workbench right rail exposes video progress ring', () => {
+test("screenshot workbench right rail exposes video progress ring", () => {
   assert.match(page, /视频生成进度/);
   assert.match(page, /batch-factory-video-progress-ring/);
   assert.match(page, /VIDEO/);
 });
 
-test('screenshot workbench right rail exposes bulk merge section', () => {
+test("screenshot workbench right rail exposes bulk merge section", () => {
   assert.match(page, /batch-factory-bulk-merge/);
   assert.match(page, /批量合并|合并待合并/);
 });
 
-test('batch factory exposes the four-zone workbench shell', () => {
+test("batch factory exposes the four-zone workbench shell", () => {
   for (const marker of [
-    'batch-factory-workbench',
-    'batch-factory-status-center',
-    'batch-factory-novel-list',
-    'batch-factory-right-rail',
-    '待合并',
-    '已合并'
-  ]) assert.match(page, new RegExp(marker));
+    "batch-factory-workbench",
+    "batch-factory-status-center",
+    "batch-factory-novel-list",
+    "batch-factory-right-rail",
+    "待合并",
+    "已合并",
+  ])
+    assert.match(page, new RegExp(marker));
 });
 
-test('batch factory stays out of global navigation', () => {
+test("batch factory stays out of global navigation", () => {
   const shuihuoIndex = layout.indexOf("href: '/shuihuo-production'");
   const batchIndex = layout.indexOf("href: '/batch-factory'");
   assert.ok(shuihuoIndex >= 0);
   assert.equal(batchIndex, -1);
 });
 
-test('batch factory automatically collapses the global navigation for the workbench', () => {
-  const source = fs.readFileSync('frontend/src/shared/layouts/UserLayout.jsx', 'utf8');
+test("batch factory automatically collapses the global navigation for the workbench", () => {
+  const source = fs.readFileSync(
+    "frontend/src/shared/layouts/UserLayout.jsx",
+    "utf8",
+  );
   assert.match(source, /pathname === '\/batch-factory'/);
   assert.match(source, /setSidebarCollapsed\(true\)/);
 });
 
-test('shuihuo creation header exposes batch factory beside comic creation', () => {
+test("shuihuo creation header exposes batch factory beside comic creation", () => {
   assert.match(shuihuo, /创作漫剧/);
   assert.match(shuihuo, /onOpenBatchFactory/);
   assert.match(shuihuo, /批量工厂/);
