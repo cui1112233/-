@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,14 +31,18 @@ func NewGenericHTTPAdapter(client *http.Client, credentials CredentialResolver) 
 }
 
 func (a *GenericHTTPAdapter) Submit(ctx context.Context, model Definition, request Request) (Response, error) {
-	if model.AdapterKind != "generic_http" {
+	if model.AdapterKind != AdapterGenericHTTP {
 		return Response{}, fmt.Errorf("model adapter is not generic_http")
 	}
 	validateURL := a.validateURL
 	if validateURL == nil {
 		validateURL = ValidateOutboundURL
 	}
-	endpoint, err := validateURL(model.Endpoint)
+	rawEndpoint, err := resolveGenericSubmitEndpoint(model)
+	if err != nil {
+		return Response{}, err
+	}
+	endpoint, err := validateURL(rawEndpoint)
 	if err != nil {
 		return Response{}, fmt.Errorf("validate model endpoint: %w", err)
 	}
@@ -65,6 +70,7 @@ func (a *GenericHTTPAdapter) Submit(ctx context.Context, model Definition, reque
 	if template.Method == "" {
 		template.Method = http.MethodPost
 	}
+	template.Method = strings.ToUpper(strings.TrimSpace(template.Method))
 	if template.Method != http.MethodPost && template.Method != http.MethodPut {
 		return Response{}, fmt.Errorf("unsupported model request method %q", template.Method)
 	}
@@ -96,6 +102,40 @@ func (a *GenericHTTPAdapter) Submit(ctx context.Context, model Definition, reque
 		return Response{}, fmt.Errorf("model returned HTTP %d: %s", httpResponse.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
 	return parseModelResponse(responseBody, model.ResponseMapping)
+}
+
+// resolveGenericSubmitEndpoint keeps legacy Endpoint rows readable while
+// making BaseDomain + BasePath the preferred Model Center execution contract.
+func resolveGenericSubmitEndpoint(model Definition) (string, error) {
+	baseDomain := strings.TrimSpace(model.BaseDomain)
+	if baseDomain == "" {
+		endpoint := strings.TrimSpace(model.Endpoint)
+		if endpoint == "" {
+			return "", fmt.Errorf("model endpoint or baseDomain is required")
+		}
+		return endpoint, nil
+	}
+
+	base, err := url.Parse(baseDomain)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return "", fmt.Errorf("invalid model baseDomain")
+	}
+	if base.User != nil || (base.Path != "" && base.Path != "/") || base.RawQuery != "" || base.Fragment != "" {
+		return "", fmt.Errorf("model baseDomain must contain scheme and authority only")
+	}
+
+	basePath := strings.TrimSpace(model.BasePath)
+	if basePath == "" {
+		base.Path = "/"
+		return base.String(), nil
+	}
+	relative, err := url.Parse(basePath)
+	if err != nil || relative.IsAbs() || relative.Host != "" || relative.User != nil || relative.Fragment != "" {
+		return "", fmt.Errorf("invalid model basePath")
+	}
+	base.Path = "/" + strings.TrimLeft(relative.Path, "/")
+	base.RawQuery = relative.RawQuery
+	return base.String(), nil
 }
 
 func renderTemplateValue(value any, request Request, credential string) any {
@@ -153,18 +193,29 @@ func parseModelResponse(body []byte, rawMapping string) (Response, error) {
 	return result, nil
 }
 
-func lookupString(value any, path string) string {
+func lookupString(value any, rawPath string) string {
+	path := strings.Trim(strings.TrimSpace(rawPath), ".")
 	if path == "" {
 		return ""
 	}
+	path = strings.ReplaceAll(path, "[", ".")
+	path = strings.ReplaceAll(path, "]", "")
 	current := value
 	for _, key := range strings.Split(path, ".") {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return ""
-		}
-		current, ok = object[key]
-		if !ok {
+		switch typed := current.(type) {
+		case map[string]any:
+			var ok bool
+			current, ok = typed[key]
+			if !ok {
+				return ""
+			}
+		case []any:
+			index, err := strconv.Atoi(key)
+			if err != nil || index < 0 || index >= len(typed) {
+				return ""
+			}
+			current = typed[index]
+		default:
 			return ""
 		}
 	}
