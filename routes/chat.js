@@ -228,7 +228,7 @@ function buildEntityEnrichmentMessages(body, presetStore) {
   const base = resolveSystemPresetBody(presetStore, input.extractionPreset);
   const protocol = '\u5c0f\u8bf4\u539f\u6587\u4e3a\u4e3b\u8981\u4f9d\u636e\uff1b\u73b0\u6709\u5361\u6458\u8981\u4ec5\u7528\u4e8e\u907f\u514d\u91cd\u590d\u6216\u51b2\u7a81\u3002\u4e0d\u5f97\u8986\u76d6\u7528\u6237\u5df2\u586b\u5199\u7684\u975e\u7a7a\u5b57\u6bb5\uff1b\u5bf9\u51b2\u7a81\u5224\u65ad\u5199\u5165 suggestions\u3002\u6ca1\u6709\u539f\u6587\u4f9d\u636e\u7684\u5185\u5bb9\u5fc5\u987b\u5199\u5165 uncertainties\uff0c\u4e0d\u5f97\u4f5c\u4e3a\u4e8b\u5b9e\u5199\u5165 fields\u3002\u53ea\u8fd4\u56de JSON\uff1afields\u3001evidence\u3001suggestions\u3001uncertainties\u3002';
   return [
-    { role: 'system', content: [base, protocol].filter(Boolean).join('\n\n---\n\n') },
+    { role: 'system', content: [base, protocol].filter(Boolean).join('\n\n') },
     { role: 'user', content: `\u5b9e\u4f53\u7c7b\u578b\uff1a${input.entityType}\n\n\u5c0f\u8bf4\u539f\u6587\uff1a\n${input.novelText}\n\n\u5f53\u524d\u5b9e\u4f53\uff08\u4eba\u5de5\u5b57\u6bb5\uff09\uff1a\n${JSON.stringify(input.entity)}\n\n\u5df2\u6709\u5b9e\u4f53\u6458\u8981\uff1a\n${JSON.stringify(input.existingEntitySummary)}` }
   ];
 }
@@ -299,7 +299,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   formatContent = formatContent.replace(/\{结束时间\}/g, endTime);
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username);
-  const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
+  const unitProtocol = format === 'shortdrama' ? '' : `## 强制完整分镜协议\n当前选择的是 ${duration} 拆分模式。10s / 15s 只定义单个完整分镜的时长上限或目标区间，不代表每个分镜都必须刚好等于该时长。只输出一个或多个独立完整分镜；每个分镜标题必须使用 ### 分镜N（总时长：Xs），其中 Xs 是该分镜根据内容与空间切换得到的真实时长。每个完整分镜内部时间轴都从 00:00 开始，并精确结束于标题声明的真实总时长。10s 模式下每个完整分镜必须 ≤10s；15s 模式下原则上 10s<单元时长≤15s，空间切换、自然断点或最终收尾允许低于10s。空间切换优先于时长上限；同一空间超长时再按当前模式上限继续拆分。禁止用 --- 作为分镜边界，禁止顶层镜头标题或共享前言。每个分镜自身必须写入当前格式需要的人物、场景、基础设定及所有已启用约束，确保可独立复制提交。`;
   const requiredShotHeader = format === 'shotlist'
     ? buildRequiredShotHeader(body.characters, body.scenes)
     : '';
@@ -317,7 +317,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     requiredShotHeaderProtocol,
     constraintWrapper,
     formatContent
-  ].filter(Boolean).join('\n\n---\n\n');
+  ].filter(Boolean).join('\n\n');
 
   return [
     { role: 'system', content: systemPrompt },
