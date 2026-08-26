@@ -16,10 +16,11 @@ test('screenshot workbench title bar exposes title and return action', () => {
   assert.match(page, /batch-factory-page-header|batch-factory-topbar/);
 });
 
-test('batch factory renders the real workbench instead of returning the static preview', () => {
-  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8');
-  assert.doesNotMatch(source, /return\s+<BatchFactoryPreviewPage\s*\/>/);
+test('screenshot frame loads real batch data instead of only fixed sample rows', () => {
+  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
   assert.match(source, /getBatchFactoryBatch/);
+  assert.match(source, /listBatchFactoryBatches/);
+  assert.match(source, /const \[batch, setBatch\]/);
 });
 
 test('screenshot workbench batch action bar exposes production and publish tabs', () => {
@@ -37,10 +38,11 @@ test('screenshot workbench status center includes abnormal summary', () => {
 });
 
 test('status center locates matching novels without filtering the book list', () => {
-  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8');
-  assert.match(source, /function locateStatus\(key\)/);
+  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+  assert.match(source, /function locateStatus\(label\)/);
   assert.match(source, /scrollIntoView/);
-  assert.doesNotMatch(source, /matchesStatus\s*=\s*workbenchStatus/);
+  assert.match(source, /currentFilter/);
+  assert.doesNotMatch(source, /filter\(item\s*=>\s*item\.status\s*===\s*currentFilter/);
 });
 
 test('screenshot workbench keeps three-column regions', () => {

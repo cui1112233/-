@@ -17,6 +17,7 @@ import {
 import { reportClientError } from '../../shared/error-reporting';
 import { BatchFactoryBulkProduction } from './batch-factory/BatchFactoryBulkProduction';
 import { BatchFactoryProductionControls, loadBatchFactoryVideoModels } from './batch-factory/BatchFactoryProductionControls';
+import { BatchFactoryPreviewPage } from './BatchFactoryPreviewPage';
 import { parseManualNovels } from './batch-factory/intake';
 import './batch-factory-workbench.css';
 
@@ -88,6 +89,8 @@ function activityEntries(item) {
 }
 
 export function BatchFactoryPage() {
+  // Keep the approved workbench frame stable while its regions are wired incrementally.
+  return <BatchFactoryPreviewPage />;
   const [pasted, setPasted] = useState('');
   const [draftItems, setDraftItems] = useState([]);
   const [sourceIntakeId, setSourceIntakeId] = useState('');
