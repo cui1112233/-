@@ -20,4 +20,6 @@ test('任务详情支持关闭与上一条下一条导航', () => {
   assert.match(js, /id="detailNextBtn"/);
   assert.match(js, /id="detailCloseBtn"/);
   assert.match(js, /function adjacentTaskId/);
+  assert.match(js, /document\.body\.classList\.add\("detail-modal-open"\)/);
+  assert.match(html, /class="section task-detail-section"/);
 });
