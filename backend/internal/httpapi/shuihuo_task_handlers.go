@@ -23,6 +23,7 @@ type shuihuoTaskRequest struct {
 	Kind          string                    `json:"kind"`
 	ModelID       int64                     `json:"modelId"`
 	AudioSettings *shuihuoAudioTaskSettings `json:"audioSettings,omitempty"`
+	VideoSettings *shuihuoVideoTaskSettings `json:"videoSettings,omitempty"`
 }
 
 type shuihuoBatchTaskRequest struct {
@@ -30,6 +31,7 @@ type shuihuoBatchTaskRequest struct {
 	Kind                   string                             `json:"kind"`
 	ModelID                int64                              `json:"modelId"`
 	AudioSettingsBySegment map[int64]shuihuoAudioTaskSettings `json:"audioSettingsBySegment,omitempty"`
+	VideoSettings          *shuihuoVideoTaskSettings          `json:"videoSettings,omitempty"`
 }
 
 // shuihuoAudioTaskSettings contains only user-visible synthesis choices. The
@@ -38,6 +40,14 @@ type shuihuoAudioTaskSettings struct {
 	Voice      string   `json:"voice"`
 	SpeechRate *float64 `json:"speechRate,omitempty"`
 	Pitch      *float64 `json:"pitch,omitempty"`
+}
+
+// shuihuoVideoTaskSettings contains the provider-neutral video controls that
+// generic request templates may consume through their declared placeholders.
+type shuihuoVideoTaskSettings struct {
+	Duration    string `json:"duration,omitempty"`
+	AspectRatio string `json:"aspectRatio,omitempty"`
+	Resolution  string `json:"resolution,omitempty"`
 }
 
 type shuihuoBatchTaskResult struct {
@@ -124,7 +134,7 @@ func (api *API) handleCreateShuihuoTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	user, _ := currentUser(r)
-	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind, req.AudioSettings)
+	task, err := api.createShuihuoTask(r.Context(), user, project, req.SegmentID, req.ModelID, req.Kind, req.AudioSettings, req.VideoSettings)
 	if err != nil {
 		writeJSON(w, taskCreationStatus(err), map[string]string{"error": singleTaskCreationErrorMessage(err)})
 		return
@@ -155,7 +165,7 @@ func (api *API) handleCreateShuihuoBatchTasks(w http.ResponseWriter, r *http.Req
 			settings := req.AudioSettingsBySegment[segmentID]
 			audioSettings = &settings
 		}
-		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind, audioSettings)
+		task, err := api.createShuihuoTask(r.Context(), user, project, segmentID, req.ModelID, req.Kind, audioSettings, req.VideoSettings)
 		result := shuihuoBatchTaskResult{SegmentID: segmentID}
 		if err != nil {
 			allSucceeded = false
@@ -192,7 +202,7 @@ func validBatchTaskRequest(req shuihuoBatchTaskRequest) bool {
 
 func taskCreationStatus(err error) int {
 	switch taskCreationErrorMessage(err) {
-	case "任务参数无效", "模型类型与任务不匹配":
+	case "任务参数无效", "模型类型与任务不匹配", "视频设置参数无效", "配音设置参数无效":
 		return http.StatusBadRequest
 	case "分段不存在":
 		return http.StatusNotFound
@@ -209,7 +219,7 @@ func taskCreationStatus(err error) int {
 	}
 }
 
-func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string, audioSettings *shuihuoAudioTaskSettings) (domain.Task, error) {
+func (api *API) createShuihuoTask(ctx context.Context, user store.User, project domain.Project, segmentID, modelID int64, kind string, audioSettings *shuihuoAudioTaskSettings, videoSettings *shuihuoVideoTaskSettings) (domain.Task, error) {
 	if segmentID < 1 || modelID < 1 || !validTaskKind(kind) || kind == "export" {
 		return domain.Task{}, taskCreationError("任务参数无效")
 	}
@@ -261,6 +271,21 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 		inputSnapshot["voice"] = settings.Voice
 		inputSnapshot["speechRate"] = settings.SpeechRate
 		inputSnapshot["pitch"] = settings.Pitch
+	}
+	if kind == "video" {
+		settings, settingsErr := normalizedVideoTaskSettings(videoSettings)
+		if settingsErr != nil {
+			return domain.Task{}, taskCreationError("视频设置参数无效")
+		}
+		if settings.Duration != "" {
+			inputSnapshot["duration"] = settings.Duration
+		}
+		if settings.AspectRatio != "" {
+			inputSnapshot["aspectRatio"] = settings.AspectRatio
+		}
+		if settings.Resolution != "" {
+			inputSnapshot["resolution"] = settings.Resolution
+		}
 	}
 	input, _ := json.Marshal(inputSnapshot)
 	modelVersionID := model.VersionID
@@ -319,6 +344,31 @@ func normalizedAudioTaskSettings(input *shuihuoAudioTaskSettings) (struct {
 	}
 	if settings.SpeechRate < 0.5 || settings.SpeechRate > 2 || settings.Pitch < -50 || settings.Pitch > 50 {
 		return settings, errors.New("audio settings outside allowed range")
+	}
+	return settings, nil
+}
+
+func normalizedVideoTaskSettings(input *shuihuoVideoTaskSettings) (struct {
+	Duration    string
+	AspectRatio string
+	Resolution  string
+}, error) {
+	settings := struct {
+		Duration    string
+		AspectRatio string
+		Resolution  string
+	}{}
+	if input == nil {
+		return settings, nil
+	}
+	settings.Duration = strings.TrimSpace(input.Duration)
+	settings.AspectRatio = strings.TrimSpace(input.AspectRatio)
+	settings.Resolution = strings.TrimSpace(input.Resolution)
+	if len(settings.Duration) > 64 || len(settings.AspectRatio) > 64 || len(settings.Resolution) > 64 {
+		return settings, errors.New("video setting is too long")
+	}
+	if strings.ContainsAny(settings.Duration+settings.AspectRatio+settings.Resolution, "\r\n\x00") {
+		return settings, errors.New("video setting contains invalid control characters")
 	}
 	return settings, nil
 }
