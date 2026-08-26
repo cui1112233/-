@@ -124,13 +124,14 @@ Expected: health endpoint returns `{"ok":true}` and platform is running on port 
 Run from `/Users/ming/Downloads/qiantie`:
 
 ```bash
+set -o pipefail
 umask 077
-docker compose --env-file deploy/.env.test-docker -f deploy/docker-compose.test.yml exec -T mysql sh -lc 'mysqldump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --single-transaction --routines --events --triggers "$MYSQL_DATABASE"' | gzip -9 > /Users/ming/Documents/一战晟铭-恢复备份/2026-08-26/mysql.sql.gz
+docker compose --env-file deploy/.env.test-docker -f deploy/docker-compose.test.yml exec -T mysql sh -lc 'mysqldump --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --single-transaction --routines --events --triggers "$MYSQL_DATABASE"' | gzip -9 > /Users/ming/Documents/一战晟铭-恢复备份/2026-08-26/mysql.sql.gz
 chmod 600 /Users/ming/Documents/一战晟铭-恢复备份/2026-08-26/mysql.sql.gz
 gzip -t /Users/ming/Documents/一战晟铭-恢复备份/2026-08-26/mysql.sql.gz
 ```
 
-Expected: `gzip -t` exits zero. The terminal command contains environment variable names but no password value.
+Expected: `gzip -t` exits zero and decompressed output ends with `Dump completed`. `--no-tablespaces` is required because the application account intentionally has database-level privileges only; `pipefail` prevents gzip from masking a failed dump. The terminal command contains environment variable names but no password value.
 
 - [ ] **Step 3: Stop the stack and archive every Docker volume atomically**
 
