@@ -120,6 +120,7 @@ export function BatchFactoryPage() {
   const [batchSettingsOpen, setBatchSettingsOpen] = useState(false);
   const fileInputRef = useRef(null);
   const intakeLoadedRef = useRef('');
+  const autoOpenedHistoryRef = useRef(false);
 
   const hasActiveJobs = useMemo(() => activeBatch?.items?.some(item => activeStatuses.has(item.status)), [activeBatch]);
   const directVideoModels = useMemo(() => videoModels.filter(model => (
@@ -172,7 +173,13 @@ export function BatchFactoryPage() {
     setHistoryLoading(true);
     try {
       const result = await listBatchFactoryBatches();
-      setHistory(result.batches || []);
+      const batches = result.batches || [];
+      setHistory(batches);
+      const hasIntake = Boolean(new URLSearchParams(window.location.search).get('intake'));
+      if (!autoOpenedHistoryRef.current && !activeBatch && !hasIntake && batches.length) {
+        autoOpenedHistoryRef.current = true;
+        await loadBatch(batches[0].id);
+      }
     } catch (error) {
       message.error(error.message || '读取批次失败');
     } finally {
