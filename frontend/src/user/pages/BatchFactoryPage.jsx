@@ -1,5 +1,5 @@
 import { Alert, Button, Card, Collapse, Divider, Empty, Input, List, Modal, Segmented, Select, Space, Spin, Switch, Tabs, Tag, Typography, message } from 'antd';
-import { Check, FilePlus2, Pencil, RefreshCw, Sparkles, UploadCloud, WandSparkles } from 'lucide-react';
+import { ArrowLeft, Check, FilePlus2, Pencil, RefreshCw, Sparkles, UploadCloud, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   approveBatchFactoryHook,
@@ -10,6 +10,7 @@ import {
   listBatchFactoryBatches,
   regenerateBatchFactoryDirector,
   rewriteBatchFactoryHook,
+  generateBatchFactoryBatch,
   startBatchFactoryBatch,
   updateBatchFactoryDirectorResult
 } from '../../shared/api/batchFactory';
@@ -115,6 +116,8 @@ export function BatchFactoryPage() {
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [workbenchStatus, setWorkbenchStatus] = useState('all');
   const [workbenchSearch, setWorkbenchSearch] = useState('');
+  const [activeBatchTab, setActiveBatchTab] = useState('production');
+  const [batchSettingsOpen, setBatchSettingsOpen] = useState(false);
   const fileInputRef = useRef(null);
   const intakeLoadedRef = useRef('');
 
@@ -141,7 +144,10 @@ export function BatchFactoryPage() {
   ].filter(Boolean).length;
   const selectedItem = activeBatch?.items?.find(item => item.id === selectedItemId) || activeBatch?.items?.[0] || null;
   const workbenchRows = useMemo(() => (activeBatch?.items || []).map(item => {
-    const status = item.status === 'complete' && item.production?.projectId ? 'merged-ready' : item.status;
+    const hasFailure = item.status === 'failed'
+      || Number(item.production?.failed || 0) > 0
+      || Boolean(item.error || item.productionSubmissionError);
+    const status = hasFailure ? 'failed' : (item.status === 'complete' && item.production?.projectId ? 'merged-ready' : item.status);
     return { item, status };
   }), [activeBatch]);
   const visibleWorkbenchRows = useMemo(() => workbenchRows.filter(row => {
@@ -421,18 +427,70 @@ export function BatchFactoryPage() {
     }
   }
 
+  function returnToShuihuoProduction() {
+    const navigation = { href: '/shuihuo-production' };
+    window.history.pushState({}, '', navigation.href);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
+
+  async function startActiveBatchDirector() {
+    if (!activeBatch?.id) return;
+    try {
+      const result = await startBatchFactoryBatch(activeBatch.id);
+      setActiveBatch(result.batch);
+      setSelectedItemId(current => current || result.batch?.items?.[0]?.id || null);
+      message.success('已开始导演生成');
+    } catch (error) {
+      message.error(error.message || '开始导演失败');
+    }
+  }
+
+  async function generatePendingVideos() {
+    if (!activeBatch?.id) return;
+    const modelId = Number(activeBatch.settings?.videoModelId || selectedVideoModel?.id || 0);
+    if (!modelId) return message.warning('当前批次没有可用的视频模型');
+    try {
+      const result = await generateBatchFactoryBatch(activeBatch.id, modelId);
+      await refreshActiveBatch();
+      message.success(`已提交 ${result.queuedVideos || 0} 个待生成 VIDEO`);
+    } catch (error) {
+      message.error(error.message || '生成待生成 VIDEO 失败');
+    }
+  }
+
+  function focusBatchSection(sectionId, notice) {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (notice) message.info(notice);
+  }
+
   const reviewCount = activeBatch?.items?.filter(item => item.status === 'hook_review').length || 0;
   const directorCompleteCount = activeBatch?.items?.filter(item => item.status === 'complete').length || 0;
   const failedCount = activeBatch?.items?.filter(item => item.status === 'failed').length || 0;
+  const readyVideoCount = activeBatch?.items?.filter(item => item.status === 'complete' && item.directorResult?.storyboard?.length && !item.production?.projectId).length || 0;
+  const abnormalItems = visibleWorkbenchRows
+    .filter(({ item, status }) => status === 'failed' || item.status === 'failed' || Number(item.production?.failed || 0) > 0 || Boolean(item.error || item.productionSubmissionError))
+    .map(({ item }) => item);
 
   return (
     <div style={{ maxWidth: 1500, margin: '0 auto', padding: '24px' }}>
       <Space direction="vertical" size={18} style={{ width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <header className="batch-factory-page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+          <Space align="start" size={12}>
+            <Button icon={<ArrowLeft size={16} />} onClick={returnToShuihuoProduction}>返回水货生产</Button>
+            <div>
+              <Typography.Title level={2} style={{ margin: 0 }}>批量工厂</Typography.Title>
+              <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0', maxWidth: 920 }}>
+                批量统一导演、视频生产与成品合并；需要精细控制时可切换到单书工作区。
+              </Typography.Paragraph>
+            </div>
+          </Space>
+          <Button icon={<FilePlus2 size={16} />} onClick={() => { setActiveBatch(null); setBatchSettingsOpen(false); refreshHistory(); }}>新建批次</Button>
+        </header>
+
+        <div className="batch-factory-page-description" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
           <Typography.Paragraph type="secondary" style={{ margin: 0, maxWidth: 920 }}>
             批量工厂默认使用整批统一设置；只有个别小说需要精细调整时再展开人物、场景、提示词或 VIDEO。低频设置默认收起，避免批量用户被参数淹没。
           </Typography.Paragraph>
-          {activeBatch ? <Button onClick={() => { setActiveBatch(null); refreshHistory(); }}>新建批次</Button> : null}
         </div>
 
         {!activeBatch ? <>
@@ -550,17 +608,34 @@ export function BatchFactoryPage() {
           <div className="batch-factory-workbench">
           <section className="batch-factory-topbar">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
-              <Space wrap className="batch-factory-topbar-heading">
-                <Typography.Title level={4} style={{ margin: 0 }}>{activeBatch.name}</Typography.Title>
-                <Tag>{activeBatch.items?.length || 0} 本小说</Tag>
-                <Tag>{settingSummary(activeBatch)}</Tag>
-                <Tag color="gold">待审核 {reviewCount}</Tag>
-                <Tag color="green">导演完成 {directorCompleteCount}</Tag>
-                {failedCount ? <Tag color="red">制作失败 {failedCount}</Tag> : null}
-                {hasActiveJobs ? <Tag color="processing">服务端队列处理中</Tag> : null}
-                <Button size="small" onClick={() => { setActiveBatch(null); refreshHistory(); }}>新建批次</Button>
-              </Space>
-              <Collapse size="small" items={[{
+              <div className="batch-factory-action-bar">
+                <Space wrap className="batch-factory-topbar-heading">
+                  <Typography.Title level={4} style={{ margin: 0 }}>{activeBatch.name}</Typography.Title>
+                  <Tag>{activeBatch.items?.length || 0} 本小说</Tag>
+                  <Button size="small" icon={<Pencil size={14} />} onClick={() => { setActiveBatchTab('production'); setBatchSettingsOpen(true); }}>编辑</Button>
+                  <Tag>{settingSummary(activeBatch)}</Tag>
+                  <Tag color="gold">待审核 {reviewCount}</Tag>
+                  <Tag color="green">导演完成 {directorCompleteCount}</Tag>
+                  {failedCount ? <Tag color="red">制作失败 {failedCount}</Tag> : null}
+                  {hasActiveJobs ? <Tag color="processing">服务端队列处理中</Tag> : null}
+                </Space>
+                <div className="batch-factory-action-tabs" role="tablist" aria-label="批次统一设置">
+                  <Button className="batch-factory-production-tab" type={activeBatchTab === 'production' ? 'primary' : 'default'} role="tab" aria-selected={activeBatchTab === 'production'} onClick={() => setActiveBatchTab('production')}>生产统一设置</Button>
+                  <Button className="batch-factory-publish-tab" role="tab" aria-selected={activeBatchTab === 'publish'} disabled title="发布统一设置暂未接入后端能力">发布统一设置</Button>
+                </div>
+                <Space wrap className="batch-factory-action-buttons">
+                  <Button onClick={() => setBatchSettingsOpen(open => !open)}>{batchSettingsOpen ? '收起高级设置' : '高级设置'}</Button>
+                  <Button type="primary" onClick={startActiveBatchDirector} disabled={hasActiveJobs}>开始导演</Button>
+                  <Button onClick={generatePendingVideos} disabled={!readyVideoCount || hasActiveJobs}>生成待生成</Button>
+                  <Button onClick={() => focusBatchSection('batch-factory-bulk-merge', '请在右侧批量合并区检查并执行合并')} disabled={!activeBatch.items?.some(item => item.production?.projectId)}>合并待合并</Button>
+                  <Button disabled title="上传待上传暂未接入后端能力">上传待上传</Button>
+                </Space>
+                <Space wrap size={[8, 4]} className="batch-factory-action-summary">
+                  <Typography.Text type="secondary">生产：{settingSummary(activeBatch)}</Typography.Text>
+                  <Typography.Text type="secondary">发布：尚未配置发布流程</Typography.Text>
+                </Space>
+              </div>
+              <Collapse size="small" activeKey={batchSettingsOpen ? ['batch-settings'] : []} onChange={keys => setBatchSettingsOpen(keys.includes('batch-settings'))} items={[{
                 key: 'batch-settings',
                 label: '查看本批次统一生产设置',
                 children: <Space wrap>
@@ -579,6 +654,16 @@ export function BatchFactoryPage() {
             <Typography.Text strong>批次状态中心</Typography.Text>
             <div className="batch-factory-status-grid">
               {[['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']].map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => setWorkbenchStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
+            </div>
+            <div className="batch-factory-abnormal-summary" aria-label="异常小说摘要">
+              <Space wrap>
+                <Typography.Text strong>异常小说</Typography.Text>
+                <Tag color={abnormalItems.length ? 'red' : 'green'}>{abnormalItems.length} 本</Tag>
+                {!abnormalItems.length ? <Typography.Text type="secondary">当前筛选结果暂无异常</Typography.Text> : null}
+              </Space>
+              {abnormalItems.length ? <Space wrap size={[6, 6]} style={{ marginTop: 8 }}>
+                {abnormalItems.map(item => <Button key={item.id} size="small" danger type="text" onClick={() => { setWorkbenchStatus('failed'); setSelectedItemId(item.id); }}>异常：{item.title || '未命名小说'}</Button>)}
+              </Space> : null}
             </div>
           </section>
 
@@ -696,8 +781,12 @@ export function BatchFactoryPage() {
             </main>
             <aside className="batch-factory-right-rail" aria-label="视频生成进度与批量合并">
               <div className="batch-factory-panel-heading"><Typography.Text strong>视频生成进度</Typography.Text><Typography.Text type="secondary">每 2.5 秒刷新</Typography.Text></div>
-              <div className="batch-factory-progress-summary"><strong>{(activeBatch.items || []).reduce((sum, item) => sum + Number(item.directorResult?.storyboard?.length || 0), 0)}</strong><span>VIDEO 总数</span></div>
-              <BatchFactoryBulkProduction batch={activeBatch} onRefresh={refreshActiveBatch} />
+              <div className="batch-factory-video-progress-ring" role="img" aria-label="VIDEO 生成进度">
+                <div className="batch-factory-progress-summary"><strong>{(activeBatch.items || []).reduce((sum, item) => sum + Number(item.directorResult?.storyboard?.length || 0), 0)}</strong><span>VIDEO 总数</span></div>
+              </div>
+              <div className="batch-factory-bulk-merge" id="batch-factory-bulk-merge">
+                <BatchFactoryBulkProduction batch={activeBatch} onRefresh={refreshActiveBatch} />
+              </div>
             </aside>
           </div>
           </div>
