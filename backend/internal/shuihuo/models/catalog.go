@@ -59,6 +59,7 @@ type PublicModel struct {
 	ParameterSchema  string   `json:"parameterSchema"`
 	ImageInputFormat string   `json:"imageInputFormat"`
 	ImageRequestMode string   `json:"imageRequestMode"`
+	RequiresImage    bool     `json:"requiresImage"`
 	AllowedRoles     []string `json:"allowedRoles"`
 }
 
@@ -86,7 +87,8 @@ func ToPublic(model Definition) PublicModel {
 		ID: model.ID, ModelID: model.ModelID, VersionID: model.VersionID, Name: model.Name,
 		Kind: model.Kind, AdapterKind: model.AdapterKind, SortOrder: model.SortOrder,
 		ParameterSchema: model.ParameterSchema, ImageInputFormat: model.ImageInputFormat,
-		ImageRequestMode: model.ImageRequestMode, AllowedRoles: append([]string(nil), model.AllowedRoles...),
+		ImageRequestMode: model.ImageRequestMode, RequiresImage: model.RequiresImageInput(),
+		AllowedRoles: append([]string(nil), model.AllowedRoles...),
 	}
 }
 
@@ -111,6 +113,23 @@ func ToAdmin(model Definition) AdminModel {
 
 func (model Definition) PubliclySelectable() bool {
 	return model.Enabled && !model.Hidden
+}
+
+// RequiresImageInput is derived from the execution contract rather than the
+// migration defaults of image_input_format/image_request_mode. Old generic
+// text-to-video rows therefore do not become image-only merely because the
+// compatibility migration populated url/json defaults.
+func (model Definition) RequiresImageInput() bool {
+	if model.Kind != KindVideo {
+		return false
+	}
+	if model.AdapterKind == AdapterViduImageToVideo {
+		return true
+	}
+	if model.AdapterKind == AdapterGenericHTTP {
+		return strings.Contains(model.RequestTemplate, "{{image_url}}")
+	}
+	return true
 }
 
 func (model Definition) ProviderConfigured() bool {
