@@ -19,9 +19,9 @@ function parseJsonShots(output) {
 
 function parseShotUnits(output) {
   const matches = [...output.matchAll(UNIT_HEADING)];
-  if (matches.length < 2) return [];
+  if (!matches.length) return [];
   return matches
-    .map((match, index) => output.slice(match.index, matches[index + 1]?.index).replace(/\n?---\s*$/m, '').trim())
+    .map((match, index) => output.slice(match.index, matches[index + 1]?.index).trim())
     .filter(Boolean);
 }
 
@@ -34,8 +34,7 @@ export function parseShotOutput(output) {
 
 export function getShotCards(format, output) {
   if (!isShotCardFormat(format)) return [];
-  const cards = parseShotOutput(output);
-  return cards.length >= 2 ? cards : [];
+  return parseShotOutput(output);
 }
 
 export function joinShotCards(cards, selectedIndexes) {
