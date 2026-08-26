@@ -18,11 +18,13 @@ import { reportClientError } from '../../shared/error-reporting';
 import { BatchFactoryBulkProduction } from './batch-factory/BatchFactoryBulkProduction';
 import { BatchFactoryProductionControls, loadBatchFactoryVideoModels } from './batch-factory/BatchFactoryProductionControls';
 import { BatchFactoryPreviewPage } from './BatchFactoryPreviewPage';
+import { resolveBatchFactoryVideoProduction, resolveBookStatus, useBatchFactoryProductionStatus } from './batch-factory/BatchFactoryVideoProductionStatus';
 import { parseManualNovels } from './batch-factory/intake';
 import './batch-factory-workbench.css';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
 const DEFAULT_STYLE = '高质量动漫短视频';
+const DEFAULT_COLUMN_SIZES = [280, 760, 340];
 
 const statusLabels = {
   pending: ['待开始', 'default'],
@@ -33,6 +35,19 @@ const statusLabels = {
   director_generating: ['导演生成中', 'processing'],
   complete: ['导演完成', 'green'],
   failed: ['制作失败', 'red']
+};
+
+const workbenchStatusLabels = {
+  all: '全部',
+  pending: '待开始',
+  review: '待审核',
+  ai_processing: 'AI 处理中',
+  ready_generate: '待生成',
+  queued: '排队中',
+  generating: '视频生成中',
+  failed: '异常',
+  ready_merge: '待合并',
+  merged: '已合并'
 };
 
 function inferTitle(text, index) {
@@ -88,6 +103,39 @@ function activityEntries(item) {
   return entries.sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime());
 }
 
+function deriveBatchFactoryStatus(item, projectStatus) {
+  return resolveBookStatus(item, projectStatus);
+}
+
+function summarizeBatchFactoryVideoProgress(items, byProjectId) {
+  const summary = { total: 0, pending: 0, queued: 0, generating: 0, succeeded: 0, failed: 0 };
+  for (const item of items || []) {
+    const projectStatus = byProjectId[String(item?.production?.projectId || '')];
+    for (const [index] of (item?.directorResult?.storyboard || []).entries()) {
+      summary.total += 1;
+      const status = resolveBatchFactoryVideoProduction(item, index, projectStatus)?.status || 'draft';
+      if (status === 'succeeded') summary.succeeded += 1;
+      else if (status === 'failed' || status === 'cancelled') summary.failed += 1;
+      else if (status === 'running') summary.generating += 1;
+      else if (status === 'queued') summary.queued += 1;
+      else summary.pending += 1;
+    }
+  }
+  return summary;
+}
+
+function loadColumnSizes() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('batch-factory-column-sizes') || '[]');
+    if (Array.isArray(saved) && saved.length === 3 && saved.every(size => Number.isFinite(Number(size)))) {
+      return saved.map(Number);
+    }
+  } catch (_) {
+    // Fall back to the safe three-column layout when a legacy preference is malformed.
+  }
+  return DEFAULT_COLUMN_SIZES;
+}
+
 export function BatchFactoryPage() {
   // Keep the approved workbench frame stable while its regions are wired incrementally.
   return <BatchFactoryPreviewPage />;
@@ -119,12 +167,11 @@ export function BatchFactoryPage() {
   const [workbenchSearch, setWorkbenchSearch] = useState('');
   const [activeBatchTab, setActiveBatchTab] = useState('production');
   const [batchSettingsOpen, setBatchSettingsOpen] = useState(false);
-  const [columnSizes, setColumnSizes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('batch-factory-column-sizes') || '[250,520,320,320]'); } catch (_) { return [250, 520, 320, 320]; }
-  });
+  const [columnSizes, setColumnSizes] = useState(loadColumnSizes);
   const fileInputRef = useRef(null);
   const intakeLoadedRef = useRef('');
   const autoOpenedHistoryRef = useRef(false);
+  const { byProjectId, error: productionStatusError, refreshNow: refreshProductionStatus } = useBatchFactoryProductionStatus(activeBatch);
 
   useEffect(() => { localStorage.setItem('batch-factory-column-sizes', JSON.stringify(columnSizes)); }, [columnSizes]);
 
@@ -134,8 +181,8 @@ export function BatchFactoryPage() {
     const move = moveEvent => setColumnSizes(() => {
       const delta = moveEvent.clientX - startX;
       const next = [...start];
-      next[index] = Math.max(index === 1 ? 360 : 220, start[index] + delta);
-      next[index + 1] = Math.max(index + 1 === 1 ? 360 : 260, start[index + 1] - delta);
+      next[index] = Math.max(index === 1 ? 460 : 240, start[index] + delta);
+      next[index + 1] = Math.max(index + 1 === 1 ? 460 : 280, start[index + 1] - delta);
       return next;
     });
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
@@ -164,13 +211,10 @@ export function BatchFactoryPage() {
     Boolean(negative.trim())
   ].filter(Boolean).length;
   const selectedItem = activeBatch?.items?.find(item => item.id === selectedItemId) || activeBatch?.items?.[0] || null;
-  const workbenchRows = useMemo(() => (activeBatch?.items || []).map(item => {
-    const hasFailure = item.status === 'failed'
-      || Number(item.production?.failed || 0) > 0
-      || Boolean(item.error || item.productionSubmissionError);
-    const status = hasFailure ? 'failed' : (item.status === 'complete' && item.production?.projectId ? 'merged-ready' : item.status);
-    return { item, status };
-  }), [activeBatch]);
+  const workbenchRows = useMemo(() => (activeBatch?.items || []).map(item => ({
+    item,
+    status: deriveBatchFactoryStatus(item, byProjectId[String(item.production?.projectId || '')])
+  })), [activeBatch, byProjectId]);
   const visibleWorkbenchRows = useMemo(() => workbenchRows.filter(row => {
     const query = workbenchSearch.trim().toLowerCase();
     const matchesSearch = !query || `${row.item.title || ''} ${row.item.bookId || ''}`.toLowerCase().includes(query);
@@ -181,6 +225,12 @@ export function BatchFactoryPage() {
     counts[row.status] = (counts[row.status] || 0) + 1;
     return counts;
   }, { all: 0 }), [workbenchRows]);
+  const videoProgress = useMemo(
+    () => summarizeBatchFactoryVideoProgress(activeBatch?.items || [], byProjectId),
+    [activeBatch, byProjectId]
+  );
+  const finishedVideoCount = videoProgress.succeeded + videoProgress.failed;
+  const videoProgressPercent = videoProgress.total ? Math.round((finishedVideoCount / videoProgress.total) * 100) : 0;
 
   function locateStatus(key) {
     const matches = key === 'all' ? workbenchRows : workbenchRows.filter(row => row.status === key);
@@ -294,8 +344,9 @@ export function BatchFactoryPage() {
   async function refreshActiveBatch() {
     if (!activeBatch?.id) return;
     const result = await getBatchFactoryBatch(activeBatch.id);
-      setActiveBatch(result.batch);
+    setActiveBatch(result.batch);
       setSelectedItemId(current => current || result.batch?.items?.[0]?.id || null);
+    refreshProductionStatus();
     await refreshHistory();
   }
 
@@ -662,7 +713,7 @@ export function BatchFactoryPage() {
                 </Space>
                 <div className="batch-factory-action-tabs" role="tablist" aria-label="批次统一设置">
                   <Button className="batch-factory-production-tab" type={activeBatchTab === 'production' ? 'primary' : 'default'} role="tab" aria-selected={activeBatchTab === 'production'} onClick={() => setActiveBatchTab('production')}>生产统一设置</Button>
-                  <Button className="batch-factory-publish-tab" role="tab" aria-selected={activeBatchTab === 'publish'} disabled title="发布统一设置暂未接入后端能力">发布统一设置</Button>
+                  <Button className="batch-factory-publish-tab" role="tab" aria-selected={activeBatchTab === 'publish'} disabled title="等待 121 发布任务创建与回执接口接通">发布统一设置（待接通）</Button>
                 </div>
                 <Space wrap className="batch-factory-action-buttons">
                   <Button onClick={() => setBatchSettingsOpen(open => !open)}>{batchSettingsOpen ? '收起高级设置' : '高级设置'}</Button>
@@ -694,11 +745,11 @@ export function BatchFactoryPage() {
           <section className="batch-factory-status-center" aria-label="批次状态中心">
             <Typography.Text strong>批次状态中心</Typography.Text>
             <div className="batch-factory-status-grid">
-              {[['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']].map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => locateStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
+              {Object.entries(workbenchStatusLabels).map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => locateStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
             </div>
             <div className="batch-factory-abnormal-summary" aria-label="当前筛选小说摘要">
               <Space wrap>
-                <Typography.Text strong>当前筛选：{(['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']).find(([key]) => key === workbenchStatus)?.[1] || '全部'}</Typography.Text>
+                <Typography.Text strong>当前筛选：{workbenchStatusLabels[workbenchStatus] || '全部'}</Typography.Text>
                 <Tag color={workbenchStatus === 'failed' ? 'red' : 'blue'}>{currentStatusItems.length} 本</Tag>
                 <Typography.Text type="secondary">当前：{Math.max(1, currentStatusItems.findIndex(item => item.id === selectedItemId) + 1)}/{Math.max(1, currentStatusItems.length)}</Typography.Text>
               </Space>
@@ -708,7 +759,7 @@ export function BatchFactoryPage() {
             </div>
           </section>
 
-          <div className="batch-factory-workbench-grid" style={{ gridTemplateColumns: columnSizes.flatMap((size, index) => index < columnSizes.length - 1 ? [`${size}px`, '6px'] : [`${size}px`]).join(' ') }}>
+          <div className="batch-factory-workbench-grid" style={{ '--bf-list-width': `${columnSizes[0]}px`, '--bf-rail-width': `${columnSizes[2]}px` }}>
             <aside className="batch-factory-novel-list" aria-label="小说列表">
               <div className="batch-factory-panel-heading"><Typography.Text strong>小说列表</Typography.Text><Typography.Text type="secondary">{visibleWorkbenchRows.length}/{workbenchRows.length}</Typography.Text></div>
               <Input size="small" placeholder="搜索书名 / BookID" value={workbenchSearch} onChange={event => setWorkbenchSearch(event.target.value)} />
@@ -821,22 +872,29 @@ export function BatchFactoryPage() {
               };
             })} />
           </Card>
-            </main>
-            <div className="batch-factory-resize-handle" onPointerDown={event => startResize(1, event)} />
-            <aside className="batch-factory-video-operations" aria-label="当前小说视频与合并">
+              <section className="batch-factory-selected-video-operations" aria-label="当前小说视频与合并">
               <div className="batch-factory-panel-heading"><Typography.Text strong>当前小说视频</Typography.Text><Typography.Text type="secondary">VIDEO / 合并成片</Typography.Text></div>
               {selectedItem?.directorResult?.storyboard?.length ? <Collapse defaultActiveKey={['videos']} items={[{
                 key: 'videos', label: `VIDEO ${selectedItem.directorResult.storyboard.length}`,
                 children: <List size="small" dataSource={selectedItem.directorResult.storyboard} renderItem={video => <List.Item><Space direction="vertical" size={4}><Typography.Text strong>VIDEO {video.id} · {video.duration_sec}秒</Typography.Text><Typography.Text type="secondary">{video.video_desc}</Typography.Text><Button size="small" icon={<Sparkles size={14} />} onClick={() => compileVideo(selectedItem, video)}>查看 Prompt</Button></Space></List.Item>} />
               }]} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="导演完成后在这里操作 VIDEO" />}
               <div className="batch-factory-single-merge"><Typography.Text strong>合并成品</Typography.Text><Typography.Paragraph type="secondary">合并参数、倍率和唯一视频预览将在此栏展示。</Typography.Paragraph><Button type="primary" disabled={!selectedItem?.production?.projectId} onClick={() => focusBatchSection('batch-factory-bulk-merge', '请在右侧执行可用的合并操作')}>查看合并操作</Button></div>
-            </aside>
-            <div className="batch-factory-resize-handle" onPointerDown={event => startResize(2, event)} />
+              </section>
+            </main>
+            <div className="batch-factory-resize-handle batch-factory-resize-handle--center-rail" onPointerDown={event => startResize(1, event)} />
             <aside className="batch-factory-right-rail" aria-label="视频生成进度与批量合并">
               <div className="batch-factory-panel-heading"><Typography.Text strong>视频生成进度</Typography.Text><Typography.Text type="secondary">每 2.5 秒刷新</Typography.Text></div>
-              <div className="batch-factory-video-progress-ring" role="img" aria-label="VIDEO 生成进度">
-                <div className="batch-factory-progress-summary"><strong>{(activeBatch.items || []).reduce((sum, item) => sum + Number(item.directorResult?.storyboard?.length || 0), 0)}</strong><span>VIDEO 总数</span></div>
+              <div className="batch-factory-video-progress-ring" style={{ '--bf-video-progress': `${videoProgressPercent}%` }} role="img" aria-label={`VIDEO 生成进度：${finishedVideoCount}/${videoProgress.total}`}>
+                <div className="batch-factory-progress-summary"><strong>{finishedVideoCount}/{videoProgress.total}</strong><span>VIDEO 已完成 / 总数</span></div>
               </div>
+              <Space wrap size={[4, 4]} className="batch-factory-video-progress-tags">
+                <Tag>待生成 {videoProgress.pending}</Tag>
+                <Tag color="processing">排队 {videoProgress.queued}</Tag>
+                <Tag color="purple">生成中 {videoProgress.generating}</Tag>
+                <Tag color="green">已完成 {videoProgress.succeeded}</Tag>
+                {videoProgress.failed ? <Tag color="red">失败 {videoProgress.failed}</Tag> : null}
+              </Space>
+              {productionStatusError ? <Alert type="warning" showIcon message="视频状态暂时无法刷新" description={productionStatusError} style={{ marginTop: 12 }} action={<Button size="small" onClick={refreshProductionStatus}>重试</Button>} /> : null}
               <div className="batch-factory-bulk-merge" id="batch-factory-bulk-merge">
                 <BatchFactoryBulkProduction batch={activeBatch} onRefresh={refreshActiveBatch} />
               </div>
