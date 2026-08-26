@@ -125,7 +125,8 @@ func (model Definition) ProviderConfigured() bool {
 	if model.AdapterKind != AdapterGenericHTTP {
 		return true
 	}
-	return strings.TrimSpace(model.Endpoint) != "" && strings.TrimSpace(model.RequestTemplate) != "" && strings.TrimSpace(model.ResponseMapping) != ""
+	endpointConfigured := strings.TrimSpace(model.Endpoint) != "" || strings.TrimSpace(model.BaseDomain) != ""
+	return endpointConfigured && strings.TrimSpace(model.RequestTemplate) != "" && strings.TrimSpace(model.ResponseMapping) != ""
 }
 
 func (model Definition) AvailableTo(role string, persistedReference bool) bool {
@@ -171,6 +172,15 @@ func ValidateDefinition(model Definition) error {
 		}
 		if _, ok := schema.(map[string]any); !ok {
 			return fmt.Errorf("public parameter schema must be a JSON object")
+		}
+	}
+	if strings.TrimSpace(model.PollingTemplate) != "" {
+		var polling any
+		if err := json.Unmarshal([]byte(model.PollingTemplate), &polling); err != nil {
+			return fmt.Errorf("invalid polling template: %w", err)
+		}
+		if _, ok := polling.(map[string]any); !ok {
+			return fmt.Errorf("polling template must be a JSON object")
 		}
 	}
 	if model.Enabled && !model.ProviderConfigured() {
