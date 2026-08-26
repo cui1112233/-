@@ -82,6 +82,8 @@
 .batch-factory-novel-list, .batch-factory-center, .batch-factory-video-operations, .batch-factory-right-rail { border-radius: 8px; padding: 14px; }
 .batch-factory-video-operations { position: sticky; top: 12px; max-height: calc(100vh - 140px); overflow-y: auto; }
 .batch-factory-single-merge { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bf-line); }
+.batch-factory-resize-handle { width: 6px; cursor: col-resize; border-radius: 3px; background: transparent; touch-action: none; }
+.batch-factory-resize-handle:hover, .batch-factory-resize-handle:active { background: var(--bf-accent); }
 .batch-factory-novel-list { position: sticky; top: 12px; max-height: calc(100vh - 140px); overflow: hidden; }
 .batch-factory-panel-heading, .batch-factory-center-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .batch-factory-novel-list-scroll { display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 250px); margin-top: 10px; overflow-y: auto; }

@@ -116,9 +116,28 @@ export function BatchFactoryPage() {
   const [workbenchSearch, setWorkbenchSearch] = useState('');
   const [activeBatchTab, setActiveBatchTab] = useState('production');
   const [batchSettingsOpen, setBatchSettingsOpen] = useState(false);
+  const [columnSizes, setColumnSizes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('batch-factory-column-sizes') || '[250,520,320,320]'); } catch (_) { return [250, 520, 320, 320]; }
+  });
   const fileInputRef = useRef(null);
   const intakeLoadedRef = useRef('');
   const autoOpenedHistoryRef = useRef(false);
+
+  useEffect(() => { localStorage.setItem('batch-factory-column-sizes', JSON.stringify(columnSizes)); }, [columnSizes]);
+
+  function startResize(index, event) {
+    const startX = event.clientX;
+    const start = [...columnSizes];
+    const move = moveEvent => setColumnSizes(() => {
+      const delta = moveEvent.clientX - startX;
+      const next = [...start];
+      next[index] = Math.max(index === 1 ? 360 : 220, start[index] + delta);
+      next[index + 1] = Math.max(index + 1 === 1 ? 360 : 260, start[index + 1] - delta);
+      return next;
+    });
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  }
 
   const hasActiveJobs = useMemo(() => activeBatch?.items?.some(item => activeStatuses.has(item.status)), [activeBatch]);
   const directVideoModels = useMemo(() => videoModels.filter(model => (
@@ -686,7 +705,7 @@ export function BatchFactoryPage() {
             </div>
           </section>
 
-          <div className="batch-factory-workbench-grid">
+          <div className="batch-factory-workbench-grid" style={{ gridTemplateColumns: columnSizes.flatMap((size, index) => index < columnSizes.length - 1 ? [`${size}px`, '6px'] : [`${size}px`]).join(' ') }}>
             <aside className="batch-factory-novel-list" aria-label="小说列表">
               <div className="batch-factory-panel-heading"><Typography.Text strong>小说列表</Typography.Text><Typography.Text type="secondary">{visibleWorkbenchRows.length}/{workbenchRows.length}</Typography.Text></div>
               <Input size="small" placeholder="搜索书名 / BookID" value={workbenchSearch} onChange={event => setWorkbenchSearch(event.target.value)} />
@@ -699,6 +718,8 @@ export function BatchFactoryPage() {
                 {!visibleWorkbenchRows.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的小说" /> : null}
               </div>
             </aside>
+
+            <div className="batch-factory-resize-handle" onPointerDown={event => startResize(0, event)} />
 
             <main className="batch-factory-center">
               <div className="batch-factory-center-heading"><div><Typography.Text type="secondary">当前小说</Typography.Text><Typography.Title level={4}>{selectedItem?.title || '请选择小说'}</Typography.Title></div>{selectedItem?.status ? statusTag(selectedItem.status) : null}</div>
@@ -798,6 +819,7 @@ export function BatchFactoryPage() {
             })} />
           </Card>
             </main>
+            <div className="batch-factory-resize-handle" onPointerDown={event => startResize(1, event)} />
             <aside className="batch-factory-video-operations" aria-label="当前小说视频与合并">
               <div className="batch-factory-panel-heading"><Typography.Text strong>当前小说视频</Typography.Text><Typography.Text type="secondary">VIDEO / 合并成片</Typography.Text></div>
               {selectedItem?.directorResult?.storyboard?.length ? <Collapse defaultActiveKey={['videos']} items={[{
@@ -806,6 +828,7 @@ export function BatchFactoryPage() {
               }]} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="导演完成后在这里操作 VIDEO" />}
               <div className="batch-factory-single-merge"><Typography.Text strong>合并成品</Typography.Text><Typography.Paragraph type="secondary">合并参数、倍率和唯一视频预览将在此栏展示。</Typography.Paragraph><Button type="primary" disabled={!selectedItem?.production?.projectId} onClick={() => focusBatchSection('batch-factory-bulk-merge', '请在右侧执行可用的合并操作')}>查看合并操作</Button></div>
             </aside>
+            <div className="batch-factory-resize-handle" onPointerDown={event => startResize(2, event)} />
             <aside className="batch-factory-right-rail" aria-label="视频生成进度与批量合并">
               <div className="batch-factory-panel-heading"><Typography.Text strong>视频生成进度</Typography.Text><Typography.Text type="secondary">每 2.5 秒刷新</Typography.Text></div>
               <div className="batch-factory-video-progress-ring" role="img" aria-label="VIDEO 生成进度">
