@@ -479,7 +479,7 @@ export function BatchFactoryPage() {
     .map(({ item }) => item);
 
   return (
-    <div style={{ maxWidth: 1500, margin: '0 auto', padding: '24px' }}>
+    <div className="batch-factory-page-shell" style={{ maxWidth: 1680, margin: '0 auto', padding: '20px' }}>
       <Space direction="vertical" size={18} style={{ width: '100%' }}>
         <header className="batch-factory-page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
           <Space align="start" size={12}>
