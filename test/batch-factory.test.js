@@ -5,6 +5,31 @@ const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compil
 const { normalizeSettings, normalizeSourceItem } = require('../lib/batch-factory/store');
 const { canonicalModelSettings } = require('../routes/batch-factory');
 const { boundModelError } = require('../routes/batch-factory-production');
+async function loadIntake() { return import('../frontend/src/user/pages/batch-factory/intake.js'); }
+
+test('手动粘贴按编号拆分并把长数字识别为 Book ID', async () => {
+  const { parseManualNovels } = await loadIntake();
+  assert.deepEqual(parseManualNovels('1\n标题甲\n正文甲\n\n2、\n标题乙\n正文乙'), [
+    { title: '标题甲', bookId: '', sourceText: '标题甲\n正文甲', txtText: '标题甲\n正文甲', sourceType: 'manual' },
+    { title: '标题乙', bookId: '', sourceText: '标题乙\n正文乙', txtText: '标题乙\n正文乙', sourceType: 'manual' }
+  ]);
+  assert.deepEqual(parseManualNovels('10001\n标题丙\n正文丙'), [
+    { title: '标题丙', bookId: '10001', sourceText: '标题丙\n正文丙', txtText: '标题丙\n正文丙', sourceType: 'manual' }
+  ]);
+});
+
+test('上传文件按文件名推导书名或 Book ID，并标记重复项', async () => {
+  const { fileToDraft, validateDraftItems } = await loadIntake();
+  assert.deepEqual(fileToDraft('10002.txt', '标题丁\n正文丁'), {
+    title: '标题丁', bookId: '10002', sourceText: '标题丁\n正文丁', txtText: '标题丁\n正文丁', sourceType: 'manual'
+  });
+  assert.equal(fileToDraft('都市-01.md', '标题戊\n正文戊').title, '都市-01');
+  assert.deepEqual(validateDraftItems([
+    { title: '同名', bookId: '9', sourceText: '正文一' },
+    { title: '同名', bookId: '9', sourceText: '正文二' }
+  ]).map(item => item.duplicateFields), [['bookId', 'title'], ['bookId', 'title']]);
+  assert.throws(() => validateDraftItems([{ title: '空', bookId: 'x', sourceText: '' }]), /正文不能为空/);
+});
 
 function baseResult(videos) {
   return {
