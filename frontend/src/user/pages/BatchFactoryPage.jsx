@@ -16,6 +16,7 @@ import {
 import { reportClientError } from '../../shared/error-reporting';
 import { BatchFactoryBulkProduction } from './batch-factory/BatchFactoryBulkProduction';
 import { BatchFactoryProductionControls, loadBatchFactoryVideoModels } from './batch-factory/BatchFactoryProductionControls';
+import './batch-factory-workbench.css';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
 const DEFAULT_STYLE = '高质量动漫短视频';
@@ -111,6 +112,9 @@ export function BatchFactoryPage() {
   const [compileIssues, setCompileIssues] = useState({});
   const [compiled, setCompiled] = useState({ open: false, loading: false, title: '', prompt: '', payload: null, error: '' });
   const [directorEditor, setDirectorEditor] = useState({ open: false, saving: false, itemId: '', title: '', value: '' });
+  const [selectedItemId, setSelectedItemId] = useState(null);
+  const [workbenchStatus, setWorkbenchStatus] = useState('all');
+  const [workbenchSearch, setWorkbenchSearch] = useState('');
   const fileInputRef = useRef(null);
   const intakeLoadedRef = useRef('');
 
@@ -135,6 +139,28 @@ export function BatchFactoryPage() {
     Boolean(restriction.trim()),
     Boolean(negative.trim())
   ].filter(Boolean).length;
+  const selectedItem = activeBatch?.items?.find(item => item.id === selectedItemId) || activeBatch?.items?.[0] || null;
+  const workbenchRows = useMemo(() => (activeBatch?.items || []).map(item => {
+    const status = item.status === 'complete' && item.production?.projectId ? 'merged-ready' : item.status;
+    return { item, status };
+  }), [activeBatch]);
+  const visibleWorkbenchRows = useMemo(() => workbenchRows.filter(row => {
+    const matchesStatus = workbenchStatus === 'all' || row.status === workbenchStatus;
+    const query = workbenchSearch.trim().toLowerCase();
+    const matchesSearch = !query || `${row.item.title || ''} ${row.item.bookId || ''}`.toLowerCase().includes(query);
+    return matchesStatus && matchesSearch;
+  }), [workbenchRows, workbenchSearch, workbenchStatus]);
+  const workbenchCounts = useMemo(() => workbenchRows.reduce((counts, row) => {
+    counts.all += 1;
+    counts[row.status] = (counts[row.status] || 0) + 1;
+    return counts;
+  }, { all: 0 }), [workbenchRows]);
+
+  useEffect(() => {
+    if (visibleWorkbenchRows.length && !visibleWorkbenchRows.some(row => row.item.id === selectedItemId)) {
+      setSelectedItemId(visibleWorkbenchRows[0].item.id);
+    }
+  }, [visibleWorkbenchRows, selectedItemId]);
 
   async function refreshHistory() {
     setHistoryLoading(true);
@@ -213,6 +239,7 @@ export function BatchFactoryPage() {
     try {
       const result = await getBatchFactoryBatch(batchId);
       setActiveBatch(result.batch);
+      setSelectedItemId(current => current || result.batch?.items?.[0]?.id || null);
       const edits = {};
       for (const item of result.batch?.items || []) if (item.hookDraft) edits[item.id] = item.approvedHookScript || item.hookDraft;
       setHookEdits(edits);
@@ -225,7 +252,8 @@ export function BatchFactoryPage() {
   async function refreshActiveBatch() {
     if (!activeBatch?.id) return;
     const result = await getBatchFactoryBatch(activeBatch.id);
-    setActiveBatch(result.batch);
+      setActiveBatch(result.batch);
+      setSelectedItemId(current => current || result.batch?.items?.[0]?.id || null);
     await refreshHistory();
   }
 
@@ -282,6 +310,7 @@ export function BatchFactoryPage() {
       });
       const started = await startBatchFactoryBatch(created.batch.id);
       setActiveBatch(started.batch);
+      setSelectedItemId(started.batch?.items?.[0]?.id || null);
       setDraftItems([]);
       setSourceIntakeId('');
       setHookEdits({});
@@ -518,15 +547,18 @@ export function BatchFactoryPage() {
             </List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无批次" />}
           </Card>
         </> : <>
-          <Card>
+          <div className="batch-factory-workbench">
+          <section className="batch-factory-topbar">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
-              <Space wrap>
+              <Space wrap className="batch-factory-topbar-heading">
                 <Typography.Title level={4} style={{ margin: 0 }}>{activeBatch.name}</Typography.Title>
+                <Tag>{activeBatch.items?.length || 0} 本小说</Tag>
                 <Tag>{settingSummary(activeBatch)}</Tag>
                 <Tag color="gold">待审核 {reviewCount}</Tag>
                 <Tag color="green">导演完成 {directorCompleteCount}</Tag>
                 {failedCount ? <Tag color="red">制作失败 {failedCount}</Tag> : null}
                 {hasActiveJobs ? <Tag color="processing">服务端队列处理中</Tag> : null}
+                <Button size="small" onClick={() => { setActiveBatch(null); refreshHistory(); }}>新建批次</Button>
               </Space>
               <Collapse size="small" items={[{
                 key: 'batch-settings',
@@ -541,12 +573,35 @@ export function BatchFactoryPage() {
                 </Space>
               }]} />
             </Space>
-          </Card>
+          </section>
 
-          <BatchFactoryBulkProduction batch={activeBatch} onRefresh={refreshActiveBatch} />
+          <section className="batch-factory-status-center" aria-label="批次状态中心">
+            <Typography.Text strong>批次状态中心</Typography.Text>
+            <div className="batch-factory-status-grid">
+              {[['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']].map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => setWorkbenchStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
+            </div>
+          </section>
 
-          <Card title="单书精细调整" extra={<Typography.Text type="secondary">默认全部收起；只有特殊小说才需要打开</Typography.Text>}>
-            <Collapse items={(activeBatch.items || []).map((item, index) => {
+          <div className="batch-factory-workbench-grid">
+            <aside className="batch-factory-novel-list" aria-label="小说列表">
+              <div className="batch-factory-panel-heading"><Typography.Text strong>小说列表</Typography.Text><Typography.Text type="secondary">{visibleWorkbenchRows.length}/{workbenchRows.length}</Typography.Text></div>
+              <Input size="small" placeholder="搜索书名 / BookID" value={workbenchSearch} onChange={event => setWorkbenchSearch(event.target.value)} />
+              <div className="batch-factory-novel-list-scroll">
+                {visibleWorkbenchRows.map(({ item }, index) => <button type="button" key={item.id} className={`batch-factory-novel-row${item.id === selectedItem?.id ? ' is-selected' : ''}`} onClick={() => setSelectedItemId(item.id)}>
+                  <span className="batch-factory-novel-index">{String((activeBatch.items || []).indexOf(item) + 1).padStart(2, '0')}</span>
+                  <span className="batch-factory-novel-copy"><strong>{item.title || '未命名小说'}</strong><small>{item.bookId || '无 BookID'}</small></span>
+                  {statusTag(item.status)}
+                </button>)}
+                {!visibleWorkbenchRows.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的小说" /> : null}
+              </div>
+            </aside>
+
+            <main className="batch-factory-center">
+              <div className="batch-factory-center-heading"><div><Typography.Text type="secondary">当前小说</Typography.Text><Typography.Title level={4}>{selectedItem?.title || '请选择小说'}</Typography.Title></div>{selectedItem?.status ? statusTag(selectedItem.status) : null}</div>
+
+          <Card className="batch-factory-detail-card" title="单书精细调整" extra={<Typography.Text type="secondary">单书设置只影响当前小说</Typography.Text>}>
+            <Collapse items={(selectedItem ? [selectedItem] : []).map((item) => {
+              const index = (activeBatch.items || []).indexOf(item);
               const itemCompileIssues = compileIssues[item.id] || {};
               const promptIssueCount = Object.keys(itemCompileIssues).length;
               const logs = activityEntries(item);
@@ -638,6 +693,14 @@ export function BatchFactoryPage() {
               };
             })} />
           </Card>
+            </main>
+            <aside className="batch-factory-right-rail" aria-label="视频生成进度与批量合并">
+              <div className="batch-factory-panel-heading"><Typography.Text strong>视频生成进度</Typography.Text><Typography.Text type="secondary">每 2.5 秒刷新</Typography.Text></div>
+              <div className="batch-factory-progress-summary"><strong>{(activeBatch.items || []).reduce((sum, item) => sum + Number(item.directorResult?.storyboard?.length || 0), 0)}</strong><span>VIDEO 总数</span></div>
+              <BatchFactoryBulkProduction batch={activeBatch} onRefresh={refreshActiveBatch} />
+            </aside>
+          </div>
+          </div>
         </>}
       </Space>
 

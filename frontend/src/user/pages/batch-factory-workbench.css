@@ -1,0 +1,32 @@
+.batch-factory-workbench { --bf-bg: var(--legacy-surface, #0b1421); --bf-panel: var(--legacy-panel, #101c2d); --bf-line: var(--legacy-border, rgba(148,163,184,.2)); --bf-text: var(--legacy-text, #e5edf7); --bf-muted: var(--legacy-muted, #91a1b7); width: 100%; color: var(--bf-text); }
+.batch-factory-workbench .ant-card, .batch-factory-workbench .ant-collapse { background: var(--bf-panel); border-color: var(--bf-line); }
+.batch-factory-topbar, .batch-factory-status-center, .batch-factory-novel-list, .batch-factory-center, .batch-factory-right-rail { min-width: 0; border: 1px solid var(--bf-line); background: color-mix(in srgb, var(--bf-panel) 94%, transparent); }
+.batch-factory-topbar { padding: 18px 20px; border-radius: 8px; }
+.batch-factory-topbar-heading { align-items: center; }
+.batch-factory-status-center { margin-top: 10px; padding: 14px 16px; border-radius: 8px; }
+.batch-factory-status-grid { display: grid; grid-template-columns: repeat(7, minmax(90px, 1fr)); gap: 8px; margin-top: 10px; }
+.batch-factory-status-grid button { min-height: 54px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; border: 1px solid var(--bf-line); border-radius: 6px; padding: 7px 10px; background: transparent; color: var(--bf-muted); cursor: pointer; text-align: left; }
+.batch-factory-status-grid button strong { color: var(--bf-text); font-size: 17px; }
+.batch-factory-status-grid button:hover, .batch-factory-status-grid button.is-active { border-color: var(--legacy-accent, #7c6cff); background: color-mix(in srgb, var(--legacy-accent, #7c6cff) 16%, transparent); color: var(--bf-text); }
+.batch-factory-workbench-grid { display: grid; grid-template-columns: minmax(220px, 270px) minmax(460px, 1fr) minmax(280px, 340px); gap: 10px; margin-top: 10px; align-items: start; }
+.batch-factory-novel-list, .batch-factory-center, .batch-factory-right-rail { border-radius: 8px; padding: 14px; }
+.batch-factory-novel-list { position: sticky; top: 12px; max-height: calc(100vh - 140px); overflow: hidden; }
+.batch-factory-panel-heading, .batch-factory-center-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.batch-factory-novel-list-scroll { display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 250px); margin-top: 10px; overflow-y: auto; }
+.batch-factory-novel-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 7px; width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 9px 7px; background: transparent; color: var(--bf-text); cursor: pointer; text-align: left; }
+.batch-factory-novel-row:hover, .batch-factory-novel-row.is-selected { border-color: var(--legacy-accent, #7c6cff); background: color-mix(in srgb, var(--legacy-accent, #7c6cff) 14%, transparent); }
+.batch-factory-novel-index { color: var(--bf-muted); font-variant-numeric: tabular-nums; }
+.batch-factory-novel-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.batch-factory-novel-copy strong, .batch-factory-novel-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-factory-novel-copy small { color: var(--bf-muted); font-size: 11px; }
+.batch-factory-center-heading { padding: 2px 2px 12px; }
+.batch-factory-center-heading .ant-typography { margin: 0; }
+.batch-factory-detail-card { margin-top: 0; }
+.batch-factory-right-rail { position: sticky; top: 12px; max-height: calc(100vh - 140px); overflow-y: auto; }
+.batch-factory-right-rail .ant-space-vertical { width: 100%; }
+.batch-factory-progress-summary { display: flex; align-items: baseline; gap: 8px; margin: 16px 0 10px; padding: 13px; border: 1px solid var(--bf-line); border-radius: 6px; background: color-mix(in srgb, var(--bf-bg) 80%, transparent); }
+.batch-factory-progress-summary strong { color: var(--legacy-accent, #9b8cff); font-size: 28px; }
+.batch-factory-progress-summary span { color: var(--bf-muted); font-size: 12px; }
+.batch-factory-right-rail .ant-card { border-inline: 0; border-radius: 0; padding-inline: 0; }
+@media (max-width: 1180px) { .batch-factory-workbench-grid { grid-template-columns: 220px minmax(0, 1fr); } .batch-factory-right-rail { position: static; grid-column: 1 / -1; max-height: none; } .batch-factory-status-grid { grid-template-columns: repeat(4, minmax(90px, 1fr)); } }
+@media (max-width: 760px) { .batch-factory-workbench-grid { display: flex; flex-direction: column; } .batch-factory-novel-list, .batch-factory-center, .batch-factory-right-rail { width: 100%; position: static; max-height: none; } .batch-factory-novel-list-scroll { max-height: 260px; } .batch-factory-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .batch-factory-topbar { padding: 14px; } }
