@@ -109,8 +109,8 @@ const SHOTLIST_REQUEST = {
   constraints: {}
 };
 
-test('shotlist 非流式响应强制补齐服务器固定头部', async t => {
-  const upstreamContent = '### 分镜一（总时长：10s）\n镜头画面：\n00:00-00:10 | 画面';
+test('shotlist 非流式响应补齐服务器人物场景头部但不强塞基础比例', async t => {
+  const upstreamContent = '### 分镜一（总时长：8s）\n【基础设定】生成视频不带字幕 | 9:16\n镜头画面：\n00:00-00:08 | 画面';
   const upstream = await startUpstream(t, () => ({ choices: [{ message: { content: upstreamContent } }] }));
   const { app } = createChatFixture(t, upstream.baseUrl);
 
@@ -123,14 +123,14 @@ test('shotlist 非流式响应强制补齐服务器固定头部', async t => {
   assert.equal(result.status, 200);
   const content = result.body?.choices?.[0]?.message?.content;
   assert.equal(typeof content, 'string');
-  assert.match(content, /【基础设定】生成视频不带字幕 \| 9:16/);
+  assert.doesNotMatch(content, /【基础设定】生成视频不带字幕|9:16/);
   assert.match(content, /顾宁：年轻女性/);
   assert.match(content, /场景环境：海关安检通道｜白天｜紧张压迫/);
-  assert.match(content, /镜头画面：\n00:00-00:10 \| 画面/);
+  assert.match(content, /镜头画面：\n00:00-00:08 \| 画面/);
 });
 
-test('storyboard 非流式响应保持上游原样不被改写', async t => {
-  const upstreamContent = '### 分镜一（总时长：10s）\n统一人物：乱写\n镜头画面：\n00:00-00:10 | 画面';
+test('storyboard 非流式响应保持上游原样不被后端人物场景重写', async t => {
+  const upstreamContent = '### 分镜一（总时长：8s）\n统一人物：乱写\n镜头画面：\n00:00-00:08 | 画面';
   const upstream = await startUpstream(t, () => ({ choices: [{ message: { content: upstreamContent } }] }));
   const { app } = createChatFixture(t, upstream.baseUrl);
 
@@ -143,5 +143,4 @@ test('storyboard 非流式响应保持上游原样不被改写', async t => {
 
   assert.equal(result.status, 200);
   assert.equal(result.body?.choices?.[0]?.message?.content, upstreamContent);
-  assert.doesNotMatch(result.body?.choices?.[0]?.message?.content, /【基础设定】生成视频不带字幕/);
 });
