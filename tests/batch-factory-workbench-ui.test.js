@@ -33,6 +33,13 @@ test('new batch stays inside the workbench and creates an imported pending batch
   assert.match(source, /disabled=\{!items\.length \|\| !modelId\}/);
 });
 
+test('start director uses the active batch API and refreshes the workbench state', () => {
+  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+  assert.match(source, /startBatchFactoryBatch/);
+  assert.match(source, /function startDirector\(\)/);
+  assert.match(source, /setBatch\(result\.batch\)/);
+});
+
 test('screenshot workbench batch action bar exposes production and publish tabs', () => {
   assert.match(page, /batch-factory-action-bar/);
   assert.match(page, /生产统一设置/);
