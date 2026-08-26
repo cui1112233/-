@@ -136,6 +136,7 @@ function collectWorkFormState() {
     column_preset_id: $("columnPresetSelect")?.value || "",
     column_order: $("columnOrderInput")?.value || DEFAULT_COLUMN_ORDER,
     input_text: $("inputText")?.value || "",
+    sensitive_ai_enabled: sensitiveAiProcessEnabled(),
     updated_at: new Date().toISOString(),
   };
 }
@@ -210,6 +211,9 @@ function restoreWorkFormState() {
   }
   if (typeof saved.column_order === "string") $("columnOrderInput").value = saved.column_order || DEFAULT_COLUMN_ORDER;
   if (typeof saved.input_text === "string") $("inputText").value = saved.input_text;
+  if (typeof saved.sensitive_ai_enabled === "boolean" && $("sensitiveAiProcessEnabled")) {
+    $("sensitiveAiProcessEnabled").checked = saved.sensitive_ai_enabled;
+  }
   if (local.removed || server.removed) window.setTimeout(() => { saveWorkFormStateNow(); }, 0);
 }
 
@@ -222,6 +226,8 @@ function bindWorkFormPersistence() {
     const element = $(id);
     if (element) element.addEventListener("input", saveWorkFormState);
   }
+  const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
+  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
 }
 
 function presetOptions() {
@@ -314,7 +320,9 @@ function renderWorkflowConfig(appCfg) {
   $("workflowAutoClassify").checked = workflow.auto_classify_missing !== false;
   $("workflowAutoFetch").checked = workflow.auto_fetch_original !== false;
   $("workflowAutoRewrite").checked = workflow.auto_rewrite_after_fetch !== false;
-  $("workflowAutoSubmit").checked = workflow.auto_submit_after_rewrite === true;
+  if ($("sensitiveAiProcessEnabled")) {
+    $("sensitiveAiProcessEnabled").checked = appCfg.sensitive_ai?.enabled === true;
+  }
   $("fetchEndpoint").value = fetch.endpoint || "https://txt.121w.com/api.php";
   $("fetchMaxTxt").value = fetch.default_max_txt || 4000;
   $("fetchConcurrency").value = fetch.concurrency || 4;
@@ -426,13 +434,20 @@ function ensureSensitiveAiConfig() {
   return appCfg.sensitive_ai;
 }
 
+function sensitiveAiProcessEnabled() {
+  const toggle = $("sensitiveAiProcessEnabled");
+  if (toggle) return toggle.checked === true;
+  return state.config?.app_config?.sensitive_ai?.enabled === true;
+}
+
 function ensureWebSubmitConfig() {
   state.config = state.config || {};
   const current = state.config.web_submit || {};
   const submitVersions = asArray(current.submit_versions).length ? asArray(current.submit_versions) : ["ai1"];
   const jieyaNum = materialJieyaValue(current.advanced?.jieyaNum ?? 4);
   state.config.web_submit = {
-    enabled: current.enabled === true,
+    // 保留旧字段供服务端和历史配置兼容，但网络提交已由任务列表直接触发。
+    enabled: true,
     username: current.username || "",
     password: "",
     password_masked: Boolean(current.password_masked),
@@ -920,10 +935,9 @@ function renderSensitiveRuleEditor() {
   const sensitiveAi = ensureSensitiveAiConfig();
   $("ruleManager").innerHTML = `
     <div class="notice">
-      敏感词规则只有一个入口：开启 AI 处理时，系统只用“查找内容”命中原文小句并交给 AI 修复，“替换为”不会生效；关闭 AI 处理时，才按“查找内容 → 替换为”直接替换。
+      敏感词 AI 模式由“处理”页面的开关控制。开启时先调用 AI 修复，AI 失败会自动回退为“查找内容 → 替换为”；关闭时始终直接替换。这里仅维护词组、替换内容和 AI 参数。
     </div>
     <div class="control-grid two">
-      ${checkboxField("sensitiveAiEnabled", "启用敏感词AI处理（只处理原文）", sensitiveAi.enabled)}
       ${inputField("sensitiveAiConcurrency", "AI修复并发数", sensitiveAi.concurrency)}
       ${inputField("sensitiveAiMaxHits", "每任务最大命中数", sensitiveAi.max_hits_per_task)}
       ${inputField("sensitiveAiRetries", "AI修复重试次数", sensitiveAi.retries)}
@@ -955,7 +969,7 @@ function renderSensitiveRuleEditor() {
       </div>
       <div class="form-stack">
         ${inputField("sensitiveFind", "查找内容 / 敏感词", rule.find)}
-        ${inputField("sensitiveReplace", sensitiveAi.enabled ? "替换为（AI开启时不生效）" : "替换为", rule.replace)}
+        ${inputField("sensitiveReplace", "替换为（AI失败或关闭时使用）", rule.replace)}
         ${checkboxField("sensitiveRuleEnabled", "启用规则", rule.enabled !== false)}
         <div class="actions">
           <button data-rule-action="add-sensitive-rule">新增敏感词</button>
@@ -965,7 +979,7 @@ function renderSensitiveRuleEditor() {
     </div>
     <label>
       批量添加敏感词
-      <textarea id="sensitiveBulkText" class="large-area" spellcheck="false" placeholder="一行一个：敏感词 或 敏感词=>替换词。开启AI处理时只使用敏感词命中，替换词不会生效。"></textarea>
+      <textarea id="sensitiveBulkText" class="large-area" spellcheck="false" placeholder="一行一个：敏感词 或 敏感词=>替换词。AI 失败或关闭时使用替换词。"></textarea>
     </label>
     <div class="actions">
       <button data-rule-action="bulk-sensitive-rule">批量加入当前词组</button>
@@ -1065,7 +1079,6 @@ function captureCurrentRuleForm() {
   ensureSensitiveConfig();
   if (type === "sensitive") {
     const sensitiveAi = ensureSensitiveAiConfig();
-    sensitiveAi.enabled = $("sensitiveAiEnabled").checked;
     sensitiveAi.concurrency = numberValue("sensitiveAiConcurrency", 4);
     sensitiveAi.max_hits_per_task = numberValue("sensitiveAiMaxHits", 80);
     sensitiveAi.retries = numberValue("sensitiveAiRetries", 1);
@@ -1468,12 +1481,9 @@ function updatePlatformHint() {
 }
 
 function renderWebSubmitConfig(settings = {}) {
-  if (!$("webUsername")) return;
+  if (!$("webAllowResubmit")) return;
   const cfg = ensureWebSubmitConfig();
   Object.assign(cfg, settings || {});
-  $("webUsername").value = cfg.username || "";
-  $("webPassword").value = "";
-  $("webEnabled").checked = cfg.enabled === true;
   const mode = cfg.submit_mode === "version" ? "version" : "free";
   const modeInput = document.querySelector(`input[name="webSubmitMode"][value="${mode}"]`);
   if (modeInput) modeInput.checked = true;
@@ -1508,6 +1518,45 @@ function renderWebSubmitConfig(settings = {}) {
   }
   updateResubmitHint();
   renderWebSubmitMode();
+  renderWebLoginStatus(cfg);
+}
+
+function renderWebLoginStatus(settings = {}) {
+  const box = $("webLoginStatus");
+  if (!box) return;
+  const username = String(settings.username || "").trim();
+  const stateClass = state.webLoginSession === false ? "error" : username && state.webLoginSession ? "ok" : "not-logged-in";
+  box.className = `web-login-status ${stateClass}`;
+  const label = username && state.webLoginSession ? username : (state.webLoginSession === false ? (username || "登录异常") : "未登录");
+  box.innerHTML = `<span class="web-login-dot" aria-hidden="true"></span><span>${escapeHtml(label)}</span>`;
+}
+
+async function openWebLoginDialog() {
+  let dialog = $("webLoginDialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "webLoginDialog";
+    dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
+    document.body.appendChild(dialog);
+    dialog.addEventListener("submit", async (event) => {
+      if (event.submitter?.id !== "webLoginSubmit") return;
+      event.preventDefault();
+      const result = $("webLoginResult"); result.textContent = "验证中...";
+      try {
+        const settings = { ...(state.config.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
+        await api("/api/web-submit/config", { method: "POST", body: JSON.stringify({ settings }) });
+        const check = await api("/api/web-submit/test-visible", { method: "POST", body: JSON.stringify({ mode: "all", ids: [], force: true }) });
+        state.webLoginSession = check.ok === true;
+        state.config.web_submit = { ...(state.config.web_submit || {}), username: settings.username, password_masked: true };
+        renderWebLoginStatus(state.config.web_submit);
+        result.textContent = state.webLoginSession ? "登录验证成功" : "登录异常";
+        if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
+      } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
+    });
+  }
+  $("webLoginUsername").value = state.config?.web_submit?.username || "";
+  $("webLoginPassword").value = "";
+  dialog.showModal();
 }
 
 function webSubmitModeFromForm() {
@@ -1586,9 +1635,11 @@ function webSubmitVersionsFromForm() {
 function syncFormToWebSubmitConfig() {
   const cfg = clone(ensureWebSubmitConfig());
   const jieyaNum = materialJieyaValue($("webJieyaNum").value);
-  cfg.enabled = $("webEnabled").checked;
-  cfg.username = $("webUsername").value.trim();
-  cfg.password = $("webPassword").value.trim();
+  // 兼容旧配置字段；是否执行由任务列表的“提交网络”按钮决定。
+  cfg.enabled = true;
+  // 账号只在登录弹窗中维护，提交设置保存时保留当前凭据。
+  if ($("webUsername")) cfg.username = $("webUsername").value.trim();
+  if ($("webPassword")) cfg.password = $("webPassword").value.trim();
   cfg.skip_submitted = !$("webAllowResubmit").checked;
   cfg.submit_mode = webSubmitModeFromForm();
   cfg.min_text_chars = numberValue("webMinTextChars", 0);
@@ -1688,12 +1739,14 @@ async function checkWebEnvironment() {
         <span>${escapeHtml(item.detail || "")}</span>
       </div>
     `).join("");
-    $("siteSubmitGroups").innerHTML = `
-      <div class="site-group-card">
-        <div class="site-group-head"><b>环境自检</b><span class="${result.ok ? "status-ok" : "status-error"}">${result.ok ? "通过" : "存在问题"}</span></div>
-        <div class="site-skipped-list">${rows}</div>
-      </div>
-    `;
+    if ($("siteSubmitGroups")) {
+      $("siteSubmitGroups").innerHTML = `
+        <div class="site-group-card">
+          <div class="site-group-head"><b>环境自检</b><span class="${result.ok ? "status-ok" : "status-error"}">${result.ok ? "通过" : "存在问题"}</span></div>
+          <div class="site-skipped-list">${rows}</div>
+        </div>
+      `;
+    }
     setSiteSubmitStatus(result.ok ? "环境自检通过" : "环境自检发现问题");
   } catch (error) {
     setSiteSubmitStatus(error.message);
@@ -1719,24 +1772,28 @@ async function testVisibleWebFlow() {
         <span>${escapeHtml(String(checks[key]))}</span>
       </div>
     `).join("");
-    $("siteSubmitGroups").innerHTML = `
-      <div class="site-group-card">
-        <div class="site-group-head"><b>121 登录会话验证</b><span class="${result.ok ? "status-ok" : "status-error"}">${result.ok ? "完成" : "失败"}</span></div>
-        <div class="site-skipped-list">${checkRows || "暂无检查项"}</div>
-        <pre class="site-output">${escapeHtml(asArray(result.output).join("\n"))}</pre>
-      </div>
-    `;
+    if ($("siteSubmitGroups")) {
+      $("siteSubmitGroups").innerHTML = `
+        <div class="site-group-card">
+          <div class="site-group-head"><b>121 登录会话验证</b><span class="${result.ok ? "status-ok" : "status-error"}">${result.ok ? "完成" : "失败"}</span></div>
+          <div class="site-skipped-list">${checkRows || "暂无检查项"}</div>
+          <pre class="site-output">${escapeHtml(asArray(result.output).join("\n"))}</pre>
+        </div>
+      `;
+    }
     setSiteSubmitStatus(result.ok ? "121 登录会话有效；此检查不会上传文件或确认生成任务" : "121 登录会话验证失败");
   } catch (error) {
     setSiteSubmitStatus(error.message);
-    $("siteSubmitGroups").innerHTML = `
-      <div class="site-group-card">
-        <div class="site-group-head"><b>121 登录会话验证</b><span class="status-error">未通过</span></div>
-        <div class="site-skipped-list">
-          <div class="site-skipped-row"><code>需要处理</code><span>${escapeHtml(error.message || "验证失败")}</span></div>
+    if ($("siteSubmitGroups")) {
+      $("siteSubmitGroups").innerHTML = `
+        <div class="site-group-card">
+          <div class="site-group-head"><b>121 登录会话验证</b><span class="status-error">未通过</span></div>
+          <div class="site-skipped-list">
+            <div class="site-skipped-row"><code>需要处理</code><span>${escapeHtml(error.message || "验证失败")}</span></div>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
   } finally {
     button.disabled = false;
     button.textContent = originalLabel;
@@ -1792,6 +1849,7 @@ function webSubmitRequestPayload(mode, force = false) {
 }
 
 function showWebSubmitSelectionRequired() {
+  if (!$('siteSubmitGroups')) return;
   $("siteSubmitGroups").innerHTML = `
     <div class="site-group-card">
       <div class="site-group-head"><b>还没有选中任务</b><span class="status-warn">需要先选择</span></div>
@@ -1825,38 +1883,63 @@ async function previewWebSubmit(mode) {
 async function submitWebSubmit(mode) {
   if (mode === "selected" && !selectedTaskIds().length) {
     setSiteSubmitStatus("先选择任务");
+    setBatchStatus("先选择任务");
     showWebSubmitSelectionRequired();
     return;
   }
   const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedTaskIds().length} 个选中任务`);
   if (!confirm(`确认提交${label}到网站？系统会按平台、男女频、风格类型自动分组上传。`)) return;
+  setBatchStatus(`排队中：${label}`);
   setSiteSubmitStatus(`正在提交${label}...`);
+  let polling = false;
   try {
     await saveWebSubmitConfig(true);
-    const result = await api("/api/web-submit/submit", {
+    setBatchStatus(`上传中：${label}`);
+    const submitPromise = api("/api/web-submit/submit", {
       method: "POST",
       body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed")),
     });
+    polling = true;
+    const poll = (async () => {
+      while (polling) {
+        await sleep(700);
+        if (!polling) break;
+        try { await loadTasks(); } catch (_) {}
+      }
+    })();
+    const result = await submitPromise;
+    polling = false;
+    await poll;
     renderWebSubmitGroups(result);
     renderTasks(result.tasks || state.tasks);
     await loadWebSubmitHistory();
     if (Number(result.failed_groups) > 0) reportBatchIssue("result", "/api/web-submit/submit", `网站提交失败 ${result.failed_groups} 组`);
-    setSiteSubmitStatus(`提交完成：已确认 ${result.success_groups || 0} 组，121 待确认 ${result.accepted_groups || 0} 组，失败 ${result.failed_groups || 0} 组`);
+    const summary = `提交完成：已确认 ${result.success_groups || 0} 组，121 待确认 ${result.accepted_groups || 0} 组，失败 ${result.failed_groups || 0} 组`;
+    setSiteSubmitStatus(summary);
+    setBatchStatus(summary);
   } catch (error) {
+    polling = false;
     setSiteSubmitStatus(error.message);
-    await loadTasks();
+    setBatchStatus(`提交失败：${error.message}`);
+    await loadTasks().catch(() => {});
   }
 }
 
 function siteSubmitText(task) {
+  const queued = asArray(task.site_submit_queued_versions);
+  const uploading = asArray(task.site_submit_uploading_versions);
   const done = asArray(task.site_submit_done_versions);
   const accepted = asArray(task.site_submit_accepted_versions);
   const failed = asArray(task.site_submit_failed_versions);
   // 同一版本曾失败但后来已成功提交时，成功结果才是当前状态；
   // 失败记录仍保留在“记录”和“问题日志”中供追溯。
-  if (done.length) return `已提交：${done.join(",")}`;
-  if (accepted.length) return `待确认：${accepted.join(",")}`;
-  if (failed.length) return `失败：${failed.join(",")}`;
+  const parts = [];
+  if (done.length) parts.push(`已提交：${done.join(",")}`);
+  if (uploading.length) parts.push(`上传中：${uploading.join(",")}`);
+  if (queued.length) parts.push(`排队中：${queued.join(",")}`);
+  if (accepted.length) parts.push(`待确认：${accepted.join(",")}`);
+  if (failed.length) parts.push(`失败：${failed.join(",")}`);
+  if (parts.length) return parts.join("；");
   if (task.site_submit_status) return task.site_submit_status;
   return "未提交";
 }
@@ -1927,7 +2010,7 @@ function renderWebSubmitGroups(data = {}) {
 function statusClass(value) {
   const text = String(value || "");
   if (text.includes("failed") || text.includes("失败")) return "status-error";
-  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("dry_run")) return "status-warn";
+  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("dry_run")) return "status-warn";
   if (text.includes("done") || text.includes("完成") || text.includes("classified") || text.includes("submitted") || text.includes("已提交")) return "status-ok";
   return "";
 }
@@ -1974,7 +2057,7 @@ function taskStatusText(value, fallback = "") {
     fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
     generating: "正在生成", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
-    submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
+    queued: "排队中", uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
   };
   return labels[text] || text || fallback;
 }
@@ -2096,6 +2179,9 @@ function renderDetail(data) {
     ${knowledgeRows ? `<div class="meta-grid">${knowledgeRows}</div>` : ""}
     ${sensitiveRows ? `<div class="meta-grid">${sensitiveRows}</div>` : ""}
     <div class="actions">
+      <button id="detailPrevBtn" ${adjacentTaskId(-1) ? "" : "disabled"}>上一条</button>
+      <button id="detailNextBtn" ${adjacentTaskId(1) ? "" : "disabled"}>下一条</button>
+      <button id="detailCloseBtn">关闭</button>
       <button id="detailFetchBtn">重新抓原文</button>
       <button id="detailAiBtn">生成AI文案</button>
       <button id="detailTraceBtn">规则追踪</button>
@@ -2108,6 +2194,9 @@ function renderDetail(data) {
     </div>
     ${aiBlocks}
   `;
+  $("detailCloseBtn").onclick = closeTaskDetail;
+  $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
+  $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
   $("detailAiBtn").onclick = () => generateAi(meta.book_id || meta.id);
   $("detailTraceBtn").onclick = () => showRulesTrace(meta.book_id || meta.id);
@@ -2471,6 +2560,7 @@ async function processInput() {
       parse_mode: $("parseModeSelect").value,
       column_preset_id: $("columnPresetSelect").value,
       column_order: $("columnOrderInput").value,
+      sensitive_ai_enabled: sensitiveAiProcessEnabled(),
     };
     const job = await api("/api/process/start", {
       method: "POST",
@@ -2492,8 +2582,17 @@ async function showTask(id) {
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}`);
   renderDetail(data);
-  activateTab("work");
+  activateTab("tasks");
+  document.body.classList.add("detail-modal-open");
   focusTaskDetail();
+}
+
+function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+
+function adjacentTaskId(direction) {
+  const index = state.tasks.findIndex((task) => String(task.id || "") === String(state.selectedId || ""));
+  const next = index + direction;
+  return next >= 0 && next < state.tasks.length ? String(state.tasks[next].id || "") : "";
 }
 
 function focusTaskDetail() {
@@ -2504,7 +2603,8 @@ async function showSensitiveLog(id) {
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/sensitive-log`);
   renderSensitiveLog(data);
-  activateTab("work");
+  activateTab("tasks");
+  document.body.classList.add("detail-modal-open");
   focusTaskDetail();
 }
 
@@ -2512,7 +2612,8 @@ async function showRulesTrace(id) {
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/rules-trace`);
   renderRulesTrace(data);
-  activateTab("work");
+  activateTab("tasks");
+  document.body.classList.add("detail-modal-open");
   focusTaskDetail();
 }
 
@@ -2520,13 +2621,17 @@ async function showSiteSubmitLog(id) {
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/site-submit-log`);
   renderSiteSubmitLog(data);
-  activateTab("work");
+  activateTab("tasks");
+  document.body.classList.add("detail-modal-open");
   focusTaskDetail();
 }
 
 async function refetchTask(id) {
   if (!id) return;
-  await api(`/api/tasks/${id}/fetch`, { method: "POST", body: "{}" });
+  await api(`/api/tasks/${id}/fetch`, {
+    method: "POST",
+    body: JSON.stringify({ sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+  });
   await loadTasks();
   await showTask(id);
 }
@@ -2534,7 +2639,10 @@ async function refetchTask(id) {
 async function restoreOriginal(id) {
   if (!id) return;
   if (!confirm("确认从备份恢复原文？恢复时会自动重新套用系统处理规则。")) return;
-  await api(`/api/tasks/${id}/restore-original`, { method: "POST", body: "{}" });
+  await api(`/api/tasks/${id}/restore-original`, {
+    method: "POST",
+    body: JSON.stringify({ sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+  });
   await loadTasks();
   await showTask(id);
 }
@@ -2544,7 +2652,7 @@ async function generateAi(id) {
   const count = Number(state.config?.app_config?.rewrite?.default_ai_count || 1);
   await api(`/api/tasks/${id}/generate-ai`, {
     method: "POST",
-    body: JSON.stringify({ count }),
+    body: JSON.stringify({ count, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
   });
   await loadTasks();
   await showTask(id);
@@ -2625,7 +2733,7 @@ async function batchRetry(mode) {
   try {
     const result = await api("/api/tasks/batch-retry", {
       method: "POST",
-      body: JSON.stringify({ mode, ids }),
+      body: JSON.stringify({ mode, ids, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
     });
     renderTasks(result.tasks || []);
     setBatchStatus(`已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`);
@@ -2649,6 +2757,7 @@ async function applyRules(mode) {
         mode,
         ids,
         scope: $("ruleApplyScope").value || "both",
+        sensitive_ai_enabled: sensitiveAiProcessEnabled(),
       }),
     });
     renderTasks(result.tasks || []);
@@ -2679,7 +2788,11 @@ async function reprocessSensitive(ids, restoreFromBackup) {
     try {
       const result = await api("/api/tasks/reprocess-sensitive", {
         method: "POST",
-        body: JSON.stringify({ ids: [id], restore_from_backup: restoreFromBackup }),
+        body: JSON.stringify({
+          ids: [id],
+          restore_from_backup: restoreFromBackup,
+          sensitive_ai_enabled: sensitiveAiProcessEnabled(),
+        }),
       });
       processed += Number(result.processed || 0);
       restored += Number(result.restored || 0);
@@ -2697,6 +2810,20 @@ async function reprocessSensitive(ids, restoreFromBackup) {
   setBatchStatus(firstError ? `${summary}（${firstError}）` : summary);
   showBatchToast(firstError || failed ? `${summary}${firstError ? `：${firstError}` : ""}` : summary, failed ? "warning" : "success");
   if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
+}
+
+async function startSensitiveProcessing() {
+  const ids = state.tasks.map(task => String(task.id || '')).filter(Boolean);
+  if (!ids.length) {
+    setBatchStatus('当前没有可处理任务');
+    return;
+  }
+  await reprocessSensitive(ids, false);
+  await loadTasks();
+}
+
+function openWebSubmitFromTasks() {
+  void submitWebSubmit("selected");
 }
 
 function selectAllVisibleTasks() {
@@ -2724,9 +2851,12 @@ function syncFormToAppConfig() {
     auto_classify_missing: $("workflowAutoClassify").checked,
     auto_fetch_original: $("workflowAutoFetch").checked,
     auto_rewrite_after_fetch: $("workflowAutoRewrite").checked,
-    auto_submit_after_rewrite: $("workflowAutoSubmit").checked,
-    // 旧版本的默认值曾自动开启；只有用户在新版界面重新保存过该开关才允许对外提交。
-    auto_submit_confirmed: $("workflowAutoSubmit").checked,
+    auto_submit_after_rewrite: false,
+    auto_submit_confirmed: false,
+  };
+  cfg.sensitive_ai = {
+    ...(cfg.sensitive_ai || {}),
+    enabled: sensitiveAiProcessEnabled(),
   };
   cfg.fetch = {
     ...(cfg.fetch || {}),
@@ -2986,7 +3116,6 @@ document.addEventListener("click", async (event) => {
     if (button.dataset.tab === "tasks") await refreshTasksAndSubmitHistory();
     if (button.dataset.tab === "knowledge") renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
     if (button.dataset.tab === "rules") renderRuleEditor();
-    if (button.dataset.tab === "siteSubmit") renderWebSubmitConfig(state.config?.web_submit || {});
     if (button.dataset.tab === "logs") await loadRecords();
     return;
   }
@@ -2997,6 +3126,7 @@ document.addEventListener("click", async (event) => {
   if (action === "ai") await generateAi(id);
   if (action === "sensitive") await showSensitiveLog(id);
   if (action === "siteLog") await showSiteSubmitLog(id);
+  if (button.id === "webLoginStatus") openWebLoginDialog();
 });
 
 document.addEventListener("change", (event) => {
@@ -3004,16 +3134,14 @@ document.addEventListener("change", (event) => {
   if (!target) return;
   if (target.id === "libraryItemSelect") renderLibraryManager(Number(target.value || 0));
   if (target.id === "sensitiveGroupSelect" || target.id === "sensitiveRuleSelect") renderSensitiveRuleEditor();
-  if (target.id === "sensitiveAiEnabled") {
-    captureCurrentRuleForm();
-    renderSensitiveRuleEditor();
-  }
   if (target.id === "ruleItemSelect") renderRuleEditor(Number(target.value || 0));
   if (target.id === "taskDateFilter") {
     state.taskDate = target.value || todayDateKey();
     void loadTasks();
   }
 });
+
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeTaskDetail(); });
 
 document.addEventListener("change", (event) => {
   const input = event.target.closest("input");
@@ -3038,8 +3166,22 @@ document.addEventListener("change", (event) => {
 });
 
 window.addEventListener("DOMContentLoaded", async () => {
+  const sitePanel = $("siteSubmit");
+  const mount = $("webSubmitMount");
+  if (sitePanel && mount) {
+    sitePanel.classList.remove("panel", "hidden");
+    sitePanel.removeAttribute("id");
+    const details = document.createElement("details");
+    details.className = "submit-settings-details";
+    details.open = false;
+    details.innerHTML = "<summary>提交文案与提交方式</summary>";
+    while (sitePanel.firstChild) details.appendChild(sitePanel.firstChild);
+    mount.appendChild(details);
+    sitePanel.remove();
+  }
   bindWorkFormPersistence();
   $("processBtn").onclick = processInput;
+  $("startSensitiveBtn").onclick = startSensitiveProcessing;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
@@ -3050,8 +3192,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("retryFailedBtn").onclick = () => batchRetry("failed");
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
-  $("reprocessSensitiveSelectedBtn").onclick = () => reprocessSensitive(selectedTaskIds(), false);
-  $("reprocessSensitiveBackupBtn").onclick = () => reprocessSensitive(selectedTaskIds(), true);
+  $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;
   $("deleteSelectedBtn").onclick = () => batchDelete("selected");
   $("deleteFailedBtn").onclick = () => batchDelete("failed");
   $("deleteAllBtn").onclick = () => batchDelete("all");
@@ -3081,23 +3222,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("previewRuleBtn").onclick = previewRuleResult;
   $("ruleAiSuggestBtn").onclick = suggestCurrentRuleWithAi;
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
-  $("saveWebSubmitConfigBtn").onclick = () => saveWebSubmitConfig(false);
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
   document.querySelectorAll('input[name="webSubmitMode"]').forEach((input) => { input.onchange = renderWebSubmitMode; });
   $("webJieyaNum").oninput = syncGunpingMaterialCount;
   $("webJieyaNum").onchange = syncGunpingMaterialCount;
-  $("testVisibleWebBtn").onclick = testVisibleWebFlow;
-  $("previewWebSelectedBtn").onclick = () => previewWebSubmit("selected");
-  $("previewWebAllBtn").onclick = () => previewWebSubmit("all");
-  $("clearWebPreviewBtn").onclick = clearWebPreview;
-  $("submitWebSelectedBtn").onclick = () => submitWebSubmit("selected");
-  $("submitWebAllBtn").onclick = () => submitWebSubmit("all");
-  $("retryWebFailedBtn").onclick = () => submitWebSubmit("failed");
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
+  try {
+    const environment = await api("/api/web-submit/environment");
+    state.webLoginSession = environment.ok === true;
+    renderWebLoginStatus(state.config?.web_submit || {});
+  } catch (_) { state.webLoginSession = false; renderWebLoginStatus(state.config?.web_submit || {}); }
   await loadTasks();
   await restoreLatestProcessJob();
 });
