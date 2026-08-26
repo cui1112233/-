@@ -58,6 +58,13 @@ test('VIDEO operations live in the selected-book column rather than a fourth wor
   assert.match(workbenchCss, /grid-template-columns:\s*var\(--bf-list-width\) 6px minmax\(0, 1fr\) 6px var\(--bf-rail-width\)/);
 });
 
+test('status center derives book state separately from VIDEO progress and keeps publishing unavailable', () => {
+  assert.match(pageSource, /function deriveBatchFactoryStatus\(item,/);
+  assert.match(pageSource, /function summarizeBatchFactoryVideoProgress\(items,/);
+  assert.match(pageSource, /视频生成中/);
+  assert.match(pageSource, /发布统一设置（待接通）/);
+});
+
 test('screenshot workbench right rail exposes video progress ring', () => {
   assert.match(page, /视频生成进度/);
   assert.match(page, /batch-factory-video-progress-ring/);

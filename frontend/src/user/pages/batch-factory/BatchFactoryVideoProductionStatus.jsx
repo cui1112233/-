@@ -187,7 +187,7 @@ function resolveMergeCandidate(item, projectStatus) {
   };
 }
 
-function resolveBookStatus(item, projectStatus) {
+export function resolveBookStatus(item, projectStatus) {
   if (item?.status === 'failed' || Number(item?.production?.failed || 0) > 0) return 'failed';
   if (item?.status === 'hook_review') return 'review';
   if (AI_ITEM_STATUSES.has(item?.status)) return 'ai_processing';
