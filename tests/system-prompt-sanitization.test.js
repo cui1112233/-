@@ -19,10 +19,10 @@ test('removes standalone separators and the legacy hardcoded base line', () => {
 
 test('neutralizes legacy fixed-duration placeholders before runtime substitution', () => {
   const result = sanitizeResolvedPromptBody('当前单元总时长固定为 {duration}，必须从 00:00 开始并在 {结束时间} 结束。');
-  assert.match(result, /当前选择的是 \{duration\} 拆分模式/);
-  assert.match(result, /按实际内容确定总时长/);
+  assert.match(result, /10s \/ 15s 拆分模式/);
+  assert.match(result, /按本次所选模式与实际内容确定总时长/);
   assert.match(result, /该分镜标题声明的实际结束时间/);
-  assert.doesNotMatch(result, /总时长固定为|\{结束时间\}/);
+  assert.doesNotMatch(result, /总时长固定为|\{duration\}|\{结束时间\}/);
 });
 
 test('sanitizes an already-published legacy base prompt without overwriting user constraint text', () => {
