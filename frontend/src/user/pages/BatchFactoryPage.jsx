@@ -484,6 +484,7 @@ export function BatchFactoryPage() {
   const abnormalItems = visibleWorkbenchRows
     .filter(({ item, status }) => status === 'failed' || item.status === 'failed' || Number(item.production?.failed || 0) > 0 || Boolean(item.error || item.productionSubmissionError))
     .map(({ item }) => item);
+  const currentStatusItems = (workbenchStatus === 'all' ? workbenchRows : workbenchRows.filter(row => row.status === workbenchStatus)).map(row => row.item);
 
   return (
     <div className="batch-factory-page-shell" style={{ maxWidth: 1680, margin: '0 auto', padding: '20px' }}>
@@ -673,14 +674,14 @@ export function BatchFactoryPage() {
             <div className="batch-factory-status-grid">
               {[['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']].map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => locateStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
             </div>
-            <div className="batch-factory-abnormal-summary" aria-label="异常小说摘要">
+            <div className="batch-factory-abnormal-summary" aria-label="当前筛选小说摘要">
               <Space wrap>
-                <Typography.Text strong>异常小说</Typography.Text>
-                <Tag color={abnormalItems.length ? 'red' : 'green'}>{abnormalItems.length} 本</Tag>
-                {!abnormalItems.length ? <Typography.Text type="secondary">当前筛选结果暂无异常</Typography.Text> : null}
+                <Typography.Text strong>当前筛选：{(['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']).find(([key]) => key === workbenchStatus)?.[1] || '全部'}</Typography.Text>
+                <Tag color={workbenchStatus === 'failed' ? 'red' : 'blue'}>{currentStatusItems.length} 本</Tag>
+                <Typography.Text type="secondary">当前：{Math.max(1, currentStatusItems.findIndex(item => item.id === selectedItemId) + 1)}/{Math.max(1, currentStatusItems.length)}</Typography.Text>
               </Space>
-              {abnormalItems.length ? <Space wrap size={[6, 6]} style={{ marginTop: 8 }}>
-                {abnormalItems.map(item => <Button key={item.id} size="small" danger type="text" onClick={() => { setWorkbenchStatus('failed'); setSelectedItemId(item.id); }}>异常：{item.title || '未命名小说'}</Button>)}
+              {currentStatusItems.length ? <Space wrap size={[6, 6]} style={{ marginTop: 8 }}>
+                {currentStatusItems.map(item => <Button key={item.id} size="small" danger={workbenchStatus === 'failed'} type="text" onClick={() => setSelectedItemId(item.id)}>{item.title || '未命名小说'} {item.bookId ? `· ${item.bookId}` : ''}</Button>)}
               </Space> : null}
             </div>
           </section>
