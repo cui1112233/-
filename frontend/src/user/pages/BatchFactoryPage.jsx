@@ -150,16 +150,25 @@ export function BatchFactoryPage() {
     return { item, status };
   }), [activeBatch]);
   const visibleWorkbenchRows = useMemo(() => workbenchRows.filter(row => {
-    const matchesStatus = workbenchStatus === 'all' || row.status === workbenchStatus;
     const query = workbenchSearch.trim().toLowerCase();
     const matchesSearch = !query || `${row.item.title || ''} ${row.item.bookId || ''}`.toLowerCase().includes(query);
-    return matchesStatus && matchesSearch;
-  }), [workbenchRows, workbenchSearch, workbenchStatus]);
+    return matchesSearch;
+  }), [workbenchRows, workbenchSearch]);
   const workbenchCounts = useMemo(() => workbenchRows.reduce((counts, row) => {
     counts.all += 1;
     counts[row.status] = (counts[row.status] || 0) + 1;
     return counts;
   }, { all: 0 }), [workbenchRows]);
+
+  function locateStatus(key) {
+    const matches = key === 'all' ? workbenchRows : workbenchRows.filter(row => row.status === key);
+    if (!matches.length) return message.info('当前状态没有小说');
+    const currentIndex = workbenchStatus === key ? matches.findIndex(row => row.item.id === selectedItemId) : -1;
+    const next = matches[(currentIndex + 1) % matches.length];
+    setWorkbenchStatus(key);
+    setSelectedItemId(next.item.id);
+    document.querySelector(`[data-batch-item-id="${next.item.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 
   useEffect(() => {
     if (visibleWorkbenchRows.length && !visibleWorkbenchRows.some(row => row.item.id === selectedItemId)) {
@@ -662,7 +671,7 @@ export function BatchFactoryPage() {
           <section className="batch-factory-status-center" aria-label="批次状态中心">
             <Typography.Text strong>批次状态中心</Typography.Text>
             <div className="batch-factory-status-grid">
-              {[['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']].map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => setWorkbenchStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
+              {[['all', '全部'], ['pending', '待开始'], ['hook_review', '待审核'], ['queued_director', 'AI处理中'], ['complete', '待生产'], ['merged-ready', '待合并'], ['failed', '异常'], ['merged', '已合并']].map(([key, label]) => <button type="button" className={workbenchStatus === key ? 'is-active' : ''} key={key} onClick={() => locateStatus(key)}><span>{label}</span><strong>{workbenchCounts[key] || 0}</strong></button>)}
             </div>
             <div className="batch-factory-abnormal-summary" aria-label="异常小说摘要">
               <Space wrap>
@@ -681,7 +690,7 @@ export function BatchFactoryPage() {
               <div className="batch-factory-panel-heading"><Typography.Text strong>小说列表</Typography.Text><Typography.Text type="secondary">{visibleWorkbenchRows.length}/{workbenchRows.length}</Typography.Text></div>
               <Input size="small" placeholder="搜索书名 / BookID" value={workbenchSearch} onChange={event => setWorkbenchSearch(event.target.value)} />
               <div className="batch-factory-novel-list-scroll">
-                {visibleWorkbenchRows.map(({ item }, index) => <button type="button" key={item.id} className={`batch-factory-novel-row${item.id === selectedItem?.id ? ' is-selected' : ''}`} onClick={() => setSelectedItemId(item.id)}>
+                {visibleWorkbenchRows.map(({ item }, index) => <button type="button" data-batch-item-id={item.id} key={item.id} className={`batch-factory-novel-row${item.id === selectedItem?.id ? ' is-selected' : ''}`} onClick={() => setSelectedItemId(item.id)}>
                   <span className="batch-factory-novel-index">{String((activeBatch.items || []).indexOf(item) + 1).padStart(2, '0')}</span>
                   <span className="batch-factory-novel-copy"><strong>{item.title || '未命名小说'}</strong><small>{item.bookId || '无 BookID'}</small></span>
                   {statusTag(item.status)}

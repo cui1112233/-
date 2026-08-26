@@ -36,6 +36,13 @@ test('screenshot workbench status center includes abnormal summary', () => {
   assert.match(page, /batch-factory-abnormal-summary/);
 });
 
+test('status center locates matching novels without filtering the book list', () => {
+  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8');
+  assert.match(source, /function locateStatus\(key\)/);
+  assert.match(source, /scrollIntoView/);
+  assert.doesNotMatch(source, /matchesStatus\s*=\s*workbenchStatus/);
+});
+
 test('screenshot workbench keeps three-column regions', () => {
   assert.match(page, /batch-factory-workbench-grid/);
   assert.match(page, /batch-factory-novel-list/);
