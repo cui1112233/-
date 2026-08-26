@@ -128,7 +128,7 @@ INSERT INTO model_versions(
   request_template, response_mapping, polling_template, image_input_format, image_request_mode,
   runtime_policy_json, created_by
 ) VALUES(?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, model.ID, model.CredentialRef, model.Endpoint, model.BaseDomain, model.BasePath, model.RequestTemplate, model.ResponseMapping, nullableJSON(runtimePolicy), model.ImageInputFormat, model.ImageRequestMode, nullableJSON(runtimePolicy), ownerID)
+`, model.ID, model.CredentialRef, model.Endpoint, model.BaseDomain, model.BasePath, model.RequestTemplate, model.ResponseMapping, model.PollingTemplate, model.ImageInputFormat, model.ImageRequestMode, nullableJSON(runtimePolicy), ownerID)
 	if err != nil {
 		return models.Definition{}, err
 	}
