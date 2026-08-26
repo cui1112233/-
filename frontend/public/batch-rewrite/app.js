@@ -3105,6 +3105,11 @@ async function previewRuleResult() {
 }
 
 document.addEventListener("click", async (event) => {
+  const loginStatus = event.target.closest("#webLoginStatus");
+  if (loginStatus) {
+    await openWebLoginDialog();
+    return;
+  }
   const button = event.target.closest("button");
   if (!button) return;
   if (button.dataset.ruleAction) {
@@ -3126,7 +3131,6 @@ document.addEventListener("click", async (event) => {
   if (action === "ai") await generateAi(id);
   if (action === "sensitive") await showSensitiveLog(id);
   if (action === "siteLog") await showSiteSubmitLog(id);
-  if (button.id === "webLoginStatus") openWebLoginDialog();
 });
 
 document.addEventListener("change", (event) => {
@@ -3141,7 +3145,14 @@ document.addEventListener("change", (event) => {
   }
 });
 
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeTaskDetail(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeTaskDetail();
+  const loginStatus = event.target.closest?.("#webLoginStatus");
+  if (loginStatus && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    void openWebLoginDialog();
+  }
+});
 
 document.addEventListener("change", (event) => {
   const input = event.target.closest("input");
