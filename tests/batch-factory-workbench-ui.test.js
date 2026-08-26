@@ -8,6 +8,8 @@ const page = [
 ].join('\n');
 const layout = fs.readFileSync('frontend/src/shared/layouts/UserLayout.jsx', 'utf8');
 const shuihuo = fs.readFileSync('frontend/src/user/pages/shuihuo/ProjectsView.jsx', 'utf8');
+const pageSource = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8');
+const workbenchCss = fs.readFileSync('frontend/src/user/pages/batch-factory-workbench.css', 'utf8');
 
 test('screenshot workbench title bar exposes title and return action', () => {
   assert.match(page, /批量工厂/);
@@ -48,6 +50,12 @@ test('screenshot workbench keeps three-column regions', () => {
   assert.match(page, /batch-factory-novel-list/);
   assert.match(page, /batch-factory-center/);
   assert.match(page, /batch-factory-right-rail/);
+});
+
+test('VIDEO operations live in the selected-book column rather than a fourth workbench column', () => {
+  assert.doesNotMatch(pageSource, /<aside className="batch-factory-video-operations"/);
+  assert.match(pageSource, /batch-factory-selected-video-operations/);
+  assert.match(workbenchCss, /grid-template-columns:\s*var\(--bf-list-width\) 6px minmax\(0, 1fr\) 6px var\(--bf-rail-width\)/);
 });
 
 test('screenshot workbench right rail exposes video progress ring', () => {
