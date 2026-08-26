@@ -17,7 +17,7 @@ import {
 import { reportClientError } from '../../shared/error-reporting';
 import { BatchFactoryBulkProduction } from './batch-factory/BatchFactoryBulkProduction';
 import { BatchFactoryProductionControls, loadBatchFactoryVideoModels } from './batch-factory/BatchFactoryProductionControls';
-import { BatchFactoryPreviewPage } from './BatchFactoryPreviewPage';
+import { parseManualNovels } from './batch-factory/intake';
 import './batch-factory-workbench.css';
 
 const activeStatuses = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
@@ -40,10 +40,7 @@ function inferTitle(text, index) {
 }
 
 function splitPastedText(value) {
-  return String(value || '').split(/\n\s*(?:---+|===+)\s*\n/g)
-    .map(text => text.trim())
-    .filter(Boolean)
-    .map((sourceText, index) => ({ title: inferTitle(sourceText, index), sourceText }));
+  return parseManualNovels(value);
 }
 
 function statusTag(status) {
@@ -91,9 +88,6 @@ function activityEntries(item) {
 }
 
 export function BatchFactoryPage() {
-  return <BatchFactoryPreviewPage />;
-  /* Legacy batch behavior remains below while the screenshot workbench is
-     populated with the production interactions in subsequent iterations. */
   const [pasted, setPasted] = useState('');
   const [draftItems, setDraftItems] = useState([]);
   const [sourceIntakeId, setSourceIntakeId] = useState('');

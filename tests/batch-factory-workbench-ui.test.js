@@ -16,6 +16,12 @@ test('screenshot workbench title bar exposes title and return action', () => {
   assert.match(page, /batch-factory-page-header|batch-factory-topbar/);
 });
 
+test('batch factory renders the real workbench instead of returning the static preview', () => {
+  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPage.jsx', 'utf8');
+  assert.doesNotMatch(source, /return\s+<BatchFactoryPreviewPage\s*\/>/);
+  assert.match(source, /getBatchFactoryBatch/);
+});
+
 test('screenshot workbench batch action bar exposes production and publish tabs', () => {
   assert.match(page, /batch-factory-action-bar/);
   assert.match(page, /生产统一设置/);
