@@ -28,6 +28,8 @@ router.get('/novel-panel', serveReactEntry('index.html', 'index.html'));
 router.get('/novel-fetch', serveReactEntry('index.html', 'index.html'));
 router.get('/novel-fetch-workshop', serveReactEntry('index.html', 'index.html'));
 router.get('/shuihuo-production', serveReactEntry('index.html', 'index.html'));
+router.get('/batch-factory', serveReactEntry('index.html', 'index.html'));
+router.get('/batch-factory-preview', serveReactEntry('index.html', 'index.html'));
 router.get('/agent', serveReactEntry('index.html', 'views/agent.html'));
 router.get('/tts', serveReactEntry('index.html', 'views/tts.html'));
 router.get('/settings', serveReactEntry('index.html', 'index.html'));
