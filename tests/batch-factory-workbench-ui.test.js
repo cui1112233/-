@@ -30,6 +30,7 @@ test('new batch stays inside the workbench and creates an imported pending batch
   assert.match(source, /parseManualNovels/);
   assert.match(source, /上传 TXT \/ MD/);
   assert.match(source, /创建批次/);
+  assert.match(source, /disabled=\{!items\.length \|\| !modelId\}/);
 });
 
 test('screenshot workbench batch action bar exposes production and publish tabs', () => {

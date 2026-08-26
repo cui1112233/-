@@ -136,7 +136,7 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
       <label>视频模型</label>
       <Select value={modelId} onChange={setModelId} placeholder="选择视频模型" options={models.map(model => ({ value: model.id, label: `${model.name} · 最长 ${model.maxVideoDuration}s` }))} />
       <div className="bf-intake-list"><strong>待导入小说 {items.length}/200</strong>{items.map((item, index) => <div key={`${item.title}-${index}`}><span>{String(index + 1).padStart(2, '0')}</span><b>{item.title || '未命名小说'}</b>{item.bookId ? <small>Book ID {item.bookId}</small> : null}<Button type="text" danger size="small" onClick={() => setItems(current => current.filter((_, itemIndex) => itemIndex !== index))}>移除</Button></div>)}</div>
-      <Button type="primary" block loading={creating} onClick={create}>创建批次</Button>
+      <Button type="primary" block loading={creating} disabled={!items.length || !modelId} onClick={create}>创建批次</Button>
     </div>
   </Drawer>;
 }
