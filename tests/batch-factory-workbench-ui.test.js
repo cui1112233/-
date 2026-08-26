@@ -72,11 +72,12 @@ test('batch factory exposes the four-zone workbench shell', () => {
   ]) assert.match(page, new RegExp(marker));
 });
 
-test('batch factory stays out of global navigation', () => {
+test('batch factory sits directly after water production in global navigation', () => {
   const shuihuoIndex = layout.indexOf("href: '/shuihuo-production'");
   const batchIndex = layout.indexOf("href: '/batch-factory'");
   assert.ok(shuihuoIndex >= 0);
-  assert.equal(batchIndex, -1);
+  assert.ok(batchIndex > shuihuoIndex);
+  assert.ok(batchIndex - shuihuoIndex < 320);
 });
 
 test('shuihuo creation header exposes batch factory beside comic creation', () => {
