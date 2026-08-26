@@ -1,4 +1,4 @@
-import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, FolderOpenOutlined, PlusOutlined, SearchOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, FolderOpenOutlined, PlusOutlined, SearchOutlined, UploadOutlined, UserOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
 import { useMemo, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
@@ -18,7 +18,7 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '已创建' : date.toLocaleDateString('zh-CN');
 }
 
-export function ProjectsView({ projects, health, onCreate, onImported, onOpen, onDelete }) {
+export function ProjectsView({ projects, health, onCreate, onImported, onOpen, onDelete, onOpenBatchFactory }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [collection, setCollection] = useState('all');
@@ -93,7 +93,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onOpen, o
   return <section className="shuihuo-project-library">
     <div className="shuihuo-project-library-heading">
       <div className="shuihuo-project-library-title"><h1>漫剧解说</h1><p>管理和创建您的漫剧解说作品</p></div>
-      <Button className="shuihuo-create-project" type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>创建漫剧</Button>
+      <div className="shuihuo-create-actions"><Button className="shuihuo-create-project" type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>创作漫剧</Button><Button className="shuihuo-create-batch" icon={<ThunderboltOutlined />} onClick={onOpenBatchFactory}>批量工厂</Button></div>
     </div>
     <div className="shuihuo-project-library-section-title"><UserOutlined /> <strong>个人作品</strong></div>
     <div className="shuihuo-project-library-toolbar">

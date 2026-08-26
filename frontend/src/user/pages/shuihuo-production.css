@@ -1,10 +1,10 @@
 .shuihuo-production {
-  --sh-bg: #0d172b;
-  --sh-panel: #111c31;
-  --sh-panel-strong: #1b2a40;
-  --sh-line: #304158;
-  --sh-text: #edf4ff;
-  --sh-muted: #879ab3;
+  --sh-bg: #070b11;
+  --sh-panel: #0e1621;
+  --sh-panel-strong: #111b28;
+  --sh-line: rgba(151, 168, 190, .16);
+  --sh-text: #f5f7fb;
+  --sh-muted: #8391a4;
   --sh-accent: #63dfc0;
   --sh-accent-dark: #23645d;
   --sh-danger: #f08a8a;
@@ -14,8 +14,9 @@
 }
 
 [data-theme='light'] .shuihuo-production { --sh-bg: #f5f8fb; --sh-panel: #ffffff; --sh-panel-strong: #eaf0f6; --sh-line: #d1dbe7; --sh-text: #162337; --sh-muted: #5d6f87; --sh-accent: #168e74; --sh-accent-dark: #cce9e0; }
-.shuihuo-theme-active { --sh-bg: #0d172b; --sh-panel: #111c31; --sh-panel-strong: #1b2a40; --sh-line: #304158; --sh-text: #edf4ff; --sh-muted: #879ab3; --sh-accent: #63dfc0; --sh-accent-dark: #23645d; --sh-danger: #f08a8a; }
-[data-theme='light'] .shuihuo-theme-active { --sh-bg: #f5f8fb; --sh-panel: #ffffff; --sh-panel-strong: #eaf0f6; --sh-line: #d1dbe7; --sh-text: #162337; --sh-muted: #5d6f87; --sh-accent: #168e74; --sh-accent-dark: #cce9e0; }
+.shuihuo-theme-active { --sh-bg: #070b11; --sh-panel: #0e1621; --sh-panel-strong: #111b28; --sh-line: rgba(151, 168, 190, .16); --sh-text: #f5f7fb; --sh-muted: #8391a4; --sh-accent: #63dfc0; --sh-accent-dark: #23645d; --sh-danger: #f08a8a; }
+[data-theme='light'] .shuihuo-production,
+[data-theme='light'] .shuihuo-theme-active { --sh-bg: #f3f6fa; --sh-panel: #ffffff; --sh-panel-strong: #f8fafc; --sh-line: rgba(55, 73, 96, .14); --sh-text: #182333; --sh-muted: #68788d; --sh-accent: #168e74; --sh-accent-dark: #cce9e0; }
 
 body.shuihuo-reference-shell { overflow: hidden; background: var(--sh-bg); }
 /* Keep the application navigation; only the project-local editor sidebar was removed. */
@@ -54,6 +55,9 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-project-library-title h1 { margin: 0; color: var(--sh-text); font-size: 24px; line-height: 1.2; }
 .shuihuo-project-library-title p { margin: 7px 0 0; color: var(--sh-muted); font-size: 13px; }
 .shuihuo-create-project { height: 36px; padding: 0 17px; color: #09211e !important; border: 0; background: var(--sh-accent) !important; box-shadow: none; font-size: 13px; }
+.shuihuo-create-actions { display: flex; align-items: center; gap: 10px; }
+.shuihuo-create-batch { height: 36px; border-color: var(--sh-accent); color: var(--sh-accent); background: transparent; }
+@media (max-width: 760px) { .shuihuo-create-actions { align-items: stretch; flex-wrap: wrap; } }
 .shuihuo-project-library-section-title { display: flex; align-items: center; gap: 9px; margin-top: 26px; color: var(--sh-text); font-size: 14px; }
 .shuihuo-project-library-section-title .anticon { color: #80b9ff; font-size: 18px; }
 .shuihuo-project-library-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 22px; min-height: 54px; }
@@ -373,3 +377,62 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-batch-segments { max-height: 280px; overflow-y: auto; }.shuihuo-batch-segment, .shuihuo-task-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 9px; border: 1px solid var(--sh-line); background: var(--sh-panel); }.shuihuo-batch-segment > span { color: var(--sh-danger); font-size: 12px; }.shuihuo-task-empty-note, .shuihuo-task-item span, .shuihuo-task-item p { color: var(--sh-muted); }.shuihuo-inline-alert { margin-top: 15px; }
 
 @media (max-width: 760px) { .shuihuo-topbar, .shuihuo-workbench-header { align-items: stretch; flex-direction: column; }.shuihuo-workbench-summary { justify-content: flex-start; }.shuihuo-workbench-progress { width: 100%; }.shuihuo-project-library { padding: 22px 16px 48px; }.shuihuo-project-library-heading { align-items: stretch; flex-direction: column; }.shuihuo-create-project { align-self: flex-start; }.shuihuo-project-library-toolbar { justify-content: flex-start; gap: 14px; overflow-x: auto; }.shuihuo-project-search { flex: 0 0 145px; }.shuihuo-project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.shuihuo-project-card { width: 100%; }.shuihuo-project-card-open { grid-template-rows: 110px 1fr; }.shuihuo-project-stats { min-width: 0; width: 100%; }.shuihuo-project-stats span { padding: 8px 4px; }.shuihuo-workbench-toolbar { position: sticky; top: 0; z-index: 2; }.shuihuo-workbench-table { margin-left: 0; margin-right: 0; border-left: 0; border-right: 0; }.shuihuo-view { padding-left: 18px; padding-right: 18px; }.shuihuo-page-heading { flex-direction: column; }.shuihuo-floating-back { right: 16px; bottom: 16px; } }
+
+/* The production editor has legacy fixed colors in its dense table and dialogs.
+   Keep media/style swatches vivid, but make all data surfaces use the shared theme tokens. */
+.shuihuo-theme-active .shuihuo-project-card { border-color: var(--sh-line); background: var(--sh-panel); }
+.shuihuo-theme-active .shuihuo-project-card-cover { color: var(--sh-text); background: var(--sh-panel-strong); }
+.shuihuo-theme-active .shuihuo-project-card-meta { background: var(--sh-panel); }
+.shuihuo-theme-active .shuihuo-project-card-meta strong,
+.shuihuo-theme-active .shuihuo-workbench-heading > strong,
+.shuihuo-theme-active .shuihuo-workbench-cell p,
+.shuihuo-theme-active .shuihuo-segmentation-row > span { color: var(--sh-text); }
+.shuihuo-theme-active .shuihuo-project-card-meta span,
+.shuihuo-theme-active .shuihuo-workbench-progress,
+.shuihuo-theme-active .shuihuo-workbench-toolbar .ant-btn,
+.shuihuo-theme-active .shuihuo-workbench-export .ant-btn,
+.shuihuo-theme-active .shuihuo-workbench-cell,
+.shuihuo-theme-active .shuihuo-voice-controls,
+.shuihuo-theme-active .shuihuo-voice-controls span,
+.shuihuo-theme-active .shuihuo-prompt-cell b { color: var(--sh-muted); }
+.shuihuo-theme-active .shuihuo-workbench,
+.shuihuo-theme-active .shuihuo-workbench-header,
+.shuihuo-theme-active .shuihuo-workbench-head { border-color: var(--sh-line); background: var(--sh-bg); }
+.shuihuo-theme-active .shuihuo-workbench-row { border-color: var(--sh-line); background: var(--sh-panel); }
+.shuihuo-theme-active .shuihuo-workbench-cell { border-color: var(--sh-line); }
+.shuihuo-theme-active .shuihuo-workbench-progress-track { background: var(--sh-panel-strong); }
+.shuihuo-theme-active .shuihuo-back-link:hover,
+.shuihuo-theme-active .shuihuo-preset-picker:hover { background: var(--sh-panel-strong); }
+.shuihuo-theme-active .shuihuo-voice-controls .ant-btn,
+.shuihuo-theme-active .shuihuo-voice-controls span,
+.shuihuo-theme-active .shuihuo-prompt-box,
+.shuihuo-theme-active .shuihuo-voice-script,
+.shuihuo-theme-active .shuihuo-primary-media,
+.shuihuo-theme-active .shuihuo-media-tile { border-color: var(--sh-line); background: var(--sh-panel-strong); }
+.shuihuo-theme-active .shuihuo-prompt-box span,
+.shuihuo-theme-active .shuihuo-voice-script > span,
+.shuihuo-theme-active .shuihuo-primary-media,
+.shuihuo-theme-active .shuihuo-media-tile { color: var(--sh-muted); }
+.shuihuo-theme-active .shuihuo-segmentation-table,
+.shuihuo-theme-active .shuihuo-segmentation-head,
+.shuihuo-theme-active .shuihuo-segmentation-row textarea { color: var(--sh-text); border-color: var(--sh-line); background: var(--sh-panel); }
+.shuihuo-theme-active .shuihuo-segmentation-head { background: var(--sh-panel-strong); }
+.shuihuo-theme-active .shuihuo-segmentation-row textarea:focus { background: var(--sh-panel-strong); }
+.shuihuo-theme-active .shuihuo-assets-modal .ant-modal-content,
+.shuihuo-theme-active .shuihuo-engine-modal .ant-modal-content,
+.shuihuo-theme-active .shuihuo-ai-modal .ant-modal-content,
+.shuihuo-theme-active .shuihuo-assets-modal .ant-modal-header,
+.shuihuo-theme-active .shuihuo-engine-modal .ant-modal-header,
+.shuihuo-theme-active .shuihuo-ai-modal .ant-modal-header { border-color: var(--sh-line); background: var(--sh-panel); }
+.shuihuo-theme-active .shuihuo-modal-tabs,
+.shuihuo-theme-active .shuihuo-asset-tabs,
+.shuihuo-theme-active .shuihuo-prompt-row,
+.shuihuo-theme-active .shuihuo-image-card { border-color: var(--sh-line); }
+.shuihuo-theme-active .shuihuo-prompt-row,
+.shuihuo-theme-active .shuihuo-image-card { background: var(--sh-panel); }
+.shuihuo-theme-active .shuihuo-prompt-row-head strong,
+.shuihuo-theme-active .shuihuo-image-card-title strong { color: var(--sh-text); }
+.shuihuo-theme-active .shuihuo-prompt-row > p,
+.shuihuo-theme-active .shuihuo-image-card > p,
+.shuihuo-theme-active .shuihuo-image-empty,
+.shuihuo-theme-active .shuihuo-image-empty p { color: var(--sh-muted); }
