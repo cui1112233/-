@@ -500,8 +500,12 @@ export function BatchFactoryPage() {
           </Typography.Paragraph>
         </div>
 
-        {!activeBatch ? <>
-          <Card title="1. 待制作小说">
+        {!activeBatch ? <div className="batch-factory-workbench batch-factory-create-workbench">
+          <section className="batch-factory-create-toolbar">
+            <div><Typography.Text strong>新建批次</Typography.Text><Typography.Text type="secondary">统一设置一次，批量生产；只有特殊小说才单独展开调整。</Typography.Text></div>
+            <Tag color="blue">待制作 {draftItems.length} 本</Tag>
+          </section>
+          <Card className="batch-factory-create-novels" title="1. 待制作小说">
             {sourceIntakeId ? <Alert type="success" showIcon message={`已接收小说获取任务 · ${draftItems.length} 本`} description="书ID、平台、来源任务ID和原始TXT会跟随每一本书一直保留；这里不重新获取小说，也不重新判断已有平台。" style={{ marginBottom: 14 }} /> : null}
             {draftItems.length ? <List
               size="small"
@@ -540,7 +544,7 @@ export function BatchFactoryPage() {
             />
           </Card>
 
-          <Card title="2. 生产统一设置" extra={<Tag color="blue">应用到全部 {draftItems.length} 本</Tag>}>
+          <Card className="batch-factory-create-settings" title="2. 生产统一设置" extra={<Tag color="blue">应用到全部 {draftItems.length} 本</Tag>}>
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <div>
                 <Typography.Text strong>生产方式</Typography.Text>
@@ -606,12 +610,12 @@ export function BatchFactoryPage() {
             </Space>
           </Card>
 
-          <Card title="历史批次" extra={<Button size="small" icon={<RefreshCw size={14} />} onClick={refreshHistory}>刷新</Button>}>
+          <Card className="batch-factory-create-history" title="历史批次" extra={<Button size="small" icon={<RefreshCw size={14} />} onClick={refreshHistory}>刷新</Button>}>
             {historyLoading ? <Spin /> : history.length ? <List dataSource={history} renderItem={batch => <List.Item actions={[<Button key="open" onClick={() => loadBatch(batch.id)}>打开</Button>]}>
               <List.Item.Meta title={batch.name} description={`${settingSummary(batch)} · 导演完成 ${batch.completed}/${batch.total} · 待审核 ${batch.review} · 失败 ${batch.failed}`} />
             </List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无批次" />}
           </Card>
-        </> : <>
+        </div> : <>
           <div className="batch-factory-workbench">
           <section className="batch-factory-topbar">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
