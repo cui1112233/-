@@ -15,6 +15,8 @@ test('处理页默认收起提交设置并提供登录状态入口', () => {
   assert.match(js, /details\.open = false/);
   assert.match(js, /登录批量后台/);
   assert.match(js, /closest\("#webLoginStatus"\)/);
+  assert.match(js, /baseUrl: settings\.base_url/);
+  assert.match(js, /apiKey: settings\.api_key/);
 });
 
 test('任务详情支持关闭与上一条下一条导航', () => {

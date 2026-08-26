@@ -2983,7 +2983,7 @@ async function testAi() {
       method: "POST",
       body: JSON.stringify({
         purpose: "rewrite",
-        ...(completeInForm ? { settings } : {}),
+        ...(completeInForm ? { settings: { ...settings, baseUrl: settings.base_url, apiKey: settings.api_key } } : {}),
       }),
     });
     $("aiTestStatus").textContent = `成功：${result.content || "ok"}${completeInForm ? "" : "（已使用已保存的当前预设）"}`;
