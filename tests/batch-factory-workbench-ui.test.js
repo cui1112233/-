@@ -23,6 +23,15 @@ test('screenshot frame loads real batch data instead of only fixed sample rows',
   assert.match(source, /const \[batch, setBatch\]/);
 });
 
+test('new batch stays inside the workbench and creates an imported pending batch', () => {
+  const source = fs.readFileSync('frontend/src/user/pages/BatchFactoryPreviewPage.jsx', 'utf8');
+  assert.match(source, /BatchIntakeDrawer/);
+  assert.match(source, /createBatchFactoryBatch/);
+  assert.match(source, /parseManualNovels/);
+  assert.match(source, /上传 TXT \/ MD/);
+  assert.match(source, /创建批次/);
+});
+
 test('screenshot workbench batch action bar exposes production and publish tabs', () => {
   assert.match(page, /batch-factory-action-bar/);
   assert.match(page, /生产统一设置/);
