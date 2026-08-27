@@ -7,6 +7,37 @@ import { reportClientError } from '../../../shared/error-reporting';
 
 let modelCatalogPromise = null;
 
+const BUILT_IN_VIDEO_MAX_DURATIONS = {
+  yd_video: 1,
+  local_executor_video: 10
+};
+
+export function batchFactoryVideoModel(model) {
+  const configured = Number(model?.maxVideoDuration);
+  const maxVideoDuration = Number.isInteger(configured) && configured >= 1 && configured <= 60
+    ? configured
+    : BUILT_IN_VIDEO_MAX_DURATIONS[model?.adapterKind] || 0;
+  return { ...model, maxVideoDuration };
+}
+
+export function batchFactorySelectableVideoModels(models) {
+  return models
+    .map(batchFactoryVideoModel)
+    .filter(model => Number(model.maxVideoDuration) >= 1);
+}
+
+export function defaultBatchFactoryVideoModel(models) {
+  const selectable = batchFactorySelectableVideoModels(models);
+  return selectable.find(model => model.requiresImageInput !== true) || selectable[0] || null;
+}
+
+export function batchFactoryVideoModelLabel(model) {
+  const normalized = batchFactoryVideoModel(model);
+  return normalized.requiresImageInput === true
+    ? `${normalized.name} · 图生 · 固定 ${normalized.maxVideoDuration}s`
+    : `${normalized.name} · 文生 · 最长 ${normalized.maxVideoDuration}s`;
+}
+
 export function loadBatchFactoryVideoModels() {
   if (!modelCatalogPromise) {
     modelCatalogPromise = listModels()
@@ -21,7 +52,7 @@ export function loadBatchFactoryVideoModels() {
 
 function batchFactoryCompatibleModels(models, batch) {
   const requiredDuration = Number(batch?.settings?.maxVideoDuration || 0);
-  return models.filter(model => (
+  return batchFactorySelectableVideoModels(models).filter(model => (
     model.requiresImageInput !== true
     && Number.isInteger(Number(model.maxVideoDuration))
     && Number(model.maxVideoDuration) >= 1
