@@ -237,7 +237,7 @@ function CurrentBook({ item, onRetry, canProduce }) {
         ? storyboard
             .map(
               (video) =>
-                `VIDEO ${video.id} · ${video.duration_sec || 0}s\n${video.video_desc || ""}`,
+                `VIDEO ${video.id} · ${video.duration_sec || 0}s · ${video.prefix_key || "general_anime"}\n${video.video_desc || ""}`,
             )
             .join("\n\n")
         : "导演完成后会生成分卡 VIDEO 提示词。",
@@ -838,7 +838,7 @@ export function BatchFactoryPreviewPage() {
         video.id,
       );
       Modal.info({
-        title: `VIDEO ${String(video.id).padStart(2, "0")} 提示词`,
+        title: `VIDEO ${String(video.id).padStart(2, "0")} 提示词 · ${result.prefix?.key || video.prefix_key || "general_anime"} · 前缀版本 ${result.prefix?.preset?.version || 0}`,
         width: 760,
         content: (
           <pre className="bf-preview-prompt">

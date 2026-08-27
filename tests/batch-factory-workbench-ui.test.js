@@ -112,6 +112,13 @@ test("generate pending videos uses the batch model binding and refreshes the wor
   assert.match(source, /batch\.settings\?\.videoModelId/);
 });
 
+test("fixed frame exposes actual VIDEO prefix information when inspecting prompts", () => {
+  const source = fs.readFileSync("frontend/src/user/pages/BatchFactoryPreviewPage.jsx", "utf8");
+  assert.match(source, /prefix_key/);
+  assert.match(source, /result\.prefix\?\.key/);
+  assert.match(source, /compileBatchFactoryVideo/);
+});
+
 test("screenshot workbench batch action bar exposes production and publish tabs", () => {
   assert.match(page, /batch-factory-action-bar/);
   assert.match(page, /生产统一设置/);
