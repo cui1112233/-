@@ -377,3 +377,17 @@ test('121 配置档与风格同步会读取真实远端结构，而不是返回�
   assert.deepEqual(styles.body.styles, ['现代女主', '新风格']);
   assert.deepEqual(config.styles, ['现代女主', '新风格']);
 });
+
+test('121 级联组织控件使用 organization 字段，不会误抓性别选项', async () => {
+  const config = { web_submit: { enabled: true, upload_profiles: [] }, styles: [], platforms: [] };
+  const customPage = '<form id="uploadForm"><label>平台<select id="platformSelect"><option value="1">黑岩付费</option><option value="2">番茄付费</option></select></label><div id="uploadOrganizationCascade"><select class="upload-form-select" data-organization-level="all"><option value="">请选择组织归属</option><option value="1">博量(层1)</option><option value="7">景耀组织(层2)</option><option value="2">俊华组织(层2)</option></select></div><input type="hidden" id="uploadOrganization" required><label>性别<select id="gender"><option value="1">男</option><option value="2">女</option></select></label></form>';
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-org'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async ({ url }) => ({ body: url.includes('zdy_config.php') ? JSON.stringify({ success: true, data: [] }) : customPage, headers: {} }),
+    tasksFactory: async () => ({ tasks: { saveConfig: async value => Object.assign(config, value), listTasks: async () => [] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/sync-configs', {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.organizations, { field_name: 'organization', options: [{ id: '1', name: '博量(层1)' }, { id: '7', name: '景耀组织(层2)' }, { id: '2', name: '俊华组织(层2)' }] });
+});

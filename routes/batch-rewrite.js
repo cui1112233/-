@@ -192,11 +192,19 @@ function parseTargetOrganizationCatalog(html) {
   const source = String(html || '');
   const pattern = /<select\b([^>]*)>([\s\S]*?)<\/select>/gi;
   for (let match; (match = pattern.exec(source));) {
-    const context = htmlText(source.slice(Math.max(0, match.index - 600), match.index + match[0].length));
-    if (!/组织\s*归属/.test(context)) continue;
     const attrs = String(match[1] || '');
+    const contextStart = Math.max(0, match.index - 600);
+    const contextEnd = Math.min(source.length, match.index + match[0].length + 900);
+    const context = source.slice(contextStart, contextEnd);
+    // 121 的组织控件由 OrganizationCascade 渲染：select 本身没有 name/id，
+    // 真实 FormData 字段由脚本固定为 organization；旧页面则可能直接给 select 命名。
+    const isCascade = /\bdata-organization-level\s*=/i.test(attrs);
     const field = attrs.match(/\bname=["']([^"']+)["']/i) || attrs.match(/\bid=["']([^"']+)["']/i);
-    const fieldName = String(field?.[1] || '').trim();
+    const isNamedOrganization = /organization/i.test(String(field?.[1] || ''));
+    if (!isCascade && !isNamedOrganization) continue;
+    const hiddenField = context.match(/<input\b[^>]*(?:id|name)=["'](?:upload|rebuild)?Organization["'][^>]*>/i);
+    const hiddenName = hiddenField?.[0]?.match(/\bname=["']([^"']+)["']/i);
+    const fieldName = String(field?.[1] || hiddenName?.[1] || (isCascade ? 'organization' : '')).trim();
     if (!fieldName) throw new Error('121 组织归属下拉框缺少字段名');
     const options = [];
     const optionPattern = /<option\b[^>]*\bvalue=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/gi;
