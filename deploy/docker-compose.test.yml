@@ -65,7 +65,7 @@ services:
     volumes:
       - qiantie-test-mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uqiantie -p$$MYSQL_PASSWORD --silent"]
+      test: ["CMD-SHELL", "mysql -h localhost -uqiantie -p$$MYSQL_PASSWORD -e 'SELECT 1' --silent"]
       interval: 5s
       timeout: 5s
       retries: 30
