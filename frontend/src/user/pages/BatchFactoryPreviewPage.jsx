@@ -35,6 +35,7 @@ import {
   startBatchFactoryBatch,
 } from "../../shared/api/batchFactory";
 import { loadBatchFactoryVideoModels } from "./batch-factory/BatchFactoryProductionControls";
+import { resolveBookStatus, useBatchFactoryProductionStatus } from "./batch-factory/BatchFactoryVideoProductionStatus";
 import {
   fileToDraft,
   parseManualNovels,
@@ -101,14 +102,14 @@ function tone(status) {
     AI处理中: "blue",
   }[status];
 }
-function mapItems(batch) {
+function mapItems(batch, byProjectId = {}) {
   return (batch?.items || []).map((item, index) => ({
     ...item,
     id: item.id || `book-${index}`,
     title: item.title || "未命名小说",
     bookId: item.bookId || "",
     index: index + 1,
-    displayStatus: itemStatus(item),
+    displayStatus: ({ pending: "待开始", review: "待审核", ai_processing: "AI处理中", ready_generate: "待生成", queued: "排队中", generating: "视频生成中", failed: "异常", ready_merge: "待合并", merged: "已合并" })[resolveBookStatus(item, byProjectId[String(item.production?.projectId)] || null)] || itemStatus(item),
   }));
 }
 function summarise(items) {
@@ -677,6 +678,7 @@ export function BatchFactoryPreviewPage() {
   const [starting, setStarting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const listRef = useRef(null);
+  const { byProjectId, error: productionStatusError, refreshNow: refreshProductionStatus } = useBatchFactoryProductionStatus(batch);
   useEffect(() => {
     let disposed = false;
     (async () => {
@@ -730,7 +732,7 @@ export function BatchFactoryPreviewPage() {
     };
   }, []);
   const entries = useMemo(() => {
-    const items = mapItems(batch);
+    const items = mapItems(batch, byProjectId);
     return items.length ? items : samples;
   }, [batch]);
   const summary = summarise(entries);
@@ -804,6 +806,7 @@ export function BatchFactoryPreviewPage() {
     if (!batch?.id) return;
     const refreshed = await getBatchFactoryBatch(batch.id);
     setBatch(refreshed.batch);
+    refreshProductionStatus();
   }
   async function retryCurrentBookVideo() {
     const modelId = Number(batch?.settings?.videoModelId);
@@ -1051,6 +1054,7 @@ export function BatchFactoryPreviewPage() {
               </li>
             </ul>
             <p>这里始终显示全批次进度，不随当前书切换。</p>
+            {productionStatusError ? <p className="bf-preview-status-error">视频状态刷新失败：{productionStatusError}</p> : null}
             <div className="bf-preview-merge">
               <h3>
                 批量合并 <ChevronDown size={15} />
