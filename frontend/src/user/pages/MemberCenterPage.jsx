@@ -45,7 +45,7 @@ export default function MemberCenterPage() {
   const quotaPercent = quota === null ? 0 : Math.min(100, Math.round((Number(month.totalTokens || 0) / Math.max(quota, 1)) * 100));
   const canManageTeam = ['dev', 'manager'].includes(self.role);
   const apiEnabled = self.role === 'member' ? self.apiEnabled : true;
-  const teamName = center?.team?.name || (self.role === 'dev' ? 'qiantie 核心' : '未加入独立团队');
+  const teamName = center?.team?.name || (self.role === 'dev' ? '我的团队' : '未加入独立团队');
 
   return <div className="account-center-page member-dashboard-page">
     <PageHeader title="会员中心" subtitle="身份、授权、团队、额度与 AI 服务状态总览" />
@@ -54,7 +54,7 @@ export default function MemberCenterPage() {
       <div className="ac-member-main">
         <section className={`ac-identity-hero role-${self.role}`}>
           <div className="ac-identity-glow" />
-          <div className="ac-hero-profile"><div className="ac-hero-avatar"><Avatar size={104} src={self.avatarUrl}>{avatarFallback(self)}</Avatar></div><div className="ac-hero-copy"><div className="ac-hero-name-line"><h2>{self.displayName}</h2><RoleBadge role={self.role} /></div><p>@{self.username}</p><div className="ac-hero-meta"><span><UsersRound size={15} />{center?.team ? teamName : self.role === 'member' ? (center.manager ? `所属管理 · ${center.manager.displayName}` : '暂未绑定管理') : 'qiantie 核心团队'}</span><span><KeyRound size={15} />{apiEnabled ? 'AI 服务已启用' : 'AI 服务未授权'}</span></div></div></div>
+          <div className="ac-hero-profile"><div className="ac-hero-avatar"><Avatar size={104} src={self.avatarUrl}>{avatarFallback(self)}</Avatar></div><div className="ac-hero-copy"><div className="ac-hero-name-line"><h2>{self.displayName}</h2><RoleBadge role={self.role} /></div><p>@{self.username}</p><div className="ac-hero-meta"><span><UsersRound size={15} />{center?.team ? teamName : self.role === 'member' ? (center.manager ? `所属管理 · ${center.manager.displayName}` : '暂未绑定管理') : '我的团队'}</span><span><KeyRound size={15} />{apiEnabled ? 'AI 服务已启用' : 'AI 服务未授权'}</span></div></div></div>
           <div className="ac-hero-facts"><div><small>所属团队</small><strong>{teamName}</strong></div><div><small>当前身份</small><strong>{self.role === 'dev' ? '开发（最高权限）' : self.role === 'manager' ? '团队管理' : '团队成员'}</strong></div><div><small>加入时间</small><strong>{formatDate(self.createdAt).slice(0, 10)}</strong></div><div><small>API 服务</small><strong className={apiEnabled ? 'success' : 'danger'}>{apiEnabled ? '● 已启用' : '● 未授权'}</strong></div></div>
         </section>
 

@@ -37,7 +37,7 @@ export function getNotifications(limit = 50) { return apiRequest(`/api/member/no
 export function markNotificationRead(id) { return apiRequest(`/api/member/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' }); }
 export function markAllNotificationsRead() { return apiRequest('/api/member/notifications/read-all', { method: 'POST' }); }
 
-export function getTeamMembers() { return apiRequest('/api/member/team'); }
+export function getTeamMembers(owner) { return apiRequest(`/api/member/team${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`); }
 export function getTeamMeta() { return apiRequest('/api/member/team/meta'); }
 export function renameTeam(teamId, name) { return apiRequest(`/api/member/team/meta/${encodeURIComponent(teamId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }); }
 export function getTeamInvites(manager) { return apiRequest(`/api/member/team/invites${manager ? `?manager=${encodeURIComponent(manager)}` : ''}`); }

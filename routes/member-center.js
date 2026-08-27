@@ -171,6 +171,17 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     return null;
   }
 
+  function selectedTeamOwner(req, self) {
+    const ownerUsername = self.role === 'dev' ? String(req.query.owner || self.username) : self.username;
+    const owner = memberStore.getMember(ownerUsername);
+    if (!owner || !owner.active || !['dev', 'manager'].includes(owner.role)) {
+      const error = new Error('团队负责人不可用');
+      error.code = 'INVALID';
+      throw error;
+    }
+    return owner;
+  }
+
   function notify(req, username, payload) {
     return getCollaborationStore(req).notify(username, payload);
   }
@@ -375,18 +386,19 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     try {
       const self = memberStore.getMember(req.username);
       if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队管理权限' });
-      const members = memberStore.visibleTeam(req.username);
+      const owner = selectedTeamOwner(req, self);
+      const members = memberStore.listMembers().filter(item => item.username === owner.username || (item.role === 'member' && item.boundTo === owner.username));
       const usernames = members.map(item => item.username);
-      const usageOptions = self.role === 'manager' ? { teamOwner: self.username } : {};
+      const usageOptions = { teamOwner: owner.username };
       const month = usageStore.summariesForUsers(usernames, 'month', usageOptions);
       const day = usageStore.summariesForUsers(usernames, 'day', usageOptions);
       const collab = getCollaborationStore(req);
       return res.json({
-        team: ['dev', 'manager'].includes(self.role) ? ensureTeamForManager(req, self) : null,
+        team: ensureTeamForManager(req, owner),
         teams: self.role === 'dev'
           ? [ensureTeamForManager(req, self), ...memberStore.listMembers().filter(item => item.role === 'manager').map(manager => ensureTeamForManager(req, manager))]
           : undefined,
-        teamGovernance: ['dev', 'manager'].includes(self.role) ? teamPolicySummary(self.username) : null,
+        teamGovernance: teamPolicySummary(owner.username),
         members: members.map(member => ({
           ...member,
           presence: { online: isRuntimeOnline(req, member.username) },

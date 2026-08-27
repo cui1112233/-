@@ -1,14 +1,11 @@
 import { Button, Checkbox, Form, Input, InputNumber, Modal, Progress, Select, Skeleton, Tag, Tooltip, message } from 'antd';
-import { Copy, KeyRound, Link2, MoreHorizontal, Pencil, Plus, RefreshCw, ShieldCheck, UserPlus, UsersRound } from 'lucide-react';
+import { Copy, KeyRound, Link2, MoreHorizontal, Pencil, Plus, RefreshCw, UserPlus, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   createTeamInvite,
   createTeamMember,
   archiveTeamMember,
   getMemberCenter,
-  getBackendGrants,
-  grantBackendAccess,
-  revokeBackendAccess,
   getTeamInvites,
   getTeamMembers,
   getTeamMeta,
@@ -55,14 +52,12 @@ export default function TeamPage() {
   const [managerUsername, setManagerUsername] = useState('');
   const [invites, setInvites] = useState([]);
   const [governance, setGovernance] = useState([]);
-  const [backendGrants, setBackendGrants] = useState([]);
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [memberOpen, setMemberOpen] = useState(false);
   const [memberManageOpen, setMemberManageOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [quotaOpen, setQuotaOpen] = useState(false);
-  const [managerGrantOpen, setManagerGrantOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [memberForm] = Form.useForm();
@@ -70,7 +65,6 @@ export default function TeamPage() {
   const [inviteForm] = Form.useForm();
   const [renameForm] = Form.useForm();
   const [quotaForm] = Form.useForm();
-  const [managerGrantForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
 
   const self = center?.member;
@@ -92,38 +86,22 @@ export default function TeamPage() {
   const activeGovernance = useMemo(() => governance.find(item => (item.manager?.username || item.managerUsername) === activeManager?.username) || teamResult?.teamGovernance || null, [activeManager?.username, governance, teamResult?.teamGovernance]);
   const teamLimit = activeGovernance?.monthlyTokenLimit ?? null;
   const quotaPercent = teamLimit === null ? 0 : Math.min(100, Math.round(totalTokens / Math.max(teamLimit, 1) * 100));
-  // DEV 的账号管理是全局能力，不应因当前选中了某个 MANAGER 团队而隐藏。
-  const showDeveloperAccountManagement = self?.role === 'dev';
-
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
     try {
-      const [nextCenter, nextTeam, nextMeta, nextGovernance, nextBackendGrants] = await Promise.all([getMemberCenter(), getTeamMembers(), getTeamMeta(), getTeamGovernance().catch(() => ({ teams: [] })), getBackendGrants().catch(() => ({ grants: [] }))]);
+      const [nextCenter, nextMeta, nextGovernance] = await Promise.all([getMemberCenter(), getTeamMeta(), getTeamGovernance().catch(() => ({ teams: [] }))]);
       const nextManager = nextCenter.member?.role === 'dev'
         ? (managerUsername || nextMeta.teams?.[0]?.manager?.username || '')
         : (nextCenter.member?.username || '');
-      const inviteResult = nextManager ? await getTeamInvites(nextManager) : { invites: [] };
+      const [nextTeam, inviteResult] = await Promise.all([nextManager ? getTeamMembers(nextManager) : { members: [] }, nextManager ? getTeamInvites(nextManager) : { invites: [] }]);
       setCenter(nextCenter);
       setTeamResult(nextTeam);
       setMeta(nextMeta);
       setGovernance(nextGovernance.teams || []);
-      setBackendGrants(nextBackendGrants.grants || []);
       setManagerUsername(nextManager);
       setInvites(inviteResult.invites || []);
     } catch (error) { message.error(error.message || '团队管理加载失败'); }
     finally { if (!silent) setLoading(false); }
-  }
-
-  async function toggleBackendAccess(member) {
-    const grant = backendGrants.find(item => item.subject === member.username && item.capability === 'admin:access');
-    setSaving(true);
-    try {
-      if (grant) await revokeBackendAccess(grant.id);
-      else await grantBackendAccess(member.username);
-      message.success(grant ? `@${member.username} 已撤销管理后台权限` : `@${member.username} 已获管理后台权限`);
-      await load({ silent: true });
-    } catch (error) { message.error(error.message || '管理后台权限更新失败'); }
-    finally { setSaving(false); }
   }
 
   useEffect(() => { load(); }, []);
@@ -131,7 +109,8 @@ export default function TeamPage() {
   async function changeManager(value) {
     setManagerUsername(value);
     try {
-      const result = await getTeamInvites(value);
+      const [nextTeam, result] = await Promise.all([getTeamMembers(value), getTeamInvites(value)]);
+      setTeamResult(nextTeam);
       setInvites(result.invites || []);
     } catch (error) { message.error(error.message || '邀请记录读取失败'); }
   }
@@ -260,19 +239,6 @@ export default function TeamPage() {
     finally { setSaving(false); }
   }
 
-  async function grantManager(values) {
-    if (self?.role !== 'dev' || !values.username) return;
-    setSaving(true);
-    try {
-      await updateTeamMember(values.username, { role: 'manager', boundTo: null });
-      message.success(`@${values.username} 已获得 MANAGER 管理权限`);
-      managerGrantForm.resetFields();
-      setManagerGrantOpen(false);
-      await load({ silent: true });
-    } catch (error) { message.error(error.message || '管理者授权失败'); }
-    finally { setSaving(false); }
-  }
-
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 11 }} /></div>;
   if (!self || !['dev', 'manager'].includes(self.role)) return <div className="account-center-page"><div className="ac-empty">当前身份没有团队管理权限</div></div>;
 
@@ -281,18 +247,7 @@ export default function TeamPage() {
 
     {self.role === 'dev' ? <div className="ac-team-admin-toolbar">
       {availableTeams.length > 1 ? <div className="ac-team-selector"><span>管理团队</span><Select value={managerUsername} onChange={changeManager} options={availableTeams.map(item => ({ value: item.manager.username, label: `${item.team.name}${item.manager.username === self.username ? ' · 我的团队' : ` · @${item.manager.username}`}` }))} /></div> : <span className="ac-team-toolbar-note">DEV 可管理自己的团队及所有管理团队</span>}
-      <Button type="primary" icon={<ShieldCheck size={15} />} onClick={() => { managerGrantForm.resetFields(); setManagerGrantOpen(true); }}>授权管理者</Button>
     </div> : null}
-
-    {showDeveloperAccountManagement ? <>
-      <Panel title="开发者账号管理" eyebrow="DEVELOPER ACCOUNT MANAGEMENT" action={<Button type="primary" icon={<UserPlus size={16} />} onClick={() => { memberForm.resetFields(); setMemberOpen(true); }}>创建成员</Button>}>
-          <div className="ac-reference-table"><div className="ac-reference-table-head"><span>成员</span><span>显示名称</span><span>角色</span><span>账号状态</span><span>在线状态</span><span>API 范围</span><span>管理后台</span><span>月度额度</span><span>已用 Tokens</span><span>操作</span></div>
-          {(teamResult?.members || []).filter(member => member.role !== 'dev').map(member => { const status = memberStatus(member); const scopes = scopesOf(member); const adminGrant = backendGrants.find(item => item.subject === member.username && item.capability === 'admin:access'); return <div className="ac-reference-table-row" key={member.username}><MemberIdentity member={member} size={30} showUsername /><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /><Tag color={status.color}>{status.text}</Tag><b className={`ac-account-status-pill ${member.presence?.online ? 'is-online' : 'is-offline'}`}><i />{member.presence?.online ? '在线' : '离线'}</b><span>{scopes.length ? scopes.map(scope => <Tag key={scope}>{SCOPE_OPTIONS.find(item => item.value === scope)?.label || scope}</Tag>) : '未授权'}</span><span><Button type="link" size="small" loading={saving} onClick={() => toggleBackendAccess(member)}>{adminGrant ? '撤销' : '授权'}</Button></span><span>{member.monthlyTokenLimit === null ? '不限额' : `${formatTokens(member.monthlyTokenLimit)} Tokens`}</span><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><Tooltip title="管理成员"><Button type="text" icon={<MoreHorizontal size={18} />} loading={saving} onClick={() => openMemberManage(member)} /></Tooltip></div>; })}
-          {!(teamResult?.members || []).some(member => member.role !== 'dev') ? <div className="ac-empty">尚无成员，点击“创建成员”添加账号。</div> : null}
-        </div>
-        <p className="ac-muted-copy">开发者可直接创建和管理账号。当前团队下的新成员会继承该团队负责人的模型配置、API 授权与总额度。</p>
-      </Panel>
-    </> : null}
 
     {!activeTeam ? <Panel title="尚未选择团队"><div className="ac-empty">当前没有可管理团队。</div></Panel> : <>
       <div className="ac-team-reference-top">
@@ -340,14 +295,6 @@ export default function TeamPage() {
     </Modal>
     <Modal title={selectedMember ? `重置 ${selectedMember.displayName} 的密码` : '重置密码'} open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => passwordForm.submit()} okText="确认重置" confirmLoading={saving}><Form form={passwordForm} layout="vertical" onFinish={savePassword}><Form.Item name="password" label="新密码" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item><Form.Item name="confirm" label="确认新密码" dependencies={['password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator(_, value) { return value === getFieldValue('password') ? Promise.resolve() : Promise.reject(new Error('两次密码不一致')); } })]}><Input.Password /></Form.Item></Form></Modal>
     <Modal title="团队月度总额度" open={quotaOpen} onCancel={() => setQuotaOpen(false)} onOk={() => quotaForm.submit()} okText="保存额度" confirmLoading={saving}><Form form={quotaForm} layout="vertical" onFinish={saveQuota}><Form.Item name="monthlyTokenLimit" label="自然月总额度"><InputNumber min={0} style={{ width: '100%' }} addonAfter="Tokens" placeholder="不限额" /></Form.Item><p className="ac-muted-copy">额度为 0 时团队调用会被立即拦截；留空表示不限额。</p></Form></Modal>
-    <Modal title="授权管理者" open={managerGrantOpen} onCancel={() => setManagerGrantOpen(false)} onOk={() => managerGrantForm.submit()} okText="确认授权" confirmLoading={saving}>
-      <p className="ac-muted-copy">将现有 MEMBER 提升为 MANAGER 后，他可以创建和管理自己的团队、成员与 API 权限。只有 DEV 可以执行此操作。</p>
-      <Form form={managerGrantForm} layout="vertical" onFinish={grantManager}>
-        <Form.Item name="username" label="目标账号" rules={[{ required: true, message: '请选择要授权的账号' }]}>
-          <Select showSearch optionFilterProp="label" placeholder="选择现有 MEMBER 账号" options={(teamResult?.members || []).filter(member => member.role === 'member' && member.active).map(member => ({ value: member.username, label: `${member.displayName} · @${member.username}` }))} />
-        </Form.Item>
-      </Form>
-    </Modal>
     <Modal title="重命名团队" open={renameOpen} onCancel={() => setRenameOpen(false)} onOk={() => renameForm.submit()} okText="保存" confirmLoading={saving}><Form form={renameForm} layout="vertical" onFinish={saveRename}><Form.Item name="name" label="团队名称" rules={[{ required: true, max: 60 }]}><Input autoFocus /></Form.Item></Form></Modal>
   </div>;
 }

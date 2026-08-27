@@ -75,18 +75,12 @@ test('switching to a regular navigation route closes the account drawer', () => 
   assert.match(layout, /if \(isAccountCenterRoute\) \{[\s\S]*?setAccountCenterOpen\(true\);[\s\S]*?return;[\s\S]*?\}\s*\/\/ 主导航切到普通功能页时[\s\S]*?setAccountCenterOpen\(false\)/);
 });
 
-test('DEV team management exposes a guarded manager authorization flow', () => {
-  assert.match(teamPage, /self\.role === 'dev' \? <div className="ac-team-admin-toolbar"/);
-  assert.match(teamPage, /授权管理者/);
-  assert.match(teamPage, /updateTeamMember\(values\.username, \{ role: 'manager', boundTo: null \}\)/);
-  assert.match(teamPage, /member\.role === 'member' && member\.active/);
-});
-
-test('DEV always sees global account management and member creation', () => {
-  assert.match(teamPage, /const showDeveloperAccountManagement = self\?\.role === 'dev'/);
-  assert.match(teamPage, /showDeveloperAccountManagement \? <>/);
-  assert.match(teamPage, /创建成员/);
-  assert.match(teamPage, /开发者账号管理/);
+test('team management retains current-team API controls and excludes global account management', () => {
+  assert.match(teamPage, /getTeamMembers\(nextManager\)/);
+  assert.match(teamPage, /成员列表/);
+  assert.match(teamPage, /AI 能力权限/);
+  assert.doesNotMatch(teamPage, /开发者账号管理/);
+  assert.doesNotMatch(teamPage, /授权管理者/);
 });
 
 test('delegated admin access can read managed presets', () => {

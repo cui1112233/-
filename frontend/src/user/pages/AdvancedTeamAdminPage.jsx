@@ -137,8 +137,8 @@ export default function AdvancedTeamAdminPage() {
         <div className="ac-ranking-list">
           {teams.map(item => <button type="button" className={`ac-delegated-team${item.team.id === selectedTeamId ? ' active' : ''}`} key={item.team.id} onClick={() => setSelectedTeamId(item.team.id)}>
             <span className="ac-session-icon"><UsersRound size={17} /></span>
-            <div><strong>{item.team.name}</strong><small>主管理 @{item.team.managerUsername} · {item.memberCount} 名 MEMBER</small></div>
-            <Tag color={item.team.managerUsername === self.username ? 'blue' : 'purple'}>{item.team.managerUsername === self.username ? '主 MANAGER' : 'CO-MANAGER'}</Tag>
+            <div><strong>{item.team.name}</strong><small>团队负责人 @{item.team.managerUsername} · {item.memberCount} 名 MEMBER</small></div>
+            <Tag color={item.team.managerUsername === self.username ? 'blue' : 'purple'}>{item.team.managerUsername === self.username ? '团队负责人' : '联合管理员'}</Tag>
           </button>)}
           {!teams.length ? <div className="ac-empty">暂无可管理团队</div> : null}
         </div>
@@ -147,7 +147,7 @@ export default function AdvancedTeamAdminPage() {
       {selectedTeam ? <Panel title={selectedTeam.team.name} eyebrow="TEAM POLICY">
         <div className="ac-team-brand"><span className="ac-team-logo">{selectedTeam.team.name.slice(0, 1)}</span><div><strong>{selectedTeam.team.name}</strong><small>Team ID · {selectedTeam.team.id}</small></div></div>
         <Form form={coManagerForm} layout="vertical" onFinish={saveTeam}>
-          <Form.Item label="联合管理员账号" name="usernames" extra={isPrimary ? '输入已有 MANAGER 账号，可添加多个。' : '只有主 MANAGER 或 DEV 可以修改联合管理员。'}>
+          <Form.Item label="联合管理员账号" name="usernames" extra={isPrimary ? '输入已有 MANAGER 账号，可添加多个。' : '只有团队负责人或 DEV 可以修改联合管理员。'}>
             <Select mode="tags" disabled={!isPrimary} tokenSeparators={[',', ' ']} placeholder="输入 @manager 账号" />
           </Form.Item>
           <Form.Item label="团队自然月总额度" name="monthlyTokenLimit"><InputNumber min={0} max={100_000_000_000} style={{ width: '100%' }} addonAfter="Tokens" placeholder="不限额" /></Form.Item>
