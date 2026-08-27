@@ -30,6 +30,7 @@ import {
   generateBatchFactoryVideos,
   generateBatchFactoryBatch,
   getBatchFactoryBatch,
+  getBatchFactoryIntake,
   listBatchFactoryBatches,
   startBatchFactoryBatch,
 } from "../../shared/api/batchFactory";
@@ -680,6 +681,42 @@ export function BatchFactoryPreviewPage() {
     let disposed = false;
     (async () => {
       try {
+        const intakeId = new URLSearchParams(window.location.search).get("intake");
+        if (intakeId) {
+          const { intake } = await getBatchFactoryIntake(intakeId);
+          let activeBatch = null;
+          if (intake?.batchId) {
+            activeBatch = (await getBatchFactoryBatch(intake.batchId)).batch || null;
+          } else if (intake?.items?.length) {
+            const models = await loadBatchFactoryVideoModels();
+            const model = models.find(
+              (entry) => entry.requiresImageInput !== true && Number(entry.maxVideoDuration) >= 1,
+            );
+            if (!model) throw new Error("请先在设置中配置可用的文生视频模型");
+            const created = await createBatchFactoryBatch({
+              name: intake.name,
+              sourceIntakeId: intake.id,
+              mode: "original",
+              items: intake.items,
+              settings: {
+                videoModelId: model.id,
+                videoModelVersionId: model.versionId,
+                videoModelName: model.name,
+                maxVideoDuration: model.maxVideoDuration,
+                fixedSingleVideo: false,
+                aspectRatio: "9:16",
+                prefixMode: "auto",
+                style: "高质量动漫短视频",
+              },
+            });
+            activeBatch = created.batch || null;
+          }
+          if (!disposed && activeBatch) setBatch(activeBatch);
+          const url = new URL(window.location.href);
+          url.searchParams.delete("intake");
+          window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+          return;
+        }
         const { batches } = await listBatchFactoryBatches();
         if (!batches?.[0]) return;
         const detail = await getBatchFactoryBatch(batches[0].id);

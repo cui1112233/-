@@ -2666,6 +2666,64 @@ function setBatchStatus(text) {
   $("batchStatus").textContent = text || "";
 }
 
+async function platformApi(path, options = {}) {
+  const token = localStorage.getItem("auth_token") || "";
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+  return data;
+}
+
+async function transferSelectedToBatchFactory() {
+  const ids = selectedTaskIds();
+  if (!ids.length) {
+    setBatchStatus("先选择要转入批量工厂的任务");
+    return;
+  }
+  const button = $("transferBatchFactoryBtn");
+  button.disabled = true;
+  setBatchStatus(`正在检查 ${ids.length} 个任务的原文…`);
+  try {
+    const details = await Promise.all(ids.map(id => api(`/api/tasks/${encodeURIComponent(id)}`)));
+    const items = details.flatMap((detail, index) => {
+      const meta = detail?.meta || {};
+      const sourceText = String(detail?.original || "").trim();
+      if (!sourceText) return [];
+      const sourceTaskId = String(meta.book_id || ids[index]).trim();
+      const bookId = String(meta.book_id || ids[index]).trim();
+      if (!sourceTaskId || !bookId) return [];
+      return [{
+        sourceTaskId,
+        bookId,
+        title: String(meta.book_name || bookId).trim(),
+        platform: String(meta.platform_name || "").trim(),
+        sourceText,
+        txtText: sourceText,
+        sourceMetadata: meta,
+      }];
+    });
+    const skipped = ids.length - items.length;
+    if (!items.length) throw new Error("选中的任务都没有可用原文，请先完成原文获取");
+    const result = await platformApi("/api/batch-factory/intakes/novel-fetch", {
+      method: "POST",
+      body: JSON.stringify({ name: `小说获取转入 ${items.length} 本`, items }),
+    });
+    setBatchStatus(`已转入 ${items.length} 本${skipped ? `，跳过 ${skipped} 本未完成任务` : ""}`);
+    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo: result.redirectTo }, window.location.origin);
+  } catch (error) {
+    setBatchStatus(error.message || "转入批量工厂失败");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 let batchToastTimer = null;
 function showBatchToast(text, type = "success") {
   if (window.parent !== window) {
@@ -3200,6 +3258,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("clearSelectedBtn").onclick = clearSelectedTasks;
   $("retrySelectedBtn").onclick = () => batchRetry("selected");
   $("retryFailedBtn").onclick = () => batchRetry("failed");
+  $("transferBatchFactoryBtn").onclick = transferSelectedToBatchFactory;
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
   $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;

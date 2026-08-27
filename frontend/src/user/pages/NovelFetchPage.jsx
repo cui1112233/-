@@ -60,6 +60,15 @@ export function NovelFetchPage({ theme }) {
   const [frameReady, setFrameReady] = useState(false);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
+  useEffect(() => {
+    const transferToBatchFactory = event => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'qiantie:batch-factory-intake' || !event.data?.redirectTo) return;
+      window.history.pushState({}, '', event.data.redirectTo);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    };
+    window.addEventListener('message', transferToBatchFactory);
+    return () => window.removeEventListener('message', transferToBatchFactory);
+  }, []);
   return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}`}><iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={() => { syncTheme(); requestAnimationFrame(() => setFrameReady(true)); }} /></div>;
 }
 

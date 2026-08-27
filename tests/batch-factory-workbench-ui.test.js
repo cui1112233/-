@@ -17,6 +17,18 @@ const shuihuo = fs.readFileSync(
   "frontend/src/user/pages/shuihuo/ProjectsView.jsx",
   "utf8",
 );
+const novelFetchFrame = fs.readFileSync(
+  "frontend/public/batch-rewrite/app.js",
+  "utf8",
+);
+const novelFetchFrameHtml = fs.readFileSync(
+  "frontend/public/batch-rewrite/index.html",
+  "utf8",
+);
+const novelFetchHost = fs.readFileSync(
+  "frontend/src/user/pages/NovelFetchPage.jsx",
+  "utf8",
+);
 
 test("screenshot workbench title bar exposes title and return action", () => {
   assert.match(page, /批量工厂/);
@@ -178,4 +190,16 @@ test("shuihuo creation header exposes batch factory beside comic creation", () =
   assert.match(shuihuo, /创作漫剧/);
   assert.match(shuihuo, /onOpenBatchFactory/);
   assert.match(shuihuo, /批量工厂/);
+});
+
+test("completed novel-fetch tasks transfer into the batch factory frame", () => {
+  assert.match(novelFetchFrameHtml, /进入批量工厂/);
+  assert.match(novelFetchFrame, /\/api\/batch-factory\/intakes\/novel-fetch/);
+  assert.match(novelFetchFrame, /qiantie:batch-factory-intake/);
+  assert.match(novelFetchHost, /qiantie:batch-factory-intake/);
+  assert.match(novelFetchHost, /redirectTo/);
+  const preview = fs.readFileSync("frontend/src/user/pages/BatchFactoryPreviewPage.jsx", "utf8");
+  assert.match(preview, /getBatchFactoryIntake/);
+  assert.match(preview, /sourceIntakeId/);
+  assert.match(preview, /URLSearchParams\(window\.location\.search\)\.get\("intake"\)/);
 });
