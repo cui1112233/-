@@ -86,6 +86,10 @@ services:
 
 volumes:
   qiantie-production-mysql:
+    name: qiantie-production-mysql
   qiantie-production-objects:
+    name: qiantie-production-objects
   qiantie-production-platform:
+    name: qiantie-production-platform
   qiantie-production-redis:
+    name: qiantie-production-redis

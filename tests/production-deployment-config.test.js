@@ -15,6 +15,15 @@ test('production compose owns dedicated persistent volumes and ports', () => {
   assert.doesNotMatch(production, /qiantie-test-|\.env\.test-docker/);
 });
 
+test('production Compose pins volume resource names without a project prefix', () => {
+  for (const volume of ['mysql', 'objects', 'platform', 'redis']) {
+    assert.match(
+      production,
+      new RegExp(`qiantie-production-${volume}:\\n\\s+name: qiantie-production-${volume}`),
+    );
+  }
+});
+
 test('production platform and backend consume the same explicit bridge secret', () => {
   assert.equal((production.match(/QIANTIE_BRIDGE_SECRET: \$\{QIANTIE_BRIDGE_SECRET\}/g) || []).length, 2);
   assert.match(production, /QIANTIE_TOKEN_SECRET: \$\{QIANTIE_TOKEN_SECRET\}/);
