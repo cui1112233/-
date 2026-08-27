@@ -141,6 +141,15 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     return revokeUserSessions(req, req.username, bearerToken(req));
   }
 
+  function isRuntimeOnline(req, username) {
+    const runtime = req.app?.locals?.authRuntime;
+    if (!runtime?.tokenMap) return false;
+    for (const value of runtime.tokenMap.values()) {
+      if (sessionUsername(value) === username) return true;
+    }
+    return false;
+  }
+
   function teamPolicySummary(managerUsername) {
     if (!managerUsername) return null;
     const policy = getGovernanceStore().get(managerUsername);
@@ -176,6 +185,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const notifications = getCollaborationStore(req).listNotifications(req.username, 8);
       return res.json({
         member,
+        presence: { online: isRuntimeOnline(req, req.username) },
         manager,
         team: teamForMember(req, member),
         notificationSummary: {
@@ -379,6 +389,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
         teamGovernance: self.role === 'manager' ? teamPolicySummary(self.username) : null,
         members: members.map(member => ({
           ...member,
+          presence: { online: isRuntimeOnline(req, member.username) },
           archive: collab.getArchive(member.username),
           quota: quotaState(month[member.username]?.totalTokens || 0, member.monthlyTokenLimit),
           usage: { day: day[member.username], month: month[member.username] }
