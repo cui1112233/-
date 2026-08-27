@@ -3242,7 +3242,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     sitePanel.removeAttribute("id");
     const details = document.createElement("details");
     details.className = "submit-settings-details";
-    details.open = false;
+    // 提交文案、组织归属和提交方式是小说获取的核心提交参数，进入页面时直接展示。
+    details.open = true;
     details.innerHTML = "<summary>提交文案与提交方式</summary>";
     while (sitePanel.firstChild) details.appendChild(sitePanel.firstChild);
     mount.appendChild(details);

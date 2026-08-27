@@ -46,11 +46,13 @@ export function uploadBatch(payload) {
   });
 }
 
-export function getWebSubmitConfig() { return apiRequest('/api/novel-fetch-web-submit/config'); }
-export function saveWebSubmitConfig(payload) { return apiRequest('/api/novel-fetch-web-submit/config', { method: 'POST', body: JSON.stringify(payload) }); }
-export function checkWebSubmitEnvironment() { return apiRequest('/api/novel-fetch-web-submit/environment'); }
-export function syncWebSubmitConfigs(payload = {}) { return apiRequest('/api/novel-fetch-web-submit/sync-configs', { method: 'POST', body: JSON.stringify(payload) }); }
-export function syncWebSubmitStyles(payload = {}) { return apiRequest('/api/novel-fetch-web-submit/sync-styles', { method: 'POST', body: JSON.stringify(payload) }); }
-export function testWebSubmitVisible(payload = {}) { return apiRequest('/api/novel-fetch-web-submit/test-visible', { method: 'POST', body: JSON.stringify(payload) }); }
-export function previewWebSubmit(payload) { return apiRequest('/api/novel-fetch-web-submit/preview', { method: 'POST', body: JSON.stringify(payload) }); }
-export function startWebSubmit(payload) { return apiRequest('/api/novel-fetch-web-submit/submit', { method: 'POST', body: JSON.stringify(payload) }); }
+// 网站提交由小说获取的批量改文路由承载；保持备用 React 页面与实际 iframe 入口一致。
+const WEB_SUBMIT_API = '/api/batch-rewrite/web-submit';
+export function getWebSubmitConfig() { return apiRequest(`${WEB_SUBMIT_API}/config`); }
+export function saveWebSubmitConfig(payload) { return apiRequest(`${WEB_SUBMIT_API}/config`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function checkWebSubmitEnvironment() { return apiRequest(`${WEB_SUBMIT_API}/environment`); }
+export function syncWebSubmitConfigs(payload = {}) { return apiRequest(`${WEB_SUBMIT_API}/sync-configs`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function syncWebSubmitStyles(payload = {}) { return apiRequest(`${WEB_SUBMIT_API}/sync-styles`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function testWebSubmitVisible(payload = {}) { return apiRequest(`${WEB_SUBMIT_API}/test-visible`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function previewWebSubmit(payload) { return apiRequest(`${WEB_SUBMIT_API}/preview`, { method: 'POST', body: JSON.stringify(payload) }); }
+export function startWebSubmit(payload) { return apiRequest(`${WEB_SUBMIT_API}/submit`, { method: 'POST', body: JSON.stringify(payload) }); }
