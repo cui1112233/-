@@ -73,7 +73,7 @@
 
       <section id="tasks" class="panel">
         <section class="section task-detail-section">
-          <div class="section-title"><h2>任务详情</h2><span id="detailTitle">未选择</span></div>
+          <div class="section-title task-detail-title"><h2>任务详情</h2><span id="detailTitle">未选择</span><span class="detail-header-actions"><button id="detailHeaderPrevBtn" type="button" aria-label="上一条任务">上一条</button><button id="detailHeaderNextBtn" type="button" aria-label="下一条任务">下一条</button><button id="detailHeaderCloseBtn" type="button" class="detail-close-button" aria-label="关闭任务详情">关闭</button></span></div>
           <div id="detail" class="detail-empty">点击任务列表中的书籍 ID 或“查看”打开详情。</div>
         </section>
         <section class="section full">
@@ -499,6 +499,10 @@
             <span>这里仅保存登录、文案版本和上传参数；实际提交请在“任务”页点击“提交网络”。</span>
           </div>
           <div class="site-submit-layout">
+            <div id="webSubmitSyncTools" class="site-submit-sync-tools">
+              <div><strong>121 数据同步</strong><span class="form-hint">同步配置档时会一并更新组织归属。</span></div>
+              <div class="actions no-top-margin"><button id="syncWebProfilesBtn" type="button">同步批量后台配置</button><button id="syncWebStylesBtn" type="button">同步批量风格类型</button></div>
+            </div>
             <section class="site-submit-card site-submit-configuration">
               <div class="site-submit-card-header">
                 <div>
@@ -514,6 +518,10 @@
                   <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
                   <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
                 </div>
+              </div>
+              <div class="site-submit-version-select site-submit-organization-select">
+                <span class="site-submit-field-label">组织归属</span>
+                <div class="actions no-top-margin"><label><select id="webOrganization"><option value="">请选择组织归属</option></select></label><span id="webOrganizationHint" class="form-hint">请先同步批量后台配置</span></div>
               </div>
               <div class="submit-mode-selector site-submit-mode-selector">
                 <span class="site-submit-field-label">提交方式</span>
@@ -537,7 +545,6 @@
                 </div>
                 <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
                 <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
-                <div class="actions"><button id="syncWebProfilesBtn">同步批量后台配置</button><button id="syncWebStylesBtn">同步批量风格类型</button></div>
               </section>
               <section id="webFreeConfigSection" class="site-submit-mode-content upload-execution-settings">
                 <div class="section-title compact"><h3>自由配置</h3><span>每本书素材总数固定为 8；多个已选文案会自动均分，平台、男女频、风格仍按书籍分析结果提交。</span></div>

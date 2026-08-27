@@ -56,6 +56,16 @@ test('buildUploadFields maps gender/style to ids', () => {
   assert.equal(allocated.gunping_num, '2');
 });
 
+test('buildUploadFields includes the organization field parsed from 121', () => {
+  const fields = buildUploadFields({
+    platformId: 3,
+    gender: '女',
+    style: '现代虐文',
+    organization: { field_name: 'organization_id', id: '7' }
+  });
+  assert.equal(fields.organization_id, '7');
+});
+
 test('buildUploadFields throws on invalid platform/gender/style', () => {
   assert.throws(() => buildUploadFields({ platformId: 999, gender: '女', style: '现代虐文' }), /无效的平台/);
   assert.throws(() => buildUploadFields({ platformId: 3, gender: '其他', style: '现代虐文' }), /无效的性别/);

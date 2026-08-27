@@ -15,6 +15,7 @@ const rules = require('../lib/novel-fetch-workshop/rules');
 const sensitive = require('../lib/novel-fetch-workshop/sensitive');
 const target = require('../lib/target-upload');
 const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
+const { repairMojibakeDeep } = require('../lib/novel-fetch-workshop/text-encoding');
 
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
@@ -59,6 +60,8 @@ function snakeTask(task = {}) {
     sensitive_fixed_count: task.sensitiveFixedCount || 0,
     sensitive_failed_count: task.sensitiveFailedCount || 0,
     site_submit_status: task.siteSubmitStatus || '',
+    site_submit_queued_versions: task.siteSubmitQueuedVersions || [],
+    site_submit_uploading_versions: task.siteSubmitUploadingVersions || [],
     site_submit_done_versions: task.siteSubmitDoneVersions || [],
     site_submit_accepted_versions: task.siteSubmitAcceptedVersions || [],
     site_submit_failed_versions: task.siteSubmitFailedVersions || []
@@ -69,6 +72,32 @@ function legacyMeta(meta = {}) { return snakeTask(meta); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function idFrom(value) { return String(value || '').trim(); }
 function countEntries(value) { return Array.isArray(value) ? value.length : 0; }
+
+function hasOwn(value, key) {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function effectiveProcessingConfig(config, payload = {}) {
+  const source = object(config);
+  const sensitiveAi = object(source.sensitive_ai);
+  const enabled = hasOwn(payload, 'sensitive_ai_enabled')
+    ? payload.sensitive_ai_enabled === true
+    : sensitiveAi.enabled === true;
+  const knowledge = object(source.knowledge);
+  return {
+    ...source,
+    layout: { ...object(source.layout), apply_sensitive: true },
+    knowledge: {
+      ...knowledge,
+      layout_rules: { ...object(knowledge.layout_rules), apply_sensitive_replace: true }
+    },
+    sensitive_ai: { ...sensitiveAi, enabled }
+  };
+}
+
+function configStoreForProcessing(store, config) {
+  return { ...store, getConfig: () => config };
+}
 
 function normalizeUploadProfiles(value) {
   return (Array.isArray(value) ? value : []).map((item, index) => {
@@ -131,6 +160,17 @@ function styleMapFromCatalog(value) {
   return Object.fromEntries(normalizeStyleCatalog(value).map(item => [item.name, Number(item.id)]).filter(([, id]) => Number.isFinite(id)));
 }
 
+function normalizeOrganizationCatalog(value) {
+  const source = object(value);
+  const fieldName = String(source.field_name || source.fieldName || '').trim();
+  const seen = new Set();
+  const options = (Array.isArray(source.options) ? source.options : []).map(item => ({
+    id: String(object(item).id ?? object(item).value ?? '').trim(),
+    name: String(object(item).name ?? object(item).label ?? '').trim()
+  })).filter(item => item.id && item.name && !seen.has(item.id) && (seen.add(item.id) || true));
+  return { field_name: fieldName, options };
+}
+
 function htmlText(value) {
   return String(value || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').trim();
 }
@@ -146,6 +186,36 @@ function parseTargetStyleCatalog(html) {
     if (id && name && !/请选择|全部/.test(name)) catalog.push({ id, name });
   }
   return normalizeStyleCatalog(catalog);
+}
+
+function parseTargetOrganizationCatalog(html) {
+  const source = String(html || '');
+  const pattern = /<select\b([^>]*)>([\s\S]*?)<\/select>/gi;
+  for (let match; (match = pattern.exec(source));) {
+    const context = htmlText(source.slice(Math.max(0, match.index - 600), match.index + match[0].length));
+    if (!/组织\s*归属/.test(context)) continue;
+    const attrs = String(match[1] || '');
+    const field = attrs.match(/\bname=["']([^"']+)["']/i) || attrs.match(/\bid=["']([^"']+)["']/i);
+    const fieldName = String(field?.[1] || '').trim();
+    if (!fieldName) throw new Error('121 组织归属下拉框缺少字段名');
+    const options = [];
+    const optionPattern = /<option\b[^>]*\bvalue=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/gi;
+    for (let option; (option = optionPattern.exec(match[2]));) {
+      const id = String(option[1] || '').trim();
+      const name = htmlText(option[2]);
+      if (id && name && !/请选择|全部/.test(name)) options.push({ id, name });
+    }
+    return normalizeOrganizationCatalog({ field_name: fieldName, options });
+  }
+  throw new Error('121 自定义文案页未找到组织归属下拉框');
+}
+
+function selectedOrganizationFromConfig(value) {
+  const catalog = normalizeOrganizationCatalog(value?.organization_catalog);
+  const selected = String(value?.selected_organization || '').trim();
+  const option = catalog.options.find(item => item.id === selected);
+  if (!catalog.field_name || !option) throw new Error('请选择组织归属');
+  return { field_name: catalog.field_name, id: option.id };
 }
 
 function parseTargetConfigData(value) {
@@ -322,7 +392,9 @@ function createBatchRewriteRouter({
 
   async function readConfig(req) {
     const { tasks, config, configStore: store } = await resources(req);
-    const current = object(config || store.getConfig());
+    // 历史导入曾把 UTF-8 按 Windows-1252 解码后写入配置；在配置边界修复，
+    // 这样知识库、处理规则和提示词的所有读取入口都保持一致。
+    const current = repairMojibakeDeep(object(config || await store.getConfig()));
     const platforms = Array.isArray(current.platforms) ? current.platforms : (store.getPlatforms?.() || PLATFORMS);
     const styles = Array.isArray(current.styles) ? current.styles : (store.getStyles?.() || STYLE_NAMES);
     const savedKnowledge = object(current.knowledge);
@@ -473,53 +545,49 @@ function createBatchRewriteRouter({
     };
   }
 
-  async function applySavedRulesToOriginal(tasks, username, bookId, config, configStore) {
+  async function applySavedRulesToOriginal(tasks, username, bookId, config, configStore, payload = {}) {
     if (typeof tasks.readOriginal !== 'function' || typeof tasks.saveOriginalText !== 'function') return false;
     const text = await tasks.readOriginal(username, bookId);
     if (!text) return false;
-    const layoutRules = object(object(config.knowledge).layout_rules);
-    const runSensitive = config.layout?.apply_sensitive !== false && layoutRules.apply_sensitive_replace !== false;
+    const effectiveConfig = effectiveProcessingConfig(config, payload);
     // 原文敏感词只能由这一处统一处理，避免规则引擎先静态替换后 AI 已经失去命中上下文。
-    const ruleConfig = runSensitive ? {
-      ...config,
-      layout: { ...object(config.layout), sensitive_ai_enabled: true }
-    } : config;
+    const ruleConfig = {
+      ...effectiveConfig,
+      layout: { ...object(effectiveConfig.layout), sensitive_ai_enabled: true }
+    };
     let processed = processSavedRules(text, 'original', ruleConfig);
-    let entry = null;
-    if (runSensitive) {
-      const task = typeof tasks.getTask === 'function' ? await tasks.getTask(username, bookId) : null;
-      const sensitiveConfig = object(config.sensitive_ai);
-      const aiSource = configStore && typeof configStore.getAiConfig === 'function' ? configStore : {
-        getAiConfig: () => ({ ai: object(config.ai), ai_presets: Array.isArray(config.ai_presets) ? config.ai_presets : [], ai_assignments: object(config.ai_assignments) })
-      };
-      const aiSettings = sensitiveConfig.enabled === true ? ai.resolveAiSettings(aiSource, 'sensitive_fix') : {};
-      const result = await sensitive.processSensitiveText({
-        text: processed,
-        settings: {
-          ...sensitiveConfig,
-          enabled: sensitiveConfig.enabled === true,
-          config,
-          scope: 'original',
-          bookId,
-          bookName: task?.meta?.bookName || '',
-          style: task?.meta?.style || '',
-          gender: task?.meta?.gender || '',
-          aiSettings
-        },
-        ai
-      });
-      processed = result.text;
-      entry = sensitiveLogEntry(result, { enabled: sensitiveConfig.enabled === true }, aiSettings);
-      if (typeof tasks.updateTaskMeta === 'function') await tasks.updateTaskMeta(username, bookId, {
-        sensitiveMode: entry.mode,
-        sensitiveStatus: entry.status,
-        sensitiveHitCount: entry.hit_count,
-        sensitiveFixedCount: entry.fixed_count,
-        sensitiveFailedCount: entry.failed_count,
-        sensitiveModel: entry.model
-      });
-      if (typeof tasks.appendLog === 'function') await tasks.appendLog(username, bookId, 'sensitive_processed', entry);
-    }
+    const task = typeof tasks.getTask === 'function' ? await tasks.getTask(username, bookId) : null;
+    const sensitiveConfig = object(effectiveConfig.sensitive_ai);
+    const aiSource = configStore && typeof configStore.getAiConfig === 'function' ? configStore : {
+      getAiConfig: () => ({ ai: object(effectiveConfig.ai), ai_presets: Array.isArray(effectiveConfig.ai_presets) ? effectiveConfig.ai_presets : [], ai_assignments: object(effectiveConfig.ai_assignments) })
+    };
+    const aiSettings = sensitiveConfig.enabled === true ? ai.resolveAiSettings(aiSource, 'sensitive_fix') : {};
+    const result = await sensitive.processSensitiveText({
+      text: processed,
+      settings: {
+        ...sensitiveConfig,
+        enabled: sensitiveConfig.enabled === true,
+        config: effectiveConfig,
+        scope: 'original',
+        bookId,
+        bookName: task?.meta?.bookName || '',
+        style: task?.meta?.style || '',
+        gender: task?.meta?.gender || '',
+        aiSettings
+      },
+      ai
+    });
+    processed = result.text;
+    const entry = sensitiveLogEntry(result, { enabled: sensitiveConfig.enabled === true }, aiSettings);
+    if (typeof tasks.updateTaskMeta === 'function') await tasks.updateTaskMeta(username, bookId, {
+      sensitiveMode: entry.mode,
+      sensitiveStatus: entry.status,
+      sensitiveHitCount: entry.hit_count,
+      sensitiveFixedCount: entry.fixed_count,
+      sensitiveFailedCount: entry.failed_count,
+      sensitiveModel: entry.model
+    });
+    if (typeof tasks.appendLog === 'function') await tasks.appendLog(username, bookId, 'sensitive_processed', entry);
     if (processed === text) return Boolean(entry);
     await tasks.saveOriginalText(username, bookId, processed);
     return true;
@@ -653,7 +721,8 @@ function createBatchRewriteRouter({
     const { tasks, configStore: store } = await resources(req);
     const inputText = String(payload?.input_text || '');
     if (!inputText.trim()) throw new Error('请输入书籍信息');
-    const config = object(store.getConfig());
+    const config = effectiveProcessingConfig(store.getConfig(), payload);
+    const processingStore = configStoreForProcessing(store, config);
     const parsed = parse.parseBooks({
       inputText,
       parseMode: payload.parse_mode || 'smart',
@@ -690,7 +759,7 @@ function createBatchRewriteRouter({
       const fetchedResults = await runWithConcurrency(classified, config.fetch?.concurrency || 1, async task => {
         const result = await tasks.fetchOriginal(req.username, task.bookId, task.maxTxt);
         if (result?.status !== 'done') return { task, done: false };
-        await applySavedRulesToOriginal(tasks, req.username, task.bookId, config);
+        await applySavedRulesToOriginal(tasks, req.username, task.bookId, config, processingStore, payload);
         return { task, done: true };
       });
       for (const [index, item] of fetchedResults.entries()) {
@@ -709,19 +778,14 @@ function createBatchRewriteRouter({
     if (workflow.auto_rewrite_after_fetch) {
       const rewriteResults = await runWithConcurrency(fetchedIds, config.ai?.max_concurrency || 1, async bookId => {
         const task = await tasks.getTask(req.username, bookId);
-        return rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task?.meta, count: task?.meta?.aiCount || 1 });
+        return rewrite.generateAiVersions({ configStore: processingStore, tasks, username: req.username, task: task?.meta, count: task?.meta?.aiCount || 1 });
       });
       for (const item of rewriteResults) generated += (item?.value?.generated || []).filter(entry => entry.status === 'done').length;
       report({ type: 'rewrite', status: 'done', message: `AI 文案生成 ${generated} 个版本。` });
     } else {
       report({ type: 'rewrite', status: 'skipped', message: '配置未开启抓取后自动改文。' });
     }
-    if (workflow.auto_submit_after_rewrite === true && workflow.auto_submit_confirmed === true && config.web_submit?.enabled === true && fetchedIds.length) {
-      const submitted = await submitTasks(req, { mode: 'selected', ids: fetchedIds, versions: ['ai1'] });
-      report({ type: 'submit', status: submitted.failed_groups ? 'warning' : 'done', message: `网站提交：成功 ${submitted.success_groups || 0} 组，失败 ${submitted.failed_groups || 0} 组。` });
-    } else {
-      report({ type: 'submit', status: 'skipped', message: '未开启自动网站提交；文案已保留，需在网站提交页确认后再提交。' });
-    }
+    report({ type: 'submit', status: 'skipped', message: '处理完成；网站提交需在任务列表中确认后执行。' });
     return {
       parsed: parsed.parsed || prepared.length,
       unique_tasks: parsed.uniqueTasks || prepared.length,
@@ -754,6 +818,8 @@ function createBatchRewriteRouter({
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
       profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
       style_catalog: normalizeStyleCatalog(cfg.style_catalog),
+      organization_catalog: normalizeOrganizationCatalog(cfg.organization_catalog),
+      selected_organization: String(cfg.selected_organization || ''),
       target: target.TARGET_HOST
     };
   }
@@ -770,7 +836,9 @@ function createBatchRewriteRouter({
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
       profile_bindings: normalizeProfileBindings(cfg.profile_bindings),
-      style_catalog: normalizeStyleCatalog(cfg.style_catalog)
+      style_catalog: normalizeStyleCatalog(cfg.style_catalog),
+      organization_catalog: normalizeOrganizationCatalog(cfg.organization_catalog),
+      selected_organization: String(cfg.selected_organization || '')
     };
   }
 
@@ -791,7 +859,9 @@ function createBatchRewriteRouter({
       advanced: target.normalizeBookAdvanced(received.advanced),
       upload_profiles: normalizeUploadProfiles(received.upload_profiles),
       profile_bindings: normalizeProfileBindings(received.profile_bindings),
-      style_catalog: normalizeStyleCatalog(received.style_catalog || existing.style_catalog)
+      style_catalog: normalizeStyleCatalog(received.style_catalog || existing.style_catalog),
+      organization_catalog: normalizeOrganizationCatalog(received.organization_catalog || existing.organization_catalog),
+      selected_organization: String(received.selected_organization || '')
     };
     if (typeof received.password === 'string') clean.password = received.password;
     const password = String(clean.password || '');
@@ -822,7 +892,10 @@ function createBatchRewriteRouter({
   }
 
   async function sync121Profiles(req) {
-    const body = await request121(req, target.TARGET_CONFIG_LIST_PATH);
+    const [body, page] = await Promise.all([
+      request121(req, target.TARGET_CONFIG_LIST_PATH),
+      request121(req, target.TARGET_CHECK_PATH)
+    ]);
     let payload = {};
     try { payload = JSON.parse(body); } catch (_) { throw new Error('121 配置档接口返回了非 JSON 数据'); }
     if (payload.success !== true || !Array.isArray(payload.data)) throw new Error(payload.message || payload.msg || '121 配置档同步失败');
@@ -845,9 +918,16 @@ function createBatchRewriteRouter({
     const { tasks, current } = await readConfig(req);
     const web = object(current.web_submit);
     const local = normalizeUploadProfiles(web.upload_profiles).filter(profile => profile.source !== '121');
-    const nextWeb = { ...web, upload_profiles: [...local, ...profiles] };
+    const organizations = parseTargetOrganizationCatalog(page);
+    const selectedOrganization = String(web.selected_organization || '');
+    const nextWeb = {
+      ...web,
+      upload_profiles: [...local, ...profiles],
+      organization_catalog: organizations,
+      selected_organization: organizations.options.some(option => option.id === selectedOrganization) ? selectedOrganization : ''
+    };
     await tasks.saveConfig({ ...current, web_submit: nextWeb });
-    return { ok: true, settings: publicWebSubmit(nextWeb), groups: profiles, output: [`已从 121 同步 ${profiles.length} 个配置档`] };
+    return { ok: true, settings: publicWebSubmit(nextWeb), groups: profiles, organizations, output: [`已从 121 同步 ${profiles.length} 个配置档和 ${organizations.options.length} 个组织归属`] };
   }
 
   async function sync121Styles(req) {
@@ -925,7 +1005,7 @@ function createBatchRewriteRouter({
   async function submitTasks(req, body) {
     if (!novelFetchStore) throw new Error('目标站会话存储未启用');
     const webConfig = await currentWebConfig(req);
-    if (webConfig.enabled !== true) throw new Error('网站提交尚未启用；请先保存账号并勾选“启用网站提交”');
+    const organization = selectedOrganizationFromConfig(webConfig);
     const session = novelFetchStore.getSession(req.username);
     if (!session?.cookie) throw new Error('请先在网站提交页保存账号密码并登录目标站');
     const plan = await planSubmission(req, body);
@@ -934,6 +1014,19 @@ function createBatchRewriteRouter({
     let successGroups = 0;
     let acceptedGroups = 0;
     let failedGroups = 0;
+    // Publish queue state before network work starts so the task table can show
+    // which items are waiting and which one is actively uploading.
+    for (const group of plan.groups) {
+      for (const item of group.items) {
+        const task = await tasks.getTask(req.username, item.id);
+        if (!task?.meta) continue;
+        await tasks.updateTaskMeta(req.username, item.id, {
+          siteSubmitStatus: 'queued',
+          siteSubmitQueuedVersions: [...new Set([...(task.meta.siteSubmitQueuedVersions || []), item.version])],
+          siteSubmitUploadingVersions: (task.meta.siteSubmitUploadingVersions || []).filter(version => version !== item.version)
+        });
+      }
+    }
     for (const group of plan.groups) {
       group.group_key = group.group_id;
       group.group_id = `${group.group_id}-${submissionId}`;
@@ -946,8 +1039,13 @@ function createBatchRewriteRouter({
         const task = await tasks.getTask(req.username, item.id);
         const content = await tasks.readVersionText(req.username, item.id, item.version);
         const trace = [];
+        await tasks.updateTaskMeta(req.username, item.id, {
+          siteSubmitStatus: 'uploading',
+          siteSubmitQueuedVersions: (task?.meta?.siteSubmitQueuedVersions || []).filter(version => version !== item.version),
+          siteSubmitUploadingVersions: [...new Set([...(task?.meta?.siteSubmitUploadingVersions || []), item.version])]
+        });
         try {
-          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: item.advanced || webConfig.advanced, styleMap: styleMapFromCatalog(webConfig.style_catalog) });
+          const fields = target.buildUploadFields({ platformId: task.meta.platformId, gender: task.meta.gender === '男频' ? '男' : task.meta.gender === '女频' ? '女' : task.meta.gender, style: task.meta.style, advanced: item.advanced || webConfig.advanced, styleMap: styleMapFromCatalog(webConfig.style_catalog), organization });
           appendSubmitTrace(trace, '本地参数校验', '完成', `121 参数：平台 ${fields.platform_id} / 性别 ${fields.gender} / 风格 ${fields.style} / 解压 ${fields.jieya_num} / 滚屏 ${fields.gunping_num}`, { fields: { platform_id: fields.platform_id, gender: fields.gender, style: fields.style, jieya_num: fields.jieya_num, gunping_num: fields.gunping_num } });
           const filename = target.buildTargetUploadFilename(item.id);
           const upload = target.buildMultipart(fields, { filename, content });
@@ -983,6 +1081,8 @@ function createBatchRewriteRouter({
           if (receipt.verified) {
             await tasks.updateTaskMeta(req.username, item.id, {
               siteSubmitStatus: 'submitted',
+              siteSubmitQueuedVersions: (task.meta.siteSubmitQueuedVersions || []).filter(version => version !== item.version),
+              siteSubmitUploadingVersions: (task.meta.siteSubmitUploadingVersions || []).filter(version => version !== item.version),
               siteSubmitDoneVersions: [...new Set([...(task.meta.siteSubmitDoneVersions || []), item.version])],
               siteSubmitAcceptedVersions: (task.meta.siteSubmitAcceptedVersions || []).filter(version => version !== item.version),
               siteSubmitFailedVersions: (task.meta.siteSubmitFailedVersions || []).filter(version => version !== item.version)
@@ -994,6 +1094,8 @@ function createBatchRewriteRouter({
             item.remote_receipt = receipt;
             await tasks.updateTaskMeta(req.username, item.id, {
               siteSubmitStatus: 'accepted_pending',
+              siteSubmitQueuedVersions: (task.meta.siteSubmitQueuedVersions || []).filter(version => version !== item.version),
+              siteSubmitUploadingVersions: (task.meta.siteSubmitUploadingVersions || []).filter(version => version !== item.version),
               siteSubmitAcceptedVersions: [...new Set([...(task.meta.siteSubmitAcceptedVersions || []), item.version])],
               siteSubmitFailedVersions: (task.meta.siteSubmitFailedVersions || []).filter(version => version !== item.version)
             });
@@ -1003,7 +1105,12 @@ function createBatchRewriteRouter({
           groupFailed = true;
           item.error = error.message || '上传失败';
           appendSubmitTrace(trace, '提交结束', '失败', item.error);
-          await tasks.updateTaskMeta(req.username, item.id, { siteSubmitStatus: 'failed', siteSubmitFailedVersions: [...new Set([...(task.meta.siteSubmitFailedVersions || []), item.version])] });
+          await tasks.updateTaskMeta(req.username, item.id, {
+            siteSubmitStatus: 'failed',
+            siteSubmitQueuedVersions: (task.meta.siteSubmitQueuedVersions || []).filter(version => version !== item.version),
+            siteSubmitUploadingVersions: (task.meta.siteSubmitUploadingVersions || []).filter(version => version !== item.version),
+            siteSubmitFailedVersions: [...new Set([...(task.meta.siteSubmitFailedVersions || []), item.version])]
+          });
           if (typeof tasks.appendSiteSubmitLog === 'function') await tasks.appendSiteSubmitLog(req.username, item.id, { status: 'failed', version: item.version, group_id: group.group_id, material_allocation: item.advanced, error: item.error, execution_trace: trace, time: new Date().toISOString() });
         }
         await persistSiteSubmitGroup(req, group);
@@ -1049,15 +1156,46 @@ function createBatchRewriteRouter({
 
   router.get('/tasks', async (req, res) => { try { res.json({ tasks: await listTasks(req) }); } catch (error) { res.status(500).json({ error: error.message }); } });
   router.post('/tasks/batch-delete', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks } = await resources(req); const result = await tasks.deleteTasks(req.username, ids); res.json({ ...result, failed: 0, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/batch-retry', async (req, res) => { try { const ids = await selectTaskIds(req, req.body); const { tasks, configStore: store } = await resources(req); const config = object(store.getConfig()); let retried = 0; let failed = 0; for (const id of ids) { const task = await tasks.getTask(req.username, id); if (!task) { failed++; continue; } const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000); if (result?.status !== 'done') { failed++; continue; } await applySavedRulesToOriginal(tasks, req.username, id, config); if (config.workflow?.auto_rewrite_after_fetch) await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: (await tasks.getTask(req.username, id)).meta, count: task.meta.aiCount || 1 }); retried++; } res.json({ retried, failed, tasks: await listTasks(req) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/batch-retry', async (req, res) => { try {
+    const ids = await selectTaskIds(req, req.body);
+    const { tasks, configStore: store } = await resources(req);
+    const config = effectiveProcessingConfig(store.getConfig(), req.body);
+    const processingStore = configStoreForProcessing(store, config);
+    let retried = 0;
+    let failed = 0;
+    for (const id of ids) {
+      const task = await tasks.getTask(req.username, id);
+      if (!task) { failed++; continue; }
+      // 先写入运行态，避免慢速 AI 请求期间继续展示历史 waiting_ai_config。
+      if (typeof tasks.updateTaskMeta === 'function') {
+        await tasks.updateTaskMeta(req.username, id, {
+          classifyStatus: task.meta?.classifyStatus === 'waiting_ai_config' ? 'classifying' : task.meta?.classifyStatus,
+          aiStatus: config.workflow?.auto_rewrite_after_fetch !== false ? 'generating' : task.meta?.aiStatus
+        });
+      }
+      // 旧任务可能在 AI 配置缺失时留下 waiting_ai_config；重试必须重新跑分类器。
+      if (config.workflow?.auto_classify_missing !== false && task.meta?.classifyStatus === 'waiting_ai_config' && typeof classifier.classifyMissingRows === 'function') {
+        const classified = await classifier.classifyMissingRows({ configStore: processingStore, tasks: [task.meta] });
+        const nextMeta = classified?.tasks?.[0] || task.meta;
+        if (typeof tasks.updateTaskMeta === 'function') await tasks.updateTaskMeta(req.username, id, nextMeta);
+      }
+      const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000);
+      if (result?.status !== 'done') { failed++; continue; }
+      await applySavedRulesToOriginal(tasks, req.username, id, config, processingStore, req.body);
+      if (config.workflow?.auto_rewrite_after_fetch) await rewrite.generateAiVersions({ configStore: processingStore, tasks, username: req.username, task: (await tasks.getTask(req.username, id)).meta, count: task.meta.aiCount || 1 });
+      retried++;
+    }
+    res.json({ retried, failed, tasks: await listTasks(req) });
+  } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/apply-rules', async (req, res) => { try {
     const ids = await selectTaskIds(req, req.body);
     const { tasks, configStore: store } = await resources(req);
-    const config = object(store.getConfig());
+    const config = effectiveProcessingConfig(store.getConfig(), req.body);
+    const processingStore = configStoreForProcessing(store, config);
     const scope = ['original', 'ai', 'both'].includes(req.body?.scope) ? req.body.scope : 'both';
     let applied = 0;
     for (const id of ids) {
-      if (scope === 'original' || scope === 'both') if (await applySavedRulesToVersion(tasks, req.username, id, 'original', config)) applied++;
+      if (scope === 'original' || scope === 'both') if (await applySavedRulesToOriginal(tasks, req.username, id, config, processingStore, req.body)) applied++;
       if (scope === 'ai' || scope === 'both') {
         const task = await tasks.getTask(req.username, id);
         const count = Number(task?.meta?.aiGeneratedCount) || 0;
@@ -1069,7 +1207,8 @@ function createBatchRewriteRouter({
   router.post('/tasks/reprocess-sensitive', async (req, res) => { try {
     const ids = await selectTaskIds(req, req.body);
     const { tasks, configStore: store } = await resources(req);
-    const config = object(store.getConfig());
+    const config = effectiveProcessingConfig(store.getConfig(), req.body);
+    const processingStore = configStoreForProcessing(store, config);
     const restoreFromBackup = req.body?.restore_from_backup === true;
     let processed = 0;
     let restored = 0;
@@ -1083,7 +1222,7 @@ function createBatchRewriteRouter({
           await tasks.restoreOriginal(req.username, id);
           restored++;
         }
-        await applySavedRulesToOriginal(tasks, req.username, id, config);
+        await applySavedRulesToOriginal(tasks, req.username, id, config, processingStore, req.body);
         if (typeof tasks.appendLog === 'function') {
           await tasks.appendLog(req.username, id, 'sensitive_reprocessed', {
             source: restoreFromBackup ? 'original_backup' : 'current_text',
@@ -1098,15 +1237,17 @@ function createBatchRewriteRouter({
     res.json({ processed, restored, failed, tasks: await listTasks(req) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const count = Number(task.meta.aiGeneratedCount) || 0; const aiTexts = []; for (let index = 1; index <= count; index++) aiTexts.push({ name: `AI${index}`, text: await tasks.readVersionText(req.username, req.params.id, `ai${index}`) }); const sensitiveLog = await readSensitiveLog(tasks, req.username, req.params.id); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, ...sensitiveLog, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig())); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const config = effectiveProcessingConfig(store.getConfig(), req.body); const processingStore = configStoreForProcessing(store, config); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, processingStore, req.body); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try {
     const { tasks, configStore: store } = await resources(req);
     if (typeof tasks.restoreOriginal !== 'function') throw new Error('当前存储不支持恢复原文');
     await tasks.restoreOriginal(req.username, req.params.id);
-    await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig()));
+    const config = effectiveProcessingConfig(store.getConfig(), req.body);
+    const processingStore = configStoreForProcessing(store, config);
+    await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, processingStore, req.body);
     res.json({ task: await tasks.getTask(req.username, req.params.id) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const config = object(store.getConfig()); const max = Math.max(1, Math.min(Number(config.rewrite?.max_ai_count) || 5, 20)); const count = Math.max(1, Math.min(Number(req.body?.count) || 1, max)); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task.meta, count }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const config = effectiveProcessingConfig(store.getConfig(), req.body); const processingStore = configStoreForProcessing(store, config); const max = Math.max(1, Math.min(Number(config.rewrite?.max_ai_count) || 5, 20)); const count = Math.max(1, Math.min(Number(req.body?.count) || 1, max)); const result = await rewrite.generateAiVersions({ configStore: processingStore, tasks, username: req.username, task: task.meta, count }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/sensitive-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); res.json({ meta: legacyMeta(task.meta), ...(await readSensitiveLog(tasks, req.username, req.params.id)) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processConfiguredDocumentTrace(text, 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/site-submit-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const logs = typeof tasks.readSiteSubmitLog === 'function' ? await tasks.readSiteSubmitLog(req.username, req.params.id) : []; res.json({ meta: legacyMeta(task?.meta || {}), result: logs.at(-1) || {}, logs }); } catch (error) { res.status(400).json({ error: error.message }); } });

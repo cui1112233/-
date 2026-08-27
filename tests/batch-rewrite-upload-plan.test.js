@@ -18,6 +18,11 @@ async function request(app, path, body, method = 'POST') {
   }
 }
 
+const organizationConfig = {
+  organization_catalog: { field_name: 'organization_id', options: [{ id: '7', name: '第一组织' }] },
+  selected_organization: '7'
+};
+
 test('网站提交预览会按同一本书的已选文案均分 8 个素材', async () => {
   const task = {
     meta: {
@@ -117,7 +122,7 @@ test('121 仅确认文件接收时必须标为待确认，不能伪装成已执�
     gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: []
   };
   const logs = [];
-  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) },
@@ -151,10 +156,57 @@ test('121 仅确认文件接收时必须标为待确认，不能伪装成已执�
   assert.equal(logs[0].remote_receipt.verified, false);
 });
 
+test('网站提交在未选择组织归属时不会发送 121 上传请求', async () => {
+  const meta = { bookId: '2071717253981255675', platformId: '2', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [] };
+  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  let requestCount = 0;
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async () => { requestCount++; return { body: JSON.stringify({ success: true }), headers: {} }; },
+    tasksFactory: async () => ({
+      tasks: { getTask: async () => ({ meta }), readVersionText: async () => '可上传文案', updateTaskMeta: async () => {}, appendSiteSubmitLog: async () => {}, listTasks: async () => [] },
+      config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] }
+    })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/submit', { mode: 'selected', ids: [meta.bookId], versions: ['ai1'] });
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /请选择组织归属/);
+  assert.equal(requestCount, 0);
+});
+
+test('任务直提交不依赖网络设置页的启用开关', async () => {
+  const meta = { bookId: '2071717253981255675', bookName: '直提交示例', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: false, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) },
+    knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 1, files: [{ name: '2071717253981255675.txt' }] }, failed: { count: 0, files: [] } } }), headers: {} }),
+    tasksFactory: async () => ({
+      tasks: {
+        getTask: async () => ({ meta }),
+        readVersionText: async () => '可上传的 AI 文案',
+        updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch),
+        appendSiteSubmitLog: async () => {},
+        listTasks: async () => [{ ...meta }]
+      },
+      config,
+      configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] }
+    })
+  }));
+
+  const response = await request(app, '/api/batch-rewrite/web-submit/submit', { mode: 'selected', ids: [meta.bookId], versions: ['ai1'] });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.success_groups, 1);
+  assert.deepEqual(meta.siteSubmitDoneVersions, ['ai1']);
+});
+
 test('121 返回文件处理失败时不能标记待确认，必须直接报出拒绝原因', async () => {
   const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
   const logs = [];
-  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
@@ -172,7 +224,7 @@ test('121 返回文件处理失败时不能标记待确认，必须直接报出�
 test('121 明确返回成功文件时可确认提交', async () => {
   const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
   const logs = [];
-  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); }, novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
     httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 1, files: [{ name: '2071717253981255675.txt' }] }, failed: { count: 0, files: [] } } }), headers: {} }),
@@ -184,6 +236,38 @@ test('121 明确返回成功文件时可确认提交', async () => {
   assert.equal(response.body.accepted_groups, 0);
   assert.deepEqual(meta.siteSubmitDoneVersions, ['ai1']);
   assert.deepEqual(logs[0].execution_trace.map(item => item.step), ['本地参数校验', '准备上传文件', '调用 121 上传接口', '121 文件处理结果', '121 后台记录核验']);
+});
+
+test('网站提交会先标记排队，再标记上传中，完成后标记已提交', async () => {
+  const metas = new Map([
+    ['2071717253981255675', { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [], siteSubmitFailedVersions: [] }],
+    ['2071717253981255676', { bookId: '2071717253981255676', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [], siteSubmitFailedVersions: [] }]
+  ]);
+  const patches = [];
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 1, files: [{ name: 'ok.txt' }] }, failed: { count: 0, files: [] } } }), headers: {} }),
+    tasksFactory: async () => ({
+      tasks: {
+        getTask: async (_user, id) => ({ meta: metas.get(id) }),
+        readVersionText: async () => '可上传文案',
+        updateTaskMeta: async (_user, id, patch) => { patches.push({ id, patch }); Object.assign(metas.get(id), patch); },
+        appendSiteSubmitLog: async () => {},
+        listTasks: async () => [...metas.values()]
+      },
+      config,
+      configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] }
+    })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/submit', { mode: 'selected', ids: [...metas.keys()], versions: ['ai1'] });
+  assert.equal(response.status, 200);
+  assert.equal(patches[0].patch.siteSubmitStatus, 'queued');
+  assert.equal(patches[1].patch.siteSubmitStatus, 'queued');
+  assert.ok(patches.some(item => item.patch.siteSubmitStatus === 'uploading'));
+  assert.equal([...metas.values()][0].siteSubmitStatus, 'submitted');
+  assert.equal([...metas.values()][1].siteSubmitStatus, 'submitted');
 });
 
 test('敏感词普通替换会写入真实任务记录，并可由敏感日志读取', async () => {
@@ -226,9 +310,47 @@ test('敏感词普通替换会写入真实任务记录，并可由敏感日志�
   assert.equal(logResponse.body.sensitive_fixed.fixed_count, 1);
 });
 
+test('处理请求的敏感词 AI 开关关闭时覆盖旧配置并直接替换', async () => {
+  const meta = { bookId: 'book-sensitive-override', bookName: '敏感词开关示例', platformId: '2', gender: '女频', style: '现代女主' };
+  let original = '这是一句敏感词原文。';
+  const logs = [];
+  const config = {
+    layout: { apply_sensitive: true },
+    sensitive_ai: { enabled: true, context_chars: 8 },
+    sensitive: { groups: [{ name: '默认', enabled: true, apply_to_original: true, apply_to_ai: true, rules: [{ find: '敏感词', replace: '合规表达', enabled: true }] }] },
+    knowledge: { layout_rules: { apply_sensitive_replace: true } },
+    platforms: [], styles: []
+  };
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-a'; next(); },
+    knowledgeStore: { list: () => ({}) }, openingStore: {},
+    tasksFactory: async () => ({
+      tasks: {
+        getTask: async () => ({ meta }),
+        fetchOriginal: async () => ({ status: 'done' }),
+        readOriginal: async () => original,
+        saveOriginalText: async (_username, _id, text) => { original = text; },
+        updateTaskMeta: async (_username, _id, patch) => Object.assign(meta, patch),
+        appendLog: async (_username, _id, event, data) => logs.push({ event, data }),
+        readLogs: async () => logs,
+        listTasks: async () => [{ ...meta }]
+      },
+      config,
+      configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] }
+    })
+  }));
+
+  const response = await request(app, '/api/batch-rewrite/tasks/book-sensitive-override/fetch', { sensitive_ai_enabled: false });
+
+  assert.equal(response.status, 200);
+  assert.equal(original, '这是一句合规表达原文。');
+  assert.equal(meta.sensitiveMode, 'replace');
+  assert.equal(logs[0].data.mode, 'replace');
+});
+
 test('121 配置档与风格同步会读取真实远端结构，而不是返回空成功', async () => {
   const config = { web_submit: { enabled: true, upload_profiles: [] }, styles: ['旧风格'], platforms: [] };
-  const customPage = '<select id="style"><option value="">请选择风格</option><option value="306">现代女主</option><option value="901">新风格</option></select>';
+  const customPage = '<label>组织归属<select name="organization_id"><option value="">请选择组织归属</option><option value="7">第一组织</option><option value="12">第二组织</option></select></label><select id="style"><option value="">请选择风格</option><option value="306">现代女主</option><option value="901">新风格</option></select>';
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
@@ -246,6 +368,10 @@ test('121 配置档与风格同步会读取真实远端结构，而不是返回�
   assert.equal(profiles.body.groups[0].name, '121 默认档');
   assert.equal(profiles.body.groups[0].advanced.jieyaNum, 3);
   assert.equal(profiles.body.groups[0].advanced.gunpingNum, 5);
+  assert.deepEqual(profiles.body.organizations, {
+    field_name: 'organization_id',
+    options: [{ id: '7', name: '第一组织' }, { id: '12', name: '第二组织' }]
+  });
   const styles = await request(app, '/api/batch-rewrite/web-submit/sync-styles', {});
   assert.equal(styles.status, 200);
   assert.deepEqual(styles.body.styles, ['现代女主', '新风格']);

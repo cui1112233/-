@@ -89,6 +89,18 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function platformApi(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const token = localStorage.getItem("auth_token") || "";
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(path, { ...options, headers });
+  const text = await response.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
 function reportBatchIssue(kind, path, message, status, method) {
   const section = String(path || "").includes("web-submit") ? "submit"
     : String(path || "").includes("rules") ? "rules"
@@ -456,6 +468,8 @@ function ensureWebSubmitConfig() {
     retry_times: Math.max(0, Number(current.retry_times) || 1),
     upload_profiles: asArray(current.upload_profiles),
     profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
+    organization_catalog: current.organization_catalog && typeof current.organization_catalog === 'object' ? current.organization_catalog : { field_name: '', options: [] },
+    selected_organization: String(current.selected_organization || ''),
     submit_versions: submitVersions,
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
@@ -1494,6 +1508,7 @@ function renderWebSubmitConfig(settings = {}) {
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
+  renderWebOrganizationOptions(cfg.organization_catalog, cfg.selected_organization);
   const advanced = cfg.advanced || {};
   $("webTl5").value = String(Number(advanced.tl5) === 1 ? 1 : 0);
   $("webJieyaNum").value = advanced.jieyaNum ?? 4;
@@ -1536,7 +1551,7 @@ async function openWebLoginDialog() {
   if (!dialog) {
     dialog = document.createElement("dialog");
     dialog.id = "webLoginDialog";
-    dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
+    dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">先验证账号密码，验证成功后才保存；失败不会覆盖原有登录信息。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">验证并保存</button></div><span id="webLoginResult"></span></form>`;
     document.body.appendChild(dialog);
     dialog.addEventListener("submit", async (event) => {
       if (event.submitter?.id !== "webLoginSubmit") return;
@@ -1544,9 +1559,11 @@ async function openWebLoginDialog() {
       const result = $("webLoginResult"); result.textContent = "验证中...";
       try {
         const settings = { ...(state.config.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
+        // 先验证目标站登录；只有成功后才落盘账号配置。
+        const login = await platformApi("/api/novel-fetch-upload/upload-login", { method: "POST", body: JSON.stringify({ username: settings.username, password: settings.password }) });
+        if (login.ok !== true) throw new Error(login.error || "登录验证失败");
         await api("/api/web-submit/config", { method: "POST", body: JSON.stringify({ settings }) });
-        const check = await api("/api/web-submit/test-visible", { method: "POST", body: JSON.stringify({ mode: "all", ids: [], force: true }) });
-        state.webLoginSession = check.ok === true;
+        state.webLoginSession = true;
         state.config.web_submit = { ...(state.config.web_submit || {}), username: settings.username, password_masked: true };
         renderWebLoginStatus(state.config.web_submit);
         result.textContent = state.webLoginSession ? "登录验证成功" : "登录异常";
@@ -1608,6 +1625,23 @@ function renderWebVersionProfileBindings(profiles, bindings) {
   }
 }
 
+function renderWebOrganizationOptions(catalog, selectedOrganization) {
+  const select = $("webOrganization");
+  const hint = $("webOrganizationHint");
+  if (!select) return;
+  const items = asArray(catalog?.options);
+  const selected = String(selectedOrganization || "");
+  const options = ['<option value="">请选择组织归属</option>'];
+  for (const item of items) {
+    const id = String(item?.id || "").trim();
+    const name = String(item?.name || id).trim();
+    if (!id) continue;
+    options.push(`<option value="${escapeHtml(id)}" ${id === selected ? "selected" : ""}>${escapeHtml(name)}</option>`);
+  }
+  select.innerHTML = options.join("");
+  if (hint) hint.textContent = items.length ? `已同步 ${items.length} 个组织归属` : "请先同步批量后台配置";
+}
+
 function webProfileBindingsFromForm() {
   return {
     original: $("webProfileBindingOriginal")?.value || "",
@@ -1648,6 +1682,7 @@ function syncFormToWebSubmitConfig() {
   cfg.profile_bindings = webProfileBindingsFromForm();
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
+  cfg.selected_organization = $("webOrganization")?.value || "";
   cfg.submit_versions = webSubmitVersionsFromForm();
   cfg.advanced = {
     tl5: Number($("webTl5").value) === 1 ? 1 : 0,
@@ -1695,6 +1730,10 @@ async function confirmWebSubmitSelection() {
     if (status) status.textContent = "请至少选择一份提交文案。";
     return;
   }
+  if (!$("webOrganization")?.value) {
+    if (status) status.textContent = "请选择组织归属。";
+    return;
+  }
   if (status) status.textContent = "正在确认文案与提交方案...";
   const result = await saveWebSubmitConfig(true);
   if (result) {
@@ -1720,7 +1759,7 @@ async function syncWebSubmit(kind) {
     const styleText = result.style_sync
       ? `，AI风格 ${result.style_sync.new_count || 0} 个，新增 ${result.style_sync.added?.length || 0}，删除 ${result.style_sync.removed?.length || 0}`
       : "";
-    const configText = kind === "configs" ? `：${result.groups?.length || 0} 个配置档已更新` : "";
+    const configText = kind === "configs" ? `：${result.groups?.length || 0} 个配置档、${result.organizations?.options?.length || 0} 个组织归属已更新` : "";
     setSiteSubmitStatus(`已同步${label}${configText}${styleText}`);
   } catch (error) {
     setSiteSubmitStatus(error.message);
@@ -2132,6 +2171,10 @@ function renderTasks(tasks) {
 function renderDetail(data) {
   const meta = data.meta || {};
   $("detailTitle").textContent = meta.book_id || meta.id || "详情";
+  const headerPrev = $("detailHeaderPrevBtn");
+  const headerNext = $("detailHeaderNextBtn");
+  if (headerPrev) headerPrev.disabled = !adjacentTaskId(-1);
+  if (headerNext) headerNext.disabled = !adjacentTaskId(1);
   const knowledgeHistory = meta.rewrite_knowledge_history || [];
   const sensitiveFixed = data.sensitive_fixed || {};
   const sensitiveItems = asArray(sensitiveFixed.items).filter((item) => item && item.status === "done");
@@ -2589,6 +2632,13 @@ async function showTask(id) {
 
 function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
 
+const detailHeaderCloseButton = document.getElementById("detailHeaderCloseBtn");
+if (detailHeaderCloseButton) detailHeaderCloseButton.addEventListener("click", closeTaskDetail);
+const detailHeaderPrevButton = document.getElementById("detailHeaderPrevBtn");
+if (detailHeaderPrevButton) detailHeaderPrevButton.addEventListener("click", () => { const id = adjacentTaskId(-1); if (id) void showTask(id); });
+const detailHeaderNextButton = document.getElementById("detailHeaderNextBtn");
+if (detailHeaderNextButton) detailHeaderNextButton.addEventListener("click", () => { const id = adjacentTaskId(1); if (id) void showTask(id); });
+
 function adjacentTaskId(direction) {
   const index = state.tasks.findIndex((task) => String(task.id || "") === String(state.selectedId || ""));
   const next = index + direction;
@@ -2730,6 +2780,14 @@ async function batchRetry(mode) {
   }
   const label = mode === "failed" ? "失败任务" : `${ids.length} 个选中任务`;
   setBatchStatus(`重试${label}中...`);
+  // 请求是同步批处理；先把已选任务标成运行态，避免慢速 AI 请求期间继续显示旧的等待配置。
+  const runningIds = new Set(ids);
+  if (mode === "failed") state.tasks.forEach(task => { if (taskIsProblem(task)) runningIds.add(String(task.id || "")); });
+  if (runningIds.size) {
+    renderTasks(state.tasks.map(task => runningIds.has(String(task.id || ""))
+      ? { ...task, classify_status: task.classify_status === "waiting_ai_config" ? "classifying" : task.classify_status, ai_status: "generating" }
+      : task));
+  }
   try {
     const result = await api("/api/tasks/batch-retry", {
       method: "POST",

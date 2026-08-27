@@ -382,6 +382,25 @@ textarea:focus {
 
 .site-submit-layout { display: grid; gap: 14px; }
 
+.site-submit-sync-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.site-submit-sync-tools > div:first-child {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.site-submit-organization-select select { min-width: 220px; }
+
 .site-submit-card {
   display: grid;
   gap: 14px;
@@ -627,6 +646,22 @@ td.id-cell {
 
 .detail-empty.small {
   min-height: auto;
+}
+
+.task-detail-title {
+  position: relative;
+}
+
+.detail-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.detail-close-button {
+  margin-left: auto;
+  min-width: 64px;
 }
 
 .task-id-link {
@@ -1016,6 +1051,8 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   .site-submit-mode-selector {
     display: grid;
   }
+
+  .site-submit-sync-tools { align-items: flex-start; }
 
   .site-submit-field-label { padding-top: 0; }
   .site-submit-guard-fields { width: 100%; }
