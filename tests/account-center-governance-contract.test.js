@@ -17,13 +17,14 @@ test('account center is the only user-facing entry for admin tools and gates it 
   assert.match(layout, /href="\/admin\/presets" reload/);
 });
 
-test('admin console navigation is prompt-focused and has its own DEV guard', () => {
+test('admin console navigation is prompt-focused and honors its separate explicit access grant', () => {
   const layout = read('frontend/src/shared/layouts/AdminLayout.jsx');
   const app = read('frontend/src/admin/App.jsx');
   const dashboard = read('frontend/src/admin/pages/DashboardPage.jsx');
 
   assert.match(layout, /nextAccount\?\.role === 'dev'/);
-  assert.match(layout, /仅 DEV 可访问管理后台/);
+  assert.match(layout, /permission\.capability === 'admin:access'/);
+  assert.match(layout, /暂无管理后台权限/);
   assert.doesNotMatch(layout, /href: '\/admin\/accounts'/);
   assert.match(layout, /href: '\/admin\/prompts'/);
   assert.match(layout, /label: '提示词库'/);
