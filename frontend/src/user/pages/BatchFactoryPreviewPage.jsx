@@ -139,6 +139,10 @@ function summaryText(batch) {
   const s = batch?.settings || {};
   return `${batch?.mode === "viral" ? "爆款开头" : "原著直出"} · ${s.videoModelName || "未选择模型"} · ${s.aspectRatio || "9:16"} · ${s.fixedSingleVideo ? `固定 ${s.maxVideoDuration || 10}s` : `AI 自动 1-${s.maxVideoDuration || 10}s`}`;
 }
+function publishSummaryText(batch) {
+  const s = batch?.settings?.publishSettings || {};
+  return `${s.uploadType === "individual" ? "独立VIDEO" : "合并"} · ${s.mergeSpeed || "1.5x"} · 滚屏${s.scrollCount ?? 3} · 生成${s.generateCount ?? 10}${s.reuse === false ? "" : " · 复用"}`;
+}
 
 function BookList({ entries, selectedId, onSelect }) {
   const [search, setSearch] = useState("");
@@ -739,6 +743,7 @@ function ProductionSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
     } catch (error) { message.error(error.message || "保存生产设置失败"); } finally { setSaving(false); }
   }
   return <Drawer title="生产统一设置" placement="right" width={460} open={open} onClose={onClose} destroyOnClose><div className="bf-settings-drawer">
+    <section className="setting-card"><div className="setting-title">基础生产设置</div>
     <label>应用范围</label><Select value={scope} onChange={setScope} options={[{ value: "all", label: "全部小说（未单独覆盖）" }, { value: "individual", label: "个别小说" }]} />
     <label>生产方式</label><Select value={settings.mode || batch?.mode || "original"} onChange={value => patchSetting("mode", value)} options={[{ value: "original", label: "原文直转" }, { value: "viral", label: "爆款开头" }]} />
     <label>剧本提示词</label><Select value={settings.scriptPreset || "standard_short_drama"} onChange={value => patchSetting("scriptPreset", value)} options={[{ value: "standard_short_drama", label: "标准短剧分镜" }, { value: "commercial_dynamic", label: "商业动态分镜" }, { value: "spatial_continuity", label: "空间连续分镜" }]} />
@@ -748,19 +753,65 @@ function ProductionSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
     <label>画幅</label><Select value={settings.aspectRatio || "9:16"} onChange={value => patchSetting("aspectRatio", value)} options={[{ value: "9:16", label: "9:16 竖屏" }, { value: "16:9", label: "16:9 横屏" }]} />
     <label className="bf-settings-check"><input type="checkbox" checked={settings.fixedSingleVideo === true} onChange={event => patchSetting("fixedSingleVideo", event.target.checked)} /> 固定单镜头时长</label>
     {settings.fixedSingleVideo === true ? <><label>固定单 VIDEO 时长（秒）</label><Input type="number" min={1} max={settings.maxVideoDuration || 60} value={settings.exactDuration || settings.maxVideoDuration || 10} onChange={event => patchSetting("exactDuration", Number(event.target.value))} /></> : null}
+    </section>
+    <section className="setting-card"><div className="setting-title">高级生产设置</div>
     <label>前缀模式</label><Select value={settings.prefixMode || "auto"} onChange={value => patchSetting("prefixMode", value)} options={[{ value: "auto", label: "AI 自动" }, { value: "manual", label: "用户自定义" }]} />
     {settings.prefixMode === "manual" ? <><label>当前前缀</label><Input.TextArea rows={2} value={settings.customPrefix || ""} onChange={event => patchSetting("customPrefix", event.target.value)} /></> : null}
     <label>视频风格</label><Input value={settings.style || ""} onChange={event => patchSetting("style", event.target.value)} placeholder="例如：高质量动漫短视频" />
-    <Divider orientation="left">提示词与生成约束</Divider>
+    <label>人物一致性</label><Select value={settings.characterConsistency || "default"} onChange={value => patchSetting("characterConsistency", value)} options={[{ value: "default", label: "默认" }, { value: "strict", label: "严格" }]} />
+    <label className="bf-settings-check"><input type="checkbox" checked={settings.fixedSingleVideo === true} onChange={event => patchSetting("fixedSingleVideo", event.target.checked)} /> 固定单 VIDEO</label>
+    </section>
+    <section className="setting-card"><div className="setting-title">提示词与生成约束</div>
     {[['prefixEnabled', '画面前缀词'], ['characterPromptEnabled', '人物 Prompt 注入'], ['scenePromptEnabled', '场景 Prompt 注入'], ['propPromptEnabled', '道具 Prompt 注入'], ['qualityEnabled', '画质要求'], ['restrictionEnabled', '画面限制'], ['negativeEnabled', '负面提示词']].map(([key, label]) => <label className="bf-settings-check" key={key}><input type="checkbox" checked={settings[key] !== false} onChange={event => patchSetting(key, event.target.checked)} /> {label}</label>)}
     <label>画质要求</label><Input.TextArea rows={2} value={settings.quality || ""} onChange={event => patchSetting("quality", event.target.value)} placeholder="批次级画质要求" />
     <label>画面限制</label><Input.TextArea rows={2} value={settings.restriction || ""} onChange={event => patchSetting("restriction", event.target.value)} placeholder="动作连续、人物一致等限制" />
     <label>文字与字幕</label><Input value={settings.subtitlePolicy || "禁止自动对白字幕"} onChange={event => patchSetting("subtitlePolicy", event.target.value)} />
     <label>负面提示词内容</label><Input.TextArea rows={2} value={settings.negative || ""} onChange={event => patchSetting("negative", event.target.value)} />
-    <Divider orientation="left">高级生成设置</Divider>
+    </section>
+    <div className="impact-box"><b>本次修改将影响：{scope === "all" ? Math.max(0, entries.length - entries.filter(item => item.settingOverrides).length) : selectedIds.length} 本</b><span>ⓘ 已单独覆盖的小说不会被修改</span></div>
     <label>生成前预览</label><span className="bf-preview-modal-note">点击 VIDEO 的“查看 Prompt”可预览实际 compiledPrompt。</span>
     <Button type="primary" block loading={saving} disabled={scope === "individual" && !selectedIds.length} onClick={save}>保存设置</Button>
   </div></Drawer>;
+}
+
+function PublishSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
+  const [settings, setSettings] = useState({});
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (open) setSettings({ ...(batch?.settings?.publishSettings || {}) }); }, [open, batch]);
+  const patch = (key, value) => setSettings(current => ({ ...current, [key]: value }));
+  async function save() {
+    if (!batch?.id) return;
+    setSaving(true);
+    try {
+      const result = await updateBatchFactorySettings(batch.id, { publishSettings: settings });
+      onSaved(result.batch || { ...batch, settings: { ...(batch.settings || {}), publishSettings: settings } });
+      message.success("已保存发布统一设置");
+      onClose();
+    } catch (error) { message.error(error.message || "保存发布设置失败"); }
+    finally { setSaving(false); }
+  }
+  return <Drawer title="发布统一设置" placement="right" width={460} open={open} onClose={onClose} destroyOnClose>
+    <div className="bf-settings-drawer">
+      <section className="setting-card"><div className="setting-title">成品设置</div>
+        <label>上传视频</label><Select value={settings.uploadType || "merged"} onChange={value => patch("uploadType", value)} options={[{ value: "merged", label: "合并成品" }, { value: "individual", label: "独立 VIDEO" }]} />
+        <label>成品时长处理</label><Select value={settings.durationMode || "speed"} onChange={value => patch("durationMode", value)} options={[{ value: "speed", label: "倍率" }, { value: "audio", label: "跟随音频时长" }]} />
+        <label>合并倍率</label><Select value={settings.mergeSpeed || "1.5x"} onChange={value => patch("mergeSpeed", value)} options={["1.0x", "1.3x", "1.5x", "1.7x", "2.0x"].map(value => ({ value, label: value }))} />
+      </section>
+      <section className="setting-card"><div className="setting-title">发布参数</div>
+        <label>滚屏数量</label><Input type="number" min={1} max={99} value={settings.scrollCount ?? 3} onChange={event => patch("scrollCount", Number(event.target.value))} />
+        <label>生成数量</label><Input type="number" min={1} max={999} value={settings.generateCount ?? 10} onChange={event => patch("generateCount", Number(event.target.value))} />
+        <label className="bf-settings-check"><input type="checkbox" checked={settings.reuse !== false} onChange={event => patch("reuse", event.target.checked)} /> 素材复用</label>
+        <label className="bf-settings-check"><input type="checkbox" checked={settings.flip !== false} onChange={event => patch("flip", event.target.checked)} /> 水平翻转</label>
+        <label>解压倍速</label><Input value={settings.unpackSpeed ?? "1.7"} onChange={event => patch("unpackSpeed", event.target.value)} />
+        <label>解压音调</label><Input value={settings.pitch ?? "0"} onChange={event => patch("pitch", event.target.value)} />
+        <label>AI 头部</label><Select value={settings.aiHeader || "final"} onChange={value => patch("aiHeader", value)} options={[{ value: "final", label: "使用本书最终视频" }, { value: "none", label: "不上传 AI 头部" }]} />
+        <label className="bf-settings-check"><input type="checkbox" checked={settings.uploadTxt !== false} onChange={event => patch("uploadTxt", event.target.checked)} /> 自动上传 {"{bookId}.txt"}</label>
+      </section>
+      <section className="setting-card"><div className="setting-title">预览</div><div>视频：{"{bookId}.mp4"}</div><div>TXT：{"{bookId}.txt"}</div></section>
+      <div className="impact-box"><b>跟随批次设置：{entries.length} 本</b><span>ⓘ 存在发布覆盖的小说不会被修改</span></div>
+      <Button type="primary" block loading={saving} onClick={save}>保存发布统一设置</Button>
+    </div>
+  </Drawer>;
 }
 
 function VideoSettingsDrawer({ open, onClose, batch, item, video, onSaved }) {
@@ -815,6 +866,7 @@ export function BatchFactoryPreviewPage() {
   const [generating, setGenerating] = useState(false);
   const [merging, setMerging] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [publishSettingsOpen, setPublishSettingsOpen] = useState(false);
   const [mergeCapability, setMergeCapability] = useState(null);
   const [playerChoice, setPlayerChoice] = useState("merged");
   const [layoutEditing, setLayoutEditing] = useState(false);
@@ -1128,7 +1180,7 @@ export function BatchFactoryPreviewPage() {
               >
                 生产统一设置
               </Button>
-              <Button icon={<Upload size={15} />} onClick={() => Modal.info({ title: "发布统一设置", content: "121 上传发布尚未接入。本轮先完成小说导入、导演、VIDEO 生产和合并闭环。" })}>
+              <Button icon={<Upload size={15} />} disabled={!batch?.id} onClick={() => setPublishSettingsOpen(true)}>
                 发布统一设置
               </Button>
             </div>
@@ -1138,7 +1190,7 @@ export function BatchFactoryPreviewPage() {
               生产： <b>{summaryText(batch)}</b>
             </div>
             <div>
-              发布： <b>本期暂不支持上传发布</b>
+              发布： <b>{publishSummaryText(batch)}</b>
             </div>
           </div>
           <div className="bf-preview-actions">
@@ -1339,6 +1391,7 @@ export function BatchFactoryPreviewPage() {
         }}
       />
       <ProductionSettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} batch={batch} entries={entries} onSaved={setBatch} />
+      <PublishSettingsDrawer open={publishSettingsOpen} onClose={() => setPublishSettingsOpen(false)} batch={batch} entries={entries} onSaved={setBatch} />
       <VideoSettingsDrawer open={Boolean(videoSettingsTarget)} onClose={() => setVideoSettingsTarget(null)} batch={batch} item={selected} video={videoSettingsTarget} onSaved={(item) => setBatch((current) => ({ ...current, items: current.items.map((entry) => entry.id === item.id ? item : entry) }))} />
       <Modal title={editingVideo ? `VIDEO ${editingVideo.id} · 画面提示词` : "画面提示词"} open={Boolean(editingVideo)} onCancel={() => setEditingVideo(null)} onOk={saveVisualPrompt} confirmLoading={savingVisualPrompt} okText="保存并重新编译" destroyOnClose>
         <p className="bf-preview-modal-note">这里只编辑当前 VIDEO 的剧情与画面描述；前缀、资产、画质、限制和负面词会在提交时动态编译。</p>

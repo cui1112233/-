@@ -586,6 +586,16 @@
   flex-direction: column;
   gap: 12px;
 }
+.bf-settings-drawer { display:flex; flex-direction:column; gap:10px; padding-bottom:8px; }
+.bf-settings-drawer .setting-card { border:1px solid var(--bf-border); background:var(--bf-panel-soft); border-radius:7px; padding:14px; }
+.bf-settings-drawer .setting-title { font-weight:800; font-size:16px; margin-bottom:12px; color:var(--bf-text); }
+.bf-settings-drawer > label { font-size:12px; color:var(--bf-muted); margin-top:2px; }
+.bf-settings-drawer .setting-card > label { display:block; font-size:12px; color:var(--bf-muted); margin:10px 0 6px; }
+.bf-settings-drawer .bf-settings-check { display:flex; align-items:center; gap:8px; color:var(--bf-text-soft); }
+.bf-settings-drawer .bf-settings-check input { width:auto; }
+.bf-settings-books { display:grid; gap:5px; max-height:150px; overflow:auto; padding:8px; border:1px solid var(--bf-border); border-radius:5px; }
+.bf-settings-drawer .impact-box { border:1px solid var(--bf-border); border-radius:7px; padding:12px; background:var(--bf-panel-soft); display:grid; gap:5px; }
+.bf-settings-drawer .impact-box span { color:var(--bf-muted); font-size:12px; }
 .bf-intake-drawer label {
   font-size: 12px;
   color: #91a2b7;
