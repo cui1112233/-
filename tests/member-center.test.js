@@ -258,3 +258,43 @@ test('MANAGER audit filtering does not reacquire the member-store lock', t => {
   assert.ok(audit.some(entry => entry.action === 'member.created' && entry.target === member.username));
   assert.ok(audit.some(entry => entry.action === 'api.enabled' && entry.target === member.username));
 });
+
+test('DEV transfers a MEMBER to another active team owner and clears API scopes', t => {
+  const { memberStore } = fixture(t);
+  const manager = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager-transfer', password: 'password01', role: 'manager'
+  });
+  const member = memberStore.createManagedMember('choushiyiguai', {
+    username: 'member-transfer', password: 'password01', boundTo: 'choushiyiguai', apiEnabled: true
+  });
+
+  const result = memberStore.transferManagedMember('choushiyiguai', member.username, { boundTo: manager.username });
+
+  assert.equal(result.member.boundTo, manager.username);
+  assert.deepEqual(result.member.apiScopes, []);
+  assert.deepEqual(result.clearedScopes, ['*']);
+  assert.equal(memberStore.canUseApi(member.username), false);
+});
+
+test('MANAGER cannot transfer a MEMBER and a disabled owner is rejected', t => {
+  const { accountStore, memberStore } = fixture(t);
+  const manager = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager-transfer-actor', password: 'password01', role: 'manager'
+  });
+  const member = memberStore.createManagedMember(manager.username, {
+    username: 'member-transfer-target', password: 'password01'
+  });
+  const disabledOwner = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager-transfer-disabled', password: 'password01', role: 'manager'
+  });
+  accountStore.setActive(disabledOwner.username, false);
+
+  assert.throws(
+    () => memberStore.transferManagedMember(manager.username, member.username, { boundTo: 'choushiyiguai' }),
+    error => error?.code === 'FORBIDDEN'
+  );
+  assert.throws(
+    () => memberStore.transferManagedMember('choushiyiguai', member.username, { boundTo: disabledOwner.username }),
+    error => error?.code === 'NOT_FOUND'
+  );
+});
