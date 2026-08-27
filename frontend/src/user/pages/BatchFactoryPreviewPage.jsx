@@ -143,6 +143,10 @@ function publishSummaryText(batch) {
   const s = batch?.settings?.publishSettings || {};
   return `${s.uploadType === "individual" ? "独立VIDEO" : "合并"} · ${s.mergeSpeed || "1.5x"} · 滚屏${s.scrollCount ?? 3} · 生成${s.generateCount ?? 10}${s.reuse === false ? "" : " · 复用"}`;
 }
+function publishMergeSpeed(batch) {
+  const speed = batch?.settings?.publishSettings?.mergeSpeed;
+  return Number.parseFloat(speed || "1.5") || 1.5;
+}
 
 function BookList({ entries, selectedId, onSelect }) {
   const [search, setSearch] = useState("");
@@ -359,7 +363,7 @@ function CurrentBook({ batchId, item, onRetry, canProduce, onSettings, onEditVis
   );
 }
 
-function VideoOperations({ item, onRetry, onViewPrompt, onVideoSettings, canProduce, projectStatus, mergeCapability, onMerge, merging, choice, onChoose }) {
+function VideoOperations({ item, batch, onRetry, onViewPrompt, onVideoSettings, canProduce, projectStatus, mergeCapability, onMerge, merging, choice, onChoose }) {
   const videos = item?.directorResult?.storyboard || [];
   const videoStates = (item?.directorResult?.storyboard || []).map((video, index) => resolveBatchFactoryVideoProduction(item, index, projectStatus));
   const mediaIds = videoStates.map(state => Number(state?.media?.id || 0));
@@ -447,7 +451,7 @@ function VideoOperations({ item, onRetry, onViewPrompt, onVideoSettings, canProd
           loading={merging}
           disabled={!canMerge}
           title={mergeReason}
-          onClick={() => onMerge({ projectId: Number(item?.production?.projectId), bookId: String(item?.bookId || ""), mediaIds, speed: 1.5 })}
+          onClick={() => onMerge({ projectId: Number(item?.production?.projectId), bookId: String(item?.bookId || ""), mediaIds, speed: publishMergeSpeed(batch) })}
         >
           合并当前小说
         </Button>
@@ -1103,7 +1107,7 @@ export function BatchFactoryPreviewPage() {
     }).filter(candidate => candidate.ready && !candidate.item.production?.mergedAt);
     if (!candidates.length) return message.info("当前没有可合并的已完成小说");
     setMerging(true); let success = 0;
-    try { for (const candidate of candidates) { await mergeBatchFactoryVideos({ projectId: Number(candidate.item.production.projectId), bookId: String(candidate.item.bookId), mediaIds: candidate.mediaIds, speed: 1.5 }); success += 1; } await refreshActiveBatch(); refreshProductionStatus(); message.success(`批量合并完成：${success} 本`); }
+    try { for (const candidate of candidates) { await mergeBatchFactoryVideos({ projectId: Number(candidate.item.production.projectId), bookId: String(candidate.item.bookId), mediaIds: candidate.mediaIds, speed: publishMergeSpeed(batch) }); success += 1; } await refreshActiveBatch(); refreshProductionStatus(); message.success(`批量合并完成：${success} 本`); }
     catch (error) { message.error(error.message || "批量合并失败"); } finally { setMerging(false); }
   }
   async function retryProductionTask(taskId) {
@@ -1282,6 +1286,7 @@ export function BatchFactoryPreviewPage() {
           />
           <VideoOperations
             item={selected}
+            batch={batch}
             onRetry={retryCurrentBookVideo}
             onViewPrompt={viewVideoPrompt}
             onVideoSettings={setVideoSettingsTarget}
