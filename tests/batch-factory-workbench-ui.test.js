@@ -48,6 +48,18 @@ test("screenshot frame loads real batch data instead of only fixed sample rows",
   assert.match(source, /getBatchFactoryBatch/);
   assert.match(source, /listBatchFactoryBatches/);
   assert.match(source, /const \[batch, setBatch\]/);
+  assert.match(source, /mapItems\(batch, byProjectId\)/);
+  assert.match(source, /暂无小说/);
+  assert.doesNotMatch(source, /return items\.length \? items : samples/);
+});
+
+test("production settings and individual overrides are persisted instead of being fake controls", () => {
+  const source = fs.readFileSync("frontend/src/user/pages/BatchFactoryPreviewPage.jsx", "utf8");
+  assert.match(source, /ProductionSettingsDrawer/);
+  assert.match(source, /updateBatchFactorySettings/);
+  assert.match(source, /updateBatchFactoryItem/);
+  assert.match(source, /个别小说/);
+  assert.match(source, /settingOverrides/);
 });
 
 test("new batch stays inside the workbench and creates an imported pending batch", () => {

@@ -205,7 +205,7 @@ function BookList({ entries, selectedId, onSelect }) {
   );
 }
 
-function CurrentBook({ item, onRetry, canProduce }) {
+function CurrentBook({ item, onRetry, canProduce, onSettings }) {
   const failed = item?.displayStatus === "异常";
   const [openSections, setOpenSections] = useState(["source"]);
   const toggle = (section) =>
@@ -274,8 +274,9 @@ function CurrentBook({ item, onRetry, canProduce }) {
         </div>
         <Button
           icon={<Settings2 size={15} />}
-          disabled
-          title="单书生产设置需要 MySQL 配置快照接口后才可保存"
+          disabled={!item}
+          title={item ? "打开当前小说的单独生产设置" : "请先导入小说"}
+          onClick={onSettings}
         >
           单书设置
         </Button>
@@ -980,7 +981,7 @@ export function BatchFactoryPreviewPage() {
               >
                 生产统一设置
               </Button>
-              <Button icon={<Upload size={15} />} disabled title="上传发布将在 121 对接计划确认后开放">
+              <Button icon={<Upload size={15} />} onClick={() => Modal.info({ title: "发布统一设置", content: "121 上传发布尚未接入。本轮先完成小说导入、导演、VIDEO 生产和合并闭环。" })}>
                 发布统一设置
               </Button>
             </div>
@@ -1072,6 +1073,7 @@ export function BatchFactoryPreviewPage() {
             item={selected}
             onRetry={retryCurrentBookVideo}
             canProduce={canProduceSelected}
+            onSettings={() => setSettingsOpen(true)}
           />
           <VideoOperations
             item={selected}
