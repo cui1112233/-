@@ -55,7 +55,7 @@ test('upload-login success stores cookie', async () => {
   const store = makeStore();
   store.setSession = (u, cookie) => { calls.push({ u, cookie }); };
   const app = makeApp({ store, httpClient: async ({ url }) => {
-    if (url.includes('login.php')) return { status: 200, headers: { 'set-cookie': ['PHPSESSID=abc; path=/'] }, body: 'redirect' };
+    if (url.includes('login.php')) return { status: 200, headers: { 'set-cookie': ['PHPSESSID=abc; path=/'] }, body: JSON.stringify({ success: true }) };
     return { status: 200, headers: {}, body: '自定义文案 管理后台' };
   } });
   const result = await request(app, { requestPath: '/api/novel-fetch-upload/upload-login', body: { username: 'u', password: 'p' } });

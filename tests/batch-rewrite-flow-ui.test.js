@@ -40,3 +40,16 @@ test('嵌入工作台的登录失效会通知父页面并显示中文提示', ()
   assert.match(app, /type:\s*["']qiantie:auth-expired["']/);
   assert.match(app, /登录已失效，请重新登录/);
 });
+
+test('121 登录验证有超时收口，避免按钮永久停在验证中', () => {
+  assert.match(app, /const PLATFORM_API_TIMEOUT_MS = \d+;/);
+  assert.match(app, /new AbortController\(\)/);
+  assert.match(app, /signal:\s*controller\.signal/);
+  assert.match(app, /验证请求超时，请检查网络后重试/);
+  assert.match(app, /webLoginSubmit"\)\.disabled = true/);
+  assert.match(app, /webLoginSubmit"\)\.disabled = false/);
+});
+
+test('存在会话验证按钮时会绑定真实的 121 会话验证动作', () => {
+  assert.match(app, /if \(\$\("testVisibleWebBtn"\)\) \$\("testVisibleWebBtn"\)\.onclick = testVisibleWebFlow;/);
+});

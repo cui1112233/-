@@ -14,6 +14,7 @@ const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评�
 const WORK_FORM_STORAGE_KEY = "batchRewrite.workForm.v1";
 const LEGACY_WORK_INPUT_SAMPLE_PREFIX = "7674515088685943832\t";
 const API_ROOT = "/api/batch-rewrite";
+const PLATFORM_API_TIMEOUT_MS = 15000;
 const PER_BOOK_MATERIAL_LIMIT = 8;
 const REWRITE_METHOD_OPTIONS = [
   { id: "", name: "自动轮换" },
@@ -100,12 +101,29 @@ async function platformApi(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem("auth_token") || "";
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(path, { ...options, headers });
-  const text = await response.text();
-  let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  return data;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), PLATFORM_API_TIMEOUT_MS);
+  try {
+    let response;
+    try {
+      response = await fetch(path, { ...options, headers, signal: controller.signal });
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "验证请求超时，请检查网络后重试" : (error?.message || "网络请求失败");
+      reportBatchIssue("network", path, message, undefined, options.method || "GET");
+      throw new Error(message);
+    }
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+    if (!response.ok) {
+      const message = data.error || `HTTP ${response.status}`;
+      reportBatchIssue("response", path, message, response.status, options.method || "GET");
+      throw new Error(message);
+    }
+    return data;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function reportBatchIssue(kind, path, message, status, method) {
@@ -1548,6 +1566,7 @@ async function openWebLoginDialog() {
       if (event.submitter?.id !== "webLoginSubmit") return;
       event.preventDefault();
       const result = $("webLoginResult"); result.textContent = "验证中...";
+      $("webLoginSubmit").disabled = true;
       try {
         const settings = { ...(state.config.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
         // 先验证目标站登录；只有成功后才落盘账号配置。
@@ -1560,6 +1579,7 @@ async function openWebLoginDialog() {
         result.textContent = state.webLoginSession ? "登录验证成功" : "登录异常";
         if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
       } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
+      finally { $("webLoginSubmit").disabled = false; }
     });
   }
   $("webLoginUsername").value = state.config?.web_submit?.username || "";
@@ -3267,6 +3287,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
+  if ($("testVisibleWebBtn")) $("testVisibleWebBtn").onclick = testVisibleWebFlow;
   document.querySelectorAll('input[name="webSubmitMode"]').forEach((input) => { input.onchange = renderWebSubmitMode; });
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
