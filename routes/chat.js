@@ -314,6 +314,7 @@ function describeUpstreamFailure(upstream) {
 
 function createChatRouter({
   configReader = readConfig,
+  connectionConfigReader = readConfig,
   upstreamRequest = requestUpstream,
   modelsRequest = requestUpstreamModels,
   responseCollector = collectResponse
@@ -365,7 +366,7 @@ function createChatRouter({
 
   function readConnectionConfig(res, kind, username) {
     try {
-      return configReader(username);
+      return connectionConfigReader(username);
     } catch {
       res.status(500).json({ ok: false, kind, error: '无法读取当前模型配置，请稍后重试。' });
       return null;

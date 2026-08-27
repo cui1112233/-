@@ -115,6 +115,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   });
   const resolvedChatRouter = chatRouter.createChatRouter({
     configReader: teamConfigReader,
+    connectionConfigReader: readConfig,
     upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' })
   });
   const resolvedAgentResponder = agentResponder || createTeamAgentResponder({

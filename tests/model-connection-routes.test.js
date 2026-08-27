@@ -117,6 +117,10 @@ function createFixture(t, { config = DEFAULT_CONFIG, textReply, imageReply } = {
       assert.equal(username, 'choushiyiguai1');
       return savedConfig;
     },
+    connectionConfigReader(username) {
+      assert.equal(username, 'choushiyiguai1');
+      return savedConfig;
+    },
     async upstreamRequest(config, payload, responseCollector) {
       textCalls.push({ config: structuredClone(config), payload: structuredClone(payload), responseCollector });
       if (textReply) return textReply(config, payload, responseCollector);
@@ -410,4 +414,24 @@ test('authenticated text and image connection tests isolate configurations witho
   });
   assert.doesNotMatch(JSON.stringify(image.body), /(?:text|image)-(?:saved|body)-key/);
   assert.deepEqual(fixture.savedConfig, fixture.configSnapshot);
+});
+
+test('text connection accepts a complete unsaved configuration when the saved configuration is empty', async t => {
+  const fixture = createFixture(t, {
+    config: { provider: '', baseUrl: '', model: '', apiKey: '' }
+  });
+  const token = await login(fixture.app);
+  const response = await request(fixture.app, {
+    method: 'POST',
+    requestPath: '/api/test/text',
+    token,
+    body: {
+      provider: 'text-body-provider',
+      baseUrl: 'https://text-body.example/v1',
+      model: 'text-body-model',
+      apiKey: 'text-body-key'
+    }
+  });
+  assert.equal(response.status, 200);
+  assert.equal(fixture.textCalls.length, 1);
 });
