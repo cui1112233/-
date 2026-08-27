@@ -1025,6 +1025,8 @@ export function ScriptPage() {
   function saveConstraints() {
     const next = normalizeScriptConstraints(draftConstraints);
     setConstraints(next);
+    // 当前已有输出卡片也必须立即使用刚保存的子开关，否则弹窗状态与卡片内容会脱节。
+    setOutputConstraints(next);
     setConstraintModalOpen(false);
     persistDraft(undefined, { constraints: constraintsForNextGeneration(next) });
   }
