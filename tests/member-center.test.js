@@ -298,3 +298,49 @@ test('MANAGER cannot transfer a MEMBER and a disabled owner is rejected', t => {
     error => error?.code === 'NOT_FOUND'
   );
 });
+
+test('DEV transfer clears explicit API scopes and resets the member monthly token limit', t => {
+  const { memberStore } = fixture(t);
+  const sourceOwner = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager-transfer-source', password: 'password01', role: 'manager'
+  });
+  const destinationOwner = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager-transfer-destination', password: 'password01', role: 'manager'
+  });
+  const member = memberStore.createManagedMember(sourceOwner.username, {
+    username: 'member-transfer-scopes', password: 'password01', monthlyTokenLimit: 1000
+  });
+  memberStore.setApiAccess(sourceOwner.username, member.username, true, 'text');
+  memberStore.setApiAccess(sourceOwner.username, member.username, true, 'image');
+  memberStore.setApiAccess(sourceOwner.username, member.username, true, 'tts');
+
+  const result = memberStore.transferManagedMember('choushiyiguai', member.username, {
+    boundTo: destinationOwner.username,
+    resetMonthlyTokenLimit: true
+  });
+
+  assert.deepEqual(result.clearedScopes.sort(), ['image', 'text', 'tts']);
+  assert.equal(result.member.monthlyTokenLimit, null);
+  assert.equal(memberStore.canUseApi(member.username, 'text'), false);
+  assert.equal(memberStore.canUseApi(member.username, 'image'), false);
+  assert.equal(memberStore.canUseApi(member.username, 'tts'), false);
+});
+
+test('DEV transfer rejects an omitted destination owner and same-team transfer', t => {
+  const { memberStore } = fixture(t);
+  const manager = memberStore.createManagedMember('choushiyiguai', {
+    username: 'manager-transfer-conflict', password: 'password01', role: 'manager'
+  });
+  const member = memberStore.createManagedMember(manager.username, {
+    username: 'member-transfer-conflict', password: 'password01'
+  });
+
+  assert.throws(
+    () => memberStore.transferManagedMember('choushiyiguai', member.username),
+    error => error?.code === 'INVALID'
+  );
+  assert.throws(
+    () => memberStore.transferManagedMember('choushiyiguai', member.username, { boundTo: manager.username }),
+    error => error?.code === 'CONFLICT'
+  );
+});
