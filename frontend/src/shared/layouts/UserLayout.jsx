@@ -148,6 +148,10 @@ export function UserLayout({ children }) {
     };
     const receiveEmbeddedTaskNotification = event => {
       if (event.origin !== window.location.origin) return;
+      if (event.data?.type === 'qiantie:auth-expired') {
+        window.dispatchEvent(new CustomEvent('qiantie:auth-expired', { detail: { token: event.data.token || '' } }));
+        return;
+      }
       if (event.data?.type !== 'qiantie:task-notification') return;
       appendTaskNotification({ detail: event.data });
     };

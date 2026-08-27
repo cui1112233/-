@@ -34,3 +34,9 @@ test('网站提交只保留版本配置，不再展示自由配置入口', () =>
   assert.match(html, /<strong>版本配置<\/strong>/);
   assert.match(app, /function webSubmitModeFromForm\(\)\s*\{\s*return "version"/);
 });
+
+test('嵌入工作台的登录失效会通知父页面并显示中文提示', () => {
+  assert.match(app, /response\.status === 401/);
+  assert.match(app, /type:\s*["']qiantie:auth-expired["']/);
+  assert.match(app, /登录已失效，请重新登录/);
+});

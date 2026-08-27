@@ -80,6 +80,13 @@ async function api(path, options = {}) {
   } catch {
     data = { raw: text };
   }
+  if (response.status === 401) {
+    reportBatchIssue("response", path, "登录已失效，请重新登录", 401, options.method || "GET");
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "qiantie:auth-expired", token }, window.location.origin);
+    }
+    throw new Error("登录已失效，请重新登录");
+  }
   if (!response.ok) {
     // 兼容本工作台接口使用的 { error } 结构，避免把可操作的原因吞成“HTTP 400”。
     const error = new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
