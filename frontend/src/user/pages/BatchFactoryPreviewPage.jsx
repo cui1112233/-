@@ -784,12 +784,9 @@ export function BatchFactoryPreviewPage() {
       disposed = true;
     };
   }, []);
-  const entries = useMemo(() => {
-    const items = mapItems(batch, byProjectId);
-    return items.length ? items : samples;
-  }, [batch]);
+  const entries = useMemo(() => mapItems(batch, byProjectId), [batch, byProjectId]);
   const summary = summarise(entries);
-  const selected = entries.find((item) => item.id === selectedId) || entries[0];
+  const selected = entries.find((item) => item.id === selectedId) || entries[0] || null;
   const canProduceSelected = Boolean(
     batch?.id &&
     selected?.id &&
@@ -977,11 +974,13 @@ export function BatchFactoryPreviewPage() {
               <Button
                 type="primary"
                 icon={<Settings2 size={15} />}
+                disabled={!batch?.id}
+                title={batch?.id ? "打开生产统一设置" : "请先新建或导入批次"}
                 onClick={() => setSettingsOpen(true)}
               >
                 生产统一设置
               </Button>
-              <Button icon={<Upload size={15} />} disabled>
+              <Button icon={<Upload size={15} />} disabled title="上传发布将在 121 对接计划确认后开放">
                 发布统一设置
               </Button>
             </div>
@@ -997,8 +996,9 @@ export function BatchFactoryPreviewPage() {
           <div className="bf-preview-actions">
             <Button
               icon={<Settings2 size={15} />}
-              disabled
-              title="高级设置随生产统一设置一起开放"
+              disabled={!batch?.id}
+              title={batch?.id ? "打开高级生产设置" : "请先新建或导入批次"}
+              onClick={() => setSettingsOpen(true)}
             >
               高级设置
             </Button>
@@ -1067,11 +1067,7 @@ export function BatchFactoryPreviewPage() {
           </div>
         </section>
         <div className="bf-preview-grid" ref={listRef}>
-          <BookList
-            entries={entries}
-            selectedId={selected?.id}
-            onSelect={selectBook}
-          />
+          {entries.length ? <BookList entries={entries} selectedId={selected?.id} onSelect={selectBook} /> : <aside className="bf-preview-books bf-preview-empty"><div className="bf-preview-section-title"><span>小说列表</span><small>0/0</small></div><div className="bf-preview-empty-copy"><FolderOpen size={28} /><strong>暂无小说</strong><span>点击右上角“新建批次”上传或粘贴 TXT / MD</span><Button type="primary" onClick={() => setIntakeOpen(true)}>导入小说</Button></div></aside>}
           <CurrentBook
             item={selected}
             onRetry={retryCurrentBookVideo}
