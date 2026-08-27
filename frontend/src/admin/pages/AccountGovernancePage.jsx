@@ -16,7 +16,8 @@ import { getCurrentAccount } from '../../shared/api/auth';
 const capabilityOptions = [
   { value: 'account:review', label: '账号审核' },
   { value: 'preset:draft', label: '预设词草稿' },
-  { value: 'preset:publish', label: '预设词发布' }
+  { value: 'preset:publish', label: '预设词发布' },
+  { value: 'admin:access', label: '管理后台访问' }
 ];
 
 const scopeOptions = [

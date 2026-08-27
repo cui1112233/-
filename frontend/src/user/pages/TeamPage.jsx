@@ -6,6 +6,9 @@ import {
   createTeamMember,
   archiveTeamMember,
   getMemberCenter,
+  getBackendGrants,
+  grantBackendAccess,
+  revokeBackendAccess,
   getTeamInvites,
   getTeamMembers,
   getTeamMeta,
@@ -52,6 +55,7 @@ export default function TeamPage() {
   const [managerUsername, setManagerUsername] = useState('');
   const [invites, setInvites] = useState([]);
   const [governance, setGovernance] = useState([]);
+  const [backendGrants, setBackendGrants] = useState([]);
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [memberOpen, setMemberOpen] = useState(false);
   const [memberManageOpen, setMemberManageOpen] = useState(false);
@@ -94,7 +98,7 @@ export default function TeamPage() {
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
     try {
-      const [nextCenter, nextTeam, nextMeta, nextGovernance] = await Promise.all([getMemberCenter(), getTeamMembers(), getTeamMeta(), getTeamGovernance().catch(() => ({ teams: [] }))]);
+      const [nextCenter, nextTeam, nextMeta, nextGovernance, nextBackendGrants] = await Promise.all([getMemberCenter(), getTeamMembers(), getTeamMeta(), getTeamGovernance().catch(() => ({ teams: [] })), getBackendGrants().catch(() => ({ grants: [] }))]);
       const nextManager = nextCenter.member?.role === 'dev'
         ? (managerUsername || nextMeta.teams?.[0]?.manager?.username || '')
         : (nextCenter.member?.username || '');
@@ -103,10 +107,23 @@ export default function TeamPage() {
       setTeamResult(nextTeam);
       setMeta(nextMeta);
       setGovernance(nextGovernance.teams || []);
+      setBackendGrants(nextBackendGrants.grants || []);
       setManagerUsername(nextManager);
       setInvites(inviteResult.invites || []);
     } catch (error) { message.error(error.message || '团队管理加载失败'); }
     finally { if (!silent) setLoading(false); }
+  }
+
+  async function toggleBackendAccess(member) {
+    const grant = backendGrants.find(item => item.subject === member.username && item.capability === 'admin:access');
+    setSaving(true);
+    try {
+      if (grant) await revokeBackendAccess(grant.id);
+      else await grantBackendAccess(member.username);
+      message.success(grant ? `@${member.username} 已撤销管理后台权限` : `@${member.username} 已获管理后台权限`);
+      await load({ silent: true });
+    } catch (error) { message.error(error.message || '管理后台权限更新失败'); }
+    finally { setSaving(false); }
   }
 
   useEffect(() => { load(); }, []);
@@ -269,8 +286,8 @@ export default function TeamPage() {
 
     {showDeveloperAccountManagement ? <>
       <Panel title="开发者账号管理" eyebrow="DEVELOPER ACCOUNT MANAGEMENT" action={<Button type="primary" icon={<UserPlus size={16} />} onClick={() => { memberForm.resetFields(); setMemberOpen(true); }}>创建成员</Button>}>
-          <div className="ac-reference-table"><div className="ac-reference-table-head"><span>成员</span><span>显示名称</span><span>角色</span><span>账号状态</span><span>在线状态</span><span>API 范围</span><span>月度额度</span><span>已用 Tokens</span><span>操作</span></div>
-          {(teamResult?.members || []).filter(member => member.role !== 'dev').map(member => { const status = memberStatus(member); const scopes = scopesOf(member); return <div className="ac-reference-table-row" key={member.username}><MemberIdentity member={member} size={30} showUsername /><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /><Tag color={status.color}>{status.text}</Tag><b className={`ac-account-status-pill ${member.presence?.online ? 'is-online' : 'is-offline'}`}><i />{member.presence?.online ? '在线' : '离线'}</b><span>{scopes.length ? scopes.map(scope => <Tag key={scope}>{SCOPE_OPTIONS.find(item => item.value === scope)?.label || scope}</Tag>) : '未授权'}</span><span>{member.monthlyTokenLimit === null ? '不限额' : `${formatTokens(member.monthlyTokenLimit)} Tokens`}</span><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><Tooltip title="管理成员"><Button type="text" icon={<MoreHorizontal size={18} />} loading={saving} onClick={() => openMemberManage(member)} /></Tooltip></div>; })}
+          <div className="ac-reference-table"><div className="ac-reference-table-head"><span>成员</span><span>显示名称</span><span>角色</span><span>账号状态</span><span>在线状态</span><span>API 范围</span><span>管理后台</span><span>月度额度</span><span>已用 Tokens</span><span>操作</span></div>
+          {(teamResult?.members || []).filter(member => member.role !== 'dev').map(member => { const status = memberStatus(member); const scopes = scopesOf(member); const adminGrant = backendGrants.find(item => item.subject === member.username && item.capability === 'admin:access'); return <div className="ac-reference-table-row" key={member.username}><MemberIdentity member={member} size={30} showUsername /><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /><Tag color={status.color}>{status.text}</Tag><b className={`ac-account-status-pill ${member.presence?.online ? 'is-online' : 'is-offline'}`}><i />{member.presence?.online ? '在线' : '离线'}</b><span>{scopes.length ? scopes.map(scope => <Tag key={scope}>{SCOPE_OPTIONS.find(item => item.value === scope)?.label || scope}</Tag>) : '未授权'}</span><span><Button type="link" size="small" loading={saving} onClick={() => toggleBackendAccess(member)}>{adminGrant ? '撤销' : '授权'}</Button></span><span>{member.monthlyTokenLimit === null ? '不限额' : `${formatTokens(member.monthlyTokenLimit)} Tokens`}</span><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><Tooltip title="管理成员"><Button type="text" icon={<MoreHorizontal size={18} />} loading={saving} onClick={() => openMemberManage(member)} /></Tooltip></div>; })}
           {!(teamResult?.members || []).some(member => member.role !== 'dev') ? <div className="ac-empty">尚无成员，点击“创建成员”添加账号。</div> : null}
         </div>
         <p className="ac-muted-copy">开发者可直接创建和管理账号。当前团队下的新成员会继承该团队负责人的模型配置、API 授权与总额度。</p>

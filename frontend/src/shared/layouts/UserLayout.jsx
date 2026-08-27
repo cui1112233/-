@@ -42,9 +42,7 @@ function pageTitle(pathname) {
 }
 
 function canAccessAdmin(account) {
-  // The admin console is a developer workspace. Team members receive API
-  // scopes and usage visibility in the account center, never the console.
-  return account?.role === 'dev';
+  return account?.role === 'dev' || (account?.effectivePermissions || []).some(permission => permission.capability === '*' || permission.capability === 'admin:access');
 }
 
 function normalizeAccountCenterReturnPath(value) {

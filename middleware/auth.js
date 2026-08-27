@@ -77,7 +77,9 @@ function requireCapability(capability, getScope = () => '*') {
     } catch {
       // Keep legacy account capability checks as the safe fallback.
     }
-    if (!req.auth || !runtime.accountStore.can(req.auth.username, capability, getScope(req))) {
+    const adminAccess = capability !== 'account:review' && capability !== 'admin:access'
+      && runtime.accountStore.can(req.auth?.username, 'admin:access', '*');
+    if (!req.auth || (!runtime.accountStore.can(req.auth.username, capability, getScope(req)) && !adminAccess)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     next();

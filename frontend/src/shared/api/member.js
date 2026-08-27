@@ -56,6 +56,9 @@ export function setTeamMemberApi(username, enabled, scope = '*') { return apiReq
 export function setTeamMemberApiScopes(username, scopes) { return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/api-scopes`, { method: 'PUT', body: JSON.stringify({ scopes }) }); }
 export function getTeamMemberUsage(username) { return apiRequest(`/api/member/team/members/${encodeURIComponent(username)}/usage`); }
 export function getTeamAudit(limit = 100) { return apiRequest(`/api/member/team/audit?limit=${encodeURIComponent(limit)}`); }
+export function getBackendGrants() { return apiRequest('/api/member/team/backend-grants'); }
+export function grantBackendAccess(subject) { return apiRequest('/api/member/team/backend-grants', { method: 'POST', body: JSON.stringify({ subject, capability: 'admin:access', scope: '*' }) }); }
+export function revokeBackendAccess(id) { return apiRequest(`/api/member/team/backend-grants/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
 
 export function inspectTeamInvite(token) { return apiRequest(`/api/login/invite/${encodeURIComponent(token)}`, { suppressGlobalError: true }); }
 export function redeemTeamInvite(token, payload) { return apiRequest(`/api/login/invite/${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify(payload), suppressGlobalError: true }); }
