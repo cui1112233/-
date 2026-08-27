@@ -58,6 +58,7 @@ const { resolveTeamAuthorization } = require('./lib/api-access');
 const { createMemberCenterRouter } = require('./routes/member-center');
 const { createAccountRecoveryRouter } = require('./routes/account-recovery');
 const { createTeamAdminRouter } = require('./routes/team-admin');
+const { createAccountAdminRouter } = require('./routes/account-admin');
 
 const NOVEL_PANEL_MODEL_PATHS = new Set([
   '/analyze', '/optimize-character-copy', '/optimize-character', '/optimize-all-characters',
@@ -301,6 +302,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     avatarsDir
   }));
   app.use('/api/team-admin', createTeamAdminRouter({
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore,
+    accountStore: authRuntime.accountStore,
+    authRuntime
+  }));
+  app.use('/api/account-admin', createAccountAdminRouter({
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore,
     accountStore: authRuntime.accountStore,
