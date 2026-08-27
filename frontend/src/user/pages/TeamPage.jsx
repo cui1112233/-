@@ -88,6 +88,8 @@ export default function TeamPage() {
   const activeGovernance = useMemo(() => governance.find(item => (item.manager?.username || item.managerUsername) === activeManager?.username) || teamResult?.teamGovernance || null, [activeManager?.username, governance, teamResult?.teamGovernance]);
   const teamLimit = activeGovernance?.monthlyTokenLimit ?? null;
   const quotaPercent = teamLimit === null ? 0 : Math.min(100, Math.round(totalTokens / Math.max(teamLimit, 1) * 100));
+  // DEV 的账号管理是全局能力，不应因当前选中了某个 MANAGER 团队而隐藏。
+  const showDeveloperAccountManagement = self?.role === 'dev';
 
   async function load({ silent = false } = {}) {
     if (!silent) setLoading(true);
@@ -144,8 +146,8 @@ export default function TeamPage() {
         ...values,
         role: 'member',
         boundTo: activeManager?.username,
-        apiEnabled: (values.apiScopes || []).length > 0,
-        apiScopes: values.apiScopes || []
+        apiEnabled: Boolean(activeManager?.username) && (values.apiScopes || []).length > 0,
+        apiScopes: activeManager?.username ? (values.apiScopes || []) : []
       });
       message.success('成员账号已创建');
       memberForm.resetFields();
@@ -264,6 +266,16 @@ export default function TeamPage() {
       {availableTeams.length > 1 ? <div className="ac-team-selector"><span>管理团队</span><Select value={managerUsername} onChange={changeManager} options={availableTeams.map(item => ({ value: item.manager.username, label: `${item.team.name} · @${item.manager.username}` }))} /></div> : <span className="ac-team-toolbar-note">DEV 可管理所有团队</span>}
       <Button type="primary" icon={<ShieldCheck size={15} />} onClick={() => { managerGrantForm.resetFields(); setManagerGrantOpen(true); }}>授权管理者</Button>
     </div> : null}
+
+    {showDeveloperAccountManagement ? <>
+      <Panel title="开发者账号管理" eyebrow="DEVELOPER ACCOUNT MANAGEMENT" action={<Button type="primary" icon={<UserPlus size={16} />} onClick={() => { memberForm.resetFields(); setMemberOpen(true); }}>创建成员</Button>}>
+        <div className="ac-reference-table"><div className="ac-reference-table-head"><span>成员</span><span>显示名称</span><span>角色</span><span>账号状态</span><span>API 范围</span><span>月度额度</span><span>已用 Tokens</span><span>操作</span></div>
+          {(teamResult?.members || []).filter(member => member.role !== 'dev').map(member => { const status = memberStatus(member); const scopes = scopesOf(member); return <div className="ac-reference-table-row" key={member.username}><MemberIdentity member={member} size={30} showUsername /><strong>{member.displayName}</strong><RoleBadge role={member.role} compact /><Tag color={status.color}>{status.text}</Tag><span>{scopes.length ? scopes.map(scope => <Tag key={scope}>{SCOPE_OPTIONS.find(item => item.value === scope)?.label || scope}</Tag>) : '未授权'}</span><span>{member.monthlyTokenLimit === null ? '不限额' : `${formatTokens(member.monthlyTokenLimit)} Tokens`}</span><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><Tooltip title="管理成员"><Button type="text" icon={<MoreHorizontal size={18} />} loading={saving} onClick={() => openMemberManage(member)} /></Tooltip></div>; })}
+          {!(teamResult?.members || []).some(member => member.role !== 'dev') ? <div className="ac-empty">尚无成员，点击“创建成员”添加账号。</div> : null}
+        </div>
+        <p className="ac-muted-copy">开发者可直接创建和管理账号。成员的团队 API 授权需先在“授权管理者”中指定 MANAGER。</p>
+      </Panel>
+    </> : null}
 
     {!activeTeam ? <Panel title="尚未选择团队"><div className="ac-empty">当前没有可管理团队。</div></Panel> : <>
       <div className="ac-team-reference-top">
