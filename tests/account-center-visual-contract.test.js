@@ -10,6 +10,7 @@ const css = fs.readFileSync(path.join(root, 'frontend/src/shared/styles/account-
 const collaborationCss = fs.readFileSync(path.join(root, 'frontend/src/shared/styles/team-collaboration.css'), 'utf8');
 const advancedPage = fs.readFileSync(path.join(root, 'frontend/src/user/pages/AdvancedTeamAdminPage.jsx'), 'utf8');
 const teamPage = fs.readFileSync(path.join(root, 'frontend/src/user/pages/TeamPage.jsx'), 'utf8');
+const adminRoutes = fs.readFileSync(path.join(root, 'routes/admin.js'), 'utf8');
 
 function indexOfImport(file) {
   const needle = `../shared/styles/${file}`;
@@ -86,4 +87,9 @@ test('DEV always sees global account management and member creation', () => {
   assert.match(teamPage, /showDeveloperAccountManagement \? <>/);
   assert.match(teamPage, /创建成员/);
   assert.match(teamPage, /开发者账号管理/);
+});
+
+test('delegated admin access can read managed presets', () => {
+  assert.match(adminRoutes, /accountStore\.can\(req\.username, 'admin:access', '\*'\)/);
+  assert.match(adminRoutes, /function canManagePreset\(req, module\)/);
 });

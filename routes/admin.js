@@ -125,7 +125,8 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
   });
 
   function canManagePreset(req, module) {
-    return accountStore.can(req.username, 'preset:draft', module)
+    return accountStore.can(req.username, 'admin:access', '*')
+      || accountStore.can(req.username, 'preset:draft', module)
       || accountStore.can(req.username, 'preset:publish', module);
   }
 
