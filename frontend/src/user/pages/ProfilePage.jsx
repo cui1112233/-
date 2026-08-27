@@ -110,12 +110,15 @@ export default function ProfilePage() {
   const remainingTokens = monthlyLimit === null || monthlyLimit === undefined ? '不限额' : Math.max(0, Number(monthlyLimit) - monthTokens).toLocaleString('zh-CN');
   const securityScore = Math.min(100, 65 + (emailStatus?.verified ? 15 : 0) + (member.mfaEnabled ? 20 : 0));
   const isGovernanceEnabled = ['dev', 'manager'].includes(member.role);
+  const accountActive = member.active !== false;
+  // This page is returned only through an authenticated request, so it represents the current active session.
+  const sessionOnline = center?.presence?.online !== false;
 
   return <div className="account-center-page profile-page">
     <PageHeader title="个人资料" subtitle="管理您的个人信息、会员权益、安全状态与治理权限" />
     <div className="ac-profile-summary-grid">
       <Panel title="我的信息" className="ac-profile-information">
-        <div className="ac-profile-information-copy"><div><span>显示名称</span><strong>{member.displayName}</strong><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => setEditing(true)} /></div><div><span>账号</span><strong>@{member.username}</strong></div><div><span>角色</span><RoleBadge role={member.role} compact /></div><div><span>邮箱</span><strong>{member.email || '未填写'}</strong></div><div><span>加入时间</span><strong>{formatDate(member.createdAt).slice(0, 10)}</strong></div><div><span>所在团队</span><strong>{center?.team?.name || 'qiantie 核心团队'}</strong></div></div>
+        <div className="ac-profile-information-copy"><div><span>显示名称</span><strong>{member.displayName}</strong><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => setEditing(true)} /></div><div><span>账号</span><strong>@{member.username}</strong></div><div><span>账号状态</span><b className={`ac-account-status-pill ${accountActive ? 'is-active' : 'is-disabled'}`}><i />{accountActive ? '正常' : '已停用'}</b></div><div><span>在线状态</span><b className={`ac-account-status-pill ${sessionOnline ? 'is-online' : 'is-offline'}`}><i />{sessionOnline ? '在线' : '离线'}</b></div><div><span>角色</span><RoleBadge role={member.role} compact /></div><div><span>邮箱</span><strong>{member.email || '未填写'}</strong></div><div><span>加入时间</span><strong>{formatDate(member.createdAt).slice(0, 10)}</strong></div><div><span>所在团队</span><strong>{center?.team?.name || 'qiantie 核心团队'}</strong></div></div>
         <button className="ac-profile-summary-avatar" type="button" onClick={() => fileRef.current?.click()} disabled={saving} aria-label="更换头像"><Avatar size={118} src={member.avatarUrl}>{avatarFallback(member)}</Avatar><i><Camera size={15} /></i></button>
       </Panel>
       <Panel title="账户概览" className="ac-account-overview"><div className="ac-account-overview-grid"><div><span>本月 Token 使用</span><strong>{monthTokens.toLocaleString('zh-CN')}</strong><small>{monthlyLimit === null || monthlyLimit === undefined ? '当前没有设置上限' : `额度上限 ${Number(monthlyLimit).toLocaleString('zh-CN')}`}</small></div><div><span>可用剩余额度</span><strong>{remainingTokens}</strong><small>{monthlyLimit === null || monthlyLimit === undefined ? 'Tokens' : 'Tokens'}</small></div><div><span>资料完整度</span><strong>{completion}%</strong><small>可在编辑资料中补充</small></div><div><span>安全评分</span><strong>{securityScore}</strong><small>{emailStatus?.verified ? '邮箱已验证' : '建议验证邮箱'}</small></div></div></Panel>
