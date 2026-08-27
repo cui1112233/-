@@ -57,9 +57,17 @@ verify() {
 }
 
 snapshot_images() {
-  local stamp="$1"
-  docker image inspect qiantie-platform:production >/dev/null 2>&1 && docker image tag qiantie-platform:production "qiantie-platform:production-rollback-$stamp" || true
-  docker image inspect qiantie-backend:production >/dev/null 2>&1 && docker image tag qiantie-backend:production "qiantie-backend:production-rollback-$stamp" || true
+  local stamp="$1" platform_image backend_image
+  platform_image="qiantie-platform:production"
+  backend_image="qiantie-backend:production"
+  if ! docker image inspect "$platform_image" >/dev/null 2>&1; then
+    platform_image="$(docker inspect -f '{{.Config.Image}}' deploy-platform-1 2>/dev/null || true)"
+  fi
+  if ! docker image inspect "$backend_image" >/dev/null 2>&1; then
+    backend_image="$(docker inspect -f '{{.Config.Image}}' deploy-backend-1 2>/dev/null || true)"
+  fi
+  [[ -n "$platform_image" ]] && docker image tag "$platform_image" "qiantie-platform:production-rollback-$stamp" || true
+  [[ -n "$backend_image" ]] && docker image tag "$backend_image" "qiantie-backend:production-rollback-$stamp" || true
 }
 
 restore_legacy_apps() {

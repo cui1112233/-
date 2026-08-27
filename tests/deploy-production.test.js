@@ -20,6 +20,8 @@ test('production publisher preserves data volumes and saves application rollback
   assert.doesNotMatch(source, /down -v/);
   assert.match(source, /qiantie-platform:production-rollback-/);
   assert.match(source, /qiantie-backend:production-rollback-/);
+  assert.match(source, /docker inspect -f '\{\{\.Config\.Image\}\}' deploy-platform-1/);
+  assert.match(source, /docker inspect -f '\{\{\.Config\.Image\}\}' deploy-backend-1/);
   assert.match(source, /up --build -d --no-deps --force-recreate backend platform/);
   assert.match(source, /compose ps -q backend/);
   assert.match(source, /compose ps -q platform/);
