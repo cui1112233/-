@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
+const { PUBLIC_DIR, createAuthRuntime, readConfig } = require('./lib/shared');
 const { apiAuth } = require('./middleware/auth');
 const { createDeletedAccountGuard } = require('./middleware/deleted-account-guard');
 const { createPresetStore } = require('./lib/preset-store');
