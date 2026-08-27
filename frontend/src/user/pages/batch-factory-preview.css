@@ -94,6 +94,16 @@
   grid-template-columns: 1.25fr 1fr;
   gap: 12px;
 }
+.bf-preview-status-center {
+  min-width: 0;
+  max-height: 178px;
+  overflow: hidden;
+}
+.bf-preview-current-filter {
+  min-width: 0;
+  max-height: 178px;
+  overflow: auto;
+}
 .bf-preview-layout-editor {
   margin: 10px 18px;
   padding: 12px 16px;
@@ -143,7 +153,8 @@
   background: #201b43;
   color: #f3f0ff;
 }
-.bf-preview-abnormal {
+.bf-preview-abnormal,
+.bf-preview-current-filter {
   border-left: 1px solid #25384e;
   padding-left: 14px;
   display: flex;
@@ -152,17 +163,21 @@
   font-size: 12px;
 }
 .bf-preview-abnormal > b,
-.bf-preview-abnormal em {
+.bf-preview-current-filter > b,
+.bf-preview-abnormal em,
+.bf-preview-current-filter em {
   color: #ff737b;
 }
-.bf-preview-abnormal button {
+.bf-preview-abnormal button,
+.bf-preview-current-filter button {
   border: 0;
   background: none;
   color: #bac7d6;
   text-align: left;
   font-size: 11px;
 }
-.bf-preview-abnormal em {
+.bf-preview-abnormal em,
+.bf-preview-current-filter em {
   font-style: normal;
   float: right;
 }
@@ -503,6 +518,12 @@
 .bf-preview-merge .ant-select {
   width: 100%;
 }
+.bf-preview-progress-details { border-top: 1px solid var(--bf-border, #293d54); margin-top: 14px; padding-top: 12px; max-height: 300px; overflow: auto; }
+.bf-preview-progress-details h3 { display: flex; justify-content: space-between; margin: 0 0 8px; }
+.bf-progress-book { padding: 8px 0; border-top: 1px solid var(--bf-border, #293d54); }
+.bf-progress-book > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.bf-progress-book > div:first-child span, .bf-progress-book > small { color: var(--bf-muted, #91a1b7); font-size: 11px; }
+.bf-progress-task { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; margin-top: 5px; font-size: 11px; color: var(--bf-text-soft, #d5e0ec); }
 @media (max-width: 1450px) {
   .bf-preview-layout-editor { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
   .bf-preview-grid {
@@ -547,7 +568,8 @@
   .bf-preview-status-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  .bf-preview-abnormal {
+  .bf-preview-abnormal,
+  .bf-preview-current-filter {
     border-left: 0;
     border-top: 1px solid #25384e;
     padding: 10px 0 0;

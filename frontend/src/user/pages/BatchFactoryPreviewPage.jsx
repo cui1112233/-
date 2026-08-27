@@ -42,6 +42,7 @@ import {
   updateBatchFactorySettings,
   updateBatchFactoryVideoVisualPrompt,
 } from "../../shared/api/batchFactory";
+import { cancelTask, retryTask } from "../../shared/api/shuihuoProduction";
 import {
   batchFactorySelectableVideoModels,
   batchFactoryVideoModelLabel,
@@ -739,14 +740,25 @@ function ProductionSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
   }
   return <Drawer title="生产统一设置" placement="right" width={460} open={open} onClose={onClose} destroyOnClose><div className="bf-settings-drawer">
     <label>应用范围</label><Select value={scope} onChange={setScope} options={[{ value: "all", label: "全部小说（未单独覆盖）" }, { value: "individual", label: "个别小说" }]} />
+    <label>生产方式</label><Select value={settings.mode || batch?.mode || "original"} onChange={value => patchSetting("mode", value)} options={[{ value: "original", label: "原文直转" }, { value: "viral", label: "爆款开头" }]} />
+    <label>剧本提示词</label><Select value={settings.scriptPreset || "standard_short_drama"} onChange={value => patchSetting("scriptPreset", value)} options={[{ value: "standard_short_drama", label: "标准短剧分镜" }, { value: "commercial_dynamic", label: "商业动态分镜" }, { value: "spatial_continuity", label: "空间连续分镜" }]} />
+    <label>人物场景提示词</label><Select value={settings.assetPreset || "standard_asset_extraction"} onChange={value => patchSetting("assetPreset", value)} options={[{ value: "standard_asset_extraction", label: "标准资产提取" }]} />
     {scope === "individual" ? <div className="bf-settings-books">{entries.map(item => <label key={item.id}><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} /> {item.title}</label>)}</div> : null}
     <label>最大视频时长（秒）</label><Input type="number" min={1} max={60} value={settings.maxVideoDuration || 10} onChange={event => patchSetting("maxVideoDuration", Number(event.target.value))} />
     <label>画幅</label><Select value={settings.aspectRatio || "9:16"} onChange={value => patchSetting("aspectRatio", value)} options={[{ value: "9:16", label: "9:16 竖屏" }, { value: "16:9", label: "16:9 横屏" }]} />
     <label className="bf-settings-check"><input type="checkbox" checked={settings.fixedSingleVideo === true} onChange={event => patchSetting("fixedSingleVideo", event.target.checked)} /> 固定单镜头时长</label>
+    {settings.fixedSingleVideo === true ? <><label>固定单 VIDEO 时长（秒）</label><Input type="number" min={1} max={settings.maxVideoDuration || 60} value={settings.exactDuration || settings.maxVideoDuration || 10} onChange={event => patchSetting("exactDuration", Number(event.target.value))} /></> : null}
+    <label>前缀模式</label><Select value={settings.prefixMode || "auto"} onChange={value => patchSetting("prefixMode", value)} options={[{ value: "auto", label: "AI 自动" }, { value: "manual", label: "用户自定义" }]} />
+    {settings.prefixMode === "manual" ? <><label>当前前缀</label><Input.TextArea rows={2} value={settings.customPrefix || ""} onChange={event => patchSetting("customPrefix", event.target.value)} /></> : null}
     <label>视频风格</label><Input value={settings.style || ""} onChange={event => patchSetting("style", event.target.value)} placeholder="例如：高质量动漫短视频" />
     <Divider orientation="left">提示词与生成约束</Divider>
     {[['prefixEnabled', '画面前缀词'], ['characterPromptEnabled', '人物 Prompt 注入'], ['scenePromptEnabled', '场景 Prompt 注入'], ['propPromptEnabled', '道具 Prompt 注入'], ['qualityEnabled', '画质要求'], ['restrictionEnabled', '画面限制'], ['negativeEnabled', '负面提示词']].map(([key, label]) => <label className="bf-settings-check" key={key}><input type="checkbox" checked={settings[key] !== false} onChange={event => patchSetting(key, event.target.checked)} /> {label}</label>)}
+    <label>画质要求</label><Input.TextArea rows={2} value={settings.quality || ""} onChange={event => patchSetting("quality", event.target.value)} placeholder="批次级画质要求" />
+    <label>画面限制</label><Input.TextArea rows={2} value={settings.restriction || ""} onChange={event => patchSetting("restriction", event.target.value)} placeholder="动作连续、人物一致等限制" />
     <label>文字与字幕</label><Input value={settings.subtitlePolicy || "禁止自动对白字幕"} onChange={event => patchSetting("subtitlePolicy", event.target.value)} />
+    <label>负面提示词内容</label><Input.TextArea rows={2} value={settings.negative || ""} onChange={event => patchSetting("negative", event.target.value)} />
+    <Divider orientation="left">高级生成设置</Divider>
+    <label>生成前预览</label><span className="bf-preview-modal-note">点击 VIDEO 的“查看 Prompt”可预览实际 compiledPrompt。</span>
     <Button type="primary" block loading={saving} disabled={scope === "individual" && !selectedIds.length} onClick={save}>保存设置</Button>
   </div></Drawer>;
 }
@@ -1042,6 +1054,16 @@ export function BatchFactoryPreviewPage() {
     try { for (const candidate of candidates) { await mergeBatchFactoryVideos({ projectId: Number(candidate.item.production.projectId), bookId: String(candidate.item.bookId), mediaIds: candidate.mediaIds, speed: 1.5 }); success += 1; } await refreshActiveBatch(); refreshProductionStatus(); message.success(`批量合并完成：${success} 本`); }
     catch (error) { message.error(error.message || "批量合并失败"); } finally { setMerging(false); }
   }
+  async function retryProductionTask(taskId) {
+    if (!taskId) return;
+    try { await retryTask(taskId); refreshProductionStatus(); message.success("已重新排队任务"); }
+    catch (error) { message.error(error.message || "重试任务失败"); }
+  }
+  async function cancelProductionTask(taskId) {
+    if (!taskId) return;
+    try { await cancelTask(taskId); refreshProductionStatus(); message.success("已取消任务"); }
+    catch (error) { message.error(error.message || "取消任务失败"); }
+  }
   return (
     <div className="bf-preview-page">
       <header className="bf-preview-header">
@@ -1160,11 +1182,12 @@ export function BatchFactoryPreviewPage() {
           </div>
         </section>
         <section className="bf-preview-status">
-          <div className="bf-preview-status-title">
-            <strong>批次状态中心</strong>
-            <span>按小说计数 · 点击连续定位</span>
-          </div>
-          <div className="bf-preview-status-grid">
+          <div className="bf-preview-status-center">
+            <div className="bf-preview-status-title">
+              <strong>批次状态中心</strong>
+              <span>按小说计数 · 点击连续定位</span>
+            </div>
+            <div className="bf-preview-status-grid">
             {STATUS_ORDER.map((label) => (
               <button
                 key={label}
@@ -1175,8 +1198,9 @@ export function BatchFactoryPreviewPage() {
                 <b>{summary[label]}</b>
               </button>
             ))}
+            </div>
           </div>
-          <div className="bf-preview-abnormal">
+          <div className="bf-preview-current-filter">
             <span>
               当前筛选：<b>{currentFilter}</b> {currentItems.length} 本{" "}
               {currentItems.length
@@ -1263,6 +1287,17 @@ export function BatchFactoryPreviewPage() {
             </ul>
             <p>这里始终显示全批次进度，不随当前书切换。</p>
             {productionStatusError ? <p className="bf-preview-status-error">视频状态刷新失败：{productionStatusError}</p> : null}
+            <div className="bf-preview-progress-details">
+              <h3>全批次进度明细 <ChevronDown size={15} /></h3>
+              {entries.map((entry) => {
+                const project = byProjectId[String(entry.production?.projectId)] || null;
+                const tasks = project?.tasks || [];
+                return <div className="bf-progress-book" key={entry.id}>
+                  <div><strong>{entry.title}</strong><span>{entry.production?.modelName || batch?.settings?.videoModelName || "未提交"}</span></div>
+                  {tasks.length ? tasks.map((task) => <div className="bf-progress-task" key={task.id}><span>任务 #{task.id} · {task.status}</span><span>{task.progress == null ? "" : `${task.progress}%`}</span><span>{task.status === "failed" ? <Button size="small" onClick={() => retryProductionTask(task.id)}>重试任务</Button> : null}{["queued", "running"].includes(task.status) ? <Button size="small" onClick={() => cancelProductionTask(task.id)}>取消任务</Button> : null}</span></div>) : <small>尚未提交 VIDEO 任务</small>}
+                </div>;
+              })}
+            </div>
             <div className="bf-preview-merge">
               <h3>
                 批量合并 <ChevronDown size={15} />
