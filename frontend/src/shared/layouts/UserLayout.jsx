@@ -28,7 +28,7 @@ const navItems = [
   { href: '/tts', icon: AudioLines, label: '配音' }
 ];
 
-const ACCOUNT_CENTER_ROUTES = ['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team'];
+const ACCOUNT_CENTER_ROUTES = ['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team', '/accounts'];
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
 
@@ -37,7 +37,7 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
-  if (['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team'].includes(pathname)) return '个人中心';
+  if (['/member', '/profile', '/security', '/advanced-team-admin', '/api-config', '/usage', '/team', '/accounts'].includes(pathname)) return '个人中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
 }
@@ -495,7 +495,7 @@ export function UserLayout({ children }) {
           {accountProfileOpen ? <div className="account-center-popover-submenu"><Link href="/member" className={pathname === '/member' ? 'active' : ''}><Crown size={17} />会员中心</Link><Link href="/security" className={pathname === '/security' ? 'active' : ''}><ShieldCheck size={17} />账号安全</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/advanced-team-admin" className={pathname === '/advanced-team-admin' ? 'active' : ''}><UsersRound size={17} />联合治理</Link> : null}</div> : null}
         </div>
         <div className="account-center-popover-links"><Link href="/api-config" className={pathname === '/api-config' ? 'active' : ''}><KeyRound size={17} />API 配置</Link><Link href="/usage" className={pathname === '/usage' ? 'active' : ''}><ChartNoAxesCombined size={17} />用量与制作</Link>{['dev', 'manager'].includes(account?.role) ? <Link href="/team" className={pathname === '/team' ? 'active' : ''}><UsersRound size={17} />组员管理</Link> : null}</div>
-        {canAccessAdmin(account) ? <div className="account-center-popover-links account-center-popover-developer-links"><span className="account-center-popover-section-label">开发者工具</span><Link href="/admin/presets" reload><ShieldCheck size={17} />管理后台</Link></div> : null}
+        {account?.role === 'dev' ? <div className="account-center-popover-links account-center-popover-developer-links"><span className="account-center-popover-section-label">开发者工具</span><Link href="/accounts" className={pathname === '/accounts' ? 'active' : ''}><UsersRound size={17} />账号与角色</Link><Link href="/admin/presets" reload><ShieldCheck size={17} />管理后台</Link></div> : null}
         <button type="button" className="account-center-popover-logout" onClick={handleLogout}><LogOut size={17} />退出登录</button>
       </aside> : null}
       <Fragment key={accountSessionKey}>

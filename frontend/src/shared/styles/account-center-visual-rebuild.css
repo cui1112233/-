@@ -506,6 +506,11 @@
 .account-center-shell .ant-progress-inner { background: rgba(255,255,255,.055) !important; }
 .account-center-shell .ant-progress-bg { background: linear-gradient(90deg, #6673f2, #8472f8) !important; }
 
+.account-role-metrics { display:flex; gap:10px; margin:0 0 18px; }.account-role-metrics span { display:grid; min-width:100px; padding:10px 12px; border:1px solid var(--ac-line); background:var(--ac-panel-soft); color:var(--ac-muted); font-size:11px; }.account-role-metrics b { color:var(--ac-text); font-size:18px; }
+@container (max-width: 900px) { .account-role-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }.account-role-directory { overflow:auto; }.account-role-metrics { flex-wrap:wrap; } }
+@container (max-width: 620px) { .account-role-filters { grid-template-columns:1fr; }.account-role-metrics span { flex:1 1 42%; } }
+.account-role-filters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin-bottom:16px; }.account-role-table { min-width:920px; }.account-role-table-head,.account-role-table-row { display:grid; grid-template-columns:minmax(190px,1.3fr) 92px minmax(150px,.9fr) minmax(150px,.9fr) 86px 86px 110px 52px; align-items:center; gap:10px; }.account-role-table-head { padding:0 10px 10px; color:var(--ac-muted); border-bottom:1px solid var(--ac-line); font-size:11px; }.account-role-table-row { min-height:66px; padding:8px 10px; border-bottom:1px solid var(--ac-line); color:var(--ac-text-soft); font-size:12px; }.account-role-table-row:last-child { border-bottom:0; }.account-role-directory { overflow:hidden; }.account-role-directory .ac-panel-header { margin-bottom:15px; }.account-role-drawer-content { display:grid; gap:22px; }.account-role-drawer .ant-drawer-content { background:var(--ac-bg-elevated); color:var(--ac-text); }.account-role-drawer .ant-drawer-header { background:var(--ac-panel); border-color:var(--ac-line); }.account-role-drawer .ant-drawer-title,.account-role-drawer .ant-drawer-close { color:var(--ac-text); }.account-role-full { width:100%; }.account-role-transfer { display:grid; gap:12px; padding-top:20px; border-top:1px solid var(--ac-line); }.account-role-transfer h3 { margin:0; color:var(--ac-text); font-size:16px; }.account-role-transfer p { margin:0; color:var(--ac-text-soft); line-height:1.65; }.account-role-preview { display:grid; gap:7px; padding:13px; border-left:3px solid var(--ac-orange); background:rgba(247,165,77,.1); color:var(--ac-text-soft); }.account-role-preview strong { color:#ffc579; }
+
 /* API 配置是一个高密度工作区：主表单和状态侧栏必须保持同一视线层级。 */
 .api-config-page .ac-api-layout {
   display: grid;
@@ -1013,4 +1018,14 @@
   .security-page .security-session-grid { grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr); }
   .security-page .ac-security-overview { grid-column:1; grid-row:span 2; }
   .security-page .security-recovery-grid { grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr); }
+}
+
+@container (max-width: 900px) {
+  .account-role-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .account-role-directory { overflow:auto; }
+  .account-role-metrics { flex-wrap:wrap; }
+}
+@container (max-width: 620px) {
+  .account-role-filters { grid-template-columns:1fr; }
+  .account-role-metrics span { flex:1 1 42%; }
 }

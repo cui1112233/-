@@ -20,6 +20,7 @@ const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage')
 const TeamPage = lazy(() => import('./pages/TeamPage'));
 const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
 const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
+const AccountRolePage = lazy(() => import('./pages/AccountRolePage'));
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'));
 const RecoveryPage = lazy(() => import('./pages/RecoveryPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
@@ -52,6 +53,7 @@ function getPage(pathname) {
     '/api-config': ApiConfigPage,
     '/usage': UsageStatsPage,
     '/team': TeamPage,
+    '/accounts': AccountRolePage,
     '/member': MemberCenterPage,
     '/profile': ProfilePage,
     '/security': SecurityPage,
