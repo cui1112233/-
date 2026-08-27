@@ -119,6 +119,14 @@ test("fixed frame exposes actual VIDEO prefix information when inspecting prompt
   assert.match(source, /compileBatchFactoryVideo/);
 });
 
+test("fixed frame only enables merge through the existing merge capability contract", () => {
+  const source = fs.readFileSync("frontend/src/user/pages/BatchFactoryPreviewPage.jsx", "utf8");
+  assert.match(source, /getBatchFactoryMergeCapability/);
+  assert.match(source, /mergeBatchFactoryVideos/);
+  assert.match(source, /resolveBatchFactoryVideoProduction/);
+  assert.match(source, /合并当前小说/);
+});
+
 test("screenshot workbench batch action bar exposes production and publish tabs", () => {
   assert.match(page, /batch-factory-action-bar/);
   assert.match(page, /生产统一设置/);

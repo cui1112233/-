@@ -31,11 +31,13 @@ import {
   generateBatchFactoryBatch,
   getBatchFactoryBatch,
   getBatchFactoryIntake,
+  getBatchFactoryMergeCapability,
   listBatchFactoryBatches,
+  mergeBatchFactoryVideos,
   startBatchFactoryBatch,
 } from "../../shared/api/batchFactory";
 import { loadBatchFactoryVideoModels } from "./batch-factory/BatchFactoryProductionControls";
-import { resolveBookStatus, useBatchFactoryProductionStatus } from "./batch-factory/BatchFactoryVideoProductionStatus";
+import { resolveBatchFactoryVideoProduction, resolveBookStatus, useBatchFactoryProductionStatus } from "./batch-factory/BatchFactoryVideoProductionStatus";
 import {
   fileToDraft,
   parseManualNovels,
@@ -309,13 +311,19 @@ function CurrentBook({ item, onRetry, canProduce }) {
   );
 }
 
-function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
+function VideoOperations({ item, onRetry, onViewPrompt, canProduce, projectStatus, mergeCapability, onMerge, merging }) {
   const [choice, setChoice] = useState("merged");
   const videos = item?.directorResult?.storyboard || [
     { id: "01", duration_sec: 13 },
     { id: "02", duration_sec: 12 },
     { id: "03", duration_sec: 10 },
   ];
+  const videoStates = (item?.directorResult?.storyboard || []).map((video, index) => resolveBatchFactoryVideoProduction(item, index, projectStatus));
+  const mediaIds = videoStates.map(state => Number(state?.media?.id || 0));
+  const hasReadyVideos = videoStates.length > 0 && videoStates.every(state => state?.status === "succeeded") && mediaIds.every(id => id > 0);
+  const validBookId = /^\d{1,128}$/.test(String(item?.bookId || ""));
+  const canMerge = hasReadyVideos && validBookId && mergeCapability?.ready === true;
+  const mergeReason = !mergeCapability?.ready ? (mergeCapability?.reason || "正在检查服务器合并能力") : !validBookId ? "合并需要纯数字 Book ID" : !hasReadyVideos ? "等待当前书全部 VIDEO 成品完成" : "";
   return (
     <aside className="bf-preview-video-operations">
       <div className="bf-preview-section-title">
@@ -392,8 +400,10 @@ function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
         <Button
           type="primary"
           block
-          disabled
-          title="合并需等待所有 VIDEO 成品完成并同步状态后开放"
+          loading={merging}
+          disabled={!canMerge}
+          title={mergeReason}
+          onClick={() => onMerge({ projectId: Number(item?.production?.projectId), bookId: String(item?.bookId || ""), mediaIds, speed: 1.5 })}
         >
           合并当前小说
         </Button>
@@ -677,8 +687,15 @@ export function BatchFactoryPreviewPage() {
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [mergeCapability, setMergeCapability] = useState(null);
   const listRef = useRef(null);
   const { byProjectId, error: productionStatusError, refreshNow: refreshProductionStatus } = useBatchFactoryProductionStatus(batch);
+  useEffect(() => {
+    let active = true;
+    getBatchFactoryMergeCapability().then(result => active && setMergeCapability(result)).catch(error => active && setMergeCapability({ ready: false, reason: error.message || "无法读取服务器合并能力" }));
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     let disposed = false;
     (async () => {
@@ -853,6 +870,19 @@ export function BatchFactoryPreviewPage() {
       message.error(error.message || "读取提示词失败");
     }
   }
+  async function mergeCurrentBook(payload) {
+    if (!payload.projectId || !payload.bookId || !payload.mediaIds.length) return;
+    setMerging(true);
+    try {
+      const result = await mergeBatchFactoryVideos(payload);
+      message.success(`合并完成：${result.filename || `${payload.bookId}.mp4`}`);
+      refreshProductionStatus();
+    } catch (error) {
+      message.error(error.message || "合并当前小说失败");
+    } finally {
+      setMerging(false);
+    }
+  }
   return (
     <div className="bf-preview-page">
       <header className="bf-preview-header">
@@ -1004,6 +1034,10 @@ export function BatchFactoryPreviewPage() {
             onRetry={retryCurrentBookVideo}
             onViewPrompt={viewVideoPrompt}
             canProduce={canProduceSelected}
+            projectStatus={byProjectId[String(selected?.production?.projectId)] || null}
+            mergeCapability={mergeCapability}
+            onMerge={mergeCurrentBook}
+            merging={merging}
           />
           <aside className="bf-preview-rail">
             <h3>
