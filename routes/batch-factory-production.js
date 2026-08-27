@@ -117,9 +117,9 @@ async function mapBounded(items, concurrency, worker) {
   return output;
 }
 
-function persistProductionFailure(store, username, batchId, result) {
+async function persistProductionFailure(store, username, batchId, result) {
   const timestamp = new Date().toISOString();
-  store.updateItem(username, batchId, result.itemId, target => {
+  await store.updateItem(username, batchId, result.itemId, target => {
     target.productionSubmissionError = {
       at: timestamp,
       stage: result.stage || 'production-submit',
@@ -127,7 +127,7 @@ function persistProductionFailure(store, username, batchId, result) {
       message: result.error || '视频提交失败'
     };
   });
-  store.appendItemActivity?.(username, batchId, result.itemId, {
+  await store.appendItemActivity?.(username, batchId, result.itemId, {
     at: timestamp,
     type: 'error',
     message: result.error || '视频提交失败',
@@ -135,13 +135,13 @@ function persistProductionFailure(store, username, batchId, result) {
   });
 }
 
-function persistProductionSuccess(store, username, batchId, result) {
-  store.updateItem(username, batchId, result.itemId, target => {
+async function persistProductionSuccess(store, username, batchId, result) {
+  await store.updateItem(username, batchId, result.itemId, target => {
     target.production = result.production;
     target.productionResults = result.results;
     target.productionSubmissionError = null;
   });
-  store.appendItemActivity?.(username, batchId, result.itemId, {
+  await store.appendItemActivity?.(username, batchId, result.itemId, {
     at: result.production.submittedAt,
     type: result.production.failed ? 'error' : 'production',
     message: result.production.failed
@@ -154,11 +154,13 @@ function persistProductionSuccess(store, username, batchId, result) {
 function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(), presetStore, shuihuoGateway } = {}) {
   const router = express.Router();
   router.use(apiAuth);
+  const forRequest = req => store.forAccount ? store.forAccount(req.auth?.account) : store;
 
   router.post('/batches/:batchId/items/:itemId/generate', async (req, res) => {
     const modelId = Number(req.body?.modelId);
     if (!Number.isInteger(modelId) || modelId < 1) return res.status(400).json({ error: '请选择文生视频模型' });
-    const batch = store.getBatch(req.username, req.params.batchId);
+    const scopedStore = forRequest(req);
+    const batch = await scopedStore.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
     const modelError = boundModelError(batch, modelId);
@@ -178,17 +180,18 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
       shuihuoGateway
     });
     if (!result.ok) {
-      persistProductionFailure(store, req.username, batch.id, result);
+      await persistProductionFailure(scopedStore, req.username, batch.id, result);
       return res.status(result.statusCode || 503).json({ error: result.error, stage: result.stage });
     }
-    persistProductionSuccess(store, req.username, batch.id, result);
+    await persistProductionSuccess(scopedStore, req.username, batch.id, result);
     return res.status(result.statusCode).json({ production: result.production, project: result.project, results: result.results });
   });
 
   router.post('/batches/:batchId/generate', async (req, res) => {
     const modelId = Number(req.body?.modelId);
     if (!Number.isInteger(modelId) || modelId < 1) return res.status(400).json({ error: '请选择文生视频模型' });
-    const batch = store.getBatch(req.username, req.params.batchId);
+    const scopedStore = forRequest(req);
+    const batch = await scopedStore.getBatch(req.username, req.params.batchId);
     if (!batch) return res.status(404).json({ error: '批次不存在' });
     const modelError = boundModelError(batch, modelId);
     if (modelError) return res.status(409).json({ error: modelError });
@@ -212,8 +215,8 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     // Persist sequentially because the staging store is file-backed. Network
     // submissions may run concurrently, but writes must not race each other.
     for (const result of results) {
-      if (result?.ok) persistProductionSuccess(store, req.username, batch.id, result);
-      else if (result?.itemId) persistProductionFailure(store, req.username, batch.id, result);
+      if (result?.ok) await persistProductionSuccess(scopedStore, req.username, batch.id, result);
+      else if (result?.itemId) await persistProductionFailure(scopedStore, req.username, batch.id, result);
     }
 
     const succeeded = results.filter(result => result?.ok).length;

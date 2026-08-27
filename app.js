@@ -35,7 +35,7 @@ const { createBatchRewriteRouter } = require('./routes/batch-rewrite');
 const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
-const { createBatchFactoryStore } = require('./lib/batch-factory/store');
+const { createMySQLBatchFactoryStoreFactory } = require('./lib/batch-factory/mysql-store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -107,7 +107,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
   const resolvedNovelFetchStore = novelFetchStore || createNovelFetchStore({ usersDir });
-  const resolvedBatchFactoryStore = createBatchFactoryStore();
+  const resolvedBatchFactoryStore = createMySQLBatchFactoryStoreFactory(shuihuoGateway);
   const teamConfigReader = createTeamConfigReader({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,

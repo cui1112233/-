@@ -5,6 +5,7 @@ const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compil
 const { normalizeSettings, normalizeSourceItem } = require('../lib/batch-factory/store');
 const { canonicalModelSettings } = require('../routes/batch-factory');
 const { boundModelError } = require('../routes/batch-factory-production');
+const { createMySQLBatchFactoryStore } = require('../lib/batch-factory/mysql-store');
 async function loadIntake() { return import('../frontend/src/user/pages/batch-factory/intake.js'); }
 
 test('手动粘贴按编号拆分并把长数字识别为 Book ID', async () => {
@@ -84,6 +85,10 @@ test('小说获取交接保留超长书ID并固定 TXT 文件名', () => {
 test('小说获取交接缺少任务ID或书ID时拒绝进入批量工厂', () => {
   assert.throws(() => normalizeSourceItem({ bookId: '123', sourceText: '正文' }, 0, { sourceType: 'novel-fetch' }), /任务ID/);
   assert.throws(() => normalizeSourceItem({ sourceTaskId: '8', sourceText: '正文' }, 0, { sourceType: 'novel-fetch' }), /书ID/);
+});
+
+test('MySQL 批量工厂存储要求当前登录账号作为桥接身份', () => {
+  assert.throws(() => createMySQLBatchFactoryStore(), /当前登录账号不可用/);
 });
 
 test('批量设置保存导演绑定的视频模型与时长能力快照', () => {

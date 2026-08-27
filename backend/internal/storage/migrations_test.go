@@ -75,6 +75,23 @@ func TestShuihuoVideoGenerationModeMigrationPersistsImageToVideoDefault(t *testi
 	}
 }
 
+func TestBatchFactoryMigrationCreatesUserScopedWorktables(t *testing.T) {
+	migration := migrationForVersion(t, 42)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS batch_factory_batches",
+		"CREATE TABLE IF NOT EXISTS batch_factory_items",
+		"CREATE TABLE IF NOT EXISTS batch_factory_intakes",
+		"CREATE TABLE IF NOT EXISTS batch_factory_activity_logs",
+		"owner_id BIGINT NOT NULL",
+		"idx_batch_factory_batches_owner_updated",
+		"fk_batch_factory_batches_owner",
+	} {
+		if !strings.Contains(migration.sql, required) {
+			t.Fatalf("batch factory migration missing %q", required)
+		}
+	}
+}
+
 func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
 	migration := migrationForVersion(t, 31)
 	if !strings.Contains(migration.sql, "UPDATE shuihuo_tasks") || !strings.Contains(migration.sql, "provider_task_id = NULL") || !strings.Contains(migration.sql, "provider_task_id = ''") {

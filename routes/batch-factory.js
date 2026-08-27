@@ -238,6 +238,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
   const jobs = [];
   const queued = new Set();
   let active = 0;
+  const forRequest = req => store.forAccount ? store.forAccount(req.auth?.account) : store;
 
   function key(job) {
     return `${job.username}:${job.batchId}:${job.itemId}:${job.stage}`;
@@ -252,14 +253,14 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
   }
 
   async function runJob(job) {
-    const batch = store.getBatch(job.username, job.batchId);
+    const batch = await job.store.getBatch(job.username, job.batchId);
     const item = batch?.items?.find(entry => entry.id === job.itemId);
     if (!batch || !item) return;
     try {
       if (job.stage === 'hook') {
-        store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'hook_generating'; target.error = ''; });
+        await job.store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'hook_generating'; target.error = ''; });
         const result = await generateHook(job.username, presetStore, batch, item, { configReader, upstreamRequest });
-        store.updateItem(job.username, job.batchId, job.itemId, target => {
+        await job.store.updateItem(job.username, job.batchId, job.itemId, target => {
           target.hookDraft = result.hookDraft;
           target.hookMeta = result.hookMeta;
           target.promptVersions = { ...target.promptVersions, ...result.promptVersions };
@@ -268,18 +269,18 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
         });
         return;
       }
-      store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'director_generating'; target.error = ''; });
-      const refreshed = store.getBatch(job.username, job.batchId);
+      await job.store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'director_generating'; target.error = ''; });
+      const refreshed = await job.store.getBatch(job.username, job.batchId);
       const refreshedItem = refreshed?.items?.find(entry => entry.id === job.itemId);
       const result = await generateDirector(job.username, presetStore, refreshed, refreshedItem, { configReader, upstreamRequest });
-      store.updateItem(job.username, job.batchId, job.itemId, target => {
+      await job.store.updateItem(job.username, job.batchId, job.itemId, target => {
         target.directorResult = result.directorResult;
         target.promptVersions = { ...target.promptVersions, ...result.promptVersions };
         target.status = 'complete';
         target.error = '';
       });
     } catch (error) {
-      store.updateItem(job.username, job.batchId, job.itemId, target => {
+      await job.store.updateItem(job.username, job.batchId, job.itemId, target => {
         target.status = 'failed';
         target.error = error?.message || '生成失败';
       });
@@ -298,104 +299,112 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     }
   }
 
-  function queueItem(username, batch, item) {
+  async function queueItem(scopedStore, username, batch, item) {
     if (batch.mode === 'viral' && !String(item.approvedHookScript || '').trim()) {
-      store.updateItem(username, batch.id, item.id, target => { target.status = 'queued_hook'; target.error = ''; });
-      enqueue({ username, batchId: batch.id, itemId: item.id, stage: 'hook' });
+      await scopedStore.updateItem(username, batch.id, item.id, target => { target.status = 'queued_hook'; target.error = ''; });
+      enqueue({ store: scopedStore, username, batchId: batch.id, itemId: item.id, stage: 'hook' });
     } else {
-      store.updateItem(username, batch.id, item.id, target => { target.status = 'queued_director'; target.error = ''; });
-      enqueue({ username, batchId: batch.id, itemId: item.id, stage: 'director' });
+      await scopedStore.updateItem(username, batch.id, item.id, target => { target.status = 'queued_director'; target.error = ''; });
+      enqueue({ store: scopedStore, username, batchId: batch.id, itemId: item.id, stage: 'director' });
     }
   }
 
   router.use(apiAuth);
 
-  router.get('/batches', (req, res) => res.json({ batches: store.listBatches(req.username) }));
+  router.get('/batches', async (req, res) => {
+    try { return res.json({ batches: await forRequest(req).listBatches(req.username) }); }
+    catch (error) { return res.status(error.status || 503).json({ error: error.message || '读取批次列表失败' }); }
+  });
 
   router.post('/batches', async (req, res) => {
     try {
       const payload = req.body || {};
       const settings = await resolveBoundVideoSettings(req, payload.settings || {}, shuihuoGateway);
-      const batch = store.createBatch(req.username, { ...payload, settings });
+      const batch = await forRequest(req).createBatch(req.username, { ...payload, settings });
       return res.status(201).json({ batch });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '创建批次失败' });
     }
   });
 
-  router.get('/batches/:batchId', (req, res) => {
-    const batch = store.getBatch(req.username, req.params.batchId);
+  router.get('/batches/:batchId', async (req, res) => {
+    const batch = await forRequest(req).getBatch(req.username, req.params.batchId);
     if (!batch) return res.status(404).json({ error: '批次不存在' });
     return res.json({ batch });
   });
 
-  router.post('/batches/:batchId/start', (req, res) => {
-    const batch = store.getBatch(req.username, req.params.batchId);
+  router.post('/batches/:batchId/start', async (req, res) => {
+    const scopedStore = forRequest(req);
+    const batch = await scopedStore.getBatch(req.username, req.params.batchId);
     if (!batch) return res.status(404).json({ error: '批次不存在' });
     for (const item of batch.items) {
-      if (['pending', 'failed', 'queued_hook', 'queued_director'].includes(item.status)) queueItem(req.username, batch, item);
+      if (['pending', 'failed', 'queued_hook', 'queued_director'].includes(item.status)) await queueItem(scopedStore, req.username, batch, item);
     }
-    return res.json({ batch: store.getBatch(req.username, batch.id) });
+    return res.json({ batch: await scopedStore.getBatch(req.username, batch.id) });
   });
 
-  router.post('/batches/:batchId/items/:itemId/approve-hook', (req, res) => {
+  router.post('/batches/:batchId/items/:itemId/approve-hook', async (req, res) => {
     const text = String(req.body?.approvedHookScript || '').trim();
     if (!text) return res.status(400).json({ error: '确认后的爆款开头不能为空' });
-    const batch = store.getBatch(req.username, req.params.batchId);
+    const scopedStore = forRequest(req);
+    const batch = await scopedStore.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
     if (batch.mode !== 'viral') return res.status(400).json({ error: '只有爆款模式需要审核开头' });
-    store.updateItem(req.username, batch.id, item.id, target => {
+    await scopedStore.updateItem(req.username, batch.id, item.id, target => {
       target.approvedHookScript = text;
       target.status = 'queued_director';
       target.error = '';
     });
-    enqueue({ username: req.username, batchId: batch.id, itemId: item.id, stage: 'director' });
-    return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+    enqueue({ store: scopedStore, username: req.username, batchId: batch.id, itemId: item.id, stage: 'director' });
+    return res.json({ item: (await scopedStore.getBatch(req.username, batch.id)).items.find(entry => entry.id === item.id) });
   });
 
-  router.post('/batches/:batchId/items/:itemId/rewrite-hook', (req, res) => {
-    const batch = store.getBatch(req.username, req.params.batchId);
+  router.post('/batches/:batchId/items/:itemId/rewrite-hook', async (req, res) => {
+    const scopedStore = forRequest(req);
+    const batch = await scopedStore.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
     if (batch.mode !== 'viral') return res.status(400).json({ error: '只有爆款模式可以重写开头' });
-    store.updateItem(req.username, batch.id, item.id, target => { target.status = 'queued_hook'; target.error = ''; });
-    enqueue({ username: req.username, batchId: batch.id, itemId: item.id, stage: 'hook' });
+    await scopedStore.updateItem(req.username, batch.id, item.id, target => { target.status = 'queued_hook'; target.error = ''; });
+    enqueue({ store: scopedStore, username: req.username, batchId: batch.id, itemId: item.id, stage: 'hook' });
     return res.json({ ok: true });
   });
 
-  router.post('/batches/:batchId/items/:itemId/regenerate-director', (req, res) => {
-    const batch = store.getBatch(req.username, req.params.batchId);
+  router.post('/batches/:batchId/items/:itemId/regenerate-director', async (req, res) => {
+    const scopedStore = forRequest(req);
+    const batch = await scopedStore.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
     if (batch.mode === 'viral' && !item.approvedHookScript) return res.status(400).json({ error: '请先确认爆款开头' });
-    store.updateItem(req.username, batch.id, item.id, target => { target.status = 'queued_director'; target.error = ''; });
-    enqueue({ username: req.username, batchId: batch.id, itemId: item.id, stage: 'director' });
+    await scopedStore.updateItem(req.username, batch.id, item.id, target => { target.status = 'queued_director'; target.error = ''; });
+    enqueue({ store: scopedStore, username: req.username, batchId: batch.id, itemId: item.id, stage: 'director' });
     return res.json({ ok: true });
   });
 
-  router.put('/batches/:batchId/items/:itemId/director-result', (req, res) => {
+  router.put('/batches/:batchId/items/:itemId/director-result', async (req, res) => {
     try {
-      const batch = store.getBatch(req.username, req.params.batchId);
+      const scopedStore = forRequest(req);
+      const batch = await scopedStore.getBatch(req.username, req.params.batchId);
       const item = batch?.items?.find(entry => entry.id === req.params.itemId);
       if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
       const source = req.body?.directorResult ?? req.body;
       const directorResult = normalizeDirectorOutput(source, directorSettings(batch));
-      store.updateItem(req.username, batch.id, item.id, target => {
+      await scopedStore.updateItem(req.username, batch.id, item.id, target => {
         target.directorResult = directorResult;
         target.status = 'complete';
         target.error = '';
         target.manuallyEdited = true;
       });
-      return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+      return res.json({ item: (await scopedStore.getBatch(req.username, batch.id)).items.find(entry => entry.id === item.id) });
     } catch (error) {
       return res.status(400).json({ error: error.message || '导演结果校验失败' });
     }
   });
 
-  router.post('/batches/:batchId/items/:itemId/videos/:videoId/compile', (req, res) => {
+  router.post('/batches/:batchId/items/:itemId/videos/:videoId/compile', async (req, res) => {
     try {
-      const batch = store.getBatch(req.username, req.params.batchId);
+      const batch = await forRequest(req).getBatch(req.username, req.params.batchId);
       const item = batch?.items?.find(entry => entry.id === req.params.itemId);
       const result = item?.directorResult;
       const video = result?.storyboard?.find(entry => String(entry.id) === String(req.params.videoId));

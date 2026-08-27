@@ -375,6 +375,7 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
 	{version: 39, apply: applyLocalExecutorJobMigration},
 	{version: 40, sql: localExecutorVideoModelMigrationSQL, apply: applyLocalExecutorVideoModelMigration},
 	{version: 41, sql: scriptVideoTaskMigrationSQL},
+	{version: 42, sql: batchFactoryMigrationSQL, apply: applyBatchFactorySchema},
 }
 
 const localExecutorMigrationSQL = `
@@ -807,6 +808,10 @@ func applyNovelFetchWorkshopSchema(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, novelFetchWorkshopMigrationSQL)
 }
 
+func applyBatchFactorySchema(ctx context.Context, conn *sql.Conn) error {
+	return applySQLStatements(ctx, conn, batchFactoryMigrationSQL)
+}
+
 func applyYDVideoModelMigration(ctx context.Context, conn *sql.Conn) error {
 	return applySQLStatements(ctx, conn, ydVideoModelMigrationSQL)
 }
@@ -822,6 +827,59 @@ SELECT d.id, 1, '', '', NULL, NULL, NULL
 FROM model_definitions d
 WHERE d.model_key = 'yd2-mini-video'
   AND NOT EXISTS (SELECT 1 FROM model_versions v WHERE v.model_definition_id = d.id AND v.version_number = 1);
+`
+
+const batchFactoryMigrationSQL = `
+CREATE TABLE IF NOT EXISTS batch_factory_intakes (
+  id VARCHAR(80) PRIMARY KEY,
+  owner_id BIGINT NOT NULL,
+  source_type VARCHAR(32) NOT NULL,
+  name VARCHAR(80) NOT NULL,
+  items_json JSON NOT NULL,
+  consumed_at DATETIME(3) NULL,
+  batch_id VARCHAR(80) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  KEY idx_batch_factory_intakes_owner_created (owner_id, created_at),
+  CONSTRAINT fk_batch_factory_intakes_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS batch_factory_batches (
+  id VARCHAR(80) PRIMARY KEY,
+  owner_id BIGINT NOT NULL,
+  name VARCHAR(80) NOT NULL,
+  mode VARCHAR(16) NOT NULL,
+  settings_json JSON NOT NULL,
+  source_intake_id VARCHAR(80) NOT NULL DEFAULT '',
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  KEY idx_batch_factory_batches_owner_updated (owner_id, updated_at),
+  CONSTRAINT fk_batch_factory_batches_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS batch_factory_items (
+  id VARCHAR(80) PRIMARY KEY,
+  batch_id VARCHAR(80) NOT NULL,
+  ordinal INT NOT NULL,
+  payload_json JSON NOT NULL,
+  status VARCHAR(48) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  UNIQUE KEY uq_batch_factory_items_batch_ordinal (batch_id, ordinal),
+  KEY idx_batch_factory_items_batch_status (batch_id, status),
+  CONSTRAINT fk_batch_factory_items_batch FOREIGN KEY (batch_id) REFERENCES batch_factory_batches(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS batch_factory_activity_logs (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  batch_id VARCHAR(80) NOT NULL,
+  item_id VARCHAR(80) NOT NULL,
+  event_json JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  KEY idx_batch_factory_activity_item_created (item_id, created_at),
+  CONSTRAINT fk_batch_factory_activity_batch FOREIGN KEY (batch_id) REFERENCES batch_factory_batches(id) ON DELETE CASCADE,
+  CONSTRAINT fk_batch_factory_activity_item FOREIGN KEY (item_id) REFERENCES batch_factory_items(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `
 
 type migrationExecutor interface {
