@@ -131,7 +131,7 @@ function createAuthRouter(runtime = createAuthRuntime(), memberStore, { passkeyS
     if (!invite) return res.status(404).json({ error: '邀请不存在' });
     if (!invite.available) return res.status(409).json({ error: invite.expired ? '邀请已过期' : '邀请已被使用' });
     const manager = memberStore.getMember(invite.managerUsername);
-    if (!manager || !manager.active || manager.role !== 'manager') return res.status(409).json({ error: '邀请所属团队当前不可用' });
+    if (!manager || !manager.active || !['dev', 'manager'].includes(manager.role)) return res.status(409).json({ error: '邀请所属团队当前不可用' });
 
     let claimed = false;
     try {

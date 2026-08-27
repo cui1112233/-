@@ -158,13 +158,13 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
   }
 
   function ensureTeamForManager(req, manager) {
-    if (!manager || manager.role !== 'manager') return null;
+    if (!manager || !['dev', 'manager'].includes(manager.role)) return null;
     return getCollaborationStore(req).ensureTeam(manager.username, manager.displayName);
   }
 
   function teamForMember(req, member) {
     if (!member) return null;
-    if (member.role === 'manager') return ensureTeamForManager(req, member);
+    if (['dev', 'manager'].includes(member.role)) return ensureTeamForManager(req, member);
     if (member.role === 'member' && member.boundTo) {
       return ensureTeamForManager(req, memberStore.getMember(member.boundTo));
     }
@@ -181,7 +181,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       if (!member) return res.status(404).json({ error: '账号不存在' });
       const manager = member.boundTo ? memberStore.getMember(member.boundTo) : null;
       const month = usageStore.summaryForUser(req.username, 'month');
-      const teamOwner = member.role === 'manager' ? member.username : member.boundTo;
+      const teamOwner = ['dev', 'manager'].includes(member.role) ? member.username : member.boundTo;
       const notifications = getCollaborationStore(req).listNotifications(req.username, 8);
       return res.json({
         member,
@@ -382,11 +382,11 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const day = usageStore.summariesForUsers(usernames, 'day', usageOptions);
       const collab = getCollaborationStore(req);
       return res.json({
-        team: self.role === 'manager' ? ensureTeamForManager(req, self) : null,
+        team: ['dev', 'manager'].includes(self.role) ? ensureTeamForManager(req, self) : null,
         teams: self.role === 'dev'
-          ? memberStore.listMembers().filter(item => item.role === 'manager').map(manager => ensureTeamForManager(req, manager))
+          ? [ensureTeamForManager(req, self), ...memberStore.listMembers().filter(item => item.role === 'manager').map(manager => ensureTeamForManager(req, manager))]
           : undefined,
-        teamGovernance: self.role === 'manager' ? teamPolicySummary(self.username) : null,
+        teamGovernance: ['dev', 'manager'].includes(self.role) ? teamPolicySummary(self.username) : null,
         members: members.map(member => ({
           ...member,
           presence: { online: isRuntimeOnline(req, member.username) },
@@ -405,8 +405,9 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const self = memberStore.getMember(req.username);
       if (!self) return res.status(404).json({ error: '账号不存在' });
       if (self.role === 'dev') {
-        const teams = memberStore.listMembers().filter(item => item.role === 'manager').map(manager => ({ team: ensureTeamForManager(req, manager), manager }));
-        return res.json({ team: null, teams });
+        const managers = memberStore.listMembers().filter(item => item.role === 'manager');
+        const owners = [self, ...managers];
+        return res.json({ team: ensureTeamForManager(req, self), teams: owners.map(manager => ({ team: ensureTeamForManager(req, manager), manager })) });
       }
       return res.json({ team: teamForMember(req, self), manager: self.role === 'member' && self.boundTo ? memberStore.getMember(self.boundTo) : self });
     } catch (error) {
@@ -436,10 +437,10 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     try {
       const self = memberStore.getMember(req.username);
       if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '无权查看团队邀请' });
-      const managerUsername = self.role === 'manager' ? self.username : String(req.query.manager || '');
+      const managerUsername = self.role === 'manager' ? self.username : String(req.query.manager || self.username || '');
       if (!managerUsername) return res.json({ invites: [] });
       const manager = memberStore.getMember(managerUsername);
-      if (!manager || manager.role !== 'manager') return res.status(400).json({ error: '目标账号不是 MANAGER' });
+      if (!manager || !['dev', 'manager'].includes(manager.role)) return res.status(400).json({ error: '目标账号不是团队负责人' });
       ensureTeamForManager(req, manager);
       return res.json({ invites: getCollaborationStore(req).listInvitesForManager(managerUsername) });
     } catch (error) {
@@ -451,9 +452,9 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     try {
       const self = memberStore.getMember(req.username);
       if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '无权创建团队邀请' });
-      const managerUsername = self.role === 'manager' ? self.username : (req.body?.managerUsername || '');
+      const managerUsername = self.role === 'manager' ? self.username : (req.body?.managerUsername || self.username || '');
       const manager = memberStore.getMember(managerUsername);
-      if (!manager || !manager.active || manager.role !== 'manager') return res.status(400).json({ error: '目标账号不是可用的 MANAGER' });
+      if (!manager || !manager.active || !['dev', 'manager'].includes(manager.role)) return res.status(400).json({ error: '目标账号不是可用的团队负责人' });
       const team = ensureTeamForManager(req, manager);
       const created = getCollaborationStore(req).createInvite({
         teamId: team.id,
@@ -473,7 +474,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     try {
       const self = memberStore.getMember(req.username);
       if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队额度管理权限' });
-      const managers = self.role === 'manager' ? [self] : memberStore.listMembers().filter(item => item.role === 'manager');
+      const managers = self.role === 'manager' ? [self] : [self, ...memberStore.listMembers().filter(item => item.role === 'manager')];
       return res.json({ teams: managers.map(manager => ({ manager, team: ensureTeamForManager(req, manager), ...teamPolicySummary(manager.username) })) });
     } catch (error) {
       return sendMemberError(res, error);
@@ -485,7 +486,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const self = memberStore.getMember(req.username);
       const manager = memberStore.getMember(req.params.username);
       if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队额度管理权限' });
-      if (!manager || manager.role !== 'manager') return res.status(400).json({ error: '目标账号不是 MANAGER' });
+      if (!manager || !['dev', 'manager'].includes(manager.role)) return res.status(400).json({ error: '目标账号不是团队负责人' });
       if (self.role === 'manager' && self.username !== manager.username) return res.status(403).json({ error: 'MANAGER 只能设置自己团队的总额度' });
       getGovernanceStore().update(manager.username, { monthlyTokenLimit: req.body?.monthlyTokenLimit }, self.username);
       return res.json({ manager, team: ensureTeamForManager(req, manager), ...teamPolicySummary(manager.username) });
@@ -501,13 +502,13 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       const body = req.body || {};
       const requestedRole = self.role === 'manager' ? 'member' : (body.role || 'member');
       const resolvedBoundTo = self.role === 'manager' ? self.username : (body.boundTo || null);
-      if (requestedRole === 'member' && body.apiEnabled === true && !resolvedBoundTo) return res.status(400).json({ error: '请先绑定 MANAGER，再开启团队 API。' });
+      if (requestedRole === 'member' && body.apiEnabled === true && !resolvedBoundTo) return res.status(400).json({ error: '请先绑定团队负责人，再开启团队 API。' });
       let member = memberStore.createManagedMember(req.username, { ...body, role: requestedRole, boundTo: resolvedBoundTo });
       if (member.role === 'dev') {
         ensureDevBackendPermissions(getAccountStore(req), member);
         member = memberStore.getMember(member.username);
       }
-      if (member.role === 'manager') ensureTeamForManager(req, member);
+      if (['dev', 'manager'].includes(member.role)) ensureTeamForManager(req, member);
       if (member.role === 'member' && Array.isArray(body.apiScopes)) {
         memberStore.setApiAccess(req.username, member.username, false, '*');
         for (const scope of MANAGED_API_SCOPES) memberStore.setApiAccess(req.username, member.username, false, scope);
@@ -529,7 +530,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
         ensureDevBackendPermissions(getAccountStore(req), member);
         member = memberStore.getMember(member.username);
       }
-      if (member.role === 'manager') ensureTeamForManager(req, member);
+      if (['dev', 'manager'].includes(member.role)) ensureTeamForManager(req, member);
       notify(req, member.username, { type: 'member.updated', title: '成员资料已更新', message: '你的团队角色、绑定关系或额度设置刚刚被管理员更新。' });
       if (before?.boundTo !== member.boundTo && member.boundTo) {
         const team = teamForMember(req, member);

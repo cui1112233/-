@@ -70,7 +70,7 @@ test('MANAGER can only create MEMBER accounts bound to itself', t => {
   assert.deepEqual(member.apiScopes, ['*']);
 });
 
-test('DEV cannot leave a half-created account when API is requested without a manager', t => {
+test('DEV cannot leave a half-created account when API is requested without a team owner', t => {
   const { accountStore, memberStore } = fixture(t);
 
   assert.throws(
@@ -80,7 +80,7 @@ test('DEV cannot leave a half-created account when API is requested without a ma
       role: 'member',
       apiEnabled: true
     }),
-    /未绑定 manager/
+    /未绑定团队负责人/
   );
   assert.equal(accountStore.getAccount('orphan001'), null);
 });
@@ -128,6 +128,35 @@ test('authorized MEMBER resolves to its bound MANAGER API without exposing a mem
   assert.equal(access.teamOwner, manager.username);
   assert.equal(access.config.apiKey, 'manager-key');
   assert.notEqual(access.config.apiKey, configs[member.username].apiKey);
+});
+
+test('DEV can own a team and its MEMBER inherits the DEV API configuration and quota owner', t => {
+  const { accountStore, memberStore, usageStore } = fixture(t);
+  const member = memberStore.createManagedMember('choushiyiguai', {
+    username: 'dev-team-member',
+    password: 'password01',
+    displayName: '开发团队成员',
+    role: 'member',
+    boundTo: 'choushiyiguai',
+    apiEnabled: true
+  });
+  const configs = {
+    choushiyiguai: readyConfig('developer'),
+    [member.username]: readyConfig('member')
+  };
+
+  const access = resolveApiAccess({
+    accountStore,
+    memberStore,
+    usageStore,
+    username: member.username,
+    configReader: username => configs[username]
+  });
+
+  assert.equal(member.boundTo, 'choushiyiguai');
+  assert.equal(access.billedTo, 'choushiyiguai');
+  assert.equal(access.teamOwner, 'choushiyiguai');
+  assert.equal(access.config.apiKey, 'developer-key');
 });
 
 test('MEMBER without api:use is rejected before any model configuration is returned', t => {

@@ -29,7 +29,7 @@ function createTeamAdminRouter({ memberStore, usageStore, accountStore, authRunt
     if (!team) { const error = new Error('团队不存在'); error.code = 'NOT_FOUND'; throw error; }
     if (self.role === 'dev') return { self, team };
     if (self.role !== 'manager') { const error = new Error('当前身份没有团队管理权限'); error.code = 'FORBIDDEN'; throw error; }
-    if (ownerOnly && team.managerUsername !== self.username) { const error = new Error('仅团队主 MANAGER 可执行此操作'); error.code = 'FORBIDDEN'; throw error; }
+    if (ownerOnly && team.managerUsername !== self.username) { const error = new Error('仅团队主负责人可执行此操作'); error.code = 'FORBIDDEN'; throw error; }
     if (team.managerUsername !== self.username && !team.coManagers?.includes(self.username)) { const error = new Error('无权管理该团队'); error.code = 'FORBIDDEN'; throw error; }
     return { self, team };
   }
@@ -77,7 +77,9 @@ function createTeamAdminRouter({ memberStore, usageStore, accountStore, authRunt
     try {
       const self = memberStore.getMember(req.username);
       if (!self || !['dev', 'manager'].includes(self.role)) return res.status(403).json({ error: '当前身份没有团队管理权限' });
-      const teams = self.role === 'dev' ? collaborationStore.listTeams() : collaborationStore.teamsForManager(self.username);
+      const teams = self.role === 'dev'
+        ? [collaborationStore.ensureTeam(self.username, self.displayName), ...collaborationStore.listTeams().filter(team => team.managerUsername !== self.username)]
+        : collaborationStore.teamsForManager(self.username);
       return res.json({ teams: teams.map(summary) });
     } catch (error) { return sendError(res, error); }
   });
@@ -90,7 +92,7 @@ function createTeamAdminRouter({ memberStore, usageStore, accountStore, authRunt
       for (const username of usernames) {
         const member = memberStore.getMember(username);
         if (!member || !member.active || member.role !== 'manager') return res.status(400).json({ error: `@${username} 不是可用的 MANAGER` });
-        if (username === team.managerUsername) return res.status(400).json({ error: '主 MANAGER 不需要重复添加为联合管理员' });
+        if (username === team.managerUsername) return res.status(400).json({ error: '主负责人不需要重复添加为联合管理员' });
       }
       const updated = collaborationStore.setCoManagers(team.id, usernames);
       for (const username of usernames) collaborationStore.notify(username, { type: 'team.co_manager_added', title: '你被设为联合管理员', message: `你现在可以协助管理「${updated.name}」。`, metadata: { teamId: updated.id } });
