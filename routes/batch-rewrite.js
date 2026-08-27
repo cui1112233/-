@@ -188,7 +188,7 @@ function parseTargetStyleCatalog(html) {
   return normalizeStyleCatalog(catalog);
 }
 
-function parseTargetOrganizationCatalog(html) {
+function parseTargetOrganizationCatalog(html, apiPayload) {
   const source = String(html || '');
   const pattern = /<select\b([^>]*)>([\s\S]*?)<\/select>/gi;
   for (let match; (match = pattern.exec(source));) {
@@ -214,6 +214,20 @@ function parseTargetOrganizationCatalog(html) {
       if (id && name && !/请选择|全部/.test(name)) options.push({ id, name });
     }
     return normalizeOrganizationCatalog({ field_name: fieldName, options });
+  }
+  // 当前 121 页面由 organization.js 在浏览器端动态请求组织数据，HTML
+  // 只保留空容器和 hidden 字段，因此同步时以同一 JSON 接口作为后备来源。
+  const payload = object(apiPayload);
+  if (payload.success === true && Array.isArray(payload.data)) {
+    const options = payload.data.map(item => {
+      const source = object(item);
+      const id = String(source.id ?? source.value ?? '').trim();
+      const name = String(source.name ?? source.label ?? '').trim();
+      const level = Number(source.level || 0);
+      return { id, name: level > 0 ? `${name}(层${level})` : name };
+    }).filter(item => item.id && item.name && !/请选择|全部/.test(item.name));
+    const catalog = normalizeOrganizationCatalog({ field_name: 'organization', options });
+    if (catalog.options.length) return catalog;
   }
   throw new Error('121 自定义文案页未找到组织归属下拉框');
 }
@@ -900,9 +914,12 @@ function createBatchRewriteRouter({
   }
 
   async function sync121Profiles(req) {
-    const [body, page] = await Promise.all([
+    const [body, page, organizationBody] = await Promise.all([
       request121(req, target.TARGET_CONFIG_LIST_PATH),
-      request121(req, target.TARGET_CHECK_PATH)
+      request121(req, target.TARGET_CHECK_PATH),
+      // 新页面的组织目录由独立 JSON 接口提供；该接口短暂异常时，
+      // 仍允许使用旧页面内嵌下拉完成同步。
+      request121(req, target.TARGET_ORGANIZATION_PATH).catch(() => '')
     ]);
     let payload = {};
     try { payload = JSON.parse(body); } catch (_) { throw new Error('121 配置档接口返回了非 JSON 数据'); }
@@ -926,7 +943,9 @@ function createBatchRewriteRouter({
     const { tasks, current } = await readConfig(req);
     const web = object(current.web_submit);
     const local = normalizeUploadProfiles(web.upload_profiles).filter(profile => profile.source !== '121');
-    const organizations = parseTargetOrganizationCatalog(page);
+    let organizationPayload = {};
+    try { organizationPayload = JSON.parse(organizationBody); } catch (_) {}
+    const organizations = parseTargetOrganizationCatalog(page, organizationPayload);
     const selectedOrganization = String(web.selected_organization || '');
     const nextWeb = {
       ...web,

@@ -396,3 +396,41 @@ test('121 级联组织控件使用 organization 字段，不会误抓性别选�
   assert.equal(response.status, 200);
   assert.deepEqual(response.body.organizations, { field_name: 'organization', options: [{ id: '1', name: '博量(层1)' }, { id: '7', name: '景耀组织(层2)' }, { id: '2', name: '俊华组织(层2)' }] });
 });
+
+test('121 动态组织接口没有 HTML 下拉时仍能同步组织归属', async () => {
+  const config = { web_submit: { enabled: true, upload_profiles: [] }, styles: [], platforms: [] };
+  const page = '<form><div id="uploadOrganizationCascade"></div><input type="hidden" id="uploadOrganization"><select id="style"><option value="306">现代女主</option></select></form>';
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-dynamic-org'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async ({ url }) => ({
+      body: url.includes('zdy_config.php')
+        ? JSON.stringify({ success: true, data: [{ id: 7, config_name: '121 默认档', config_data: '{}' }] })
+          : url.includes('organization.php')
+          ? JSON.stringify({ success: true, data: [{ id: 1, parent_id: 0, level: 1, name: '博量', status: 'ENABLE' }, { id: 7, parent_id: 1, level: 2, name: '景耀组织', status: 'ENABLE' }] })
+          : page,
+      headers: {}
+    }),
+    tasksFactory: async () => ({ tasks: { saveConfig: async value => Object.assign(config, value), listTasks: async () => [] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/sync-configs', {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.organizations, { field_name: 'organization', options: [{ id: '1', name: '博量(层1)' }, { id: '7', name: '景耀组织(层2)' }] });
+});
+
+test('动态组织接口暂不可用时保留旧页面的组织同步兼容', async () => {
+  const config = { web_submit: { enabled: true, upload_profiles: [] }, styles: [], platforms: [] };
+  const page = '<label>组织归属<select name="organization"><option value="7">第一组织</option></select></label><select id="style"><option value="306">现代女主</option></select>';
+  const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
+    auth: (req, res, next) => { req.username = 'writer-org-fallback'; next(); },
+    novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
+    httpClient: async ({ url }) => {
+      if (url.includes('organization.php')) throw new Error('organization service unavailable');
+      return { body: url.includes('zdy_config.php') ? JSON.stringify({ success: true, data: [] }) : page, headers: {} };
+    },
+    tasksFactory: async () => ({ tasks: { saveConfig: async value => Object.assign(config, value), listTasks: async () => [] }, config, configStore: { getConfig: () => config, getPlatforms: () => [], getStyles: () => [] } })
+  }));
+  const response = await request(app, '/api/batch-rewrite/web-submit/sync-configs', {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.organizations, { field_name: 'organization', options: [{ id: '7', name: '第一组织' }] });
+});
