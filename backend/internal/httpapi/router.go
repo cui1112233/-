@@ -86,6 +86,7 @@ func (api *API) Router() http.Handler {
 			r.Get("/batch-factory-data/batches", api.handleListBatchFactoryBatches)
 			r.Post("/batch-factory-data/batches", api.handleCreateBatchFactoryBatch)
 			r.Get("/batch-factory-data/batches/{batchId}", api.handleGetBatchFactoryBatch)
+			r.Put("/batch-factory-data/batches/{batchId}/settings", api.handleUpdateBatchFactorySettings)
 			r.Put("/batch-factory-data/batches/{batchId}/items/{itemId}", api.handleUpdateBatchFactoryItem)
 			r.Post("/batch-factory-data/intakes", api.handleCreateBatchFactoryIntake)
 			r.Get("/batch-factory-data/intakes/{intakeId}", api.handleGetBatchFactoryIntake)

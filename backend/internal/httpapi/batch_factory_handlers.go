@@ -38,6 +38,8 @@ type batchFactoryItemUpdateRequest struct {
 	Activity json.RawMessage `json:"activity"`
 }
 
+type batchFactorySettingsUpdateRequest struct { Settings json.RawMessage `json:"settings"` }
+
 func batchFactoryNow() time.Time { return time.Now().UTC() }
 
 func validBatchFactoryID(value string) bool {
@@ -198,6 +200,23 @@ func (api *API) handleGetBatchFactoryBatch(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	api.writeBatchFactoryBatch(w, r, chi.URLParam(r, "batchId"))
+}
+
+func (api *API) handleUpdateBatchFactorySettings(w http.ResponseWriter, r *http.Request) {
+	if !api.requireBatchFactoryDB(w) { return }
+	id := chi.URLParam(r, "batchId")
+	if !validBatchFactoryID(id) { writeJSON(w, http.StatusBadRequest, map[string]string{"error": "非法批次ID"}); return }
+	var req batchFactorySettingsUpdateRequest
+	if err := readJSON(r, &req); err != nil { writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"}); return }
+	settings, ok := validBatchFactoryJSON(req.Settings, "{}")
+	if !ok { writeJSON(w, http.StatusBadRequest, map[string]string{"error": "批次设置格式无效"}); return }
+	user, _ := currentUser(r)
+	now := batchFactoryNow()
+	result, err := api.deps.DB.ExecContext(r.Context(), `UPDATE batch_factory_batches SET settings_json = ?, updated_at = ? WHERE id = ? AND owner_id = ?`, settings, now, id, user.ID)
+	if err != nil { writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存批次设置失败"}); return }
+	affected, _ := result.RowsAffected()
+	if affected == 0 { writeJSON(w, http.StatusNotFound, map[string]string{"error": "批次不存在"}); return }
+	api.writeBatchFactoryBatch(w, r, id)
 }
 
 func (api *API) writeBatchFactoryBatch(w http.ResponseWriter, r *http.Request, id string) {

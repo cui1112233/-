@@ -35,6 +35,8 @@ import {
   listBatchFactoryBatches,
   mergeBatchFactoryVideos,
   startBatchFactoryBatch,
+  updateBatchFactoryItem,
+  updateBatchFactorySettings,
 } from "../../shared/api/batchFactory";
 import { loadBatchFactoryVideoModels } from "./batch-factory/BatchFactoryProductionControls";
 import { resolveBatchFactoryVideoProduction, resolveBookStatus, useBatchFactoryProductionStatus } from "./batch-factory/BatchFactoryVideoProductionStatus";
@@ -679,6 +681,39 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
   );
 }
 
+function ProductionSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
+  const [scope, setScope] = useState("all");
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [settings, setSettings] = useState({});
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (open) { setSettings({ ...(batch?.settings || {}) }); setSelectedIds(entries.slice(0, 1).map(item => item.id)); setScope("all"); } }, [open, batch, entries]);
+  const patchSetting = (key, value) => setSettings(current => ({ ...current, [key]: value }));
+  async function save() {
+    if (!batch?.id) return;
+    setSaving(true);
+    try {
+      let updated = batch;
+      if (scope === "all") updated = (await updateBatchFactorySettings(batch.id, settings)).batch || batch;
+      else for (const id of selectedIds) {
+        const item = entries.find(entry => entry.id === id);
+        if (!item) continue;
+        const result = await updateBatchFactoryItem(batch.id, id, { ...item, settingOverrides: { ...(item.settingOverrides || {}), ...settings }, manuallyEdited: true });
+        if (result.item) updated = { ...updated, items: updated.items.map(entry => entry.id === id ? result.item : entry) };
+      }
+      onSaved(updated); message.success(scope === "all" ? "已保存生产统一设置" : `已保存 ${selectedIds.length} 本小说的单独设置`); onClose();
+    } catch (error) { message.error(error.message || "保存生产设置失败"); } finally { setSaving(false); }
+  }
+  return <Drawer title="生产统一设置" placement="right" width={460} open={open} onClose={onClose} destroyOnClose><div className="bf-settings-drawer">
+    <label>应用范围</label><Select value={scope} onChange={setScope} options={[{ value: "all", label: "全部小说（未单独覆盖）" }, { value: "individual", label: "个别小说" }]} />
+    {scope === "individual" ? <div className="bf-settings-books">{entries.map(item => <label key={item.id}><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={event => setSelectedIds(ids => event.target.checked ? [...ids, item.id] : ids.filter(id => id !== item.id))} /> {item.title}</label>)}</div> : null}
+    <label>最大视频时长（秒）</label><Input type="number" min={1} max={60} value={settings.maxVideoDuration || 10} onChange={event => patchSetting("maxVideoDuration", Number(event.target.value))} />
+    <label>画幅</label><Select value={settings.aspectRatio || "9:16"} onChange={value => patchSetting("aspectRatio", value)} options={[{ value: "9:16", label: "9:16 竖屏" }, { value: "16:9", label: "16:9 横屏" }]} />
+    <label className="bf-settings-check"><input type="checkbox" checked={settings.fixedSingleVideo === true} onChange={event => patchSetting("fixedSingleVideo", event.target.checked)} /> 固定单镜头时长</label>
+    <label>视频风格</label><Input value={settings.style || ""} onChange={event => patchSetting("style", event.target.value)} placeholder="例如：高质量动漫短视频" />
+    <Button type="primary" block loading={saving} disabled={scope === "individual" && !selectedIds.length} onClick={save}>保存设置</Button>
+  </div></Drawer>;
+}
+
 export function BatchFactoryPreviewPage() {
   const [batch, setBatch] = useState(null);
   const [selectedId, setSelectedId] = useState("");
@@ -688,6 +723,7 @@ export function BatchFactoryPreviewPage() {
   const [starting, setStarting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [merging, setMerging] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [mergeCapability, setMergeCapability] = useState(null);
   const listRef = useRef(null);
   const { byProjectId, error: productionStatusError, refreshNow: refreshProductionStatus } = useBatchFactoryProductionStatus(batch);
@@ -883,6 +919,18 @@ export function BatchFactoryPreviewPage() {
       setMerging(false);
     }
   }
+  async function mergeAllCompleted() {
+    if (mergeCapability?.ready !== true) return message.warning(mergeCapability?.reason || "视频合并服务尚未就绪");
+    const candidates = entries.map(item => {
+      const states = (item.directorResult?.storyboard || []).map((_, index) => resolveBatchFactoryVideoProduction(item, index, byProjectId[String(item.production?.projectId)] || null));
+      const mediaIds = states.map(state => Number(state?.media?.id || 0));
+      return { item, mediaIds, ready: states.length > 0 && states.every(state => state?.status === "succeeded") && mediaIds.every(id => id > 0) && /^\d+$/.test(String(item.bookId || "")) };
+    }).filter(candidate => candidate.ready && !candidate.item.production?.mergedAt);
+    if (!candidates.length) return message.info("当前没有可合并的已完成小说");
+    setMerging(true); let success = 0;
+    try { for (const candidate of candidates) { await mergeBatchFactoryVideos({ projectId: Number(candidate.item.production.projectId), bookId: String(candidate.item.bookId), mediaIds: candidate.mediaIds, speed: 1.5 }); success += 1; } await refreshActiveBatch(); refreshProductionStatus(); message.success(`批量合并完成：${success} 本`); }
+    catch (error) { message.error(error.message || "批量合并失败"); } finally { setMerging(false); }
+  }
   return (
     <div className="bf-preview-page">
       <header className="bf-preview-header">
@@ -929,8 +977,7 @@ export function BatchFactoryPreviewPage() {
               <Button
                 type="primary"
                 icon={<Settings2 size={15} />}
-                disabled
-                title="统一设置需要 MySQL 配置快照接口后开放"
+                onClick={() => setSettingsOpen(true)}
               >
                 生产统一设置
               </Button>
@@ -978,8 +1025,9 @@ export function BatchFactoryPreviewPage() {
             </Button>
             <Button
               icon={<RotateCcw size={15} />}
-              disabled
-              title="批量合并需要先同步视频成品状态后开放"
+              loading={merging}
+              disabled={!entries.some(item => item.displayStatus === "待合并")}
+              onClick={mergeAllCompleted}
             >
               合并待合并 <small>{summary["待合并"]}</small>
             </Button>
@@ -1112,7 +1160,7 @@ export function BatchFactoryPreviewPage() {
                 value="1.5x"
                 options={[{ value: "1.5x", label: "1.5x" }]}
               />
-              <Button type="primary" block>
+              <Button type="primary" block loading={merging} disabled={!entries.some(item => item.displayStatus === "待合并")} onClick={mergeAllCompleted}>
                 合并全部已完成小说
               </Button>
             </div>
@@ -1129,6 +1177,7 @@ export function BatchFactoryPreviewPage() {
           setFilterPosition(0);
         }}
       />
+      <ProductionSettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} batch={batch} entries={entries} onSaved={setBatch} />
     </div>
   );
 }

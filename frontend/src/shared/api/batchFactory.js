@@ -23,6 +23,16 @@ export function getBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}`);
 }
 
+export function updateBatchFactorySettings(batchId, settings) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings })
+  });
+}
+export function updateBatchFactoryItem(batchId, itemId, item) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}`, { method: 'PUT', body: JSON.stringify({ item }) });
+}
+
 export function startBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/start`, { method: 'POST' });
 }

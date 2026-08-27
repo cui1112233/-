@@ -333,6 +333,20 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     return res.json({ batch });
   });
 
+  router.put('/batches/:batchId/settings', async (req, res) => {
+    try {
+      const scopedStore = forRequest(req);
+      const current = await scopedStore.getBatch(req.username, req.params.batchId);
+      if (!current) return res.status(404).json({ error: '批次不存在' });
+      const settings = await resolveBoundVideoSettings(req, { ...current.settings, ...(req.body?.settings || {}) }, shuihuoGateway);
+      if (typeof scopedStore.updateBatchSettings !== 'function') return res.status(501).json({ error: '当前存储暂不支持保存批次设置' });
+      const batch = await scopedStore.updateBatchSettings(req.username, current.id, settings);
+      return res.json({ batch });
+    } catch (error) {
+      return res.status(error.statusCode || error.status || 400).json({ error: error.message || '保存批次设置失败' });
+    }
+  });
+
   router.post('/batches/:batchId/start', async (req, res) => {
     const scopedStore = forRequest(req);
     const batch = await scopedStore.getBatch(req.username, req.params.batchId);
