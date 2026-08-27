@@ -484,8 +484,14 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
       const videoOverrides = item.videoOverrides?.[String(video.id)] || {};
       const settings = { ...batch.settings, ...(item.settingOverrides || {}), ...videoOverrides };
+      const effectiveVideo = {
+        ...video,
+        characters: Array.isArray(videoOverrides.characters) ? videoOverrides.characters : video.characters,
+        props: Array.isArray(videoOverrides.props) ? videoOverrides.props : video.props,
+        scene: typeof videoOverrides.scene === 'string' ? videoOverrides.scene : video.scene,
+      };
       const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
-      const payload = compileVideoPrompt({ directorResult: result, video, settings, autoPrefix });
+      const payload = compileVideoPrompt({ directorResult: result, video: effectiveVideo, settings, autoPrefix });
       return res.json({ payload, settingsSource: Object.keys(videoOverrides).length ? 'video' : Object.keys(item.settingOverrides || {}).length ? 'book' : 'batch', prefix: { key: video.prefix_key || 'general_anime', preset: presetVersion(presetStore, prefixId) } });
     } catch (error) {
       return res.status(400).json({ error: error.message || '编译视频提示词失败' });

@@ -8,6 +8,7 @@ import {
   Progress,
   Select,
   Slider,
+  Space,
   Tag,
   message,
 } from "antd";
@@ -47,7 +48,7 @@ import {
   defaultBatchFactoryVideoModel,
   loadBatchFactoryVideoModels,
 } from "./batch-factory/BatchFactoryProductionControls";
-import { resolveBatchFactoryVideoProduction, resolveBookStatus, useBatchFactoryProductionStatus } from "./batch-factory/BatchFactoryVideoProductionStatus";
+import { resolveBatchFactoryVideoProduction, resolveBookStatus, useBatchFactoryProductionStatus, VideoResultPreview } from "./batch-factory/BatchFactoryVideoProductionStatus";
 import { nextStatusTarget, summarizeVideoProgress } from "./batch-factory/workbenchState";
 import {
   fileToDraft,
@@ -196,7 +197,45 @@ function BookList({ entries, selectedId, onSelect }) {
   );
 }
 
-function CurrentBook({ item, onRetry, canProduce, onSettings, onEditVisualPrompt }) {
+function AssetEditor({ batchId, item, onSaved, onRegenerate }) {
+  const [assets, setAssets] = useState({ characters: [], scenes: [], props: [] });
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!item) return;
+    setAssets({
+      characters: (item.directorResult?.characters || []).map((entry) => ({ ...entry })),
+      scenes: (item.directorResult?.scenes || []).map((entry) => ({ ...entry })),
+      props: (item.directorResult?.props || []).map((entry) => ({ ...entry })),
+    });
+  }, [item]);
+  const update = (type, index, key, value) => setAssets((current) => ({ ...current, [type]: current[type].map((entry, entryIndex) => entryIndex === index ? { ...entry, [key]: value } : entry) }));
+  async function save() {
+    if (!item?.id) return;
+    setSaving(true);
+    try {
+      const directorResult = { ...(item.directorResult || {}), ...assets };
+      const result = await updateBatchFactoryDirectorResult(batchId, item.id, directorResult);
+      onSaved(result.item || { ...item, directorResult, manuallyEdited: true });
+      message.success("视觉资产已保存");
+    } catch (error) { message.error(error.message || "保存视觉资产失败"); }
+    finally { setSaving(false); }
+  }
+  return <div className="bf-asset-editor">
+    {[["characters", "人物"], ["scenes", "场景"], ["props", "道具"]].map(([type, label]) => <section key={type}>
+      <strong>{label}</strong>
+      {assets[type].length ? assets[type].map((entry, index) => <div className="bf-asset-row" key={`${type}-${index}`}>
+        <Input size="small" value={entry.name} disabled placeholder={`${label}名称`} />
+        <Input.TextArea rows={2} value={entry.prompt} onChange={(event) => update(type, index, "prompt", event.target.value)} placeholder={`${label} Prompt`} />
+      </div>) : <small className="bf-preview-modal-note">暂无{label}资产</small>}
+    </section>)}
+    <Space>
+      <Button type="primary" loading={saving} onClick={save}>保存视觉资产</Button>
+      <Button icon={<RotateCcw size={14} />} onClick={onRegenerate}>重新获取候选</Button>
+    </Space>
+  </div>;
+}
+
+function CurrentBook({ batchId, item, onRetry, canProduce, onSettings, onEditVisualPrompt, onSaved, onRegenerate }) {
   const failed = item?.displayStatus === "异常";
   const [openSections, setOpenSections] = useState(["source"]);
   const toggle = (section) =>
@@ -223,7 +262,9 @@ function CurrentBook({ item, onRetry, canProduce, onSettings, onEditVisualPrompt
       "assets",
       <FolderOpen size={16} />,
       "人物 / 场景 / 道具",
-      "导演完成后会在这里显示本书的视觉设定。",
+      item?.directorResult?.characters?.length || item?.directorResult?.scenes?.length || item?.directorResult?.props?.length
+        ? <AssetEditor batchId={batchId} item={item} onSaved={onSaved} onRegenerate={onRegenerate} />
+        : "导演完成后会在这里显示本书的视觉设定。",
     ],
     [
       "prompts",
@@ -321,6 +362,9 @@ function VideoOperations({ item, onRetry, onViewPrompt, onVideoSettings, canProd
   const validBookId = /^\d{1,128}$/.test(String(item?.bookId || ""));
   const canMerge = hasReadyVideos && validBookId && mergeCapability?.ready === true;
   const mergeReason = !mergeCapability?.ready ? (mergeCapability?.reason || "正在检查服务器合并能力") : !validBookId ? "合并需要纯数字 Book ID" : !hasReadyVideos ? "等待当前书全部 VIDEO 成品完成" : "";
+  const mergedMedia = [...(projectStatus?.media || [])].reverse().find((media) => media.source === "batch_merge") || null;
+  const activeIndex = videos.findIndex((video, index) => String(video.id || index + 1).padStart(2, "0") === String(choice));
+  const activeProduction = choice === "merged" ? (mergedMedia ? { media: mergedMedia } : null) : (activeIndex >= 0 ? videoStates[activeIndex] : null);
   return (
     <aside className="bf-preview-video-operations">
       <div className="bf-preview-section-title">
@@ -360,10 +404,7 @@ function VideoOperations({ item, onRetry, onViewPrompt, onVideoSettings, canProd
       </div>
       <section className="bf-preview-player-panel">
         <div className="bf-preview-player">
-          <Play size={28} />
-          <div>
-            {choice === "merged" ? "合并成片预览" : `VIDEO ${choice} 预览`}
-          </div>
+          {activeProduction?.media?.id ? <VideoResultPreview production={activeProduction} downloadName={`${item?.bookId || "batch-factory"}-${choice}.mp4`} compact /> : <><Play size={28} /><div>{choice === "merged" ? "合并成片预览" : `VIDEO ${choice} 预览`}</div></>}
         </div>
         <div className="bf-preview-player-actions">
           <Button
@@ -717,6 +758,7 @@ function VideoSettingsDrawer({ open, onClose, batch, item, video, onSaved }) {
     if (open) setSettings({ ...(item?.videoOverrides?.[String(video?.id)] || {}) });
   }, [open, item, video]);
   const patch = (key, value) => setSettings((current) => ({ ...current, [key]: value }));
+  const optionsFor = (type) => (item?.directorResult?.[type] || []).map((entry) => ({ value: entry.name, label: entry.name }));
   async function save() {
     if (!batch?.id || !item?.id || !video?.id) return;
     setSaving(true);
@@ -741,6 +783,11 @@ function VideoSettingsDrawer({ open, onClose, batch, item, video, onSaved }) {
       <label>画质要求（留空跟随）</label><Input.TextArea rows={2} value={settings.quality || ""} onChange={(event) => patch("quality", event.target.value)} />
       <label>画面限制（留空跟随）</label><Input.TextArea rows={2} value={settings.restriction || ""} onChange={(event) => patch("restriction", event.target.value)} />
       <label>负面提示词（留空跟随）</label><Input.TextArea rows={2} value={settings.negative || ""} onChange={(event) => patch("negative", event.target.value)} />
+      <Divider orientation="left">本段资产引用</Divider>
+      <label>人物</label><Select mode="multiple" allowClear value={settings.characters || video?.characters || []} options={optionsFor("characters")} onChange={(value) => patch("characters", value)} />
+      <label>场景</label><Select allowClear value={settings.scene ?? video?.scene ?? undefined} options={optionsFor("scenes")} onChange={(value) => patch("scene", value || "")} />
+      <label>道具</label><Select mode="multiple" allowClear value={settings.props || video?.props || []} options={optionsFor("props")} onChange={(value) => patch("props", value)} />
+      {[['characterPromptEnabled', '人物 Prompt 注入'], ['scenePromptEnabled', '场景 Prompt 注入'], ['propPromptEnabled', '道具 Prompt 注入']].map(([key, label]) => <label key={key}>{label}<Select value={settings[key] === undefined ? 'inherit' : settings[key] ? 'on' : 'off'} onChange={(value) => patch(key, value === 'inherit' ? '' : value === 'on')} options={[{ value: 'inherit', label: '跟随批次' }, { value: 'on', label: '开启' }, { value: 'off', label: '关闭' }]} /></label>)}
       <Button type="primary" block loading={saving} onClick={save}>保存此 VIDEO</Button>
     </div>
   </Drawer>;
@@ -935,6 +982,14 @@ export function BatchFactoryPreviewPage() {
     } catch (error) {
       message.error(error.message || "重新提交视频失败");
     }
+  }
+  async function regenerateCurrentDirector() {
+    if (!batch?.id || !selected?.id) return;
+    try {
+      const result = await regenerateBatchFactoryDirector(batch.id, selected.id);
+      setBatch((current) => ({ ...current, items: current.items.map((entry) => entry.id === selected.id ? (result.item || entry) : entry) }));
+      message.success("已重新获取导演候选");
+    } catch (error) { message.error(error.message || "重新获取候选失败"); }
   }
   async function viewVideoPrompt(choice) {
     if (!batch?.id || !selected?.id || choice === "merged") return;
@@ -1140,11 +1195,14 @@ export function BatchFactoryPreviewPage() {
         <div className={`bf-preview-grid ${layoutEditing ? "is-layout-editing" : ""}`} ref={listRef} style={{ gridTemplateColumns: columnWeights.map((weight) => `minmax(220px, ${weight}fr)`).join(" ") }}>
           {entries.length ? <BookList entries={entries} selectedId={selected?.id} onSelect={selectBook} /> : <aside className="bf-preview-books bf-preview-empty"><div className="bf-preview-section-title"><span>小说列表</span><small>0/0</small></div><div className="bf-preview-empty-copy"><FolderOpen size={28} /><strong>暂无小说</strong><span>点击右上角“新建批次”上传或粘贴 TXT / MD</span><Button type="primary" onClick={() => setIntakeOpen(true)}>导入小说</Button></div></aside>}
           <CurrentBook
+            batchId={batch?.id}
             item={selected}
             onRetry={retryCurrentBookVideo}
             canProduce={canProduceSelected}
             onSettings={() => setSettingsOpen(true)}
             onEditVisualPrompt={openVisualPrompt}
+            onSaved={(item) => setBatch((current) => ({ ...current, items: current.items.map((entry) => entry.id === item.id ? item : entry) }))}
+            onRegenerate={regenerateCurrentDirector}
           />
           <VideoOperations
             item={selected}

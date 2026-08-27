@@ -18,9 +18,15 @@ function compileItemVideos(presetStore, batch, item) {
   return item.directorResult.storyboard.map(video => {
     const videoOverrides = item.videoOverrides?.[String(video.id)] || {};
     const settings = { ...batch.settings, ...(item.settingOverrides || {}), ...videoOverrides };
+    const effectiveVideo = {
+      ...video,
+      characters: Array.isArray(videoOverrides.characters) ? videoOverrides.characters : video.characters,
+      props: Array.isArray(videoOverrides.props) ? videoOverrides.props : video.props,
+      scene: typeof videoOverrides.scene === 'string' ? videoOverrides.scene : video.scene,
+    };
     const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
     const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
-    const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings, autoPrefix });
+    const payload = compileVideoPrompt({ directorResult: item.directorResult, video: effectiveVideo, settings, autoPrefix });
     return {
       sourceText: String(video.video_desc || `VIDEO ${video.id}`).trim(),
       videoPrompt: payload.prompt,

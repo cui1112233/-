@@ -211,7 +211,7 @@ function ProductionStatusTag({ production }) {
   return <Tag color={color}>{label}</Tag>;
 }
 
-function VideoResultPreview({ production, downloadName }) {
+export function VideoResultPreview({ production, downloadName, compact = false }) {
   const mediaId = Number(production?.media?.id || 0);
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -265,8 +265,8 @@ function VideoResultPreview({ production, downloadName }) {
   }
 
   return <Space direction="vertical" size={10} style={{ width: '100%' }}>
-    {previewUrl ? <video controls preload="metadata" src={previewUrl} style={{ width: '100%', maxWidth: 560, borderRadius: 8 }} /> : <Button icon={<Play size={15} />} loading={previewLoading} onClick={loadPreview}>加载视频预览</Button>}
-    <Button icon={<Download size={15} />} loading={downloadLoading} onClick={downloadResult}>下载成品</Button>
+    {previewUrl ? <video controls preload="metadata" src={previewUrl} style={{ width: '100%', maxWidth: 560, borderRadius: 8 }} /> : <Button size={compact ? 'small' : 'middle'} icon={<Play size={15} />} loading={previewLoading} onClick={loadPreview}>加载视频预览</Button>}
+    <Button size={compact ? 'small' : 'middle'} icon={<Download size={15} />} loading={downloadLoading} onClick={downloadResult}>下载成品</Button>
   </Space>;
 }
 
