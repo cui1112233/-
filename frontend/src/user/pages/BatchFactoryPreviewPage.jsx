@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
+  Divider,
   Drawer,
   Input,
   Modal,
@@ -702,6 +703,9 @@ function ProductionSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
     <label>画幅</label><Select value={settings.aspectRatio || "9:16"} onChange={value => patchSetting("aspectRatio", value)} options={[{ value: "9:16", label: "9:16 竖屏" }, { value: "16:9", label: "16:9 横屏" }]} />
     <label className="bf-settings-check"><input type="checkbox" checked={settings.fixedSingleVideo === true} onChange={event => patchSetting("fixedSingleVideo", event.target.checked)} /> 固定单镜头时长</label>
     <label>视频风格</label><Input value={settings.style || ""} onChange={event => patchSetting("style", event.target.value)} placeholder="例如：高质量动漫短视频" />
+    <Divider orientation="left">提示词与生成约束</Divider>
+    {[['prefixEnabled', '画面前缀词'], ['characterPromptEnabled', '人物 Prompt 注入'], ['scenePromptEnabled', '场景 Prompt 注入'], ['propPromptEnabled', '道具 Prompt 注入'], ['qualityEnabled', '画质要求'], ['restrictionEnabled', '画面限制'], ['negativeEnabled', '负面提示词']].map(([key, label]) => <label className="bf-settings-check" key={key}><input type="checkbox" checked={settings[key] !== false} onChange={event => patchSetting(key, event.target.checked)} /> {label}</label>)}
+    <label>文字与字幕</label><Input value={settings.subtitlePolicy || "禁止自动对白字幕"} onChange={event => patchSetting("subtitlePolicy", event.target.value)} />
     <Button type="primary" block loading={saving} disabled={scope === "individual" && !selectedIds.length} onClick={save}>保存设置</Button>
   </div></Drawer>;
 }
