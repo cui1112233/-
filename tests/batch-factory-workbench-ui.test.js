@@ -78,6 +78,44 @@ test("new batch stays inside the workbench and creates an imported pending batch
   );
 });
 
+test("batch intake includes built-in video adapters instead of filtering them out", () => {
+  const intake = fs.readFileSync(
+    "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
+    "utf8",
+  );
+  const controls = fs.readFileSync(
+    "frontend/src/user/pages/batch-factory/BatchFactoryProductionControls.jsx",
+    "utf8",
+  );
+  assert.match(intake, /batchFactorySelectableVideoModels/);
+  assert.match(intake, /defaultBatchFactoryVideoModel/);
+  assert.match(controls, /yd_video:\s*1/);
+  assert.match(controls, /local_executor_video:\s*10/);
+  assert.match(controls, /requiresImageInput !== true/);
+  assert.match(controls, /图生 · 固定/);
+  assert.match(controls, /文生 · 最长/);
+});
+
+test("current-book fold headers use the dark workbench button style", () => {
+  const stylesheet = fs.readFileSync(
+    "frontend/src/user/pages/batch-factory-preview.css",
+    "utf8",
+  );
+  assert.match(stylesheet, /\.bf-preview-folds > div > button\s*\{/);
+  assert.match(stylesheet, /\.bf-preview-folds > div > button\s*\{[\s\S]*?background:\s*#102033/);
+});
+
+test("batch factory defines matching light-theme surface tokens", () => {
+  const stylesheet = fs.readFileSync(
+    "frontend/src/user/pages/batch-factory-preview.css",
+    "utf8",
+  );
+  assert.match(stylesheet, /--bf-page:/);
+  assert.match(stylesheet, /\[data-theme="light"\] \.bf-preview-page\s*\{/);
+  assert.match(stylesheet, /--bf-panel:/);
+  assert.match(stylesheet, /--bf-text:/);
+});
+
 test("batch intake detects invalid files and exposes editable duplicate draft fields", () => {
   const source = fs.readFileSync(
     "frontend/src/user/pages/BatchFactoryPreviewPage.jsx",
@@ -129,6 +167,27 @@ test("fixed frame exposes actual VIDEO prefix information when inspecting prompt
   assert.match(source, /prefix_key/);
   assert.match(source, /result\.prefix\?\.key/);
   assert.match(source, /compileBatchFactoryVideo/);
+});
+
+test("VIDEO cards keep editable visual prompts separate from compiled submission prompts", () => {
+  const source = fs.readFileSync("frontend/src/user/pages/BatchFactoryPreviewPage.jsx", "utf8");
+  const api = fs.readFileSync("frontend/src/shared/api/batchFactory.js", "utf8");
+  const router = fs.readFileSync("routes/batch-factory.js", "utf8");
+  assert.match(source, /本书 VIDEO 画面提示词/);
+  assert.match(source, /编辑画面提示词/);
+  assert.match(source, /提交时动态编译/);
+  assert.match(api, /updateBatchFactoryVideoVisualPrompt/);
+  assert.match(router, /videos\/:videoId\/visual-prompt/);
+});
+
+test("single VIDEO settings persist an explicit override and retain a follow-batch reset", () => {
+  const source = fs.readFileSync("frontend/src/user/pages/BatchFactoryPreviewPage.jsx", "utf8");
+  const production = fs.readFileSync("routes/batch-factory-production.js", "utf8");
+  assert.match(source, /VIDEO .*单独设置/);
+  assert.match(source, /跟随批次/);
+  assert.match(source, /videoOverrides/);
+  assert.match(production, /item\.videoOverrides/);
+  assert.match(production, /settingSource/);
 });
 
 test("fixed frame only enables merge through the existing merge capability contract", () => {

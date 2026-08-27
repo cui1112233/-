@@ -16,14 +16,20 @@ const PREFIX_PRESETS = Object.freeze({
 
 function compileItemVideos(presetStore, batch, item) {
   return item.directorResult.storyboard.map(video => {
+    const videoOverrides = item.videoOverrides?.[String(video.id)] || {};
+    const settings = { ...batch.settings, ...(item.settingOverrides || {}), ...videoOverrides };
     const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-    const autoPrefix = batch.settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
-    const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings: batch.settings, autoPrefix });
+    const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
+    const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings, autoPrefix });
     return {
       sourceText: String(video.video_desc || `VIDEO ${video.id}`).trim(),
       videoPrompt: payload.prompt,
+      visualPrompt: payload.visualPrompt,
+      compiledPrompt: payload.compiledPrompt,
+      compiledSections: payload.compiledSections,
       duration: payload.duration,
-      aspectRatio: payload.aspect_ratio
+      aspectRatio: payload.aspect_ratio,
+      settingSource: Object.keys(videoOverrides).length ? 'video' : Object.keys(item.settingOverrides || {}).length ? 'book' : 'batch'
     };
   });
 }
@@ -93,6 +99,15 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
     title: item.title,
     statusCode: upstream.statusCode,
     production,
+    productionSnapshot: videos.map((video, index) => ({
+      videoId: item.directorResult?.storyboard?.[index]?.id || String(index + 1),
+      visualPrompt: video.visualPrompt,
+      compiledPrompt: video.compiledPrompt,
+      compiledSections: video.compiledSections,
+      duration: video.duration,
+      aspectRatio: video.aspectRatio,
+      submittedAt: production.submittedAt
+    })),
     project: upstream.payload?.project || null,
     results
   };
@@ -138,6 +153,7 @@ async function persistProductionFailure(store, username, batchId, result) {
 async function persistProductionSuccess(store, username, batchId, result) {
   await store.updateItem(username, batchId, result.itemId, target => {
     target.production = result.production;
+    target.productionSnapshot = result.productionSnapshot || [];
     target.productionResults = result.results;
     target.productionSubmissionError = null;
   });

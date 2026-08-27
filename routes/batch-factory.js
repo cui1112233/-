@@ -16,6 +16,17 @@ const PREFIX_PRESETS = Object.freeze({
   era_drama: 'batch-prefix-era-drama'
 });
 
+const BUILT_IN_VIDEO_MAX_DURATIONS = Object.freeze({
+  yd_video: 1,
+  local_executor_video: 10
+});
+
+function batchFactoryMaxVideoDuration(model = {}) {
+  const configured = Number(model.maxVideoDuration);
+  if (Number.isInteger(configured) && configured >= 1 && configured <= 60) return configured;
+  return BUILT_IN_VIDEO_MAX_DURATIONS[model.adapterKind] || 0;
+}
+
 const DIRECTOR_SCHEMA = `
 只输出合法 JSON，结构必须为：
 {
@@ -192,7 +203,7 @@ function canonicalModelSettings(inputSettings, model) {
     videoModelId: Number(model.id),
     videoModelVersionId: Number(model.versionId),
     videoModelName: String(model.name || '').trim(),
-    maxVideoDuration: Number(model.maxVideoDuration)
+    maxVideoDuration: batchFactoryMaxVideoDuration(model)
   };
 }
 
@@ -219,14 +230,14 @@ async function resolveBoundVideoSettings(req, inputSettings, shuihuoGateway) {
   }
   const models = Array.isArray(upstream.payload?.models) ? upstream.payload.models : [];
   const model = models.find(entry => Number(entry.id) === modelId);
-  if (!model || model.kind !== 'video' || model.requiresImageInput === true) {
-    throw createHttpError('所选模型当前不是可用的文生视频模型', 409);
+  if (!model || model.kind !== 'video') {
+    throw createHttpError('所选模型当前不是可用的视频模型', 409);
   }
   const role = req.auth.account.isOwner === true ? 'owner' : 'user';
   if (Array.isArray(model.allowedRoles) && model.allowedRoles.length && !model.allowedRoles.includes(role)) {
     throw createHttpError('当前账号不能使用所选视频模型', 403);
   }
-  const maxDuration = Number(model.maxVideoDuration);
+  const maxDuration = batchFactoryMaxVideoDuration(model);
   if (!Number.isInteger(maxDuration) || maxDuration < 1 || maxDuration > 60) {
     throw createHttpError('所选视频模型未配置单次最大生成时长，请管理员先在模型中心补充该能力', 409);
   }
@@ -347,6 +358,53 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     }
   });
 
+  router.put('/batches/:batchId/items/:itemId', async (req, res) => {
+    try {
+      const scopedStore = forRequest(req);
+      const batch = await scopedStore.getBatch(req.username, req.params.batchId);
+      const item = batch?.items?.find(entry => entry.id === req.params.itemId);
+      if (!batch || !item) return res.status(404).json({ error: '批次或小说不存在' });
+      const incoming = req.body?.item || {};
+      const settingOverrides = incoming.settingOverrides && typeof incoming.settingOverrides === 'object' && !Array.isArray(incoming.settingOverrides)
+        ? incoming.settingOverrides
+        : item.settingOverrides || {};
+      const videoOverrides = incoming.videoOverrides && typeof incoming.videoOverrides === 'object' && !Array.isArray(incoming.videoOverrides)
+        ? incoming.videoOverrides
+        : item.videoOverrides || {};
+      await scopedStore.updateItem(req.username, batch.id, item.id, target => {
+        target.settingOverrides = settingOverrides;
+        target.videoOverrides = videoOverrides;
+        target.manuallyEdited = incoming.manuallyEdited === true || target.manuallyEdited === true;
+        target.error = target.error || '';
+      });
+      return res.json({ item: (await scopedStore.getBatch(req.username, batch.id)).items.find(entry => entry.id === item.id) });
+    } catch (error) {
+      return res.status(error.status || 400).json({ error: error.message || '保存小说设置失败' });
+    }
+  });
+
+  router.put('/batches/:batchId/items/:itemId/videos/:videoId/visual-prompt', async (req, res) => {
+    try {
+      const visualPrompt = String(req.body?.visualPrompt || '').trim();
+      if (!visualPrompt || visualPrompt.length > 20000) return res.status(400).json({ error: '画面提示词需介于 1 到 20000 个字符之间' });
+      const scopedStore = forRequest(req);
+      const batch = await scopedStore.getBatch(req.username, req.params.batchId);
+      const item = batch?.items?.find(entry => entry.id === req.params.itemId);
+      const video = item?.directorResult?.storyboard?.find(entry => String(entry.id) === String(req.params.videoId));
+      if (!batch || !item || !video) return res.status(404).json({ error: '视频分镜不存在' });
+      await scopedStore.updateItem(req.username, batch.id, item.id, target => {
+        const targetVideo = target.directorResult.storyboard.find(entry => String(entry.id) === String(req.params.videoId));
+        targetVideo.visualPrompt = visualPrompt;
+        target.manuallyEdited = true;
+        target.productionSnapshot = [];
+        target.production = null;
+      });
+      return res.json({ item: (await scopedStore.getBatch(req.username, batch.id)).items.find(entry => entry.id === item.id) });
+    } catch (error) {
+      return res.status(error.status || 400).json({ error: error.message || '保存画面提示词失败' });
+    }
+  });
+
   router.post('/batches/:batchId/start', async (req, res) => {
     const scopedStore = forRequest(req);
     const batch = await scopedStore.getBatch(req.username, req.params.batchId);
@@ -424,9 +482,11 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       const video = result?.storyboard?.find(entry => String(entry.id) === String(req.params.videoId));
       if (!batch || !item || !video) return res.status(404).json({ error: '视频分镜不存在' });
       const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-      const autoPrefix = batch.settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
-      const payload = compileVideoPrompt({ directorResult: result, video, settings: batch.settings, autoPrefix });
-      return res.json({ payload, prefix: { key: video.prefix_key || 'general_anime', preset: presetVersion(presetStore, prefixId) } });
+      const videoOverrides = item.videoOverrides?.[String(video.id)] || {};
+      const settings = { ...batch.settings, ...(item.settingOverrides || {}), ...videoOverrides };
+      const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
+      const payload = compileVideoPrompt({ directorResult: result, video, settings, autoPrefix });
+      return res.json({ payload, settingsSource: Object.keys(videoOverrides).length ? 'video' : Object.keys(item.settingOverrides || {}).length ? 'book' : 'batch', prefix: { key: video.prefix_key || 'general_anime', preset: presetVersion(presetStore, prefixId) } });
     } catch (error) {
       return res.status(400).json({ error: error.message || '编译视频提示词失败' });
     }
@@ -435,4 +495,4 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
   return router;
 }
 
-module.exports = { createBatchFactoryRouter, PREFIX_PRESETS, canonicalModelSettings, resolveBoundVideoSettings };
+module.exports = { createBatchFactoryRouter, PREFIX_PRESETS, canonicalModelSettings, resolveBoundVideoSettings, batchFactoryMaxVideoDuration };

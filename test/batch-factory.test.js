@@ -127,6 +127,26 @@ test('创建批次时服务端模型能力覆盖客户端伪造值', () => {
   assert.equal(settings.aspectRatio, '9:16');
 });
 
+test('批量工厂为内置视频适配器使用已声明的时长能力', () => {
+  const localExecutor = canonicalModelSettings({}, {
+    id: 3,
+    versionId: 1,
+    name: '本地豆包执行器',
+    adapterKind: 'local_executor_video',
+    maxVideoDuration: 0
+  });
+  const yd = canonicalModelSettings({}, {
+    id: 2,
+    versionId: 1,
+    name: 'YD2.0 Mini',
+    adapterKind: 'yd_video',
+    maxVideoDuration: 0
+  });
+
+  assert.equal(localExecutor.maxVideoDuration, 10);
+  assert.equal(yd.maxVideoDuration, 1);
+});
+
 test('生成阶段拒绝把已导演批次换成另一视频模型', () => {
   const batch = { settings: { videoModelId: 18, videoModelName: 'Seedance 2.0' } };
   assert.equal(boundModelError(batch, 18), '');
@@ -238,6 +258,10 @@ test('视频 Prompt 编译时同时注入秒数、画幅、人物场景道具和
 
   assert.equal(payload.duration, 9);
   assert.equal(payload.aspect_ratio, '16:9');
+  assert.equal(payload.visualPrompt, '0-3秒：林晚走入客厅。');
+  assert.match(payload.compiledPrompt, /【画面前缀】/);
+  assert.match(payload.compiledPrompt, /【人物设定】/);
+  assert.ok(payload.compiledSections.includes('视频分镜'));
   assert.match(payload.prompt, /【视频时长：9秒】/);
   assert.match(payload.prompt, /【画幅：16:9】/);
   assert.match(payload.prompt, /高情绪现代都市动漫短剧/);

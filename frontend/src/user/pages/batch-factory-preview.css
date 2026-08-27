@@ -94,6 +94,20 @@
   grid-template-columns: 1.25fr 1fr;
   gap: 12px;
 }
+.bf-preview-layout-editor {
+  margin: 10px 18px;
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: auto repeat(4, minmax(150px, 1fr)) auto auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--bf-active-border, #7865ff);
+  border-radius: 8px;
+  background: var(--bf-panel, #0c1929);
+}
+.bf-preview-layout-editor label { min-width: 0; }
+.bf-preview-layout-editor label span { display: block; font-size: 12px; color: var(--bf-muted, #91a1b7); }
+.bf-preview-grid.is-layout-editing > * { outline: 1px dashed var(--bf-active-border, #7865ff); outline-offset: 3px; }
 .bf-preview-status-title {
   grid-column: 1/-1;
 }
@@ -300,7 +314,7 @@
   flex-direction: column;
   gap: 4px;
 }
-.bf-preview-folds > button {
+.bf-preview-folds > div > button {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -478,6 +492,7 @@
   width: 100%;
 }
 @media (max-width: 1450px) {
+  .bf-preview-layout-editor { grid-template-columns: repeat(3, minmax(170px, 1fr)); }
   .bf-preview-grid {
     grid-template-columns: 240px minmax(340px, 1fr) minmax(270px, 0.8fr);
   }
@@ -599,3 +614,112 @@
   border: 1px solid #2a4059;
   border-radius: 5px;
 }
+
+/* Batch factory is a self-contained workbench. Keep every surface on the
+   application theme tokens so native controls never fall back to white. */
+.bf-preview-page {
+  --bf-page: #071321;
+  --bf-panel: #0c1929;
+  --bf-panel-soft: #102033;
+  --bf-panel-raised: #132337;
+  --bf-input: #0a1523;
+  --bf-player: #081522;
+  --bf-border: #20324a;
+  --bf-border-strong: #30445a;
+  --bf-text: #e8eef8;
+  --bf-text-soft: #d5e0ec;
+  --bf-muted: #91a1b7;
+  --bf-active: #1a2844;
+  --bf-active-border: #7865ff;
+  --bf-alert-bg: #281924;
+  --bf-alert-border: #8d3542;
+}
+
+[data-theme="light"] .bf-preview-page {
+  --bf-page: #f3f6fa;
+  --bf-panel: #ffffff;
+  --bf-panel-soft: #f8fafc;
+  --bf-panel-raised: #f1f5f9;
+  --bf-input: #ffffff;
+  --bf-player: #e8eef5;
+  --bf-border: #d1dbe7;
+  --bf-border-strong: #b8c6d5;
+  --bf-text: #182333;
+  --bf-text-soft: #344256;
+  --bf-muted: #60738a;
+  --bf-active: #edf2ff;
+  --bf-active-border: #635bdb;
+  --bf-alert-bg: #fff4f2;
+  --bf-alert-border: #e7a49d;
+}
+
+.bf-preview-page {
+  background: var(--bf-page);
+  color: var(--bf-text);
+}
+.bf-preview-page .bf-preview-header { border-color: var(--bf-border); }
+.bf-preview-page .bf-preview-heading h1 small,
+.bf-preview-page .bf-preview-actions small,
+.bf-preview-page .bf-preview-status-title span,
+.bf-preview-page .bf-preview-section-title small,
+.bf-preview-page .bf-preview-current span,
+.bf-preview-page .bf-preview-video-card span,
+.bf-preview-page .bf-preview-composer label,
+.bf-preview-page .bf-preview-merge label,
+.bf-preview-page .bf-preview-ring small,
+.bf-preview-page .bf-preview-rail p,
+.bf-preview-page .bf-intake-drawer label,
+.bf-preview-page .bf-intake-list small { color: var(--bf-muted); }
+
+.bf-preview-page .bf-preview-batch-bar,
+.bf-preview-page .bf-preview-status,
+.bf-preview-page .bf-preview-books,
+.bf-preview-page .bf-preview-center,
+.bf-preview-page .bf-preview-video-operations,
+.bf-preview-page .bf-preview-rail,
+.bf-preview-page .bf-preview-summaries div,
+.bf-preview-page .bf-intake-list,
+.bf-preview-page .bf-intake-list > div { background: var(--bf-panel); border-color: var(--bf-border); }
+
+.bf-preview-page button:not(.ant-btn),
+.bf-preview-page input,
+.bf-preview-page select {
+  color: var(--bf-text-soft);
+  background: var(--bf-panel-soft);
+  border-color: var(--bf-border-strong);
+}
+.bf-preview-page input,
+.bf-preview-page select { background: var(--bf-input); }
+.bf-preview-page button:not(.ant-btn):hover { border-color: var(--bf-active-border); }
+.bf-preview-page .bf-preview-batch-meta button,
+.bf-preview-page .bf-preview-abnormal button { background: transparent; color: var(--bf-muted); }
+
+.bf-preview-page .bf-preview-status-grid button b,
+.bf-preview-page .bf-preview-rail li b { color: var(--bf-text); }
+.bf-preview-page .bf-preview-status-grid button.is-active,
+.bf-preview-page .bf-preview-book.is-selected,
+.bf-preview-page .bf-preview-video-card.is-open { background: var(--bf-active); border-color: var(--bf-active-border); color: var(--bf-text); }
+.bf-preview-page .bf-preview-book,
+.bf-preview-page .bf-preview-video-card { background: var(--bf-panel-raised); border-color: var(--bf-border); color: var(--bf-text-soft); }
+.bf-preview-page .bf-preview-book-copy small,
+.bf-preview-page .bf-preview-book-id,
+.bf-preview-page .bf-preview-pagination { color: var(--bf-muted); }
+.bf-preview-page .bf-preview-folds > div > button,
+.bf-preview-page .bf-preview-player-panel,
+.bf-preview-page .bf-preview-composer { background: var(--bf-panel-soft); border-color: var(--bf-border); color: var(--bf-text-soft); }
+.bf-preview-page .bf-preview-readonly,
+.bf-preview-page .bf-preview-prompt { background: var(--bf-input); border-color: var(--bf-border); color: var(--bf-text-soft); }
+.bf-preview-page .bf-preview-player { background: var(--bf-player); color: var(--bf-text-soft); }
+.bf-preview-page .bf-preview-segment b,
+.bf-preview-page .bf-preview-segment span { border-color: var(--bf-border-strong); color: var(--bf-text-soft); }
+.bf-preview-page .bf-preview-segment b { border-color: var(--bf-active-border); color: var(--bf-active-border); }
+.bf-preview-page .bf-preview-alert { background: var(--bf-alert-bg); border-color: var(--bf-alert-border); }
+.bf-preview-page .bf-preview-alert small { color: var(--bf-text-soft); }
+.bf-preview-page .bf-preview-ring .ant-progress-text { color: var(--bf-text) !important; }
+.bf-preview-page .bf-preview-rail ul { color: var(--bf-text-soft); }
+.bf-preview-video-prompt-list { margin-top: 12px; display: grid; gap: 8px; }
+.bf-preview-video-prompt-list > div { border: 1px solid var(--bf-border); padding: 10px; border-radius: 6px; background: var(--bf-panel-soft); }
+.bf-preview-video-prompt-list p { margin: 6px 0; white-space: pre-wrap; color: var(--bf-text-soft); font-size: 12px; }
+.bf-preview-modal-note { color: var(--bf-muted); font-size: 12px; }
+.bf-preview-video-card-actions { margin-left: auto; padding: 3px 6px; border: 1px solid var(--bf-active-border); border-radius: 4px; color: var(--bf-active-border); font-size: 11px; cursor: pointer; }
+.bf-preview-video-card-actions:focus-visible { outline: 2px solid var(--bf-active-border); outline-offset: 2px; }
