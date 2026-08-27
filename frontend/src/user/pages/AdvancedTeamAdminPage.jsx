@@ -13,6 +13,7 @@ import {
   updateDelegatedTeamGovernance
 } from '../../shared/api/teamAdmin';
 import { MemberIdentity, PageHeader, Panel, RoleBadge, formatTokens } from './accountCenterShared';
+import { AccountCenterError } from './accountCenterLoad';
 
 const SCOPE_OPTIONS = [
   { label: '文本', value: 'text' },
@@ -127,7 +128,7 @@ export default function AdvancedTeamAdminPage() {
   }
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 10 }} /></div>;
-  if (!self || !['dev', 'manager'].includes(self.role)) return <div className="account-center-page"><div className="ac-empty">当前身份没有联合管理权限</div></div>;
+  if (!self || !['dev', 'manager'].includes(self.role)) return <AccountCenterError message="当前身份没有联合管理权限" onRetry={load} />;
 
   return <div className="account-center-page advanced-team-admin-page">
     <PageHeader title="联合治理" subtitle="Co-Manager 跨团队协作、强权限操作与不可逆删除" actions={self.role === 'dev' ? <Button danger icon={<Trash2 size={16} />} onClick={() => setPurgeOpen(true)}>永久删除已归档 MEMBER</Button> : null} />

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getMemberCenter } from '../../shared/api/member';
 import { PageHeader, Panel, RoleBadge } from './accountCenterShared';
+import { AccountCenterError } from './accountCenterLoad';
 
 const providers = [
   { label: 'OpenAI', value: 'openai' },
@@ -189,6 +190,7 @@ export default function ApiConfigPage() {
   }
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
+  if (!center?.member || !config) return <AccountCenterError message="API 配置加载失败" onRetry={() => window.location.reload()} />;
 
   return <div className="account-center-page api-config-page">
     <PageHeader title="API 配置" subtitle="管理云端模型连接与调用价格快照；本地视频执行器请前往设置" />

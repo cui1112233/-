@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getMemberCenter, getTeamMembers, markAllNotificationsRead } from '../../shared/api/member';
 import { Link } from '../../shared/components/Link';
 import { FeatureBars, MemberIdentity, PageHeader, Panel, RoleBadge, avatarFallback, formatDate, formatTokens } from './accountCenterShared';
+import { AccountCenterError } from './accountCenterLoad';
 
 export default function MemberCenterPage() {
   const [loading, setLoading] = useState(true);
@@ -39,7 +40,7 @@ export default function MemberCenterPage() {
   }
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 10 }} /></div>;
-  if (!self) return <div className="account-center-page"><div className="ac-empty">无法读取会员资料</div></div>;
+  if (!self) return <AccountCenterError message="无法读取会员资料" onRetry={load} />;
 
   const quota = self.monthlyTokenLimit;
   const quotaPercent = quota === null ? 0 : Math.min(100, Math.round((Number(month.totalTokens || 0) / Math.max(quota, 1)) * 100));

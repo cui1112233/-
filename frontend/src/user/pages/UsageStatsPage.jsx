@@ -11,6 +11,7 @@ import {
   formatDate,
   formatTokens
 } from './accountCenterShared';
+import { AccountCenterError } from './accountCenterLoad';
 
 const CONTENT_FEATURES = new Set(['script', 'novel-panel', 'novel-fetch', 'image', 'shuihuo-production']);
 
@@ -59,7 +60,7 @@ export default function UsageStatsPage() {
   const maxRecent = Math.max(1, ...recent.slice(0, 12).map(item => Number(item.totalTokens || 0)));
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 10 }} /></div>;
-  if (!self) return <div className="account-center-page"><div className="ac-empty">无法读取用量</div></div>;
+  if (!self) return <AccountCenterError message="无法读取用量" onRetry={() => window.location.reload()} />;
 
   return <div className="account-center-page usage-page">
     <PageHeader title="用量与制作" subtitle="查看 Token、调用次数、费用估算、功能构成与内容制作调用" />

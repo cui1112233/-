@@ -5,6 +5,7 @@ import { getMemberCenter, updateMemberProfile, uploadMemberAvatar } from '../../
 import { getEmailVerificationStatus, requestEmailVerification } from '../../shared/api/accountRecovery';
 import { PageHeader, Panel, RoleBadge, avatarFallback, formatDate } from './accountCenterShared';
 import { Link } from '../../shared/components/Link';
+import { AccountCenterError } from './accountCenterLoad';
 
 export default function ProfilePage() {
   const [form] = Form.useForm();
@@ -103,7 +104,7 @@ export default function ProfilePage() {
   }, [member]);
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
-  if (!member) return <div className="account-center-page"><div className="ac-empty">无法读取资料</div></div>;
+  if (!member) return <AccountCenterError message="无法读取资料" onRetry={load} />;
 
   const monthTokens = Number(center?.usage?.month?.totalTokens || 0);
   const monthlyLimit = member.monthlyTokenLimit;
