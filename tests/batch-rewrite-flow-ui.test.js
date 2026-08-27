@@ -27,3 +27,10 @@ test('提交方式内提供组织归属下拉，配置同步工具位于该区�
   assert.match(app, /function renderWebOrganizationOptions\(/);
   assert.match(app, /selected_organization/);
 });
+
+test('网站提交只保留版本配置，不再展示自由配置入口', () => {
+  assert.doesNotMatch(html, /value="free"/);
+  assert.doesNotMatch(html, /id="webFreeConfigSection"/);
+  assert.match(html, /<strong>版本配置<\/strong>/);
+  assert.match(app, /function webSubmitModeFromForm\(\)\s*\{\s*return "version"/);
+});

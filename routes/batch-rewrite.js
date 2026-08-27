@@ -820,7 +820,7 @@ function createBatchRewriteRouter({
       skip_submitted: cfg.skip_submitted !== false,
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
-      submit_mode: cfg.submit_mode === 'version' ? 'version' : 'free',
+      submit_mode: 'version',
       selected_profile: String(cfg.selected_profile || ''),
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
@@ -839,7 +839,7 @@ function createBatchRewriteRouter({
       ...cfg,
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
-      submit_mode: cfg.submit_mode === 'version' ? 'version' : 'free',
+      submit_mode: 'version',
       selected_profile: String(cfg.selected_profile || ''),
       advanced: target.normalizeBookAdvanced(cfg.advanced),
       upload_profiles: normalizeUploadProfiles(cfg.upload_profiles),
@@ -862,7 +862,7 @@ function createBatchRewriteRouter({
       skip_submitted: received.skip_submitted !== false,
       min_text_chars: Math.max(0, Math.min(Number(received.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(received.retry_times) || 1, 5)),
-      submit_mode: received.submit_mode === 'version' ? 'version' : 'free',
+      submit_mode: 'version',
       selected_profile: String(received.selected_profile || ''),
       advanced: target.normalizeBookAdvanced(received.advanced),
       upload_profiles: normalizeUploadProfiles(received.upload_profiles),
@@ -955,7 +955,7 @@ function createBatchRewriteRouter({
   async function planSubmission(req, body) {
     const ids = await selectTaskIds(req, body);
     const webConfig = await currentWebConfig(req);
-    const submitMode = webConfig.submit_mode === 'version' ? 'version' : 'free';
+    const submitMode = 'version';
     const versions = Array.isArray(body?.versions) && body.versions.length
       ? body.versions
       : (Array.isArray(webConfig.submit_versions) && webConfig.submit_versions.length ? webConfig.submit_versions : ['ai1']);
@@ -999,9 +999,9 @@ function createBatchRewriteRouter({
         const profileAdvanced = submitMode === 'version'
           ? target.normalizeAdvanced(profile?.advanced || {})
           : target.normalizeAdvanced({ ...webConfig.advanced, jieyaNum: allocations[index].jieyaNum, gunpingNum: allocations[index].gunpingNum });
-        const profileId = profile?.id || 'free';
+        const profileId = profile.id;
         const groupId = `${task.meta.platformId}-${task.meta.gender}-${task.meta.style}-${version}-${profileId}`;
-        const profileName = profile?.name || '自由配置';
+        const profileName = profile.name;
         const group = groupsById.get(groupId) || { group_id: groupId, status: 'ready', version, summary: { ...snakeTask(task.meta), profile_id: profileId, profile_name: profileName }, advanced: profileAdvanced, items: [] };
         group.items.push({ id, version, size, advanced: profileAdvanced, profile_id: profileId, profile_name: profileName });
         groupsById.set(groupId, group);

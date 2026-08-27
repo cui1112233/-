@@ -1498,9 +1498,6 @@ function renderWebSubmitConfig(settings = {}) {
   if (!$("webAllowResubmit")) return;
   const cfg = ensureWebSubmitConfig();
   Object.assign(cfg, settings || {});
-  const mode = cfg.submit_mode === "version" ? "version" : "free";
-  const modeInput = document.querySelector(`input[name="webSubmitMode"][value="${mode}"]`);
-  if (modeInput) modeInput.checked = true;
   $("webAllowResubmit").checked = cfg.skip_submitted === false;
   $("webMinTextChars").value = cfg.min_text_chars ?? 0;
   $("webRetryTimes").value = cfg.retry_times ?? 1;
@@ -1509,19 +1506,6 @@ function renderWebSubmitConfig(settings = {}) {
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
   renderWebOrganizationOptions(cfg.organization_catalog, cfg.selected_organization);
-  const advanced = cfg.advanced || {};
-  $("webTl5").value = String(Number(advanced.tl5) === 1 ? 1 : 0);
-  $("webJieyaNum").value = advanced.jieyaNum ?? 4;
-  $("webJieyaAiHead").value = advanced.jieyaAiHead ?? 0;
-  $("webJieyaSpeed").value = advanced.jieyaSpeed ?? 1.7;
-  $("webJieyaPitch").value = advanced.jieyaPitch ?? 0;
-  $("webGunpingNum").value = advanced.gunpingNum ?? 4;
-  $("webGunpingSpeed").value = advanced.gunpingSpeed ?? 1;
-  $("webZiti").value = advanced.ziti ?? 1;
-  $("webZitidx").value = advanced.zitidx ?? 62;
-  $("webBiaohong").value = advanced.biaohong || '';
-  $("webKeywords").value = advanced.keywords || '';
-  syncGunpingMaterialCount();
 
   const versionSet = new Set(asArray(cfg.submit_versions).map((item) => String(item || "").toLowerCase()));
   document.querySelectorAll(".web-version").forEach((input) => {
@@ -1577,13 +1561,11 @@ async function openWebLoginDialog() {
 }
 
 function webSubmitModeFromForm() {
-  return document.querySelector('input[name="webSubmitMode"]:checked')?.value === "version" ? "version" : "free";
+  return "version";
 }
 
 function renderWebSubmitMode() {
-  const isVersion = webSubmitModeFromForm() === "version";
-  $("webFreeConfigSection")?.classList.toggle("hidden", isVersion);
-  $("webVersionConfigSection")?.classList.toggle("hidden", !isVersion);
+  $("webVersionConfigSection")?.classList.remove("hidden");
 }
 
 function renderWebDefaultProfileOptions(profiles, selectedProfile) {
@@ -1668,14 +1650,13 @@ function webSubmitVersionsFromForm() {
 
 function syncFormToWebSubmitConfig() {
   const cfg = clone(ensureWebSubmitConfig());
-  const jieyaNum = materialJieyaValue($("webJieyaNum").value);
   // 兼容旧配置字段；是否执行由任务列表的“提交网络”按钮决定。
   cfg.enabled = true;
   // 账号只在登录弹窗中维护，提交设置保存时保留当前凭据。
   if ($("webUsername")) cfg.username = $("webUsername").value.trim();
   if ($("webPassword")) cfg.password = $("webPassword").value.trim();
   cfg.skip_submitted = !$("webAllowResubmit").checked;
-  cfg.submit_mode = webSubmitModeFromForm();
+  cfg.submit_mode = "version";
   cfg.min_text_chars = numberValue("webMinTextChars", 0);
   cfg.retry_times = numberValue("webRetryTimes", 1);
   cfg.upload_profiles = parseJsonInput("webProfilesJson", []);
@@ -1684,19 +1665,6 @@ function syncFormToWebSubmitConfig() {
   cfg.selected_profile = $("webDefaultProfile").value;
   cfg.selected_organization = $("webOrganization")?.value || "";
   cfg.submit_versions = webSubmitVersionsFromForm();
-  cfg.advanced = {
-    tl5: Number($("webTl5").value) === 1 ? 1 : 0,
-    jieyaNum,
-    jieyaAiHead: numberValue("webJieyaAiHead", 0),
-    jieyaSpeed: numberValue("webJieyaSpeed", 1.7),
-    jieyaPitch: numberValue("webJieyaPitch", 0),
-    gunpingNum: PER_BOOK_MATERIAL_LIMIT - jieyaNum,
-    gunpingSpeed: numberValue("webGunpingSpeed", 1),
-    ziti: numberValue("webZiti", 1),
-    zitidx: numberValue("webZitidx", 62),
-    biaohong: $("webBiaohong").value.trim(),
-    keywords: $("webKeywords").value.trim()
-  };
   return cfg;
 }
 
@@ -1737,8 +1705,7 @@ async function confirmWebSubmitSelection() {
   if (status) status.textContent = "正在确认文案与提交方案...";
   const result = await saveWebSubmitConfig(true);
   if (result) {
-    const modeText = webSubmitModeFromForm() === "version" ? "版本配置" : "自由配置";
-    if (status) status.textContent = `已确认：${versions.map(version => version.toUpperCase()).join("、")}；${modeText}已保存。`;
+    if (status) status.textContent = `已确认：${versions.map(version => version.toUpperCase()).join("、")}；版本配置已保存。`;
   } else if (status) {
     status.textContent = "确认失败，请检查连接与设置。";
   }
@@ -3243,7 +3210,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const details = document.createElement("details");
     details.className = "submit-settings-details";
     // 提交文案、组织归属和提交方式是小说获取的核心提交参数，进入页面时直接展示。
-    details.open = true;
+    details.open = false;
     details.innerHTML = "<summary>提交文案与提交方式</summary>";
     while (sitePanel.firstChild) details.appendChild(sitePanel.firstChild);
     mount.appendChild(details);
@@ -3294,8 +3261,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
   document.querySelectorAll('input[name="webSubmitMode"]').forEach((input) => { input.onchange = renderWebSubmitMode; });
-  $("webJieyaNum").oninput = syncGunpingMaterialCount;
-  $("webJieyaNum").onchange = syncGunpingMaterialCount;
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;

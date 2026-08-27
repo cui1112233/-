@@ -23,7 +23,13 @@ const organizationConfig = {
   selected_organization: '7'
 };
 
-test('网站提交预览会按同一本书的已选文案均分 8 个素材', async () => {
+const defaultVersionProfile = {
+  id: '121-default', name: '121 默认配置', enabled: true, source: '121', config_id: 'default',
+  platform_id: '2', gender: '女', style: '现代女主', is_default: true,
+  advanced: { jieyaNum: 4, gunpingNum: 4 }
+};
+
+test('历史自由配置字段也强制按版本配置档执行', async () => {
   const task = {
     meta: {
       bookId: 'book-1', bookName: '示例书', platformId: '2', platformName: '番茄付费',
@@ -34,8 +40,8 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
     web_submit: {
       submit_versions: ['ai1', 'ai2'],
       advanced: { jieyaNum: 4, gunpingNum: 4, jieyaSpeed: 1.7, keywords: '全局关键词' },
-      upload_profiles: [{ id: 'ai2-fast', name: 'AI2 快速配置', advanced: { jieyaSpeed: 1.9, ziti: 6 } }],
-      profile_bindings: { ai2: 'ai2-fast' },
+      upload_profiles: [defaultVersionProfile, { id: 'ai2-fast', name: 'AI2 快速配置', platform_id: '2', gender: '女', style: '现代女主', advanced: { jieyaSpeed: 1.9, ziti: 6 } }],
+      profile_bindings: { ai1: '121-default', ai2: 'ai2-fast' },
       submit_mode: 'free'
     },
     platforms: [], styles: []
@@ -65,12 +71,11 @@ test('网站提交预览会按同一本书的已选文案均分 8 个素材', as
     .flatMap(group => group.items)
     .map(item => [item.version, item.advanced.jieyaNum, item.advanced.gunpingNum])
     .sort((left, right) => left[0].localeCompare(right[0]));
-  assert.deepEqual(allocations, [['ai1', 2, 2], ['ai2', 2, 2]]);
+  assert.deepEqual(allocations, [['ai1', 4, 4], ['ai2', 4, 4]]);
   const ai2 = response.body.groups.flatMap(group => group.items).find(item => item.version === 'ai2');
-  assert.equal(ai2.profile_name, '自由配置');
-  assert.equal(ai2.advanced.jieyaSpeed, 1.7);
-  assert.equal(ai2.advanced.ziti, 1);
-  assert.equal(ai2.advanced.keywords, '全局关键词');
+  assert.equal(ai2.profile_name, 'AI2 快速配置');
+  assert.equal(ai2.advanced.jieyaSpeed, 1.9);
+  assert.equal(ai2.advanced.ziti, 6);
 });
 
 test('版本配置优先使用已绑定的 121 配置档，不再套用自由配置的素材均分', async () => {
@@ -122,7 +127,7 @@ test('121 仅确认文件接收时必须标为待确认，不能伪装成已执�
     gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: []
   };
   const logs = [];
-  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 }, upload_profiles: [defaultVersionProfile], profile_bindings: { ai1: '121-default' } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) },
@@ -158,7 +163,7 @@ test('121 仅确认文件接收时必须标为待确认，不能伪装成已执�
 
 test('网站提交在未选择组织归属时不会发送 121 上传请求', async () => {
   const meta = { bookId: '2071717253981255675', platformId: '2', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [] };
-  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 }, upload_profiles: [defaultVersionProfile], profile_bindings: { ai1: '121-default' } }, platforms: [], styles: [] };
   let requestCount = 0;
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
@@ -177,7 +182,7 @@ test('网站提交在未选择组织归属时不会发送 121 上传请求', asy
 
 test('任务直提交不依赖网络设置页的启用开关', async () => {
   const meta = { bookId: '2071717253981255675', bookName: '直提交示例', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
-  const config = { web_submit: { ...organizationConfig, enabled: false, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: false, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 }, upload_profiles: [defaultVersionProfile], profile_bindings: { ai1: '121-default' } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) },
@@ -206,7 +211,7 @@ test('任务直提交不依赖网络设置页的启用开关', async () => {
 test('121 返回文件处理失败时不能标记待确认，必须直接报出拒绝原因', async () => {
   const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
   const logs = [];
-  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 }, upload_profiles: [defaultVersionProfile], profile_bindings: { ai1: '121-default' } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
@@ -224,7 +229,7 @@ test('121 返回文件处理失败时不能标记待确认，必须直接报出�
 test('121 明确返回成功文件时可确认提交', async () => {
   const meta = { bookId: '2071717253981255675', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [] };
   const logs = [];
-  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 }, upload_profiles: [defaultVersionProfile], profile_bindings: { ai1: '121-default' } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); }, novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},
     httpClient: async () => ({ body: JSON.stringify({ success: true, result: { success: { count: 1, files: [{ name: '2071717253981255675.txt' }] }, failed: { count: 0, files: [] } } }), headers: {} }),
@@ -244,7 +249,7 @@ test('网站提交会先标记排队，再标记上传中，完成后标记已�
     ['2071717253981255676', { bookId: '2071717253981255676', platformId: '2', platformName: '番茄付费', gender: '女频', style: '现代女主', siteSubmitDoneVersions: [], siteSubmitAcceptedVersions: [], siteSubmitFailedVersions: [] }]
   ]);
   const patches = [];
-  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 } }, platforms: [], styles: [] };
+  const config = { web_submit: { ...organizationConfig, enabled: true, submit_versions: ['ai1'], advanced: { jieyaNum: 4, gunpingNum: 4 }, upload_profiles: [defaultVersionProfile], profile_bindings: { ai1: '121-default' } }, platforms: [], styles: [] };
   const app = express().use(express.json()).use('/api/batch-rewrite', createBatchRewriteRouter({
     auth: (req, res, next) => { req.username = 'writer-a'; next(); },
     novelFetchStore: { getSession: () => ({ cookie: 'session=yes' }) }, knowledgeStore: { list: () => ({}) }, openingStore: {},

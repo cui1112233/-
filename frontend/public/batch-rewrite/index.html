@@ -507,7 +507,7 @@
               <div class="site-submit-card-header">
                 <div>
                   <h3>2. 选择文案与提交方式</h3>
-                  <p>同一本书的版本可分别绑定配置档，或按自由配置自动分配素材。</p>
+                  <p>每个文案版本使用绑定的 121 配置档；未单独绑定时按默认配置档或书籍类型自动匹配。</p>
                 </div>
               </div>
               <div class="site-submit-version-select">
@@ -523,14 +523,9 @@
                 <span class="site-submit-field-label">组织归属</span>
                 <div class="actions no-top-margin"><label><select id="webOrganization"><option value="">请选择组织归属</option></select></label><span id="webOrganizationHint" class="form-hint">请先同步批量后台配置</span></div>
               </div>
-              <div class="submit-mode-selector site-submit-mode-selector">
+              <div class="site-submit-mode-static">
                 <span class="site-submit-field-label">提交方式</span>
-                <div class="actions no-top-margin">
-                  <label class="inline-check"><input name="webSubmitMode" value="free" type="radio" checked /> 自由配置</label>
-                  <span class="form-hint">按本页解压/滚屏总数，为同一本书的已选文案自动均分。</span>
-                  <label class="inline-check"><input name="webSubmitMode" value="version" type="radio" /> 版本配置</label>
-                  <span class="form-hint">每个文案版本使用其绑定的批量后台配置档。</span>
-                </div>
+                <div class="actions no-top-margin"><strong>版本配置</strong><span class="form-hint">每个文案版本使用绑定的 121 配置档；未绑定时按默认配置档或书籍类型匹配。</span></div>
               </div>
               <section id="webVersionConfigSection" class="site-submit-mode-content">
                 <div class="section-title compact"><h3>版本配置</h3><span>优先版本绑定，其次默认配置档和书籍类型；平台、男女频、风格始终取当前书籍分析结果。</span></div>
@@ -545,22 +540,6 @@
                 </div>
                 <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
                 <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
-              </section>
-              <section id="webFreeConfigSection" class="site-submit-mode-content upload-execution-settings">
-                <div class="section-title compact"><h3>自由配置</h3><span>每本书素材总数固定为 8；多个已选文案会自动均分，平台、男女频、风格仍按书籍分析结果提交。</span></div>
-                <div class="control-grid upload-common-settings">
-                  <label>时长限制<select id="webTl5"><option value="0">不限制</option><option value="1">限制</option></select></label>
-                  <label>高亮文案<input id="webBiaohong" placeholder="可留空" /></label>
-                  <label>关键词<input id="webKeywords" placeholder="可留空" /></label>
-                </div>
-                <div class="upload-execution-groups">
-                  <section class="upload-execution-group"><div class="section-title compact"><h4>解压视频设置</h4><span>数量、开头与配音参数</span></div><div class="control-grid">
-                    <label>解压视频总数（每本书）<input id="webJieyaNum" type="number" min="0" max="8" value="4" /></label><label>解压 AI 开头<select id="webJieyaAiHead"><option value="0">关闭</option><option value="1">模式 1</option><option value="2">模式 2</option></select></label><label>解压语速<input id="webJieyaSpeed" type="number" min="0.5" max="2" step="0.1" value="1.7" /></label><label>解压音调<input id="webJieyaPitch" type="number" min="-50" max="50" value="0" /></label>
-                  </div></section>
-                  <section class="upload-execution-group"><div class="section-title compact"><h4>滚屏视频设置</h4><span>数量、展示速度与样式</span></div><div class="control-grid">
-                    <label>滚屏数量（自动补足至 8）<input id="webGunpingNum" type="number" min="0" max="8" value="4" readonly aria-readonly="true" /></label><label>滚屏速度<input id="webGunpingSpeed" type="number" min="0.1" max="2" step="0.1" value="1" /></label><label>字体<input id="webZiti" type="number" min="1" max="6" value="1" /></label><label>字号<input id="webZitidx" type="number" min="30" max="162" value="62" /></label>
-                  </div></section>
-                </div>
               </section>
               <div class="site-submit-card-actions">
                 <button id="confirmWebSubmitSelectionBtn" class="primary">确认文案与提交方案</button>
