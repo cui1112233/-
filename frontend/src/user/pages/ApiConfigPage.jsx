@@ -34,6 +34,8 @@ export default function ApiConfigPage() {
   const [testingText, setTestingText] = useState(false);
   const [testingImage, setTestingImage] = useState(false);
   const [savingVideo, setSavingVideo] = useState(false);
+  const [savingText, setSavingText] = useState(false);
+  const [savingImage, setSavingImage] = useState(false);
   const [provider, setProvider] = useState('openai');
   const [config, setConfig] = useState(null);
   const [center, setCenter] = useState(null);
@@ -110,6 +112,40 @@ export default function ApiConfigPage() {
     }
   }
 
+  async function saveText() {
+    if (!canManageApi) return;
+    setSavingText(true);
+    try {
+      const values = await form.validateFields(['provider', 'baseUrl', 'model']);
+      const pricing = form.getFieldValue('pricing');
+      const saved = await saveConfig({ provider: values.provider, baseUrl: values.baseUrl, model: values.model, apiKey: form.getFieldValue('apiKey'), pricing });
+      setConfig(saved);
+      form.setFieldValue('apiKey', '');
+      message.success('文本模型已单独保存');
+    } catch (error) {
+      if (!error?.errorFields) message.error(error.message || '文本模型保存失败');
+    } finally {
+      setSavingText(false);
+    }
+  }
+
+  async function saveImage() {
+    if (!canManageApi) return;
+    setSavingImage(true);
+    try {
+      const image = await form.validateFields([['image', 'model'], ['image', 'baseUrl']]);
+      const imageValues = form.getFieldValue('image');
+      const saved = await saveConfig({ image: { ...imageValues, apiKey: form.getFieldValue(['image', 'apiKey']) } });
+      setConfig(saved);
+      form.setFieldValue(['image', 'apiKey'], '');
+      message.success('生图配置已单独保存');
+    } catch (error) {
+      if (!error?.errorFields) message.error(error.message || '生图配置保存失败');
+    } finally {
+      setSavingImage(false);
+    }
+  }
+
   async function testText() {
     try {
       const values = await form.validateFields(['provider', 'baseUrl', 'model']);
@@ -174,7 +210,7 @@ export default function ApiConfigPage() {
             </div>
             <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}><Input prefix={<Server size={15} />} placeholder="https://api.openai.com/v1" /></Form.Item>
             <Form.Item label="API Key" name="apiKey"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testText} loading={testingText}>测试文本连接</Button></div>
+            <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testText} loading={testingText}>测试文本连接</Button><Button type="primary" icon={<Save size={16} />} onClick={saveText} loading={savingText}>保存文本模型</Button></div>
           </Panel>
 
           <Panel title="费用估算价格快照" eyebrow="PRICING SNAPSHOT" className="ac-form-panel">
@@ -199,7 +235,7 @@ export default function ApiConfigPage() {
             {imageMode === 'custom' ? <Form.Item label="供应商显示名称" name={['image', 'displayName']}><Input maxLength={80} /></Form.Item> : null}
             <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}><Input prefix={<Server size={15} />} /></Form.Item>
             <Form.Item label="API Key" name={['image', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testImage} loading={testingImage}>测试生图连接</Button></div>
+            <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testImage} loading={testingImage}>测试生图连接</Button><Button type="primary" icon={<Save size={16} />} onClick={saveImage} loading={savingImage}>保存生图配置</Button></div>
           </Panel>
           <Panel title="视频生成服务" eyebrow="VIDEO MODEL" className="ac-form-panel" action={<Tag color={config?.video?.hasApiKey ? 'green' : 'default'}>{config?.video?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
             <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>独立视频生成凭据</strong><small>视频服务按自己的保存入口维护，不会覆盖文本或图片配置。</small></div></div>
