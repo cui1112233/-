@@ -314,7 +314,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   }));
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
-  app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
+  app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore, { memberStore: resolvedMemberStore }));
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel/settings', apiAuth, restrictMemberNovelPanelSettings);

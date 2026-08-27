@@ -1,6 +1,7 @@
 const express = require('express');
 const { apiAuth, requireCapability, requireOwner } = require('../middleware/auth');
 const { slotsForModule } = require('../lib/system-preset-catalog');
+const { createTeamCollaborationStore } = require('../lib/team-collaboration-store');
 
 function sendStoreError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: 'Not found' });
@@ -9,11 +10,18 @@ function sendStoreError(res, error) {
   return res.status(400).json({ error: error?.message || 'Invalid request' });
 }
 
-function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogStore) {
+function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogStore, { memberStore } = {}) {
   if (!accountStore) throw new Error('accountStore is required');
   if (!presetStore) throw new Error('presetStore is required');
   const router = express.Router();
   router.use(apiAuth);
+  const collaborationStore = createTeamCollaborationStore({ systemDir: require('node:path').dirname(accountStore.files.audit) });
+  function notifyDevelopers(req, title, message, metadata = null) {
+    if (!memberStore) return;
+    for (const member of memberStore.listMembers().filter(item => item.role === 'dev' && item.username !== req.username)) {
+      collaborationStore.notify(member.username, { type: 'admin.changed', title, message, metadata });
+    }
+  }
 
   function requirePresetVersionCapability(capability) {
     return (req, res, next) => {
@@ -159,7 +167,9 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/presets/draft', requireCapability('preset:draft', req => req.body?.module), (req, res) => {
     try {
-      res.status(201).json({ preset: presetStore.createDraft(req.username, req.body) });
+      const preset = presetStore.createDraft(req.username, req.body);
+      notifyDevelopers(req, '管理后台发生变更', `@${req.username} 创建了「${preset.name || preset.id}」预设词草稿。`, { action: 'preset.draft', presetId: preset.id });
+      res.status(201).json({ preset });
     } catch (error) {
       sendStoreError(res, error);
     }
@@ -167,7 +177,9 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/presets/:id/publish', requirePresetVersionCapability('preset:publish'), (req, res) => {
     try {
-      res.json({ preset: presetStore.publish(req.username, req.params.id, req.body?.version) });
+      const preset = presetStore.publish(req.username, req.params.id, req.body?.version);
+      notifyDevelopers(req, '管理后台发生变更', `@${req.username} 发布了预设词「${preset.name || req.params.id}」。`, { action: 'preset.publish', presetId: req.params.id, version: req.body?.version });
+      res.json({ preset });
     } catch (error) {
       sendStoreError(res, error);
     }
@@ -175,7 +187,9 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/presets/:id/rollback', requirePresetVersionCapability('preset:publish'), (req, res) => {
     try {
-      res.json({ preset: presetStore.rollback(req.username, req.params.id, req.body?.version) });
+      const preset = presetStore.rollback(req.username, req.params.id, req.body?.version);
+      notifyDevelopers(req, '管理后台发生变更', `@${req.username} 回滚了预设词「${preset.name || req.params.id}」。`, { action: 'preset.rollback', presetId: req.params.id, version: req.body?.version });
+      res.json({ preset });
     } catch (error) {
       sendStoreError(res, error);
     }

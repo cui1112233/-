@@ -6,6 +6,7 @@ import { Link } from '../components/Link';
 import { getCurrentAccount, getCurrentUsername, login, loginWithPasskey, logout } from '../api/auth';
 import { getToken } from '../api/client';
 import { getConfig } from '../api/config';
+import { getNotifications } from '../api/member';
 import { avatarDisplay } from '../avatars';
 import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
@@ -168,6 +169,10 @@ export function UserLayout({ children }) {
       getCurrentAccount().then(currentAccount => {
         setUsername(currentAccount.username);
         setAccount(currentAccount);
+        getNotifications(8).then(result => {
+          const priority = (result.entries || []).find(item => !item.readAt && ['permission.granted', 'role.upgraded'].includes(item.type));
+          if (priority) message.info(`${priority.title}：${priority.message}`, 6);
+        }).catch(() => undefined);
       }).catch(() => {});
     };
     window.addEventListener('qiantie:profile-updated', refreshProfile);
@@ -297,6 +302,10 @@ export function UserLayout({ children }) {
       const data = await login(values.username, values.password, values.remember);
       setUsername(data.username);
       setAccount(data);
+      getNotifications(8).then(result => {
+        const priority = (result.entries || []).find(item => !item.readAt && ['permission.granted', 'role.upgraded'].includes(item.type));
+        if (priority) message.info(`${priority.title}：${priority.message}`, 6);
+      }).catch(() => undefined);
       setLoginDialogOpen(false);
       message.success('登录成功');
     } catch (error) {

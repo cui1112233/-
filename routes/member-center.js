@@ -526,6 +526,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
     try {
       const before = memberStore.getMember(req.params.username);
       let member = memberStore.updateManagedMember(req.username, req.params.username, req.body || {});
+      if (before?.role !== 'manager' && member.role === 'manager') notify(req, member.username, { type: 'role.upgraded', title: '账号已升级为管理者', message: '开发者已将你的账号升级为 MANAGER，你现在可以管理自己的团队和成员。' });
       if (member.role === 'dev') {
         ensureDevBackendPermissions(getAccountStore(req), member);
         member = memberStore.getMember(member.username);
@@ -675,6 +676,7 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       if (!target || target.isOwner) return res.status(400).json({ error: '目标成员不合法' });
       const actor = devGrantActor(store, req.username);
       const grant = store.grant(actor, subject, { capability: req.body?.capability, scope: req.body?.scope || '*' });
+      notify(req, subject, { type: 'permission.granted', title: '管理后台权限已授予', message: '开发者已授予你管理后台访问权限，重新进入系统后即可看到入口。', metadata: { capability: grant.capability, scope: grant.scope } });
       return res.status(201).json({ grant });
     } catch (error) {
       return sendMemberError(res, error);
