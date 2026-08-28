@@ -23,6 +23,34 @@ export function getBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}`);
 }
 
+export function updateBatchFactorySettings(batchId, settings) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings })
+  });
+}
+
+export function updateBatchFactoryPublishSettings(batchId, settings) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/publish-settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings })
+  });
+}
+
+export function updateBatchFactorySource(batchId, itemId, sourceText, txtText = sourceText) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/source`, {
+    method: 'PUT',
+    body: JSON.stringify({ sourceText, txtText })
+  });
+}
+
+export function updateBatchFactoryItemOverrides(batchId, itemId, settings) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/overrides`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings })
+  });
+}
+
 export function startBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/start`, { method: 'POST' });
 }
