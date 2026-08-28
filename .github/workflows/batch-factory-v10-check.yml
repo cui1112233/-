@@ -1,0 +1,53 @@
+name: Check Batch Factory V10
+
+on:
+  push:
+    branches:
+      - 09-batch-factory-independent-pipeline
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'lib/batch-factory/**'
+      - 'routes/batch-factory*.js'
+      - 'test/batch-factory.test.js'
+      - 'prompts/批量工厂-*'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run Batch Factory node tests
+        run: node --test test/batch-factory.test.js
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test backend
+        working-directory: backend
+        run: go test ./...
