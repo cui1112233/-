@@ -7,11 +7,11 @@ const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { seedBatchFactoryPromptPresets } = require('./lib/batch-factory/prompt-admin-presets');
+const { createBatchFactory121Store } = require('./lib/batch-factory/121-store');
 const { createUserPromptLibraryStore } = require('./lib/user-prompt-library-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
-// 路由模块
 const pagesRouter = require('./routes/pages');
 const { createAuthRouter } = require('./routes/auth');
 const { createApplicationsRouter } = require('./routes/applications');
@@ -32,6 +32,7 @@ const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createBatchFactoryControlsRouter } = require('./routes/batch-factory-controls');
+const { createBatchFactoryPublishRouter } = require('./routes/batch-factory-publish');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -40,18 +41,15 @@ const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore, batchFactory121Store } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
-  const resolvedPresetStore = presetStore || createPresetStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
-  });
+  const resolvedPresetStore = presetStore || createPresetStore({ systemDir: path.dirname(authRuntime.accountStore.files.audit) });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
   seedBatchFactoryPromptPresets(resolvedPresetStore, 'choushiyiguai');
-  const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
-  });
+  const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({ systemDir: path.dirname(authRuntime.accountStore.files.audit) });
   const resolvedUserPromptLibraryStore = userPromptLibraryStore || createUserPromptLibraryStore();
+  const resolvedBatchFactory121Store = batchFactory121Store || createBatchFactory121Store();
   const resolvedAgentSkillStore = agentSkillStore || createAgentSkillStore({
     systemDir: path.dirname(authRuntime.accountStore.files.audit),
     usersDir: path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users')
@@ -64,11 +62,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.userPromptLibraryStore = resolvedUserPromptLibraryStore;
+  app.locals.batchFactory121Store = resolvedBatchFactory121Store;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
   app.locals.errorLogStore = resolvedErrorLogStore;
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
 
-  // 请求日志
   app.use((req, res, next) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const ts = new Date().toISOString();
@@ -76,10 +74,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     next();
   });
 
-  // JSON body 解析（解除上限）
   app.use(express.json({ limit: '50mb' }));
 
-  // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {
     app.use('/assets', express.static(path.join(frontendDist, 'assets'), {
       setHeaders(res) {
@@ -98,33 +94,23 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     }
   }));
 
-  // 静态文件服务
-  // Workbench assets need dedicated CSP and no-store handling before public static files.
   app.use('/novel-panel', novelPanelRouter);
-
-  // Page routes must run before public static handling so /novel-panel is not
-  // mistaken for the workbench asset directory.
-  app.use('/', pagesRouter); // 页面路由: /, /script, /agent, /tts
+  app.use('/', pagesRouter);
 
   app.use(express.static(PUBLIC_DIR, {
     setHeaders(res, filePath) {
-      if (filePath.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css; charset=utf-8');
-      }
-      if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      }
+      if (filePath.endsWith('.css')) res.setHeader('Content-Type', 'text/css; charset=utf-8');
+      if (filePath.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     }
   }));
 
-  // 路由挂载
   app.get('/api/build-info', (req, res) => {
     res.json({ app_version: 'v77-hotfix26', build_id: 'v77-hotfix26-style-reuse-r1' });
   });
-  app.use('/api/login', createAuthRouter(authRuntime)); // POST /api/login
+  app.use('/api/login', createAuthRouter(authRuntime));
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
@@ -134,7 +120,6 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
   app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway }));
-  // Director jobs intentionally run one book at a time in novel-list order.
   app.use('/api/batch-factory', createBatchFactoryRouter({
     presetStore: resolvedPresetStore,
     userPromptLibraryStore: resolvedUserPromptLibraryStore,
@@ -142,20 +127,18 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     maxConcurrency: 1
   }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ presetStore: resolvedPresetStore, shuihuoGateway }));
-  app.use('/api/config', configRouter); // GET/POST /api/config
-  app.use('/api', chatRouter); // POST /api/test, POST /api/chat
-  app.use('/api/tts', ttsRouter); // POST /api/tts
-  app.use('/api/prompt', promptRouter); // GET /api/prompt
-  app.use('/api/history', historyRouter); // /api/history CRUD
+  app.use('/api/batch-factory', createBatchFactoryPublishRouter({ store121: resolvedBatchFactory121Store, shuihuoGateway }));
+  app.use('/api/config', configRouter);
+  app.use('/api', chatRouter);
+  app.use('/api/tts', ttsRouter);
+  app.use('/api/prompt', promptRouter);
+  app.use('/api/history', historyRouter);
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: agentResponder }));
   app.use('/api/shuihuo-production', createShuihuoProductionRouter(shuihuoGateway));
 
-  // 404 处理
-  app.use((req, res) => {
-    res.status(404).json({ error: 'Not found' });
-  });
+  app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
   app.use((error, req, res, next) => {
     resolvedErrorLogStore.record({
