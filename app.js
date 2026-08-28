@@ -6,6 +6,7 @@ const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
+const { seedBatchFactoryPromptPresets } = require('./lib/batch-factory/prompt-admin-presets');
 const { createUserPromptLibraryStore } = require('./lib/user-prompt-library-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
@@ -46,6 +47,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     systemDir: path.dirname(authRuntime.accountStore.files.audit)
   });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
+  seedBatchFactoryPromptPresets(resolvedPresetStore, 'choushiyiguai');
   const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({
     systemDir: path.dirname(authRuntime.accountStore.files.audit)
   });
@@ -127,7 +129,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
-  app.use('/api/prompt-library', createUserPromptLibraryRouter({ store: resolvedUserPromptLibraryStore }));
+  app.use('/api/prompt-library', createUserPromptLibraryRouter({ store: resolvedUserPromptLibraryStore, presetStore: resolvedPresetStore }));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
