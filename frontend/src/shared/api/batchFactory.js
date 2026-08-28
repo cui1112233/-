@@ -55,6 +55,12 @@ export function updateBatchFactoryItemOverrides(batchId, itemId, settings) {
   });
 }
 
+export function clearBatchFactoryItemOverrides(batchId, itemId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/overrides`, {
+    method: 'DELETE'
+  });
+}
+
 export function startBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/start`, { method: 'POST' });
 }
@@ -83,6 +89,13 @@ export function updateBatchFactoryDirectorResult(batchId, itemId, directorResult
 
 export function compileBatchFactoryVideo(batchId, itemId, videoId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/compile`, { method: 'POST' });
+}
+
+export function generateBatchFactoryVideo(batchId, itemId, videoId, modelId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ modelId })
+  });
 }
 
 export function generateBatchFactoryVideos(batchId, itemId, modelId, { force = false } = {}) {
