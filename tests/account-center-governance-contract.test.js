@@ -9,6 +9,7 @@ const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf
 test('account center is the only user-facing entry for admin tools and gates it to DEV', () => {
   const layout = read('frontend/src/shared/layouts/UserLayout.jsx');
   const userApp = read('frontend/src/user/App.jsx');
+  const pages = read('routes/pages.js');
   const sidebarTools = layout.match(/<div className="legacy-sidebar-tools">[\s\S]*?<\/div>/)?.[0];
 
   assert.ok(sidebarTools, 'sidebar tools should remain present');
@@ -18,6 +19,7 @@ test('account center is the only user-facing entry for admin tools and gates it 
   assert.match(layout, /href="\/accounts"/);
   assert.match(layout, /href="\/admin\/presets" reload/);
   assert.match(userApp, /'\/accounts': AccountRolePage/);
+  assert.match(pages, /router\.get\('\/accounts', serveReactEntry\('index\.html', 'index\.html'\)\)/);
 });
 
 test('admin console navigation is prompt-focused and honors its separate explicit access grant', () => {

@@ -40,6 +40,7 @@ router.get('/advanced-team-admin', serveReactEntry('index.html', 'index.html'));
 router.get('/api-config', serveReactEntry('index.html', 'index.html'));
 router.get('/usage', serveReactEntry('index.html', 'index.html'));
 router.get('/team', serveReactEntry('index.html', 'index.html'));
+router.get('/accounts', serveReactEntry('index.html', 'index.html'));
 router.get(/^\/invite\/[^/]+$/, serveReactEntry('index.html', 'index.html'));
 router.get('/recover', serveReactEntry('index.html', 'index.html'));
 router.get('/issues', serveReactEntry('index.html', 'index.html'));
