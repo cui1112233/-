@@ -32,14 +32,14 @@ var allowedContentTypes = map[string]map[string]struct{}{
 		"video/quicktime": {},
 	},
 	"audio": {
-		"audio/mpeg":   {},
-		"audio/mp3":    {},
-		"audio/wav":    {},
-		"audio/x-wav":  {},
-		"audio/mp4":    {},
-		"audio/aac":    {},
-		"audio/ogg":    {},
-		"audio/webm":   {},
+		"audio/mpeg":  {},
+		"audio/mp3":   {},
+		"audio/wav":   {},
+		"audio/x-wav": {},
+		"audio/mp4":   {},
+		"audio/aac":   {},
+		"audio/ogg":   {},
+		"audio/webm":  {},
 	},
 }
 
@@ -104,7 +104,8 @@ func extensionMatchesContentType(filename, contentType string) bool {
 	if ext == "" {
 		return false
 	}
-	for _, candidate := range mime.ExtensionsByType(contentType) {
+	extensions, _ := mime.ExtensionsByType(contentType)
+	for _, candidate := range extensions {
 		if strings.EqualFold(candidate, ext) {
 			return true
 		}
