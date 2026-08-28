@@ -297,8 +297,9 @@ function buildQuickDirectorMessages(body, presetStore) {
   const compactSourceGuard = novelText.length <= 600
     ? `## 短原文时长硬校验\n原文仅 ${novelText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得新增事件、人物、对白或重复动作。`
     : '';
-  const durationGuard = `## 时长硬校验（最高优先级）\n每个分镜单元总时长只能是 ${duration}，从 00:00 连续到 ${endTime}；禁止输出 60s、100s、01:00 或跨单元累计时间。内容不足时保持动作简洁，不得用重复动作填时长。`;
-  const systemPrompt = [quickDirectorBase, directorMaster, durationGuard, compactSourceGuard].filter(Boolean).join('\n\n---\n\n');
+  const durationPreset = resolveSystemPresetBody(presetStore, `script-duration-${duration}`)
+    .replace(/\{duration\}/g, duration);
+  const systemPrompt = [quickDirectorBase, directorMaster, durationPreset, compactSourceGuard].filter(Boolean).join('\n\n---\n\n');
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: [
