@@ -27,6 +27,10 @@ export function getBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}`);
 }
 
+export function getBatchFactoryWorkbench(batchId, itemId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/workbench`);
+}
+
 export function updateBatchFactorySettings(batchId, settings) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/settings`, {
     method: 'PUT',
@@ -41,15 +45,22 @@ export function updateBatchFactoryPublishSettings(batchId, settings) {
   });
 }
 
-export function updateBatchFactorySource(batchId, itemId, sourceText, txtText = sourceText) {
+export function updateBatchFactorySource(batchId, itemId, productionText, { clearOverride = false } = {}) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/source`, {
     method: 'PUT',
-    body: JSON.stringify({ sourceText, txtText })
+    body: JSON.stringify({ productionText, clearOverride })
   });
 }
 
 export function updateBatchFactoryItemOverrides(batchId, itemId, settings) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/overrides`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings })
+  });
+}
+
+export function updateBatchFactoryVideoOverrides(batchId, itemId, videoId, settings) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/overrides`, {
     method: 'PUT',
     body: JSON.stringify({ settings })
   });
@@ -74,6 +85,14 @@ export function regenerateBatchFactoryDirector(batchId, itemId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/regenerate-director`, { method: 'POST' });
 }
 
+export function regenerateBatchFactoryAsset(batchId, itemId, kind, index) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/assets/${encodeURIComponent(kind)}/${encodeURIComponent(index)}/regenerate`, { method: 'POST' });
+}
+
+export function regenerateBatchFactoryVideo(batchId, itemId, videoId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/regenerate`, { method: 'POST' });
+}
+
 export function updateBatchFactoryDirectorResult(batchId, itemId, directorResult) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/director-result`, {
     method: 'PUT',
@@ -85,17 +104,21 @@ export function compileBatchFactoryVideo(batchId, itemId, videoId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/compile`, { method: 'POST' });
 }
 
-export function generateBatchFactoryVideos(batchId, itemId, modelId, { force = false } = {}) {
+export function generateBatchFactoryVideo(batchId, itemId, videoId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/generate`, { method: 'POST', body: '{}' });
+}
+
+export function generateBatchFactoryVideos(batchId, itemId, { force = false } = {}) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/generate`, {
     method: 'POST',
-    body: JSON.stringify({ modelId, force })
+    body: JSON.stringify({ force })
   });
 }
 
-export function generateBatchFactoryBatch(batchId, modelId) {
+export function generateBatchFactoryBatch(batchId) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/generate`, {
     method: 'POST',
-    body: JSON.stringify({ modelId })
+    body: '{}'
   });
 }
 
