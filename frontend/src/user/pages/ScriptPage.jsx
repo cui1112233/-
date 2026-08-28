@@ -21,6 +21,7 @@ import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatche
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
+import { normalizeMaterialState } from '../../../../lib/script-generation/material-contract.js';
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -62,10 +63,11 @@ function aiText(response) {
 function normalizeExtraction(data) {
   const asList = value => Array.isArray(value) ? value : value ? [value] : [];
   const source = data?.data || data?.result || data || {};
-  return normalizeExtractInfo({
+  return normalizeMaterialState({
     characters: asList(source.人物设定 || source.人物 || source.角色设定 || source.characters),
     scenes: asList(source.场景设定 || source.场景 || source.scene_options || source.scenes),
-    visualStyle: source.统一风格 || source.visualStyle || source.style || source.trailer_style || ''
+    visualStyle: source.统一风格 || source.visualStyle || source.style || source.trailer_style || '',
+    protagonistIds: source.protagonistIds
   });
 }
 
