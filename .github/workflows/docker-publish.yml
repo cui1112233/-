@@ -3,6 +3,7 @@ name: Publish qiantie Docker images
 on:
   push:
     branches:
+      - master
       - 07-batch-factory-v8-react-antd
   workflow_dispatch:
 
@@ -24,23 +25,37 @@ jobs:
 
       - name: Build web image
         run: |
+          WEB_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-web"
           docker build \
             -f Dockerfile \
-            -t ghcr.io/${{ github.repository_owner }}/qiantie-web:v8-latest \
-            -t ghcr.io/${{ github.repository_owner }}/qiantie-web:${{ github.sha }} \
+            -t "$WEB_IMAGE:v8-latest" \
+            -t "$WEB_IMAGE:${{ github.sha }}" \
             .
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker tag "$WEB_IMAGE:${{ github.sha }}" "$WEB_IMAGE:latest"
+          fi
 
       - name: Build backend image
         run: |
+          BACKEND_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-backend"
           docker build \
             -f backend/Dockerfile \
-            -t ghcr.io/${{ github.repository_owner }}/qiantie-backend:v8-latest \
-            -t ghcr.io/${{ github.repository_owner }}/qiantie-backend:${{ github.sha }} \
+            -t "$BACKEND_IMAGE:v8-latest" \
+            -t "$BACKEND_IMAGE:${{ github.sha }}" \
             .
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker tag "$BACKEND_IMAGE:${{ github.sha }}" "$BACKEND_IMAGE:latest"
+          fi
 
       - name: Push images
         run: |
-          docker push ghcr.io/${{ github.repository_owner }}/qiantie-web:v8-latest
-          docker push ghcr.io/${{ github.repository_owner }}/qiantie-web:${{ github.sha }}
-          docker push ghcr.io/${{ github.repository_owner }}/qiantie-backend:v8-latest
-          docker push ghcr.io/${{ github.repository_owner }}/qiantie-backend:${{ github.sha }}
+          WEB_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-web"
+          BACKEND_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-backend"
+          docker push "$WEB_IMAGE:v8-latest"
+          docker push "$WEB_IMAGE:${{ github.sha }}"
+          docker push "$BACKEND_IMAGE:v8-latest"
+          docker push "$BACKEND_IMAGE:${{ github.sha }}"
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker push "$WEB_IMAGE:latest"
+            docker push "$BACKEND_IMAGE:latest"
+          fi
