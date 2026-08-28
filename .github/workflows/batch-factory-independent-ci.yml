@@ -1,0 +1,59 @@
+name: Batch Factory independent CI
+
+on:
+  push:
+    branches:
+      - 08-batch-factory-independent-pipeline
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  node-and-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - name: Install Node backend dependencies
+        run: npm ci
+      - name: Run Node tests
+        run: npm test
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+      - name: Build frontend
+        run: npm --prefix frontend run build
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: backend/go.sum
+      - name: Run Go tests
+        working-directory: backend
+        run: go test ./...
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build web image
+        run: docker build -f Dockerfile -t qiantie-web:batch-factory-ci .
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t qiantie-backend:batch-factory-ci .
