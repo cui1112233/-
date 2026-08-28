@@ -14,8 +14,19 @@ function definition(promptId) {
   return null;
 }
 
-function effectivePrompt(store, username, def) {
-  const base = def.category === 'script' ? resolveScriptPrompt(def.id) : resolveAssetPrompt(def.id);
+function systemPrompt(presetStore, def) {
+  const fallback = def.category === 'script' ? resolveScriptPrompt(def.id) : resolveAssetPrompt(def.id);
+  const published = presetStore?.getPublished?.(def.id);
+  if (!published) return fallback;
+  return {
+    ...fallback,
+    body: String(published.body || fallback.body).trim(),
+    version: Number(published.version || fallback.version || 1)
+  };
+}
+
+function effectivePrompt(store, presetStore, username, def) {
+  const base = systemPrompt(presetStore, def);
   const override = store.get(username, def.id);
   return {
     id: def.id,
@@ -30,13 +41,13 @@ function effectivePrompt(store, username, def) {
   };
 }
 
-function createUserPromptLibraryRouter({ store = createUserPromptLibraryStore() } = {}) {
+function createUserPromptLibraryRouter({ store = createUserPromptLibraryStore(), presetStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
 
   router.get('/batch-factory', (req, res) => {
-    const scriptPrompts = Object.values(SCRIPT_PROMPTS).map(def => effectivePrompt(store, req.username, { ...def, category: 'script' }));
-    const assetPrompts = Object.values(ASSET_PROMPTS).map(def => effectivePrompt(store, req.username, { ...def, category: 'asset' }));
+    const scriptPrompts = Object.values(SCRIPT_PROMPTS).map(def => effectivePrompt(store, presetStore, req.username, { ...def, category: 'script' }));
+    const assetPrompts = Object.values(ASSET_PROMPTS).map(def => effectivePrompt(store, presetStore, req.username, { ...def, category: 'asset' }));
     res.json({
       module: 'batch-factory',
       name: '批量工厂',
@@ -50,7 +61,7 @@ function createUserPromptLibraryRouter({ store = createUserPromptLibraryStore() 
     if (!def) return res.status(404).json({ error: '提示词不存在' });
     try {
       store.save(req.username, def.id, req.body?.body);
-      return res.json({ prompt: effectivePrompt(store, req.username, def) });
+      return res.json({ prompt: effectivePrompt(store, presetStore, req.username, def) });
     } catch (error) {
       return res.status(400).json({ error: error.message || '保存提示词失败' });
     }
@@ -60,7 +71,7 @@ function createUserPromptLibraryRouter({ store = createUserPromptLibraryStore() 
     const def = definition(req.params.promptId);
     if (!def) return res.status(404).json({ error: '提示词不存在' });
     store.reset(req.username, def.id);
-    return res.json({ prompt: effectivePrompt(store, req.username, def) });
+    return res.json({ prompt: effectivePrompt(store, presetStore, req.username, def) });
   });
 
   return router;
