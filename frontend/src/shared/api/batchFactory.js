@@ -11,6 +11,10 @@ export function getBatchFactoryIntake(intakeId) {
   return apiRequest(`${base}/intakes/${encodeURIComponent(intakeId)}`);
 }
 
+export function getBatchFactoryPromptCatalog() {
+  return apiRequest(`${base}/prompt-catalog`);
+}
+
 export function listBatchFactoryBatches() {
   return apiRequest(`${base}/batches`);
 }
