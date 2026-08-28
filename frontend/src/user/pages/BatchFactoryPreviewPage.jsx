@@ -1,3 +1,4 @@
+import { updateBatchFactorySettings } from "../../shared/api/batchFactory";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
@@ -23,6 +24,8 @@ import {
   Sparkles,
   Upload,
   Video,
+  SlidersHorizontal,
+  Shuffle,
 } from "lucide-react";
 import {
   compileBatchFactoryVideo,
@@ -307,18 +310,70 @@ function CurrentBook({ item, onRetry, canProduce }) {
   );
 }
 
-function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
-  const [choice, setChoice] = useState("merged");
+function VideoOverrideModal({ video, open, onClose, onSave }) {
+  const [local, setLocal] = useState({});
+  useEffect(() => { if (open && video) setLocal({ ...video }); }, [open, video]);
+  const set = (key, value) => setLocal(prev => ({ ...prev, [key]: value }));
+  const vid = String(video?.id || "").padStart(2, "0");
+  return (
+    <Modal title={"VIDEO " + vid + " 单卡设置覆盖"} open={open} onCancel={onClose} width={560} footer={null} destroyOnClose>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <label>时长模式
+            <select className="bf-preview-select" value={local.durationMode || "inherit"} onChange={e => set("durationMode",e.target.value)}>
+              <option value="inherit">继承批次设置</option>
+              <option value="custom">自定义</option>
+            </select>
+          </label>
+          <label>画幅模式
+            <select className="bf-preview-select" value={local.aspectMode || "inherit"} onChange={e => set("aspectMode",e.target.value)}>
+              <option value="inherit">继承批次设置</option>
+              <option value="custom">自定义</option>
+            </select>
+          </label>
+        </div>
+        <div style={{borderTop:"1px solid #1e3348",paddingTop:10}}>
+          <strong style={{color:"#8ba4c0",fontSize:13}}>提示词注入覆盖</strong>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.characterEnabled !== false} onChange={e => set("characterEnabled",e.target.checked)} /> 人物</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.sceneEnabled !== false} onChange={e => set("sceneEnabled",e.target.checked)} /> 场景</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.propEnabled !== false} onChange={e => set("propEnabled",e.target.checked)} /> 道具</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.qualityEnabled !== false} onChange={e => set("qualityEnabled",e.target.checked)} /> 画质</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.restrictionEnabled !== false} onChange={e => set("restrictionEnabled",e.target.checked)} /> 限制</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.negativeEnabled !== false} onChange={e => set("negativeEnabled",e.target.checked)} /> 负面</label>
+          </div>
+        </div>
+        <div style={{borderTop:"1px solid #1e3348",paddingTop:10}}>
+          <strong style={{color:"#8ba4c0",fontSize:13}}>候选 Prompt 风格</strong>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+            {["realistic","anime","webtoon","emotion"].map(s => (
+              <label key={s} className="bf-preview-switch">
+                <input type="radio" name="promptStyle" checked={local.promptStyle === s} onChange={() => set("promptStyle",s)} />
+                {s === "realistic" ? "稳定写实" : s === "anime" ? "高质量动漫" : s === "webtoon" ? "韩漫商业" : "强情绪爆款"}
+              </label>
+            ))}
+          </div>
+        </div>
+        <Button type="primary" block onClick={() => { onSave && onSave(local); onClose(); }}>保存覆盖</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function VideoOperations({ item, choice, onChoice, onRetry, onViewPrompt, canProduce, onOverride }) {
   const videos = item?.directorResult?.storyboard || [
     { id: "01", duration_sec: 13 },
     { id: "02", duration_sec: 12 },
     { id: "03", duration_sec: 10 },
   ];
+  // TTS timing estimation
+  const sourceLen = (item?.sourceText || "").length;
+  const ttsEstimate = sourceLen > 0 ? Math.ceil(sourceLen / (4 * 1.7)) : 0;
   return (
     <aside className="bf-preview-video-operations">
       <div className="bf-preview-section-title">
         <span>当前书 VIDEO</span>
-        <small>唯一播放框</small>
+        <small>统一播放器 · 点击切换</small>
       </div>
       <div className="bf-preview-video-section">
         {videos.map((video, index) => {
@@ -328,8 +383,8 @@ function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
           return (
             <button
               key={id}
-              className={`bf-preview-video-card ${choice === id ? "is-open" : ""}`}
-              onClick={() => setChoice(id)}
+              className={"bf-preview-video-card " + (choice === id ? "is-open" : "")}
+              onClick={() => onChoice(id)}
             >
               <Video size={15} />
               <strong>VIDEO {id}</strong>
@@ -337,12 +392,15 @@ function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
               <Tag color={failed ? "red" : "gold"}>
                 {failed ? "失败" : "待生成"}
               </Tag>
+              <button className="bf-preview-override-btn" title="单卡设置覆盖" onClick={e => { e.stopPropagation(); onOverride && onOverride(video); }}>
+                <SlidersHorizontal size={12} />
+              </button>
             </button>
           );
         })}
         <button
-          className={`bf-preview-video-card ${choice === "merged" ? "is-open" : ""}`}
-          onClick={() => setChoice("merged")}
+          className={"bf-preview-video-card " + (choice === "merged" ? "is-open" : "")}
+          onClick={() => onChoice("merged")}
         >
           <CircleCheck size={15} />
           <strong>合并成片</strong>
@@ -354,7 +412,7 @@ function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
         <div className="bf-preview-player">
           <Play size={28} />
           <div>
-            {choice === "merged" ? "合并成片预览" : `VIDEO ${choice} 预览`}
+            {choice === "merged" ? "合并成片预览" : "VIDEO " + choice + " 预览"}
           </div>
         </div>
         <div className="bf-preview-player-actions">
@@ -387,11 +445,16 @@ function VideoOperations({ item, onRetry, onViewPrompt, canProduce }) {
         <select defaultValue="1.5">
           <option value="1.5">1.5x</option>
         </select>
+        {item?.sourceText ? (
+          <div className="bf-preview-tts">
+            <small>TTS 测时：约 {ttsEstimate} 秒</small>
+            <small>（基于 {sourceLen} 字 × 1.7 倍速）</small>
+          </div>
+        ) : null}
         <Button
           type="primary"
           block
-          disabled
-          title="合并需等待所有 VIDEO 成品完成并同步状态后开放"
+          onClick={() => message.info("合并功能需要上游 FFmpeg 服务支持，当前模拟状态。")}
         >
           合并当前小说
         </Button>
@@ -667,6 +730,124 @@ function BatchIntakeDrawer({ open, onClose, onCreated }) {
   );
 }
 
+
+function ProductionSettingsModal({ open, settings, onClose, onSave, saving }) {
+  const [local, setLocal] = useState({});
+  useEffect(() => { if (open) setLocal({ ...settings }); }, [open, settings]);
+  const set = (key, value) => setLocal(prev => ({ ...prev, [key]: value }));
+  return (
+    <Modal title="生产统一设置" open={open} onCancel={onClose} width={640} footer={null} destroyOnClose>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label>视频画幅
+            <select className="bf-preview-select" value={local.aspectRatio || '9:16'} onChange={e => set('aspectRatio', e.target.value)}>
+              <option value="9:16">9:16（竖屏）</option>
+              <option value="16:9">16:9（横屏）</option>
+            </select>
+          </label>
+          <label>前缀模式
+            <select className="bf-preview-select" value={local.prefixMode || 'auto'} onChange={e => set('prefixMode', e.target.value)}>
+              <option value="auto">AI 自动判断</option>
+              <option value="manual">统一手动前缀</option>
+            </select>
+          </label>
+        </div>
+        {local.prefixMode === 'manual' ? (
+          <label>自定义前缀
+            <textarea className="bf-preview-textarea" rows={3} value={local.customPrefix || ''} onChange={e => set('customPrefix', e.target.value)} placeholder="输入统一画面前缀..." />
+          </label>
+        ) : null}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label>视频风格
+            <select className="bf-preview-select" value={local.style || '高质量动漫短视频'} onChange={e => set('style', e.target.value)}>
+              <option value="高质量动漫短视频">高质量动漫短视频</option>
+              <option value="写实风格">写实风格</option>
+              <option value="韩漫商业">韩漫商业</option>
+              <option value="强情绪爆款">强情绪爆款</option>
+            </select>
+          </label>
+          <label>字幕策略
+            <select className="bf-preview-select" value={local.subtitlePolicy || 'no_auto_dialogue_subtitles'} onChange={e => set('subtitlePolicy', e.target.value)}>
+              <option value="no_auto_dialogue_subtitles">禁止自动对白字幕</option>
+              <option value="auto">允许自动字幕</option>
+            </select>
+          </label>
+        </div>
+        <div style={{ borderTop: '1px solid #1e3348', paddingTop: 12 }}>
+          <strong style={{ color: '#8ba4c0', fontSize: 13 }}>提示词注入开关</strong>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.prefixEnabled !== false} onChange={e => set('prefixEnabled', e.target.checked)} /> 画面前缀</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.characterPromptInjection !== false} onChange={e => set('characterPromptInjection', e.target.checked)} /> 人物 Prompt</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.scenePromptInjection !== false} onChange={e => set('scenePromptInjection', e.target.checked)} /> 场景 Prompt</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.propPromptInjection !== false} onChange={e => set('propPromptInjection', e.target.checked)} /> 道具 Prompt</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.qualityEnabled !== false} onChange={e => set('qualityEnabled', e.target.checked)} /> 画质约束</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.visualRestrictionEnabled !== false} onChange={e => set('visualRestrictionEnabled', e.target.checked)} /> 画面限制</label>
+            <label className="bf-preview-switch"><input type="checkbox" checked={local.negativeEnabled !== false} onChange={e => set('negativeEnabled', e.target.checked)} /> 负面提示词</label>
+          </div>
+        </div>
+        <div style={{ borderTop: '1px solid #1e3348', paddingTop: 12 }}>
+          <strong style={{ color: '#8ba4c0', fontSize: 13 }}>专业视频约束</strong>
+          <label style={{ marginTop: 8, display: 'block' }}>画质约束
+            <textarea className="bf-preview-textarea" rows={2} value={local.quality || ''} onChange={e => set('quality', e.target.value)} placeholder="最高画质，细节丰富..." />
+          </label>
+          <label style={{ marginTop: 8, display: 'block' }}>画面限制
+            <textarea className="bf-preview-textarea" rows={2} value={local.restriction || ''} onChange={e => set('restriction', e.target.value)} placeholder="禁止变形、扭曲..." />
+          </label>
+          <label style={{ marginTop: 8, display: 'block' }}>负面提示词
+            <textarea className="bf-preview-textarea" rows={2} value={local.negative || ''} onChange={e => set('negative', e.target.value)} placeholder="低质量、模糊..." />
+          </label>
+        </div>
+        <Button type="primary" block loading={saving} onClick={() => onSave(local)}>保存设置</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function PublishSettingsDrawer({ open, settings, onClose, onSave, saving }) {
+  const [local, setLocal] = useState({});
+  useEffect(() => { if (open) setLocal({ ...settings }); }, [open, settings]);
+  const set = (key, value) => setLocal(prev => ({ ...prev, [key]: value }));
+  return (
+    <Drawer title="发布统一设置" placement="right" width={480} open={open} onClose={onClose} destroyOnClose>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <label>成品合并策略
+          <select className="bf-preview-select" value={local.publishMergeStrategy || 'merged'} onChange={e => set('publishMergeStrategy', e.target.value)}>
+            <option value="merged">合并成片</option>
+            <option value="separate">独立 VIDEO</option>
+          </select>
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label>倍速
+            <select className="bf-preview-select" value={local.publishSpeed || '1.5x'} onChange={e => set('publishSpeed', e.target.value)}>
+              <option value="1.0x">1.0x</option>
+              <option value="1.2x">1.2x</option>
+              <option value="1.5x">1.5x</option>
+              <option value="2.0x">2.0x</option>
+            </select>
+          </label>
+          <label>生成数量
+            <input className="bf-preview-select" type="number" min={1} max={10} value={local.publishGenerate || 1} onChange={e => set('publishGenerate', Number(e.target.value))} />
+          </label>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label className="bf-preview-switch"><input type="checkbox" checked={local.publishReuse === true} onChange={e => set('publishReuse', e.target.checked)} /> 复用已有成品</label>
+          <label className="bf-preview-switch"><input type="checkbox" checked={local.publishFlip === true} onChange={e => set('publishFlip', e.target.checked)} /> 翻转画面</label>
+        </div>
+        <label>滚动字幕
+          <input className="bf-preview-select" value={local.publishScroll || ''} onChange={e => set('publishScroll', e.target.value)} placeholder="如：片尾滚动字幕" />
+        </label>
+        <label>解压倍速
+          <input className="bf-preview-select" value={local.publishUnpack || ''} onChange={e => set('publishUnpack', e.target.value)} placeholder="如：1.2x" />
+        </label>
+        <label>音调
+          <input className="bf-preview-select" value={local.publishPitch || ''} onChange={e => set('publishPitch', e.target.value)} placeholder="如：正常" />
+        </label>
+        <Button type="primary" block loading={saving} onClick={() => onSave(local)}>保存发布设置</Button>
+      </div>
+    </Drawer>
+  );
+}
+
 export function BatchFactoryPreviewPage() {
   const [batch, setBatch] = useState(null);
   const [selectedId, setSelectedId] = useState("");
@@ -675,7 +856,41 @@ export function BatchFactoryPreviewPage() {
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [videoChoice, setVideoChoice] = useState("merged");
+  const [overrideVideo, setOverrideVideo] = useState(null);
+  const [layoutOrder, setLayoutOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("bfLayoutOrder") || "null") || ["booklist","detail","video","rail"]; }
+    catch { return ["booklist","detail","video","rail"]; }
+  });
   const listRef = useRef(null);
+  const dragRef = useRef(null);
+  const [dragOver, setDragOver] = useState(null);
+
+  function saveLayoutOrder(order) {
+    setLayoutOrder(order);
+    try { localStorage.setItem("bfLayoutOrder", JSON.stringify(order)); } catch {}
+  }
+  function handleDragStart(e, panel) {
+    dragRef.current = panel;
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function handleDragOver(e, panel) {
+    e.preventDefault();
+    if (dragRef.current && dragRef.current !== panel) setDragOver(panel);
+  }
+  function handleDragEnd() {
+    if (dragRef.current && dragOver && dragRef.current !== dragOver) {
+      const order = layoutOrder.filter(p => p !== dragRef.current);
+      const idx = order.indexOf(dragOver);
+      order.splice(idx + 1, 0, dragRef.current);
+      saveLayoutOrder(order);
+    }
+    dragRef.current = null;
+    setDragOver(null);
+  }
   useEffect(() => {
     let disposed = false;
     (async () => {
@@ -761,6 +976,34 @@ export function BatchFactoryPreviewPage() {
       message.error(error.message || "提交视频生成失败");
     } finally {
       setGenerating(false);
+    }
+  }
+  async function saveSettings(newSettings) {
+    if (!batch?.id) return;
+    setSavingSettings(true);
+    try {
+      const result = await updateBatchFactorySettings(batch.id, newSettings);
+      setBatch(result.batch);
+      setSettingsOpen(false);
+      message.success('生产设置已保存');
+    } catch (error) {
+      message.error(error.message || '保存设置失败');
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+  async function savePublishSettings(newSettings) {
+    if (!batch?.id) return;
+    setSavingSettings(true);
+    try {
+      const result = await updateBatchFactorySettings(batch.id, newSettings);
+      setBatch(result.batch);
+      setPublishOpen(false);
+      message.success('发布设置已保存');
+    } catch (error) {
+      message.error(error.message || '保存发布设置失败');
+    } finally {
+      setSavingSettings(false);
     }
   }
   async function refreshActiveBatch() {
@@ -855,19 +1098,6 @@ export function BatchFactoryPreviewPage() {
             >
               <FileText size={14} />
             </button>
-            <div className="bf-preview-tabs">
-              <Button
-                type="primary"
-                icon={<Settings2 size={15} />}
-                disabled
-                title="统一设置需要 MySQL 配置快照接口后开放"
-              >
-                生产统一设置
-              </Button>
-              <Button icon={<Upload size={15} />} disabled>
-                发布统一设置
-              </Button>
-            </div>
           </div>
           <div className="bf-preview-summaries">
             <div>
@@ -879,11 +1109,14 @@ export function BatchFactoryPreviewPage() {
           </div>
           <div className="bf-preview-actions">
             <Button
+              type="primary"
               icon={<Settings2 size={15} />}
-              disabled
-              title="高级设置随生产统一设置一起开放"
+              onClick={() => setSettingsOpen(true)}
             >
-              高级设置
+              生产统一设置
+            </Button>
+            <Button icon={<Upload size={15} />} onClick={() => setPublishOpen(true)}>
+              发布统一设置
             </Button>
             <Button
               type="primary"
@@ -904,14 +1137,13 @@ export function BatchFactoryPreviewPage() {
               }
               onClick={generatePendingVideos}
             >
-              生成待生成 <small>{summary["待生成"]}</small>
+              开始视频
             </Button>
             <Button
-              icon={<RotateCcw size={15} />}
-              disabled
-              title="批量合并需要先同步视频成品状态后开放"
+              icon={<Upload size={15} />}
+              onClick={() => setPublishOpen(true)}
             >
-              合并待合并 <small>{summary["待合并"]}</small>
+              快速上传
             </Button>
           </div>
         </section>
@@ -949,23 +1181,35 @@ export function BatchFactoryPreviewPage() {
           </div>
         </section>
         <div className="bf-preview-grid" ref={listRef}>
-          <BookList
-            entries={entries}
-            selectedId={selected?.id}
-            onSelect={selectBook}
-          />
-          <CurrentBook
-            item={selected}
-            onRetry={retryCurrentBookVideo}
-            canProduce={canProduceSelected}
-          />
-          <VideoOperations
-            item={selected}
-            onRetry={retryCurrentBookVideo}
-            onViewPrompt={viewVideoPrompt}
-            canProduce={canProduceSelected}
-          />
-          <aside className="bf-preview-rail">
+          {layoutOrder.map((panel) => {
+            const isDragOver = dragOver === panel;
+            if (panel === "booklist") {
+              return <div key="booklist" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "booklist")} onDragOver={e => handleDragOver(e, "booklist")} onDragEnd={handleDragEnd}><BookList
+                entries={entries}
+                selectedId={selected?.id}
+                onSelect={selectBook}
+              /></div>;
+            }
+            if (panel === "detail") {
+              return <div key="detail" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "detail")} onDragOver={e => handleDragOver(e, "detail")} onDragEnd={handleDragEnd}><CurrentBook
+                item={selected}
+                onRetry={retryCurrentBookVideo}
+                canProduce={canProduceSelected}
+              /></div>;
+            }
+            if (panel === "video") {
+              return <div key="video" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "video")} onDragOver={e => handleDragOver(e, "video")} onDragEnd={handleDragEnd}><VideoOperations
+                item={selected}
+                choice={videoChoice}
+                onChoice={setVideoChoice}
+                onRetry={retryCurrentBookVideo}
+                onViewPrompt={viewVideoPrompt}
+                canProduce={canProduceSelected}
+                onOverride={(video) => setOverrideVideo(video)}
+              /></div>;
+            }
+            if (panel === "rail") {
+              return <div key="rail" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "rail")} onDragOver={e => handleDragOver(e, "rail")} onDragEnd={handleDragEnd}><aside className="bf-preview-rail">
             <h3>
               视频生成进度 <ChevronDown size={15} />
             </h3>
@@ -1041,9 +1285,34 @@ export function BatchFactoryPreviewPage() {
                 合并全部已完成小说
               </Button>
             </div>
-          </aside>
+          </aside></div>;
+            }
+            return null;
+          })}
         </div>
       </main>
+      <ProductionSettingsModal
+        open={settingsOpen}
+        settings={batch?.settings || {}}
+        onClose={() => setSettingsOpen(false)}
+        onSave={saveSettings}
+        saving={savingSettings}
+      />
+      <VideoOverrideModal
+        video={overrideVideo}
+        open={!!overrideVideo}
+        onClose={() => setOverrideVideo(null)}
+        onSave={(video) => {
+          message.success("VIDEO " + String(video.id || "").padStart(2,"0") + " 单卡设置已保存");
+        }}
+      />
+      <PublishSettingsDrawer
+        open={publishOpen}
+        settings={batch?.settings || {}}
+        onClose={() => setPublishOpen(false)}
+        onSave={savePublishSettings}
+        saving={savingSettings}
+      />
       <BatchIntakeDrawer
         open={intakeOpen}
         onClose={() => setIntakeOpen(false)}
