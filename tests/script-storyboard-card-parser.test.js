@@ -33,3 +33,21 @@ test('ScriptPage keeps parsed card metadata available to the card renderer', () 
   assert.match(page, /const storyboardCardMeta = useMemo\(\(\) => parseStoryboardCards\(output\)/);
   assert.match(page, /cardMeta=\{storyboardCardMeta\}/);
 });
+
+test('ShotOutputCards renders needsReview metadata for paired cards', async () => {
+  const path = require('node:path');
+  const { createServer } = await import('../frontend/node_modules/vite/dist/node/index.js');
+  const React = await import('../frontend/node_modules/react/index.js');
+  const { renderToStaticMarkup } = await import('../frontend/node_modules/react-dom/server.node.js');
+  const server = await createServer({ root: path.resolve(__dirname, '../frontend'), server: { middlewareMode: true }, appType: 'custom' });
+  try {
+    const { ShotOutputCards } = await server.ssrLoadModule('/src/user/components/ShotOutputCards.jsx');
+    const html = renderToStaticMarkup(React.createElement(ShotOutputCards, {
+      cards: ['### 分镜一\n画面：雨夜'], cardMeta: [{ fields: { 画面: '雨夜' }, needsReview: true }],
+      duration: '10s', selectedIndexes: new Set(), onToggle() {}, onToggleAll() {}, onCopy() {}, onCopySelected() {}, onGenerateVideo() {},
+      output: '### 分镜一\n画面：雨夜', cardStarts: [0]
+    }));
+    assert.match(html, /data-needs-review="true"/);
+    assert.match(html, /需要检查/);
+  } finally { await server.close(); }
+});
