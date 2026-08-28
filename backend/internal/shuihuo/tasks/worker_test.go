@@ -79,6 +79,16 @@ func (a workerAdapter) Submit(context.Context, models.Definition, models.Request
 	return a.response, a.err
 }
 
+type captureWorkerAdapter struct {
+	request  models.Request
+	response models.Response
+}
+
+func (a *captureWorkerAdapter) Submit(_ context.Context, _ models.Definition, request models.Request) (models.Response, error) {
+	a.request = request
+	return a.response, nil
+}
+
 func TestWorkerMarksImmediateImageTaskSucceededAfterPersistingMedia(t *testing.T) {
 	taskRepo := &workerTaskRepo{task: domain.Task{ID: 8, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "image", Status: domain.TaskQueued, ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"雨夜车站"}`}}
 	objects := &workerObjects{}
@@ -169,10 +179,10 @@ func TestWorkerMarksImageStoreFailureWithoutMedia(t *testing.T) {
 	}
 }
 
-func TestWorkerRejectsVideoWithoutPrimaryImage(t *testing.T) {
+func TestWorkerRejectsImageToVideoWithoutPrimaryImage(t *testing.T) {
 	taskRepo := &workerTaskRepo{task: domain.Task{ID: 8, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued, ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"镜头推进"}`}}
 	worker := Worker{
-		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo}},
+		Tasks: taskRepo, Models: workerModelRepo{model: models.Definition{ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterViduImageToVideo}},
 		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
 		Media:    &memoryMediaRepo{primaryErr: errors.New("no image")}, Objects: &workerObjects{}, Adapter: workerAdapter{},
 	}
@@ -184,6 +194,37 @@ func TestWorkerRejectsVideoWithoutPrimaryImage(t *testing.T) {
 	}
 	if taskRepo.task.ErrorCode != "primary_image_required" {
 		t.Fatalf("error code = %q", taskRepo.task.ErrorCode)
+	}
+}
+
+func TestWorkerAllowsGenericTextToVideoWithoutPrimaryImage(t *testing.T) {
+	taskRepo := &workerTaskRepo{task: domain.Task{
+		ID: 12, UserID: 17, ProjectID: 3, SegmentID: int64Ptr(5), Kind: "video", Status: domain.TaskQueued,
+		ModelID: int64Ptr(2), ModelVersionID: int64Ptr(4), Input: `{"prompt":"镜头推进","duration":13,"aspectRatio":"9:16"}`,
+	}}
+	adapter := &captureWorkerAdapter{response: models.Response{ResultURL: "https://cdn.example/generated.mp4"}}
+	media := &memoryMediaRepo{primaryErr: errors.New("primary image lookup must not run for text-to-video")}
+	worker := Worker{
+		Tasks: taskRepo,
+		Models: workerModelRepo{model: models.Definition{
+			ID: 2, VersionID: 4, Kind: models.KindVideo, AdapterKind: models.AdapterGenericHTTP,
+			RequestTemplate: `{"body":{"prompt":"{{prompt}}"}}`,
+		}},
+		Segments: workerSegmentRepo{segment: domain.Segment{ID: 5, ProjectID: 3, Confirmed: true}},
+		Media: media, Objects: &workerObjects{}, Adapter: adapter,
+		DownloadResult: func(context.Context, string) ([]byte, string, error) { return []byte("video"), "video/mp4", nil },
+	}
+	if err := worker.Process(context.Background(), 12); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if adapter.request.ImageURL != "" {
+		t.Fatalf("text-to-video image URL = %q, want empty", adapter.request.ImageURL)
+	}
+	if adapter.request.Duration != "13" || adapter.request.AspectRatio != "9:16" {
+		t.Fatalf("video request = %#v", adapter.request)
+	}
+	if got, want := taskRepo.task.Status, domain.TaskSucceeded; got != want {
+		t.Fatalf("status = %s, want %s", got, want)
 	}
 }
 

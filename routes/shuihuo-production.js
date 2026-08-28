@@ -40,6 +40,7 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret } = {}) {
       headers['Content-Length'] = String(body.length);
     }
 
+    const isBatchMerge = requestURL.pathname.endsWith('/shuihuo-production/batch-factory/merge-videos');
     const upstream = transport.request({
       protocol: target.protocol,
       hostname: target.hostname,
@@ -47,7 +48,7 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret } = {}) {
       method: req.method,
       path: requestURL.pathname + requestURL.search,
       headers,
-      timeout: 15_000
+      timeout: isBatchMerge ? 120_000 : 15_000
     }, upstreamResponse => {
       for (const [name, value] of Object.entries(upstreamResponse.headers)) {
         if (value !== undefined && !HOP_BY_HOP_HEADERS.has(name.toLowerCase())) res.setHeader(name, value);
@@ -56,10 +57,10 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret } = {}) {
       upstreamResponse.pipe(res);
     });
 
-    upstream.on('timeout', () => upstream.destroy(new Error('水货生产服务响应超时')));
+    upstream.on('timeout', () => upstream.destroy(new Error(isBatchMerge ? '视频合并服务响应超时' : '水货生产服务响应超时')));
     upstream.on('error', error => {
       if (res.headersSent) return res.destroy(error);
-      res.status(503).json({ error: '水货生产服务暂不可用，请稍后重试' });
+      res.status(503).json({ error: isBatchMerge ? '视频合并服务暂不可用，请稍后重试' : '水货生产服务暂不可用，请稍后重试' });
     });
     if (body) upstream.write(body);
     upstream.end();

@@ -1,5 +1,5 @@
 import { Button, Checkbox, ConfigProvider, Form, Input, message, Modal } from 'antd';
-import { AudioLines, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { AudioLines, Bot, Bug, Check, Clapperboard, FilePenLine, FolderClock, Home, Moon, NotebookTabs, PanelLeftClose, PanelLeftOpen, Settings2, ShieldCheck, Sun, Zap } from 'lucide-react';
 import { cloneElement, Fragment, isValidElement, useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '../components/BrandLogo';
 import { Link } from '../components/Link';
@@ -12,6 +12,7 @@ import { createAntTheme } from '../styles/theme';
 const navItems = [
   { href: '/', icon: Home, label: '首页' },
   { href: '/script', icon: FilePenLine, label: '剧本生成' },
+  { href: '/batch-factory', icon: Zap, label: '批量工厂' },
   { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
   { href: '/shuihuo-production', icon: Clapperboard, label: '水货生产' },
   { href: '/agent', icon: Bot, label: 'Agent 工作区' },
@@ -28,6 +29,7 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
+  if (pathname === '/profile') return '个人中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
 }
@@ -355,7 +357,7 @@ export function UserLayout({ children }) {
             <div className="legacy-userbar">
               {isLoggedIn ? (
                 <>
-                  <span className="legacy-muted">{username}</span>
+                  <Link href="/profile" className="legacy-muted" title="个人中心">{account?.displayName || username}</Link>
                   <Button size="small" onClick={handleLogout}>退出</Button>
                 </>
               ) : null}

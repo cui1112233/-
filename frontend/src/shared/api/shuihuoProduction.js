@@ -55,9 +55,15 @@ export function createBatchTasks(projectId, payload) {
 export function cancelTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/cancel`, { method: 'PUT' }); }
 export function retryTask(taskId) { return apiRequest(`${base}/tasks/${taskId}/retry`, { method: 'POST' }); }
 export function listAdminModels() { return apiRequest(`${base}/admin/models`); }
-export function createAdminModel({ name, kind, adapterKind, enabled, parameterSchema, credentialRef }) {
+export function createAdminModel(payload) {
   return apiRequest(`${base}/admin/models`, {
     method: 'POST',
-    body: JSON.stringify({ name, kind, adapterKind, enabled, parameterSchema, credentialRef })
+    body: JSON.stringify(payload || {})
+  });
+}
+export function updateAdminModel(modelId, payload) {
+  return apiRequest(`${base}/admin/models/${encodeURIComponent(modelId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload || {})
   });
 }

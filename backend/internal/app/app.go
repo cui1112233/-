@@ -95,21 +95,30 @@ func New(cfg config.Config) (*App, error) {
 		workerCtx, cancel := context.WithCancel(context.Background())
 		application.workerCancel = cancel
 		vidu := providers.NewVidu(nil, cfg.ModelCredential, cfg.ModelEndpoint)
+		genericHTTP := shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential)
+		tasksRepo := shuihuostore.NewTasks(db)
+		modelsRepo := shuihuostore.NewModels(db)
+		objectsBridge := shuihuotasks.ObjectStorageBridge{Store: objects}
 		worker := shuihuotasks.Worker{
-			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db),
-			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
+			Tasks: tasksRepo, Models: modelsRepo, Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db),
+			Objects: objectsBridge,
 			Adapter: shuihuomodels.AdapterRouter{
 				shuihuomodels.AdapterJimengImage:      providers.NewJimeng(nil, cfg.ModelCredential),
 				shuihuomodels.AdapterViduImageToVideo: vidu,
-				shuihuomodels.AdapterGenericHTTP:      shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential),
+				shuihuomodels.AdapterGenericHTTP:      genericHTTP,
 			},
 		}
 		poller := shuihuotasks.Poller{
-			Tasks: shuihuostore.NewTasks(db), Models: shuihuostore.NewModels(db), Provider: vidu,
-			Objects: shuihuotasks.ObjectStorageBridge{Store: objects},
+			Tasks: tasksRepo, Models: modelsRepo, Provider: vidu,
+			Objects: objectsBridge,
+		}
+		genericPoller := shuihuotasks.GenericPoller{
+			Tasks: tasksRepo, Models: modelsRepo, Provider: genericHTTP,
+			Objects: objectsBridge,
 		}
 		go func() { _ = worker.Run(workerCtx, queue) }()
 		go func() { _ = poller.Run(workerCtx) }()
+		go func() { _ = genericPoller.Run(workerCtx) }()
 	}
 	return application, nil
 }

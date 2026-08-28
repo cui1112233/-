@@ -1,0 +1,61 @@
+name: Publish qiantie Docker images
+
+on:
+  push:
+    branches:
+      - master
+      - 07-batch-factory-v8-react-antd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build web image
+        run: |
+          WEB_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-web"
+          docker build \
+            -f Dockerfile \
+            -t "$WEB_IMAGE:v8-latest" \
+            -t "$WEB_IMAGE:${{ github.sha }}" \
+            .
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker tag "$WEB_IMAGE:${{ github.sha }}" "$WEB_IMAGE:latest"
+          fi
+
+      - name: Build backend image
+        run: |
+          BACKEND_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-backend"
+          docker build \
+            -f backend/Dockerfile \
+            -t "$BACKEND_IMAGE:v8-latest" \
+            -t "$BACKEND_IMAGE:${{ github.sha }}" \
+            .
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker tag "$BACKEND_IMAGE:${{ github.sha }}" "$BACKEND_IMAGE:latest"
+          fi
+
+      - name: Push images
+        run: |
+          WEB_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-web"
+          BACKEND_IMAGE="ghcr.io/${{ github.repository_owner }}/qiantie-backend"
+          docker push "$WEB_IMAGE:v8-latest"
+          docker push "$WEB_IMAGE:${{ github.sha }}"
+          docker push "$BACKEND_IMAGE:v8-latest"
+          docker push "$BACKEND_IMAGE:${{ github.sha }}"
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker push "$WEB_IMAGE:latest"
+            docker push "$BACKEND_IMAGE:latest"
+          fi

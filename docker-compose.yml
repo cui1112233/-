@@ -1,0 +1,87 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: qiantie
+      MYSQL_USER: qiantie
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-qiantie}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    image: ghcr.io/cui1112233/qiantie-backend:v8-latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      QIANTIE_ADDR: 0.0.0.0:4000
+      QIANTIE_MYSQL_DSN: qiantie:${MYSQL_PASSWORD:-qiantie}@tcp(mysql:3306)/qiantie?parseTime=true&charset=utf8mb4&loc=Local
+      QIANTIE_SEED_USERNAME: ${QIANTIE_SEED_USERNAME:-choushiyiguai}
+      QIANTIE_SEED_PASSWORD: ${QIANTIE_SEED_PASSWORD:-change-me}
+      QIANTIE_TOKEN_SECRET: ${QIANTIE_TOKEN_SECRET:-change-me-token-secret}
+      QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET:-change-me-bridge-secret}
+      QIANTIE_REDIS_ADDR: redis:6379
+      QIANTIE_LEGACY_DATA_DIR: /data/legacy/users
+      QIANTIE_STORAGE_DRIVER: ${QIANTIE_STORAGE_DRIVER:-local}
+      QIANTIE_STORAGE_LOCAL_DIR: /data/shuihuo-objects
+      QIANTIE_STORAGE_PUBLIC_BASE_URL: ${QIANTIE_STORAGE_PUBLIC_BASE_URL:-http://backend:4000}
+      QIANTIE_MODEL_CREDENTIALS: ${QIANTIE_MODEL_CREDENTIALS:-}
+      QIANTIE_MODEL_ENDPOINTS: ${QIANTIE_MODEL_ENDPOINTS:-}
+      VOLCENGINE_ACCESS_KEY_ID: ${VOLCENGINE_ACCESS_KEY_ID:-}
+      VOLCENGINE_SECRET_ACCESS_KEY: ${VOLCENGINE_SECRET_ACCESS_KEY:-}
+      VIDU_API_BASE_URL: ${VIDU_API_BASE_URL:-}
+      VIDU_CREDENTIAL: ${VIDU_CREDENTIAL:-}
+    volumes:
+      - app_data:/data/legacy
+      - shuihuo_objects:/data/shuihuo-objects
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  web:
+    image: ghcr.io/cui1112233/qiantie-web:v8-latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      QIANTIE_GO_BASE_URL: http://backend:4000
+      QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET:-change-me-bridge-secret}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      QIANTIE_HTTPS_PROXY: ${QIANTIE_HTTPS_PROXY:-}
+    volumes:
+      - app_data:/app/data
+      - node_outputs:/app/outputs
+    ports:
+      - "${QIANTIE_WEB_PORT:-3000}:3000"
+
+volumes:
+  mysql_data:
+  redis_data:
+  app_data:
+  shuihuo_objects:
+  node_outputs:

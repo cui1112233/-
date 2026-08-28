@@ -49,17 +49,19 @@ type Definition struct {
 }
 
 type PublicModel struct {
-	ID               int64    `json:"id"`
-	ModelID          string   `json:"modelId"`
-	VersionID        int64    `json:"versionId"`
-	Name             string   `json:"name"`
-	Kind             Kind     `json:"kind"`
-	AdapterKind      string   `json:"adapterKind"`
-	SortOrder        int      `json:"sortOrder"`
-	ParameterSchema  string   `json:"parameterSchema"`
-	ImageInputFormat string   `json:"imageInputFormat"`
-	ImageRequestMode string   `json:"imageRequestMode"`
-	AllowedRoles     []string `json:"allowedRoles"`
+	ID                 int64    `json:"id"`
+	ModelID            string   `json:"modelId"`
+	VersionID          int64    `json:"versionId"`
+	Name               string   `json:"name"`
+	Kind               Kind     `json:"kind"`
+	AdapterKind        string   `json:"adapterKind"`
+	SortOrder          int      `json:"sortOrder"`
+	ParameterSchema    string   `json:"parameterSchema"`
+	ImageInputFormat   string   `json:"imageInputFormat"`
+	ImageRequestMode   string   `json:"imageRequestMode"`
+	AllowedRoles       []string `json:"allowedRoles"`
+	RequiresImageInput bool     `json:"requiresImageInput"`
+	MaxVideoDuration   int      `json:"maxVideoDuration"`
 }
 
 // AdminModel exposes operational configuration and credential reference IDs,
@@ -87,6 +89,7 @@ func ToPublic(model Definition) PublicModel {
 		Kind: model.Kind, AdapterKind: model.AdapterKind, SortOrder: model.SortOrder,
 		ParameterSchema: model.ParameterSchema, ImageInputFormat: model.ImageInputFormat,
 		ImageRequestMode: model.ImageRequestMode, AllowedRoles: append([]string(nil), model.AllowedRoles...),
+		RequiresImageInput: model.RequiresImageInput(), MaxVideoDuration: model.MaxVideoDuration(),
 	}
 }
 
@@ -111,6 +114,75 @@ func ToAdmin(model Definition) AdminModel {
 
 func (model Definition) PubliclySelectable() bool {
 	return model.Enabled && !model.Hidden
+}
+
+// RequiresImageInput is derived from the server-side adapter contract instead of
+// a mutable database flag. Vidu is always image-to-video. Generic HTTP video
+// models are image-to-video only when the request template actually consumes
+// {{image_url}}; otherwise they can be used as text-to-video models such as
+// Seedance-style endpoints.
+func (model Definition) RequiresImageInput() bool {
+	if model.Kind != KindVideo {
+		return false
+	}
+	if model.AdapterKind == AdapterViduImageToVideo {
+		return true
+	}
+	return model.AdapterKind == AdapterGenericHTTP && strings.Contains(model.RequestTemplate, "{{image_url}}")
+}
+
+// MaxVideoDuration returns the provider capability used to constrain one
+// generated VIDEO. The public parameter schema is the preferred source because
+// this value is a user-visible capability. Runtime policy is accepted as a
+// backwards-compatible fallback. A value of 0 means the model has not declared
+// a provider-specific maximum yet.
+func (model Definition) MaxVideoDuration() int {
+	if model.Kind != KindVideo {
+		return 0
+	}
+	if value := maxVideoDurationFromJSON(model.ParameterSchema); value > 0 {
+		return value
+	}
+	return maxVideoDurationFromJSON(model.RuntimePolicyJSON)
+}
+
+func maxVideoDurationFromJSON(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	var data map[string]any
+	if json.Unmarshal([]byte(raw), &data) != nil {
+		return 0
+	}
+	for _, key := range []string{"maxVideoDuration", "maxDuration"} {
+		if value := normalizedDurationCapability(data[key]); value > 0 {
+			return value
+		}
+	}
+	properties, _ := data["properties"].(map[string]any)
+	duration, _ := properties["duration"].(map[string]any)
+	if value := normalizedDurationCapability(duration["maximum"]); value > 0 {
+		return value
+	}
+	if values, ok := duration["enum"].([]any); ok {
+		maximum := 0
+		for _, candidate := range values {
+			if value := normalizedDurationCapability(candidate); value > maximum {
+				maximum = value
+			}
+		}
+		return maximum
+	}
+	return 0
+}
+
+func normalizedDurationCapability(value any) int {
+	number, ok := value.(float64)
+	if !ok || number < 1 || number > 60 || number != float64(int(number)) {
+		return 0
+	}
+	return int(number)
 }
 
 func (model Definition) ProviderConfigured() bool {
@@ -155,14 +227,12 @@ func ValidateDefinition(model Definition) error {
 	if model.Kind != KindText && model.Kind != KindImage && model.Kind != KindVideo && model.Kind != KindAudio {
 		return fmt.Errorf("unsupported model kind %q", model.Kind)
 	}
-	if strings.TrimSpace(model.ModelID) == "" {
-		// Rows created before the model-center migration have a numeric ID and
-		// may be validated while their stable model key is being backfilled.
-		if model.ID == 0 {
-			return fmt.Errorf("modelId is required for new definitions")
+	// modelId is optional until the database model-center migration persists it.
+	// When supplied, keep validating the stable key strictly.
+	if strings.TrimSpace(model.ModelID) != "" {
+		if err := ValidateModelID(model.ModelID); err != nil {
+			return err
 		}
-	} else if err := ValidateModelID(model.ModelID); err != nil {
-		return err
 	}
 	if strings.TrimSpace(model.ParameterSchema) != "" {
 		var schema any

@@ -87,6 +87,10 @@ func (api *API) Router() http.Handler {
 			r.Post("/shuihuo-production/projects/{id}/prompt-candidates/{kind}", api.handleGenerateShuihuoPromptCandidates)
 			r.Put("/shuihuo-production/projects/{id}/prompt-candidates/{kind}/apply", api.handleApplyShuihuoPromptCandidates)
 			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
+			r.Post("/shuihuo-production/batch-factory/import-videos", api.handleImportBatchFactoryVideos)
+			r.Post("/shuihuo-production/batch-factory/status", api.handleBatchFactoryProductionStatus)
+			r.Get("/shuihuo-production/batch-factory/merge-capability", api.handleBatchFactoryMergeCapability)
+			r.Post("/shuihuo-production/batch-factory/merge-videos", api.handleBatchFactoryMergeVideos)
 			r.Get("/shuihuo-production/projects/{id}/tasks", api.handleListShuihuoTasks)
 			r.Post("/shuihuo-production/projects/{id}/tasks", api.handleCreateShuihuoTask)
 			r.Post("/shuihuo-production/projects/{id}/tasks/batch", api.handleCreateShuihuoBatchTasks)
@@ -112,6 +116,7 @@ func (api *API) Router() http.Handler {
 			r.Post("/shuihuo-production/tasks/{taskId}/retry", api.handleRetryShuihuoTask)
 			r.With(api.requireOwner).Get("/shuihuo-production/admin/models", api.handleAdminModelList)
 			r.With(api.requireOwner).Post("/shuihuo-production/admin/models", api.handleCreateAdminModel)
+			r.With(api.requireOwner).Put("/shuihuo-production/admin/models/{modelId}", api.handleUpdateAdminModel)
 		})
 	})
 	return r
