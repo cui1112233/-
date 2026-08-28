@@ -28,6 +28,7 @@ const novelPanelApiRouter = require('./routes/novel-panel');
 const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
+const { createBatchFactoryControlsRouter } = require('./routes/batch-factory-controls');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -125,6 +126,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
+  app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway }));
   // Director jobs intentionally run one book at a time in novel-list order.
   app.use('/api/batch-factory', createBatchFactoryRouter({ presetStore: resolvedPresetStore, shuihuoGateway, maxConcurrency: 1 }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ presetStore: resolvedPresetStore, shuihuoGateway }));
