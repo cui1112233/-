@@ -234,15 +234,15 @@ function CurrentBook({ item, onRetry, canProduce }) {
     [
       "prompts",
       <Video size={16} />,
-      "VIDEO 提示词",
+      "VIDO 提示词",
       storyboard.length
         ? storyboard
             .map(
               (video) =>
-                `VIDEO ${video.id} · ${video.duration_sec || 0}s\n${video.video_desc || ""}`,
+                `VIDO${String(video.id).padStart(2, "0")} · ${video.duration_sec || 0}s\n${video.video_desc || ""}`,
             )
             .join("\n\n")
-        : "导演完成后会生成分卡 VIDEO 提示词。",
+        : "导演完成后会生成分卡 VIDO 提示词。",
     ],
     [
       "activity",
@@ -281,7 +281,7 @@ function CurrentBook({ item, onRetry, canProduce }) {
         <div className="bf-preview-alert">
           <AlertTriangle size={22} />
           <div>
-            <strong>存在异常 VIDEO</strong>
+            <strong>存在异常 VIDO</strong>
             <small>{item.error || "视频生成失败，请检查后重试。"}</small>
           </div>
           <Button danger disabled={!canProduce} onClick={onRetry}>
@@ -316,7 +316,7 @@ function VideoOverrideModal({ video, open, onClose, onSave }) {
   const set = (key, value) => setLocal(prev => ({ ...prev, [key]: value }));
   const vid = String(video?.id || "").padStart(2, "0");
   return (
-    <Modal title={"VIDEO " + vid + " 单卡设置覆盖"} open={open} onCancel={onClose} width={560} footer={null} destroyOnClose>
+    <Modal title={"VIDO" + vid + " 单卡设置覆盖"} open={open} onCancel={onClose} width={560} footer={null} destroyOnClose>
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <label>时长模式
@@ -372,7 +372,7 @@ function VideoOperations({ item, choice, onChoice, onRetry, onViewPrompt, canPro
   return (
     <aside className="bf-preview-video-operations">
       <div className="bf-preview-section-title">
-        <span>当前书 VIDEO</span>
+        <span>当前书 VIDO</span>
         <small>统一播放器 · 点击切换</small>
       </div>
       <div className="bf-preview-video-section">
@@ -387,7 +387,7 @@ function VideoOperations({ item, choice, onChoice, onRetry, onViewPrompt, canPro
               onClick={() => onChoice(id)}
             >
               <Video size={15} />
-              <strong>VIDEO {id}</strong>
+              <strong>VIDO{id}</strong>
               <span>{video.duration_sec || 10}s</span>
               <Tag color={failed ? "red" : "gold"}>
                 {failed ? "失败" : "待生成"}
@@ -412,7 +412,7 @@ function VideoOperations({ item, choice, onChoice, onRetry, onViewPrompt, canPro
         <div className="bf-preview-player">
           <Play size={28} />
           <div>
-            {choice === "merged" ? "合并成片预览" : "VIDEO " + choice + " 预览"}
+            {choice === "merged" ? "合并成片预览" : "VIDO" + choice + " 预览"}
           </div>
         </div>
         <div className="bf-preview-player-actions">
@@ -813,7 +813,7 @@ function PublishSettingsDrawer({ open, settings, onClose, onSave, saving }) {
         <label>成品合并策略
           <select className="bf-preview-select" value={local.publishMergeStrategy || 'merged'} onChange={e => set('publishMergeStrategy', e.target.value)}>
             <option value="merged">合并成片</option>
-            <option value="separate">独立 VIDEO</option>
+            <option value="separate">独立 VIDO</option>
           </select>
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -973,7 +973,7 @@ export function BatchFactoryPreviewPage() {
       await generateBatchFactoryBatch(batch.id, modelId);
       const refreshed = await getBatchFactoryBatch(batch.id);
       setBatch(refreshed.batch);
-      message.success("待生成 VIDEO 已提交生产队列。");
+      message.success("待生成 VIDO 已提交生产队列。");
     } catch (error) {
       message.error(error.message || "提交视频生成失败");
     } finally {
@@ -1038,7 +1038,7 @@ export function BatchFactoryPreviewPage() {
       (entry, index) =>
         String(entry.id || index + 1).padStart(2, "0") === String(choice),
     );
-    if (!video) return message.warning("该 VIDEO 还没有可查看的提示词");
+    if (!video) return message.warning("该 VIDO 还没有可查看的提示词");
     try {
       const result = await compileBatchFactoryVideo(
         batch.id,
@@ -1046,7 +1046,7 @@ export function BatchFactoryPreviewPage() {
         video.id,
       );
       Modal.info({
-        title: `VIDEO ${String(video.id).padStart(2, "0")} 提示词`,
+        title: `VIDO${String(video.id).padStart(2, "0")} 提示词`,
         width: 760,
         content: (
           <pre className="bf-preview-prompt">
@@ -1224,7 +1224,7 @@ export function BatchFactoryPreviewPage() {
         open={!!overrideVideo}
         onClose={() => setOverrideVideo(null)}
         onSave={(video) => {
-          message.success("VIDEO " + String(video.id || "").padStart(2,"0") + " 单卡设置已保存");
+          message.success("VIDO" + String(video.id || "").padStart(2,"0") + " 单卡设置已保存");
         }}
       />
       <PublishSettingsDrawer
