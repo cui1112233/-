@@ -6,6 +6,7 @@ const { PUBLIC_DIR, createAuthRuntime } = require('./lib/shared');
 const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
+const { createUserPromptLibraryStore } = require('./lib/user-prompt-library-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
 
@@ -16,6 +17,7 @@ const { createApplicationsRouter } = require('./routes/applications');
 const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
+const { createUserPromptLibraryRouter } = require('./routes/user-prompt-library');
 const configRouter = require('./routes/config');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -37,7 +39,7 @@ const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const resolvedPresetStore = presetStore || createPresetStore({
@@ -47,6 +49,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({
     systemDir: path.dirname(authRuntime.accountStore.files.audit)
   });
+  const resolvedUserPromptLibraryStore = userPromptLibraryStore || createUserPromptLibraryStore();
   const resolvedAgentSkillStore = agentSkillStore || createAgentSkillStore({
     systemDir: path.dirname(authRuntime.accountStore.files.audit),
     usersDir: path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users')
@@ -58,6 +61,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.authRuntime = authRuntime;
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
+  app.locals.userPromptLibraryStore = resolvedUserPromptLibraryStore;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
   app.locals.errorLogStore = resolvedErrorLogStore;
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
@@ -123,12 +127,18 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore));
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
+  app.use('/api/prompt-library', createUserPromptLibraryRouter({ store: resolvedUserPromptLibraryStore }));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
   app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway }));
   // Director jobs intentionally run one book at a time in novel-list order.
-  app.use('/api/batch-factory', createBatchFactoryRouter({ presetStore: resolvedPresetStore, shuihuoGateway, maxConcurrency: 1 }));
+  app.use('/api/batch-factory', createBatchFactoryRouter({
+    presetStore: resolvedPresetStore,
+    userPromptLibraryStore: resolvedUserPromptLibraryStore,
+    shuihuoGateway,
+    maxConcurrency: 1
+  }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ presetStore: resolvedPresetStore, shuihuoGateway }));
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
