@@ -99,6 +99,43 @@ export function parseShotOutput(output) {
   return headedUnits.length ? headedUnits : parseDividerUnits(text);
 }
 
+// Lightweight durable-card parser for the two-call script generation protocol.
+// It deliberately preserves malformed/untitled output instead of dropping it.
+const STORYBOARD_HEADING_RE = /^\s*(###\s*)?(分镜|镜头|Shot)\s*[第#]?\s*(\d+|[一二三四五六七八九十百千万两]+)\s*(.*)$/i;
+
+function parseCardFields(text) {
+  return String(text || '').split(/\r?\n/).reduce((fields, line) => {
+    const match = line.match(/^\s*([^：:\n]{1,30})[：:]\s*(.*)$/);
+    if (match) fields[match[1].trim()] = match[2].trim();
+    return fields;
+  }, {});
+}
+
+/** Parse titled model output into durable cards while retaining review-needed text. */
+export function parseStoryboardCards(output) {
+  const source = String(output || '').trim();
+  if (!source) return [];
+  const lines = source.split(/\r?\n/);
+  const starts = lines.map((line, index) => ({ line, index, match: line.match(STORYBOARD_HEADING_RE) }))
+    .filter(item => item.match);
+  if (!starts.length) {
+    return [{ id: 'shot-1', title: '未命名分镜', text: source, fields: parseCardFields(source), needsReview: true }];
+  }
+  return starts.map((item, index) => {
+    const next = starts[index + 1]?.index ?? lines.length;
+    const title = item.line.trim();
+    const text = lines.slice(item.index + 1, next).join('\n').trim();
+    const fields = parseCardFields(text);
+    return {
+      id: `shot-${index + 1}`,
+      title,
+      text: text || title,
+      fields,
+      needsReview: !text || Object.keys(fields).length === 0
+    };
+  });
+}
+
 export function getShotCards(format, output) {
   if (!isShotCardFormat(format)) return [];
   const cards = parseShotOutput(output);

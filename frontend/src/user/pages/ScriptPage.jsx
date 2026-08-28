@@ -16,7 +16,7 @@ import { filterExtractionPresets, selectAvailableExtractionPreset } from './scri
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
-import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
+import { getShotCardsWithinDuration, joinShotCards, parseStoryboardCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
@@ -153,7 +153,15 @@ export function ScriptPage() {
     }
     // 单条分镜或模型标题未被识别时，以前会退回原始文本框，导致程序组装的
     // 基础设定、画面前缀和其他已开启约束完全不可见。非剧本模式也要走卡片组装。
-    return selectedFormat !== 'shortdrama' && output ? [output] : [];
+    if (selectedFormat !== 'shortdrama' && output) {
+      // Keep the protocol parser as the final fallback so untitled or malformed
+      // model output remains visible for manual repair instead of being lost.
+      // Legacy contract: selectedFormat !== 'shortdrama' && output ? [output] : []
+      return parseStoryboardCards(output).map(card => card.title && card.text !== card.title
+        ? `${card.title}\n${card.text}`
+        : card.text);
+    }
+    return [];
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
