@@ -13,6 +13,8 @@ import (
 )
 
 type batchFactoryVideoUnit struct {
+	VideoID     string `json:"videoId"`
+	OrderIndex  int    `json:"orderIndex"`
 	SourceText  string `json:"sourceText"`
 	VideoPrompt string `json:"videoPrompt"`
 	Duration    int    `json:"duration"`
@@ -20,6 +22,7 @@ type batchFactoryVideoUnit struct {
 }
 
 type batchFactoryVideoImportRequest struct {
+	ProjectID  int64                   `json:"projectId"`
 	Name       string                  `json:"name"`
 	SourceText string                  `json:"sourceText"`
 	ModelID    int64                   `json:"modelId"`
@@ -28,6 +31,7 @@ type batchFactoryVideoImportRequest struct {
 
 type batchFactoryVideoImportResult struct {
 	Index     int                `json:"index"`
+	VideoID   string             `json:"videoId,omitempty"`
 	SegmentID int64              `json:"segmentId,omitempty"`
 	Task      *domain.PublicTask `json:"task,omitempty"`
 	Error     string             `json:"error,omitempty"`
@@ -53,9 +57,10 @@ type batchFactoryProductionProject struct {
 	Media     []batchFactoryProductionMedia `json:"media"`
 }
 
-// handleImportBatchFactoryVideos is deliberately a single server-side
-// orchestration call. A staged batch-factory item becomes a persistent
-// production project only when the user explicitly asks to generate video.
+// handleImportBatchFactoryVideos keeps exactly one Shuihuo project per novel.
+// The first generation creates the project. Later single-VIDEO generations pass
+// projectId and reuse the segment identified by orderIndex, so re-generation
+// creates a new task without fragmenting one novel across many projects.
 func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Request) {
 	if !api.requireShuihuoDatabase(w) {
 		return
@@ -89,7 +94,7 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if model.RequiresImageInput() {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "该模型需要主图片。批量工厂直接生成当前请选择文生视频模型；图生视频可转为生产项目后绑定图片再生成。"})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "该模型需要主图片。批量工厂请选择文生视频模型。"})
 		return
 	}
 	maxVideoDuration := model.MaxVideoDuration()
@@ -97,7 +102,19 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "所选视频模型未配置单次最大生成时长，请管理员先在模型中心补充该能力。"})
 		return
 	}
-	for index, video := range req.Videos {
+
+	seenOrder := make(map[int]struct{}, len(req.Videos))
+	for index := range req.Videos {
+		video := &req.Videos[index]
+		video.VideoID = strings.TrimSpace(video.VideoID)
+		if video.OrderIndex < 1 {
+			video.OrderIndex = index + 1
+		}
+		if _, duplicate := seenOrder[video.OrderIndex]; duplicate {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "同一次提交的 VIDEO 顺序不能重复"})
+			return
+		}
+		seenOrder[video.OrderIndex] = struct{}{}
 		if strings.TrimSpace(video.VideoPrompt) == "" || strings.TrimSpace(video.SourceText) == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "第 " + strconv.Itoa(index+1) + " 个 VIDEO 缺少内容或提示词"})
 			return
@@ -112,28 +129,69 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	project, err := shuihuostore.NewProjects(api.deps.DB).Create(r.Context(), user.ID, domain.Project{
-		Name: name, SourceText: req.SourceText, SegmentationStatus: "confirmed",
-	})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "创建批量工厂生产项目失败"})
-		return
+	projectsRepo := shuihuostore.NewProjects(api.deps.DB)
+	var project domain.Project
+	if req.ProjectID > 0 {
+		project, err = projectsRepo.GetProject(r.Context(), user.ID, req.ProjectID)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "批量工厂生产项目不存在"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量工厂生产项目失败"})
+			return
+		}
+	} else {
+		project, err = projectsRepo.Create(r.Context(), user.ID, domain.Project{
+			Name: name, SourceText: req.SourceText, SegmentationStatus: "confirmed",
+		})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "创建批量工厂生产项目失败"})
+			return
+		}
 	}
 
 	segmentsRepo := shuihuostore.NewSegments(api.deps.DB)
+	existingSegments, err := segmentsRepo.ListByProject(r.Context(), user.ID, project.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量工厂 VIDEO 分段失败"})
+		return
+	}
+	byOrder := make(map[int]domain.Segment, len(existingSegments))
+	for _, segment := range existingSegments {
+		byOrder[segment.OrderIndex] = segment
+	}
+
 	results := make([]batchFactoryVideoImportResult, 0, len(req.Videos))
 	allQueued := true
-	for index, video := range req.Videos {
-		segment, createErr := segmentsRepo.Create(r.Context(), user.ID, project.ID, domain.Segment{
-			SourceText: video.SourceText, OrderIndex: index + 1, Confirmed: true, ManuallyEdited: true,
-			VideoPrompt: video.VideoPrompt, VideoPromptLocked: true,
-		})
-		result := batchFactoryVideoImportResult{Index: index + 1}
-		if createErr != nil {
-			allQueued = false
-			result.Error = "创建 VIDEO 分段失败"
-			results = append(results, result)
-			continue
+	for _, video := range req.Videos {
+		result := batchFactoryVideoImportResult{Index: video.OrderIndex, VideoID: video.VideoID}
+		segment, exists := byOrder[video.OrderIndex]
+		if exists {
+			segment.SourceText = video.SourceText
+			segment.VideoPrompt = video.VideoPrompt
+			segment.OrderIndex = video.OrderIndex
+			segment.Confirmed = true
+			segment.ManuallyEdited = true
+			segment.VideoPromptLocked = true
+			if updateErr := segmentsRepo.Update(r.Context(), user.ID, segment); updateErr != nil {
+				allQueued = false
+				result.Error = "更新 VIDEO 分段失败"
+				results = append(results, result)
+				continue
+			}
+		} else {
+			segment, err = segmentsRepo.Create(r.Context(), user.ID, project.ID, domain.Segment{
+				SourceText: video.SourceText, OrderIndex: video.OrderIndex, Confirmed: true, ManuallyEdited: true,
+				VideoPrompt: video.VideoPrompt, VideoPromptLocked: true,
+			})
+			if err != nil {
+				allQueued = false
+				result.Error = "创建 VIDEO 分段失败"
+				results = append(results, result)
+				continue
+			}
+			byOrder[video.OrderIndex] = segment
 		}
 		result.SegmentID = segment.ID
 		settings := &shuihuoVideoTaskSettings{Duration: video.Duration, AspectRatio: video.AspectRatio}
@@ -158,10 +216,6 @@ func (api *API) handleImportBatchFactoryVideos(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// handleBatchFactoryProductionStatus returns the production state for many
-// batch-factory projects in one request. Both repositories apply user ownership
-// filters, and the response deliberately omits task input/output snapshots and
-// object storage keys.
 func (api *API) handleBatchFactoryProductionStatus(w http.ResponseWriter, r *http.Request) {
 	if !api.requireShuihuoDatabase(w) {
 		return
