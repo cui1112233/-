@@ -199,7 +199,9 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     ));
     if (!targets.length) return res.status(409).json({ error: '没有待提交生产的导演完成小说' });
 
-    const results = await mapBounded(targets, 3, item => submitItemProduction({
+    // Batch Factory is intentionally book-serial: users read the novel list top
+    // to bottom, and bulk production must preserve that same deterministic order.
+    const results = await mapBounded(targets, 1, item => submitItemProduction({
       presetStore,
       batch,
       item,
@@ -210,7 +212,7 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     }));
 
     // Persist sequentially because the staging store is file-backed. Network
-    // submissions may run concurrently, but writes must not race each other.
+    // submissions are also serial above, so the visible order matches the list.
     for (const result of results) {
       if (result?.ok) persistProductionSuccess(store, req.username, batch.id, result);
       else if (result?.itemId) persistProductionFailure(store, req.username, batch.id, result);
