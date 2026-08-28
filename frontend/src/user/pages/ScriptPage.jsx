@@ -169,6 +169,10 @@ export function ScriptPage() {
     index,
     duration: selectedDuration
   })), [rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration]);
+  // Keep parser metadata alongside rendered text. The card renderer can evolve
+  // independently while persistence/export code still has access to review flags
+  // and parsed fields for every generated unit.
+  const storyboardCardMeta = useMemo(() => parseStoryboardCards(output), [output]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
@@ -1254,6 +1258,7 @@ export function ScriptPage() {
           {output ? (
             isShotCardView ? <ShotOutputCards
               cards={shotCards}
+              cardMeta={storyboardCardMeta}
               duration={form.getFieldValue('duration')}
               selectedIndexes={selectedShotIndexes}
               onToggle={index => setSelectedShotIndexes(current => {

@@ -26,3 +26,10 @@ test('preserves missing headings or fields and marks needsReview', async () => {
   assert.equal(empty[0].needsReview, true);
   assert.equal(empty[0].text, '### 分镜一');
 });
+
+test('ScriptPage keeps parsed card metadata available to the card renderer', () => {
+  const fs = require('node:fs');
+  const page = fs.readFileSync(require('node:path').resolve(__dirname, '../frontend/src/user/pages/ScriptPage.jsx'), 'utf8');
+  assert.match(page, /const storyboardCardMeta = useMemo\(\(\) => parseStoryboardCards\(output\)/);
+  assert.match(page, /cardMeta=\{storyboardCardMeta\}/);
+});
