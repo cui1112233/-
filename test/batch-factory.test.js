@@ -2,9 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
+const { resolveItemSettings } = require('../lib/batch-factory/effective-settings');
 const { normalizeSettings, normalizeSourceItem } = require('../lib/batch-factory/store');
 const { canonicalModelSettings } = require('../routes/batch-factory');
-const { boundModelError } = require('../routes/batch-factory-production');
+const { boundModelError, hasPendingVideos } = require('../routes/batch-factory-production');
+const { normalizeItemOverrides, directorFingerprint } = require('../routes/batch-factory-controls');
 
 function baseResult(videos) {
   return {
@@ -102,6 +104,98 @@ test('生成阶段拒绝把已导演批次换成另一视频模型', () => {
   assert.equal(boundModelError(batch, 18), '');
   assert.match(boundModelError(batch, 19), /已绑定 Seedance 2\.0/);
   assert.equal(boundModelError({ settings: {} }, 19), '');
+});
+
+test('单书设置独立覆盖剧本资产画幅和时长策略，但继续继承绑定模型', () => {
+  const batch = {
+    settings: {
+      videoModelId: 18,
+      videoModelVersionId: 42,
+      videoModelName: 'Seedance 2.0',
+      maxVideoDuration: 15,
+      scriptPromptPresetId: 'standard-short-drama',
+      assetPromptPresetId: 'standard-asset-extraction',
+      aspectRatio: '9:16',
+      fixedSingleVideo: false,
+      prefixMode: 'auto',
+      quality: '批次画质',
+      injectCharacterPrompt: true,
+      injectScenePrompt: true,
+      injectPropPrompt: true,
+      subtitlePolicy: 'forbid-auto-dialogue-subtitle'
+    }
+  };
+  const item = {
+    settingsOverride: {
+      scriptPromptPresetId: 'my-script',
+      assetPromptPresetId: 'my-assets',
+      aspectRatio: '16:9',
+      fixedSingleVideo: true,
+      prefixMode: 'manual',
+      customPrefix: '当前小说专用前缀',
+      injectPropPrompt: false,
+      subtitlePolicy: 'allow'
+    }
+  };
+  const settings = resolveItemSettings(batch, item);
+  assert.equal(settings.videoModelId, 18);
+  assert.equal(settings.maxVideoDuration, 15);
+  assert.equal(settings.scriptPromptPresetId, 'my-script');
+  assert.equal(settings.assetPromptPresetId, 'my-assets');
+  assert.equal(settings.aspectRatio, '16:9');
+  assert.equal(settings.fixedSingleVideo, true);
+  assert.equal(settings.exactDuration, 15);
+  assert.equal(settings.customPrefix, '当前小说专用前缀');
+  assert.equal(settings.quality, '批次画质');
+  assert.equal(settings.injectPropPrompt, false);
+  assert.equal(settings.subtitlePolicy, 'allow');
+});
+
+test('单书提示词 ID 使用实时批量工厂目录校验而不是硬编码列表', () => {
+  const catalog = {
+    scriptPrompts: [{ id: 'admin-new-script', name: '管理员新剧本' }],
+    assetPrompts: [{ id: 'admin-new-assets', name: '管理员新资产' }]
+  };
+  const value = normalizeItemOverrides({
+    scriptPromptPresetId: 'admin-new-script',
+    assetPromptPresetId: 'admin-new-assets',
+    aspectRatio: '16:9',
+    fixedSingleVideo: true
+  }, {}, catalog);
+  assert.equal(value.scriptPromptPresetId, 'admin-new-script');
+  assert.equal(value.assetPromptPresetId, 'admin-new-assets');
+  assert.equal(value.aspectRatio, '16:9');
+  assert.equal(value.fixedSingleVideo, true);
+});
+
+test('导演指纹只跟导演结构相关，纯生成附加项不会要求重新导演', () => {
+  const base = {
+    scriptPromptPresetId: 's1',
+    assetPromptPresetId: 'a1',
+    aspectRatio: '9:16',
+    fixedSingleVideo: false,
+    maxVideoDuration: 15,
+    quality: '普通'
+  };
+  assert.equal(directorFingerprint(base), directorFingerprint({ ...base, quality: '4K', negative: '禁止水印' }));
+  assert.notEqual(directorFingerprint(base), directorFingerprint({ ...base, aspectRatio: '16:9' }));
+  assert.notEqual(directorFingerprint(base), directorFingerprint({ ...base, scriptPromptPresetId: 's2' }));
+});
+
+test('单 VIDEO 提交后整书生成仍能识别其余 VIDEO 为待生成', () => {
+  const item = {
+    production: { projectId: 99 },
+    directorResult: { storyboard: [{ id: 1 }, { id: 2 }, { id: 3 }] },
+    productionResults: [
+      { index: 1, segmentId: 101, task: { id: 1001 } },
+      { index: 2, segmentId: 102, task: null },
+      { index: 3, segmentId: 103, task: null }
+    ]
+  };
+  assert.equal(hasPendingVideos(item), true);
+  item.productionResults[1].task = { id: 1002 };
+  item.productionResults[2].task = { id: 1003 };
+  assert.equal(hasPendingVideos(item), false);
 });
 
 test('普通 15s 模式允许按剧情输出 13s、12s、10s 多个 VIDEO', () => {
