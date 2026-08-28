@@ -35,7 +35,8 @@ export function normalizeExtractInfo(value) {
     visualStyle: typeof value?.visualStyle === 'string' ? value.visualStyle.trim() : '',
     protagonistIds: Array.isArray(value?.protagonistIds)
       ? value.protagonistIds.filter(id => characterIds.has(id))
-      : []
+      : [],
+    version: Number.isInteger(Number(value?.version)) && Number(value.version) > 0 ? Number(value.version) : 1
   };
 }
 

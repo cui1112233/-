@@ -458,7 +458,7 @@ export function ScriptPage() {
   function restoreHistory(entry) {
     if (!entry?.output) return;
     form.setFieldsValue({ mode: entry.mode || 'continuous', format: entry.format || 'storyboard', duration: entry.duration || '10s', novelText: entry.novelText || '' });
-    setExtractInfo(normalizeExtractInfo(entry.extractInfo));
+    setExtractInfo(normalizeExtractInfo(entry.material || entry.extractInfo));
     const restoredConstraints = normalizeScriptConstraints(entry.constraints || DEFAULT_SCRIPT_CONSTRAINTS);
     setConstraints(restoredConstraints);
     setOutputConstraints(restoredConstraints);
@@ -755,7 +755,7 @@ export function ScriptPage() {
     }
   }
 
-  async function generateOutput() {
+  async function generateOutput({ regenerate = false } = {}) {
     const values = form.getFieldsValue();
     if (!extractInfo.characters.length && !extractInfo.scenes.length) return message.warning('请先提取人物与场景');
     const requestId = beginRequest('workflow');
@@ -766,11 +766,14 @@ export function ScriptPage() {
     try {
       const entities = toGenerationEntities(extractInfo);
       const requestConstraints = constraintsForFormat(constraints, values.format, extractInfo);
+      const previousHistoryId = currentHistoryId;
       const scriptResponse = await generateScript({
         mode: values.mode,
         format: values.format,
         duration: values.duration,
         novelText: values.novelText,
+        material: extractInfo,
+        ...(regenerate && previousOutput ? { previousOutput } : {}),
         ...entities,
         constraints: requestConstraints
       });
@@ -799,7 +802,7 @@ export function ScriptPage() {
           extractInfo,
           material: extractInfo,
           materialVersion: Number(extractInfo?.version) || 1,
-          previousOutputId: previousOutput ? currentHistoryId || undefined : undefined,
+          previousOutputId: regenerate ? previousHistoryId || undefined : undefined,
           constraints: requestConstraints
         });
         if (!isCurrentRequest(requestId)) return;
@@ -836,7 +839,7 @@ export function ScriptPage() {
   async function regenerateOutput() {
     setRegeneratingOutput(true);
     try {
-      await generateOutput();
+      await generateOutput({ regenerate: true });
     } finally {
       setRegeneratingOutput(false);
     }
