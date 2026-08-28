@@ -2,6 +2,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
+const { resolveItemSettings } = require('../lib/batch-factory/effective-settings');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
@@ -15,10 +16,11 @@ const PREFIX_PRESETS = Object.freeze({
 });
 
 function compileItemVideos(presetStore, batch, item) {
+  const settings = resolveItemSettings(batch, item);
   return item.directorResult.storyboard.map(video => {
     const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-    const autoPrefix = batch.settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
-    const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings: batch.settings, autoPrefix });
+    const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
+    const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings, autoPrefix });
     return {
       sourceText: String(video.video_desc || `VIDEO ${video.id}`).trim(),
       videoPrompt: payload.prompt,
