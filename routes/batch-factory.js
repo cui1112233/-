@@ -102,17 +102,27 @@ function prefixCatalogPrompt() {
   return `可用视频前缀类型 key 只能从以下列表选择：\n${Object.keys(PREFIX_PRESETS).map(key => `- ${key}`).join('\n')}\n根据每个视频单元自身题材和情绪选择最匹配的 key；不确定时使用 general_anime。`;
 }
 
-function selectedDirectorPrompts(settings = {}) {
+function applyPersonalPrompt(base, username, userPromptLibraryStore) {
+  const override = userPromptLibraryStore?.get?.(username, base.id);
+  if (!override?.body) return { ...base, source: 'system' };
   return {
-    script: resolveScriptPrompt(settings.scriptPromptPresetId),
-    assets: resolveAssetPrompt(settings.assetPromptPresetId)
+    ...base,
+    body: override.body,
+    version: override.version || 1,
+    source: 'personal'
   };
 }
 
-function directorSystemPrompt(presetStore, mode, settings) {
+function selectedDirectorPrompts(settings = {}, username = '', userPromptLibraryStore) {
+  return {
+    script: applyPersonalPrompt(resolveScriptPrompt(settings.scriptPromptPresetId), username, userPromptLibraryStore),
+    assets: applyPersonalPrompt(resolveAssetPrompt(settings.assetPromptPresetId), username, userPromptLibraryStore)
+  };
+}
+
+function directorSystemPrompt(presetStore, mode, settings, selected) {
   const directorId = mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
   const base = resolveSystemPresetBody(presetStore, directorId);
-  const selected = selectedDirectorPrompts(settings);
   const durationRule = settings.fixedSingleVideo
     ? `固定单 VIDEO 已开启：只允许输出 1 个 storyboard；duration_sec 必须严格等于 ${settings.exactDuration}。输入再长也不要输出第二个 storyboard。只能从开头选择能在 ${settings.exactDuration} 秒内完整承载的连续内容，不得从一句对白或完整动作中间截断。后续内容标记为 has_remaining_source=true。`
     : `固定单 VIDEO 未开启：当前绑定视频模型单次生成最大支持 ${settings.maxVideoDuration} 秒。请先完整理解内容，根据剧情节点、动作完整性、视觉连续性和节奏，将整段内容自然拆成一个或多个 VIDEO。每个 VIDEO 的实际生成时长必须为 1-${settings.maxVideoDuration} 之间的整数，不要求用满 ${settings.maxVideoDuration} 秒。不要为了凑时长加入无意义停顿，也不要用简单固定长度机械切分。`;
@@ -184,13 +194,13 @@ async function generateHook(username, presetStore, batch, item) {
   };
 }
 
-async function generateDirector(username, presetStore, batch, item) {
+async function generateDirector(username, presetStore, userPromptLibraryStore, batch, item) {
   if (batch.mode === 'viral' && !String(item.approvedHookScript || '').trim()) throw new Error('爆款模式必须先审核通过开头文案');
   const directorId = batch.mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
   const settings = resolveItemSettings(batch, item);
-  const selected = selectedDirectorPrompts(settings);
+  const selected = selectedDirectorPrompts(settings, username, userPromptLibraryStore);
   const text = await callTextModel(username, [
-    { role: 'system', content: directorSystemPrompt(presetStore, batch.mode, settings) },
+    { role: 'system', content: directorSystemPrompt(presetStore, batch.mode, settings, selected) },
     { role: 'user', content: directorUserPrompt(batch, item) }
   ], { temperature: batch.mode === 'viral' ? 0.65 : 0.35, maxTokens: 18000 });
   const result = normalizeDirectorOutput(text, directorSettings(batch, item));
@@ -198,8 +208,8 @@ async function generateDirector(username, presetStore, batch, item) {
     directorResult: result,
     promptVersions: {
       [directorId]: presetVersion(presetStore, directorId),
-      scriptPrompt: { id: selected.script.id, name: selected.script.name, version: selected.script.version },
-      assetPrompt: { id: selected.assets.id, name: selected.assets.name, version: selected.assets.version }
+      scriptPrompt: { id: selected.script.id, name: selected.script.name, version: selected.script.version, source: selected.script.source },
+      assetPrompt: { id: selected.assets.id, name: selected.assets.name, version: selected.assets.version, source: selected.assets.source }
     }
   };
 }
@@ -257,7 +267,7 @@ async function resolveBoundVideoSettings(req, inputSettings, shuihuoGateway) {
   return canonicalModelSettings(inputSettings, model);
 }
 
-function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetStore, maxConcurrency = 1, shuihuoGateway } = {}) {
+function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetStore, userPromptLibraryStore, maxConcurrency = 1, shuihuoGateway } = {}) {
   const router = express.Router();
   const jobs = [];
   const queued = new Set();
@@ -295,7 +305,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'director_generating'; target.error = ''; });
       const refreshed = store.getBatch(job.username, job.batchId);
       const refreshedItem = refreshed?.items?.find(entry => entry.id === job.itemId);
-      const result = await generateDirector(job.username, presetStore, refreshed, refreshedItem);
+      const result = await generateDirector(job.username, presetStore, userPromptLibraryStore, refreshed, refreshedItem);
       store.updateItem(job.username, job.batchId, job.itemId, target => {
         target.directorResult = result.directorResult;
         target.promptVersions = { ...target.promptVersions, ...result.promptVersions };
