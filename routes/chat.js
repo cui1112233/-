@@ -195,7 +195,10 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const duration = normalizeDuration(body.duration);
   const secs = duration === '15s' ? '15' : '10';
   const endTime = duration === '15s' ? '00:15' : '00:10';
-  const hasBaseSetup = body.constraints?.baseSetup?.enabled === true;
+  const material = body.material && typeof body.material === 'object' && !Array.isArray(body.material)
+    ? body.material : null;
+  const lightweight = Boolean(material);
+  const hasBaseSetup = lightweight ? true : body.constraints?.baseSetup?.enabled === true;
 
   let formatContent = resolveSystemPresetBody(presetStore, FORMAT_PRESET_ID_MAP[format]);
   formatContent = formatContent.replace(/\{10s或15s\}/g, duration);
@@ -217,7 +220,9 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   modeContent = modeContent.replace(/\{duration\}/g, duration);
   modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
 
-  const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
+  // In the lightweight protocol quality/restriction/negative prompts are
+  // deliberately post-processing fields and must never reach the model.
+  const constraintWrapper = lightweight ? '' : buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
   const sourceText = String(body.novelText || '').trim();
   const compactSourceGuard = sourceText.length <= 600
     ? `## 短原文时长硬校验\n原文仅 ${sourceText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得为了填满内容新增事件、人物、对白或空镜。`
@@ -228,13 +233,21 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
     ? ''
     : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的${hasBaseSetup ? '人物、场景、基础设定及' : ''}所有已启用约束，确保可独立复制提交。`;
-  const protagonists = hasBaseSetup ? sanitizeProtagonists(body.characters, body.protagonists) : [];
+  const materialCharacters = lightweight ? material.characters : body.characters;
+  const materialScenes = lightweight ? material.scenes : body.scenes;
+  const materialStyle = lightweight ? material.visualStyle : body.visualStyle;
+  const protagonists = lightweight
+    ? (Array.isArray(material.protagonistIds) ? material.protagonistIds : [])
+        .map(id => (Array.isArray(materialCharacters) ? materialCharacters.find(item => item?.id === id) : null))
+        .filter(Boolean)
+    : (hasBaseSetup ? sanitizeProtagonists(body.characters, body.protagonists) : []);
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
     : '';
   const systemPrompt = [
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
+    lightweight && serializePromptSection(body.metaPrompts),
     directorMaster,
     unitProtocol,
     durationGuard,
@@ -249,9 +262,11 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     {
       role: 'user',
       content: '## 小说原文\n' + String(body.novelText || '') +
-        (hasBaseSetup ? '\n\n## 人物信息\n' + serializePromptSection(body.characters) +
-        '\n\n## 场景信息\n' + serializePromptSection(body.scenes) : '') +
+        (hasBaseSetup ? '\n\n## 人物信息\n' + serializePromptSection(materialCharacters) +
+        '\n\n## 场景信息\n' + serializePromptSection(materialScenes) +
+        (lightweight ? '\n\n## 统一风格\n' + serializePromptSection(materialStyle) : '') : '') +
         (protagonistPrompt ? '\n\n' + protagonistPrompt : '') +
+        (lightweight && body.previousOutput ? '\n\n## 上一版分镜（仅用于修复与精致化）\n' + String(body.previousOutput) : '') +
         '\n\n请将以上小说章节转化为' + formatName + '。'
     }
   ];
