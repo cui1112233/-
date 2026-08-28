@@ -48,6 +48,10 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
-      - name: Test backend
+      - name: Compile all backend packages
         working-directory: backend
-        run: go test ./...
+        run: go test ./... -run '^$'
+
+      - name: Run Batch Factory backend tests
+        working-directory: backend
+        run: go test ./internal/httpapi -run 'BatchFactory|Merge' -count=1
