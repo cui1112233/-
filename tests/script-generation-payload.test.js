@@ -45,3 +45,12 @@ test('previous output is conditional and only included for regeneration', () => 
 test('duration is resolved from the request preset value', () => {
   assert.match(build()[0].content, /15s/);
 });
+
+test('legacy requests without authoritative material retain constraint behavior', () => {
+  const messages = chat._private.buildScriptMessages({
+    mode: 'continuous', format: 'storyboard', duration: '10s', novelText: '旧调用',
+    characters: [], scenes: [], protagonists: [],
+    constraints: { quality: { enabled: true, source: 'draft', body: 'LEGACY_QUALITY' } }
+  }, store);
+  assert.match(messages[0].content, /LEGACY_QUALITY/);
+});

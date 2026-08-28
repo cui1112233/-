@@ -31,17 +31,25 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, material, metaPrompts, previousOutput }) {
+export function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, material, metaPrompts, previousOutput }) {
   const body = {
     promptType: 'script', mode, format, duration, novelText,
     // The material JSON is the authoritative payload. Legacy fields remain as
     // a compatibility fallback for older callers.
-    material: material || { characters, scenes, visualStyle, protagonistIds: (protagonists || []).map(item => item?.id).filter(Boolean) },
     metaPrompts,
     max_tokens: format === 'shotlist' ? 16000 : 8192,
     temperature: 0.7,
     stream: false
   };
+  if (material) body.material = material;
+  else {
+    body.characters = characters;
+    body.scenes = scenes;
+    body.visualStyle = visualStyle;
+    body.protagonists = protagonists;
+    // Legacy callers still rely on server-side constraint resolution.
+    body.constraints = constraints;
+  }
   if (previousOutput) body.previousOutput = previousOutput;
   return apiRequest('/api/chat', {
     method: 'POST',
