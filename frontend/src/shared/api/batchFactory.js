@@ -101,3 +101,15 @@ export function mergeBatchFactoryVideos(payload) {
     body: JSON.stringify(payload)
   });
 }
+
+export function getBatchFactoryPublishConfig(batchId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/publish/config`);
+}
+
+export function previewBatchFactoryPublish(batchId, itemIds) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/publish/preview`, { method: 'POST', body: JSON.stringify({ itemIds }) });
+}
+
+export function publishBatchFactory(batchId, { settings, itemIds, retry = false } = {}) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/publish`, { method: 'POST', body: JSON.stringify({ settings, itemIds, retry }) });
+}
