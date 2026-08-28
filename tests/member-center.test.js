@@ -244,6 +244,25 @@ test('DEV can promote an existing MEMBER to MANAGER', t => {
   assert.equal(promoted.apiEnabled, false);
 });
 
+test('DEV team transfer clears the MEMBER API scopes before the new team reauthorizes access', t => {
+  const { memberStore } = fixture(t);
+  const managerA = memberStore.createManagedMember('choushiyiguai', {
+    username: 'transfer_manager_a', password: 'password01', role: 'manager'
+  });
+  const managerB = memberStore.createManagedMember('choushiyiguai', {
+    username: 'transfer_manager_b', password: 'password01', role: 'manager'
+  });
+  const member = memberStore.createManagedMember(managerA.username, {
+    username: 'transfer_member', password: 'password01', apiEnabled: true
+  });
+
+  const transferred = memberStore.updateManagedMember('choushiyiguai', member.username, { boundTo: managerB.username });
+
+  assert.equal(transferred.boundTo, managerB.username);
+  assert.equal(transferred.apiEnabled, false);
+  assert.deepEqual(transferred.apiScopes, []);
+});
+
 test('MANAGER audit filtering does not reacquire the member-store lock', t => {
   const { memberStore } = fixture(t);
   const manager = memberStore.createManagedMember('choushiyiguai', {

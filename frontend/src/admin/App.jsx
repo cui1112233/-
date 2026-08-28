@@ -32,9 +32,9 @@ function getPage(pathname) {
 
 function LegacyAccountRedirect() {
   useEffect(() => {
-    window.location.replace('/team');
+    window.location.replace('/accounts');
   }, []);
-  return <section className="admin-legacy-redirect"><h2>账号与授权已移入个人中心</h2><p>管理员和组员授权请在个人中心的组员管理中完成。</p><Link href="/team">前往组员管理</Link></section>;
+  return <section className="admin-legacy-redirect"><h2>账号与授权已移入个人中心</h2><p>账号角色和跨团队调整请在个人中心完成。</p><Link href="/accounts">前往账号与角色</Link></section>;
 }
 
 export function AdminApp() {

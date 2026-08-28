@@ -8,13 +8,16 @@ const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf
 
 test('account center is the only user-facing entry for admin tools and gates it to DEV', () => {
   const layout = read('frontend/src/shared/layouts/UserLayout.jsx');
+  const userApp = read('frontend/src/user/App.jsx');
   const sidebarTools = layout.match(/<div className="legacy-sidebar-tools">[\s\S]*?<\/div>/)?.[0];
 
   assert.ok(sidebarTools, 'sidebar tools should remain present');
   assert.doesNotMatch(sidebarTools, /admin/i);
   assert.match(layout, /function canAccessAdmin\(account\)[\s\S]*?account\?\.role === 'dev'/);
   assert.match(layout, /account-center-popover-developer-links/);
+  assert.match(layout, /href="\/accounts"/);
   assert.match(layout, /href="\/admin\/presets" reload/);
+  assert.match(userApp, /'\/accounts': AccountGovernancePage/);
 });
 
 test('admin console navigation is prompt-focused and honors its separate explicit access grant', () => {
@@ -29,7 +32,7 @@ test('admin console navigation is prompt-focused and honors its separate explici
   assert.match(layout, /href: '\/admin\/prompts'/);
   assert.match(layout, /label: '提示词库'/);
   assert.match(app, /pathname === '\/admin\/accounts'\) return <LegacyAccountRedirect \/>/);
-  assert.match(app, /账号与授权已移入个人中心/);
+  assert.match(app, /window\.location\.replace\('\/accounts'\)/);
   assert.doesNotMatch(dashboard, /href: '\/admin\/accounts'/);
   assert.match(dashboard, /提示词库/);
   assert.match(dashboard, /Prompt 策略/);
