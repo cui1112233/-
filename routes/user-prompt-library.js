@@ -2,35 +2,31 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createUserPromptLibraryStore } = require('../lib/user-prompt-library-store');
 const {
-  SCRIPT_PROMPTS,
-  ASSET_PROMPTS,
+  setBatchFactoryPresetStore,
   resolveScriptPrompt,
-  resolveAssetPrompt
+  resolveAssetPrompt,
+  publicPromptCatalog
 } = require('../lib/batch-factory/prompt-selection');
 
-function definition(promptId) {
-  if (SCRIPT_PROMPTS[promptId]) return { ...SCRIPT_PROMPTS[promptId], category: 'script' };
-  if (ASSET_PROMPTS[promptId]) return { ...ASSET_PROMPTS[promptId], category: 'asset' };
+function catalogDefinition(promptId) {
+  const catalog = publicPromptCatalog();
+  const script = catalog.scriptPrompts.find(item => item.id === promptId);
+  if (script) return { ...script, category: 'script' };
+  const asset = catalog.assetPrompts.find(item => item.id === promptId);
+  if (asset) return { ...asset, category: 'asset' };
   return null;
 }
 
-function systemPrompt(presetStore, def) {
-  const fallback = def.category === 'script' ? resolveScriptPrompt(def.id) : resolveAssetPrompt(def.id);
-  const published = presetStore?.getPublished?.(def.id);
-  if (!published) return fallback;
-  return {
-    ...fallback,
-    body: String(published.body || fallback.body).trim(),
-    version: Number(published.version || fallback.version || 1)
-  };
+function systemPrompt(def) {
+  return def.category === 'script' ? resolveScriptPrompt(def.id) : resolveAssetPrompt(def.id);
 }
 
-function effectivePrompt(store, presetStore, username, def) {
-  const base = systemPrompt(presetStore, def);
+function effectivePrompt(store, username, def) {
+  const base = systemPrompt(def);
   const override = store.get(username, def.id);
   return {
     id: def.id,
-    name: def.name,
+    name: base.name || def.name,
     category: def.category,
     body: override?.body || base.body,
     source: override ? 'personal' : 'system',
@@ -42,12 +38,14 @@ function effectivePrompt(store, presetStore, username, def) {
 }
 
 function createUserPromptLibraryRouter({ store = createUserPromptLibraryStore(), presetStore } = {}) {
+  setBatchFactoryPresetStore(presetStore);
   const router = express.Router();
   router.use(apiAuth);
 
   router.get('/batch-factory', (req, res) => {
-    const scriptPrompts = Object.values(SCRIPT_PROMPTS).map(def => effectivePrompt(store, presetStore, req.username, { ...def, category: 'script' }));
-    const assetPrompts = Object.values(ASSET_PROMPTS).map(def => effectivePrompt(store, presetStore, req.username, { ...def, category: 'asset' }));
+    const catalog = publicPromptCatalog();
+    const scriptPrompts = catalog.scriptPrompts.map(def => effectivePrompt(store, req.username, { ...def, category: 'script' }));
+    const assetPrompts = catalog.assetPrompts.map(def => effectivePrompt(store, req.username, { ...def, category: 'asset' }));
     res.json({
       module: 'batch-factory',
       name: '批量工厂',
@@ -57,21 +55,21 @@ function createUserPromptLibraryRouter({ store = createUserPromptLibraryStore(),
   });
 
   router.put('/batch-factory/:promptId', (req, res) => {
-    const def = definition(req.params.promptId);
-    if (!def) return res.status(404).json({ error: '提示词不存在' });
+    const def = catalogDefinition(req.params.promptId);
+    if (!def) return res.status(404).json({ error: '提示词不存在或尚未发布' });
     try {
       store.save(req.username, def.id, req.body?.body);
-      return res.json({ prompt: effectivePrompt(store, presetStore, req.username, def) });
+      return res.json({ prompt: effectivePrompt(store, req.username, def) });
     } catch (error) {
       return res.status(400).json({ error: error.message || '保存提示词失败' });
     }
   });
 
   router.post('/batch-factory/:promptId/reset', (req, res) => {
-    const def = definition(req.params.promptId);
-    if (!def) return res.status(404).json({ error: '提示词不存在' });
+    const def = catalogDefinition(req.params.promptId);
+    if (!def) return res.status(404).json({ error: '提示词不存在或尚未发布' });
     store.reset(req.username, def.id);
-    return res.json({ prompt: effectivePrompt(store, presetStore, req.username, def) });
+    return res.json({ prompt: effectivePrompt(store, req.username, def) });
   });
 
   return router;
