@@ -13,11 +13,13 @@ function auditBatchName(now = new Date(), existingBatchIds, randomSource = crypt
   return candidate;
 }
 
-function createAuditEvidence(batchName = auditBatchName(new Date(), [])) {
-  if (!/^E2E-AUDIT-\d{8}-\d{6}-[a-z0-9]{6}$/.test(batchName)) throw new Error('batchName must be an isolated E2E-AUDIT name');
+function createAuditEvidence(batchName, existingBatchIds, now = new Date()) {
+  if (!Array.isArray(existingBatchIds)) throw new Error('existingBatchIds is required for isolation');
+  const resolvedBatchName = batchName || auditBatchName(now, existingBatchIds);
+  if (!/^E2E-AUDIT-\d{8}-\d{6}-[a-z0-9]{6}$/.test(resolvedBatchName)) throw new Error('batchName must be an isolated E2E-AUDIT name');
   const records = [];
   return {
-    batchName,
+    batchName: resolvedBatchName,
     records,
     recordGate(gate, input, response, persisted, nextAction) {
       if (!gate) throw new Error('gate is required');
@@ -30,7 +32,7 @@ function createAuditEvidence(batchName = auditBatchName(new Date(), [])) {
       for (const field of ['batchId', 'bookId']) {
         if (persisted[field] === undefined || persisted[field] === null || !String(persisted[field]).trim()) throw new Error(`persisted.${field} is required`);
       }
-      for (const field of ['batchId', 'bookId', 'videoId']) if (String(input[field]) !== String(persisted[field])) throw new Error(`${field} 一致性校验失败`);
+      for (const field of ['batchId', 'bookId', 'videoId']) if (input[field] !== persisted[field]) throw new Error(`${field} 一致性校验失败`);
       const record = { gate, input, response, persisted, nextAction };
       records.push(record);
       return record;
@@ -55,7 +57,7 @@ test('E2E-AUDIT retries deterministically when a generated name already exists',
 });
 
 test('E2E-AUDIT records a reusable gate evidence shape', () => {
-  const evidence = createAuditEvidence('E2E-AUDIT-20260828-090712-a1b2c3');
+  const evidence = createAuditEvidence('E2E-AUDIT-20260828-090712-a1b2c3', []);
   const record = evidence.recordGate(
     'create',
     { batchId: 'fixture-batch', bookId: 'fixture-book', videoId: '', title: 'audit fixture' },
@@ -76,7 +78,7 @@ test('E2E-AUDIT records a reusable gate evidence shape', () => {
 });
 
 test('E2E-AUDIT rejects evidence without API or persistence proof', () => {
-  const evidence = createAuditEvidence('E2E-AUDIT-20260828-090712-a1b2c3');
+  const evidence = createAuditEvidence('E2E-AUDIT-20260828-090712-a1b2c3', []);
   assert.throws(() => evidence.recordGate('create', { batchId: 'b', bookId: 'k', videoId: '' }, {}, { batchId: 'b', bookId: 'k', videoId: '' }, 'start'), /response/);
   assert.throws(() => evidence.recordGate('create', { batchId: 'b', bookId: 'k', videoId: '' }, { status: 201, body: { ok: true } }, {}, 'start'), /persisted/);
   assert.throws(() => evidence.recordGate('create', { batchId: 'b', bookId: '', videoId: '' }, { status: 201, body: {} }, { batchId: 'b', bookId: 'k', videoId: '' }, 'start'), /bookId/);
@@ -84,6 +86,15 @@ test('E2E-AUDIT rejects evidence without API or persistence proof', () => {
   assert.throws(() => evidence.recordGate('create', { batchId: 'b', bookId: 'k', videoId: '' }, { status: 201, body: [] }, { batchId: 'b', bookId: 'k', videoId: '' }, 'start'), /body/);
   assert.throws(() => evidence.recordGate('create', { batchId: 'b', bookId: 'k', videoId: '' }, { status: 201, body: { ok: true } }, { batchId: 'other', bookId: 'k', videoId: '' }, 'start'), /一致/);
   assert.throws(() => evidence.recordGate('create', { batchId: 'b', bookId: 'k', videoId: null }, { status: 201, body: { ok: true } }, { batchId: 'b', bookId: 'k', videoId: '' }, 'start'), /videoId/);
+  assert.throws(() => evidence.recordGate('create', { batchId: 1, bookId: 'k', videoId: '' }, { status: 201, body: { ok: true } }, { batchId: '1', bookId: 'k', videoId: '' }, 'start'), /一致/);
+});
+
+test('E2E-AUDIT never creates evidence without existing batch IDs', () => {
+  assert.throws(() => createAuditEvidence(), /existingBatchIds/);
+  const existingBatchIds = ['batch_existing'];
+  const evidence = createAuditEvidence(undefined, existingBatchIds, new Date(2026, 7, 28, 9, 7, 12));
+  assert.match(evidence.batchName, /^E2E-AUDIT-20260828-090712-[a-z0-9]{6}$/);
+  assert.equal(existingBatchIds.includes(evidence.batchName), false);
 });
 
 module.exports = { auditBatchName, createAuditEvidence };
