@@ -883,12 +883,14 @@ export function BatchFactoryPreviewPage() {
     if (index === 0) newWidths[0] = Math.max(120, startWidths[0] + diff);
     else if (index === 3) newWidths[3] = Math.max(120, startWidths[3] - diff);
     setColumnWidths(newWidths);
+    resizingRef.current.startWidths = newWidths;
   }
 
   function stopResize() {
     document.removeEventListener("mousemove", onResize);
     document.removeEventListener("mouseup", stopResize);
-    localStorage.setItem("bfColumnWidths", JSON.stringify(columnWidths));
+    const finalWidths = resizingRef.current?.startWidths || columnWidths;
+    localStorage.setItem("bfColumnWidths", JSON.stringify(finalWidths));
     resizingRef.current = null;
   }
   useEffect(() => {
