@@ -209,11 +209,15 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
 
   const readyUnits = [];
   for (const unit of targetUnits) {
-    const entry = resultByIndex(results, unit.index);
+    let entry = resultByIndex(results, unit.index);
+    if (!entry) {
+      entry = { index: unit.index, videoId: unit.videoId, segmentId: 0, task: null, error: '' };
+      results.push(entry);
+    }
     const refreshed = await refreshSegmentPrompt({ result: entry, unit, username, isOwner, shuihuoGateway });
     if (!refreshed.ok) {
       entry.error = refreshed.error;
-      entry.task = force ? entry.task || null : null;
+      if (!force) entry.task = null;
     } else {
       entry.error = '';
       readyUnits.push({ unit, entry });
@@ -238,7 +242,7 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
       }
     });
     const taskRows = Array.isArray(taskResponse.payload?.results) ? taskResponse.payload.results : [];
-    if (taskResponse.statusCode < 200 || taskResponse.statusCode >= 300 && taskResponse.statusCode !== 207) {
+    if (taskResponse.statusCode < 200 || (taskResponse.statusCode >= 300 && taskResponse.statusCode !== 207)) {
       for (const { entry } of readyUnits) entry.error = taskResponse.payload?.error || '提交视频生产失败';
     } else {
       for (const { entry } of readyUnits) {
@@ -256,6 +260,7 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
     }
   }
 
+  results.sort((left, right) => Number(left.index) - Number(right.index));
   const queued = results.filter(result => result?.task).length;
   const failed = results.filter(result => result?.error).length;
   const submittedAt = new Date().toISOString();
@@ -427,8 +432,6 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
     ));
     if (!targets.length) return res.status(409).json({ error: '没有待提交生产的导演完成小说' });
 
-    // Batch Factory is intentionally book-serial: users read the novel list top
-    // to bottom, and bulk production must preserve that same deterministic order.
     const results = await mapBounded(targets, 1, item => submitItemProduction({
       presetStore,
       batch,
