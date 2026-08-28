@@ -3,7 +3,7 @@ import { UserLayout } from '../shared/layouts/UserLayout';
 import { HomePage } from './pages/HomePage';
 
 const ScriptPage = lazy(() => import('./pages/ScriptPage'));
-const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPageV9'));
+const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPageV10'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
 const AgentPage = lazy(() => import('./pages/AgentPageV2').then(module => ({ default: module.AgentPageV2 })));
