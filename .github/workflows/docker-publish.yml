@@ -1,0 +1,46 @@
+name: Publish qiantie Docker images
+
+on:
+  push:
+    branches:
+      - 07-batch-factory-v8-react-antd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build web image
+        run: |
+          docker build \
+            -f Dockerfile \
+            -t ghcr.io/${{ github.repository_owner }}/qiantie-web:v8-latest \
+            -t ghcr.io/${{ github.repository_owner }}/qiantie-web:${{ github.sha }} \
+            .
+
+      - name: Build backend image
+        run: |
+          docker build \
+            -f backend/Dockerfile \
+            -t ghcr.io/${{ github.repository_owner }}/qiantie-backend:v8-latest \
+            -t ghcr.io/${{ github.repository_owner }}/qiantie-backend:${{ github.sha }} \
+            .
+
+      - name: Push images
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/qiantie-web:v8-latest
+          docker push ghcr.io/${{ github.repository_owner }}/qiantie-web:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository_owner }}/qiantie-backend:v8-latest
+          docker push ghcr.io/${{ github.repository_owner }}/qiantie-backend:${{ github.sha }}
