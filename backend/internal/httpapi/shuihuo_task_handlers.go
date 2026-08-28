@@ -419,7 +419,9 @@ func (api *API) handleRetryShuihuoTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, domain.ToPublicTask(task))
 }
 
-func parseShuihuoResourceID(w http.ResponseWriter, r *http.Request, name, label string) (int64, bool) {
+// Kept as a task-specific parser for older task tests; production handlers use
+// the shared parseShuihuoResourceID helper defined in shuihuo_production_handlers.go.
+func parseShuihuoTaskResourceID(w http.ResponseWriter, r *http.Request, name, label string) (int64, bool) {
 	id, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
 	if err != nil || id < 1 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的" + label + " ID"})
