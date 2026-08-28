@@ -102,9 +102,20 @@ function prefixCatalogPrompt() {
   return `可用视频前缀类型 key 只能从以下列表选择：\n${Object.keys(PREFIX_PRESETS).map(key => `- ${key}`).join('\n')}\n根据每个视频单元自身题材和情绪选择最匹配的 key；不确定时使用 general_anime。`;
 }
 
+function applyPublishedSystemPrompt(base, presetStore) {
+  const published = presetStore?.getPublished?.(base.id);
+  if (!published) return { ...base, source: 'system' };
+  return {
+    ...base,
+    body: String(published.body || base.body).trim(),
+    version: Number(published.version || base.version || 1),
+    source: 'system'
+  };
+}
+
 function applyPersonalPrompt(base, username, userPromptLibraryStore) {
   const override = userPromptLibraryStore?.get?.(username, base.id);
-  if (!override?.body) return { ...base, source: 'system' };
+  if (!override?.body) return base;
   return {
     ...base,
     body: override.body,
@@ -113,10 +124,12 @@ function applyPersonalPrompt(base, username, userPromptLibraryStore) {
   };
 }
 
-function selectedDirectorPrompts(settings = {}, username = '', userPromptLibraryStore) {
+function selectedDirectorPrompts(settings = {}, username = '', userPromptLibraryStore, presetStore) {
+  const scriptBase = applyPublishedSystemPrompt(resolveScriptPrompt(settings.scriptPromptPresetId), presetStore);
+  const assetBase = applyPublishedSystemPrompt(resolveAssetPrompt(settings.assetPromptPresetId), presetStore);
   return {
-    script: applyPersonalPrompt(resolveScriptPrompt(settings.scriptPromptPresetId), username, userPromptLibraryStore),
-    assets: applyPersonalPrompt(resolveAssetPrompt(settings.assetPromptPresetId), username, userPromptLibraryStore)
+    script: applyPersonalPrompt(scriptBase, username, userPromptLibraryStore),
+    assets: applyPersonalPrompt(assetBase, username, userPromptLibraryStore)
   };
 }
 
@@ -198,7 +211,7 @@ async function generateDirector(username, presetStore, userPromptLibraryStore, b
   if (batch.mode === 'viral' && !String(item.approvedHookScript || '').trim()) throw new Error('爆款模式必须先审核通过开头文案');
   const directorId = batch.mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
   const settings = resolveItemSettings(batch, item);
-  const selected = selectedDirectorPrompts(settings, username, userPromptLibraryStore);
+  const selected = selectedDirectorPrompts(settings, username, userPromptLibraryStore, presetStore);
   const text = await callTextModel(username, [
     { role: 'system', content: directorSystemPrompt(presetStore, batch.mode, settings, selected) },
     { role: 'user', content: directorUserPrompt(batch, item) }
