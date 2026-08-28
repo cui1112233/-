@@ -227,7 +227,11 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const compactSourceGuard = sourceText.length <= 600
     ? `## 短原文时长硬校验\n原文仅 ${sourceText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得为了填满内容新增事件、人物、对白或空镜。`
     : '';
-  const durationGuard = `## 时长硬校验（最高优先级）\n每个分镜单元的总时长只能是 ${duration}；时间轴必须从 00:00 连续到 ${endTime}，任何结束时间不得超过 ${endTime}。禁止输出 60s、100s、01:00 或跨单元累计时间；内容不足时保持动作简洁，不得用重复动作填时长。`;
+  // Duration behavior is owned by the published duration preset. The route only
+  // resolves the selected preset and does not assemble a second duration prompt.
+  const durationGuard = resolveSystemPresetBody(presetStore, `script-duration-${duration}`)
+    .replace(/\{duration\}/g, duration)
+    .replace(/\{结束时间\}/g, endTime);
   // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
   const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
