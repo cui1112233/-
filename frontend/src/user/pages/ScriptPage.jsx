@@ -898,7 +898,7 @@ export function ScriptPage() {
       const currentIndex = items.findIndex(item => item.id === activeEntity.id);
       if (activeEntity.isNew) items.push(createEntity(fields));
       else if (currentIndex !== -1) items[currentIndex] = { ...items[currentIndex], data: fields };
-      const next = { ...normalized, [activeEntity.type]: items };
+      const next = { ...normalized, [activeEntity.type]: items, version: (Number(normalized.version) || 1) + 1 };
       invalidateEntityOutput(next);
       return next;
     });
@@ -916,6 +916,7 @@ export function ScriptPage() {
           ? normalized.protagonistIds.filter(id => id !== activeEntity.id)
           : normalized.protagonistIds
       };
+      next.version = (Number(normalized.version) || 1) + 1;
       invalidateEntityOutput(next);
       return next;
     });
@@ -930,7 +931,7 @@ export function ScriptPage() {
       const protagonistIds = normalized.protagonistIds.includes(id)
         ? normalized.protagonistIds.filter(item => item !== id)
         : [...normalized.protagonistIds, id];
-      const next = { ...normalized, protagonistIds };
+      const next = { ...normalized, protagonistIds, version: (Number(normalized.version) || 1) + 1 };
       invalidateEntityOutput(next);
       return next;
     });
