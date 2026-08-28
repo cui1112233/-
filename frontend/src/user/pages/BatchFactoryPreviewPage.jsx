@@ -861,35 +861,35 @@ export function BatchFactoryPreviewPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [videoChoice, setVideoChoice] = useState("merged");
   const [overrideVideo, setOverrideVideo] = useState(null);
-  const [layoutOrder, setLayoutOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("bfLayoutOrder") || "null") || ["booklist","detail","video","rail"]; }
-    catch { return ["booklist","detail","video","rail"]; }
+  const [columnWidths, setColumnWidths] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("bfColumnWidths") || "null") || [180, 1, 1, 200]; }
+    catch { return [180, 1, 1, 200]; }
   });
+  const resizingRef = useRef(null);
   const listRef = useRef(null);
-  const dragRef = useRef(null);
-  const [dragOver, setDragOver] = useState(null);
 
-  function saveLayoutOrder(order) {
-    setLayoutOrder(order);
-    try { localStorage.setItem("bfLayoutOrder", JSON.stringify(order)); } catch {}
-  }
-  function handleDragStart(e, panel) {
-    dragRef.current = panel;
-    e.dataTransfer.effectAllowed = "move";
-  }
-  function handleDragOver(e, panel) {
+  function startResize(e, index) {
     e.preventDefault();
-    if (dragRef.current && dragRef.current !== panel) setDragOver(panel);
+    resizingRef.current = { index, startX: e.clientX, startWidths: [...columnWidths] };
+    document.addEventListener("mousemove", onResize);
+    document.addEventListener("mouseup", stopResize);
   }
-  function handleDragEnd() {
-    if (dragRef.current && dragOver && dragRef.current !== dragOver) {
-      const order = layoutOrder.filter(p => p !== dragRef.current);
-      const idx = order.indexOf(dragOver);
-      order.splice(idx + 1, 0, dragRef.current);
-      saveLayoutOrder(order);
-    }
-    dragRef.current = null;
-    setDragOver(null);
+
+  function onResize(e) {
+    if (!resizingRef.current) return;
+    const { index, startX, startWidths } = resizingRef.current;
+    const diff = e.clientX - startX;
+    const newWidths = [...startWidths];
+    if (index === 0) newWidths[0] = Math.max(120, startWidths[0] + diff);
+    else if (index === 3) newWidths[3] = Math.max(120, startWidths[3] - diff);
+    setColumnWidths(newWidths);
+  }
+
+  function stopResize() {
+    document.removeEventListener("mousemove", onResize);
+    document.removeEventListener("mouseup", stopResize);
+    localStorage.setItem("bfColumnWidths", JSON.stringify(columnWidths));
+    resizingRef.current = null;
   }
   useEffect(() => {
     let disposed = false;
@@ -1147,148 +1147,67 @@ export function BatchFactoryPreviewPage() {
             </Button>
           </div>
         </section>
-        <section className="bf-preview-status">
-          <div className="bf-preview-status-title">
-            <strong>批次状态中心</strong>
-            <span>按小说计数 · 点击连续定位</span>
+
+        <div className="bf-preview-grid" ref={listRef} style={{ gridTemplateColumns: `${columnWidths[0]}px 1fr 1fr ${columnWidths[3]}px` }}>
+          {/* 第1列：小说列表 */}
+          <div className="bf-preview-drag-panel">
+            <div className="bf-preview-resize-handle" onMouseDown={(e) => startResize(e, 0)} />
+            <BookList entries={entries} selectedId={selected?.id} onSelect={selectBook} />
           </div>
-          <div className="bf-preview-status-grid">
-            {STATUS_ORDER.map((label) => (
-              <button
-                key={label}
-                className={`${label === "异常" ? "is-danger" : ""} ${currentFilter === label ? "is-active" : ""}`}
-                onClick={() => locateStatus(label)}
-              >
-                <span>{label}</span>
-                <b>{summary[label]}</b>
-              </button>
-            ))}
-          </div>
-          <div className="bf-preview-abnormal">
-            <span>
-              当前筛选：<b>{currentFilter}</b> {currentItems.length} 本{" "}
-              {currentItems.length
-                ? `· ${Math.min(filterPosition + 1, currentItems.length)}/${currentItems.length}`
-                : ""}
-            </span>
-            {currentItems.map((item) => (
-              <button key={item.id} onClick={() => selectBook(item.id)}>
-                {String(item.index).padStart(2, "0")}　{item.title}　
-                {item.bookId ? <span>Book ID {item.bookId}</span> : null}
-                {item.displayStatus === "异常" ? <em>需要处理</em> : null}
-              </button>
-            ))}
-          </div>
-        </section>
-        <div className="bf-preview-grid" ref={listRef}>
-          {layoutOrder.map((panel) => {
-            const isDragOver = dragOver === panel;
-            if (panel === "booklist") {
-              return <div key="booklist" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "booklist")} onDragOver={e => handleDragOver(e, "booklist")} onDragEnd={handleDragEnd}><BookList
-                entries={entries}
-                selectedId={selected?.id}
-                onSelect={selectBook}
-              /></div>;
-            }
-            if (panel === "detail") {
-              return <div key="detail" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "detail")} onDragOver={e => handleDragOver(e, "detail")} onDragEnd={handleDragEnd}><CurrentBook
-                item={selected}
-                onRetry={retryCurrentBookVideo}
-                canProduce={canProduceSelected}
-              /></div>;
-            }
-            if (panel === "video") {
-              return <div key="video" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "video")} onDragOver={e => handleDragOver(e, "video")} onDragEnd={handleDragEnd}><VideoOperations
-                item={selected}
-                choice={videoChoice}
-                onChoice={setVideoChoice}
-                onRetry={retryCurrentBookVideo}
-                onViewPrompt={viewVideoPrompt}
-                canProduce={canProduceSelected}
-                onOverride={(video) => setOverrideVideo(video)}
-              /></div>;
-            }
-            if (panel === "rail") {
-              return <div key="rail" draggable className={"bf-preview-drag-panel" + (isDragOver ? " is-drag-over" : "")} onDragStart={e => handleDragStart(e, "rail")} onDragOver={e => handleDragOver(e, "rail")} onDragEnd={handleDragEnd}><aside className="bf-preview-rail">
-            <h3>
-              视频生成进度 <ChevronDown size={15} />
-            </h3>
-            <div className="bf-preview-ring">
-              <Progress
-                type="circle"
-                percent={
-                  entries.length
-                    ? Math.round(
-                        ((summary["待合并"] + summary["已合并"]) /
-                          entries.length) *
-                          100,
-                      )
-                    : 0
-                }
-                strokeColor="#4b7cff"
-                trailColor="#20304b"
-                format={() => (
-                  <>
-                    <b>VIDEO</b>
-                    <small>全批次进度</small>
-                  </>
-                )}
-              />
-            </div>
-            <ul>
-              <li>
-                <i className="dot orange" />
-                待生成 <b>{summary["待生成"]}</b>
-              </li>
-              <li>
-                <i className="dot blue" />
-                排队中 <b>{summary["排队中"]}</b>
-              </li>
-              <li>
-                <i className="dot purple" />
-                生成中 <b>{summary["视频生成中"]}</b>
-              </li>
-              <li>
-                <i className="dot green" />
-                已合并 <b>{summary["已合并"]}</b>
-              </li>
-              <li>
-                <i className="dot red" />
-                异常 <b>{summary["异常"]}</b>
-              </li>
-            </ul>
-            <p>这里始终显示全批次进度，不随当前书切换。</p>
-            <div className="bf-preview-merge">
-              <h3>
-                批量合并 <ChevronDown size={15} />
-              </h3>
-              <label>合并范围</label>
-              <Select
-                value="全部已完成小说"
-                options={[
-                  {
-                    value: "全部已完成小说",
-                    label: `全部已完成小说（${summary["已合并"] + summary["待合并"]}）`,
-                  },
-                ]}
-              />
-              <label>成品时长处理</label>
-              <div className="bf-preview-segment">
-                <b>倍速</b>
-                <span>跟随音频时长</span>
+
+          {/* 第2列：批次状态中心 + 当前小说 */}
+          <div className="bf-preview-drag-panel">
+            <div className="bf-preview-resize-handle" onMouseDown={(e) => startResize(e, 1)} />
+            <section className="bf-preview-status">
+              <div className="bf-preview-status-title"><strong>批次状态中心</strong></div>
+              <div className="bf-preview-status-grid">
+                {STATUS_ORDER.map((label) => (
+                  <button key={label} className={`${label === "异常" ? "is-danger" : ""} ${currentFilter === label ? "is-active" : ""}`} onClick={() => locateStatus(label)}>
+                    <span>{label}</span>
+                    <b>{summary[label]}</b>
+                  </button>
+                ))}
               </div>
-              <Select
-                value="1.5x"
-                options={[{ value: "1.5x", label: "1.5x" }]}
-              />
-              <Button type="primary" block>
-                合并全部已完成小说
-              </Button>
+            </section>
+            <CurrentBook item={selected} onRetry={retryCurrentBookVideo} canProduce={canProduceSelected} />
+          </div>
+
+          {/* 第3列：当前筛选 + 视频操作 */}
+          <div className="bf-preview-drag-panel">
+            <div className="bf-preview-resize-handle" onMouseDown={(e) => startResize(e, 2)} />
+            <div className="bf-preview-abnormal">
+              <span>当前筛选：<b>{currentFilter}</b></span>
+              {currentItems.map((item) => (
+                <button key={item.id} onClick={() => selectBook(item.id)}>
+                  {String(item.index).padStart(2, "0")} {item.title}
+                </button>
+              ))}
             </div>
-          </aside></div>;
-            }
-            return null;
-          })}
+            <VideoOperations item={selected} choice={videoChoice} onChoice={setVideoChoice} onRetry={retryCurrentBookVideo} onViewPrompt={viewVideoPrompt} canProduce={canProduceSelected} onOverride={(video) => setOverrideVideo(video)} />
+          </div>
+
+          {/* 第4列：视频生成进度 */}
+          <div className="bf-preview-drag-panel">
+            <div className="bf-preview-resize-handle" onMouseDown={(e) => startResize(e, 3)} />
+            <aside className="bf-preview-rail">
+              <h3>视频生成进度 <ChevronDown size={12} /></h3>
+              <ul>
+                <li><i className="dot orange" />待生成 <b>{summary["待生成"]}</b></li>
+                <li><i className="dot blue" />排队中 <b>{summary["排队中"]}</b></li>
+                <li><i className="dot purple" />生成中 <b>{summary["视频生成中"]}</b></li>
+                <li><i className="dot green" />已合并 <b>{summary["已合并"]}</b></li>
+                <li><i className="dot red" />异常 <b>{summary["异常"]}</b></li>
+              </ul>
+              <p>全批次进度，不随当前书切换</p>
+              <div className="bf-preview-merge">
+                <h3>批量合并 <ChevronDown size={12} /></h3>
+                <label>合并范围</label>
+                <Select value="全部已完成小说" options={[{ value: "全部已完成小说", label: `全部已完成小说（${summary["已合并"] + summary["待合并"]}）` }]} />
+                <label>成品时长处理</label>
+                <div className="bf-preview-segment"><b>倍速</b><span>跟随音频时长</span></div>
+              </div>
+            </aside>
+          </div>
         </div>
       </main>
       <ProductionSettingsModal
