@@ -3,13 +3,14 @@ import { UserLayout } from '../shared/layouts/UserLayout';
 import { HomePage } from './pages/HomePage';
 
 const ScriptPage = lazy(() => import('./pages/ScriptPage'));
-const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPageV8'));
+const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPageV9'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
 const AgentPage = lazy(() => import('./pages/AgentPageV2').then(module => ({ default: module.AgentPageV2 })));
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const PersonalCenterPage = lazy(() => import('./pages/PersonalCenterPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
@@ -34,6 +35,7 @@ function getPage(pathname) {
     '/shuihuo-production': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,
+    '/profile': PersonalCenterPage,
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
