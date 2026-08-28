@@ -795,7 +795,11 @@ export function ScriptPage() {
           duration: values.duration,
           output: nextOutput,
           novelText: values.novelText,
+          sourceText: values.novelText,
           extractInfo,
+          material: extractInfo,
+          materialVersion: Number(extractInfo?.version) || 1,
+          previousOutputId: previousOutput ? currentHistoryId || undefined : undefined,
           constraints: requestConstraints
         });
         if (!isCurrentRequest(requestId)) return;

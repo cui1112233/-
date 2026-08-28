@@ -9,9 +9,16 @@ export function getHistory(id) {
 }
 
 export function saveHistory(entry) {
+  const material = entry?.material || entry?.extractInfo;
+  const payload = {
+    ...entry,
+    ...(material ? { material } : {}),
+    ...(entry?.sourceText == null && typeof entry?.novelText === 'string' ? { sourceText: entry.novelText } : {}),
+    ...(entry?.materialVersion == null && Number.isFinite(Number(material?.version)) ? { materialVersion: Number(material.version) } : {})
+  };
   return apiRequest('/api/history', {
     method: 'POST',
-    body: JSON.stringify(entry)
+    body: JSON.stringify(payload)
   });
 }
 
