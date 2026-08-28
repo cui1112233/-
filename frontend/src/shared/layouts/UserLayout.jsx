@@ -29,6 +29,7 @@ function initialTheme() {
 }
 
 function pageTitle(pathname) {
+  if (pathname === '/profile') return '个人中心';
   const item = navItems.find(nav => nav.href === pathname);
   return item ? item.label : '一战晟铭';
 }
@@ -356,7 +357,7 @@ export function UserLayout({ children }) {
             <div className="legacy-userbar">
               {isLoggedIn ? (
                 <>
-                  <span className="legacy-muted">{username}</span>
+                  <Link href="/profile" className="legacy-muted" title="个人中心">{account?.displayName || username}</Link>
                   <Button size="small" onClick={handleLogout}>退出</Button>
                 </>
               ) : null}
