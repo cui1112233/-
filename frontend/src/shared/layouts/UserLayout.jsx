@@ -22,6 +22,7 @@ const navItems = [
   { href: '/novel-fetch', icon: BookOpen, label: '小说获取' },
   { href: '/novel-panel', icon: NotebookTabs, label: '小说面板' },
   { href: '/shuihuo-production', icon: Clapperboard, label: '水货生产' },
+  { href: '/batch-factory', icon: ChartNoAxesCombined, label: '批量工厂' },
   { href: '/agent', icon: Bot, label: 'Agent 工作区' },
   { href: '/history', icon: FolderClock, label: '历史' },
   { href: '/issues', icon: Bug, label: '问题日志' },

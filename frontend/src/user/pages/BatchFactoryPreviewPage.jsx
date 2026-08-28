@@ -806,8 +806,8 @@ function PublishSettingsDrawer({ open, onClose, batch, entries, onSaved }) {
         <label>生成数量</label><Input type="number" min={1} max={999} value={settings.generateCount ?? 10} onChange={event => patch("generateCount", Number(event.target.value))} />
         <label className="bf-settings-check"><input type="checkbox" checked={settings.reuse !== false} onChange={event => patch("reuse", event.target.checked)} /> 素材复用</label>
         <label className="bf-settings-check"><input type="checkbox" checked={settings.flip !== false} onChange={event => patch("flip", event.target.checked)} /> 水平翻转</label>
-        <label>解压倍速</label><Input value={settings.unpackSpeed ?? "1.7"} onChange={event => patch("unpackSpeed", event.target.value)} />
-        <label>解压音调</label><Input value={settings.pitch ?? "0"} onChange={event => patch("pitch", event.target.value)} />
+        <label>解压倍速</label><Input type="number" min={0.5} max={2} step={0.1} value={settings.unpackSpeed ?? "1.7"} onChange={event => patch("unpackSpeed", event.target.value)} />
+        <label>解压音调</label><Input type="number" min={-50} max={50} step={1} value={settings.pitch ?? "0"} onChange={event => patch("pitch", event.target.value)} />
         <label>AI 头部</label><Select value={settings.aiHeader || "final"} onChange={value => patch("aiHeader", value)} options={[{ value: "final", label: "使用本书最终视频" }, { value: "none", label: "不上传 AI 头部" }]} />
         <label className="bf-settings-check"><input type="checkbox" checked={settings.uploadTxt !== false} onChange={event => patch("uploadTxt", event.target.checked)} /> 自动上传 {"{bookId}.txt"}</label>
       </section>
