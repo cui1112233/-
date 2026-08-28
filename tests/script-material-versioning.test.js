@@ -36,7 +36,9 @@ test('markdown is an import/export boundary, never the authority', () => {
 
 test('generation payload uses current material and only adds previous output on regeneration', () => {
   assert.match(pageSource, /generateScript\(\{[\s\S]*?material: extractInfo/);
-  assert.match(pageSource, /regenerate && previousOutput \? \{ previousOutput \}/);
+  assert.match(pageSource, /regenerate && regenerationPreviousOutput \? \{ previousOutput: regenerationPreviousOutput \}/);
   assert.match(pageSource, /entry\.material \|\| entry\.extractInfo/);
   assert.match(pageSource, /previousOutputId: regenerate \? previousHistoryId/);
+  assert.match(pageSource, /const regenerationPreviousOutput = regenerate \? output : previousOutput/);
+  assert.match(pageSource, /regenerate && regenerationPreviousOutput \? \{ previousOutput: regenerationPreviousOutput \}/);
 });

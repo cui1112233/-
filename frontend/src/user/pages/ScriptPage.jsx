@@ -758,6 +758,7 @@ export function ScriptPage() {
   async function generateOutput({ regenerate = false } = {}) {
     const values = form.getFieldsValue();
     if (!extractInfo.characters.length && !extractInfo.scenes.length) return message.warning('请先提取人物与场景');
+    const regenerationPreviousOutput = regenerate ? output : previousOutput;
     const requestId = beginRequest('workflow');
     setGenerating(true);
     setGenerationStage('generating');
@@ -773,7 +774,7 @@ export function ScriptPage() {
         duration: values.duration,
         novelText: values.novelText,
         material: extractInfo,
-        ...(regenerate && previousOutput ? { previousOutput } : {}),
+        ...(regenerate && regenerationPreviousOutput ? { previousOutput: regenerationPreviousOutput } : {}),
         ...entities,
         constraints: requestConstraints
       });
@@ -786,7 +787,6 @@ export function ScriptPage() {
       setOutputConstraints(requestConstraints);
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
-      setCurrentHistoryId('');
       let historySaved = false;
       try {
         const historyId = 'react-' + Date.now().toString(36);
