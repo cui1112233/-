@@ -16,6 +16,7 @@ function auditBatchName(now = new Date(), existingBatchIds, randomSource = crypt
 function createAuditEvidence(batchName, existingBatchIds, now = new Date()) {
   if (!Array.isArray(existingBatchIds)) throw new Error('existingBatchIds is required for isolation');
   const resolvedBatchName = batchName || auditBatchName(now, existingBatchIds);
+  if (existingBatchIds.includes(resolvedBatchName)) throw new Error('batchName already exists in existingBatchIds');
   if (!/^E2E-AUDIT-\d{8}-\d{6}-[a-z0-9]{6}$/.test(resolvedBatchName)) throw new Error('batchName must be an isolated E2E-AUDIT name');
   const records = [];
   return {
@@ -95,6 +96,15 @@ test('E2E-AUDIT never creates evidence without existing batch IDs', () => {
   const evidence = createAuditEvidence(undefined, existingBatchIds, new Date(2026, 7, 28, 9, 7, 12));
   assert.match(evidence.batchName, /^E2E-AUDIT-20260828-090712-[a-z0-9]{6}$/);
   assert.equal(existingBatchIds.includes(evidence.batchName), false);
+});
+
+test('E2E-AUDIT rejects an explicitly supplied batch name that already exists', () => {
+  const existingBatchIds = ['E2E-AUDIT-20260828-090712-a1b2c3'];
+
+  assert.throws(
+    () => createAuditEvidence(existingBatchIds[0], existingBatchIds),
+    /batchName.*(already exists|collision|conflict|冲突)/i
+  );
 });
 
 module.exports = { auditBatchName, createAuditEvidence };
