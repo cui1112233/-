@@ -17,7 +17,7 @@ test('account center is the only user-facing entry for admin tools and gates it 
   assert.match(layout, /account-center-popover-developer-links/);
   assert.match(layout, /href="\/accounts"/);
   assert.match(layout, /href="\/admin\/presets" reload/);
-  assert.match(userApp, /'\/accounts': AccountGovernancePage/);
+  assert.match(userApp, /'\/accounts': AccountRolePage/);
 });
 
 test('admin console navigation is prompt-focused and honors its separate explicit access grant', () => {
