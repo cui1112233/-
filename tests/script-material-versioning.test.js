@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const pageSource = fs.readFileSync(require('node:path').join(__dirname, '../frontend/src/user/pages/ScriptPage.jsx'), 'utf8');
 
 const {
   materialVersion,
@@ -30,4 +32,11 @@ test('markdown is an import/export boundary, never the authority', () => {
   const fields = buildHistoryVersionFields({ output: 'x', markdown: '# x' });
   assert.equal(fields.markdown, undefined);
   assert.equal(fields.output, 'x');
+});
+
+test('generation payload uses current material and only adds previous output on regeneration', () => {
+  assert.match(pageSource, /generateScript\(\{[\s\S]*?material: extractInfo/);
+  assert.match(pageSource, /regenerate && previousOutput \? \{ previousOutput \}/);
+  assert.match(pageSource, /entry\.material \|\| entry\.extractInfo/);
+  assert.match(pageSource, /previousOutputId: regenerate \? previousHistoryId/);
 });
