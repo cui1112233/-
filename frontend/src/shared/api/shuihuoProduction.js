@@ -15,6 +15,9 @@ export function deleteProject(id) { return apiRequest(`${base}/projects/${id}`, 
 export function listProjectFiles(projectId) { return apiRequest(`${base}/projects/${projectId}/files`); }
 export function getProductionConfig() { return apiRequest(`${base}/config`); }
 export function saveProductionConfig(payload) { return apiRequest(`${base}/config`, { method: 'PUT', body: JSON.stringify(payload) }); }
+export function getVideoModelCredentials() { return apiRequest(`${base}/user/video-model-credentials`); }
+export function saveVideoModelCredentials(apiKey) { return apiRequest(`${base}/user/video-model-credentials`, { method: 'PUT', body: JSON.stringify({ apiKey }) }); }
+export function deleteVideoModelCredentials() { return apiRequest(`${base}/user/video-model-credentials`, { method: 'DELETE' }); }
 export function listAssetTypes() { return apiRequest(`${base}/asset-types`); }
 export function createAssetType(payload) { return apiRequest(`${base}/asset-types`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function updateAssetType(id, payload) { return apiRequest(`${base}/asset-types/${id}`, { method: 'PUT', body: JSON.stringify(payload) }); }
