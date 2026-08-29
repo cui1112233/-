@@ -98,6 +98,8 @@ func New(cfg config.Config) (*App, error) {
 		genericHTTP := shuihuomodels.NewGenericHTTPAdapter(nil, cfg.ModelCredential)
 		tasksRepo := shuihuostore.NewTasks(db)
 		modelsRepo := shuihuostore.NewModels(db)
+		userModelCredentials := shuihuostore.NewUserModelCredentials(db, cfg.TokenSecret)
+		yadi := providers.NewYadi(nil, userModelCredentials)
 		objectsBridge := shuihuotasks.ObjectStorageBridge{Store: objects}
 		worker := shuihuotasks.Worker{
 			Tasks: tasksRepo, Models: modelsRepo, Segments: shuihuostore.NewSegments(db), Media: shuihuostore.NewMedia(db),
@@ -105,11 +107,16 @@ func New(cfg config.Config) (*App, error) {
 			Adapter: shuihuomodels.AdapterRouter{
 				shuihuomodels.AdapterJimengImage:      providers.NewJimeng(nil, cfg.ModelCredential),
 				shuihuomodels.AdapterViduImageToVideo: vidu,
+				shuihuomodels.AdapterYadiVideo:        yadi,
 				shuihuomodels.AdapterGenericHTTP:      genericHTTP,
 			},
 		}
 		poller := shuihuotasks.Poller{
 			Tasks: tasksRepo, Models: modelsRepo, Provider: vidu,
+			Objects: objectsBridge,
+		}
+		yadiPoller := shuihuotasks.Poller{
+			Tasks: tasksRepo, Models: modelsRepo, Provider: yadi, AdapterKind: shuihuomodels.AdapterYadiVideo,
 			Objects: objectsBridge,
 		}
 		genericPoller := shuihuotasks.GenericPoller{
@@ -118,6 +125,7 @@ func New(cfg config.Config) (*App, error) {
 		}
 		go func() { _ = worker.Run(workerCtx, queue) }()
 		go func() { _ = poller.Run(workerCtx) }()
+		go func() { _ = yadiPoller.Run(workerCtx) }()
 		go func() { _ = genericPoller.Run(workerCtx) }()
 	}
 	return application, nil
