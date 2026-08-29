@@ -15,6 +15,7 @@ func TestBatchFactorySettingsPersistenceFlagsDirectorRegenerationWhenCapabilityC
 		"maxVideoDuration":10,
 		"aspectRatio":"9:16"
 	}`)
+	batchFactoryPersistenceRows[batchFactoryPersistenceKey(7, "batch_1", "video", "opening_1", "1")] = []byte(`{"restriction":"旧 VIDEO 限制"}`)
 
 	response := batchFactoryPersistenceRequest(t, api, http.MethodPut, "/api/shuihuo-production/batch-factory/batches/batch_1/settings", `{"settings":{"videoModelId":18}}`)
 	if response.Code != http.StatusOK {
@@ -33,6 +34,22 @@ func TestBatchFactorySettingsPersistenceFlagsDirectorRegenerationWhenCapabilityC
 	if payload.Settings["maxVideoDuration"] != float64(15) {
 		t.Fatalf("canonical max duration = %#v", payload.Settings["maxVideoDuration"])
 	}
+
+	stateResponse := batchFactoryPersistenceRequest(t, api, http.MethodGet, "/api/shuihuo-production/batch-factory/batches/batch_1/settings-state", "")
+	if stateResponse.Code != http.StatusOK {
+		t.Fatalf("state = %d %s", stateResponse.Code, stateResponse.Body.String())
+	}
+	var state struct {
+		State struct {
+			VideoOverrides map[string]map[string]map[string]any `json:"videoOverrides"`
+		} `json:"state"`
+	}
+	if err := json.NewDecoder(stateResponse.Body).Decode(&state); err != nil {
+		t.Fatalf("decode state: %v", err)
+	}
+	if len(state.State.VideoOverrides) != 0 {
+		t.Fatalf("stale VIDEO overrides must be cleared when director is invalidated: %#v", state.State.VideoOverrides)
+	}
 }
 
 func TestBatchFactorySettingsPersistenceKeepsDirectorValidWhenModelCapabilityIsUnchanged(t *testing.T) {
@@ -44,6 +61,7 @@ func TestBatchFactorySettingsPersistenceKeepsDirectorValidWhenModelCapabilityIsU
 		"maxVideoDuration":15,
 		"aspectRatio":"9:16"
 	}`)
+	batchFactoryPersistenceRows[batchFactoryPersistenceKey(7, "batch_1", "video", "opening_1", "1")] = []byte(`{"restriction":"保留 VIDEO 限制"}`)
 
 	response := batchFactoryPersistenceRequest(t, api, http.MethodPut, "/api/shuihuo-production/batch-factory/batches/batch_1/settings", `{"settings":{"videoModelId":18,"quality":"8K"}}`)
 	if response.Code != http.StatusOK {
@@ -57,5 +75,18 @@ func TestBatchFactorySettingsPersistenceKeepsDirectorValidWhenModelCapabilityIsU
 	}
 	if payload.DirectorRegenerationRequired {
 		t.Fatal("unrelated settings changes must not invalidate director output")
+	}
+
+	stateResponse := batchFactoryPersistenceRequest(t, api, http.MethodGet, "/api/shuihuo-production/batch-factory/batches/batch_1/settings-state", "")
+	var state struct {
+		State struct {
+			VideoOverrides map[string]map[string]map[string]any `json:"videoOverrides"`
+		} `json:"state"`
+	}
+	if err := json.NewDecoder(stateResponse.Body).Decode(&state); err != nil {
+		t.Fatalf("decode state: %v", err)
+	}
+	if state.State.VideoOverrides["opening_1"]["1"]["restriction"] != "保留 VIDEO 限制" {
+		t.Fatalf("unrelated settings save must preserve VIDEO overrides: %#v", state.State.VideoOverrides)
 	}
 }
