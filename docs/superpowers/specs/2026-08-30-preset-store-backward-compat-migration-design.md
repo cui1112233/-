@@ -66,7 +66,7 @@ Current marker version is `2`:
 }
 ```
 
-If the marker already has `schemaVersion: 2` and the current canonical preset/audit digests match the marker, migration is a no-op. This gives deterministic repeated startup behavior.
+`schemaVersion: 2` is the durable migration marker. Once a migration transaction has committed this marker, later normal preset-store writes do not trigger the historical migration again. `presetsDigest` and `auditDigest` record the exact canonical state produced by the migration for audit/debugging only; they are not compared on every startup because normal create/publish/rollback operations legitimately change those files after migration. Runtime strict validation continues to catch later manual corruption.
 
 ## Original-byte backup
 
@@ -203,7 +203,7 @@ Also test:
 - byte-for-byte backups exist before canonical replacement;
 - Unicode preset IDs are accepted while unsafe path-like IDs are quarantined;
 - non-contiguous versions are normalized deterministically;
-- the schema marker matches the canonical digests;
+- the schema marker records the canonical digests produced by migration but normal later preset writes do not retrigger migration;
 - `createApp()` can seed system presets after migrating a legacy store.
 
 ## Docker upgrade drill
