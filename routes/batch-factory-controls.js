@@ -43,7 +43,22 @@ function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
   item.manuallyEdited = true;
 }
 
-async function settingsRequestWithGo(req, shuihuoGateway, pathname, body, method = 'PUT') {
+function invalidateItemAfterVideoModelChange(item) {
+  // Hook review is independent from the selected video model. Preserve the
+  // accepted viral opening and book-level overrides, but invalidate every
+  // artifact derived from the old director VIDEO plan.
+  item.directorResult = null;
+  item.videoSettingsOverrides = {};
+  item.promptVersions = {};
+  item.videoPromptErrors = {};
+  item.production = null;
+  item.productionResults = [];
+  item.productionSubmissionError = null;
+  item.status = 'pending';
+  item.error = '';
+}
+
+async function settingsPayloadWithGo(req, shuihuoGateway, pathname, body, method = 'PUT') {
   const upstream = await requestProductionBridge({
     username: req.auth.account.username,
     isOwner: req.auth.account.isOwner === true,
@@ -58,13 +73,18 @@ async function settingsRequestWithGo(req, shuihuoGateway, pathname, body, method
     error.statusCode = upstream.statusCode;
     throw error;
   }
-  const settings = upstream.payload?.settings;
+  const payload = upstream.payload;
+  const settings = payload?.settings;
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     const error = new Error('Go 设置服务返回无效结果');
     error.statusCode = 502;
     throw error;
   }
-  return settings;
+  return payload;
+}
+
+async function settingsRequestWithGo(req, shuihuoGateway, pathname, body, method = 'PUT') {
+  return (await settingsPayloadWithGo(req, shuihuoGateway, pathname, body, method)).settings;
 }
 
 function cloneItemWithOverride(item, settingsOverride) {
@@ -89,7 +109,7 @@ function createBatchFactoryControlsRouter({
   const router = express.Router();
   router.use(authenticate);
 
-  const persistSettingsRequest = persistSettings || ((payload, req, batchId) => settingsRequestWithGo(
+  const persistSettingsRequest = persistSettings || ((payload, req, batchId) => settingsPayloadWithGo(
     req,
     shuihuoGateway,
     `/api/shuihuo-production/batch-factory/batches/${encodeURIComponent(batchId)}/settings`,
@@ -110,9 +130,32 @@ function createBatchFactoryControlsRouter({
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
     const previous = batch.settings || {};
     try {
-      const settings = await persistSettingsRequest({ settings: input, previous }, req, batch.id);
+      const persisted = await persistSettingsRequest({ settings: input, previous }, req, batch.id);
+      const envelope = persisted && typeof persisted === 'object' && !Array.isArray(persisted)
+        && persisted.settings && typeof persisted.settings === 'object' && !Array.isArray(persisted.settings)
+        ? persisted
+        : null;
+      const settings = envelope ? envelope.settings : persisted;
+      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        const error = new Error('Go 设置服务返回无效结果');
+        error.statusCode = 502;
+        throw error;
+      }
+
+      if (envelope?.directorRegenerationRequired === true) {
+        for (const item of Array.isArray(batch.items) ? batch.items : []) {
+          store.updateItem(req.username, batch.id, item.id, target => {
+            invalidateItemAfterVideoModelChange(target);
+            return target;
+          });
+        }
+      }
+
       clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
-      return res.json({ batch: { ...batch, settings } });
+      const currentBatch = envelope?.directorRegenerationRequired === true
+        ? (store.getBatch(req.username, batch.id) || batch)
+        : batch;
+      return res.json({ batch: { ...currentBatch, settings } });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存生产统一设置失败' });
     }
@@ -193,5 +236,6 @@ function createBatchFactoryControlsRouter({
 module.exports = {
   createBatchFactoryControlsRouter,
   normalizePublishSettings,
+  settingsPayloadWithGo,
   settingsRequestWithGo
 };
