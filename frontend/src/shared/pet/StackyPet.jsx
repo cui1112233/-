@@ -156,6 +156,11 @@ export function StackyPet({ username, accountSessionKey }) {
   useEffect(() => {
     let cancelled = false;
 
+    if (!username) {
+      setPet(getPetDefinition(DEFAULT_PET_ID));
+      return undefined;
+    }
+
     getConfig()
       .then(config => {
         if (!cancelled) setPet(getPetDefinition(config?.pet));
