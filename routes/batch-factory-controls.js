@@ -1,6 +1,10 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
+const {
+  resolveVideoManagementAccountStatus,
+  startVideoManagementAccountRelogin
+} = require('../lib/batch-factory/video-management-account');
 const { resolveBoundVideoSettings } = require('./batch-factory');
 
 const SCRIPT_PROMPT_PRESETS = new Set([
@@ -34,7 +38,6 @@ function normalizeProductionExtras(value = {}, previous = {}) {
   const assetPromptPresetId = ASSET_PROMPT_PRESETS.has(value.assetPromptPresetId)
     ? value.assetPromptPresetId
     : (ASSET_PROMPT_PRESETS.has(previous.assetPromptPresetId) ? previous.assetPromptPresetId : 'standard-asset-extraction');
-  const rawProfileVersion = Number(value.configProfileVersion ?? previous.configProfileVersion ?? 0);
   return {
     scriptPromptPresetId,
     assetPromptPresetId,
@@ -57,24 +60,19 @@ function normalizeProductionExtras(value = {}, previous = {}) {
     constraintRestrictionPersonalPromptId: text(value.constraintRestrictionPersonalPromptId ?? previous.constraintRestrictionPersonalPromptId, 160),
     constraintNegativeSource: constraintSource(value.constraintNegativeSource, previous.constraintNegativeSource),
     constraintNegativePresetId: text(value.constraintNegativePresetId ?? previous.constraintNegativePresetId, 160),
-    constraintNegativePersonalPromptId: text(value.constraintNegativePersonalPromptId ?? previous.constraintNegativePersonalPromptId, 160),
-    configProfileKey: text(value.configProfileKey ?? previous.configProfileKey, 80),
-    configProfileName: text(value.configProfileName ?? previous.configProfileName, 100),
-    configProfileVersion: Number.isInteger(rawProfileVersion) && rawProfileVersion > 0 ? rawProfileVersion : 0,
-    configProfileSyncedAt: text(value.configProfileSyncedAt ?? previous.configProfileSyncedAt, 40)
+    constraintNegativePersonalPromptId: text(value.constraintNegativePersonalPromptId ?? previous.constraintNegativePersonalPromptId, 160)
   };
 }
 
 function normalizePublishSettings(value = {}, previous = {}) {
-  const rawCount = Number(value.jieyaVideoCount ?? previous.jieyaVideoCount ?? 4);
-  const jieyaVideoCount = Number.isInteger(rawCount) ? Math.max(0, Math.min(8, rawCount)) : 4;
+  const rawProfileVersion = Number(value.configProfileVersion ?? previous.configProfileVersion ?? 0);
   return {
-    jieyaVideoCount,
-    aiHead: '自定义AI头部',
     materialReuse: boolOr(value.materialReuse, boolOr(previous.materialReuse, false)),
     horizontalFlip: boolOr(value.horizontalFlip, boolOr(previous.horizontalFlip, false)),
-    profileId: text(value.profileId ?? previous.profileId, 160),
-    organizationId: text(value.organizationId ?? previous.organizationId, 160)
+    configProfileKey: text(value.configProfileKey ?? previous.configProfileKey, 80),
+    configProfileName: text(value.configProfileName ?? previous.configProfileName, 100),
+    configProfileVersion: Number.isInteger(rawProfileVersion) && rawProfileVersion > 0 ? rawProfileVersion : 0,
+    configProfileSyncedAt: text(value.configProfileSyncedAt ?? previous.configProfileSyncedAt, 40)
   };
 }
 
@@ -110,13 +108,18 @@ function publicConfigVersion(record) {
   };
 }
 
-function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), shuihuoGateway, configVersionStore } = {}) {
+function createBatchFactoryControlsRouter({
+  store = createBatchFactoryStore(),
+  shuihuoGateway,
+  configVersionStore,
+  videoManagementAccountAdapter
+} = {}) {
   const router = express.Router();
   router.use(apiAuth);
 
-  router.get('/config-versions', (req, res) => {
+  router.get('/publish-config-versions', (req, res) => {
     if (!configVersionStore) return res.json({ versions: [], latestByKey: {} });
-    const versions = configVersionStore.listForProduction().map(publicConfigVersion);
+    const versions = configVersionStore.listForPublishing().map(publicConfigVersion);
     const latestByKey = {};
     for (const record of versions) {
       if (record.status === 'published') latestByKey[record.key] = record;
@@ -124,28 +127,45 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     return res.json({ versions, latestByKey });
   });
 
-  router.get('/admin/config-versions', (req, res) => {
-    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量版本配置' });
+  router.get('/admin/publish-config-versions', (req, res) => {
+    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量发布版本配置' });
     return res.json({ versions: configVersionStore ? configVersionStore.list().map(publicConfigVersion) : [] });
   });
 
-  router.post('/admin/config-versions', (req, res) => {
-    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量版本配置' });
-    if (!configVersionStore) return res.status(503).json({ error: '批量版本配置存储未启用' });
+  router.post('/admin/publish-config-versions', (req, res) => {
+    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量发布版本配置' });
+    if (!configVersionStore) return res.status(503).json({ error: '批量发布版本配置存储未启用' });
     try {
       const record = configVersionStore.saveVersion(req.body || {});
       return res.status(201).json({ version: publicConfigVersion(record) });
     } catch (error) {
-      return res.status(400).json({ error: error.message || '保存批量版本配置失败' });
+      return res.status(400).json({ error: error.message || '保存批量发布版本配置失败' });
     }
   });
 
-  router.post('/admin/config-versions/:key/:version/publish', (req, res) => {
-    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量版本配置' });
-    if (!configVersionStore) return res.status(503).json({ error: '批量版本配置存储未启用' });
+  router.post('/admin/publish-config-versions/:key/:version/publish', (req, res) => {
+    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量发布版本配置' });
+    if (!configVersionStore) return res.status(503).json({ error: '批量发布版本配置存储未启用' });
     const record = configVersionStore.publish(req.params.key, req.params.version);
-    if (!record) return res.status(404).json({ error: '批量版本配置不存在' });
+    if (!record) return res.status(404).json({ error: '批量发布版本配置不存在' });
     return res.json({ version: publicConfigVersion(record) });
+  });
+
+  router.get('/video-management-account/status', async (req, res) => {
+    const status = await resolveVideoManagementAccountStatus({
+      accountAdapter: videoManagementAccountAdapter,
+      username: req.username
+    });
+    return res.json(status);
+  });
+
+  router.post('/video-management-account/relogin', async (req, res) => {
+    const result = await startVideoManagementAccountRelogin({
+      accountAdapter: videoManagementAccountAdapter,
+      username: req.username
+    });
+    if (result.state !== 'started') return res.status(503).json(result);
+    return res.json(result);
   });
 
   router.put('/batches/:batchId/settings', async (req, res) => {
