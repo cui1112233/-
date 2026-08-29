@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
+import { getConfig } from '../api/config';
 import { PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetPreview, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
 import { classifyPetRequestError, parseScriptRevision } from './scriptCollaboration';
 import { COMPANION_SPEECH_PRIORITY, PET_COMPANION_SETTINGS_EVENT, getClickSpeech, getCompanionCandidate, readCompanionSpeechState } from './companionSpeech';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
+import { DEFAULT_PET_ID, PET_SELECTION_EVENT, getPetDefinition } from './petCatalog';
 
 const resetDelayMs = 2400;
 const companionBubbleDurationMs = 7000;
@@ -46,6 +48,7 @@ function isMissingTask(error) {
 }
 
 export function StackyPet({ username, accountSessionKey }) {
+  const [pet, setPet] = useState(() => getPetDefinition(DEFAULT_PET_ID));
   const [state, setState] = useState('idle');
   const [frame, setFrame] = useState(0);
   const [lookFrame, setLookFrame] = useState(null);
@@ -147,6 +150,28 @@ export function StackyPet({ username, accountSessionKey }) {
       dragRef.current = null;
       accountSessionGenerationRef.current += 1;
       conversationRequestRef.current += 1;
+    };
+  }, [accountSessionKey, username]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getConfig()
+      .then(config => {
+        if (!cancelled) setPet(getPetDefinition(config?.pet));
+      })
+      .catch(() => {
+        if (!cancelled) setPet(getPetDefinition(DEFAULT_PET_ID));
+      });
+
+    function handlePetSelection(event) {
+      setPet(getPetDefinition(event.detail?.pet || event.detail?.id));
+    }
+
+    window.addEventListener(PET_SELECTION_EVENT, handlePetSelection);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PET_SELECTION_EVENT, handlePetSelection);
     };
   }, [accountSessionKey, username]);
 
@@ -521,7 +546,7 @@ export function StackyPet({ username, accountSessionKey }) {
           aria-label="唤醒 CM"
           onClick={() => updateOverlay({ tucked: false })}
         >
-          <img src="/pets/stacky/spritesheet.webp" alt="" />
+          <img src={pet.spritesheetPath} alt="" style={{ imageRendering: pet.renderMode === 'smooth' ? 'auto' : undefined }} />
         </button>
       </div>
     );
@@ -590,7 +615,7 @@ export function StackyPet({ username, accountSessionKey }) {
           }
         }}
       >
-        <img src="/pets/stacky/spritesheet.webp" alt="" />
+        <img src={pet.spritesheetPath} alt="" style={{ imageRendering: pet.renderMode === 'smooth' ? 'auto' : undefined }} />
       </div>
       <button
         className="stacky-pet-drag-handle"
