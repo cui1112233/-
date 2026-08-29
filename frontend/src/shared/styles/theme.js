@@ -1,3 +1,5 @@
+import { theme as antdTheme } from 'antd';
+
 const common = {
   colorPrimary: '#f07167',
   borderRadius: 8,
@@ -35,5 +37,9 @@ const light = {
 };
 
 export function createAntTheme(mode) {
-  return { token: { ...common, ...(mode === 'light' ? light : dark) } };
+  const lightMode = mode === 'light';
+  return {
+    algorithm: lightMode ? antdTheme.defaultAlgorithm : antdTheme.darkAlgorithm,
+    token: { ...common, ...(lightMode ? light : dark) }
+  };
 }
