@@ -3,8 +3,7 @@ const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
 const { resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
-const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
-const { resolveVersionedSystemPresetBody } = require('../lib/batch-factory/config-version');
+const { resolvePresetBodyWithGo } = require('../lib/batch-factory/config-snapshot-bridge');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
 const PREFIX_PRESETS = Object.freeze({
@@ -16,16 +15,25 @@ const PREFIX_PRESETS = Object.freeze({
   era_drama: 'batch-prefix-era-drama'
 });
 
-function systemPresetBody(presetStore, id, settings = {}) {
-  return resolveVersionedSystemPresetBody(presetStore, id, settings)
-    || resolveSystemPresetBody(presetStore, id);
+function pinnedVersion(settings, id) {
+  const version = Number(settings?.systemPresetVersions?.[id]);
+  return Number.isInteger(version) && version > 0 ? version : 0;
 }
 
-function compileItemVideos(presetStore, batch, item) {
-  return item.directorResult.storyboard.map(video => {
+async function compileItemVideos({ presetStore, batch, item, username, isOwner, shuihuoGateway }) {
+  return Promise.all(item.directorResult.storyboard.map(async video => {
     const settings = resolveVideoSettings(batch, item, video.id);
     const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-    const autoPrefix = settings.prefixMode === 'manual' ? '' : systemPresetBody(presetStore, prefixId, settings);
+    const autoPrefix = settings.prefixMode === 'manual'
+      ? ''
+      : await resolvePresetBodyWithGo({
+        username,
+        isOwner: isOwner === true,
+        presetStore,
+        id: prefixId,
+        version: pinnedVersion(settings, prefixId),
+        shuihuoGateway
+      });
     const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings, autoPrefix });
     return {
       sourceText: String(video.video_desc || `VIDEO ${video.id}`).trim(),
@@ -33,7 +41,7 @@ function compileItemVideos(presetStore, batch, item) {
       duration: payload.duration,
       aspectRatio: payload.aspect_ratio
     };
-  });
+  }));
 }
 
 function boundModelError(batch, modelId) {
@@ -47,13 +55,13 @@ function boundModelError(batch, modelId) {
 async function submitItemProduction({ presetStore, batch, item, modelId, username, isOwner, shuihuoGateway }) {
   let videos;
   try {
-    videos = compileItemVideos(presetStore, batch, item);
+    videos = await compileItemVideos({ presetStore, batch, item, username, isOwner, shuihuoGateway });
   } catch (error) {
     return {
       ok: false,
       itemId: item.id,
       title: item.title,
-      statusCode: 400,
+      statusCode: Number(error?.statusCode) || 400,
       stage: 'prompt',
       error: `视频提示词编译失败：${error?.message || '未知错误'}`
     };
