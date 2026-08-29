@@ -74,6 +74,10 @@ type recordingPresetStore struct {
 	rollbackVersion  int
 }
 
+func (s *recordingPresetStore) List(_ context.Context, _ string) ([]PresetVersion, error) {
+	return nil, nil
+}
+
 func (s *recordingPresetStore) Publish(_ context.Context, userID int64, id string, version int) (PresetVersion, error) {
 	s.userID, s.publishedID, s.publishedVersion = userID, id, version
 	return PresetVersion{ID: id, Version: version, Status: "published"}, nil
