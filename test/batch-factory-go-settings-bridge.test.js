@@ -21,11 +21,14 @@ function createStore() {
       directorResult: { storyboard: [{ id: 1 }] }
     }]
   };
+  const writes = { batch: 0, item: 0 };
   return {
     batch,
+    writes,
     getBatch(_username, id) { return id === batch.id ? batch : null; },
-    updateBatch(_username, _id, mutate) { mutate(batch); },
+    updateBatch(_username, _id, mutate) { writes.batch += 1; mutate(batch); },
     updateItem(_username, _batchId, itemId, mutate) {
+      writes.item += 1;
       const item = batch.items.find(entry => entry.id === itemId);
       if (item) mutate(item);
     },
@@ -61,14 +64,14 @@ async function request(router, path, body) {
   }
 }
 
-test('生产统一设置持久化 Go 返回的模型快照而不是 Node 自己归一化', async () => {
+test('生产统一设置只持久化到 Go/MySQL，不再写旧 batch-factory.json', async () => {
   const store = createStore();
   const calls = [];
   const router = createBatchFactoryControlsRouter({
     store,
     authenticate: testAuth,
-    canonicalizeSettings: async payload => {
-      calls.push(payload);
+    persistSettings: async (payload, _req, batchId) => {
+      calls.push({ payload, batchId });
       return {
         videoModelId: 19,
         videoModelVersionId: 52,
@@ -80,7 +83,7 @@ test('生产统一设置持久化 Go 返回的模型快照而不是 Node 自己�
         prefixEnabled: false
       };
     },
-    canonicalizeOverride: async () => ({})
+    persistOverride: async () => ({})
   });
 
   const response = await request(router, '/batches/batch-1/settings', {
@@ -97,31 +100,29 @@ test('生产统一设置持久化 Go 返回的模型快照而不是 Node 自己�
 
   assert.equal(response.status, 200);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].settings.videoModelId, 19);
-  assert.equal(calls[0].settings.videoModelName, '浏览器伪造名称');
-  assert.equal(calls[0].previous.videoModelName, '旧模型名称');
-  assert.deepEqual(store.batch.settings, {
-    videoModelId: 19,
-    videoModelVersionId: 52,
-    videoModelName: 'Go 模型中心名称',
-    maxVideoDuration: 15,
-    fixedSingleVideo: true,
-    exactDuration: 15,
-    aspectRatio: '16:9',
-    prefixEnabled: false
-  });
+  assert.equal(calls[0].batchId, 'batch-1');
+  assert.equal(calls[0].payload.settings.videoModelId, 19);
+  assert.equal(calls[0].payload.previous.videoModelName, '旧模型名称');
+  assert.equal(response.body.batch.settings.videoModelName, 'Go 模型中心名称');
+  assert.equal(response.body.batch.settings.maxVideoDuration, 15);
+
+  // Legacy JSON remains a fallback snapshot for old batches only. Migrated
+  // settings are no longer written to it.
+  assert.equal(store.writes.batch, 0);
+  assert.equal(store.batch.settings.videoModelId, 18);
+  assert.equal(store.batch.settings.videoModelName, '旧模型名称');
 });
 
-test('单书和 VIDEO override 原样持久化 Go 返回结果', async () => {
+test('单书和 VIDEO override 只写 Go/MySQL，响应使用 Go 返回结果', async () => {
   const store = createStore();
   const calls = [];
   const router = createBatchFactoryControlsRouter({
     store,
     authenticate: testAuth,
-    canonicalizeSettings: async () => ({}),
-    canonicalizeOverride: async payload => {
-      calls.push(payload);
-      if (calls.length === 1) return { quality: '', qualityEnabled: false };
+    persistSettings: async () => ({}),
+    persistOverride: async (payload, _req, scope) => {
+      calls.push({ payload, scope });
+      if (scope.videoId === undefined) return { quality: '', qualityEnabled: false };
       return { aspectRatio: '16:9', negativeEnabled: false };
     }
   });
@@ -131,11 +132,14 @@ test('单书和 VIDEO override 原样持久化 Go 返回结果', async () => {
     inheritKeys: ['negativeEnabled']
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(store.batch.items[0].settingsOverride, { quality: '', qualityEnabled: false });
+  assert.deepEqual(response.body.item.settingsOverride, { quality: '', qualityEnabled: false });
   assert.deepEqual(calls[0], {
-    settings: { quality: '', qualityEnabled: false },
-    previous: { quality: '旧画质', negativeEnabled: false },
-    inheritKeys: ['negativeEnabled']
+    payload: {
+      settings: { quality: '', qualityEnabled: false },
+      previous: { quality: '旧画质', negativeEnabled: false },
+      inheritKeys: ['negativeEnabled']
+    },
+    scope: { batchId: 'batch-1', itemId: 'item-1' }
   });
 
   response = await request(router, '/batches/batch-1/items/item-1/videos/1/overrides', {
@@ -143,29 +147,37 @@ test('单书和 VIDEO override 原样持久化 Go 返回结果', async () => {
     inheritKeys: ['restriction']
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(store.batch.items[0].videoSettingsOverrides['1'], { aspectRatio: '16:9', negativeEnabled: false });
+  assert.deepEqual(response.body.item.videoSettingsOverrides['1'], { aspectRatio: '16:9', negativeEnabled: false });
   assert.deepEqual(calls[1], {
-    settings: { aspectRatio: '16:9', negativeEnabled: false },
-    previous: { restriction: '旧限制' },
-    inheritKeys: ['restriction']
+    payload: {
+      settings: { aspectRatio: '16:9', negativeEnabled: false },
+      previous: { restriction: '旧限制' },
+      inheritKeys: ['restriction']
+    },
+    scope: { batchId: 'batch-1', itemId: 'item-1', videoId: '1' }
   });
+
+  assert.equal(store.writes.item, 0);
+  assert.deepEqual(store.batch.items[0].settingsOverride, { quality: '旧画质', negativeEnabled: false });
+  assert.deepEqual(store.batch.items[0].videoSettingsOverrides['1'], { restriction: '旧限制' });
 });
 
-test('Go 设置服务错误状态和消息原样返回，不回退到 Node 本地规则', async () => {
+test('Go 持久化服务错误状态和消息原样返回，不回退到 Node 本地写入', async () => {
   const store = createStore();
   const router = createBatchFactoryControlsRouter({
     store,
     authenticate: testAuth,
-    canonicalizeSettings: async () => {
+    persistSettings: async () => {
       const error = new Error('所选视频模型未配置单次最大生成时长');
       error.statusCode = 409;
       throw error;
     },
-    canonicalizeOverride: async () => ({})
+    persistOverride: async () => ({})
   });
 
   const response = await request(router, '/batches/batch-1/settings', { settings: { videoModelId: 19 } });
   assert.equal(response.status, 409);
   assert.equal(response.body.error, '所选视频模型未配置单次最大生成时长');
+  assert.equal(store.writes.batch, 0);
   assert.equal(store.batch.settings.videoModelId, 18);
 });
