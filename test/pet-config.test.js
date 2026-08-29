@@ -1,33 +1,72 @@
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const test = require('node:test');
 
-let catalog = null;
-try {
-  catalog = require('../lib/pet-catalog');
-} catch {
-  catalog = null;
+const { signBridgeRequest } = require('../routes/shuihuo-production');
+const { requestGoConfig } = require('../routes/config');
+
+function listen(server) {
+  return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address())));
 }
 
-test('server exposes canonical stacky and pixiu pet definitions', () => {
-  assert.ok(catalog, 'lib/pet-catalog.js should exist');
-  assert.deepEqual(catalog.PET_DEFINITIONS.map(pet => pet.id), ['stacky', 'pixiu']);
-  assert.equal(catalog.findPetDefinition('pixiu').spritesheetPath, '/pets/pixiu/spritesheet.svg');
-});
+function close(server) {
+  return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+}
 
-test('normalization accepts pixiu and ignores client-owned pet metadata', () => {
-  assert.ok(catalog, 'lib/pet-catalog.js should exist');
-  const normalized = catalog.normalizePetConfig({
-    id: 'pixiu',
-    displayName: 'tampered',
-    spritesheetPath: 'https://example.com/not-allowed.svg'
+test('config gateway signs the Go platform config path and returns pet id', async () => {
+  const secret = 'test-bridge-secret';
+  const server = http.createServer((req, res) => {
+    const issuedAt = req.headers['x-qiantie-issued-at'];
+    const expected = signBridgeRequest(secret, {
+      username: 'alice',
+      isOwner: false,
+      issuedAt,
+      method: 'GET',
+      pathname: '/api/platform/config'
+    });
+    assert.equal(req.method, 'GET');
+    assert.equal(req.url, '/api/platform/config');
+    assert.equal(req.headers['x-qiantie-username'], 'alice');
+    assert.equal(req.headers['x-qiantie-is-owner'], 'false');
+    assert.equal(req.headers['x-qiantie-signature'], expected);
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ pet: 'pixiu' }));
   });
-  assert.equal(normalized.id, 'pixiu');
-  assert.equal(normalized.displayName, '貔貅');
-  assert.equal(normalized.spritesheetPath, '/pets/pixiu/spritesheet.svg');
+  const address = await listen(server);
+  try {
+    const result = await requestGoConfig(
+      { targetBaseUrl: `http://127.0.0.1:${address.port}`, bridgeSecret: secret },
+      { username: 'alice', isOwner: false },
+      { method: 'GET' }
+    );
+    assert.equal(result.pet, 'pixiu');
+  } finally {
+    await close(server);
+  }
 });
 
-test('invalid pet ids keep the previous valid pet before falling back to CM', () => {
-  assert.ok(catalog, 'lib/pet-catalog.js should exist');
-  assert.equal(catalog.normalizePetConfig({ id: 'bad' }, { id: 'pixiu' }).id, 'pixiu');
-  assert.equal(catalog.normalizePetConfig({ id: 'bad' }).id, 'stacky');
+test('config gateway sends only the requested pet id to Go', async () => {
+  const secret = 'test-bridge-secret';
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      assert.equal(req.method, 'POST');
+      assert.equal(req.url, '/api/platform/config');
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString('utf8')), { pet: 'pixiu' });
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ pet: 'pixiu' }));
+    });
+  });
+  const address = await listen(server);
+  try {
+    const result = await requestGoConfig(
+      { targetBaseUrl: `http://127.0.0.1:${address.port}`, bridgeSecret: secret },
+      { username: 'alice', isOwner: false },
+      { method: 'POST', body: { pet: 'pixiu' } }
+    );
+    assert.equal(result.pet, 'pixiu');
+  } finally {
+    await close(server);
+  }
 });
