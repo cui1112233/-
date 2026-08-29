@@ -59,6 +59,9 @@ jobs:
       - name: Test Go director compatibility bridge
         run: node --test test/batch-factory-go-director-bridge.test.js
 
+      - name: Test Go director runtime cutover
+        run: node --test test/batch-factory-go-director-runtime.test.js
+
       - name: Test Go settings compatibility bridge
         run: node --test test/batch-factory-go-settings-bridge.test.js
 
