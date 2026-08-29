@@ -32,9 +32,13 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Test Go Batch Factory settings rules
+      - name: Test Go Batch Factory settings rules and store
         working-directory: backend
         run: go test ./internal/shuihuo/batchfactory
+
+      - name: Test Go Batch Factory settings migration
+        working-directory: backend
+        run: go test ./internal/storage -run TestBatchFactorySettingsMigration
 
       - name: Test Go Batch Factory HTTP boundary
         working-directory: backend
