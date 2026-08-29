@@ -22,6 +22,7 @@ type Dependencies struct {
 	SeedPassword      string
 	Users             UserStore
 	Configs           ConfigStore
+	Preferences       PreferenceStore
 	Histories         HistoryStore
 	Objects           shuihuostorage.ObjectStorage
 	Queue             shuihuotasks.Queue
