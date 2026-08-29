@@ -46,6 +46,9 @@ jobs:
       - name: Test config version snapshots
         run: node --test test/batch-factory-config-version.test.js
 
+      - name: Test Go settings compatibility bridge
+        run: node --test test/batch-factory-go-settings-bridge.test.js
+
       - name: Test sparse overrides
         run: node --test test/batch-factory-overrides.test.js
 
