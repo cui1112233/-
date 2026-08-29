@@ -2,7 +2,6 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
-const { parseDirectorJson, normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
 const { resolveItemSettings, resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
 const { publicPromptCatalog } = require('../lib/batch-factory/prompt-selection');
@@ -11,6 +10,11 @@ const {
   resolvePresetWithGo,
   resolvePresetBodyWithGo
 } = require('../lib/batch-factory/config-snapshot-bridge');
+const {
+  buildHookContractWithGo,
+  buildDirectorContractWithGo,
+  normalizeDirectorOutputWithGo
+} = require('../lib/batch-factory/director-bridge');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
 const PREFIX_PRESETS = Object.freeze({
@@ -21,41 +25,6 @@ const PREFIX_PRESETS = Object.freeze({
   suspense: 'batch-prefix-suspense',
   era_drama: 'batch-prefix-era-drama'
 });
-
-const DIRECTOR_SCHEMA = `
-只输出合法 JSON，结构必须为：
-{
-  "characters": [{"name":"人物名","prompt":"完整人物提示词"}],
-  "scenes": [{"name":"场景名","prompt":"完整场景提示词"}],
-  "props": [{"name":"道具名","prompt":"完整道具视觉提示词"}],
-  "storyboard": [
-    {
-      "id": 1,
-      "scene_id": 1,
-      "duration_sec": 13,
-      "characters": ["人物名"],
-      "props": ["道具名"],
-      "scene": "场景名",
-      "prefix_key": "general_anime",
-      "shots": [
-        {"start_sec":0,"end_sec":3,"shot_type":"中景","camera":"缓慢推轨","description":"完整画面、动作、表情、光影、情绪、对白与音效描述"}
-      ],
-      "video_desc": "按 shots 顺序组织的完整中文分镜描述词"
-    }
-  ],
-  "source_coverage": {
-    "source_complete": true,
-    "source_end_marker": "本次最后覆盖的原文末尾短句；无法提供则空字符串",
-    "has_remaining_source": false
-  }
-}
-
-强制要求：
-- 最终 duration_sec、start_sec、end_sec 全部只能是整数。
-- shots 必须从 0 秒开始连续衔接，不能留空或重叠，最后 end_sec 必须严格等于 duration_sec。
-- characters/scene/props 必须引用同一 JSON 顶层信息库中的名称。
-- video_desc 不能省略 shots 已表达的关键剧情和原文对白。
-`;
 
 function assistantText(payload) {
   const content = payload?.choices?.[0]?.message?.content;
@@ -95,6 +64,25 @@ async function callTextModel(username, messages, { temperature = 0.4, maxTokens 
   const text = assistantText(parsed);
   if (!text.trim()) throw new Error('文本模型没有返回内容');
   return text;
+}
+
+function parseHookModelJson(value) {
+  const text = String(value || '').trim();
+  if (!text) throw new Error('爆款开头模型返回为空');
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : text;
+  try {
+    return JSON.parse(candidate);
+  } catch (_) {
+    const start = candidate.indexOf('{');
+    const end = candidate.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1));
+      } catch (_) {}
+    }
+  }
+  throw new Error('爆款开头模型没有返回合法 JSON');
 }
 
 function pinnedVersion(settings, id) {
@@ -142,106 +130,7 @@ async function latestConfigSettingsWithGo(username, isOwner, presetStore, shuihu
   };
 }
 
-function prefixCatalogPrompt() {
-  return `可用视频前缀类型 key 只能从以下列表选择：\n${Object.keys(PREFIX_PRESETS).map(key => `- ${key}`).join('\n')}\n根据每个视频单元自身题材和情绪选择最匹配的 key；不确定时使用 general_anime。`;
-}
-
-function applyPersonalPrompt(base, username, userPromptLibraryStore) {
-  const override = userPromptLibraryStore?.get?.(username, base.id);
-  if (!override?.body) return base;
-  return {
-    ...base,
-    body: override.body,
-    version: override.version || 1,
-    source: 'personal'
-  };
-}
-
-async function selectedDirectorPromptsWithGo(settings = {}, username = '', isOwner = false, userPromptLibraryStore, presetStore, shuihuoGateway) {
-  const scriptId = settings.scriptPromptPresetId || 'standard-short-drama';
-  const assetId = settings.assetPromptPresetId || 'standard-asset-extraction';
-  const [scriptPreset, assetPreset] = await Promise.all([
-    resolvePresetWithGo({
-      username,
-      isOwner: isOwner === true,
-      presetStore,
-      id: scriptId,
-      version: pinnedVersion(settings, scriptId),
-      shuihuoGateway
-    }),
-    resolvePresetWithGo({
-      username,
-      isOwner: isOwner === true,
-      presetStore,
-      id: assetId,
-      version: pinnedVersion(settings, assetId),
-      shuihuoGateway
-    })
-  ]);
-  const scriptBase = {
-    id: scriptPreset.id,
-    name: scriptPreset.name || scriptId,
-    body: String(scriptPreset.body || '').trim(),
-    version: Number(scriptPreset.version) || 1,
-    source: 'system'
-  };
-  const assetBase = {
-    id: assetPreset.id,
-    name: assetPreset.name || assetId,
-    body: String(assetPreset.body || '').trim(),
-    version: Number(assetPreset.version) || 1,
-    source: 'system'
-  };
-  return {
-    script: applyPersonalPrompt(scriptBase, username, userPromptLibraryStore),
-    assets: applyPersonalPrompt(assetBase, username, userPromptLibraryStore)
-  };
-}
-
-async function directorSystemPrompt(username, isOwner, presetStore, mode, settings, selected, shuihuoGateway) {
-  const directorId = mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
-  const base = await systemPresetBodyWithGo(username, isOwner, presetStore, directorId, settings, shuihuoGateway);
-  const durationRule = settings.fixedSingleVideo
-    ? `固定单 VIDEO 已开启：只允许输出 1 个 storyboard；duration_sec 必须严格等于 ${settings.exactDuration}。输入再长也不要输出第二个 storyboard。只能从开头选择能在 ${settings.exactDuration} 秒内完整承载的连续内容，不得从一句对白或完整动作中间截断。后续内容标记为 has_remaining_source=true。`
-    : `固定单 VIDEO 未开启：当前绑定视频模型单次生成最大支持 ${settings.maxVideoDuration} 秒。请先完整理解内容，根据剧情节点、动作完整性、视觉连续性和节奏，将整段内容自然拆成一个或多个 VIDEO。每个 VIDEO 的实际生成时长必须为 1-${settings.maxVideoDuration} 之间的整数，不要求用满 ${settings.maxVideoDuration} 秒。不要为了凑时长加入无意义停顿，也不要用简单固定长度机械切分。`;
-  return [
-    base,
-    `【当前剧本提示词：${selected.script.name}】\n${selected.script.body}`,
-    `【当前人物场景提示词：${selected.assets.name}】\n${selected.assets.body}`,
-    prefixCatalogPrompt(),
-    durationRule,
-    DIRECTOR_SCHEMA
-  ].filter(Boolean).join('\n\n---\n\n');
-}
-
-function directorUserPrompt(batch, item) {
-  const settings = resolveItemSettings(batch, item);
-  const content = batch.mode === 'viral' ? item.approvedHookScript : item.sourceText;
-  return JSON.stringify({
-    mode: batch.mode,
-    source_task_id: item.sourceTaskId || '',
-    book_id: item.bookId || '',
-    source_text: item.sourceText,
-    approved_hook_script: batch.mode === 'viral' ? item.approvedHookScript : '',
-    current_content_to_direct: content,
-    style: settings.style,
-    synopsis: settings.synopsis,
-    script_prompt_preset_id: settings.scriptPromptPresetId || 'standard-short-drama',
-    asset_prompt_preset_id: settings.assetPromptPresetId || 'standard-asset-extraction',
-    video_model: {
-      id: settings.videoModelId,
-      version_id: settings.videoModelVersionId,
-      name: settings.videoModelName,
-      max_video_duration: settings.maxVideoDuration
-    },
-    max_video_duration: settings.maxVideoDuration,
-    fixed_single_video: settings.fixedSingleVideo,
-    exact_duration: settings.exactDuration,
-    aspect_ratio: settings.aspectRatio
-  }, null, 2);
-}
-
-function directorSettings(batch, item) {
+function directorNormalizationSettings(batch, item) {
   const settings = resolveItemSettings(batch, item);
   return {
     maxVideoDuration: settings.maxVideoDuration,
@@ -253,14 +142,19 @@ function directorSettings(batch, item) {
 }
 
 async function generateHook(username, isOwner, presetStore, batch, item, shuihuoGateway) {
-  const id = 'batch-hook-adaptation';
-  const settings = batch.settings || {};
-  const system = await systemPresetBodyWithGo(username, isOwner, presetStore, id, settings, shuihuoGateway);
+  const contract = await buildHookContractWithGo({
+    username,
+    isOwner,
+    presetStore,
+    batch,
+    item,
+    shuihuoGateway
+  });
   const text = await callTextModel(username, [
-    { role: 'system', content: system },
-    { role: 'user', content: JSON.stringify({ source_text: item.sourceText, style: settings.style, synopsis: settings.synopsis }, null, 2) }
-  ], { temperature: 0.75, maxTokens: 5000 });
-  const output = parseDirectorJson(text);
+    { role: 'system', content: contract.systemPrompt },
+    { role: 'user', content: contract.userPrompt }
+  ], { temperature: contract.temperature, maxTokens: contract.maxTokens });
+  const output = parseHookModelJson(text);
   const hookScript = typeof output.hook_script === 'string' ? output.hook_script.trim() : '';
   if (!hookScript) throw new Error('爆款开头模型没有返回 hook_script');
   return {
@@ -269,28 +163,36 @@ async function generateHook(username, isOwner, presetStore, batch, item, shuihuo
       factConstraints: Array.isArray(output.fact_constraints) ? output.fact_constraints : [],
       emotionAmplifications: Array.isArray(output.emotion_amplifications) ? output.emotion_amplifications : []
     },
-    promptVersions: { hook: await presetVersionWithGo(username, isOwner, presetStore, id, settings, shuihuoGateway) }
+    promptVersions: contract.promptVersions
   };
 }
 
 async function generateDirector(username, isOwner, presetStore, userPromptLibraryStore, batch, item, shuihuoGateway) {
-  if (batch.mode === 'viral' && !String(item.approvedHookScript || '').trim()) throw new Error('爆款模式必须先审核通过开头文案');
-  const directorId = batch.mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
   const settings = resolveItemSettings(batch, item);
-  const selected = await selectedDirectorPromptsWithGo(settings, username, isOwner, userPromptLibraryStore, presetStore, shuihuoGateway);
-  const system = await directorSystemPrompt(username, isOwner, presetStore, batch.mode, settings, selected, shuihuoGateway);
+  const contract = await buildDirectorContractWithGo({
+    username,
+    isOwner,
+    presetStore,
+    userPromptLibraryStore,
+    batch,
+    item,
+    settings,
+    shuihuoGateway
+  });
   const text = await callTextModel(username, [
-    { role: 'system', content: system },
-    { role: 'user', content: directorUserPrompt(batch, item) }
-  ], { temperature: batch.mode === 'viral' ? 0.65 : 0.35, maxTokens: 18000 });
-  const result = normalizeDirectorOutput(text, directorSettings(batch, item));
+    { role: 'system', content: contract.systemPrompt },
+    { role: 'user', content: contract.userPrompt }
+  ], { temperature: contract.temperature, maxTokens: contract.maxTokens });
+  const result = await normalizeDirectorOutputWithGo({
+    username,
+    isOwner,
+    output: text,
+    settings: contract.normalization,
+    shuihuoGateway
+  });
   return {
     directorResult: result,
-    promptVersions: {
-      [directorId]: await presetVersionWithGo(username, isOwner, presetStore, directorId, settings, shuihuoGateway),
-      scriptPrompt: { id: selected.script.id, name: selected.script.name, version: selected.script.version, source: selected.script.source },
-      assetPrompt: { id: selected.assets.id, name: selected.assets.name, version: selected.assets.version, source: selected.assets.source }
-    }
+    promptVersions: contract.promptVersions
   };
 }
 
@@ -524,13 +426,19 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     return res.json({ ok: true });
   });
 
-  router.put('/batches/:batchId/items/:itemId/director-result', (req, res) => {
+  router.put('/batches/:batchId/items/:itemId/director-result', async (req, res) => {
     try {
       const batch = store.getBatch(req.username, req.params.batchId);
       const item = batch?.items?.find(entry => entry.id === req.params.itemId);
       if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
       const source = req.body?.directorResult ?? req.body;
-      const directorResult = normalizeDirectorOutput(source, directorSettings(batch, item));
+      const directorResult = await normalizeDirectorOutputWithGo({
+        username: req.auth.account.username,
+        isOwner: req.auth.account.isOwner === true,
+        output: source,
+        settings: directorNormalizationSettings(batch, item),
+        shuihuoGateway
+      });
       store.updateItem(req.username, batch.id, item.id, target => {
         target.directorResult = directorResult;
         target.status = 'complete';
@@ -539,7 +447,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       });
       return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
     } catch (error) {
-      return res.status(400).json({ error: error.message || '导演结果校验失败' });
+      return res.status(error.statusCode || 400).json({ error: error.message || '导演结果校验失败' });
     }
   });
 
