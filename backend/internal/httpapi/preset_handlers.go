@@ -31,6 +31,7 @@ type PresetVersion struct {
 }
 
 type PresetStore interface {
+	List(context.Context, string) ([]PresetVersion, error)
 	CreateDraft(context.Context, int64, PresetDraftInput) (PresetVersion, error)
 	Publish(context.Context, int64, string, int) (PresetVersion, error)
 	Rollback(context.Context, int64, string, int) (PresetVersion, error)
@@ -39,6 +40,28 @@ type PresetStore interface {
 type sqlPresetStore struct{ db *sql.DB }
 
 func NewSQLPresetStore(db *sql.DB) PresetStore { return &sqlPresetStore{db: db} }
+
+func (s *sqlPresetStore) List(ctx context.Context, module string) ([]PresetVersion, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("preset storage is not configured")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.module, d.purpose, d.name, v.body, v.version_number, v.status FROM prompt_definitions d JOIN prompt_versions v ON v.prompt_definition_id=d.id WHERE d.module=? ORDER BY d.id, v.version_number DESC`, module)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PresetVersion{}
+	for rows.Next() {
+		var item PresetVersion
+		var id int64
+		if err := rows.Scan(&id, &item.Module, &item.Purpose, &item.Name, &item.Body, &item.Version, &item.Status); err != nil {
+			return nil, err
+		}
+		item.ID = strconv.FormatInt(id, 10)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
 
 func (s *sqlPresetStore) CreateDraft(ctx context.Context, userID int64, input PresetDraftInput) (PresetVersion, error) {
 	if s == nil || s.db == nil {
@@ -197,6 +220,17 @@ func (api *API) handleRollbackPreset(w http.ResponseWriter, r *http.Request) {
 // legacy gateway until their MySQL-backed Go implementation is complete.
 func (api *API) handleEmbeddedPresets(w http.ResponseWriter, r *http.Request) {
 	module := strings.TrimSpace(r.URL.Query().Get("module"))
+	if api.deps.Presets != nil {
+		presets, err := api.deps.Presets.List(r.Context(), module)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取提示词失败"})
+			return
+		}
+		if len(presets) > 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"presets": presets})
+			return
+		}
+	}
 	if module != "batch-factory" || api.deps.WebFS == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"presets": []any{}})
 		return
