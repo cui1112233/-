@@ -30,6 +30,24 @@ func validDirectorJSON() string {
 }`
 }
 
+func twoDirectorVideosJSON(t *testing.T) string {
+	t.Helper()
+	var root map[string]any
+	if err := json.Unmarshal([]byte(validDirectorJSON()), &root); err != nil {
+		t.Fatalf("unmarshal validDirectorJSON: %v", err)
+	}
+	storyboard, ok := root["storyboard"].([]any)
+	if !ok || len(storyboard) != 1 {
+		t.Fatalf("unexpected storyboard fixture: %#v", root["storyboard"])
+	}
+	root["storyboard"] = append(storyboard, map[string]any{})
+	encoded, err := json.Marshal(root)
+	if err != nil {
+		t.Fatalf("marshal two-video fixture: %v", err)
+	}
+	return string(encoded)
+}
+
 func TestDirectorParseFencedJSON(t *testing.T) {
 	raw, err := ParseDirectorJSON("```json\n" + validDirectorJSON() + "\n```")
 	if err != nil {
@@ -67,18 +85,7 @@ func TestDirectorNormalizeValidOutput(t *testing.T) {
 }
 
 func TestDirectorFixedSingleVideoRules(t *testing.T) {
-	twoVideos := strings.Replace(validDirectorJSON(), `]\n}`, `,{
-      "id": 2,
-      "scene_id": 2,
-      "duration_sec": 9,
-      "characters": ["林晚"],
-      "props": ["玻璃杯"],
-      "scene": "林家客厅",
-      "prefix_key": "modern_conflict",
-      "shots": [{"start_sec":0,"end_sec":9,"description":"第二个视频"}],
-      "video_desc": "第二个视频"
-    }]\n}`, 1)
-	_, err := NormalizeDirectorOutput(json.RawMessage(twoVideos), DirectorSettings{
+	_, err := NormalizeDirectorOutput(json.RawMessage(twoDirectorVideosJSON(t)), DirectorSettings{
 		MaxVideoDuration:  15,
 		FixedSingleVideo:  true,
 		ExactDuration:     15,
