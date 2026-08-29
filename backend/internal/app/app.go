@@ -90,6 +90,7 @@ func New(cfg config.Config) (*App, error) {
 		Configs:           configs,
 		ImageConfigs:      imageConfigs,
 		Histories:         histories,
+		Presets:           httpapi.NewSQLPresetStore(db),
 		Objects:           objects,
 		Queue:             queue,
 		Health:            health,
