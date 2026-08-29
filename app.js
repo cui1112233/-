@@ -139,7 +139,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   // Settings migrated in Phase 1B are read from Go/MySQL before any legacy
   // Batch Factory handler runs. All legacy handlers share the same wrapper so
   // director jobs, prompt compilation and production see the hydrated state.
-  app.use('/api/batch-factory', createBatchFactorySettingsHydrationRouter({ shuihuoGateway }));
+  app.use('/api/batch-factory', createBatchFactorySettingsHydrationRouter({ store: resolvedBatchFactoryStore, shuihuoGateway }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryControlsRouter({ store: resolvedBatchFactoryStore, shuihuoGateway }));
   // Director jobs intentionally run one book at a time in novel-list order.
