@@ -412,7 +412,7 @@ func newBatchTaskTestAPI(t *testing.T) (*API, *batchTaskQueue) {
 			12: {ID: 12, ProjectID: 1, Confirmed: true, ImagePrompt: "车门打开"},
 			99: {ID: 99, ProjectID: 2, Confirmed: true, ImagePrompt: "其他项目"},
 		},
-		model: models.Definition{ID: 7, VersionID: 8, Name: "即梦", Kind: models.KindImage, AdapterKind: models.AdapterJimengImage, Enabled: true},
+		model: models.Definition{ID: 7, ModelID: "jimeng-image", VersionID: 8, Name: "即梦", Kind: models.KindImage, AdapterKind: models.AdapterJimengImage, Enabled: true},
 	}
 	db, err := sql.Open(batchTaskTestDriverName, "")
 	if err != nil {
@@ -523,7 +523,7 @@ func batchTaskTestQuery(query string, args []driver.NamedValue) (driver.Rows, er
 			return &batchTaskRows{columns: modelColumns}, nil
 		}
 		model := batchTaskTestState.model
-		return &batchTaskRows{columns: modelColumns, values: [][]driver.Value{{model.ID, model.VersionID, model.Name, string(model.Kind), model.AdapterKind, model.Enabled, []byte("[]"), []byte("{}"), "", "", "", ""}}}, nil
+		return &batchTaskRows{columns: modelColumns, values: [][]driver.Value{{model.ID, model.ModelID, model.VersionID, model.Name, string(model.Kind), model.AdapterKind, model.Enabled, false, int64(0), "", []byte("[]"), []byte("{}"), "", "", "", "", "", "", "", "url", "json", "{}"}}}, nil
 	default:
 		return nil, fmt.Errorf("unexpected batch task query: %s", query)
 	}
@@ -538,7 +538,7 @@ func (r batchTaskResult) RowsAffected() (int64, error) { return r.rows, nil }
 
 var projectColumns = []string{"id", "user_id", "name", "source_text", "source_object_key", "segmentation_status", "segmentation_version", "created_at", "updated_at"}
 var segmentColumns = []string{"id", "project_id", "source_text", "subtitle_text", "order_index", "confirmed", "manually_edited", "image_prompt", "video_prompt", "image_prompt_locked", "video_prompt_locked"}
-var modelColumns = []string{"id", "version_id", "name", "kind", "adapter_kind", "enabled", "allowed_roles_json", "parameter_schema_json", "credential_ref", "endpoint", "request_template", "response_mapping"}
+var modelColumns = []string{"id", "model_key", "version_id", "name", "kind", "adapter_kind", "enabled", "hidden", "sort_order", "admin_note", "allowed_roles_json", "parameter_schema_json", "credential_ref", "endpoint", "base_domain", "base_path", "request_template", "response_mapping", "polling_template", "image_input_format", "image_request_mode", "runtime_policy_json"}
 
 type batchTaskRows struct {
 	columns []string
