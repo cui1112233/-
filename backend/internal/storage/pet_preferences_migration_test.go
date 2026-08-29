@@ -6,7 +6,7 @@ import (
 )
 
 func TestUserPreferenceMigrationPersistsPetSelection(t *testing.T) {
-	migration := migrationForVersion(t, 28)
+	migration := migrationForVersion(t, 45)
 	for _, required := range []string{
 		"CREATE TABLE IF NOT EXISTS user_preferences",
 		"user_id BIGINT PRIMARY KEY",

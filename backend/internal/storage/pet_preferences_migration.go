@@ -2,7 +2,7 @@ package storage
 
 func init() {
 	migrations = append(migrations, migration{
-		version: 28,
+		version: 45,
 		sql: `
 CREATE TABLE IF NOT EXISTS user_preferences (
   user_id BIGINT PRIMARY KEY,
