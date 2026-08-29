@@ -32,7 +32,7 @@ jobs:
         run: npm --prefix frontend ci
 
       - name: Run pet tests
-        run: node --test frontend/src/shared/pet/*.test.js
+        run: node --test test/pet-config.test.js frontend/src/shared/pet/*.test.js
 
       - name: Build frontend
         run: npm --prefix frontend run build
