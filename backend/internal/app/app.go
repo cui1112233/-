@@ -21,6 +21,7 @@ import (
 	shuihuotasks "qiantie/backend/internal/shuihuo/tasks"
 	"qiantie/backend/internal/storage"
 	"qiantie/backend/internal/store"
+	webassets "qiantie/backend/web"
 )
 
 type App struct {
@@ -77,6 +78,7 @@ func New(cfg config.Config) (*App, error) {
 	}
 	api := httpapi.New(httpapi.Dependencies{
 		DB:                db,
+		WebFS:             webassets.Assets,
 		TokenSecret:       cfg.TokenSecret,
 		BridgeSecret:      cfg.BridgeSecret,
 		SeedUsername:      cfg.SeedUsername,

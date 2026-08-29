@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 
 	"qiantie/backend/internal/shuihuo/models"
 	shuihuostorage "qiantie/backend/internal/shuihuo/storage"
@@ -15,6 +18,7 @@ import (
 )
 
 type Dependencies struct {
+	WebFS             fs.FS
 	DB                *sql.DB
 	TokenSecret       string
 	BridgeSecret      string
@@ -50,6 +54,9 @@ func New(deps Dependencies) *API {
 
 func (api *API) Router() http.Handler {
 	r := chi.NewRouter()
+	if api.deps.WebFS != nil {
+		r.Handle("/*", embeddedWebHandler(api.deps.WebFS))
+	}
 	r.Get("/healthz", api.handleHealth)
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", api.handleLogin)
@@ -132,6 +139,22 @@ func (api *API) Router() http.Handler {
 		})
 	})
 	return r
+}
+
+func embeddedWebHandler(root fs.FS) http.Handler {
+	files := http.FileServer(http.FS(root))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := path.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+		if name == "." || name == "" {
+			name = "index.html"
+		}
+		if _, err := fs.Stat(root, name); err != nil {
+			name = "index.html"
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/" + name
+		files.ServeHTTP(w, r2)
+	})
 }
 
 func (api *API) handleHealth(w http.ResponseWriter, r *http.Request) {
