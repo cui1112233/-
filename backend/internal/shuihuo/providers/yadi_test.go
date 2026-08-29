@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -27,6 +28,8 @@ func yadiTestModel() models.Definition {
 		ParameterSchema: `{"upstreamModel":"yd2.0-fast","defaultResolution":"720p","maxVideoDuration":15}`,
 	}
 }
+
+func offlineYadiValidator(raw string) (*url.URL, error) { return url.Parse(raw) }
 
 func TestYadiSubmitUsesDocumentedOpenAPIShape(t *testing.T) {
 	client := &http.Client{Transport: yadiRoundTripper(func(request *http.Request) (*http.Response, error) {
@@ -59,6 +62,7 @@ func TestYadiSubmitUsesDocumentedOpenAPIShape(t *testing.T) {
 		}, nil
 	})}
 	provider := NewYadi(client, yadiCredentialStub{value: "sk-yadi-test"})
+	provider.validateURL = offlineYadiValidator
 	ctx := models.WithUserID(context.Background(), 9)
 	result, err := provider.Submit(ctx, yadiTestModel(), models.Request{Prompt: "电影感运镜", Duration: "15", AspectRatio: "16:9"})
 	if err != nil {
@@ -77,22 +81,23 @@ func TestYadiPollUsesResultEndpoint(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"data":{"status":"completed","video_url":"https://cdn.example.com/out.mp4"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"data":{"status":"completed","video_url":"https://1.1.1.1/out.mp4"}}`)),
 		}, nil
 	})}
 	provider := NewYadi(client, yadiCredentialStub{value: "sk-yadi-test"})
+	provider.validateURL = offlineYadiValidator
 	ctx := models.WithUserID(context.Background(), 9)
 	result, err := provider.Poll(ctx, yadiTestModel(), "task-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != ViduTaskSucceeded || result.ResultURL != "https://cdn.example.com/out.mp4" {
+	if result.State != ViduTaskSucceeded || result.ResultURL != "https://1.1.1.1/out.mp4" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }
 
 func TestParseYadiTaskHandlesNestedAndFailureStates(t *testing.T) {
-	success, err := ParseYadiTask("task-3", []byte(`{"result":{"state":"success","videos":[{"url":"https://cdn.example.com/v.mp4"}]}}`))
+	success, err := ParseYadiTask("task-3", []byte(`{"result":{"state":"success","videos":[{"url":"https://1.1.1.1/v.mp4"}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +116,7 @@ func TestParseYadiTaskHandlesNestedAndFailureStates(t *testing.T) {
 
 func TestYadiRequiresTaskOwnerContext(t *testing.T) {
 	provider := NewYadi(&http.Client{}, yadiCredentialStub{value: "sk-yadi-test"})
+	provider.validateURL = offlineYadiValidator
 	_, err := provider.Submit(context.Background(), yadiTestModel(), models.Request{Prompt: "test"})
 	if err == nil || !strings.Contains(err.Error(), "task owner") {
 		t.Fatalf("expected owner context error, got %v", err)
