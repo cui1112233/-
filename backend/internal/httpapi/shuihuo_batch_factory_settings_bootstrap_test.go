@@ -47,6 +47,36 @@ func TestBatchFactorySettingsBootstrapMigratesCompleteLegacyState(t *testing.T) 
 	}
 }
 
+func TestBatchFactorySettingsBootstrapAllowsLegacyBatchWithoutVideoModel(t *testing.T) {
+	api := newBatchFactoryPersistenceTestAPI(t)
+	path := "/api/shuihuo-production/batch-factory/batches/batch_without_model/settings-state/bootstrap"
+	response := batchFactoryPersistenceRequest(t, api, http.MethodPut, path, `{
+		"state":{
+			"settings":{"aspectRatio":"16:9","quality":"旧批次画质"},
+			"itemOverrides":{},
+			"videoOverrides":{}
+		}
+	}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("legacy batch without a selected model must remain openable, got %d %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Persisted bool `json:"persisted"`
+		State struct {
+			Settings map[string]any `json:"settings"`
+		} `json:"state"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode bootstrap: %v", err)
+	}
+	if !payload.Persisted || payload.State.Settings["aspectRatio"] != "16:9" || payload.State.Settings["quality"] != "旧批次画质" {
+		t.Fatalf("legacy settings were not preserved: %#v", payload)
+	}
+	if payload.State.Settings["videoModelId"] != nil {
+		t.Fatalf("missing legacy model must remain unselected until the user chooses one: %#v", payload.State.Settings)
+	}
+}
+
 func TestBatchFactorySettingsBootstrapNeverOverwritesOwnedMySQLState(t *testing.T) {
 	api := newBatchFactoryPersistenceTestAPI(t)
 	path := "/api/shuihuo-production/batch-factory/batches/batch_legacy/settings-state/bootstrap"
