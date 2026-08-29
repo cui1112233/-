@@ -38,6 +38,7 @@ type Poller struct {
 	Tasks          PollerTaskRepository
 	Models         PollerModelRepository
 	Provider       ViduPoller
+	AdapterKind    string
 	Objects        WorkerObjects
 	DownloadResult func(context.Context, string) ([]byte, string, error)
 	Now            func() time.Time
@@ -78,7 +79,7 @@ func (p Poller) PollDue(ctx context.Context) error {
 	if batch <= 0 {
 		batch = defaultPollBatchSize
 	}
-	tasks, err := p.Tasks.ListRunningByProvider(ctx, models.AdapterViduImageToVideo, now, batch)
+	tasks, err := p.Tasks.ListRunningByProvider(ctx, p.adapterKind(), now, batch)
 	if err != nil {
 		return err
 	}
@@ -97,16 +98,17 @@ func (p Poller) PollOnce(ctx context.Context, task domain.Task) error {
 	if p.Tasks == nil || p.Models == nil || p.Provider == nil || p.Objects == nil {
 		return fmt.Errorf("shuihuo poller is not configured")
 	}
-	if task.Kind != "video" || task.Provider != models.AdapterViduImageToVideo || task.ModelID == nil || task.ModelVersionID == nil || task.ProviderTaskID == "" {
+	if task.Kind != "video" || task.Provider != p.adapterKind() || task.ModelID == nil || task.ModelVersionID == nil || task.ProviderTaskID == "" {
 		return p.fail(ctx, task, "invalid_async_task", "视频异步任务快照不完整")
 	}
 	model, err := p.Models.GetVersion(ctx, *task.ModelID, *task.ModelVersionID)
 	if err != nil {
 		return p.fail(ctx, task, "model_unavailable", "视频模型不可用")
 	}
-	result, err := p.Provider.Poll(ctx, model, task.ProviderTaskID)
+	providerCtx := models.WithUserID(ctx, task.UserID)
+	result, err := p.Provider.Poll(providerCtx, model, task.ProviderTaskID)
 	if err != nil {
-		return p.fail(ctx, task, "model_poll_failed", "视频任务查询失败")
+		return p.fail(ctx, task, "model_poll_failed", err.Error())
 	}
 	switch result.State {
 	case providers.ViduTaskRunning:
@@ -156,6 +158,13 @@ func (p Poller) fail(ctx context.Context, task domain.Task, code, message string
 		return err
 	}
 	return p.Tasks.TransitionForWorker(ctx, task.ID, domain.TaskRunning, domain.TaskFailed, message)
+}
+
+func (p Poller) adapterKind() string {
+	if p.AdapterKind != "" {
+		return p.AdapterKind
+	}
+	return models.AdapterViduImageToVideo
 }
 
 func (p Poller) now() time.Time {
