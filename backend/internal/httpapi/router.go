@@ -90,6 +90,16 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Delete("/history/{id}", api.handleDeleteHistory)
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
 		r.Group(func(r chi.Router) {
+			r.Use(api.requireAuth)
+			r.Get("/batch-factory/batches", api.handleListBatchFactoryBatches)
+			r.Post("/batch-factory/batches", api.handleCreateBatchFactoryBatch)
+			r.Get("/batch-factory/batches/{batchId}", api.handleGetBatchFactoryBatch)
+			r.Put("/batch-factory/batches/{batchId}/settings", api.handleUpdateBatchFactorySettings)
+			r.Put("/batch-factory/batches/{batchId}/items/{itemId}", api.handleUpdateBatchFactoryItem)
+			r.Post("/batch-factory/intakes/novel-fetch", api.handleCreateBatchFactoryIntake)
+			r.Get("/batch-factory/intakes/{intakeId}", api.handleGetBatchFactoryIntake)
+		})
+		r.Group(func(r chi.Router) {
 			r.Use(api.requirePlatformAuth)
 			r.Get("/novel-fetch-workshop/config", api.handleGetNovelFetchWorkshopSettings)
 			r.Put("/novel-fetch-workshop/config", api.handleSaveNovelFetchWorkshopSettings)
