@@ -19,6 +19,7 @@ const (
 	AdapterTextCompletion   = "text_completion"
 	AdapterJimengImage      = "jimeng_image"
 	AdapterViduImageToVideo = "vidu_image_to_video"
+	AdapterYadiVideo        = "yadi_video"
 	AdapterGenericHTTP      = "generic_http"
 )
 
@@ -120,7 +121,8 @@ func (model Definition) PubliclySelectable() bool {
 // a mutable database flag. Vidu is always image-to-video. Generic HTTP video
 // models are image-to-video only when the request template actually consumes
 // {{image_url}}; otherwise they can be used as text-to-video models such as
-// Seedance-style endpoints.
+// Seedance-style endpoints. Yadi accepts optional reference images, so its
+// text-to-video model remains selectable without an image.
 func (model Definition) RequiresImageInput() bool {
 	if model.Kind != KindVideo {
 		return false
@@ -263,5 +265,6 @@ var adapterKinds = map[string]Kind{
 	AdapterTextCompletion:   KindText,
 	AdapterJimengImage:      KindImage,
 	AdapterViduImageToVideo: KindVideo,
+	AdapterYadiVideo:        KindVideo,
 	AdapterGenericHTTP:      "",
 }
