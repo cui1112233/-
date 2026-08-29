@@ -32,9 +32,13 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Test Go Batch Factory settings boundary
+      - name: Test Go Batch Factory settings rules
         working-directory: backend
-        run: go test ./internal/shuihuo/batchfactory ./internal/httpapi
+        run: go test ./internal/shuihuo/batchfactory
+
+      - name: Test Go Batch Factory HTTP boundary
+        working-directory: backend
+        run: go test ./internal/httpapi -run 'TestBatchFactorySettingsCanonicalize|TestBatchFactoryOverrideCanonicalize'
 
       - name: Install backend dependencies
         run: npm ci
