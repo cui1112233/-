@@ -1,12 +1,47 @@
 const express = require('express');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { createBatchFactory121Store } = require('../lib/batch-factory/121-store');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 const target = require('../lib/target-upload');
+const { ensureUserDir, getUserDir } = require('../lib/shared');
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function clean(value) { return String(value ?? '').trim(); }
+
+const AI_HEAD_MAX_FILES = 20;
+const AI_HEAD_MAX_BYTES = 200 * 1024 * 1024;
+
+function safeAssetPart(value, label) {
+  const normalized = clean(value);
+  if (!/^[a-zA-Z0-9_-]+$/.test(normalized)) throw new Error(`${label} 无效`);
+  return normalized;
+}
+
+function aiHeadDirectory(username, batchId) {
+  ensureUserDir(username);
+  const directory = path.join(getUserDir(username), 'batch-factory-assets', safeAssetPart(batchId, '批次ID'), 'ai-heads');
+  fs.mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
+function aiHeadFilePath(username, batchId, assetId) {
+  return path.join(aiHeadDirectory(username, batchId), `${safeAssetPart(assetId, '素材ID')}.mp4`);
+}
+
+function normalizedAiHeadAssets(value) {
+  return (Array.isArray(value) ? value : []).filter(asset => asset && typeof asset === 'object' && asset.id && asset.name).slice(0, AI_HEAD_MAX_FILES);
+}
+
+function looksLikeMp4(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  const probe = buffer.subarray(0, Math.min(buffer.length, 128));
+  const index = probe.indexOf(Buffer.from('ftyp'));
+  return index >= 4 && index <= 64;
+}
 function htmlText(value) {
   return String(value || '')
     .replace(/<[^>]+>/g, '')
@@ -215,6 +250,11 @@ function planItem(config, batch, item, mediaStatus) {
   const meta = metadataForItem(item);
   const profile = selectProfile(config, batch.publishSettings || {}, meta);
   const organization = organizationSelection(config, batch.publishSettings || {});
+  if (batch.publishSettings?.aiHeadMode === 'custom') {
+    const aiHeadAssets = normalizedAiHeadAssets(batch.publishSettings?.aiHeadAssets);
+    if (!aiHeadAssets.length) throw new Error(`小说 ${item.title} 已选择自定义AI头部，但当前批次没有AI头部视频`);
+    throw new Error(`小说 ${item.title} 已选择自定义AI头部；121 页面已确认该模式需要额外上传 MP4，但当前还没有确认真实 multipart 字段名，因此暂不允许误发布`);
+  }
   if (!Number.isInteger(meta.platformId) || !target.VALID_PLATFORM_IDS.has(meta.platformId)) throw new Error(`小说 ${item.title} 缺少可映射的 121 平台`);
   if (!['男', '女'].includes(meta.gender)) throw new Error(`小说 ${item.title} 缺少男/女频信息`);
   if (!meta.style) throw new Error(`小说 ${item.title} 缺少风格信息`);
@@ -322,6 +362,60 @@ function createBatchFactoryPublishRouter({
 
   router.get('/121/config', (req, res) => res.json({ config: publicConfig(store121.getConfig(req.username), store121.getSession(req.username)) }));
   router.get('/121/history', (req, res) => res.json({ history: store121.listHistory(req.username) }));
+
+
+  router.post('/batches/:batchId/publish-ai-heads', express.raw({ type: 'video/mp4', limit: AI_HEAD_MAX_BYTES }), (req, res) => {
+    const batch = store.getBatch(req.username, req.params.batchId);
+    if (!batch) return res.status(404).json({ error: '批次不存在' });
+    let fileName = clean(req.get('x-file-name') || 'ai-head.mp4');
+    try { fileName = decodeURIComponent(fileName); } catch (_) {}
+    fileName = path.basename(fileName).slice(0, 180);
+    if (!/\.mp4$/i.test(fileName)) return res.status(400).json({ error: 'AI头部仅支持 MP4 视频' });
+    if (!looksLikeMp4(req.body)) return res.status(400).json({ error: 'AI头部文件不是有效的 MP4 视频' });
+    const assets = normalizedAiHeadAssets(batch.publishSettings?.aiHeadAssets);
+    if (assets.length >= AI_HEAD_MAX_FILES) return res.status(409).json({ error: `单个批次最多保存 ${AI_HEAD_MAX_FILES} 个 AI头部视频` });
+    const asset = {
+      id: `aihead_${crypto.randomUUID().replace(/-/g, '')}`,
+      name: fileName,
+      size: req.body.length,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      fs.writeFileSync(aiHeadFilePath(req.username, batch.id, asset.id), req.body);
+      store.updateBatch(req.username, batch.id, targetBatch => {
+        const previous = normalizedAiHeadAssets(targetBatch.publishSettings?.aiHeadAssets);
+        targetBatch.publishSettings = {
+          ...(targetBatch.publishSettings || {}),
+          aiHeadMode: 'custom',
+          aiHead: '自定义AI头部',
+          aiHeadAssets: [...previous, asset]
+        };
+      });
+      const next = store.getBatch(req.username, batch.id)?.publishSettings?.aiHeadAssets || [];
+      return res.status(201).json({ asset, assets: next });
+    } catch (error) {
+      try { fs.unlinkSync(aiHeadFilePath(req.username, batch.id, asset.id)); } catch (_) {}
+      return res.status(500).json({ error: error.message || '保存AI头部视频失败' });
+    }
+  });
+
+  router.delete('/batches/:batchId/publish-ai-heads/:assetId', (req, res) => {
+    const batch = store.getBatch(req.username, req.params.batchId);
+    if (!batch) return res.status(404).json({ error: '批次不存在' });
+    const assetId = clean(req.params.assetId);
+    const assets = normalizedAiHeadAssets(batch.publishSettings?.aiHeadAssets);
+    if (!assets.some(asset => asset.id === assetId)) return res.status(404).json({ error: 'AI头部视频不存在' });
+    try { fs.unlinkSync(aiHeadFilePath(req.username, batch.id, assetId)); } catch (error) {
+      if (error?.code !== 'ENOENT') return res.status(500).json({ error: '删除AI头部视频失败' });
+    }
+    store.updateBatch(req.username, batch.id, targetBatch => {
+      targetBatch.publishSettings = {
+        ...(targetBatch.publishSettings || {}),
+        aiHeadAssets: normalizedAiHeadAssets(targetBatch.publishSettings?.aiHeadAssets).filter(asset => asset.id !== assetId)
+      };
+    });
+    return res.json({ ok: true, assets: store.getBatch(req.username, batch.id)?.publishSettings?.aiHeadAssets || [] });
+  });
 
   router.post('/121/login', async (req, res) => {
     const username = clean(req.body?.username);

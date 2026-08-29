@@ -45,6 +45,23 @@ export function updateBatchFactoryPublishSettings(batchId, settings) {
   });
 }
 
+export function uploadBatchFactoryAiHead(batchId, file) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/publish-ai-heads`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'video/mp4',
+      'X-File-Name': encodeURIComponent(file.name || 'ai-head.mp4')
+    },
+    body: file
+  });
+}
+
+export function deleteBatchFactoryAiHead(batchId, assetId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/publish-ai-heads/${encodeURIComponent(assetId)}`, {
+    method: 'DELETE'
+  });
+}
+
 export function updateBatchFactorySource(batchId, itemId, productionText, { clearOverride = false } = {}) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/source`, {
     method: 'PUT',

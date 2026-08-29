@@ -74,9 +74,14 @@ function normalizeProductionExtras(value = {}, previous = {}) {
 function normalizePublishSettings(value = {}, previous = {}) {
   const rawCount = Number(value.jieyaVideoCount ?? previous.jieyaVideoCount ?? 4);
   const jieyaVideoCount = Number.isInteger(rawCount) ? Math.max(0, Math.min(8, rawCount)) : 4;
+  const requestedAiHead = String(value.aiHeadMode ?? value.aiHead ?? previous.aiHeadMode ?? previous.aiHead ?? 'none').trim();
+  const aiHeadMode = ['custom', '自定义AI头部', '添加AI头部'].includes(requestedAiHead) ? 'custom' : 'none';
+  const aiHeadAssets = Array.isArray(previous.aiHeadAssets) ? previous.aiHeadAssets.slice(0, 20) : [];
   return {
     jieyaVideoCount,
-    aiHead: '自定义AI头部',
+    aiHeadMode,
+    aiHead: aiHeadMode === 'custom' ? '自定义AI头部' : '不加AI头部',
+    aiHeadAssets,
     materialReuse: boolOr(value.materialReuse, boolOr(previous.materialReuse, false)),
     horizontalFlip: boolOr(value.horizontalFlip, boolOr(previous.horizontalFlip, false)),
     profileId: text(value.profileId ?? previous.profileId, 160),

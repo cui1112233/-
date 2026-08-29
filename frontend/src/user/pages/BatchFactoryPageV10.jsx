@@ -18,9 +18,10 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
   message
 } from 'antd';
-import { LeftOutlined, RightOutlined, SettingOutlined } from '@ant-design/icons';
+import { InboxOutlined, LeftOutlined, RightOutlined, SettingOutlined } from '@ant-design/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   approveBatchFactoryHook,
@@ -44,7 +45,9 @@ import {
   startBatchFactoryBatch,
   updateBatchFactoryDirectorResult,
   updateBatchFactoryItemOverrides,
+  deleteBatchFactoryAiHead,
   updateBatchFactoryPublishSettings,
+  uploadBatchFactoryAiHead,
   updateBatchFactorySettings,
   updateBatchFactorySource
 } from '../../shared/api/batchFactory';
@@ -245,16 +248,120 @@ function UnifiedSettings({ open, batch, onClose, onSaved }) {
 
 function PublishSettings({ open, batch, onClose, onSaved }) {
   const [form, setForm] = useState({});
-  useEffect(() => { if (open) setForm({ jieyaVideoCount: 4, materialReuse: false, horizontalFlip: false, ...(batch.publishSettings || {}) }); }, [open, batch?.id]);
-  function patch(key, value) { setForm(current => ({ ...current, [key]: value })); }
-  async function save() {
-    try { await updateBatchFactoryPublishSettings(batch.id, form); await onSaved(); message.success('发布统一设置已保存'); onClose(); }
-    catch (error) { message.error(error.message || '保存发布设置失败'); }
+  const [fileList, setFileList] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  function mapAssets(assets = []) {
+    return assets.map(asset => ({
+      uid: asset.id,
+      name: asset.name,
+      status: 'done',
+      size: asset.size,
+      serverAssetId: asset.id
+    }));
   }
-  return <Drawer title="发布统一设置" width={480} open={open} onClose={onClose} extra={<Button type="primary" onClick={save}>保存</Button>}>
+
+  useEffect(() => {
+    if (!open) return;
+    const publish = batch.publishSettings || {};
+    const aiHeadMode = publish.aiHeadMode === 'custom' || publish.aiHead === '自定义AI头部' ? 'custom' : 'none';
+    const assets = Array.isArray(publish.aiHeadAssets) ? publish.aiHeadAssets : [];
+    setForm({ jieyaVideoCount: 4, materialReuse: false, horizontalFlip: false, ...publish, aiHeadMode });
+    setFileList(mapAssets(assets));
+  }, [open, batch?.id]);
+
+  function patch(key, value) { setForm(current => ({ ...current, [key]: value })); }
+  function chooseAiHead(value) { patch('aiHeadMode', value); }
+
+  function beforeAiHeadUpload(file) {
+    const isMp4 = file.type === 'video/mp4' || /\.mp4$/i.test(file.name || '');
+    if (!isMp4) {
+      message.error(`${file.name || '文件'} 不是 MP4 视频`);
+      return Upload.LIST_IGNORE;
+    }
+    return true;
+  }
+
+  async function uploadAiHead({ file, onSuccess, onError }) {
+    try {
+      const result = await uploadBatchFactoryAiHead(batch.id, file);
+      const assets = result.assets || [];
+      setForm(current => ({ ...current, aiHeadMode: 'custom', aiHeadAssets: assets }));
+      setFileList(mapAssets(assets));
+      onSuccess?.(result, file);
+      message.success(`${file.name} 已保存到当前批次`);
+    } catch (error) {
+      onError?.(error);
+      message.error(error.message || 'AI头部视频上传失败');
+    }
+  }
+
+  async function removeAiHead(file) {
+    if (!file.serverAssetId) return true;
+    try {
+      const result = await deleteBatchFactoryAiHead(batch.id, file.serverAssetId);
+      const assets = result.assets || [];
+      setForm(current => ({ ...current, aiHeadAssets: assets }));
+      setFileList(mapAssets(assets));
+      return true;
+    } catch (error) {
+      message.error(error.message || '删除AI头部视频失败');
+      return false;
+    }
+  }
+
+  async function save() {
+    if (form.aiHeadMode === 'custom' && !(form.aiHeadAssets || []).length) {
+      return message.warning('选择“自定义AI头部”后，请至少添加 1 个 MP4 头部视频');
+    }
+    setSaving(true);
+    try {
+      await updateBatchFactoryPublishSettings(batch.id, form);
+      await onSaved();
+      message.success('发布统一设置已保存');
+      onClose();
+    } catch (error) { message.error(error.message || '保存发布设置失败'); }
+    finally { setSaving(false); }
+  }
+
+  const customAiHead = form.aiHeadMode === 'custom';
+  return <Drawer title="发布统一设置" width={560} open={open} onClose={onClose} extra={<Button type="primary" loading={saving} onClick={save}>保存</Button>}>
     <Space direction="vertical" size={16} style={styles.full}>
+      <Alert showIcon type="info" message="与 121「自定义文案 → 解压视频高级设置」保持一致" description="AI头部默认不添加；只有选择“自定义AI头部”时才出现 MP4 上传区。" />
       <Space><Typography.Text>解压视频数量</Typography.Text><InputNumber min={0} max={8} value={form.jieyaVideoCount ?? 4} onChange={value => patch('jieyaVideoCount', Number(value || 0))} /></Space>
-      <Space><Typography.Text>AI头部</Typography.Text><Tag color="blue">自定义AI头部</Tag></Space>
+      <div>
+        <Typography.Text strong>AI头部</Typography.Text>
+        <Select
+          style={{ width: '100%', marginTop: 8 }}
+          value={form.aiHeadMode || 'none'}
+          onChange={chooseAiHead}
+          options={[
+            { value: 'none', label: '不加AI头部' },
+            { value: 'custom', label: '自定义AI头部' }
+          ]}
+        />
+      </div>
+      {customAiHead ? <div>
+        <Typography.Text strong>自定义AI头部视频</Typography.Text>
+        <Typography.Text type="secondary">（可单传，可多传）</Typography.Text>
+        <Upload.Dragger
+          style={{ marginTop: 8 }}
+          accept=".mp4,video/mp4"
+          multiple
+          fileList={fileList}
+          beforeUpload={beforeAiHeadUpload}
+          customRequest={uploadAiHead}
+          onRemove={removeAiHead}
+          showUploadList={{ showRemoveIcon: true }}
+        >
+          <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+          <p className="ant-upload-text">点击选择或拖拽AI头部视频</p>
+          <p className="ant-upload-hint">仅支持 mp4，可多传</p>
+        </Upload.Dragger>
+        <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+          视频保存到当前批次。切换回“不加AI头部”不会删除已上传文件，方便之后再次启用。
+        </Typography.Paragraph>
+      </div> : null}
       <Space><Switch checked={form.materialReuse === true} onChange={value => patch('materialReuse', value)} /><Typography.Text>素材复用</Typography.Text></Space>
       <Space><Switch checked={form.horizontalFlip === true} onChange={value => patch('horizontalFlip', value)} /><Typography.Text>水平翻转</Typography.Text></Space>
       <Input placeholder="121 配置 ID" value={form.configId || ''} onChange={event => patch('configId', event.target.value)} />

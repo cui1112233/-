@@ -6,6 +6,7 @@ const { normalizeSettings, normalizeSourceItem } = require('../lib/batch-factory
 const { takeProductionLines, resolveProductionText, countEffectiveLines } = require('../lib/batch-factory/production-text');
 const { resolveItemSettings, resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
 const { canonicalModelSettings } = require('../routes/batch-factory');
+const { normalizePublishSettings } = require('../routes/batch-factory-controls');
 const { boundModelError, needsSubmission } = require('../routes/batch-factory-production');
 
 function baseResult(videos) {
@@ -87,6 +88,19 @@ test('批量设置保存模型能力与默认10行制作范围', () => {
   assert.equal(settings.maxVideoDuration, 12);
   assert.equal(settings.exactDuration, 12);
   assert.equal(settings.productionLineCount, 10);
+});
+
+test('121发布AI头部默认不加，只有显式自定义才开启', () => {
+  const defaults = normalizePublishSettings({}, {});
+  assert.equal(defaults.aiHeadMode, 'none');
+  assert.equal(defaults.aiHead, '不加AI头部');
+  assert.deepEqual(defaults.aiHeadAssets, []);
+
+  const previous = { aiHeadAssets: [{ id: 'aihead_demo', name: 'head.mp4', size: 123 }] };
+  const custom = normalizePublishSettings({ aiHeadMode: 'custom' }, previous);
+  assert.equal(custom.aiHeadMode, 'custom');
+  assert.equal(custom.aiHead, '自定义AI头部');
+  assert.equal(custom.aiHeadAssets.length, 1);
 });
 
 test('服务端模型能力限制客户端选择秒数', () => {
