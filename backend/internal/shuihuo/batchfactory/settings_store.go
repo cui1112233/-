@@ -37,6 +37,28 @@ func (s *SettingsStore) SaveBatch(ctx context.Context, userID int64, batchID str
 	return s.saveWith(ctx, s.db, userID, batchID, settingsScopeBatch, "", "", settings, false)
 }
 
+func (s *SettingsStore) SaveBatchAndClearVideoOverrides(ctx context.Context, userID int64, batchID string, settings Settings, clearVideoOverrides bool) error {
+	if !clearVideoOverrides {
+		return s.SaveBatch(ctx, userID, batchID, settings)
+	}
+	if s == nil || s.db == nil {
+		return fmt.Errorf("batch factory settings database is not configured")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := s.saveWith(ctx, tx, userID, batchID, settingsScopeBatch, "", "", settings, false); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM shuihuo_batch_factory_settings
+WHERE user_id = ? AND batch_id = ? AND scope = ?`, userID, strings.TrimSpace(batchID), settingsScopeVideo); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *SettingsStore) SaveItemOverride(ctx context.Context, userID int64, batchID, itemID string, settings Settings) error {
 	return s.saveWith(ctx, s.db, userID, batchID, settingsScopeItem, itemID, "", settings, true)
 }
@@ -139,10 +161,6 @@ ORDER BY scope, item_id, video_id`
 	return state, nil
 }
 
-// BootstrapBatchState lazily imports a complete legacy snapshot in one SQL
-// transaction. The batch row is written last and acts as the ownership marker.
-// The initial SELECT ... FOR UPDATE also serializes concurrent first-use
-// bootstrap attempts for the same user/batch key range.
 func (s *SettingsStore) BootstrapBatchState(ctx context.Context, userID int64, batchID string, legacy PersistedSettingsState) (PersistedSettingsState, error) {
 	if s == nil || s.db == nil {
 		return PersistedSettingsState{}, fmt.Errorf("batch factory settings database is not configured")
