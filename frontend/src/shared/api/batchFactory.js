@@ -15,6 +15,10 @@ export function getBatchFactoryPromptCatalog() {
   return apiRequest(`${base}/prompt-catalog`);
 }
 
+export function getBatchFactoryConfigVersions() {
+  return apiRequest(`${base}/config-versions`);
+}
+
 export function listBatchFactoryBatches() {
   return apiRequest(`${base}/batches`);
 }
@@ -52,6 +56,13 @@ export function updateBatchFactoryItemOverrides(batchId, itemId, settings) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/overrides`, {
     method: 'PUT',
     body: JSON.stringify({ settings })
+  });
+}
+
+export function resetBatchFactoryItemOverrides(batchId, itemId) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/overrides`, {
+    method: 'PUT',
+    body: JSON.stringify({ reset: true })
   });
 }
 
