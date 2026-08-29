@@ -34,7 +34,7 @@ jobs:
 
       - name: Test Go Batch Factory settings boundary
         working-directory: backend
-        run: go test ./internal/shuihuo/batchfactory
+        run: go test ./internal/shuihuo/batchfactory ./internal/httpapi
 
       - name: Install backend dependencies
         run: npm ci
