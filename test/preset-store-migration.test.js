@@ -209,7 +209,7 @@ test('迁移重复运行幂等，不重复备份也不重复 quarantine/audit', 
   assert.deepEqual(fs.readdirSync(backupDir).sort(), firstBackups);
 });
 
-test('缺号/重复历史版本按原版本与源顺序确定性归一化，并只保留最高版本 published', () => {
+test('缺号/重复历史版本按原版本与源顺序确定性归一化，并保留最高的原 published 记录', () => {
   const systemDir = tempSystemDir(t);
   fs.writeFileSync(path.join(systemDir, 'presets.json'), JSON.stringify([
     { presetId: '版本历史', moduleId: 'script', title: 'v2', content: 'body-2', revision: 2, enabled: true },
@@ -222,6 +222,7 @@ test('缺号/重复历史版本按原版本与源顺序确定性归一化，并�
   const history = readJson(path.join(systemDir, 'presets.json')).filter(item => item.id === '版本历史');
   assert.deepEqual(history.map(item => item.version), [1, 2, 3]);
   assert.equal(history.filter(item => item.status === 'published').length, 1);
-  assert.equal(history.find(item => item.status === 'published').version, 3);
+  assert.equal(history.find(item => item.status === 'published').version, 2);
+  assert.equal(history[2].status, 'archived');
   assert.deepEqual(history.map(item => item.body), ['body-2', 'body-4', 'body-4b']);
 });
