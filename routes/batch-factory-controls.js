@@ -42,12 +42,13 @@ function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
   item.manuallyEdited = true;
 }
 
-async function canonicalizeWithGo(req, shuihuoGateway, pathname, body) {
+async function settingsRequestWithGo(req, shuihuoGateway, pathname, body, method = 'PUT') {
   const upstream = await requestProductionBridge({
     username: req.auth.account.username,
     isOwner: req.auth.account.isOwner === true,
     pathname,
     body,
+    method,
     targetBaseUrl: shuihuoGateway?.targetBaseUrl,
     bridgeSecret: shuihuoGateway?.bridgeSecret
   });
@@ -65,41 +66,53 @@ async function canonicalizeWithGo(req, shuihuoGateway, pathname, body) {
   return settings;
 }
 
+function cloneItemWithOverride(item, settingsOverride) {
+  return { ...item, settingsOverride };
+}
+
+function cloneItemWithVideoOverride(item, videoId, next) {
+  const videoSettingsOverrides = { ...(item.videoSettingsOverrides || {}) };
+  const key = String(videoId);
+  if (Object.keys(next).length) videoSettingsOverrides[key] = next;
+  else delete videoSettingsOverrides[key];
+  return { ...item, videoSettingsOverrides };
+}
+
 function createBatchFactoryControlsRouter({
   store = createBatchFactoryStore(),
   shuihuoGateway,
   authenticate = apiAuth,
-  canonicalizeSettings,
-  canonicalizeOverride
+  persistSettings,
+  persistOverride
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
 
-  const canonicalizeSettingsRequest = canonicalizeSettings || ((payload, req) => canonicalizeWithGo(
+  const persistSettingsRequest = persistSettings || ((payload, req, batchId) => settingsRequestWithGo(
     req,
     shuihuoGateway,
-    '/api/shuihuo-production/batch-factory/settings/canonicalize',
-    payload
+    `/api/shuihuo-production/batch-factory/batches/${encodeURIComponent(batchId)}/settings`,
+    payload,
+    'PUT'
   ));
-  const canonicalizeOverrideRequest = canonicalizeOverride || ((payload, req) => canonicalizeWithGo(
-    req,
-    shuihuoGateway,
-    '/api/shuihuo-production/batch-factory/overrides/canonicalize',
-    payload
-  ));
+  const persistOverrideRequest = persistOverride || ((payload, req, scope) => {
+    const itemPath = `/api/shuihuo-production/batch-factory/batches/${encodeURIComponent(scope.batchId)}/items/${encodeURIComponent(scope.itemId)}`;
+    const pathname = scope.videoId === undefined
+      ? `${itemPath}/overrides`
+      : `${itemPath}/videos/${encodeURIComponent(scope.videoId)}/overrides`;
+    return settingsRequestWithGo(req, shuihuoGateway, pathname, payload, 'PUT');
+  });
 
   router.put('/batches/:batchId/settings', async (req, res) => {
     const batch = store.getBatch(req.username, req.params.batchId);
     if (!batch) return res.status(404).json({ error: '批次不存在' });
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
     const previous = batch.settings || {};
-    const merged = { ...previous, ...input };
     try {
-      const settings = await canonicalizeSettingsRequest({ settings: merged, previous }, req);
-      store.updateBatch(req.username, batch.id, target => {
-        target.settings = settings;
-      });
-      return res.json({ batch: store.getBatch(req.username, batch.id) });
+      // Send only the user's patch as input. Once MySQL has a row, Go ignores
+      // the legacy `previous` snapshot and merges against its own persisted row.
+      const settings = await persistSettingsRequest({ settings: input, previous }, req, batch.id);
+      return res.json({ batch: { ...batch, settings } });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存生产统一设置失败' });
     }
@@ -140,15 +153,12 @@ function createBatchFactoryControlsRouter({
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
     const inheritKeys = Array.isArray(req.body?.inheritKeys) ? req.body.inheritKeys : [];
     try {
-      const next = await canonicalizeOverrideRequest({
+      const next = await persistOverrideRequest({
         settings: input,
         previous: item.settingsOverride || {},
         inheritKeys
-      }, req);
-      store.updateItem(req.username, batch.id, item.id, target => {
-        target.settingsOverride = next;
-      });
-      return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+      }, req, { batchId: batch.id, itemId: item.id });
+      return res.json({ item: cloneItemWithOverride(item, next) });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存当前小说设置失败' });
     }
@@ -164,14 +174,12 @@ function createBatchFactoryControlsRouter({
     const inheritKeys = Array.isArray(req.body?.inheritKeys) ? req.body.inheritKeys : [];
     const previous = item.videoSettingsOverrides?.[String(video.id)] || {};
     try {
-      const next = await canonicalizeOverrideRequest({ settings: input, previous, inheritKeys }, req);
-      store.updateItem(req.username, batch.id, item.id, target => {
-        if (!target.videoSettingsOverrides || typeof target.videoSettingsOverrides !== 'object') target.videoSettingsOverrides = {};
-        const key = String(video.id);
-        if (Object.keys(next).length) target.videoSettingsOverrides[key] = next;
-        else delete target.videoSettingsOverrides[key];
+      const next = await persistOverrideRequest({ settings: input, previous, inheritKeys }, req, {
+        batchId: batch.id,
+        itemId: item.id,
+        videoId: String(video.id)
       });
-      return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+      return res.json({ item: cloneItemWithVideoOverride(item, video.id, next) });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存 VIDEO 设置失败' });
     }
@@ -183,5 +191,5 @@ function createBatchFactoryControlsRouter({
 module.exports = {
   createBatchFactoryControlsRouter,
   normalizePublishSettings,
-  canonicalizeWithGo
+  settingsRequestWithGo
 };
