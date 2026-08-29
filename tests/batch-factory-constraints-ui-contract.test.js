@@ -4,39 +4,41 @@ const path = require('node:path');
 const test = require('node:test');
 
 const pagePath = path.join(__dirname, '..', 'frontend', 'src', 'user', 'pages', 'BatchFactoryPageV9.jsx');
+const settingsPath = path.join(__dirname, '..', 'frontend', 'src', 'user', 'pages', 'batch-factory', 'BatchFactorySettingsDrawers.jsx');
 const editorPath = path.join(__dirname, '..', 'frontend', 'src', 'user', 'pages', 'batch-factory', 'BatchConstraintSettings.jsx');
 
 function source(filePath) {
   return fs.readFileSync(filePath, 'utf8');
 }
 
-function functionSource(page, functionName, nextFunctionName) {
-  const start = page.indexOf(`function ${functionName}(`);
-  const end = page.indexOf(`function ${nextFunctionName}(`, start + 1);
-  assert.ok(start >= 0, `${functionName} source must exist`);
-  assert.ok(end > start, `${nextFunctionName} must follow ${functionName}`);
-  return page.slice(start, end);
+function sourceBetween(text, startMarker, endMarker = '') {
+  const start = text.indexOf(startMarker);
+  assert.ok(start >= 0, `${startMarker} source must exist`);
+  if (!endMarker) return text.slice(start);
+  const end = text.indexOf(endMarker, start + startMarker.length);
+  assert.ok(end > start, `${endMarker} must follow ${startMarker}`);
+  return text.slice(start, end);
 }
 
 test('production unified settings render constraints inline below a divider', () => {
-  const page = source(pagePath);
-  const unified = functionSource(page, 'UnifiedSettings', 'PublishSettings');
+  const settings = source(settingsPath);
+  const unified = sourceBetween(settings, 'function UnifiedSettings(', 'function accountErrorMessage(');
   assert.match(unified, /<Divider plain>约束设置<\/Divider>/);
   assert.match(unified, /<BatchConstraintEditor value=\{form\}/);
   assert.doesNotMatch(unified, /进入设置/);
 });
 
 test('production unified settings do not own publish version configuration', () => {
-  const page = source(pagePath);
-  const unified = functionSource(page, 'UnifiedSettings', 'PublishSettings');
+  const settings = source(settingsPath);
+  const unified = sourceBetween(settings, 'function UnifiedSettings(', 'function accountErrorMessage(');
   assert.doesNotMatch(unified, />版本配置</);
   assert.doesNotMatch(unified, /同步批量后台配置/);
   assert.doesNotMatch(unified, /同步最新配置/);
 });
 
 test('publish unified settings own version sync and only reuse/flip controls', () => {
-  const page = source(pagePath);
-  const publish = functionSource(page, 'PublishSettings', 'MergePanel');
+  const settings = source(settingsPath);
+  const publish = sourceBetween(settings, 'function PublishSettings(');
   assert.match(publish, />版本配置</);
   assert.match(publish, /同步最新配置/);
   assert.match(publish, /不复用/);
@@ -50,14 +52,23 @@ test('publish unified settings own version sync and only reuse/flip controls', (
 });
 
 test('publish unified settings automatically exposes video management account states', () => {
-  const page = source(pagePath);
-  const publish = functionSource(page, 'PublishSettings', 'MergePanel');
+  const settings = source(settingsPath);
+  const publish = sourceBetween(settings, 'function PublishSettings(');
   assert.match(publish, /视频管理系统/);
   assert.match(publish, /正在验证账号状态/);
   assert.match(publish, /账号在线/);
   assert.match(publish, /登录异常/);
   assert.match(publish, /账号登录状态已失效/);
   assert.match(publish, /重新登录/);
+  assert.match(publish, /Badge color="blue"/);
+});
+
+test('batch factory uses the official video management system name in publish copy', () => {
+  const page = source(pagePath);
+  const settings = source(settingsPath);
+  assert.doesNotMatch(page, /121/);
+  assert.doesNotMatch(settings, /121/);
+  assert.match(page, /发布到视频管理系统/);
 });
 
 test('constraint editor exposes exactly the agreed five production constraint rows', () => {
