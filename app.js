@@ -7,6 +7,7 @@ const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { seedBatchFactoryPromptPresets } = require('./lib/batch-factory/prompt-admin-presets');
+const { createBatchFactoryConfigVersionStore } = require('./lib/batch-factory/config-version-store');
 const { createUserPromptLibraryStore } = require('./lib/user-prompt-library-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
@@ -40,30 +41,33 @@ const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore, batchFactoryConfigVersionStore } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
+  const systemDir = path.dirname(authRuntime.accountStore.files.audit);
   const resolvedPresetStore = presetStore || createPresetStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
+    systemDir
   });
   seedSystemPresets(resolvedPresetStore, 'choushiyiguai');
   seedBatchFactoryPromptPresets(resolvedPresetStore, 'choushiyiguai');
   const resolvedScriptConstraintPromptStore = scriptConstraintPromptStore || createScriptConstraintPromptStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit)
+    systemDir
   });
   const resolvedUserPromptLibraryStore = userPromptLibraryStore || createUserPromptLibraryStore();
+  const resolvedBatchFactoryConfigVersionStore = batchFactoryConfigVersionStore || createBatchFactoryConfigVersionStore({ systemDir });
   const resolvedAgentSkillStore = agentSkillStore || createAgentSkillStore({
-    systemDir: path.dirname(authRuntime.accountStore.files.audit),
-    usersDir: path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users')
+    systemDir,
+    usersDir: path.join(systemDir, '..', 'users')
   });
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
-  const usersDir = path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users');
+  const usersDir = path.join(systemDir, '..', 'users');
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
   app.locals.presetStore = resolvedPresetStore;
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.userPromptLibraryStore = resolvedUserPromptLibraryStore;
+  app.locals.batchFactoryConfigVersionStore = resolvedBatchFactoryConfigVersionStore;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
   app.locals.errorLogStore = resolvedErrorLogStore;
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
@@ -133,7 +137,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
-  app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway }));
+  app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway, configVersionStore: resolvedBatchFactoryConfigVersionStore }));
   // Director jobs intentionally run one book at a time in novel-list order.
   app.use('/api/batch-factory', createBatchFactoryRouter({
     presetStore: resolvedPresetStore,
