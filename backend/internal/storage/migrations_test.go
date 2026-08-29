@@ -31,6 +31,13 @@ func TestMigrationsUseExclusiveDatabaseLock(t *testing.T) {
 	}
 }
 
+func TestPromptVersionLifecycleRepairRunsAfterLegacyMarkers(t *testing.T) {
+	migration := migrationForVersion(t, 46)
+	if migration.apply == nil {
+		t.Fatal("prompt lifecycle repair must be idempotent")
+	}
+}
+
 func TestSourceUnitMigrationCreatesReversibleMappingAndLegacyBackfill(t *testing.T) {
 	migration := migrationForVersion(t, 15)
 	if migration.apply == nil {

@@ -309,6 +309,41 @@ CREATE TABLE IF NOT EXISTS app_initializations (
 	{version: 25, sql: shuihuoAssetPresetImageMigrationSQL, apply: addShuihuoAssetPresetImageColumns},
 	{version: 26, sql: shuihuoAssetHistoryMigrationSQL, apply: addShuihuoAssetHistoryColumns},
 	{version: 27, apply: addModelCenterCatalogColumns},
+	// Production databases created by the legacy release can have migration
+	// markers beyond 43 while still missing the prompt-version lifecycle
+	// columns. Keep this repair at a new version so the normal monotonic
+	// migration runner applies it.
+	{version: 46, apply: repairPromptVersionLifecycleColumns},
+}
+
+func repairPromptVersionLifecycleColumns(ctx context.Context, conn *sql.Conn) error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "status", definition: "VARCHAR(16) NOT NULL DEFAULT 'published'"},
+		{name: "published_at", definition: "DATETIME NULL"},
+		{name: "published_by", definition: "BIGINT NULL"},
+	}
+	for _, column := range columns {
+		exists, err := mysqlColumnExists(ctx, conn, "prompt_versions", column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := conn.ExecContext(ctx, "ALTER TABLE prompt_versions ADD COLUMN "+column.name+" "+column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	indexed, err := mysqlIndexExists(ctx, conn, "prompt_versions", "idx_prompt_versions_definition_status")
+	if err != nil {
+		return err
+	}
+	if !indexed {
+		_, err = conn.ExecContext(ctx, "ALTER TABLE prompt_versions ADD KEY idx_prompt_versions_definition_status (prompt_definition_id, status, version_number)")
+	}
+	return err
 }
 
 const shuihuoSourceUnitMigrationSQL = `
