@@ -45,7 +45,7 @@ import { getConfig } from '../../shared/api/config';
 import { downloadMedia, listModels } from '../../shared/api/shuihuoProduction';
 import { textToSpeech } from '../../shared/api/tts';
 import {
-  BookSettingsModal,
+  BookConstraintPopover,
   UnifiedProductionSettingsModal,
   VideoSettingsOverrideModal
 } from './batch-factory/BatchFactorySettingsModals';
@@ -268,7 +268,6 @@ export default function BatchFactoryPageV10() {
   const [selectedVideo, setSelectedVideo] = useState('');
   const [statusByProject, setStatusByProject] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [bookSettingsOpen, setBookSettingsOpen] = useState(false);
   const [videoSettingsOpen, setVideoSettingsOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -302,7 +301,7 @@ export default function BatchFactoryPageV10() {
 
   useEffect(() => { refreshHistory(); const intake = new URLSearchParams(window.location.search).get('intake'); if (!intake) listBatchFactoryBatches().then(result => { if (result.batches?.[0]) loadBatch(result.batches[0].id); }).catch(() => {}); }, []);
   useEffect(() => { if (!batch) return; const timer = window.setInterval(() => { loadBatch(batch.id).catch(() => {}); refreshStatus(); }, 2500); return () => clearInterval(timer); }, [batch?.id, projectIds(batch).join(',')]);
-  useEffect(() => { if (!selected) return; setSourceDraft(selected.sourceText || ''); setSelectedVideo(String(selected.directorResult?.storyboard?.[0]?.id || '')); setAssetDrafts({}); setVideoDrafts({}); setPreviewUrl(''); setBookSettingsOpen(false); setVideoSettingsOpen(false); if (previewRef.current) { URL.revokeObjectURL(previewRef.current); previewRef.current = ''; } }, [selected?.id]);
+  useEffect(() => { if (!selected) return; setSourceDraft(selected.sourceText || ''); setSelectedVideo(String(selected.directorResult?.storyboard?.[0]?.id || '')); setAssetDrafts({}); setVideoDrafts({}); setPreviewUrl(''); setVideoSettingsOpen(false); if (previewRef.current) { URL.revokeObjectURL(previewRef.current); previewRef.current = ''; } }, [selected?.id]);
   useEffect(() => () => { if (previewRef.current) URL.revokeObjectURL(previewRef.current); }, []);
 
   if (!batch) return <div style={styles.page}><Setup onCreated={loadBatch} /></div>;
@@ -342,15 +341,17 @@ export default function BatchFactoryPageV10() {
   }
 
   async function saveBookSettings(settings, inheritKeys) {
-    if (!selected) return;
+    if (!selected) return false;
     setSavingSettings(true);
     try {
       await updateBatchFactoryItemOverrides(batch.id, selected.id, settings, inheritKeys);
       await loadBatch(batch.id);
-      setBookSettingsOpen(false);
-      message.success('当前小说设置已保存');
-    } catch (error) { message.error(error.message || '保存当前小说设置失败'); }
-    finally { setSavingSettings(false); }
+      message.success('当前小说约束已保存');
+      return true;
+    } catch (error) {
+      message.error(error.message || '保存当前小说约束失败');
+      return false;
+    } finally { setSavingSettings(false); }
   }
 
   async function saveVideoSettings(settings, inheritKeys) {
@@ -438,7 +439,7 @@ export default function BatchFactoryPageV10() {
         <Card
           title="2. 当前小说 / 导演 Prompt"
           size="small"
-          extra={<Space>{selected.sourceTaskId ? <Tag>来源 #{selected.sourceTaskId}</Tag> : null}{hasOverrides(selected.settingsOverride) ? <Tag color="purple">当前小说已覆盖</Tag> : <Tag>继承统一设置</Tag>}<Button size="small" onClick={() => setBookSettingsOpen(true)}>约束设置</Button><Button size="small" onClick={saveSource}>保存正文</Button></Space>}
+          extra={<Space>{selected.sourceTaskId ? <Tag>来源 #{selected.sourceTaskId}</Tag> : null}{hasOverrides(selected.settingsOverride) ? <Tag color="purple">当前小说已覆盖</Tag> : <Tag>继承统一设置</Tag>}<BookConstraintPopover item={selected} batchSettings={batch.settings || {}} onSave={saveBookSettings} saving={savingSettings} /><Button size="small" onClick={saveSource}>保存正文</Button></Space>}
         >
           <Input.TextArea rows={8} value={sourceDraft} onChange={event => setSourceDraft(event.target.value)} />
           {selected.status === 'failed' ? <Alert style={{ marginTop: 10 }} type="error" showIcon message={selected.error || '导演失败'} /> : null}
@@ -468,7 +469,6 @@ export default function BatchFactoryPageV10() {
   </Space>
 
   <UnifiedProductionSettingsModal open={settingsOpen} settings={batch.settings || {}} onClose={() => setSettingsOpen(false)} onSave={saveUnifiedSettings} saving={savingSettings} />
-  <BookSettingsModal open={bookSettingsOpen} item={selected} batchSettings={batch.settings || {}} onClose={() => setBookSettingsOpen(false)} onSave={saveBookSettings} saving={savingSettings} />
   <VideoSettingsOverrideModal open={videoSettingsOpen} video={currentVideo} item={selected} batchSettings={batch.settings || {}} onClose={() => setVideoSettingsOpen(false)} onSave={saveVideoSettings} saving={savingSettings} />
   <PublishSettings open={publishOpen} batch={batch} onClose={() => setPublishOpen(false)} onSaved={() => loadBatch(batch.id)} />
   <Modal open={compiled.open} width={900} title="最终上传模型 Prompt" footer={<Button onClick={() => setCompiled({ open: false, loading: false, prompt: '' })}>关闭</Button>} onCancel={() => setCompiled({ open: false, loading: false, prompt: '' })}>{compiled.loading ? <Spin /> : <Input.TextArea readOnly rows={24} value={compiled.prompt} />}</Modal>
