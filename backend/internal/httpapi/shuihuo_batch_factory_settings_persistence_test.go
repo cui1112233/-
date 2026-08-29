@@ -66,6 +66,10 @@ func TestBatchFactorySettingsPersistenceUsesDatabaseAsPreviousState(t *testing.T
 
 func TestBatchFactoryOverridePersistenceStoresAndDeletesSparseScopes(t *testing.T) {
 	api := newBatchFactoryPersistenceTestAPI(t)
+	seed := batchFactoryPersistenceRequest(t, api, http.MethodPut, "/api/shuihuo-production/batch-factory/batches/batch_1/settings", `{"settings":{"videoModelId":18}}`)
+	if seed.Code != http.StatusOK {
+		t.Fatalf("seed batch settings = %d %s", seed.Code, seed.Body.String())
+	}
 	itemPath := "/api/shuihuo-production/batch-factory/batches/batch_1/items/opening_1/overrides"
 	videoPath := "/api/shuihuo-production/batch-factory/batches/batch_1/items/opening_1/videos/3/overrides"
 
@@ -99,6 +103,14 @@ func TestBatchFactoryOverridePersistenceStoresAndDeletesSparseScopes(t *testing.
 	}
 	if len(state.State.ItemOverrides) != 0 || len(state.State.VideoOverrides) != 0 {
 		t.Fatalf("overrides should be deleted: %#v", state.State)
+	}
+}
+
+func TestBatchFactoryOverridePersistenceRejectsMissingBatchOwnershipMarker(t *testing.T) {
+	api := newBatchFactoryPersistenceTestAPI(t)
+	response := batchFactoryPersistenceRequest(t, api, http.MethodPut, "/api/shuihuo-production/batch-factory/batches/missing_batch/items/opening_1/overrides", `{"settings":{"quality":"4K"}}`)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("orphan item override must be rejected, got %d %s", response.Code, response.Body.String())
 	}
 }
 
