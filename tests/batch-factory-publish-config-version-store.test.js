@@ -53,3 +53,22 @@ test('publish config versions strip production settings and runtime account stat
   assert.equal(Object.hasOwn(draft.settings, 'accountName'), false);
   assert.equal(Object.hasOwn(draft.settings, 'cookie'), false);
 });
+
+test('publishing a new publish version archives the previous published snapshot', t => {
+  const store = createStore(t);
+  const draft = store.saveVersion({
+    key: 'batch-publish-default',
+    name: '默认批量发布',
+    settings: { materialReuse: true, horizontalFlip: false }
+  });
+
+  assert.equal(draft.version, 2);
+  assert.equal(draft.status, 'draft');
+  const published = store.publish(draft.key, draft.version);
+  assert.equal(published.status, 'published');
+
+  const versions = store.list();
+  assert.equal(versions.find(item => item.version === 1).status, 'archived');
+  assert.equal(versions.find(item => item.version === 2).status, 'published');
+  assert.equal(store.getPublished('batch-publish-default').version, 2);
+});
