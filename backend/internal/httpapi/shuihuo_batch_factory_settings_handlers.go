@@ -159,11 +159,19 @@ func (api *API) handleSaveBatchFactoryOverride(w http.ResponseWriter, r *http.Re
 	}
 	user, _ := currentUser(r)
 	settingsStore := batchfactory.NewSettingsStore(api.deps.DB)
+	owned, err := settingsStore.BatchExists(r.Context(), user.ID, batchID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批次设置归属失败"})
+		return
+	}
+	if !owned {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "批次设置尚未迁移或不存在"})
+		return
+	}
 	previous := req.Previous
 	var (
 		stored batchfactory.Settings
 		exists bool
-		err    error
 	)
 	if videoScope {
 		stored, exists, err = settingsStore.LoadVideoOverride(r.Context(), user.ID, batchID, itemID, videoID)
