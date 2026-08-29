@@ -16,7 +16,10 @@ test('Node 兼容层不再自行解析绑定视频模型能力', () => {
   assert.doesNotMatch(controlsSource, /normalizeProductionExtras/);
 });
 
-test('统一设置和覆盖设置都委托给 Go canonicalization API', () => {
-  assert.match(controlsSource, /\/api\/shuihuo-production\/batch-factory\/settings\/canonicalize/);
-  assert.match(controlsSource, /\/api\/shuihuo-production\/batch-factory\/overrides\/canonicalize/);
+test('统一设置和覆盖设置直接委托给 Go/MySQL 持久化 API', () => {
+  assert.match(controlsSource, /batch-factory\/batches\/\$\{encodeURIComponent\(batchId\)\}\/settings/);
+  assert.match(controlsSource, /\$\{itemPath\}\/overrides/);
+  assert.match(controlsSource, /\$\{itemPath\}\/videos\/\$\{encodeURIComponent\(scope\.videoId\)\}\/overrides/);
+  assert.doesNotMatch(controlsSource, /batch-factory\/settings\/canonicalize/);
+  assert.doesNotMatch(controlsSource, /batch-factory\/overrides\/canonicalize/);
 });
