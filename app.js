@@ -41,7 +41,7 @@ const { createErrorLogStore } = require('./lib/error-log-store');
 const { createClientErrorsRouter } = require('./routes/client-errors');
 const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diagnostic-store');
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore, batchFactoryConfigVersionStore } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, userPromptLibraryStore, batchFactoryConfigVersionStore, videoManagementAccountAdapter } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -68,6 +68,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.scriptConstraintPromptStore = resolvedScriptConstraintPromptStore;
   app.locals.userPromptLibraryStore = resolvedUserPromptLibraryStore;
   app.locals.batchFactoryConfigVersionStore = resolvedBatchFactoryConfigVersionStore;
+  app.locals.videoManagementAccountAdapter = videoManagementAccountAdapter || null;
   app.locals.agentSkillStore = resolvedAgentSkillStore;
   app.locals.errorLogStore = resolvedErrorLogStore;
   app.locals.novelPanelAiDiagnosticStore = resolvedNovelPanelAiDiagnosticStore;
@@ -137,7 +138,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
-  app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway, configVersionStore: resolvedBatchFactoryConfigVersionStore }));
+  app.use('/api/batch-factory', createBatchFactoryControlsRouter({
+    shuihuoGateway,
+    configVersionStore: resolvedBatchFactoryConfigVersionStore,
+    videoManagementAccountAdapter
+  }));
   // Director jobs intentionally run one book at a time in novel-list order.
   app.use('/api/batch-factory', createBatchFactoryRouter({
     presetStore: resolvedPresetStore,
