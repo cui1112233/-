@@ -20,13 +20,14 @@ import {
   Typography,
   message
 } from 'antd';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   compileBatchFactoryVideo,
   createBatchFactoryBatch,
   generateBatchFactoryBatch,
   generateBatchFactoryVideos,
   getBatchFactoryBatch,
+  getBatchFactoryConfigVersions,
   getBatchFactoryIntake,
   getBatchFactoryMergeCapability,
   getBatchFactoryProductionStatus,
@@ -43,6 +44,7 @@ import {
 import { getConfig } from '../../shared/api/config';
 import { downloadMedia, listModels } from '../../shared/api/shuihuoProduction';
 import { textToSpeech } from '../../shared/api/tts';
+import { BatchBookConstraintModal, BatchConstraintEditor, BatchConstraintSummary } from './batch-factory/BatchConstraintSettings';
 
 const MERGE_SOURCE = 'batch_merge';
 const ACTIVE_DIRECTOR = new Set(['queued_hook', 'hook_generating', 'queued_director', 'director_generating']);
@@ -57,7 +59,8 @@ const styles = {
   item: { padding: 10, borderRadius: 8, cursor: 'pointer', border: '1px solid rgba(127,127,127,.18)', marginBottom: 8 },
   selected: { outline: '2px solid #1677ff' },
   full: { width: '100%' },
-  player: { minHeight: 250, background: '#050505', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }
+  player: { minHeight: 250, background: '#050505', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  settingsRow: { display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'flex-start' }
 };
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -145,6 +148,10 @@ function Setup({ onCreated }) {
         injectCharacterPrompt: true,
         injectScenePrompt: true,
         injectPropPrompt: true,
+        constraintPrefixEnabled: true,
+        constraintQualityEnabled: false,
+        constraintRestrictionEnabled: false,
+        constraintNegativeEnabled: false,
         subtitlePolicy: 'forbid-auto-dialogue-subtitle'
       };
       const result = await createBatchFactoryBatch({ mode, sourceIntakeId: intakeId, items, settings });
@@ -177,22 +184,76 @@ function Setup({ onCreated }) {
 function UnifiedSettings({ open, batch, onClose, onSaved }) {
   const [catalog, setCatalog] = useState({ scriptPrompts: [], assetPrompts: [] });
   const [models, setModels] = useState([]);
+  const [versions, setVersions] = useState([]);
+  const [latestByKey, setLatestByKey] = useState({});
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     if (!open) return;
     setForm({
       ...batch.settings,
+      productionMode: batch.mode || 'original',
       scriptPromptPresetId: batch.settings?.scriptPromptPresetId || DEFAULT_SCRIPT,
       assetPromptPresetId: batch.settings?.assetPromptPresetId || DEFAULT_ASSET,
       injectCharacterPrompt: batch.settings?.injectCharacterPrompt !== false,
       injectScenePrompt: batch.settings?.injectScenePrompt !== false,
-      injectPropPrompt: batch.settings?.injectPropPrompt !== false
+      injectPropPrompt: batch.settings?.injectPropPrompt !== false,
+      constraintPrefixEnabled: batch.settings?.constraintPrefixEnabled !== false,
+      constraintQualityEnabled: batch.settings?.constraintQualityEnabled === true,
+      constraintRestrictionEnabled: batch.settings?.constraintRestrictionEnabled === true,
+      constraintNegativeEnabled: batch.settings?.constraintNegativeEnabled === true
     });
     getBatchFactoryPromptCatalog().then(setCatalog).catch(() => {});
+    getBatchFactoryConfigVersions().then(result => {
+      setVersions(Array.isArray(result?.versions) ? result.versions : []);
+      setLatestByKey(result?.latestByKey || {});
+    }).catch(() => { setVersions([]); setLatestByKey({}); });
     listModels().then(result => setModels((result.models || []).filter(model => model.kind === 'video' && model.requiresImageInput !== true))).catch(() => {});
   }, [open, batch?.id]);
+
   function patch(key, value) { setForm(current => ({ ...current, [key]: value })); }
+  function patchMany(next) { setForm(current => ({ ...current, ...next })); }
+
+  function applyVersion(record) {
+    if (!record) return;
+    setForm(current => ({
+      ...current,
+      ...(record.settings || {}),
+      productionMode: record.settings?.productionMode || current.productionMode || batch.mode || 'original',
+      configProfileKey: record.key,
+      configProfileName: record.name,
+      configProfileVersion: Number(record.version || 0),
+      configProfileSyncedAt: new Date().toISOString()
+    }));
+  }
+
+  function selectVersion(value) {
+    const [key, rawVersion] = String(value || '').split('@');
+    const record = versions.find(item => item.key === key && Number(item.version) === Number(rawVersion));
+    applyVersion(record);
+  }
+
+  function syncLatest() {
+    const key = form.configProfileKey || Object.keys(latestByKey)[0];
+    const latest = latestByKey[key];
+    if (!latest) return message.warning('批量后台暂时没有可同步的已发布配置');
+    applyVersion(latest);
+    message.success(`已载入后台最新配置 ${latest.name} · V${latest.version}，保存后应用到当前批次`);
+  }
+
+  function selectModel(value) {
+    const model = models.find(entry => Number(entry.id) === Number(value));
+    patchMany({
+      videoModelId: value,
+      ...(model ? {
+        videoModelVersionId: model.versionId,
+        videoModelName: model.name,
+        maxVideoDuration: Number(model.maxVideoDuration || form.maxVideoDuration || 10)
+      } : {})
+    });
+  }
+
   async function save() {
     setSaving(true);
     try {
@@ -203,18 +264,101 @@ function UnifiedSettings({ open, batch, onClose, onSaved }) {
     } catch (error) { message.error(error.message || '保存统一设置失败'); }
     finally { setSaving(false); }
   }
-  return <Drawer title="生产统一设置" width={520} open={open} onClose={onClose} extra={<Button type="primary" loading={saving} onClick={save}>保存</Button>}>
+
+  const versionValue = form.configProfileKey && Number(form.configProfileVersion) > 0
+    ? `${form.configProfileKey}@${form.configProfileVersion}`
+    : undefined;
+  const latest = form.configProfileKey ? latestByKey[form.configProfileKey] : null;
+  const hasUpdate = Boolean(latest && Number(latest.version) > Number(form.configProfileVersion || 0));
+  const currentVersionLabel = form.configProfileName && form.configProfileVersion
+    ? `${form.configProfileName} · V${form.configProfileVersion}`
+    : '当前批次为自定义配置';
+  const productionLocked = batch.items.some(item => item.status !== 'pending');
+
+  return <Drawer title="生产统一设置" width={620} open={open} onClose={onClose} extra={<Button type="primary" loading={saving} onClick={save}>保存统一设置</Button>}>
     <Space direction="vertical" size={14} style={styles.full}>
-      <div><Typography.Text strong>剧本提示词</Typography.Text><Select style={{ ...styles.full, marginTop: 8 }} value={form.scriptPromptPresetId} onChange={value => patch('scriptPromptPresetId', value)} options={catalog.scriptPrompts.map(item => ({ value: item.id, label: item.name }))} /></div>
-      <div><Typography.Text strong>人物场景提示词</Typography.Text><Select style={{ ...styles.full, marginTop: 8 }} value={form.assetPromptPresetId} onChange={value => patch('assetPromptPresetId', value)} options={catalog.assetPrompts.map(item => ({ value: item.id, label: item.name }))} /></div>
-      <div><Typography.Text strong>视频模型</Typography.Text><Select style={{ ...styles.full, marginTop: 8 }} value={form.videoModelId} onChange={value => patch('videoModelId', value)} options={models.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration || '—'}s` }))} /></div>
-      <div><Typography.Text strong>画幅</Typography.Text><div style={{ marginTop: 8 }}><Segmented value={form.aspectRatio || '9:16'} onChange={value => patch('aspectRatio', value)} options={['9:16', '16:9']} /></div></div>
-      <div><Typography.Text strong>画面前缀词</Typography.Text><Input.TextArea rows={4} style={{ marginTop: 8 }} value={form.customPrefix || ''} onChange={event => patch('customPrefix', event.target.value)} /></div>
-      <Space wrap><Switch checked={form.injectCharacterPrompt !== false} onChange={value => patch('injectCharacterPrompt', value)} />人物 <Switch checked={form.injectScenePrompt !== false} onChange={value => patch('injectScenePrompt', value)} />场景 <Switch checked={form.injectPropPrompt !== false} onChange={value => patch('injectPropPrompt', value)} />道具</Space>
-      <div><Typography.Text strong>画质要求</Typography.Text><Input.TextArea rows={3} style={{ marginTop: 8 }} value={form.quality || ''} onChange={event => patch('quality', event.target.value)} /></div>
-      <div><Typography.Text strong>画面限制</Typography.Text><Input.TextArea rows={3} style={{ marginTop: 8 }} value={form.restriction || ''} onChange={event => patch('restriction', event.target.value)} /></div>
-      <div><Typography.Text strong>负面提示词</Typography.Text><Input.TextArea rows={4} style={{ marginTop: 8 }} value={form.negative || ''} onChange={event => patch('negative', event.target.value)} /></div>
-      <Alert type="info" showIcon message="字幕规则" description="默认禁止自动对白字幕/转写字幕，但角色仍可正常说台词并做嘴型同步。" />
+      <div>
+        <Space align="center" style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Typography.Text strong>版本配置</Typography.Text>
+          <Tag color={hasUpdate ? 'gold' : form.configProfileVersion ? 'green' : 'default'}>{hasUpdate ? `后台已有 V${latest.version}` : currentVersionLabel}</Tag>
+        </Space>
+        <Select
+          allowClear
+          placeholder="选择版本配置"
+          value={versionValue}
+          onChange={selectVersion}
+          style={styles.full}
+          options={versions.map(record => ({
+            value: `${record.key}@${record.version}`,
+            label: `${record.name} · V${record.version}${record.status === 'archived' ? ' · 历史' : ''}`
+          }))}
+        />
+        <Space wrap style={{ marginTop: 8 }}>
+          <Button onClick={syncLatest}>同步批量后台配置</Button>
+          <Typography.Text type="secondary">后台更新不会自动覆盖正在使用的批次，只有主动同步并保存后才会应用。</Typography.Text>
+        </Space>
+      </div>
+
+      <Divider plain>基础生产设置</Divider>
+
+      <div>
+        <Typography.Text strong>生产方式</Typography.Text>
+        <div style={{ marginTop: 8 }}>
+          <Segmented
+            value={form.productionMode || batch.mode || 'original'}
+            disabled={productionLocked}
+            onChange={value => patch('productionMode', value)}
+            options={[{ value: 'original', label: '原文直转' }, { value: 'viral', label: '爆款开头' }]}
+          />
+        </div>
+        {productionLocked ? <Typography.Text type="secondary" style={{ display: 'block', marginTop: 6 }}>当前批次已经开始导演，生产方式保持本批次原始模式。</Typography.Text> : null}
+      </div>
+
+      <div>
+        <Typography.Text strong>剧本提示词</Typography.Text>
+        <Select
+          style={{ ...styles.full, marginTop: 8 }}
+          value={form.scriptPromptPresetId}
+          onChange={value => patch('scriptPromptPresetId', value)}
+          options={catalog.scriptPrompts.map(item => ({ value: item.id, label: `${item.name} · V${item.version || 1}` }))}
+        />
+      </div>
+
+      <div>
+        <Typography.Text strong>人物 / 场景提示词</Typography.Text>
+        <Select
+          style={{ ...styles.full, marginTop: 8 }}
+          value={form.assetPromptPresetId}
+          onChange={value => patch('assetPromptPresetId', value)}
+          options={catalog.assetPrompts.map(item => ({ value: item.id, label: `${item.name} · V${item.version || 1}` }))}
+        />
+      </div>
+
+      <div>
+        <Typography.Text strong>视频模型</Typography.Text>
+        <Select
+          style={{ ...styles.full, marginTop: 8 }}
+          value={form.videoModelId}
+          onChange={selectModel}
+          options={models.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration || '—'}s` }))}
+        />
+      </div>
+
+      <div>
+        <Typography.Text strong>视频画幅</Typography.Text>
+        <div style={{ marginTop: 8 }}><Segmented value={form.aspectRatio || '9:16'} onChange={value => patch('aspectRatio', value)} options={['9:16', '16:9']} /></div>
+      </div>
+
+      <div style={styles.settingsRow}>
+        <div>
+          <Typography.Text strong>固定单 VIDEO</Typography.Text>
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 3 }}>开启后，不管输入多少小说内容，每本小说只输出一个 VIDEO，时长跟随当前模型单次最大时长。</Typography.Text>
+        </div>
+        <Switch checked={form.fixedSingleVideo === true} onChange={value => patch('fixedSingleVideo', value)} />
+      </div>
+
+      <Divider plain>约束设置</Divider>
+      <BatchConstraintEditor value={form} onChange={patchMany} scopeLabel={`应用于当前批次 · ${batch.items.length} 本小说`} />
     </Space>
   </Drawer>;
 }
@@ -303,6 +447,7 @@ export default function BatchFactoryPageV9() {
   const [statusByProject, setStatusByProject] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [constraintOpen, setConstraintOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sourceDraft, setSourceDraft] = useState('');
   const [assetDrafts, setAssetDrafts] = useState({});
@@ -332,7 +477,7 @@ export default function BatchFactoryPageV9() {
 
   useEffect(() => { refreshHistory(); const intake = new URLSearchParams(window.location.search).get('intake'); if (!intake) listBatchFactoryBatches().then(result => { if (result.batches?.[0]) loadBatch(result.batches[0].id); }).catch(() => {}); }, []);
   useEffect(() => { if (!batch) return; const timer = window.setInterval(() => { loadBatch(batch.id).catch(() => {}); refreshStatus(); }, 2500); return () => clearInterval(timer); }, [batch?.id, projectIds(batch).join(',')]);
-  useEffect(() => { if (!selected) return; setSourceDraft(selected.sourceText || ''); setSelectedVideo(String(selected.directorResult?.storyboard?.[0]?.id || '')); setAssetDrafts({}); setVideoDrafts({}); setPreviewUrl(''); if (previewRef.current) { URL.revokeObjectURL(previewRef.current); previewRef.current = ''; } }, [selected?.id]);
+  useEffect(() => { if (!selected) return; setSourceDraft(selected.sourceText || ''); setSelectedVideo(String(selected.directorResult?.storyboard?.[0]?.id || '')); setAssetDrafts({}); setVideoDrafts({}); setPreviewUrl(''); setConstraintOpen(false); if (previewRef.current) { URL.revokeObjectURL(previewRef.current); previewRef.current = ''; } }, [selected?.id]);
   useEffect(() => () => { if (previewRef.current) URL.revokeObjectURL(previewRef.current); }, []);
 
   if (!batch) return <div style={styles.page}><Setup onCreated={loadBatch} /></div>;
@@ -401,10 +546,14 @@ export default function BatchFactoryPageV9() {
     } catch (error) { message.error(error.message || '加载视频失败'); }
   }
 
+  const configTag = batch.settings?.configProfileName && batch.settings?.configProfileVersion
+    ? `${batch.settings.configProfileName} · V${batch.settings.configProfileVersion}`
+    : '自定义配置';
+
   return <div style={styles.page}><Space direction="vertical" size={12} style={styles.full}>
     <Card size="small">
       <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
-        <Space wrap><Typography.Title level={4} style={{ margin: 0 }}>批量工厂</Typography.Title><Tag>{batch.items.length} 本</Tag><Tag>{batch.settings?.videoModelName}</Tag></Space>
+        <Space wrap><Typography.Title level={4} style={{ margin: 0 }}>批量工厂</Typography.Title><Tag>{batch.items.length} 本</Tag><Tag>{batch.settings?.videoModelName}</Tag><Tag color={batch.settings?.configProfileVersion ? 'green' : 'default'}>{configTag}</Tag></Space>
         <Space wrap><Button onClick={() => setSettingsOpen(true)}>生产统一设置</Button><Button onClick={() => setPublishOpen(true)}>发布统一设置</Button><Button type="primary" loading={busy} disabled={directorActive || hasReview} onClick={primaryAction}>{primaryLabel}</Button></Space>
       </Space>
     </Card>
@@ -421,7 +570,7 @@ export default function BatchFactoryPageV9() {
       </Card>
 
       <Space direction="vertical" size={12} style={styles.full}>
-        <Card title="2. 当前小说 / 导演 Prompt" size="small" extra={<Space>{selected.sourceTaskId ? <Tag>来源 #{selected.sourceTaskId}</Tag> : null}<Button size="small" onClick={saveSource}>保存正文</Button></Space>}>
+        <Card title="2. 当前小说 / 导演 Prompt" size="small" extra={<Space wrap>{selected.sourceTaskId ? <Tag>来源 #{selected.sourceTaskId}</Tag> : null}<BatchConstraintSummary settings={batch.settings} override={selected.settingsOverride} /><Button size="small" onClick={() => setConstraintOpen(true)}>约束设置</Button><Button size="small" onClick={saveSource}>保存正文</Button></Space>}>
           <Input.TextArea rows={8} value={sourceDraft} onChange={event => setSourceDraft(event.target.value)} />
           {selected.status === 'failed' ? <Alert style={{ marginTop: 10 }} type="error" showIcon message={selected.error || '导演失败'} /> : null}
           {selected.directorResult ? <Space direction="vertical" size={10} style={{ ...styles.full, marginTop: 12 }}>
@@ -451,6 +600,7 @@ export default function BatchFactoryPageV9() {
 
   <UnifiedSettings open={settingsOpen} batch={batch} onClose={() => setSettingsOpen(false)} onSaved={() => loadBatch(batch.id)} />
   <PublishSettings open={publishOpen} batch={batch} onClose={() => setPublishOpen(false)} onSaved={() => loadBatch(batch.id)} />
+  {selected ? <BatchBookConstraintModal open={constraintOpen} batch={batch} item={selected} onClose={() => setConstraintOpen(false)} onSaved={() => loadBatch(batch.id)} /> : null}
   <Modal open={compiled.open} width={900} title="最终上传模型 Prompt" footer={<Button onClick={() => setCompiled({ open: false, loading: false, prompt: '' })}>关闭</Button>} onCancel={() => setCompiled({ open: false, loading: false, prompt: '' })}>{compiled.loading ? <Spin /> : <Input.TextArea readOnly rows={24} value={compiled.prompt} />}</Modal>
   </div>;
 }
