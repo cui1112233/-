@@ -37,6 +37,9 @@ jobs:
       - name: Test settings inheritance
         run: node --test test/batch-factory-settings-inheritance.test.js
 
+      - name: Test inline constraints UI contract
+        run: node --test test/batch-factory-inline-constraints-ui.test.js
+
       - name: Test existing batch factory regression suite
         run: node --test test/batch-factory.test.js
 
