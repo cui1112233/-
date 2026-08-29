@@ -86,6 +86,7 @@ func New(cfg config.Config) (*App, error) {
 		Users:             users,
 		Configs:           configs,
 		Histories:         histories,
+		Presets:           httpapi.NewSQLPresetStore(db),
 		Objects:           objects,
 		Queue:             queue,
 		Health:            health,

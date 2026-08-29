@@ -27,6 +27,7 @@ type Dependencies struct {
 	Users             UserStore
 	Configs           ConfigStore
 	Histories         HistoryStore
+	Presets           PresetStore
 	Objects           shuihuostorage.ObjectStorage
 	Queue             shuihuotasks.Queue
 	Health            ShuihuoHealth
@@ -65,7 +66,8 @@ func (api *API) Router() http.Handler {
 		r.Post("/logout", api.handleLogout)
 		r.With(api.requireAuth).Get("/me", api.handleMe)
 		r.With(api.requireAuth).Get("/config", api.handleGetConfig)
-		r.With(api.requireOwner).Get("/admin/presets", api.handleEmbeddedPresets)
+		r.With(api.requireAuth, api.requireOwner).Get("/admin/presets", api.handleEmbeddedPresets)
+		r.With(api.requireAuth, api.requireOwner).Post("/admin/presets/draft", api.handleCreatePresetDraft)
 		r.With(api.requireAuth).Post("/config", api.handleSaveConfig)
 		r.With(api.requireAuth).Post("/config/test", api.handleTestConfig)
 		r.With(api.requireAuth).Get("/history", api.handleListHistory)
