@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { resolveVideoManagementAccountStatus } = require('../lib/batch-factory/video-management-account');
+const {
+  resolveVideoManagementAccountStatus,
+  startVideoManagementAccountRelogin
+} = require('../lib/batch-factory/video-management-account');
 
 test('video management account status is online only after adapter confirmation', async () => {
   const result = await resolveVideoManagementAccountStatus({
@@ -37,4 +40,38 @@ test('expired adapter session maps to login_required without exposing credential
     message: '账号登录状态已失效'
   });
   assert.equal(Object.hasOwn(result, 'cookie'), false);
+});
+
+test('relogin returns only adapter-confirmed http or https login url', async () => {
+  const result = await startVideoManagementAccountRelogin({
+    username: 'tester',
+    accountAdapter: {
+      startRelogin: async () => ({ loginUrl: 'https://video.example.com/login?state=abc', cookie: 'secret' })
+    }
+  });
+
+  assert.deepEqual(result, {
+    state: 'started',
+    loginUrl: 'https://video.example.com/login?state=abc'
+  });
+  assert.equal(Object.hasOwn(result, 'cookie'), false);
+});
+
+test('missing or unsafe relogin integration never fabricates a login url', async () => {
+  assert.deepEqual(await startVideoManagementAccountRelogin({ username: 'tester' }), {
+    state: 'unavailable',
+    loginUrl: '',
+    message: '视频管理系统重新登录能力暂不可用'
+  });
+
+  assert.deepEqual(await startVideoManagementAccountRelogin({
+    username: 'tester',
+    accountAdapter: {
+      startRelogin: async () => ({ loginUrl: 'javascript:alert(1)' })
+    }
+  }), {
+    state: 'unavailable',
+    loginUrl: '',
+    message: '视频管理系统重新登录能力暂不可用'
+  });
 });
