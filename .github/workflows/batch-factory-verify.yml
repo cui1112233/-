@@ -47,6 +47,9 @@ jobs:
       - name: Install backend dependencies
         run: npm ci
 
+      - name: Test preset store backward compatibility migration
+        run: node --test test/preset-store-schema.test.js test/preset-store-migration.test.js test/preset-store-startup-migration.test.js test/preset-volume-upgrade-script.test.js
+
       - name: Test config version snapshots
         run: node --test test/batch-factory-config-version.test.js
 
