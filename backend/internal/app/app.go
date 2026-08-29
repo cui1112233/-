@@ -97,6 +97,10 @@ func New(cfg config.Config) (*App, error) {
 		TextCompletion:    providers.NewTextCompletion(nil, cfg.ModelCredential),
 		TextModelEndpoint: cfg.ModelEndpoint,
 	}, videoConfigs))
+	if err := api.SeedBuiltinPresets(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
 	application := &App{cfg: cfg, db: db, api: api, objects: objects}
 	workerCtx, cancel := context.WithCancel(context.Background())
 	application.workerCancel = cancel
