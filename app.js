@@ -7,6 +7,7 @@ const { createPresetStore } = require('./lib/preset-store');
 const { createScriptConstraintPromptStore } = require('./lib/script-constraint-prompt-store');
 const { seedSystemPresets } = require('./lib/system-preset-catalog');
 const { seedBatchFactoryPromptPresets } = require('./lib/batch-factory/prompt-admin-presets');
+const { createSettingsAwareBatchFactoryStore } = require('./lib/batch-factory/settings-aware-store');
 const { createUserPromptLibraryStore } = require('./lib/user-prompt-library-store');
 const frontendDist = path.join(__dirname, 'frontend', 'dist');
 const petsDir = path.join(__dirname, 'pets');
@@ -32,6 +33,7 @@ const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createBatchFactoryControlsRouter } = require('./routes/batch-factory-controls');
+const { createBatchFactorySettingsHydrationRouter } = require('./routes/batch-factory-settings-hydration');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
 const { createAgentSkillStore } = require('./lib/agent-skill-store');
@@ -52,6 +54,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     systemDir: path.dirname(authRuntime.accountStore.files.audit)
   });
   const resolvedUserPromptLibraryStore = userPromptLibraryStore || createUserPromptLibraryStore();
+  const resolvedBatchFactoryStore = createSettingsAwareBatchFactoryStore();
   const resolvedAgentSkillStore = agentSkillStore || createAgentSkillStore({
     systemDir: path.dirname(authRuntime.accountStore.files.audit),
     usersDir: path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users')
@@ -132,16 +135,22 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/prompt-library', createUserPromptLibraryRouter({ store: resolvedUserPromptLibraryStore, presetStore: resolvedPresetStore }));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel', novelPanelApiRouter);
-  app.use('/api/batch-factory', createBatchFactoryIntakeRouter());
-  app.use('/api/batch-factory', createBatchFactoryControlsRouter({ shuihuoGateway }));
+
+  // Settings migrated in Phase 1B are read from Go/MySQL before any legacy
+  // Batch Factory handler runs. All legacy handlers share the same wrapper so
+  // director jobs, prompt compilation and production see the hydrated state.
+  app.use('/api/batch-factory', createBatchFactorySettingsHydrationRouter({ shuihuoGateway }));
+  app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
+  app.use('/api/batch-factory', createBatchFactoryControlsRouter({ store: resolvedBatchFactoryStore, shuihuoGateway }));
   // Director jobs intentionally run one book at a time in novel-list order.
   app.use('/api/batch-factory', createBatchFactoryRouter({
+    store: resolvedBatchFactoryStore,
     presetStore: resolvedPresetStore,
     userPromptLibraryStore: resolvedUserPromptLibraryStore,
     shuihuoGateway,
     maxConcurrency: 1
   }));
-  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ presetStore: resolvedPresetStore, shuihuoGateway }));
+  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
   app.use('/api/config', configRouter); // GET/POST /api/config
   app.use('/api', chatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts
