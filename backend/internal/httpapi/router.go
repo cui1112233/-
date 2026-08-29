@@ -87,6 +87,8 @@ func (api *API) Router() http.Handler {
 			r.Post("/shuihuo-production/projects/{id}/prompt-candidates/{kind}", api.handleGenerateShuihuoPromptCandidates)
 			r.Put("/shuihuo-production/projects/{id}/prompt-candidates/{kind}/apply", api.handleApplyShuihuoPromptCandidates)
 			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
+			r.Post("/shuihuo-production/batch-factory/config-snapshots/resolve", api.handleResolveBatchFactoryConfigSnapshots)
+			r.Post("/shuihuo-production/batch-factory/presets/resolve", api.handleResolveBatchFactoryPreset)
 			r.Post("/shuihuo-production/batch-factory/settings/canonicalize", api.handleCanonicalizeBatchFactorySettings)
 			r.Post("/shuihuo-production/batch-factory/overrides/canonicalize", api.handleCanonicalizeBatchFactoryOverride)
 			r.Get("/shuihuo-production/batch-factory/batches/{batchId}/settings-state", api.handleGetBatchFactorySettingsState)
