@@ -1,22 +1,10 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig, writeConfig, publicConfig, DEFAULT_CONFIG } = require('../lib/shared');
+const { normalizePetConfig } = require('../lib/pet-catalog');
 
 const router = express.Router();
 router.use(apiAuth);
-
-function normalizePetConfig(value, fallback) {
-  if (!value || value.id !== 'stacky') {
-    return fallback || DEFAULT_CONFIG.pet;
-  }
-  return {
-    id: 'stacky',
-    displayName: 'CM',
-    description: 'CM，前贴的桌面宠物。',
-    spriteVersionNumber: 2,
-    spritesheetPath: '/pets/stacky/spritesheet.webp'
-  };
-}
 
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')
