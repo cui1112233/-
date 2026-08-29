@@ -211,7 +211,7 @@ func taskCreationStatus(err error) int {
 		return http.StatusBadRequest
 	case "分段不存在":
 		return http.StatusNotFound
-	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先保存对应提示词":
+	case "请先确认分段", "所选模型未启用或不存在", "所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数", "请先保存对应提示词", "请先在个人中心配置 Yadi 视频生成 API Key":
 		return http.StatusConflict
 	case "分镜已变更，请刷新后重试":
 		return http.StatusConflict
@@ -257,6 +257,16 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	if !model.ProviderConfigured() {
 		return domain.Task{}, taskCreationError("所选模型尚未完成运行配置，请联系管理员配置凭据引用和提供方参数")
 	}
+	if kind == "video" && model.AdapterKind == models.AdapterYadiVideo {
+		credentials := shuihuostore.NewUserModelCredentials(api.deps.DB, api.deps.TokenSecret)
+		configured, credentialErr := credentials.Configured(ctx, user.ID, model.CredentialRef)
+		if credentialErr != nil {
+			return domain.Task{}, taskCreationError("读取视频模型密钥状态失败")
+		}
+		if !configured {
+			return domain.Task{}, taskCreationError("请先在个人中心配置 Yadi 视频生成 API Key")
+		}
+	}
 	prompt := segment.ImagePrompt
 	if kind == "video" {
 		prompt = segment.VideoPrompt
@@ -280,6 +290,9 @@ func (api *API) createShuihuoTask(ctx context.Context, user store.User, project 
 	if kind == "video" && videoSettings != nil {
 		settings, settingsErr := normalizedVideoTaskSettings(videoSettings)
 		if settingsErr != nil {
+			return domain.Task{}, taskCreationError("视频设置参数无效")
+		}
+		if maximum := model.MaxVideoDuration(); maximum > 0 && settings.Duration > maximum {
 			return domain.Task{}, taskCreationError("视频设置参数无效")
 		}
 		inputSnapshot["duration"] = settings.Duration
