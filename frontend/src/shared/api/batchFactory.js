@@ -48,10 +48,17 @@ export function updateBatchFactorySource(batchId, itemId, sourceText, txtText = 
   });
 }
 
-export function updateBatchFactoryItemOverrides(batchId, itemId, settings) {
+export function updateBatchFactoryItemOverrides(batchId, itemId, settings, inheritKeys = []) {
   return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/overrides`, {
     method: 'PUT',
-    body: JSON.stringify({ settings })
+    body: JSON.stringify({ settings, inheritKeys })
+  });
+}
+
+export function updateBatchFactoryVideoOverrides(batchId, itemId, videoId, settings, inheritKeys = []) {
+  return apiRequest(`${base}/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/videos/${encodeURIComponent(videoId)}/overrides`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings, inheritKeys })
   });
 }
 
