@@ -139,13 +139,14 @@ func (w Worker) Process(ctx context.Context, taskID int64) error {
 			return fail("primary_image_url_failed", err)
 		}
 	}
-	response, err := w.Adapter.Submit(ctx, model, request)
+	providerCtx := models.WithUserID(ctx, task.UserID)
+	response, err := w.Adapter.Submit(providerCtx, model, request)
 	if err != nil {
 		return fail("model_submit_failed", err)
 	}
 	if response.ProviderTaskID != "" && response.ResultURL == "" {
 		asyncTasks, ok := w.Tasks.(AsyncVideoTaskRepository)
-		if !ok || task.Kind != "video" || (model.AdapterKind != models.AdapterViduImageToVideo && model.AdapterKind != models.AdapterGenericHTTP) {
+		if !ok || task.Kind != "video" || (model.AdapterKind != models.AdapterViduImageToVideo && model.AdapterKind != models.AdapterYadiVideo && model.AdapterKind != models.AdapterGenericHTTP) {
 			return fail("async_model_not_configured", errors.New("模型已返回上游任务 ID，但未配置受控视频轮询"))
 		}
 		if model.AdapterKind == models.AdapterGenericHTTP && strings.TrimSpace(model.PollingTemplate) == "" {
