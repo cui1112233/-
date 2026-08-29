@@ -1,95 +1,49 @@
 package httpapi
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
-
-	"qiantie/backend/internal/shuihuo/models"
-	shuihuostorage "qiantie/backend/internal/shuihuo/storage"
-	shuihuotasks "qiantie/backend/internal/shuihuo/tasks"
-	"qiantie/backend/internal/store"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
-
-type Dependencies struct {
-	DB                *sql.DB
-	TokenSecret       string
-	BridgeSecret      string
-	SeedUsername      string
-	SeedPassword      string
-	Users             UserStore
-	Configs           ConfigStore
-	Histories         HistoryStore
-	Objects           shuihuostorage.ObjectStorage
-	Queue             shuihuotasks.Queue
-	Health            ShuihuoHealth
-	TextCompletion    TextCompletionProvider
-	TextModelEndpoint func(reference string) string
-}
-
-type TextCompletionProvider interface {
-	Complete(ctx context.Context, model models.Definition, renderedPrompt string) (string, error)
-}
-
-type UserStore interface {
-	FindByUsername(ctx context.Context, username string) (store.User, error)
-	FindByID(ctx context.Context, id int64) (store.User, error)
-	EnsureBridgeUser(ctx context.Context, username string, isOwner bool) (store.User, error)
-}
-
-type API struct {
-	deps Dependencies
-}
-
-func New(deps Dependencies) *API {
-	return &API{deps: deps}
-}
 
 func (api *API) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Get("/healthz", api.handleHealth)
+	r.Use(middleware.Recoverer)
+	r.Use(api.cors)
+
+	r.Get("/health", api.handleHealth)
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", api.handleLogin)
-		r.Post("/logout", api.handleLogout)
-		r.With(api.requireAuth).Get("/me", api.handleMe)
-		r.With(api.requireAuth).Get("/config", api.handleGetConfig)
-		r.With(api.requireAuth).Post("/config", api.handleSaveConfig)
-		r.With(api.requireAuth).Post("/config/test", api.handleTestConfig)
-		r.With(api.requireAuth).Get("/history", api.handleListHistory)
-		r.With(api.requireAuth).Post("/history", api.handleSaveHistory)
-		r.With(api.requireAuth).Get("/history/{id}", api.handleGetHistory)
-		r.With(api.requireAuth).Delete("/history/{id}", api.handleDeleteHistory)
-		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
 		r.Group(func(r chi.Router) {
-			r.Use(api.requirePlatformAuth)
-			r.Get("/shuihuo-production/health", api.handleShuihuoHealth)
-			r.Get("/shuihuo-production/config", api.handleGetShuihuoProductionConfig)
-			r.Put("/shuihuo-production/config", api.handleSaveShuihuoProductionConfig)
-			r.Get("/shuihuo-production/asset-types", api.handleListShuihuoAssetTypes)
-			r.Post("/shuihuo-production/asset-types", api.handleCreateShuihuoAssetType)
-			r.Put("/shuihuo-production/asset-types/{assetTypeId}", api.handleUpdateShuihuoAssetType)
-			r.Delete("/shuihuo-production/asset-types/{assetTypeId}", api.handleDeleteShuihuoAssetType)
-			r.Get("/shuihuo-production/asset-templates", api.handleListShuihuoAssetTemplates)
-			r.Post("/shuihuo-production/asset-templates", api.handleCreateShuihuoAssetTemplate)
-			r.Put("/shuihuo-production/asset-templates/{assetTemplateId}", api.handleUpdateShuihuoAssetTemplate)
-			r.Delete("/shuihuo-production/asset-templates/{assetTemplateId}", api.handleDeleteShuihuoAssetTemplate)
+			r.Use(api.requireAuth)
+			r.Get("/me", api.handleMe)
+			r.Get("/config", api.handleGetConfig)
+			r.Post("/config", api.handleSaveConfig)
+			r.Get("/history", api.handleHistoryList)
+			r.Post("/history", api.handleHistoryCreate)
+			r.Get("/history/{id}", api.handleHistoryGet)
+			r.Put("/history/{id}", api.handleHistoryUpdate)
+			r.Delete("/history/{id}", api.handleHistoryDelete)
+			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
 			r.Get("/shuihuo-production/projects", api.handleListShuihuoProjects)
 			r.Post("/shuihuo-production/projects", api.handleCreateShuihuoProject)
 			r.Get("/shuihuo-production/projects/{id}", api.handleGetShuihuoProject)
-			r.Get("/shuihuo-production/projects/{id}/files", api.handleListShuihuoProjectFiles)
+			r.Put("/shuihuo-production/projects/{id}", api.handleUpdateShuihuoProject)
 			r.Delete("/shuihuo-production/projects/{id}", api.handleDeleteShuihuoProject)
+			r.Get("/shuihuo-production/projects/{id}/segments", api.handleListShuihuoSegments)
+			r.Get("/shuihuo-production/projects/{id}/media", api.handleListShuihuoMedia)
 			r.Get("/shuihuo-production/projects/{id}/assets", api.handleListShuihuoAssets)
-			r.Post("/shuihuo-production/projects/{id}/assets", api.handleCreateShuihuoAsset)
-			r.Post("/shuihuo-production/projects/{id}/assets/candidates/apply", api.handleApplyShuihuoAssetCandidates)
-			r.Post("/shuihuo-production/projects/{id}/prompt-candidates/{kind}", api.handleGenerateShuihuoPromptCandidates)
-			r.Put("/shuihuo-production/projects/{id}/prompt-candidates/{kind}/apply", api.handleApplyShuihuoPromptCandidates)
-			r.Get("/shuihuo-production/models", api.handleListShuihuoModels)
+			r.Get("/shuihuo-production/projects/{id}/analysis", api.handleGetShuihuoAnalysis)
+			r.Get("/shuihuo-production/projects/{id}/export", api.handleExportShuihuoProject)
+			r.Get("/shuihuo-production/projects/{id}/export/download", api.handleDownloadShuihuoExport)
+			r.Post("/shuihuo-production/projects/{id}/assets/generate", api.handleGenerateShuihuoAssets)
 			r.Post("/shuihuo-production/batch-factory/settings/canonicalize", api.handleCanonicalizeBatchFactorySettings)
 			r.Post("/shuihuo-production/batch-factory/overrides/canonicalize", api.handleCanonicalizeBatchFactoryOverride)
 			r.Get("/shuihuo-production/batch-factory/batches/{batchId}/settings-state", api.handleGetBatchFactorySettingsState)
+			r.Put("/shuihuo-production/batch-factory/batches/{batchId}/settings-state/bootstrap", api.handleBootstrapBatchFactorySettingsState)
 			r.Put("/shuihuo-production/batch-factory/batches/{batchId}/settings", api.handleSaveBatchFactorySettings)
 			r.Put("/shuihuo-production/batch-factory/batches/{batchId}/items/{itemId}/overrides", api.handleSaveBatchFactoryItemOverride)
 			r.Put("/shuihuo-production/batch-factory/batches/{batchId}/items/{itemId}/videos/{videoId}/overrides", api.handleSaveBatchFactoryVideoOverride)
@@ -126,6 +80,24 @@ func (api *API) Router() http.Handler {
 		})
 	})
 	return r
+}
+
+func (api *API) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Qiantie-Bridge-Secret, X-Qiantie-Username, X-Qiantie-Owner")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (api *API) handleHealth(w http.ResponseWriter, r *http.Request) {
