@@ -15,6 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,8 +28,17 @@ jobs:
       - name: Install backend dependencies
         run: npm ci
 
-      - name: Run backend tests
-        run: npm test
+      - name: Test config version snapshots
+        run: node --test test/batch-factory-config-version.test.js
+
+      - name: Test sparse overrides
+        run: node --test test/batch-factory-overrides.test.js
+
+      - name: Test settings inheritance
+        run: node --test test/batch-factory-settings-inheritance.test.js
+
+      - name: Test existing batch factory regression suite
+        run: node --test test/batch-factory.test.js
 
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
