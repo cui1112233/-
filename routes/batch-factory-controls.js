@@ -1,25 +1,8 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
-const { resolveBoundVideoSettings } = require('./batch-factory');
-const { OVERRIDE_KEYS } = require('../lib/batch-factory/effective-settings');
-
-const SCRIPT_PROMPT_PRESETS = new Set([
-  'standard-short-drama',
-  'commercial-dynamic-storyboard',
-  'spatial-continuity-storyboard'
-]);
-const ASSET_PROMPT_PRESETS = new Set(['standard-asset-extraction']);
-const BOOLEAN_OVERRIDE_KEYS = new Set([
-  'prefixEnabled',
-  'injectCharacterPrompt',
-  'injectScenePrompt',
-  'injectPropPrompt',
-  'qualityEnabled',
-  'restrictionEnabled',
-  'negativeEnabled'
-]);
-const TEXT_OVERRIDE_KEYS = new Set(['customPrefix', 'quality', 'restriction', 'negative']);
+const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
+const { clearPersistedSettingsStateCache } = require('../lib/batch-factory/settings-state-bridge');
 
 function text(value, max = 50000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -27,24 +10,6 @@ function text(value, max = 50000) {
 
 function boolOr(value, fallback) {
   return typeof value === 'boolean' ? value : fallback;
-}
-
-function normalizeProductionExtras(value = {}, previous = {}) {
-  const scriptPromptPresetId = SCRIPT_PROMPT_PRESETS.has(value.scriptPromptPresetId)
-    ? value.scriptPromptPresetId
-    : (SCRIPT_PROMPT_PRESETS.has(previous.scriptPromptPresetId) ? previous.scriptPromptPresetId : 'standard-short-drama');
-  const assetPromptPresetId = ASSET_PROMPT_PRESETS.has(value.assetPromptPresetId)
-    ? value.assetPromptPresetId
-    : (ASSET_PROMPT_PRESETS.has(previous.assetPromptPresetId) ? previous.assetPromptPresetId : 'standard-asset-extraction');
-  const subtitleValue = value.subtitlePolicy === undefined ? previous.subtitlePolicy : value.subtitlePolicy;
-  return {
-    scriptPromptPresetId,
-    assetPromptPresetId,
-    injectCharacterPrompt: boolOr(value.injectCharacterPrompt, boolOr(previous.injectCharacterPrompt, true)),
-    injectScenePrompt: boolOr(value.injectScenePrompt, boolOr(previous.injectScenePrompt, true)),
-    injectPropPrompt: boolOr(value.injectPropPrompt, boolOr(previous.injectPropPrompt, true)),
-    subtitlePolicy: subtitleValue === 'allow' ? 'allow' : 'forbid-auto-dialogue-subtitle'
-  };
 }
 
 function normalizePublishSettings(value = {}, previous = {}) {
@@ -58,44 +23,6 @@ function normalizePublishSettings(value = {}, previous = {}) {
     profileId: text(value.profileId ?? previous.profileId, 160),
     organizationId: text(value.organizationId ?? previous.organizationId, 160)
   };
-}
-
-function normalizeSparseOverride(input = {}, previous = {}, inheritKeys = []) {
-  const next = previous && typeof previous === 'object' && !Array.isArray(previous)
-    ? { ...previous }
-    : {};
-  const restore = new Set(
-    (Array.isArray(inheritKeys) ? inheritKeys : [])
-      .filter(key => OVERRIDE_KEYS.includes(key))
-  );
-  for (const key of restore) delete next[key];
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return next;
-
-  for (const key of OVERRIDE_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(input, key) || restore.has(key)) continue;
-    const value = input[key];
-    if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
-      if (typeof value === 'boolean') next[key] = value;
-      continue;
-    }
-    if (TEXT_OVERRIDE_KEYS.has(key)) {
-      if (typeof value === 'string') next[key] = text(value);
-      continue;
-    }
-    if (key === 'aspectRatio') {
-      if (value === '9:16' || value === '16:9') next[key] = value;
-      continue;
-    }
-    if (key === 'prefixMode') {
-      if (value === 'inherit') delete next[key];
-      else if (value === 'auto' || value === 'manual') next[key] = value;
-      continue;
-    }
-    if (key === 'subtitlePolicy') {
-      if (value === 'allow' || value === 'forbid-auto-dialogue-subtitle') next[key] = value;
-    }
-  }
-  return next;
 }
 
 function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
@@ -116,23 +43,120 @@ function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
   item.manuallyEdited = true;
 }
 
-function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), shuihuoGateway } = {}) {
+function invalidateItemAfterVideoModelChange(item) {
+  // Hook review is independent from the selected video model. Preserve the
+  // accepted viral opening, its frozen prompt metadata, and book-level
+  // overrides, but invalidate every artifact derived from the old VIDEO plan.
+  const hookPromptVersion = item.promptVersions?.hook;
+  item.directorResult = null;
+  item.videoSettingsOverrides = {};
+  item.promptVersions = hookPromptVersion ? { hook: hookPromptVersion } : {};
+  item.videoPromptErrors = {};
+  item.production = null;
+  item.productionResults = [];
+  item.productionSubmissionError = null;
+  item.status = 'pending';
+  item.error = '';
+}
+
+async function settingsPayloadWithGo(req, shuihuoGateway, pathname, body, method = 'PUT') {
+  const upstream = await requestProductionBridge({
+    username: req.auth.account.username,
+    isOwner: req.auth.account.isOwner === true,
+    pathname,
+    body,
+    method,
+    targetBaseUrl: shuihuoGateway?.targetBaseUrl,
+    bridgeSecret: shuihuoGateway?.bridgeSecret
+  });
+  if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
+    const error = new Error(upstream.payload?.error || 'Go 设置服务返回错误');
+    error.statusCode = upstream.statusCode;
+    throw error;
+  }
+  const payload = upstream.payload;
+  const settings = payload?.settings;
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    const error = new Error('Go 设置服务返回无效结果');
+    error.statusCode = 502;
+    throw error;
+  }
+  return payload;
+}
+
+async function settingsRequestWithGo(req, shuihuoGateway, pathname, body, method = 'PUT') {
+  return (await settingsPayloadWithGo(req, shuihuoGateway, pathname, body, method)).settings;
+}
+
+function cloneItemWithOverride(item, settingsOverride) {
+  return { ...item, settingsOverride };
+}
+
+function cloneItemWithVideoOverride(item, videoId, next) {
+  const videoSettingsOverrides = { ...(item.videoSettingsOverrides || {}) };
+  const key = String(videoId);
+  if (Object.keys(next).length) videoSettingsOverrides[key] = next;
+  else delete videoSettingsOverrides[key];
+  return { ...item, videoSettingsOverrides };
+}
+
+function createBatchFactoryControlsRouter({
+  store = createBatchFactoryStore(),
+  shuihuoGateway,
+  authenticate = apiAuth,
+  persistSettings,
+  persistOverride
+} = {}) {
   const router = express.Router();
-  router.use(apiAuth);
+  router.use(authenticate);
+
+  const persistSettingsRequest = persistSettings || ((payload, req, batchId) => settingsPayloadWithGo(
+    req,
+    shuihuoGateway,
+    `/api/shuihuo-production/batch-factory/batches/${encodeURIComponent(batchId)}/settings`,
+    payload,
+    'PUT'
+  ));
+  const persistOverrideRequest = persistOverride || ((payload, req, scope) => {
+    const itemPath = `/api/shuihuo-production/batch-factory/batches/${encodeURIComponent(scope.batchId)}/items/${encodeURIComponent(scope.itemId)}`;
+    const pathname = scope.videoId === undefined
+      ? `${itemPath}/overrides`
+      : `${itemPath}/videos/${encodeURIComponent(scope.videoId)}/overrides`;
+    return settingsRequestWithGo(req, shuihuoGateway, pathname, payload, 'PUT');
+  });
 
   router.put('/batches/:batchId/settings', async (req, res) => {
     const batch = store.getBatch(req.username, req.params.batchId);
     if (!batch) return res.status(404).json({ error: '批次不存在' });
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
-    const merged = { ...batch.settings, ...input };
+    const previous = batch.settings || {};
     try {
-      const resolved = await resolveBoundVideoSettings(req, merged, shuihuoGateway);
-      const normalized = store.normalizeSettings(resolved);
-      const extras = normalizeProductionExtras(merged, batch.settings || {});
-      store.updateBatch(req.username, batch.id, target => {
-        target.settings = { ...normalized, ...extras };
-      });
-      return res.json({ batch: store.getBatch(req.username, batch.id) });
+      const persisted = await persistSettingsRequest({ settings: input, previous }, req, batch.id);
+      const envelope = persisted && typeof persisted === 'object' && !Array.isArray(persisted)
+        && persisted.settings && typeof persisted.settings === 'object' && !Array.isArray(persisted.settings)
+        ? persisted
+        : null;
+      const settings = envelope ? envelope.settings : persisted;
+      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        const error = new Error('Go 设置服务返回无效结果');
+        error.statusCode = 502;
+        throw error;
+      }
+
+      if (envelope?.directorRegenerationRequired === true) {
+        for (const item of Array.isArray(batch.items) ? batch.items : []) {
+          store.updateItem(req.username, batch.id, item.id, target => {
+            invalidateItemAfterVideoModelChange(target);
+            return target;
+          });
+        }
+      }
+
+      clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
+      const currentBatch = envelope?.directorRegenerationRequired === true
+        ? (store.getBatch(req.username, batch.id) || batch)
+        : batch;
+      return res.json({ batch: { ...currentBatch, settings } });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存生产统一设置失败' });
     }
@@ -166,20 +190,26 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
   });
 
-  router.put('/batches/:batchId/items/:itemId/overrides', (req, res) => {
+  router.put('/batches/:batchId/items/:itemId/overrides', async (req, res) => {
     const batch = store.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或小说不存在' });
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
     const inheritKeys = Array.isArray(req.body?.inheritKeys) ? req.body.inheritKeys : [];
-    const next = normalizeSparseOverride(input, item.settingsOverride || {}, inheritKeys);
-    store.updateItem(req.username, batch.id, item.id, target => {
-      target.settingsOverride = next;
-    });
-    return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+    try {
+      const next = await persistOverrideRequest({
+        settings: input,
+        previous: item.settingsOverride || {},
+        inheritKeys
+      }, req, { batchId: batch.id, itemId: item.id });
+      clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
+      return res.json({ item: cloneItemWithOverride(item, next) });
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ error: error.message || '保存当前小说设置失败' });
+    }
   });
 
-  router.put('/batches/:batchId/items/:itemId/videos/:videoId/overrides', (req, res) => {
+  router.put('/batches/:batchId/items/:itemId/videos/:videoId/overrides', async (req, res) => {
     const batch = store.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     const video = item?.directorResult?.storyboard?.find(entry => String(entry.id) === String(req.params.videoId));
@@ -188,14 +218,17 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
     const inheritKeys = Array.isArray(req.body?.inheritKeys) ? req.body.inheritKeys : [];
     const previous = item.videoSettingsOverrides?.[String(video.id)] || {};
-    const next = normalizeSparseOverride(input, previous, inheritKeys);
-    store.updateItem(req.username, batch.id, item.id, target => {
-      if (!target.videoSettingsOverrides || typeof target.videoSettingsOverrides !== 'object') target.videoSettingsOverrides = {};
-      const key = String(video.id);
-      if (Object.keys(next).length) target.videoSettingsOverrides[key] = next;
-      else delete target.videoSettingsOverrides[key];
-    });
-    return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+    try {
+      const next = await persistOverrideRequest({ settings: input, previous, inheritKeys }, req, {
+        batchId: batch.id,
+        itemId: item.id,
+        videoId: String(video.id)
+      });
+      clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
+      return res.json({ item: cloneItemWithVideoOverride(item, video.id, next) });
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ error: error.message || '保存 VIDEO 设置失败' });
+    }
   });
 
   return router;
@@ -203,9 +236,7 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
 
 module.exports = {
   createBatchFactoryControlsRouter,
-  normalizeProductionExtras,
   normalizePublishSettings,
-  normalizeSparseOverride,
-  SCRIPT_PROMPT_PRESETS,
-  ASSET_PROMPT_PRESETS
+  settingsPayloadWithGo,
+  settingsRequestWithGo
 };

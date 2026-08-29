@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { normalizeSettings } = require('../lib/batch-factory/store');
 const { resolveItemSettings, resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
@@ -124,4 +126,18 @@ test('编译器关闭约束开关后不再上传对应 Prompt 段', () => {
   assert.match(payload.prompt, /禁止水印/);
   assert.doesNotMatch(payload.prompt, /低清/);
   assert.doesNotMatch(payload.prompt, /文字与字幕限制/);
+});
+
+test('生产统一设置允许切换可用视频模型并同步模型快照字段', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../frontend/src/user/pages/batch-factory/BatchFactorySettingsModals.jsx'), 'utf8');
+
+  assert.match(source, /import \{ listModels \} from '\.\.\/\.\.\/\.\.\/shared\/api\/shuihuoProduction';/);
+  assert.match(source, /model\.kind === 'video'/);
+  assert.match(source, /model\.requiresImageInput !== true/);
+  assert.match(source, /Number\(model\.maxVideoDuration\) >= 1/);
+  assert.match(source, /videoModelId: model\.id/);
+  assert.match(source, /videoModelVersionId: model\.versionId/);
+  assert.match(source, /videoModelName: model\.name/);
+  assert.match(source, /maxVideoDuration: Number\(model\.maxVideoDuration\)/);
+  assert.match(source, /placeholder="选择视频模型"/);
 });

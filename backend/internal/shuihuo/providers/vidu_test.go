@@ -19,11 +19,11 @@ func TestParseViduTaskMapsRunningAndCompletedStates(t *testing.T) {
 		t.Fatalf("running task = %#v", running)
 	}
 
-	completed, err := ParseViduTask(`{"id":"vidu-42","state":"success","creations":[{"url":"https://cdn.vidu.example/clip.mp4"}]}`)
+	completed, err := ParseViduTask(`{"id":"vidu-42","state":"success","creations":[{"url":"https://1.1.1.1/clip.mp4"}]}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.State != ViduTaskSucceeded || completed.ResultURL != "https://cdn.vidu.example/clip.mp4" {
+	if completed.State != ViduTaskSucceeded || completed.ResultURL != "https://1.1.1.1/clip.mp4" {
 		t.Fatalf("completed task = %#v", completed)
 	}
 }
@@ -40,7 +40,7 @@ func TestViduRejectsNonHTTPSConfiguredEndpoint(t *testing.T) {
 
 func TestViduUsesServerEndpointAndMapsTaskID(t *testing.T) {
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.String() != "https://api.vidu.example/ent/v2/img2video" {
+		if request.URL.String() != "https://1.1.1.1/ent/v2/img2video" {
 			t.Fatalf("URL = %s", request.URL)
 		}
 		if request.Header.Get("Authorization") != "Token token" {
@@ -48,7 +48,7 @@ func TestViduUsesServerEndpointAndMapsTaskID(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"task_id":"vidu-42"}`))}, nil
 	})
-	adapter := NewVidu(&http.Client{Transport: transport}, func(string) (string, error) { return "token", nil }, func(string) string { return "https://api.vidu.example/ent/v2" })
+	adapter := NewVidu(&http.Client{Transport: transport}, func(string) (string, error) { return "token", nil }, func(string) string { return "https://1.1.1.1/ent/v2" })
 	result, err := adapter.Submit(context.Background(), models.Definition{Kind: models.KindVideo, AdapterKind: models.AdapterViduImageToVideo, CredentialRef: "VIDU_CREDENTIAL", Name: "vidu-q1"}, models.Request{Prompt: "镜头推进", ImageURL: "https://storage.example.com/main.png"})
 	if err != nil {
 		t.Fatal(err)

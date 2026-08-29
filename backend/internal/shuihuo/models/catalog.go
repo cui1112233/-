@@ -227,12 +227,15 @@ func ValidateDefinition(model Definition) error {
 	if model.Kind != KindText && model.Kind != KindImage && model.Kind != KindVideo && model.Kind != KindAudio {
 		return fmt.Errorf("unsupported model kind %q", model.Kind)
 	}
-	// modelId is optional until the database model-center migration persists it.
-	// When supplied, keep validating the stable key strictly.
-	if strings.TrimSpace(model.ModelID) != "" {
-		if err := ValidateModelID(model.ModelID); err != nil {
-			return err
+	// New definitions must provide the immutable model key. Existing rows that
+	// predate model_key are still readable during the migration, identified by
+	// their persisted primary key.
+	if strings.TrimSpace(model.ModelID) == "" {
+		if model.ID == 0 {
+			return fmt.Errorf("modelId is required")
 		}
+	} else if err := ValidateModelID(model.ModelID); err != nil {
+		return err
 	}
 	if strings.TrimSpace(model.ParameterSchema) != "" {
 		var schema any

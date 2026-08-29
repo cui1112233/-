@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - 08-batch-factory-unified-settings-version-sync
+      - 09-batch-factory-video-model-selector
+      - 10-batch-factory-go-api-migration
 
 permissions:
   contents: read
@@ -25,11 +27,55 @@ jobs:
         with:
           node-version: 20
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Test Go Batch Factory settings rules and store
+        working-directory: backend
+        run: go test ./internal/shuihuo/batchfactory
+
+      - name: Test Go Batch Factory settings migration
+        working-directory: backend
+        run: go test ./internal/storage -run TestBatchFactorySettingsMigration
+
+      - name: Test Go Batch Factory HTTP boundary
+        working-directory: backend
+        run: go test ./internal/httpapi -run 'TestBatchFactorySettingsCanonicalize|TestBatchFactoryOverrideCanonicalize|TestBatchFactorySettingsPersistence|TestBatchFactoryOverridePersistence|TestBatchFactorySettingsState|TestBatchFactorySettingsBootstrap|TestBatchFactoryConfigSnapshots|TestBatchFactoryPresetResolve|TestBatchFactoryDirector|TestBatchFactoryHook'
+
       - name: Install backend dependencies
         run: npm ci
 
       - name: Test config version snapshots
         run: node --test test/batch-factory-config-version.test.js
+
+      - name: Test Go config compatibility bridge
+        run: node --test test/batch-factory-go-config-bridge.test.js
+
+      - name: Test Go config runtime cutover
+        run: node --test test/batch-factory-go-config-runtime.test.js
+
+      - name: Test Go director compatibility bridge
+        run: node --test test/batch-factory-go-director-bridge.test.js
+
+      - name: Test Go director runtime cutover
+        run: node --test test/batch-factory-go-director-runtime.test.js
+
+      - name: Test Go settings compatibility bridge
+        run: node --test test/batch-factory-go-settings-bridge.test.js
+
+      - name: Test model-change director invalidation
+        run: node --test test/batch-factory-settings-model-invalidation.test.js
+
+      - name: Test MySQL settings read overlay
+        run: node --test test/batch-factory-settings-state-bridge.test.js
+
+      - name: Test lazy settings migration
+        run: node --test test/batch-factory-settings-lazy-migration.test.js
+
+      - name: Test settings hydration wiring
+        run: node --test test/batch-factory-settings-hydration-contract.test.js
 
       - name: Test sparse overrides
         run: node --test test/batch-factory-overrides.test.js
