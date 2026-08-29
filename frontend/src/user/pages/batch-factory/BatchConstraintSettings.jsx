@@ -1,5 +1,5 @@
-import { Alert, Button, Divider, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, Typography, message } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, Typography, message } from 'antd';
+import { useEffect, useState } from 'react';
 import {
   deleteScriptConstraintPrompt,
   getConstraintPresetTexts,
@@ -32,8 +32,9 @@ function layerFromSettings(settings, category) {
   const source = ['system', 'personal', 'draft'].includes(settings?.[keys.source])
     ? settings[keys.source]
     : (settings?.[keys.personal] ? 'personal' : (settings?.[keys.preset] ? 'system' : 'system'));
+  const explicitEnabled = settings?.[definition.enabledKey];
   return {
-    enabled: settings?.[definition.enabledKey] === true,
+    enabled: typeof explicitEnabled === 'boolean' ? explicitEnabled : category === 'prefix',
     source,
     presetId: String(settings?.[keys.preset] || ''),
     personalPromptId: String(settings?.[keys.personal] || ''),
@@ -50,11 +51,28 @@ function layerPatch(category, patch) {
   if (Object.hasOwn(patch, 'presetId')) next[keys.preset] = patch.presetId || '';
   if (Object.hasOwn(patch, 'personalPromptId')) next[keys.personal] = patch.personalPromptId || '';
   if (Object.hasOwn(patch, 'body')) next[definition.bodyKey] = patch.body || '';
+  if (category === 'prefix') {
+    const selectedPreset = Object.hasOwn(patch, 'presetId') && Boolean(patch.presetId);
+    const selectedPersonal = Object.hasOwn(patch, 'personalPromptId') && Boolean(patch.personalPromptId);
+    const editedBody = Object.hasOwn(patch, 'body') && Boolean(String(patch.body || '').trim());
+    if (selectedPreset || selectedPersonal || editedBody) next.prefixMode = 'manual';
+  }
   return next;
 }
 
+function hasAnyKey(value, keys) {
+  return keys.some(key => Object.prototype.hasOwnProperty.call(value || {}, key));
+}
+
 function overrideCount(value) {
-  return Object.keys(value && typeof value === 'object' ? value : {}).length;
+  const override = value && typeof value === 'object' ? value : {};
+  let count = 0;
+  if (hasAnyKey(override, ['injectCharacterPrompt', 'injectScenePrompt'])) count += 1;
+  for (const definition of CATEGORIES) {
+    const keys = metaKeys(definition.key);
+    if (hasAnyKey(override, [definition.enabledKey, definition.bodyKey, keys.source, keys.preset, keys.personal, ...(definition.key === 'prefix' ? ['prefixMode'] : [])])) count += 1;
+  }
+  return count;
 }
 
 export function BatchConstraintEditor({ value, onChange, scopeLabel = '' }) {
@@ -275,16 +293,15 @@ export function BatchConstraintEditor({ value, onChange, scopeLabel = '' }) {
 }
 
 export function BatchBookConstraintModal({ open, batch, item, onClose, onSaved }) {
-  const inherited = useMemo(() => ({ ...(batch?.settings || {}), ...(item?.settingsOverride || {}) }), [batch?.settings, item?.settingsOverride]);
-  const [draft, setDraft] = useState(inherited);
+  const [draft, setDraft] = useState({});
   const [patch, setPatch] = useState({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setDraft(inherited);
+    setDraft({ ...(batch?.settings || {}), ...(item?.settingsOverride || {}) });
     setPatch({});
-  }, [open, item?.id, inherited]);
+  }, [open, item?.id]);
 
   function change(nextPatch) {
     setDraft(current => ({ ...current, ...nextPatch }));
@@ -347,7 +364,7 @@ export function BatchConstraintSummary({ settings, override }) {
   const effective = { ...(settings || {}), ...(override || {}) };
   const enabled = [
     effective.injectCharacterPrompt !== false && effective.injectScenePrompt !== false,
-    effective.constraintPrefixEnabled === true,
+    effective.constraintPrefixEnabled !== false,
     effective.constraintQualityEnabled === true,
     effective.constraintRestrictionEnabled === true,
     effective.constraintNegativeEnabled === true
