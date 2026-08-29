@@ -45,11 +45,12 @@ function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
 
 function invalidateItemAfterVideoModelChange(item) {
   // Hook review is independent from the selected video model. Preserve the
-  // accepted viral opening and book-level overrides, but invalidate every
-  // artifact derived from the old director VIDEO plan.
+  // accepted viral opening, its frozen prompt metadata, and book-level
+  // overrides, but invalidate every artifact derived from the old VIDEO plan.
+  const hookPromptVersion = item.promptVersions?.hook;
   item.directorResult = null;
   item.videoSettingsOverrides = {};
-  item.promptVersions = {};
+  item.promptVersions = hookPromptVersion ? { hook: hookPromptVersion } : {};
   item.videoPromptErrors = {};
   item.production = null;
   item.productionResults = [];
