@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"qiantie/backend/internal/store"
 )
 
 func batchFactoryConfigRequest(t *testing.T, api *API, method, path, body string) *httptest.ResponseRecorder {
