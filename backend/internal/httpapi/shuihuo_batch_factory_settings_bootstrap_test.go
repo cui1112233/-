@@ -11,7 +11,7 @@ func TestBatchFactorySettingsBootstrapMigratesCompleteLegacyState(t *testing.T) 
 	path := "/api/shuihuo-production/batch-factory/batches/batch_legacy/settings-state/bootstrap"
 	response := batchFactoryPersistenceRequest(t, api, http.MethodPut, path, `{
 		"state":{
-			"settings":{"videoModelId":18,"videoModelVersionId":42,"videoModelName":"旧模型快照","maxVideoDuration":15,"aspectRatio":"16:9","quality":"旧批次画质"},
+			"settings":{"videoModelId":18,"videoModelVersionId":999,"videoModelName":"旧模型快照","maxVideoDuration":8,"aspectRatio":"16:9","quality":"旧批次画质"},
 			"itemOverrides":{"opening_1":{"quality":"旧小说覆盖","qualityEnabled":false}},
 			"videoOverrides":{"opening_1":{"3":{"restriction":"旧 VIDEO 限制","negativeEnabled":false}}}
 		}
@@ -36,6 +36,9 @@ func TestBatchFactorySettingsBootstrapMigratesCompleteLegacyState(t *testing.T) 
 	if payload.State.Settings["quality"] != "旧批次画质" || payload.State.Settings["aspectRatio"] != "16:9" {
 		t.Fatalf("settings = %#v", payload.State.Settings)
 	}
+	if payload.State.Settings["videoModelVersionId"] != float64(42) || payload.State.Settings["videoModelName"] != "Seedance 2.0" || payload.State.Settings["maxVideoDuration"] != float64(15) {
+		t.Fatalf("bootstrap must canonicalize model metadata from Go model center: %#v", payload.State.Settings)
+	}
 	if payload.State.ItemOverrides["opening_1"]["quality"] != "旧小说覆盖" || payload.State.ItemOverrides["opening_1"]["qualityEnabled"] != false {
 		t.Fatalf("item overrides = %#v", payload.State.ItemOverrides)
 	}
@@ -47,11 +50,11 @@ func TestBatchFactorySettingsBootstrapMigratesCompleteLegacyState(t *testing.T) 
 func TestBatchFactorySettingsBootstrapNeverOverwritesOwnedMySQLState(t *testing.T) {
 	api := newBatchFactoryPersistenceTestAPI(t)
 	path := "/api/shuihuo-production/batch-factory/batches/batch_legacy/settings-state/bootstrap"
-	first := batchFactoryPersistenceRequest(t, api, http.MethodPut, path, `{"state":{"settings":{"aspectRatio":"16:9","quality":"MySQL 第一版"},"itemOverrides":{},"videoOverrides":{}}}`)
+	first := batchFactoryPersistenceRequest(t, api, http.MethodPut, path, `{"state":{"settings":{"videoModelId":18,"aspectRatio":"16:9","quality":"MySQL 第一版"},"itemOverrides":{},"videoOverrides":{}}}`)
 	if first.Code != http.StatusOK {
 		t.Fatalf("first bootstrap = %d %s", first.Code, first.Body.String())
 	}
-	second := batchFactoryPersistenceRequest(t, api, http.MethodPut, path, `{"state":{"settings":{"aspectRatio":"9:16","quality":"过期 legacy"},"itemOverrides":{"opening_1":{"quality":"过期覆盖"}},"videoOverrides":{}}}`)
+	second := batchFactoryPersistenceRequest(t, api, http.MethodPut, path, `{"state":{"settings":{"videoModelId":18,"aspectRatio":"9:16","quality":"过期 legacy"},"itemOverrides":{"opening_1":{"quality":"过期覆盖"}},"videoOverrides":{}}}`)
 	if second.Code != http.StatusOK {
 		t.Fatalf("second bootstrap = %d %s", second.Code, second.Body.String())
 	}
