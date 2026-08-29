@@ -42,7 +42,7 @@ jobs:
 
       - name: Test Go Batch Factory HTTP boundary
         working-directory: backend
-        run: go test ./internal/httpapi -run 'TestBatchFactorySettingsCanonicalize|TestBatchFactoryOverrideCanonicalize|TestBatchFactorySettingsPersistence|TestBatchFactoryOverridePersistence|TestBatchFactorySettingsState'
+        run: go test ./internal/httpapi -run 'TestBatchFactorySettingsCanonicalize|TestBatchFactoryOverrideCanonicalize|TestBatchFactorySettingsPersistence|TestBatchFactoryOverridePersistence|TestBatchFactorySettingsState|TestBatchFactorySettingsBootstrap'
 
       - name: Install backend dependencies
         run: npm ci
@@ -55,6 +55,9 @@ jobs:
 
       - name: Test MySQL settings read overlay
         run: node --test test/batch-factory-settings-state-bridge.test.js
+
+      - name: Test lazy settings migration
+        run: node --test test/batch-factory-settings-lazy-migration.test.js
 
       - name: Test settings hydration wiring
         run: node --test test/batch-factory-settings-hydration-contract.test.js
