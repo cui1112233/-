@@ -174,7 +174,11 @@ type batchFactoryPersistenceConn struct{}
 
 func (batchFactoryPersistenceConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
 func (batchFactoryPersistenceConn) Close() error                        { return nil }
-func (batchFactoryPersistenceConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
+func (batchFactoryPersistenceConn) Begin() (driver.Tx, error)           { return batchFactoryPersistenceTx{}, nil }
+
+type batchFactoryPersistenceTx struct{}
+func (batchFactoryPersistenceTx) Commit() error   { return nil }
+func (batchFactoryPersistenceTx) Rollback() error { return nil }
 
 func (batchFactoryPersistenceConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	compact := strings.Join(strings.Fields(query), " ")
