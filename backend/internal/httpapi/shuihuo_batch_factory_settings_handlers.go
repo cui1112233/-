@@ -25,6 +25,10 @@ type batchFactoryOverrideCanonicalizeRequest struct {
 	InheritKeys []string              `json:"inheritKeys"`
 }
 
+type batchFactorySettingsBootstrapRequest struct {
+	State batchfactory.PersistedSettingsState `json:"state"`
+}
+
 func (api *API) canonicalizeBatchFactorySettings(r *http.Request, user store.User, input, previous batchfactory.Settings) (batchfactory.Settings, int, string) {
 	normalized := batchfactory.NormalizeSettings(input, previous)
 	modelID, ok := normalized["videoModelId"].(int)
@@ -208,6 +212,31 @@ func (api *API) handleGetBatchFactorySettingsState(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量工厂设置失败"})
 		return
 	}
-	persisted := state.Batch != nil || len(state.Items) > 0 || len(state.Videos) > 0
+	// The batch row is the ownership marker. Item/video rows can exist during a
+	// failed bootstrap attempt and must not make MySQL authoritative by themselves.
+	persisted := state.Batch != nil
 	writeJSON(w, http.StatusOK, map[string]any{"persisted": persisted, "state": state})
+}
+
+func (api *API) handleBootstrapBatchFactorySettingsState(w http.ResponseWriter, r *http.Request) {
+	var req batchFactorySettingsBootstrapRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+		return
+	}
+	if !api.requireShuihuoDatabase(w) {
+		return
+	}
+	batchID := strings.TrimSpace(chi.URLParam(r, "batchId"))
+	if batchID == "" || len(batchID) > 96 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "批次ID无效"})
+		return
+	}
+	user, _ := currentUser(r)
+	state, err := batchfactory.NewSettingsStore(api.deps.DB).BootstrapBatchState(r.Context(), user.ID, batchID, req.State)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "迁移批量工厂设置失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"persisted": state.Batch != nil, "state": state})
 }
