@@ -2,6 +2,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { resolveBoundVideoSettings } = require('./batch-factory');
+const { OVERRIDE_KEYS } = require('../lib/batch-factory/effective-settings');
 
 const SCRIPT_PROMPT_PRESETS = new Set([
   'standard-short-drama',
@@ -9,6 +10,16 @@ const SCRIPT_PROMPT_PRESETS = new Set([
   'spatial-continuity-storyboard'
 ]);
 const ASSET_PROMPT_PRESETS = new Set(['standard-asset-extraction']);
+const BOOLEAN_OVERRIDE_KEYS = new Set([
+  'prefixEnabled',
+  'injectCharacterPrompt',
+  'injectScenePrompt',
+  'injectPropPrompt',
+  'qualityEnabled',
+  'restrictionEnabled',
+  'negativeEnabled'
+]);
+const TEXT_OVERRIDE_KEYS = new Set(['customPrefix', 'quality', 'restriction', 'negative']);
 
 function text(value, max = 50000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -25,13 +36,14 @@ function normalizeProductionExtras(value = {}, previous = {}) {
   const assetPromptPresetId = ASSET_PROMPT_PRESETS.has(value.assetPromptPresetId)
     ? value.assetPromptPresetId
     : (ASSET_PROMPT_PRESETS.has(previous.assetPromptPresetId) ? previous.assetPromptPresetId : 'standard-asset-extraction');
+  const subtitleValue = value.subtitlePolicy === undefined ? previous.subtitlePolicy : value.subtitlePolicy;
   return {
     scriptPromptPresetId,
     assetPromptPresetId,
     injectCharacterPrompt: boolOr(value.injectCharacterPrompt, boolOr(previous.injectCharacterPrompt, true)),
     injectScenePrompt: boolOr(value.injectScenePrompt, boolOr(previous.injectScenePrompt, true)),
     injectPropPrompt: boolOr(value.injectPropPrompt, boolOr(previous.injectPropPrompt, true)),
-    subtitlePolicy: value.subtitlePolicy === 'allow' ? 'allow' : 'forbid-auto-dialogue-subtitle'
+    subtitlePolicy: subtitleValue === 'allow' ? 'allow' : 'forbid-auto-dialogue-subtitle'
   };
 }
 
@@ -46,6 +58,44 @@ function normalizePublishSettings(value = {}, previous = {}) {
     profileId: text(value.profileId ?? previous.profileId, 160),
     organizationId: text(value.organizationId ?? previous.organizationId, 160)
   };
+}
+
+function normalizeSparseOverride(input = {}, previous = {}, inheritKeys = []) {
+  const next = previous && typeof previous === 'object' && !Array.isArray(previous)
+    ? { ...previous }
+    : {};
+  const restore = new Set(
+    (Array.isArray(inheritKeys) ? inheritKeys : [])
+      .filter(key => OVERRIDE_KEYS.includes(key))
+  );
+  for (const key of restore) delete next[key];
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return next;
+
+  for (const key of OVERRIDE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(input, key) || restore.has(key)) continue;
+    const value = input[key];
+    if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
+      if (typeof value === 'boolean') next[key] = value;
+      continue;
+    }
+    if (TEXT_OVERRIDE_KEYS.has(key)) {
+      if (typeof value === 'string') next[key] = text(value);
+      continue;
+    }
+    if (key === 'aspectRatio') {
+      if (value === '9:16' || value === '16:9') next[key] = value;
+      continue;
+    }
+    if (key === 'prefixMode') {
+      if (value === 'inherit') delete next[key];
+      else if (value === 'auto' || value === 'manual') next[key] = value;
+      continue;
+    }
+    if (key === 'subtitlePolicy') {
+      if (value === 'allow' || value === 'forbid-auto-dialogue-subtitle') next[key] = value;
+    }
+  }
+  return next;
 }
 
 function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
@@ -78,7 +128,7 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     try {
       const resolved = await resolveBoundVideoSettings(req, merged, shuihuoGateway);
       const normalized = store.normalizeSettings(resolved);
-      const extras = normalizeProductionExtras(input, batch.settings || {});
+      const extras = normalizeProductionExtras(merged, batch.settings || {});
       store.updateBatch(req.username, batch.id, target => {
         target.settings = { ...normalized, ...extras };
       });
@@ -120,20 +170,30 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     const batch = store.getBatch(req.username, req.params.batchId);
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或小说不存在' });
-    const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
-    const previous = item.settingsOverride || {};
-    const next = {
-      prefixMode: ['inherit', 'auto', 'manual'].includes(input.prefixMode) ? input.prefixMode : (previous.prefixMode || 'inherit'),
-      customPrefix: text(input.customPrefix ?? previous.customPrefix),
-      quality: text(input.quality ?? previous.quality),
-      restriction: text(input.restriction ?? previous.restriction),
-      negative: text(input.negative ?? previous.negative),
-      injectCharacterPrompt: input.injectCharacterPrompt === undefined ? previous.injectCharacterPrompt : Boolean(input.injectCharacterPrompt),
-      injectScenePrompt: input.injectScenePrompt === undefined ? previous.injectScenePrompt : Boolean(input.injectScenePrompt),
-      injectPropPrompt: input.injectPropPrompt === undefined ? previous.injectPropPrompt : Boolean(input.injectPropPrompt)
-    };
+    const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
+    const inheritKeys = Array.isArray(req.body?.inheritKeys) ? req.body.inheritKeys : [];
+    const next = normalizeSparseOverride(input, item.settingsOverride || {}, inheritKeys);
     store.updateItem(req.username, batch.id, item.id, target => {
       target.settingsOverride = next;
+    });
+    return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+  });
+
+  router.put('/batches/:batchId/items/:itemId/videos/:videoId/overrides', (req, res) => {
+    const batch = store.getBatch(req.username, req.params.batchId);
+    const item = batch?.items?.find(entry => entry.id === req.params.itemId);
+    const video = item?.directorResult?.storyboard?.find(entry => String(entry.id) === String(req.params.videoId));
+    if (!batch || !item) return res.status(404).json({ error: '批次或小说不存在' });
+    if (!video) return res.status(404).json({ error: 'VIDEO 分镜不存在' });
+    const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
+    const inheritKeys = Array.isArray(req.body?.inheritKeys) ? req.body.inheritKeys : [];
+    const previous = item.videoSettingsOverrides?.[String(video.id)] || {};
+    const next = normalizeSparseOverride(input, previous, inheritKeys);
+    store.updateItem(req.username, batch.id, item.id, target => {
+      if (!target.videoSettingsOverrides || typeof target.videoSettingsOverrides !== 'object') target.videoSettingsOverrides = {};
+      const key = String(video.id);
+      if (Object.keys(next).length) target.videoSettingsOverrides[key] = next;
+      else delete target.videoSettingsOverrides[key];
     });
     return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
   });
@@ -145,6 +205,7 @@ module.exports = {
   createBatchFactoryControlsRouter,
   normalizeProductionExtras,
   normalizePublishSettings,
+  normalizeSparseOverride,
   SCRIPT_PROMPT_PRESETS,
   ASSET_PROMPT_PRESETS
 };
