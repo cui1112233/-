@@ -5,8 +5,13 @@ const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { parseDirectorJson, normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
-const { resolveItemSettings } = require('../lib/batch-factory/effective-settings');
+const { resolveItemSettings, resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
 const { resolveScriptPrompt, resolveAssetPrompt, publicPromptCatalog } = require('../lib/batch-factory/prompt-selection');
+const {
+  listBatchFactoryConfigVersions,
+  resolveVersionedPreset,
+  resolveVersionedSystemPresetBody
+} = require('../lib/batch-factory/config-version');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
 const PREFIX_PRESETS = Object.freeze({
@@ -93,24 +98,30 @@ async function callTextModel(username, messages, { temperature = 0.4, maxTokens 
   return text;
 }
 
-function presetVersion(store, id) {
-  const preset = store?.getPublished?.(id);
+function systemPresetBody(presetStore, id, settings = {}) {
+  return resolveVersionedSystemPresetBody(presetStore, id, settings)
+    || resolveSystemPresetBody(presetStore, id);
+}
+
+function presetVersion(store, id, settings = {}) {
+  const pinnedVersion = settings?.systemPresetVersions?.[id];
+  const preset = resolveVersionedPreset(store, id, pinnedVersion) || store?.getPublished?.(id);
   return preset ? { id, version: preset.version || 1 } : { id, version: 0 };
+}
+
+function latestConfigSettings(presetStore) {
+  const latest = listBatchFactoryConfigVersions(presetStore).latest;
+  if (!latest) return {};
+  return {
+    systemConfigRevision: latest.revision,
+    systemConfigLabel: latest.label,
+    systemConfigSyncedAt: new Date().toISOString(),
+    systemPresetVersions: latest.presetVersions
+  };
 }
 
 function prefixCatalogPrompt() {
   return `可用视频前缀类型 key 只能从以下列表选择：\n${Object.keys(PREFIX_PRESETS).map(key => `- ${key}`).join('\n')}\n根据每个视频单元自身题材和情绪选择最匹配的 key；不确定时使用 general_anime。`;
-}
-
-function applyPublishedSystemPrompt(base, presetStore) {
-  const published = presetStore?.getPublished?.(base.id);
-  if (!published) return { ...base, source: 'system' };
-  return {
-    ...base,
-    body: String(published.body || base.body).trim(),
-    version: Number(published.version || base.version || 1),
-    source: 'system'
-  };
 }
 
 function applyPersonalPrompt(base, username, userPromptLibraryStore) {
@@ -125,8 +136,10 @@ function applyPersonalPrompt(base, username, userPromptLibraryStore) {
 }
 
 function selectedDirectorPrompts(settings = {}, username = '', userPromptLibraryStore, presetStore) {
-  const scriptBase = applyPublishedSystemPrompt(resolveScriptPrompt(settings.scriptPromptPresetId), presetStore);
-  const assetBase = applyPublishedSystemPrompt(resolveAssetPrompt(settings.assetPromptPresetId), presetStore);
+  const scriptId = settings.scriptPromptPresetId || 'standard-short-drama';
+  const assetId = settings.assetPromptPresetId || 'standard-asset-extraction';
+  const scriptBase = resolveScriptPrompt(scriptId, presetStore, settings.systemPresetVersions?.[scriptId]);
+  const assetBase = resolveAssetPrompt(assetId, presetStore, settings.systemPresetVersions?.[assetId]);
   return {
     script: applyPersonalPrompt(scriptBase, username, userPromptLibraryStore),
     assets: applyPersonalPrompt(assetBase, username, userPromptLibraryStore)
@@ -135,7 +148,7 @@ function selectedDirectorPrompts(settings = {}, username = '', userPromptLibrary
 
 function directorSystemPrompt(presetStore, mode, settings, selected) {
   const directorId = mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
-  const base = resolveSystemPresetBody(presetStore, directorId);
+  const base = systemPresetBody(presetStore, directorId, settings);
   const durationRule = settings.fixedSingleVideo
     ? `固定单 VIDEO 已开启：只允许输出 1 个 storyboard；duration_sec 必须严格等于 ${settings.exactDuration}。输入再长也不要输出第二个 storyboard。只能从开头选择能在 ${settings.exactDuration} 秒内完整承载的连续内容，不得从一句对白或完整动作中间截断。后续内容标记为 has_remaining_source=true。`
     : `固定单 VIDEO 未开启：当前绑定视频模型单次生成最大支持 ${settings.maxVideoDuration} 秒。请先完整理解内容，根据剧情节点、动作完整性、视觉连续性和节奏，将整段内容自然拆成一个或多个 VIDEO。每个 VIDEO 的实际生成时长必须为 1-${settings.maxVideoDuration} 之间的整数，不要求用满 ${settings.maxVideoDuration} 秒。不要为了凑时长加入无意义停顿，也不要用简单固定长度机械切分。`;
@@ -189,10 +202,11 @@ function directorSettings(batch, item) {
 
 async function generateHook(username, presetStore, batch, item) {
   const id = 'batch-hook-adaptation';
-  const system = resolveSystemPresetBody(presetStore, id);
+  const settings = batch.settings || {};
+  const system = systemPresetBody(presetStore, id, settings);
   const text = await callTextModel(username, [
     { role: 'system', content: system },
-    { role: 'user', content: JSON.stringify({ source_text: item.sourceText, style: batch.settings.style, synopsis: batch.settings.synopsis }, null, 2) }
+    { role: 'user', content: JSON.stringify({ source_text: item.sourceText, style: settings.style, synopsis: settings.synopsis }, null, 2) }
   ], { temperature: 0.75, maxTokens: 5000 });
   const output = parseDirectorJson(text);
   const hookScript = typeof output.hook_script === 'string' ? output.hook_script.trim() : '';
@@ -203,7 +217,7 @@ async function generateHook(username, presetStore, batch, item) {
       factConstraints: Array.isArray(output.fact_constraints) ? output.fact_constraints : [],
       emotionAmplifications: Array.isArray(output.emotion_amplifications) ? output.emotion_amplifications : []
     },
-    promptVersions: { hook: presetVersion(presetStore, id) }
+    promptVersions: { hook: presetVersion(presetStore, id, settings) }
   };
 }
 
@@ -220,7 +234,7 @@ async function generateDirector(username, presetStore, userPromptLibraryStore, b
   return {
     directorResult: result,
     promptVersions: {
-      [directorId]: presetVersion(presetStore, directorId),
+      [directorId]: presetVersion(presetStore, directorId, settings),
       scriptPrompt: { id: selected.script.id, name: selected.script.name, version: selected.script.version, source: selected.script.source },
       assetPrompt: { id: selected.assets.id, name: selected.assets.name, version: selected.assets.version, source: selected.assets.source }
     }
@@ -357,13 +371,25 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
 
   router.use(apiAuth);
 
-  router.get('/prompt-catalog', (req, res) => res.json(publicPromptCatalog()));
+  router.get('/prompt-catalog', (req, res) => {
+    const configCatalog = listBatchFactoryConfigVersions(presetStore);
+    return res.json({
+      ...publicPromptCatalog(presetStore),
+      configVersions: configCatalog.versions,
+      latestConfig: configCatalog.latest
+    });
+  });
   router.get('/batches', (req, res) => res.json({ batches: store.listBatches(req.username) }));
 
   router.post('/batches', async (req, res) => {
     try {
       const payload = req.body || {};
-      const settings = await resolveBoundVideoSettings(req, payload.settings || {}, shuihuoGateway);
+      let inputSettings = { ...(payload.settings || {}) };
+      const hasPinnedConfig = inputSettings.systemPresetVersions
+        && typeof inputSettings.systemPresetVersions === 'object'
+        && Object.keys(inputSettings.systemPresetVersions).length > 0;
+      if (!hasPinnedConfig) inputSettings = { ...inputSettings, ...latestConfigSettings(presetStore) };
+      const settings = await resolveBoundVideoSettings(req, inputSettings, shuihuoGateway);
       const batch = store.createBatch(req.username, { ...payload, settings });
       return res.status(201).json({ batch });
     } catch (error) {
@@ -450,11 +476,11 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       const result = item?.directorResult;
       const video = result?.storyboard?.find(entry => String(entry.id) === String(req.params.videoId));
       if (!batch || !item || !video) return res.status(404).json({ error: '视频分镜不存在' });
-      const settings = resolveItemSettings(batch, item);
+      const settings = resolveVideoSettings(batch, item, video.id);
       const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-      const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
+      const autoPrefix = settings.prefixMode === 'manual' ? '' : systemPresetBody(presetStore, prefixId, settings);
       const payload = compileVideoPrompt({ directorResult: result, video, settings, autoPrefix });
-      return res.json({ payload, prefix: { key: video.prefix_key || 'general_anime', preset: presetVersion(presetStore, prefixId) } });
+      return res.json({ payload, prefix: { key: video.prefix_key || 'general_anime', preset: presetVersion(presetStore, prefixId, settings) } });
     } catch (error) {
       return res.status(400).json({ error: error.message || '编译视频提示词失败' });
     }
@@ -463,4 +489,11 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
   return router;
 }
 
-module.exports = { createBatchFactoryRouter, PREFIX_PRESETS, canonicalModelSettings, resolveBoundVideoSettings };
+module.exports = {
+  createBatchFactoryRouter,
+  PREFIX_PRESETS,
+  canonicalModelSettings,
+  resolveBoundVideoSettings,
+  latestConfigSettings,
+  systemPresetBody
+};
