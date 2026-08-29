@@ -206,6 +206,11 @@ func (s *SettingsStore) LoadBatch(ctx context.Context, userID int64, batchID str
 	return state.Batch, true, nil
 }
 
+func (s *SettingsStore) BatchExists(ctx context.Context, userID int64, batchID string) (bool, error) {
+	_, exists, err := s.LoadBatch(ctx, userID, batchID)
+	return exists, err
+}
+
 func (s *SettingsStore) LoadItemOverride(ctx context.Context, userID int64, batchID, itemID string) (Settings, bool, error) {
 	state, err := s.LoadBatchState(ctx, userID, batchID)
 	if err != nil {
