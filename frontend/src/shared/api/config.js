@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { normalizeConfigPayload } from './configPayload.js';
 
 export function getConfig() {
   return apiRequest('/api/config');
@@ -7,7 +8,7 @@ export function getConfig() {
 export function saveConfig(config) {
   return apiRequest('/api/config', {
     method: 'POST',
-    body: JSON.stringify(config)
+    body: JSON.stringify(normalizeConfigPayload(config))
   });
 }
 
