@@ -18,10 +18,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Materialize pixiu runtime asset
-        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-*.b64') != '' }}
+        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-06-final.b64') != '' }}
         shell: bash
         run: |
-          cat pets/pixiu/.asset-upload/part-*.b64 | base64 --decode > pets/pixiu/spritesheet.webp
+          cat \
+            pets/pixiu/.asset-upload/part-00.b64 \
+            pets/pixiu/.asset-upload/part-01.b64 \
+            pets/pixiu/.asset-upload/part-02.b64 \
+            pets/pixiu/.asset-upload/part-03.b64 \
+            pets/pixiu/.asset-upload/part-04.b64 \
+            pets/pixiu/.asset-upload/part-05.b64 \
+            pets/pixiu/.asset-upload/part-06-final.b64 \
+            pets/pixiu/.asset-upload/part-07.b64 \
+            | base64 --decode > pets/pixiu/spritesheet.webp
+
+      - name: Verify pixiu runtime asset
+        shell: bash
+        run: |
+          test -f pets/pixiu/spritesheet.webp
           echo "44edc8a2ee6a98552b4fa490bdad3b984a83e7c5596cadbbb3c012f9c5019906  pets/pixiu/spritesheet.webp" | sha256sum --check -
           test "$(stat -c %s pets/pixiu/spritesheet.webp)" = "61214"
 
@@ -68,7 +82,7 @@ jobs:
         run: npm test
 
       - name: Persist verified pixiu runtime asset
-        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-*.b64') != '' }}
+        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-06-final.b64') != '' }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
