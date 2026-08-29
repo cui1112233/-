@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
+import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions } from '../../shared/pet/petCatalog';
 
 const providers = [
   { label: 'OpenAI', value: 'openai' },
@@ -21,17 +22,7 @@ const providerDefaults = {
   custom: { baseUrl: '', models: [] }
 };
 
-const stackyPet = {
-  id: 'stacky',
-  displayName: 'CM',
-  description: 'CM，前贴的桌面宠物。',
-  spriteVersionNumber: 2,
-  spritesheetPath: '/pets/stacky/spritesheet.webp'
-};
-
-const petOptions = [
-  { label: 'CM', value: 'stacky' }
-];
+const petOptions = getPetOptions();
 
 function connectionResponseMessage(candidate, fallback) {
   if (typeof candidate === 'string') return candidate;
@@ -47,6 +38,8 @@ export function SettingsPage() {
   const [testingImage, setTestingImage] = useState(false);
   const [provider, setProvider] = useState('openai');
   const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
+  const petId = Form.useWatch('petId', form) || DEFAULT_PET_ID;
+  const selectedPet = getPetDefinition(petId);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
 
@@ -73,7 +66,7 @@ export function SettingsPage() {
             model: config.image?.model || '',
             apiKey: ''
           },
-          petId: config.pet?.id || stackyPet.id
+          petId: getPetDefinition(config.pet).id
         });
         setProvider(config.provider || 'openai');
       })
@@ -87,17 +80,21 @@ export function SettingsPage() {
   async function handleSave(values) {
     setSaving(true);
     try {
-      await saveConfig({
+      const pet = getPetDefinition(values.petId);
+      const saved = await saveConfig({
         provider: values.provider,
         baseUrl: values.baseUrl,
         model: values.model,
         apiKey: values.apiKey,
         image: values.image,
-        pet: values.petId === stackyPet.id ? stackyPet : undefined
+        pet
       });
+      const savedPet = getPetDefinition(saved?.pet || pet);
+      form.setFieldValue('petId', savedPet.id);
+      dispatchPetSelection(savedPet);
       form.setFieldValue('apiKey', '');
       form.setFieldValue(['image', 'apiKey'], '');
-      message.success('设置已保存');
+      message.success(`设置已保存 · 当前宠物：${savedPet.displayName}`);
     } catch (error) {
       message.error(error.message || '保存失败');
     } finally {
@@ -168,7 +165,7 @@ export function SettingsPage() {
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: stackyPet.id }}
+        initialValues={{ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', petId: DEFAULT_PET_ID }}
         onFinish={handleSave}
       >
         <section className="settings-section settings-connection-section" aria-labelledby="settings-connection-title">
@@ -190,7 +187,7 @@ export function SettingsPage() {
         <section className="settings-section settings-model-section" aria-labelledby="settings-model-title">
           <div>
             <h2 id="settings-model-title">模型与助手</h2>
-            <p>指定默认模型，并确认当前桌面宠物。</p>
+            <p>指定默认模型，并选择当前桌面宠物。</p>
           </div>
           <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或输入模型名称' }]}>
             <AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption />
@@ -198,13 +195,17 @@ export function SettingsPage() {
           <Form.Item label="前贴宠物" name="petId">
             <Select options={petOptions} />
           </Form.Item>
-          <div className="settings-pet-preview" aria-label="当前前贴宠物 CM">
+          <div className="settings-pet-preview" aria-label={`当前前贴宠物 ${selectedPet.displayName}`}>
             <div className="settings-pet-frame">
-              <img src={stackyPet.spritesheetPath} alt="CM" />
+              <img
+                src={selectedPet.spritesheetPath}
+                alt={selectedPet.displayName}
+                style={{ imageRendering: selectedPet.renderMode === 'smooth' ? 'auto' : undefined }}
+              />
             </div>
             <div>
-              <Typography.Text strong>{stackyPet.displayName}</Typography.Text>
-              <Typography.Paragraph type="secondary">{stackyPet.description}</Typography.Paragraph>
+              <Typography.Text strong>{selectedPet.displayName}</Typography.Text>
+              <Typography.Paragraph type="secondary">{selectedPet.description}</Typography.Paragraph>
             </div>
           </div>
           <Form.Item label="宠物主动说话" valuePropName="checked">
