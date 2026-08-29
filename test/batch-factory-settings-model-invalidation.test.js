@@ -21,7 +21,11 @@ function createStore() {
       approvedHookScript: '保留已审核爆款开头',
       hookMeta: { factConstraints: ['保留'] },
       directorResult: { storyboard: [{ id: 1, duration_sec: 10 }] },
-      promptVersions: { director: 2 },
+      promptVersions: {
+        hook: { id: 'batch-hook-adaptation', version: 3, source: 'system' },
+        'batch-viral-director': { id: 'batch-viral-director', version: 2, source: 'system' },
+        scriptPrompt: { id: 'standard-short-drama', version: 4, source: 'personal' }
+      },
       videoPromptErrors: { '1': '旧错误' },
       production: { projectId: 88 },
       productionResults: [{ index: 1, segmentId: 99 }],
@@ -89,7 +93,9 @@ test('Go 标记模型能力变化后 Node 只执行兼容失效效果并保留�
   assert.deepEqual(item.hookMeta, { factConstraints: ['保留'] });
   assert.equal(item.directorResult, null);
   assert.deepEqual(item.videoSettingsOverrides, {});
-  assert.deepEqual(item.promptVersions, {});
+  assert.deepEqual(item.promptVersions, {
+    hook: { id: 'batch-hook-adaptation', version: 3, source: 'system' }
+  });
   assert.deepEqual(item.videoPromptErrors, {});
   assert.equal(item.production, null);
   assert.deepEqual(item.productionResults, []);
@@ -102,6 +108,7 @@ test('Go 标记模型能力变化后 Node 只执行兼容失效效果并保留�
 test('Go 未标记失效时 Node 不清空现有导演结果', async () => {
   const store = createStore();
   const originalDirector = store.batch.items[0].directorResult;
+  const originalPromptVersions = store.batch.items[0].promptVersions;
   const router = createBatchFactoryControlsRouter({
     store,
     authenticate: testAuth,
@@ -115,5 +122,6 @@ test('Go 未标记失效时 Node 不清空现有导演结果', async () => {
   const response = await put(router, '/batches/batch-1/settings', { settings: { quality: '8K' } });
   assert.equal(response.status, 200);
   assert.equal(store.batch.items[0].directorResult, originalDirector);
+  assert.equal(store.batch.items[0].promptVersions, originalPromptVersions);
   assert.equal(store.batch.items[0].production.projectId, 88);
 }
