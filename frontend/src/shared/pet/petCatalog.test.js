@@ -1,17 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-async function loadPetCatalog() {
-  try {
-    return await import('./petCatalog.js');
-  } catch {
-    return null;
-  }
-}
+import { DEFAULT_PET_ID, PET_DEFINITIONS, getPetDefinition } from './petCatalog.js';
 
-test('desktop pets are defined through a reusable catalog module', async () => {
-  const catalog = await loadPetCatalog();
-  assert.ok(catalog, 'petCatalog.js should exist');
-  assert.equal(typeof catalog.getPetDefinition, 'function');
-  assert.ok(Array.isArray(catalog.PET_DEFINITIONS));
+test('desktop pet catalog contains CM and pixiu', () => {
+  assert.deepEqual(PET_DEFINITIONS.map(pet => pet.id), ['stacky', 'pixiu']);
+  assert.equal(DEFAULT_PET_ID, 'stacky');
+});
+
+test('pixiu reuses the CM behavior profiles while owning its visual identity', () => {
+  const pixiu = getPetDefinition('pixiu');
+  assert.equal(pixiu.id, 'pixiu');
+  assert.equal(pixiu.displayName, '貔貅');
+  assert.equal(pixiu.spritesheetPath, '/pets/pixiu/spritesheet.svg');
+  assert.equal(pixiu.atlasProfile, 'stacky-v2');
+  assert.equal(pixiu.behaviorProfile, 'cm-v1');
+  assert.equal(pixiu.speechProfile, 'cm-v1');
+  assert.equal(pixiu.renderMode, 'smooth');
+});
+
+test('unknown pets fall back to CM', () => {
+  assert.equal(getPetDefinition('not-a-pet').id, 'stacky');
+  assert.equal(getPetDefinition(null).id, 'stacky');
 });
