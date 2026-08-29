@@ -26,13 +26,14 @@ type YadiCredentialStore interface {
 type Yadi struct {
 	client      *http.Client
 	credentials YadiCredentialStore
+	validateURL func(string) (*url.URL, error)
 }
 
 func NewYadi(client *http.Client, credentials YadiCredentialStore) *Yadi {
 	if client == nil {
 		client = &http.Client{Timeout: 90 * time.Second}
 	}
-	return &Yadi{client: client, credentials: credentials}
+	return &Yadi{client: client, credentials: credentials, validateURL: models.ValidateOutboundURL}
 }
 
 func (p *Yadi) Submit(ctx context.Context, model models.Definition, request models.Request) (models.Response, error) {
@@ -129,7 +130,11 @@ func (p *Yadi) Poll(ctx context.Context, model models.Definition, providerTaskID
 }
 
 func (p *Yadi) configuration(ctx context.Context, model models.Definition) (*url.URL, string, error) {
-	endpoint, err := models.ValidateOutboundURL(model.Endpoint)
+	validator := p.validateURL
+	if validator == nil {
+		validator = models.ValidateOutboundURL
+	}
+	endpoint, err := validator(model.Endpoint)
 	if err != nil {
 		return nil, "", fmt.Errorf("Yadi endpoint must be a public HTTPS URL: %w", err)
 	}
