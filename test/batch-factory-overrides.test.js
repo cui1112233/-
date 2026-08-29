@@ -1,43 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
-const { normalizeSparseOverride } = require('../routes/batch-factory-controls');
+const controlsPath = path.join(__dirname, '..', 'routes', 'batch-factory-controls.js');
+const controlsSource = fs.readFileSync(controlsPath, 'utf8');
 
-test('单书 override 只保存用户改过的字段', () => {
-  const next = normalizeSparseOverride({
-    quality: '单书画质',
-    injectCharacterPrompt: false
-  }, {});
-  assert.deepEqual(next, {
-    quality: '单书画质',
-    injectCharacterPrompt: false
-  });
+test('Node 兼容层不再实现 sparse override 业务归一化', () => {
+  assert.doesNotMatch(controlsSource, /function\s+normalizeSparseOverride\s*\(/);
+  assert.doesNotMatch(controlsSource, /OVERRIDE_KEYS/);
 });
 
-test('恢复继承会删除 override key 而不是复制父级值', () => {
-  const next = normalizeSparseOverride({
-    restriction: '新的限制'
-  }, {
-    quality: '单书画质',
-    restriction: '旧限制',
-    negativeEnabled: false
-  }, ['quality', 'negativeEnabled']);
-  assert.deepEqual(next, {
-    restriction: '新的限制'
-  });
+test('Node 兼容层不再自行解析绑定视频模型能力', () => {
+  assert.doesNotMatch(controlsSource, /resolveBoundVideoSettings/);
+  assert.doesNotMatch(controlsSource, /normalizeProductionExtras/);
 });
 
-test('VIDEO override 支持显式 false、空文本和画幅覆盖', () => {
-  const next = normalizeSparseOverride({
-    aspectRatio: '16:9',
-    quality: '',
-    qualityEnabled: false,
-    subtitlePolicy: 'allow'
-  }, {});
-  assert.deepEqual(next, {
-    aspectRatio: '16:9',
-    quality: '',
-    qualityEnabled: false,
-    subtitlePolicy: 'allow'
-  });
+test('统一设置和覆盖设置都委托给 Go canonicalization API', () => {
+  assert.match(controlsSource, /\/api\/shuihuo-production\/batch-factory\/settings\/canonicalize/);
+  assert.match(controlsSource, /\/api\/shuihuo-production\/batch-factory\/overrides\/canonicalize/);
 });
