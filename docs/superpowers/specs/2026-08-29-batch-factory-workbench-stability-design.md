@@ -3,575 +3,817 @@
 **日期：** 2026-08-29  
 **分支：** `10-batch-factory-inline-constraints-version-config`  
 **PR：** #8  
-**范围：** 批量工厂工作台主题系统、四模块可拖动布局、滚动边界、占位/未接线能力、VIDEO 时长策略、合并设置、视频管理系统账号状态以及回归测试。
+**产品基准：** `00-AI必读-批量工厂产品记忆.md` + `01-批量工厂需求决策表.md` + 当前对话中的最新确认。  
+**视觉参考：** 当前批量工厂控制台效果图只用于信息密度、视觉层级和默认排布参考，不覆盖产品规则。
+
+---
 
 ## 1. 目标
 
-把当前“能展示但存在半接线、固定布局、主题不一致”的批量工厂，改成一个可以长期维护的生产工作台。
+本轮不是把当前固定 Grid 稍微“拉一拉”，而是把批量工厂恢复成已确认的产品形态：
 
-完成后需要满足：
+- 批量优先
+- 异常优先
+- 渐进展开
+- 正常任务少操作
+- 特殊任务才进入单书 / 单 VIDEO 调整
+- 用户看到的是作品、状态与生产结果，不是 Prompt 工具集合
 
-1. 深色/浅色主题切换后，批量工厂所有 Ant Design 组件和自定义区域都能正确跟随，文字与背景保持可读对比度。
-2. 工作区保留四个业务模块，但视觉结构为“三列 + 右列上下分区”，支持 2 根纵向分割线和 1 根横向分割线拖动。
-3. 每个模块有独立滚动区；拖动、窗口缩放、侧栏收起/展开均不会把关键内容裁掉。
-4. 分割尺寸按用户本地持久化；双击分割线恢复默认；最小尺寸约束避免 Pane 被拖到不可用。
-5. 未接通的能力明确显示“暂不可用/尚未接通”，不出现看似可点击但永远失败的假操作。
-6. VIDEO 数量策略与 VIDEO 时长策略解耦：固定单 VIDEO 只控制数量，不决定时长。
-7. 当前阶段移除“跟随原音频时长”与 TTS 测时入口，不把未来能力提前暴露给用户。
-8. 视频管理系统账号状态区分 `online / login_required / unavailable`，不会把“适配器未接通”伪装成“账号掉线”。
-9. 新增/调整测试后，`npm test` 与 `npm run frontend:build` 在 PR CI 中全部通过。
+同时解决当前实现中已经确认的主题错乱、文字对比度、布局不可编辑、滚动裁切、统一播放器缺失、占位按钮、VIDEO 时长语义混乱、账号状态半接线和 CI 失败问题。
 
-## 2. 非目标
+完成后必须满足：
 
-本轮不实现以下能力：
+1. 深色 / 浅色主题完整跟随，Ant Design 组件与自定义区域均可读。
+2. 主工作台采用“卡片式网格工作台”，默认布局可用，但不是固定四列或固定分割 Pane。
+3. 正常生产模式布局锁定；只有进入“编辑布局”后才能拖动、缩放、折叠、隐藏和最大化卡片。
+4. 布局采用网格吸附，不使用完全自由 absolute positioning。
+5. 布局可保存并恢复默认，重新进入页面继续使用上次保存的布局。
+6. 批次状态中心只负责筛选；筛选结果始终显示在右侧“当前筛选”。
+7. 整个工作台只保留一个统一播放器，可切换“最终合并 / VIDEO 01 / VIDEO 02 …”。
+8. 系统默认 < 批次设置 < 单书设置 < 单 VIDEO 设置的继承关系保持稳定。
+9. 未真实接通的功能不得表现成可用主操作。
+10. 新增和既有测试恢复通过，PR CI 同时通过 `npm test` 和 `npm run frontend:build`。
 
-- 不实现视频管理系统真实发布 API；如果真实接口尚未存在，只把 UI 状态改成明确的不可用说明。
-- 不重新设计整个前贴导航、个人中心或其它工作台。
-- 不引入新的第三方 Split Pane / layout 依赖。
-- 不实现 TTS 音轨合入最终成片。
-- 不改变已经确认的发布统一设置版本配置语义。
-- 不把批量工厂改成四列横向布局。
+---
 
-## 3. 已确认根因
+## 2. 产品结构基准
 
-### 3.1 主题系统冲突
-
-当前存在两套同时生效的主题来源：
-
-- `ConfigProvider` 调用 `createAntTheme(theme)`，但 `createAntTheme()` 只切换 token，没有切换 Ant Design `defaultAlgorithm / darkAlgorithm`。
-- `global.css` 中 `.user-theme-active` 又直接覆盖 Ant Design 的 `.ant-tag`、表格、按钮等组件样式。
-
-这会造成组件背景由 AntD 计算、文字色却被全局 CSS 强制覆盖。例如浅色 Tag 背景可能配上浅色文字，产生低对比度。
-
-### 3.2 工作区不是可拖动四模块
-
-当前 `BatchFactoryPageV9.jsx` 使用固定三列 Grid：
-
-- 左：小说列表
-- 中：当前小说 / 导演 Prompt
-- 右上：VIDEO
-- 右下：合并 / 发布
-
-代码没有 resize state、pointer drag、最小尺寸保护或本地持久化，因此“4 模块拉动”实际上没有实现。
-
-### 3.3 内容裁切
-
-外层 `.legacy-content` 为 `overflow: hidden`。批量工厂内部没有完整的“固定工作台高度 + Pane 自身滚动”结构，因此窗口变小或模块被压缩时会出现内容不可达。
-
-### 3.4 视频管理系统账号适配器未在真实启动链路注入
-
-`createApp()` 已经可以接收 `videoManagementAccountAdapter`，但 `server.js` 当前仍然直接 `createApp()`。因此真实服务启动时适配器为空，账号状态只能返回 `unavailable`。
-
-### 3.5 发布按钮当前是占位能力
-
-“发布到视频管理系统”按钮当前硬编码 disabled，并明确写着真实发布接口正在接入。因此它不是可用功能，应改为不可用状态展示，而不是继续表现成主要操作按钮。
-
-### 3.6 VIDEO 数量与时长逻辑混在一起
-
-当前“固定单 VIDEO”的说明写成“时长跟随当前模型单次最大时长”，把“只生成一个 VIDEO”和“这个 VIDEO 多长”绑在一起，违反已确认产品规则。
-
-### 3.7 未来 TTS 能力提前出现在合并区
-
-当前 `MergePanel` 包含“跟随音频时长”、TTS 调用、音频测时和压缩倍率计算。这一能力尚未属于当前产品目标，应先从批量工厂 UI 和运行路径中移除。
-
-## 4. 方案选择
-
-### 方案 A：内部重构为可拖动工作台（采用）
-
-用现有 React + Ant Design 自建一个轻量 `ResizableWorkspace`，不增加第三方依赖。布局采用三列，右列内部上下分割。
-
-优点：
-
-- 与现有页面结构一致，改动可控。
-- 能精确处理右列上下分区。
-- 可以把滚动、最小尺寸、持久化和主题一次解决。
-- 不引入新的包维护成本。
-
-### 方案 B：保留固定 Grid，只补 CSS/局部拖动
-
-改动少，但不能解决结构性问题。以后还会继续出现裁切、尺寸冲突和状态难维护。
-
-### 方案 C：引入第三方 Split Pane 库
-
-代码量可能少，但会引入新依赖、样式/主题兼容成本，也不符合本轮 YAGNI 原则。
-
-**决策：采用方案 A。**
-
-## 5. 工作区架构
-
-目标结构：
+主生产链保持：
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ 批量工厂顶部操作                                             │
-├──────────────┬──────────────────────┬────────────────────────┤
-│              │                      │ ③ VIDEO               │
-│ ① 小说队列  │ ② 当前小说 / 导演    │                        │
-│              │                      ├────────────────────────┤
-│              │                      │ ④ 合并 / 发布          │
-│              │                      │                        │
-└──────────────┴──────────────────────┴────────────────────────┘
-       ↔                 ↔                       ↕
+小说获取
+→ 批量工厂
+→ 人物 / 场景 / 道具资产
+→ 剧本导演
+→ VIDEO
+→ 视频生成
+→ 合并
+→ 发布
 ```
 
-### 5.1 模块定义
+小说获取是正常上游。批量工厂直接继承：
 
-- `pane-queue`：小说队列与批次切换。
-- `pane-director`：当前小说正文、Prompt 版本、约束、导演结果和生成入口。
-- `pane-video`：当前 VIDEO 切换、状态、预览、VIDEO 编辑信息。
-- `pane-publish`：合并状态、倍率、成片状态、视频管理系统发布能力状态。
+- `sourceTaskId`
+- `bookId`
+- 小说标题
+- 平台
+- TXT
+- 来源元数据
 
-### 5.2 分割线
+不得重新抓小说、重新询问 `bookId` 或重复识别已经存在的来源元数据。
 
-- `split-left`：小说队列 / 当前小说。
-- `split-right`：当前小说 / 右侧工作区。
-- `split-publish`：右侧 VIDEO / 合并发布。
+文件规则继续固定：
 
-使用 Pointer Events 实现拖动，拖动期间：
+```text
+{bookId}.txt
+{bookId}.mp4
+```
 
-- `setPointerCapture()` 保证鼠标移出分割线仍能持续拖动。
-- `requestAnimationFrame` 或直接更新 CSS custom properties，避免无意义的高频布局状态抖动。
-- 页面添加 `is-resizing` 状态，临时禁用文字选择。
+不同小说之间绝不串 bookId、TXT、VIDEO、合并结果或发布结果。
 
-### 5.3 默认比例和最小尺寸
+---
 
-桌面默认值：
+## 3. 默认页面结构
 
-- 左列：260px。
-- 中列：min 420px，默认承担主要编辑空间。
-- 右列：min 340px，默认约 420px。
-- 右上 VIDEO：右列高度约 58%。
-- 右下合并/发布：右列高度约 42%。
+默认视觉排布参考当前控制台效果图，但仅作为“默认布局”。
 
-硬约束：
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│ 批量工厂 / 当前批次                                             │
+│ [生产统一设置] [发布统一设置] [编辑布局]                         │
+│ [开始导演] [生成待生成] [合并待合并] [上传待上传]               │
+├──────────────────────────────────────────────────────────────────┤
+│ 批次状态中心                          当前筛选                    │
+│ [全部] [待审核] [AI处理中] ...       异常 · 4 本                 │
+│ [异常] [待合并] [已合并] ...         小说 A / 小说 B / 小说 C    │
+├──────────────────┬──────────────────────────┬────────────────────┤
+│ 小说列表         │ 当前小说生产             │ 成片预览 / 合并     │
+│                  │                          │                    │
+│ 搜索 / 状态筛选  │ 原文 / 爆款开头          │ 最终合并            │
+│ 小说状态         │ 人物 / 场景 / 道具       │ VIDEO01 / VIDEO02   │
+│ 单书调整标记     │ VIDEO                    │ 统一播放器          │
+│                  │ 单书设置 / 操作记录       │ 当前合并状态         │
+├──────────────────┴──────────────────────────┴────────────────────┤
+│ 可选：批次监控 / 批量合并 / 批量上传等卡片                      │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-- 左列 min 220px / max 420px。
-- 中列 min 420px。
-- 右列 min 340px。
-- VIDEO 区 min 280px。
-- 发布区 min 220px。
+这不是固定三列或固定四列。用户进入编辑布局后，可以改变卡片位置、宽度和高度。
 
-当容器尺寸不足以同时满足全部最小值时，不继续把 Pane 压缩到不可用，而是进入响应式模式。
+---
 
-### 5.4 响应式模式
+## 4. 卡片式可编辑布局
 
-- 宽度 >= 1180px：完整三列 + 右侧上下分区，可拖动。
-- 900px–1179px：两列。左侧小说队列保留独立列；右侧主工作区把“当前小说 / 导演、VIDEO、合并 / 发布”纵向堆叠，桌面三列分割线关闭。
-- < 900px：单列堆叠四个模块，每个模块正常滚动，不提供拖动分割线。
+### 4.1 核心原则
 
-阈值最终由工作区容器宽度判断，而不是只看 `window.innerWidth`，这样侧栏收起/展开也能正确触发布局变化。
+工作区使用可持久化的网格布局。卡片支持：
 
-### 5.5 持久化
+- 拖动
+- 调整宽度
+- 调整高度
+- 折叠
+- 最大化
+- 隐藏
+- 保存布局
+- 恢复默认布局
 
-使用 `localStorage` 保存当前用户工作区比例，例如：
+禁止完全自由 absolute positioning；所有移动和缩放都按网格吸附。
+
+### 4.2 正常模式与编辑模式
+
+正常模式：
+
+```text
+布局锁定
+→ 用户可以操作内容
+→ 不会因为点击或拖文本误移动卡片
+```
+
+点击：
+
+```text
+[编辑布局]
+```
+
+进入布局编辑模式后：
+
+- 卡片显示拖动手柄。
+- 卡片边缘显示 resize handle。
+- 显示“隐藏 / 最大化”操作。
+- 顶部切换为 `[保存布局] [取消] [恢复默认布局]`。
+- 内容区操作在拖动手柄区域外仍可正常使用，但拖动过程中暂时禁止文本选择。
+
+“取消”恢复本次进入编辑模式前的布局；“保存布局”才持久化。
+
+### 4.3 默认核心卡片
+
+本轮至少整理以下核心卡片：
+
+1. `小说列表`
+2. `当前小说生产`
+3. `成片预览 / 合并成品`
+4. `批次监控 / 批量操作`
+
+顶部批次标题和主要批量操作栏保持稳定，不作为普通拖拽卡片。
+
+“批次状态中心 + 当前筛选”默认保持同一宽卡中的左右两个区域，避免状态筛选后卡片高度变化。
+
+### 4.4 布局持久化
+
+使用版本化布局 schema，例如：
+
+```text
+qiantie:batch-factory:layout:v1
+```
+
+保存内容只包含布局，不保存业务数据：
 
 ```json
 {
-  "leftWidth": 260,
-  "rightWidth": 420,
-  "rightTopRatio": 0.58
+  "items": {
+    "book-list": { "x": 0, "y": 0, "w": 3, "h": 8, "hidden": false },
+    "book-workbench": { "x": 3, "y": 0, "w": 5, "h": 8, "hidden": false },
+    "preview": { "x": 8, "y": 0, "w": 4, "h": 5, "hidden": false },
+    "batch-tools": { "x": 8, "y": 5, "w": 4, "h": 3, "hidden": false }
+  }
 }
 ```
 
-key 使用版本化名称：
+要求：
 
-`qiantie:batch-factory:workspace:v1`
+- schema 非法时回退默认布局。
+- 新增卡片时旧布局不会崩溃，新卡片按默认位置补入。
+- 隐藏卡片可从“显示模块”菜单恢复。
+- 恢复默认布局需要用户确认。
+- 布局编辑与业务设置完全分离。
+
+本轮不要求“多个命名布局方案”；先做好一个用户布局 + 默认布局。
+
+---
+
+## 5. 滚动、高度与卡片内容
+
+当前 `.legacy-content { overflow: hidden; }` 可以继续承担应用壳层裁剪，但批量工厂必须自己建立完整滚动模型。
+
+页面结构：
+
+```text
+batch-factory-page
+├─ batch-toolbar
+├─ batch-status-row
+└─ layout-workspace
+   └─ grid-card
+      ├─ card-header
+      └─ card-body (overflow: auto)
+```
 
 要求：
 
-- 读取失败或值越界时回退默认。
-- 每次应用尺寸前 clamp 到当前容器 min/max。
-- 双击任一分割线恢复默认布局，并同步更新存储。
-- 响应式单列/两列模式不覆盖用户的桌面尺寸配置。
+- 工作区占满剩余可用高度。
+- 网格工作区本身允许滚动。
+- 设定固定/可调整高度的卡片，其内容区必须独立 `overflow: auto`。
+- 不再依赖 `72vh` 作为小说列表核心高度规则。
+- 侧栏展开/折叠或浏览器尺寸变化时，布局重新计算可用宽度，不把卡片压到不可操作。
+- 小屏幕可以降级为单列/双列自动排布；小屏自动排布不能覆盖桌面保存布局。
 
-## 6. 滚动与高度模型
+---
 
-批量工厂页面根节点必须占满 `legacy-content` 可用高度：
+## 6. 批次状态中心
+
+批次状态中心只负责“筛选入口”。
+
+正确结构：
 
 ```text
-legacy-content
-└─ batch-factory-page (height: 100%; min-height: 0)
-   ├─ toolbar (固定高度/自然高度)
-   └─ workspace (flex: 1; min-height: 0)
-      ├─ pane queue (overflow: hidden)
-      │  └─ pane-body (overflow: auto)
-      ├─ pane director
-      │  └─ pane-body (overflow: auto)
-      └─ right-stack
-         ├─ pane video
-         │  └─ pane-body (overflow: auto)
-         └─ pane publish
-            └─ pane-body (overflow: auto)
+批次状态中心                 当前筛选
+[全部 100]                   异常 · 4 本
+[待开始 2]                  ───────────
+[待审核 5]                  小说 A
+[AI处理中 8]                小说 B
+[待生成 18]                 小说 C
+[视频排队 12]
+[生成中 9]
+[异常 4]
+[待合并 16]
+[已合并 26]
+[待上传 ...]
+[上传中 ...]
+[已发布 ...]
 ```
 
-禁止依赖 `72vh` 这类固定视口高度作为核心滚动模型。
+点击某个状态：
 
-模块标题栏可以保持可见，真正滚动的是 pane body。
+- 只切换右侧“当前筛选”的列表。
+- 不在状态中心下面展开小说。
+- 点击当前筛选中的小说，左侧小说列表选中该书，当前小说生产卡切换到该书。
+- 如果是异常状态，同时自动定位到需要处理的 VIDEO / 合并 / 发布步骤。
 
-## 7. 主题系统设计
+一本小说在状态中心只计入一个主状态。
 
-### 7.1 单一主题入口
+展示优先级：
 
-`createAntTheme(mode)` 改为：
+```text
+异常红 > 手动调整紫 > 处理中蓝 > 成功绿/青 > 普通灰
+```
 
-- 深色：`algorithm: theme.darkAlgorithm`
-- 浅色：`algorithm: theme.defaultAlgorithm`
-- 品牌色、圆角、字体等继续通过 token 覆盖。
+“已合并”不是最终完成；只有真正发布成功才进入“已完成/已发布”终态。
 
-Ant Design 组件视觉由算法 + token 负责。
+---
 
-### 7.2 CSS 职责边界
+## 7. 小说列表与当前小说
+
+### 7.1 小说列表
+
+显示：
+
+- 序号
+- 标题
+- BookID
+- 平台
+- 当前主状态
+- 单书是否覆盖
+- VIDEO 异常摘要
+- 合并/上传状态
+
+支持：
+
+- 搜索书名 / BookID
+- 状态筛选
+- 点击切换当前小说
+- 异常小说显著标红
+- 手动 override 显示紫色，但异常红色优先
+
+### 7.2 当前小说生产卡
+
+当前小说生产卡采用渐进展开，不把所有内容同时铺开。
+
+建议模块顺序：
+
+```text
+当前需要处理（仅异常时出现）
+原文
+爆款开头（仅爆款模式）
+人物 / 场景 / 道具
+VIDEO
+合并
+发布
+操作记录
+```
+
+正常模块默认折叠或摘要化；异常模块自动展开。
+
+人物 / 场景 / 道具 Prompt 支持直接编辑、重新获取、保存和恢复 AI 版本；临时情绪、动作、受伤等仍属于 VIDEO 状态，不创建新的基础人物资产。
+
+---
+
+## 8. 统一视频播放器
+
+整个批量工厂只有一个播放器，位于：
+
+```text
+成片预览 / 合并成品
+```
+
+播放器切换项：
+
+```text
+[最终合并]
+[VIDEO 01]
+[VIDEO 02]
+[VIDEO 03]
+...
+```
+
+行为：
+
+- 点击 VIDEO 卡中的“预览”或 VIDEO 行，会切换统一播放器到对应 VIDEO。
+- 点击“最终合并”播放 `{bookId}.mp4`。
+- VIDEO 卡中不再嵌入独立播放器。
+- 切换小说时播放器跟随当前小说，默认优先最终合并；没有合并成品则选择最近可播放 VIDEO。
+- 播放器媒体背景允许保持黑色，不跟主题改为白底。
+
+---
+
+## 9. 主题系统
+
+### 9.1 根因
+
+当前主题存在两套规则竞争：
+
+1. `ConfigProvider` 只替换 token，没有切换 Ant Design 明/暗算法。
+2. `global.css` 的 `.user-theme-active` 又直接覆盖 `.ant-tag`、按钮、表格等 AntD 组件文字/背景。
+
+结果会出现“组件背景按 AntD 算法变化，但文字被全局 CSS 强行覆盖”的情况。
+
+### 9.2 目标架构
+
+统一入口：
+
+```text
+用户切换 light/dark
+→ ConfigProvider
+→ theme.defaultAlgorithm / theme.darkAlgorithm
+→ 统一语义 token
+→ 批量工厂和其它 AntD 组件消费 token
+```
+
+`createAntTheme(mode)`：
+
+- light 使用 `theme.defaultAlgorithm`
+- dark 使用 `theme.darkAlgorithm`
+- 品牌主色、圆角、字体继续通过 token 覆盖
+
+### 9.3 CSS 边界
 
 `global.css` 保留：
 
-- 页面背景。
-- Sidebar / topbar / shell。
-- 品牌动画与非 AntD 自定义元素。
-- 布局尺寸变量。
+- 应用背景
+- sidebar / topbar / shell
+- 自定义品牌动画
+- 非 AntD 元素
 
-删除或缩小这些高风险覆盖：
+删除或收敛会破坏 AntD 语义色的高风险规则，包括但不限于：
 
-- `.user-theme-active .ant-tag { color: ... }`
-- 对 AntD table/card/input/button 的大面积背景/文字强制覆盖。
-- 任何会破坏 Ant Design color semantic token 的规则。
-
-如果批量工厂需要额外背景或边框，使用 AntD `theme.useToken()` 或 CSS 变量映射后的语义变量，而不是硬编码颜色。
-
-### 7.3 批量工厂硬编码颜色
-
-当前选中小说 `outline: 2px solid #1677ff` 改为主题 token（如 `colorPrimary` 或适合的 active border token）。
-
-VIDEO 播放器允许保持黑色媒体背景，因为这是媒体容器的功能色，不需要跟主题切成白色。
-
-### 7.4 可读性验收
-
-至少检查：
-
-- Typography primary/secondary。
-- Tag 默认/blue/green/gold/red。
-- Alert info/warning/error。
-- Segmented selected/unselected。
-- Select placeholder/value/dropdown。
-- Switch on/off。
-- Drawer/Modal/Collapse/Card。
-- disabled Button。
-- 小说列表 selected/hover。
-
-深色和浅色都必须可读。
-
-## 8. VIDEO 时长与固定单 VIDEO
-
-### 8.1 数据语义
-
-生产设置新增/统一：
-
-```text
-videoDurationMode: 'auto' | 'fixed'
-fixedVideoDuration: number | null
-fixedSingleVideo: boolean
+```css
+.user-theme-active .ant-tag { color: ... }
 ```
 
-### 8.2 UI
+批量工厂自定义选中态、边框、背景统一使用 token 或映射后的 CSS 变量，不再硬编码 `#1677ff` 等颜色。
+
+### 9.4 主题验收
+
+深色和浅色均检查：
+
+- Typography primary / secondary
+- Tag default / blue / green / gold / red
+- Alert info / warning / error
+- Button normal / primary / disabled
+- Select 与下拉层
+- Segmented
+- Switch
+- Collapse
+- Card
+- Drawer
+- Modal
+- Badge
+- 输入框 / TextArea
+- 小说选中 / hover / 异常状态
+- 布局编辑手柄
+
+文字必须在对应背景上可读。
+
+---
+
+## 10. 生产统一设置与继承
+
+继承顺序固定：
+
+```text
+系统默认
+↓
+生产统一设置
+↓
+单本小说设置
+↓
+单 VIDEO 设置
+```
+
+未 override 的字段继续跟随上层。
+
+生产统一设置继续包含：
+
+- 生产方式：原文直转 / 爆款开头
+- 剧本提示词
+- 人物场景提示词
+- 视频模型
+- 视频画幅
+- VIDEO 时长策略
+- 固定单 VIDEO
+- 内联约束设置
+
+剧本提示词只显示当前已确认的 3 款：
+
+- 标准短剧分镜
+- 商业动态分镜
+- 空间连续分镜
+
+人物场景提示词当前只显示：
+
+- 标准资产提取
+
+主生产页面不恢复 Prompt Studio，也不展示系统元 Prompt 正文。
+
+约束设置保持当前已确认的 5 组内联结构：
+
+1. 基础设定（人物 / 场景）
+2. 画面前缀词
+3. 画质约束
+4. 画面限制
+5. 负面提示词
+
+单书继续使用字段级 override；未修改字段仍继承批次。
+
+---
+
+## 11. VIDEO 时长与固定单 VIDEO
+
+两个概念彻底分开。
+
+### 11.1 VIDEO 时长策略
 
 ```text
 VIDEO 时长策略
 [ AI自动 ] [ 固定时长 ]
-
-固定时长开启时：
-[ 选择固定时长 ▼ ]
 ```
 
-10s、15s 可以是模型常见候选示例，但不是所有模型的硬编码规则。固定时长候选应优先来自视频模型 capability；如果现有模型元数据只有 `maxVideoDuration`，则 UI 只允许选择/输入不超过该上限的有效时长，并由后端再次验证。
+AI 自动：
 
-要求：
+- 每个 VIDEO 根据内容自然决定时长。
+- 模型最大 15s 只代表单个 VIDEO 上限，不代表每段必须 15s。
+- 不为了凑满最大时长增加无意义空镜。
 
-- 任何固定时长都不得超过 `maxVideoDuration`。
-- 如果切换模型后当前固定时长超出新模型能力，先提示用户并要求重新选择，不静默截断。
-- 模型最大时长是上限，不代表每个 VIDEO 必须生成到最大时长。
+固定时长：
 
-### 8.3 固定单 VIDEO
+- 用户选择固定秒数。
+- 可选值受当前视频模型能力约束。
+- 切换模型导致当前固定时长超能力时，必须明确提示并要求用户重新选择。
 
-`fixedSingleVideo` 只做：
+数据语义：
 
-- 每本小说最终最多生成一个 VIDEO。
-- 导演只输出该单 VIDEO 覆盖的内容。
-- 后续小说内容不继续输出 VIDEO。
+```text
+videoDurationMode: 'auto' | 'fixed'
+fixedVideoDuration: number | null
+```
 
-它不改变 `videoDurationMode / fixedVideoDuration`。
+### 11.2 固定单 VIDEO
 
-## 9. 合并区域
+`fixedSingleVideo` 只负责：
 
-本轮只保留当前确认的固定倍率：
+```text
+每本小说最终只导演出 1 个 VIDEO
+```
 
-`1.0 / 1.1 / 1.2 / 1.3 / 1.5 / 1.7 / 2.0`
+一个 VIDEO 内仍然可以有多个 Shot。
 
-删除当前批量工厂中的：
+它不负责决定时长，也不自动把时长改成模型最大时长。
 
-- `跟随音频时长`
-- `textToSpeech()` 测时
-- `audioDuration()`
-- “仅测时，不合入音轨”相关 Tag
-- 根据音频自动计算 ratio 的代码路径
+固定单 VIDEO 开启时，如果 VIDEO 时长策略为固定，则使用用户已经选择的固定秒数；如果为 AI 自动，则仍由导演在模型能力范围内决定这个唯一 VIDEO 的时长。
 
-合并能力本身仍然通过现有 merge capability 检查。
+单 VIDEO 手动修改时长后不能只改数字，必须重新导演该 VIDEO / 重排 Shot 时间轴。
 
-## 10. 视频管理系统账号状态
+---
 
-统一状态：
+## 12. visualPrompt / compiledPrompt
+
+边界保持不变：
+
+`visualPrompt` 只描述当前 VIDEO 的可见画面，不永久包含：
+
+- 前缀词
+- 人物一致性长 Prompt
+- 场景一致性长 Prompt
+- 道具 Prompt
+- 画质要求
+- 画面限制
+- 字幕规则
+- 负面词
+
+用户点击生成时才动态编译：
+
+```text
+前缀词（开启时）
++ 人物 Prompt（开启时）
++ 场景 Prompt（开启时）
++ 道具 Prompt（开启时）
++ visualPrompt
++ 画质要求（开启时）
++ 画面限制（开启时）
++ 字幕规则
++ 负面提示词（开启时）
+= compiledPrompt
+```
+
+生成时保存 `compiledPrompt` 快照，绝不回写覆盖 `visualPrompt`。
+
+---
+
+## 13. 合并与 TTS 当前范围
+
+标准合并继续按导演 VIDEO 顺序输出：
+
+```text
+VIDEO 01
+VIDEO 02
+VIDEO 03
+...
+↓
+合并
+↓
+{bookId}.mp4
+```
+
+原始 VIDEO 保留。
+
+历史产品文档曾把“跟随音频时长”定义为正式逻辑，但当前最新产品决定优先：**本轮 UI 不继续暴露“跟随音频时长 / TTS 测时”入口。**
+
+处理方式：
+
+- 当前批量工厂合并 UI 只保留已确认的手动倍率选项：`1.0 / 1.1 / 1.2 / 1.3 / 1.5 / 1.7 / 2.0`。
+- 不把 TTS 音轨合入成片。
+- 如果代码中已有 TTS 测时兼容逻辑，本轮可保留内部兼容，但不得作为当前主要 UI 功能继续展示。
+- 后续如果重新启用“跟随音频时长”，必须继续遵守“TTS 只测时、不合音轨”的产品边界。
+
+---
+
+## 14. 发布统一设置
+
+发布统一设置继续采用当前已确认方案，职责与生产统一设置分离。
+
+顶部：
+
+```text
+版本配置
+[批量发布配置 V3 ▼]
+● 已同步批量后台配置
+[同步最新配置]
+```
+
+发布项当前只保留：
+
+```text
+素材复用
+[不复用 / 复用]
+
+水平翻转
+[不翻转 / 翻转]
+```
+
+删除：
+
+- 解压视频数量
+- AI 头部
+
+“版本配置 + 同步最新配置”属于发布统一设置，不回到生产统一设置。
+
+后台发布新版本不自动覆盖当前批次；用户主动同步后先进入 Drawer 草稿，保存发布统一设置后才应用到当前批次。
+
+---
+
+## 15. 视频管理系统账号
+
+正式产品名称统一使用：
+
+```text
+视频管理系统
+```
+
+打开发布统一设置时自动验证账号。
+
+状态必须区分：
 
 ### online
 
 ```text
-视频管理系统
-● 账号名称
+● 账号名字
 账号在线
 ```
+
+蓝色状态点。
 
 ### login_required
 
 ```text
-视频管理系统
 登录异常
 账号登录状态已失效
 [重新登录]
 ```
 
-只有存在真实 relogin adapter 且能返回有效登录 URL 时，才允许出现可用的重新登录动作。
-
 ### unavailable
 
 ```text
 视频管理系统
-暂不可用
-视频管理系统账号验证能力尚未接通
+账号验证能力暂不可用
 ```
 
-不显示“重新登录”按钮，避免用户点击一个注定失败的操作。
+`unavailable` 不显示假的“重新登录”按钮。
 
-### 真实启动注入
+账号名字、Cookie、登录状态、登录 URL 都属于运行时信息，不进入发布版本配置。
 
-实现阶段需要找到“小说获取”当前用于视频管理系统的真实账号/session 能力，并把它作为 adapter 注入 `createApp()` 的真实启动路径。
+真实服务启动链路必须注入实际 adapter；在没有真实 adapter 前绝不伪造 online。
 
-如果仓库里不存在可复用的真实 adapter，本轮必须保持 `unavailable`，并在代码和 UI 中明确说明；不能伪造 online。
+---
 
-## 11. 发布能力状态
+## 16. 占位/半接线功能规则
 
-在真实发布 API 未接通前，删除主要 CTA 风格的 disabled “发布到视频管理系统”按钮，改为状态卡：
+任何功能分成三类：
+
+1. **真实可用**：显示正常操作。
+2. **有后端能力但暂不可用**：显示明确原因和恢复动作。
+3. **尚未接入**：显示说明，不放一个永远 disabled 的主按钮假装功能存在。
+
+当前“发布到视频管理系统”如果真实发布 API 尚未接通，应显示：
 
 ```text
-发布
+视频管理系统发布
+真实发布接口尚未接通
 当前成片：{bookId}.mp4
-TXT：{bookId}.txt
-
-发布能力尚未接通
 ```
 
-如果现有页面有下载成片能力，可保留下载；不能新增一个假的发布成功路径。
+而不是一个长期灰色的主要按钮。
 
-未来真实接口接入后，再根据 capability 显示真正的一键发布按钮。
+API 下拉、Prompt catalog、模型列表等读取失败不得静默 `.catch(() => {})`。需要给用户明确错误提示或区域级错误状态。
 
-## 12. 约束设置与错误反馈
+---
 
-### 12.1 旧批次兼容
+## 17. 错误处理与异常优先
 
-`constraintQualityEnabled / constraintRestrictionEnabled / constraintNegativeEnabled`：
+异常卡片 / 小说 / VIDEO 必须使用统一错误模型：
 
-- 如果字段本身是 boolean，使用明确值。
-- 如果旧数据里字段不存在，则根据对应 body 是否非空推导 enabled。
+- 哪本书
+- 哪个 VIDEO / 哪一步
+- 用户可理解的错误摘要
+- provider / task 信息（放详情）
+- 可执行操作：重试 / 查看详情 / 标记问题
 
-这样避免旧批次已有约束正文但 UI 显示关闭，用户保存后反而把它禁用。
+错误恢复后，历史错误仍进入操作记录 / 问题日志，不删除历史痕迹。
 
-### 12.2 API 错误
+状态中心点击异常后，应优先把当前小说定位到真实失败步骤。
 
-当前 `getBatchFactoryPromptCatalog()`、`listModels()`、发布版本配置读取等地方存在 `.catch(() => {})`。
+---
 
-重要数据加载失败时必须出现局部错误或 `message.error`；不能把错误吞掉后展示空 Select，让用户误以为功能是摆设。
+## 18. 当前代码需要移除或修正的旧实现
 
-### 12.3 系统预设编辑
+本轮明确处理：
 
-系统预设正文编辑不应该因为用户开始输入就自动切换到“我的提示词”来源。来源切换和正文编辑是两个独立动作。
+- 固定 `gridTemplateColumns` 三列工作区。
+- VIDEO 卡内部独立播放器。
+- 小说列表固定 `72vh` 核心高度。
+- 硬编码 `#1677ff` 选中边框。
+- 全局 CSS 强制修改 AntD Tag 等组件颜色。
+- 固定单 VIDEO = 模型最大时长的错误语义。
+- 当前 UI 的“跟随音频时长”入口。
+- `unavailable` 状态仍显示重新登录的错误交互。
+- 永久 disabled 的“发布到视频管理系统”主按钮。
+- 读取 catalog / model 等失败后静默吞错。
 
-## 13. 组件边界
+同时不得因为重构重新引入：
 
-建议新增：
+- Prompt Studio 主入口
+- 多播放器
+- 系统 Prompt 正文暴露
+- 关闭资产注入就删除 refs
+- `compiledPrompt` 回写 `visualPrompt`
 
-- `BatchFactoryWorkspace.jsx`
-  - 负责桌面/响应式布局、分割线、尺寸状态、持久化。
-- `ResizableDivider.jsx`
-  - 可复用 pointer drag + double click reset。
-- `useBatchFactoryWorkspaceLayout.js`
-  - localStorage、clamp、容器尺寸响应。
+---
 
-保留：
+## 19. 实现边界与组件建议
 
-- `BatchFactoryPageV9.jsx` 负责业务状态和 API 操作。
-- `BatchFactorySettingsDrawers.jsx` 负责生产/发布 Drawer。
-- `BatchConstraintSettings.jsx` 负责约束编辑。
-
-目标是把“布局行为”从已经很大的 `BatchFactoryPageV9.jsx` 中抽出来，避免继续加耦合。
-
-## 14. 数据流
-
-### 工作区尺寸
+为了避免继续把 `BatchFactoryPageV9.jsx` 做成超大文件，本轮建议拆出清晰组件：
 
 ```text
-pointer drag
-→ workspace local state
-→ clamp
-→ CSS layout
-→ debounce/localStorage save
+batch-factory/
+├─ BatchFactoryWorkspace.jsx
+├─ BatchFactoryLayoutEditor.jsx
+├─ BatchStatusCenter.jsx
+├─ BatchBookList.jsx
+├─ BatchBookWorkbench.jsx
+├─ BatchMediaPreview.jsx
+├─ BatchOperationsPanel.jsx
+├─ BatchFactorySettingsDrawers.jsx
+└─ BatchConstraintSettings.jsx
 ```
 
-### 主题
+职责：
+
+- `BatchFactoryWorkspace`：布局 schema、默认布局、持久化、编辑状态。
+- `BatchFactoryLayoutEditor`：拖动/resize/隐藏/最大化 UI。
+- `BatchStatusCenter`：主状态计数与当前筛选。
+- `BatchBookList`：小说搜索、状态、选择。
+- `BatchBookWorkbench`：当前小说的渐进式详细操作。
+- `BatchMediaPreview`：唯一播放器与最终合并/VIDEO 切换。
+- `BatchOperationsPanel`：批次监控、批量生成/合并/上传入口。
+
+尽量复用现有业务函数，不在布局组件中重写生产逻辑。
+
+不引入第三方自由布局依赖，优先使用 CSS Grid + Pointer Events / ResizeObserver 实现轻量网格编辑能力；如果实现过程中证明自研会显著增加复杂度，再升级架构讨论，不直接引入新包。
+
+---
+
+## 20. 测试与验收
+
+### 20.1 自动测试
+
+至少增加/修正：
+
+- layout schema 解析、clamp、默认恢复。
+- 编辑模式与正常模式契约。
+- 状态中心筛选结果必须在“当前筛选”。
+- 单播放器契约：VIDEO 模块不得创建独立 `<video>`。
+- 生产设置继承/override 合并。
+- VIDEO duration mode 与 fixed single 分离。
+- 视频模型能力变化时固定时长校验。
+- `visualPrompt` / `compiledPrompt` 分离。
+- 发布版本只包含发布字段。
+- 视频管理系统 `online / login_required / unavailable` 三态。
+- unavailable 不提供假 relogin。
+- 主题 theme algorithm 配置契约。
+- UI 不再出现当前阶段禁用的“跟随音频时长”。
+
+### 20.2 CI
+
+完成标准：
 
 ```text
-UserLayout theme state
-→ document[data-theme]
-→ ConfigProvider createAntTheme(mode)
-→ AntD algorithm + token
-→ Batch Factory consumes semantic tokens
+npm test                 PASS
+npm run frontend:build   PASS
 ```
 
-### VIDEO 时长
+不能因为既有测试与架构更新冲突就简单删除测试；先判断旧测试是否已经违反当前产品规则，只有确认测试契约过时时才更新测试。
+
+### 20.3 手工验收矩阵
+
+至少人工检查：
 
 ```text
-生产统一设置 draft
-→ validate against selected model capability
-→ save batch.settings
-→ director uses duration strategy
-→ generation uses director output + model cap
+深色主题
+浅色主题
+侧栏展开
+侧栏收起
+正常布局模式
+编辑布局模式
+拖动卡片
+改变卡片宽度/高度
+隐藏并恢复卡片
+最大化并退出
+保存布局后刷新页面
+恢复默认布局
+状态中心每个状态筛选
+异常小说跳转
+统一播放器 VIDEO 切换
+最终合并切换
+生产统一设置
+单书 override
+单 VIDEO override
+发布统一设置
+视频管理系统在线/失效/不可用
+模型能力不兼容提示
 ```
 
-### 视频管理账号
+---
 
-```text
-打开发布 Drawer
-→ GET status
-→ adapter reads real session
-→ online / login_required / unavailable
-→ UI renders corresponding state
-```
-
-## 15. 测试策略
-
-实施使用 TDD。先写/调整失败测试，再写生产代码。
-
-### 15.1 主题测试
-
-至少锁定：
-
-- `createAntTheme('dark')` 使用 dark algorithm。
-- `createAntTheme('light')` 使用 default algorithm。
-- 不再存在破坏 Tag semantic color 的全局强制文字色覆盖。
-
-### 15.2 工作区测试
-
-测试纯函数/Hook：
-
-- 默认尺寸。
-- clamp。
-- localStorage 无效值回退。
-- 双击 reset。
-- 小容器进入响应式模式。
-
-UI contract 测试：
-
-- 页面存在 4 个 Pane。
-- 桌面存在 3 个 divider。
-- 不再使用固定 `gridTemplateColumns` 作为工作台核心布局。
-
-### 15.3 VIDEO 时长测试
-
-- auto 模式保存正确。
-- fixed 模式保存用户选择的合法时长。
-- 超过模型最大时长被拒绝。
-- fixedSingleVideo 不覆盖 fixedVideoDuration。
-
-### 15.4 合并测试
-
-- UI 不再出现“跟随音频时长”。
-- 批量工厂页面不再调用 TTS 测时。
-- 固定倍率仍保留完整集合。
-
-### 15.5 视频管理账号测试
-
-- online 显示账号名。
-- login_required 才出现重新登录。
-- unavailable 不出现重新登录 CTA。
-- 无 adapter 时永不返回 online。
-
-### 15.6 CI
-
-PR workflow 顺序：
-
-1. `npm install`
-2. `npm --prefix frontend install`
-3. `npm test`
-4. `npm run frontend:build`
-
-完成标准：全部绿色。
-
-## 16. 实施顺序
-
-1. 先修当前 CI 基线测试契约，使失败原因可解释、可稳定复现。
-2. 主题系统单一化，先消除明暗模式冲突。
-3. 抽出 `BatchFactoryWorkspace`，实现四模块、滚动和拖动持久化。
-4. 修 VIDEO 时长策略和 fixedSingleVideo 解耦。
-5. 移除 TTS 跟随音频合并路径。
-6. 修约束设置旧数据兼容、错误吞掉和预设编辑问题。
-7. 修视频管理账号三态和真实启动 adapter 注入。
-8. 把未接通发布按钮改成明确 capability 状态。
-9. 运行完整测试与 frontend build；对深/浅主题、三个 divider、四 Pane 做人工契约核对。
-
-## 17. 验收清单
-
-- [ ] 深色主题下所有批量工厂文字、Tag、Alert、Select、Drawer 可读。
-- [ ] 浅色主题下同样可读。
-- [ ] 切换主题无需刷新页面即可完整更新。
-- [ ] 小说队列与导演区可以左右拉动。
-- [ ] 导演区与右工作区可以左右拉动。
-- [ ] VIDEO 与合并/发布可以上下拉动。
-- [ ] 三条分割线都有 min/max 保护。
-- [ ] 双击分割线恢复默认。
-- [ ] 刷新页面后桌面布局尺寸保持。
-- [ ] 小窗口不会出现内容被 `overflow:hidden` 永久裁掉。
-- [ ] 四个 Pane 各自可滚动。
-- [ ] 生产统一设置有 AI自动 / 固定时长。
-- [ ] 固定时长必须受当前模型 capability / maxVideoDuration 限制。
-- [ ] 固定单 VIDEO 不再等于“模型最大时长”。
-- [ ] 合并区不再出现跟随音频时长/TTS 测时。
-- [ ] `unavailable` 不显示重新登录按钮。
-- [ ] `login_required` 才显示重新登录。
-- [ ] 未接通发布能力不再显示伪主要按钮。
-- [ ] 重要 API 加载失败不会静默变成空白 UI。
-- [ ] 旧批次非空约束正文不会因为缺少 enabled 字段被误关。
-- [ ] `npm test` 通过。
-- [ ] `npm run frontend:build` 通过。
-
-## 18. 风险与控制
-
-### 风险：工作台拖动造成布局抖动
-
-控制：尺寸状态独立于业务状态；避免拖动时触发批量数据重算；使用 CSS variables/轻量 state。
-
-### 风险：主题重构影响其它页面
-
-控制：优先去掉明显破坏 AntD semantic color 的全局规则；每次删除覆盖前搜索依赖；必要时把页面专用规则限制到明确 scope，而不是新增新的全局覆盖。
-
-### 风险：旧批次数据字段不完整
-
-控制：所有新增字段有 backward-compatible fallback；存储层和 UI 初始化都测试 legacy case。
-
-### 风险：视频管理系统真实 adapter 在仓库里找不到
-
-控制：不猜、不伪造。保持 `unavailable`，并把“真实接线”作为明确未完成 capability，不影响其它工作台改造合并。
-
-## 19. 完成定义
+## 21. 完成定义
 
 本轮只有同时满足以下条件才算完成：
 
-- 代码与 UI 行为符合本 spec。
-- 现有 PR #8 中与本范围冲突的旧实现已修正。
-- 新增测试覆盖主题、布局、时长策略和账号三态。
-- PR CI 的 test 与 frontend build 全绿。
-- 没有把未接通外部能力伪装为已可用。
+1. 页面结构符合“批量优先 / 异常优先 / 渐进展开”。
+2. 工作台是可编辑、可保存、网格吸附的卡片布局，而不是固定 Pane 拉伸。
+3. 正常模式布局锁定，不会误拖。
+4. 深色 / 浅色主题均不存在明显文字不可读问题。
+5. 状态筛选结果只出现在右侧“当前筛选”。
+6. 整个工作台只存在一个媒体播放器。
+7. VIDEO 数量策略与时长策略分离。
+8. 生产/单书/单 VIDEO 继承关系不被破坏。
+9. 发布版本配置、视频管理系统账号规则符合当前确认。
+10. 没有把未接通能力伪装成正常功能。
+11. `npm test` 和 `npm run frontend:build` 全部通过。
+12. PR #8 保持未合并，直到用户明确要求合并。
