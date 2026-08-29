@@ -51,7 +51,7 @@ jobs:
         run: npm --prefix frontend ci
 
       - name: Run pet frontend tests
-        run: node --test frontend/src/shared/pet/*.test.js
+        run: node --test frontend/src/shared/api/configPayload.test.js frontend/src/shared/pet/*.test.js
 
       - name: Build frontend
         run: npm --prefix frontend run build
