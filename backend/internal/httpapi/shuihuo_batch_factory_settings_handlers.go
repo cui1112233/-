@@ -63,15 +63,10 @@ func (api *API) canonicalizeBatchFactorySettings(r *http.Request, user store.Use
 		return nil, http.StatusConflict, "所选视频模型未配置单次最大生成时长"
 	}
 
-	// The browser selects only the logical model row. Version/name/capability are
-	// authoritative server-side snapshot fields and must never be trusted from
-	// the request body.
 	normalized["videoModelId"] = int(model.ID)
 	normalized["videoModelVersionId"] = int(model.VersionID)
 	normalized["videoModelName"] = model.Name
 	normalized["maxVideoDuration"] = maxDuration
-	// Re-normalize after replacing maxVideoDuration so exactDuration follows the
-	// selected model when fixed-single-VIDEO is enabled.
 	return batchfactory.NormalizeSettings(normalized, nil), http.StatusOK, ""
 }
 
@@ -124,8 +119,6 @@ func (api *API) handleSaveBatchFactorySettings(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取生产统一设置失败"})
 		return
 	} else if exists {
-		// Once a batch has a MySQL snapshot, browser/legacy JSON copies are no
-		// longer authoritative previous state.
 		previous = stored
 	}
 	settings, status, message := api.canonicalizeBatchFactorySettings(r, user, req.Settings, previous)
@@ -212,8 +205,6 @@ func (api *API) handleGetBatchFactorySettingsState(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量工厂设置失败"})
 		return
 	}
-	// The batch row is the ownership marker. Item/video rows can exist during a
-	// failed bootstrap attempt and must not make MySQL authoritative by themselves.
 	persisted := state.Batch != nil
 	writeJSON(w, http.StatusOK, map[string]any{"persisted": persisted, "state": state})
 }
@@ -233,7 +224,19 @@ func (api *API) handleBootstrapBatchFactorySettingsState(w http.ResponseWriter, 
 		return
 	}
 	user, _ := currentUser(r)
-	state, err := batchfactory.NewSettingsStore(api.deps.DB).BootstrapBatchState(r.Context(), user.ID, batchID, req.State)
+	settingsStore := batchfactory.NewSettingsStore(api.deps.DB)
+	if _, exists, err := settingsStore.LoadBatch(r.Context(), user.ID, batchID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量工厂设置失败"})
+		return
+	} else if !exists {
+		canonical, status, message := api.canonicalizeBatchFactorySettings(r, user, req.State.Batch, nil)
+		if message != "" {
+			writeJSON(w, status, map[string]string{"error": message})
+			return
+		}
+		req.State.Batch = canonical
+	}
+	state, err := settingsStore.BootstrapBatchState(r.Context(), user.ID, batchID, req.State)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "迁移批量工厂设置失败"})
 		return
