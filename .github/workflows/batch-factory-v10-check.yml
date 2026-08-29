@@ -55,3 +55,7 @@ jobs:
       - name: Run Batch Factory backend tests
         working-directory: backend
         run: go test ./internal/httpapi -run 'BatchFactory|Merge' -count=1
+
+      - name: Run Yadi shared video model tests
+        working-directory: backend
+        run: go test ./internal/shuihuo/providers ./internal/shuihuo/store ./internal/shuihuo/models ./internal/shuihuo/tasks -count=1
