@@ -90,3 +90,21 @@ test('current novel opens a centered constraint modal with partial override rese
   assert.match(editor, /恢复批次设置/);
   assert.match(editor, /updateBatchFactoryItemOverrides\(batch\.id, item\.id, patch\)/);
 });
+
+test('legacy constraint bodies stay enabled when explicit flags are absent', () => {
+  const settings = source(settingsPath);
+  const editor = source(editorPath);
+  assert.match(settings, /resolveConstraintEnabled/);
+  assert.match(editor, /resolveConstraintEnabled/);
+  assert.match(settings, /constraintQualityEnabled[^\n]+quality/);
+  assert.match(settings, /constraintRestrictionEnabled[^\n]+restriction/);
+  assert.match(settings, /constraintNegativeEnabled[^\n]+negative/);
+});
+
+test('production settings surface catalog and model loading failures instead of swallowing them', () => {
+  const settings = source(settingsPath);
+  const unified = sourceBetween(settings, 'function UnifiedSettings(', 'function accountErrorMessage(');
+  assert.doesNotMatch(unified, /getBatchFactoryPromptCatalog\(\)\.then\(setCatalog\)\.catch\(\(\) => \{\}\)/);
+  assert.doesNotMatch(unified, /listModels\(\)[\s\S]*?\.catch\(\(\) => \{\}\)/);
+  assert.match(unified, /message\.error/);
+});
