@@ -77,6 +77,7 @@ type recordingPresetStore struct {
 func (s *recordingPresetStore) List(_ context.Context, _ string) ([]PresetVersion, error) {
 	return nil, nil
 }
+func (s *recordingPresetStore) SeedPublished(_ context.Context, _ PresetDraftInput) error { return nil }
 
 func (s *recordingPresetStore) Publish(_ context.Context, userID int64, id string, version int) (PresetVersion, error) {
 	s.userID, s.publishedID, s.publishedVersion = userID, id, version

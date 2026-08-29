@@ -32,6 +32,7 @@ type PresetVersion struct {
 
 type PresetStore interface {
 	List(context.Context, string) ([]PresetVersion, error)
+	SeedPublished(context.Context, PresetDraftInput) error
 	CreateDraft(context.Context, int64, PresetDraftInput) (PresetVersion, error)
 	Publish(context.Context, int64, string, int) (PresetVersion, error)
 	Rollback(context.Context, int64, string, int) (PresetVersion, error)
@@ -61,6 +62,49 @@ func (s *sqlPresetStore) List(ctx context.Context, module string) ([]PresetVersi
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *sqlPresetStore) SeedPublished(ctx context.Context, input PresetDraftInput) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("preset storage is not configured")
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO prompt_definitions(module, purpose, name, enabled) VALUES(?, 'base', ?, TRUE) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)`, input.Module, input.Name)
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM prompt_versions WHERE prompt_definition_id=?`, id).Scan(&count); err != nil || count > 0 {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO prompt_versions(prompt_definition_id, version_number, body, status, published_at) VALUES(?, 1, ?, 'published', NOW())`, id, input.Body)
+	return err
+}
+
+func (api *API) SeedBuiltinPresets(ctx context.Context) error {
+	if api.deps.Presets == nil || api.deps.WebFS == nil {
+		return nil
+	}
+	entries, err := fs.ReadDir(api.deps.WebFS, "prompts")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "批量工厂-") || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		body, err := fs.ReadFile(api.deps.WebFS, path.Join("prompts", entry.Name()))
+		if err != nil {
+			return err
+		}
+		if err := api.deps.Presets.SeedPublished(ctx, PresetDraftInput{Module: "batch-factory", Name: strings.TrimSuffix(entry.Name(), ".md"), Body: string(body)}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *sqlPresetStore) CreateDraft(ctx context.Context, userID int64, input PresetDraftInput) (PresetVersion, error) {
