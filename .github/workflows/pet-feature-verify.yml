@@ -6,7 +6,7 @@ on:
       - feature/02-pixiu-pet-switcher
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   pet-feature:
@@ -16,6 +16,14 @@ jobs:
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@v4
+
+      - name: Materialize pixiu runtime asset
+        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-*.b64') != '' }}
+        shell: bash
+        run: |
+          cat pets/pixiu/.asset-upload/part-*.b64 | base64 --decode > pets/pixiu/spritesheet.webp
+          echo "44edc8a2ee6a98552b4fa490bdad3b984a83e7c5596cadbbb3c012f9c5019906  pets/pixiu/spritesheet.webp" | sha256sum --check -
+          test "$(stat -c %s pets/pixiu/spritesheet.webp)" = "61214"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -58,3 +66,15 @@ jobs:
 
       - name: Run root test suite
         run: npm test
+
+      - name: Persist verified pixiu runtime asset
+        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-*.b64') != '' }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r pets/pixiu/.asset-upload
+          git rm -f pets/pixiu/spritesheet.svg
+          git add pets/pixiu/spritesheet.webp
+          git commit -m "feat: publish verified pixiu runtime asset"
+          git push
