@@ -9,6 +9,7 @@ const SCRIPT_PROMPT_PRESETS = new Set([
   'spatial-continuity-storyboard'
 ]);
 const ASSET_PROMPT_PRESETS = new Set(['standard-asset-extraction']);
+const CONSTRAINT_SOURCES = new Set(['system', 'personal', 'draft']);
 
 function text(value, max = 50000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -18,6 +19,14 @@ function boolOr(value, fallback) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object || {}, key);
+}
+
+function constraintSource(value, fallback = 'system') {
+  return CONSTRAINT_SOURCES.has(value) ? value : (CONSTRAINT_SOURCES.has(fallback) ? fallback : 'system');
+}
+
 function normalizeProductionExtras(value = {}, previous = {}) {
   const scriptPromptPresetId = SCRIPT_PROMPT_PRESETS.has(value.scriptPromptPresetId)
     ? value.scriptPromptPresetId
@@ -25,13 +34,34 @@ function normalizeProductionExtras(value = {}, previous = {}) {
   const assetPromptPresetId = ASSET_PROMPT_PRESETS.has(value.assetPromptPresetId)
     ? value.assetPromptPresetId
     : (ASSET_PROMPT_PRESETS.has(previous.assetPromptPresetId) ? previous.assetPromptPresetId : 'standard-asset-extraction');
+  const rawProfileVersion = Number(value.configProfileVersion ?? previous.configProfileVersion ?? 0);
   return {
     scriptPromptPresetId,
     assetPromptPresetId,
     injectCharacterPrompt: boolOr(value.injectCharacterPrompt, boolOr(previous.injectCharacterPrompt, true)),
     injectScenePrompt: boolOr(value.injectScenePrompt, boolOr(previous.injectScenePrompt, true)),
     injectPropPrompt: boolOr(value.injectPropPrompt, boolOr(previous.injectPropPrompt, true)),
-    subtitlePolicy: value.subtitlePolicy === 'allow' ? 'allow' : 'forbid-auto-dialogue-subtitle'
+    subtitlePolicy: value.subtitlePolicy === 'allow' ? 'allow' : (previous.subtitlePolicy === 'allow' && value.subtitlePolicy === undefined ? 'allow' : 'forbid-auto-dialogue-subtitle'),
+    constraintPrefixEnabled: boolOr(value.constraintPrefixEnabled, boolOr(previous.constraintPrefixEnabled, true)),
+    constraintQualityEnabled: boolOr(value.constraintQualityEnabled, boolOr(previous.constraintQualityEnabled, false)),
+    constraintRestrictionEnabled: boolOr(value.constraintRestrictionEnabled, boolOr(previous.constraintRestrictionEnabled, false)),
+    constraintNegativeEnabled: boolOr(value.constraintNegativeEnabled, boolOr(previous.constraintNegativeEnabled, false)),
+    constraintPrefixSource: constraintSource(value.constraintPrefixSource, previous.constraintPrefixSource),
+    constraintPrefixPresetId: text(value.constraintPrefixPresetId ?? previous.constraintPrefixPresetId, 160),
+    constraintPrefixPersonalPromptId: text(value.constraintPrefixPersonalPromptId ?? previous.constraintPrefixPersonalPromptId, 160),
+    constraintQualitySource: constraintSource(value.constraintQualitySource, previous.constraintQualitySource),
+    constraintQualityPresetId: text(value.constraintQualityPresetId ?? previous.constraintQualityPresetId, 160),
+    constraintQualityPersonalPromptId: text(value.constraintQualityPersonalPromptId ?? previous.constraintQualityPersonalPromptId, 160),
+    constraintRestrictionSource: constraintSource(value.constraintRestrictionSource, previous.constraintRestrictionSource),
+    constraintRestrictionPresetId: text(value.constraintRestrictionPresetId ?? previous.constraintRestrictionPresetId, 160),
+    constraintRestrictionPersonalPromptId: text(value.constraintRestrictionPersonalPromptId ?? previous.constraintRestrictionPersonalPromptId, 160),
+    constraintNegativeSource: constraintSource(value.constraintNegativeSource, previous.constraintNegativeSource),
+    constraintNegativePresetId: text(value.constraintNegativePresetId ?? previous.constraintNegativePresetId, 160),
+    constraintNegativePersonalPromptId: text(value.constraintNegativePersonalPromptId ?? previous.constraintNegativePersonalPromptId, 160),
+    configProfileKey: text(value.configProfileKey ?? previous.configProfileKey, 80),
+    configProfileName: text(value.configProfileName ?? previous.configProfileName, 100),
+    configProfileVersion: Number.isInteger(rawProfileVersion) && rawProfileVersion > 0 ? rawProfileVersion : 0,
+    configProfileSyncedAt: text(value.configProfileSyncedAt ?? previous.configProfileSyncedAt, 40)
   };
 }
 
@@ -66,9 +96,57 @@ function invalidateItemAfterSourceEdit(item, sourceText, txtText) {
   item.manuallyEdited = true;
 }
 
-function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), shuihuoGateway } = {}) {
+function publicConfigVersion(record) {
+  if (!record) return null;
+  return {
+    key: record.key,
+    name: record.name,
+    version: record.version,
+    status: record.status,
+    note: record.note || '',
+    settings: record.settings || {},
+    createdAt: record.createdAt || '',
+    publishedAt: record.publishedAt || ''
+  };
+}
+
+function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), shuihuoGateway, configVersionStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
+
+  router.get('/config-versions', (req, res) => {
+    if (!configVersionStore) return res.json({ versions: [], latestByKey: {} });
+    const versions = configVersionStore.listForProduction().map(publicConfigVersion);
+    const latestByKey = {};
+    for (const record of versions) {
+      if (record.status === 'published') latestByKey[record.key] = record;
+    }
+    return res.json({ versions, latestByKey });
+  });
+
+  router.get('/admin/config-versions', (req, res) => {
+    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量版本配置' });
+    return res.json({ versions: configVersionStore ? configVersionStore.list().map(publicConfigVersion) : [] });
+  });
+
+  router.post('/admin/config-versions', (req, res) => {
+    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量版本配置' });
+    if (!configVersionStore) return res.status(503).json({ error: '批量版本配置存储未启用' });
+    try {
+      const record = configVersionStore.saveVersion(req.body || {});
+      return res.status(201).json({ version: publicConfigVersion(record) });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || '保存批量版本配置失败' });
+    }
+  });
+
+  router.post('/admin/config-versions/:key/:version/publish', (req, res) => {
+    if (req.auth?.account?.isOwner !== true) return res.status(403).json({ error: '仅开发账号可管理批量版本配置' });
+    if (!configVersionStore) return res.status(503).json({ error: '批量版本配置存储未启用' });
+    const record = configVersionStore.publish(req.params.key, req.params.version);
+    if (!record) return res.status(404).json({ error: '批量版本配置不存在' });
+    return res.json({ version: publicConfigVersion(record) });
+  });
 
   router.put('/batches/:batchId/settings', async (req, res) => {
     const batch = store.getBatch(req.username, req.params.batchId);
@@ -121,17 +199,30 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     const item = batch?.items?.find(entry => entry.id === req.params.itemId);
     if (!batch || !item) return res.status(404).json({ error: '批次或小说不存在' });
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
-    const previous = item.settingsOverride || {};
-    const next = {
-      prefixMode: ['inherit', 'auto', 'manual'].includes(input.prefixMode) ? input.prefixMode : (previous.prefixMode || 'inherit'),
-      customPrefix: text(input.customPrefix ?? previous.customPrefix),
-      quality: text(input.quality ?? previous.quality),
-      restriction: text(input.restriction ?? previous.restriction),
-      negative: text(input.negative ?? previous.negative),
-      injectCharacterPrompt: input.injectCharacterPrompt === undefined ? previous.injectCharacterPrompt : Boolean(input.injectCharacterPrompt),
-      injectScenePrompt: input.injectScenePrompt === undefined ? previous.injectScenePrompt : Boolean(input.injectScenePrompt),
-      injectPropPrompt: input.injectPropPrompt === undefined ? previous.injectPropPrompt : Boolean(input.injectPropPrompt)
-    };
+    if (req.body?.reset === true || input.__reset === true) {
+      store.updateItem(req.username, batch.id, item.id, target => { target.settingsOverride = {}; });
+      return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
+    }
+    const previous = item.settingsOverride && typeof item.settingsOverride === 'object' ? item.settingsOverride : {};
+    const next = { ...previous };
+    const stringKeys = [
+      'customPrefix', 'quality', 'restriction', 'negative',
+      'constraintPrefixPresetId', 'constraintPrefixPersonalPromptId',
+      'constraintQualityPresetId', 'constraintQualityPersonalPromptId',
+      'constraintRestrictionPresetId', 'constraintRestrictionPersonalPromptId',
+      'constraintNegativePresetId', 'constraintNegativePersonalPromptId'
+    ];
+    for (const key of stringKeys) if (hasOwn(input, key)) next[key] = text(input[key]);
+    if (hasOwn(input, 'prefixMode') && ['inherit', 'auto', 'manual'].includes(input.prefixMode)) next.prefixMode = input.prefixMode;
+    for (const key of ['constraintPrefixSource', 'constraintQualitySource', 'constraintRestrictionSource', 'constraintNegativeSource']) {
+      if (hasOwn(input, key)) next[key] = constraintSource(input[key], previous[key]);
+    }
+    for (const key of [
+      'injectCharacterPrompt', 'injectScenePrompt', 'injectPropPrompt',
+      'constraintPrefixEnabled', 'constraintQualityEnabled', 'constraintRestrictionEnabled', 'constraintNegativeEnabled'
+    ]) {
+      if (hasOwn(input, key)) next[key] = Boolean(input[key]);
+    }
     store.updateItem(req.username, batch.id, item.id, target => {
       target.settingsOverride = next;
     });
