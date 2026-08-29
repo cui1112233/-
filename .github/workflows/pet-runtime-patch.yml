@@ -1,0 +1,32 @@
+name: Apply pet runtime patch
+
+on:
+  push:
+    branches:
+      - feature/02-pixiu-pet-switcher
+    paths:
+      - scripts/apply-pet-runtime-patch.js
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/02-pixiu-pet-switcher
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch StackyPet
+        run: node scripts/apply-pet-runtime-patch.js
+      - name: Commit runtime integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/shared/pet/StackyPet.jsx
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: make desktop pet visual selectable"
+          git push origin HEAD:feature/02-pixiu-pet-switcher
