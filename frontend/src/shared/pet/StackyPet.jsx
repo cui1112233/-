@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, GripVertical, ScanSearch, X } from 'lucide-react';
 import { askAgent, createAgentTask, getAgentTask } from '../api/agent';
+import { getConfig } from '../api/config';
 import { PET_CONTEXT_EVENT, PET_EVENT, PET_SKILLS_EVENT, dispatchPetPreview, dispatchPetState, normalizePetContext, normalizePetState, petAtlasRow, petFrameCount, petLookFrame, petSpeech, readCmTaskId, writeCmTaskId } from './stacky';
 import { classifyPetRequestError, parseScriptRevision } from './scriptCollaboration';
 import { COMPANION_SPEECH_PRIORITY, PET_COMPANION_SETTINGS_EVENT, getClickSpeech, getCompanionCandidate, readCompanionSpeechState } from './companionSpeech';
 import { didDrag, getOverlayLayout, PET_SIZE } from './overlayGeometry';
+import { DEFAULT_PET_ID, PET_SELECTION_EVENT, getPetDefinition } from './petCatalog';
 
 const resetDelayMs = 2400;
 const companionBubbleDurationMs = 7000;
@@ -46,6 +48,7 @@ function isMissingTask(error) {
 }
 
 export function StackyPet({ username, accountSessionKey }) {
+  const [pet, setPet] = useState(() => getPetDefinition(DEFAULT_PET_ID));
   const [state, setState] = useState('idle');
   const [frame, setFrame] = useState(0);
   const [lookFrame, setLookFrame] = useState(null);
@@ -147,6 +150,33 @@ export function StackyPet({ username, accountSessionKey }) {
       dragRef.current = null;
       accountSessionGenerationRef.current += 1;
       conversationRequestRef.current += 1;
+    };
+  }, [accountSessionKey, username]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!username) {
+      setPet(getPetDefinition(DEFAULT_PET_ID));
+      return undefined;
+    }
+
+    getConfig()
+      .then(config => {
+        if (!cancelled) setPet(getPetDefinition(config?.pet));
+      })
+      .catch(() => {
+        if (!cancelled) setPet(getPetDefinition(DEFAULT_PET_ID));
+      });
+
+    function handlePetSelection(event) {
+      setPet(getPetDefinition(event.detail?.pet || event.detail?.id));
+    }
+
+    window.addEventListener(PET_SELECTION_EVENT, handlePetSelection);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PET_SELECTION_EVENT, handlePetSelection);
     };
   }, [accountSessionKey, username]);
 
@@ -517,23 +547,23 @@ export function StackyPet({ username, accountSessionKey }) {
         <button
           className="stacky-pet-tab"
           type="button"
-          title="唤醒 CM"
-          aria-label="唤醒 CM"
+          title={`唤醒 ${pet.displayName}`}
+          aria-label={`唤醒 ${pet.displayName}`}
           onClick={() => updateOverlay({ tucked: false })}
         >
-          <img src="/pets/stacky/spritesheet.webp" alt="" />
+          <img src={pet.spritesheetPath} alt="" style={{ imageRendering: pet.renderMode === 'smooth' ? 'auto' : undefined }} />
         </button>
       </div>
     );
   }
 
   return (
-    <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 CM，${label}`}>
+    <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 ${pet.displayName}，${label}`}>
       <div className="stacky-pet-bubble">{reply || petSpeech(state) || companionSpeech?.text}</div>
       {chatOpen && (
-        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label="CM 互动">
+        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label={`${pet.displayName} 互动`}>
           <header className="stacky-agent-header">
-            <strong>CM</strong>
+            <strong>{pet.displayName}</strong>
             <div>
               <button className="stacky-agent-icon" type="button" title="分析当前页面" aria-label="分析当前页面" onClick={analyzeCurrentPage} disabled={asking}>
                 <ScanSearch size={16} aria-hidden="true" />
@@ -541,7 +571,7 @@ export function StackyPet({ username, accountSessionKey }) {
               <button className="stacky-agent-icon" type="button" title="在 Agent 工作区继续" aria-label="在 Agent 工作区继续" onClick={openInAgentWorkspace} disabled={!petTaskId}>
                 <ExternalLink size={16} aria-hidden="true" />
               </button>
-              <button className="stacky-agent-close" type="button" aria-label="关闭 CM 对话" title="关闭对话" onClick={closeChat}>
+              <button className="stacky-agent-close" type="button" aria-label={`关闭 ${pet.displayName} 对话`} title="关闭对话" onClick={closeChat}>
                 <X size={16} aria-hidden="true" />
               </button>
             </div>
@@ -569,7 +599,7 @@ export function StackyPet({ username, accountSessionKey }) {
             ) : null}
           </div>
           <form className="stacky-agent-input" onSubmit={event => { event.preventDefault(); sendQuestion(question); }}>
-            <input value={question} onChange={event => setQuestion(event.target.value)} placeholder="问问 CM..." aria-label="向 CM 提问" />
+            <input value={question} onChange={event => setQuestion(event.target.value)} placeholder={`问问 ${pet.displayName}...`} aria-label={`向 ${pet.displayName} 提问`} />
             <button type="submit" disabled={!question.trim() || asking}>{asking ? '...' : '↗'}</button>
           </form>
         </section>
@@ -580,7 +610,7 @@ export function StackyPet({ username, accountSessionKey }) {
         style={{ '--stacky-row': spriteRow, '--stacky-frame': spriteFrame }}
         role="button"
         tabIndex={0}
-        aria-label="打开 CM 对话"
+        aria-label={`打开 ${pet.displayName} 对话`}
         onPointerDown={handleDragStart}
         onClick={handlePetClick}
         onKeyDown={event => {
@@ -590,13 +620,13 @@ export function StackyPet({ username, accountSessionKey }) {
           }
         }}
       >
-        <img src="/pets/stacky/spritesheet.webp" alt="" />
+        <img src={pet.spritesheetPath} alt="" style={{ imageRendering: pet.renderMode === 'smooth' ? 'auto' : undefined }} />
       </div>
       <button
         className="stacky-pet-drag-handle"
         type="button"
-        title="拖动移动 CM"
-        aria-label="拖动移动 CM"
+        title={`拖动移动 ${pet.displayName}`}
+        aria-label={`拖动移动 ${pet.displayName}`}
         onPointerDown={handleDragStart}
       >
         <GripVertical size={14} aria-hidden="true" />
@@ -604,8 +634,8 @@ export function StackyPet({ username, accountSessionKey }) {
       <button
         className="stacky-pet-tuck"
         type="button"
-        title="收起 CM"
-        aria-label="收起 CM"
+        title={`收起 ${pet.displayName}`}
+        aria-label={`收起 ${pet.displayName}`}
         onClick={() => updateOverlay({ tucked: true })}
       >
         ×
