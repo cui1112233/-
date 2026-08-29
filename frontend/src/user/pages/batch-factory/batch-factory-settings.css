@@ -1,0 +1,161 @@
+.bf-settings-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bf-settings-section,
+.bf-settings-version-card,
+.bf-settings-layer-head {
+  border: 1px solid var(--bfp-line, #20324a);
+  border-radius: 10px;
+  background: var(--bfp-panel, #0c1929);
+}
+
+.bf-settings-section {
+  padding: 14px;
+}
+
+.bf-settings-section-title {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bfp-text, #e8eef8);
+}
+
+.bf-settings-version-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.bf-settings-version-head,
+.bf-settings-layer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bf-settings-version-head > div,
+.bf-settings-layer-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bf-settings-version-head small,
+.bf-settings-layer-head small,
+.bf-settings-row-copy small {
+  color: var(--bfp-text-dim, #91a1b7);
+  line-height: 1.5;
+}
+
+.bf-settings-version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--bfp-text-dim, #91a1b7);
+  font-size: 11px;
+}
+
+.bf-settings-two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.bf-settings-two-col label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--bfp-text-dim, #91a1b7);
+  font-size: 12px;
+}
+
+.bf-settings-readonly {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--bfp-line, #20324a);
+  border-radius: 6px;
+  background: var(--bfp-input, #102033);
+  color: var(--bfp-text, #e8eef8);
+}
+
+.bf-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 0;
+  border-top: 1px solid var(--bfp-line, #20324a);
+}
+
+.bf-settings-section .bf-settings-row:first-of-type {
+  border-top: 0;
+}
+
+.bf-settings-row-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bf-settings-row-copy strong {
+  color: var(--bfp-text, #e8eef8);
+  font-size: 13px;
+}
+
+.bf-settings-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bf-settings-popover {
+  width: min(360px, 72vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bf-settings-popover > .ant-btn {
+  align-self: flex-end;
+}
+
+.bf-settings-override-state {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.bf-settings-override-state .ant-tag {
+  margin-inline-end: 0;
+}
+
+.bf-settings-layer-head {
+  padding: 12px;
+}
+
+@media (max-width: 720px) {
+  .bf-settings-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .bf-settings-version-head,
+  .bf-settings-layer-head,
+  .bf-settings-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bf-settings-row-actions {
+    justify-content: flex-end;
+  }
+}
