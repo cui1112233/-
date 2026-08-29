@@ -24,6 +24,25 @@ npm start
 http://127.0.0.1:3000
 ```
 
+端口约定：本地开发平台使用 `18081`，本地 Go 水货后端使用 `4000`，Vite 前端开发服务器使用 `5173`；Docker 正式环境保留平台 `3000`、后端 `14000`。
+
+## 正式环境 Go 单二进制迁移（进行中）
+
+目标部署形态是 Linux `amd64` 单个 Go 二进制。发布构建会先编译前端并将
+`frontend/dist` 与批准的 `prompts` 快照准备为 Go `embed.FS` 资源，再编译
+`backend/cmd/qiantie`。当前 Go 路由尚未覆盖全部 Express 页面和 API，完成迁移前
+仍必须使用 Docker 的 Node + Go 双服务入口；不要提前停止平台服务。
+
+构建发布包（默认运行 Go 测试）：
+
+```bash
+QIANTIE_ARCH=amd64 QIANTIE_VERSION=$(git rev-parse --short HEAD) \
+  ./scripts/build-go-release.sh
+```
+
+发布脚本只生成本地二进制和校验和，不包含 SSH 主机、密钥或生产凭据。待 Go 页面和
+API 迁移验收通过后，再增加 systemd 上传、原子切换和回滚步骤。
+
 默认测试账号：
 
 ```text
