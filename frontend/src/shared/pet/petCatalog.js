@@ -14,9 +14,10 @@ const pixiuPet = Object.freeze({
   id: 'pixiu',
   displayName: '貔貅',
   description: '貔貅，前贴的招财守护宠物。',
-  spriteVersionNumber: 1,
-  spritesheetPath: '/pets/pixiu/spritesheet.svg',
+  spriteVersionNumber: 2,
+  spritesheetPath: '/pets/pixiu/spritesheet.webp',
   atlasProfile: 'stacky-v2',
+  animationProfile: 'pixiu-v1',
   behaviorProfile: 'cm-v1',
   speechProfile: 'cm-v1',
   renderMode: 'smooth'
