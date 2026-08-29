@@ -42,7 +42,7 @@ jobs:
 
       - name: Test Go Batch Factory HTTP boundary
         working-directory: backend
-        run: go test ./internal/httpapi -run 'TestBatchFactorySettingsCanonicalize|TestBatchFactoryOverrideCanonicalize|TestBatchFactorySettingsPersistence|TestBatchFactoryOverridePersistence|TestBatchFactorySettingsState|TestBatchFactorySettingsBootstrap|TestBatchFactoryConfigSnapshots|TestBatchFactoryPresetResolve'
+        run: go test ./internal/httpapi -run 'TestBatchFactorySettingsCanonicalize|TestBatchFactoryOverrideCanonicalize|TestBatchFactorySettingsPersistence|TestBatchFactoryOverridePersistence|TestBatchFactorySettingsState|TestBatchFactorySettingsBootstrap|TestBatchFactoryConfigSnapshots|TestBatchFactoryPresetResolve|TestBatchFactoryDirector|TestBatchFactoryHook'
 
       - name: Install backend dependencies
         run: npm ci
