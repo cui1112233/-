@@ -24,24 +24,29 @@ type SettingsStore struct {
 	db *sql.DB
 }
 
+type settingsStoreExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
 func NewSettingsStore(db *sql.DB) *SettingsStore {
 	return &SettingsStore{db: db}
 }
 
 func (s *SettingsStore) SaveBatch(ctx context.Context, userID int64, batchID string, settings Settings) error {
-	return s.save(ctx, userID, batchID, settingsScopeBatch, "", "", settings, false)
+	return s.saveWith(ctx, s.db, userID, batchID, settingsScopeBatch, "", "", settings, false)
 }
 
 func (s *SettingsStore) SaveItemOverride(ctx context.Context, userID int64, batchID, itemID string, settings Settings) error {
-	return s.save(ctx, userID, batchID, settingsScopeItem, itemID, "", settings, true)
+	return s.saveWith(ctx, s.db, userID, batchID, settingsScopeItem, itemID, "", settings, true)
 }
 
 func (s *SettingsStore) SaveVideoOverride(ctx context.Context, userID int64, batchID, itemID, videoID string, settings Settings) error {
-	return s.save(ctx, userID, batchID, settingsScopeVideo, itemID, videoID, settings, true)
+	return s.saveWith(ctx, s.db, userID, batchID, settingsScopeVideo, itemID, videoID, settings, true)
 }
 
-func (s *SettingsStore) save(ctx context.Context, userID int64, batchID, scope, itemID, videoID string, settings Settings, deleteWhenEmpty bool) error {
-	if s == nil || s.db == nil {
+func (s *SettingsStore) saveWith(ctx context.Context, executor settingsStoreExecutor, userID int64, batchID, scope, itemID, videoID string, settings Settings, deleteWhenEmpty bool) error {
+	if s == nil || s.db == nil || executor == nil {
 		return fmt.Errorf("batch factory settings database is not configured")
 	}
 	batchID = strings.TrimSpace(batchID)
@@ -57,7 +62,7 @@ func (s *SettingsStore) save(ctx context.Context, userID int64, batchID, scope, 
 		return fmt.Errorf("item id and video id are required")
 	}
 	if deleteWhenEmpty && len(settings) == 0 {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM shuihuo_batch_factory_settings
+		_, err := executor.ExecContext(ctx, `DELETE FROM shuihuo_batch_factory_settings
 WHERE user_id = ? AND batch_id = ? AND scope = ? AND item_id = ? AND video_id = ?`, userID, batchID, scope, itemID, videoID)
 		return err
 	}
@@ -65,7 +70,7 @@ WHERE user_id = ? AND batch_id = ? AND scope = ? AND item_id = ? AND video_id = 
 	if err != nil {
 		return fmt.Errorf("encode batch factory settings: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO shuihuo_batch_factory_settings
+	_, err = executor.ExecContext(ctx, `INSERT INTO shuihuo_batch_factory_settings
 (user_id, batch_id, scope, item_id, video_id, settings_json)
 VALUES(?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json), updated_at = CURRENT_TIMESTAMP`, userID, batchID, scope, itemID, videoID, string(raw))
@@ -73,21 +78,29 @@ ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json), updated_at = CURR
 }
 
 func (s *SettingsStore) LoadBatchState(ctx context.Context, userID int64, batchID string) (PersistedSettingsState, error) {
+	return s.loadBatchStateWith(ctx, s.db, userID, batchID, false)
+}
+
+func (s *SettingsStore) loadBatchStateWith(ctx context.Context, executor settingsStoreExecutor, userID int64, batchID string, lock bool) (PersistedSettingsState, error) {
 	state := PersistedSettingsState{
 		Items:  map[string]Settings{},
 		Videos: map[string]map[string]Settings{},
 	}
-	if s == nil || s.db == nil {
+	if s == nil || s.db == nil || executor == nil {
 		return state, fmt.Errorf("batch factory settings database is not configured")
 	}
 	batchID = strings.TrimSpace(batchID)
 	if userID < 1 || batchID == "" || len(batchID) > 96 {
 		return state, fmt.Errorf("invalid batch factory settings identity")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT scope, item_id, video_id, settings_json
+	query := `SELECT scope, item_id, video_id, settings_json
 FROM shuihuo_batch_factory_settings
 WHERE user_id = ? AND batch_id = ?
-ORDER BY scope, item_id, video_id`, userID, batchID)
+ORDER BY scope, item_id, video_id`
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	rows, err := executor.QueryContext(ctx, query, userID, batchID)
 	if err != nil {
 		return state, err
 	}
@@ -126,12 +139,21 @@ ORDER BY scope, item_id, video_id`, userID, batchID)
 	return state, nil
 }
 
-// BootstrapBatchState lazily imports a complete legacy snapshot. The batch row
-// is written last and acts as the ownership marker: readers must not consider
-// MySQL authoritative until that marker exists. Repeated bootstrap calls are
-// idempotent and never overwrite a batch that MySQL already owns.
+// BootstrapBatchState lazily imports a complete legacy snapshot in one SQL
+// transaction. The batch row is written last and acts as the ownership marker.
+// The initial SELECT ... FOR UPDATE also serializes concurrent first-use
+// bootstrap attempts for the same user/batch key range.
 func (s *SettingsStore) BootstrapBatchState(ctx context.Context, userID int64, batchID string, legacy PersistedSettingsState) (PersistedSettingsState, error) {
-	existing, err := s.LoadBatchState(ctx, userID, batchID)
+	if s == nil || s.db == nil {
+		return PersistedSettingsState{}, fmt.Errorf("batch factory settings database is not configured")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return PersistedSettingsState{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	existing, err := s.loadBatchStateWith(ctx, tx, userID, batchID, true)
 	if err != nil {
 		return existing, err
 	}
@@ -144,7 +166,7 @@ func (s *SettingsStore) BootstrapBatchState(ctx context.Context, userID int64, b
 		if len(next) == 0 {
 			continue
 		}
-		if err := s.SaveItemOverride(ctx, userID, batchID, itemID, next); err != nil {
+		if err := s.saveWith(ctx, tx, userID, batchID, settingsScopeItem, itemID, "", next, true); err != nil {
 			return PersistedSettingsState{}, err
 		}
 	}
@@ -154,18 +176,23 @@ func (s *SettingsStore) BootstrapBatchState(ctx context.Context, userID int64, b
 			if len(next) == 0 {
 				continue
 			}
-			if err := s.SaveVideoOverride(ctx, userID, batchID, itemID, videoID, next); err != nil {
+			if err := s.saveWith(ctx, tx, userID, batchID, settingsScopeVideo, itemID, videoID, next, true); err != nil {
 				return PersistedSettingsState{}, err
 			}
 		}
 	}
 
-	// Write the ownership marker last. Until this succeeds, settings-state keeps
-	// reporting persisted=false and the legacy snapshot remains the safe fallback.
-	if err := s.SaveBatch(ctx, userID, batchID, NormalizeSettings(legacy.Batch, nil)); err != nil {
+	if err := s.saveWith(ctx, tx, userID, batchID, settingsScopeBatch, "", "", NormalizeSettings(legacy.Batch, nil), false); err != nil {
 		return PersistedSettingsState{}, err
 	}
-	return s.LoadBatchState(ctx, userID, batchID)
+	state, err := s.loadBatchStateWith(ctx, tx, userID, batchID, false)
+	if err != nil {
+		return PersistedSettingsState{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return PersistedSettingsState{}, err
+	}
+	return state, nil
 }
 
 func (s *SettingsStore) LoadBatch(ctx context.Context, userID int64, batchID string) (Settings, bool, error) {
