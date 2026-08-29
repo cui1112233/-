@@ -2,7 +2,8 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const {
   loadPersistedSettingsState,
-  bootstrapPersistedSettingsState
+  bootstrapPersistedSettingsState,
+  hydrateBatchList
 } = require('../lib/batch-factory/settings-state-bridge');
 
 function batchIdFromPath(pathname) {
@@ -55,9 +56,23 @@ function createBatchFactorySettingsHydrationRouter({
   const router = express.Router();
   router.use(authenticate);
   router.use(async (req, res, next) => {
-    const batchId = batchIdFromPath(req.path);
-    if (!batchId) return next();
     try {
+      // listBatches() is synchronous for legacy callers and reads the in-memory
+      // Go-state cache. On a cold process the cache is empty, so warm it from
+      // MySQL before the list route is allowed to return legacy JSON settings.
+      if (req.method === 'GET' && req.path === '/batches' && store?.listBatches) {
+        const batches = store.listBatches(req.username);
+        await hydrateBatchList({
+          batches,
+          username: req.auth.account.username,
+          isOwner: req.auth.account.isOwner === true,
+          shuihuoGateway
+        });
+        return next();
+      }
+
+      const batchId = batchIdFromPath(req.path);
+      if (!batchId) return next();
       const loaded = await loadState({
         username: req.auth.account.username,
         isOwner: req.auth.account.isOwner === true,
