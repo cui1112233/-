@@ -106,6 +106,23 @@ func TestPromptLibraryVersionMigrationPreservesDraftPublishAndRollbackStates(t *
 	}
 }
 
+func TestBatchFactoryDirectorTaskMigrationPersistsRecoverableJobs(t *testing.T) {
+	migration := migrationForVersion(t, 44)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS batch_factory_director_tasks",
+		"batch_id VARCHAR(80) NOT NULL",
+		"item_id VARCHAR(80) NOT NULL",
+		"stage VARCHAR(32) NOT NULL",
+		"status VARCHAR(32) NOT NULL",
+		"attempt_count INT NOT NULL DEFAULT 0",
+		"idx_batch_factory_director_tasks_claim",
+	} {
+		if !strings.Contains(migration.sql, required) {
+			t.Fatalf("director task migration missing %q", required)
+		}
+	}
+}
+
 func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
 	migration := migrationForVersion(t, 31)
 	if !strings.Contains(migration.sql, "UPDATE shuihuo_tasks") || !strings.Contains(migration.sql, "provider_task_id = NULL") || !strings.Contains(migration.sql, "provider_task_id = ''") {

@@ -377,7 +377,30 @@ CREATE TABLE IF NOT EXISTS video_api_configs (
 	{version: 41, sql: scriptVideoTaskMigrationSQL},
 	{version: 42, sql: batchFactoryMigrationSQL, apply: applyBatchFactorySchema},
 	{version: 43, sql: promptLibraryVersionMigrationSQL, apply: applyPromptLibraryVersionSchema},
+	{version: 44, sql: batchFactoryDirectorTaskMigrationSQL},
 }
+
+const batchFactoryDirectorTaskMigrationSQL = `
+CREATE TABLE IF NOT EXISTS batch_factory_director_tasks (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  owner_id BIGINT NOT NULL,
+  batch_id VARCHAR(80) NOT NULL,
+  item_id VARCHAR(80) NOT NULL,
+  stage VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  attempt_count INT NOT NULL DEFAULT 0,
+  last_error MEDIUMTEXT NOT NULL,
+  result_json JSON NULL,
+  lease_token VARCHAR(64) NOT NULL DEFAULT '',
+  lease_expires_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_batch_factory_director_task (owner_id, batch_id, item_id, stage),
+  KEY idx_batch_factory_director_tasks_claim (status, lease_expires_at, created_at),
+  CONSTRAINT fk_batch_factory_director_tasks_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_batch_factory_director_tasks_batch FOREIGN KEY (batch_id) REFERENCES batch_factory_batches(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+`
 
 const promptLibraryVersionMigrationSQL = `
 ALTER TABLE prompt_versions ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'published';
