@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Input, Modal, Popover, Select, Switch, Tag } from 'antd';
 import { Pencil, RefreshCw, RotateCcw } from 'lucide-react';
 import { getBatchFactoryPromptCatalog } from '../../../shared/api/batchFactory';
+import { listModels } from '../../../shared/api/shuihuoProduction';
 
 const OVERRIDE_KEYS = Object.freeze([
   'aspectRatio',
@@ -122,23 +123,49 @@ export function UnifiedProductionSettingsModal({ open, settings, onClose, onSave
   const [local, setLocal] = useState({});
   const [catalog, setCatalog] = useState(null);
   const [catalogError, setCatalogError] = useState('');
+  const [models, setModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelError, setModelError] = useState('');
 
   useEffect(() => {
     if (!open) return undefined;
     let active = true;
     setLocal({ ...promptDefaults(settings), ...settings });
     setCatalogError('');
+    setModelError('');
+    setModelsLoading(true);
     getBatchFactoryPromptCatalog().then(result => {
       if (!active) return;
       setCatalog(result);
       setLocal(current => current.systemConfigRevision || !result.latestConfig ? current : { ...current, ...snapshotFields(result.latestConfig) });
     }).catch(error => active && setCatalogError(error.message || '读取配置版本失败'));
+    listModels().then(result => {
+      if (!active) return;
+      const available = (result.models || []).filter(model => (
+        model.kind === 'video'
+        && model.requiresImageInput !== true
+        && Number(model.maxVideoDuration) >= 1
+      ));
+      setModels(available);
+    }).catch(error => active && setModelError(error.message || '读取视频模型失败'))
+      .finally(() => active && setModelsLoading(false));
     return () => { active = false; };
     // Only reinitialize when the modal is opened. Batch polling replaces the
     // settings object every few seconds and must not wipe unsaved user edits.
   }, [open]);
 
   const set = (key, value) => setLocal(current => ({ ...current, [key]: value }));
+  const selectModel = modelId => {
+    const model = models.find(entry => Number(entry.id) === Number(modelId));
+    if (!model) return;
+    setLocal(current => ({
+      ...current,
+      videoModelId: model.id,
+      videoModelVersionId: model.versionId,
+      videoModelName: model.name,
+      maxVideoDuration: Number(model.maxVideoDuration)
+    }));
+  };
   const selectSnapshot = revision => {
     const snapshot = catalog?.configVersions?.find(entry => entry.revision === revision);
     if (snapshot) setLocal(current => ({ ...current, ...snapshotFields(snapshot) }));
@@ -158,12 +185,21 @@ export function UnifiedProductionSettingsModal({ open, settings, onClose, onSave
   return <Modal title="生产统一设置" open={open} onCancel={onClose} width={720} footer={null} destroyOnClose>
     <div className="bf-settings-modal">
       {catalogError ? <Alert type="warning" showIcon message={catalogError} /> : null}
+      {modelError ? <Alert type="warning" showIcon message={modelError} description="视频模型仍沿用个人中心 / 模型中心配置；请确认对应模型已经配置密钥。" /> : null}
       <VersionCard catalog={catalog} local={local} onSelect={selectSnapshot} onSync={syncLatest} />
 
       <section className="bf-settings-section">
         <div className="bf-settings-section-title">基础生产设置</div>
         <div className="bf-settings-two-col">
-          <label>视频模型<div className="bf-settings-readonly">{local.videoModelName || '未绑定模型'} · 最大 {local.maxVideoDuration || '—'}s</div></label>
+          <label>视频模型<Select
+            showSearch
+            optionFilterProp="label"
+            loading={modelsLoading}
+            value={local.videoModelId || undefined}
+            placeholder="选择视频模型"
+            onChange={selectModel}
+            options={models.map(model => ({ value: model.id, label: `${model.name} · 最大 ${model.maxVideoDuration}s` }))}
+          /><small>沿用个人中心 / 模型中心的视频模型配置；对应密钥仍在原配置入口维护。</small></label>
           <label>视频画幅<Select value={local.aspectRatio || '9:16'} onChange={value => set('aspectRatio', value)} options={[{ value: '9:16', label: '9:16（竖屏）' }, { value: '16:9', label: '16:9（横屏）' }]} /></label>
           <label>剧本 Prompt<Select value={local.scriptPromptPresetId || 'standard-short-drama'} onChange={value => set('scriptPromptPresetId', value)} options={(catalog?.scriptPrompts || []).map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} /></label>
           <label>人物 / 场景 Prompt<Select value={local.assetPromptPresetId || 'standard-asset-extraction'} onChange={value => set('assetPromptPresetId', value)} options={(catalog?.assetPrompts || []).map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} /></label>
