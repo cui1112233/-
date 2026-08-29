@@ -112,6 +112,18 @@ func TestShuihuoProjectsRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestShuihuoBrowserRequestsAcceptBearerAuthentication(t *testing.T) {
+	user := store.User{ID: 7, Username: "browser-user", IsActive: true}
+	api, secret := newShuihuoTestAPI(t, map[int64]store.User{user.ID: user})
+	response := httptest.NewRecorder()
+
+	api.Router().ServeHTTP(response, authorizedRequest(t, secret, user, http.MethodGet, "/api/shuihuo-production/health"))
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET production health with browser token = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestRenderSmartSegmentationPromptSubstitutesNovelText(t *testing.T) {
 	got := renderSmartSegmentationPrompt("规则\n{{novel_text}}", "第一段\n第二段")
 	if !strings.Contains(got, "规则\n第一段\n第二段") {

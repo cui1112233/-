@@ -100,7 +100,7 @@ func (api *API) Router() http.Handler {
 			r.Get("/batch-factory/intakes/{intakeId}", api.handleGetBatchFactoryIntake)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(api.requirePlatformAuth)
+			r.Use(api.requireBrowserOrPlatformAuth)
 			r.Get("/novel-fetch-workshop/config", api.handleGetNovelFetchWorkshopSettings)
 			r.Put("/novel-fetch-workshop/config", api.handleSaveNovelFetchWorkshopSettings)
 			r.Get("/novel-fetch-workshop/tasks", api.handleListNovelFetchWorkshopTasks)

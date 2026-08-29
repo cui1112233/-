@@ -122,6 +122,19 @@ func (api *API) requirePlatformAuth(next http.Handler) http.Handler {
 	})
 }
 
+// requireBrowserOrPlatformAuth keeps the existing signed Node bridge working
+// while allowing the embedded frontend in the single Go binary to call the
+// same protected business routes with its normal Bearer token.
+func (api *API) requireBrowserOrPlatformAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer ") {
+			api.requireAuth(next).ServeHTTP(w, r)
+			return
+		}
+		api.requirePlatformAuth(next).ServeHTTP(w, r)
+	})
+}
+
 func signPlatformRequest(secret, payload string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(payload))
