@@ -72,17 +72,65 @@ func TestSettingsStoreDeletesEmptyOverrides(t *testing.T) {
 	}
 }
 
+func TestBootstrapBatchStateRollsBackPartialLegacyImport(t *testing.T) {
+	db := newBatchFactorySettingsStoreTestDB(t)
+	store := NewSettingsStore(db)
+	batchFactorySettingsStoreFailScope = settingsScopeVideo
+
+	_, err := store.BootstrapBatchState(context.Background(), 7, "batch_1", PersistedSettingsState{
+		Batch: Settings{"aspectRatio": "9:16", "videoModelId": 18},
+		Items: map[string]Settings{
+			"opening_1": {"quality": "4K"},
+		},
+		Videos: map[string]map[string]Settings{
+			"opening_1": {"1": {"restriction": "禁止水印"}},
+		},
+	})
+	if err == nil {
+		t.Fatal("bootstrap should fail on injected VIDEO write")
+	}
+	if batchFactorySettingsStoreBeginCount != 1 {
+		t.Fatalf("bootstrap must use one SQL transaction, begin count = %d", batchFactorySettingsStoreBeginCount)
+	}
+	if len(batchFactorySettingsStoreState) != 0 {
+		t.Fatalf("failed bootstrap must roll back all partial rows: %#v", batchFactorySettingsStoreState)
+	}
+}
+
 const batchFactorySettingsStoreDriverName = "qiantie-batch-factory-settings-store-test"
 
 var (
 	registerBatchFactorySettingsStoreDriver sync.Once
 	batchFactorySettingsStoreState          map[string][]byte
+	batchFactorySettingsStoreTxState        map[string][]byte
+	batchFactorySettingsStoreInTx           bool
+	batchFactorySettingsStoreBeginCount     int
+	batchFactorySettingsStoreFailScope      string
 )
+
+func cloneSettingsStoreState(source map[string][]byte) map[string][]byte {
+	out := make(map[string][]byte, len(source))
+	for key, raw := range source {
+		out[key] = append([]byte(nil), raw...)
+	}
+	return out
+}
+
+func currentSettingsStoreState() map[string][]byte {
+	if batchFactorySettingsStoreInTx {
+		return batchFactorySettingsStoreTxState
+	}
+	return batchFactorySettingsStoreState
+}
 
 func newBatchFactorySettingsStoreTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	registerBatchFactorySettingsStoreDriver.Do(func() { sql.Register(batchFactorySettingsStoreDriverName, batchFactorySettingsStoreDriver{}) })
 	batchFactorySettingsStoreState = map[string][]byte{}
+	batchFactorySettingsStoreTxState = nil
+	batchFactorySettingsStoreInTx = false
+	batchFactorySettingsStoreBeginCount = 0
+	batchFactorySettingsStoreFailScope = ""
 	db, err := sql.Open(batchFactorySettingsStoreDriverName, "")
 	if err != nil {
 		t.Fatalf("open store test db: %v", err)
@@ -99,13 +147,37 @@ type batchFactorySettingsStoreConn struct{}
 
 func (batchFactorySettingsStoreConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
 func (batchFactorySettingsStoreConn) Close() error                        { return nil }
-func (batchFactorySettingsStoreConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
+func (batchFactorySettingsStoreConn) Begin() (driver.Tx, error) {
+	batchFactorySettingsStoreBeginCount++
+	batchFactorySettingsStoreInTx = true
+	batchFactorySettingsStoreTxState = cloneSettingsStoreState(batchFactorySettingsStoreState)
+	return batchFactorySettingsStoreTx{}, nil
+}
+
+type batchFactorySettingsStoreTx struct{}
+
+func (batchFactorySettingsStoreTx) Commit() error {
+	batchFactorySettingsStoreState = cloneSettingsStoreState(batchFactorySettingsStoreTxState)
+	batchFactorySettingsStoreTxState = nil
+	batchFactorySettingsStoreInTx = false
+	return nil
+}
+
+func (batchFactorySettingsStoreTx) Rollback() error {
+	batchFactorySettingsStoreTxState = nil
+	batchFactorySettingsStoreInTx = false
+	return nil
+}
 
 func (batchFactorySettingsStoreConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	compact := strings.Join(strings.Fields(query), " ")
+	state := currentSettingsStoreState()
 	if strings.HasPrefix(compact, "INSERT INTO shuihuo_batch_factory_settings") {
 		if len(args) != 6 {
 			return nil, fmt.Errorf("unexpected upsert args: %#v", args)
+		}
+		if batchFactorySettingsStoreFailScope != "" && fmt.Sprint(args[2].Value) == batchFactorySettingsStoreFailScope {
+			return nil, fmt.Errorf("injected %s write failure", batchFactorySettingsStoreFailScope)
 		}
 		key := batchFactorySettingsStoreKey(args[0].Value, args[1].Value, args[2].Value, args[3].Value, args[4].Value)
 		raw, ok := args[5].Value.([]byte)
@@ -116,7 +188,7 @@ func (batchFactorySettingsStoreConn) ExecContext(_ context.Context, query string
 				return nil, fmt.Errorf("unexpected json arg: %#v", args[5].Value)
 			}
 		}
-		batchFactorySettingsStoreState[key] = append([]byte(nil), raw...)
+		state[key] = append([]byte(nil), raw...)
 		return driver.RowsAffected(1), nil
 	}
 	if strings.HasPrefix(compact, "DELETE FROM shuihuo_batch_factory_settings") {
@@ -124,7 +196,7 @@ func (batchFactorySettingsStoreConn) ExecContext(_ context.Context, query string
 			return nil, fmt.Errorf("unexpected delete args: %#v", args)
 		}
 		key := batchFactorySettingsStoreKey(args[0].Value, args[1].Value, args[2].Value, args[3].Value, args[4].Value)
-		delete(batchFactorySettingsStoreState, key)
+		delete(state, key)
 		return driver.RowsAffected(1), nil
 	}
 	return nil, fmt.Errorf("unexpected settings store exec: %s", compact)
@@ -138,7 +210,7 @@ func (batchFactorySettingsStoreConn) QueryContext(_ context.Context, query strin
 	userID := fmt.Sprint(args[0].Value)
 	batchID := fmt.Sprint(args[1].Value)
 	rows := &batchFactorySettingsStoreRows{columns: []string{"scope", "item_id", "video_id", "settings_json"}}
-	for key, raw := range batchFactorySettingsStoreState {
+	for key, raw := range currentSettingsStoreState() {
 		parts := strings.SplitN(key, "|", 5)
 		if len(parts) != 5 || parts[0] != userID || parts[1] != batchID {
 			continue
