@@ -56,6 +56,9 @@ jobs:
       - name: Test MySQL settings read overlay
         run: node --test test/batch-factory-settings-state-bridge.test.js
 
+      - name: Test settings hydration wiring
+        run: node --test test/batch-factory-settings-hydration-contract.test.js
+
       - name: Test sparse overrides
         run: node --test test/batch-factory-overrides.test.js
 
