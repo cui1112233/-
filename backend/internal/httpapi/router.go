@@ -64,6 +64,8 @@ func (api *API) Router() http.Handler {
 	r.Get("/healthz", api.handleHealth)
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/login", api.handleLogin)
+		r.With(api.requireAuth).Get("/login/session", api.handleMe)
+		r.With(api.requireAuth).Post("/login/logout", api.handleLogout)
 		r.Post("/logout", api.handleLogout)
 		// Local executors authenticate with an opaque device token issued through
 		// a short-lived, user-authorized pairing code. They never receive the
