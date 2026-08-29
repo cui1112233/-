@@ -547,8 +547,8 @@ export function StackyPet({ username, accountSessionKey }) {
         <button
           className="stacky-pet-tab"
           type="button"
-          title="唤醒 CM"
-          aria-label="唤醒 CM"
+          title={`唤醒 ${pet.displayName}`}
+          aria-label={`唤醒 ${pet.displayName}`}
           onClick={() => updateOverlay({ tucked: false })}
         >
           <img src={pet.spritesheetPath} alt="" style={{ imageRendering: pet.renderMode === 'smooth' ? 'auto' : undefined }} />
@@ -558,12 +558,12 @@ export function StackyPet({ username, accountSessionKey }) {
   }
 
   return (
-    <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 CM，${label}`}>
+    <div className="stacky-pet-shell" style={positionStyle} aria-live="polite" aria-label={`前贴宠物 ${pet.displayName}，${label}`}>
       <div className="stacky-pet-bubble">{reply || petSpeech(state) || companionSpeech?.text}</div>
       {chatOpen && (
-        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label="CM 互动">
+        <section className={`stacky-agent-panel stacky-agent-panel--opens-${panelLayout.placement} cm-conversation-frame`} style={panelStyle} role="dialog" aria-label={`${pet.displayName} 互动`}>
           <header className="stacky-agent-header">
-            <strong>CM</strong>
+            <strong>{pet.displayName}</strong>
             <div>
               <button className="stacky-agent-icon" type="button" title="分析当前页面" aria-label="分析当前页面" onClick={analyzeCurrentPage} disabled={asking}>
                 <ScanSearch size={16} aria-hidden="true" />
@@ -571,7 +571,7 @@ export function StackyPet({ username, accountSessionKey }) {
               <button className="stacky-agent-icon" type="button" title="在 Agent 工作区继续" aria-label="在 Agent 工作区继续" onClick={openInAgentWorkspace} disabled={!petTaskId}>
                 <ExternalLink size={16} aria-hidden="true" />
               </button>
-              <button className="stacky-agent-close" type="button" aria-label="关闭 CM 对话" title="关闭对话" onClick={closeChat}>
+              <button className="stacky-agent-close" type="button" aria-label={`关闭 ${pet.displayName} 对话`} title="关闭对话" onClick={closeChat}>
                 <X size={16} aria-hidden="true" />
               </button>
             </div>
@@ -599,7 +599,7 @@ export function StackyPet({ username, accountSessionKey }) {
             ) : null}
           </div>
           <form className="stacky-agent-input" onSubmit={event => { event.preventDefault(); sendQuestion(question); }}>
-            <input value={question} onChange={event => setQuestion(event.target.value)} placeholder="问问 CM..." aria-label="向 CM 提问" />
+            <input value={question} onChange={event => setQuestion(event.target.value)} placeholder={`问问 ${pet.displayName}...`} aria-label={`向 ${pet.displayName} 提问`} />
             <button type="submit" disabled={!question.trim() || asking}>{asking ? '...' : '↗'}</button>
           </form>
         </section>
@@ -610,7 +610,7 @@ export function StackyPet({ username, accountSessionKey }) {
         style={{ '--stacky-row': spriteRow, '--stacky-frame': spriteFrame }}
         role="button"
         tabIndex={0}
-        aria-label="打开 CM 对话"
+        aria-label={`打开 ${pet.displayName} 对话`}
         onPointerDown={handleDragStart}
         onClick={handlePetClick}
         onKeyDown={event => {
@@ -625,8 +625,8 @@ export function StackyPet({ username, accountSessionKey }) {
       <button
         className="stacky-pet-drag-handle"
         type="button"
-        title="拖动移动 CM"
-        aria-label="拖动移动 CM"
+        title={`拖动移动 ${pet.displayName}`}
+        aria-label={`拖动移动 ${pet.displayName}`}
         onPointerDown={handleDragStart}
       >
         <GripVertical size={14} aria-hidden="true" />
@@ -634,8 +634,8 @@ export function StackyPet({ username, accountSessionKey }) {
       <button
         className="stacky-pet-tuck"
         type="button"
-        title="收起 CM"
-        aria-label="收起 CM"
+        title={`收起 ${pet.displayName}`}
+        aria-label={`收起 ${pet.displayName}`}
         onClick={() => updateOverlay({ tucked: true })}
       >
         ×
