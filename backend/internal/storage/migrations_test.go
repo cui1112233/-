@@ -92,6 +92,20 @@ func TestBatchFactoryMigrationCreatesUserScopedWorktables(t *testing.T) {
 	}
 }
 
+func TestPromptLibraryVersionMigrationPreservesDraftPublishAndRollbackStates(t *testing.T) {
+	migration := migrationForVersion(t, 43)
+	for _, required := range []string{
+		"ALTER TABLE prompt_versions ADD COLUMN status",
+		"ALTER TABLE prompt_versions ADD COLUMN published_at",
+		"ALTER TABLE prompt_versions ADD COLUMN published_by",
+		"idx_prompt_versions_definition_status",
+	} {
+		if !strings.Contains(migration.sql, required) {
+			t.Fatalf("prompt library migration missing %q", required)
+		}
+	}
+}
+
 func TestTaskProviderIDMigrationReleasesUnassignedTaskIDs(t *testing.T) {
 	migration := migrationForVersion(t, 31)
 	if !strings.Contains(migration.sql, "UPDATE shuihuo_tasks") || !strings.Contains(migration.sql, "provider_task_id = NULL") || !strings.Contains(migration.sql, "provider_task_id = ''") {
