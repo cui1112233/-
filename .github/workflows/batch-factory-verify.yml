@@ -65,6 +65,9 @@ jobs:
       - name: Test Go settings compatibility bridge
         run: node --test test/batch-factory-go-settings-bridge.test.js
 
+      - name: Test model-change director invalidation
+        run: node --test test/batch-factory-settings-model-invalidation.test.js
+
       - name: Test MySQL settings read overlay
         run: node --test test/batch-factory-settings-state-bridge.test.js
 
