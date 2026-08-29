@@ -15,8 +15,16 @@ export function getBatchFactoryPromptCatalog() {
   return apiRequest(`${base}/prompt-catalog`);
 }
 
-export function getBatchFactoryConfigVersions() {
-  return apiRequest(`${base}/config-versions`);
+export function getBatchFactoryPublishConfigVersions() {
+  return apiRequest(`${base}/publish-config-versions`);
+}
+
+export function getBatchFactoryVideoManagementAccountStatus() {
+  return apiRequest(`${base}/video-management-account/status`);
+}
+
+export function reloginBatchFactoryVideoManagementAccount() {
+  return apiRequest(`${base}/video-management-account/relogin`, { method: 'POST' });
 }
 
 export function listBatchFactoryBatches() {
