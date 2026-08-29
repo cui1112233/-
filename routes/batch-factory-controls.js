@@ -2,6 +2,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
+const { clearPersistedSettingsStateCache } = require('../lib/batch-factory/settings-state-bridge');
 
 function text(value, max = 50000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -109,9 +110,8 @@ function createBatchFactoryControlsRouter({
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
     const previous = batch.settings || {};
     try {
-      // Send only the user's patch as input. Once MySQL has a row, Go ignores
-      // the legacy `previous` snapshot and merges against its own persisted row.
       const settings = await persistSettingsRequest({ settings: input, previous }, req, batch.id);
+      clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
       return res.json({ batch: { ...batch, settings } });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存生产统一设置失败' });
@@ -158,6 +158,7 @@ function createBatchFactoryControlsRouter({
         previous: item.settingsOverride || {},
         inheritKeys
       }, req, { batchId: batch.id, itemId: item.id });
+      clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
       return res.json({ item: cloneItemWithOverride(item, next) });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存当前小说设置失败' });
@@ -179,6 +180,7 @@ function createBatchFactoryControlsRouter({
         itemId: item.id,
         videoId: String(video.id)
       });
+      clearPersistedSettingsStateCache(req.auth.account.username, batch.id);
       return res.json({ item: cloneItemWithVideoOverride(item, video.id, next) });
     } catch (error) {
       return res.status(error.statusCode || 400).json({ error: error.message || '保存 VIDEO 设置失败' });
