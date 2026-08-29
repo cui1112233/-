@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 08-batch-factory-unified-settings-version-sync
+      - 09-batch-factory-video-model-selector
 
 permissions:
   contents: read
