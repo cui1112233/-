@@ -153,12 +153,16 @@ function createBatchFactoryControlsRouter({ store = createBatchFactoryStore(), s
     if (!batch) return res.status(404).json({ error: '批次不存在' });
     const input = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : (req.body || {});
     const merged = { ...batch.settings, ...input };
+    const requestedMode = input.productionMode === 'viral'
+      ? 'viral'
+      : (input.productionMode === 'original' ? 'original' : batch.mode);
     try {
       const resolved = await resolveBoundVideoSettings(req, merged, shuihuoGateway);
       const normalized = store.normalizeSettings(resolved);
       const extras = normalizeProductionExtras(input, batch.settings || {});
       store.updateBatch(req.username, batch.id, target => {
         target.settings = { ...normalized, ...extras };
+        if ((target.items || []).every(item => item.status === 'pending')) target.mode = requestedMode;
       });
       return res.json({ batch: store.getBatch(req.username, batch.id) });
     } catch (error) {
