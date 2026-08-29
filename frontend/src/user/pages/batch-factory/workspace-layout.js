@@ -1,6 +1,7 @@
 export const GRID_COLUMNS = 12;
 export const DEFAULT_ROW_HEIGHT = 48;
 export const DEFAULT_GAP = 12;
+export const WORKSPACE_STORAGE_KEY = 'qiantie:batch-factory:layout:v1';
 
 export const REQUIRED_CARD_IDS = Object.freeze([
   'book-list',
@@ -10,17 +11,17 @@ export const REQUIRED_CARD_IDS = Object.freeze([
 ]);
 
 const MIN_SIZE = Object.freeze({
-  'book-list': Object.freeze({ w: 2, h: 4 }),
-  'book-workbench': Object.freeze({ w: 4, h: 5 }),
+  'book-list': Object.freeze({ w: 2, h: 5 }),
+  'book-workbench': Object.freeze({ w: 4, h: 6 }),
   preview: Object.freeze({ w: 3, h: 4 }),
   'batch-tools': Object.freeze({ w: 3, h: 3 })
 });
 
 const DEFAULT_ITEMS = Object.freeze({
-  'book-list': Object.freeze({ x: 0, y: 0, w: 3, h: 8, minW: 2, minH: 4, hidden: false, collapsed: false }),
-  'book-workbench': Object.freeze({ x: 3, y: 0, w: 5, h: 8, minW: 4, minH: 5, hidden: false, collapsed: false }),
-  preview: Object.freeze({ x: 8, y: 0, w: 4, h: 5, minW: 3, minH: 4, hidden: false, collapsed: false }),
-  'batch-tools': Object.freeze({ x: 8, y: 5, w: 4, h: 3, minW: 3, minH: 3, hidden: false, collapsed: false })
+  'book-list': Object.freeze({ x: 0, y: 0, w: 3, h: 10, minW: 2, minH: 5, hidden: false, collapsed: false }),
+  'book-workbench': Object.freeze({ x: 3, y: 0, w: 5, h: 10, minW: 4, minH: 6, hidden: false, collapsed: false }),
+  preview: Object.freeze({ x: 8, y: 0, w: 4, h: 6, minW: 3, minH: 4, hidden: false, collapsed: false }),
+  'batch-tools': Object.freeze({ x: 8, y: 6, w: 4, h: 4, minW: 3, minH: 3, hidden: false, collapsed: false })
 });
 
 export const DEFAULT_WORKSPACE_LAYOUT = Object.freeze({
