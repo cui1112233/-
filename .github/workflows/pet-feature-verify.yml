@@ -1,0 +1,37 @@
+name: Pet feature verification
+
+on:
+  push:
+    branches:
+      - feature/02-pixiu-pet-switcher
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
