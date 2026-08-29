@@ -29,6 +29,35 @@ type batchFactorySettingsBootstrapRequest struct {
 	State batchfactory.PersistedSettingsState `json:"state"`
 }
 
+func batchFactorySettingInteger(value any) (int, bool) {
+	switch number := value.(type) {
+	case int:
+		return number, true
+	case int64:
+		converted := int(number)
+		return converted, int64(converted) == number
+	case float64:
+		converted := int(number)
+		return converted, float64(converted) == number
+	default:
+		return 0, false
+	}
+}
+
+func batchFactoryDirectorRegenerationRequired(previous, next batchfactory.Settings) bool {
+	previousModel, previousModelOK := batchFactorySettingInteger(previous["videoModelId"])
+	if !previousModelOK || previousModel < 1 {
+		return false
+	}
+	nextModel, nextModelOK := batchFactorySettingInteger(next["videoModelId"])
+	if !nextModelOK || nextModel < 1 || previousModel != nextModel {
+		return true
+	}
+	previousMax, previousMaxOK := batchFactorySettingInteger(previous["maxVideoDuration"])
+	nextMax, nextMaxOK := batchFactorySettingInteger(next["maxVideoDuration"])
+	return previousMaxOK && nextMaxOK && previousMax != nextMax
+}
+
 func (api *API) canonicalizeBatchFactorySettings(r *http.Request, user store.User, input, previous batchfactory.Settings) (batchfactory.Settings, int, string) {
 	normalized := batchfactory.NormalizeSettings(input, previous)
 	modelID, ok := normalized["videoModelId"].(int)
@@ -126,11 +155,15 @@ func (api *API) handleSaveBatchFactorySettings(w http.ResponseWriter, r *http.Re
 		writeJSON(w, status, map[string]string{"error": message})
 		return
 	}
-	if err := settingsStore.SaveBatch(r.Context(), user.ID, batchID, settings); err != nil {
+	directorRegenerationRequired := batchFactoryDirectorRegenerationRequired(previous, settings)
+	if err := settingsStore.SaveBatchAndClearVideoOverrides(r.Context(), user.ID, batchID, settings, directorRegenerationRequired); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存生产统一设置失败"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"settings": settings,
+		"directorRegenerationRequired": directorRegenerationRequired,
+	})
 }
 
 func (api *API) handleSaveBatchFactoryItemOverride(w http.ResponseWriter, r *http.Request) {
