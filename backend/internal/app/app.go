@@ -50,6 +50,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	configs := store.NewConfigs(db)
+	preferences := store.NewPreferences(db)
 	histories := store.NewHistories(db)
 	redisHealth := httpapi.ShuihuoDependencyHealth{Reason: "Redis 未配置"}
 	var queue shuihuotasks.Queue
@@ -83,6 +84,7 @@ func New(cfg config.Config) (*App, error) {
 		SeedPassword:      cfg.SeedPassword,
 		Users:             users,
 		Configs:           configs,
+		Preferences:       preferences,
 		Histories:         histories,
 		Objects:           objects,
 		Queue:             queue,
