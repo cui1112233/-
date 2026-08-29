@@ -66,6 +66,9 @@ func (api *API) Router() http.Handler {
 		r.With(api.requireAuth).Delete("/history", api.handleClearHistory)
 		r.Group(func(r chi.Router) {
 			r.Use(api.requirePlatformAuth)
+			r.Get("/platform/config", api.handleGetConfig)
+			r.Post("/platform/config", api.handleSaveConfig)
+			r.Post("/platform/config/test", api.handleTestConfig)
 			r.Get("/shuihuo-production/health", api.handleShuihuoHealth)
 			r.Get("/shuihuo-production/config", api.handleGetShuihuoProductionConfig)
 			r.Put("/shuihuo-production/config", api.handleSaveShuihuoProductionConfig)
