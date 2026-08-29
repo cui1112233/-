@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1430" viewBox="0 0 960 1430">
+  <defs>
+    <linearGradient id="furRed" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff8065"/>
+      <stop offset="1" stop-color="#dd4f3f"/>
+    </linearGradient>
+    <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff3db"/>
+      <stop offset="1" stop-color="#efd3aa"/>
+    </linearGradient>
+    <linearGradient id="horn" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#634334"/>
+      <stop offset="1" stop-color="#2f211d"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.6"/>
+    </filter>
+
+    <symbol id="pixiu-shell" viewBox="0 0 120 130">
+      <ellipse cx="60" cy="116" rx="36" ry="6" fill="#8f6045" opacity=".16" filter="url(#softShadow)"/>
+      <path d="M88 88 C112 82 111 108 94 106 C104 99 102 91 94 94" fill="none" stroke="#dc5745" stroke-width="11" stroke-linecap="round"/>
+      <path d="M99 91 C109 88 112 96 106 102" fill="none" stroke="#4a3028" stroke-width="5" stroke-linecap="round"/>
+      <ellipse cx="60" cy="91" rx="35" ry="28" fill="url(#furRed)"/>
+      <ellipse cx="42" cy="106" rx="14" ry="11" fill="#ee684f"/>
+      <ellipse cx="78" cy="106" rx="14" ry="11" fill="#ee684f"/>
+      <circle cx="37" cy="110" r="3.2" fill="#4b3028"/>
+      <circle cx="44" cy="112" r="3.2" fill="#4b3028"/>
+      <circle cx="76" cy="112" r="3.2" fill="#4b3028"/>
+      <circle cx="83" cy="110" r="3.2" fill="#4b3028"/>
+
+      <path d="M32 45 C19 37 16 52 24 58 L34 55 Z" fill="#ef684f"/>
+      <path d="M88 45 C101 37 104 52 96 58 L86 55 Z" fill="#ef684f"/>
+      <path d="M29 45 C25 45 24 50 28 52" fill="none" stroke="#f5b08d" stroke-width="3" stroke-linecap="round"/>
+      <path d="M91 45 C95 45 96 50 92 52" fill="none" stroke="#f5b08d" stroke-width="3" stroke-linecap="round"/>
+
+      <path d="M39 39 C28 28 33 15 47 23 C42 25 40 31 43 37 Z" fill="url(#horn)"/>
+      <path d="M81 39 C92 28 87 15 73 23 C78 25 80 31 77 37 Z" fill="url(#horn)"/>
+      <path d="M37 31 L44 30 M78 30 L85 31" stroke="#8a6753" stroke-width="1.5" opacity=".7"/>
+
+      <path d="M38 38 C45 28 49 26 54 31 C59 20 67 20 70 31 C77 27 83 32 83 40 C91 43 93 52 88 58 C96 66 91 76 84 78 C86 87 77 92 70 88 C66 96 54 96 50 88 C41 92 33 87 35 78 C25 76 23 66 31 59 C26 51 30 42 38 38Z" fill="url(#cream)"/>
+      <circle cx="60" cy="57" r="28" fill="url(#furRed)"/>
+      <path d="M45 40 C48 31 55 29 59 35 C61 27 70 27 72 36 C67 34 63 38 61 43 C56 38 52 38 45 40Z" fill="url(#cream)"/>
+
+      <path d="M46 61 C40 65 37 73 41 81 C46 87 53 83 56 78 C50 76 48 70 46 61Z" fill="url(#cream)"/>
+      <path d="M74 61 C80 65 83 73 79 81 C74 87 67 83 64 78 C70 76 72 70 74 61Z" fill="url(#cream)"/>
+      <ellipse cx="60" cy="77" rx="17" ry="12" fill="url(#cream)"/>
+
+      <circle cx="48" cy="61" r="10" fill="#fff9f1"/>
+      <circle cx="72" cy="61" r="10" fill="#fff9f1"/>
+      <path d="M55 73 Q60 78 65 73" fill="none" stroke="#71372f" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M57 73 L58.8 78 L61 74" fill="#fff4df" stroke="#71372f" stroke-width=".7"/>
+      <path d="M63 73 L61.2 78 L59 74" fill="#fff4df" stroke="#71372f" stroke-width=".7"/>
+      <ellipse cx="60" cy="70" rx="4.7" ry="3.2" fill="#d54c45"/>
+      <ellipse cx="58.7" cy="69.3" rx="1.4" ry=".8" fill="#ffb2a0"/>
+
+      <path d="M45 82 C50 87 70 87 75 82 C73 92 66 98 60 98 C54 98 47 92 45 82Z" fill="url(#cream)"/>
+      <path d="M48 86 Q60 92 72 86" fill="none" stroke="#d2aa79" stroke-width="1" opacity=".6"/>
+
+      <path d="M43 48 L34 54 L43 59 M47 43 L47 62 M47 43 L55 38 L63 50 L70 43 L82 52 L73 58 M55 38 L55 61" fill="none" stroke="#f7d27b" stroke-width="2.5" stroke-linejoin="miter" stroke-linecap="square"/>
+
+      <path d="M42 88 Q60 98 78 88" fill="none" stroke="#8d5f45" stroke-width="2.8"/>
+      <circle cx="47" cy="91" r="3" fill="#39a69a" stroke="#f5d59a" stroke-width="1"/>
+      <circle cx="54" cy="94" r="3.3" fill="#f6e9d1" stroke="#f5d59a" stroke-width="1"/>
+      <circle cx="60" cy="95" r="4.5" fill="#d9423f" stroke="#e3b85d" stroke-width="1.8"/>
+      <circle cx="67" cy="94" r="3.3" fill="#f6e9d1" stroke="#f5d59a" stroke-width="1"/>
+      <circle cx="74" cy="91" r="3" fill="#39a69a" stroke="#f5d59a" stroke-width="1"/>
+    </symbol>
+
+    <symbol id="eyes-center" viewBox="0 0 120 130">
+      <circle cx="48" cy="62" r="6" fill="#382722"/>
+      <circle cx="72" cy="62" r="6" fill="#382722"/>
+      <circle cx="46" cy="59.5" r="2.2" fill="#fff"/>
+      <circle cx="70" cy="59.5" r="2.2" fill="#fff"/>
+    </symbol>
+    <symbol id="pixiu" viewBox="0 0 120 130"><use href="#pixiu-shell"/><use href="#eyes-center"/></symbol>
+    <symbol id="pixiu-working" viewBox="0 0 120 130">
+      <use href="#pixiu"/>
+      <circle cx="91" cy="75" r="8" fill="#f4c353" stroke="#b9762f" stroke-width="2"/>
+      <path d="M88 75 H94 M91 72 V78" stroke="#fff0b0" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="pixiu-success" viewBox="0 0 120 130">
+      <use href="#pixiu"/>
+      <path d="M91 43 l2 5 5 2-5 2-2 5-2-5-5-2 5-2Z" fill="#ffd85f"/>
+      <path d="M27 69 l1.5 3.5 3.5 1.5-3.5 1.5-1.5 3.5-1.5-3.5-3.5-1.5 3.5-1.5Z" fill="#ffdb70"/>
+    </symbol>
+    <symbol id="pixiu-error" viewBox="0 0 120 130">
+      <use href="#pixiu-shell"/>
+      <circle cx="47" cy="64" r="5.5" fill="#382722"/>
+      <circle cx="71" cy="64" r="5.5" fill="#382722"/>
+      <path d="M41 54 L51 57 M79 54 L69 57" stroke="#71372f" stroke-width="2" stroke-linecap="round"/>
+      <path d="M91 55 C96 62 93 67 89 67 C85 67 84 62 91 55Z" fill="#78c9e9" opacity=".9"/>
+    </symbol>
+
+    <symbol id="look0" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="48" cy="57" r="6" fill="#382722"/><circle cx="72" cy="57" r="6" fill="#382722"/><circle cx="46" cy="55" r="2" fill="#fff"/><circle cx="70" cy="55" r="2" fill="#fff"/></symbol>
+    <symbol id="look1" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="51" cy="58" r="6" fill="#382722"/><circle cx="75" cy="58" r="6" fill="#382722"/><circle cx="49" cy="56" r="2" fill="#fff"/><circle cx="73" cy="56" r="2" fill="#fff"/></symbol>
+    <symbol id="look2" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="52" cy="62" r="6" fill="#382722"/><circle cx="76" cy="62" r="6" fill="#382722"/><circle cx="50" cy="60" r="2" fill="#fff"/><circle cx="74" cy="60" r="2" fill="#fff"/></symbol>
+    <symbol id="look3" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="51" cy="66" r="6" fill="#382722"/><circle cx="75" cy="66" r="6" fill="#382722"/><circle cx="49" cy="64" r="2" fill="#fff"/><circle cx="73" cy="64" r="2" fill="#fff"/></symbol>
+    <symbol id="look4" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="48" cy="67" r="6" fill="#382722"/><circle cx="72" cy="67" r="6" fill="#382722"/><circle cx="46" cy="65" r="2" fill="#fff"/><circle cx="70" cy="65" r="2" fill="#fff"/></symbol>
+    <symbol id="look5" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="45" cy="66" r="6" fill="#382722"/><circle cx="69" cy="66" r="6" fill="#382722"/><circle cx="43" cy="64" r="2" fill="#fff"/><circle cx="67" cy="64" r="2" fill="#fff"/></symbol>
+    <symbol id="look6" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="44" cy="62" r="6" fill="#382722"/><circle cx="68" cy="62" r="6" fill="#382722"/><circle cx="42" cy="60" r="2" fill="#fff"/><circle cx="66" cy="60" r="2" fill="#fff"/></symbol>
+    <symbol id="look7" viewBox="0 0 120 130"><use href="#pixiu-shell"/><circle cx="45" cy="58" r="6" fill="#382722"/><circle cx="69" cy="58" r="6" fill="#382722"/><circle cx="43" cy="56" r="2" fill="#fff"/><circle cx="67" cy="56" r="2" fill="#fff"/></symbol>
+  </defs>
+
+  <g>
+    <use href="#pixiu" x="0" y="0" width="120" height="130"/><use href="#pixiu" x="120" y="0" width="120" height="130"/><use href="#pixiu" x="240" y="0" width="120" height="130"/><use href="#pixiu" x="360" y="0" width="120" height="130"/><use href="#pixiu" x="480" y="0" width="120" height="130"/><use href="#pixiu" x="600" y="0" width="120" height="130"/><use href="#pixiu" x="720" y="0" width="120" height="130"/><use href="#pixiu" x="840" y="0" width="120" height="130"/>
+    <use href="#pixiu" x="0" y="130" width="120" height="130"/><use href="#pixiu" x="120" y="130" width="120" height="130"/><use href="#pixiu" x="240" y="130" width="120" height="130"/><use href="#pixiu" x="360" y="130" width="120" height="130"/><use href="#pixiu" x="480" y="130" width="120" height="130"/><use href="#pixiu" x="600" y="130" width="120" height="130"/><use href="#pixiu" x="720" y="130" width="120" height="130"/><use href="#pixiu" x="840" y="130" width="120" height="130"/>
+    <use href="#pixiu" x="0" y="260" width="120" height="130"/><use href="#pixiu" x="120" y="260" width="120" height="130"/><use href="#pixiu" x="240" y="260" width="120" height="130"/><use href="#pixiu" x="360" y="260" width="120" height="130"/><use href="#pixiu" x="480" y="260" width="120" height="130"/><use href="#pixiu" x="600" y="260" width="120" height="130"/><use href="#pixiu" x="720" y="260" width="120" height="130"/><use href="#pixiu" x="840" y="260" width="120" height="130"/>
+    <use href="#pixiu-success" x="0" y="390" width="120" height="130"/><use href="#pixiu-success" x="120" y="390" width="120" height="130"/><use href="#pixiu-success" x="240" y="390" width="120" height="130"/><use href="#pixiu-success" x="360" y="390" width="120" height="130"/><use href="#pixiu-success" x="480" y="390" width="120" height="130"/><use href="#pixiu-success" x="600" y="390" width="120" height="130"/><use href="#pixiu-success" x="720" y="390" width="120" height="130"/><use href="#pixiu-success" x="840" y="390" width="120" height="130"/>
+    <use href="#pixiu" x="0" y="520" width="120" height="130"/><use href="#pixiu" x="120" y="520" width="120" height="130"/><use href="#pixiu" x="240" y="520" width="120" height="130"/><use href="#pixiu" x="360" y="520" width="120" height="130"/><use href="#pixiu" x="480" y="520" width="120" height="130"/><use href="#pixiu" x="600" y="520" width="120" height="130"/><use href="#pixiu" x="720" y="520" width="120" height="130"/><use href="#pixiu" x="840" y="520" width="120" height="130"/>
+    <use href="#pixiu-error" x="0" y="650" width="120" height="130"/><use href="#pixiu-error" x="120" y="650" width="120" height="130"/><use href="#pixiu-error" x="240" y="650" width="120" height="130"/><use href="#pixiu-error" x="360" y="650" width="120" height="130"/><use href="#pixiu-error" x="480" y="650" width="120" height="130"/><use href="#pixiu-error" x="600" y="650" width="120" height="130"/><use href="#pixiu-error" x="720" y="650" width="120" height="130"/><use href="#pixiu-error" x="840" y="650" width="120" height="130"/>
+    <use href="#pixiu" x="0" y="780" width="120" height="130"/><use href="#pixiu" x="120" y="780" width="120" height="130"/><use href="#pixiu" x="240" y="780" width="120" height="130"/><use href="#pixiu" x="360" y="780" width="120" height="130"/><use href="#pixiu" x="480" y="780" width="120" height="130"/><use href="#pixiu" x="600" y="780" width="120" height="130"/><use href="#pixiu" x="720" y="780" width="120" height="130"/><use href="#pixiu" x="840" y="780" width="120" height="130"/>
+    <use href="#pixiu-working" x="0" y="910" width="120" height="130"/><use href="#pixiu-working" x="120" y="910" width="120" height="130"/><use href="#pixiu-working" x="240" y="910" width="120" height="130"/><use href="#pixiu-working" x="360" y="910" width="120" height="130"/><use href="#pixiu-working" x="480" y="910" width="120" height="130"/><use href="#pixiu-working" x="600" y="910" width="120" height="130"/><use href="#pixiu-working" x="720" y="910" width="120" height="130"/><use href="#pixiu-working" x="840" y="910" width="120" height="130"/>
+    <use href="#pixiu" x="0" y="1040" width="120" height="130"/><use href="#pixiu" x="120" y="1040" width="120" height="130"/><use href="#pixiu" x="240" y="1040" width="120" height="130"/><use href="#pixiu" x="360" y="1040" width="120" height="130"/><use href="#pixiu" x="480" y="1040" width="120" height="130"/><use href="#pixiu" x="600" y="1040" width="120" height="130"/><use href="#pixiu" x="720" y="1040" width="120" height="130"/><use href="#pixiu" x="840" y="1040" width="120" height="130"/>
+    <use href="#look0" x="0" y="1170" width="120" height="130"/><use href="#look1" x="120" y="1170" width="120" height="130"/><use href="#look2" x="240" y="1170" width="120" height="130"/><use href="#look3" x="360" y="1170" width="120" height="130"/><use href="#look4" x="480" y="1170" width="120" height="130"/><use href="#look5" x="600" y="1170" width="120" height="130"/><use href="#look6" x="720" y="1170" width="120" height="130"/><use href="#look7" x="840" y="1170" width="120" height="130"/>
+    <use href="#look4" x="0" y="1300" width="120" height="130"/><use href="#look5" x="120" y="1300" width="120" height="130"/><use href="#look6" x="240" y="1300" width="120" height="130"/><use href="#look7" x="360" y="1300" width="120" height="130"/><use href="#look0" x="480" y="1300" width="120" height="130"/><use href="#look1" x="600" y="1300" width="120" height="130"/><use href="#look2" x="720" y="1300" width="120" height="130"/><use href="#look3" x="840" y="1300" width="120" height="130"/>
+  </g>
+</svg>
