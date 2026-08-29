@@ -13,21 +13,20 @@ test('desktop pet catalog contains CM and pixiu', () => {
   ]);
 });
 
-test('pixiu reuses the CM behavior profiles while owning its visual identity', () => {
+test('pixiu reuses the CM behavior profiles while owning production WebP visuals', () => {
   const pixiu = getPetDefinition('pixiu');
   assert.equal(pixiu.id, 'pixiu');
   assert.equal(pixiu.displayName, '貔貅');
-  assert.equal(pixiu.spritesheetPath, '/pets/pixiu/spritesheet.svg');
+  assert.equal(pixiu.spritesheetPath, '/pets/pixiu/spritesheet.webp');
   assert.equal(pixiu.atlasProfile, 'stacky-v2');
   assert.equal(pixiu.behaviorProfile, 'cm-v1');
   assert.equal(pixiu.speechProfile, 'cm-v1');
   assert.equal(pixiu.renderMode, 'smooth');
 
-  const atlas = readFileSync('pets/pixiu/spritesheet.svg', 'utf8');
-  assert.match(atlas, /width="960" height="1430"/);
-  assert.match(atlas, /id="pixiu-working"/);
-  assert.match(atlas, /id="pixiu-success"/);
-  assert.match(atlas, /id="pixiu-error"/);
+  const petManifest = JSON.parse(readFileSync('pets/pixiu/pet.json', 'utf8'));
+  assert.equal(petManifest.id, 'pixiu');
+  assert.equal(petManifest.spritesheetPath, 'spritesheet.webp');
+  assert.equal(petManifest.atlasProfile, 'stacky-v2');
 });
 
 test('unknown pets fall back to CM', () => {
