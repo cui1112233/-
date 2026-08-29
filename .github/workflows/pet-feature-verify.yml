@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Materialize pixiu runtime asset
-        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-06-final.b64') != '' }}
+        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-06a01.b64') != '' }}
         shell: bash
         run: |
           cat \
@@ -28,7 +28,11 @@ jobs:
             pets/pixiu/.asset-upload/part-03.b64 \
             pets/pixiu/.asset-upload/part-04.b64 \
             pets/pixiu/.asset-upload/part-05.b64 \
-            pets/pixiu/.asset-upload/part-06-final.b64 \
+            pets/pixiu/.asset-upload/part-06a00.b64 \
+            pets/pixiu/.asset-upload/part-06a01.b64 \
+            pets/pixiu/.asset-upload/part-06a1.b64 \
+            pets/pixiu/.asset-upload/part-06a2.b64 \
+            pets/pixiu/.asset-upload/part-06b.b64 \
             pets/pixiu/.asset-upload/part-07.b64 \
             | base64 --decode > pets/pixiu/spritesheet.webp
 
@@ -82,7 +86,7 @@ jobs:
         run: npm test
 
       - name: Persist verified pixiu runtime asset
-        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-06-final.b64') != '' }}
+        if: ${{ hashFiles('pets/pixiu/.asset-upload/part-06a01.b64') != '' }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
