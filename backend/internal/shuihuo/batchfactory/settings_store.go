@@ -49,12 +49,20 @@ func (s *SettingsStore) SaveBatchAndClearVideoOverrides(ctx context.Context, use
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	state, err := s.loadBatchStateWith(ctx, tx, userID, batchID, true)
+	if err != nil {
+		return err
+	}
 	if err := s.saveWith(ctx, tx, userID, batchID, settingsScopeBatch, "", "", settings, false); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM shuihuo_batch_factory_settings
-WHERE user_id = ? AND batch_id = ? AND scope = ?`, userID, strings.TrimSpace(batchID), settingsScopeVideo); err != nil {
-		return err
+	for itemID, videos := range state.Videos {
+		for videoID := range videos {
+			if err := s.saveWith(ctx, tx, userID, batchID, settingsScopeVideo, itemID, videoID, Settings{}, true); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit()
 }
