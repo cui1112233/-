@@ -1,17 +1,16 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
-const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { parseDirectorJson, normalizeDirectorOutput } = require('../lib/batch-factory/director-output');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
 const { resolveItemSettings, resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
-const { resolveScriptPrompt, resolveAssetPrompt, publicPromptCatalog } = require('../lib/batch-factory/prompt-selection');
+const { publicPromptCatalog } = require('../lib/batch-factory/prompt-selection');
 const {
-  listBatchFactoryConfigVersions,
-  resolveVersionedPreset,
-  resolveVersionedSystemPresetBody
-} = require('../lib/batch-factory/config-version');
+  resolveConfigCatalogWithGo,
+  resolvePresetWithGo,
+  resolvePresetBodyWithGo
+} = require('../lib/batch-factory/config-snapshot-bridge');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
 const PREFIX_PRESETS = Object.freeze({
@@ -98,19 +97,42 @@ async function callTextModel(username, messages, { temperature = 0.4, maxTokens 
   return text;
 }
 
-function systemPresetBody(presetStore, id, settings = {}) {
-  return resolveVersionedSystemPresetBody(presetStore, id, settings)
-    || resolveSystemPresetBody(presetStore, id);
+function pinnedVersion(settings, id) {
+  const version = Number(settings?.systemPresetVersions?.[id]);
+  return Number.isInteger(version) && version > 0 ? version : 0;
 }
 
-function presetVersion(store, id, settings = {}) {
-  const pinnedVersion = settings?.systemPresetVersions?.[id];
-  const preset = resolveVersionedPreset(store, id, pinnedVersion) || store?.getPublished?.(id);
-  return preset ? { id, version: preset.version || 1 } : { id, version: 0 };
+async function systemPresetBodyWithGo(username, isOwner, presetStore, id, settings = {}, shuihuoGateway) {
+  return resolvePresetBodyWithGo({
+    username,
+    isOwner: isOwner === true,
+    presetStore,
+    id,
+    version: pinnedVersion(settings, id),
+    shuihuoGateway
+  });
 }
 
-function latestConfigSettings(presetStore) {
-  const latest = listBatchFactoryConfigVersions(presetStore).latest;
+async function presetVersionWithGo(username, isOwner, presetStore, id, settings = {}, shuihuoGateway) {
+  const preset = await resolvePresetWithGo({
+    username,
+    isOwner: isOwner === true,
+    presetStore,
+    id,
+    version: pinnedVersion(settings, id),
+    shuihuoGateway
+  });
+  return { id: preset.id || id, version: Number(preset.version) || 1 };
+}
+
+async function latestConfigSettingsWithGo(username, isOwner, presetStore, shuihuoGateway) {
+  const configCatalog = await resolveConfigCatalogWithGo({
+    username,
+    isOwner: isOwner === true,
+    presetStore,
+    shuihuoGateway
+  });
+  const latest = configCatalog.latest;
   if (!latest) return {};
   return {
     systemConfigRevision: latest.revision,
@@ -135,20 +157,50 @@ function applyPersonalPrompt(base, username, userPromptLibraryStore) {
   };
 }
 
-function selectedDirectorPrompts(settings = {}, username = '', userPromptLibraryStore, presetStore) {
+async function selectedDirectorPromptsWithGo(settings = {}, username = '', isOwner = false, userPromptLibraryStore, presetStore, shuihuoGateway) {
   const scriptId = settings.scriptPromptPresetId || 'standard-short-drama';
   const assetId = settings.assetPromptPresetId || 'standard-asset-extraction';
-  const scriptBase = resolveScriptPrompt(scriptId, presetStore, settings.systemPresetVersions?.[scriptId]);
-  const assetBase = resolveAssetPrompt(assetId, presetStore, settings.systemPresetVersions?.[assetId]);
+  const [scriptPreset, assetPreset] = await Promise.all([
+    resolvePresetWithGo({
+      username,
+      isOwner: isOwner === true,
+      presetStore,
+      id: scriptId,
+      version: pinnedVersion(settings, scriptId),
+      shuihuoGateway
+    }),
+    resolvePresetWithGo({
+      username,
+      isOwner: isOwner === true,
+      presetStore,
+      id: assetId,
+      version: pinnedVersion(settings, assetId),
+      shuihuoGateway
+    })
+  ]);
+  const scriptBase = {
+    id: scriptPreset.id,
+    name: scriptPreset.name || scriptId,
+    body: String(scriptPreset.body || '').trim(),
+    version: Number(scriptPreset.version) || 1,
+    source: 'system'
+  };
+  const assetBase = {
+    id: assetPreset.id,
+    name: assetPreset.name || assetId,
+    body: String(assetPreset.body || '').trim(),
+    version: Number(assetPreset.version) || 1,
+    source: 'system'
+  };
   return {
     script: applyPersonalPrompt(scriptBase, username, userPromptLibraryStore),
     assets: applyPersonalPrompt(assetBase, username, userPromptLibraryStore)
   };
 }
 
-function directorSystemPrompt(presetStore, mode, settings, selected) {
+async function directorSystemPrompt(username, isOwner, presetStore, mode, settings, selected, shuihuoGateway) {
   const directorId = mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
-  const base = systemPresetBody(presetStore, directorId, settings);
+  const base = await systemPresetBodyWithGo(username, isOwner, presetStore, directorId, settings, shuihuoGateway);
   const durationRule = settings.fixedSingleVideo
     ? `固定单 VIDEO 已开启：只允许输出 1 个 storyboard；duration_sec 必须严格等于 ${settings.exactDuration}。输入再长也不要输出第二个 storyboard。只能从开头选择能在 ${settings.exactDuration} 秒内完整承载的连续内容，不得从一句对白或完整动作中间截断。后续内容标记为 has_remaining_source=true。`
     : `固定单 VIDEO 未开启：当前绑定视频模型单次生成最大支持 ${settings.maxVideoDuration} 秒。请先完整理解内容，根据剧情节点、动作完整性、视觉连续性和节奏，将整段内容自然拆成一个或多个 VIDEO。每个 VIDEO 的实际生成时长必须为 1-${settings.maxVideoDuration} 之间的整数，不要求用满 ${settings.maxVideoDuration} 秒。不要为了凑时长加入无意义停顿，也不要用简单固定长度机械切分。`;
@@ -200,10 +252,10 @@ function directorSettings(batch, item) {
   };
 }
 
-async function generateHook(username, presetStore, batch, item) {
+async function generateHook(username, isOwner, presetStore, batch, item, shuihuoGateway) {
   const id = 'batch-hook-adaptation';
   const settings = batch.settings || {};
-  const system = systemPresetBody(presetStore, id, settings);
+  const system = await systemPresetBodyWithGo(username, isOwner, presetStore, id, settings, shuihuoGateway);
   const text = await callTextModel(username, [
     { role: 'system', content: system },
     { role: 'user', content: JSON.stringify({ source_text: item.sourceText, style: settings.style, synopsis: settings.synopsis }, null, 2) }
@@ -217,24 +269,25 @@ async function generateHook(username, presetStore, batch, item) {
       factConstraints: Array.isArray(output.fact_constraints) ? output.fact_constraints : [],
       emotionAmplifications: Array.isArray(output.emotion_amplifications) ? output.emotion_amplifications : []
     },
-    promptVersions: { hook: presetVersion(presetStore, id, settings) }
+    promptVersions: { hook: await presetVersionWithGo(username, isOwner, presetStore, id, settings, shuihuoGateway) }
   };
 }
 
-async function generateDirector(username, presetStore, userPromptLibraryStore, batch, item) {
+async function generateDirector(username, isOwner, presetStore, userPromptLibraryStore, batch, item, shuihuoGateway) {
   if (batch.mode === 'viral' && !String(item.approvedHookScript || '').trim()) throw new Error('爆款模式必须先审核通过开头文案');
   const directorId = batch.mode === 'viral' ? 'batch-viral-director' : 'batch-original-director';
   const settings = resolveItemSettings(batch, item);
-  const selected = selectedDirectorPrompts(settings, username, userPromptLibraryStore, presetStore);
+  const selected = await selectedDirectorPromptsWithGo(settings, username, isOwner, userPromptLibraryStore, presetStore, shuihuoGateway);
+  const system = await directorSystemPrompt(username, isOwner, presetStore, batch.mode, settings, selected, shuihuoGateway);
   const text = await callTextModel(username, [
-    { role: 'system', content: directorSystemPrompt(presetStore, batch.mode, settings, selected) },
+    { role: 'system', content: system },
     { role: 'user', content: directorUserPrompt(batch, item) }
   ], { temperature: batch.mode === 'viral' ? 0.65 : 0.35, maxTokens: 18000 });
   const result = normalizeDirectorOutput(text, directorSettings(batch, item));
   return {
     directorResult: result,
     promptVersions: {
-      [directorId]: presetVersion(presetStore, directorId, settings),
+      [directorId]: await presetVersionWithGo(username, isOwner, presetStore, directorId, settings, shuihuoGateway),
       scriptPrompt: { id: selected.script.id, name: selected.script.name, version: selected.script.version, source: selected.script.source },
       assetPrompt: { id: selected.assets.id, name: selected.assets.name, version: selected.assets.version, source: selected.assets.source }
     }
@@ -319,7 +372,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     try {
       if (job.stage === 'hook') {
         store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'hook_generating'; target.error = ''; });
-        const result = await generateHook(job.username, presetStore, batch, item);
+        const result = await generateHook(job.username, job.isOwner, presetStore, batch, item, shuihuoGateway);
         store.updateItem(job.username, job.batchId, job.itemId, target => {
           target.hookDraft = result.hookDraft;
           target.hookMeta = result.hookMeta;
@@ -332,7 +385,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       store.updateItem(job.username, job.batchId, job.itemId, target => { target.status = 'director_generating'; target.error = ''; });
       const refreshed = store.getBatch(job.username, job.batchId);
       const refreshedItem = refreshed?.items?.find(entry => entry.id === job.itemId);
-      const result = await generateDirector(job.username, presetStore, userPromptLibraryStore, refreshed, refreshedItem);
+      const result = await generateDirector(job.username, job.isOwner, presetStore, userPromptLibraryStore, refreshed, refreshedItem, shuihuoGateway);
       store.updateItem(job.username, job.batchId, job.itemId, target => {
         target.directorResult = result.directorResult;
         target.promptVersions = { ...target.promptVersions, ...result.promptVersions };
@@ -359,25 +412,34 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     }
   }
 
-  function queueItem(username, batch, item) {
+  function queueItem(username, isOwner, batch, item) {
     if (batch.mode === 'viral' && !String(item.approvedHookScript || '').trim()) {
       store.updateItem(username, batch.id, item.id, target => { target.status = 'queued_hook'; target.error = ''; });
-      enqueue({ username, batchId: batch.id, itemId: item.id, stage: 'hook' });
+      enqueue({ username, isOwner: isOwner === true, batchId: batch.id, itemId: item.id, stage: 'hook' });
     } else {
       store.updateItem(username, batch.id, item.id, target => { target.status = 'queued_director'; target.error = ''; });
-      enqueue({ username, batchId: batch.id, itemId: item.id, stage: 'director' });
+      enqueue({ username, isOwner: isOwner === true, batchId: batch.id, itemId: item.id, stage: 'director' });
     }
   }
 
   router.use(apiAuth);
 
-  router.get('/prompt-catalog', (req, res) => {
-    const configCatalog = listBatchFactoryConfigVersions(presetStore);
-    return res.json({
-      ...publicPromptCatalog(presetStore),
-      configVersions: configCatalog.versions,
-      latestConfig: configCatalog.latest
-    });
+  router.get('/prompt-catalog', async (req, res) => {
+    try {
+      const configCatalog = await resolveConfigCatalogWithGo({
+        username: req.auth.account.username,
+        isOwner: req.auth.account.isOwner === true,
+        presetStore,
+        shuihuoGateway
+      });
+      return res.json({
+        ...publicPromptCatalog(presetStore),
+        configVersions: configCatalog.versions,
+        latestConfig: configCatalog.latest
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 503).json({ error: error.message || '读取配置版本失败' });
+    }
   });
   router.get('/batches', (req, res) => res.json({ batches: store.listBatches(req.username) }));
 
@@ -388,7 +450,17 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       const hasPinnedConfig = inputSettings.systemPresetVersions
         && typeof inputSettings.systemPresetVersions === 'object'
         && Object.keys(inputSettings.systemPresetVersions).length > 0;
-      if (!hasPinnedConfig) inputSettings = { ...inputSettings, ...latestConfigSettings(presetStore) };
+      if (!hasPinnedConfig) {
+        inputSettings = {
+          ...inputSettings,
+          ...(await latestConfigSettingsWithGo(
+            req.auth.account.username,
+            req.auth.account.isOwner === true,
+            presetStore,
+            shuihuoGateway
+          ))
+        };
+      }
       const settings = await resolveBoundVideoSettings(req, inputSettings, shuihuoGateway);
       const batch = store.createBatch(req.username, { ...payload, settings });
       return res.status(201).json({ batch });
@@ -409,7 +481,9 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     // Queue in visible novel-list order. maxConcurrency defaults to one, so
     // director execution stays deterministic from top to bottom.
     for (const item of batch.items) {
-      if (['pending', 'failed', 'queued_hook', 'queued_director'].includes(item.status)) queueItem(req.username, batch, item);
+      if (['pending', 'failed', 'queued_hook', 'queued_director'].includes(item.status)) {
+        queueItem(req.username, req.auth.account.isOwner === true, batch, item);
+      }
     }
     return res.json({ batch: store.getBatch(req.username, batch.id) });
   });
@@ -426,7 +500,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       target.status = 'queued_director';
       target.error = '';
     });
-    enqueue({ username: req.username, batchId: batch.id, itemId: item.id, stage: 'director' });
+    enqueue({ username: req.username, isOwner: req.auth.account.isOwner === true, batchId: batch.id, itemId: item.id, stage: 'director' });
     return res.json({ item: store.getBatch(req.username, batch.id).items.find(entry => entry.id === item.id) });
   });
 
@@ -436,7 +510,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
     if (batch.mode !== 'viral') return res.status(400).json({ error: '只有爆款模式可以重写开头' });
     store.updateItem(req.username, batch.id, item.id, target => { target.status = 'queued_hook'; target.error = ''; });
-    enqueue({ username: req.username, batchId: batch.id, itemId: item.id, stage: 'hook' });
+    enqueue({ username: req.username, isOwner: req.auth.account.isOwner === true, batchId: batch.id, itemId: item.id, stage: 'hook' });
     return res.json({ ok: true });
   });
 
@@ -446,7 +520,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     if (!batch || !item) return res.status(404).json({ error: '批次或开篇不存在' });
     if (batch.mode === 'viral' && !item.approvedHookScript) return res.status(400).json({ error: '请先确认爆款开头' });
     store.updateItem(req.username, batch.id, item.id, target => { target.status = 'queued_director'; target.error = ''; });
-    enqueue({ username: req.username, batchId: batch.id, itemId: item.id, stage: 'director' });
+    enqueue({ username: req.username, isOwner: req.auth.account.isOwner === true, batchId: batch.id, itemId: item.id, stage: 'director' });
     return res.json({ ok: true });
   });
 
@@ -469,7 +543,7 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
     }
   });
 
-  router.post('/batches/:batchId/items/:itemId/videos/:videoId/compile', (req, res) => {
+  router.post('/batches/:batchId/items/:itemId/videos/:videoId/compile', async (req, res) => {
     try {
       const batch = store.getBatch(req.username, req.params.batchId);
       const item = batch?.items?.find(entry => entry.id === req.params.itemId);
@@ -478,11 +552,28 @@ function createBatchFactoryRouter({ store = createBatchFactoryStore(), presetSto
       if (!batch || !item || !video) return res.status(404).json({ error: '视频分镜不存在' });
       const settings = resolveVideoSettings(batch, item, video.id);
       const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-      const autoPrefix = settings.prefixMode === 'manual' ? '' : systemPresetBody(presetStore, prefixId, settings);
+      const autoPrefix = settings.prefixMode === 'manual'
+        ? ''
+        : await systemPresetBodyWithGo(
+          req.auth.account.username,
+          req.auth.account.isOwner === true,
+          presetStore,
+          prefixId,
+          settings,
+          shuihuoGateway
+        );
       const payload = compileVideoPrompt({ directorResult: result, video, settings, autoPrefix });
-      return res.json({ payload, prefix: { key: video.prefix_key || 'general_anime', preset: presetVersion(presetStore, prefixId, settings) } });
+      const preset = await presetVersionWithGo(
+        req.auth.account.username,
+        req.auth.account.isOwner === true,
+        presetStore,
+        prefixId,
+        settings,
+        shuihuoGateway
+      );
+      return res.json({ payload, prefix: { key: video.prefix_key || 'general_anime', preset } });
     } catch (error) {
-      return res.status(400).json({ error: error.message || '编译视频提示词失败' });
+      return res.status(error.statusCode || 400).json({ error: error.message || '编译视频提示词失败' });
     }
   });
 
@@ -494,6 +585,7 @@ module.exports = {
   PREFIX_PRESETS,
   canonicalModelSettings,
   resolveBoundVideoSettings,
-  latestConfigSettings,
-  systemPresetBody
+  latestConfigSettingsWithGo,
+  systemPresetBodyWithGo,
+  presetVersionWithGo
 };
