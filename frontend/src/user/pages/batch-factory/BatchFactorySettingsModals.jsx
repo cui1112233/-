@@ -20,6 +20,12 @@ const OVERRIDE_KEYS = Object.freeze([
   'subtitlePolicy'
 ]);
 
+const BASIC_SETTING_FIELDS = Object.freeze([
+  'injectCharacterPrompt',
+  'injectScenePrompt',
+  'injectPropPrompt'
+]);
+
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object || {}, key);
 }
@@ -57,6 +63,10 @@ function promptDefaults(settings = {}) {
     negativeEnabled: settings.negativeEnabled !== false,
     subtitlePolicy: settings.subtitlePolicy === 'allow' ? 'allow' : 'forbid-auto-dialogue-subtitle'
   };
+}
+
+function basicSettingsEnabled(settings = {}) {
+  return BASIC_SETTING_FIELDS.every(field => settings[field] !== false);
 }
 
 export function mergePromptSettings(parent = {}, override = {}) {
@@ -139,6 +149,12 @@ export function UnifiedProductionSettingsModal({ open, settings, onClose, onSave
   }, [open]);
 
   const set = (key, value) => setLocal(current => ({ ...current, [key]: value }));
+  const setBasicSettings = checked => setLocal(current => ({
+    ...current,
+    injectCharacterPrompt: checked,
+    injectScenePrompt: checked,
+    injectPropPrompt: checked
+  }));
   const selectSnapshot = revision => {
     const snapshot = catalog?.configVersions?.find(entry => entry.revision === revision);
     if (snapshot) setLocal(current => ({ ...current, ...snapshotFields(snapshot) }));
@@ -180,10 +196,8 @@ export function UnifiedProductionSettingsModal({ open, settings, onClose, onSave
 
       <section className="bf-settings-section">
         <div className="bf-settings-section-title">约束设置</div>
+        <ConstraintRow label="打开基础设定（人物 / 场景）" description="开启后，每个 VIDEO 会按引用关系注入人物、场景及道具设定；关闭后不再发送这组基础设定。" enabled={basicSettingsEnabled(local)} onEnabledChange={setBasicSettings} />
         <ConstraintRow label="画面前缀词" description={local.prefixMode === 'manual' ? '统一手动前缀会直接加入每个 VIDEO。' : 'AI 会先判断题材前缀，再追加这里的统一前缀。'} enabled={local.prefixEnabled !== false} onEnabledChange={checked => set('prefixEnabled', checked)} value={local.customPrefix || ''} onValueChange={value => set('customPrefix', value)} placeholder="例如：电影级动漫短剧，强情绪表演，动态镜头……" />
-        <ConstraintRow label="人物 Prompt" description="把当前 VIDEO 引用的人物设定动态注入视频模型。" enabled={local.injectCharacterPrompt !== false} onEnabledChange={checked => set('injectCharacterPrompt', checked)} />
-        <ConstraintRow label="场景 Prompt" description="把当前 VIDEO 引用的场景设定动态注入视频模型。" enabled={local.injectScenePrompt !== false} onEnabledChange={checked => set('injectScenePrompt', checked)} />
-        <ConstraintRow label="道具 Prompt" description="把当前 VIDEO 引用的道具设定动态注入视频模型。" enabled={local.injectPropPrompt !== false} onEnabledChange={checked => set('injectPropPrompt', checked)} />
         <ConstraintRow label="画质约束" description="只在编译最终 VIDEO Prompt 时注入，不写死进剧情描述。" enabled={local.qualityEnabled !== false} onEnabledChange={checked => set('qualityEnabled', checked)} value={local.quality || ''} onValueChange={value => set('quality', value)} placeholder="8K超清、电影级光影、高细节……" />
         <ConstraintRow label="画面限制" description="限制水印、变形、无关文字等画面问题。" enabled={local.restrictionEnabled !== false} onEnabledChange={checked => set('restrictionEnabled', checked)} value={local.restriction || ''} onValueChange={value => set('restriction', value)} placeholder="禁止无关文字、禁止畸形手部、禁止画面水印……" />
         <ConstraintRow label="负面提示词" description="作为最终视频请求的负面约束动态注入。" enabled={local.negativeEnabled !== false} onEnabledChange={checked => set('negativeEnabled', checked)} value={local.negative || ''} onValueChange={value => set('negative', value)} placeholder="低清、模糊、畸形、重复人物……" />
@@ -200,12 +214,18 @@ function OverrideState({ overridden, onRestore }) {
     : <Tag>继承上一级</Tag>;
 }
 
-function ScopedBooleanRow({ label, description, field, parent, local, onSet, onRestore }) {
-  const overridden = hasOwn(local, field);
-  const effective = overridden ? local[field] : parent[field];
+function ScopedBaseSettingsRow({ parent, local, onSet, onRestore }) {
+  const overridden = BASIC_SETTING_FIELDS.some(field => hasOwn(local, field));
+  const enabled = BASIC_SETTING_FIELDS.every(field => (hasOwn(local, field) ? local[field] : parent[field]) !== false);
+  const setAll = checked => BASIC_SETTING_FIELDS.forEach(field => onSet(field, checked));
+  const restoreAll = () => BASIC_SETTING_FIELDS.forEach(field => onRestore(field));
   return <div className="bf-settings-row">
-    <div className="bf-settings-row-copy"><strong>{label}</strong><small>{description}</small><OverrideState overridden={overridden} onRestore={() => onRestore(field)} /></div>
-    <Switch size="small" checked={effective !== false} onChange={checked => onSet(field, checked)} />
+    <div className="bf-settings-row-copy">
+      <strong>打开基础设定（人物 / 场景）</strong>
+      <small>控制这一层是否把人物、场景及引用道具设定注入每个 VIDEO。</small>
+      <OverrideState overridden={overridden} onRestore={restoreAll} />
+    </div>
+    <Switch size="small" checked={enabled} onChange={setAll} />
   </div>;
 }
 
@@ -226,7 +246,7 @@ function ScopedConstraintRow({ label, description, enabledField, textField, pare
   </div>;
 }
 
-function ScopedSettingsEditor({ parentSettings, override, onChange, setInheritKeys }) {
+function ScopedSettingsEditor({ parentSettings, override, onChange, setInheritKeys, constraintsOnly = false }) {
   const parent = promptDefaults(parentSettings);
   const local = override;
   const setField = (field, value) => {
@@ -238,18 +258,22 @@ function ScopedSettingsEditor({ parentSettings, override, onChange, setInheritKe
     setInheritKeys(current => current.includes(field) ? current : [...current, field]);
   };
 
+  const constraints = <>
+    <ScopedBaseSettingsRow parent={parent} local={local} onSet={setField} onRestore={restore} />
+    <ScopedConstraintRow label="画面前缀词" description="只覆盖这一层的前缀开关/附加词。" enabledField="prefixEnabled" textField="customPrefix" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层专用画面前缀……" />
+    <ScopedConstraintRow label="画质约束" description="当前层专用画质要求。" enabledField="qualityEnabled" textField="quality" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层画质约束……" />
+    <ScopedConstraintRow label="画面限制" description="当前层专用画面限制。" enabledField="restrictionEnabled" textField="restriction" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层画面限制……" />
+    <ScopedConstraintRow label="负面提示词" description="当前层专用负面词。" enabledField="negativeEnabled" textField="negative" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层负面提示词……" />
+  </>;
+
+  if (constraintsOnly) return constraints;
+
   return <>
     <div className="bf-settings-two-col">
       <label>视频画幅<Select value={hasOwn(local, 'aspectRatio') ? local.aspectRatio : 'inherit'} onChange={value => value === 'inherit' ? restore('aspectRatio') : setField('aspectRatio', value)} options={[{ value: 'inherit', label: `继承 · ${parent.aspectRatio}` }, { value: '9:16', label: '覆盖为 9:16' }, { value: '16:9', label: '覆盖为 16:9' }]} /></label>
       <label>前缀模式<Select value={hasOwn(local, 'prefixMode') ? local.prefixMode : 'inherit'} onChange={value => value === 'inherit' ? restore('prefixMode') : setField('prefixMode', value)} options={[{ value: 'inherit', label: `继承 · ${parent.prefixMode === 'manual' ? '手动' : 'AI自动'}` }, { value: 'auto', label: '覆盖为 AI 自动' }, { value: 'manual', label: '覆盖为统一手动' }]} /></label>
     </div>
-    <ScopedConstraintRow label="画面前缀词" description="只覆盖这一层的前缀开关/附加词。" enabledField="prefixEnabled" textField="customPrefix" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层专用画面前缀……" />
-    <ScopedBooleanRow label="人物 Prompt" description="当前层是否注入人物设定。" field="injectCharacterPrompt" parent={parent} local={local} onSet={setField} onRestore={restore} />
-    <ScopedBooleanRow label="场景 Prompt" description="当前层是否注入场景设定。" field="injectScenePrompt" parent={parent} local={local} onSet={setField} onRestore={restore} />
-    <ScopedBooleanRow label="道具 Prompt" description="当前层是否注入道具设定。" field="injectPropPrompt" parent={parent} local={local} onSet={setField} onRestore={restore} />
-    <ScopedConstraintRow label="画质约束" description="当前层专用画质要求。" enabledField="qualityEnabled" textField="quality" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层画质约束……" />
-    <ScopedConstraintRow label="画面限制" description="当前层专用画面限制。" enabledField="restrictionEnabled" textField="restriction" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层画面限制……" />
-    <ScopedConstraintRow label="负面提示词" description="当前层专用负面词。" enabledField="negativeEnabled" textField="negative" parent={parent} local={local} onSet={setField} onRestore={restore} placeholder="当前层负面提示词……" />
+    {constraints}
     <div className="bf-settings-two-col">
       <label>字幕策略<Select value={hasOwn(local, 'subtitlePolicy') ? local.subtitlePolicy : 'inherit'} onChange={value => value === 'inherit' ? restore('subtitlePolicy') : setField('subtitlePolicy', value)} options={[{ value: 'inherit', label: `继承 · ${parent.subtitlePolicy === 'allow' ? '允许字幕' : '禁止自动对白字幕'}` }, { value: 'forbid-auto-dialogue-subtitle', label: '覆盖为禁止自动对白字幕' }, { value: 'allow', label: '覆盖为允许字幕' }]} /></label>
     </div>
@@ -275,6 +299,47 @@ function LayeredSettingsModal({ title, subtitle, open, parentSettings, initialOv
       <Button type="primary" block loading={saving} onClick={() => onSave(local, inheritKeys)}>保存当前层设置</Button>
     </div>
   </Modal>;
+}
+
+export function BookConstraintPopover({ item, batchSettings, onSave, saving }) {
+  const [open, setOpen] = useState(false);
+  const [local, setLocal] = useState({});
+  const [inheritKeys, setInheritKeys] = useState([]);
+
+  useEffect(() => { setOpen(false); }, [item?.id]);
+
+  const handleOpenChange = nextOpen => {
+    if (nextOpen) {
+      setLocal({ ...(item?.settingsOverride || {}) });
+      setInheritKeys([]);
+    }
+    setOpen(nextOpen);
+  };
+
+  const save = async () => {
+    const result = await onSave(local, inheritKeys);
+    if (result !== false) setOpen(false);
+  };
+
+  return <Popover
+    open={open}
+    onOpenChange={handleOpenChange}
+    trigger="click"
+    placement="bottomRight"
+    content={<div className="bf-settings-modal" style={{ width: 460, maxWidth: 'calc(100vw - 48px)' }}>
+      <div className="bf-settings-layer-head">
+        <div><strong>{item?.title || '当前小说'} · 约束设置</strong><small>默认继承生产统一设置；只覆盖你在这张卡片里改过的约束。</small></div>
+        <Tag>{`继承统一设置 · ${batchSettings?.systemConfigLabel || '当前版本'}`}</Tag>
+      </div>
+      <section className="bf-settings-section">
+        <div className="bf-settings-section-title">约束设置</div>
+        <ScopedSettingsEditor parentSettings={batchSettings} override={local} onChange={setLocal} setInheritKeys={setInheritKeys} constraintsOnly />
+      </section>
+      <Button type="primary" block loading={saving} onClick={save}>保存当前小说约束</Button>
+    </div>}
+  >
+    <Button size="small">约束设置</Button>
+  </Popover>;
 }
 
 export function BookSettingsModal({ open, item, batchSettings, onClose, onSave, saving }) {
