@@ -126,6 +126,48 @@ ORDER BY scope, item_id, video_id`, userID, batchID)
 	return state, nil
 }
 
+// BootstrapBatchState lazily imports a complete legacy snapshot. The batch row
+// is written last and acts as the ownership marker: readers must not consider
+// MySQL authoritative until that marker exists. Repeated bootstrap calls are
+// idempotent and never overwrite a batch that MySQL already owns.
+func (s *SettingsStore) BootstrapBatchState(ctx context.Context, userID int64, batchID string, legacy PersistedSettingsState) (PersistedSettingsState, error) {
+	existing, err := s.LoadBatchState(ctx, userID, batchID)
+	if err != nil {
+		return existing, err
+	}
+	if existing.Batch != nil {
+		return existing, nil
+	}
+
+	for itemID, input := range legacy.Items {
+		next := NormalizeSparseOverride(input, nil, nil)
+		if len(next) == 0 {
+			continue
+		}
+		if err := s.SaveItemOverride(ctx, userID, batchID, itemID, next); err != nil {
+			return PersistedSettingsState{}, err
+		}
+	}
+	for itemID, videos := range legacy.Videos {
+		for videoID, input := range videos {
+			next := NormalizeSparseOverride(input, nil, nil)
+			if len(next) == 0 {
+				continue
+			}
+			if err := s.SaveVideoOverride(ctx, userID, batchID, itemID, videoID, next); err != nil {
+				return PersistedSettingsState{}, err
+			}
+		}
+	}
+
+	// Write the ownership marker last. Until this succeeds, settings-state keeps
+	// reporting persisted=false and the legacy snapshot remains the safe fallback.
+	if err := s.SaveBatch(ctx, userID, batchID, NormalizeSettings(legacy.Batch, nil)); err != nil {
+		return PersistedSettingsState{}, err
+	}
+	return s.LoadBatchState(ctx, userID, batchID)
+}
+
 func (s *SettingsStore) LoadBatch(ctx context.Context, userID int64, batchID string) (Settings, bool, error) {
 	state, err := s.LoadBatchState(ctx, userID, batchID)
 	if err != nil {
