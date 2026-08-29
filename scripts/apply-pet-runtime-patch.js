@@ -1,5 +1,6 @@
 const fs = require('fs');
 
+// One-shot branch migration: keep the existing pet behavior and make only its visual resource selectable.
 const file = 'frontend/src/shared/pet/StackyPet.jsx';
 let source = fs.readFileSync(file, 'utf8');
 
