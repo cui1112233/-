@@ -2,8 +2,9 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createBatchFactoryStore } = require('../lib/batch-factory/store');
 const { compileVideoPrompt } = require('../lib/batch-factory/video-prompt-compiler');
-const { resolveItemSettings } = require('../lib/batch-factory/effective-settings');
+const { resolveVideoSettings } = require('../lib/batch-factory/effective-settings');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+const { resolveVersionedSystemPresetBody } = require('../lib/batch-factory/config-version');
 const { requestProductionBridge } = require('../lib/batch-factory/production-bridge');
 
 const PREFIX_PRESETS = Object.freeze({
@@ -15,11 +16,16 @@ const PREFIX_PRESETS = Object.freeze({
   era_drama: 'batch-prefix-era-drama'
 });
 
+function systemPresetBody(presetStore, id, settings = {}) {
+  return resolveVersionedSystemPresetBody(presetStore, id, settings)
+    || resolveSystemPresetBody(presetStore, id);
+}
+
 function compileItemVideos(presetStore, batch, item) {
-  const settings = resolveItemSettings(batch, item);
   return item.directorResult.storyboard.map(video => {
+    const settings = resolveVideoSettings(batch, item, video.id);
     const prefixId = PREFIX_PRESETS[video.prefix_key] || PREFIX_PRESETS.general_anime;
-    const autoPrefix = settings.prefixMode === 'manual' ? '' : resolveSystemPresetBody(presetStore, prefixId);
+    const autoPrefix = settings.prefixMode === 'manual' ? '' : systemPresetBody(presetStore, prefixId, settings);
     const payload = compileVideoPrompt({ directorResult: item.directorResult, video, settings, autoPrefix });
     return {
       sourceText: String(video.video_desc || `VIDEO ${video.id}`).trim(),
@@ -239,4 +245,4 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
   return router;
 }
 
-module.exports = { createBatchFactoryProductionRouter, boundModelError };
+module.exports = { createBatchFactoryProductionRouter, boundModelError, compileItemVideos };
