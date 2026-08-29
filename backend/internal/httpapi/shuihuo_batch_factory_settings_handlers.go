@@ -270,12 +270,20 @@ func (api *API) handleBootstrapBatchFactorySettingsState(w http.ResponseWriter, 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "读取批量工厂设置失败"})
 		return
 	} else if !exists {
-		canonical, status, message := api.canonicalizeBatchFactorySettings(r, user, req.State.Batch, nil)
-		if message != "" {
-			writeJSON(w, status, map[string]string{"error": message})
-			return
+		normalizedLegacy := batchfactory.NormalizeSettings(req.State.Batch, nil)
+		if modelID, ok := batchFactorySettingInteger(normalizedLegacy["videoModelId"]); ok && modelID > 0 {
+			canonical, status, message := api.canonicalizeBatchFactorySettings(r, user, normalizedLegacy, nil)
+			if message != "" {
+				writeJSON(w, status, map[string]string{"error": message})
+				return
+			}
+			req.State.Batch = canonical
+		} else {
+			// Very old batches may predate video-model selection. Import their
+			// settings so the user can still open the batch and choose a valid
+			// model later; never invent model metadata during bootstrap.
+			req.State.Batch = normalizedLegacy
 		}
-		req.State.Batch = canonical
 	}
 	state, err := settingsStore.BootstrapBatchState(r.Context(), user.ID, batchID, req.State)
 	if err != nil {
