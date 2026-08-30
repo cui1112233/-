@@ -15,7 +15,7 @@ function tempSystemDir(t) {
   return systemDir;
 }
 
-test('真实 createPresetStore 启动链先迁移旧 presets，再允许 seedSystemPresets 补新系统预设', () => {
+test('真实 createPresetStore 启动链先迁移旧 presets，再允许 seedSystemPresets 补新系统预设', (t) => {
   const systemDir = tempSystemDir(t);
   const legacyBody = '线上历史正文：启动迁移不得覆盖。';
   fs.writeFileSync(path.join(systemDir, 'presets.json'), JSON.stringify([{
@@ -41,7 +41,7 @@ test('真实 createPresetStore 启动链先迁移旧 presets，再允许 seedSys
   assert.ok(fs.existsSync(path.join(systemDir, 'preset-store-quarantine.json')));
 });
 
-test('迁移 marker 存在后，正常新增/发布 Prompt 不会在下一次启动被历史迁移覆盖', () => {
+test('迁移 marker 存在后，正常新增/发布 Prompt 不会在下一次启动被历史迁移覆盖', (t) => {
   const systemDir = tempSystemDir(t);
   fs.writeFileSync(path.join(systemDir, 'presets.json'), '[]\n');
   fs.writeFileSync(path.join(systemDir, 'preset-audit.json'), '[]\n');
