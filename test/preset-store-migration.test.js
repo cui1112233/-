@@ -51,7 +51,7 @@ function sha256Json(value) {
   return `sha256:${crypto.createHash('sha256').update(`${JSON.stringify(value, null, 2)}\n`).digest('hex')}`;
 }
 
-test('旧版 presets 可归一化启动并原样保留正文、启用状态和原文件备份', () => {
+test('旧版 presets 可归一化启动并原样保留正文、启用状态和原文件备份', (t) => {
   const systemDir = tempSystemDir(t);
   const presetsPath = path.join(systemDir, 'presets.json');
   const auditPath = path.join(systemDir, 'preset-audit.json');
@@ -92,7 +92,7 @@ test('旧版 presets 可归一化启动并原样保留正文、启用状态和�
   assert.deepEqual(fs.readFileSync(path.join(systemDir, marker.backup.audit)), originalAuditBytes);
 });
 
-test('混合新旧记录可迁移，当前合法记录的数据不被降级', () => {
+test('混合新旧记录可迁移，当前合法记录的数据不被降级', (t) => {
   const systemDir = tempSystemDir(t);
   const current = canonicalPreset();
   fs.writeFileSync(path.join(systemDir, 'presets.json'), JSON.stringify([
@@ -121,7 +121,7 @@ test('混合新旧记录可迁移，当前合法记录的数据不被降级', ()
   assert.equal(legacy.kind, 'base');
 });
 
-test('非法单条 preset/audit 被 quarantine，不影响其他历史预设启动', () => {
+test('非法单条 preset/audit 被 quarantine，不影响其他历史预设启动', (t) => {
   const systemDir = tempSystemDir(t);
   fs.writeFileSync(path.join(systemDir, 'presets.json'), JSON.stringify([
     {
@@ -178,7 +178,7 @@ test('非法单条 preset/audit 被 quarantine，不影响其他历史预设启�
   assert.ok(migrationAudit.entries.some(entry => entry.action === 'audit.quarantined'));
 });
 
-test('迁移重复运行幂等，不重复备份也不重复 quarantine/audit', () => {
+test('迁移重复运行幂等，不重复备份也不重复 quarantine/audit', (t) => {
   const systemDir = tempSystemDir(t);
   fs.writeFileSync(path.join(systemDir, 'presets.json'), JSON.stringify([{
     presetId: '幂等预设',
@@ -209,7 +209,7 @@ test('迁移重复运行幂等，不重复备份也不重复 quarantine/audit', 
   assert.deepEqual(fs.readdirSync(backupDir).sort(), firstBackups);
 });
 
-test('缺号/重复历史版本按原版本与源顺序确定性归一化，并保留最高的原 published 记录', () => {
+test('缺号/重复历史版本按原版本与源顺序确定性归一化，并保留最高的原 published 记录', (t) => {
   const systemDir = tempSystemDir(t);
   fs.writeFileSync(path.join(systemDir, 'presets.json'), JSON.stringify([
     { presetId: '版本历史', moduleId: 'script', title: 'v2', content: 'body-2', revision: 2, enabled: true },
