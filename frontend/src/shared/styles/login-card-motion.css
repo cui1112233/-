@@ -1,0 +1,212 @@
+.login-modal {
+  --login-rx: 0deg;
+  --login-ry: 0deg;
+  --login-mx: 50%;
+  --login-my: 50%;
+  transform: perspective(1100px) rotateX(var(--login-rx)) rotateY(var(--login-ry)) translateY(0);
+  will-change: transform;
+}
+
+.login-modal:hover {
+  transform: perspective(1100px) rotateX(var(--login-rx)) rotateY(var(--login-ry)) translateY(-3px) scale(1.004);
+}
+
+.login-modal::after {
+  background:
+    radial-gradient(circle at var(--login-mx) var(--login-my), rgba(184, 220, 255, 0.13), transparent 24%),
+    radial-gradient(circle at 18% 14%, rgba(240, 113, 103, 0.18), transparent 34%),
+    radial-gradient(circle at 90% 70%, rgba(90, 142, 208, 0.17), transparent 42%),
+    radial-gradient(circle at 58% 112%, rgba(112, 76, 176, 0.12), transparent 36%);
+  transition: background 120ms linear, opacity 240ms ease;
+}
+
+.login-success-state {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  padding: 32px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(10px) scale(0.92);
+  color: #f6fbff;
+  text-align: center;
+}
+
+.login-success-state strong {
+  margin-top: 4px;
+  font-size: 21px;
+  letter-spacing: 0.05em;
+}
+
+.login-success-state > span:last-child {
+  color: rgba(218, 232, 245, 0.56);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.login-success-icon {
+  position: relative;
+  display: grid;
+  width: 78px;
+  height: 78px;
+  place-items: center;
+  border: 1px solid rgba(112, 255, 192, 0.68);
+  border-radius: 50%;
+  color: #86ffd0;
+  background: radial-gradient(circle, rgba(58, 226, 155, 0.18), rgba(9, 34, 29, 0.22) 68%);
+  box-shadow:
+    0 0 0 8px rgba(70, 244, 171, 0.04),
+    0 0 30px rgba(70, 244, 171, 0.3),
+    inset 0 0 24px rgba(70, 244, 171, 0.1);
+}
+
+.login-success-icon::before,
+.login-success-icon::after {
+  position: absolute;
+  inset: -1px;
+  content: '';
+  border: 1px solid rgba(100, 255, 195, 0.44);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.login-modal.is-success {
+  pointer-events: none;
+  animation: qiantie-login-success-card 760ms cubic-bezier(0.2, 0.78, 0.2, 1) both !important;
+}
+
+.login-modal.is-success .login-title,
+.login-modal.is-success .login-form-wrap,
+.login-modal.is-success .login-background-logo--one {
+  animation: qiantie-login-success-content-out 220ms ease both;
+}
+
+.login-modal.is-success .login-concrete-texture,
+.login-modal.is-success::before {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.login-modal.is-success::after {
+  opacity: 1;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(80, 255, 184, 0.17), transparent 24%),
+    radial-gradient(circle at 18% 14%, rgba(240, 113, 103, 0.09), transparent 34%),
+    radial-gradient(circle at 90% 70%, rgba(90, 142, 208, 0.11), transparent 42%);
+}
+
+.login-modal.is-success .login-success-state {
+  animation: qiantie-login-success-state-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.login-modal.is-success .login-success-icon {
+  animation: qiantie-login-success-icon 620ms cubic-bezier(0.2, 1.25, 0.35, 1) both;
+}
+
+.login-modal.is-success .login-success-icon::before {
+  animation: qiantie-login-success-ring 620ms ease-out 80ms both;
+}
+
+.login-modal.is-success .login-success-icon::after {
+  animation: qiantie-login-success-ring 620ms ease-out 160ms both;
+}
+
+.legacy-login-overlay.is-success {
+  animation: qiantie-login-success-overlay 760ms ease both;
+}
+
+@keyframes qiantie-login-success-content-out {
+  from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  to { opacity: 0; transform: translateY(-8px) scale(0.985); filter: blur(5px); }
+}
+
+@keyframes qiantie-login-success-state-in {
+  0%, 10% { opacity: 0; transform: translateY(12px) scale(0.9); }
+  34%, 70% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-5px) scale(0.98); }
+}
+
+@keyframes qiantie-login-success-icon {
+  0% { opacity: 0; transform: scale(0.55) rotate(-12deg); filter: blur(4px); }
+  42% { opacity: 1; transform: scale(1.08) rotate(2deg); filter: blur(0); }
+  68%, 100% { opacity: 1; transform: scale(1) rotate(0); filter: blur(0); }
+}
+
+@keyframes qiantie-login-success-ring {
+  0% { opacity: 0.56; transform: scale(0.88); }
+  100% { opacity: 0; transform: scale(1.72); }
+}
+
+@keyframes qiantie-login-success-card {
+  0% {
+    opacity: 1;
+    transform: perspective(1100px) rotateX(0) rotateY(0) translateY(0) scale(1);
+    filter: blur(0);
+  }
+  36% {
+    opacity: 1;
+    transform: perspective(1100px) rotateX(0) rotateY(0) translateY(-2px) scale(1.018);
+    filter: blur(0);
+    box-shadow:
+      0 34px 100px rgba(0, 0, 0, 0.5),
+      0 0 60px rgba(74, 238, 174, 0.16),
+      0 0 42px rgba(90, 142, 208, 0.12);
+  }
+  68% {
+    opacity: 1;
+    transform: perspective(1100px) rotateX(0) rotateY(0) translateY(-2px) scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1100px) rotateX(0) rotateY(0) translateY(-8px) scale(0.91);
+    filter: blur(8px);
+  }
+}
+
+@keyframes qiantie-login-success-overlay {
+  0%, 58% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .login-modal,
+  .login-modal:hover {
+    transform: perspective(1100px) rotateX(0) rotateY(0) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-modal,
+  .login-modal:hover {
+    transform: none;
+  }
+
+  .login-modal.is-success,
+  .legacy-login-overlay.is-success,
+  .login-modal.is-success .login-title,
+  .login-modal.is-success .login-form-wrap,
+  .login-modal.is-success .login-background-logo--one,
+  .login-modal.is-success .login-success-state,
+  .login-modal.is-success .login-success-icon,
+  .login-modal.is-success .login-success-icon::before,
+  .login-modal.is-success .login-success-icon::after {
+    animation: none !important;
+  }
+
+  .login-modal.is-success .login-title,
+  .login-modal.is-success .login-form-wrap,
+  .login-modal.is-success .login-background-logo--one {
+    opacity: 0;
+  }
+
+  .login-modal.is-success .login-success-state {
+    opacity: 1;
+    transform: none;
+  }
+}

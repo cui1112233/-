@@ -1,0 +1,205 @@
+.novel-fetch-page {
+  width: 100%;
+  max-width: 1100px;
+  padding: 24px;
+  color: var(--legacy-text);
+}
+
+.novel-fetch-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 8px;
+  background: var(--legacy-card);
+  box-shadow: var(--legacy-shadow);
+}
+
+.novel-fetch-form .ant-form-item {
+  margin-bottom: 0;
+}
+
+.novel-fetch-results {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.novel-fetch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 2px 12px;
+  border-bottom: 1px solid var(--legacy-border);
+}
+
+.novel-fetch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 6px;
+  background: var(--legacy-input);
+  font-size: 13px;
+  transition: border-color 0.18s ease;
+}
+
+.novel-fetch-row:hover {
+  border-color: var(--legacy-border-strong);
+}
+
+.novel-fetch-bookid {
+  color: var(--legacy-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.novel-fetch-platform {
+  color: var(--legacy-muted);
+  white-space: nowrap;
+}
+
+.novel-fetch-status {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.novel-fetch-status--loading {
+  color: var(--legacy-muted);
+  border: 1px solid var(--legacy-border);
+  background: var(--legacy-panel);
+}
+
+.novel-fetch-status--ok {
+  color: #60c995;
+  border: 1px solid rgba(96, 201, 149, 0.4);
+  background: rgba(96, 201, 149, 0.1);
+}
+
+.novel-fetch-status--error {
+  color: #e2817b;
+  border: 1px solid rgba(226, 129, 123, 0.4);
+  background: rgba(226, 129, 123, 0.1);
+}
+
+.novel-fetch-length {
+  min-width: 90px;
+  color: var(--legacy-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.novel-fetch-actions {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.novel-fetch-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+@media (max-width: 640px) {
+  .novel-fetch-page {
+    padding: 14px;
+  }
+
+  .novel-fetch-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .novel-fetch-actions {
+    margin-left: 0;
+  }
+}
+
+.novel-fetch-workbench {
+  min-width: 0;
+}
+
+.novel-fetch-original-workbench {
+  display: block;
+  width: 100%;
+  min-height: calc(100vh - 72px);
+  border: 0;
+  background: var(--legacy-bg);
+}
+
+.novel-fetch-frame-shell { min-height: calc(100vh - 72px); background: var(--legacy-bg); }
+.novel-fetch-frame-shell .novel-fetch-original-workbench { opacity: 0; transition: opacity .12s ease; }
+.novel-fetch-frame-shell.is-ready .novel-fetch-original-workbench { opacity: 1; }
+
+[data-theme='light'] .novel-fetch-original-workbench { background: var(--legacy-bg); }
+
+.novel-fetch-summary,
+.novel-fetch-panel {
+  padding: 16px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 8px;
+  background: var(--legacy-card);
+  box-shadow: var(--legacy-shadow);
+}
+
+.novel-fetch-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.novel-fetch-grid > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.novel-fetch-compare {
+  min-height: 280px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 8px;
+  background: var(--legacy-card);
+}
+
+.novel-fetch-compare .ant-input {
+  min-height: 220px;
+}
+
+.novel-fetch-workbench .ant-tabs-nav-wrap,
+.novel-fetch-workbench .ant-table-wrapper,
+.novel-fetch-workbench .ant-alert {
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .novel-fetch-summary,
+  .novel-fetch-panel,
+  .novel-fetch-compare {
+    padding: 12px;
+  }
+
+  .novel-fetch-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .novel-fetch-grid > * {
+    grid-column: auto;
+  }
+
+  .novel-fetch-workbench .ant-space {
+    max-width: 100%;
+  }
+
+  .novel-fetch-workbench .ant-table-wrapper {
+    overflow-x: auto;
+  }
+}

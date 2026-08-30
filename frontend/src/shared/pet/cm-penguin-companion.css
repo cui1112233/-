@@ -1,0 +1,424 @@
+.cm-penguin-shell {
+  position: fixed;
+  right: 22px;
+  bottom: 18px;
+  z-index: 940;
+  width: 120px;
+  height: 130px;
+  pointer-events: none;
+}
+
+.cm-penguin-pet {
+  --cm-row: 0;
+  --cm-frame: 0;
+  position: relative;
+  width: 120px;
+  height: 130px;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  animation: cm-penguin-bob 1.9s ease-in-out infinite;
+  filter: drop-shadow(0 14px 18px rgba(0, 0, 0, .26));
+}
+
+.cm-penguin-pet:active { cursor: grabbing; }
+.cm-penguin-pet.is-working { animation-duration: .72s; }
+.cm-penguin-pet.is-success { animation-duration: .9s; }
+.cm-penguin-pet.is-error { animation: cm-penguin-error .38s ease-in-out infinite; }
+
+.cm-penguin-pet img {
+  display: block;
+  width: 960px;
+  height: 1430px;
+  transform: translate(calc(var(--cm-frame) * -120px), calc(var(--cm-row) * -130px));
+  transform-origin: top left;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.cm-penguin-speech {
+  position: absolute;
+  right: 18px;
+  bottom: 126px;
+  width: max-content;
+  max-width: 230px;
+  padding: 10px 13px;
+  border: 1px solid color-mix(in srgb, var(--legacy-border-strong) 76%, transparent);
+  border-radius: 16px 16px 5px 16px;
+  background: color-mix(in srgb, var(--legacy-card) 94%, transparent);
+  color: var(--legacy-text);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(18px);
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.55;
+  animation: cm-penguin-pop .2s ease-out;
+}
+
+.cm-penguin-speech::after {
+  position: absolute;
+  right: 10px;
+  bottom: -7px;
+  width: 13px;
+  height: 13px;
+  border-right: 1px solid var(--legacy-border-strong);
+  border-bottom: 1px solid var(--legacy-border-strong);
+  background: var(--legacy-card);
+  content: '';
+  transform: rotate(45deg);
+}
+
+.cm-penguin-chat {
+  position: absolute;
+  right: 28px;
+  bottom: 118px;
+  display: flex;
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 120px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--legacy-border-strong) 82%, transparent);
+  border-radius: 22px 22px 8px 22px;
+  background: color-mix(in srgb, var(--legacy-card) 96%, transparent);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .3), 0 0 0 1px rgba(255, 255, 255, .025) inset;
+  backdrop-filter: blur(22px) saturate(1.1);
+  pointer-events: auto;
+  transform-origin: right bottom;
+  animation: cm-penguin-chat-open .22s cubic-bezier(.2,.8,.2,1);
+}
+
+.cm-penguin-chat-header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px 10px 15px;
+  border-bottom: 1px solid var(--legacy-border);
+}
+
+.cm-penguin-chat-header > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.cm-penguin-chat-header strong {
+  color: var(--legacy-text);
+  font-size: 14px;
+  letter-spacing: .02em;
+}
+
+.cm-penguin-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #72dc97;
+  box-shadow: 0 0 10px rgba(114, 220, 151, .55);
+}
+
+.cm-penguin-context-chip {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  border: 1px solid var(--legacy-border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--legacy-input);
+  color: var(--legacy-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-penguin-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.cm-penguin-header-actions button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--legacy-muted);
+  cursor: pointer;
+}
+
+.cm-penguin-header-actions button:hover:not(:disabled),
+.cm-penguin-header-actions button:focus-visible:not(:disabled) {
+  background: var(--legacy-input);
+  color: var(--legacy-text);
+  outline: none;
+}
+
+.cm-penguin-header-actions button:disabled { opacity: .35; cursor: default; }
+
+.cm-penguin-chat-history {
+  display: flex;
+  min-height: 180px;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 14px;
+  scrollbar-width: thin;
+}
+
+.cm-penguin-empty {
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 7px;
+  padding: 18px;
+  border: 1px dashed var(--legacy-border-strong);
+  border-radius: 16px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--legacy-input) 82%, transparent), transparent);
+  color: var(--legacy-muted);
+}
+
+.cm-penguin-empty svg { color: var(--legacy-accent); }
+.cm-penguin-empty strong { color: var(--legacy-text); font-size: 14px; }
+.cm-penguin-empty span { font-size: 12px; line-height: 1.6; }
+.cm-penguin-empty button {
+  margin-top: 5px;
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--legacy-card);
+  color: var(--legacy-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.cm-penguin-message {
+  display: flex;
+  max-width: 88%;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 15px;
+  padding: 9px 11px;
+  color: var(--legacy-text);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-penguin-message.is-user {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  background: color-mix(in srgb, var(--legacy-accent) 22%, var(--legacy-card));
+}
+
+.cm-penguin-message.is-assistant {
+  align-self: flex-start;
+  border: 1px solid var(--legacy-border);
+  border-bottom-left-radius: 5px;
+  background: var(--legacy-input);
+}
+
+.cm-penguin-inline-action,
+.cm-penguin-proposal > button {
+  align-self: flex-start;
+  border: 0;
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: var(--legacy-accent);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.cm-penguin-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+  border-top: 1px solid var(--legacy-border);
+  padding-top: 9px;
+}
+
+.cm-penguin-proposal > strong { font-size: 12px; }
+.cm-penguin-proposal-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.cm-penguin-proposal-list span {
+  border: 1px solid var(--legacy-border);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--legacy-card);
+  color: var(--legacy-muted);
+  font-size: 10px;
+}
+
+.cm-penguin-proposal-preview {
+  overflow: hidden;
+  border: 1px solid var(--legacy-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--legacy-card) 78%, transparent);
+}
+
+.cm-penguin-proposal-preview > span {
+  display: block;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--legacy-border);
+  color: var(--legacy-muted);
+  font-size: 10px;
+}
+
+.cm-penguin-proposal-preview pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  color: var(--legacy-text);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-penguin-proposal > button:disabled {
+  background: var(--legacy-card);
+  color: var(--legacy-muted);
+  cursor: default;
+  opacity: .8;
+}
+
+.cm-penguin-thinking {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  color: var(--legacy-muted);
+  font-size: 11px;
+}
+
+.cm-penguin-thinking i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--legacy-muted);
+  animation: cm-penguin-thinking 1s ease-in-out infinite;
+}
+
+.cm-penguin-thinking i:nth-child(2) { animation-delay: .12s; }
+.cm-penguin-thinking i:nth-child(3) { animation-delay: .24s; }
+.cm-penguin-thinking span { margin-left: 4px; }
+
+.cm-penguin-action-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 11px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--legacy-accent-dim) 70%, var(--legacy-card));
+  color: var(--legacy-text);
+  font-size: 11px;
+}
+
+.cm-penguin-action-status button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--legacy-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.cm-penguin-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--legacy-border);
+}
+
+.cm-penguin-composer input {
+  min-width: 0;
+  height: 38px;
+  flex: 1;
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: var(--legacy-input);
+  color: var(--legacy-text);
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+}
+
+.cm-penguin-composer input:focus {
+  border-color: color-mix(in srgb, var(--legacy-accent) 70%, var(--legacy-border-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--legacy-accent) 10%, transparent);
+}
+
+.cm-penguin-composer > button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 12px;
+  background: var(--legacy-accent);
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.cm-penguin-composer > button:disabled { cursor: default; opacity: .45; }
+
+@keyframes cm-penguin-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes cm-penguin-error {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-5px); }
+}
+
+@keyframes cm-penguin-pop {
+  from { opacity: 0; transform: translateY(5px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes cm-penguin-chat-open {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes cm-penguin-thinking {
+  0%, 100% { transform: translateY(0); opacity: .45; }
+  50% { transform: translateY(-3px); opacity: 1; }
+}
+
+@media (max-width: 640px) {
+  .cm-penguin-shell { right: 10px; bottom: 10px; }
+  .cm-penguin-chat { right: 0; width: min(360px, calc(100vw - 20px)); }
+  .cm-penguin-context-chip { max-width: 128px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-penguin-pet,
+  .cm-penguin-speech,
+  .cm-penguin-chat,
+  .cm-penguin-thinking i { animation: none !important; }
+}
