@@ -44,3 +44,9 @@ export function dispatchPetSelection(value) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(PET_SELECTION_EVENT, { detail: { pet: getPetDefinition(value) } }));
 }
+
+export function previewPetSelection(value) {
+  const pet = getPetDefinition(value);
+  dispatchPetSelection(pet.id);
+  return pet;
+}

@@ -5,7 +5,7 @@ import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
-import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions } from '../../shared/pet/petCatalog';
+import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
 const petOptions = getPetOptions();
 
@@ -158,7 +158,7 @@ export function SettingsPage() {
             <p>管理桌面宠物和工作完成提醒。</p>
           </div>
           <Form.Item label="前贴宠物" name="petId">
-            <Select options={petOptions} />
+            <Select options={petOptions} onChange={value => previewPetSelection(value)} />
           </Form.Item>
           <Form.Item label="提示音" name="soundEnabled" valuePropName="checked">
             <Switch />
