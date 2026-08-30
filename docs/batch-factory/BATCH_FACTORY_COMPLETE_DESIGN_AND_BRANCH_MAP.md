@@ -2,7 +2,7 @@
 
 > **文档目的**：作为 Codex / ChatGPT / 人工开发者后续继续实现、重建、验收和发布批量工厂时的统一参考，不再依赖聊天记录拼接需求。
 >
-> **更新时间**：2026-08-30
+> **更新时间**：2026-08-31
 >
 > **文档状态**：产品总规格 / 历史实现地图 / 正式架构迁移说明。
 >
@@ -1380,6 +1380,36 @@ Codex 报告该提交与 `9baa60a` 的 Batch Factory 文件基线一致，可以
 1. 在本地 production snapshot worktree 复核；
 2. 不要用远端 `master@74b1` 代替真实 V78 production baseline；
 3. 不要因为本文件列出该 SHA 就默认远端已保存。
+
+## 28.1 Phase 0：V78.3.0.3 源码可重建状态（2026-08-31）
+
+**本节只更新 production baseline、源码可重现性与 branch/SHA 地图；不改变本文件任何最终产品需求。**
+
+| 项目 | 当前证据状态 |
+| --- | --- |
+| 纯 production content snapshot | `snapshot/production-v78.3.0.3 @ e4a8ebc4c50c40c383a6a39e69730b22e59c258e`；无父提交，是 production image 内容快照，不是可直接构建的原始 Git 历史提交 |
+| 不可作为纯源码基线的线 | `release/production-v78.3.0.3-preset-migration @ 9baa60a57bf6de2086d1d7e132894024d8877c2d`；已叠 Preset Migration 和后续 Batch Factory 变更 |
+| 恢复 branch | `recovery/production-v78.3.0.3-source` |
+| 源码恢复 commit | `17125d67f0919d714ae9ae9f4edc80b9d1a04788` |
+| 证明级别 | `reconstructed reproducible source baseline`，不是“100% 原始源码恢复” |
+| 恢复输入 | 150 条：147 条只读 V78 对应索引树输入，3 条 production `batch-rewrite` dist 的逐字节回置；完整 manifest：`docs/batch-factory/v78-source-recovery-manifest.tsv` |
+| 无法完全追溯的输入 | `frontend/src/user/pages/BatchFactoryPage.jsx` 的 blob 仅在只读索引树中可证明；3 条 `batch-rewrite` 文件只能证明 production 字节，不可证明原 source 组织 |
+| source map / manifest | production snapshot 中 `*.map`、Vite manifest、build metadata 均为 0 |
+| 固定工具链 | Docker Node `v24.19.0` / npm `11.17.0`；本地验证 Node `v24.18.0` / npm `11.16.0`；Vite `5.4.21`；锁文件 hash 见 recovery evidence |
+| 静态复现 | clean install/build 后 88/88 `frontend/dist` 文件 SHA-256 与 `e4a8ebc` 一致，mismatch 为 0 |
+| 候选镜像 | `qiantie-platform:v78-source-recovery-17125d6`，`sha256:0311279cfabb5e3fcfe14e0cbeec26ba0c9643bda8f317b43c962adbd276f97c`；仅临时 port `13100`，不触碰 `:3000` |
+| UI/静态入口 | 登录页和 route matrix 可加载；已登录空 Batch Factory 工作台已人工复核。依赖 Go 数据的有数据状态未宣称等价 |
+| 动态 Go 数据链路 | 未完成等价演练：production Go image 在全新 MySQL 8.4 临时卷启动 migration 27 时失败，不能以连接生产 backend/volume 绕过 |
+
+Phase 0 已恢复“可从干净源码构建且静态产物逐字节匹配”的基线，但没有因此宣布完整 Batch Factory 已验收，更没有把 Node-owned 历史实现改成 Go-owned。后续任何 Go migration、V10、Drawer、121、Yadi 或 Config Snapshot 工作都必须在用户确认此基线后另起独立阶段。
+
+详细来源、命令、工具链和未证明项分别记录在：
+
+```text
+docs/batch-factory/v78-source-recovery-evidence.md
+docs/batch-factory/v78-source-recovery-comparison.md
+docs/batch-factory/v78-source-recovery-manifest.tsv
+```
 
 ---
 

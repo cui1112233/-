@@ -1,6 +1,6 @@
 # V78.3.0.3 Source Recovery Evidence
 
-更新时间：2026-08-30
+更新时间：2026-08-31
 
 ## 范围与结论
 
@@ -67,6 +67,8 @@ npm --prefix frontend run build exit 0
 
 构建只有 npm audit、allow-scripts 和运行时品牌图片路径提示，没有 missing import、missing module、missing CSS、missing asset 或 missing API/component 错误。
 
+2026-08-31 又从全新 detached worktree（起始 `git status --short` 为空，commit `17125d67f0919d714ae9ae9f4edc80b9d1a04788`）重新执行了相同三条命令，三个命令均为 exit `0`。该 worktree 的安装后 `node_modules/` 未被本仓库 `.gitignore` 忽略，但不属于源码 diff；重新构建的 production dist 与 snapshot 对比为 88 expected、88 actual、0 missing、0 extra、0 mismatch。
+
 ## 资产复现结果
 
 恢复构建后的 `frontend/dist` 与 `e4a8ebc` 的 88 个文件逐一 SHA-256 比较：`DIST_COUNT=88 MISMATCH=0`。
@@ -91,3 +93,15 @@ frontend/dist/batch-rewrite/styles.css                          93372eb590cb1146
 4. 本阶段验证的是静态构建复现；未启动正式容器、未连接正式卷、未做真实外部提交。
 
 因此本阶段名称固定为 `reconstructed reproducible source baseline`，不是“原始源码 100% 恢复”。
+
+## 隔离候选、UI 与 API 边界
+
+隔离镜像已构建为 `qiantie-platform:v78-source-recovery-17125d6`，digest 为 `sha256:0311279cfabb5e3fcfe14e0cbeec26ba0c9643bda8f317b43c962adbd276f97c`。它仅在 host port `13100` 运行，挂载独立临时数据目录；没有挂载生产卷，也没有连接生产 Go backend。
+
+`GET /api/build-info` 返回 `200` 和 `v78.3.0.3-remote-workbench-20260819-r1`。`/`、`/settings`、`/novel-fetch`、`/batch-factory`、`/batch-factory-preview`、`/shuihuo-production`、`/script`、`/admin`、`/profile` 都返回 `200`。未登录的 Batch GET、intake、batch read、prompt compile 与 merge capability 请求均返回 `401`，验证鉴权边界未被候选绕过。
+
+已登录的 Batch Factory 空工作台人工截图保存在 `/private/tmp/v78-batch-factory-recovery.png`；可见 V78 的空工作台、工具区、生产/发布设置、单书与 VIDEO 区域。因候选没有 Go service，画面中 merge capability 的 `503` 是隔离设计预期。当前浏览器的无凭据复核会显示登录页，不会读取或复用生产会话。
+
+为了运行动态 API smoke test，曾使用同一 production Go image 和同一 MySQL 8.4 image digest 在新网络/新临时卷启动测试栈。第一次仅暴露 MySQL 就绪时序；第二次在 Go image 执行空库 migration 27 时失败，错误是 `BLOB, TEXT, GEOMETRY or JSON column 'admin_note' can't have a default value`。因此 Batch GET/intake/batch read/prompt compile 的带数据等价性尚未证明，不能在本阶段把候选接到生产服务来掩盖此缺口。失败的临时容器和网络已清理。
+
+详细静态、UI、API 与镜像对比见 `v78-source-recovery-comparison.md`。
