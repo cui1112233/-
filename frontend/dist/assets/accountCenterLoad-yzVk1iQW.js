@@ -1,1 +1,0 @@
-import{j as r,a as n}from"./createLucideIcon-DFnaLqKQ.js";function t({message:e="页面数据加载失败",onRetry:c}){return r.jsx("div",{className:"account-center-page",children:r.jsxs("div",{className:"ac-empty ac-load-error",children:[r.jsx("strong",{children:e}),r.jsx(n,{onClick:c,children:"重试"})]})})}export{t as A};

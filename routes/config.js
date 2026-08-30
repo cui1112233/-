@@ -3,19 +3,7 @@ const { apiAuth } = require('../middleware/auth');
 const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, DEFAULT_CONFIG } = require('../lib/shared');
 const { syncAccountAIConfig } = require('./shuihuo-production');
 const { normalizeStorageRoot } = require('../lib/storage-root');
-
-function normalizePetConfig(value, fallback) {
-  if (!value || value.id !== 'stacky') {
-    return fallback || DEFAULT_CONFIG.pet;
-  }
-  return {
-    id: 'stacky',
-    displayName: 'CM',
-    description: 'CM，前贴的桌面宠物。',
-    spriteVersionNumber: 2,
-    spritesheetPath: '/pets/stacky/spritesheet.webp'
-  };
-}
+const { normalizePetConfig } = require('../lib/pet-catalog');
 
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')

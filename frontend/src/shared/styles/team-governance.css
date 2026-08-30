@@ -1,0 +1,163 @@
+.ac-governance-panel {
+  margin: 18px 0;
+}
+
+.ac-governance-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ac-governance-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(240px, 1.35fr) minmax(190px, .9fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 14px;
+  background: rgba(8, 15, 29, .48);
+}
+
+.ac-governance-progress {
+  min-width: 0;
+}
+
+.ac-governance-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 7px;
+  color: rgba(226, 232, 240, .78);
+  font-size: 12px;
+}
+
+.ac-account-api-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ac-team-table-row.is-disabled {
+  opacity: .62;
+}
+
+.ac-team-table-row.is-disabled:hover {
+  opacity: .82;
+}
+
+/* Advanced governance is a selector plus a workspace, not an unbounded stack
+   of full-width rows. Keep team switching compact so member operations stay
+   above the fold. */
+.advanced-team-admin-page .ac-two-column { grid-template-columns: minmax(0, 1.45fr) minmax(320px, .55fr); }
+.advanced-team-admin-page .ac-ranking-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-height: 312px; overflow: auto; padding-right: 3px; }
+.ac-delegated-team { width: 100%; min-height: 86px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--ac-line); border-radius: 10px; color: var(--ac-text); text-align: left; background: rgba(255,255,255,.018); cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
+.ac-delegated-team:hover { border-color: rgba(111, 139, 255, .55); background: rgba(111, 139, 255, .06); transform: translateY(-1px); }
+.ac-delegated-team.active { border-color: #7d77ff; background: linear-gradient(135deg, rgba(120, 104, 255, .18), rgba(69, 138, 255, .08)); box-shadow: inset 0 0 0 1px rgba(140, 126, 255, .16); }
+.ac-delegated-team > div { min-width: 0; display: grid; gap: 4px; }
+.ac-delegated-team strong, .ac-delegated-team small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-delegated-team small { color: var(--ac-muted); font-size: 11px; }
+.ac-delegated-team .ant-tag { grid-column: 2; justify-self: start; margin: 0; }
+.advanced-team-admin-page .ac-team-table { max-height: 430px; overflow: auto; border: 1px solid var(--ac-line); border-radius: 10px; }
+
+@media (max-width: 1050px) {
+  .advanced-team-admin-page .ac-two-column { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .advanced-team-admin-page .ac-ranking-list { grid-template-columns: 1fr; }
+}
+
+.ac-governance-actions {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 14px;
+  background: rgba(8, 15, 29, .42);
+}
+
+.ac-form-row.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ac-security-card-icon.gold {
+  color: #f2c969;
+  background: rgba(242, 201, 105, .1);
+  border-color: rgba(242, 201, 105, .22);
+}
+
+.ac-quota-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 14px 0;
+  padding: 12px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(59, 130, 246, .22);
+  background: rgba(37, 99, 235, .08);
+  color: rgba(226, 232, 240, .86);
+}
+
+.ac-quota-alert.is-warning {
+  border-color: rgba(234, 179, 8, .3);
+  background: rgba(234, 179, 8, .08);
+}
+
+.ac-quota-alert.is-critical {
+  border-color: rgba(249, 115, 22, .34);
+  background: rgba(249, 115, 22, .09);
+}
+
+.ac-quota-alert.is-exhausted {
+  border-color: rgba(239, 68, 68, .38);
+  background: rgba(239, 68, 68, .1);
+}
+
+.ac-usage-cost-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ac-usage-cost-cell small {
+  color: rgba(226, 232, 240, .58);
+  white-space: nowrap;
+}
+
+.ac-team-used small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(226, 232, 240, .48);
+  font-size: 11px;
+}
+
+@media (max-width: 1050px) {
+  .ac-governance-row {
+    grid-template-columns: 1fr 1.3fr;
+  }
+
+  .ac-form-row.three {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ac-governance-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ac-quota-alert {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .ac-governance-actions {
+    flex-direction: column;
+  }
+}
