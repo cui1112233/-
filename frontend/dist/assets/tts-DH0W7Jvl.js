@@ -1,0 +1,1 @@
+import{b as s}from"./createLucideIcon-DFnaLqKQ.js";function n({input:t,voice:e,speed:o,pitch:p,style:r}){return s("/api/tts",{method:"POST",body:JSON.stringify({input:t,voice:e,speed:o,pitch:p,style:r}),responseType:"blob"})}export{n as t};

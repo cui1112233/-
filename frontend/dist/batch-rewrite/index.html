@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>批量原文改文系统</title>
+    <link rel="stylesheet" href="./styles.css?v=20260826-login-layout2" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>批量原文改文系统</h1>
+        <p id="summaryText">本地任务文件按 ID 保存</p>
+      </div>
+      <nav class="tabs" aria-label="页面">
+        <button class="tab active" data-tab="work">处理</button>
+        <button class="tab" data-tab="tasks">任务</button>
+        <button class="tab" data-tab="config">配置</button>
+        <button class="tab" data-tab="knowledge">知识库</button>
+        <button class="tab" data-tab="rules">处理规则</button>
+        <button class="tab" data-tab="logs">记录</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="work" class="panel active">
+        <div class="workspace">
+          <section class="section">
+            <div class="section-title">
+              <h2>批量输入</h2>
+              <span id="platformHint"></span>
+            </div>
+            <div class="control-grid">
+              <label>
+                平台
+                <select id="platformSelect"></select>
+              </label>
+              <label>
+                输入格式
+                <select id="parseModeSelect"></select>
+              </label>
+              <label>
+                列顺序预设
+                <select id="columnPresetSelect"></select>
+              </label>
+              <label>
+                自定义列顺序
+                <input id="columnOrderInput" value="书籍ID,书名,推荐理由,男女频,标签,评级" />
+              </label>
+            </div>
+            <textarea id="inputText" class="input-area" spellcheck="false" placeholder="每行一条：书籍 ID、书名、推荐理由、男女频、标签、评级。&#10;示例：123456789&#9;书名&#9;打脸逆袭、复仇反转&#9;女频&#9;现代世情、爽文&#9;S"></textarea>
+            <div class="actions">
+              <button id="processBtn" class="primary">开始处理</button>
+              <label class="inline-check" title="开启后先调用敏感词 AI 修复；AI 失败时自动回退为直接替换">
+                <input id="sensitiveAiProcessEnabled" type="checkbox" />
+                启用敏感词 AI 修复（关闭则直接替换）
+              </label>
+              <button id="refreshBtn">刷新任务</button>
+            </div>
+            <div id="webLoginStatus" class="web-login-status" role="button" tabindex="0">未登录</div>
+            <div id="webSubmitMount"></div>
+          </section>
+
+          <section class="section process-status-section">
+            <div class="section-title">
+              <h2>处理状态</h2>
+              <span>任务详情请在任务列表中打开</span>
+            </div>
+            <pre id="processResult" class="result-box"></pre>
+          </section>
+        </div>
+      </section>
+
+      <section id="tasks" class="panel">
+        <section class="section task-detail-section">
+          <div class="section-title"><h2>任务详情</h2><span id="detailTitle">未选择</span></div>
+          <div id="detail" class="detail-empty">点击任务列表中的书籍 ID 或“查看”打开详情。</div>
+        </section>
+        <section class="section full">
+          <div class="section-title">
+            <h2>任务列表</h2>
+            <div class="batch-actions">
+              <label>查看日期 <input id="taskDateFilter" type="date" /></label>
+              <button id="taskTodayBtn">今天</button>
+              <button id="taskToggleBtn" type="button">收起任务</button>
+              <span id="selectedCount">已选 0 个</span>
+              <span id="batchStatus"></span>
+              <button id="taskRefreshBtn">刷新</button>
+              <button id="selectAllBtn">全选</button>
+              <button id="clearSelectedBtn">清空</button>
+              <button id="retrySelectedBtn">重试选中</button>
+              <button id="retryFailedBtn">重试失败</button>
+              <button id="transferBatchFactoryBtn" class="primary">进入批量工厂</button>
+              <button id="openWebSubmitBtn" class="primary">提交网络</button>
+              <select id="ruleApplyScope" aria-label="规则处理范围">
+                <option value="both">规则处理原文+AI</option>
+                <option value="original">只处理原文</option>
+                <option value="ai">只处理AI</option>
+              </select>
+              <button id="applyRulesSelectedBtn">规则处理选中</button>
+              <button id="applyRulesAllBtn">规则处理全部</button>
+              <button id="deleteSelectedBtn" class="danger">删除选中</button>
+              <button id="deleteFailedBtn" class="danger">删除失败</button>
+              <button id="deleteAllBtn" class="danger">删除全部</button>
+            </div>
+          </div>
+          <details id="taskListDetails" open>
+            <summary>任务列表（默认仅显示所选日期；切换日期可回看历史）</summary>
+            <div class="table-wrap">
+              <table>
+              <thead>
+                <tr>
+                  <th><input id="selectAllTasks" type="checkbox" aria-label="全选任务" /></th>
+                  <th>ID</th>
+                  <th>书名</th>
+                  <th>平台</th>
+                  <th>解析</th>
+                  <th>风格</th>
+                  <th>男女频</th>
+                  <th>AI判断</th>
+                  <th>原文</th>
+                  <th>AI文案</th>
+                  <th>网站提交</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="tasksBody"></tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+      </section>
+
+      <section id="config" class="panel">
+        <div class="config-grid">
+          <section class="section">
+            <div class="section-title"><h2>自动处理</h2></div>
+            <div class="control-grid two">
+              <label>
+                原文接口地址
+                <input id="fetchEndpoint" placeholder="支持 {bookid}、{platform}、{max_txt}" />
+              </label>
+              <label>
+                截取字数
+                <input id="fetchMaxTxt" type="number" min="1" value="4000" />
+              </label>
+              <label>
+                默认AI文案数量
+                <input id="aiCountDefault" type="number" min="1" max="20" value="1" />
+              </label>
+              <label>
+                最大AI文案数量
+                <input id="aiCountMax" type="number" min="1" max="20" value="5" />
+              </label>
+              <label>
+                抓取并发
+                <input id="fetchConcurrency" type="number" min="1" value="4" />
+              </label>
+              <label>
+                抓取重试
+                <input id="fetchRetries" type="number" min="0" value="1" />
+              </label>
+              <label>
+                抓取超时
+                <input id="fetchTimeout" type="number" min="1" value="30" />
+              </label>
+              <label class="checkbox-label">
+                <input id="fetchAutoDetectPlatform" type="checkbox" checked />
+                平台自动识别（推荐）
+              </label>
+              <label>
+                默认处理行数
+                <input id="processLineCount" type="number" min="1" value="5" />
+              </label>
+              <label>
+                锚点行数
+                <input id="anchorLineCount" type="number" min="0" value="5" />
+              </label>
+              <label>
+                改文温度
+                <input id="rewriteTemp" type="number" step="0.01" min="0" max="2" value="0.45" />
+              </label>
+              <label>
+                出文轮换顺序
+                <input id="methodSequenceInput" placeholder="high_imitation,opening_instruction,instruction" />
+              </label>
+              <div class="form-wide">
+                <div class="field-title">AI文案处理优先方案</div>
+                <div id="aiSlotMethods" class="slot-method-grid"></div>
+              </div>
+              <label>
+                默认改文模板
+                <select id="rewriteTemplateSelect"></select>
+              </label>
+              <label>
+                开头词选择
+                <select id="openingPhraseMode">
+                  <option value="auto">自动匹配</option>
+                  <option value="off">不使用</option>
+                </select>
+              </label>
+              <label>
+                高仿参考选择
+                <select id="highImitationMode">
+                  <option value="auto">自动匹配</option>
+                  <option value="off">不使用</option>
+                </select>
+              </label>
+            </div>
+            <div class="toggles">
+              <label><input id="workflowAutoClassify" type="checkbox" /> 自动补齐风格/男女频</label>
+              <label><input id="workflowAutoFetch" type="checkbox" /> 自动抓取原文</label>
+              <label><input id="workflowAutoRewrite" type="checkbox" /> 抓取后自动生成AI文案</label>
+            </div>
+            <label>
+              改文提示词
+              <textarea id="rewritePrompt" class="small-area" spellcheck="false"></textarea>
+            </label>
+            <div class="actions">
+              <button id="saveWorkflowBtn" class="primary">保存自动处理配置</button>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-title"><h2>AI接口配置</h2></div>
+            <div class="control-grid two">
+              <label>
+                API地址
+                <input id="aiBaseUrl" />
+              </label>
+              <label>
+                API Key
+                <input id="aiApiKey" type="password" autocomplete="off" />
+              </label>
+              <label>
+                模型名
+                <input id="aiModel" />
+              </label>
+              <label>
+                超时(秒)
+                <input id="aiTimeout" type="number" min="1" value="180" />
+              </label>
+              <label>
+                最大并发
+                <input id="aiConcurrency" type="number" min="1" value="6" />
+              </label>
+              <label>
+                重试次数
+                <input id="aiRetries" type="number" min="0" value="2" />
+              </label>
+              <label>
+                max_tokens
+                <input id="aiMaxTokens" type="number" min="1" value="1200" />
+              </label>
+              <label>
+                temperature
+                <input id="aiTemperature" type="number" step="0.01" min="0" max="2" value="0.45" />
+              </label>
+              <label>
+                top_p
+                <input id="aiTopP" type="number" step="0.01" min="0" max="1" value="0.9" />
+              </label>
+              <label>
+                presence
+                <input id="aiPresence" type="number" step="0.01" value="0" />
+              </label>
+              <label>
+                frequency
+                <input id="aiFrequency" type="number" step="0.01" value="0" />
+              </label>
+            </div>
+            <div class="toggles">
+              <label><input id="aiStream" type="checkbox" /> 流式响应</label>
+              <label><input id="aiJsonMode" type="checkbox" /> JSON模式</label>
+              <label><input id="aiEnableThinking" type="checkbox" /> 启用思考</label>
+              <label><input id="aiDisableThinking" type="checkbox" /> 禁用思考</label>
+            </div>
+            <label>
+              额外JSON
+              <textarea id="aiExtraJson" class="small-area mono" spellcheck="false"></textarea>
+            </label>
+            <div class="actions">
+              <button id="saveAiConfigBtn" class="primary">保存AI配置</button>
+              <button id="testAiBtn">测试接口</button>
+              <span id="aiTestStatus"></span>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-title"><h2>API预设库</h2></div>
+            <div class="control-grid two">
+              <label>
+                当前预设
+                <select id="presetSelect"></select>
+              </label>
+              <label>
+                预设名称
+                <input id="presetName" placeholder="例如：分类模型1" />
+              </label>
+              <label>
+                风格/男女频模型
+                <select id="classifierSelect"></select>
+              </label>
+              <label>
+                原文改文模型
+                <select id="rewriteSelect"></select>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="applyPresetBtn">应用预设</button>
+              <button id="savePresetBtn">保存当前为预设</button>
+              <button id="deletePresetBtn">删除当前预设</button>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-title"><h2>平台表</h2></div>
+            <textarea id="platformsText" class="json-area" spellcheck="false"></textarea>
+          </section>
+
+          <section class="section">
+            <div class="section-title"><h2>固定风格类型</h2></div>
+            <textarea id="stylesText" class="json-area" spellcheck="false"></textarea>
+          </section>
+        </div>
+        <div class="actions config-actions">
+          <button id="saveConfigBtn" class="primary">保存配置</button>
+          <span id="configStatus"></span>
+        </div>
+      </section>
+
+      <section id="knowledge" class="panel">
+        <section class="section full">
+          <div class="section-title">
+            <h2>三大知识库</h2>
+            <span>资料库只供 AI 自动取用，任务处理仍然全自动</span>
+          </div>
+          <div id="knowledgeSummary" class="knowledge-summary"></div>
+        </section>
+        <div class="knowledge-layout">
+          <section class="section">
+            <div class="section-title"><h2>资料列表</h2></div>
+            <div class="control-grid two">
+              <label>
+                资料库
+                <select id="libraryTypeSelect">
+                  <option value="high_imitation">高仿文章库</option>
+                  <option value="opening_phrases">爆款开头词库</option>
+                  <option value="rewrite_templates">批量改文指令库</option>
+                </select>
+              </label>
+              <label>
+                搜索
+                <input id="librarySearchInput" placeholder="按名称、分类、标签查找" />
+              </label>
+            </div>
+            <select id="libraryItemSelect" class="list-select" size="14"></select>
+            <div class="actions">
+              <button id="addLibraryItemBtn">新增条目</button>
+              <button id="duplicateLibraryItemBtn">复制条目</button>
+              <button id="deleteLibraryItemBtn" class="danger">删除条目</button>
+            </div>
+            <div class="actions">
+              <button id="normalizeOpeningBtn">矫正旧开头词库</button>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">
+              <h2>条目编辑</h2>
+              <span id="knowledgeStatus"></span>
+            </div>
+            <div id="libraryForm" class="form-stack"></div>
+            <label>
+              AI优化要求
+              <textarea id="promptImproveGoal" class="small-area" spellcheck="false" placeholder="例如：让用户提示词更适合短视频小说开头改文，保留变量，不要让AI只返回一小段"></textarea>
+            </label>
+            <div class="actions">
+              <button id="saveLibraryItemBtn" class="primary">保存当前条目</button>
+              <button id="optimizeLibraryItemBtn">AI帮我优化</button>
+            </div>
+          </section>
+        </div>
+        <section id="openingAnalyzerSection" class="section full hidden">
+          <div class="section-title">
+            <h2>爆款开头拆解入库</h2>
+            <span id="openingAnalyzeStatus"></span>
+          </div>
+          <div class="control-grid two">
+            <label>
+              适用风格类型
+              <select id="openingAnalyzeStyle">
+                <option value="">AI自动选择适用风格</option>
+              </select>
+            </label>
+            <label>
+              补充要求
+              <input id="openingAnalyzeExtra" placeholder="例如：更适合短视频小说开头，保留槽位，不要写成正文" />
+            </label>
+          </div>
+          <label>
+            爆款开头原文
+            <textarea id="openingSourceText" class="large-area" spellcheck="false" placeholder="粘贴爆款文案，AI会拆成可入库的开头词骨架"></textarea>
+          </label>
+          <label>
+            拆解结果
+            <textarea id="openingAnalyzeResult" class="large-area" spellcheck="false" placeholder="AI拆解后会显示在这里，确认后加入开头词库"></textarea>
+          </label>
+          <div class="actions">
+            <button id="openingAnalyzeBtn" class="primary">AI拆解开头词</button>
+            <button id="openingSaveAnalyzedBtn">确认加入开头词库</button>
+            <button id="openingClearAnalyzeBtn">清空</button>
+          </div>
+        </section>
+        <div class="actions config-actions">
+          <button id="saveKnowledgeConfigBtn" class="primary">保存知识库配置</button>
+          <span id="knowledgeSaveStatus"></span>
+        </div>
+      </section>
+
+      <section id="rules" class="panel">
+        <section class="section full">
+          <div class="section-title">
+            <h2>系统处理规则</h2>
+            <span>抓取原文后自动处理，AI 返回后也自动处理</span>
+          </div>
+          <div class="control-grid two">
+            <label>
+              规则类型
+              <select id="ruleTypeSelect">
+                <option value="sensitive">敏感词规则</option>
+                <option value="layout_rules">批量排版规则</option>
+                <option value="chapter_exact_rules">章节清洗：整行删除</option>
+                <option value="chapter_inline_rules">章节清洗：行内命中</option>
+                <option value="symbol_rules">字位符号规则</option>
+                <option value="pair_fill_rules">成对补符号规则</option>
+              </select>
+            </label>
+            <label>
+              当前说明
+              <input id="ruleHelpText" value="添加规则后点保存规则，再点保存配置" disabled />
+            </label>
+          </div>
+        </section>
+        <div class="rules-layout">
+          <section class="section">
+            <div class="section-title">
+              <h2>规则编辑</h2>
+              <span id="ruleEditorStatus"></span>
+            </div>
+            <div id="ruleManager" class="form-stack"></div>
+            <div class="actions">
+              <button id="saveRuleEditorBtn" class="primary">保存当前规则</button>
+              <button id="previewRuleBtn">预览处理效果</button>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-title"><h2>规则预览</h2></div>
+            <div class="assistant-box">
+              <div class="section-title compact">
+                <h2 id="ruleAiTitle">规则AI助手</h2>
+                <span id="ruleAiStatus"></span>
+              </div>
+              <label>
+                AI处理样本文案
+                <textarea id="ruleAiSample" class="large-area" spellcheck="false" placeholder="粘贴一段需要分析的原文或AI文案"></textarea>
+              </label>
+              <label>
+                AI处理要求
+                <textarea id="ruleAiGoal" class="small-area" spellcheck="false" placeholder="例如：帮我提取需要删除的敏感词；或识别章节序号规则；或建议排版参数"></textarea>
+              </label>
+              <div class="actions">
+                <button id="ruleAiSuggestBtn" class="primary">AI生成当前规则</button>
+                <button id="ruleAiApplyBtn">加入对应规则</button>
+              </div>
+              <div id="ruleAiResult" class="suggestion-box">AI生成后会显示待加入规则。</div>
+            </div>
+            <label>
+              测试文本
+              <textarea id="rulePreviewInput" class="input-area" spellcheck="false" placeholder="粘贴一段原文或AI文案，保存配置后可预览规则处理效果"></textarea>
+            </label>
+            <label>
+              预览结果
+              <textarea id="rulePreviewOutput" class="input-area" spellcheck="false" readonly></textarea>
+            </label>
+          </section>
+        </div>
+        <div class="actions config-actions">
+          <button id="saveRulesConfigBtn" class="primary">保存处理规则配置</button>
+          <span id="rulesSaveStatus"></span>
+        </div>
+      </section>
+
+      <section id="siteSubmit" class="panel hidden">
+        <section class="section full">
+          <div class="section-title">
+            <h2>网站提交</h2>
+            <span>这里仅保存登录、文案版本和上传参数；实际提交请在“任务”页点击“提交网络”。</span>
+          </div>
+          <div class="site-submit-layout">
+            <section class="site-submit-card site-submit-configuration">
+              <div class="site-submit-card-header">
+                <div>
+                  <h3>2. 选择文案与提交方式</h3>
+                  <p>每个文案版本使用绑定的 121 配置档；未单独绑定时按默认配置档或书籍类型自动匹配。</p>
+                </div>
+              </div>
+              <div class="site-submit-version-select">
+                <span class="site-submit-field-label">提交文案</span>
+                <div class="actions no-top-margin">
+                  <label class="inline-check"><input class="web-version" value="original" type="checkbox" /> 原文</label>
+                  <label class="inline-check"><input class="web-version" value="ai1" type="checkbox" /> AI1</label>
+                  <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
+                  <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
+                </div>
+              </div>
+              <div class="site-submit-mode-static">
+                <span class="site-submit-field-label">提交方式</span>
+                <div class="actions no-top-margin"><strong>版本配置</strong><span class="form-hint">每个文案版本使用绑定的 121 配置档；未绑定时按默认配置档或书籍类型匹配。</span></div>
+              </div>
+              <section id="webVersionConfigSection" class="site-submit-mode-content">
+                <div class="section-title compact"><h3>版本配置</h3><span>优先版本绑定，其次默认配置档和书籍类型；平台、男女频、风格始终取当前书籍分析结果。</span></div>
+                <div class="control-grid two"><label>默认配置档<select id="webDefaultProfile"><option value="">请先同步批量后台配置</option></select></label></div>
+                <div class="version-profile-bindings">
+                  <div class="binding-title">版本对应配置档</div>
+                  <label>原文<select id="webProfileBindingOriginal"></select></label>
+                  <label>AI1<select id="webProfileBindingAi1"></select></label>
+                  <label>AI2<select id="webProfileBindingAi2"></select></label>
+                  <label>AI3<select id="webProfileBindingAi3"></select></label>
+                  <div class="binding-note">“跟随默认配置档”会继续按默认配置档或书籍类型选择；单独选择后，该版本始终优先使用该配置档。</div>
+                </div>
+                <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
+                <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
+                <div class="actions"><button id="syncWebProfilesBtn">同步批量后台配置</button><button id="syncWebStylesBtn">同步批量风格类型</button></div>
+              </section>
+              <div class="site-submit-card-actions">
+                <button id="confirmWebSubmitSelectionBtn" class="primary">确认文案与提交方案</button>
+                <span id="webSubmitSelectionStatus" class="form-hint">确认后会保存本次文案版本、提交方式和素材分配设置。</span>
+              </div>
+              <div class="site-submit-guard-fields upload-settings-guard">
+                <label>最小文案字数（0 不限制）<input id="webMinTextChars" type="number" min="0" max="100000" value="0" /></label>
+                <label>单文案失败重试<input id="webRetryTimes" type="number" min="0" max="5" value="1" /></label>
+                <label class="inline-check repeat-submit-toggle" title="开启后，已成功提交过的文案也会再次上传"><input id="webAllowResubmit" type="checkbox" /> 允许二次提交已成功版本</label>
+                <span id="webResubmitHint" class="form-hint"></span>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+
+      <section id="logs" class="panel">
+        <section class="section full">
+          <div class="section-title">
+            <h2>记录</h2>
+            <button id="logsRefreshBtn">刷新</button>
+          </div>
+          <section class="site-submit-history">
+            <div class="section-title compact"><h3>网站提交记录</h3><span>仅记录真实提交；预览不会写入记录</span></div>
+            <div id="siteSubmitHistory" class="logs-list"><div class="log-row">加载中…</div></div>
+          </section>
+          <section class="site-submit-history">
+            <div class="section-title compact"><h3>处理记录</h3><span>异常会归入左侧“问题日志”，并按类型展示</span></div>
+          <div id="logsList" class="logs-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js?v=20260826-login-layout2"></script>
+  </body>
+</html>
