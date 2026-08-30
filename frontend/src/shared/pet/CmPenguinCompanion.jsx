@@ -36,7 +36,7 @@ import {
 } from './cmBridge';
 import { cmResponseContract, parseCmActionProposal } from './cmActionProposal';
 import './cm-penguin-companion.css';
-import { DEFAULT_PET_ID, PET_SELECTION_EVENT, getPetDefinition } from './petCatalog';
+import { DEFAULT_PET_ID, PET_SELECTION_EVENT, getPetDefinition, petAnimationDelay } from './petCatalog';
 
 const bubbleDurationMs = 7000;
 const positionStorageKey = 'qiantie:cm-penguin-position';
@@ -344,11 +344,11 @@ export function CmPenguinCompanion({ username, accountSessionKey }) {
   }, [state]);
 
   useEffect(() => {
-    const delay = state === 'working' ? 120 : 180;
+    const delay = petAnimationDelay(pet, state);
     setFrame(0);
     const id = window.setInterval(() => setFrame(current => (current + 1) % petFrameCount(state)), delay);
     return () => window.clearInterval(id);
-  }, [state]);
+  }, [pet, state]);
 
   useEffect(() => {
     function followPointer(event) {

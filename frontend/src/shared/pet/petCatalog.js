@@ -40,6 +40,14 @@ export function getPetOptions() {
   return PET_DEFINITIONS.map(pet => ({ label: pet.displayName, value: pet.id }));
 }
 
+export function petAnimationDelay(pet, state) {
+  const resolved = getPetDefinition(pet);
+  if (resolved.id !== 'pixiu') return state === 'working' ? 120 : 180;
+  if (state === 'working') return 220;
+  if (state === 'success' || state === 'error') return 260;
+  return 320;
+}
+
 export function dispatchPetSelection(value) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(PET_SELECTION_EVENT, { detail: { pet: getPetDefinition(value) } }));

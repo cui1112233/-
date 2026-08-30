@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { previewPetSelection } from './petCatalog.js';
+import { getPetDefinition, petAnimationDelay, previewPetSelection } from './petCatalog.js';
 
 test('previews a selected pet immediately through the companion event', () => {
   const events = [];
@@ -16,4 +16,11 @@ test('previews a selected pet immediately through the companion event', () => {
   } finally {
     globalThis.window = previousWindow;
   }
+});
+
+test('uses a slower animation cadence for Pixiu without changing CM timing', () => {
+  assert.equal(petAnimationDelay(getPetDefinition('stacky'), 'idle'), 180);
+  assert.equal(petAnimationDelay(getPetDefinition('stacky'), 'working'), 120);
+  assert.equal(petAnimationDelay(getPetDefinition('pixiu'), 'idle'), 320);
+  assert.equal(petAnimationDelay(getPetDefinition('pixiu'), 'working'), 220);
 });
