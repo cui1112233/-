@@ -44,7 +44,6 @@ function TextConstraintBlock({ definition, value, onChange, inherited }) {
   const [source, setSource] = useState('system');
   const [presetId, setPresetId] = useState(PRESET_OPTIONS[key]?.[0]?.value);
   const [expanded, setExpanded] = useState(enabled);
-
   const body = String(value?.[key] || '');
 
   function toggle(next) {
@@ -106,10 +105,10 @@ function TextConstraintBlock({ definition, value, onChange, inherited }) {
         placeholder={placeholder}
       />
       <Space wrap>
-        <Button disabled={!body.trim()}>保存当前草稿</Button>
-        <Button icon={<BookmarkPlus size={14} />} disabled={!body.trim()}>保存为我的提示词</Button>
+        <Button disabled>保存当前草稿</Button>
+        <Button icon={<BookmarkPlus size={14} />} disabled>保存为我的提示词</Button>
       </Space>
-      <Typography.Text type="secondary">第一阶段仅完成最终 UI；草稿库和个人提示词持久化在第二阶段接入 V11。</Typography.Text>
+      <Typography.Text type="secondary">第一阶段可直接编辑当前设置内容；草稿库和个人提示词持久化按钮在第二阶段接入 V11 后解锁。</Typography.Text>
     </div> : null}
   </section>;
 }
