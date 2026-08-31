@@ -1,12 +1,20 @@
 const os = require('os');
+const express = require('express');
 
 const { HOST, PORT } = require('./lib/shared');
 const { createApp } = require('./app');
+const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 
 // ============================================================
 // 启动服务器
 // ============================================================
-createApp().listen(PORT, HOST, () => {
+// V78 小说获取 V2 通过一个很薄的前置扩展层增强旧工作台；
+// 其余请求继续原样进入现有 V78 Express 应用，避免重写旧兼容页面或 API。
+const app = express();
+app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
+app.use(createApp());
+
+app.listen(PORT, HOST, () => {
   const interfaces = os.networkInterfaces();
   console.log('========================================');
   console.log('  Server running on (Express):');
