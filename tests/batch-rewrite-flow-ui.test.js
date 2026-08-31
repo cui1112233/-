@@ -21,6 +21,12 @@ test('121 会话验证使用同一超时封装并在 finally 中恢复按钮', (
   assert.match(app, /finally\s*\{[\s\S]*button\.disabled = false;/);
 });
 
+test('登录弹窗在配置尚未加载时也能收口，不会因空配置永久停在验证中', () => {
+  assert.match(app, /\.\.\.\(state\.config\?\.web_submit \|\| \{\}\)/);
+  assert.match(app, /webLoginSubmit"\)\.disabled = false/);
+  assert.match(app, /dialog\.addEventListener\("submit"/);
+});
+
 test('服务端 121 登录和会话验证显式设置超时', () => {
   assert.match(uploadRoute, /timeoutMs:\s*15000/);
   assert.match(rewriteRoute, /timeoutMs:\s*15000/);

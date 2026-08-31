@@ -1560,7 +1560,7 @@ async function openWebLoginDialog() {
       const result = $("webLoginResult"); result.textContent = "验证中...";
       $("webLoginSubmit").disabled = true;
       try {
-        const settings = { ...(state.config.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
+        const settings = { ...(state.config?.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
         // Verify credentials before persisting them to the local web-submit config.
         const login = await novelFetchPlatformApi("/api/novel-fetch-upload/upload-login", {
           method: "POST",
