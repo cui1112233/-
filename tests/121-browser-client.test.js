@@ -31,6 +31,21 @@ test('browser client sends only internal worker request with secret', async () =
   assert.equal(JSON.parse(calls[0].options.body).password, 'pw');
 });
 
+test('browser client authenticated action stays inside worker contract', async () => {
+  const calls = [];
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, status: 'ready', targetStatus: 200, body: '{"success":true}' }) };
+    }
+  });
+  const result = await client.action({ ...identity, action: 'config_list', payload: {} });
+  assert.equal(result.targetStatus, 200);
+  assert.equal(calls[0].url, 'http://worker:8787/session/action');
+  assert.equal(JSON.parse(calls[0].options.body).action, 'config_list');
+});
+
 test('worker failure never falls back to guessed 121 login API', async () => {
   const urls = [];
   const client = create121BrowserClient({
