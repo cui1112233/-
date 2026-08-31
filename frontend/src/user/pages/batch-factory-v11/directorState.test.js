@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directorActionState, fixedVideoLabel, compatibilitySummary } from './directorState.js';
+import {
+  compatibilitySummary,
+  directorActionState,
+  directorRevisionLabel,
+  fixedVideoLabel,
+  hookActionState,
+  hookStatusLabel
+} from './directorState.js';
 
 test('viral mode requires approved Hook before Director action is available', () => {
   const state = directorActionState({
@@ -25,4 +32,24 @@ test('fixed single VIDEO label uses server maximum duration', () => {
 
 test('compatibility summary preserves orphaned server result', () => {
   assert.equal(compatibilitySummary([{ state: 'orphaned', videoId: 'v-old' }]), '1 个旧 VIDEO 覆盖已孤立');
+});
+
+test('hook generation is only available for viral mode with server capability', () => {
+  assert.equal(hookActionState({ book: { mode: 'original' }, capability: { available: true } }).disabled, true);
+  assert.equal(hookActionState({ book: { mode: 'viral' }, capability: { available: true } }).disabled, false);
+});
+
+test('approved hook cannot be approved again', () => {
+  const state = hookActionState({
+    book: { mode: 'viral', hook: { status: 'approved' } },
+    capability: { available: true },
+    action: 'approve'
+  });
+  assert.equal(state.disabled, true);
+});
+
+test('hook and director labels are derived from server state only', () => {
+  assert.equal(hookStatusLabel({ status: 'draft' }), '待审核');
+  assert.equal(hookStatusLabel({ status: 'approved' }), '已批准');
+  assert.equal(directorRevisionLabel({ id: 'r7', revision: 7 }), 'Director Revision 7');
 });
