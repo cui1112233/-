@@ -1,3 +1,7 @@
+function hookForBook(book = {}) {
+  return book?.hook || book?.hookRevision || {};
+}
+
 export function directorActionState({ book = {}, capability = {}, connected = false } = {}) {
   if (capability?.available !== true) {
     return {
@@ -8,7 +12,7 @@ export function directorActionState({ book = {}, capability = {}, connected = fa
   if (!connected) {
     return { disabled: true, reason: '等待 Director 动作接线' };
   }
-  if (book?.mode === 'viral' && book?.hook?.status !== 'approved') {
+  if (book?.mode === 'viral' && hookForBook(book)?.status !== 'approved') {
     return {
       disabled: true,
       reason: '爆款模式需要先批准 Hook'
@@ -30,7 +34,7 @@ export function hookActionState({ book = {}, capability = {}, action = 'generate
   if (!connected) {
     return { disabled: true, reason: '等待 Hook 动作接线' };
   }
-  const status = book?.hook?.status || '';
+  const status = hookForBook(book)?.status || '';
   if (action === 'approve') {
     if (!status) return { disabled: true, reason: '请先生成 Hook' };
     if (status === 'approved') return { disabled: true, reason: 'Hook 已批准' };

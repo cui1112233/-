@@ -61,3 +61,22 @@ test('actions remain fail closed until callback wiring exists', () => {
   assert.equal(directorActionState({ book: { mode: 'original' }, capability: { available: true }, connected: false }).disabled, true);
   assert.equal(hookActionState({ book: { mode: 'viral' }, capability: { available: true }, connected: false }).disabled, true);
 });
+
+test('approved hookRevision unlocks connected viral Director', () => {
+  const state = directorActionState({
+    book: { mode: 'viral', hookRevision: { status: 'approved' } },
+    capability: { available: true },
+    connected: true
+  });
+  assert.equal(state.disabled, false);
+});
+
+test('draft hookRevision can be approved when Hook action is connected', () => {
+  const state = hookActionState({
+    book: { mode: 'viral', hookRevision: { status: 'draft' } },
+    capability: { available: true },
+    action: 'approve',
+    connected: true
+  });
+  assert.equal(state.disabled, false);
+});
