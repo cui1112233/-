@@ -96,3 +96,15 @@ test('ui page passes runtime catalog to drawer and config sync saves only the ba
   assert.match(source, /scope:\s*'batch'/);
   assert.match(source, /patch:\s*\{\s*configVersion\s*\}/);
 });
+
+test('book scoped config version selector uses the same Go catalog and no hardcoded version ids', () => {
+  const scoped = read('BatchFactoryV11ScopedSettings.jsx');
+  assert.match(scoped, /configVersions/);
+  assert.match(scoped, /configVersionsError/);
+  for (const hardcoded of ['v3.5', 'v3.2', 'v3.1', 'v3.0']) {
+    assert.equal(scoped.includes(hardcoded), false, `hardcoded config version remains: ${hardcoded}`);
+  }
+  const page = read('BatchFactoryV11UiPage.jsx');
+  assert.match(page, /<BookSettingsModal[\s\S]*configVersions={runtimeState\.configVersions}/);
+  assert.match(page, /configVersionsError={runtimeState\.configVersionsError}/);
+});
