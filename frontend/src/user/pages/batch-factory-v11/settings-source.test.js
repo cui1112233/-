@@ -15,7 +15,7 @@ test('production settings drawer keeps the approved section order', () => {
   assert.ok(configIndex >= 0);
   assert.ok(basicIndex > configIndex);
   assert.ok(constraintIndex > basicIndex);
-  assert.match(source, /width={820}/);
+  assert.match(source, /width=\{820\}/);
   assert.match(source, /同步批量后台配置/);
 });
 
