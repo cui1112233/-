@@ -1,11 +1,7 @@
-import { Alert, Button, Space, Tag, Typography } from 'antd';
-import { Clapperboard, Play, RefreshCw, TriangleAlert } from 'lucide-react';
-import {
-  compatibilitySummary,
-  directorActionState,
-  directorRevisionLabel,
-  fixedVideoLabel
-} from './directorState.js';
+import { Button, Space, Tag, Typography } from 'antd';
+import { Clapperboard, Play, RefreshCw } from 'lucide-react';
+import { directorActionState, directorRevisionLabel, fixedVideoLabel } from './directorState.js';
+import { OverrideCompatibilityDetails } from './OverrideCompatibilityDetails';
 
 function compatibilityEntries(book = {}) {
   return book?.compatibility || book?.directorRevision?.compatibility || book?.director?.compatibility || [];
@@ -23,7 +19,6 @@ export function DirectorPanel({
     capability: capabilities?.['director.run'] || {},
     connected: typeof onRunDirector === 'function'
   });
-  const compatibility = compatibilitySummary(compatibilityEntries(book));
   const maxDurationSeconds = Number(
     book?.modelCapability?.maxDurationSeconds ||
     book?.modelCapabilities?.maxDurationSeconds ||
@@ -52,13 +47,7 @@ export function DirectorPanel({
       >{revision?.id ? '重新 Director' : '开始 Director'}</Button>
     </div>
 
-    {compatibility ? <Alert
-      type="warning"
-      showIcon
-      icon={<TriangleAlert size={16} />}
-      message={compatibility}
-      description="旧 VIDEO 覆盖不会被静默迁移到新 VIDEO。请按服务端 compatibility 状态逐项处理。"
-    /> : null}
+    <OverrideCompatibilityDetails entries={compatibilityEntries(book)} />
 
     {action.disabled && action.reason ? <Typography.Text type="secondary">{action.reason}</Typography.Text> : null}
   </section>;
