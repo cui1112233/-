@@ -12,7 +12,8 @@ import {
 test('viral mode requires approved Hook before Director action is available', () => {
   const state = directorActionState({
     book: { mode: 'viral', hook: { status: 'draft' } },
-    capability: { available: true }
+    capability: { available: true },
+    connected: true
   });
   assert.equal(state.disabled, true);
   assert.match(state.reason, /Hook/);
@@ -21,7 +22,8 @@ test('viral mode requires approved Hook before Director action is available', ()
 test('original mode follows server director capability', () => {
   const state = directorActionState({
     book: { mode: 'original' },
-    capability: { available: true }
+    capability: { available: true },
+    connected: true
   });
   assert.equal(state.disabled, false);
 });
@@ -35,15 +37,16 @@ test('compatibility summary preserves orphaned server result', () => {
 });
 
 test('hook generation is only available for viral mode with server capability', () => {
-  assert.equal(hookActionState({ book: { mode: 'original' }, capability: { available: true } }).disabled, true);
-  assert.equal(hookActionState({ book: { mode: 'viral' }, capability: { available: true } }).disabled, false);
+  assert.equal(hookActionState({ book: { mode: 'original' }, capability: { available: true }, connected: true }).disabled, true);
+  assert.equal(hookActionState({ book: { mode: 'viral' }, capability: { available: true }, connected: true }).disabled, false);
 });
 
 test('approved hook cannot be approved again', () => {
   const state = hookActionState({
     book: { mode: 'viral', hook: { status: 'approved' } },
     capability: { available: true },
-    action: 'approve'
+    action: 'approve',
+    connected: true
   });
   assert.equal(state.disabled, true);
 });
@@ -52,4 +55,9 @@ test('hook and director labels are derived from server state only', () => {
   assert.equal(hookStatusLabel({ status: 'draft' }), '待审核');
   assert.equal(hookStatusLabel({ status: 'approved' }), '已批准');
   assert.equal(directorRevisionLabel({ id: 'r7', revision: 7 }), 'Director Revision 7');
+});
+
+test('actions remain fail closed until callback wiring exists', () => {
+  assert.equal(directorActionState({ book: { mode: 'original' }, capability: { available: true }, connected: false }).disabled, true);
+  assert.equal(hookActionState({ book: { mode: 'viral' }, capability: { available: true }, connected: false }).disabled, true);
 });
