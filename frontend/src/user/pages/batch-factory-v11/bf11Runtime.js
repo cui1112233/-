@@ -22,6 +22,11 @@ function subjectSettingsState(subject) {
   return settingsStateFrom(null);
 }
 
+export function createdBatchIdFrom(value) {
+  const source = object(value);
+  return source?.batch?.id || source?.id || '';
+}
+
 export function workbenchStateFromLoad(loadResult) {
   const load = object(loadResult);
   const batch = load.selectedBatch || null;
