@@ -1,6 +1,7 @@
 import { message } from 'antd';
 import { useMemo, useState } from 'react';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
+import { BatchFactoryV11BatchManager } from './BatchFactoryV11BatchManager';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
@@ -10,6 +11,7 @@ import {
   SHOWCASE_BOOKS
 } from './showcaseData';
 import './batch-factory-v11-scoped.css';
+import './batch-factory-v11-batch-manager.css';
 
 const CONFIG_LABELS = {
   'v3.5': '批量配置 V3.5',
@@ -24,11 +26,18 @@ const MODEL_LABELS = {
   'video-model-c': 'Video Model C · 最大 12s'
 };
 
+const INITIAL_BOOK_PATCHES = {
+  'book-02': { aspectRatio: '16:9', qualityEnabled: false },
+  'book-04': { negativeEnabled: true },
+  'book-06': { configVersion: 'v3.5', fixedSingleVideo: true, prefixMode: 'manual' }
+};
+
 export function BatchFactoryV11UiPage() {
   const [batchSettings, setBatchSettings] = useState(SHOWCASE_BATCH_SETTINGS);
   const [publishSettings, setPublishSettings] = useState({});
-  const [bookPatches, setBookPatches] = useState({});
+  const [bookPatches, setBookPatches] = useState(INITIAL_BOOK_PATCHES);
   const [videoPatches, setVideoPatches] = useState({});
+  const [batchManager, setBatchManager] = useState({ open: false, tab: 'new' });
   const [productionSettingsOpen, setProductionSettingsOpen] = useState(false);
   const [publishSettingsOpen, setPublishSettingsOpen] = useState(false);
   const [bookSettingsTarget, setBookSettingsTarget] = useState(null);
@@ -75,6 +84,15 @@ export function BatchFactoryV11UiPage() {
     showUiOnlyNotice('单 VIDEO 设置');
   }
 
+  function openBatchManager(tab) {
+    setBatchManager({ open: true, tab });
+  }
+
+  function openProductionSettingsFromBatchManager() {
+    setBatchManager(current => ({ ...current, open: false }));
+    setProductionSettingsOpen(true);
+  }
+
   const activeBook = bookSettingsTarget
     ? books.find(book => book.id === bookSettingsTarget.id) || bookSettingsTarget
     : null;
@@ -89,10 +107,19 @@ export function BatchFactoryV11UiPage() {
     <BatchFactoryV11Workbench
       batch={batch}
       books={books}
+      onOpenBatchManager={() => openBatchManager('new')}
+      onOpenHistory={() => openBatchManager('history')}
       onOpenBatchSettings={() => setProductionSettingsOpen(true)}
       onOpenPublishSettings={() => setPublishSettingsOpen(true)}
       onOpenBookSettings={book => setBookSettingsTarget(book)}
       onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ book, video })}
+    />
+
+    <BatchFactoryV11BatchManager
+      open={batchManager.open}
+      initialTab={batchManager.tab}
+      onClose={() => setBatchManager(current => ({ ...current, open: false }))}
+      onOpenProductionSettings={openProductionSettingsFromBatchManager}
     />
 
     <ProductionSettingsDrawer
