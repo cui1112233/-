@@ -54,6 +54,8 @@ function SparseChoice({ value, inheritedLabel, options, onChange }) {
 export function BookSettingsModal({
   open,
   book,
+  configVersions = [],
+  configVersionsError = null,
   initialPatch = {},
   onClose,
   onSave
@@ -67,6 +69,13 @@ export function BookSettingsModal({
   }, [open, book?.id, initialPatch]);
 
   const count = sparseCount(patch);
+  const configVersionOptions = [
+    { value: 'inherit', label: '跟随批次' },
+    ...(Array.isArray(configVersions) ? configVersions : [])
+      .filter(version => typeof version?.id === 'string' && version.id.length > 0)
+      .map(version => ({ value: version.id, label: version.name || version.id }))
+  ];
+  const configCatalogUnavailable = Boolean(configVersionsError) || configVersionOptions.length === 1;
 
   function setField(key, value) {
     setPatch(current => ({ ...current, [key]: value }));
@@ -106,18 +115,25 @@ export function BookSettingsModal({
 
       <Divider orientation="left">配置版本</Divider>
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">未覆盖时由 Go 按冻结设置解析。</Typography.Text></div>
+        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">未覆盖时由 Go 按冻结设置解析；可选版本只来自服务端 catalog。</Typography.Text></div>
         <Select
+          disabled={configCatalogUnavailable}
           value={hasOwn(patch, 'configVersion') ? patch.configVersion : 'inherit'}
           onChange={value => value === 'inherit' ? inheritField('configVersion') : setField('configVersion', value)}
-          options={[
-            { value: 'inherit', label: '跟随批次' },
-            { value: 'v3.5', label: '批量配置 V3.5' },
-            { value: 'v3.2', label: '批量配置 V3.2' },
-            { value: 'v3.1', label: '批量配置 V3.1' }
-          ]}
+          options={configVersionOptions}
         />
       </div>
+      {configVersionsError ? <Alert
+        type="error"
+        showIcon
+        message="无法读取配置版本"
+        description={configVersionsError.message || 'Book 版本选择保持关闭，不会使用本地替代目录。'}
+      /> : configVersionOptions.length === 1 ? <Alert
+        type="warning"
+        showIcon
+        message="暂无可用配置版本"
+        description="Go 服务端没有返回可选择版本；当前 Book 不会写入新的 configVersion override。"
+      /> : null}
 
       <div className="bf11-scoped-setting-row">
         <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">当前小说可写自己的 sparse override。</Typography.Text></div>

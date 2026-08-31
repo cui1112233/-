@@ -278,6 +278,8 @@ export function BatchFactoryV11UiPage() {
       <BookSettingsModal
         open={Boolean(activeBook)}
         book={activeBook}
+        configVersions={runtimeState.configVersions}
+        configVersionsError={runtimeState.configVersionsError}
         initialPatch={activeBook?.settingsState?.patch || {}}
         onClose={() => setBookSettingsTargetId('')}
         onSave={saveBookSettings}
