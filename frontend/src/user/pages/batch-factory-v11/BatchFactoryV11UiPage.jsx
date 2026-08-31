@@ -6,7 +6,7 @@ import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
 import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
-import { createBf11Runtime } from './bf11Runtime.js';
+import { createBf11Runtime, createdBatchIdFrom } from './bf11Runtime.js';
 import './batch-factory-v11-scoped.css';
 import './batch-factory-v11-detail.css';
 import './batch-factory-v11-theme.css';
@@ -102,7 +102,7 @@ export function BatchFactoryV11UiPage() {
         message.error(result.message);
         return false;
       }
-      const createdBatchId = result.raw?.batch?.id || result.raw?.id || '';
+      const createdBatchId = createdBatchIdFrom(result.raw);
       const next = await runtime.load(createdBatchId
         ? { ...requestParams, batchId: createdBatchId }
         : requestParams);
