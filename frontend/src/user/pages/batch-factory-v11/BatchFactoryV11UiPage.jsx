@@ -12,6 +12,7 @@ import {
 } from './showcaseData';
 import './batch-factory-v11-scoped.css';
 import './batch-factory-v11-batch-manager.css';
+import './batch-factory-v11-detail.css';
 
 const CONFIG_LABELS = {
   'v3.5': '批量配置 V3.5',
