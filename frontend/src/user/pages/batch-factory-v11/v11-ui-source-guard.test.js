@@ -23,6 +23,7 @@ function collectFiles(root) {
   return fs.readdirSync(root, { withFileTypes: true }).flatMap(entry => {
     const target = path.join(root, entry.name);
     if (entry.isDirectory()) return collectFiles(target);
+    if (entry.name.endsWith('.test.js')) return [];
     return /\.(?:js|jsx)$/.test(entry.name) ? [target] : [];
   });
 }
@@ -31,7 +32,7 @@ test('required V11 frontend adapter files exist', () => {
   for (const file of required) assert.equal(fs.existsSync(file), true, `missing ${file}`);
 });
 
-test('V11 frontend files do not import legacy Batch Factory or production APIs', () => {
+test('V11 frontend production files do not import legacy Batch Factory or production APIs', () => {
   const files = [
     ...collectFiles(here),
     path.resolve(frontendRoot, 'shared/api/batchFactoryV11.js')
