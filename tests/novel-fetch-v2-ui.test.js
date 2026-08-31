@@ -3,8 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2.js');
-const source = fs.readFileSync(SOURCE_PATH, 'utf8');
+const MAIN_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2.js');
+const CONFIG_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2-config.js');
+const mainSource = fs.readFileSync(MAIN_SOURCE_PATH, 'utf8');
+const configSource = fs.existsSync(CONFIG_SOURCE_PATH) ? fs.readFileSync(CONFIG_SOURCE_PATH, 'utf8') : '';
+const source = `${mainSource}\n${configSource}`;
 
 test('V78 extension exposes queue and realtime controls', () => {
   for (const endpoint of [
@@ -55,6 +58,7 @@ test('V78 extension exposes only server-backed advanced configuration', () => {
   assert.ok(source.includes('deepMergeConfig'));
 });
 
-test('V78 extension remains valid JavaScript', () => {
-  assert.doesNotThrow(() => new Function(source));
+test('V78 extension scripts remain valid JavaScript', () => {
+  assert.doesNotThrow(() => new Function(mainSource));
+  if (configSource) assert.doesNotThrow(() => new Function(configSource));
 });
