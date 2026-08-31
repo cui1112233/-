@@ -82,6 +82,14 @@ function createFailure(error) {
   };
 }
 
+function impactFailure(error) {
+  return {
+    ok: false,
+    status: Number(error?.status || 0),
+    message: error?.message || '读取变更影响失败，请稍后重试。'
+  };
+}
+
 export function createBf11Runtime({ adapter }) {
   if (!adapter) throw new Error('V11 UI adapter is required');
   return {
@@ -99,6 +107,15 @@ export function createBf11Runtime({ adapter }) {
         return { ok: true, raw: result, startsDirector: false };
       } catch (error) {
         return createFailure(error);
+      }
+    },
+
+    async previewChangeImpact(input) {
+      try {
+        const impact = await adapter.previewChangeImpact(input);
+        return { ok: true, impact };
+      } catch (error) {
+        return impactFailure(error);
       }
     },
 

@@ -53,6 +53,14 @@ export function createBf11UiAdapter(api) {
       };
     },
 
+    async previewChangeImpact({ batchId, patch = {}, revision = 0 } = {}) {
+      if (!batchId) throw new Error('V11 batch id is required');
+      return api.getChangeImpact(batchId, {
+        patch: preserveSparsePatch(patch),
+        expectedRevision: revision
+      });
+    },
+
     async saveDrawer({ scope, batchId, bookId = '', videoId = '', patch = {}, revision = 0 }) {
       const input = {
         patch: preserveSparsePatch(patch),
