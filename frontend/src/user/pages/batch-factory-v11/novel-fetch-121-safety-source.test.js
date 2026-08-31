@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pagesDir = path.resolve(here, '..');
 const frontendDir = path.resolve(here, '../../../..');
+const repoDir = path.resolve(frontendDir, '..');
 const appSource = fs.readFileSync(path.join(frontendDir, 'src/user/App.jsx'), 'utf8');
 
 function readRequired(relativePath) {
@@ -37,4 +38,9 @@ test('121 guard applies a 15 second frontend deadline to config and web-submit r
   assert.match(source, /REQUEST_TIMEOUT_MS\s*=\s*15_?000/);
   assert.match(source, /AbortController/);
   assert.match(source, /请求超时（15 秒）/);
+});
+
+test('121 backend transport also defaults to a 15 second deadline', () => {
+  const source = fs.readFileSync(path.join(repoDir, 'lib/target-upload.js'), 'utf8');
+  assert.match(source, /timeoutMs\s*=\s*15000/);
 });
