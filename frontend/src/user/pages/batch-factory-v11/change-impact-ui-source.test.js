@@ -30,3 +30,9 @@ test('ProductionSettingsDrawer uses server change-impact preview instead of loca
   assert.equal(source.includes('const modelChanged'), false);
   assert.equal(source.includes('const configChanged'), false);
 });
+
+test('BatchFactoryV11UiPage passes runtime change-impact preview into the drawer', () => {
+  const source = read('BatchFactoryV11UiPage.jsx');
+  assert.match(source, /previewChangeImpact/);
+  assert.match(source, /onPreviewChangeImpact/);
+});
