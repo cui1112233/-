@@ -6,13 +6,13 @@ import {
   Segmented,
   Select,
   Space,
-  Switch,
   Tag,
   Typography
 } from 'antd';
 import { CloudDownload, Layers3, Save, Settings2, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
+import { FixedSingleVideoControl } from './FixedSingleVideoControl';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
@@ -203,12 +203,12 @@ export function ProductionSettingsDrawer({
         </SettingField>
 
         <SettingField label="固定单 VIDEO" description="只有用户操作开关后才写入 true / false；显式 false 也会被保留。">
-          <Space>
-            <Switch checked={form.fixedSingleVideo === true} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
-            {Object.prototype.hasOwnProperty.call(form, 'fixedSingleVideo')
-              ? <Tag color="purple">当前批次已覆盖：{form.fixedSingleVideo ? '开启' : '关闭'}</Tag>
-              : <Tag>当前批次未覆盖</Tag>}
-          </Space>
+          <FixedSingleVideoControl
+            checked={form.fixedSingleVideo === true}
+            hasOverride={Object.prototype.hasOwnProperty.call(form, 'fixedSingleVideo')}
+            maxDurationSeconds={Number(batch?.modelMaxDuration || batch?.modelCapability?.maxDurationSeconds || 0)}
+            onChange={fixedSingleVideo => patch({ fixedSingleVideo })}
+          />
         </SettingField>
 
         <SettingField label="前缀模式" description="自动模式由内容判断前缀；手动模式使用统一指定前缀。">
