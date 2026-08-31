@@ -13,9 +13,8 @@ import {
   Typography
 } from 'antd';
 import { RotateCcw, Save, Settings2, Video } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
-import { configVersionOptions } from './bf11UiAdapter.js';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
@@ -56,8 +55,6 @@ export function BookSettingsModal({
   open,
   book,
   initialPatch = {},
-  configVersions = [],
-  configVersionsError = null,
   onClose,
   onSave
 }) {
@@ -70,7 +67,6 @@ export function BookSettingsModal({
   }, [open, book?.id, initialPatch]);
 
   const count = sparseCount(patch);
-  const versionOptions = useMemo(() => configVersionOptions(configVersions), [configVersions]);
 
   function setField(key, value) {
     setPatch(current => ({ ...current, [key]: value }));
@@ -106,22 +102,7 @@ export function BookSettingsModal({
   >
     <div className="bf11-scoped-settings">
       <InheritanceHeader level={book?.title || '当前小说'} parentLabel="继承批次" count={count} />
-      <Typography.Text type="secondary">Book ID {book?.bookId || '—'} · 当前小说只保存自己修改的字段；继承后的实际值以 Go SettingsState / snapshot 为准。</Typography.Text>
-
-      <Divider orientation="left">配置版本</Divider>
-      <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">未覆盖时由 Go 按冻结设置解析；可选版本只来自 V11 服务端 catalog。</Typography.Text></div>
-        <Select
-          value={hasOwn(patch, 'versionConfigId') ? patch.versionConfigId : 'inherit'}
-          onChange={value => value === 'inherit' ? inheritField('versionConfigId') : setField('versionConfigId', value)}
-          options={[
-            { value: 'inherit', label: '跟随批次' },
-            ...versionOptions
-          ]}
-          disabled={Boolean(configVersionsError)}
-        />
-      </div>
-      {configVersionsError ? <Typography.Text type="danger">配置版本读取失败：{configVersionsError.message || '服务端 catalog 不可用'}。不会使用本地版本列表。</Typography.Text> : null}
+      <Typography.Text type="secondary">Book ID {book?.bookId || '—'} · 当前小说只保存自己修改的字段；配置版本由生产统一设置的 Batch scope 选择，继承后的实际值以 Go SettingsState / snapshot 为准。</Typography.Text>
 
       <div className="bf11-scoped-setting-row">
         <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">当前小说可写自己的 sparse override。</Typography.Text></div>
