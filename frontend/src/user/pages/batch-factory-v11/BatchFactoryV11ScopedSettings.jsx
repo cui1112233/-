@@ -12,7 +12,7 @@ import {
   Tag,
   Typography
 } from 'antd';
-import { RotateCcw, Save, Settings2, SlidersHorizontal, Video } from 'lucide-react';
+import { RotateCcw, Save, Settings2, Video } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
 import { SHOWCASE_BATCH_SETTINGS } from './showcaseData';
@@ -159,6 +159,7 @@ export function VideoSettingsDrawer({
   book,
   video,
   parentSettings = SHOWCASE_BATCH_SETTINGS,
+  modelMaxDuration = 15,
   initialPatch = {},
   onClose,
   onSave
@@ -174,7 +175,7 @@ export function VideoSettingsDrawer({
 
   const displayValue = useMemo(() => ({ ...parentSettings, ...patch }), [parentSettings, patch]);
   const count = sparseCount(patch);
-  const maxDuration = 15;
+  const maxDuration = Math.max(1, Number(modelMaxDuration || 1));
   const customDuration = Number(patch.duration || video?.duration || 0);
   const durationChanged = hasOwn(patch, 'duration') && Number(patch.duration) !== Number(video?.duration || 0);
   const durationIncompatible = hasOwn(patch, 'duration') && customDuration > maxDuration;
@@ -194,7 +195,7 @@ export function VideoSettingsDrawer({
   function setDurationChoice(value) {
     setDurationMode(value);
     if (value === 'inherit') inheritField('duration');
-    else if (!hasOwn(patch, 'duration')) setField('duration', Number(video?.duration || 10));
+    else if (!hasOwn(patch, 'duration')) setField('duration', Number(video?.duration || Math.min(10, maxDuration)));
   }
 
   function save() {
@@ -222,7 +223,7 @@ export function VideoSettingsDrawer({
 
       <Divider orientation="left">VIDEO 基础覆盖</Divider>
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>VIDEO 时长</Typography.Text><Typography.Text type="secondary">修改时长需要重新导演 / 重排 Shot 时间轴，不能只替换数字。</Typography.Text></div>
+        <div><Typography.Text strong>VIDEO 时长</Typography.Text><Typography.Text type="secondary">修改时长需要重新导演 / 重排 Shot 时间轴，不能只替换数字。当前模型上限 {maxDuration}s。</Typography.Text></div>
         <Space direction="vertical" align="end">
           <Segmented
             value={durationMode}
@@ -231,7 +232,7 @@ export function VideoSettingsDrawer({
           />
           {durationMode === 'custom' ? <InputNumber
             min={1}
-            max={30}
+            max={maxDuration}
             value={customDuration}
             onChange={value => setField('duration', Number(value || 1))}
             addonAfter="秒"
