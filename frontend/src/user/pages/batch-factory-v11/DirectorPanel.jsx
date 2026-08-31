@@ -20,7 +20,8 @@ export function DirectorPanel({
   const revision = book?.directorRevision || book?.director || {};
   const action = directorActionState({
     book,
-    capability: capabilities?.['director.run'] || {}
+    capability: capabilities?.['director.run'] || {},
+    connected: typeof onRunDirector === 'function'
   });
   const compatibility = compatibilitySummary(compatibilityEntries(book));
   const maxDurationSeconds = Number(
