@@ -15,7 +15,7 @@ import {
 import { RotateCcw, Save, Settings2, Video } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
-import { SHOWCASE_BATCH_SETTINGS } from './showcaseData';
+import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
@@ -54,17 +54,18 @@ function SparseChoice({ value, inheritedLabel, options, onChange }) {
 export function BookSettingsModal({
   open,
   book,
-  batchSettings = SHOWCASE_BATCH_SETTINGS,
+  batchSettings = {},
   initialPatch = {},
   onClose,
   onSave
 }) {
   const [patch, setPatch] = useState(initialPatch);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setPatch({ ...initialPatch });
-  }, [open, book?.id]);
+  }, [open, book?.id, initialPatch]);
 
   const displayValue = useMemo(() => ({ ...batchSettings, ...patch }), [batchSettings, patch]);
   const count = sparseCount(patch);
@@ -81,9 +82,13 @@ export function BookSettingsModal({
     setPatch(current => ({ ...current, ...next }));
   }
 
-  function save() {
-    onSave?.(patch);
-    onClose?.();
+  async function save() {
+    setSaving(true);
+    try {
+      return await runSaveFlow({ payload: patch, onSave, onClose });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return <Modal
@@ -94,7 +99,7 @@ export function BookSettingsModal({
     destroyOnClose={false}
     footer={<Space>
       <Button icon={<RotateCcw size={14} />} onClick={() => setPatch({})}>恢复全部继承</Button>
-      <Button type="primary" icon={<Save size={14} />} onClick={save}>保存当前小说设置</Button>
+      <Button type="primary" loading={saving} icon={<Save size={14} />} onClick={save}>保存当前小说设置</Button>
     </Space>}
   >
     <div className="bf11-scoped-settings">
@@ -119,7 +124,7 @@ export function BookSettingsModal({
       <div className="bf11-scoped-setting-row">
         <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">当前小说可覆盖批次默认画幅。</Typography.Text></div>
         <SparseChoice
-          inheritedLabel={`跟随 ${batchSettings.aspectRatio || '9:16'}`}
+          inheritedLabel={`跟随 ${batchSettings.aspectRatio || '批次'}`}
           value={hasOwn(patch, 'aspectRatio') ? patch.aspectRatio : 'inherit'}
           onChange={value => value === 'inherit' ? inheritField('aspectRatio') : setField('aspectRatio', value)}
           options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }]}
@@ -148,7 +153,7 @@ export function BookSettingsModal({
         type="info"
         showIcon
         message="继承关系"
-        description="系统默认 → 生产统一设置 → 当前小说 → 单 VIDEO。点击“恢复全部继承”会删除当前小说 sparse override，而不是复制父级当前值。"
+        description="系统默认 → 生产统一设置 → 当前小说 → 单 VIDEO。恢复全部继承会把当前小说 patch 保存为空对象，不复制父级当前值。"
       />
     </div>
   </Modal>;
@@ -158,27 +163,28 @@ export function VideoSettingsDrawer({
   open,
   book,
   video,
-  parentSettings = SHOWCASE_BATCH_SETTINGS,
-  modelMaxDuration = 15,
+  parentSettings = {},
+  modelMaxDuration = 0,
   initialPatch = {},
   onClose,
   onSave
 }) {
   const [patch, setPatch] = useState(initialPatch);
   const [durationMode, setDurationMode] = useState('inherit');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setPatch({ ...initialPatch });
     setDurationMode(hasOwn(initialPatch, 'duration') ? 'custom' : 'inherit');
-  }, [open, video?.id]);
+  }, [open, video?.id, initialPatch]);
 
   const displayValue = useMemo(() => ({ ...parentSettings, ...patch }), [parentSettings, patch]);
   const count = sparseCount(patch);
-  const maxDuration = Math.max(1, Number(modelMaxDuration || 1));
-  const customDuration = Number(patch.duration || video?.duration || 0);
+  const maxDuration = Number(modelMaxDuration || 0);
+  const customDuration = Number(patch.duration ?? video?.duration ?? 0);
   const durationChanged = hasOwn(patch, 'duration') && Number(patch.duration) !== Number(video?.duration || 0);
-  const durationIncompatible = hasOwn(patch, 'duration') && customDuration > maxDuration;
+  const durationIncompatible = maxDuration > 0 && hasOwn(patch, 'duration') && customDuration > maxDuration;
 
   function setField(key, value) {
     setPatch(current => ({ ...current, [key]: value }));
@@ -195,12 +201,16 @@ export function VideoSettingsDrawer({
   function setDurationChoice(value) {
     setDurationMode(value);
     if (value === 'inherit') inheritField('duration');
-    else if (!hasOwn(patch, 'duration')) setField('duration', Number(video?.duration || Math.min(10, maxDuration)));
+    else if (!hasOwn(patch, 'duration')) setField('duration', Number(video?.duration || 10));
   }
 
-  function save() {
-    onSave?.(patch);
-    onClose?.();
+  async function save() {
+    setSaving(true);
+    try {
+      return await runSaveFlow({ payload: patch, onSave, onClose });
+    } finally {
+      setSaving(false);
+    }
   }
 
   const assetOptions = {
@@ -215,7 +225,7 @@ export function VideoSettingsDrawer({
     open={open}
     onClose={onClose}
     destroyOnClose={false}
-    extra={<Button type="primary" icon={<Save size={14} />} onClick={save}>保存 VIDEO 设置</Button>}
+    extra={<Button type="primary" loading={saving} icon={<Save size={14} />} onClick={save}>保存 VIDEO 设置</Button>}
   >
     <div className="bf11-scoped-settings">
       <InheritanceHeader level={`${book?.title || '当前小说'} · ${video?.label || 'VIDEO'}`} parentLabel="继承当前小说 / 批次" count={count} />
@@ -223,7 +233,10 @@ export function VideoSettingsDrawer({
 
       <Divider orientation="left">VIDEO 基础覆盖</Divider>
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>VIDEO 时长</Typography.Text><Typography.Text type="secondary">修改时长需要重新导演 / 重排 Shot 时间轴，不能只替换数字。当前模型上限 {maxDuration}s。</Typography.Text></div>
+        <div>
+          <Typography.Text strong>VIDEO 时长</Typography.Text>
+          <Typography.Text type="secondary">修改时长需要重新导演 / 重排 Shot 时间轴。{maxDuration > 0 ? `当前模型上限 ${maxDuration}s。` : '模型上限等待服务端能力数据。'}</Typography.Text>
+        </div>
         <Space direction="vertical" align="end">
           <Segmented
             value={durationMode}
@@ -232,7 +245,7 @@ export function VideoSettingsDrawer({
           />
           {durationMode === 'custom' ? <InputNumber
             min={1}
-            max={maxDuration}
+            max={maxDuration > 0 ? maxDuration : undefined}
             value={customDuration}
             onChange={value => setField('duration', Number(value || 1))}
             addonAfter="秒"
@@ -246,7 +259,7 @@ export function VideoSettingsDrawer({
         message={durationIncompatible ? `当前设置超过模型最大 ${maxDuration}s` : '时长修改后需要重新导演'}
         description={durationIncompatible
           ? '不能把旧 VIDEO 方案直接提交给能力不足的模型。请降低时长或重新选择兼容模型并重新导演。'
-          : '第二阶段接入后，保存时长变化会标记当前 VIDEO Director revision 失效，并要求重新导演 / 重排 Shot 时间轴。'}
+          : '保存时长变化后，Director revision 的失效由后续 V11 change-impact / Director Slice 返回，前端不会自动重做。'}
       /> : null}
 
       <div className="bf11-scoped-setting-row">
@@ -273,7 +286,7 @@ export function VideoSettingsDrawer({
       </div>
 
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>负面提示词处理</Typography.Text><Typography.Text type="secondary">单 VIDEO 默认在上层负面词基础上追加，也可完全替换。</Typography.Text></div>
+        <div><Typography.Text strong>负面提示词处理</Typography.Text><Typography.Text type="secondary">只有操作后才写入当前 VIDEO patch。</Typography.Text></div>
         <Segmented
           value={patch.negativeMergeMode || 'append'}
           onChange={negativeMergeMode => setField('negativeMergeMode', negativeMergeMode)}
@@ -299,7 +312,7 @@ export function VideoSettingsDrawer({
       <Space className="bf11-scoped-footer" wrap>
         <Button icon={<RotateCcw size={14} />} onClick={() => { setPatch({}); setDurationMode('inherit'); }}>恢复全部继承</Button>
         <Tag color="purple">当前层已覆盖 {count} 项</Tag>
-        <Typography.Text type="secondary">恢复继承只删除 VIDEO override，不修改上层设置。</Typography.Text>
+        <Typography.Text type="secondary">保存空 patch 即恢复全部继承；不会修改上层设置。</Typography.Text>
       </Space>
     </div>
   </Drawer>;
