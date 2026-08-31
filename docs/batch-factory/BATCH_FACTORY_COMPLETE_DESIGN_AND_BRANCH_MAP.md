@@ -1435,6 +1435,26 @@ docs/superpowers/specs/2026-08-31-batch-factory-v11-personal-alpha-design.md
 docs/superpowers/plans/2026-08-31-batch-factory-v11-alpha-*.md
 ```
 
+## 28.3 V11 UI 选择性迁移修订（2026-08-31）
+
+**本节只更新当前实现状态、production baseline 状态和 branch/SHA 地图；不修改上文最终产品需求。**
+
+V11 UI 方案已从“重新绘制工作台”修订为“现有成熟 V10 React/AntD 工作台选择性迁移 + Go V11 业务域重写”：
+
+- V10 页面结构、AntD 布局、Settings Drawers、Inline Constraints、Book/VIDEO 设置卡、生产/状态展示作为 UI 参考和可迁移视图层；
+- 所有历史组件中的 Node Batch Store、effective-settings、Prompt Compiler、production bridge、旧 API、旧数据模型和业务规则均禁止迁入；
+- V11 适配层统一调用 `/api/batch-factory/v11/*`，Go/MySQL 负责真实数据，`bf11_*` 仅用于新 UI client/state/test 命名；
+- 历史 UI 文件原样保留为回退与对照，迁移文件必须记录来源 commit/blob，并通过 legacy-import source guard；
+- Slice 1 以最快让成熟 V10 工作台在 `/batch-factory` 运行并保存真实 Settings/Snapshot 为首要可见目标，Director、Production、Merge 仍按 capability slice 解锁。
+
+已审计来源和计划目标路径见 `docs/batch-factory/v11-provenance.tsv`。当前这些文件尚未复制或修改；当前 `:3000` 仍是原 V78 Preview。
+
+当前实施责任已拆分：`release/production-v78.3.0.3-batch-factory-go-first`
+只负责 V11 Foundation 与 Go Settings/Snapshot；V78/V11 前端选择性迁移由
+并行工作线负责。两条线各自提交、测试并报告后，才允许进入 Slice 1
+Alpha 汇合和发布门禁。本分支不会修改前端源文件，也不会因为前端线未完成
+而提前部署。
+
 ---
 
 # 29. 为什么 08 / 09 / 10 不能直接全部 merge

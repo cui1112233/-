@@ -6,6 +6,12 @@
 
 **Architecture:** Rebuild a narrow Go platform runtime in the recovered V78 repository using the historical Go branch only as provenance-checked reference. Node forwards an authenticated request without interpreting V11 data. A capability API starts with every workflow action unavailable; Slice 1 changes only the capabilities backed by real Go persistence.
 
+**Worktree ownership:** This plan is executed in this worktree. It covers
+Foundation only and does not implement the parallel V78/V11 React/Ant Design
+selective-migration workstream. Frontend commands below are verification
+inputs only; no frontend source, route, CSS, or browser client file may be
+changed here.
+
 **Tech Stack:** Go 1.23, chi v5, MySQL 8.4, Node 24/Express 5, React 18/Vite 5, Docker Compose, shell release scripts.
 
 ## Global Constraints

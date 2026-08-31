@@ -4,7 +4,7 @@
 
 **Goal:** Enable Go-owned original Director, Viral/Hook review, Director revision persistence, and fixed single VIDEO behavior in the personal Alpha.
 
-**Architecture:** Go builds the Hook/Director request from a frozen V11 snapshot, invokes the configured text provider through a narrow adapter, validates and normalizes the output, then persists immutable Director revisions and VIDEO identities. The UI only displays and edits data returned by Go; it does not assemble an alternate prompt or generate VIDEO records locally.
+**Architecture:** Go builds the Hook/Director request from a frozen V11 snapshot, invokes the configured text provider through a narrow adapter, validates and normalizes the output, then persists immutable Director revisions and VIDEO identities. The UI reuses the migrated V10 workbench regions and controls from Slice 1; it only displays and edits data returned by Go and never assembles an alternate prompt or generates VIDEO records locally.
 
 **Tech Stack:** Go 1.23, MySQL 8.4, configured Go text provider adapter, Node signed proxy, React 18/Ant Design.
 
@@ -16,6 +16,7 @@
 - Fixed single VIDEO persists exactly one immutable VIDEO identity, never a fake split list.
 - A model/mode/configuration change invalidates the Director revision only. It preserves Book/VIDEO patches and labels obsolete VIDEO patches `orphaned` or `incompatible`.
 - Node must not construct Hook/Director prompts or parse results.
+- Reuse the Slice 1 V10-derived page, Drawer, Book/VIDEO card, and status presentation; add only the missing Director/Hook fields and capability states.
 
 ---
 
@@ -25,8 +26,8 @@
 - Create: `backend/internal/batchfactoryv11/director_test.go`, `director_store_test.go`, `fixed_single_video_test.go`.
 - Create: `backend/internal/httpapi/batch_factory_v11_director.go`, `batch_factory_v11_director_test.go`.
 - Modify: `backend/internal/batchfactoryv11/capabilities.go`, `settings.go`, `snapshots.go`, `backend/internal/storage/batch_factory_v11_schema.go`.
-- Create: `frontend/src/user/pages/batch-factory-v11/DirectorPanel.jsx`, `HookReviewPanel.jsx`, `FixedSingleVideoControl.jsx`, `directorState.js`, `directorState.test.js`.
-- Modify: `frontend/src/user/pages/batch-factory-v11/BatchFactoryV11Workbench.jsx`, `ProductionSettingsDrawer.jsx`, `BookSettingsCard.jsx`.
+- Create: `frontend/src/user/pages/batch-factory-v11/directorState.js`, `directorState.test.js`, and only thin `DirectorPanel.jsx`, `HookReviewPanel.jsx`, `FixedSingleVideoControl.jsx` adapters where the migrated V10 JSX cannot accept the new props.
+- Modify: `frontend/src/user/pages/batch-factory-v11/BatchFactoryV11Workbench.jsx`, `V11SettingsDrawers.jsx`, `V11ConstraintSettings.jsx`, `bf11UiAdapter.js`.
 
 ### Task 1: Define and test immutable Director revisions and VIDEO identities
 
@@ -176,12 +177,14 @@ Run: `node --test frontend/src/user/pages/batch-factory-v11/directorState.test.j
 
 Expected: FAIL with missing module.
 
-- [ ] **Step 3: Implement Drawer and workbench behavior**
+- [ ] **Step 3: Extend the reused Drawer and workbench behavior**
 
 Show original/Viral selection, configuration impact warning, fixed single
 VIDEO, Hook review, Director revision state, and retained orphaned override
-notice. Use `CapabilityAction` for all controls. A Go failure is rendered as a
-failure state; do not transition a Book locally to completed.
+notice inside the existing V10-derived Drawer/cards. Use `CapabilityAction` for
+all controls. A Go failure is rendered as a failure state; do not transition a
+Book locally to completed. Do not introduce a second workbench layout or a
+second settings data model.
 
 - [ ] **Step 4: Run tests, build, and isolated browser acceptance**
 

@@ -2,9 +2,26 @@
 
 ## Status
 
-Approved for implementation planning on 2026-08-31. This is a design and
-planning authorization only. No application, image, database, Compose, or
-`:3000` change has been made by this document.
+Revised for review on 2026-08-31. The revision changes the V11 frontend
+delivery from a new UI rewrite to a selective migration of the already
+completed V10 React/Ant Design workbench. It is still a design and planning
+document only: no application, image, database, Compose, or `:3000` change has
+been made by this document.
+
+### Implementation Ownership Split
+
+This worktree and branch are responsible only for V11 Foundation and the Go
+Settings/Snapshot backend slice. That includes the signed Node boundary,
+checksum-safe migration framework, V11 schema, Go aggregate/settings/snapshot/
+prompt persistence, and their HTTP contracts. It does not include React, CSS,
+browser API client, or route changes.
+
+V78/V11 frontend selective migration is a separate parallel workstream. Its
+source audit and UI contract remain documented below, but the parallel worker
+owns those frontend edits and tests. The two workstreams may be combined only
+after each has an independent commit and test report; this branch must not
+implement or cherry-pick the frontend work while Foundation or Go
+Settings/Snapshot is in progress.
 
 This document supersedes the delivery model in
 `2026-08-31-v78-batch-factory-go-first-integration-design.md`. The former
@@ -23,6 +40,12 @@ The current V78 static preview is not a V11 data source and is never treated
 as a completed workflow. It remains recoverable through the prior immutable
 image and may remain available at `/batch-factory-preview` as a read-only
 visual fallback while V11 is introduced.
+
+V11 does not redraw or reimplement the mature V10 workbench. It selectively
+migrates its page structure, Ant Design components, Drawers, cards, inline
+constraints, Book/VIDEO settings controls, and status presentation. The
+migrated UI is a rendering layer only; every read, write, capability decision,
+status transition, and persistence operation is reconnected to Go V11.
 
 ## Baseline And Branch
 
@@ -52,6 +75,54 @@ The following history is reference-only and must never be wholesale merged:
 10-batch-factory-go-api-migration
 10-batch-factory-inline-constraints-version-config
 ```
+
+## Existing V78 UI Base And Selective V10 UI Migration
+
+Slice 1 starts from the files already present in the recovered V78 source
+baseline. It does not create a second workbench shell and it does not import
+the complete `BatchFactoryPageV10.jsx` file. The V78 files provide the route
+entry, four-region workbench layout, CSS, parsing helpers, and the existing
+production/status UI positions. Their legacy data callbacks are replaced or
+disabled behind the V11 adapter.
+
+| UI source | Reference commit | Blob SHA | V11 treatment |
+| --- | --- | --- | --- |
+| `frontend/src/user/pages/BatchFactoryPage.jsx` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `d69ce914614d6560a92f28ae6c083e80d883d07e` | Keep as Alpha entry/layout base; replace legacy data/action seam with `bf11_*` state and client |
+| `frontend/src/user/pages/BatchFactoryPreviewPage.jsx` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `8803d10c4abbcba1b5c7ad0a6b1781b0fb153f90` | Reuse stable visual regions/helpers where needed; keep a read-only/rollback path and remove hard-coded sample data from V11 |
+| `frontend/src/user/pages/batch-factory-workbench.css` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `93a854d6830c5735aa64979217015f48383ff266` | Preserve existing workbench visual system; only add V11 state/capability styles |
+| `frontend/src/user/pages/batch-factory/BatchFactoryProductionControls.jsx` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `70fd0176f9139eaac2159064140b2597af4e2d40` | Keep UI position; remove legacy submit/model calls from the V11 path and show capability-gated action |
+| `frontend/src/user/pages/batch-factory/BatchFactoryBulkProduction.jsx` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `9d8b378e19999de693541b08c146d506d0b740da` | Keep summary/status UI position; no legacy batch submit in Slice 1 |
+| `frontend/src/user/pages/batch-factory/BatchFactoryVideoProductionStatus.jsx` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `5ac52a4da9fa21995d720932f0664467d4b89ee5` | Keep status/media/merge positions; all mutating actions stay disabled until their Go slice |
+| `frontend/src/user/pages/batch-factory/intake.js` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `a07fcf22f2cd9880415d7b1e052c6e8cd685be18` | Reuse pure input parsing/validation only; intake persistence uses V11 API |
+| `frontend/src/user/pages/batch-factory/workbenchState.js` | `recovery/production-v78.3.0.3-source @ 483faed8d654e452f6079fc1ef40b74db3a13d1c` | `a3feba2eaf79d04443797251388bcf6022f9b955` | Reuse pure display-state helpers only; authoritative status comes from Go |
+
+The following historical files are migrated selectively for UI only:
+
+| UI source | Reference commit | Blob SHA | V11 treatment |
+| --- | --- | --- | --- |
+| `frontend/src/user/pages/batch-factory/BatchFactorySettingsDrawers.jsx` | `origin/10-batch-factory-inline-constraints-version-config @ 208d3b4ed7d0152f55a80acd903e99f1bf682fd7` | `381f141459bcb8e50090266d838709b5ccd20c2b` | Preserve the right Drawer and field order; inject Go-owned settings, snapshots, prompt catalogs, and save callbacks |
+| `frontend/src/user/pages/batch-factory/BatchConstraintSettings.jsx` | `origin/10-batch-factory-inline-constraints-version-config @ b6d4250dcbf9a678fd9951879fa7cea4c8d5e6f7` | `949fa2a577655d66ad0cd9a82cf7a618dad4c42c` | Preserve switch-immediate-expand behavior; make it controlled and remove old prompt/override writes |
+| `frontend/src/user/pages/batch-factory/BatchFactoryBookSettings.jsx` | `origin/08-batch-factory-independent-pipeline @ c48d113e9f9ceac1e82eaea3a88153d1c663bfef` | `700d2165125e383860658d7973183c5d6b6beda7` | Preserve Book settings Drawer/Card interaction; connect save/restore to V11 sparse overrides |
+| `frontend/src/user/pages/batch-factory/workspace-layout.js` | `origin/10-batch-factory-inline-constraints-version-config @ 4be9b359d2878562634aace57e566690a0fda34f` | `60e8f8eca3004cd9bdab1285838b8ec3b8a39e6d` | Optional only; migrate pure helpers if the V78 base needs them, never block Slice 1 |
+
+`frontend/src/user/pages/BatchFactoryPageV10.jsx` at
+`origin/10-batch-factory-go-api-migration @ 3e9b5e127e8d0a93b094b38d522745ca98dc90a9`
+(`e055fb78d3753b372061db38bc5fd79c03cdd6bb`) is a comparison/reference
+artifact only. Whole-file migration is explicitly forbidden because it brings
+legacy API calls and business orchestration into the V11 route.
+
+The V11 implementation keeps the V78 file locations where possible and adds
+only a thin `bf11_*` adapter/client seam. Every migrated or modified V11 path
+must pass a source guard that rejects imports from `shared/api/batchFactory`,
+`shared/api/generation`, `shared/api/shuihuoProduction`, legacy
+`/api/batch-factory/*`, and legacy `/api/shuihuo-production/*`.
+
+The only browser data client for Slice 1 is
+`frontend/src/shared/api/batchFactoryV11.js`, whose requests target
+`/api/batch-factory/v11/*`. UI adapter/state/test identifiers use the `bf11_*`
+namespace; Go/MySQL physical tables use the existing
+`batch_factory_v11_*` prefix. This naming separation prevents visual reuse from
+accidentally reusing a Node store or old data model.
 
 ## Ownership Boundary
 
@@ -197,11 +268,12 @@ report before confirmation.
 
 ## V11 User Experience
 
-`/batch-factory` renders the V11 four-region workbench in the existing V78 app
-shell: Batch header, searchable Book list, Current Book workspace, VIDEO and
-status area. Empty state is truthful and offers a real batch creation/intake
-path only after its capability is released; it never falls back to the old
-hard-coded seven- or one-hundred-book examples.
+`/batch-factory` renders the V11 four-region workbench by selectively migrating
+the audited V10 page structure in the existing V78 app shell: Batch header,
+searchable Book list, Current Book workspace, VIDEO and status area. Empty state
+is truthful and offers a real batch creation/intake path only after its
+capability is released; it never falls back to the old hard-coded seven- or
+one-hundred-book examples.
 
 The production-settings Drawer is a right-side wide Drawer, normally
 720--860px, in this fixed order:
@@ -231,7 +303,7 @@ released to the same personal Alpha endpoint. No slice waits for all V11 work.
 | Slice | Alpha unlock | Required Go ownership | Not yet enabled after release |
 | --- | --- | --- | --- |
 | 0 | foundation only | Go runtime, signed proxy, migration checksum gate, V11 schema, capability API, backup/rollback tooling | all user actions |
-| 1 | Batch/Book/VIDEO and settings | Batch aggregate, settings/snapshot/override/prompt persistence | Director, compiler, production, merge, 121, Yadi |
+| 1 | Existing V10 workbench UI plus real Batch/Book/VIDEO, Settings/Snapshot, overrides, and Drawer | Batch aggregate, settings/snapshot/override/prompt persistence; V10 JSX/AntD selectively adapted behind V11 client | Director, compiler, production, merge, 121, Yadi |
 | 2 | Director/Hook/fixed single VIDEO | Director request, normalization, revision persistence | final prompt, production, merge, 121, Yadi |
 | 3 | effective settings and final prompt | shared resolver and compiler | production, merge, 121, Yadi |
 | 4 | single/batch production, status, refresh/restart recovery | job/task/media state and server orchestration | merge, 121, Yadi |
@@ -313,9 +385,15 @@ historical Go platform skeleton, model catalog, task/media facilities, V10
 Drawer interaction, and product spec. A matching filename is never sufficient
 evidence to copy a file.
 
+For the current ownership split, provenance rows for `ui-base` and
+`ui-selective` are handoff records for the parallel frontend workstream. They
+do not authorize edits in this Go/Foundation worktree.
+
 ## Non-Goals
 
 - No wholesale merge of 08/09/10 history.
+- No new Batch Factory UI shell when an audited V10 component already provides
+  the required layout or interaction.
 - No new Node Batch Factory business rule.
 - No dual-write between legacy Node data and V11 MySQL.
 - No fake sample Batch, Book, VIDEO, task, status, or external-submit success.

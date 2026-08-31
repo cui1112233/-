@@ -15,6 +15,7 @@
 - Preview and future submission must call the exact same `CompileFinalPrompt` function with the same snapshot hash.
 - Orphaned/incompatible VIDEO patches are visible but never applied silently.
 - Compiler output includes visual prompt, assets, prefix, quality, restriction, negative, subtitle policy, aspect ratio, and duration where active.
+- Extend the Slice 1 V10-derived settings UI and existing Drawer/Modal presentation; do not create a second workbench shell for effective settings or final prompt inspection.
 
 ---
 
@@ -23,8 +24,8 @@
 - Create: `backend/internal/batchfactoryv11/effective_settings.go`, `final_prompt.go`, `compiler_snapshot.go` and tests.
 - Create: `backend/internal/httpapi/batch_factory_v11_compiler.go`, `batch_factory_v11_compiler_test.go`.
 - Modify: `backend/internal/batchfactoryv11/capabilities.go`, `director.go`, `settings.go`.
-- Create: `frontend/src/user/pages/batch-factory-v11/EffectiveSettingsPanel.jsx`, `FinalPromptDrawer.jsx`, `compilerState.js`, `compilerState.test.js`.
-- Modify: `frontend/src/shared/api/batchFactoryV11.js`, `BatchFactoryV11Workbench.jsx`, `VideoSettingsDrawer.jsx`.
+- Create: `frontend/src/user/pages/batch-factory-v11/EffectiveSettingsPanel.jsx`, `FinalPromptDrawer.jsx`, `compilerState.js`, `compilerState.test.js` as thin additions using the existing V10-derived Card/Drawer/Modal styles.
+- Modify: `frontend/src/shared/api/batchFactoryV11.js`, `frontend/src/user/pages/batch-factory-v11/BatchFactoryV11Workbench.jsx`, `V11SettingsDrawers.jsx`, `V11ConstraintSettings.jsx`.
 
 ### Task 1: Implement and prove settings precedence plus compatibility behavior
 
@@ -161,11 +162,12 @@ Run: `node --test frontend/src/user/pages/batch-factory-v11/compilerState.test.j
 
 Expected: FAIL with missing module.
 
-- [ ] **Step 3: Implement read-only inspection UI**
+- [ ] **Step 3: Add read-only inspection to the reused workbench UI**
 
 Add effective field source labels, compatibility messages, snapshot hash, and a
 right-side Final Prompt Drawer. The action is available only from the server
-capability map. Do not expose a "send" button in this slice.
+capability map. Reuse the existing V10-derived Drawer/Card surface and do not
+expose a "send" button in this slice.
 
 - [ ] **Step 4: Run tests, build, and manual compiler acceptance**
 
