@@ -27,6 +27,12 @@ const MODEL_LABELS = {
   'video-model-c': 'Video Model C · 最大 12s'
 };
 
+const MODEL_MAX_DURATIONS = {
+  'seedance-pro': 15,
+  'seedance-fast': 10,
+  'video-model-c': 12
+};
+
 const INITIAL_BOOK_PATCHES = {
   'book-02': { aspectRatio: '16:9', qualityEnabled: false },
   'book-04': { negativeEnabled: true },
@@ -103,6 +109,7 @@ export function BatchFactoryV11UiPage() {
   const activeVideo = videoSettingsTarget?.video || null;
   const activeBookPatch = activeVideoBook ? (bookPatches[activeVideoBook.id] || {}) : {};
   const videoParentSettings = { ...batchSettings, ...activeBookPatch };
+  const modelMaxDuration = MODEL_MAX_DURATIONS[batchSettings.videoModelId] || 1;
 
   return <div data-bf-v11-ui="final">
     <BatchFactoryV11Workbench
@@ -153,6 +160,7 @@ export function BatchFactoryV11UiPage() {
       book={activeVideoBook}
       video={activeVideo}
       parentSettings={videoParentSettings}
+      modelMaxDuration={modelMaxDuration}
       initialPatch={activeVideo ? (videoPatches[activeVideo.id] || {}) : {}}
       onClose={() => setVideoSettingsTarget(null)}
       onSave={patch => activeVideo && saveVideoPatch(activeVideo, patch)}
