@@ -50,3 +50,21 @@ test('changeImpactView accepts explicit nested impact and preserves server warni
   assert.equal(impact.invalidatesDirector, true);
   assert.equal(impact.warning, '保存后需要重新 Director');
 });
+
+test('changeImpactView keeps omitted invalidatesDirector unknown', () => {
+  assert.equal(changeImpactView({ affectedBooks: 1 }).invalidatesDirector, null);
+});
+
+test('changeImpactView does not coerce non-numeric fields into zero counts', () => {
+  const impact = changeImpactView({
+    affectedBooks: null,
+    affectedVideos: [],
+    orphanedOverrides: false,
+    incompatibleOverrides: ''
+  });
+
+  assert.equal(impact.affectedBooks, null);
+  assert.equal(impact.affectedVideos, null);
+  assert.equal(impact.orphanedOverrides, null);
+  assert.equal(impact.incompatibleOverrides, null);
+});

@@ -4,8 +4,13 @@ function object(value) {
 
 function explicitNumber(source, key) {
   if (!Object.prototype.hasOwnProperty.call(source, key)) return null;
-  const value = Number(source[key]);
-  return Number.isFinite(value) ? value : null;
+  const value = source[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function explicitBoolean(source, key) {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return null;
+  return typeof source[key] === 'boolean' ? source[key] : null;
 }
 
 export function changeImpactView(value) {
@@ -16,7 +21,7 @@ export function changeImpactView(value) {
     affectedVideos: explicitNumber(source, 'affectedVideos'),
     orphanedOverrides: explicitNumber(source, 'orphanedOverrides'),
     incompatibleOverrides: explicitNumber(source, 'incompatibleOverrides'),
-    invalidatesDirector: source.invalidatesDirector === true,
+    invalidatesDirector: explicitBoolean(source, 'invalidatesDirector'),
     warning: typeof source.warning === 'string' ? source.warning : '',
     reason: typeof source.reason === 'string' ? source.reason : ''
   };
