@@ -44,3 +44,10 @@ test('121 backend transport also defaults to a 15 second deadline', () => {
   const source = fs.readFileSync(path.join(repoDir, 'lib/target-upload.js'), 'utf8');
   assert.match(source, /timeoutMs\s*=\s*15000/);
 });
+
+test('candidate image injects the guard even when tracked frontend dist is stale', () => {
+  const dockerfile = fs.readFileSync(path.join(repoDir, 'Dockerfile'), 'utf8');
+  assert.match(dockerfile, /COPY frontend\/public\/batch-rewrite\/121-login-hotfix\.js/);
+  assert.match(dockerfile, /qiantie-121-login-hotfix/);
+  assert.match(dockerfile, /frontend\/dist\/batch-rewrite\/index\.html/);
+});
