@@ -1,9 +1,12 @@
-export function directorActionState({ book = {}, capability = {} } = {}) {
+export function directorActionState({ book = {}, capability = {}, connected = false } = {}) {
   if (capability?.available !== true) {
     return {
       disabled: true,
       reason: capability?.reason || 'Director 尚未启用'
     };
+  }
+  if (!connected) {
+    return { disabled: true, reason: '等待 Director 动作接线' };
   }
   if (book?.mode === 'viral' && book?.hook?.status !== 'approved') {
     return {
@@ -14,7 +17,7 @@ export function directorActionState({ book = {}, capability = {} } = {}) {
   return { disabled: false, reason: '' };
 }
 
-export function hookActionState({ book = {}, capability = {}, action = 'generate' } = {}) {
+export function hookActionState({ book = {}, capability = {}, action = 'generate', connected = false } = {}) {
   if (book?.mode !== 'viral') {
     return { disabled: true, reason: '原文直转模式不需要 Hook' };
   }
@@ -23,6 +26,9 @@ export function hookActionState({ book = {}, capability = {}, action = 'generate
       disabled: true,
       reason: capability?.reason || 'Hook 尚未启用'
     };
+  }
+  if (!connected) {
+    return { disabled: true, reason: '等待 Hook 动作接线' };
   }
   const status = book?.hook?.status || '';
   if (action === 'approve') {
