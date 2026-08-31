@@ -64,10 +64,10 @@ export function BatchFactoryV11BatchManager({ open, initialTab = 'new', onClose,
             placeholder="粘贴小说正文；多篇可按分隔符拆分…"
           />
           <Space wrap>
-            <Button icon={<FileText size={14} />} disabled={!manualText.trim()}>加入文案</Button>
+            <Button icon={<FileText size={14} />} disabled>加入文案</Button>
             <Button icon={<Upload size={14} />} disabled>上传 TXT / MD</Button>
           </Space>
-          <Typography.Text type="secondary">第一阶段按钮只展示最终交互位置，不写入后端。</Typography.Text>
+          <Typography.Text type="secondary">输入区用于确认最终布局；“加入文案 / 上传”在第二阶段接 V11 intake 后解锁。</Typography.Text>
         </div>
       }]}
     />
