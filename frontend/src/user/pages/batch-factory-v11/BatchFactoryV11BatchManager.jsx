@@ -1,6 +1,6 @@
 import { Alert, Button, Collapse, Drawer, Input, List, Space, Tabs, Tag, Typography } from 'antd';
 import { Archive, FileText, FolderPlus, Upload, WandSparkles } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const HISTORY = [
   { id: '20260831-01', title: '批次 20260831-01', count: 100, directorDone: 46, review: 8, failed: 2, state: '制作中' },
@@ -12,6 +12,10 @@ const HISTORY = [
 export function BatchFactoryV11BatchManager({ open, initialTab = 'new', onClose, onOpenProductionSettings }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [manualText, setManualText] = useState('');
+
+  useEffect(() => {
+    if (open) setActiveTab(initialTab);
+  }, [open, initialTab]);
 
   const newBatch = <div className="bf11-batch-manager-pane">
     <Alert
@@ -61,7 +65,7 @@ export function BatchFactoryV11BatchManager({ open, initialTab = 'new', onClose,
           />
           <Space wrap>
             <Button icon={<FileText size={14} />} disabled={!manualText.trim()}>加入文案</Button>
-            <Button icon={<Upload size={14} />}>上传 TXT / MD</Button>
+            <Button icon={<Upload size={14} />} disabled>上传 TXT / MD</Button>
           </Space>
           <Typography.Text type="secondary">第一阶段按钮只展示最终交互位置，不写入后端。</Typography.Text>
         </div>
