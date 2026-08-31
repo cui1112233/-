@@ -9,13 +9,14 @@ const frontendRoot = path.resolve(here, '../../..');
 const required = [
   path.join(here, 'batchFactoryV11State.js'),
   path.join(here, 'bf11UiAdapter.js'),
+  path.join(here, 'bf11Runtime.js'),
   path.resolve(frontendRoot, 'shared/api/batchFactoryV11.js')
 ];
-const forbidden = [
-  'shared/api/batchFactory',
-  'shared/api/generation',
-  'shared/api/shuihuoProduction',
-  '/api/shuihuo-production/'
+const forbiddenPatterns = [
+  /shared\/api\/batchFactory(?:\.js)?['"`]/,
+  /shared\/api\/generation(?:\.js)?['"`]/,
+  /shared\/api\/shuihuoProduction(?:\.js)?['"`]/,
+  /\/api\/shuihuo-production\//
 ];
 
 function collectFiles(root) {
@@ -40,8 +41,8 @@ test('V11 frontend production files do not import legacy Batch Factory or produc
   assert.ok(files.length > 0);
   for (const file of files) {
     const source = fs.readFileSync(file, 'utf8');
-    for (const token of forbidden) {
-      assert.equal(source.includes(token), false, `${path.relative(frontendRoot, file)} contains forbidden token ${token}`);
+    for (const pattern of forbiddenPatterns) {
+      assert.equal(pattern.test(source), false, `${path.relative(frontendRoot, file)} contains forbidden legacy API ${pattern}`);
     }
     const legacyRoute = /\/api\/batch-factory\/(?!v11(?:\/|['"`]))/;
     assert.equal(legacyRoute.test(source), false, `${path.relative(frontendRoot, file)} contains legacy Batch Factory route`);
