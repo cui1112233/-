@@ -27,6 +27,8 @@ import {
   Video
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DirectorPanel } from './DirectorPanel';
+import { HookReviewPanel } from './HookReviewPanel';
 import { WorkbenchCard } from './WorkbenchCard';
 import { actionState } from './batchFactoryV11State.js';
 import {
@@ -116,6 +118,8 @@ export function BatchFactoryV11Workbench({
   onOpenPublishSettings,
   onOpenBookSettings,
   onOpenVideoSettings,
+  onRunHook,
+  onApproveHook,
   onRunDirector,
   onRunProduction,
   onRunMerge,
@@ -129,7 +133,6 @@ export function BatchFactoryV11Workbench({
   const [editMode, setEditMode] = useState(false);
   const [layout, setLayout] = useState(loadStoredLayout);
   const [assetDrafts, setAssetDrafts] = useState({});
-  const [hookDrafts, setHookDrafts] = useState({});
   const [videoPromptDrafts, setVideoPromptDrafts] = useState({});
   const [mergeTimingMode, setMergeTimingMode] = useState('speed');
   const [mergeSpeed, setMergeSpeed] = useState('1.5');
@@ -141,7 +144,6 @@ export function BatchFactoryV11Workbench({
   const batchReadAction = actionState(capabilities, 'batch.read');
   const settingsAction = actionState(capabilities, 'settings.edit');
   const overrideAction = actionState(capabilities, 'override.edit');
-  const directorAction = actionState(capabilities, 'director.run');
   const productionAction = actionState(capabilities, 'production.run');
   const mergeAction = actionState(capabilities, 'merge.run');
 
@@ -154,6 +156,15 @@ export function BatchFactoryV11Workbench({
     const videos = selectedBook?.videos || [];
     return videos.find(video => video.id === selectedVideoId) || videos[0] || null;
   }, [selectedBook, selectedVideoId]);
+
+  const directorBook = useMemo(() => selectedBook ? {
+    ...selectedBook,
+    mode: selectedBook.mode || batch?.mode || '',
+    fixedSingleVideo: selectedBook.fixedSingleVideo ?? batch?.fixedSingleVideo ?? false,
+    modelCapability: selectedBook.modelCapability || batch?.modelCapability || {
+      maxDurationSeconds: Number(batch?.modelMaxDuration || 0)
+    }
+  } : null, [selectedBook, batch]);
 
   useEffect(() => {
     if (!books.length) {
@@ -271,11 +282,22 @@ export function BatchFactoryV11Workbench({
     },
     {
       key: 'hook',
-      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{selectedBook.hookText ? '审核 / 修改' : '当前未生成'}</small></span>,
-      children: selectedBook.hookText ? <div className="bf11-inline-editor">
-        <TextArea rows={5} value={hookDrafts[selectedBook.id] ?? selectedBook.hookText} onChange={event => setHookDrafts(current => ({ ...current, [selectedBook.id]: event.target.value }))} />
-        <Space><Button disabled>保存审核稿</Button><Typography.Text type="secondary">Hook 保存将在 Director Slice 接入。</Typography.Text></Space>
-      </div> : <Typography.Text type="secondary">原文直转或当前尚未生成爆款 Hook。</Typography.Text>
+      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{directorBook?.hook?.status === 'approved' ? '已批准' : directorBook?.hook ? '待审核' : '当前未生成'}</small></span>,
+      children: <HookReviewPanel
+        book={directorBook}
+        capabilities={capabilities}
+        onRunHook={onRunHook}
+        onApproveHook={onApproveHook}
+      />
+    },
+    {
+      key: 'director',
+      label: <span className="bf11-fold-label"><strong>Director</strong><small>{directorBook?.directorRevision?.id || directorBook?.director?.id ? '已有 revision' : '等待导演'}</small></span>,
+      children: <DirectorPanel
+        book={directorBook}
+        capabilities={capabilities}
+        onRunDirector={onRunDirector}
+      />
     },
     {
       key: 'assets',
@@ -438,12 +460,7 @@ export function BatchFactoryV11Workbench({
             <Tag color="red">失败 {videoProgress.failed}</Tag>
           </Space>
           <div className="bf11-tool-buttons">
-            <Button
-              type="primary"
-              disabled={directorAction.disabled || !onRunDirector}
-              title={directorAction.disabled ? directorAction.reason : ''}
-              onClick={() => onRunDirector?.(batch)}
-            >开始导演</Button>
+            <Button disabled title="Slice 2 按当前小说执行 Director；批量 Director 尚未开放">批量 Director</Button>
             <Button
               disabled={productionAction.disabled || !onRunProduction}
               title={productionAction.disabled ? productionAction.reason : ''}
