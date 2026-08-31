@@ -157,15 +157,6 @@ export function BatchFactoryV11Workbench({
     return videos.find(video => video.id === selectedVideoId) || videos[0] || null;
   }, [selectedBook, selectedVideoId]);
 
-  const directorBook = useMemo(() => selectedBook ? {
-    ...selectedBook,
-    mode: selectedBook.mode || batch?.mode || '',
-    fixedSingleVideo: selectedBook.fixedSingleVideo ?? batch?.fixedSingleVideo ?? false,
-    modelCapability: selectedBook.modelCapability || batch?.modelCapability || {
-      maxDurationSeconds: Number(batch?.modelMaxDuration || 0)
-    }
-  } : null, [selectedBook, batch]);
-
   useEffect(() => {
     if (!books.length) {
       setSelectedBookId('');
@@ -273,6 +264,7 @@ export function BatchFactoryV11Workbench({
 
   const bookAssets = selectedBook?.assets || {};
   const selectedVideos = selectedBook?.videos || [];
+  const selectedHook = selectedBook?.hook || selectedBook?.hookRevision || null;
 
   const bookCollapseItems = selectedBook ? [
     {
@@ -282,9 +274,9 @@ export function BatchFactoryV11Workbench({
     },
     {
       key: 'hook',
-      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{directorBook?.hook?.status === 'approved' ? '已批准' : directorBook?.hook ? '待审核' : '当前未生成'}</small></span>,
+      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{selectedHook?.status === 'approved' ? '已批准' : selectedHook ? '待审核' : '当前未生成'}</small></span>,
       children: <HookReviewPanel
-        book={directorBook}
+        book={selectedBook}
         capabilities={capabilities}
         onRunHook={onRunHook}
         onApproveHook={onApproveHook}
@@ -292,9 +284,9 @@ export function BatchFactoryV11Workbench({
     },
     {
       key: 'director',
-      label: <span className="bf11-fold-label"><strong>Director</strong><small>{directorBook?.directorRevision?.id || directorBook?.director?.id ? '已有 revision' : '等待导演'}</small></span>,
+      label: <span className="bf11-fold-label"><strong>Director</strong><small>{selectedBook?.directorRevision?.id || selectedBook?.director?.id ? '已有 revision' : '等待导演'}</small></span>,
       children: <DirectorPanel
-        book={directorBook}
+        book={selectedBook}
         capabilities={capabilities}
         onRunDirector={onRunDirector}
       />
