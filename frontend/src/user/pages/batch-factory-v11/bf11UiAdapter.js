@@ -24,26 +24,17 @@ function batchesFrom(result) {
   return Array.isArray(result?.batches) ? result.batches : [];
 }
 
-function configVersionsFrom(result) {
-  return Array.isArray(result?.configVersions) ? result.configVersions : [];
+export function configVersionOptions(configVersions) {
+  return (Array.isArray(configVersions) ? configVersions : [])
+    .filter(record => record && typeof record.id === 'string' && record.id)
+    .map(record => ({ value: record.id, label: record.name || record.id }));
 }
 
-async function loadConfigVersions(api) {
-  try {
-    if (typeof api.getConfigVersions !== 'function') throw new Error('V11 config version catalog is unavailable');
-    return {
-      configVersions: configVersionsFrom(await api.getConfigVersions()),
-      configVersionsError: null
-    };
-  } catch (error) {
-    return {
-      configVersions: [],
-      configVersionsError: {
-        status: Number(error?.status || 0),
-        message: error?.message || '配置版本目录无法读取'
-      }
-    };
-  }
+export function buildConfigVersionSyncPatch(configVersions, versionId) {
+  const id = String(versionId || '');
+  const exists = (Array.isArray(configVersions) ? configVersions : [])
+    .some(record => record?.id === id);
+  return exists ? { versionConfigId: id } : null;
 }
 
 export function createBf11UiAdapter(api) {
@@ -58,11 +49,25 @@ export function createBf11UiAdapter(api) {
     async loadWorkbench({ batchId = '', intakeId = '' } = {}) {
       const capabilityResult = await api.getCapabilities();
       const capabilities = capabilitiesFrom(capabilityResult);
-      const [batchResult, configCatalog] = await Promise.all([
+      const configVersionRequest = Promise.resolve()
+        .then(() => api.getConfigVersions())
+        .then(result => ({
+          configVersions: Array.isArray(result?.configVersions) ? result.configVersions : [],
+          configVersionsError: null
+        }))
+        .catch(error => ({
+          configVersions: [],
+          configVersionsError: {
+            status: Number(error?.status || 0),
+            message: error?.message || '读取配置版本失败'
+          }
+        }));
+      const [batchResult, configVersionState] = await Promise.all([
         api.listBatches(),
-        loadConfigVersions(api)
+        configVersionRequest
       ]);
       const batches = batchesFrom(batchResult);
+      const { configVersions, configVersionsError } = configVersionState;
       const selectedBatchId = batchId || batches[0]?.id || '';
       const [selectedBatchResult, intakeResult] = await Promise.all([
         selectedBatchId ? api.getBatch(selectedBatchId) : Promise.resolve(null),
@@ -74,8 +79,8 @@ export function createBf11UiAdapter(api) {
         selectedBatch: toV10ViewBatch(selectedBatchResult?.batch || selectedBatchResult),
         selectedBatchId,
         intake: intakeResult?.intake || intakeResult || null,
-        configVersions: configCatalog.configVersions,
-        configVersionsError: configCatalog.configVersionsError,
+        configVersions,
+        configVersionsError,
         startsDirector: false
       };
     },

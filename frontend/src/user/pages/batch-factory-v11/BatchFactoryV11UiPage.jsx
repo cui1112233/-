@@ -86,7 +86,6 @@ export function BatchFactoryV11UiPage() {
   const batchCreateAction = actionState(capabilities, 'batch.create');
   const intakeState = intakeCreateState(runtimeState.intake);
   const batchSettingsState = batch?.settingsState || emptySettingsState();
-  const batchSettingsRevision = Number(batchSettingsState.revision || batch?.revision || 0);
   const viewBatch = batchForView(batch, books);
 
   async function createBatchFromIntake() {
@@ -178,7 +177,7 @@ export function BatchFactoryV11UiPage() {
     return runtime.previewChangeImpact({
       batchId: batch.id,
       patch,
-      revision: batchSettingsRevision
+      revision: batchSettingsState.revision
     });
   }
 
@@ -198,34 +197,18 @@ export function BatchFactoryV11UiPage() {
       scope: 'batch',
       batchId: batch.id,
       patch,
-      revision: batchSettingsRevision
+      revision: batchSettingsState.revision
     }, '生产统一设置已保存');
   }
 
-  async function syncBatchConfigVersion(configVersion) {
-    if (!configVersion) return false;
-    const result = await runtime.save({
+  function syncBatchConfigVersion({ versionConfigId } = {}) {
+    if (!versionConfigId) return Promise.resolve(false);
+    return saveScope({
       scope: 'batch',
       batchId: batch.id,
-      patch: { configVersion },
-      revision: batchSettingsRevision
-    });
-    if (!result.ok) {
-      message.error(result.message);
-      return false;
-    }
-    setRuntimeState(current => {
-      if (current.phase !== 'ready' || !current.batch || current.batch.id !== batch.id) return current;
-      return {
-        ...current,
-        batch: {
-          ...current.batch,
-          settingsState: result.state
-        }
-      };
-    });
-    message.success('批量后台配置版本已同步');
-    return true;
+      patch: { versionConfigId },
+      revision: batchSettingsState.revision
+    }, '批量后台配置已同步');
   }
 
   function saveBookSettings(patch) {
@@ -265,10 +248,9 @@ export function BatchFactoryV11UiPage() {
       <ProductionSettingsDrawer
         open={productionSettingsOpen}
         batch={viewBatch}
+        configVersions={runtimeState.configVersions || []}
+        configVersionsError={runtimeState.configVersionsError || null}
         initialValue={batchSettingsState.patch}
-        configVersions={runtimeState.configVersions}
-        latestConfigVersion={runtimeState.latestConfigVersion}
-        configVersionsError={runtimeState.configVersionsError}
         onClose={() => setProductionSettingsOpen(false)}
         onPreviewChangeImpact={previewBatchChangeImpact}
         onSyncConfigVersion={syncBatchConfigVersion}
@@ -278,9 +260,9 @@ export function BatchFactoryV11UiPage() {
       <BookSettingsModal
         open={Boolean(activeBook)}
         book={activeBook}
-        configVersions={runtimeState.configVersions}
-        configVersionsError={runtimeState.configVersionsError}
         initialPatch={activeBook?.settingsState?.patch || {}}
+        configVersions={runtimeState.configVersions || []}
+        configVersionsError={runtimeState.configVersionsError || null}
         onClose={() => setBookSettingsTargetId('')}
         onSave={saveBookSettings}
       />

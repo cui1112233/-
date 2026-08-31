@@ -13,8 +13,9 @@ import {
   Typography
 } from 'antd';
 import { RotateCcw, Save, Settings2, Video } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
+import { configVersionOptions } from './bf11UiAdapter.js';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
@@ -54,9 +55,9 @@ function SparseChoice({ value, inheritedLabel, options, onChange }) {
 export function BookSettingsModal({
   open,
   book,
+  initialPatch = {},
   configVersions = [],
   configVersionsError = null,
-  initialPatch = {},
   onClose,
   onSave
 }) {
@@ -69,13 +70,7 @@ export function BookSettingsModal({
   }, [open, book?.id, initialPatch]);
 
   const count = sparseCount(patch);
-  const configVersionOptions = [
-    { value: 'inherit', label: '跟随批次' },
-    ...(Array.isArray(configVersions) ? configVersions : [])
-      .filter(version => typeof version?.id === 'string' && version.id.length > 0)
-      .map(version => ({ value: version.id, label: version.name || version.id }))
-  ];
-  const configCatalogUnavailable = Boolean(configVersionsError) || configVersionOptions.length === 1;
+  const versionOptions = useMemo(() => configVersionOptions(configVersions), [configVersions]);
 
   function setField(key, value) {
     setPatch(current => ({ ...current, [key]: value }));
@@ -115,25 +110,18 @@ export function BookSettingsModal({
 
       <Divider orientation="left">配置版本</Divider>
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">未覆盖时由 Go 按冻结设置解析；可选版本只来自服务端 catalog。</Typography.Text></div>
+        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">未覆盖时由 Go 按冻结设置解析；可选版本只来自 V11 服务端 catalog。</Typography.Text></div>
         <Select
-          disabled={configCatalogUnavailable}
-          value={hasOwn(patch, 'configVersion') ? patch.configVersion : 'inherit'}
-          onChange={value => value === 'inherit' ? inheritField('configVersion') : setField('configVersion', value)}
-          options={configVersionOptions}
+          value={hasOwn(patch, 'versionConfigId') ? patch.versionConfigId : 'inherit'}
+          onChange={value => value === 'inherit' ? inheritField('versionConfigId') : setField('versionConfigId', value)}
+          options={[
+            { value: 'inherit', label: '跟随批次' },
+            ...versionOptions
+          ]}
+          disabled={Boolean(configVersionsError)}
         />
       </div>
-      {configVersionsError ? <Alert
-        type="error"
-        showIcon
-        message="无法读取配置版本"
-        description={configVersionsError.message || 'Book 版本选择保持关闭，不会使用本地替代目录。'}
-      /> : configVersionOptions.length === 1 ? <Alert
-        type="warning"
-        showIcon
-        message="暂无可用配置版本"
-        description="Go 服务端没有返回可选择版本；当前 Book 不会写入新的 configVersion override。"
-      /> : null}
+      {configVersionsError ? <Typography.Text type="danger">配置版本读取失败：{configVersionsError.message || '服务端 catalog 不可用'}。不会使用本地版本列表。</Typography.Text> : null}
 
       <div className="bf11-scoped-setting-row">
         <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">当前小说可写自己的 sparse override。</Typography.Text></div>
