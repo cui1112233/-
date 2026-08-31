@@ -4,6 +4,7 @@ import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
+import { DirectorRefreshProvider } from './DirectorRefreshContext.jsx';
 import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 import { createBf11Runtime, createdBatchIdFrom } from './bf11Runtime.js';
@@ -186,6 +187,17 @@ export function BatchFactoryV11UiPage() {
     });
   }
 
+  async function refreshDirectorRevision() {
+    const next = await runtime.load({ ...requestParams, batchId: batch.id });
+    setRuntimeState(next);
+    if (next.phase !== 'ready') {
+      message.error(next.message || '刷新 Director revision 失败');
+      return false;
+    }
+    message.success('Director revision 已刷新');
+    return true;
+  }
+
   function saveBatchSettings(patch) {
     return saveScope({
       scope: 'batch',
@@ -218,45 +230,47 @@ export function BatchFactoryV11UiPage() {
     }, '单 VIDEO 设置已保存');
   }
 
-  return <div data-bf-v11-ui="final">
-    <BatchFactoryV11Workbench
-      batch={viewBatch}
-      books={books}
-      capabilities={capabilities}
-      onOpenBatchSettings={() => setProductionSettingsOpen(true)}
-      onOpenBookSettings={book => setBookSettingsTargetId(book.id)}
-      onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ bookId: book.id, videoId: video.id })}
-    />
+  return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
+    <div data-bf-v11-ui="final">
+      <BatchFactoryV11Workbench
+        batch={viewBatch}
+        books={books}
+        capabilities={capabilities}
+        onOpenBatchSettings={() => setProductionSettingsOpen(true)}
+        onOpenBookSettings={book => setBookSettingsTargetId(book.id)}
+        onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ bookId: book.id, videoId: video.id })}
+      />
 
-    <ProductionSettingsDrawer
-      open={productionSettingsOpen}
-      batch={viewBatch}
-      initialValue={batchSettingsState.patch}
-      onClose={() => setProductionSettingsOpen(false)}
-      onPreviewChangeImpact={previewBatchChangeImpact}
-      onSave={saveBatchSettings}
-    />
+      <ProductionSettingsDrawer
+        open={productionSettingsOpen}
+        batch={viewBatch}
+        initialValue={batchSettingsState.patch}
+        onClose={() => setProductionSettingsOpen(false)}
+        onPreviewChangeImpact={previewBatchChangeImpact}
+        onSave={saveBatchSettings}
+      />
 
-    <BookSettingsModal
-      open={Boolean(activeBook)}
-      book={activeBook}
-      batchSettings={batchSettingsState.patch}
-      initialPatch={activeBook?.settingsState?.patch || {}}
-      onClose={() => setBookSettingsTargetId('')}
-      onSave={saveBookSettings}
-    />
+      <BookSettingsModal
+        open={Boolean(activeBook)}
+        book={activeBook}
+        batchSettings={batchSettingsState.patch}
+        initialPatch={activeBook?.settingsState?.patch || {}}
+        onClose={() => setBookSettingsTargetId('')}
+        onSave={saveBookSettings}
+      />
 
-    <VideoSettingsDrawer
-      open={Boolean(activeVideoBook && activeVideo)}
-      book={activeVideoBook}
-      video={activeVideo}
-      parentSettings={{ ...batchSettingsState.patch, ...(activeVideoBook?.settingsState?.patch || {}) }}
-      modelMaxDuration={Number(batch.modelMaxDuration || 0)}
-      initialPatch={activeVideo?.settingsState?.patch || {}}
-      onClose={() => setVideoSettingsTarget(null)}
-      onSave={saveVideoSettings}
-    />
-  </div>;
+      <VideoSettingsDrawer
+        open={Boolean(activeVideoBook && activeVideo)}
+        book={activeVideoBook}
+        video={activeVideo}
+        parentSettings={{ ...batchSettingsState.patch, ...(activeVideoBook?.settingsState?.patch || {}) }}
+        modelMaxDuration={Number(batch.modelMaxDuration || 0)}
+        initialPatch={activeVideo?.settingsState?.patch || {}}
+        onClose={() => setVideoSettingsTarget(null)}
+        onSave={saveVideoSettings}
+      />
+    </div>
+  </DirectorRefreshProvider>;
 }
 
 export default BatchFactoryV11UiPage;
