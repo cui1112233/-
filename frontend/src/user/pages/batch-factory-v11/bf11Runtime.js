@@ -68,6 +68,15 @@ function saveFailure(error) {
   };
 }
 
+function createFailure(error) {
+  return {
+    ok: false,
+    status: Number(error?.status || 0),
+    message: error?.message || '创建 V11 批次失败，请稍后重试。',
+    startsDirector: false
+  };
+}
+
 export function createBf11Runtime({ adapter }) {
   if (!adapter) throw new Error('V11 UI adapter is required');
   return {
@@ -76,6 +85,15 @@ export function createBf11Runtime({ adapter }) {
         return workbenchStateFromLoad(await adapter.loadWorkbench(params));
       } catch (error) {
         return loadFailure(error);
+      }
+    },
+
+    async createBatchFromIntake(input) {
+      try {
+        const result = await adapter.createBatchFromIntake(input);
+        return { ok: true, raw: result, startsDirector: false };
+      } catch (error) {
+        return createFailure(error);
       }
     },
 

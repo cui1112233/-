@@ -1,9 +1,10 @@
-import { Alert, Button, Empty, Spin, Typography, message } from 'antd';
+import { Alert, Button, Empty, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
+import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 import { createBf11Runtime } from './bf11Runtime.js';
 import './batch-factory-v11-scoped.css';
@@ -43,6 +44,7 @@ export function BatchFactoryV11UiPage() {
   const runtime = useMemo(() => createBf11Runtime({ adapter }), [adapter]);
   const requestParams = useMemo(requestParamsFromLocation, []);
   const [runtimeState, setRuntimeState] = useState({ phase: 'loading' });
+  const [creatingBatch, setCreatingBatch] = useState(false);
   const [productionSettingsOpen, setProductionSettingsOpen] = useState(false);
   const [bookSettingsTargetId, setBookSettingsTargetId] = useState('');
   const [videoSettingsTarget, setVideoSettingsTarget] = useState(null);
@@ -86,17 +88,67 @@ export function BatchFactoryV11UiPage() {
   const batch = runtimeState.batch;
   const books = runtimeState.books || [];
   const capabilities = runtimeState.capabilities || {};
+  const batchCreateAction = actionState(capabilities, 'batch.create');
+  const intakeState = intakeCreateState(runtimeState.intake);
   const batchSettingsState = batch?.settingsState || emptySettingsState();
   const viewBatch = batchForView(batch, books, batchSettingsState);
 
+  async function createBatchFromIntake() {
+    if (!intakeState.intakeId || intakeState.consumed || batchCreateAction.disabled || creatingBatch) return false;
+    setCreatingBatch(true);
+    try {
+      const result = await runtime.createBatchFromIntake({ intakeId: intakeState.intakeId, payload: {} });
+      if (!result.ok) {
+        message.error(result.message);
+        return false;
+      }
+      const createdBatchId = result.raw?.batch?.id || result.raw?.id || '';
+      const next = await runtime.load(createdBatchId
+        ? { ...requestParams, batchId: createdBatchId }
+        : requestParams);
+      setRuntimeState(next);
+      if (next.phase !== 'ready' || !next.batch) {
+        message.warning('批次已创建，但重新读取工作台失败，请刷新后继续。');
+        return true;
+      }
+      message.success('V11 批次已创建；Director 尚未启动。');
+      return true;
+    } finally {
+      setCreatingBatch(false);
+    }
+  }
+
   if (!batch) {
+    const intake = runtimeState.intake;
+    const intakeStatus = intake?.status || (intakeState.consumed ? '已消费' : '待创建批次');
+    const intakeCount = Number(intake?.bookCount ?? intake?.count ?? 0);
+    const createDisabledReason = intakeState.consumed
+      ? '该 Intake 已经被消费，不能重复创建批次。'
+      : batchCreateAction.reason;
+
     return <div data-bf-v11-ui="final" style={{ minHeight: 460, display: 'grid', placeItems: 'center' }}>
       <Empty
-        description={runtimeState.intake
-          ? '已读取小说获取转入任务，但当前还没有创建 V11 批次。'
-          : '当前没有 Batch Factory V11 批次。'}
+        description={intake ? <Space direction="vertical" size={8}>
+          <Typography.Text>已读取小说获取转入任务，等待你明确创建 V11 批次。</Typography.Text>
+          <Space wrap>
+            <Tag>Intake {intake.id || '—'}</Tag>
+            <Tag color={intakeState.consumed ? 'default' : 'processing'}>{intakeStatus}</Tag>
+            {intake.sourceTaskId ? <Tag>来源 {intake.sourceTaskId}</Tag> : null}
+            {intakeCount > 0 ? <Tag>{intakeCount} 本</Tag> : null}
+          </Space>
+          <Typography.Text type="secondary">创建批次不会自动启动 Director。</Typography.Text>
+        </Space> : '当前没有 Batch Factory V11 批次。'}
       >
-        <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
+        <Space wrap>
+          {intake ? <Button
+            type="primary"
+            loading={creatingBatch}
+            disabled={creatingBatch || intakeState.consumed || batchCreateAction.disabled || !intakeState.intakeId}
+            title={createDisabledReason}
+            onClick={createBatchFromIntake}
+          >创建 V11 批次</Button> : null}
+          <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
+        </Space>
       </Empty>
     </div>;
   }

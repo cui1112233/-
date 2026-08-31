@@ -28,6 +28,11 @@ export function createBf11UiAdapter(api) {
   if (!api) throw new Error('V11 API client is required');
 
   return {
+    async createBatchFromIntake({ intakeId, payload = {} } = {}) {
+      if (!intakeId) throw new Error('V11 intake id is required');
+      return api.createBatchFromIntake(intakeId, payload);
+    },
+
     async loadWorkbench({ batchId = '', intakeId = '' } = {}) {
       const capabilityResult = await api.getCapabilities();
       const capabilities = capabilitiesFrom(capabilityResult);
