@@ -1411,6 +1411,30 @@ docs/batch-factory/v78-source-recovery-comparison.md
 docs/batch-factory/v78-source-recovery-manifest.tsv
 ```
 
+## 28.2 V11 个人 Alpha 发布决策（2026-08-31）
+
+**本节只更新当前实现状态、production baseline 状态和 branch/SHA 地图；不修改上文最终产品需求。**
+
+用户已确认将 V11 的发布模式改为同一 `:3000` 上的个人 Alpha 分阶段发布：
+
+- `/batch-factory` 可以逐 slice 由静态 V78 Preview 替换为 V11；完整 UI 可先展示，但每个动作只能在真实 Go V11 API、持久化和测试完成后从 Go capability map 解锁；
+- V11 浏览器 API 固定为 `/api/batch-factory/v11/*`；Node 仅做现有 session/auth 的签名转发，禁止新增 V11 Batch Factory 规则；
+- 发布顺序为：`Batch/Book/VIDEO + Settings/Snapshot/override/Drawer`、`Director/Hook/fixed single VIDEO`、`Effective Settings/Final Prompt Compiler`、`Production/Status/recovery`、`Merge`、`121/Yadi`；
+- 每个 Alpha 发布必须保留前一 Git SHA、web/Go image digest、数据库备份标识和可执行回滚路径；
+- 121/Yadi 直到独立 Go gate、显式外部提交确认、加密凭据和审计都完成前不得启用；
+- 旧 Node Batch 数据仍只在 V11 可表达完整 aggregate 后以一次性、可审计、无 dual-write 的 Go import 导入。
+
+当前生产实测状态：`http://10.0.101.122:3000/batch-factory` 仍加载硬编码
+`BatchFactoryPreviewPage-DFUBNoH_.js`，不是 V11，也没有调用 Batch Factory
+API。它只能作为当前页面证据，不能视为已完成业务能力。
+
+规范设计与拆分实施计划见：
+
+```text
+docs/superpowers/specs/2026-08-31-batch-factory-v11-personal-alpha-design.md
+docs/superpowers/plans/2026-08-31-batch-factory-v11-alpha-*.md
+```
+
 ---
 
 # 29. 为什么 08 / 09 / 10 不能直接全部 merge

@@ -1,11 +1,13 @@
-# V78 Batch Factory Go-First Integration Design
+# V78 Batch Factory Go-First Integration Design (Superseded)
 
 ## Status
 
-Review pending / changes requested on 2026-08-31. The earlier conversation
-approval of the Go-first direction is conditional on the contracts added in
-this revision. No Go, Node, React, Compose, migration, or production work is
-authorized until this revised document receives a further review approval.
+Superseded on 2026-08-31 by
+`docs/superpowers/specs/2026-08-31-batch-factory-v11-personal-alpha-design.md`.
+The replacement retains the Go-first ownership boundary but changes the
+delivery model from an isolated candidate followed by one production cutover to
+an explicitly approved personal Alpha on `:3000`, released one verified V11
+slice at a time. Do not start or resume implementation from this document.
 
 This document replaces the old
 release/production-v78.3.0.3-batch-factory-full implementation direction;
