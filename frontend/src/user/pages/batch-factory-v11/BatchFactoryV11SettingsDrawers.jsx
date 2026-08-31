@@ -13,16 +13,16 @@ import {
 import { CloudDownload, Layers3, Save, Settings2, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
-import { SHOWCASE_BATCH_SETTINGS } from './showcaseData';
+import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
 const full = { width: '100%' };
 
 const CONFIG_VERSIONS = [
-  { value: 'v3.5', label: '批量配置 V3.5 · 后台最新' },
-  { value: 'v3.2', label: '批量配置 V3.2 · 当前批次' },
-  { value: 'v3.1', label: '批量配置 V3.1 · 历史' },
-  { value: 'v3.0', label: '批量配置 V3.0 · 历史' }
+  { value: 'v3.5', label: '批量配置 V3.5' },
+  { value: 'v3.2', label: '批量配置 V3.2' },
+  { value: 'v3.1', label: '批量配置 V3.1' },
+  { value: 'v3.0', label: '批量配置 V3.0' }
 ];
 
 const VIDEO_MODELS = [
@@ -44,27 +44,28 @@ function SettingField({ label, description, children }) {
 export function ProductionSettingsDrawer({
   open,
   batch,
-  initialValue = SHOWCASE_BATCH_SETTINGS,
+  initialValue = {},
   onClose,
   onSave
 }) {
   const [form, setForm] = useState(initialValue);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setForm({ ...SHOWCASE_BATCH_SETTINGS, ...initialValue });
-  }, [open, batch?.id]);
+    setForm({ ...initialValue });
+  }, [open, batch?.id, initialValue]);
 
-  const hasLatestConfig = form.configVersion !== 'v3.5';
-  const modeChanged = form.productionMode !== initialValue.productionMode;
-  const modelChanged = form.videoModelId !== initialValue.videoModelId;
-  const impactfulChange = modeChanged || modelChanged || form.configVersion !== initialValue.configVersion;
+  const modeChanged = Object.prototype.hasOwnProperty.call(form, 'productionMode') && form.productionMode !== initialValue.productionMode;
+  const modelChanged = Object.prototype.hasOwnProperty.call(form, 'videoModelId') && form.videoModelId !== initialValue.videoModelId;
+  const configChanged = Object.prototype.hasOwnProperty.call(form, 'configVersion') && form.configVersion !== initialValue.configVersion;
+  const impactfulChange = modeChanged || modelChanged || configChanged;
 
   const enabledConstraintCount = useMemo(() => [
-    form.injectBaseSettings !== false,
-    form.injectCharacterPrompt !== false,
-    form.injectScenePrompt !== false,
-    form.injectPropPrompt !== false,
+    form.injectBaseSettings === true,
+    form.injectCharacterPrompt === true,
+    form.injectScenePrompt === true,
+    form.injectPropPrompt === true,
     form.prefixEnabled === true,
     form.qualityEnabled === true,
     form.restrictionEnabled === true,
@@ -75,13 +76,13 @@ export function ProductionSettingsDrawer({
     setForm(current => ({ ...current, ...next }));
   }
 
-  function syncLatest() {
-    patch({ configVersion: 'v3.5' });
-  }
-
-  function save() {
-    onSave?.(form);
-    onClose?.();
+  async function save() {
+    setSaving(true);
+    try {
+      return await runSaveFlow({ payload: form, onSave, onClose });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return <Drawer
@@ -90,7 +91,7 @@ export function ProductionSettingsDrawer({
     open={open}
     onClose={onClose}
     destroyOnClose={false}
-    extra={<Button type="primary" icon={<Save size={15} />} onClick={save}>保存生产统一设置</Button>}
+    extra={<Button type="primary" loading={saving} icon={<Save size={15} />} onClick={save}>保存生产统一设置</Button>}
   >
     <div className="bf11-settings-drawer">
       <div className="bf11-settings-scope">
@@ -99,9 +100,9 @@ export function ProductionSettingsDrawer({
           <Typography.Text type="secondary">{batch?.title || '当前批次'} · {batch?.count || 0} 本小说</Typography.Text>
         </div>
         <Space wrap>
-          <Tag color="blue">{batch?.mode === 'viral' ? '爆款开头' : '原文直转'}</Tag>
-          <Tag>{batch?.aspectRatio || form.aspectRatio}</Tag>
-          <Tag>{enabledConstraintCount} 项约束启用</Tag>
+          {form.productionMode ? <Tag color="blue">{form.productionMode === 'viral' ? '爆款开头' : '原文直转'}</Tag> : <Tag>生产方式继承系统</Tag>}
+          {form.aspectRatio ? <Tag>{form.aspectRatio}</Tag> : <Tag>画幅继承系统</Tag>}
+          <Tag>{enabledConstraintCount} 项显式启用</Tag>
         </Space>
       </div>
 
@@ -110,32 +111,34 @@ export function ProductionSettingsDrawer({
         <div className="bf11-config-version-head">
           <div>
             <Typography.Text strong>当前生产配置</Typography.Text>
-            <Typography.Text type="secondary">批次冻结配置不会被后台新版本静默覆盖。</Typography.Text>
+            <Typography.Text type="secondary">这里只保存当前批次自己的 sparse patch；未设置字段继续继承系统层。</Typography.Text>
           </div>
-          {hasLatestConfig ? <Tag color="gold">后台已有新版本 V3.5</Tag> : <Tag color="green">已是后台最新</Tag>}
+          <Tag>{form.configVersion || '继承系统'}</Tag>
         </div>
         <div className="bf11-config-version-actions">
           <Select
+            allowClear
+            placeholder="跟随系统配置版本"
             value={form.configVersion}
             onChange={configVersion => patch({ configVersion })}
             options={CONFIG_VERSIONS}
             style={full}
           />
-          <Button icon={<CloudDownload size={15} />} onClick={syncLatest}>同步批量后台配置</Button>
+          <Button icon={<CloudDownload size={15} />} disabled title="配置版本同步将在接入 /config-versions 后启用">同步批量后台配置</Button>
         </div>
-        <Typography.Text type="secondary">同步只会载入新的批次配置快照；当前小说和单 VIDEO 已存在的手动覆盖不会被清空。仍需点击“保存生产统一设置”才会正式应用。</Typography.Text>
+        <Typography.Text type="secondary">清空选择代表当前 patch 不再指定版本；完整的版本列表与变更影响由 V11 服务端提供。</Typography.Text>
       </section>
 
       {impactfulChange ? <Alert
         type="warning"
         showIcon
         message="本次修改可能影响已有导演结果"
-        description="生产方式、模型或配置版本发生变化时，已完成导演的小说不会自动重做；第二阶段接入后由 V11 计算影响范围并要求明确确认。"
+        description="生产方式、模型或配置版本发生变化时，不会自动重做导演；后续由 V11 change-impact 返回真实影响范围。"
       /> : null}
 
       <Divider orientation="left">基础生产设置</Divider>
       <section className="bf11-setting-section">
-        <SettingField label="生产方式" description="决定小说进入导演前是否先生成并审核爆款开头。">
+        <SettingField label="生产方式" description="未选择时继承系统层；选择后写入当前批次 patch。">
           <Segmented
             value={form.productionMode}
             onChange={productionMode => patch({ productionMode })}
@@ -146,8 +149,10 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
-        <SettingField label="剧本提示词" description="普通生产页只选择名称；完整系统 Prompt 在管理后台维护。">
+        <SettingField label="剧本提示词" description="普通生产页只选择名称；提示词正文由 V11 Prompt 库管理。">
           <Select
+            allowClear
+            placeholder="继承系统提示词"
             value={form.scriptPromptPresetId}
             onChange={scriptPromptPresetId => patch({ scriptPromptPresetId })}
             options={[
@@ -160,6 +165,8 @@ export function ProductionSettingsDrawer({
 
         <SettingField label="人物场景提示词" description="用于人物 / 场景 / 道具基础资产提取。">
           <Select
+            allowClear
+            placeholder="继承系统资产提示词"
             value={form.assetPromptPresetId}
             onChange={assetPromptPresetId => patch({ assetPromptPresetId })}
             options={[{ value: 'standard-asset-extraction', label: '标准资产提取' }]}
@@ -168,13 +175,15 @@ export function ProductionSettingsDrawer({
 
         <SettingField label="视频模型" description="导演前绑定模型；最大时长表示单个 VIDEO 的能力上限。">
           <Select
+            allowClear
+            placeholder="继承系统模型"
             value={form.videoModelId}
             onChange={videoModelId => patch({ videoModelId })}
             options={VIDEO_MODELS}
           />
         </SettingField>
 
-        <SettingField label="视频画幅" description="最终每一个 VIDEO 请求都会携带对应画幅。">
+        <SettingField label="视频画幅" description="未覆盖时继续继承系统层。">
           <Segmented
             value={form.aspectRatio}
             onChange={aspectRatio => patch({ aspectRatio })}
@@ -193,10 +202,12 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
-        <SettingField label="固定单 VIDEO" description="开启后整本只输出一个 VIDEO；单个 VIDEO 内仍允许多个 Shot。">
+        <SettingField label="固定单 VIDEO" description="只有用户操作开关后才写入 true / false；显式 false 也会被保留。">
           <Space>
             <Switch checked={form.fixedSingleVideo === true} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
-            {form.fixedSingleVideo ? <Tag color="purple">只输出 1 个 VIDEO</Tag> : <Tag>按导演拆分多个 VIDEO</Tag>}
+            {Object.prototype.hasOwnProperty.call(form, 'fixedSingleVideo')
+              ? <Tag color="purple">当前批次已覆盖：{form.fixedSingleVideo ? '开启' : '关闭'}</Tag>
+              : <Tag>当前批次未覆盖</Tag>}
           </Space>
         </SettingField>
 
@@ -213,6 +224,8 @@ export function ProductionSettingsDrawer({
 
         <SettingField label="字幕策略" description="“禁止自动对白字幕”不等于禁止人物说话或 Lip-sync。">
           <Select
+            allowClear
+            placeholder="继承系统字幕策略"
             value={form.subtitlePolicy}
             onChange={subtitlePolicy => patch({ subtitlePolicy })}
             options={[
@@ -227,7 +240,7 @@ export function ProductionSettingsDrawer({
       <section className="bf11-setting-section bf11-constraint-section">
         <div className="bf11-section-intro">
           <Space><Layers3 size={17} /><Typography.Text strong>生成约束</Typography.Text></Space>
-          <Typography.Text type="secondary">所有开关都在当前位置直接编辑；不再进入二级设置，也不使用铅笔按钮。</Typography.Text>
+          <Typography.Text type="secondary">所有开关都在当前位置直接编辑；不再进入二级设置。</Typography.Text>
         </div>
         <BatchFactoryV11ConstraintEditor
           value={form}
@@ -238,7 +251,7 @@ export function ProductionSettingsDrawer({
 
       <div className="bf11-settings-footer-note">
         <TimerReset size={16} />
-        <Typography.Text type="secondary">第二阶段接入真实 V11 后，保存将写入 Go/MySQL，并保留当前小说 / VIDEO sparse override。</Typography.Text>
+        <Typography.Text type="secondary">保存写入 `/api/batch-factory/v11/...` 的 Go SettingsState；Book / VIDEO sparse override 不会被清空。</Typography.Text>
       </div>
     </div>
   </Drawer>;
