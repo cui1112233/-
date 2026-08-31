@@ -1,0 +1,38 @@
+name: Novel Fetch 121 Safety Verify
+
+on:
+  push:
+    branches:
+      - feat/batch-factory-v11-layout-showcase
+  workflow_dispatch:
+
+jobs:
+  safety-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run 121 safety regression test
+        run: node --test src/user/pages/batch-factory-v11/novel-fetch-121-safety-source.test.js
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build frontend
+        run: npm run build
