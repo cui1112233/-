@@ -10,6 +10,13 @@ import { workbenchStateFromLoad } from './bf11Runtime.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = name => fs.readFileSync(path.join(here, name), 'utf8');
 
+function componentInvocation(source, componentName) {
+  const start = source.indexOf(`<${componentName}`);
+  if (start < 0) return '';
+  const end = source.indexOf('/>', start);
+  return end < 0 ? source.slice(start) : source.slice(start, end + 2);
+}
+
 test('loadWorkbench calls getConfigVersions and carries Go catalog unchanged', async () => {
   const calls = [];
   const catalog = [
@@ -114,15 +121,16 @@ test('ui page passes runtime catalog and config sync saves only the batch versio
   assert.equal(source.includes('latestConfigVersion'), false);
 });
 
-test('book scoped config version selector uses the same Go catalog and no hardcoded version ids', () => {
+test('Go-owned versionConfigId is Batch-only and scoped settings cannot construct it', () => {
   const scoped = read('BatchFactoryV11ScopedSettings.jsx');
-  assert.match(scoped, /configVersions/);
-  assert.match(scoped, /configVersionsError/);
-  assert.match(scoped, /versionConfigId/);
+  assert.equal(scoped.includes('versionConfigId'), false);
+  assert.equal(scoped.includes('configVersions'), false);
   for (const hardcoded of ['v3.5', 'v3.2', 'v3.1', 'v3.0']) {
     assert.equal(scoped.includes(hardcoded), false, `hardcoded config version remains: ${hardcoded}`);
   }
   const page = read('BatchFactoryV11UiPage.jsx');
-  assert.match(page, /<BookSettingsModal[\s\S]*configVersions={runtimeState\.configVersions/);
-  assert.match(page, /configVersionsError={runtimeState\.configVersionsError/);
+  const bookModal = componentInvocation(page, 'BookSettingsModal');
+  assert.ok(bookModal);
+  assert.equal(bookModal.includes('configVersions='), false);
+  assert.equal(bookModal.includes('configVersionsError='), false);
 });
