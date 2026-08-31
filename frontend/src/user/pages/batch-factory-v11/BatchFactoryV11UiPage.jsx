@@ -86,6 +86,7 @@ export function BatchFactoryV11UiPage() {
   const batchCreateAction = actionState(capabilities, 'batch.create');
   const intakeState = intakeCreateState(runtimeState.intake);
   const batchSettingsState = batch?.settingsState || emptySettingsState();
+  const batchSettingsRevision = Number(batchSettingsState.revision || batch?.revision || 0);
   const viewBatch = batchForView(batch, books);
 
   async function createBatchFromIntake() {
@@ -177,7 +178,7 @@ export function BatchFactoryV11UiPage() {
     return runtime.previewChangeImpact({
       batchId: batch.id,
       patch,
-      revision: batchSettingsState.revision
+      revision: batchSettingsRevision
     });
   }
 
@@ -197,8 +198,34 @@ export function BatchFactoryV11UiPage() {
       scope: 'batch',
       batchId: batch.id,
       patch,
-      revision: batchSettingsState.revision
+      revision: batchSettingsRevision
     }, '生产统一设置已保存');
+  }
+
+  async function syncBatchConfigVersion(configVersion) {
+    if (!configVersion) return false;
+    const result = await runtime.save({
+      scope: 'batch',
+      batchId: batch.id,
+      patch: { configVersion },
+      revision: batchSettingsRevision
+    });
+    if (!result.ok) {
+      message.error(result.message);
+      return false;
+    }
+    setRuntimeState(current => {
+      if (current.phase !== 'ready' || !current.batch || current.batch.id !== batch.id) return current;
+      return {
+        ...current,
+        batch: {
+          ...current.batch,
+          settingsState: result.state
+        }
+      };
+    });
+    message.success('批量后台配置版本已同步');
+    return true;
   }
 
   function saveBookSettings(patch) {
@@ -239,8 +266,12 @@ export function BatchFactoryV11UiPage() {
         open={productionSettingsOpen}
         batch={viewBatch}
         initialValue={batchSettingsState.patch}
+        configVersions={runtimeState.configVersions}
+        latestConfigVersion={runtimeState.latestConfigVersion}
+        configVersionsError={runtimeState.configVersionsError}
         onClose={() => setProductionSettingsOpen(false)}
         onPreviewChangeImpact={previewBatchChangeImpact}
+        onSyncConfigVersion={syncBatchConfigVersion}
         onSave={saveBatchSettings}
       />
 

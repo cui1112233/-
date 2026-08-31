@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Divider,
   Drawer,
@@ -9,22 +10,14 @@ import {
   Typography
 } from 'antd';
 import { CloudDownload, Layers3, Save, Settings2, TimerReset } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
-import { ChangeImpactNotice } from './ChangeImpactNotice';
+import { ChangeImpactNotice } from './ChangeImpactNotice.jsx';
 import { FixedSingleVideoControl } from './FixedSingleVideoControl';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
 const full = { width: '100%' };
-const CHANGE_IMPACT_DEBOUNCE_MS = 250;
-
-const CONFIG_VERSIONS = [
-  { value: 'v3.5', label: '批量配置 V3.5' },
-  { value: 'v3.2', label: '批量配置 V3.2' },
-  { value: 'v3.1', label: '批量配置 V3.1' },
-  { value: 'v3.0', label: '批量配置 V3.0' }
-];
 
 const VIDEO_MODELS = [
   { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
@@ -46,33 +39,38 @@ export function ProductionSettingsDrawer({
   open,
   batch,
   initialValue = {},
+  configVersions = [],
+  latestConfigVersion = null,
+  configVersionsError = null,
   onClose,
   onSave,
-  onPreviewChangeImpact
+  onPreviewChangeImpact,
+  onSyncConfigVersion
 }) {
   const [form, setForm] = useState(initialValue);
   const [saving, setSaving] = useState(false);
-  const [impactResult, setImpactResult] = useState(null);
-  const [impactLoading, setImpactLoading] = useState(false);
-  const impactTimerRef = useRef(null);
-  const impactRequestRef = useRef(0);
+  const [syncingConfig, setSyncingConfig] = useState(false);
+  const [impactState, setImpactState] = useState({ phase: 'idle' });
+  const [impactRequest, setImpactRequest] = useState(0);
 
   useEffect(() => {
-    if (impactTimerRef.current) {
-      clearTimeout(impactTimerRef.current);
-      impactTimerRef.current = null;
-    }
-    impactRequestRef.current += 1;
-    setImpactLoading(false);
-    setImpactResult(null);
-    if (!open) return undefined;
+    if (!open) return;
     setForm({ ...initialValue });
-    return () => {
-      if (impactTimerRef.current) clearTimeout(impactTimerRef.current);
-      impactTimerRef.current = null;
-      impactRequestRef.current += 1;
-    };
+    setImpactState({ phase: 'idle' });
+    setImpactRequest(current => current + 1);
   }, [open, batch?.id, initialValue]);
+
+  const configVersionOptions = useMemo(() => (Array.isArray(configVersions) ? configVersions : [])
+    .filter(version => typeof version?.id === 'string' && version.id.length > 0)
+    .map(version => ({
+      value: version.id,
+      label: version.name || version.id
+    })), [configVersions]);
+
+  const selectedConfigVersion = configVersionOptions.some(option => option.value === form.configVersion)
+    ? form.configVersion
+    : '';
+  const configCatalogUnavailable = Boolean(configVersionsError) || configVersionOptions.length === 0;
 
   const enabledConstraintCount = useMemo(() => [
     form.injectBaseSettings === true,
@@ -85,38 +83,38 @@ export function ProductionSettingsDrawer({
     form.negativeEnabled === true
   ].filter(Boolean).length, [form]);
 
-  function scheduleImpactPreview(proposedPatch) {
-    if (!onPreviewChangeImpact) return;
-    if (impactTimerRef.current) clearTimeout(impactTimerRef.current);
-    const requestId = impactRequestRef.current + 1;
-    impactRequestRef.current = requestId;
-    setImpactResult(null);
-    impactTimerRef.current = setTimeout(async () => {
-      impactTimerRef.current = null;
-      setImpactLoading(true);
+  useEffect(() => {
+    if (!open || typeof onPreviewChangeImpact !== 'function' || impactRequest === 0) return undefined;
+    const requestId = impactRequest;
+    const timer = window.setTimeout(async () => {
+      setImpactState({ phase: 'loading', requestId });
       try {
-        const result = await onPreviewChangeImpact(proposedPatch);
-        if (impactRequestRef.current === requestId) {
-          setImpactResult(result || { ok: false, status: 0, message: '无法读取影响' });
-        }
-      } catch (error) {
-        if (impactRequestRef.current === requestId) {
-          setImpactResult({
-            ok: false,
-            status: Number(error?.status || 0),
-            message: error?.message || '读取变更影响失败，请稍后重试。'
+        const result = await onPreviewChangeImpact(form);
+        if (requestId !== impactRequest) return;
+        if (result?.ok === true) {
+          setImpactState({ phase: 'ready', impact: result.impact });
+        } else {
+          setImpactState({
+            phase: 'error',
+            status: Number(result?.status || 0),
+            message: result?.message || '无法读取影响'
           });
         }
-      } finally {
-        if (impactRequestRef.current === requestId) setImpactLoading(false);
+      } catch (error) {
+        if (requestId !== impactRequest) return;
+        setImpactState({
+          phase: 'error',
+          status: Number(error?.status || 0),
+          message: error?.message || '无法读取影响'
+        });
       }
-    }, CHANGE_IMPACT_DEBOUNCE_MS);
-  }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [open, impactRequest, onPreviewChangeImpact, form]);
 
   function patch(next) {
-    const proposedPatch = { ...form, ...next };
-    setForm(proposedPatch);
-    scheduleImpactPreview(proposedPatch);
+    setForm(current => ({ ...current, ...next }));
+    setImpactRequest(current => current + 1);
   }
 
   async function save() {
@@ -127,6 +125,26 @@ export function ProductionSettingsDrawer({
       setSaving(false);
     }
   }
+
+  async function syncConfigVersion() {
+    if (!selectedConfigVersion || configCatalogUnavailable || typeof onSyncConfigVersion !== 'function') return false;
+    setSyncingConfig(true);
+    try {
+      return await onSyncConfigVersion(selectedConfigVersion);
+    } finally {
+      setSyncingConfig(false);
+    }
+  }
+
+  const syncDisabledReason = configVersionsError
+    ? '无法读取配置版本，暂不能同步。'
+    : configVersionOptions.length === 0
+      ? '服务端未返回可用配置版本。'
+      : !selectedConfigVersion
+        ? '请先选择服务端返回的配置版本。'
+        : typeof onSyncConfigVersion !== 'function'
+          ? '配置版本同步动作尚未接线。'
+          : '';
 
   return <Drawer
     title={<Space><Settings2 size={18} /><span>生产统一设置</span></Space>}
@@ -156,23 +174,44 @@ export function ProductionSettingsDrawer({
             <Typography.Text strong>当前生产配置</Typography.Text>
             <Typography.Text type="secondary">这里只保存当前批次自己的 sparse patch；未设置字段继续继承系统层。</Typography.Text>
           </div>
-          <Tag>{form.configVersion || '继承系统'}</Tag>
+          <Space wrap>
+            <Tag>{form.configVersion || '继承系统'}</Tag>
+            {latestConfigVersion?.id ? <Tag color="blue">最新 · {latestConfigVersion.name || latestConfigVersion.id}</Tag> : null}
+          </Space>
         </div>
+        {configVersionsError ? <Alert
+          type="error"
+          showIcon
+          message="无法读取配置版本"
+          description={configVersionsError.message || '配置版本目录当前不可用；不会使用本地替代版本。'}
+        /> : configVersionOptions.length === 0 ? <Alert
+          type="warning"
+          showIcon
+          message="暂无可用配置版本"
+          description="Go 服务端没有返回配置版本目录；版本选择和同步保持关闭。"
+        /> : null}
         <div className="bf11-config-version-actions">
           <Select
             allowClear
+            disabled={configCatalogUnavailable}
             placeholder="跟随系统配置版本"
             value={form.configVersion}
             onChange={configVersion => patch({ configVersion })}
-            options={CONFIG_VERSIONS}
+            options={configVersionOptions}
             style={full}
           />
-          <Button icon={<CloudDownload size={15} />} disabled title="配置版本同步将在接入 /config-versions 后启用">同步批量后台配置</Button>
+          <Button
+            icon={<CloudDownload size={15} />}
+            loading={syncingConfig}
+            disabled={Boolean(syncDisabledReason)}
+            title={syncDisabledReason}
+            onClick={syncConfigVersion}
+          >同步批量后台配置</Button>
         </div>
-        <Typography.Text type="secondary">清空选择代表当前 patch 不再指定版本；完整的版本列表与变更影响由 V11 服务端提供。</Typography.Text>
+        <Typography.Text type="secondary">版本 ID、名称和最新顺序全部来自 Go `/config-versions`；同步只保存当前 Batch 的 `configVersion` sparse key，不会修改 Book / VIDEO override。</Typography.Text>
       </section>
 
-      <ChangeImpactNotice result={impactResult} loading={impactLoading} />
+      <ChangeImpactNotice state={impactState} />
 
       <Divider orientation="left">基础生产设置</Divider>
       <section className="bf11-setting-section">

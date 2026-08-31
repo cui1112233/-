@@ -42,9 +42,13 @@ export function workbenchStateFromLoad(loadResult) {
       settingsState: subjectSettingsState(video)
     }))
   }));
+  const configVersions = Array.isArray(load.configVersions) ? load.configVersions : [];
   return {
     phase: 'ready',
     capabilities: object(load.capabilities),
+    configVersions,
+    latestConfigVersion: configVersions.length ? configVersions[configVersions.length - 1] : null,
+    configVersionsError: load.configVersionsError || null,
     batches: Array.isArray(load.batches) ? load.batches : [],
     batch: batch ? { ...batchObject, settingsState: subjectSettingsState(batch), books } : null,
     books,

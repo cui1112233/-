@@ -24,6 +24,28 @@ function batchesFrom(result) {
   return Array.isArray(result?.batches) ? result.batches : [];
 }
 
+function configVersionsFrom(result) {
+  return Array.isArray(result?.configVersions) ? result.configVersions : [];
+}
+
+async function loadConfigVersions(api) {
+  try {
+    if (typeof api.getConfigVersions !== 'function') throw new Error('V11 config version catalog is unavailable');
+    return {
+      configVersions: configVersionsFrom(await api.getConfigVersions()),
+      configVersionsError: null
+    };
+  } catch (error) {
+    return {
+      configVersions: [],
+      configVersionsError: {
+        status: Number(error?.status || 0),
+        message: error?.message || '配置版本目录无法读取'
+      }
+    };
+  }
+}
+
 export function createBf11UiAdapter(api) {
   if (!api) throw new Error('V11 API client is required');
 
@@ -36,7 +58,10 @@ export function createBf11UiAdapter(api) {
     async loadWorkbench({ batchId = '', intakeId = '' } = {}) {
       const capabilityResult = await api.getCapabilities();
       const capabilities = capabilitiesFrom(capabilityResult);
-      const batchResult = await api.listBatches();
+      const [batchResult, configCatalog] = await Promise.all([
+        api.listBatches(),
+        loadConfigVersions(api)
+      ]);
       const batches = batchesFrom(batchResult);
       const selectedBatchId = batchId || batches[0]?.id || '';
       const [selectedBatchResult, intakeResult] = await Promise.all([
@@ -49,6 +74,8 @@ export function createBf11UiAdapter(api) {
         selectedBatch: toV10ViewBatch(selectedBatchResult?.batch || selectedBatchResult),
         selectedBatchId,
         intake: intakeResult?.intake || intakeResult || null,
+        configVersions: configCatalog.configVersions,
+        configVersionsError: configCatalog.configVersionsError,
         startsDirector: false
       };
     },
