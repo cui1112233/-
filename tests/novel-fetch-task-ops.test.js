@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createNovelFetchTaskOps, filterTaskList } = require('../lib/novel-fetch-workshop/task-ops');
+const { createNovelFetchTaskOps, filterTaskList, toV78Task } = require('../lib/novel-fetch-workshop/task-ops');
 
 function fakeTombstones() {
   const map = new Map();
@@ -68,4 +68,27 @@ test('batch AI count rejects the whole update when any selected task already has
   assert.equal(done.ok, true);
   assert.deepEqual(updates, [['alice', 'a', { aiCount: 4 }]]);
   await assert.rejects(() => ops.setAiCount('alice', ['a'], 21), /1.*20/);
+});
+
+test('V78 task serializer preserves legacy snake_case fields for the existing workbench', () => {
+  const task = toV78Task({
+    bookId: '123', bookName: '书名', platformId: '15', platformName: '知乎付费', parseMode: 'smart',
+    originalStatus: 'done', originalChars: 88, aiStatus: 'done', aiCount: 3, aiGeneratedCount: 2,
+    classifyStatus: 'classified', classifierModel: 'm', sensitiveHitCount: 4, siteSubmitStatus: 'queued'
+  });
+  assert.equal(task.id, '123');
+  assert.equal(task.book_id, '123');
+  assert.equal(task.book_name, '书名');
+  assert.equal(task.platform_id, '15');
+  assert.equal(task.platform_name, '知乎付费');
+  assert.equal(task.parse_mode, 'smart');
+  assert.equal(task.original_status, 'done');
+  assert.equal(task.original_chars, 88);
+  assert.equal(task.ai_status, 'done');
+  assert.equal(task.ai_count, 3);
+  assert.deepEqual(task.ai_files, ['ai1', 'ai2']);
+  assert.equal(task.classify_status, 'classified');
+  assert.equal(task.classifier_model, 'm');
+  assert.equal(task.sensitive_hit_count, 4);
+  assert.equal(task.site_submit_status, 'queued');
 });
