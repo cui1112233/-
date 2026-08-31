@@ -13,7 +13,7 @@ import {
   Typography
 } from 'antd';
 import { RotateCcw, Save, Settings2, Video } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
@@ -54,7 +54,6 @@ function SparseChoice({ value, inheritedLabel, options, onChange }) {
 export function BookSettingsModal({
   open,
   book,
-  batchSettings = {},
   initialPatch = {},
   onClose,
   onSave
@@ -67,7 +66,6 @@ export function BookSettingsModal({
     setPatch({ ...initialPatch });
   }, [open, book?.id, initialPatch]);
 
-  const displayValue = useMemo(() => ({ ...batchSettings, ...patch }), [batchSettings, patch]);
   const count = sparseCount(patch);
 
   function setField(key, value) {
@@ -104,16 +102,16 @@ export function BookSettingsModal({
   >
     <div className="bf11-scoped-settings">
       <InheritanceHeader level={book?.title || '当前小说'} parentLabel="继承批次" count={count} />
-      <Typography.Text type="secondary">Book ID {book?.bookId || '—'} · 当前小说只保存自己修改的字段，不复制整套生产统一设置。</Typography.Text>
+      <Typography.Text type="secondary">Book ID {book?.bookId || '—'} · 当前小说只保存自己修改的字段；继承后的实际值以 Go SettingsState / snapshot 为准。</Typography.Text>
 
       <Divider orientation="left">配置版本</Divider>
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">默认跟随当前批次冻结版本。</Typography.Text></div>
+        <div><Typography.Text strong>版本配置</Typography.Text><Typography.Text type="secondary">未覆盖时由 Go 按冻结设置解析。</Typography.Text></div>
         <Select
           value={hasOwn(patch, 'configVersion') ? patch.configVersion : 'inherit'}
           onChange={value => value === 'inherit' ? inheritField('configVersion') : setField('configVersion', value)}
           options={[
-            { value: 'inherit', label: `跟随批次 · ${batchSettings.configVersion || '当前版本'}` },
+            { value: 'inherit', label: '跟随批次' },
             { value: 'v3.5', label: '批量配置 V3.5' },
             { value: 'v3.2', label: '批量配置 V3.2' },
             { value: 'v3.1', label: '批量配置 V3.1' }
@@ -122,9 +120,9 @@ export function BookSettingsModal({
       </div>
 
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">当前小说可覆盖批次默认画幅。</Typography.Text></div>
+        <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">当前小说可写自己的 sparse override。</Typography.Text></div>
         <SparseChoice
-          inheritedLabel={`跟随 ${batchSettings.aspectRatio || '批次'}`}
+          inheritedLabel="跟随批次"
           value={hasOwn(patch, 'aspectRatio') ? patch.aspectRatio : 'inherit'}
           onChange={value => value === 'inherit' ? inheritField('aspectRatio') : setField('aspectRatio', value)}
           options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }]}
@@ -132,7 +130,7 @@ export function BookSettingsModal({
       </div>
 
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>固定单 VIDEO</Typography.Text><Typography.Text type="secondary">通常跟随批次；特殊小说可以单独覆盖。</Typography.Text></div>
+        <div><Typography.Text strong>固定单 VIDEO</Typography.Text><Typography.Text type="secondary">未覆盖时继续交给 Go 解析上层设置。</Typography.Text></div>
         <SparseChoice
           inheritedLabel="跟随批次"
           value={!hasOwn(patch, 'fixedSingleVideo') ? 'inherit' : (patch.fixedSingleVideo ? 'on' : 'off')}
@@ -143,7 +141,7 @@ export function BookSettingsModal({
 
       <Divider orientation="left">约束设置</Divider>
       <BatchFactoryV11ConstraintEditor
-        value={displayValue}
+        value={patch}
         onChange={applyConstraint}
         inherited={count === 0}
         scopeLabel={`当前小说 · ${book?.title || '未选择'}`}
@@ -153,7 +151,7 @@ export function BookSettingsModal({
         type="info"
         showIcon
         message="继承关系"
-        description="系统默认 → 生产统一设置 → 当前小说 → 单 VIDEO。恢复全部继承会把当前小说 patch 保存为空对象，不复制父级当前值。"
+        description="系统默认 → 生产统一设置 → 当前小说 → 单 VIDEO。React 只编辑当前层 sparse patch，不合并计算 effective settings。"
       />
     </div>
   </Modal>;
@@ -163,7 +161,6 @@ export function VideoSettingsDrawer({
   open,
   book,
   video,
-  parentSettings = {},
   modelMaxDuration = 0,
   initialPatch = {},
   onClose,
@@ -179,12 +176,10 @@ export function VideoSettingsDrawer({
     setDurationMode(hasOwn(initialPatch, 'duration') ? 'custom' : 'inherit');
   }, [open, video?.id, initialPatch]);
 
-  const displayValue = useMemo(() => ({ ...parentSettings, ...patch }), [parentSettings, patch]);
   const count = sparseCount(patch);
   const maxDuration = Number(modelMaxDuration || 0);
-  const customDuration = Number(patch.duration ?? video?.duration ?? 0);
-  const durationChanged = hasOwn(patch, 'duration') && Number(patch.duration) !== Number(video?.duration || 0);
-  const durationIncompatible = maxDuration > 0 && hasOwn(patch, 'duration') && customDuration > maxDuration;
+  const customDuration = hasOwn(patch, 'duration') ? Number(patch.duration) : undefined;
+  const durationIncompatible = maxDuration > 0 && hasOwn(patch, 'duration') && Number(patch.duration) > maxDuration;
 
   function setField(key, value) {
     setPatch(current => ({ ...current, [key]: value }));
@@ -201,7 +196,6 @@ export function VideoSettingsDrawer({
   function setDurationChoice(value) {
     setDurationMode(value);
     if (value === 'inherit') inheritField('duration');
-    else if (!hasOwn(patch, 'duration')) setField('duration', Number(video?.duration || 10));
   }
 
   async function save() {
@@ -229,41 +223,40 @@ export function VideoSettingsDrawer({
   >
     <div className="bf11-scoped-settings">
       <InheritanceHeader level={`${book?.title || '当前小说'} · ${video?.label || 'VIDEO'}`} parentLabel="继承当前小说 / 批次" count={count} />
-      <Typography.Text type="secondary">VIDEO ID {video?.id || '—'} · VIDEO 是最高覆盖层，未修改字段继续跟随上层。</Typography.Text>
+      <Typography.Text type="secondary">VIDEO ID {video?.id || '—'} · 当前层只保存自己的 sparse override；effective settings 由 Go 返回。</Typography.Text>
 
       <Divider orientation="left">VIDEO 基础覆盖</Divider>
       <div className="bf11-scoped-setting-row">
         <div>
           <Typography.Text strong>VIDEO 时长</Typography.Text>
-          <Typography.Text type="secondary">修改时长需要重新导演 / 重排 Shot 时间轴。{maxDuration > 0 ? `当前模型上限 ${maxDuration}s。` : '模型上限等待服务端能力数据。'}</Typography.Text>
+          <Typography.Text type="secondary">时长覆盖写入当前 VIDEO patch；Director revision 是否失效以 Go change-impact 为准。{maxDuration > 0 ? `当前模型上限 ${maxDuration}s。` : '模型上限等待服务端能力数据。'}</Typography.Text>
         </div>
         <Space direction="vertical" align="end">
           <Segmented
             value={durationMode}
             onChange={setDurationChoice}
-            options={[{ value: 'inherit', label: `跟随当前 ${video?.duration || 0}s` }, { value: 'custom', label: '单独设置' }]}
+            options={[{ value: 'inherit', label: video?.duration ? `跟随当前 ${video.duration}s` : '跟随当前 VIDEO' }, { value: 'custom', label: '单独设置' }]}
           />
           {durationMode === 'custom' ? <InputNumber
             min={1}
             max={maxDuration > 0 ? maxDuration : undefined}
             value={customDuration}
-            onChange={value => setField('duration', Number(value || 1))}
+            placeholder="输入秒数"
+            onChange={value => value == null ? inheritField('duration') : setField('duration', Number(value))}
             addonAfter="秒"
           /> : null}
         </Space>
       </div>
 
-      {(durationChanged || durationIncompatible) ? <Alert
-        type={durationIncompatible ? 'error' : 'warning'}
+      {durationIncompatible ? <Alert
+        type="error"
         showIcon
-        message={durationIncompatible ? `当前设置超过模型最大 ${maxDuration}s` : '时长修改后需要重新导演'}
-        description={durationIncompatible
-          ? '不能把旧 VIDEO 方案直接提交给能力不足的模型。请降低时长或重新选择兼容模型并重新导演。'
-          : '保存时长变化后，Director revision 的失效由后续 V11 change-impact / Director Slice 返回，前端不会自动重做。'}
+        message={`当前设置超过模型最大 ${maxDuration}s`}
+        description="当前模型能力上限来自服务端；请降低当前 VIDEO 的显式时长覆盖。"
       /> : null}
 
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">单段可覆盖当前小说 / 批次画幅。</Typography.Text></div>
+        <div><Typography.Text strong>视频画幅</Typography.Text><Typography.Text type="secondary">单段可写自己的 sparse override。</Typography.Text></div>
         <SparseChoice
           inheritedLabel="跟随上层"
           value={hasOwn(patch, 'aspectRatio') ? patch.aspectRatio : 'inherit'}
@@ -273,7 +266,7 @@ export function VideoSettingsDrawer({
       </div>
 
       <div className="bf11-scoped-setting-row">
-        <div><Typography.Text strong>字幕规则</Typography.Text><Typography.Text type="secondary">默认继承上层字幕策略。</Typography.Text></div>
+        <div><Typography.Text strong>字幕规则</Typography.Text><Typography.Text type="secondary">未覆盖时交给 Go 解析上层策略。</Typography.Text></div>
         <Select
           value={hasOwn(patch, 'subtitlePolicy') ? patch.subtitlePolicy : 'inherit'}
           onChange={value => value === 'inherit' ? inheritField('subtitlePolicy') : setField('subtitlePolicy', value)}
@@ -303,7 +296,7 @@ export function VideoSettingsDrawer({
 
       <Divider orientation="left">约束设置</Divider>
       <BatchFactoryV11ConstraintEditor
-        value={displayValue}
+        value={patch}
         onChange={applyConstraint}
         inherited={count === 0}
         scopeLabel={`${video?.label || '当前 VIDEO'} · 最高覆盖层`}

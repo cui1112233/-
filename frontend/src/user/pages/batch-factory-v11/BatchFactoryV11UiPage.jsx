@@ -25,18 +25,12 @@ function emptySettingsState() {
   return { patch: {}, revision: 0, snapshot: null, compatibility: [] };
 }
 
-function batchForView(batch, books, settingsState) {
+function batchForView(batch, books) {
   if (!batch) return null;
-  const patch = settingsState?.patch || {};
   return {
     ...batch,
     title: batch.title || `批次 ${batch.id}`,
-    count: Number(batch.count ?? books.length),
-    mode: batch.mode ?? patch.productionMode,
-    aspectRatio: batch.aspectRatio ?? patch.aspectRatio,
-    configVersion: batch.configVersion ?? patch.configVersion,
-    videoModel: batch.videoModel ?? patch.videoModelId,
-    fixedSingleVideo: batch.fixedSingleVideo ?? patch.fixedSingleVideo
+    count: Number(batch.count ?? books.length)
   };
 }
 
@@ -92,7 +86,7 @@ export function BatchFactoryV11UiPage() {
   const batchCreateAction = actionState(capabilities, 'batch.create');
   const intakeState = intakeCreateState(runtimeState.intake);
   const batchSettingsState = batch?.settingsState || emptySettingsState();
-  const viewBatch = batchForView(batch, books, batchSettingsState);
+  const viewBatch = batchForView(batch, books);
 
   async function createBatchFromIntake() {
     if (!intakeState.intakeId || intakeState.consumed || batchCreateAction.disabled || creatingBatch) return false;
@@ -253,7 +247,6 @@ export function BatchFactoryV11UiPage() {
       <BookSettingsModal
         open={Boolean(activeBook)}
         book={activeBook}
-        batchSettings={batchSettingsState.patch}
         initialPatch={activeBook?.settingsState?.patch || {}}
         onClose={() => setBookSettingsTargetId('')}
         onSave={saveBookSettings}
@@ -263,7 +256,6 @@ export function BatchFactoryV11UiPage() {
         open={Boolean(activeVideoBook && activeVideo)}
         book={activeVideoBook}
         video={activeVideo}
-        parentSettings={{ ...batchSettingsState.patch, ...(activeVideoBook?.settingsState?.patch || {}) }}
         modelMaxDuration={Number(batch.modelMaxDuration || 0)}
         initialPatch={activeVideo?.settingsState?.patch || {}}
         onClose={() => setVideoSettingsTarget(null)}
