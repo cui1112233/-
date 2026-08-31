@@ -15,14 +15,15 @@ export function HookReviewPanel({
   onApproveHook
 }) {
   const hook = book?.hook || book?.hookRevision || {};
+  const hookReviewCapability = capabilities?.['hook.review'] || {};
   const generateState = hookActionState({
     book,
-    capability: capabilities?.['hook.run'] || {},
+    capability: hookReviewCapability,
     connected: typeof onRunHook === 'function'
   });
   const approveState = hookActionState({
     book,
-    capability: capabilities?.['hook.approve'] || {},
+    capability: hookReviewCapability,
     action: 'approve',
     connected: typeof onApproveHook === 'function'
   });
