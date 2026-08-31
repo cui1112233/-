@@ -8,7 +8,7 @@ const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
 const AgentPage = lazy(() => import('./pages/AgentPageV2').then(module => ({ default: module.AgentPageV2 })));
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
-const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
+const NovelFetchSafePage = lazy(() => import('./pages/NovelFetchSafePage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPage'));
 const BatchFactoryPreviewPage = lazy(() => import('./pages/BatchFactoryPreviewPage'));
@@ -40,7 +40,7 @@ function usePathname() {
 function getPage(pathname) {
   const routes = {
     '/script': ScriptPage,
-    '/novel-fetch': NovelFetchPage,
+    '/novel-fetch': NovelFetchSafePage,
     '/novel-fetch-workshop': NovelFetchWorkshopPage,
     '/batch-factory': BatchFactoryPage,
     '/batch-factory-preview': BatchFactoryPreviewPage,
