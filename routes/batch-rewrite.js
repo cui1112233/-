@@ -1175,7 +1175,7 @@ function createBatchRewriteRouter({
     try {
       const session = novelFetchStore?.getSession(req.username);
       if (!session?.cookie) throw new Error('请先保存账号密码并登录目标站');
-      const check = await httpClient({ method: 'GET', url: `http://${target.TARGET_HOST}${target.TARGET_CHECK_PATH}`, headers: { Cookie: session.cookie } });
+      const check = await httpClient({ method: 'GET', url: `http://${target.TARGET_HOST}${target.TARGET_CHECK_PATH}`, headers: { Cookie: session.cookie }, timeoutMs: 15000 });
       const ok = target.isDashboard(check.body);
       res.json({ ok, output: [], result: { checks: { login_session: ok, upload_endpoint: target.TARGET_UPLOAD_PATH } } });
     } catch (error) { res.status(400).json({ ok: false, error: error.message || '验证失败' }); }

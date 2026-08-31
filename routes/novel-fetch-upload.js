@@ -18,7 +18,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
       if (typeof username !== 'string' || !username.trim() || typeof password !== 'string' || !password) {
         return res.status(400).json({ ok: false, error: '请输入账号和密码' });
       }
-      const login = await httpClient(target.buildLoginRequest(username.trim(), password));
+      const login = await httpClient({ ...target.buildLoginRequest(username.trim(), password), timeoutMs: 15000 });
       let data = {};
       try { data = JSON.parse(login.body); } catch (_) {}
       const setCookies = login.headers && login.headers['set-cookie'];
@@ -31,7 +31,8 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
       const check = await httpClient({
         method: 'GET',
         url: `http://${target.TARGET_HOST}${target.TARGET_CHECK_PATH}`,
-        headers: { Cookie: cookie }
+        headers: { Cookie: cookie },
+        timeoutMs: 15000
       });
       if (!target.isDashboard(check.body)) return res.status(400).json({ ok: false, error: '登录验证失败，请重试' });
       store.setSession(req.username, cookie);
