@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -13,17 +14,26 @@ type memoryOwned[T any] struct {
 	Value T
 }
 type MemoryStore struct {
-	mu      sync.Mutex
-	seq     int64
-	batches map[string]memoryOwned[Batch]
-	intakes map[string]memoryOwned[Intake]
-	patches map[string]SettingsPatch
-	prompts map[string][]Prompt
-	drafts  map[string]Draft
+	mu             sync.Mutex
+	seq            int64
+	batches        map[string]memoryOwned[Batch]
+	intakes        map[string]memoryOwned[Intake]
+	patches        map[string]SettingsPatch
+	configVersions map[string]memoryOwned[ConfigVersion]
+	prompts        map[string][]Prompt
+	drafts         map[string]Draft
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{batches: map[string]memoryOwned[Batch]{}, intakes: map[string]memoryOwned[Intake]{}, patches: map[string]SettingsPatch{}, prompts: map[string][]Prompt{}, drafts: map[string]Draft{}}
+	systemDefault := ConfigVersion{ID: "system-default-v1", Name: "System Default", Config: json.RawMessage(`{"source":"system"}`)}
+	return &MemoryStore{
+		batches:        map[string]memoryOwned[Batch]{},
+		intakes:        map[string]memoryOwned[Intake]{},
+		patches:        map[string]SettingsPatch{},
+		configVersions: map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
+		prompts:        map[string][]Prompt{},
+		drafts:         map[string]Draft{},
+	}
 }
 func (s *MemoryStore) id(prefix string) string { s.seq++; return fmt.Sprintf("%s-%d", prefix, s.seq) }
 func scopeKey(r ScopeRef) string {
@@ -169,6 +179,16 @@ func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef
 	if update.ExpectedRevision != *rev {
 		return SettingsResult{}, ErrConflict
 	}
+	versionID, selectsVersion, err := configVersionIDFromUpdate(ref, update)
+	if err != nil {
+		return SettingsResult{}, err
+	}
+	if selectsVersion {
+		version, exists := s.configVersions[versionID]
+		if !exists || (version.Owner != "" && version.Owner != owner) {
+			return SettingsResult{}, ErrNotFound
+		}
+	}
 	*rev++
 	patch := ApplySparseUpdate(s.patches[scopeKey(ref)], update)
 	s.patches[scopeKey(ref)] = patch
@@ -186,8 +206,22 @@ func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef
 	snap := ConfigSnapshot{ID: s.id("snapshot"), BatchID: b.ID, BookID: ref.BookID, VideoID: ref.VideoID, Effective: effective, CreatedAt: time.Now().UTC()}
 	return SettingsResult{Scope: ref, Patch: clonePatch(patch), Revision: *rev, Snapshot: &snap}, nil
 }
-func (s *MemoryStore) ConfigVersions(context.Context, string) ([]ConfigVersion, error) {
-	return []ConfigVersion{{ID: "system-default-v1", Name: "System Default", Config: json.RawMessage(`{"source":"system"}`)}}, nil
+func (s *MemoryStore) ConfigVersions(_ context.Context, owner string) ([]ConfigVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []ConfigVersion{}
+	for _, version := range s.configVersions {
+		if version.Owner == "" || version.Owner == owner {
+			out = append(out, version.Value)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out, nil
 }
 func (s *MemoryStore) ChangeImpact(_ context.Context, owner, batchID string, u SettingsUpdate) (ChangeImpact, error) {
 	b, err := s.GetBatch(context.Background(), owner, batchID)

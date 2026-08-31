@@ -22,9 +22,9 @@ func TestV11SliceOneSchemaRegistersSettingsSnapshotPromptAndIntakeTables(t *test
 	}
 }
 
-func TestV11MigrationsAreOrderedFoundationThenSliceOne(t *testing.T) {
+func TestV11MigrationsAreOrderedFoundationThenSliceOneClosures(t *testing.T) {
 	got := V11Migrations()
-	if len(got) != 2 || got[0].Version != 1100001 || got[1].Version != 1100002 {
+	if len(got) != 3 || got[0].Version != 1100001 || got[1].Version != 1100002 || got[2].Version != 1100003 {
 		t.Fatalf("migrations=%+v", got)
 	}
 }

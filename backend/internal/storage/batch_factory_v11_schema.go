@@ -155,9 +155,18 @@ func V11SliceOneStatements() []string {
 	}
 }
 
+func V11ConfigVersionOwnershipStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_config_versions
+  ADD COLUMN owner_username VARCHAR(191) NULL AFTER id,
+  ADD KEY idx_bfv11_config_versions_owner_created (owner_username, created_at, id)`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
 		{Version: 1100002, SQL: V11SliceOneStatements(), CallbackChecksum: "batch-factory-v11-slice1-v1"},
+		{Version: 1100003, SQL: V11ConfigVersionOwnershipStatements(), CallbackChecksum: "batch-factory-v11-slice1-config-version-ownership-v1"},
 	}
 }

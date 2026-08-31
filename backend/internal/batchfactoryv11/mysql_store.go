@@ -287,6 +287,20 @@ func (s *MySQLStore) SaveSettings(ctx context.Context, owner string, ref ScopeRe
 	if current != update.ExpectedRevision {
 		return SettingsResult{}, ErrConflict
 	}
+	versionID, selectsVersion, err := configVersionIDFromUpdate(ref, update)
+	if err != nil {
+		return SettingsResult{}, err
+	}
+	if selectsVersion {
+		var one int
+		err = tx.QueryRowContext(ctx, `SELECT 1 FROM batch_factory_v11_config_versions WHERE id=? AND (owner_username IS NULL OR owner_username=?)`, versionID, owner).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return SettingsResult{}, ErrNotFound
+		}
+		if err != nil {
+			return SettingsResult{}, err
+		}
+	}
 	patch, err := loadPatch(ctx, tx, owner, ref)
 	if err != nil {
 		return SettingsResult{}, err
@@ -421,8 +435,8 @@ func effectiveSettings(ctx context.Context, q batchQueryer, owner string, ref Sc
 	return ResolveSettings(layers...), nil
 }
 
-func (s *MySQLStore) ConfigVersions(ctx context.Context, _ string) ([]ConfigVersion, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name,config_json,created_at FROM batch_factory_v11_config_versions ORDER BY created_at,id`)
+func (s *MySQLStore) ConfigVersions(ctx context.Context, owner string) ([]ConfigVersion, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,name,config_json,created_at FROM batch_factory_v11_config_versions WHERE owner_username IS NULL OR owner_username=? ORDER BY created_at,id`, owner)
 	if err != nil {
 		return nil, err
 	}
