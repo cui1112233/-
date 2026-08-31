@@ -17,12 +17,14 @@ export function HookReviewPanel({
   const hook = book?.hook || book?.hookRevision || {};
   const generateState = hookActionState({
     book,
-    capability: capabilities?.['hook.run'] || {}
+    capability: capabilities?.['hook.run'] || {},
+    connected: typeof onRunHook === 'function'
   });
   const approveState = hookActionState({
     book,
     capability: capabilities?.['hook.approve'] || {},
-    action: 'approve'
+    action: 'approve',
+    connected: typeof onApproveHook === 'function'
   });
   const text = hookText(hook);
 
