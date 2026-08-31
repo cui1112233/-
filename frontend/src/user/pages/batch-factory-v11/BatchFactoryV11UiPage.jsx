@@ -1,170 +1,199 @@
-import { message } from 'antd';
-import { useMemo, useState } from 'react';
+import { Alert, Button, Empty, Spin, Typography, message } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
-import { BatchFactoryV11BatchManager } from './BatchFactoryV11BatchManager';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
-import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
-import {
-  SHOWCASE_BATCH,
-  SHOWCASE_BATCH_SETTINGS,
-  SHOWCASE_BOOKS
-} from './showcaseData';
+import { createBf11UiAdapter } from './bf11UiAdapter.js';
+import { createBf11Runtime } from './bf11Runtime.js';
 import './batch-factory-v11-scoped.css';
-import './batch-factory-v11-batch-manager.css';
 import './batch-factory-v11-detail.css';
 import './batch-factory-v11-theme.css';
 
-const CONFIG_LABELS = {
-  'v3.5': '批量配置 V3.5',
-  'v3.2': '批量配置 V3.2',
-  'v3.1': '批量配置 V3.1',
-  'v3.0': '批量配置 V3.0'
-};
+function requestParamsFromLocation() {
+  if (typeof window === 'undefined') return {};
+  const search = new URLSearchParams(window.location.search || '');
+  return {
+    batchId: search.get('batch') || '',
+    intakeId: search.get('intake') || ''
+  };
+}
 
-const MODEL_LABELS = {
-  'seedance-pro': 'Seedance Video Pro · 最大 15s',
-  'seedance-fast': 'Seedance Video Fast · 最大 10s',
-  'video-model-c': 'Video Model C · 最大 12s'
-};
+function emptySettingsState() {
+  return { patch: {}, revision: 0, snapshot: null, compatibility: [] };
+}
 
-const MODEL_MAX_DURATIONS = {
-  'seedance-pro': 15,
-  'seedance-fast': 10,
-  'video-model-c': 12
-};
-
-const INITIAL_BOOK_PATCHES = {
-  'book-02': { aspectRatio: '16:9', qualityEnabled: false },
-  'book-04': { negativeEnabled: true },
-  'book-06': { configVersion: 'v3.5', fixedSingleVideo: true, prefixMode: 'manual' }
-};
+function batchForView(batch, books, settingsState) {
+  if (!batch) return null;
+  const patch = settingsState?.patch || {};
+  return {
+    ...batch,
+    title: batch.title || `批次 ${batch.id}`,
+    count: Number(batch.count ?? books.length),
+    mode: batch.mode ?? patch.productionMode,
+    aspectRatio: batch.aspectRatio ?? patch.aspectRatio,
+    configVersion: batch.configVersion ?? patch.configVersion,
+    videoModel: batch.videoModel ?? patch.videoModelId,
+    fixedSingleVideo: batch.fixedSingleVideo ?? patch.fixedSingleVideo
+  };
+}
 
 export function BatchFactoryV11UiPage() {
-  const [batchSettings, setBatchSettings] = useState(SHOWCASE_BATCH_SETTINGS);
-  const [publishSettings, setPublishSettings] = useState({});
-  const [bookPatches, setBookPatches] = useState(INITIAL_BOOK_PATCHES);
-  const [videoPatches, setVideoPatches] = useState({});
-  const [batchManager, setBatchManager] = useState({ open: false, tab: 'new' });
+  const adapter = useMemo(() => createBf11UiAdapter(batchFactoryV11), []);
+  const runtime = useMemo(() => createBf11Runtime({ adapter }), [adapter]);
+  const requestParams = useMemo(requestParamsFromLocation, []);
+  const [runtimeState, setRuntimeState] = useState({ phase: 'loading' });
   const [productionSettingsOpen, setProductionSettingsOpen] = useState(false);
-  const [publishSettingsOpen, setPublishSettingsOpen] = useState(false);
-  const [bookSettingsTarget, setBookSettingsTarget] = useState(null);
+  const [bookSettingsTargetId, setBookSettingsTargetId] = useState('');
   const [videoSettingsTarget, setVideoSettingsTarget] = useState(null);
 
-  const batch = useMemo(() => ({
-    ...SHOWCASE_BATCH,
-    mode: batchSettings.productionMode,
-    aspectRatio: batchSettings.aspectRatio,
-    fixedSingleVideo: batchSettings.fixedSingleVideo,
-    configVersion: CONFIG_LABELS[batchSettings.configVersion] || batchSettings.configVersion,
-    videoModel: MODEL_LABELS[batchSettings.videoModelId] || SHOWCASE_BATCH.videoModel
-  }), [batchSettings]);
+  const reload = useCallback(async ({ announce = false } = {}) => {
+    setRuntimeState(current => ({ ...current, phase: 'loading' }));
+    const next = await runtime.load(requestParams);
+    setRuntimeState(next);
+    if (announce && next.phase === 'ready') message.success('已刷新 V11 工作台');
+    return next;
+  }, [runtime, requestParams]);
 
-  const books = useMemo(() => SHOWCASE_BOOKS.map(book => {
-    const patch = bookPatches[book.id];
-    return {
-      ...book,
-      overrideCount: patch === undefined ? book.overrideCount : Object.keys(patch).length
-    };
-  }), [bookPatches]);
+  useEffect(() => {
+    let cancelled = false;
+    runtime.load(requestParams).then(next => {
+      if (!cancelled) setRuntimeState(next);
+    });
+    return () => { cancelled = true; };
+  }, [runtime, requestParams]);
 
-  function showUiOnlyNotice(label) {
-    message.info(`${label}已更新当前 UI 状态；第一阶段尚未写入 Go / MySQL。`);
+  if (runtimeState.phase === 'loading') {
+    return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
+      <Spin size="large" tip="正在读取 Batch Factory V11…" />
+    </div>;
   }
 
-  function saveBatchSettings(next) {
-    setBatchSettings(next);
-    showUiOnlyNotice('生产统一设置');
+  if (runtimeState.phase === 'error') {
+    return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
+      <Alert
+        type="error"
+        showIcon
+        message="Batch Factory V11 暂时不可用"
+        description={<div>
+          <Typography.Paragraph>{runtimeState.message}</Typography.Paragraph>
+          <Button onClick={() => reload()}>重新加载</Button>
+        </div>}
+      />
+    </div>;
   }
 
-  function savePublishSettings(next) {
-    setPublishSettings(next);
-    showUiOnlyNotice('发布统一设置');
+  const batch = runtimeState.batch;
+  const books = runtimeState.books || [];
+  const capabilities = runtimeState.capabilities || {};
+  const batchSettingsState = batch?.settingsState || emptySettingsState();
+  const viewBatch = batchForView(batch, books, batchSettingsState);
+
+  if (!batch) {
+    return <div data-bf-v11-ui="final" style={{ minHeight: 460, display: 'grid', placeItems: 'center' }}>
+      <Empty
+        description={runtimeState.intake
+          ? '已读取小说获取转入任务，但当前还没有创建 V11 批次。'
+          : '当前没有 Batch Factory V11 批次。'}
+      >
+        <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
+      </Empty>
+    </div>;
   }
 
-  function saveBookPatch(book, patch) {
-    setBookPatches(current => ({ ...current, [book.id]: patch }));
-    showUiOnlyNotice('当前小说设置');
-  }
-
-  function saveVideoPatch(video, patch) {
-    setVideoPatches(current => ({ ...current, [video.id]: patch }));
-    showUiOnlyNotice('单 VIDEO 设置');
-  }
-
-  function openBatchManager(tab) {
-    setBatchManager({ open: true, tab });
-  }
-
-  function openProductionSettingsFromBatchManager() {
-    setBatchManager(current => ({ ...current, open: false }));
-    setProductionSettingsOpen(true);
-  }
-
-  const activeBook = bookSettingsTarget
-    ? books.find(book => book.id === bookSettingsTarget.id) || bookSettingsTarget
+  const activeBook = bookSettingsTargetId
+    ? books.find(book => book.id === bookSettingsTargetId) || null
     : null;
   const activeVideoBook = videoSettingsTarget
-    ? books.find(book => book.id === videoSettingsTarget.book.id) || videoSettingsTarget.book
+    ? books.find(book => book.id === videoSettingsTarget.bookId) || null
     : null;
-  const activeVideo = videoSettingsTarget?.video || null;
-  const activeBookPatch = activeVideoBook ? (bookPatches[activeVideoBook.id] || {}) : {};
-  const videoParentSettings = { ...batchSettings, ...activeBookPatch };
-  const modelMaxDuration = MODEL_MAX_DURATIONS[batchSettings.videoModelId] || 1;
+  const activeVideo = activeVideoBook && videoSettingsTarget
+    ? (activeVideoBook.videos || []).find(video => video.id === videoSettingsTarget.videoId) || null
+    : null;
+
+  async function saveScope(input, successMessage) {
+    const result = await runtime.save(input);
+    if (!result.ok) {
+      message.error(result.message);
+      return false;
+    }
+    message.success(successMessage);
+    const next = await runtime.load(requestParams);
+    setRuntimeState(next);
+    if (next.phase !== 'ready') {
+      message.warning('设置已保存，但重新读取工作台失败，请稍后刷新。');
+    }
+    return true;
+  }
+
+  function saveBatchSettings(patch) {
+    return saveScope({
+      scope: 'batch',
+      batchId: batch.id,
+      patch,
+      revision: batchSettingsState.revision
+    }, '生产统一设置已保存');
+  }
+
+  function saveBookSettings(patch) {
+    if (!activeBook) return Promise.resolve(false);
+    return saveScope({
+      scope: 'book',
+      batchId: batch.id,
+      bookId: activeBook.id,
+      patch,
+      revision: activeBook.settingsState?.revision || 0
+    }, '当前小说设置已保存');
+  }
+
+  function saveVideoSettings(patch) {
+    if (!activeVideoBook || !activeVideo) return Promise.resolve(false);
+    return saveScope({
+      scope: 'video',
+      batchId: batch.id,
+      bookId: activeVideoBook.id,
+      videoId: activeVideo.id,
+      patch,
+      revision: activeVideo.settingsState?.revision || 0
+    }, '单 VIDEO 设置已保存');
+  }
 
   return <div data-bf-v11-ui="final">
     <BatchFactoryV11Workbench
-      batch={batch}
+      batch={viewBatch}
       books={books}
-      onOpenBatchManager={() => openBatchManager('new')}
-      onOpenHistory={() => openBatchManager('history')}
+      capabilities={capabilities}
       onOpenBatchSettings={() => setProductionSettingsOpen(true)}
-      onOpenPublishSettings={() => setPublishSettingsOpen(true)}
-      onOpenBookSettings={book => setBookSettingsTarget(book)}
-      onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ book, video })}
-    />
-
-    <BatchFactoryV11BatchManager
-      open={batchManager.open}
-      initialTab={batchManager.tab}
-      onClose={() => setBatchManager(current => ({ ...current, open: false }))}
-      onOpenProductionSettings={openProductionSettingsFromBatchManager}
+      onOpenBookSettings={book => setBookSettingsTargetId(book.id)}
+      onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ bookId: book.id, videoId: video.id })}
     />
 
     <ProductionSettingsDrawer
       open={productionSettingsOpen}
-      batch={batch}
-      initialValue={batchSettings}
+      batch={viewBatch}
+      initialValue={batchSettingsState.patch}
       onClose={() => setProductionSettingsOpen(false)}
       onSave={saveBatchSettings}
-    />
-
-    <PublishSettingsDrawer
-      open={publishSettingsOpen}
-      batch={batch}
-      initialValue={publishSettings}
-      onClose={() => setPublishSettingsOpen(false)}
-      onSave={savePublishSettings}
     />
 
     <BookSettingsModal
       open={Boolean(activeBook)}
       book={activeBook}
-      batchSettings={batchSettings}
-      initialPatch={activeBook ? (bookPatches[activeBook.id] || {}) : {}}
-      onClose={() => setBookSettingsTarget(null)}
-      onSave={patch => activeBook && saveBookPatch(activeBook, patch)}
+      batchSettings={batchSettingsState.patch}
+      initialPatch={activeBook?.settingsState?.patch || {}}
+      onClose={() => setBookSettingsTargetId('')}
+      onSave={saveBookSettings}
     />
 
     <VideoSettingsDrawer
       open={Boolean(activeVideoBook && activeVideo)}
       book={activeVideoBook}
       video={activeVideo}
-      parentSettings={videoParentSettings}
-      modelMaxDuration={modelMaxDuration}
-      initialPatch={activeVideo ? (videoPatches[activeVideo.id] || {}) : {}}
+      parentSettings={{ ...batchSettingsState.patch, ...(activeVideoBook?.settingsState?.patch || {}) }}
+      modelMaxDuration={Number(batch.modelMaxDuration || 0)}
+      initialPatch={activeVideo?.settingsState?.patch || {}}
       onClose={() => setVideoSettingsTarget(null)}
-      onSave={patch => activeVideo && saveVideoPatch(activeVideo, patch)}
+      onSave={saveVideoSettings}
     />
   </div>;
 }
