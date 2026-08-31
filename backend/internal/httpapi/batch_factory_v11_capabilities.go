@@ -10,7 +10,10 @@ type Capability struct {
 func CapabilitiesForSlice(slice int) map[string]Capability {
 	caps := map[string]Capability{
 		"batch.read":        {Reason: "V11 settings slice not released"},
+		"batch.create":      {Reason: "V11 settings slice not released"},
 		"settings.edit":     {Reason: "V11 settings slice not released"},
+		"snapshot.read":     {Reason: "V11 settings slice not released"},
+		"override.edit":     {Reason: "V11 settings slice not released"},
 		"director.run":      {Reason: "Director slice not released"},
 		"hook.review":       {Reason: "Director slice not released"},
 		"production.submit": {Reason: "Production slice not released"},
@@ -19,8 +22,9 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 		"publish.yadi":      {Reason: "Yadi is not enabled"},
 	}
 	if slice >= 1 {
-		caps["batch.read"] = Capability{Available: true}
-		caps["settings.edit"] = Capability{Available: true}
+		for _, key := range []string{"batch.read", "batch.create", "settings.edit", "snapshot.read", "override.edit"} {
+			caps[key] = Capability{Available: true}
+		}
 	}
 	if slice >= 2 {
 		caps["director.run"] = Capability{Available: true}
@@ -30,5 +34,7 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 }
 
 func capabilityHandler(slice int) http.HandlerFunc {
-	return func(w http.ResponseWriter, req *http.Request) { writeJSON(w, http.StatusOK, CapabilitiesForSlice(slice)) }
+	return func(w http.ResponseWriter, req *http.Request) {
+		writeJSON(w, http.StatusOK, CapabilitiesForSlice(slice))
+	}
 }

@@ -21,10 +21,10 @@ func TestMySQL84EmptyToLatest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := RunMigrations(context.Background(), db, V11FoundationMigrations()); err != nil {
+	if err := RunMigrations(context.Background(), db, V11Migrations()); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunMigrations(context.Background(), db, V11FoundationMigrations()); err != nil {
+	if err := RunMigrations(context.Background(), db, V11Migrations()); err != nil {
 		t.Fatalf("repeat startup: %v", err)
 	}
 }
