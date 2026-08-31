@@ -1,8 +1,23 @@
-import { Button, Empty, Input, Segmented, Space, Tag, Typography, message } from 'antd';
+import {
+  Button,
+  Collapse,
+  Empty,
+  Input,
+  InputNumber,
+  Progress,
+  Segmented,
+  Select,
+  Space,
+  Tag,
+  Typography,
+  message
+} from 'antd';
 import {
   AlertTriangle,
+  Archive,
   CheckCircle2,
   Film,
+  FolderPlus,
   LayoutGrid,
   RotateCcw,
   Save,
@@ -33,6 +48,8 @@ import {
 } from './workspace-layout';
 import './batch-factory-v11-workbench.css';
 
+const { TextArea } = Input;
+
 const statusTone = {
   待开始: 'default',
   待审核: 'gold',
@@ -56,13 +73,33 @@ function loadStoredLayout() {
   }
 }
 
-function ToolbarButton({ children, ...props }) {
-  return <Button size="small" {...props}>{children}</Button>;
+function AssetPromptGroup({ label, type, names, drafts, onChange }) {
+  return <div className="bf11-asset-prompt-group">
+    <div className="bf11-asset-prompt-title">
+      <Typography.Text strong>{label}</Typography.Text>
+      <Space>
+        <Button size="small" disabled>重新获取</Button>
+        <Button size="small" disabled>保存</Button>
+      </Space>
+    </div>
+    <div className="bf11-asset-prompt-list">
+      {(names || []).map(name => {
+        const key = `${type}:${name}`;
+        const fallback = `${name}基础视觉设定：保持稳定身份、年龄、服装、外观与空间连续性；临时表情和动作不写入基础资产。`;
+        return <div className="bf11-asset-prompt-row" key={key}>
+          <Input value={name} disabled />
+          <TextArea rows={3} value={drafts[key] ?? fallback} onChange={event => onChange(key, event.target.value)} />
+        </div>;
+      })}
+    </div>
+  </div>;
 }
 
 export function BatchFactoryV11Workbench({
   batch = SHOWCASE_BATCH,
   books = SHOWCASE_BOOKS,
+  onOpenBatchManager,
+  onOpenHistory,
   onOpenBatchSettings,
   onOpenPublishSettings,
   onOpenBookSettings,
@@ -75,6 +112,12 @@ export function BatchFactoryV11Workbench({
   const [previewTarget, setPreviewTarget] = useState('merged');
   const [editMode, setEditMode] = useState(false);
   const [layout, setLayout] = useState(loadStoredLayout);
+  const [assetDrafts, setAssetDrafts] = useState({});
+  const [hookDrafts, setHookDrafts] = useState({});
+  const [videoPromptDrafts, setVideoPromptDrafts] = useState({});
+  const [mergeTimingMode, setMergeTimingMode] = useState('speed');
+  const [mergeSpeed, setMergeSpeed] = useState('1.5');
+  const [ttsSpeed, setTtsSpeed] = useState(1.7);
   const gridRef = useRef(null);
   const [gridWidth, setGridWidth] = useState(1200);
 
@@ -117,17 +160,27 @@ export function BatchFactoryV11Workbench({
 
   const filteredBooks = useMemo(() => {
     const query = bookSearch.trim().toLowerCase();
-    return books.filter(book => {
-      const statusMatch = statusFilter === '全部' || book.status === statusFilter;
-      const queryMatch = !query || `${book.title} ${book.bookId} ${book.platform}`.toLowerCase().includes(query);
-      return statusMatch && queryMatch;
-    });
-  }, [books, bookSearch, statusFilter]);
+    return books.filter(book => !query || `${book.title} ${book.bookId} ${book.platform}`.toLowerCase().includes(query));
+  }, [books, bookSearch]);
 
   const filterResults = useMemo(
     () => statusFilter === '全部' ? books : books.filter(book => book.status === statusFilter),
     [books, statusFilter]
   );
+
+  const videoProgress = useMemo(() => {
+    const all = books.flatMap(book => book.videos || []);
+    const summary = { total: all.length, completed: 0, pending: 0, queued: 0, generating: 0, failed: 0 };
+    for (const video of all) {
+      if (video.status === '已完成') summary.completed += 1;
+      else if (video.status === '异常') summary.failed += 1;
+      else if (video.status === '排队中') summary.queued += 1;
+      else if (video.status === '生成中') summary.generating += 1;
+      else summary.pending += 1;
+    }
+    summary.percent = summary.total ? Math.round(((summary.completed + summary.failed) / summary.total) * 100) : 0;
+    return summary;
+  }, [books]);
 
   const metrics = useMemo(() => ({
     columnWidth: Math.max(20, (gridWidth - ((GRID_COLUMNS - 1) * layout.gap)) / GRID_COLUMNS),
@@ -166,6 +219,72 @@ export function BatchFactoryV11Workbench({
     });
   }
 
+  function setAssetDraft(key, value) {
+    setAssetDrafts(current => ({ ...current, [key]: value }));
+  }
+
+  const bookCollapseItems = selectedBook ? [
+    {
+      key: 'source',
+      label: <span className="bf11-fold-label"><strong>原文</strong><small>来源内容</small></span>,
+      children: <Typography.Paragraph className="bf11-source-copy">{selectedBook.sourceText}</Typography.Paragraph>
+    },
+    {
+      key: 'hook',
+      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{selectedBook.hookText ? '审核 / 修改' : '当前未生成'}</small></span>,
+      children: selectedBook.hookText ? <div className="bf11-inline-editor">
+        <TextArea rows={5} value={hookDrafts[selectedBook.id] ?? selectedBook.hookText} onChange={event => setHookDrafts(current => ({ ...current, [selectedBook.id]: event.target.value }))} />
+        <Space><Button disabled>保存审核稿</Button><Typography.Text type="secondary">第二阶段接入 approvedHookScript 保存。</Typography.Text></Space>
+      </div> : <Typography.Text type="secondary">原文直转或当前尚未生成爆款 Hook。</Typography.Text>
+    },
+    {
+      key: 'assets',
+      label: <span className="bf11-fold-label"><strong>人物 / 场景 / 道具</strong><small>Prompt 直接编辑</small></span>,
+      children: <div className="bf11-asset-editor-stack">
+        <AssetPromptGroup label="人物 Prompt" type="character" names={selectedBook.assets.characters} drafts={assetDrafts} onChange={setAssetDraft} />
+        <AssetPromptGroup label="场景 Prompt" type="scene" names={selectedBook.assets.scenes} drafts={assetDrafts} onChange={setAssetDraft} />
+        <AssetPromptGroup label="道具 Prompt" type="prop" names={selectedBook.assets.props} drafts={assetDrafts} onChange={setAssetDraft} />
+      </div>
+    },
+    {
+      key: 'videos',
+      label: <span className="bf11-fold-label"><strong>VIDEO 方案</strong><small>{selectedBook.videos.length} 个 VIDEO · 画面提示词可直接编辑</small></span>,
+      children: <div className="bf11-video-plan">
+        <div className="bf11-video-list">
+          {selectedBook.videos.map(video => <button
+            key={video.id}
+            className={selectedVideo?.id === video.id ? 'is-selected' : ''}
+            onClick={() => { setSelectedVideoId(video.id); setPreviewTarget(video.id); }}
+          >
+            <span><Video size={14} /> {video.label}</span>
+            <small>{video.duration}s</small>
+            <Tag color={statusTone[video.status]}>{video.status}</Tag>
+          </button>)}
+        </div>
+        {selectedVideo ? <div className="bf11-video-detail">
+          <div className="bf11-video-detail-head">
+            <Space wrap><strong>{selectedVideo.label}</strong><Tag>{selectedVideo.duration}s</Tag><Tag color={statusTone[selectedVideo.status]}>{selectedVideo.status}</Tag></Space>
+            <Button size="small" icon={<SlidersHorizontal size={14} />} onClick={() => onOpenVideoSettings?.(selectedBook, selectedVideo)}>VIDEO 设置</Button>
+          </div>
+          <div className="bf11-inline-editor">
+            <div className="bf11-inline-editor-title"><Typography.Text strong>画面提示词</Typography.Text><Tag>visualPrompt</Tag></div>
+            <TextArea rows={6} value={videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt} onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedVideo.id]: event.target.value }))} />
+            <Space wrap>
+              <Button disabled>保存画面提示词</Button>
+              <Button disabled>本次提交预览</Button>
+              <Typography.Text type="secondary">最终 compiledPrompt 在第二阶段由同一个 Go compiler 生成。</Typography.Text>
+            </Space>
+          </div>
+          <div className="bf11-assets compact">
+            <div><b>人物</b>{selectedVideo.characters.map(name => <Tag key={name}>{name}</Tag>)}</div>
+            <div><b>场景</b>{selectedVideo.scenes.map(name => <Tag key={name}>{name}</Tag>)}</div>
+            <div><b>道具</b>{selectedVideo.props.map(name => <Tag key={name}>{name}</Tag>)}</div>
+          </div>
+        </div> : null}
+      </div>
+    }
+  ] : [];
+
   const cards = [
     {
       id: 'book-list',
@@ -180,12 +299,12 @@ export function BatchFactoryV11Workbench({
           placeholder="搜索书名 / Book ID / 平台"
         />
         <div className="bf11-book-list">
-          {filteredBooks.map((book, index) => <button
+          {filteredBooks.map(book => <button
             key={book.id}
             className={`bf11-book-row ${selectedBook?.id === book.id ? 'is-selected' : ''} ${book.status === '异常' ? 'is-error' : ''}`}
             onClick={() => selectBook(book)}
           >
-            <span className="bf11-book-index">{String(index + 1).padStart(2, '0')}</span>
+            <span className="bf11-book-index">{String(books.indexOf(book) + 1).padStart(2, '0')}</span>
             <span className="bf11-book-copy">
               <strong>{book.title}</strong>
               <small>{book.platform} · {book.bookId}</small>
@@ -195,7 +314,7 @@ export function BatchFactoryV11Workbench({
               <Tag color={statusTone[book.status]}>{book.status}</Tag>
             </span>
           </button>)}
-          {!filteredBooks.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选没有小说" /> : null}
+          {!filteredBooks.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的小说" /> : null}
         </div>
       </div>
     },
@@ -215,52 +334,11 @@ export function BatchFactoryV11Workbench({
             </div>
             <Button icon={<Settings2 size={15} />} onClick={() => onOpenBookSettings?.(selectedBook)}>当前小说设置</Button>
           </div>
-
-          <section className="bf11-content-section">
-            <header><strong>原文</strong><span>来源内容</span></header>
-            <p>{selectedBook.sourceText}</p>
-          </section>
-
-          <section className="bf11-content-section">
-            <header><strong>爆款 Hook</strong><span>{selectedBook.hookText ? '已生成 / 可审核' : '原文直转或尚未生成'}</span></header>
-            <p>{selectedBook.hookText || '当前没有爆款 Hook。'}</p>
-          </section>
-
-          <section className="bf11-content-section">
-            <header><strong>人物 / 场景 / 道具</strong><span>基础资产</span></header>
-            <div className="bf11-assets">
-              <div><b>人物</b>{selectedBook.assets.characters.map(name => <Tag key={name}>{name}</Tag>)}</div>
-              <div><b>场景</b>{selectedBook.assets.scenes.map(name => <Tag key={name}>{name}</Tag>)}</div>
-              <div><b>道具</b>{selectedBook.assets.props.map(name => <Tag key={name}>{name}</Tag>)}</div>
-            </div>
-          </section>
-
-          <section className="bf11-content-section bf11-video-plan">
-            <header><strong>VIDEO 方案</strong><span>{selectedBook.videos.length} 个 VIDEO</span></header>
-            <div className="bf11-video-list">
-              {selectedBook.videos.map(video => <button
-                key={video.id}
-                className={selectedVideo?.id === video.id ? 'is-selected' : ''}
-                onClick={() => { setSelectedVideoId(video.id); setPreviewTarget(video.id); }}
-              >
-                <span><Video size={14} /> {video.label}</span>
-                <small>{video.duration}s</small>
-                <Tag color={statusTone[video.status]}>{video.status}</Tag>
-              </button>)}
-            </div>
-            {selectedVideo ? <div className="bf11-video-detail">
-              <div className="bf11-video-detail-head">
-                <Space wrap><strong>{selectedVideo.label}</strong><Tag>{selectedVideo.duration}s</Tag><Tag color={statusTone[selectedVideo.status]}>{selectedVideo.status}</Tag></Space>
-                <Button size="small" icon={<SlidersHorizontal size={14} />} onClick={() => onOpenVideoSettings?.(selectedBook, selectedVideo)}>VIDEO 设置</Button>
-              </div>
-              <Typography.Paragraph>{selectedVideo.visualPrompt}</Typography.Paragraph>
-              <div className="bf11-assets compact">
-                <div><b>人物</b>{selectedVideo.characters.map(name => <Tag key={name}>{name}</Tag>)}</div>
-                <div><b>场景</b>{selectedVideo.scenes.map(name => <Tag key={name}>{name}</Tag>)}</div>
-                <div><b>道具</b>{selectedVideo.props.map(name => <Tag key={name}>{name}</Tag>)}</div>
-              </div>
-            </div> : null}
-          </section>
+          <Collapse
+            className="bf11-book-collapse"
+            defaultActiveKey={['source', 'videos']}
+            items={bookCollapseItems}
+          />
         </> : <Empty description="请选择小说" />}
       </div>
     },
@@ -285,16 +363,56 @@ export function BatchFactoryV11Workbench({
     {
       id: 'batch-tools',
       title: '批量工具',
-      subtitle: '正常任务尽量通过批量操作完成',
+      subtitle: '批量优先 · 异常优先',
       content: <div data-bf-card="batch-tools" className="bf11-batch-tools-body">
-        <div className="bf11-tool-status"><CheckCircle2 size={18} /><span><strong>统一生产流程</strong><small>UI 已落位 · 业务动作第二阶段接入</small></span></div>
-        <div className="bf11-tool-buttons">
-          <Button type="primary" disabled>开始导演</Button>
-          <Button disabled>生成待生成</Button>
+        <section className="bf11-tool-section">
+          <div className="bf11-tool-section-head"><strong>视频生成进度</strong><Tag>{videoProgress.completed + videoProgress.failed}/{videoProgress.total}</Tag></div>
+          <Progress percent={videoProgress.percent} status={videoProgress.failed ? 'exception' : 'active'} />
+          <Space wrap size={[4, 4]}>
+            <Tag>待生成 {videoProgress.pending}</Tag>
+            <Tag color="blue">排队中 {videoProgress.queued}</Tag>
+            <Tag color="processing">生成中 {videoProgress.generating}</Tag>
+            <Tag color="green">已完成 {videoProgress.completed}</Tag>
+            <Tag color="red">失败 {videoProgress.failed}</Tag>
+          </Space>
+          <div className="bf11-tool-buttons">
+            <Button type="primary" disabled>开始导演</Button>
+            <Button disabled>生成待生成</Button>
+          </div>
+        </section>
+
+        <section className="bf11-tool-section">
+          <div className="bf11-tool-section-head"><strong>批量合并</strong><Tag color="cyan">按导演顺序</Tag></div>
+          <Segmented
+            block
+            value={mergeTimingMode}
+            onChange={setMergeTimingMode}
+            options={[
+              { value: 'speed', label: '固定倍率' },
+              { value: 'audio', label: '跟随音频时长' }
+            ]}
+          />
+          {mergeTimingMode === 'speed' ? <Select
+            value={mergeSpeed}
+            onChange={setMergeSpeed}
+            options={[
+              { value: '1.0', label: '1.0x' },
+              { value: '1.2', label: '1.2x' },
+              { value: '1.5', label: '1.5x' },
+              { value: '2.0', label: '2.0x' }
+            ]}
+          /> : <div className="bf11-tts-timing">
+            <div><Typography.Text strong>TTS 测时语速</Typography.Text><InputNumber min={0.5} max={3} step={0.1} value={ttsSpeed} onChange={value => setTtsSpeed(Number(value || 1.7))} addonAfter="x" /></div>
+            <Typography.Text type="secondary">TTS 只测时，不合入成片；默认 1.7 是 TTS 参数，不是固定视频倍率。</Typography.Text>
+          </div>}
           <Button disabled>合并待合并</Button>
+        </section>
+
+        <section className="bf11-tool-section">
+          <div className="bf11-tool-section-head"><strong>批量发布</strong><Tag>第二阶段接上传</Tag></div>
           <Button icon={<Upload size={14} />} disabled>上传待上传</Button>
-        </div>
-        <Typography.Text type="secondary">未接入的生产动作保持禁用，不调用旧 Batch Factory 逻辑。</Typography.Text>
+          <Typography.Text type="secondary">121 真实账号与提交放在第三阶段；第一阶段只确认最终 UI。</Typography.Text>
+        </section>
       </div>
     }
   ];
@@ -310,6 +428,8 @@ export function BatchFactoryV11Workbench({
         <Typography.Text type="secondary">{batch.mode === 'viral' ? '爆款开头' : '原文直转'} · {batch.videoModel} · {batch.aspectRatio} · {batch.configVersion}</Typography.Text>
       </div>
       <Space wrap>
+        <Button icon={<FolderPlus size={15} />} onClick={() => onOpenBatchManager?.('new')}>+ 新建批次</Button>
+        <Button icon={<Archive size={15} />} onClick={() => onOpenHistory?.()}>历史批次</Button>
         <Button icon={<Settings2 size={15} />} onClick={() => onOpenBatchSettings?.(batch)}>生产统一设置</Button>
         <Button onClick={() => onOpenPublishSettings?.(batch)}>发布统一设置</Button>
         {!editMode ? <Button icon={<LayoutGrid size={15} />} onClick={() => setEditMode(true)}>编辑布局</Button> : <>
@@ -337,7 +457,7 @@ export function BatchFactoryV11Workbench({
             <span>{book.title}</span>
             <Tag color={statusTone[book.status]}>{book.status}</Tag>
           </button>)}
-          {filterResults.length > 5 ? <small>还有 {filterResults.length - 5} 本，点击状态后可在小说列表继续查看</small> : null}
+          {filterResults.length > 5 ? <small>还有 {filterResults.length - 5} 本；小说总列表保持完整，点击这里的小说只切换当前小说。</small> : null}
           {!filterResults.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有符合状态的小说" /> : null}
         </div>
       </div>
