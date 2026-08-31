@@ -14,6 +14,7 @@ const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评�
 const WORK_FORM_STORAGE_KEY = "batchRewrite.workForm.v1";
 const LEGACY_WORK_INPUT_SAMPLE_PREFIX = "7674515088685943832\t";
 const API_ROOT = "/api/batch-rewrite";
+const PLATFORM_API_TIMEOUT_MS = 15000;
 const PER_BOOK_MATERIAL_LIMIT = 8;
 const PROCESS_JOB_TIMEOUT_MS = 10 * 60 * 1000;
 const REWRITE_METHOD_OPTIONS = [
@@ -88,6 +89,36 @@ async function api(path, options = {}) {
     throw error;
   }
   return data;
+}
+
+// External 121 checks must always settle so the UI cannot remain in a loading state.
+async function novelFetchPlatformApi(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const token = localStorage.getItem("auth_token") || "";
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), PLATFORM_API_TIMEOUT_MS);
+  try {
+    let response;
+    try {
+      response = await fetch(path, { ...options, headers, signal: controller.signal });
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "验证请求超时，请检查网络后重试" : (error?.message || "网络请求失败");
+      reportBatchIssue("network", path, message, undefined, options.method || "GET");
+      throw new Error(message);
+    }
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+    if (!response.ok) {
+      const message = data.error || `HTTP ${response.status}`;
+      reportBatchIssue("response", path, message, response.status, options.method || "GET");
+      throw new Error(message);
+    }
+    return data;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function reportBatchIssue(kind, path, message, status, method) {
@@ -1527,16 +1558,23 @@ async function openWebLoginDialog() {
       if (event.submitter?.id !== "webLoginSubmit") return;
       event.preventDefault();
       const result = $("webLoginResult"); result.textContent = "验证中...";
+      $("webLoginSubmit").disabled = true;
       try {
         const settings = { ...(state.config.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
+        // Verify credentials before persisting them to the local web-submit config.
+        const login = await novelFetchPlatformApi("/api/novel-fetch-upload/upload-login", {
+          method: "POST",
+          body: JSON.stringify({ username: settings.username, password: settings.password }),
+        });
+        if (login.ok !== true) throw new Error(login.error || "登录验证失败");
         await api("/api/web-submit/config", { method: "POST", body: JSON.stringify({ settings }) });
-        const check = await api("/api/web-submit/test-visible", { method: "POST", body: JSON.stringify({ mode: "all", ids: [], force: true }) });
-        state.webLoginSession = check.ok === true;
+        state.webLoginSession = login.ok === true;
         state.config.web_submit = { ...(state.config.web_submit || {}), username: settings.username, password_masked: true };
         renderWebLoginStatus(state.config.web_submit);
         result.textContent = state.webLoginSession ? "登录验证成功" : "登录异常";
         if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
       } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
+      finally { $("webLoginSubmit").disabled = false; }
     });
   }
   $("webLoginUsername").value = state.config?.web_submit?.username || "";
@@ -1729,7 +1767,7 @@ async function testVisibleWebFlow() {
   setSiteSubmitStatus("正在验证 121 登录会话...");
   try {
     await saveWebSubmitConfig(true);
-    const result = await api("/api/web-submit/test-visible", {
+    const result = await novelFetchPlatformApi("/api/batch-rewrite/web-submit/test-visible", {
       method: "POST",
       body: JSON.stringify(webSubmitRequestPayload(state.selectedIds.size ? "selected" : "all", true)),
     });
