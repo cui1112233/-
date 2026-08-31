@@ -36,6 +36,25 @@ test('V78 extension exposes advanced task operations', () => {
   ]) assert.ok(source.includes(marker), `missing ${marker}`);
 });
 
+test('V78 extension exposes only server-backed advanced configuration', () => {
+  for (const marker of [
+    'v78MinOriginalChars',
+    'v78SkipShortOriginal',
+    'v78AutoReclassifyStyle',
+    'v78AutoSyncStyles',
+    'v78CleanupEnabled',
+    'v78RetentionDays',
+    'v78SubmitBatchSize',
+    'v78SubmitFlushSeconds',
+    'v78ForceSerialBatch',
+    'v78SensitiveMode',
+    'sensitiveFixSelect',
+    "v2Api('/config')",
+    "v2Api('/config', { method: 'POST'"
+  ]) assert.ok(source.includes(marker), `missing ${marker}`);
+  assert.ok(source.includes('deepMergeConfig'));
+});
+
 test('V78 extension remains valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(source));
 });
