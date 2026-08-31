@@ -1,5 +1,4 @@
 import {
-  Alert,
   Button,
   Divider,
   Drawer,
@@ -10,13 +9,15 @@ import {
   Typography
 } from 'antd';
 import { CloudDownload, Layers3, Save, Settings2, TimerReset } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEditor';
+import { ChangeImpactNotice } from './ChangeImpactNotice';
 import { FixedSingleVideoControl } from './FixedSingleVideoControl';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
 const full = { width: '100%' };
+const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
 const CONFIG_VERSIONS = [
   { value: 'v3.5', label: '批量配置 V3.5' },
@@ -46,20 +47,32 @@ export function ProductionSettingsDrawer({
   batch,
   initialValue = {},
   onClose,
-  onSave
+  onSave,
+  onPreviewChangeImpact
 }) {
   const [form, setForm] = useState(initialValue);
   const [saving, setSaving] = useState(false);
+  const [impactResult, setImpactResult] = useState(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const impactTimerRef = useRef(null);
+  const impactRequestRef = useRef(0);
 
   useEffect(() => {
-    if (!open) return;
+    if (impactTimerRef.current) {
+      clearTimeout(impactTimerRef.current);
+      impactTimerRef.current = null;
+    }
+    impactRequestRef.current += 1;
+    setImpactLoading(false);
+    setImpactResult(null);
+    if (!open) return undefined;
     setForm({ ...initialValue });
+    return () => {
+      if (impactTimerRef.current) clearTimeout(impactTimerRef.current);
+      impactTimerRef.current = null;
+      impactRequestRef.current += 1;
+    };
   }, [open, batch?.id, initialValue]);
-
-  const modeChanged = Object.prototype.hasOwnProperty.call(form, 'productionMode') && form.productionMode !== initialValue.productionMode;
-  const modelChanged = Object.prototype.hasOwnProperty.call(form, 'videoModelId') && form.videoModelId !== initialValue.videoModelId;
-  const configChanged = Object.prototype.hasOwnProperty.call(form, 'configVersion') && form.configVersion !== initialValue.configVersion;
-  const impactfulChange = modeChanged || modelChanged || configChanged;
 
   const enabledConstraintCount = useMemo(() => [
     form.injectBaseSettings === true,
@@ -72,8 +85,38 @@ export function ProductionSettingsDrawer({
     form.negativeEnabled === true
   ].filter(Boolean).length, [form]);
 
+  function scheduleImpactPreview(proposedPatch) {
+    if (!onPreviewChangeImpact) return;
+    if (impactTimerRef.current) clearTimeout(impactTimerRef.current);
+    const requestId = impactRequestRef.current + 1;
+    impactRequestRef.current = requestId;
+    setImpactResult(null);
+    impactTimerRef.current = setTimeout(async () => {
+      impactTimerRef.current = null;
+      setImpactLoading(true);
+      try {
+        const result = await onPreviewChangeImpact(proposedPatch);
+        if (impactRequestRef.current === requestId) {
+          setImpactResult(result || { ok: false, status: 0, message: '无法读取影响' });
+        }
+      } catch (error) {
+        if (impactRequestRef.current === requestId) {
+          setImpactResult({
+            ok: false,
+            status: Number(error?.status || 0),
+            message: error?.message || '读取变更影响失败，请稍后重试。'
+          });
+        }
+      } finally {
+        if (impactRequestRef.current === requestId) setImpactLoading(false);
+      }
+    }, CHANGE_IMPACT_DEBOUNCE_MS);
+  }
+
   function patch(next) {
-    setForm(current => ({ ...current, ...next }));
+    const proposedPatch = { ...form, ...next };
+    setForm(proposedPatch);
+    scheduleImpactPreview(proposedPatch);
   }
 
   async function save() {
@@ -129,12 +172,7 @@ export function ProductionSettingsDrawer({
         <Typography.Text type="secondary">清空选择代表当前 patch 不再指定版本；完整的版本列表与变更影响由 V11 服务端提供。</Typography.Text>
       </section>
 
-      {impactfulChange ? <Alert
-        type="warning"
-        showIcon
-        message="本次修改可能影响已有导演结果"
-        description="生产方式、模型或配置版本发生变化时，不会自动重做导演；后续由 V11 change-impact 返回真实影响范围。"
-      /> : null}
+      <ChangeImpactNotice result={impactResult} loading={impactLoading} />
 
       <Divider orientation="left">基础生产设置</Divider>
       <section className="bf11-setting-section">

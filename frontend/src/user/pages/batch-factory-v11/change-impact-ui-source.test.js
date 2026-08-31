@@ -17,8 +17,12 @@ test('ChangeImpactNotice renders normalized server counts without deriving compa
   assert.match(source, /affectedVideos/);
   assert.match(source, /orphanedOverrides/);
   assert.match(source, /incompatibleOverrides/);
+  assert.match(source, /无法读取影响/);
+  assert.match(source, /前端不会生成本地替代结果/);
   assert.equal(source.includes('compatibility.filter'), false);
   assert.equal(source.includes('compatibility.length'), false);
+  assert.equal(source.includes('batchFactoryV11'), false);
+  assert.equal(source.includes('apiRequest'), false);
 });
 
 test('ProductionSettingsDrawer uses server change-impact preview instead of local impact inference', () => {
@@ -29,10 +33,13 @@ test('ProductionSettingsDrawer uses server change-impact preview instead of loca
   assert.equal(source.includes('const modeChanged'), false);
   assert.equal(source.includes('const modelChanged'), false);
   assert.equal(source.includes('const configChanged'), false);
+  assert.equal(source.includes('batchFactoryV11'), false);
+  assert.equal(source.includes('apiRequest'), false);
 });
 
 test('BatchFactoryV11UiPage passes runtime change-impact preview into the drawer', () => {
   const source = read('BatchFactoryV11UiPage.jsx');
-  assert.match(source, /previewChangeImpact/);
+  assert.match(source, /runtime\.previewChangeImpact/);
   assert.match(source, /onPreviewChangeImpact/);
+  assert.equal(source.includes('getChangeImpact('), false);
 });

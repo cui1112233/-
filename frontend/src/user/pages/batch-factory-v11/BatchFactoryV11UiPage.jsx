@@ -178,6 +178,14 @@ export function BatchFactoryV11UiPage() {
     return true;
   }
 
+  function previewBatchChangeImpact(patch) {
+    return runtime.previewChangeImpact({
+      batchId: batch.id,
+      patch,
+      revision: batchSettingsState.revision
+    });
+  }
+
   function saveBatchSettings(patch) {
     return saveScope({
       scope: 'batch',
@@ -225,6 +233,7 @@ export function BatchFactoryV11UiPage() {
       batch={viewBatch}
       initialValue={batchSettingsState.patch}
       onClose={() => setProductionSettingsOpen(false)}
+      onPreviewChangeImpact={previewBatchChangeImpact}
       onSave={saveBatchSettings}
     />
 
