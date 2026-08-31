@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createBf11Runtime,
+  createdBatchIdFrom,
   settingsStateFrom,
   workbenchStateFromLoad
 } from './bf11Runtime.js';
@@ -53,4 +54,16 @@ test('runtime save treats 409 as revision conflict and does not claim success', 
   assert.equal(result.ok, false);
   assert.equal(result.conflict, true);
   assert.match(result.message, /刷新/);
+});
+
+test('created batch id is read from server response without starting Director', async () => {
+  assert.equal(createdBatchIdFrom({ batch: { id: 'b9' } }), 'b9');
+  assert.equal(createdBatchIdFrom({ id: 'b8' }), 'b8');
+  const runtime = createBf11Runtime({ adapter: {
+    createBatchFromIntake: async () => ({ batch: { id: 'b9' } })
+  } });
+  const result = await runtime.createBatchFromIntake({ intakeId: 'i1' });
+  assert.equal(result.ok, true);
+  assert.equal(result.startsDirector, false);
+  assert.equal(createdBatchIdFrom(result.raw), 'b9');
 });
