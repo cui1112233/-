@@ -69,3 +69,12 @@ test('delete removes schedule and owner data stays isolated', () => {
   assert.equal(scheduler.list('alice').length, 0);
   assert.equal(scheduler.list('bob').length, 1);
 });
+
+test('scheduler passes owner to execute callback', async () => {
+  const clock = clockAt('2026-08-31T12:00:00.000Z');
+  const seen = [];
+  const scheduler = createNovelFetchScheduler({ usersDir: tempUsersDir(), clock: clock.now, execute: async item => { seen.push(item.owner); } });
+  scheduler.create('alice', { runAt: '2026-08-31T11:00:00.000Z', inputSnapshot: {} });
+  await scheduler.runDue('alice');
+  assert.deepEqual(seen, ['alice']);
+});
