@@ -1,0 +1,14 @@
+{
+  "name": "qiantie-121-browser-worker",
+  "version": "78.3.0.3-v2",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "playwright": "^1.55.0"
+  }
+}
