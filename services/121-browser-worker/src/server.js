@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('node:path');
-const { normalizeSessionRequest, sanitizeSessionResponse } = require('./contracts');
+const { normalizeSessionRequest, sanitizeSessionResponse, requireStrongSecret } = require('./contracts');
 const { createSessionStore, deriveSessionKey } = require('./session-store');
 const { loginWithPlaywright } = require('./login');
 const { actionWithPlaywright } = require('./actions');
@@ -25,6 +25,7 @@ function safeActionHeaders(headers = {}) {
 
 function createWorkerApp({
   secret,
+  storageSecret = process.env.QIANTIE_121_STORAGE_STATE_SECRET,
   sessionStore,
   login = loginWithPlaywright,
   action = actionWithPlaywright,
@@ -32,12 +33,15 @@ function createWorkerApp({
   verifyTimeoutMs = Number(process.env.QIANTIE_121_VERIFY_TIMEOUT_MS) || 15000,
   loginTimeoutMs = Number(process.env.QIANTIE_121_LOGIN_TIMEOUT_MS) || 30000
 } = {}) {
-  if (!secret) throw new Error('worker internal secret is required');
-  const store = sessionStore || createSessionStore({ rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions') });
+  const internalSecret = requireStrongSecret(secret, 'worker internal secret');
+  const store = sessionStore || createSessionStore({
+    rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions'),
+    secret: storageSecret
+  });
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use((req, res, next) => {
-    if (req.headers['x-qiantie-internal-secret'] !== secret) return res.status(401).json({ error: 'unauthorized' });
+    if (req.headers['x-qiantie-internal-secret'] !== internalSecret) return res.status(401).json({ error: 'unauthorized' });
     next();
   });
 
@@ -47,6 +51,7 @@ function createWorkerApp({
       if (input.headed && !headedEnabled) return res.status(409).json({ error: 'headed_browser_unavailable', capability: 'headed_unavailable' });
       const existing = store.load(input);
       const result = await withTimeout(login({ ...input, storageState: existing, timeoutMs: loginTimeoutMs }), loginTimeoutMs + 1000);
+      if (result?.authenticated !== true || !result?.storageState) throw new Error('121 登录未返回已验证浏览器会话');
       const saved = store.save(input, result.storageState);
       return res.json(sanitizeSessionResponse({ ok: true, owner: input.owner, sessionKey: saved.sessionKey, status: 'ready', detail: existing ? 'session_refreshed' : 'session_created' }));
     } catch (error) {
@@ -64,6 +69,7 @@ function createWorkerApp({
     if (!existing) return res.status(404).json({ ok: false, owner: input.owner, status: 'missing' });
     try {
       const result = await withTimeout(login({ ...input, storageState: existing, timeoutMs: verifyTimeoutMs }), verifyTimeoutMs + 1000);
+      if (result?.authenticated !== true || !result?.storageState) throw new Error('121 浏览器会话未通过后台验证');
       store.save(input, result.storageState);
       return res.json(sanitizeSessionResponse({ ok: true, owner: input.owner, sessionKey: deriveSessionKey(input), status: 'ready', detail: 'session_valid' }));
     } catch (error) {
@@ -78,6 +84,7 @@ function createWorkerApp({
       if (input.headed && !headedEnabled) return res.status(409).json({ error: 'headed_browser_unavailable', capability: 'headed_unavailable' });
       const existing = store.load(input);
       const result = await withTimeout(login({ ...input, storageState: existing, timeoutMs: loginTimeoutMs }), loginTimeoutMs + 1000);
+      if (result?.authenticated !== true || !result?.storageState) throw new Error('121 刷新未返回已验证浏览器会话');
       const saved = store.save(input, result.storageState);
       return res.json(sanitizeSessionResponse({ ok: true, owner: input.owner, sessionKey: saved.sessionKey, status: 'ready', detail: 'session_refreshed', refreshedAt: new Date().toISOString() }));
     } catch (error) {
