@@ -1,0 +1,221 @@
+name: V78 Linux AMD64 Image Release
+
+on:
+  push:
+    branches:
+      - ops/v78-public-115.190.156.223-amd64-release
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  V78_SHA: cb9decd1054ca6c9e6931f6fb24627d6ae6f280c
+  GO_SHA: 13e40da4092046846ad13c5c0bbb15918216465a
+  IMAGE_PLATFORM: linux/amd64
+  COMPOSE_PROJECT_NAME: qiantie-v78-amd64-${{ github.run_id }}
+
+jobs:
+  build-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Assert Linux AMD64 runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test "$(docker info --format '{{.OSType}}')" = linux
+          test "$(docker info --format '{{.Architecture}}')" = x86_64
+
+      - name: Checkout locked V78 source
+        uses: actions/checkout@v4
+        with:
+          ref: cb9decd1054ca6c9e6931f6fb24627d6ae6f280c
+          path: v78
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout locked Go bridge source
+        uses: actions/checkout@v4
+        with:
+          ref: 13e40da4092046846ad13c5c0bbb15918216465a
+          path: go
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate locked sources and clean trees
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C v78 rev-parse HEAD)" = "$V78_SHA"
+          test "$(git -C go rev-parse HEAD)" = "$GO_SHA"
+          test -z "$(git -C v78 status --porcelain=v1)"
+          test -z "$(git -C go status --porcelain=v1)"
+          test -f v78/deploy/v78-public/docker-compose.yml
+          test -f go/backend/Dockerfile
+
+      - name: Prepare ephemeral smoke environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd v78/deploy/v78-public
+          umask 077
+          cp .env.example .env
+          sed -i "s|QIANTIE_GO_SOURCE_DIR=/opt/qiantie/go|QIANTIE_GO_SOURCE_DIR=${GITHUB_WORKSPACE}/go|" .env
+          sed -i "s|CHANGE_ME_MYSQL_PASSWORD|$(openssl rand -hex 32)|" .env
+          sed -i "s|CHANGE_ME_MYSQL_ROOT_PASSWORD|$(openssl rand -hex 32)|" .env
+          sed -i "s|CHANGE_ME_LONG_RANDOM_BRIDGE_SECRET|$(openssl rand -hex 32)|" .env
+          sed -i "s|CHANGE_ME_LONG_RANDOM_WORKER_SECRET|$(openssl rand -hex 32)|" .env
+          sed -i "s|CHANGE_ME_LONG_RANDOM_CREDENTIAL_SECRET|$(openssl rand -hex 32)|" .env
+          ! grep -q 'CHANGE_ME_' .env
+          ! git -C ../.. ls-files --error-unmatch deploy/v78-public/.env >/dev/null 2>&1
+
+      - name: Validate Compose model
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose --env-file v78/deploy/v78-public/.env \
+            -f v78/deploy/v78-public/docker-compose.yml \
+            --project-name "$COMPOSE_PROJECT_NAME" config -q
+
+      - name: Prepare pinned AMD64 base images
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker pull --platform "$IMAGE_PLATFORM" mysql:8.4
+          docker pull --platform "$IMAGE_PLATFORM" nginx:1.27-alpine
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' mysql:8.4)" = "$IMAGE_PLATFORM"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' nginx:1.27-alpine)" = "$IMAGE_PLATFORM"
+
+      - name: Build locked application images for AMD64
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose --env-file v78/deploy/v78-public/.env \
+            -f v78/deploy/v78-public/docker-compose.yml \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            build --pull go-api browser-worker v78-node
+
+      - name: Validate all runtime image architectures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          images=(
+            mysql:8.4
+            nginx:1.27-alpine
+            qiantie-v78-node:public-v78
+            qiantie-go-api:public-v78
+            qiantie-121-browser-worker:public-v78
+          )
+          for image in "${images[@]}"; do
+            test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "$IMAGE_PLATFORM"
+          done
+
+      - name: Start candidate without registry pulls
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose --env-file v78/deploy/v78-public/.env \
+            -f v78/deploy/v78-public/docker-compose.yml \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            up --pull never -d mysql go-api browser-worker v78-node
+
+      - name: Run internal candidate smoke checks
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          compose=(docker compose --env-file v78/deploy/v78-public/.env -f v78/deploy/v78-public/docker-compose.yml --project-name "$COMPOSE_PROJECT_NAME")
+          mysql_cid=""
+          for attempt in $(seq 1 60); do
+            mysql_cid="$("${compose[@]}" ps -q mysql)"
+            if [[ -n "$mysql_cid" ]] && [[ "$(docker inspect -f '{{.State.Health.Status}}' "$mysql_cid")" = healthy ]]; then
+              break
+            fi
+            if [[ "$attempt" = 60 ]]; then
+              echo "MySQL candidate did not become healthy" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          "${compose[@]}" exec -T v78-node node -e "fetch('http://127.0.0.1:3000/api/build-info').then(async r=>{if(!r.ok)throw new Error('node '+r.status);const b=await r.json();if(!b.app_version)throw new Error('missing app_version');console.log('V78 Node OK',JSON.stringify(b))}).catch(e=>{console.error(e);process.exit(1)})"
+          "${compose[@]}" exec -T v78-node node -e "fetch('http://go-api:4000/health').then(async r=>{if(!r.ok)throw new Error('go '+r.status);console.log('Go API OK',await r.text())}).catch(e=>{console.error(e);process.exit(1)})"
+          "${compose[@]}" exec -T v78-node node -e "fetch('http://browser-worker:8787/healthz',{headers:{'x-qiantie-internal-secret':process.env.QIANTIE_121_WORKER_SECRET}}).then(async r=>{if(!r.ok)throw new Error('worker '+r.status);console.log('121 Worker OK',await r.text())}).catch(e=>{console.error(e);process.exit(1)})"
+
+      - name: Smoke test Nginx public entry
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose --env-file v78/deploy/v78-public/.env \
+            -f v78/deploy/v78-public/docker-compose.yml \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            up --pull never -d nginx
+          curl --fail --silent --show-error --max-time 15 http://127.0.0.1/api/build-info
+
+      - name: Save formal AMD64 deployment images
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_dir="$GITHUB_WORKSPACE/v78/deploy/v78-public/release"
+          mkdir -p "$release_dir"
+          docker save mysql:8.4 nginx:1.27-alpine | gzip -1 > "$release_dir/qiantie-v78-linux-amd64-base.tar.gz"
+          docker save qiantie-v78-node:public-v78 | gzip -1 > "$release_dir/qiantie-v78-linux-amd64-node.tar.gz"
+          docker save qiantie-go-api:public-v78 | gzip -1 > "$release_dir/qiantie-v78-linux-amd64-go.tar.gz"
+          docker save qiantie-121-browser-worker:public-v78 | gzip -1 > "$release_dir/qiantie-v78-linux-amd64-browser-worker.tar.gz"
+          {
+            echo "architecture=linux/amd64"
+            echo "V78_SHA=$V78_SHA"
+            echo "Go_SHA=$GO_SHA"
+            echo "smoke=passed"
+            docker image inspect --format='image=mysql:8.4 architecture={{.Os}}/{{.Architecture}}' mysql:8.4
+            docker image inspect --format='image=nginx:1.27-alpine architecture={{.Os}}/{{.Architecture}}' nginx:1.27-alpine
+            docker image inspect --format='image=qiantie-v78-node:public-v78 architecture={{.Os}}/{{.Architecture}}' qiantie-v78-node:public-v78
+            docker image inspect --format='image=qiantie-go-api:public-v78 architecture={{.Os}}/{{.Architecture}}' qiantie-go-api:public-v78
+            docker image inspect --format='image=qiantie-121-browser-worker:public-v78 architecture={{.Os}}/{{.Architecture}}' qiantie-121-browser-worker:public-v78
+          } > "$release_dir/RELEASE-METADATA.txt"
+          sha256sum "$release_dir"/*.tar.gz > "$release_dir/SHA256SUMS"
+          ! find "$release_dir" -type f -name '.env' -print -quit | grep -q .
+          for archive in "$release_dir"/*.tar.gz; do
+            ! tar -tzf "$archive" | rg '(^|/)\.env($|/)' >/dev/null
+          done
+          cat "$release_dir/RELEASE-METADATA.txt"
+          cat "$release_dir/SHA256SUMS"
+          du -h "$release_dir"/*
+
+      - name: Upload AMD64 deployment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiantie-v78-linux-amd64-images-${{ github.run_id }}
+          path: |
+            v78/deploy/v78-public/release/*.tar.gz
+            v78/deploy/v78-public/release/SHA256SUMS
+            v78/deploy/v78-public/release/RELEASE-METADATA.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Show candidate diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          if [[ -f v78/deploy/v78-public/.env ]]; then
+            docker compose --env-file v78/deploy/v78-public/.env \
+              -f v78/deploy/v78-public/docker-compose.yml \
+              --project-name "$COMPOSE_PROJECT_NAME" ps -a
+            docker compose --env-file v78/deploy/v78-public/.env \
+              -f v78/deploy/v78-public/docker-compose.yml \
+              --project-name "$COMPOSE_PROJECT_NAME" logs --tail=200
+          fi
+
+      - name: Cleanup ephemeral candidate
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [[ -f v78/deploy/v78-public/.env ]]; then
+            docker compose --env-file v78/deploy/v78-public/.env \
+              -f v78/deploy/v78-public/docker-compose.yml \
+              --project-name "$COMPOSE_PROJECT_NAME" down --remove-orphans
+          fi
