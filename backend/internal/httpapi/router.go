@@ -33,6 +33,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	auth := BridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}
 	root.Handle("/api/batch-factory/v11/", auth.Middleware(v11))
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
+	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
