@@ -8,17 +8,28 @@ async function listen(app) {
   return { server, base: `http://127.0.0.1:${port}` };
 }
 
-async function request(base, path, { method = 'POST', secret = 'secret', body } = {}) {
+async function request(base, path, { method = 'POST', secret = 'secret', owner = 'alice', body } = {}) {
   const response = await fetch(`${base}${path}`, {
     method,
-    headers: { 'content-type': 'application/json', 'x-qiantie-internal-secret': secret },
+    headers: {
+      'content-type': 'application/json',
+      'x-qiantie-internal-secret': secret,
+      'x-qiantie-owner': owner
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });
   const data = await response.json();
   return { status: response.status, data };
 }
 
-const identity = { owner: 'alice', baseUrl: 'http://two.121w.com/tttadmin', username: 'u' };
+const identity = { baseUrl: 'http://two.121w.com/tttadmin', username: 'u' };
+
+test('worker requires storage encryption secret when creating its real session store', () => {
+  assert.throws(
+    () => createWorkerApp({ secret: 'secret', storageSecret: '' }),
+    /storage encryption secret/i
+  );
+});
 
 test('worker rejects requests without internal secret', async () => {
   const app = createWorkerApp({ secret: 'secret', sessionStore: { load: () => null }, login: async () => ({ authenticated: true, storageState: {} }) });
@@ -26,6 +37,45 @@ test('worker rejects requests without internal secret', async () => {
   try {
     const result = await request(base, '/session/test', { secret: 'wrong', body: identity });
     assert.equal(result.status, 401);
+  } finally { server.close(); }
+});
+
+test('worker rejects arbitrary target hosts', async () => {
+  const app = createWorkerApp({ secret: 'secret', sessionStore: { load: () => null } });
+  const { server, base } = await listen(app);
+  try {
+    const result = await request(base, '/session/test', { body: { ...identity, baseUrl: 'http://example.com/tttadmin' } });
+    assert.equal(result.status, 400);
+    assert.equal(result.data.error, 'invalid_request');
+  } finally { server.close(); }
+});
+
+test('worker rejects alternate paths on the 121 host', async () => {
+  const app = createWorkerApp({ secret: 'secret', sessionStore: { load: () => null } });
+  const { server, base } = await listen(app);
+  try {
+    const result = await request(base, '/session/test', { body: { ...identity, baseUrl: 'http://two.121w.com/not-admin' } });
+    assert.equal(result.status, 400);
+    assert.equal(result.data.error, 'invalid_request');
+  } finally { server.close(); }
+});
+
+test('request body owner cannot override authenticated internal owner', async () => {
+  let loadedIdentity;
+  const app = createWorkerApp({
+    secret: 'secret',
+    sessionStore: {
+      load: input => { loadedIdentity = input; return null; }
+    }
+  });
+  const { server, base } = await listen(app);
+  try {
+    const result = await request(base, '/session/test', {
+      owner: 'alice',
+      body: { ...identity, owner: 'bob' }
+    });
+    assert.equal(result.status, 404);
+    assert.equal(loadedIdentity.owner, 'alice');
   } finally { server.close(); }
 });
 
