@@ -22,6 +22,8 @@ jobs:
           tests/novel-fetch-v2-task-list-bridge.test.js
           tests/novel-fetch-v2-page.test.js
           tests/novel-fetch-queue-stop-control.test.js
+          tests/novel-fetch-batches.test.js
+          tests/novel-fetch-target-web-submit.test.js
           tests/batch-rewrite-v2-batch-router.test.js
           tests/batch-rewrite-v2-retry-api.test.js
           tests/batch-rewrite-batches-api.test.js
