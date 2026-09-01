@@ -1,0 +1,29 @@
+name: Novel Fetch V2 Check
+
+on:
+  push:
+    branches:
+      - feat/v78-novel-fetch-v2-completion
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run novel fetch V2 tests
+        run: >-
+          node --test
+          tests/novel-fetch-v2-ui.test.js
+          tests/novel-fetch-v2-task-list-bridge.test.js
+          tests/novel-fetch-v2-page.test.js
+          tests/novel-fetch-queue-stop-control.test.js
+          tests/batch-rewrite-v2-batch-router.test.js
+          tests/batch-rewrite-v2-retry-api.test.js
+          tests/batch-rewrite-batches-api.test.js
+          tests/batch-rewrite-v2-router.test.js
+          tests/novel-fetch-v2-compose.test.js
