@@ -17,31 +17,63 @@ function deriveSessionKey(identity) {
     .digest('hex').slice(0, 40);
 }
 
-function createSessionStore({ rootDir, clock = () => new Date() } = {}) {
+function deriveEncryptionKey(secret) {
+  const value = String(secret || '').trim();
+  if (!value) throw new Error('121 storage encryption secret is required');
+  return crypto.createHash('sha256').update(value).digest();
+}
+
+function createSessionStore({ rootDir, secret, clock = () => new Date() } = {}) {
   if (!rootDir) throw new Error('rootDir is required');
   const root = path.resolve(rootDir);
+  const encryptionKey = deriveEncryptionKey(secret);
 
   function pathFor(identity) { return path.join(root, `${deriveSessionKey(identity)}.json`); }
+  function quarantine(file) {
+    const stamp = clock().toISOString().replace(/[:.]/g, '-');
+    const bad = `${file}.bad-${stamp}`;
+    try { fs.renameSync(file, bad); } catch (_) {}
+  }
   function save(identity, storageState) {
+    const sessionKey = deriveSessionKey(identity);
     const file = pathFor(identity);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
+    cipher.setAAD(Buffer.from(sessionKey, 'utf8'));
+    const plaintext = Buffer.from(JSON.stringify(storageState || {}), 'utf8');
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const envelope = {
+      version: 1,
+      algorithm: 'aes-256-gcm',
+      iv: iv.toString('base64'),
+      tag: cipher.getAuthTag().toString('base64'),
+      ciphertext: ciphertext.toString('base64')
+    };
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(storageState || {}, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(temp, JSON.stringify(envelope), { encoding: 'utf8', mode: 0o600 });
     try { fs.chmodSync(temp, 0o600); } catch (_) {}
     fs.renameSync(temp, file);
     try { fs.chmodSync(file, 0o600); } catch (_) {}
-    return { sessionKey: deriveSessionKey(identity), path: file };
+    return { sessionKey, path: file };
   }
   function load(identity) {
     const file = pathFor(identity);
     if (!fs.existsSync(file)) return null;
     try {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const envelope = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!envelope || envelope.version !== 1 || envelope.algorithm !== 'aes-256-gcm') throw new Error('invalid encrypted storage state');
+      const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, Buffer.from(String(envelope.iv || ''), 'base64'));
+      decipher.setAAD(Buffer.from(deriveSessionKey(identity), 'utf8'));
+      decipher.setAuthTag(Buffer.from(String(envelope.tag || ''), 'base64'));
+      const plaintext = Buffer.concat([
+        decipher.update(Buffer.from(String(envelope.ciphertext || ''), 'base64')),
+        decipher.final()
+      ]).toString('utf8');
+      const parsed = JSON.parse(plaintext);
       return parsed && typeof parsed === 'object' ? parsed : null;
     } catch (_) {
-      const stamp = clock().toISOString().replace(/[:.]/g, '-');
-      const bad = `${file}.bad-${stamp}`;
-      try { fs.renameSync(file, bad); } catch (_) {}
+      quarantine(file);
       return null;
     }
   }
@@ -53,4 +85,4 @@ function createSessionStore({ rootDir, clock = () => new Date() } = {}) {
   return { pathFor, save, load, remove };
 }
 
-module.exports = { deriveSessionKey, createSessionStore };
+module.exports = { deriveSessionKey, deriveEncryptionKey, createSessionStore };
