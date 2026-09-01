@@ -1,3 +1,5 @@
+name: qiantie-novel-fetch-v2-review
+
 services:
   platform-review:
     build:
