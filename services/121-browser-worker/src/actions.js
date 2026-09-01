@@ -1,7 +1,10 @@
 function targetOrigin(baseUrl) {
   const url = new URL(String(baseUrl || '').trim());
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid baseUrl');
-  return `${url.protocol}//${url.host}`;
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid 121 target');
+  if (url.username || url.password || url.port || url.hostname.toLowerCase() !== 'two.121w.com') throw new Error('invalid 121 target');
+  const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (pathname !== '/tttadmin' || url.search || url.hash) throw new Error('invalid 121 target');
+  return `${url.protocol}//two.121w.com`;
 }
 
 function buildActionRequest(baseUrl, action, payload = {}) {
