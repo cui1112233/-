@@ -64,7 +64,7 @@ function fixture() {
     browserClient,
     baseUrl: 'http://two.121w.com/tttadmin'
   });
-  return { service, store, sessionStore, credentialStore, browserClient, calls, getConfig: () => config };
+  return { service, store, docs, sessionStore, credentialStore, browserClient, calls, getConfig: () => config };
 }
 
 test('saving 121 config authenticates through browser worker and never persists or returns plaintext password', async () => {
@@ -77,6 +77,14 @@ test('saving 121 config authenticates through browser worker and never persists 
   assert.equal(Object.hasOwn(f.getConfig().web_submit, 'password'), false);
   assert.equal(Object.hasOwn(result.settings, 'password'), false);
   assert.equal(result.settings.password_masked, true);
+  assert.equal(Array.isArray(result.tasks), true);
+});
+
+test('changing the 121 username requires a fresh password and cannot reuse the previous session silently', async () => {
+  const f = fixture();
+  f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'old', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
+  await assert.rejects(() => f.service.saveConfig('alice', { enabled: true, username: 'different-user' }), /重新输入密码|重新登录/);
+  assert.equal(f.getConfig().web_submit.username, 'site-user');
 });
 
 test('expired 121 session refreshes from owner-scoped credentials before authenticated actions', async () => {
@@ -118,8 +126,38 @@ test('preview and submit keep version/profile semantics but upload and verify on
   assert.equal(preview.groups[0].items[0].id, '10001');
   const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
   assert.equal(result.success_groups, 1);
+  assert.equal(result.groups[0].items[0].remote_receipt.remote_record.status, '完成');
   const actions = f.calls.filter(([kind]) => kind === 'action').map(([, input]) => input.action);
   assert.equal(actions.includes('upload'), true);
   assert.equal(actions.includes('book_list'), true);
   assert.equal(f.calls.some(([kind]) => kind === 'submit-log'), true);
+});
+
+test('an upload response without a verifiable receipt stays accepted_pending instead of being called submitted', async () => {
+  const f = fixture();
+  f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
+  await f.service.syncConfigs('alice');
+  const original = f.browserClient.action.bind(f.browserClient);
+  f.browserClient.action = async input => input.action === 'upload'
+    ? { ok: true, body: JSON.stringify({ success: true }) }
+    : original(input);
+  const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
+  assert.equal(result.success_groups, 0);
+  assert.equal(result.accepted_groups, 1);
+  assert.equal(f.docs.get('10001').meta.siteSubmitStatus, 'accepted_pending');
+});
+
+test('remote record verification reports parameter mismatch rather than claiming a complete match', async () => {
+  const f = fixture();
+  f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
+  await f.service.syncConfigs('alice');
+  const original = f.browserClient.action.bind(f.browserClient);
+  f.browserClient.action = async input => input.action === 'book_list'
+    ? { ok: true, body: JSON.stringify({ success: true, data: [{ id: 91, bookid: '10001', book_platform: 7, gender: 1, style: 303, jian_data: JSON.stringify({ jieya: { jieya_num: 1 }, gunping: { gunping_num: 7 } }) }] }) }
+    : original(input);
+  const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
+  const remote = result.groups[0].items[0].remote_receipt.remote_record;
+  assert.equal(remote.status, '待确认');
+  assert.equal(remote.found, true);
+  assert.ok(remote.mismatches.length >= 1);
 });
