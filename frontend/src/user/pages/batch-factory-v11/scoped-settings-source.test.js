@@ -21,7 +21,7 @@ test('video settings expose highest-level override controls and assets', () => {
   const source = read('BatchFactoryV11ScopedSettings.jsx');
   assert.match(source, /单 VIDEO 设置/);
   assert.match(source, /VIDEO 时长/);
-  assert.match(source, /重新导演/);
+  assert.match(source, /Director revision 是否失效以 Go change-impact 为准/);
   assert.match(source, /负面提示词处理/);
   assert.match(source, /追加/);
   assert.match(source, /完全替换/);
@@ -43,7 +43,7 @@ test('publish settings retain the approved original fields and defer 121 connect
 test('scoped and publish settings do not import old business APIs', () => {
   const sources = ['BatchFactoryV11ScopedSettings.jsx', 'BatchFactoryV11PublishSettings.jsx']
     .map(name => read(name)).join('\n');
-  for (const forbidden of ['shared/api/batchFactory', 'shared/api/shuihuoProduction', '/api/batch-factory/']) {
+  for (const forbidden of ['shared/api/batchFactory', 'shared/api/shuihuoProduction'])
     assert.equal(sources.includes(forbidden), false, `forbidden legacy source: ${forbidden}`);
-  }
+  assert.doesNotMatch(sources, /\/api\/batch-factory\/(?!v11(?:\/|['"`]))/);
 });

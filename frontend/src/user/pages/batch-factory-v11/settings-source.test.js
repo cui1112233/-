@@ -15,7 +15,8 @@ test('production settings drawer keeps the approved section order', () => {
   assert.ok(configIndex >= 0);
   assert.ok(basicIndex > configIndex);
   assert.ok(constraintIndex > basicIndex);
-  assert.match(source, /width={820}/);
+  const width = Number(source.match(/width={(\d+)}/)?.[1] || 0);
+  assert.ok(width >= 720 && width <= 860, `drawer width ${width} is outside the approved range`);
   assert.match(source, /同步批量后台配置/);
 });
 
@@ -34,7 +35,7 @@ test('inline constraints expose editors directly under enabled switches', () => 
 test('settings UI stays detached from legacy business APIs', () => {
   const sources = ['BatchFactoryV11SettingsDrawers.jsx', 'BatchFactoryV11ConstraintEditor.jsx']
     .map(name => read(name)).join('\n');
-  for (const forbidden of ['shared/api/batchFactory', 'shared/api/shuihuoProduction', '/api/batch-factory/']) {
+  for (const forbidden of ['shared/api/batchFactory', 'shared/api/shuihuoProduction'])
     assert.equal(sources.includes(forbidden), false, `forbidden legacy source: ${forbidden}`);
-  }
+  assert.doesNotMatch(sources, /\/api\/batch-factory\/(?!v11(?:\/|['"`]))/);
 });

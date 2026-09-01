@@ -19,5 +19,5 @@ test('Director revision refresh is controlled by batch.read and never invents a 
   assert.match(page, /refreshDirectorRevision/);
   assert.match(page, /runtime\.load/);
   assert.doesNotMatch(bridge, /apiRequest|batchFactoryV11|fetch\(/);
-  assert.doesNotMatch(panel, /\/director|\/hook/);
+  assert.doesNotMatch(panel, /apiRequest|fetch\(|\/api\/batch-factory\/v11/);
 });

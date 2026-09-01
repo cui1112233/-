@@ -18,13 +18,13 @@ test('final UI page uses the V11 client runtime and no showcase business data', 
 });
 
 test('workbench has no demo defaults and gates unreleased actions from capabilities', () => {
-  const source = read('BatchFactoryV11Workbench.jsx');
+  const source = [read('BatchFactoryV11Workbench.jsx'), read('DirectorPanel.jsx')].join('\n');
   assert.equal(source.includes('SHOWCASE_BATCH'), false);
   assert.equal(source.includes('SHOWCASE_BOOKS'), false);
   assert.match(source, /capabilities/);
   assert.match(source, /actionState/);
   assert.match(source, /director\.run/);
-  assert.match(source, /production\.run/);
+  assert.match(source, /production\.submit/);
   assert.match(source, /merge\.run/);
 });
 

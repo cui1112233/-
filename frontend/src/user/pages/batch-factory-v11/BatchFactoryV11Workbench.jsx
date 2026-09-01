@@ -144,7 +144,7 @@ export function BatchFactoryV11Workbench({
   const batchReadAction = actionState(capabilities, 'batch.read');
   const settingsAction = actionState(capabilities, 'settings.edit');
   const overrideAction = actionState(capabilities, 'override.edit');
-  const productionAction = actionState(capabilities, 'production.run');
+  const productionAction = actionState(capabilities, 'production.submit');
   const mergeAction = actionState(capabilities, 'merge.run');
 
   const selectedBook = useMemo(

@@ -45,5 +45,5 @@ test('workbench has a single unified preview surface rather than per-video playe
   const matches = source.match(/data-bf-player="unified"/g) || [];
   assert.equal(matches.length, 1);
   assert.match(source, /最终合并/);
-  assert.match(source, /VIDEO 01/);
+  assert.match(source, /VIDEO \$\{String\(index \+ 1\)\.padStart\(2, '0'\)\}/);
 });

@@ -12,10 +12,13 @@ test('final UI page mounts the workbench and every approved settings surface', (
   for (const marker of [
     'BatchFactoryV11Workbench',
     'ProductionSettingsDrawer',
-    'PublishSettingsDrawer',
     'BookSettingsModal',
     'VideoSettingsDrawer'
   ]) assert.match(source, new RegExp(marker));
+  assert.match(source, /onRunHook={runHook}/);
+  assert.match(source, /onApproveHook={approveHook}/);
+  assert.match(source, /onRunDirector={runDirector}/);
+  assert.doesNotMatch(source, /PublishSettingsDrawer/);
 });
 
 test('V78 /batch-factory page points to the final V11 UI instead of the legacy preview', () => {

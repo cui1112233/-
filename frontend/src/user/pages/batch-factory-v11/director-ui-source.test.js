@@ -13,7 +13,7 @@ test('director UI panels exist and stay controlled', () => {
     assert.equal(fs.existsSync(file), true, `missing ${name}`);
     const source = fs.readFileSync(file, 'utf8');
     assert.match(source, /directorState/);
-    assert.doesNotMatch(source, /batchFactoryV11|apiRequest|fetch\(/);
+    assert.doesNotMatch(source, /shared\/api\/batchFactoryV11|apiRequest|fetch\(/);
   }
 });
 
