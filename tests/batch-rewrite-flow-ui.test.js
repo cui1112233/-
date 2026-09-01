@@ -4,8 +4,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'frontend/public/batch-rewrite/app.js'), 'utf8');
-const uploadRoute = fs.readFileSync(path.join(__dirname, '..', 'routes/novel-fetch-upload.js'), 'utf8');
-const rewriteRoute = fs.readFileSync(path.join(__dirname, '..', 'routes/batch-rewrite.js'), 'utf8');
+const browserClient = fs.readFileSync(path.join(__dirname, '..', 'lib/novel-fetch-workshop/121-browser-client.js'), 'utf8');
+const workerServer = fs.readFileSync(path.join(__dirname, '..', 'services/121-browser-worker/src/server.js'), 'utf8');
 
 test('121 登录验证必须有超时并在结束时恢复按钮', () => {
   assert.match(app, /const PLATFORM_API_TIMEOUT_MS = \d+;/);
@@ -27,7 +27,11 @@ test('登录弹窗在配置尚未加载时也能收口，不会因空配置永�
   assert.match(app, /dialog\.addEventListener\("submit"/);
 });
 
-test('服务端 121 登录和会话验证显式设置超时', () => {
-  assert.match(uploadRoute, /timeoutMs:\s*15000/);
-  assert.match(rewriteRoute, /timeoutMs:\s*15000/);
+test('服务端 121 Browser Worker client 和 Worker 两层都设置超时', () => {
+  assert.match(browserClient, /timeoutMs\s*=\s*15000/);
+  assert.match(browserClient, /new AbortController\(\)/);
+  assert.match(browserClient, /setTimeout\(\(\) => controller\.abort\(\), timeout\)/);
+  assert.match(workerServer, /QIANTIE_121_VERIFY_TIMEOUT_MS/);
+  assert.match(workerServer, /QIANTIE_121_LOGIN_TIMEOUT_MS/);
+  assert.match(workerServer, /withTimeout\(/);
 });

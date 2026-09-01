@@ -10,13 +10,12 @@ const configSource = fs.existsSync(CONFIG_SOURCE_PATH) ? fs.readFileSync(CONFIG_
 const source = `${mainSource}\n${configSource}`;
 
 test('V78 extension exposes queue and realtime controls', () => {
-  for (const endpoint of [
-    '/process/queue/start',
-    '/process/queue/pause',
-    '/process/queue/resume',
-    '/process/queue/stop',
-    '/realtime/status'
-  ]) assert.ok(source.includes(endpoint), `missing ${endpoint}`);
+  assert.ok(source.includes('/process/queue/start'));
+  assert.ok(source.includes('`/process/queue/${action}`'));
+  assert.ok(source.includes("queueAction('pause')"));
+  assert.ok(source.includes("queueAction('resume')"));
+  assert.ok(source.includes("queueAction('stop')"));
+  assert.ok(source.includes('/realtime/status'));
   assert.ok(source.includes('v78QueueStart'));
   assert.ok(source.includes('v78RealtimeStatus'));
 });
@@ -29,8 +28,8 @@ test('V78 extension exposes one-shot scheduler controls', () => {
 
 test('V78 extension exposes advanced task operations', () => {
   for (const marker of [
-    'bookId=',
-    'status=',
+    "params.set('bookId', bookId)",
+    "params.set('status', status)",
     'batch-delete-permanent',
     'restore-tombstone',
     'batch-ai-count',

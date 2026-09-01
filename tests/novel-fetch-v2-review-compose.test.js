@@ -24,6 +24,7 @@ test('review compose wires platform to private Browser Worker with required secr
   assert.match(platform, /QIANTIE_121_CREDENTIAL_SECRET:\s*\$\{QIANTIE_121_CREDENTIAL_SECRET:\?required\}/);
   assert.match(worker, /QIANTIE_121_WORKER_SECRET:\s*\$\{QIANTIE_121_WORKER_SECRET:\?required\}/);
   assert.match(worker, /QIANTIE_121_STORAGE_STATE_SECRET:\s*\$\{QIANTIE_121_STORAGE_STATE_SECRET:\?required\}/);
+  assert.match(worker, /QIANTIE_121_HEADED_ENABLED:\s*"1"/);
   assert.doesNotMatch(source, /dev-bridge-secret-change-me/);
 });
 
