@@ -42,6 +42,10 @@ func canonicalBridgePayload(username, issuedAt, isOwner, method, pathname string
 	return username + issuedAt + isOwner + method + pathname
 }
 
+func newlineBridgePayload(username, issuedAt, isOwner, method, pathname string) string {
+	return strings.Join([]string{username, issuedAt, isOwner, method, pathname}, "\n")
+}
+
 func bridgeSignature(secret, payload string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write([]byte(payload))
@@ -91,13 +95,20 @@ func (a BridgeAuth) authenticate(req *http.Request) (BridgeIdentity, error) {
 	if delta > maxSkew {
 		return BridgeIdentity{}, errors.New("expired bridge signature")
 	}
-	expected := bridgeSignature(a.Secret, canonicalBridgePayload(username, issuedRaw, ownerRaw, req.Method, req.URL.Path))
 	provided, err := hex.DecodeString(signature)
 	if err != nil {
 		return BridgeIdentity{}, errors.New("malformed bridge signature")
 	}
-	expectedBytes, _ := hex.DecodeString(expected)
-	if !hmac.Equal(provided, expectedBytes) {
+	payloads := []string{
+		canonicalBridgePayload(username, issuedRaw, ownerRaw, req.Method, req.URL.Path),
+		newlineBridgePayload(username, issuedRaw, ownerRaw, req.Method, req.URL.Path),
+	}
+	valid := false
+	for _, payload := range payloads {
+		expectedBytes, _ := hex.DecodeString(bridgeSignature(a.Secret, payload))
+		valid = valid || hmac.Equal(provided, expectedBytes)
+	}
+	if !valid {
 		return BridgeIdentity{}, errors.New("invalid bridge signature")
 	}
 	if a.Users != nil {
