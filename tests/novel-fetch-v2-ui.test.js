@@ -35,6 +35,18 @@ test('processing page is reflowed to the approved image layout instead of stacke
   assert.ok(layoutSource.includes('grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr)'));
 });
 
+test('visual correction follows the blue reference image and keeps preview-friendly empty states', () => {
+  for (const marker of [
+    '--v78-blue:#1677ff', 'v78BrandBadge', 'V78', 'v78-reference-shell',
+    'v78CompactTargets', '登录已过期，请重新登录 V78 后刷新', '请登录后查看当前批次'
+  ]) assert.ok(layoutSource.includes(marker), `missing ${marker}`);
+  assert.ok(layoutSource.includes("progressRow('原文获取'"));
+  assert.ok(layoutSource.includes("progressRow('AI文案生成'"));
+  assert.ok(layoutSource.includes("progressRow('121网站提交'"));
+  assert.ok(layoutSource.includes('min-height:36px'));
+  assert.ok(!layoutSource.includes('color:var(--accent);margin-bottom:8px'));
+});
+
 test('processing page exposes current batch controls and table', () => {
   for (const marker of ['/batches/current', '/process/queue/stop', '当前批次', '停止处理', '查看全部任务']) {
     assert.ok(mainSource.includes(marker), `missing ${marker}`);
