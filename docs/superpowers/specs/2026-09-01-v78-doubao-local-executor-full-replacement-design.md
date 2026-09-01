@@ -16,7 +16,7 @@ The replacement is considered usable only when this flow works end to end:
 4. User logs one or more Doubao accounts into isolated local browser profiles.
 5. A V78 VIDEO task is queued for the paired owner.
 6. Exactly one executor leases the task; exactly one local account owns the submission.
-7. Executor uploads required references and prompt, submits once, and records platform acceptance evidence.
+7. Executor sends the prompt and, when present, uploads optional reference images, submits once, and records platform acceptance evidence.
 8. After acceptance, recovery stays on the same account/conversation and never resubmits on another account.
 9. Executor binds completion to the exact submitted message/media identity, downloads the matched MP4, validates it, and uploads the result.
 10. V78 attaches the returned artifact to the original VIDEO task and shows success/failure/cancelled accurately.
@@ -68,6 +68,17 @@ Account states include:
 - `disabled`
 
 Ordinary generation failures do not permanently disable an account. Explicit quota exhaustion can hold the account until local midnight. Human verification pauses the account and requires manual user action; the executor must not bypass captcha/verification.
+
+## VIDEO input contract
+
+VIDEO jobs require a non-empty text prompt. Reference images are optional.
+
+Supported input shapes:
+
+- prompt only -> text-to-video;
+- prompt + one or more reference images -> reference-guided video generation.
+
+The executor must not reject a VIDEO task only because `images` is absent or empty. When images are present, the adapter uploads them before submission. When images are absent, the adapter skips the upload step and submits the prompt directly.
 
 ## Job state machine
 
@@ -160,7 +171,8 @@ The live adapter may use a Chromium profile plus CDP/Playwright-compatible brows
 The adapter must:
 
 - select supported Seedance model/duration options from task payload;
-- upload task reference images before submission;
+- require a non-empty prompt but treat reference images as optional;
+- upload task reference images before submission only when images are present;
 - record a pre-submit baseline for conversation/message/media identity;
 - detect acceptance using positive evidence from the new submission;
 - automatically answer a normal confirmation request at most once when required;
@@ -189,6 +201,7 @@ The adapter must:
 - Lease exclusivity, stale lease, expiry, cancellation, acceptance freeze, no-resubmit invariants.
 - Device proxy tests proving pair/body and Bearer headers pass through while arbitrary paths do not.
 - Executor state-machine tests with fake Doubao adapter for normal success, not-accepted retry, ambiguous acceptance, accepted connection loss, cancellation, quota exhaustion, human verification, and download retry.
+- VIDEO input tests proving prompt-only succeeds, prompt+images succeeds, and missing prompt fails.
 - Artifact identity/idempotency tests.
 - Full Go tests and Node/frontend build where dependencies are available.
 - Real live acceptance test is required before replacing the download links.
