@@ -48,6 +48,20 @@ func (s *MemoryStore) ArtifactForOwner(_ context.Context, owner, id string) (Art
 	return record, nil
 }
 
+func (s *MemoryStore) ArtifactForJob(_ context.Context, jobID string) (ArtifactRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	artifactID, ok := s.jobArtifacts[jobID]
+	if !ok {
+		return ArtifactRecord{}, ErrArtifactNotFound
+	}
+	record, ok := s.artifacts[artifactID]
+	if !ok {
+		return ArtifactRecord{}, ErrArtifactNotFound
+	}
+	return record, nil
+}
+
 func sameArtifactContent(left, right ArtifactRecord) bool {
 	return left.MediaType == right.MediaType && left.ByteSize == right.ByteSize && left.SHA256 == right.SHA256
 }
