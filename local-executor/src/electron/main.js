@@ -5,6 +5,7 @@ const { DeviceStore } = require('../device-store');
 const { AccountStore } = require('../account-store');
 const { DesktopRuntime } = require('../desktop-runtime');
 const { DesktopController } = require('../desktop-controller');
+const { DoubaoAdapter } = require('../doubao-adapter');
 const { AccountWindows } = require('./account-windows');
 
 let mainWindow = null;
@@ -45,6 +46,7 @@ function registerIpc() {
   ipcMain.handle('executor:add-account', () => controller.addAccount());
   ipcMain.handle('executor:open-account', (_event, id) => controller.openAccount(id));
   ipcMain.handle('executor:mark-account-available', (_event, id) => controller.markAccountAvailable(id));
+  ipcMain.handle('executor:set-automation-enabled', (_event, enabled) => controller.setAutomationEnabled(Boolean(enabled)));
 }
 
 function buildController() {
@@ -63,11 +65,17 @@ function buildController() {
     accounts = [];
   }
 
+  const accountWindows = new AccountWindows({ BrowserWindow, session });
+  const adapter = new DoubaoAdapter({
+    accountWindows,
+    downloadDir: path.join(userData, 'returned-videos')
+  });
   const runtimeOptions = {
     deviceName: os.hostname(),
     platform: process.platform,
     version: app.getVersion(),
-    accounts
+    accounts,
+    adapter
   };
 
   let runtime;
@@ -84,7 +92,6 @@ function buildController() {
     runtime.recordError(error);
   }
 
-  const accountWindows = new AccountWindows({ BrowserWindow, session });
   return new DesktopController({
     runtime,
     accountStore,
@@ -98,6 +105,7 @@ app.whenReady().then(() => {
   registerIpc();
   createMainWindow();
   controller.startHeartbeat(15000);
+  controller.startJobPolling(2000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
