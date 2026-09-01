@@ -25,9 +25,16 @@ function coreFixture() {
   };
 }
 
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, task ops, and starts scheduler runtime', async () => {
-  const previous = process.env.QIANTIE_121_CREDENTIAL_SECRET;
+  const previousCredential = process.env.QIANTIE_121_CREDENTIAL_SECRET;
+  const previousBridge = process.env.QIANTIE_BRIDGE_SECRET;
   process.env.QIANTIE_121_CREDENTIAL_SECRET = 'compose-test-credential-secret';
+  process.env.QIANTIE_BRIDGE_SECRET = 'compose-test-bridge-secret';
   try {
     const uses = [];
     const shellApp = { locals: {}, use(...args) { uses.push(args); return this; } };
@@ -108,8 +115,8 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
     assert.equal(started, 1);
     assert.deepEqual(uses, [['/api/batch-rewrite', bodyParser, router]]);
   } finally {
-    if (previous === undefined) delete process.env.QIANTIE_121_CREDENTIAL_SECRET;
-    else process.env.QIANTIE_121_CREDENTIAL_SECRET = previous;
+    restoreEnv('QIANTIE_121_CREDENTIAL_SECRET', previousCredential);
+    restoreEnv('QIANTIE_BRIDGE_SECRET', previousBridge);
   }
 });
 
@@ -117,7 +124,7 @@ test('composition fails closed when dedicated 121 credential encryption secret i
   const previousCredential = process.env.QIANTIE_121_CREDENTIAL_SECRET;
   const previousBridge = process.env.QIANTIE_BRIDGE_SECRET;
   delete process.env.QIANTIE_121_CREDENTIAL_SECRET;
-  delete process.env.QIANTIE_BRIDGE_SECRET;
+  process.env.QIANTIE_BRIDGE_SECRET = 'compose-test-bridge-secret';
   try {
     const shellApp = { locals: {}, use() { return this; } };
     const { coreApp } = coreFixture();
@@ -138,9 +145,37 @@ test('composition fails closed when dedicated 121 credential encryption secret i
       /121 credential encryption secret is required/i
     );
   } finally {
-    if (previousCredential === undefined) delete process.env.QIANTIE_121_CREDENTIAL_SECRET;
-    else process.env.QIANTIE_121_CREDENTIAL_SECRET = previousCredential;
-    if (previousBridge === undefined) delete process.env.QIANTIE_BRIDGE_SECRET;
-    else process.env.QIANTIE_BRIDGE_SECRET = previousBridge;
+    restoreEnv('QIANTIE_121_CREDENTIAL_SECRET', previousCredential);
+    restoreEnv('QIANTIE_BRIDGE_SECRET', previousBridge);
+  }
+});
+
+test('composition fails closed when V2 bridge secret is missing instead of using dev default', () => {
+  const previousCredential = process.env.QIANTIE_121_CREDENTIAL_SECRET;
+  const previousBridge = process.env.QIANTIE_BRIDGE_SECRET;
+  process.env.QIANTIE_121_CREDENTIAL_SECRET = 'compose-test-credential-secret';
+  delete process.env.QIANTIE_BRIDGE_SECRET;
+  try {
+    const shellApp = { locals: {}, use() { return this; } };
+    const { coreApp } = coreFixture();
+    assert.throws(
+      () => attachV78NovelFetchV2({
+        shellApp,
+        coreApp,
+        bodyParser: () => {},
+        createBrowserClient: () => ({ configured: true }),
+        createCredentialStore: () => ({ get() {}, set() {} }),
+        createWebSubmit: () => ({ ensureSession() {}, syncStyles() {}, submit() {} }),
+        createBatchExecutor: () => async () => ({}),
+        createTombstones: () => ({}),
+        createTaskOps: () => ({ processConflicts: () => [] }),
+        createRuntime: () => ({ queue: {}, scheduler: {}, startScheduler() {} }),
+        createRouter: () => ({})
+      }),
+      /QIANTIE_BRIDGE_SECRET is required/i
+    );
+  } finally {
+    restoreEnv('QIANTIE_121_CREDENTIAL_SECRET', previousCredential);
+    restoreEnv('QIANTIE_BRIDGE_SECRET', previousBridge);
   }
 });
