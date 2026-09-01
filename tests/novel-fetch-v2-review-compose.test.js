@@ -40,6 +40,13 @@ test('review compose exposes only the platform on localhost and never publishes 
   assert.doesNotMatch(source, /internal:\s*true/);
 });
 
+test('worker healthcheck authenticates with the same internal secret instead of weakening healthz auth', () => {
+  const worker = serviceBlock(composeSource(), 'novel-fetch-121-worker');
+  assert.match(worker, /x-qiantie-internal-secret/);
+  assert.match(worker, /process\.env\.QIANTIE_121_WORKER_SECRET/);
+  assert.match(worker, /\/healthz/);
+});
+
 test('review compose requires explicit temporary host data directories instead of production volumes', () => {
   const source = composeSource();
   assert.match(source, /\$\{QIANTIE_REVIEW_DATA_DIR:\?required\}:\/app\/data/);
