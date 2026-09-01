@@ -9,6 +9,7 @@ import (
 	"qiantie/backend/internal/batchfactoryv11/external"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
+	"qiantie/backend/internal/novelfetchworkshop"
 )
 
 type RouterOptions struct {
@@ -25,6 +26,7 @@ type RouterOptions struct {
 	External        *external.Service
 	LocalExecutors  *localexecutor.Service
 	LocalArtifacts  *localartifact.Store
+	NovelFetchStore novelfetchworkshop.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -58,6 +60,11 @@ func NewRouter(options RouterOptions) http.Handler {
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
+	if options.NovelFetchStore != nil {
+		novelFetch := http.NewServeMux()
+		registerNovelFetchWorkshopRoutes(novelFetch, options.NovelFetchStore)
+		root.Handle("/api/novel-fetch-workshop/", NovelFetchBridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}.Middleware(novelFetch))
+	}
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
