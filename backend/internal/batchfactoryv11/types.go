@@ -15,6 +15,11 @@ var (
 
 type SettingsPatch map[string]json.RawMessage
 
+type SettingsState struct {
+	Patch    SettingsPatch `json:"patch"`
+	Revision int64         `json:"revision"`
+}
+
 type ScopeKind string
 
 const (
@@ -42,32 +47,35 @@ type SettingsResult struct {
 }
 
 type Video struct {
-	ID                 string  `json:"id"`
-	BatchID            string  `json:"batchId"`
-	BookID             string  `json:"bookId"`
-	Label              string  `json:"label,omitempty"`
-	VisualPrompt       string  `json:"visualPrompt,omitempty"`
-	DurationSeconds    float64 `json:"durationSeconds,omitempty"`
-	CompatibilityState string  `json:"compatibilityState"`
-	Revision           int64   `json:"revision"`
+	ID                 string        `json:"id"`
+	BatchID            string        `json:"batchId"`
+	BookID             string        `json:"bookId"`
+	Label              string        `json:"label,omitempty"`
+	VisualPrompt       string        `json:"visualPrompt,omitempty"`
+	DurationSeconds    float64       `json:"durationSeconds,omitempty"`
+	CompatibilityState string        `json:"compatibilityState"`
+	Revision           int64         `json:"revision"`
+	SettingsState      SettingsState `json:"settingsState"`
 }
 type Book struct {
-	ID         string  `json:"id"`
-	BatchID    string  `json:"batchId"`
-	BookID     string  `json:"bookId"`
-	Title      string  `json:"title"`
-	SourceText string  `json:"sourceText,omitempty"`
-	Revision   int64   `json:"revision"`
-	Videos     []Video `json:"videos"`
+	ID            string        `json:"id"`
+	BatchID       string        `json:"batchId"`
+	BookID        string        `json:"bookId"`
+	Title         string        `json:"title"`
+	SourceText    string        `json:"sourceText,omitempty"`
+	Revision      int64         `json:"revision"`
+	SettingsState SettingsState `json:"settingsState"`
+	Videos        []Video       `json:"videos"`
 }
 type Batch struct {
-	ID             string    `json:"id"`
-	Title          string    `json:"title"`
-	SourceIntakeID string    `json:"sourceIntakeId,omitempty"`
-	Revision       int64     `json:"revision"`
-	Books          []Book    `json:"books"`
-	CreatedAt      time.Time `json:"createdAt,omitempty"`
-	UpdatedAt      time.Time `json:"updatedAt,omitempty"`
+	ID             string        `json:"id"`
+	Title          string        `json:"title"`
+	SourceIntakeID string        `json:"sourceIntakeId,omitempty"`
+	Revision       int64         `json:"revision"`
+	SettingsState  SettingsState `json:"settingsState"`
+	Books          []Book        `json:"books"`
+	CreatedAt      time.Time     `json:"createdAt,omitempty"`
+	UpdatedAt      time.Time     `json:"updatedAt,omitempty"`
 }
 type CreateVideoInput struct {
 	Label           string  `json:"label"`
