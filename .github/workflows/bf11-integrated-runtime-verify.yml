@@ -1,0 +1,54 @@
+name: BF11 Integrated Runtime Verify
+
+on:
+  push:
+    branches:
+      - feat/batch-factory-v11-integrated-runtime
+  workflow_dispatch:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: backend/go.sum
+      - name: Run V11 Go tests
+        run: go test ./...
+
+  node-proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci
+      - name: Run V11 proxy tests
+        run: node --test test/batch-factory-v11-*.test.js
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run V11 frontend tests
+        run: node --test src/user/pages/batch-factory-v11/*.test.js
+      - name: Build frontend
+        run: npm run build
