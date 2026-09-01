@@ -17,12 +17,17 @@ function requireStrongSecret(value, label = 'secret') {
   return secret;
 }
 
-function normalizeBaseUrl(value) {
+function approvedTargetUrl(value) {
   const url = new URL(String(value || '').trim());
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('baseUrl must use http or https');
-  if (url.hostname.toLowerCase() !== TARGET_HOST) throw new Error(`baseUrl host must be exactly ${TARGET_HOST}`);
-  if (url.username || url.password) throw new Error('baseUrl credentials/userinfo are not allowed');
-  if (url.port) throw new Error('baseUrl custom port is not allowed');
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('target URL must use http or https');
+  if (url.hostname.toLowerCase() !== TARGET_HOST) throw new Error(`target host must be exactly ${TARGET_HOST}`);
+  if (url.username || url.password) throw new Error('target URL credentials/userinfo are not allowed');
+  if (url.port) throw new Error('target URL custom port is not allowed');
+  return url;
+}
+
+function normalizeBaseUrl(value) {
+  const url = approvedTargetUrl(value);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
   if (pathname !== TARGET_ADMIN_PATH) throw new Error(`baseUrl path must be ${TARGET_ADMIN_PATH}`);
   return `${url.protocol}//${TARGET_HOST}${TARGET_ADMIN_PATH}`;
@@ -62,6 +67,7 @@ module.exports = {
   TARGET_ADMIN_PATH,
   FORBIDDEN_DEV_SECRET,
   requireStrongSecret,
+  approvedTargetUrl,
   normalizeBaseUrl,
   normalizeSessionRequest,
   sanitizeSessionResponse
