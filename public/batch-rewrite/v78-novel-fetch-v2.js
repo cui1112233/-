@@ -1,11 +1,14 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
   const taskFilters = { date: '', bookId: '', status: '' };
-  let realtimeTimer = null;
+  const previewState = { active: false, tasks: [], selected: new Set(), originalInput: '' };
+  let rerunSourceBatchId = '';
   let legacyTaskBridgeInstalled = false;
+  let currentBatchTimer = null;
 
   function byId(id) { return document.getElementById(id); }
   function value(id, fallback = '') { return byId(id)?.value ?? fallback; }
+  function asArray(value) { return Array.isArray(value) ? value : []; }
   function tokenHeaders(extra = {}) {
     const token = localStorage.getItem('auth_token') || '';
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
@@ -19,35 +22,68 @@
     return data;
   }
   function setText(id, text) { const node = byId(id); if (node) node.textContent = String(text || ''); }
+  function localDateText(raw) {
+    if (!raw) return '-';
+    const date = new Date(raw);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : String(raw);
+  }
+  function activateLegacyTab(tab) {
+    if (typeof activateTab === 'function') activateTab(tab);
+    else document.querySelector(`.tab[data-tab="${tab}"]`)?.click();
+  }
+  function methodLabel(method) {
+    const labels = { high_imitation: '高仿文章', opening_instruction: '开头词+指令', instruction: '指令改文' };
+    return labels[String(method || '')] || '自动轮换';
+  }
+  function configuredAiSlotMethods() {
+    const rewrite = (typeof state === 'object' && state?.config?.app_config?.rewrite) || {};
+    return rewrite.ai_slot_methods && typeof rewrite.ai_slot_methods === 'object' ? { ...rewrite.ai_slot_methods } : {};
+  }
+  function selectedTargetVersions() {
+    const versions = [];
+    if (byId('v78TargetOriginal')?.checked) versions.push('original');
+    for (let index = 1; index <= 5; index += 1) if (byId(`v78TargetAi${index}`)?.checked) versions.push(`ai${index}`);
+    return versions;
+  }
+  function selectedAiVersions(task = {}) {
+    const explicit = asArray(task.ai_target_versions).length
+      ? asArray(task.ai_target_versions)
+      : asArray(task.target_versions).filter(version => /^ai[1-5]$/i.test(String(version || '')));
+    if (explicit.length) return [...new Set(explicit.map(version => String(version).toLowerCase()))];
+    const files = asArray(task.ai_generated_versions).length ? task.ai_generated_versions : task.ai_files;
+    if (asArray(files).length) return [...new Set(files.map(version => String(version).toLowerCase()).filter(version => /^ai[1-5]$/.test(version)))];
+    const count = Math.max(0, Math.min(Number(task.ai_count) || 0, 5));
+    return Array.from({ length: count }, (_, index) => `ai${index + 1}`);
+  }
+  function selectedParsedTasks() {
+    return previewState.tasks.filter(task => previewState.selected.has(String(task.bookId || task.book_id || task.id || '')));
+  }
   function currentWorkSnapshot() {
+    const targets = selectedTargetVersions();
+    const selected = previewState.active ? selectedParsedTasks() : [];
+    const inputText = selected.length
+      ? selected.map(task => String(task.sourceLine || task.source_line || '')).filter(Boolean).join('\n')
+      : value('inputText');
     return {
       platform_id: value('platformSelect', '2'),
       parse_mode: value('parseModeSelect', 'smart'),
       column_preset_id: value('columnPresetSelect'),
       column_order: value('columnOrderInput', '书籍ID,书名,推荐理由,男女频,标签,评级'),
-      input_text: value('inputText'),
+      input_text: inputText,
       max_txt: Number(value('fetchMaxTxt', 4000)) || 4000,
-      ai_count: Number(value('aiCountDefault', 1)) || 1,
-      sensitive_ai_enabled: Boolean(byId('sensitiveAiProcessEnabled')?.checked)
+      target_versions: targets,
+      targetVersions: targets,
+      ai_slot_methods_snapshot: configuredAiSlotMethods(),
+      task_ids: selected.map(task => String(task.bookId || task.book_id || task.id || '')).filter(Boolean),
+      sensitive_ai_enabled: Boolean(byId('sensitiveAiProcessEnabled')?.checked),
+      ...(rerunSourceBatchId ? { source_batch_id: rerunSourceBatchId } : {})
     };
   }
-  function selectedTaskIds() {
-    return [...document.querySelectorAll('.task-check:checked')]
-      .map(node => String(node.dataset.id || '').trim()).filter(Boolean);
-  }
-  function refreshLegacyTasks() {
-    if (typeof loadTasks === 'function') void loadTasks().catch(() => {});
-    else byId('taskRefreshBtn')?.click();
-  }
-  function escapeText(value) { return String(value ?? ''); }
   function buildTaskQuery(filters = taskFilters) {
     const params = new URLSearchParams();
-    const date = String(filters.date || '').trim();
-    const bookId = String(filters.bookId || '').trim();
-    const status = String(filters.status || '').trim();
-    if (date) params.set('date', date);
-    if (bookId) params.set('bookId', bookId);
-    if (status) params.set('status', status);
+    if (String(filters.date || '').trim()) params.set('date', String(filters.date).trim());
+    if (String(filters.bookId || '').trim()) params.set('bookId', String(filters.bookId).trim());
+    if (String(filters.status || '').trim()) params.set('status', String(filters.status).trim());
     const query = params.toString();
     return query ? `?${query}` : '';
   }
@@ -59,12 +95,162 @@
     return parts.length ? parts.join(' · ') : '今天 + 历史未完成';
   }
 
+  function injectStyles() {
+    if (byId('v78NovelFetchV2Styles')) return;
+    const style = document.createElement('style');
+    style.id = 'v78NovelFetchV2Styles';
+    style.textContent = `
+      .v78-inline-box{margin-top:12px;padding:12px;border:1px solid var(--border,#333);border-radius:10px;background:var(--panel,#171717)}
+      .v78-inline-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.v78-inline-head h3{margin:0;font-size:14px}
+      .v78-muted{opacity:.7;font-size:12px}.v78-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.v78-actions.compact{margin-top:8px}
+      .v78-version-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:9px}
+      .v78-version-item{display:flex;align-items:center;gap:7px;padding:8px;border:1px solid var(--border,#333);border-radius:8px}.v78-version-item small{opacity:.7;margin-left:auto}
+      .v78-parsed-list,.v78-batch-list{display:grid;gap:6px;margin-top:8px;max-height:260px;overflow:auto}.v78-parsed-row,.v78-batch-row{display:flex;align-items:center;gap:9px;padding:8px;border:1px solid var(--border,#333);border-radius:8px;flex-wrap:wrap}
+      .v78-parsed-row .grow,.v78-batch-row .grow{flex:1;min-width:160px}.v78-ok{color:#52c41a}.v78-warn{color:#faad14}.v78-error{color:#ff4d4f}
+      #v78CurrentBatchPanel{margin:12px 0 0}.v78-batch-summary{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}.v78-batch-summary span{font-size:12px;opacity:.85}
+      #v78HistoryBatchesPanel[hidden]{display:none!important}.v78-history-tabs{display:flex;gap:8px;margin-bottom:10px}.v78-history-tabs button.active{font-weight:700}
+      #webSubmitMount{display:none!important}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function mountProcessingControls() {
+    if (byId('v78TargetVersions')) return;
+    const input = byId('inputText');
+    if (!input) return;
+    const box = document.createElement('div');
+    box.id = 'v78TargetVersions';
+    box.className = 'v78-inline-box';
+    box.innerHTML = `
+      <div class="v78-inline-head"><div><h3>本次处理</h3><div class="v78-muted">选择本次需要的文案版本；AI1～AI5 可以单独选择。</div></div><button id="v78ParsePreviewBtn" type="button">解析输入</button></div>
+      <div class="v78-version-grid">
+        <label class="v78-version-item"><input id="v78TargetOriginal" type="checkbox"/> 原文</label>
+        <label class="v78-version-item"><input id="v78TargetAi1" type="checkbox" checked/> AI1 <small data-v78-method="ai1">自动轮换</small></label>
+        <label class="v78-version-item"><input id="v78TargetAi2" type="checkbox"/> AI2 <small data-v78-method="ai2">自动轮换</small></label>
+        <label class="v78-version-item"><input id="v78TargetAi3" type="checkbox"/> AI3 <small data-v78-method="ai3">自动轮换</small></label>
+        <label class="v78-version-item"><input id="v78TargetAi4" type="checkbox"/> AI4 <small data-v78-method="ai4">自动轮换</small></label>
+        <label class="v78-version-item"><input id="v78TargetAi5" type="checkbox"/> AI5 <small data-v78-method="ai5">自动轮换</small></label>
+      </div>
+      <div class="v78-muted" style="margin-top:8px">AI文案处理优先方案：跟随“配置”中 AI1～AI5 的现有设置。</div>
+      <div id="v78ParsedBooks" class="v78-parsed-list" hidden></div>
+      <div class="v78-actions compact"><button id="v78BackToInput" type="button" hidden>返回编辑</button><span id="v78PreviewStatus" class="v78-muted"></span></div>`;
+    input.insertAdjacentElement('afterend', box);
+    byId('v78ParsePreviewBtn').onclick = () => void previewInput();
+    byId('v78BackToInput').onclick = backToInput;
+    refreshSlotMethodLabels();
+    const processButton = byId('processBtn');
+    if (processButton) processButton.onclick = () => void startSelectedProcessing();
+  }
+
+  function refreshSlotMethodLabels() {
+    const methods = configuredAiSlotMethods();
+    for (let index = 1; index <= 5; index += 1) {
+      const node = document.querySelector(`[data-v78-method="ai${index}"]`);
+      if (node) node.textContent = methodLabel(methods[`ai${index}`]);
+    }
+  }
+
+  async function previewInput(preselectedBookIds = null) {
+    const raw = String(value('inputText') || '');
+    if (!raw.trim()) { setText('v78PreviewStatus', '请先填写批量输入'); return null; }
+    setText('v78PreviewStatus', '正在解析...');
+    try {
+      const payload = currentWorkSnapshot();
+      payload.input_text = raw;
+      const data = await v2Api('/process/preview', { method: 'POST', body: JSON.stringify(payload) });
+      previewState.active = true;
+      previewState.tasks = asArray(data.tasks);
+      previewState.originalInput = raw;
+      const wanted = Array.isArray(preselectedBookIds) ? new Set(preselectedBookIds.map(String)) : null;
+      previewState.selected = new Set(previewState.tasks
+        .map(task => String(task.bookId || task.book_id || task.id || ''))
+        .filter(id => id && (!wanted || wanted.has(id))));
+      renderParsedBooks();
+      byId('inputText').hidden = true;
+      byId('v78ParsedBooks').hidden = false;
+      byId('v78BackToInput').hidden = false;
+      setText('v78PreviewStatus', `已解析 ${previewState.tasks.length} 本，已选 ${previewState.selected.size} 本`);
+      return data;
+    } catch (error) {
+      setText('v78PreviewStatus', error.message);
+      return null;
+    }
+  }
+
+  function renderParsedBooks() {
+    const box = byId('v78ParsedBooks');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const task of previewState.tasks) {
+      const id = String(task.bookId || task.book_id || task.id || '');
+      const row = document.createElement('label');
+      row.className = 'v78-parsed-row';
+      row.innerHTML = `<input type="checkbox" data-v78-preview-id="${id}" ${previewState.selected.has(id) ? 'checked' : ''}/><span class="grow"><b>${id}</b>${task.bookName ? ` · ${task.bookName}` : ''}</span><span class="v78-muted">${task.gender || ''}${task.style ? ` · ${task.style}` : ''}</span>`;
+      box.appendChild(row);
+    }
+    if (!previewState.tasks.length) box.textContent = '没有解析到有效书籍';
+    box.onchange = event => {
+      const input = event.target.closest('[data-v78-preview-id]');
+      if (!input) return;
+      const id = String(input.dataset.v78PreviewId || '');
+      if (input.checked) previewState.selected.add(id); else previewState.selected.delete(id);
+      setText('v78PreviewStatus', `已解析 ${previewState.tasks.length} 本，已选 ${previewState.selected.size} 本`);
+    };
+  }
+
+  function backToInput() {
+    previewState.active = false;
+    byId('inputText').hidden = false;
+    byId('v78ParsedBooks').hidden = true;
+    byId('v78BackToInput').hidden = true;
+    setText('v78PreviewStatus', '');
+  }
+
+  async function startSelectedProcessing() {
+    const button = byId('processBtn');
+    if (!selectedTargetVersions().length) { setText('v78PreviewStatus', '请至少选择一个文案版本'); return; }
+    if (!previewState.active) {
+      await previewInput();
+      if (previewState.active) setText('v78PreviewStatus', '请确认小说和本次版本后，再点“开始处理”');
+      return;
+    }
+    if (!previewState.selected.size) { setText('v78PreviewStatus', '请至少选择一本小说'); return; }
+    button.disabled = true;
+    const processResult = byId('processResult');
+    const targets = selectedTargetVersions().map(item => item === 'original' ? '原文' : item.toUpperCase());
+    if (processResult) processResult.textContent = `处理中...\n本次版本：${targets.join('、')}\n已选小说：${previewState.selected.size} 本`;
+    try {
+      const job = await v2Api('/process/start', { method: 'POST', body: JSON.stringify(currentWorkSnapshot()) });
+      if (typeof state === 'object') state.activeProcessJobId = job.id;
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        const current = await v2Api(`/process/jobs/${encodeURIComponent(job.id)}`);
+        if (current.status === 'done') {
+          const result = current.result || {};
+          if (typeof renderProcessResult === 'function' && processResult) processResult.textContent = renderProcessResult(result);
+          else if (processResult) processResult.textContent = `处理完成：${result.unique_tasks || previewState.selected.size} 本`;
+          if (typeof renderTasks === 'function') renderTasks(result.tasks || []);
+          break;
+        }
+        if (current.status === 'failed' || current.status === 'cancelled') {
+          if (processResult) processResult.textContent = current.status === 'cancelled' ? '处理已取消；已完成内容已保留。' : (current.error || '处理失败');
+          break;
+        }
+      }
+      rerunSourceBatchId = '';
+      await Promise.allSettled([loadCurrentBatch(), typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()]);
+    } catch (error) {
+      if (processResult) processResult.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function installLegacyTaskListBridge() {
     if (legacyTaskBridgeInstalled) return true;
     if (typeof loadTasks !== 'function' || typeof renderTasks !== 'function' || typeof taskDateKey !== 'function' || typeof state !== 'object') return false;
     const legacyRenderTasks = renderTasks;
     const legacyTaskDateKey = taskDateKey;
-
     renderTasks = function(tasks) {
       const marker = '2099-12-31';
       const previousDate = state.taskDate;
@@ -72,283 +258,254 @@
       taskDateKey = () => marker;
       state.taskDate = marker;
       try {
-        return legacyRenderTasks(tasks);
+        const result = legacyRenderTasks(tasks);
+        patchTaskTableForV78(tasks);
+        return result;
       } finally {
         taskDateKey = legacyTaskDateKey;
         state.taskDate = previousDate;
         if (byId('taskDateFilter')) byId('taskDateFilter').value = previousInputValue;
       }
     };
-
     loadTasks = async function() {
       const data = await v2Api(`/tasks${buildTaskQuery(taskFilters)}`);
       renderTasks(data.tasks || []);
       setText('summaryText', `${taskFilterLabel()} 显示 ${state.tasks.length} 个任务`);
-      setText('v78TaskOpsStatus', `显示 ${state.tasks.length} 个任务`);
       return data;
     };
-
     legacyTaskBridgeInstalled = true;
     return true;
   }
 
-  function enforceFixedPlatformUi() {
-    const toggle = byId('fetchAutoDetectPlatform');
-    if (!toggle) return;
-    toggle.checked = false;
-    toggle.disabled = true;
-    const label = toggle.closest('label');
-    if (label) label.hidden = true;
-    const container = label?.parentElement || document.querySelector('.toggles');
-    if (!container || byId('v78FixedPlatformNotice')) return;
-    const notice = document.createElement('span');
-    notice.id = 'v78FixedPlatformNotice';
-    notice.className = 'form-hint';
-    notice.textContent = 'V78：原文抓取固定使用当前选择的平台，不会自动切换到其他平台。';
-    container.appendChild(notice);
-  }
-
-  function injectStyles() {
-    if (byId('v78NovelFetchV2Styles')) return;
-    const style = document.createElement('style');
-    style.id = 'v78NovelFetchV2Styles';
-    style.textContent = `
-      .v78-v2-panel{border:1px solid var(--border,#3a3a3a);border-radius:12px;padding:14px;margin-top:14px;background:var(--panel,#171717)}
-      .v78-v2-head{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
-      .v78-v2-head h3{margin:0;font-size:15px}.v78-v2-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-      .v78-v2-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:8px}
-      .v78-v2-card{padding:9px;border:1px solid var(--border,#333);border-radius:9px}.v78-v2-muted{opacity:.72;font-size:12px}
-      .v78-v2-list{display:grid;gap:6px;margin-top:8px;max-height:300px;overflow:auto}.v78-v2-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--border,#333);border-radius:8px;flex-wrap:wrap}
-      .v78-v2-row code{font-size:12px}.v78-v2-error{color:#ff7875}.v78-v2-ok{color:#73d13d}
-      .v78-v2-panel input,.v78-v2-panel select{min-height:32px}
-    `;
-    document.head.appendChild(style);
-  }
-
-  function mountAutomationPanel() {
-    if (byId('v78AutomationPanel')) return;
-    const workspace = document.querySelector('#work .workspace');
-    if (!workspace) return;
-    const panel = document.createElement('section');
-    panel.id = 'v78AutomationPanel';
-    panel.className = 'section v78-v2-panel';
-    panel.innerHTML = `
-      <div class="v78-v2-head"><div><h3>V78 自动处理队列</h3><div class="v78-v2-muted">使用当前批量输入快照；暂停不会中断正在执行的原子步骤。</div></div>
-        <div class="v78-v2-actions">
-          <button id="v78QueueStart" class="primary">开启全自动</button><button id="v78QueuePause">暂停</button><button id="v78QueueResume">继续</button><button id="v78QueueStop" class="danger">停止</button>
-        </div>
-      </div>
-      <div id="v78RealtimeStatus" class="v78-v2-grid"></div>
-      <div class="v78-v2-head" style="margin-top:14px"><div><h3>定时执行</h3><div class="v78-v2-muted">V78 Docker 服务端 one-shot scheduler；错过时间后启动会补跑一次。</div></div>
-        <div class="v78-v2-actions"><input id="v78ScheduleRunAt" type="datetime-local"/><button id="v78ScheduleCreate">添加定时</button><button id="v78ScheduleRefresh">刷新</button></div>
-      </div>
-      <div id="v78ScheduleStatus" class="v78-v2-muted"></div><div id="v78ScheduleList" class="v78-v2-list"></div>`;
-    const statusSection = workspace.querySelector('.process-status-section');
-    if (statusSection) workspace.insertBefore(panel, statusSection); else workspace.appendChild(panel);
-
-    byId('v78QueueStart').onclick = () => queueAction('start');
-    byId('v78QueuePause').onclick = () => queueAction('pause');
-    byId('v78QueueResume').onclick = () => queueAction('resume');
-    byId('v78QueueStop').onclick = () => queueAction('stop');
-    byId('v78ScheduleCreate').onclick = createSchedule;
-    byId('v78ScheduleRefresh').onclick = loadSchedules;
-    byId('v78ScheduleList').onclick = handleScheduleClick;
-  }
-
-  async function queueAction(action) {
-    try {
-      if (action === 'start') {
-        const payload = currentWorkSnapshot();
-        if (!String(payload.input_text || '').trim()) throw new Error('请先填写批量输入，再开启全自动');
-        await v2Api('/process/queue/start', { method: 'POST', body: JSON.stringify({ items: [payload] }) });
-      } else {
-        await v2Api(`/process/queue/${action}`, { method: 'POST', body: '{}' });
+  function patchTaskTableForV78(tasks = []) {
+    const table = byId('tasksBody')?.closest('table');
+    if (!table) return;
+    const headerRow = table.querySelector('thead tr');
+    if (!headerRow) return;
+    let headers = [...headerRow.children];
+    if (!headers.some(th => th.textContent.trim() === '推送日期')) {
+      const parseIndex = headers.findIndex(th => th.textContent.trim() === '解析');
+      const th = document.createElement('th');
+      th.textContent = '推送日期';
+      headerRow.insertBefore(th, headers[parseIndex + 1] || null);
+    }
+    headers = [...headerRow.children];
+    const pushIndex = headers.findIndex(th => th.textContent.trim() === '推送日期');
+    const aiIndex = headers.findIndex(th => th.textContent.trim() === 'AI文案');
+    const taskById = new Map(asArray(tasks).map(task => [String(task.id || task.book_id || ''), task]));
+    for (const row of byId('tasksBody').querySelectorAll('tr')) {
+      const id = String(row.querySelector('.task-check')?.dataset.id || row.querySelector('[data-id]')?.dataset.id || '');
+      const task = taskById.get(id);
+      if (!task) continue;
+      if (row.children.length === headers.length - 1) {
+        const td = document.createElement('td');
+        td.textContent = localDateText(task.push_date || task.created_at || task.createdAt);
+        row.insertBefore(td, row.children[pushIndex] || null);
+      } else if (row.children[pushIndex]) {
+        row.children[pushIndex].textContent = localDateText(task.push_date || task.created_at || task.createdAt);
       }
-      await loadRealtimeStatus();
-    } catch (error) { setText('v78RealtimeStatus', error.message); }
-  }
-
-  function renderRealtime(data = {}) {
-    const box = byId('v78RealtimeStatus');
-    if (!box) return;
-    const c = data.counts || {};
-    const cards = [
-      ['队列', data.state || 'idle'], ['等待', c.queued || 0], ['处理中', c.running || 0], ['等待重试', c.waiting_retry || 0], ['完成', c.done || 0], ['失败', c.failed || 0]
-    ];
-    box.innerHTML = '';
-    for (const [label, val] of cards) {
-      const card = document.createElement('div'); card.className = 'v78-v2-card';
-      const b = document.createElement('b'); b.textContent = label; const span = document.createElement('div'); span.textContent = escapeText(val);
-      card.append(b, span); box.appendChild(card);
+      const selected = selectedAiVersions(task);
+      const generated = new Set(asArray(task.ai_generated_versions).concat(asArray(task.ai_files)).map(version => String(version).toLowerCase()));
+      const aiCell = row.children[aiIndex];
+      if (aiCell && selected.length) {
+        aiCell.textContent = selected.map(version => {
+          if (generated.has(version)) return `${version.toUpperCase()}已生成`;
+          if (/failed|失败/i.test(String(task.ai_status || ''))) return `${version.toUpperCase()}失败`;
+          return `${version.toUpperCase()}待生成`;
+        }).join('；');
+      }
     }
   }
-  async function loadRealtimeStatus() {
-    try { renderRealtime(await v2Api('/realtime/status')); }
-    catch (error) { const box = byId('v78RealtimeStatus'); if (box) { box.textContent = error.message; box.classList.add('v78-v2-error'); } }
+
+  function mountCurrentBatch() {
+    if (byId('v78CurrentBatchPanel')) return;
+    const work = byId('work');
+    const workspace = work?.querySelector('.workspace');
+    if (!work || !workspace) return;
+    const panel = document.createElement('section');
+    panel.id = 'v78CurrentBatchPanel';
+    panel.className = 'section full';
+    panel.innerHTML = `
+      <div class="v78-inline-head"><div><h3>当前批次</h3><div id="v78CurrentBatchMeta" class="v78-muted">正在读取...</div></div><div class="v78-actions"><button id="v78CurrentBatchRefresh">刷新</button><button id="v78StopBatch" class="danger">停止处理</button><button id="v78ViewAllTasks">查看全部任务</button></div></div>
+      <div id="v78CurrentBatchSummary" class="v78-batch-summary"></div><div id="v78CurrentBatchBooks" class="v78-batch-list"></div>`;
+    workspace.insertAdjacentElement('afterend', panel);
+    byId('v78CurrentBatchRefresh').onclick = () => void loadCurrentBatch();
+    byId('v78StopBatch').onclick = () => void stopCurrentBatch();
+    byId('v78ViewAllTasks').onclick = () => { activateLegacyTab('tasks'); if (typeof loadTasks === 'function') void loadTasks(); };
   }
 
-  async function createSchedule() {
-    try {
-      const raw = value('v78ScheduleRunAt');
-      const runAt = new Date(raw);
-      if (!raw || !Number.isFinite(runAt.getTime())) throw new Error('请选择有效的定时时间');
-      const snapshot = currentWorkSnapshot();
-      if (!String(snapshot.input_text || '').trim()) throw new Error('请先填写批量输入再创建定时任务');
-      await v2Api('/schedules', { method: 'POST', body: JSON.stringify({ runAt: runAt.toISOString(), inputSnapshot: snapshot }) });
-      setText('v78ScheduleStatus', '定时任务已保存');
-      await loadSchedules();
-    } catch (error) { setText('v78ScheduleStatus', error.message); }
-  }
-  async function loadSchedules() {
-    try {
-      const data = await v2Api('/schedules');
-      const box = byId('v78ScheduleList');
-      if (!box) return;
-      box.innerHTML = '';
-      for (const item of (data.schedules || [])) {
-        const row = document.createElement('div');
-        row.className = 'v78-v2-row';
-        const text = document.createElement('span');
-        text.textContent = `${new Date(item.runAt).toLocaleString()} · ${item.status || 'scheduled'}`;
-        const actions = document.createElement('span');
-        actions.innerHTML = `<button data-v78-schedule-cancel="${item.id}">取消</button> <button data-v78-schedule-delete="${item.id}" class="danger">删除</button>`;
-        row.append(text, actions);
-        box.appendChild(row);
-      }
-      if (!box.childNodes.length) box.textContent = '暂无定时任务';
-    } catch (error) { setText('v78ScheduleStatus', error.message); }
-  }
-  async function handleScheduleClick(event) {
-    const cancel = event.target.closest('[data-v78-schedule-cancel]');
-    const remove = event.target.closest('[data-v78-schedule-delete]');
-    try {
-      if (cancel) await v2Api(`/schedules/${encodeURIComponent(cancel.dataset.v78ScheduleCancel)}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled', enabled: false }) });
-      if (remove) await v2Api(`/schedules/${encodeURIComponent(remove.dataset.v78ScheduleDelete)}`, { method: 'DELETE' });
-      if (cancel || remove) await loadSchedules();
-    } catch (error) { setText('v78ScheduleStatus', error.message); }
+  function renderCurrentBatch(batch) {
+    const meta = byId('v78CurrentBatchMeta');
+    const summary = byId('v78CurrentBatchSummary');
+    const books = byId('v78CurrentBatchBooks');
+    if (!meta || !summary || !books) return;
+    if (!batch) {
+      meta.textContent = '暂无当前批次'; summary.innerHTML = ''; books.innerHTML = ''; return;
+    }
+    const settings = batch.settingsSnapshot || {};
+    const targets = asArray(settings.target_versions || settings.targetVersions).map(item => item === 'original' ? '原文' : String(item).toUpperCase());
+    meta.textContent = `${localDateText(batch.createdAt)} · ${batch.status || '处理中'} · ${batch.id}`;
+    summary.innerHTML = `<span>小说 ${asArray(batch.taskIds).length} 本</span><span>本次版本 ${targets.join('、') || '-'}</span><span>完成 ${batch.resultSummary?.fetched || 0}</span><span>AI文案 ${batch.resultSummary?.generated_ai_files || 0}</span>`;
+    books.innerHTML = '';
+    for (const task of asArray(batch.taskStates).slice(0, 30)) {
+      const row = document.createElement('div'); row.className = 'v78-batch-row';
+      row.innerHTML = `<span class="grow"><b>${task.bookId || ''}</b>${task.bookName ? ` · ${task.bookName}` : ''}</span><span>${task.status || ''}</span>`;
+      books.appendChild(row);
+    }
+    if (!books.childNodes.length && asArray(batch.taskIds).length) books.textContent = `本批次共 ${batch.taskIds.length} 本，处理完成后会显示每本状态。`;
   }
 
-  function mountAdvancedTaskPanel() {
-    if (byId('v78TaskOpsPanel')) return;
+  async function loadCurrentBatch() {
+    try { const data = await v2Api('/batches/current'); renderCurrentBatch(data.batch || null); }
+    catch (error) { setText('v78CurrentBatchMeta', error.message); }
+  }
+  async function stopCurrentBatch() {
+    try {
+      await v2Api('/process/queue/stop', { method: 'POST', body: '{}' });
+      setText('v78CurrentBatchMeta', '正在停止；当前正在执行的步骤会先保存结果。');
+      await loadCurrentBatch();
+    } catch (error) { setText('v78CurrentBatchMeta', error.message); }
+  }
+
+  function mountTaskHistory() {
+    if (byId('v78HistoryBatchesPanel')) return;
     const host = document.querySelector('#tasks .section.full');
     const listDetails = byId('taskListDetails');
     if (!host || !listDetails) return;
+    const tabs = document.createElement('div');
+    tabs.className = 'v78-history-tabs';
+    tabs.innerHTML = `<button id="v78CurrentTasksTab" class="active">当前任务</button><button id="v78HistoryTab">历史批次</button>`;
+    host.insertBefore(tabs, listDetails);
+    const history = document.createElement('div');
+    history.id = 'v78HistoryBatchesPanel';
+    history.className = 'v78-inline-box';
+    history.hidden = true;
+    history.innerHTML = `<div class="v78-inline-head"><h3>历史批次</h3><button id="v78HistoryRefresh">刷新</button></div><div id="v78HistoryBatchList" class="v78-batch-list"></div>`;
+    host.insertBefore(history, listDetails);
+    byId('v78CurrentTasksTab').onclick = () => showCurrentTasksView();
+    byId('v78HistoryTab').onclick = () => showHistoryView();
+    byId('v78HistoryRefresh').onclick = () => void loadHistoryBatches();
 
-    const legacyDate = byId('taskDateFilter');
-    if (legacyDate?.closest('label')) legacyDate.closest('label').hidden = true;
-    if (byId('taskTodayBtn')) byId('taskTodayBtn').hidden = true;
-
-    const panel = document.createElement('div');
-    panel.id = 'v78TaskOpsPanel';
-    panel.className = 'v78-v2-panel';
-    panel.innerHTML = `
-      <div class="v78-v2-head"><div><h3>V78 高级任务管理</h3><div class="v78-v2-muted">默认查询：今天任务 + 历史未完成；筛选语义由服务端统一判断，结果直接显示在下方原任务表。</div></div>
-        <div class="v78-v2-actions"><button id="v78PrevDay">上一天</button><button id="v78TaskToday">今天</button><input id="v78TaskDate" type="date"/><button id="v78NextDay">下一天</button><input id="v78BookIdSearch" placeholder="书籍ID搜索"/><select id="v78TaskStatus"><option value="">全部状态</option><option value="failed">失败</option><option value="waiting">等待</option><option value="done">完成</option></select><button id="v78TaskSearch">查询</button><button id="v78TaskReset">默认视图</button></div>
-      </div>
-      <div class="v78-v2-actions"><label>AI文案数量 <input id="v78AiCount" type="number" min="1" max="20" value="1" style="width:72px"/></label><button id="v78AiCountApply">应用到已选任务</button><button id="v78PermanentDelete" class="danger">永久删除已选</button><input id="v78RestoreBookId" placeholder="恢复永久删除的书籍ID"/><button id="v78RestoreTombstone">恢复ID</button><span id="v78TaskOpsStatus" class="v78-v2-muted"></span></div>`;
-    host.insertBefore(panel, listDetails);
-
-    byId('v78TaskSearch').onclick = loadAdvancedTasks;
-    byId('v78TaskReset').onclick = resetTaskFilters;
-    byId('v78TaskToday').onclick = () => {
-      byId('v78TaskDate').value = localDateKey(new Date());
-      loadAdvancedTasks();
-    };
-    byId('v78PrevDay').onclick = () => shiftTaskDate(-1);
-    byId('v78NextDay').onclick = () => shiftTaskDate(1);
-    byId('v78AiCountApply').onclick = applyAiCount;
-    byId('v78PermanentDelete').onclick = permanentDeleteSelected;
-    byId('v78RestoreTombstone').onclick = restoreTombstone;
+    const actions = host.querySelector('.batch-actions');
+    if (actions && !byId('v78StopSelected')) {
+      const button = document.createElement('button');
+      button.id = 'v78StopSelected';
+      button.className = 'danger';
+      button.textContent = '停止选中';
+      const retryFailed = byId('retryFailedBtn');
+      if (retryFailed?.parentElement === actions) retryFailed.insertAdjacentElement('afterend', button); else actions.appendChild(button);
+      button.onclick = () => void stopSelectedTasks();
+    }
   }
 
-  function localDateKey(date) {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  function showCurrentTasksView() {
+    byId('v78CurrentTasksTab')?.classList.add('active');
+    byId('v78HistoryTab')?.classList.remove('active');
+    byId('v78HistoryBatchesPanel').hidden = true;
+    byId('taskListDetails').hidden = false;
+    document.querySelector('#tasks .task-detail-section')?.removeAttribute('hidden');
   }
-  function syncTaskFiltersFromControls() {
-    taskFilters.date = String(value('v78TaskDate')).trim();
-    taskFilters.bookId = String(value('v78BookIdSearch')).trim();
-    taskFilters.status = String(value('v78TaskStatus')).trim();
+  function showHistoryView() {
+    byId('v78HistoryTab')?.classList.add('active');
+    byId('v78CurrentTasksTab')?.classList.remove('active');
+    byId('v78HistoryBatchesPanel').hidden = false;
+    byId('taskListDetails').hidden = true;
+    document.querySelector('#tasks .task-detail-section')?.setAttribute('hidden', '');
+    void loadHistoryBatches();
   }
-  function resetTaskFilters() {
+  function v78TaskToday() {
     taskFilters.date = '';
     taskFilters.bookId = '';
     taskFilters.status = '';
-    if (byId('v78TaskDate')) byId('v78TaskDate').value = '';
-    if (byId('v78BookIdSearch')) byId('v78BookIdSearch').value = '';
-    if (byId('v78TaskStatus')) byId('v78TaskStatus').value = '';
-    void loadAdvancedTasks();
+    if (typeof loadTasks === 'function') void loadTasks();
   }
-  function shiftTaskDate(delta) {
-    const raw = value('v78TaskDate');
-    const date = raw ? new Date(`${raw}T12:00:00`) : new Date();
-    date.setDate(date.getDate() + delta);
-    byId('v78TaskDate').value = localDateKey(date);
-    void loadAdvancedTasks();
-  }
-  async function loadAdvancedTasks() {
+
+  async function stopSelectedTasks() {
+    const ids = typeof selectedTaskIds === 'function' ? selectedTaskIds() : [...document.querySelectorAll('.task-check:checked')].map(node => node.dataset.id).filter(Boolean);
+    if (!ids.length) { if (typeof setBatchStatus === 'function') setBatchStatus('先选择任务'); return; }
     try {
-      syncTaskFiltersFromControls();
-      if (!installLegacyTaskListBridge()) throw new Error('任务列表尚未就绪，请稍后重试');
-      await loadTasks();
-    } catch (error) { setText('v78TaskOpsStatus', error.message); }
+      const result = await v2Api('/tasks/stop-selected', { method: 'POST', body: JSON.stringify({ ids }) });
+      if (typeof setBatchStatus === 'function') setBatchStatus(`已停止 ${result.updated || 0} 个选中任务`);
+      if (typeof loadTasks === 'function') await loadTasks();
+    } catch (error) { if (typeof setBatchStatus === 'function') setBatchStatus(error.message); }
   }
-  async function applyAiCount() {
+
+  async function loadHistoryBatches() {
+    const box = byId('v78HistoryBatchList');
+    if (!box) return;
     try {
-      const ids = selectedTaskIds();
-      if (!ids.length) throw new Error('请先在原任务列表勾选任务');
-      const aiCount = Number(value('v78AiCount', 1));
-      const result = await v2Api('/tasks/batch-ai-count', { method: 'POST', body: JSON.stringify({ ids, ai_count: aiCount }) });
-      setText('v78TaskOpsStatus', `已更新 ${result.updated || 0} 个任务`);
-      refreshLegacyTasks();
-    } catch (error) { setText('v78TaskOpsStatus', error.message); }
+      const [all, current] = await Promise.all([v2Api('/batches'), v2Api('/batches/current')]);
+      const currentId = current.batch?.id || '';
+      const batches = asArray(all.batches).filter(batch => batch.id !== currentId);
+      box.innerHTML = '';
+      for (const batch of batches) {
+        const abnormal = asArray(batch.taskStates).filter(task => /(failed|error|timeout|interrupted|incomplete|partial|失败|错误|超时|中断|未完成|121异常)/i.test([task.status, task.originalStatus, task.aiStatus, task.siteSubmitStatus, task.error].filter(Boolean).join(' ')) && !/(cancelled|已取消)/i.test(String(task.status || ''))).length;
+        const targets = asArray(batch.settingsSnapshot?.target_versions || batch.settingsSnapshot?.targetVersions).map(item => item === 'original' ? '原文' : String(item).toUpperCase()).join('、');
+        const row = document.createElement('div'); row.className = 'v78-batch-row';
+        row.innerHTML = `<span class="grow"><b>${localDateText(batch.createdAt)}</b><br><span class="v78-muted">${batch.taskIds?.length || 0} 本 · ${targets || '-'} · ${batch.status || ''}</span></span><button data-v78-rerun="all" data-batch-id="${batch.id}">全部重跑</button><button data-v78-rerun="abnormal" data-batch-id="${batch.id}" ${abnormal ? '' : 'disabled'}>重跑异常${abnormal ? ` ${abnormal}` : ''}</button>`;
+        box.appendChild(row);
+      }
+      if (!box.childNodes.length) box.textContent = '暂无历史批次';
+      box.onclick = event => {
+        const button = event.target.closest('[data-v78-rerun]');
+        if (button) void loadHistoricalBatchForRerun(button.dataset.batchId, button.dataset.v78Rerun);
+      };
+    } catch (error) { box.textContent = error.message; }
   }
-  async function permanentDeleteSelected() {
+
+  async function loadHistoricalBatchForRerun(batchId, mode) {
     try {
-      const ids = selectedTaskIds();
-      if (!ids.length) throw new Error('请先在原任务列表勾选任务');
-      if (!window.confirm(`永久删除 ${ids.length} 个任务？相同书籍ID后续会被阻止重新导入，直到手动恢复。`)) return;
-      const result = await v2Api('/tasks/batch-delete-permanent', { method: 'POST', body: JSON.stringify({ ids }) });
-      setText('v78TaskOpsStatus', `已永久删除 ${result.deleted || ids.length} 个任务`);
-      refreshLegacyTasks();
-    } catch (error) { setText('v78TaskOpsStatus', error.message); }
+      const data = await v2Api(`/batches/${encodeURIComponent(batchId)}/rerun`, { method: 'POST', body: JSON.stringify({ mode }) });
+      const payload = data.payload || {};
+      rerunSourceBatchId = String(data.source_batch_id || batchId || '');
+      activateLegacyTab('work');
+      if (byId('platformSelect') && payload.platform_id != null) byId('platformSelect').value = String(payload.platform_id);
+      if (byId('parseModeSelect') && payload.parse_mode) byId('parseModeSelect').value = payload.parse_mode;
+      if (byId('columnPresetSelect') && payload.column_preset_id != null) byId('columnPresetSelect').value = payload.column_preset_id;
+      if (byId('columnOrderInput') && payload.column_order != null) byId('columnOrderInput').value = payload.column_order;
+      if (byId('inputText')) { byId('inputText').hidden = false; byId('inputText').value = String(data.input_snapshot || payload.input_text || ''); }
+      const targets = new Set(asArray(payload.target_versions || payload.targetVersions).map(String));
+      byId('v78TargetOriginal').checked = targets.has('original');
+      for (let index = 1; index <= 5; index += 1) byId(`v78TargetAi${index}`).checked = targets.has(`ai${index}`);
+      if (byId('sensitiveAiProcessEnabled') && payload.sensitive_ai_enabled != null) byId('sensitiveAiProcessEnabled').checked = payload.sensitive_ai_enabled === true;
+      await previewInput(asArray(data.preselected_book_ids));
+      setText('v78PreviewStatus', `${mode === 'abnormal' ? '异常小说' : '全部小说'}已载入，请确认后点击“开始处理”`);
+    } catch (error) { setText('v78PreviewStatus', error.message); }
   }
-  async function restoreTombstone() {
-    try {
-      const id = String(value('v78RestoreBookId')).trim();
-      if (!id) throw new Error('请输入要恢复的书籍ID');
-      const result = await v2Api(`/tasks/${encodeURIComponent(id)}/restore-tombstone`, { method: 'POST', body: '{}' });
-      setText('v78TaskOpsStatus', result.restored ? `已恢复 ${id}` : `${id} 没有永久删除记录`);
-    } catch (error) { setText('v78TaskOpsStatus', error.message); }
+
+  function enforceSourceAlignedUi() {
+    const toggle = byId('fetchAutoDetectPlatform');
+    if (toggle) {
+      toggle.checked = false; toggle.disabled = true;
+      const label = toggle.closest('label'); if (label) label.hidden = true;
+    }
+    const mount = byId('webSubmitMount'); if (mount) mount.hidden = true;
+    refreshSlotMethodLabels();
   }
 
   function boot() {
-    installLegacyTaskListBridge();
     injectStyles();
-    enforceFixedPlatformUi();
-    mountAutomationPanel();
-    mountAdvancedTaskPanel();
+    installLegacyTaskListBridge();
+    mountProcessingControls();
+    mountCurrentBatch();
+    mountTaskHistory();
+    enforceSourceAlignedUi();
+    void loadCurrentBatch();
     let attempts = 0;
-    const mountTimer = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       installLegacyTaskListBridge();
-      enforceFixedPlatformUi();
-      mountAutomationPanel();
-      mountAdvancedTaskPanel();
+      mountProcessingControls();
+      mountCurrentBatch();
+      mountTaskHistory();
+      enforceSourceAlignedUi();
       attempts += 1;
-      if (attempts >= 20) window.clearInterval(mountTimer);
+      if (attempts >= 24) window.clearInterval(timer);
     }, 250);
-    loadRealtimeStatus();
-    loadSchedules();
-    loadAdvancedTasks();
-    if (!realtimeTimer) realtimeTimer = window.setInterval(loadRealtimeStatus, 2000);
+    if (!currentBatchTimer) currentBatchTimer = window.setInterval(loadCurrentBatch, 3000);
   }
 
   installLegacyTaskListBridge();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
-  window.addEventListener('load', () => {
-    installLegacyTaskListBridge();
-    enforceFixedPlatformUi();
-    mountAutomationPanel();
-    mountAdvancedTaskPanel();
-  }, { once: true });
+  window.addEventListener('load', boot, { once: true });
 })();
