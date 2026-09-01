@@ -4,10 +4,11 @@ const path = require('node:path');
 
 const { attachV78NovelFetchV2 } = require('../lib/novel-fetch-workshop/v2-compose');
 
-test('composition reuses core auth, mounts V2 API, task ops, and starts scheduler runtime', async () => {
+test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, task ops, and starts scheduler runtime', async () => {
   const uses = [];
   const shellApp = { locals: {}, use(...args) { uses.push(args); return this; } };
   const accounts = new Map([['alice', { username: 'alice' }]]);
+  const novelFetchStore = { getBrowserSession() {}, setBrowserSession() {} };
   const coreApp = {
     locals: {
       authRuntime: {
@@ -17,7 +18,8 @@ test('composition reuses core auth, mounts V2 API, task ops, and starts schedule
         }
       },
       memberStore: { id: 'members' },
-      errorLogStore: { record() {} }
+      errorLogStore: { record() {} },
+      novelFetchStore
     }
   };
   let executorOptions;
@@ -25,12 +27,17 @@ test('composition reuses core auth, mounts V2 API, task ops, and starts schedule
   let started = 0;
   let tombstoneOptions;
   let taskOpsOptions;
+  let webSubmitOptions;
+  let credentialOptions;
   let executed = 0;
   const tombstones = { id: 'tombstones' };
   const taskOps = { processConflicts(owner, payload) { return payload?.input_text === 'blocked' ? ['book-a'] : []; } };
   const runtime = { queue: { q: true }, scheduler: { s: true }, startScheduler() { started += 1; } };
   const bodyParser = () => {};
   const router = { router: true };
+  const browserClient = { configured: true };
+  const credentialStore = { get() {}, set() {} };
+  const webSubmit = { id: 'web-submit' };
 
   const result = attachV78NovelFetchV2({
     shellApp,
@@ -40,10 +47,14 @@ test('composition reuses core auth, mounts V2 API, task ops, and starts schedule
     createTombstones(options) { tombstoneOptions = options; return tombstones; },
     createTaskOps(options) { taskOpsOptions = options; return taskOps; },
     createRuntime(options) { runtimeOptions = options; return runtime; },
+    createBrowserClient() { return browserClient; },
+    createCredentialStore(options) { credentialOptions = options; return credentialStore; },
+    createWebSubmit(options) { webSubmitOptions = options; return webSubmit; },
     createRouter(options) {
       assert.equal(options.queue, runtime.queue);
       assert.equal(options.scheduler, runtime.scheduler);
       assert.equal(options.taskOps, taskOps);
+      assert.equal(options.webSubmit, webSubmit);
       return router;
     }
   });
@@ -60,6 +71,12 @@ test('composition reuses core auth, mounts V2 API, task ops, and starts schedule
   assert.equal(taskOpsOptions.tombstones, tombstones);
   assert.equal(taskOpsOptions.accountResolver('alice').username, 'alice');
   assert.equal(shellApp.locals.novelFetchV2TaskOps, taskOps);
+  assert.equal(credentialOptions.usersDir, runtimeOptions.usersDir);
+  assert.equal(webSubmitOptions.browserClient, browserClient);
+  assert.equal(webSubmitOptions.sessionStore, novelFetchStore);
+  assert.equal(webSubmitOptions.credentialStore, credentialStore);
+  assert.equal(webSubmitOptions.accountResolver('alice').username, 'alice');
+  assert.equal(shellApp.locals.novelFetchV2WebSubmit, webSubmit);
   await assert.rejects(() => runtimeOptions.executeBatch('alice', { input_text: 'blocked' }), error => { assert.equal(error.status, 410); assert.equal(error.recoverable, false); return true; });
   assert.equal(executed, 0);
   assert.deepEqual(await runtimeOptions.executeBatch('alice', { input_text: 'ok' }), { ok: true });
