@@ -58,6 +58,13 @@ test('V78 extension exposes only server-backed advanced configuration', () => {
   assert.ok(source.includes('deepMergeConfig'));
 });
 
+test('V78 config bridge preserves an explicitly selected sensitive_fix preset when legacy save syncs current AI', () => {
+  assert.ok(configSource.includes('installSensitiveFixLegacyGuard'));
+  assert.ok(configSource.includes('window.syncCurrentAiPreset'));
+  assert.ok(configSource.includes("explicit !== '__current__'"));
+  assert.ok(configSource.includes('cfg.ai_assignments.sensitive_fix = explicit'));
+});
+
 test('V78 extension scripts remain valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(mainSource));
   if (configSource) assert.doesNotThrow(() => new Function(configSource));
