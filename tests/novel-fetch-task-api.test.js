@@ -20,10 +20,21 @@ async function call(handler, { username = 'alice', body = {}, params = {}, query
 const queue = { status: () => ({ state: 'idle', items: [], events: [], updatedAt: '' }), start: () => ({}), pause: () => ({}), resume: () => ({}), stop: () => ({}) };
 const scheduler = { list: () => [], create: () => ({}), update: () => ({}), remove: () => true };
 
-test('legacy process start is blocked with 410 for permanent tombstones and otherwise falls through', async () => {
+test('V2 process start blocks permanent tombstones and otherwise creates a V2 queue job', async () => {
+  const calls = [];
   const taskOps = { processConflicts(owner, payload) { return payload.input_text === 'blocked' ? ['book-a'] : []; }, list: async () => [], permanentDelete: async () => ({}), restoreTombstone: () => false, setAiCount: async () => ({ ok: true }) };
+  const v2Queue = {
+    ...queue,
+    start(owner, items) {
+      calls.push([owner, items]);
+      return {
+        state: 'running',
+        items: [{ id: 'job-1', state: 'queued', createdAt: '2026-09-01T00:00:00.000Z', attempts: 0, result: null, error: '' }]
+      };
+    }
+  };
   const { router, routes } = registry();
-  registerNovelFetchV2Routes(router, { queue, scheduler, taskOps });
+  registerNovelFetchV2Routes(router, { queue: v2Queue, scheduler, taskOps });
   const handler = routes.get('POST /process/start');
   assert.ok(handler);
   const blocked = await call(handler, { body: { input_text: 'blocked' } });
@@ -31,8 +42,11 @@ test('legacy process start is blocked with 410 for permanent tombstones and othe
   assert.deepEqual(blocked.body, { error: 'permanently_deleted', book_ids: ['book-a'] });
   assert.equal(blocked.nextCount, 0);
   const allowed = await call(handler, { body: { input_text: 'ok' } });
-  assert.equal(allowed.nextCount, 1);
-  assert.equal(allowed.body, undefined);
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.nextCount, 0);
+  assert.equal(allowed.body.id, 'job-1');
+  assert.equal(allowed.body.queue_state, 'queued');
+  assert.deepEqual(calls, [['alice', [{ input_text: 'ok' }]]]);
 });
 
 test('task list and permanent delete/restore use owner-scoped task ops', async () => {
