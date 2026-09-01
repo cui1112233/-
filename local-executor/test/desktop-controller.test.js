@@ -9,6 +9,7 @@ function makeRuntime() {
     accounts,
     async pair(input) { this.pairInput = input; return state(); },
     addAccount(account) { accounts.push({ ...account, state: 'auth_required' }); return accounts.at(-1); },
+    getAccount(id) { return accounts.find(x => x.id === id) || null; },
     markAccountAvailable(id) { const item = accounts.find(x => x.id === id); item.state = 'available'; return item; },
     async heartbeat() { this.heartbeatCount = (this.heartbeatCount || 0) + 1; },
     recordError(error) { this.error = error.message; },
@@ -46,6 +47,18 @@ test('marking login complete persists available state and broadcasts', () => {
   controller.markAccountAvailable('a1');
   assert.equal(runtime.accounts[0].state, 'available');
   assert.equal(broadcasts.length, 1);
+});
+
+test('unknown account ids cannot open arbitrary isolated browser partitions', () => {
+  const runtime = makeRuntime();
+  const opened = [];
+  const controller = new DesktopController({
+    runtime,
+    accountStore: { save() {} },
+    accountWindows: { open(id) { opened.push(id); } }
+  });
+  assert.throws(() => controller.openAccount('not-registered'), /account not found/i);
+  assert.deepEqual(opened, []);
 });
 
 test('heartbeat errors are recorded but do not crash the controller', async () => {
