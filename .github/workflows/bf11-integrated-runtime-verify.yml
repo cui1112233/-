@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/batch-factory-v11-integrated-runtime
+      - feat/batch-factory-v11-legacy-port-runtime
   workflow_dispatch:
 
 jobs:
