@@ -14,6 +14,12 @@ test('browser client fails closed when worker is not configured', async () => {
   });
 });
 
+test('browser client treats forbidden development secret as unconfigured', async () => {
+  const client = create121BrowserClient({ baseUrl: 'http://worker:8787', secret: 'dev-bridge-secret-change-me' });
+  assert.equal(client.configured, false);
+  await assert.rejects(client.test(identity), error => error.code === 'BROWSER_WORKER_UNAVAILABLE');
+});
+
 test('browser client sends only internal worker request with secret', async () => {
   const calls = [];
   const client = create121BrowserClient({
