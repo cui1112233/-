@@ -1,0 +1,51 @@
+name: V78 Public Deployment Smoke
+
+on:
+  push:
+    branches:
+      - ops/v78-public-115.190.156.223-v2
+  workflow_dispatch:
+
+jobs:
+  deployment-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout V78 deployment candidate
+        uses: actions/checkout@v4
+
+      - name: Checkout Go bridge candidate
+        uses: actions/checkout@v4
+        with:
+          ref: feat/v78-novel-fetch-go-bridge
+          path: go-src
+
+      - name: Prepare ephemeral env
+        working-directory: deploy/v78-public
+        run: |
+          cp .env.example .env
+          sed -i "s|QIANTIE_GO_SOURCE_DIR=/opt/qiantie/go|QIANTIE_GO_SOURCE_DIR=${GITHUB_WORKSPACE}/go-src|" .env
+          sed -i "s/CHANGE_ME_MYSQL_PASSWORD/$(openssl rand -hex 24)/" .env
+          sed -i "s/CHANGE_ME_MYSQL_ROOT_PASSWORD/$(openssl rand -hex 24)/" .env
+          sed -i "s/CHANGE_ME_LONG_RANDOM_BRIDGE_SECRET/$(openssl rand -hex 32)/" .env
+          sed -i "s/CHANGE_ME_LONG_RANDOM_WORKER_SECRET/$(openssl rand -hex 32)/" .env
+          sed -i "s/CHANGE_ME_LONG_RANDOM_CREDENTIAL_SECRET/$(openssl rand -hex 32)/" .env
+
+      - name: Validate compose model
+        working-directory: deploy/v78-public
+        run: docker compose --env-file .env -f docker-compose.yml config -q
+
+      - name: Start and verify isolated stack
+        working-directory: deploy/v78-public
+        run: bash deploy.sh
+
+      - name: Show container status on failure
+        if: failure()
+        working-directory: deploy/v78-public
+        run: |
+          docker compose --env-file .env -f docker-compose.yml ps -a || true
+          docker compose --env-file .env -f docker-compose.yml logs --tail=200 || true
+
+      - name: Cleanup ephemeral stack
+        if: always()
+        working-directory: deploy/v78-public
+        run: docker compose --env-file .env -f docker-compose.yml down -v --remove-orphans || true
