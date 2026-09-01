@@ -42,7 +42,7 @@ services:
         - CMD
         - node
         - -e
-        - "require('http').get('http://127.0.0.1:8787/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+        - "require('http').get({host:'127.0.0.1',port:8787,path:'/healthz',headers:{'x-qiantie-internal-secret':process.env.QIANTIE_121_WORKER_SECRET}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
       interval: 5s
       timeout: 3s
       retries: 12
