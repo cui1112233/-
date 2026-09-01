@@ -73,6 +73,14 @@ func (s *MySQLStore) ArtifactForOwner(ctx context.Context, owner, id string) (Ar
 	return record, err
 }
 
+func (s *MySQLStore) ArtifactForJob(ctx context.Context, jobID string) (ArtifactRecord, error) {
+	record, err := scanArtifact(s.db.QueryRowContext(ctx, artifactSelect+` WHERE job_id = ?`, jobID).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ArtifactRecord{}, ErrArtifactNotFound
+	}
+	return record, err
+}
+
 func scanArtifact(scan scanFunc) (ArtifactRecord, error) {
 	var record ArtifactRecord
 	var byteSize sql.NullInt64
