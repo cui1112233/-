@@ -32,11 +32,12 @@ class DoubaoAdapter {
     downloader = downloadMp4WithSession,
     downloadDir = '',
     sleep = delay,
+    navigationDelayMs = 500,
     confirmationDelayMs = 350,
     completionPollMs = 2000,
     maxCompletionPolls = 900
   } = {}) {
-    if (!accountWindows?.getWebContents) throw new Error('accountWindows is required');
+    if (!accountWindows || (!accountWindows.getWebContents && !accountWindows.ensureWebContents)) throw new Error('accountWindows is required');
     this.accountWindows = accountWindows;
     this.pageProbe = pageProbe;
     this.pageActions = pageActions;
@@ -44,6 +45,7 @@ class DoubaoAdapter {
     this.downloader = downloader;
     this.downloadDir = downloadDir;
     this.sleep = sleep;
+    this.navigationDelayMs = navigationDelayMs;
     this.confirmationDelayMs = confirmationDelayMs;
     this.completionPollMs = completionPollMs;
     this.maxCompletionPolls = maxCompletionPolls;
@@ -55,10 +57,10 @@ class DoubaoAdapter {
     if (!job?.id || !account?.id) throw new Error('job and account are required');
     this.dispose(job.id);
     const payload = payloadOf(job);
-    const webContents = this.accountWindows.getWebContents(account.id);
-    const before = await this.pageProbe.capture(webContents);
-    assertUsableAccount(before);
-    const selected = selectRequestedOptions(detectCapabilities(before), payload);
+    const webContents = await this.getAccountWebContents(account.id);
+    const workspace = await this.captureVideoWorkspace(webContents, signal);
+    const before = workspace.snapshot;
+    const selected = selectRequestedOptions(workspace.capabilities, payload);
 
     if (selected.model) await this.pageActions.clickExactControl(webContents, selected.model);
     if (selected.duration !== null) await this.pageActions.clickExactControl(webContents, `${selected.duration}秒`);
@@ -78,6 +80,40 @@ class DoubaoAdapter {
       submission: null
     });
     return selected;
+  }
+
+  async getAccountWebContents(accountId) {
+    if (typeof this.accountWindows.ensureWebContents === 'function') {
+      return this.accountWindows.ensureWebContents(accountId);
+    }
+    return this.accountWindows.getWebContents(accountId);
+  }
+
+  async captureVideoWorkspace(webContents, signal) {
+    let snapshot = await this.pageProbe.capture(webContents);
+    assertUsableAccount(snapshot);
+    let capabilities = detectCapabilities(snapshot);
+    if (capabilities.videoGeneration) return { snapshot, capabilities };
+
+    if (typeof this.pageActions.openCreationWorkspace === 'function') {
+      const clicked = await this.pageActions.openCreationWorkspace(webContents);
+      if (clicked && this.navigationDelayMs > 0) await this.sleep(this.navigationDelayMs, signal);
+      throwIfAborted(signal);
+      snapshot = await this.pageProbe.capture(webContents);
+      assertUsableAccount(snapshot);
+      capabilities = detectCapabilities(snapshot);
+      if (capabilities.videoGeneration) return { snapshot, capabilities };
+    }
+
+    if (typeof this.pageActions.openVideoMode === 'function') {
+      const clicked = await this.pageActions.openVideoMode(webContents);
+      if (clicked && this.navigationDelayMs > 0) await this.sleep(this.navigationDelayMs, signal);
+      throwIfAborted(signal);
+      snapshot = await this.pageProbe.capture(webContents);
+      assertUsableAccount(snapshot);
+      capabilities = detectCapabilities(snapshot);
+    }
+    return { snapshot, capabilities };
   }
 
   async submit({ job, account, signal }) {
