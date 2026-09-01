@@ -40,18 +40,21 @@ function fixture() {
   return { router, store, browserClient, calls, setSession(value) { browserSession = value; } };
 }
 
-test('upload-login authenticates through Browser Worker and persists only an opaque browser session reference', async () => {
+test('upload-login owner comes only from authenticated request context and ignores spoofed request body owner', async () => {
   const f = fixture();
   const handler = routeHandler(f.router, 'post', '/upload-login');
   const res = response();
-  await handler({ username: 'alice', body: { username: 'site-user', password: 'secret-pw' } }, res);
+  await handler({ username: 'alice', body: { owner: 'mallory', username: 'site-user', password: 'secret-pw' } }, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { ok: true, username: 'site-user', status: 'ready' });
   const login = f.calls.find(([kind]) => kind === 'login')[1];
   assert.equal(login.owner, 'alice');
+  assert.notEqual(login.owner, 'mallory');
   assert.equal(login.username, 'site-user');
   assert.equal(login.password, 'secret-pw');
-  const saved = f.calls.find(([kind]) => kind === 'setBrowserSession')[2];
+  const savedCall = f.calls.find(([kind]) => kind === 'setBrowserSession');
+  assert.equal(savedCall[1], 'alice');
+  const saved = savedCall[2];
   assert.equal(saved.sessionKey, 'opaque-session');
   assert.equal(Object.hasOwn(saved, 'cookie'), false);
   assert.equal(Object.hasOwn(saved, 'password'), false);
@@ -62,10 +65,11 @@ test('upload-session verifies the browser-owned storage_state session instead of
   f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready', loginAt: '2026-09-01T07:00:00.000Z' });
   const handler = routeHandler(f.router, 'get', '/upload-session');
   const res = response();
-  await handler({ username: 'alice' }, res);
+  await handler({ username: 'alice', body: { owner: 'mallory' } }, res);
   assert.equal(res.body.loggedIn, true);
   assert.equal(res.body.status, 'ready');
-  assert.equal(f.calls.some(([kind]) => kind === 'test'), true);
+  const testCall = f.calls.find(([kind]) => kind === 'test')[1];
+  assert.equal(testCall.owner, 'alice');
 });
 
 test('upload-batch sends exact multipart bytes through Browser Worker authenticated action and never requires cookie material', async () => {
@@ -76,7 +80,7 @@ test('upload-batch sends exact multipart bytes through Browser Worker authentica
   await handler({
     username: 'alice',
     auth: { account: { username: 'alice' } },
-    body: { platformId: 2, advanced: {}, items: [{ bookId: '10001', gender: '女', style: '现代甜文' }] }
+    body: { owner: 'mallory', platformId: 2, advanced: {}, items: [{ bookId: '10001', gender: '女', style: '现代甜文' }] }
   }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
@@ -84,6 +88,7 @@ test('upload-batch sends exact multipart bytes through Browser Worker authentica
   const action = f.calls.find(([kind]) => kind === 'action')[1];
   assert.equal(action.action, 'upload');
   assert.equal(action.owner, 'alice');
+  assert.notEqual(action.owner, 'mallory');
   assert.match(action.payload.contentType, /^multipart\/form-data; boundary=/);
   assert.ok(action.payload.bodyBase64.length > 20);
   const body = Buffer.from(action.payload.bodyBase64, 'base64').toString('utf8');
@@ -97,7 +102,7 @@ test('expired Browser Worker session is surfaced as notLoggedIn and does not fal
   f.browserClient.action = async () => { const error = new Error('expired'); error.status = 401; error.code = 'session_expired'; throw error; };
   const handler = routeHandler(f.router, 'post', '/upload-batch');
   const res = response();
-  await handler({ username: 'alice', auth: { account: { username: 'alice' } }, body: { platformId: 2, advanced: {}, items: [{ bookId: '10001', gender: '女', style: '现代甜文' }] } }, res);
+  await handler({ username: 'alice', auth: { account: { username: 'alice' } }, body: { owner: 'mallory', platformId: 2, advanced: {}, items: [{ bookId: '10001', gender: '女', style: '现代甜文' }] } }, res);
   assert.equal(res.body.ok, false);
   assert.equal(res.body.notLoggedIn, true);
 });
