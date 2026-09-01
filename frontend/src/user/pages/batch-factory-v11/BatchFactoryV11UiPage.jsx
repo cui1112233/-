@@ -43,6 +43,7 @@ export function BatchFactoryV11UiPage() {
   const [productionSettingsOpen, setProductionSettingsOpen] = useState(false);
   const [bookSettingsTargetId, setBookSettingsTargetId] = useState('');
   const [videoSettingsTarget, setVideoSettingsTarget] = useState(null);
+  const [directorAction, setDirectorAction] = useState({ type: '', bookId: '' });
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -234,6 +235,36 @@ export function BatchFactoryV11UiPage() {
     }, '单 VIDEO 设置已保存');
   }
 
+  async function finishDirectorAction(result, successMessage) {
+    if (!result.ok) { message.error(result.message); return false; }
+    const next = await runtime.load({ ...requestParams, batchId: batch.id });
+    setRuntimeState(next);
+    if (next.phase !== 'ready') { message.warning(`${successMessage}，但重新读取工作台失败，请刷新。`); return true; }
+    message.success(successMessage);
+    return true;
+  }
+
+  async function runHook(book) {
+    if (!book?.id || directorAction.type) return false;
+    setDirectorAction({ type: 'hook', bookId: book.id });
+    try { return await finishDirectorAction(await runtime.runHook({ batchId: batch.id, bookId: book.id }), 'Hook 已生成，等待你审核批准'); }
+    finally { setDirectorAction({ type: '', bookId: '' }); }
+  }
+
+  async function approveHook(book, hook) {
+    if (!book?.id || !hook?.id || directorAction.type) return false;
+    setDirectorAction({ type: 'approve', bookId: book.id });
+    try { return await finishDirectorAction(await runtime.approveHook({ batchId: batch.id, bookId: book.id, hookId: hook.id }), 'Hook 已批准'); }
+    finally { setDirectorAction({ type: '', bookId: '' }); }
+  }
+
+  async function runDirector(book) {
+    if (!book?.id || directorAction.type) return false;
+    setDirectorAction({ type: 'director', bookId: book.id });
+    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id }), 'Director 已完成并生成新的 VIDEO identity'); }
+    finally { setDirectorAction({ type: '', bookId: '' }); }
+  }
+
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
       <BatchFactoryV11Workbench
@@ -243,6 +274,9 @@ export function BatchFactoryV11UiPage() {
         onOpenBatchSettings={() => setProductionSettingsOpen(true)}
         onOpenBookSettings={book => setBookSettingsTargetId(book.id)}
         onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ bookId: book.id, videoId: video.id })}
+        onRunHook={runHook}
+        onApproveHook={approveHook}
+        onRunDirector={runDirector}
       />
 
       <ProductionSettingsDrawer

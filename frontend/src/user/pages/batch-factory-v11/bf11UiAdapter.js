@@ -102,6 +102,21 @@ export function createBf11UiAdapter(api) {
       if (scope === 'book') return api.saveBookOverride(batchId, bookId, input);
       if (scope === 'video') return api.saveVideoOverride(batchId, bookId, videoId, input);
       throw new Error(`Unsupported V11 settings scope: ${scope}`);
+    },
+
+    async runHook({ batchId, bookId } = {}) {
+      if (!batchId || !bookId) throw new Error('V11 Batch and Book ids are required');
+      return api.runHook(batchId, bookId);
+    },
+
+    async approveHook({ batchId, bookId, hookId } = {}) {
+      if (!batchId || !bookId || !hookId) throw new Error('V11 Hook identity is required');
+      return api.approveHook(batchId, bookId, hookId);
+    },
+
+    async runDirector({ batchId, bookId } = {}) {
+      if (!batchId || !bookId) throw new Error('V11 Batch and Book ids are required');
+      return api.runDirector(batchId, bookId);
     }
   };
 }

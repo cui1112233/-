@@ -7,7 +7,7 @@ import (
 
 func TestV11ConfigVersionOwnershipUsesAdditiveSliceOneMigration(t *testing.T) {
 	migrations := V11Migrations()
-	if len(migrations) != 3 || migrations[0].Version != 1100001 || migrations[1].Version != 1100002 || migrations[2].Version != 1100003 {
+	if len(migrations) < 4 || migrations[0].Version != 1100001 || migrations[1].Version != 1100002 || migrations[2].Version != 1100003 || migrations[3].Version != 1100004 {
 		t.Fatalf("migrations=%+v", migrations)
 	}
 	joined := strings.ToLower(strings.Join(V11ConfigVersionOwnershipStatements(), "\n"))

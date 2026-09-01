@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest } from './client.js';
 
 const BASE = '/api/batch-factory/v11';
 
@@ -96,6 +96,22 @@ export function saveDraft(payload) {
   return apiRequest(bf11Path('drafts'), { method: 'PUT', body: body(payload) });
 }
 
+export function runHook(batchId, bookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/hook`), { method: 'POST', body: body({}) });
+}
+
+export function approveHook(batchId, bookId, hookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/hooks/${id(hookId)}/approve`), { method: 'POST', body: body({}) });
+}
+
+export function runDirector(batchId, bookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body({}) });
+}
+
+export function runBatchDirector(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body({}) });
+}
+
 export default {
   getCapabilities,
   createNovelFetchIntake,
@@ -112,5 +128,9 @@ export default {
   listPrompts,
   createPrompt,
   getDraft,
-  saveDraft
+  saveDraft,
+  runHook,
+  approveHook,
+  runDirector,
+  runBatchDirector
 };

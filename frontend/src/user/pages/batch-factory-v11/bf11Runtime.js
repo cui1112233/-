@@ -92,6 +92,10 @@ function impactFailure(error) {
   };
 }
 
+function actionFailure(error, fallback) {
+  return { ok: false, status: Number(error?.status || 0), message: error?.message || fallback };
+}
+
 export function createBf11Runtime({ adapter }) {
   if (!adapter) throw new Error('V11 UI adapter is required');
   return {
@@ -129,6 +133,21 @@ export function createBf11Runtime({ adapter }) {
       } catch (error) {
         return saveFailure(error);
       }
+    },
+
+    async runHook(input) {
+      try { return { ok: true, raw: await adapter.runHook(input) }; }
+      catch (error) { return actionFailure(error, '生成 Hook 失败，请检查小说模式和模型配置。'); }
+    },
+
+    async approveHook(input) {
+      try { return { ok: true, raw: await adapter.approveHook(input) }; }
+      catch (error) { return actionFailure(error, '批准 Hook 失败，请刷新后重试。'); }
+    },
+
+    async runDirector(input) {
+      try { return { ok: true, raw: await adapter.runDirector(input) }; }
+      catch (error) { return actionFailure(error, 'Director 执行失败，请检查 Hook、模型和时长设置。'); }
     }
   };
 }

@@ -15,6 +15,7 @@ type RouterOptions struct {
 	Slice        int
 	RegisterV11  func(*http.ServeMux)
 	Store        batchfactoryv11.Store
+	Director     *batchfactoryv11.DirectorService
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -22,6 +23,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandler(options.Slice))
 	if options.Store != nil && options.Slice >= 1 {
 		registerSliceOneRoutes(v11, options.Store)
+	}
+	if options.Store != nil && options.Director != nil && options.Slice >= 2 {
+		registerDirectorRoutes(v11, options.Director, options.Store)
 	}
 	if options.RegisterV11 != nil {
 		options.RegisterV11(v11)

@@ -250,6 +250,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "revision conflict"})
 	case errors.Is(err, batchfactoryv11.ErrInvalid):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid input"})
+	case errors.Is(err, batchfactoryv11.ErrUnavailable):
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "capability unavailable"})
 	default:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}

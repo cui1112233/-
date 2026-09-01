@@ -251,7 +251,7 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 	}
 	rows.Close()
 	for i := range b.Books {
-		vrows, err := q.QueryContext(ctx, `SELECT v.id,r.label,COALESCE(r.visual_prompt,''),COALESCE(r.duration_seconds,0),v.compatibility_state,v.revision FROM batch_factory_v11_videos v JOIN batch_factory_v11_video_records r ON r.video_id=v.id WHERE v.batch_id=? AND v.book_id=? AND v.owner_username=? ORDER BY v.ordinal,v.id`, b.ID, b.Books[i].ID, owner)
+		vrows, err := q.QueryContext(ctx, `SELECT v.id,r.label,COALESCE(r.visual_prompt,''),COALESCE(r.duration_seconds,0),v.compatibility_state,v.revision FROM batch_factory_v11_videos v JOIN batch_factory_v11_video_records r ON r.video_id=v.id WHERE v.batch_id=? AND v.book_id=? AND v.owner_username=? AND v.compatibility_state='active' ORDER BY v.ordinal,v.id`, b.ID, b.Books[i].ID, owner)
 		if err != nil {
 			return Batch{}, err
 		}

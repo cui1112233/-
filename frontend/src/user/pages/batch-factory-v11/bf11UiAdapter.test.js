@@ -61,3 +61,21 @@ test('toV10ViewBatch maps books to view items but preserves server status', () =
   assert.equal(view.items[0].status, 'server-status');
   assert.deepEqual(view.items[0].videos, [{ id: 'v1' }]);
 });
+
+test('Director actions use only V11 API client methods and immutable identities', async () => {
+  const calls = [];
+  const api = {
+    runHook: async (...args) => { calls.push(['hook', ...args]); return { hook: { id: 'h1' } }; },
+    approveHook: async (...args) => { calls.push(['approve', ...args]); return { hook: { id: 'h1', status: 'approved' } }; },
+    runDirector: async (...args) => { calls.push(['director', ...args]); return { directorRevision: { id: 'd1' } }; }
+  };
+  const adapter = createBf11UiAdapter(api);
+  await adapter.runHook({ batchId: 'b1', bookId: 'k1' });
+  await adapter.approveHook({ batchId: 'b1', bookId: 'k1', hookId: 'h1' });
+  await adapter.runDirector({ batchId: 'b1', bookId: 'k1' });
+  assert.deepEqual(calls, [
+    ['hook', 'b1', 'k1'],
+    ['approve', 'b1', 'k1', 'h1'],
+    ['director', 'b1', 'k1']
+  ]);
+});

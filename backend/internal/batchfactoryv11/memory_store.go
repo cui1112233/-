@@ -22,6 +22,8 @@ type MemoryStore struct {
 	configVersions map[string]memoryOwned[ConfigVersion]
 	prompts        map[string][]Prompt
 	drafts         map[string]Draft
+	hooks          map[string][]HookRevision
+	directors      map[string][]DirectorRevision
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -33,6 +35,8 @@ func NewMemoryStore() *MemoryStore {
 		configVersions: map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
 		prompts:        map[string][]Prompt{},
 		drafts:         map[string]Draft{},
+		hooks:          map[string][]HookRevision{},
+		directors:      map[string][]DirectorRevision{},
 	}
 }
 func (s *MemoryStore) id(prefix string) string { s.seq++; return fmt.Sprintf("%s-%d", prefix, s.seq) }
@@ -45,7 +49,7 @@ func (s *MemoryStore) DebugPatch(r ScopeRef) SettingsPatch {
 	return clonePatch(s.patches[scopeKey(r)])
 }
 
-func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch) Batch {
+func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, hooks map[string][]HookRevision, directors map[string][]DirectorRevision) Batch {
 	b.SettingsState = SettingsState{
 		Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeBatch, BatchID: b.ID})]),
 		Revision: b.Revision,
@@ -56,6 +60,20 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch) 
 		book.SettingsState = SettingsState{
 			Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeBook, BatchID: b.ID, BookID: book.ID})]),
 			Revision: book.Revision,
+		}
+		effective := ResolveSettings(b.SettingsState.Patch, book.SettingsState.Patch)
+		book.Mode = rawString(effective, "productionMode", rawString(effective, "mode", "original"))
+		if book.Mode == "original_direct" { book.Mode = "original" }
+		if book.Mode == "viral_hook" { book.Mode = "viral" }
+		bookKey := b.ID + ":" + book.ID
+		if revisions := hooks[bookKey]; len(revisions) > 0 {
+			latest := revisions[len(revisions)-1]
+			book.Hook = &latest
+		}
+		if revisions := directors[bookKey]; len(revisions) > 0 {
+			latest := revisions[len(revisions)-1]
+			book.DirectorRevision = &latest
+			book.Assets = DirectorAssets{Characters: latest.Output.Characters, Scenes: latest.Output.Scenes, Props: latest.Output.Props}
 		}
 		videos := make([]Video, len(book.Videos))
 		for j := range book.Videos {
@@ -125,7 +143,7 @@ func (s *MemoryStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID
 	bv := b.Value
 	bv.SourceIntakeID = intakeID
 	s.batches[batch.ID] = memoryOwned[Batch]{owner, bv}
-	batch = hydrateMemoryBatchSettingsState(bv, s.patches)
+		batch = hydrateMemoryBatchSettingsState(bv, s.patches, s.hooks, s.directors)
 	s.mu.Unlock()
 	return batch, nil
 }
@@ -147,7 +165,7 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 		b.Books = append(b.Books, book)
 	}
 	s.batches[b.ID] = memoryOwned[Batch]{owner, b}
-	return hydrateMemoryBatchSettingsState(b, s.patches), nil
+	return hydrateMemoryBatchSettingsState(b, s.patches, s.hooks, s.directors), nil
 }
 func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, error) {
 	s.mu.Lock()
@@ -155,7 +173,7 @@ func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, err
 	out := []Batch{}
 	for _, v := range s.batches {
 		if v.Owner == owner {
-			out = append(out, hydrateMemoryBatchSettingsState(v.Value, s.patches))
+			out = append(out, hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors))
 		}
 	}
 	return out, nil
@@ -167,7 +185,7 @@ func (s *MemoryStore) GetBatch(_ context.Context, owner, id string) (Batch, erro
 	if !ok || v.Owner != owner {
 		return Batch{}, ErrNotFound
 	}
-	return hydrateMemoryBatchSettingsState(v.Value, s.patches), nil
+	return hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors), nil
 }
 func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef, update SettingsUpdate) (SettingsResult, error) {
 	s.mu.Lock()
@@ -307,4 +325,80 @@ func (s *MemoryStore) SaveDraft(_ context.Context, owner string, d Draft) (Draft
 	d.UpdatedAt = time.Now().UTC()
 	s.drafts[k] = d
 	return d, nil
+}
+
+func memoryBookKey(batchID, bookID string) string { return batchID + ":" + bookID }
+
+func (s *MemoryStore) CreateHookRevision(_ context.Context, owner, batchID, bookID, text, digest string) (HookRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner { return HookRevision{}, ErrNotFound }
+	found := false
+	for _, book := range owned.Value.Books { if book.ID == bookID { found = true; break } }
+	if !found { return HookRevision{}, ErrNotFound }
+	key := memoryBookKey(batchID, bookID)
+	now := time.Now().UTC()
+	revision := HookRevision{ID: s.id("hook"), BatchID: batchID, BookID: bookID, Revision: int64(len(s.hooks[key]) + 1), Status: "draft", Text: text, SourceDigest: digest, CreatedAt: now}
+	s.hooks[key] = append(s.hooks[key], revision)
+	return revision, nil
+}
+
+func (s *MemoryStore) ApproveHookRevision(_ context.Context, owner, batchID, bookID, hookID string) (HookRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner { return HookRevision{}, ErrNotFound }
+	key := memoryBookKey(batchID, bookID)
+	for i := range s.hooks[key] {
+		if s.hooks[key][i].ID != hookID { continue }
+		now := time.Now().UTC()
+		s.hooks[key][i].Status = "approved"
+		s.hooks[key][i].ApprovedAt = &now
+		return s.hooks[key][i], nil
+	}
+	return HookRevision{}, ErrNotFound
+}
+
+func (s *MemoryStore) LatestHookRevision(_ context.Context, owner, batchID, bookID string) (HookRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner { return HookRevision{}, ErrNotFound }
+	revisions := s.hooks[memoryBookKey(batchID, bookID)]
+	if len(revisions) == 0 { return HookRevision{}, ErrNotFound }
+	return revisions[len(revisions)-1], nil
+}
+
+func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, book Book, snapshot DirectorSnapshot, digest, hookID string, output DirectorResult) (DirectorRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[book.BatchID]
+	if !ok || owned.Owner != owner { return DirectorRevision{}, ErrNotFound }
+	bookIndex := -1
+	for i := range owned.Value.Books { if owned.Value.Books[i].ID == book.ID { bookIndex = i; break } }
+	if bookIndex < 0 { return DirectorRevision{}, ErrNotFound }
+	b := owned.Value
+	orphaned := []OrphanedOverride{}
+	for vi := range b.Books[bookIndex].Videos {
+		old := &b.Books[bookIndex].Videos[vi]
+		old.CompatibilityState = "orphaned"
+		patch := clonePatch(s.patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: old.ID})])
+		if len(patch) > 0 { orphaned = append(orphaned, OrphanedOverride{VideoID: old.ID, Patch: patch, State: "orphaned"}) }
+	}
+	key := memoryBookKey(b.ID, book.ID)
+	now := time.Now().UTC()
+	revision := DirectorRevision{ID: s.id("director"), BatchID: b.ID, BookID: book.ID, Revision: int64(len(s.directors[key]) + 1), Mode: snapshot.Mode, SnapshotID: s.id("snapshot"), SourceDigest: digest, HookRevisionID: hookID, Output: output, OrphanedOverrides: orphaned, CreatedAt: now}
+	newVideos := make([]Video, 0, len(output.Storyboard))
+	for i, draft := range output.Storyboard {
+		video := Video{ID: s.id("video"), BatchID: b.ID, BookID: book.ID, Label: fmt.Sprintf("VIDEO %02d", i+1), VisualPrompt: draft.VideoDesc, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1}
+		newVideos = append(newVideos, video)
+	}
+	revision.Videos = append([]Video(nil), newVideos...)
+	b.Books[bookIndex].Videos = newVideos
+	b.Books[bookIndex].Revision++
+	b.UpdatedAt = now
+	s.batches[b.ID] = memoryOwned[Batch]{Owner: owner, Value: b}
+	s.directors[key] = append(s.directors[key], revision)
+	return revision, nil
 }

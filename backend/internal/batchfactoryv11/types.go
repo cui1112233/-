@@ -11,6 +11,7 @@ var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("revision conflict")
 	ErrInvalid  = errors.New("invalid input")
+	ErrUnavailable = errors.New("capability unavailable")
 )
 
 type SettingsPatch map[string]json.RawMessage
@@ -65,6 +66,10 @@ type Book struct {
 	SourceText    string        `json:"sourceText,omitempty"`
 	Revision      int64         `json:"revision"`
 	SettingsState SettingsState `json:"settingsState"`
+	Mode          string        `json:"mode,omitempty"`
+	Hook          *HookRevision `json:"hook,omitempty"`
+	DirectorRevision *DirectorRevision `json:"directorRevision,omitempty"`
+	Assets        DirectorAssets `json:"assets,omitempty"`
 	Videos        []Video       `json:"videos"`
 }
 type Batch struct {
@@ -142,6 +147,64 @@ type Draft struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type HookRevision struct {
+	ID         string    `json:"id"`
+	BatchID    string    `json:"batchId"`
+	BookID     string    `json:"bookId"`
+	Revision   int64     `json:"revision"`
+	Status     string    `json:"status"`
+	Text       string    `json:"text"`
+	SourceDigest string  `json:"sourceDigest"`
+	CreatedAt  time.Time `json:"createdAt"`
+	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+}
+
+type DirectorAssets struct {
+	Characters []NamedPrompt `json:"characters"`
+	Scenes     []NamedPrompt `json:"scenes"`
+	Props      []NamedPrompt `json:"props"`
+}
+
+type OrphanedOverride struct {
+	VideoID string        `json:"videoId"`
+	Patch   SettingsPatch `json:"patch"`
+	State   string        `json:"state"`
+}
+
+type DirectorRevision struct {
+	ID                string             `json:"id"`
+	BatchID           string             `json:"batchId"`
+	BookID            string             `json:"bookId"`
+	Revision          int64              `json:"revision"`
+	Mode              string             `json:"mode"`
+	SnapshotID        string             `json:"snapshotId"`
+	SourceDigest      string             `json:"sourceDigest"`
+	HookRevisionID    string             `json:"hookRevisionId,omitempty"`
+	Output            DirectorResult     `json:"output"`
+	Videos            []Video            `json:"videos"`
+	OrphanedOverrides []OrphanedOverride `json:"orphanedOverrides,omitempty"`
+	CreatedAt         time.Time          `json:"createdAt"`
+}
+
+type HookRunInput struct {
+	BatchID string `json:"batchId"`
+	BookID  string `json:"bookId"`
+}
+
+type DirectorRunInput struct {
+	BatchID string `json:"batchId"`
+	BookID  string `json:"bookId"`
+}
+
+type DirectorSnapshot struct {
+	Effective        SettingsPatch `json:"effective"`
+	Mode             string        `json:"mode"`
+	MaxVideoDuration int           `json:"maxVideoDuration"`
+	FixedSingleVideo bool          `json:"fixedSingleVideo"`
+	ExactDuration    int           `json:"exactDuration"`
+	AspectRatio      string        `json:"aspectRatio"`
+}
+
 type Store interface {
 	CreateIntake(context.Context, string, NovelFetchIntakeInput) (Intake, error)
 	GetIntake(context.Context, string, string) (Intake, error)
@@ -156,4 +219,8 @@ type Store interface {
 	CreatePrompt(context.Context, string, Prompt) (Prompt, error)
 	GetDraft(context.Context, string, string, string, string) (Draft, error)
 	SaveDraft(context.Context, string, Draft) (Draft, error)
+	CreateHookRevision(context.Context, string, string, string, string, string) (HookRevision, error)
+	ApproveHookRevision(context.Context, string, string, string, string) (HookRevision, error)
+	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)
+	PersistDirectorRevision(context.Context, string, Book, DirectorSnapshot, string, string, DirectorResult) (DirectorRevision, error)
 }

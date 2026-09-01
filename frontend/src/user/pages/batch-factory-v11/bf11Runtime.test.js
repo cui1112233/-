@@ -67,3 +67,17 @@ test('created batch id is read from server response without starting Director', 
   assert.equal(result.startsDirector, false);
   assert.equal(createdBatchIdFrom(result.raw), 'b9');
 });
+
+test('runtime Director actions surface server failure and never claim local success', async () => {
+  const runtime = createBf11Runtime({ adapter: {
+    runHook: async () => ({ hook: { id: 'h1' } }),
+    approveHook: async () => { const error = new Error('Hook stale'); error.status = 409; throw error; },
+    runDirector: async () => ({ directorRevision: { id: 'd1' } })
+  } });
+  assert.equal((await runtime.runHook({ batchId: 'b1', bookId: 'k1' })).ok, true);
+  const failed = await runtime.approveHook({ batchId: 'b1', bookId: 'k1', hookId: 'h1' });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.status, 409);
+  assert.match(failed.message, /Hook stale/);
+  assert.equal((await runtime.runDirector({ batchId: 'b1', bookId: 'k1' })).ok, true);
+});

@@ -163,10 +163,67 @@ func V11ConfigVersionOwnershipStatements() []string {
 	}
 }
 
+func V11DirectorStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_hook_revisions (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NOT NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  revision BIGINT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  hook_text MEDIUMTEXT NOT NULL,
+  source_digest CHAR(64) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  approved_at DATETIME(6) NULL,
+  UNIQUE KEY uq_bfv11_hook_book_revision (book_id, revision),
+  KEY idx_bfv11_hook_owner_book (owner_username, batch_id, book_id)
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_director_revisions (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NOT NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  revision BIGINT NOT NULL,
+  snapshot_id VARCHAR(64) NOT NULL,
+  mode VARCHAR(32) NOT NULL,
+  source_digest CHAR(64) NOT NULL,
+  hook_revision_id VARCHAR(64) NULL,
+  output_json JSON NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_bfv11_director_book_revision (book_id, revision),
+  KEY idx_bfv11_director_owner_book (owner_username, batch_id, book_id)
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_director_video_links (
+  director_revision_id VARCHAR(64) NOT NULL,
+  video_id VARCHAR(64) NOT NULL,
+  ordinal INT NOT NULL,
+  PRIMARY KEY (director_revision_id, video_id),
+  UNIQUE KEY uq_bfv11_director_video_ordinal (director_revision_id, ordinal)
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_orphaned_overrides (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  director_revision_id VARCHAR(64) NOT NULL,
+  video_id VARCHAR(64) NOT NULL,
+  patch_json JSON NOT NULL,
+  state VARCHAR(32) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_orphan_director (director_revision_id)
+) ENGINE=InnoDB`,
+		`ALTER TABLE batch_factory_v11_hook_revisions ADD CONSTRAINT fk_bfv11_hook_book FOREIGN KEY (book_id) REFERENCES batch_factory_v11_books(id) ON DELETE RESTRICT`,
+		`ALTER TABLE batch_factory_v11_director_revisions ADD CONSTRAINT fk_bfv11_director_book FOREIGN KEY (book_id) REFERENCES batch_factory_v11_books(id) ON DELETE RESTRICT`,
+		`ALTER TABLE batch_factory_v11_director_revisions ADD CONSTRAINT fk_bfv11_director_snapshot FOREIGN KEY (snapshot_id) REFERENCES batch_factory_v11_config_snapshots(id) ON DELETE RESTRICT`,
+		`ALTER TABLE batch_factory_v11_director_video_links ADD CONSTRAINT fk_bfv11_director_link_revision FOREIGN KEY (director_revision_id) REFERENCES batch_factory_v11_director_revisions(id) ON DELETE RESTRICT`,
+		`ALTER TABLE batch_factory_v11_director_video_links ADD CONSTRAINT fk_bfv11_director_link_video FOREIGN KEY (video_id) REFERENCES batch_factory_v11_videos(id) ON DELETE RESTRICT`,
+		`ALTER TABLE batch_factory_v11_orphaned_overrides ADD CONSTRAINT fk_bfv11_orphan_revision FOREIGN KEY (director_revision_id) REFERENCES batch_factory_v11_director_revisions(id) ON DELETE RESTRICT`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
 		{Version: 1100002, SQL: V11SliceOneStatements(), CallbackChecksum: "batch-factory-v11-slice1-v1"},
 		{Version: 1100003, SQL: V11ConfigVersionOwnershipStatements(), CallbackChecksum: "batch-factory-v11-slice1-config-version-ownership-v1"},
+		{Version: 1100004, SQL: V11DirectorStatements(), CallbackChecksum: "batch-factory-v11-director-v1"},
 	}
 }
