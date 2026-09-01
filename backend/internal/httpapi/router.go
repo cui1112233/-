@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
+	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
 )
 
@@ -17,6 +18,7 @@ type RouterOptions struct {
 	RegisterV11    func(*http.ServeMux)
 	Store          batchfactoryv11.Store
 	LocalExecutors *localexecutor.Service
+	LocalArtifacts *localartifact.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -34,6 +36,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	root.Handle("/api/batch-factory/v11/", auth.Middleware(v11))
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
+	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
