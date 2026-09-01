@@ -1,78 +1,38 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const express = require('express');
-const { createBatchRewriteRouter } = require('../routes/batch-rewrite');
+const { createLegacy121MutationGuard } = require('../lib/novel-fetch-workshop/legacy-121-guard');
 
-async function listen(app) {
-  const server = await new Promise(resolve => {
-    const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
-  });
-  const { port } = server.address();
-  return { server, base: `http://127.0.0.1:${port}` };
-}
-
-function fixture() {
-  let httpCalls = 0;
-  const tasks = {
-    async getConfig() { return { web_submit: { enabled: true, username: 'site-user' }, workflow: {} }; },
-    async saveConfig() {},
-    async listTasks() { return []; }
+function callGuard(method, path) {
+  const guard = createLegacy121MutationGuard();
+  let nextCalled = false;
+  const response = { statusCode: 200, body: null };
+  const req = { method, path };
+  const res = {
+    status(code) { response.statusCode = code; return this; },
+    json(body) { response.body = body; return body; }
   };
-  const router = createBatchRewriteRouter({
-    auth(req, _res, next) {
-      req.username = 'alice';
-      req.auth = { account: { username: 'alice', isOwner: true } };
-      next();
-    },
-    systemDir: '/tmp/qiantie-legacy-121-guard',
-    tasksFactory: async () => ({
-      tasks,
-      config: { web_submit: { enabled: true, username: 'site-user' }, workflow: {} },
-      configStore: {
-        getConfig: () => ({ web_submit: { enabled: true, username: 'site-user' }, workflow: {} }),
-        getPlatforms: () => [],
-        getStyles: () => []
-      }
-    }),
-    knowledgeStore: { list: () => [] },
-    openingStore: {},
-    novelFetchStore: {
-      getSession: () => ({ cookie: 'legacy-cookie' }),
-      getBrowserSession: () => null
-    },
-    httpClient: async () => {
-      httpCalls += 1;
-      return { status: 200, headers: {}, body: '{}' };
-    }
-  });
-  const app = express();
-  app.use(express.json());
-  app.use(router);
-  return { app, getHttpCalls: () => httpCalls };
+  guard(req, res, () => { nextCalled = true; });
+  return { ...response, nextCalled };
 }
 
-for (const route of [
+for (const path of [
   '/web-submit/config',
   '/web-submit/sync-configs',
   '/web-submit/sync-styles',
   '/web-submit/test-visible',
-  '/web-submit/submit'
+  '/web-submit/submit',
+  '/process'
 ]) {
-  test(`legacy mutation ${route} is fail-closed instead of reaching direct 121 HTTP`, async () => {
-    const f = fixture();
-    const { server, base } = await listen(f.app);
-    try {
-      const response = await fetch(`${base}${route}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ settings: { enabled: true, username: 'site-user', password: 'pw' }, mode: 'selected', ids: ['10001'] })
-      });
-      const body = await response.json();
-      assert.equal(response.status, 410);
-      assert.equal(body.code, 'legacy_121_mutation_disabled');
-      assert.equal(f.getHttpCalls(), 0);
-    } finally {
-      server.close();
-    }
+  test(`candidate fallthrough blocks legacy mutation POST ${path}`, () => {
+    const result = callGuard('POST', path);
+    assert.equal(result.statusCode, 410);
+    assert.equal(result.body.code, 'legacy_121_mutation_disabled');
+    assert.equal(result.nextCalled, false);
   });
 }
+
+test('read-only and V2-safe routes may continue to the core app', () => {
+  assert.equal(callGuard('GET', '/web-submit/history').nextCalled, true);
+  assert.equal(callGuard('POST', '/web-submit/preview').nextCalled, true);
+  assert.equal(callGuard('GET', '/tasks').nextCalled, true);
+});
