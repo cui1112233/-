@@ -22,6 +22,14 @@ test('V78 default task view remains server-owned today plus historical unfinishe
   assert.ok(source.includes('v78TaskToday'));
 });
 
+test('existing 查看日期 and 今天 controls update the V2 server query', () => {
+  assert.ok(source.includes('bindLegacyTaskDateFilter'));
+  assert.ok(source.includes("byId('taskDateFilter')"));
+  assert.ok(source.includes('taskFilters.date = input.value'));
+  assert.ok(source.includes("byId('taskTodayBtn')"));
+  assert.ok(source.includes('todayDateKey'));
+});
+
 test('sparse AI summary uses target versions instead of continuous ai_count ranges', () => {
   assert.ok(source.includes('function selectedAiVersions'));
   assert.ok(source.includes('task.ai_target_versions'));
