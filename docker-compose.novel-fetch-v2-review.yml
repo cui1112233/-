@@ -1,0 +1,51 @@
+services:
+  platform-review:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${QIANTIE_PLATFORM_REVIEW_IMAGE:-qiantie-platform:novel-fetch-v2-review}
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      QIANTIE_NODE_PORT: "18081"
+      QIANTIE_GO_BASE_URL: ${QIANTIE_GO_BASE_URL:?set QIANTIE_GO_BASE_URL to an isolated review Go service}
+      QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET:?set a non-default review bridge secret}
+      QIANTIE_121_BROWSER_WORKER_URL: http://browser-worker-121:8787
+      QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET:?set a random review worker secret}
+    ports:
+      - "${QIANTIE_REVIEW_PORT:-13107}:18081"
+    volumes:
+      - ./.tmp/novel-fetch-v2-review/platform-data:/app/data
+    depends_on:
+      - browser-worker-121
+    networks:
+      - review-egress
+      - worker-internal
+
+  browser-worker-121:
+    build:
+      context: ./services/121-browser-worker
+      dockerfile: Dockerfile
+    image: ${QIANTIE_121_WORKER_REVIEW_IMAGE:-qiantie-121-browser-worker:novel-fetch-v2-review}
+    restart: "no"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET:?set a random review worker secret}
+      QIANTIE_121_STORAGE_SECRET: ${QIANTIE_121_STORAGE_SECRET:?set a separate random storage encryption secret}
+      QIANTIE_121_SESSION_DIR: /data/sessions
+      QIANTIE_121_HEADED_ENABLED: "0"
+    volumes:
+      - ./.tmp/novel-fetch-v2-review/121-sessions:/data/sessions
+    networks:
+      - worker-internal
+      - worker-egress
+
+networks:
+  review-egress:
+    driver: bridge
+  worker-internal:
+    driver: bridge
+    internal: true
+  worker-egress:
+    driver: bridge
