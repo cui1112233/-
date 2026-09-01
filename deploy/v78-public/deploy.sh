@@ -69,6 +69,6 @@ done
 # Candidate passed. Switch the single public entrypoint.
 "${COMPOSE[@]}" up -d nginx
 
-./verify.sh
+bash ./verify.sh
 
 echo "DEPLOYMENT READY: http://115.190.156.223"
