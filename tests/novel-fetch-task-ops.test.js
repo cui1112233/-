@@ -70,6 +70,41 @@ test('batch AI count rejects the whole update when any selected task already has
   await assert.rejects(() => ops.setAiCount('alice', ['a'], 21), /1.*20/);
 });
 
+test('manual sensitive reprocess uses the V2 saved-rule processor and supports restoring raw original first', async () => {
+  const events = [];
+  const docs = {
+    a: { meta: { bookId: 'a', status: 'done' }, document: { versions: {} } }
+  };
+  const config = { sensitive_ai: { mode: 'ai_group', enabled: true }, ai_assignments: { sensitive_fix: 'preset-sensitive' } };
+  const store = {
+    async getConfig() { return config; },
+    async listTasks() { return [docs.a.meta]; },
+    async getTask(_owner, id) { return docs[id] || null; },
+    async restoreOriginal(owner, id) { events.push(['restore', owner, id]); },
+    async appendLog(owner, id, event, data) { events.push(['log', owner, id, event, data]); }
+  };
+  const ops = createNovelFetchTaskOps({
+    accountResolver: owner => ({ username: owner }),
+    createStore: () => store,
+    tombstones: fakeTombstones(),
+    parseBooks: () => ({ tasks: [] }),
+    createConfigSnapshot: (_tasks, saved) => ({ getConfig: () => saved, getAiConfig: () => ({ ai: {}, ai_presets: [], ai_assignments: saved.ai_assignments }) }),
+    applySavedRules: async (tasks, owner, id, saved, configStore) => {
+      assert.equal(tasks, store);
+      assert.equal(saved.sensitive_ai.mode, 'ai_group');
+      assert.equal(configStore.getAiConfig().ai_assignments.sensitive_fix, 'preset-sensitive');
+      events.push(['apply', owner, id]);
+      return true;
+    }
+  });
+  const result = await ops.reprocessSensitive('alice', { mode: 'selected', ids: ['a'], restore_from_backup: true });
+  assert.equal(result.processed, 1);
+  assert.equal(result.restored, 1);
+  assert.equal(result.failed, 0);
+  assert.deepEqual(events.slice(0, 2), [['restore', 'alice', 'a'], ['apply', 'alice', 'a']]);
+  assert.equal(events.some(entry => entry[0] === 'log' && entry[3] === 'sensitive_reprocessed' && entry[4].mode === 'ai_group'), true);
+});
+
 test('V78 task serializer preserves legacy snake_case fields for the existing workbench', () => {
   const task = toV78Task({
     bookId: '123', bookName: '书名', platformId: '15', platformName: '知乎付费', parseMode: 'smart',
