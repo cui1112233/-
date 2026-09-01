@@ -76,17 +76,17 @@
     section.id = 'v78AdvancedConfigPanel';
     section.className = 'section';
     section.innerHTML = `
-      <div class="section-title"><h2>V78 高级自动处理</h2><span>全部字段由服务端执行；默认升级不会自动上传、自动清理或自动同步 121。</span></div>
+      <div class="section-title"><h2>自动处理</h2><span>补充设置会保存到当前小说获取配置。</span></div>
       <div class="control-grid two">
         <label>原文最少字数<input id="v78MinOriginalChars" type="number" min="0" max="1000000" value="0" /></label>
-        <label class="checkbox-label"><input id="v78SkipShortOriginal" type="checkbox" /> 低于最少字数时保留 raw 并跳过改文</label>
-        <label class="checkbox-label"><input id="v78AutoReclassifyStyle" type="checkbox" /> 风格不在服务端目录时重新 AI 判断</label>
-        <label class="checkbox-label"><input id="v78AutoSyncStyles" type="checkbox" /> 批处理前自动同步 121 风格（仅已有有效登录会话时）</label>
+        <label class="checkbox-label"><input id="v78SkipShortOriginal" type="checkbox" /> 低于最少字数时保留原文并跳过改文</label>
+        <label class="checkbox-label"><input id="v78AutoReclassifyStyle" type="checkbox" /> 风格不在当前目录时重新 AI 判断</label>
+        <label class="checkbox-label"><input id="v78AutoSyncStyles" type="checkbox" /> 处理前自动同步 121 风格</label>
         <label class="checkbox-label"><input id="v78CleanupEnabled" type="checkbox" /> 自动清理过期已完成任务</label>
         <label>任务保留天数<input id="v78RetentionDays" type="number" min="1" max="3650" value="30" /></label>
         <label>自动提交每批任务数<input id="v78SubmitBatchSize" type="number" min="1" max="500" value="20" /></label>
-        <label>自动提交聚合等待秒数<input id="v78SubmitFlushSeconds" type="number" min="0" max="300" value="0" /></label>
-        <label class="checkbox-label"><input id="v78ForceSerialBatch" type="checkbox" /> AI 改文批量强制串行</label>
+        <label>自动提交等待秒数<input id="v78SubmitFlushSeconds" type="number" min="0" max="300" value="0" /></label>
+        <label class="checkbox-label"><input id="v78ForceSerialBatch" type="checkbox" /> AI 改文批量按顺序处理</label>
         <label>敏感词处理模式
           <select id="v78SensitiveMode">
             <option value="replace">直接替换</option>
@@ -95,8 +95,8 @@
           </select>
         </label>
       </div>
-      <div class="notice">“自动同步 121 风格”在没有有效 121 Browser Session 时会 fail-closed，只记录 warning；不会回退去猜登录 API。自动提交仍受现有三重开关保护。</div>
-      <div class="actions"><button id="v78SaveAdvancedConfig" class="primary">保存 V78 高级配置</button><button id="v78ReloadAdvancedConfig">重新读取</button><span id="v78AdvancedConfigStatus"></span></div>`;
+      <div class="notice">没有有效的 121 登录时会跳过风格同步，不影响原文和 AI 文案处理。</div>
+      <div class="actions"><button id="v78SaveAdvancedConfig" class="primary">保存配置</button><button id="v78ReloadAdvancedConfig">重新读取</button><span id="v78AdvancedConfigStatus"></span></div>`;
     grid.appendChild(section);
     byId('v78SaveAdvancedConfig').onclick = saveAdvancedConfig;
     byId('v78ReloadAdvancedConfig').onclick = loadAdvancedConfig;
@@ -191,7 +191,7 @@
       const merged = deepMergeConfig(current, patch);
       await v2Api('/config', { method: 'POST', body: JSON.stringify({ app_config: merged }) });
       renderAdvancedConfig(merged);
-      setStatus('V78 高级配置已保存');
+      setStatus('配置已保存');
     } catch (error) {
       setStatus(error.message, true);
     }
