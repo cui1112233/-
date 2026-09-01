@@ -20,7 +20,7 @@ func TestAppMigrationsKeepExistingV11Checksums(t *testing.T) {
 
 func TestLocalExecutorSchemaStoresHashesNotPlaintextColumns(t *testing.T) {
 	migrations := LocalExecutorMigrations()
-	if len(migrations) != 1 || migrations[0].Version != 7801001 {
+	if len(migrations) < 1 || migrations[0].Version != 7801001 {
 		t.Fatalf("migrations=%+v", migrations)
 	}
 	sqlText := strings.ToLower(strings.Join(migrations[0].SQL, "\n"))
@@ -32,5 +32,25 @@ func TestLocalExecutorSchemaStoresHashesNotPlaintextColumns(t *testing.T) {
 	}
 	if strings.Contains(sqlText, "pairing_code ") || strings.Contains(sqlText, "executor_token ") {
 		t.Fatal("plaintext secret column present")
+	}
+}
+
+func TestLocalExecutorJobMigrationPreservesAcceptanceAndLeaseIdentity(t *testing.T) {
+	migrations := LocalExecutorMigrations()
+	if len(migrations) != 2 || migrations[1].Version != 7801002 {
+		t.Fatalf("migrations=%+v", migrations)
+	}
+	sqlText := strings.ToLower(strings.Join(migrations[1].SQL, "\n"))
+	for _, required := range []string{
+		"local_executor_jobs", "lease_token_hash binary(32)", "lease_generation bigint",
+		"accepted_at datetime(6)", "accepted_account_id", "submission_id",
+		"local_executor_job_events", "local_executor_artifacts",
+	} {
+		if !strings.Contains(sqlText, required) {
+			t.Fatalf("missing %q", required)
+		}
+	}
+	if strings.Contains(sqlText, "lease_token varchar") {
+		t.Fatal("plaintext lease token column present")
 	}
 }
