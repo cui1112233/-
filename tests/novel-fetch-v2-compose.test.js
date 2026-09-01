@@ -4,24 +4,50 @@ const path = require('node:path');
 
 const { attachV78NovelFetchV2 } = require('../lib/novel-fetch-workshop/v2-compose');
 
+function baseCoreApp() {
+  const accounts = new Map([['alice', { username: 'alice' }]]);
+  const novelFetchStore = { getBrowserSession() {}, setBrowserSession() {} };
+  return {
+    novelFetchStore,
+    coreApp: {
+      locals: {
+        authRuntime: {
+          accountStore: {
+            files: { audit: path.join('/srv/qiantie/data/system', 'audit.json') },
+            getAccount(username) { return accounts.get(username) || null; }
+          }
+        },
+        memberStore: { id: 'members' },
+        errorLogStore: { record() {} },
+        novelFetchStore
+      }
+    }
+  };
+}
+
+test('composition fails closed when dedicated 121 credential encryption secret is missing', () => {
+  const shellApp = { locals: {}, use() { return this; } };
+  const { coreApp } = baseCoreApp();
+  assert.throws(() => attachV78NovelFetchV2({
+    shellApp,
+    coreApp,
+    bodyParser: () => {},
+    createBrowserClient() { return { configured: true }; },
+    createCredentialStore() { return { get() {}, set() {} }; },
+    createBatchExecutor() { return async () => ({ ok: true }); },
+    createTombstones() { return {}; },
+    createTaskOps() { return { processConflicts() { return []; } }; },
+    createRuntime() { return { queue: {}, scheduler: {}, startScheduler() {} }; },
+    createWebSubmit() { return {}; },
+    createRouter() { return {}; },
+    credentialSecret: ''
+  }), /QIANTIE_121_CREDENTIAL_SECRET|credential encryption secret/i);
+});
+
 test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, task ops, and starts scheduler runtime', async () => {
   const uses = [];
   const shellApp = { locals: {}, use(...args) { uses.push(args); return this; } };
-  const accounts = new Map([['alice', { username: 'alice' }]]);
-  const novelFetchStore = { getBrowserSession() {}, setBrowserSession() {} };
-  const coreApp = {
-    locals: {
-      authRuntime: {
-        accountStore: {
-          files: { audit: path.join('/srv/qiantie/data/system', 'audit.json') },
-          getAccount(username) { return accounts.get(username) || null; }
-        }
-      },
-      memberStore: { id: 'members' },
-      errorLogStore: { record() {} },
-      novelFetchStore
-    }
-  };
+  const { coreApp, novelFetchStore } = baseCoreApp();
   let executorOptions;
   let runtimeOptions;
   let started = 0;
@@ -49,6 +75,7 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
     shellApp,
     coreApp,
     bodyParser,
+    credentialSecret: 'credential-test-secret',
     createBatchExecutor(options) { executorOptions = options; return async () => { executed += 1; return { ok: true }; }; },
     createTombstones(options) { tombstoneOptions = options; return tombstones; },
     createTaskOps(options) { taskOpsOptions = options; return taskOps; },
@@ -85,6 +112,7 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
   assert.equal(taskOpsOptions.accountResolver('alice').username, 'alice');
   assert.equal(shellApp.locals.novelFetchV2TaskOps, taskOps);
   assert.equal(credentialOptions.usersDir, runtimeOptions.usersDir);
+  assert.equal(credentialOptions.secret, 'credential-test-secret');
   assert.equal(webSubmitOptions.browserClient, browserClient);
   assert.equal(webSubmitOptions.sessionStore, novelFetchStore);
   assert.equal(webSubmitOptions.credentialStore, credentialStore);
