@@ -9,6 +9,8 @@ class DesktopController {
     this.onState = onState;
     this.makeAccountId = makeAccountId;
     this.heartbeatTimer = null;
+    this.jobTimer = null;
+    this.jobPollBusy = false;
   }
 
   getState() {
@@ -51,6 +53,13 @@ class DesktopController {
     return account;
   }
 
+  setAutomationEnabled(enabled) {
+    const state = this.runtime.setAutomationEnabled(Boolean(enabled));
+    this.broadcast();
+    if (enabled) this.pollJobOnce();
+    return state;
+  }
+
   persistAccounts() {
     this.accountStore.save(this.runtime.getState().accounts);
   }
@@ -79,8 +88,38 @@ class DesktopController {
     this.heartbeatTimer = null;
   }
 
+  async pollJobOnce() {
+    if (this.jobPollBusy || !this.runtime.getState().automation.enabled) return null;
+    this.jobPollBusy = true;
+    try {
+      const result = await this.runtime.claimOnce();
+      this.persistAccounts();
+      this.broadcast();
+      return result;
+    } catch (error) {
+      this.runtime.recordError(error);
+      this.persistAccounts();
+      this.broadcast();
+      return null;
+    } finally {
+      this.jobPollBusy = false;
+    }
+  }
+
+  startJobPolling(intervalMs = 2000) {
+    this.stopJobPolling();
+    this.jobTimer = setInterval(() => this.pollJobOnce(), intervalMs);
+    this.jobTimer.unref?.();
+  }
+
+  stopJobPolling() {
+    if (this.jobTimer) clearInterval(this.jobTimer);
+    this.jobTimer = null;
+  }
+
   shutdown() {
     this.stopHeartbeat();
+    this.stopJobPolling();
     this.accountWindows.closeAll?.();
   }
 }
