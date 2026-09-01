@@ -14,7 +14,7 @@ test('browser client fails closed when worker is not configured', async () => {
   });
 });
 
-test('browser client sends only internal worker request with secret', async () => {
+test('browser client sends owner in protected internal header instead of request body', async () => {
   const calls = [];
   const client = create121BrowserClient({
     baseUrl: 'http://worker:8787', secret: 'internal-secret', timeoutMs: 15000,
@@ -28,7 +28,10 @@ test('browser client sends only internal worker request with secret', async () =
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://worker:8787/session/login');
   assert.equal(calls[0].options.headers['x-qiantie-internal-secret'], 'internal-secret');
-  assert.equal(JSON.parse(calls[0].options.body).password, 'pw');
+  assert.equal(calls[0].options.headers['x-qiantie-owner'], 'alice');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.owner, undefined);
+  assert.equal(body.password, 'pw');
 });
 
 test('browser client authenticated action stays inside worker contract', async () => {
@@ -43,7 +46,10 @@ test('browser client authenticated action stays inside worker contract', async (
   const result = await client.action({ ...identity, action: 'config_list', payload: {} });
   assert.equal(result.targetStatus, 200);
   assert.equal(calls[0].url, 'http://worker:8787/session/action');
-  assert.equal(JSON.parse(calls[0].options.body).action, 'config_list');
+  assert.equal(calls[0].options.headers['x-qiantie-owner'], 'alice');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.owner, undefined);
+  assert.equal(body.action, 'config_list');
 });
 
 test('worker failure never falls back to guessed 121 login API', async () => {
