@@ -24,6 +24,8 @@ type MemoryStore struct {
 	drafts         map[string]Draft
 	hooks          map[string][]HookRevision
 	directors      map[string][]DirectorRevision
+	productionJobs map[string]memoryOwned[ProductionJob]
+	productionRequests map[string]string
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -37,7 +39,76 @@ func NewMemoryStore() *MemoryStore {
 		drafts:         map[string]Draft{},
 		hooks:          map[string][]HookRevision{},
 		directors:      map[string][]DirectorRevision{},
+		productionJobs: map[string]memoryOwned[ProductionJob]{},
+		productionRequests: map[string]string{},
 	}
+}
+
+func productionRequestKey(owner, batchID, bookID, requestID string) string {
+	return owner + ":" + batchID + ":" + bookID + ":" + requestID
+}
+
+func cloneProductionJob(value ProductionJob) ProductionJob {
+	value.Tasks = append([]ProductionTask(nil), value.Tasks...)
+	return value
+}
+
+func productionJobState(tasks []ProductionTask) ProductionState {
+	if len(tasks) == 0 { return ProductionQueued }
+	allSucceeded := true
+	for _, task := range tasks {
+		if task.Status == ProductionQueued || task.Status == ProductionRunning { return ProductionRunning }
+		if task.Status != ProductionSucceeded { allSucceeded = false }
+	}
+	if allSucceeded { return ProductionSucceeded }
+	return ProductionFailed
+}
+
+func (s *MemoryStore) FindProductionJob(_ context.Context, owner, batchID, bookID, requestID string) (ProductionJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	id, ok := s.productionRequests[productionRequestKey(owner, batchID, bookID, requestID)]
+	if !ok { return ProductionJob{}, ErrNotFound }
+	job, ok := s.productionJobs[id]
+	if !ok || job.Owner != owner { return ProductionJob{}, ErrNotFound }
+	return cloneProductionJob(job.Value), nil
+}
+
+func (s *MemoryStore) CreateProductionJob(_ context.Context, value ProductionJob) (ProductionJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	if _, ok := s.batches[value.BatchID]; !ok { return ProductionJob{}, ErrNotFound }
+	key := productionRequestKey(value.Owner, value.BatchID, value.BookID, value.RequestID)
+	if id, exists := s.productionRequests[key]; exists { return cloneProductionJob(s.productionJobs[id].Value), nil }
+	value.ID = s.id("production")
+	for index := range value.Tasks { value.Tasks[index].ID = s.id("production-task") }
+	value.Status = productionJobState(value.Tasks)
+	s.productionJobs[value.ID] = memoryOwned[ProductionJob]{Owner:value.Owner, Value:cloneProductionJob(value)}
+	s.productionRequests[key] = value.ID
+	return cloneProductionJob(value), nil
+}
+
+func (s *MemoryStore) UpdateProductionTask(_ context.Context, owner, jobID, taskID string, task ProductionTask) (ProductionJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	owned, ok := s.productionJobs[jobID]
+	if !ok || owned.Owner != owner { return ProductionJob{}, ErrNotFound }
+	job := owned.Value
+	found := false
+	for index := range job.Tasks {
+		if job.Tasks[index].ID == taskID { job.Tasks[index] = task; found = true; break }
+	}
+	if !found { return ProductionJob{}, ErrNotFound }
+	job.Status, job.UpdatedAt = productionJobState(job.Tasks), time.Now().UTC()
+	s.productionJobs[jobID] = memoryOwned[ProductionJob]{Owner:owner, Value:cloneProductionJob(job)}
+	return cloneProductionJob(job), nil
+}
+
+func (s *MemoryStore) ListProductionJobs(_ context.Context, owner, batchID string) ([]ProductionJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	out := []ProductionJob{}
+	for _, owned := range s.productionJobs {
+		if owned.Owner == owner && owned.Value.BatchID == batchID { out = append(out, cloneProductionJob(owned.Value)) }
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
 }
 func (s *MemoryStore) id(prefix string) string { s.seq++; return fmt.Sprintf("%s-%d", prefix, s.seq) }
 func scopeKey(r ScopeRef) string {
