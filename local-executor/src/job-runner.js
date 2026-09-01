@@ -43,6 +43,7 @@ class JobRunner {
 
     let account = null;
     let accepted = false;
+    let accountReleaseState = 'available';
     try {
       account = this.accountPool.acquire({ jobId: job.id });
       if (!account) {
@@ -131,6 +132,7 @@ class JobRunner {
       await this.api.result(this.token, job.id, lease, uploaded.artifactId);
       return { succeeded: true, artifactId: uploaded.artifactId };
     } catch (error) {
+      if (isAccountHoldState(error?.accountState)) accountReleaseState = error.accountState;
       if (isCancellation(error)) throw error;
       if (error instanceof AmbiguousAcceptanceError) {
         await safeCall(() => this.api.fail(this.token, job.id, lease, { code: 'ACCEPTANCE_UNKNOWN', message: error.message }));
@@ -144,13 +146,18 @@ class JobRunner {
       throw error;
     } finally {
       if (timer) clearInterval(timer);
-      if (account) this.accountPool.release(account.id, 'available');
+      await safeCall(() => this.adapter.dispose?.(job.id));
+      if (account) this.accountPool.release(account.id, accountReleaseState);
     }
   }
 
   throwLeaseError(error) {
     if (error) throw error;
   }
+}
+
+function isAccountHoldState(state) {
+  return state === 'human_verification' || state === 'quota_exhausted' || state === 'auth_required';
 }
 
 function isCancellation(error) {
@@ -180,4 +187,4 @@ function delay(ms, signal) {
   });
 }
 
-module.exports = { JobRunner, AmbiguousAcceptanceError, retrySameOperation, isCancellation };
+module.exports = { JobRunner, AmbiguousAcceptanceError, retrySameOperation, isCancellation, isAccountHoldState };
