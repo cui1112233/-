@@ -283,8 +283,8 @@ export function SettingsPage() {
             <div className="settings-executor-actions">
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadLocalExecutors} loading={loadingExecutors}>刷新状态</Button>
               <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-mac-arm64.dmg">下载 Mac 版</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-win-x64.exe">下载 Windows 版</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-1.0.0-mac-arm64.dmg">下载 Mac 版</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-1.0.0-win-x64.exe">下载 Windows 版</Button>
             </div>
           </div>
         </section>
