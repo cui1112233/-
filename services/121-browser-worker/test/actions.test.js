@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { performAuthenticatedAction, buildActionRequest } = require('../src/actions');
 
-function fakeBrowser({ body = '{"success":true}', status = 200 } = {}) {
+function fakeBrowser({ body = '{"success":true}', status = 200, finalUrl = 'http://two.121w.com/tttadmin/api/zdy_config.php?action=list' } = {}) {
   const calls = [];
   const context = {
     request: {
@@ -10,6 +10,7 @@ function fakeBrowser({ body = '{"success":true}', status = 200 } = {}) {
         calls.push({ url, options });
         return {
           status: () => status,
+          url: () => finalUrl,
           text: async () => body,
           headers: () => ({ 'content-type': 'application/json' })
         };
@@ -40,8 +41,16 @@ test('authenticated action uses saved browser state and returns business respons
   assert.ok(result.storageState);
 });
 
+test('authenticated action rejects redirect outside two.121w.com', async () => {
+  const { browser } = fakeBrowser({ finalUrl: 'https://evil.example/capture' });
+  await assert.rejects(
+    performAuthenticatedAction({ browser, baseUrl, storageState: { cookies: [] }, action: 'config_list' }),
+    /two\.121w\.com|target host/i
+  );
+});
+
 test('login page response is rejected as expired session', async () => {
-  const { browser } = fakeBrowser({ body: '<html>管理员登录</html>' });
+  const { browser } = fakeBrowser({ body: '<html>管理员登录</html>', finalUrl: 'http://two.121w.com/tttadmin/login.php' });
   await assert.rejects(
     performAuthenticatedAction({ browser, baseUrl, storageState: { cookies: [] }, action: 'dashboard' }),
     error => error.code === 'SESSION_EXPIRED'
@@ -49,7 +58,7 @@ test('login page response is rejected as expired session', async () => {
 });
 
 test('upload sends exact multipart bytes through authenticated context', async () => {
-  const { browser, calls } = fakeBrowser();
+  const { browser, calls } = fakeBrowser({ finalUrl: 'http://two.121w.com/tttadmin/api/zbooklist_upload.php' });
   await performAuthenticatedAction({ browser, baseUrl, storageState: { cookies: [] }, action: 'upload', payload: { contentType: 'multipart/form-data; boundary=abc', bodyBase64: Buffer.from('payload').toString('base64') } });
   const request = calls.find(item => item.url);
   assert.equal(request.options.method, 'POST');
