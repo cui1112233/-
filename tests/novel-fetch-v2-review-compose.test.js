@@ -27,6 +27,7 @@ test('review platform talks to Worker by service name and never binds host port 
   const platformBlock = text.match(/\n  platform-review:\n([\s\S]*?)(?=\n  [a-zA-Z0-9_-]+:\n|\nnetworks:|\nvolumes:|$)/)?.[1] || '';
   assert.match(platformBlock, /QIANTIE_121_BROWSER_WORKER_URL:\s*http:\/\/browser-worker-121:8787/);
   assert.match(platformBlock, /QIANTIE_121_WORKER_SECRET:\s*\$\{QIANTIE_121_WORKER_SECRET:\?/);
+  assert.match(platformBlock, /QIANTIE_121_CREDENTIAL_SECRET:\s*\$\{QIANTIE_121_CREDENTIAL_SECRET:\?/);
   assert.match(platformBlock, /QIANTIE_BRIDGE_SECRET:\s*\$\{QIANTIE_BRIDGE_SECRET:\?/);
   assert.match(platformBlock, /QIANTIE_GO_BASE_URL:\s*\$\{QIANTIE_GO_BASE_URL:\?/);
   assert.match(platformBlock, /\$\{QIANTIE_REVIEW_PORT:-13107\}:18081/);
