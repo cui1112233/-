@@ -148,6 +148,11 @@ export function createBf11Runtime({ adapter }) {
     async runDirector(input) {
       try { return { ok: true, raw: await adapter.runDirector(input) }; }
       catch (error) { return actionFailure(error, 'Director 执行失败，请检查 Hook、模型和时长设置。'); }
+    },
+
+    async previewFinalPrompt(input) {
+      try { return { ok: true, raw: await adapter.previewFinalPrompt(input) }; }
+      catch (error) { return actionFailure(error, '最终提示词预览失败，请检查 Director revision 和 VIDEO 设置。'); }
     }
   };
 }

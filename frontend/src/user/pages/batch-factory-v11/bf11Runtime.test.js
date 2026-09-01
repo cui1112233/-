@@ -81,3 +81,13 @@ test('runtime Director actions surface server failure and never claim local succ
   assert.match(failed.message, /Hook stale/);
   assert.equal((await runtime.runDirector({ batchId: 'b1', bookId: 'k1' })).ok, true);
 });
+
+test('runtime final prompt preview returns only server compiler output', async () => {
+  const runtime = createBf11Runtime({ adapter: {
+    previewFinalPrompt: async input => ({ finalPrompt: { compiledPrompt: input.videoId }, effectiveSettings: { snapshotHash: 'h1' } })
+  } });
+  const result = await runtime.previewFinalPrompt({ batchId: 'b1', bookId: 'k1', videoId: 'v1' });
+  assert.equal(result.ok, true);
+  assert.equal(result.raw.finalPrompt.compiledPrompt, 'v1');
+  assert.equal(result.raw.effectiveSettings.snapshotHash, 'h1');
+});

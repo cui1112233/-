@@ -44,3 +44,11 @@ func TestV11CapabilitiesRejectExpiredSignature(t *testing.T) {
 		t.Fatalf("got %d", rec.Code)
 	}
 }
+
+func TestSliceThreeUnlocksCompilerPreviewOnly(t *testing.T) {
+	caps := CapabilitiesForSlice(3)
+	if !caps["compiler.preview"].Available { t.Fatalf("compiler.preview=%+v", caps["compiler.preview"]) }
+	for _, key := range []string{"production.submit", "merge.run", "publish.121", "publish.yadi"} {
+		if caps[key].Available { t.Fatalf("%s must remain unavailable in Slice 3", key) }
+	}
+}

@@ -16,6 +16,7 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 		"override.edit":     {Reason: "V11 settings slice not released"},
 		"director.run":      {Reason: "Director slice not released"},
 		"hook.review":       {Reason: "Director slice not released"},
+		"compiler.preview":  {Reason: "Final prompt compiler slice not released"},
 		"production.submit": {Reason: "Production slice not released"},
 		"merge.run":         {Reason: "Merge slice not released"},
 		"publish.121":       {Reason: "121 is not enabled"},
@@ -29,6 +30,9 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 	if slice >= 2 {
 		caps["director.run"] = Capability{Available: true}
 		caps["hook.review"] = Capability{Available: true}
+	}
+	if slice >= 3 {
+		caps["compiler.preview"] = Capability{Available: true}
 	}
 	return caps
 }

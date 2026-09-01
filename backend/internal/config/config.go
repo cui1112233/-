@@ -27,12 +27,12 @@ func FromEnv() (Config, error) {
 	}
 	rawSlice := envOr("QIANTIE_BATCH_FACTORY_V11_SLICE", "0")
 	slice, err := strconv.Atoi(rawSlice)
-	if err != nil || slice < 0 || slice > 2 {
+	if err != nil || slice < 0 || slice > 3 {
 		return Config{}, fmt.Errorf("invalid QIANTIE_BATCH_FACTORY_V11_SLICE")
 	}
 	cfg.Slice = slice
 	if cfg.Slice >= 2 && (cfg.DirectorEndpoint == "" || cfg.DirectorAPIKey == "" || cfg.DirectorModel == "") {
-		return Config{}, fmt.Errorf("Slice 2 requires the V11 text provider endpoint, API key, and model")
+		return Config{}, fmt.Errorf("Slice 2+ requires the V11 text provider endpoint, API key, and model")
 	}
 	return cfg, nil
 }

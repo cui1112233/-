@@ -117,6 +117,18 @@ export function createBf11UiAdapter(api) {
     async runDirector({ batchId, bookId } = {}) {
       if (!batchId || !bookId) throw new Error('V11 Batch and Book ids are required');
       return api.runDirector(batchId, bookId);
+    },
+
+    async previewFinalPrompt({ batchId, bookId, videoId } = {}) {
+      if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
+      const [effectiveResult, promptResult] = await Promise.all([
+        api.getEffectiveSettings(batchId, bookId, videoId),
+        api.getFinalPrompt(batchId, bookId, videoId)
+      ]);
+      return {
+        effectiveSettings: effectiveResult?.effectiveSettings || effectiveResult,
+        finalPrompt: promptResult?.finalPrompt || promptResult
+      };
     }
   };
 }

@@ -79,3 +79,15 @@ test('Director actions use only V11 API client methods and immutable identities'
     ['director', 'b1', 'k1']
   ]);
 });
+
+test('final prompt preview reads effective settings and compiled prompt from Go', async () => {
+  const calls = [];
+  const api = {
+    getEffectiveSettings: async (...args) => { calls.push(['effective', ...args]); return { effectiveSettings: { snapshotHash: 's1' } }; },
+    getFinalPrompt: async (...args) => { calls.push(['prompt', ...args]); return { finalPrompt: { compiledPrompt: 'ready' } }; }
+  };
+  const result = await createBf11UiAdapter(api).previewFinalPrompt({ batchId: 'b1', bookId: 'k1', videoId: 'v1' });
+  assert.deepEqual(calls, [['effective', 'b1', 'k1', 'v1'], ['prompt', 'b1', 'k1', 'v1']]);
+  assert.equal(result.effectiveSettings.snapshotHash, 's1');
+  assert.equal(result.finalPrompt.compiledPrompt, 'ready');
+});

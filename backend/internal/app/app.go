@@ -24,5 +24,6 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		if err := provider.Validate(); err != nil { return nil, err }
 		director = &batchfactoryv11.DirectorService{Store: store, Provider: provider}
 	}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, RegisterV11: register}), nil
+	compiler := &batchfactoryv11.PromptCompilerService{Store: store}
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, RegisterV11: register}), nil
 }

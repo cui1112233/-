@@ -5,6 +5,7 @@ import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
 import { DirectorRefreshProvider } from './DirectorRefreshContext.jsx';
+import { FinalPromptPreviewDrawer } from './FinalPromptPreviewDrawer.jsx';
 import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 import { createBf11Runtime, createdBatchIdFrom } from './bf11Runtime.js';
@@ -44,6 +45,7 @@ export function BatchFactoryV11UiPage() {
   const [bookSettingsTargetId, setBookSettingsTargetId] = useState('');
   const [videoSettingsTarget, setVideoSettingsTarget] = useState(null);
   const [directorAction, setDirectorAction] = useState({ type: '', bookId: '' });
+  const [promptPreview, setPromptPreview] = useState({ open: false, loading: false, data: null, error: '' });
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -265,6 +267,18 @@ export function BatchFactoryV11UiPage() {
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
+  async function previewFinalPrompt(book, video) {
+    if (!book?.id || !video?.id) return false;
+    setPromptPreview({ open: true, loading: true, data: null, error: '' });
+    const result = await runtime.previewFinalPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id });
+    if (!result.ok) {
+      setPromptPreview({ open: true, loading: false, data: null, error: result.message });
+      return false;
+    }
+    setPromptPreview({ open: true, loading: false, data: result.raw, error: '' });
+    return true;
+  }
+
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
       <BatchFactoryV11Workbench
@@ -277,6 +291,15 @@ export function BatchFactoryV11UiPage() {
         onRunHook={runHook}
         onApproveHook={approveHook}
         onRunDirector={runDirector}
+        onPreviewFinalPrompt={previewFinalPrompt}
+      />
+
+      <FinalPromptPreviewDrawer
+        open={promptPreview.open}
+        loading={promptPreview.loading}
+        data={promptPreview.data}
+        error={promptPreview.error}
+        onClose={() => setPromptPreview(current => ({ ...current, open: false }))}
       />
 
       <ProductionSettingsDrawer

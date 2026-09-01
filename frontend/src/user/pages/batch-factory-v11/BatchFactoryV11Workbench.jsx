@@ -121,6 +121,7 @@ export function BatchFactoryV11Workbench({
   onRunHook,
   onApproveHook,
   onRunDirector,
+  onPreviewFinalPrompt,
   onRunProduction,
   onRunMerge,
   onRunUpload
@@ -146,6 +147,7 @@ export function BatchFactoryV11Workbench({
   const overrideAction = actionState(capabilities, 'override.edit');
   const productionAction = actionState(capabilities, 'production.submit');
   const mergeAction = actionState(capabilities, 'merge.run');
+  const compilerAction = actionState(capabilities, 'compiler.preview');
 
   const selectedBook = useMemo(
     () => books.find(book => book.id === selectedBookId) || books[0] || null,
@@ -340,8 +342,12 @@ export function BatchFactoryV11Workbench({
             />
             <Space wrap>
               <Button disabled>保存画面提示词</Button>
-              <Button disabled>本次提交预览</Button>
-              <Typography.Text type="secondary">最终 compiledPrompt 由后续 Go compiler Slice 生成。</Typography.Text>
+              <Button
+                disabled={compilerAction.disabled || !onPreviewFinalPrompt}
+                title={compilerAction.disabled ? compilerAction.reason : ''}
+                onClick={() => onPreviewFinalPrompt?.(selectedBook, selectedVideo)}
+              >本次提交预览</Button>
+              <Typography.Text type="secondary">Go 会展示每项设置来源、Director revision 和最终 compiledPrompt。</Typography.Text>
             </Space>
           </div>
           <div className="bf11-assets compact">

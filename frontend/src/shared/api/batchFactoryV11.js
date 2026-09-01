@@ -112,6 +112,14 @@ export function runBatchDirector(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body({}) });
 }
 
+export function getEffectiveSettings(batchId, bookId, videoId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/effective-settings`));
+}
+
+export function getFinalPrompt(batchId, bookId, videoId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
+}
+
 export default {
   getCapabilities,
   createNovelFetchIntake,
@@ -132,5 +140,7 @@ export default {
   runHook,
   approveHook,
   runDirector,
-  runBatchDirector
+  runBatchDirector,
+  getEffectiveSettings,
+  getFinalPrompt
 };

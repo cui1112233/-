@@ -16,6 +16,7 @@ type RouterOptions struct {
 	RegisterV11  func(*http.ServeMux)
 	Store        batchfactoryv11.Store
 	Director     *batchfactoryv11.DirectorService
+	Compiler     *batchfactoryv11.PromptCompilerService
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -26,6 +27,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	}
 	if options.Store != nil && options.Director != nil && options.Slice >= 2 {
 		registerDirectorRoutes(v11, options.Director, options.Store)
+	}
+	if options.Compiler != nil && options.Slice >= 3 {
+		registerCompilerRoutes(v11, options.Compiler)
 	}
 	if options.RegisterV11 != nil {
 		options.RegisterV11(v11)

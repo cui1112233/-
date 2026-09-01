@@ -17,7 +17,7 @@ func TestFromEnvRequiresMySQLAndBridgeSecret(t *testing.T) {
 func TestFromEnvRejectsUnreleasedSliceNumber(t *testing.T) {
 	t.Setenv("QIANTIE_MYSQL_DSN", "user:pass@tcp(mysql:3306)/qiantie")
 	t.Setenv("QIANTIE_BRIDGE_SECRET", "secret")
-	t.Setenv("QIANTIE_BATCH_FACTORY_V11_SLICE", "3")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_SLICE", "4")
 	if _, err := FromEnv(); err == nil {
 		t.Fatal("expected invalid slice error")
 	}
@@ -34,4 +34,3 @@ func TestFromEnvRequiresDirectorProviderForSliceTwo(t *testing.T) {
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL", "test-model")
 	if _, err := FromEnv(); err != nil { t.Fatalf("unexpected configured Slice 2 error: %v", err) }
 }
-
