@@ -1,4 +1,4 @@
-const { normalizeBaseUrl } = require('./contracts');
+const { approvedTargetUrl, normalizeBaseUrl } = require('./contracts');
 
 const DEFAULT_SELECTORS = Object.freeze({
   username: ['input[name="username"]', 'input[name="user"]', 'input[name="account"]', 'input[type="text"]'],
@@ -21,6 +21,11 @@ function backendCheckUrl(baseUrl) {
   return `${root.protocol}//${root.hostname}${BACKEND_CHECK_PATH}`;
 }
 
+function assertPageStayedOnTarget(page) {
+  if (!page || typeof page.url !== 'function') throw new Error('121 target page URL unavailable');
+  return approvedTargetUrl(page.url());
+}
+
 async function firstLocator(page, selectors) {
   for (const selector of selectors || []) {
     const locator = page.locator(selector);
@@ -39,6 +44,8 @@ async function verifyAuthenticatedBackend(context, baseUrl, timeoutMs = 15000) {
     method: 'GET',
     timeout: Math.max(1000, Math.min(Number(timeoutMs) || 15000, 60000))
   });
+  if (!response || typeof response.url !== 'function') throw new Error('121 后台身份验证失败：响应 URL 不可验证');
+  approvedTargetUrl(response.url());
   const status = typeof response.status === 'function' ? response.status() : Number(response.status) || 0;
   const body = String(await response.text() || '');
   if (status < 200 || status >= 400 || !body.trim() || LOGIN_PAGE_PATTERN.test(body)) {
@@ -63,6 +70,7 @@ async function performPageLogin({
   try {
     const page = await context.newPage();
     await page.goto(landingUrl(normalizedBaseUrl, landingPath), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    assertPageStayedOnTarget(page);
 
     if (await loginFormVisible(page, selectors)) {
       const userInput = await firstLocator(page, selectors.username);
@@ -75,6 +83,7 @@ async function performPageLogin({
       await submit.click();
       try { await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs }); } catch (_) {}
       if (typeof page.waitForTimeout === 'function') await page.waitForTimeout(200);
+      assertPageStayedOnTarget(page);
       if (await loginFormVisible(page, selectors)) throw new Error('121 登录失败：登录表单仍然存在');
     }
 
@@ -101,6 +110,7 @@ module.exports = {
   BACKEND_CHECK_PATH,
   landingUrl,
   backendCheckUrl,
+  assertPageStayedOnTarget,
   firstLocator,
   loginFormVisible,
   verifyAuthenticatedBackend,
