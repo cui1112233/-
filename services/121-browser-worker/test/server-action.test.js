@@ -8,23 +8,28 @@ async function listen(app) {
   return { server, base: `http://127.0.0.1:${port}` };
 }
 
-async function post(base, body) {
+async function post(base, body, owner = 'alice') {
   const response = await fetch(`${base}/session/action`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-qiantie-internal-secret': 'secret' },
+    headers: {
+      'content-type': 'application/json',
+      'x-qiantie-internal-secret': 'secret',
+      'x-qiantie-owner': owner
+    },
     body: JSON.stringify(body)
   });
   return { status: response.status, data: await response.json() };
 }
 
-const identity = { owner: 'alice', baseUrl: 'http://two.121w.com/tttadmin', username: 'u' };
+const identity = { baseUrl: 'http://two.121w.com/tttadmin', username: 'u' };
 
 test('session action uses saved state, persists refreshed state and hides storage material', async () => {
   let saved;
   const app = createWorkerApp({
     secret: 'secret',
-    sessionStore: { load: () => ({ cookies: [{ name: 'old', value: 'hidden' }] }), save: (_identity, state) => { saved = state; return { sessionKey: 'opaque' }; } },
+    sessionStore: { load: input => { assert.equal(input.owner, 'alice'); return { cookies: [{ name: 'old', value: 'hidden' }] }; }, save: (_identity, state) => { saved = state; return { sessionKey: 'opaque' }; } },
     action: async options => {
+      assert.equal(options.owner, 'alice');
       assert.equal(options.action, 'config_list');
       assert.equal(options.storageState.cookies[0].name, 'old');
       return { status: 200, headers: { 'content-type': 'application/json' }, body: '{"success":true}', storageState: { cookies: [{ name: 'new', value: 'hidden2' }] } };
