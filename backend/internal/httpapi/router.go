@@ -6,15 +6,17 @@ import (
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
+	"qiantie/backend/internal/novelfetchworkshop"
 )
 
 type RouterOptions struct {
-	BridgeSecret string
-	Now          func() time.Time
-	Users        BridgeUserResolver
-	Slice        int
-	RegisterV11  func(*http.ServeMux)
-	Store        batchfactoryv11.Store
+	BridgeSecret    string
+	Now             func() time.Time
+	Users           BridgeUserResolver
+	Slice           int
+	RegisterV11     func(*http.ServeMux)
+	Store           batchfactoryv11.Store
+	NovelFetchStore novelfetchworkshop.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -29,6 +31,11 @@ func NewRouter(options RouterOptions) http.Handler {
 
 	root := http.NewServeMux()
 	root.Handle("/api/batch-factory/v11/", BridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}.Middleware(v11))
+	if options.NovelFetchStore != nil {
+		novelFetch := http.NewServeMux()
+		registerNovelFetchWorkshopRoutes(novelFetch, options.NovelFetchStore)
+		root.Handle("/api/novel-fetch-workshop/", NovelFetchBridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}.Middleware(novelFetch))
+	}
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
