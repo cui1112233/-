@@ -9,37 +9,42 @@ const mainSource = fs.readFileSync(MAIN_SOURCE_PATH, 'utf8');
 const configSource = fs.existsSync(CONFIG_SOURCE_PATH) ? fs.readFileSync(CONFIG_SOURCE_PATH, 'utf8') : '';
 const source = `${mainSource}\n${configSource}`;
 
-test('V78 extension exposes queue and realtime controls', () => {
-  for (const endpoint of [
-    '/process/queue/start',
-    '/process/queue/pause',
-    '/process/queue/resume',
-    '/process/queue/stop',
-    '/realtime/status'
-  ]) assert.ok(source.includes(endpoint), `missing ${endpoint}`);
-  assert.ok(source.includes('v78QueueStart'));
-  assert.ok(source.includes('v78RealtimeStatus'));
-});
-
-test('V78 extension exposes one-shot scheduler controls', () => {
-  assert.ok(source.includes('/schedules'));
-  assert.ok(source.includes('v78ScheduleRunAt'));
-  assert.ok(source.includes('v78ScheduleList'));
-});
-
-test('V78 extension exposes advanced task operations', () => {
+test('processing UI uses sparse target versions and parser-backed preview', () => {
   for (const marker of [
-    'bookId=',
-    'status=',
-    'batch-delete-permanent',
-    'restore-tombstone',
-    'batch-ai-count',
-    'v78PrevDay',
-    'v78NextDay'
-  ]) assert.ok(source.includes(marker), `missing ${marker}`);
+    'v78TargetVersions', 'v78TargetOriginal', 'v78TargetAi1', 'v78TargetAi2', 'v78TargetAi3', 'v78TargetAi4', 'v78TargetAi5',
+    'target_versions', 'ai_slot_methods_snapshot', '/process/preview', 'v78ParsedBooks', 'v78BackToInput'
+  ]) assert.ok(mainSource.includes(marker), `missing ${marker}`);
+  assert.ok(mainSource.includes('本次处理'));
+  assert.ok(mainSource.includes('AI文案处理优先方案'));
 });
 
-test('V78 extension exposes only server-backed advanced configuration', () => {
+test('processing page exposes lightweight current batch only', () => {
+  for (const marker of ['/batches/current', '/process/queue/stop', '当前批次', '停止处理', '查看全部任务']) {
+    assert.ok(mainSource.includes(marker), `missing ${marker}`);
+  }
+  assert.ok(!mainSource.includes('V78 自动处理队列'));
+  assert.ok(!mainSource.includes('V78 高级任务管理'));
+  assert.ok(!mainSource.includes('v78ScheduleRunAt'));
+});
+
+test('tasks page exposes history, selected stop, sparse AI display and push date', () => {
+  for (const marker of [
+    '/batches', '/rerun', '当前任务', '历史批次', '全部重跑', '重跑异常',
+    '/tasks/stop-selected', '停止选中', '推送日期', 'selectedAiVersions', 'patchTaskTableForV78'
+  ]) assert.ok(mainSource.includes(marker), `missing ${marker}`);
+});
+
+test('historical rerun only loads processing form and never auto-starts from rerun handler', () => {
+  assert.ok(mainSource.includes('loadHistoricalBatchForRerun'));
+  assert.ok(mainSource.includes('preselected_book_ids'));
+  const start = mainSource.indexOf('async function loadHistoricalBatchForRerun');
+  const end = mainSource.indexOf('\n  async function', start + 1);
+  const block = mainSource.slice(start, end > start ? end : undefined);
+  assert.ok(!block.includes('/process/queue/start'));
+  assert.ok(!block.includes('/process/start'));
+});
+
+test('V78 extension preserves server-backed advanced configuration', () => {
   for (const marker of [
     'v78MinOriginalChars',
     'v78SkipShortOriginal',
