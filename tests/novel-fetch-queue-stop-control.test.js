@@ -17,7 +17,7 @@ async function waitUntil(predicate, timeoutMs = 2000) {
   }
 }
 
-test('in-flight executor can observe queue stop request and finish its current atomic step', async () => {
+test('in-flight executor can observe queue stop request and preserve its current atomic-step result', async () => {
   const store = createQueueStore({ usersDir: tempUsersDir() });
   let releaseStep;
   const gate = new Promise(resolve => { releaseStep = resolve; });
@@ -47,7 +47,7 @@ test('in-flight executor can observe queue stop request and finish its current a
 
   assert.deepEqual(observations, [false, true]);
   const state = queue.status('alice');
-  assert.equal(state.items[0].state, 'done', '当前原子步骤允许完成并保存');
+  assert.equal(state.items[0].state, 'stopped', '批次最终停止，但当前原子步骤结果必须保留');
   assert.equal(state.items[0].result.saved_current_step, true);
   assert.equal(state.items[1].state, 'stopped', '停止后不再启动后续队列项');
 });
