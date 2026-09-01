@@ -37,7 +37,13 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
   const router = { router: true };
   const browserClient = { configured: true };
   const credentialStore = { get() {}, set() {} };
-  const webSubmit = { id: 'web-submit' };
+  const webSubmitCalls = [];
+  const webSubmit = {
+    id: 'web-submit',
+    async ensureSession(owner) { webSubmitCalls.push(['session', owner]); return { result: { ok: true } }; },
+    async syncStyles(owner) { webSubmitCalls.push(['styles', owner]); return { ok: true }; },
+    async submit(owner, request) { webSubmitCalls.push(['submit', owner, request]); return { ok: true }; }
+  };
 
   const result = attachV78NovelFetchV2({
     shellApp,
@@ -65,6 +71,13 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
   assert.equal(shellApp.locals.novelFetchV2Runtime, runtime);
   assert.equal(executorOptions.accountResolver('alice').username, 'alice');
   assert.equal(executorOptions.accountResolver('ghost'), null);
+  assert.equal(typeof executorOptions.webSessionReady, 'function');
+  assert.equal(typeof executorOptions.syncSiteStyles, 'function');
+  assert.equal(typeof executorOptions.submit, 'function');
+  assert.equal(await executorOptions.webSessionReady('alice'), true);
+  await executorOptions.syncSiteStyles('alice');
+  await executorOptions.submit('alice', { ids: ['1'] });
+  assert.deepEqual(webSubmitCalls, [['session', 'alice'], ['styles', 'alice'], ['submit', 'alice', { ids: ['1'] }]]);
   assert.equal(runtimeOptions.usersDir, path.join('/srv/qiantie/data/system', '..', 'users'));
   assert.equal(typeof runtimeOptions.executeBatch, 'function');
   assert.equal(tombstoneOptions.usersDir, runtimeOptions.usersDir);
