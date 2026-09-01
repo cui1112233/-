@@ -1,5 +1,6 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
+  let sensitiveFixGuardInstalled = false;
 
   function byId(id) { return document.getElementById(id); }
   function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -48,6 +49,22 @@
     label.innerHTML = '敏感词修复模型<select id="sensitiveFixSelect"></select>';
     grid.appendChild(label);
     return byId('sensitiveFixSelect');
+  }
+
+  function installSensitiveFixLegacyGuard() {
+    if (sensitiveFixGuardInstalled) return true;
+    const legacy = window.syncCurrentAiPreset;
+    if (typeof legacy !== 'function') return false;
+    window.syncCurrentAiPreset = function(cfg) {
+      const assignments = object(cfg?.ai_assignments);
+      const explicit = String(byId('sensitiveFixSelect')?.value || assignments.sensitive_fix || '__current__');
+      const result = legacy.apply(this, arguments);
+      cfg.ai_assignments = object(cfg.ai_assignments);
+      if (explicit && explicit !== '__current__') cfg.ai_assignments.sensitive_fix = explicit;
+      return result;
+    };
+    sensitiveFixGuardInstalled = true;
+    return true;
   }
 
   function mountAdvancedConfigPanel() {
@@ -183,11 +200,13 @@
   function boot() {
     mountAdvancedConfigPanel();
     ensureSensitiveFixSelector();
+    installSensitiveFixLegacyGuard();
     void loadAdvancedConfig();
     let attempts = 0;
     const timer = window.setInterval(() => {
       mountAdvancedConfigPanel();
       ensureSensitiveFixSelector();
+      installSensitiveFixLegacyGuard();
       attempts += 1;
       if (attempts >= 20) window.clearInterval(timer);
     }, 250);
