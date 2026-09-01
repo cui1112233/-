@@ -1,0 +1,95 @@
+name: Novel Fetch V2 121 Review
+
+on:
+  push:
+    branches:
+      - fix/novel-fetch-v2-121-review-56a4278
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      QIANTIE_GO_BASE_URL: http://go-review.invalid:4000
+      QIANTIE_BRIDGE_SECRET: review-bridge-secret-not-production
+      QIANTIE_121_BROWSER_WORKER_URL: http://browser-worker-121:8787
+      QIANTIE_121_WORKER_SECRET: review-worker-secret-not-production
+      QIANTIE_121_STORAGE_SECRET: review-storage-secret-not-production
+      QIANTIE_121_CREDENTIAL_SECRET: review-credential-secret-not-production
+      QIANTIE_REVIEW_PORT: "13107"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+
+      - name: Install platform dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Install Browser Worker dependencies
+        run: npm --prefix services/121-browser-worker install --omit=dev
+
+      - name: Node contract tests
+        run: node --test tests/*.test.js
+
+      - name: Browser Worker tests
+        run: npm --prefix services/121-browser-worker test
+
+      - name: Frontend build
+        run: npm --prefix frontend run build
+
+      - name: Validate review compose
+        run: docker compose -f docker-compose.novel-fetch-v2-review.yml config >/tmp/review-compose.yml
+
+      - name: Build review images
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA::7}"
+          platform_tag="qiantie-platform:review-v2-${short}"
+          worker_tag="qiantie-121-browser-worker:review-v2-${short}"
+          docker build -t "$platform_tag" .
+          docker build -t "$worker_tag" services/121-browser-worker
+          echo "QIANTIE_PLATFORM_REVIEW_IMAGE=$platform_tag" >> "$GITHUB_ENV"
+          echo "QIANTIE_121_WORKER_REVIEW_IMAGE=$worker_tag" >> "$GITHUB_ENV"
+          echo "platform_tag=$platform_tag" >> "$GITHUB_STEP_SUMMARY"
+          echo "platform_image_id=$(docker image inspect "$platform_tag" --format '{{.Id}}')" >> "$GITHUB_STEP_SUMMARY"
+          echo "worker_tag=$worker_tag" >> "$GITHUB_STEP_SUMMARY"
+          echo "worker_image_id=$(docker image inspect "$worker_tag" --format '{{.Id}}')" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start isolated review stack
+        run: docker compose -f docker-compose.novel-fetch-v2-review.yml up -d --no-build
+
+      - name: Verify platform and private Worker network
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${QIANTIE_REVIEW_PORT}/novel-fetch" >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS "http://127.0.0.1:${QIANTIE_REVIEW_PORT}/novel-fetch" >/dev/null
+          docker compose -f docker-compose.novel-fetch-v2-review.yml exec -T platform-review node -e "fetch('http://browser-worker-121:8787/healthz',{headers:{'x-qiantie-internal-secret':process.env.QIANTIE_121_WORKER_SECRET}}).then(async r=>{if(!r.ok)process.exit(1);console.log(await r.text())})"
+          if curl -fsS --max-time 1 http://127.0.0.1:8787/healthz >/dev/null 2>&1; then
+            echo 'Browser Worker unexpectedly exposed on host port 8787' >&2
+            exit 1
+          fi
+
+      - name: Review stack logs
+        if: always()
+        run: docker compose -f docker-compose.novel-fetch-v2-review.yml logs --no-color || true
+
+      - name: Stop isolated review stack
+        if: always()
+        run: docker compose -f docker-compose.novel-fetch-v2-review.yml down -v --remove-orphans || true
