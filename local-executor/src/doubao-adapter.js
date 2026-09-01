@@ -52,8 +52,10 @@ class DoubaoAdapter {
 
   async prepare({ job, account, signal }) {
     throwIfAborted(signal);
+    if (!job?.id || !account?.id) throw new Error('job and account are required');
+    this.dispose(job.id);
     const payload = payloadOf(job);
-    const webContents = this.accountWindows.getWebContents(account?.id);
+    const webContents = this.accountWindows.getWebContents(account.id);
     const before = await this.pageProbe.capture(webContents);
     assertUsableAccount(before);
     const selected = selectRequestedOptions(detectCapabilities(before), payload);
@@ -65,7 +67,6 @@ class DoubaoAdapter {
     await this.pageActions.setPrompt(webContents, selected.prompt);
     throwIfAborted(signal);
 
-    this.dispose(job?.id);
     this.jobs.set(job.id, {
       jobId: job.id,
       accountId: account.id,
@@ -136,16 +137,12 @@ class DoubaoAdapter {
       throwIfAborted(signal);
       const snapshot = await this.pageProbe.capture(state.webContents);
       assertUsableAccount(snapshot);
-      const candidates = snapshotVideoCandidates(snapshot);
+      const candidates = mergeMediaCandidates(
+        state.tracker?.getMediaCandidates?.() || [],
+        snapshotVideoCandidates(snapshot)
+      );
       try {
         return bindExactMedia(state.submission, candidates);
-      } catch (error) {
-        if (!(error instanceof MediaBindingError) || error.code !== 'EXACT_MEDIA_NOT_FOUND') throw error;
-      }
-
-      const networkCandidates = state.tracker?.getMediaCandidates?.() || [];
-      try {
-        return bindExactMedia(state.submission, networkCandidates);
       } catch (error) {
         if (!(error instanceof MediaBindingError) || error.code !== 'EXACT_MEDIA_NOT_FOUND') throw error;
       }
@@ -157,10 +154,10 @@ class DoubaoAdapter {
   async fetchArtifact({ job, account, completion, signal }) {
     const state = this.requireAccepted(job, account, stateSubmissionId(this.jobs.get(job?.id)));
     throwIfAborted(signal);
-    const candidates = [
-      ...(state.tracker?.getMediaCandidates?.() || []),
-      ...(completion ? [completion] : [])
-    ];
+    const candidates = mergeMediaCandidates(
+      state.tracker?.getMediaCandidates?.() || [],
+      completion ? [completion] : []
+    );
     const media = bindExactMedia(state.submission, candidates);
     const downloadUrl = String(media.downloadUrl || media.originalUrl || '').trim();
     if (!/^https?:\/\//i.test(downloadUrl)) {
@@ -223,6 +220,32 @@ function snapshotVideoCandidates(snapshot = {}) {
   }));
 }
 
+function mergeMediaCandidates(...groups) {
+  const byMedia = new Map();
+  const loose = [];
+  for (const candidate of groups.flatMap(group => Array.isArray(group) ? group : [])) {
+    if (!candidate) continue;
+    const mediaId = String(candidate.mediaId || '').trim();
+    if (!mediaId) {
+      loose.push(candidate);
+      continue;
+    }
+    const previous = byMedia.get(mediaId);
+    if (!previous) {
+      byMedia.set(mediaId, { ...candidate });
+      continue;
+    }
+    byMedia.set(mediaId, {
+      ...previous,
+      ...candidate,
+      identities: [...new Set([...(previous.identities || []), ...(candidate.identities || [])])],
+      downloadUrl: candidate.downloadUrl || previous.downloadUrl,
+      originalUrl: candidate.originalUrl || previous.originalUrl
+    });
+  }
+  return [...byMedia.values(), ...loose];
+}
+
 function payloadOf(job = {}) {
   if (job.payload && typeof job.payload === 'object' && !Buffer.isBuffer(job.payload)) return job.payload;
   if (typeof job.payload === 'string') {
@@ -257,5 +280,6 @@ module.exports = {
   DoubaoResultError,
   assertUsableAccount,
   snapshotVideoCandidates,
+  mergeMediaCandidates,
   payloadOf
 };
