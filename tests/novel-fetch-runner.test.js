@@ -112,3 +112,18 @@ test('runner reports authoritative pipeline stages instead of fake completion', 
   const types = new Set(f.calls.reports.map(item => item.type));
   for (const type of ['parse', 'classify', 'fetch', 'rewrite', 'submit']) assert.equal(types.has(type), true, `missing ${type}`);
 });
+
+test('after preview selection, runner processes only selected task_ids while keeping original input parsing', async () => {
+  const f = fixture();
+  const selected = '1000000000000000002';
+  const result = await runNovelFetchBatch({
+    username: 'tester',
+    payload: { input_text: '完整原始输入', platform_id: '15', task_ids: [selected] },
+    ...f
+  });
+
+  assert.deepEqual(f.calls.saved[0].map(row => row.bookId), [selected]);
+  assert.deepEqual(f.calls.fetched.map(item => item.bookId), [selected]);
+  assert.deepEqual(f.calls.rewrites, [selected]);
+  assert.equal(result.unique_tasks, 1);
+});
