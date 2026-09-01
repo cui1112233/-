@@ -5,6 +5,7 @@ const { HOST, PORT } = require('./lib/shared');
 const { createApp } = require('./app');
 const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { attachV78NovelFetchV2 } = require('./lib/novel-fetch-workshop/v2-compose');
+const { createLegacy121MutationGuard } = require('./lib/novel-fetch-workshop/legacy-121-guard');
 
 // ============================================================
 // 启动服务器
@@ -15,6 +16,8 @@ const app = express();
 const coreApp = createApp();
 app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
 attachV78NovelFetchV2({ shellApp: app, coreApp, bodyParser: express.json({ limit: '50mb' }) });
+// 新 V2 路由先处理真实 121 操作；若请求意外落到这里，禁止再进入旧 cookie/Node HTTP 写入通道。
+app.use('/api/batch-rewrite', createLegacy121MutationGuard());
 app.use(coreApp);
 
 app.listen(PORT, HOST, () => {
