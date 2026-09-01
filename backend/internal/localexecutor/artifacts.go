@@ -46,6 +46,7 @@ type ArtifactView struct {
 type ArtifactStore interface {
 	CreateArtifact(context.Context, string, string, SecretHash, int64, ArtifactRecord, time.Time) (ArtifactRecord, error)
 	ArtifactForOwner(context.Context, string, string) (ArtifactRecord, error)
+	ArtifactForJob(context.Context, string) (ArtifactRecord, error)
 }
 
 func NewArtifactID() (string, error) { return randomID("lea_", 12) }
@@ -101,6 +102,21 @@ func (s *Service) GetArtifact(ctx context.Context, owner, id string) (ArtifactVi
 		return ArtifactView{}, err
 	}
 	return artifactView(record), nil
+}
+
+func (s *Service) validateResultArtifact(ctx context.Context, jobID, artifactID string) error {
+	artifacts, ok := s.store.(ArtifactStore)
+	if !ok {
+		return ErrInvalidInput
+	}
+	record, err := artifacts.ArtifactForJob(ctx, strings.TrimSpace(jobID))
+	if err != nil {
+		return err
+	}
+	if record.ID != strings.TrimSpace(artifactID) {
+		return ErrArtifactConflict
+	}
+	return nil
 }
 
 func validArtifactInput(input ArtifactInput) bool {
