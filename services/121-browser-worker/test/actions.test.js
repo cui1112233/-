@@ -31,6 +31,13 @@ test('action builder only allows known 121 endpoints', () => {
   assert.throws(() => buildActionRequest(baseUrl, 'http://evil.example/', {}), /unsupported 121 action/);
 });
 
+test('action builder rejects a non-121 base URL even for a supported action', () => {
+  assert.throws(
+    () => buildActionRequest('http://example.com/tttadmin', 'dashboard', {}),
+    /invalid 121 target/
+  );
+});
+
 test('authenticated action uses saved browser state and returns business response without cookies', async () => {
   const { browser, calls } = fakeBrowser();
   const result = await performAuthenticatedAction({ browser, baseUrl, storageState: { cookies: [{ name: 'old', value: 'hidden' }] }, action: 'config_list' });
