@@ -93,3 +93,5 @@ jobs:
       - name: Stop isolated review stack
         if: always()
         run: docker compose -f docker-compose.novel-fetch-v2-review.yml down -v --remove-orphans || true
+
+# This workflow is intentionally scoped to the isolated review branch only.
