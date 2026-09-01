@@ -215,11 +215,15 @@ func (s *Service) CompleteJob(ctx context.Context, executorToken, jobID string, 
 	if err != nil {
 		return err
 	}
+	jobID = strings.TrimSpace(jobID)
 	artifactID := strings.TrimSpace(input.ArtifactID)
 	if artifactID == "" {
 		return ErrInvalidInput
 	}
-	_, err = jobs.CompleteJob(ctx, executor.ID, strings.TrimSpace(jobID), hashSecret(lease.Token), lease.Generation, artifactID, s.now().UTC())
+	if err := s.validateResultArtifact(ctx, jobID, artifactID); err != nil {
+		return err
+	}
+	_, err = jobs.CompleteJob(ctx, executor.ID, jobID, hashSecret(lease.Token), lease.Generation, artifactID, s.now().UTC())
 	return err
 }
 
