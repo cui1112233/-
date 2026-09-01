@@ -1,4 +1,4 @@
-const { normalizeBaseUrl } = require('./contracts');
+const { approvedTargetUrl, normalizeBaseUrl } = require('./contracts');
 
 function targetOrigin(baseUrl) {
   const url = new URL(normalizeBaseUrl(baseUrl));
@@ -46,6 +46,8 @@ async function performAuthenticatedAction({ browser, baseUrl, storageState, acti
       ...(request.data ? { data: request.data } : {}),
       timeout: Math.max(1000, Math.min(Number(timeoutMs) || 15000, 60000))
     });
+    if (!response || typeof response.url !== 'function') throw new Error('121 target response URL unavailable');
+    approvedTargetUrl(response.url());
     const body = await response.text();
     if (/管理员登录|<input\b[^>]*type=["']?password|name=["']?password/i.test(body)) {
       const error = new Error('121 session expired');
