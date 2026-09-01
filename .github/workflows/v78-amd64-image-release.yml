@@ -162,7 +162,16 @@ jobs:
             -f v78/deploy/v78-public/docker-compose.yml \
             --project-name "$COMPOSE_PROJECT_NAME" \
             up --pull never -d nginx
-          curl --fail --silent --show-error --max-time 15 http://127.0.0.1/api/build-info
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 15 http://127.0.0.1/api/build-info; then
+              break
+            fi
+            if [[ "$attempt" = 30 ]]; then
+              echo "Nginx public entry did not become ready" >&2
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Save formal AMD64 deployment images
         shell: bash
