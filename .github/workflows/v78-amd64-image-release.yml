@@ -197,7 +197,11 @@ jobs:
           sha256sum "$release_dir"/*.tar.gz > "$release_dir/SHA256SUMS"
           ! find "$release_dir" -type f -name '.env' -print -quit | grep -q .
           for archive in "$release_dir"/*.tar.gz; do
-            ! tar -tzf "$archive" | rg '(^|/)\.env($|/)' >/dev/null
+            archive_listing="$(tar -tzf "$archive")"
+            if printf '%s\n' "$archive_listing" | grep -Eq '(^|/)\.env($|/)'; then
+              echo "Refusing to package an archive containing .env: $archive" >&2
+              exit 1
+            fi
           done
           cat "$release_dir/RELEASE-METADATA.txt"
           cat "$release_dir/SHA256SUMS"
