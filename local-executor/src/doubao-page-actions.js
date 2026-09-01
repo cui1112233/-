@@ -30,6 +30,23 @@ class DoubaoPageActions {
     return true;
   }
 
+  async openCreationWorkspace(webContents) {
+    return this.clickOptionalPreferred(webContents, ['AI创作', 'AI 创作'], 'CREATION_ENTRY_AMBIGUOUS');
+  }
+
+  async openVideoMode(webContents) {
+    return this.clickOptionalPreferred(webContents, ['视频', '视频生成', 'Seedance 2.0', 'Seedance 2.0 Fast'], 'VIDEO_ENTRY_AMBIGUOUS');
+  }
+
+  async clickOptionalPreferred(webContents, labels, ambiguousCode) {
+    const result = await webContents.executeJavaScript(buildPreferredClickScript(labels), true);
+    if (!result || result.count === 0) return false;
+    if (result.count !== 1 || !result.clicked) {
+      throw new DoubaoControlError(ambiguousCode, `Doubao control is ambiguous: ${result.label || labels[0]}`);
+    }
+    return true;
+  }
+
   async setReferenceImages(webContents, filePaths) {
     const files = (Array.isArray(filePaths) ? filePaths : []).map(value => String(value || '').trim()).filter(Boolean);
     if (files.length === 0) return false;
