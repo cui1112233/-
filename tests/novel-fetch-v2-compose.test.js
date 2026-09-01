@@ -142,7 +142,7 @@ test('composition fails closed when dedicated 121 credential encryption secret i
         createRuntime: () => ({ queue: {}, scheduler: {}, startScheduler() {} }),
         createRouter: () => ({})
       }),
-      /121 credential encryption secret is required/i
+      /QIANTIE_121_CREDENTIAL_SECRET is required/i
     );
   } finally {
     restoreEnv('QIANTIE_121_CREDENTIAL_SECRET', previousCredential);
