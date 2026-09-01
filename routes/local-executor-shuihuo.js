@@ -9,7 +9,8 @@ const {
   buildLocalVideoPayload,
   localTaskView,
   localMediaView,
-  artifactIdFromLocalMediaId
+  artifactIdFromLocalMediaId,
+  localExecutorAvailability
 } = require('../lib/local-executor-shuihuo');
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -102,6 +103,22 @@ function createLocalExecutorShuihuoRouter({ targetBaseUrl, bridgeSecret, taskSto
     }
   }
 
+  async function getExecutorAvailability(req) {
+    const { username, isOwner } = identity(req);
+    const response = await bridgeJSONRequest({
+      target, secret, transport, username, isOwner,
+      pathname: '/api/shuihuo-production/local-executors'
+    });
+    return localExecutorAvailability(response.body?.executors || []);
+  }
+
+  async function requireLocalExecutorReady(req, res) {
+    const availability = await getExecutorAvailability(req);
+    if (availability.ready) return true;
+    res.status(409).json({ error: availability.reason || '豆包本地执行器当前不可用' });
+    return false;
+  }
+
   async function getLocalJob(req, localJobId) {
     const { username, isOwner } = identity(req);
     return (await bridgeJSONRequest({
@@ -165,9 +182,17 @@ function createLocalExecutorShuihuoRouter({ targetBaseUrl, bridgeSecret, taskSto
         target, secret, transport, username, isOwner,
         pathname: '/api/shuihuo-production/health', allowStatuses: [503]
       });
+      let availability;
+      try { availability = await getExecutorAvailability(req); }
+      catch { availability = { ready: false, reason: '豆包本地执行器状态暂时无法读取' }; }
       const kinds = new Set(Array.isArray(upstream.body?.enabledModelKinds) ? upstream.body.enabledModelKinds : []);
-      kinds.add('video');
-      return res.status(upstream.status).json({ ...upstream.body, enabledModelKinds: [...kinds], localExecutorVideoReady: true });
+      if (availability.ready) kinds.add('video');
+      return res.status(upstream.status).json({
+        ...upstream.body,
+        enabledModelKinds: [...kinds],
+        localExecutorVideoReady: availability.ready,
+        localExecutorVideoReason: availability.reason || ''
+      });
     } catch (error) {
       return res.status(error.status || 503).json({ error: error.message || '读取生产状态失败' });
     }
@@ -176,10 +201,13 @@ function createLocalExecutorShuihuoRouter({ targetBaseUrl, bridgeSecret, taskSto
   router.get('/models', async (req, res) => {
     try {
       const { username, isOwner } = identity(req);
-      const upstream = await bridgeJSONRequest({ target, secret, transport, username, isOwner, pathname: '/api/shuihuo-production/models' });
+      const [upstream, availability] = await Promise.all([
+        bridgeJSONRequest({ target, secret, transport, username, isOwner, pathname: '/api/shuihuo-production/models' }),
+        getExecutorAvailability(req).catch(() => ({ ready: false, reason: '豆包本地执行器状态暂时无法读取' }))
+      ]);
       const models = (Array.isArray(upstream.body?.models) ? upstream.body.models : [])
         .filter(model => Number(model?.id) !== LOCAL_EXECUTOR_VIDEO_MODEL.id);
-      models.push(LOCAL_EXECUTOR_VIDEO_MODEL);
+      if (availability.ready) models.push(LOCAL_EXECUTOR_VIDEO_MODEL);
       return res.status(upstream.status).json({ ...upstream.body, models });
     } catch (error) {
       return res.status(error.status || 503).json({ error: error.message || '读取模型列表失败' });
@@ -190,6 +218,7 @@ function createLocalExecutorShuihuoRouter({ targetBaseUrl, bridgeSecret, taskSto
     if (Number(req.body?.modelId) !== LOCAL_EXECUTOR_VIDEO_MODEL.id || req.body?.kind !== 'video') return next();
     if (!requireVideoAccess(req, res)) return;
     try {
+      if (!await requireLocalExecutorReady(req, res)) return;
       const projectId = Number(req.params.projectId);
       const projectResult = await getProject(req, projectId);
       const segment = (projectResult.body?.segments || []).find(item => Number(item?.id) === Number(req.body?.segmentId));
@@ -207,6 +236,7 @@ function createLocalExecutorShuihuoRouter({ targetBaseUrl, bridgeSecret, taskSto
     if (Number(req.body?.modelId) !== LOCAL_EXECUTOR_VIDEO_MODEL.id || req.body?.kind !== 'video') return next();
     if (!requireVideoAccess(req, res)) return;
     try {
+      if (!await requireLocalExecutorReady(req, res)) return;
       const projectId = Number(req.params.projectId);
       const projectResult = await getProject(req, projectId);
       const segments = Array.isArray(projectResult.body?.segments) ? projectResult.body.segments : [];
@@ -281,6 +311,7 @@ function createLocalExecutorShuihuoRouter({ targetBaseUrl, bridgeSecret, taskSto
     if (!mapping) return next();
     if (!requireVideoAccess(req, res)) return;
     try {
+      if (!await requireLocalExecutorReady(req, res)) return;
       const { isOwner } = identity(req);
       const job = (await bridgeJSONRequest({
         target, secret, transport, username, isOwner,
