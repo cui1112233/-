@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+
 	"qiantie/backend/internal/batchfactoryv11"
 	"qiantie/backend/internal/config"
 	"qiantie/backend/internal/httpapi"
+	"qiantie/backend/internal/localexecutor"
 	"qiantie/backend/internal/storage"
 )
 
@@ -14,9 +16,17 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
-	if err := storage.RunMigrations(ctx, db, storage.V11Migrations()); err != nil {
+	if err := storage.RunMigrations(ctx, db, storage.AppMigrations()); err != nil {
 		return nil, err
 	}
 	store := batchfactoryv11.NewMySQLStore(db)
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, RegisterV11: register}), nil
+	executorService := localexecutor.NewService(localexecutor.NewMySQLStore(db), nil)
+	return httpapi.NewRouter(httpapi.RouterOptions{
+		BridgeSecret: cfg.BridgeSecret,
+		Users: storage.BridgeUsers{DB: db},
+		Slice: cfg.Slice,
+		Store: store,
+		RegisterV11: register,
+		LocalExecutors: executorService,
+	}), nil
 }
