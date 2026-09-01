@@ -5,6 +5,7 @@ const { HOST, PORT } = require('./lib/shared');
 const { createApp } = require('./app');
 const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { attachV78NovelFetchV2 } = require('./lib/novel-fetch-workshop/v2-compose');
+const { legacyV2MutationGate } = require('./lib/novel-fetch-workshop/v2-legacy-gate');
 
 // ============================================================
 // 启动服务器
@@ -15,6 +16,9 @@ const app = express();
 const coreApp = createApp();
 app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
 attachV78NovelFetchV2({ shellApp: app, coreApp, bodyParser: express.json({ limit: '50mb' }) });
+// V2 已经拥有的 mutation 如果意外继续 next()，这里 fail-closed，禁止掉回旧 Node 实现。
+// 兼容期仍由旧工作台负责、且 V2 尚未接管的其他 mutation 不受影响。
+app.use('/api/batch-rewrite', legacyV2MutationGate());
 app.use(coreApp);
 
 app.listen(PORT, HOST, () => {
