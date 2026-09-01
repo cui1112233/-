@@ -9,6 +9,7 @@ const {
   buildLocalVideoPayload,
   localTaskView,
   localMediaView,
+  localExecutorAvailability,
   createLocalExecutorTaskStore
 } = require('../lib/local-executor-shuihuo');
 
@@ -48,4 +49,12 @@ test('task mapping store persists and isolates owners', () => {
   assert.equal(reopened.find('bob', 'lev_1'), null);
   reopened.upsert('alice', { sourceTaskId: 'lev_1', localJobId: 'lej_retry', projectId: 7, segmentId: 12, modelId: 7801001 });
   assert.equal(reopened.find('alice', 'lev_1').localJobId, 'lej_retry');
+});
+
+test('local executor is ready only when an online account can still run video', () => {
+  assert.equal(localExecutorAvailability([]).ready, false);
+  assert.equal(localExecutorAvailability([{ online: false, accounts: { available: 1 } }]).ready, false);
+  assert.equal(localExecutorAvailability([{ online: true, accounts: { quotaExhausted: 2, available: 0, busy: 0 } }]).ready, false);
+  assert.deepEqual(localExecutorAvailability([{ online: true, accounts: { available: 0, busy: 1 } }]), { ready: true, reason: '' });
+  assert.deepEqual(localExecutorAvailability([{ online: true, accounts: { available: 1, busy: 0 } }]), { ready: true, reason: '' });
 });
