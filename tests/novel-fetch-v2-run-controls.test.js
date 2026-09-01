@@ -9,10 +9,7 @@ const runSource = fs.existsSync(RUN_SOURCE_PATH) ? fs.readFileSync(RUN_SOURCE_PA
 const pageSource = fs.readFileSync(PAGE_SOURCE_PATH, 'utf8');
 
 test('V78 run controls expose per-slot rewrite methods matching the reference layout', () => {
-  for (let index = 1; index <= 5; index += 1) {
-    assert.ok(runSource.includes(`v78RunAiMethod${index}`), `missing AI${index} run method selector`);
-  }
-  for (const marker of ['v78RunMethodGrid', '指令改文', '开头词+指令', '高仿文章']) {
+  for (const marker of ['v78RunAiMethod${index}', 'index <= 5', 'v78RunMethodGrid', '指令改文', '开头词+指令', '高仿文章']) {
     assert.ok(runSource.includes(marker), `missing ${marker}`);
   }
 });
@@ -30,7 +27,7 @@ test('V78 sensitive AI repair button uses the existing sensitive reprocess API f
 });
 
 test('run controls preserve single target-version selection and inject the chosen per-slot methods into process start', () => {
-  assert.ok(runSource.includes('/process/start'));
+  assert.ok(runSource.includes('batch-rewrite\\/process\\/start'));
   assert.ok(runSource.includes('ai_slot_methods_snapshot'));
   assert.ok(runSource.includes('target_versions'));
   assert.ok(!runSource.includes('上传版本选择'));
