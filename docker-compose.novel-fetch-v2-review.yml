@@ -12,6 +12,7 @@ services:
       QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET:?set a non-default review bridge secret}
       QIANTIE_121_BROWSER_WORKER_URL: http://browser-worker-121:8787
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET:?set a random review worker secret}
+      QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET:?set a separate random credential encryption secret}
     ports:
       - "${QIANTIE_REVIEW_PORT:-13107}:18081"
     volumes:
