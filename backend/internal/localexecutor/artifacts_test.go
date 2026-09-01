@@ -100,3 +100,25 @@ func TestArtifactOwnerLookupIsScoped(t *testing.T) {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
 }
+
+func TestCompleteJobRequiresArtifactBoundToSameJob(t *testing.T) {
+	now := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	svc, _, executor, job, lease := acceptedUploadingJob(t, &now)
+	artifact, err := svc.RecordArtifact(context.Background(), executor.Token, job.ID, lease, ArtifactInput{ID: "lea_exact", MediaType: "video/mp4", ByteSize: 512, SHA256: "abababababababababababababababababababababababababababababababab", StorageRef: "lea_exact.mp4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CompleteJob(context.Background(), executor.Token, job.ID, lease, ResultInput{ArtifactID: "lea_wrong"}); !errors.Is(err, ErrArtifactConflict) {
+		t.Fatalf("wrong artifact result err=%v", err)
+	}
+	if err := svc.CompleteJob(context.Background(), executor.Token, job.ID, lease, ResultInput{ArtifactID: artifact.ID}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.GetJob(context.Background(), "alice", job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != JobSucceeded || got.ArtifactID != artifact.ID {
+		t.Fatalf("job=%+v", got)
+	}
+}
