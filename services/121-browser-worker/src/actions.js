@@ -1,7 +1,8 @@
+const { normalizeBaseUrl } = require('./contracts');
+
 function targetOrigin(baseUrl) {
-  const url = new URL(String(baseUrl || '').trim());
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid baseUrl');
-  return `${url.protocol}//${url.host}`;
+  const url = new URL(normalizeBaseUrl(baseUrl));
+  return `${url.protocol}//${url.hostname}`;
 }
 
 function buildActionRequest(baseUrl, action, payload = {}) {
@@ -46,7 +47,7 @@ async function performAuthenticatedAction({ browser, baseUrl, storageState, acti
       timeout: Math.max(1000, Math.min(Number(timeoutMs) || 15000, 60000))
     });
     const body = await response.text();
-    if (/管理员登录/.test(body)) {
+    if (/管理员登录|<input\b[^>]*type=["']?password|name=["']?password/i.test(body)) {
       const error = new Error('121 session expired');
       error.code = 'SESSION_EXPIRED';
       throw error;
