@@ -106,6 +106,18 @@ test('runner auto submit requires both explicit confirmation and enabled web sub
   assert.deepEqual(allowed.calls.submits[0].versions, ['ai1']);
 });
 
+test('runner auto submit forwards the exact sparse target versions selected for this batch', async () => {
+  const f = fixture({ config: createConfig({ workflow: { auto_submit_after_rewrite: true, auto_submit_confirmed: true }, web_submit: { enabled: true } }) });
+  await runNovelFetchBatch({
+    username: 'tester',
+    payload: { input_text: 'x', platform_id: '15', target_versions: ['original', 'ai3'] },
+    ...f
+  });
+
+  assert.equal(f.calls.submits.length, 1);
+  assert.deepEqual(f.calls.submits[0].versions, ['original', 'ai3']);
+});
+
 test('runner reports authoritative pipeline stages instead of fake completion', async () => {
   const f = fixture();
   await runNovelFetchBatch({ username: 'tester', payload: { input_text: 'x', platform_id: '15' }, ...f });
