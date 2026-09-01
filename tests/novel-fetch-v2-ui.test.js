@@ -6,9 +6,11 @@ const path = require('node:path');
 const MAIN_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2.js');
 const CONFIG_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2-config.js');
 const LAYOUT_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2-layout.js');
+const LEGACY_HTML_PATH = path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'index.html');
 const mainSource = fs.readFileSync(MAIN_SOURCE_PATH, 'utf8');
 const configSource = fs.existsSync(CONFIG_SOURCE_PATH) ? fs.readFileSync(CONFIG_SOURCE_PATH, 'utf8') : '';
 const layoutSource = fs.existsSync(LAYOUT_SOURCE_PATH) ? fs.readFileSync(LAYOUT_SOURCE_PATH, 'utf8') : '';
+const legacyHtml = fs.readFileSync(LEGACY_HTML_PATH, 'utf8');
 const source = `${mainSource}\n${configSource}\n${layoutSource}`;
 
 test('processing UI uses sparse target versions and parser-backed preview', () => {
@@ -26,7 +28,8 @@ test('processing page is reflowed to the approved image layout instead of stacke
     'v78StatusMetrics', 'v78ProgressRows', 'v78WorkActionBar', 'v78CurrentBatchTable'
   ]) assert.ok(layoutSource.includes(marker), `missing ${marker}`);
   assert.ok(layoutSource.includes('批量输入'));
-  assert.ok(layoutSource.includes('处理状态'));
+  assert.ok(legacyHtml.includes('处理状态'));
+  assert.ok(layoutSource.includes('process-status-section'));
   assert.ok(layoutSource.includes('实时进度'));
   assert.ok(layoutSource.includes('实时日志'));
   assert.ok(layoutSource.includes('grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr)'));
