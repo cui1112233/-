@@ -2,56 +2,73 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const target = require('../lib/target-upload');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { create121BrowserClient } = require('../lib/novel-fetch-workshop/121-browser-client');
 
 function isValidBookId(value) {
   return typeof value === 'string' && /^\d{1,20}$/.test(value);
 }
 
-function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, httpClient = target.requestHttp } = {}) {
+function targetBaseUrl() { return `http://${target.TARGET_HOST}/tttadmin`; }
+function isExpiredSessionError(error) {
+  return error?.status === 401 || error?.code === 'session_expired' || error?.workerResponse?.status === 'expired';
+}
+function browserErrorStatus(error) {
+  if (isExpiredSessionError(error)) return 401;
+  if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT'].includes(error?.code)) return 503;
+  return Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 400;
+}
+
+function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, browserClient = create121BrowserClient() } = {}) {
   const router = express.Router();
   router.use(auth);
 
   router.post('/upload-login', async (req, res) => {
     try {
-      if (!store) return res.status(500).json({ ok: false, error: '上传存储未启用' });
+      if (!store || typeof store.setBrowserSession !== 'function') return res.status(500).json({ ok: false, error: '浏览器上传会话存储未启用' });
       const { username, password } = req.body || {};
       if (typeof username !== 'string' || !username.trim() || typeof password !== 'string' || !password) {
         return res.status(400).json({ ok: false, error: '请输入账号和密码' });
       }
-      const login = await httpClient({ ...target.buildLoginRequest(username.trim(), password), timeoutMs: 15000 });
-      let data = {};
-      try { data = JSON.parse(login.body); } catch (_) {}
-      const setCookies = login.headers && login.headers['set-cookie'];
-      const cookie = Array.isArray(setCookies) ? setCookies.map(c => c.split(';')[0]).join('; ') : '';
-      // 目标站存在 JSON 成功和“设置 Cookie 后跳转/空响应”两种登录响应；统一以后续后台页校验为准。
-      if (data.success !== true && !cookie) {
-        return res.status(400).json({ ok: false, error: data.message || '登录失败，请检查账号密码' });
-      }
-      if (!cookie) return res.status(400).json({ ok: false, error: '登录失败，未获取到会话' });
-      const check = await httpClient({
-        method: 'GET',
-        url: `http://${target.TARGET_HOST}${target.TARGET_CHECK_PATH}`,
-        headers: { Cookie: cookie },
-        timeoutMs: 15000
+      const targetUsername = username.trim();
+      const baseUrl = targetBaseUrl();
+      const result = await browserClient.login({ owner: req.username, baseUrl, username: targetUsername, password, headed: false });
+      store.setBrowserSession(req.username, {
+        sessionKey: String(result?.sessionKey || ''),
+        targetUsername,
+        baseUrl,
+        status: String(result?.status || 'ready')
       });
-      if (!target.isDashboard(check.body)) return res.status(400).json({ ok: false, error: '登录验证失败，请重试' });
-      store.setSession(req.username, cookie);
-      return res.json({ ok: true, username });
+      return res.json({ ok: true, username: targetUsername, status: String(result?.status || 'ready') });
     } catch (error) {
-      return res.status(400).json({ ok: false, error: error.message || '登录失败' });
+      return res.status(browserErrorStatus(error)).json({ ok: false, error: error?.message || '登录失败', ...(error?.code ? { code: error.code } : {}) });
     }
   });
 
-  router.get('/upload-session', (req, res) => {
-    const session = store ? store.getSession(req.username) : null;
-    return res.json({ ok: true, loggedIn: Boolean(session), lastVerifiedAt: session ? session.loginAt : null });
+  router.get('/upload-session', async (req, res) => {
+    try {
+      const session = store && typeof store.getBrowserSession === 'function' ? store.getBrowserSession(req.username) : null;
+      if (!session?.targetUsername || !session?.baseUrl) return res.json({ ok: true, loggedIn: false, status: 'missing', lastVerifiedAt: null });
+      const result = await browserClient.test({ owner: req.username, baseUrl: session.baseUrl, username: session.targetUsername, headed: false });
+      if (typeof store.setBrowserSession === 'function') {
+        store.setBrowserSession(req.username, {
+          sessionKey: String(result?.sessionKey || session.sessionKey || ''),
+          targetUsername: session.targetUsername,
+          baseUrl: session.baseUrl,
+          status: String(result?.status || 'ready')
+        });
+      }
+      return res.json({ ok: true, loggedIn: result?.ok === true, status: String(result?.status || 'ready'), lastVerifiedAt: new Date().toISOString() });
+    } catch (error) {
+      if (isExpiredSessionError(error)) return res.json({ ok: true, loggedIn: false, status: 'expired', lastVerifiedAt: null });
+      return res.status(browserErrorStatus(error)).json({ ok: false, loggedIn: false, error: error?.message || '浏览器会话验证失败', ...(error?.code ? { code: error.code } : {}) });
+    }
   });
 
   router.post('/upload-batch', async (req, res) => {
     try {
-      if (!store) return res.status(500).json({ ok: false, error: '上传存储未启用' });
-      const session = store.getSession(req.username);
-      if (!session || !session.cookie) {
+      if (!store || typeof store.getBrowserSession !== 'function') return res.status(500).json({ ok: false, error: '浏览器上传会话存储未启用' });
+      const session = store.getBrowserSession(req.username);
+      if (!session?.targetUsername || !session?.baseUrl) {
         return res.json({ ok: false, notLoggedIn: true, error: '请先登录目标站' });
       }
       const { platformId, advanced, items } = req.body || {};
@@ -113,33 +130,32 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
         }
         const { boundary, body } = target.buildMultipart(fields, { filename: target.buildTargetUploadFilename(bookId), content });
         try {
-          const resp = await httpClient({
-            method: 'POST',
-            url: `http://${target.TARGET_HOST}${target.TARGET_UPLOAD_PATH}`,
-            headers: {
-              'Content-Type': `multipart/form-data; boundary=${boundary}`,
-              Cookie: session.cookie
-            },
-            body
+          const response = await browserClient.action({
+            owner: req.username,
+            baseUrl: session.baseUrl,
+            username: session.targetUsername,
+            action: 'upload',
+            payload: {
+              contentType: `multipart/form-data; boundary=${boundary}`,
+              bodyBase64: body.toString('base64')
+            }
           });
-          if (target.isLoginPage(resp.body)) {
-            return res.json({ ok: false, notLoggedIn: true, error: '目标站登录已失效，请重新登录' });
-          }
           let data = {};
-          try { data = JSON.parse(resp.body); } catch (_) {}
+          try { data = JSON.parse(String(response?.body || '')); } catch (_) {}
           if (data.success === true) results.push({ bookId, status: 'ok', error: null });
           else results.push({ bookId, status: 'error', error: data.message || data.msg || '上传失败' });
         } catch (error) {
-          results.push({ bookId, status: 'error', error: error.message || '上传失败' });
+          if (isExpiredSessionError(error)) return res.json({ ok: false, notLoggedIn: true, error: '目标站登录已失效，请重新登录' });
+          results.push({ bookId, status: 'error', error: error?.message || '上传失败' });
         }
       }
       return res.json({ ok: true, results });
     } catch (error) {
-      return res.status(500).json({ ok: false, error: error.message || '上传失败' });
+      return res.status(browserErrorStatus(error)).json({ ok: false, error: error?.message || '上传失败', ...(error?.code ? { code: error.code } : {}) });
     }
   });
 
   return router;
 }
 
-module.exports = { createNovelFetchUploadRouter, isValidBookId };
+module.exports = { createNovelFetchUploadRouter, isValidBookId, targetBaseUrl, isExpiredSessionError };
