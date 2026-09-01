@@ -5,9 +5,11 @@ const path = require('node:path');
 
 const MAIN_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2.js');
 const CONFIG_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2-config.js');
+const LAYOUT_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2-layout.js');
 const mainSource = fs.readFileSync(MAIN_SOURCE_PATH, 'utf8');
 const configSource = fs.existsSync(CONFIG_SOURCE_PATH) ? fs.readFileSync(CONFIG_SOURCE_PATH, 'utf8') : '';
-const source = `${mainSource}\n${configSource}`;
+const layoutSource = fs.existsSync(LAYOUT_SOURCE_PATH) ? fs.readFileSync(LAYOUT_SOURCE_PATH, 'utf8') : '';
+const source = `${mainSource}\n${configSource}\n${layoutSource}`;
 
 test('processing UI uses sparse target versions and parser-backed preview', () => {
   for (const marker of [
@@ -22,12 +24,12 @@ test('processing page is reflowed to the approved image layout instead of stacke
   for (const marker of [
     'mountImageAlignedLayout', 'v78ImageWorkGrid', 'v78ImageInputPanel', 'v78ImageStatusPanel',
     'v78StatusMetrics', 'v78ProgressRows', 'v78WorkActionBar', 'v78CurrentBatchTable'
-  ]) assert.ok(mainSource.includes(marker), `missing ${marker}`);
-  assert.ok(mainSource.includes('批量输入'));
-  assert.ok(mainSource.includes('处理状态'));
-  assert.ok(mainSource.includes('实时进度'));
-  assert.ok(mainSource.includes('实时日志'));
-  assert.ok(mainSource.includes('grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr)'));
+  ]) assert.ok(layoutSource.includes(marker), `missing ${marker}`);
+  assert.ok(layoutSource.includes('批量输入'));
+  assert.ok(layoutSource.includes('处理状态'));
+  assert.ok(layoutSource.includes('实时进度'));
+  assert.ok(layoutSource.includes('实时日志'));
+  assert.ok(layoutSource.includes('grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr)'));
 });
 
 test('processing page exposes current batch controls and table', () => {
@@ -85,4 +87,5 @@ test('V78 config bridge preserves an explicitly selected sensitive_fix preset wh
 test('V78 extension scripts remain valid JavaScript', () => {
   assert.doesNotThrow(() => new Function(mainSource));
   if (configSource) assert.doesNotThrow(() => new Function(configSource));
+  if (layoutSource) assert.doesNotThrow(() => new Function(layoutSource));
 });
