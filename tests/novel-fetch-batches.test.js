@@ -83,3 +83,32 @@ test('rerun preparation never creates or replaces a batch', () => {
   assert.deepEqual(prepared.preselected_book_ids, ['10000000001']);
   assert.equal(prepared.payload.source_batch_id, source.id);
 });
+
+test('later website submission status updates that task inside its original batch without changing the saved input/settings', () => {
+  const usersDir = tempUsersDir();
+  const batches = createNovelFetchBatches({ usersDir });
+  const batch = batches.create('alice', {
+    inputSnapshot: '10000000001\tA',
+    settingsSnapshot: { platform_id: '2', target_versions: ['ai1', 'ai3'] },
+    taskIds: ['10000000001']
+  });
+  batches.complete('alice', batch.id, {
+    tasks: [{ bookId: '10000000001', bookName: 'A', status: 'done', aiStatus: 'done', targetVersions: ['ai1', 'ai3'] }]
+  });
+
+  const updated = batches.updateTaskState('alice', batch.id, {
+    bookId: '10000000001',
+    bookName: 'A',
+    status: 'done',
+    aiStatus: 'done',
+    siteSubmitStatus: '121异常',
+    targetVersions: ['ai1', 'ai3'],
+    error: '121 登录会话已失效'
+  });
+
+  assert.equal(updated.taskStates[0].siteSubmitStatus, '121异常');
+  assert.equal(updated.taskStates[0].error, '121 登录会话已失效');
+  assert.equal(updated.inputSnapshot, '10000000001\tA');
+  assert.deepEqual(updated.settingsSnapshot.target_versions, ['ai1', 'ai3']);
+  assert.deepEqual(batches.prepareRerun('alice', batch.id, 'abnormal').preselected_book_ids, ['10000000001']);
+});
