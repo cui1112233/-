@@ -4,6 +4,7 @@ const { EventEmitter } = require('node:events');
 const {
   DoubaoNetworkTracker,
   extractIdentityEvidence,
+  extractMediaCandidates,
   sanitizeNetworkUrl
 } = require('../src/doubao-network-tracker');
 
@@ -18,6 +19,22 @@ test('extractIdentityEvidence keeps only stable platform identity keys', () => {
     }
   });
   assert.deepEqual(ids, ['conv-1', 'msg-2', 'task-3', 'media-4']);
+});
+
+test('extractMediaCandidates keeps strong video URLs tied to stable identities', () => {
+  const candidates = extractMediaCandidates({
+    data: {
+      message_id: 'msg-42',
+      media_id: 'media-9',
+      download_url: 'https://cdn.example/exact.mp4?signature=keep-local',
+      cover_url: 'https://cdn.example/cover.jpg'
+    }
+  });
+  assert.deepEqual(candidates, [{
+    mediaId: 'media-9',
+    identities: ['msg-42', 'media-9'],
+    downloadUrl: 'https://cdn.example/exact.mp4?signature=keep-local'
+  }]);
 });
 
 test('tracks only prompt-bound submit request and returns redacted acceptance identities', async () => {
@@ -62,6 +79,39 @@ test('tracks only prompt-bound submit request and returns redacted acceptance id
   assert.equal(JSON.stringify(evidence).includes('secret'), false);
   assert.equal(evidence.endpoint, 'https://www.doubao.com/api/video/create');
   assert.ok(commands.some(([method]) => method === 'Network.enable'));
+  tracker.stop();
+});
+
+test('records only media response that carries an accepted submission identity', async () => {
+  const debug = new EventEmitter();
+  debug.isAttached = () => true;
+  const bodies = new Map([
+    ['submit', JSON.stringify({ message_id: 'msg-42', task_id: 'task-9' })],
+    ['other', JSON.stringify({ message_id: 'msg-other', media_id: 'media-newest', download_url: 'https://cdn.example/newest.mp4' })],
+    ['exact', JSON.stringify({ message_id: 'msg-42', media_id: 'media-exact', download_url: 'https://cdn.example/exact.mp4?sig=local' })]
+  ]);
+  debug.sendCommand = async (method, params) => method === 'Network.getResponseBody'
+    ? { body: bodies.get(params.requestId) || '{}', base64Encoded: false }
+    : {};
+
+  const tracker = new DoubaoNetworkTracker({ webContents: { debugger: debug } });
+  await tracker.startAttempt({ prompt: '本次任务' });
+  debug.emit('message', {}, 'Network.requestWillBeSent', { requestId: 'submit', request: { url: 'https://x.test/create', postData: '{"prompt":"本次任务"}' } });
+  debug.emit('message', {}, 'Network.responseReceived', { requestId: 'submit', response: { status: 200, url: 'https://x.test/create', mimeType: 'application/json' } });
+  debug.emit('message', {}, 'Network.loadingFinished', { requestId: 'submit' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(tracker.getEvidence().accepted, true);
+
+  for (const requestId of ['other', 'exact']) {
+    debug.emit('message', {}, 'Network.responseReceived', { requestId, response: { status: 200, url: `https://x.test/status/${requestId}`, mimeType: 'application/json' } });
+    debug.emit('message', {}, 'Network.loadingFinished', { requestId });
+  }
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(tracker.getMediaCandidates(), [{
+    mediaId: 'media-exact',
+    identities: ['msg-42', 'media-exact'],
+    downloadUrl: 'https://cdn.example/exact.mp4?sig=local'
+  }]);
   tracker.stop();
 });
 
