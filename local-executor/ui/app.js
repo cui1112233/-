@@ -1,5 +1,6 @@
 const bridge = window.yiZhanExecutor;
 const ui = window.YiZhanUiState;
+let lastState = null;
 
 const elements = {
   pairForm: document.getElementById('pairForm'),
@@ -12,6 +13,7 @@ const elements = {
   accountList: document.getElementById('accountList'),
   accountEmpty: document.getElementById('accountEmpty'),
   automationText: document.getElementById('automationText'),
+  automationButton: document.getElementById('automationButton'),
   currentTask: document.getElementById('currentTask'),
   globalError: document.getElementById('globalError')
 };
@@ -22,6 +24,7 @@ function showError(message) {
 }
 
 function render(state) {
+  lastState = state;
   const pairing = state?.pairing || { paired: false };
   elements.pairBadge.textContent = ui.pairingStatusText(pairing);
   elements.pairBadge.dataset.state = pairing.paired ? 'ok' : 'idle';
@@ -34,7 +37,11 @@ function render(state) {
   elements.accountEmpty.hidden = accounts.length > 0;
   elements.accountList.replaceChildren(...accounts.map(renderAccount));
 
-  elements.automationText.textContent = state?.automation?.reason || '真实豆包网页接入完成前不可开启。';
+  const automation = state?.automation || { enabled: false, ready: false, reason: '' };
+  elements.automationText.textContent = automation.reason || '请先完成绑定和豆包账号登录。';
+  elements.automationButton.textContent = automation.enabled ? '关闭自动任务' : '开启自动任务';
+  elements.automationButton.disabled = !automation.enabled && !automation.ready;
+  elements.automationButton.setAttribute('aria-pressed', automation.enabled ? 'true' : 'false');
   elements.currentTask.textContent = state?.currentTask?.id || '暂无';
   showError(state?.lastError || '');
 }
@@ -63,12 +70,12 @@ function renderAccount(account) {
   openButton.addEventListener('click', () => invoke(() => bridge.openAccount(account.id)));
   actions.append(openButton);
 
-  if (account.state === 'auth_required') {
+  if (account.state === 'auth_required' || account.state === 'human_verification') {
     const readyButton = document.createElement('button');
     readyButton.className = 'primary';
     readyButton.type = 'button';
-    readyButton.textContent = '我已登录';
-    readyButton.setAttribute('aria-label', `标记 ${account.name || account.id} 已登录`);
+    readyButton.textContent = account.state === 'human_verification' ? '验证完成' : '我已登录';
+    readyButton.setAttribute('aria-label', `标记 ${account.name || account.id} 可用`);
     readyButton.addEventListener('click', () => invoke(() => bridge.markAccountAvailable(account.id)));
     actions.append(readyButton);
   }
@@ -103,6 +110,10 @@ elements.pairForm.addEventListener('submit', async event => {
 });
 
 elements.addAccount.addEventListener('click', () => invoke(() => bridge.addAccount()));
+elements.automationButton.addEventListener('click', () => {
+  const enabled = Boolean(lastState?.automation?.enabled);
+  return invoke(() => bridge.setAutomationEnabled(!enabled));
+});
 
 bridge.onState(render);
 invoke(() => bridge.getState());
