@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>一战晟铭豆包执行器</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">YI ZHAN SHENG MING</p>
+        <h1>一战晟铭豆包执行器</h1>
+        <p class="subtitle">绑定 V78 后管理本机豆包账号。账号登录信息只保存在本机。</p>
+      </div>
+      <div id="pairBadge" class="status-badge" aria-live="polite">未绑定</div>
+    </header>
+
+    <section class="card" aria-labelledby="pairTitle">
+      <div class="section-head">
+        <div>
+          <h2 id="pairTitle">绑定一战晟铭网页版</h2>
+          <p>先在网页版生成配对码，再填到这里。</p>
+        </div>
+      </div>
+      <form id="pairForm" class="pair-grid">
+        <label>
+          <span>V78 网站地址</span>
+          <input id="baseUrl" type="url" placeholder="https://你的域名" autocomplete="url" required />
+        </label>
+        <label>
+          <span>配对码</span>
+          <input id="pairCode" type="text" placeholder="例如 7Q4M-K9PX" autocomplete="one-time-code" required />
+        </label>
+        <button id="pairButton" class="primary" type="submit">绑定</button>
+      </form>
+      <p id="pairDetail" class="detail-text">当前未绑定。</p>
+    </section>
+
+    <section class="card" aria-labelledby="accountTitle">
+      <div class="section-head">
+        <div>
+          <h2 id="accountTitle">豆包账号</h2>
+          <p>每个账号使用独立登录窗口，一个账号同一时间只执行一个 VIDEO 任务。</p>
+        </div>
+        <button id="addAccount" class="secondary" type="button">添加豆包账号</button>
+      </div>
+      <div id="accountList" class="account-list" aria-live="polite"></div>
+      <div id="accountEmpty" class="empty-state">还没有豆包账号，点击“添加豆包账号”开始登录。</div>
+    </section>
+
+    <section class="card automation-card" aria-labelledby="automationTitle">
+      <div class="section-head">
+        <div>
+          <h2 id="automationTitle">自动任务</h2>
+          <p id="automationText">真实豆包网页接入完成前不可开启。</p>
+        </div>
+        <button class="primary" type="button" disabled aria-disabled="true">暂不可开启</button>
+      </div>
+      <div class="task-line">
+        <span>当前任务</span>
+        <strong id="currentTask">暂无</strong>
+      </div>
+    </section>
+
+    <p id="globalError" class="error" role="alert" hidden></p>
+  </main>
+  <script src="./ui-state.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
