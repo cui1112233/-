@@ -24,9 +24,26 @@ function response() {
   };
 }
 
+function queueFixture() {
+  const state = { state: 'idle', items: [] };
+  return {
+    state,
+    start(owner, payloads) {
+      const payload = payloads[0] || {};
+      state.state = 'running';
+      state.items.push({ id: `job-${state.items.length + 1}`, owner, state: 'queued', payload, attempts: 0, createdAt: '2026-09-01T07:00:00.000Z' });
+      return structuredClone(state);
+    },
+    pause() { return structuredClone(state); },
+    resume() { return structuredClone(state); },
+    stop() { return structuredClone(state); },
+    status() { return structuredClone(state); }
+  };
+}
+
 test('V2 router applies supplied auth middleware and registers queue/scheduler endpoints', () => {
   const auth = () => {};
-  const queue = { start() {}, pause() {}, resume() {}, stop() {}, status() { return { state: 'idle', items: [] }; } };
+  const queue = queueFixture();
   const scheduler = { list() { return []; }, create() {}, update() {}, remove() {} };
   const taskOps = { processConflicts() { return []; }, list() { return []; }, permanentDelete() {}, restoreTombstone() {}, setAiCount() {} };
   const webSubmit = { getConfig() {}, saveConfig() {}, environment() {}, syncConfigs() {}, syncStyles() {}, testVisible() {}, preview() {}, submit() {} };
@@ -36,14 +53,58 @@ test('V2 router applies supplied auth middleware and registers queue/scheduler e
   for (const expected of [
     'POST /process/queue/start', 'POST /process/queue/pause', 'POST /process/queue/resume', 'POST /process/queue/stop',
     'GET /process/queue/status', 'GET /realtime/status', 'GET /schedules', 'POST /schedules', 'PATCH /schedules/:id', 'DELETE /schedules/:id',
-    'POST /process/start', 'GET /tasks', 'POST /tasks/batch-delete-permanent', 'POST /tasks/:id/restore-tombstone', 'POST /tasks/batch-ai-count',
+    'POST /process/start', 'GET /process/jobs/latest', 'GET /process/jobs/:id',
+    'GET /tasks', 'POST /tasks/batch-delete-permanent', 'POST /tasks/:id/restore-tombstone', 'POST /tasks/batch-ai-count',
     'GET /web-submit/config', 'POST /web-submit/config', 'GET /web-submit/environment', 'POST /web-submit/sync-configs',
     'POST /web-submit/sync-styles', 'POST /web-submit/test-visible', 'POST /web-submit/preview', 'POST /web-submit/submit'
   ]) assert.ok(paths.has(expected), expected);
 });
 
+test('legacy process/start is terminated by V2 queue bridge and never next() into old Node processPayload', async () => {
+  const queue = queueFixture();
+  const scheduler = { list() { return []; }, create() {}, update() {}, remove() {} };
+  const taskOps = { processConflicts() { return []; }, list() { return []; }, permanentDelete() {}, restoreTombstone() {}, setAiCount() {} };
+  const router = createBatchRewriteV2Router({ queue, scheduler, taskOps, auth: () => {}, routerFactory: fakeRouter });
+  const route = router.routes.find(item => item.method === 'post' && item.path === '/process/start');
+  const res = response();
+  let nextCalls = 0;
+  await route.handler({ username: 'alice', body: { input_text: '10001\t示例' } }, res, () => { nextCalls += 1; });
+  assert.equal(nextCalls, 0);
+  assert.equal(res.body.id, 'job-1');
+  assert.equal(res.body.status, 'running');
+  assert.equal(queue.state.items[0].payload.input_text, '10001\t示例');
+});
+
+test('V2 process job polling maps persisted queue items into the legacy UI job contract', async () => {
+  const queue = queueFixture();
+  queue.start('alice', [{ input_text: '10001\t示例' }]);
+  queue.state.items[0] = {
+    ...queue.state.items[0],
+    state: 'done',
+    attempts: 1,
+    startedAt: '2026-09-01T07:00:01.000Z',
+    completedAt: '2026-09-01T07:00:02.000Z',
+    result: { fetched: 1 }
+  };
+  const scheduler = { list() { return []; }, create() {}, update() {}, remove() {} };
+  const router = createBatchRewriteV2Router({ queue, scheduler, auth: () => {}, routerFactory: fakeRouter });
+
+  const latestRoute = router.routes.find(item => item.method === 'get' && item.path === '/process/jobs/latest');
+  const latestRes = response();
+  await latestRoute.handler({ username: 'alice', query: { limit: '1' } }, latestRes);
+  assert.equal(latestRes.body.latest.id, 'job-1');
+  assert.equal(latestRes.body.latest.status, 'done');
+  assert.deepEqual(latestRes.body.latest.result, { fetched: 1 });
+
+  const jobRoute = router.routes.find(item => item.method === 'get' && item.path === '/process/jobs/:id');
+  const jobRes = response();
+  await jobRoute.handler({ username: 'alice', params: { id: 'job-1' } }, jobRes);
+  assert.equal(jobRes.body.status, 'done');
+  assert.deepEqual(jobRes.body.result, { fetched: 1 });
+});
+
 test('Browser Worker errors are answered by V2 and never next() into legacy Node web-submit handlers', async () => {
-  const queue = { start() {}, pause() {}, resume() {}, stop() {}, status() { return { state: 'idle', items: [] }; } };
+  const queue = queueFixture();
   const scheduler = { list() { return []; }, create() {}, update() {}, remove() {} };
   const error = Object.assign(new Error('浏览器登录服务不可用'), { code: 'BROWSER_WORKER_UNAVAILABLE' });
   const webSubmit = { async saveConfig() { throw error; } };
