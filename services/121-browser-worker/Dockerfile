@@ -15,4 +15,4 @@ ENV HOST=0.0.0.0 \
     QIANTIE_121_SESSION_DIR=/data/sessions
 
 EXPOSE 8787
-CMD ["node", "src/server.js"]
+CMD ["bash", "-lc", "xvfb-run -a node src/server.js"]
