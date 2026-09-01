@@ -5,11 +5,14 @@ const { performPageLogin } = require('../src/login');
 function fakeBrowser({
   needsLogin = false,
   loginSucceeds = true,
+  pageFinalUrl = 'http://two.121w.com/tttadmin/booklist.php',
   backendStatus = 200,
-  backendBody = '<html><body>121 后台自定义文案</body></html>'
+  backendBody = '<html><body>121 后台自定义文案</body></html>',
+  backendFinalUrl = 'http://two.121w.com/tttadmin/zidingyi.php'
 } = {}) {
   const calls = { goto: [], fills: [], clicks: [], storage: 0, backend: [] };
   let loginVisible = needsLogin;
+  let currentPageUrl = pageFinalUrl;
   const locator = selector => ({
     count: async () => {
       if (/password/.test(selector)) return loginVisible ? 1 : 0;
@@ -21,7 +24,8 @@ function fakeBrowser({
     click: async () => { calls.clicks.push(selector); if (loginSucceeds) loginVisible = false; }
   });
   const page = {
-    goto: async url => { calls.goto.push(url); },
+    goto: async url => { calls.goto.push(url); currentPageUrl = pageFinalUrl || url; },
+    url: () => currentPageUrl,
     locator,
     waitForLoadState: async () => {},
     waitForTimeout: async () => {}
@@ -33,6 +37,7 @@ function fakeBrowser({
         calls.backend.push({ url, options });
         return {
           status: () => backendStatus,
+          url: () => backendFinalUrl,
           text: async () => backendBody
         };
       }
@@ -63,6 +68,24 @@ test('login fills real page form then verifies backend before saving storage sta
   assert.equal(calls.clicks.length, 1);
   assert.equal(calls.backend.length, 1);
   assert.equal(result.authenticated, true);
+});
+
+test('page navigation redirect outside two.121w.com is rejected before saving storage state', async () => {
+  const { browser, calls } = fakeBrowser({ needsLogin: false, pageFinalUrl: 'https://evil.example/login-capture' });
+  await assert.rejects(
+    performPageLogin({ browser, baseUrl: 'http://two.121w.com/tttadmin', username: 'u', password: 'p', storageState: { cookies: [] } }),
+    /two\.121w\.com|target host/i
+  );
+  assert.equal(calls.storage, 0);
+});
+
+test('backend verification redirect outside two.121w.com is rejected', async () => {
+  const { browser, calls } = fakeBrowser({ needsLogin: false, backendFinalUrl: 'https://evil.example/capture' });
+  await assert.rejects(
+    performPageLogin({ browser, baseUrl: 'http://two.121w.com/tttadmin', username: 'u', password: 'p', storageState: { cookies: [] } }),
+    /two\.121w\.com|target host/i
+  );
+  assert.equal(calls.storage, 0);
 });
 
 test('missing password form alone is not enough to claim authenticated', async () => {
