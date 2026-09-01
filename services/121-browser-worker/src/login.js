@@ -1,13 +1,24 @@
+const { normalizeBaseUrl } = require('./contracts');
+
 const DEFAULT_SELECTORS = Object.freeze({
   username: ['input[name="username"]', 'input[name="user"]', 'input[name="account"]', 'input[type="text"]'],
   password: ['input[type="password"]', 'input[name="password"]'],
   submit: ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("登录")', 'input[value*="登录"]']
 });
 
+const BACKEND_CHECK_PATH = '/tttadmin/zidingyi.php';
+const LOGIN_PAGE_PATTERN = /管理员登录|<input\b[^>]*type=["']?password|name=["']?password|\/tttadmin\/login\.php/i;
+
 function landingUrl(baseUrl, landingPath = 'booklist.php') {
-  const root = String(baseUrl || '').replace(/\/+$/, '');
-  const tail = String(landingPath || 'booklist.php').replace(/^\/+/, '');
+  const root = normalizeBaseUrl(baseUrl);
+  const tail = String(landingPath || 'booklist.php').trim().replace(/^\/+/, '');
+  if (!tail || tail.includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(tail)) throw new Error('invalid landingPath');
   return `${root}/${tail}`;
+}
+
+function backendCheckUrl(baseUrl) {
+  const root = new URL(normalizeBaseUrl(baseUrl));
+  return `${root.protocol}//${root.hostname}${BACKEND_CHECK_PATH}`;
 }
 
 async function firstLocator(page, selectors) {
@@ -22,6 +33,20 @@ async function loginFormVisible(page, selectors) {
   return Boolean(await firstLocator(page, selectors.password));
 }
 
+async function verifyAuthenticatedBackend(context, baseUrl, timeoutMs = 15000) {
+  if (!context?.request || typeof context.request.fetch !== 'function') throw new Error('121 后台身份验证失败：浏览器上下文不支持后台验证');
+  const response = await context.request.fetch(backendCheckUrl(baseUrl), {
+    method: 'GET',
+    timeout: Math.max(1000, Math.min(Number(timeoutMs) || 15000, 60000))
+  });
+  const status = typeof response.status === 'function' ? response.status() : Number(response.status) || 0;
+  const body = String(await response.text() || '');
+  if (status < 200 || status >= 400 || !body.trim() || LOGIN_PAGE_PATTERN.test(body)) {
+    throw new Error('121 后台身份验证失败：未确认进入真实后台页面');
+  }
+  return { status, body };
+}
+
 async function performPageLogin({
   browser,
   baseUrl,
@@ -33,10 +58,11 @@ async function performPageLogin({
   timeoutMs = 15000
 } = {}) {
   if (!browser || typeof browser.newContext !== 'function') throw new Error('browser is required');
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const context = await browser.newContext(storageState ? { storageState } : {});
   try {
     const page = await context.newPage();
-    await page.goto(landingUrl(baseUrl, landingPath), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.goto(landingUrl(normalizedBaseUrl, landingPath), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
     if (await loginFormVisible(page, selectors)) {
       const userInput = await firstLocator(page, selectors.username);
@@ -52,10 +78,11 @@ async function performPageLogin({
       if (await loginFormVisible(page, selectors)) throw new Error('121 登录失败：登录表单仍然存在');
     }
 
+    await verifyAuthenticatedBackend(context, normalizedBaseUrl, timeoutMs);
     return {
       authenticated: true,
       storageState: await context.storageState(),
-      landingUrl: landingUrl(baseUrl, landingPath)
+      landingUrl: landingUrl(normalizedBaseUrl, landingPath)
     };
   } finally {
     await context.close();
@@ -69,4 +96,14 @@ async function loginWithPlaywright(options = {}) {
   finally { await browser.close(); }
 }
 
-module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, performPageLogin, loginWithPlaywright };
+module.exports = {
+  DEFAULT_SELECTORS,
+  BACKEND_CHECK_PATH,
+  landingUrl,
+  backendCheckUrl,
+  firstLocator,
+  loginFormVisible,
+  verifyAuthenticatedBackend,
+  performPageLogin,
+  loginWithPlaywright
+};
