@@ -33,7 +33,7 @@ func RegisterLocalExecutorArtifactRoutes(root *http.ServeMux, auth BridgeAuth, s
 			return
 		}
 		lease := localexecutor.LeaseCredential{
-			Token: strings.TrimSpace(req.Header.Get("X-Lease-Token")),
+			Token:      strings.TrimSpace(req.Header.Get("X-Lease-Token")),
 			Generation: generation,
 		}
 		if lease.Token == "" {
@@ -63,7 +63,7 @@ func RegisterLocalExecutorArtifactRoutes(root *http.ServeMux, auth BridgeAuth, s
 		})
 		if err != nil {
 			_ = files.Remove(saved.StorageRef)
-			writeLocalJobError(w, err)
+			writeArtifactDomainError(w, err)
 			return
 		}
 		status := http.StatusCreated
@@ -82,7 +82,7 @@ func RegisterLocalExecutorArtifactRoutes(root *http.ServeMux, auth BridgeAuth, s
 		}
 		artifact, err := service.GetArtifact(req.Context(), identity.Username, req.PathValue("id"))
 		if err != nil {
-			writeLocalJobError(w, err)
+			writeArtifactDomainError(w, err)
 			return
 		}
 		file, err := files.Open(artifact.StorageRef)
@@ -99,6 +99,17 @@ func RegisterLocalExecutorArtifactRoutes(root *http.ServeMux, auth BridgeAuth, s
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeContent(w, req, artifact.ID+".mp4", artifact.CreatedAt, file)
 	})))
+}
+
+func writeArtifactDomainError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, localexecutor.ErrArtifactNotFound):
+		writeExecutorError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, localexecutor.ErrArtifactConflict):
+		writeExecutorError(w, http.StatusConflict, err.Error())
+	default:
+		writeLocalJobError(w, err)
+	}
 }
 
 func writeArtifactStoreError(w http.ResponseWriter, err error) {
