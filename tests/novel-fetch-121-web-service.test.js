@@ -75,7 +75,8 @@ test('saving 121 config authenticates through browser worker and never persists 
   assert.equal(f.sessionStore.browser.sessionKey, 'opaque-session');
   assert.equal(f.credentialStore.value.password, 'secret-pw');
   assert.equal(Object.hasOwn(f.getConfig().web_submit, 'password'), false);
-  assert.equal(Object.hasOwn(result.settings, 'password'), false);
+  assert.equal(result.settings.password, '');
+  assert.equal(JSON.stringify(result.settings).includes('secret-pw'), false);
   assert.equal(result.settings.password_masked, true);
   assert.equal(Array.isArray(result.tasks), true);
 });
