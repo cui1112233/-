@@ -7,6 +7,8 @@ const STABLE_ID_KEYS = new Set([
   'videoid'
 ]);
 
+const MEDIA_ID_KEYS = new Set(['mediaid', 'videoid']);
+
 class DoubaoNetworkTracker {
   constructor({ webContents }) {
     if (!webContents?.debugger) throw new Error('Doubao webContents debugger is required');
@@ -32,7 +34,9 @@ class DoubaoNetworkTracker {
     this.attempt = {
       prompt: promptNeedle,
       requests: new Map(),
+      responses: new Map(),
       identities: [],
+      mediaCandidates: [],
       accepted: false,
       endpoint: null
     };
@@ -60,43 +64,68 @@ class DoubaoNetworkTracker {
       return;
     }
 
-    const tracked = this.attempt.requests.get(params.requestId);
-    if (!tracked) return;
-
     if (method === 'Network.responseReceived') {
       const response = params.response || {};
-      tracked.status = Number(response.status) || 0;
-      tracked.mimeType = String(response.mimeType || '');
-      tracked.endpoint = sanitizeNetworkUrl(response.url || tracked.endpoint);
-      if (tracked.status >= 200 && tracked.status < 300 && tracked.identities.length > 0) {
-        this.attempt.accepted = true;
-        this.attempt.endpoint = tracked.endpoint;
+      const responseMeta = {
+        status: Number(response.status) || 0,
+        mimeType: String(response.mimeType || ''),
+        url: String(response.url || '')
+      };
+      this.attempt.responses.set(params.requestId, responseMeta);
+      const tracked = this.attempt.requests.get(params.requestId);
+      if (tracked) {
+        tracked.status = responseMeta.status;
+        tracked.mimeType = responseMeta.mimeType;
+        tracked.endpoint = sanitizeNetworkUrl(responseMeta.url || tracked.endpoint);
+        if (tracked.status >= 200 && tracked.status < 300 && tracked.identities.length > 0) {
+          this.attempt.accepted = true;
+          this.attempt.endpoint = tracked.endpoint;
+        }
       }
       return;
     }
 
-    if (method === 'Network.loadingFinished') {
-      if (!(tracked.status >= 200 && tracked.status < 300)) return;
-      if (/json|text|javascript/i.test(tracked.mimeType || '')) {
-        try {
-          const bodyResult = await this.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId });
-          const text = decodeResponseBody(bodyResult);
-          const identities = extractIdentityEvidence(text);
-          tracked.identities = unique([...tracked.identities, ...identities]);
-          this.mergeIdentities(identities);
-        } catch {
-          // A missing/expired response body does not mean the submit was rejected.
-        }
-      }
+    if (method !== 'Network.loadingFinished') return;
+    const responseMeta = this.attempt.responses.get(params.requestId);
+    if (!responseMeta || !(responseMeta.status >= 200 && responseMeta.status < 300)) return;
+    if (!/json|text|javascript/i.test(responseMeta.mimeType || '')) return;
+
+    let text = '';
+    try {
+      const bodyResult = await this.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId });
+      text = decodeResponseBody(bodyResult);
+    } catch {
+      return;
+    }
+
+    const tracked = this.attempt.requests.get(params.requestId);
+    if (tracked) {
+      const identities = extractIdentityEvidence(text);
+      tracked.identities = unique([...tracked.identities, ...identities]);
+      this.mergeIdentities(identities);
       if (this.attempt.identities.length > 0) {
         this.attempt.accepted = true;
         this.attempt.endpoint = tracked.endpoint;
+      }
+    }
+
+    if (this.attempt.accepted && this.attempt.identities.length > 0) {
+      const accepted = new Set(this.attempt.identities);
+      for (const candidate of extractMediaCandidates(text)) {
+        if (!(candidate.identities || []).some(identity => accepted.has(identity))) continue;
+        this.addMediaCandidate(candidate);
       }
     }
   }
 
   mergeIdentities(values) {
     this.attempt.identities = unique([...this.attempt.identities, ...values]);
+  }
+
+  addMediaCandidate(candidate) {
+    const key = `${candidate.mediaId}\u0000${candidate.downloadUrl}`;
+    const existing = new Set(this.attempt.mediaCandidates.map(item => `${item.mediaId}\u0000${item.downloadUrl}`));
+    if (!existing.has(key)) this.attempt.mediaCandidates.push({ ...candidate, identities: [...candidate.identities] });
   }
 
   getEvidence() {
@@ -107,6 +136,15 @@ class DoubaoNetworkTracker {
     };
     if (this.attempt.endpoint) evidence.endpoint = this.attempt.endpoint;
     return evidence;
+  }
+
+  getMediaCandidates() {
+    if (!this.attempt) return [];
+    return this.attempt.mediaCandidates.map(candidate => ({
+      mediaId: candidate.mediaId,
+      identities: [...candidate.identities],
+      downloadUrl: candidate.downloadUrl
+    }));
   }
 
   stop() {
@@ -145,6 +183,77 @@ function extractIdentityEvidence(input) {
     if (identity && identity.length <= 160) ids.push(identity);
   });
   return unique(ids);
+}
+
+function extractMediaCandidates(input) {
+  let value = input;
+  if (typeof input === 'string') {
+    try { value = JSON.parse(input.slice(0, 2_000_000)); }
+    catch { return []; }
+  }
+  const candidates = [];
+  collectMediaCandidates(value, candidates);
+  return dedupeCandidates(candidates);
+}
+
+function collectMediaCandidates(value, output) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectMediaCandidates(item, output);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+
+  const directIdentities = [];
+  let mediaId = null;
+  const urls = [];
+  for (const [key, child] of Object.entries(value)) {
+    const normalized = normalizeKey(key);
+    if (STABLE_ID_KEYS.has(normalized) && (typeof child === 'string' || typeof child === 'number')) {
+      const identity = String(child).trim();
+      if (identity && identity.length <= 160) {
+        directIdentities.push(identity);
+        if (MEDIA_ID_KEYS.has(normalized)) mediaId = identity;
+      }
+    }
+    if (typeof child === 'string') {
+      const score = videoUrlScore(normalized);
+      if (score > 0 && /^https?:\/\//i.test(child.trim())) urls.push({ url: child.trim(), score });
+    }
+  }
+  const selectedUrl = selectStrongVideoUrl(urls);
+  if (mediaId && directIdentities.length > 0 && selectedUrl) {
+    output.push({ mediaId, identities: unique(directIdentities), downloadUrl: selectedUrl });
+  }
+
+  for (const child of Object.values(value)) collectMediaCandidates(child, output);
+}
+
+function videoUrlScore(normalizedKey) {
+  if (!normalizedKey || /(cover|poster|thumb|thumbnail|avatar|image)/.test(normalizedKey)) return 0;
+  if (/(original|origin|source|download).*(url|uri)|(url|uri).*(original|origin|source|download)/.test(normalizedKey)) return 5;
+  if (/^(downloadurl|originalurl|originurl|sourceurl)$/.test(normalizedKey)) return 5;
+  if (/video.*(url|uri)|(url|uri).*video/.test(normalizedKey)) return 4;
+  if (/playback.*(url|uri)/.test(normalizedKey)) return 3;
+  return 0;
+}
+
+function selectStrongVideoUrl(urls) {
+  if (!urls.length) return null;
+  const topScore = Math.max(...urls.map(item => item.score));
+  const top = unique(urls.filter(item => item.score === topScore).map(item => item.url));
+  return top.length === 1 ? top[0] : null;
+}
+
+function dedupeCandidates(candidates) {
+  const seen = new Set();
+  const out = [];
+  for (const candidate of candidates) {
+    const key = `${candidate.mediaId}\u0000${candidate.downloadUrl}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(candidate);
+  }
+  return out;
 }
 
 function walk(value, visit) {
@@ -200,7 +309,10 @@ function unique(values) {
 module.exports = {
   DoubaoNetworkTracker,
   extractIdentityEvidence,
+  extractMediaCandidates,
   sanitizeNetworkUrl,
   postDataContainsPrompt,
-  decodeResponseBody
+  decodeResponseBody,
+  videoUrlScore,
+  selectStrongVideoUrl
 };
