@@ -1,0 +1,56 @@
+name: qiantie-novel-fetch-v2-review
+
+services:
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${QIANTIE_PLATFORM_REVIEW_IMAGE:-qiantie-platform:review-v2}
+    environment:
+      QIANTIE_NODE_PORT: "18081"
+      QIANTIE_121_BROWSER_WORKER_URL: http://novel-fetch-121-worker:8787
+      QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET:?required}
+      QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET:?required}
+    ports:
+      - "127.0.0.1:${QIANTIE_REVIEW_HOST_PORT:-13107}:18081"
+    volumes:
+      - ${QIANTIE_REVIEW_DATA_DIR:?required}:/app/data
+    depends_on:
+      novel-fetch-121-worker:
+        condition: service_healthy
+    networks:
+      - novel-fetch-review
+    restart: "no"
+
+  novel-fetch-121-worker:
+    build:
+      context: ./services/121-browser-worker
+      dockerfile: Dockerfile
+    image: ${QIANTIE_121_WORKER_REVIEW_IMAGE:-qiantie-121-browser-worker:review-v2}
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET:?required}
+      QIANTIE_121_STORAGE_STATE_SECRET: ${QIANTIE_121_STORAGE_STATE_SECRET:?required}
+      QIANTIE_121_SESSION_DIR: /data/sessions
+    expose:
+      - "8787"
+    volumes:
+      - ${QIANTIE_REVIEW_WORKER_DATA_DIR:?required}:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:8787/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - novel-fetch-review
+    restart: "no"
+
+networks:
+  novel-fetch-review:
+    driver: bridge
