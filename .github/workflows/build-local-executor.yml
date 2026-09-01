@@ -1,0 +1,83 @@
+name: Build local executor 1.0.0
+
+on:
+  push:
+    branches:
+      - feat/v78-doubao-local-executor-replacement
+    paths:
+      - 'local-executor/**'
+      - 'routes/local-executor-downloads.js'
+      - 'frontend/src/user/pages/SettingsPage.jsx'
+      - 'test/local-executor-release-contract.test.js'
+      - '.github/workflows/build-local-executor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test test/local-executor-release-contract.test.js
+
+  windows:
+    needs: release-contract
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: local-executor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install
+      - run: npm test
+      - run: npm run check
+      - run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Normalize installer name
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          if (-not $file) { throw 'Windows installer was not produced' }
+          Copy-Item $file.FullName ../yizhan-local-executor-1.0.0-win-x64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yizhan-local-executor-1.0.0-win-x64
+          path: yizhan-local-executor-1.0.0-win-x64.exe
+          if-no-files-found: error
+
+  macos:
+    needs: release-contract
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: local-executor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install
+      - run: npm test
+      - run: npm run check
+      - run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Normalize installer name
+        run: |
+          file="$(find dist -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$file" || { echo 'macOS installer was not produced' >&2; exit 1; }
+          cp "$file" ../yizhan-local-executor-1.0.0-mac-arm64.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yizhan-local-executor-1.0.0-mac-arm64
+          path: yizhan-local-executor-1.0.0-mac-arm64.dmg
+          if-no-files-found: error
