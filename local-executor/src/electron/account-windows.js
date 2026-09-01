@@ -45,6 +45,13 @@ class AccountWindows {
     return this.windows.get(safeAccountId(accountId)) || null;
   }
 
+  getWebContents(accountId) {
+    const win = this.get(accountId);
+    if (!win || win.isDestroyed()) throw new Error('Doubao account browser is not open');
+    if (!win.webContents || win.webContents.isDestroyed?.()) throw new Error('Doubao account browser is not open');
+    return win.webContents;
+  }
+
   closeAll() {
     for (const win of this.windows.values()) {
       if (!win.isDestroyed()) win.close();
