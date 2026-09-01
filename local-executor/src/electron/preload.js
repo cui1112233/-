@@ -1,0 +1,14 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('yiZhanExecutor', {
+  getState: () => ipcRenderer.invoke('executor:get-state'),
+  pair: input => ipcRenderer.invoke('executor:pair', input),
+  addAccount: () => ipcRenderer.invoke('executor:add-account'),
+  openAccount: id => ipcRenderer.invoke('executor:open-account', id),
+  markAccountAvailable: id => ipcRenderer.invoke('executor:mark-account-available', id),
+  onState: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('executor:state', listener);
+    return () => ipcRenderer.removeListener('executor:state', listener);
+  }
+});
