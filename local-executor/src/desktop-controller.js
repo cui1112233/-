@@ -38,8 +38,10 @@ class DesktopController {
   }
 
   openAccount(id) {
-    this.accountWindows.open(id);
-    return this.runtime.getAccount?.(id) || null;
+    const account = this.runtime.getAccount?.(id) || null;
+    if (!account) throw new Error('account not found');
+    this.accountWindows.open(account.id);
+    return account;
   }
 
   markAccountAvailable(id) {
