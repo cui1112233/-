@@ -16,6 +16,10 @@ function fakeApi(overrides = {}) {
     async acceptance(token, id, lease, input) { calls.push(['acceptance', input]); },
     async release(token, id, lease, reason) { calls.push(['release', reason]); },
     async fail(token, id, lease, input) { calls.push(['fail', input]); },
+    async uploadArtifact(token, id, lease, filePath) {
+      calls.push(['uploadArtifact', filePath]);
+      return { artifactId: 'server-artifact-1' };
+    },
     async result(token, id, lease, artifactId) { calls.push(['result', artifactId]); },
     async renew() { calls.push(['renew']); },
     ...overrides
@@ -44,7 +48,7 @@ function baseAdapter(script = {}) {
     },
     async fetchArtifact() {
       calls.push('fetchArtifact');
-      const values = script.artifact || [{ artifactId: 'artifact-1' }];
+      const values = script.artifact || [{ filePath: '/tmp/doubao-video.mp4' }];
       const value = values[Math.min(artifactIndex++, values.length - 1)];
       if (value instanceof Error) throw value;
       return value;
@@ -52,17 +56,22 @@ function baseAdapter(script = {}) {
   };
 }
 
-function runner(api, adapter) {
-  return new JobRunner({ api, token: 'device', accountPool: new AccountPool([{ id: 'a1', state: 'available' }]), adapter, leaseRenewIntervalMs: 0, retryDelayMs: 0 });
+function runner(api, adapter, options = {}) {
+  return new JobRunner({
+    api, token: 'device', accountPool: new AccountPool([{ id: 'a1', state: 'available' }]), adapter,
+    leaseRenewIntervalMs: 0, retryDelayMs: 0, ...options
+  });
 }
 
-test('normal success submits once and returns the artifact', async () => {
+test('normal success submits once, uploads the local MP4, then completes with server artifact id', async () => {
   const api = fakeApi();
   const adapter = baseAdapter();
-  await runner(api, adapter).runClaim(claim());
+  const result = await runner(api, adapter).runClaim(claim());
   assert.equal(adapter.calls.filter(x => x === 'submit').length, 1);
   assert.equal(api.calls.filter(x => x[0] === 'acceptance').length, 1);
-  assert.deepEqual(api.calls.at(-1), ['result', 'artifact-1']);
+  assert.deepEqual(api.calls.find(x => x[0] === 'uploadArtifact'), ['uploadArtifact', '/tmp/doubao-video.mp4']);
+  assert.deepEqual(api.calls.at(-1), ['result', 'server-artifact-1']);
+  assert.deepEqual(result, { succeeded: true, artifactId: 'server-artifact-1' });
 });
 
 test('unknown submission recovers acceptance on same account without resubmit', async () => {
@@ -97,9 +106,41 @@ test('server cancellation conflict stops before any later submit', async () => {
 
 test('download retry never regenerates', async () => {
   const api = fakeApi();
-  const adapter = baseAdapter({ artifact: [new Error('download timeout'), { artifactId: 'artifact-2' }] });
+  const adapter = baseAdapter({ artifact: [new Error('download timeout'), { filePath: '/tmp/retry-video.mp4' }] });
   await runner(api, adapter).runClaim(claim());
   assert.equal(adapter.calls.filter(x => x === 'submit').length, 1);
   assert.equal(adapter.calls.filter(x => x === 'fetchArtifact').length, 2);
-  assert.deepEqual(api.calls.at(-1), ['result', 'artifact-2']);
+  assert.equal(api.calls.filter(x => x[0] === 'uploadArtifact').length, 1);
+  assert.deepEqual(api.calls.at(-1), ['result', 'server-artifact-1']);
+});
+
+test('upload retry reuses the same downloaded file and never regenerates or redownloads', async () => {
+  let uploadAttempt = 0;
+  const api = fakeApi({
+    async uploadArtifact(token, id, lease, filePath) {
+      this.calls.push(['uploadArtifact', filePath]);
+      uploadAttempt++;
+      if (uploadAttempt === 1) throw new Error('upload connection reset');
+      return { artifactId: 'server-artifact-2' };
+    }
+  });
+  const adapter = baseAdapter({ artifact: [{ filePath: '/tmp/stable-video.mp4' }] });
+  const result = await runner(api, adapter, { maxUploadAttempts: 3 }).runClaim(claim());
+  assert.equal(adapter.calls.filter(x => x === 'submit').length, 1);
+  assert.equal(adapter.calls.filter(x => x === 'fetchArtifact').length, 1);
+  assert.deepEqual(api.calls.filter(x => x[0] === 'uploadArtifact'), [
+    ['uploadArtifact', '/tmp/stable-video.mp4'],
+    ['uploadArtifact', '/tmp/stable-video.mp4']
+  ]);
+  assert.deepEqual(api.calls.at(-1), ['result', 'server-artifact-2']);
+  assert.deepEqual(result, { succeeded: true, artifactId: 'server-artifact-2' });
+});
+
+test('missing downloaded file path fails accepted flow without calling result', async () => {
+  const api = fakeApi();
+  const adapter = baseAdapter({ artifact: [{ artifactId: 'legacy-artifact-id' }] });
+  await assert.rejects(() => runner(api, adapter).runClaim(claim()), /filePath/);
+  assert.equal(api.calls.filter(x => x[0] === 'uploadArtifact').length, 0);
+  assert.equal(api.calls.filter(x => x[0] === 'result').length, 0);
+  assert.equal(api.calls.filter(x => x[0] === 'fail').length, 1);
 });
