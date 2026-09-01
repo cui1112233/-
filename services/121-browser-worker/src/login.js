@@ -1,7 +1,8 @@
 const DEFAULT_SELECTORS = Object.freeze({
   username: ['input[name="username"]', 'input[name="user"]', 'input[name="account"]', 'input[type="text"]'],
   password: ['input[type="password"]', 'input[name="password"]'],
-  submit: ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("登录")', 'input[value*="登录"]']
+  submit: ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("登录")', 'input[value*="登录"]'],
+  authenticated: ['text=自定义文案', 'a:has-text("退出")', 'a:has-text("注销")', 'a[href*="logout"]']
 });
 
 function landingUrl(baseUrl, landingPath = 'booklist.php') {
@@ -20,6 +21,19 @@ async function firstLocator(page, selectors) {
 
 async function loginFormVisible(page, selectors) {
   return Boolean(await firstLocator(page, selectors.password));
+}
+
+function assert121BackendLocation(page) {
+  if (!page || typeof page.url !== 'function') throw new Error('121 无法确认登录成功：后台地址不可用');
+  const current = new URL(String(page.url() || ''));
+  if (!['http:', 'https:'].includes(current.protocol) || current.hostname.toLowerCase() !== 'two.121w.com' || !current.pathname.startsWith('/tttadmin/')) {
+    throw new Error('121 无法确认登录成功：未进入真实后台页面');
+  }
+}
+
+async function authenticatedBackendVisible(page, selectors = DEFAULT_SELECTORS) {
+  assert121BackendLocation(page);
+  return Boolean(await firstLocator(page, selectors.authenticated));
 }
 
 async function performPageLogin({
@@ -52,6 +66,10 @@ async function performPageLogin({
       if (await loginFormVisible(page, selectors)) throw new Error('121 登录失败：登录表单仍然存在');
     }
 
+    if (!await authenticatedBackendVisible(page, selectors)) {
+      throw new Error('121 无法确认登录成功：未找到后台身份标识');
+    }
+
     return {
       authenticated: true,
       storageState: await context.storageState(),
@@ -69,4 +87,4 @@ async function loginWithPlaywright(options = {}) {
   finally { await browser.close(); }
 }
 
-module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, performPageLogin, loginWithPlaywright };
+module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, assert121BackendLocation, authenticatedBackendVisible, performPageLogin, loginWithPlaywright };
