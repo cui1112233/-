@@ -26,7 +26,12 @@ function createLocalExecutorDeviceRouter({ targetBaseUrl } = {}) {
       if (res.headersSent) return res.destroy();
       return res.status(503).json({ error: '本地执行器服务暂不可用' });
     });
-    upstream.end(built.body);
+
+    if (built.streamBody) {
+      req.pipe(upstream);
+    } else {
+      upstream.end(built.body);
+    }
   });
 
   return router;
