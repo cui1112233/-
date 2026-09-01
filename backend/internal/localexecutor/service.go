@@ -20,6 +20,7 @@ type Store interface {
 
 type Service struct {
 	store Store
+	jobs  JobStore
 	now   func() time.Time
 }
 
@@ -27,7 +28,8 @@ func NewService(store Store, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{store: store, now: now}
+	jobs, _ := store.(JobStore)
+	return &Service{store: store, jobs: jobs, now: now}
 }
 
 func (s *Service) CreatePairing(ctx context.Context, owner, platform string) (PairingSecret, error) {
