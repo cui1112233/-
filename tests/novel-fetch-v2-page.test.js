@@ -9,7 +9,7 @@ test('injects V78 novel-fetch V2 clients exactly once after legacy app', () => {
   const second = injectNovelFetchV2Script(first);
   assert.match(first, /app\.js\?v=old/);
   assert.match(first, /\/batch-rewrite\/v78-novel-fetch-v2\.js/);
-  assert.match(first, /\/batch-rewrite\/v78-novel-fetch-v2-layout\.js/);
+  assert.match(first, /\/batch-rewrite\/v78-novel-fetch-v2-layout\.js\?v=20260901-image-layout-r2/);
   assert.equal((second.match(/v78-novel-fetch-v2\.js/g) || []).length, 1);
   assert.equal((second.match(/v78-novel-fetch-v2-layout\.js/g) || []).length, 1);
 });
