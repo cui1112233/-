@@ -17,6 +17,6 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	if err := storage.RunMigrations(ctx, db, storage.V11Migrations()); err != nil {
 		return nil, err
 	}
-	store := batchfactoryv11.NewMySQLStore(db)
+	store := batchfactoryv11.NewReadbackMySQLStore(db)
 	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, RegisterV11: register}), nil
 }
