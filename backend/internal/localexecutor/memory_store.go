@@ -9,15 +9,18 @@ import (
 )
 
 type MemoryStore struct {
-	mu        sync.Mutex
-	pairings  map[string]PairingRecord
-	executors map[string]ExecutorRecord
-	tokenIDs  map[string]string
+	mu         sync.Mutex
+	pairings   map[string]PairingRecord
+	executors  map[string]ExecutorRecord
+	tokenIDs   map[string]string
+	jobs       map[string]JobRecord
+	sourceJobs map[string]string
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokenIDs: make(map[string]string),
+		pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord, tokenIDs: make(map[string]string),
+		jobs: make(map[string]JobRecord), sourceJobs: make(map[string]string),
 	}
 }
 
