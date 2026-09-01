@@ -31,7 +31,22 @@ test('detects live page capabilities from semantic controls rather than CSS clas
   assert.deepEqual(capabilities.durations, [5, 10]);
   assert.deepEqual(capabilities.ratios, ['9:16', '16:9']);
   assert.equal(capabilities.submit, true);
+  assert.equal(capabilities.videoGeneration, true);
   assert.deepEqual(capabilities.models, ['Seedance 2.0']);
+});
+
+test('ordinary Doubao chat input cannot be mistaken for video generation', () => {
+  const capabilities = detectCapabilities({
+    visibleText: '豆包 对话',
+    controls: [{ role: 'button', text: '发送' }],
+    promptInputs: [{ kind: 'contenteditable' }],
+    fileInputs: []
+  });
+  assert.equal(capabilities.videoGeneration, false);
+  assert.throws(
+    () => selectRequestedOptions(capabilities, { prompt: '不要发到普通聊天框' }),
+    error => error?.code === 'VIDEO_MODE_UNAVAILABLE'
+  );
 });
 
 test('prompt-only jobs do not require image upload support', () => {
