@@ -36,8 +36,62 @@ func LocalExecutorStatements() []string {
 	}
 }
 
+func LocalExecutorJobStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS local_executor_jobs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  source_task_id VARCHAR(96) NOT NULL,
+  platform VARCHAR(32) NOT NULL,
+  payload_json JSON NOT NULL,
+  state VARCHAR(32) NOT NULL,
+  cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+  lease_executor_id VARCHAR(64) NULL,
+  lease_token_hash BINARY(32) NULL,
+  lease_generation BIGINT NOT NULL DEFAULT 0,
+  lease_expires_at DATETIME(6) NULL,
+  accepted_at DATETIME(6) NULL,
+  accepted_account_id VARCHAR(191) NULL,
+  submission_id VARCHAR(191) NULL,
+  artifact_id VARCHAR(64) NULL,
+  error_code VARCHAR(96) NULL,
+  error_message VARCHAR(512) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_local_executor_job_source (owner_username, source_task_id),
+  KEY idx_local_executor_jobs_claim (owner_username, platform, state, cancel_requested, lease_expires_at, created_at),
+  KEY idx_local_executor_jobs_executor (lease_executor_id, updated_at)
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS local_executor_job_events (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  executor_id VARCHAR(64) NULL,
+  event_type VARCHAR(64) NOT NULL,
+  state VARCHAR(32) NOT NULL,
+  detail VARCHAR(512) NULL,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_local_executor_job_events_job (job_id, id)
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS local_executor_artifacts (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  media_type VARCHAR(96) NOT NULL DEFAULT 'video/mp4',
+  byte_size BIGINT NULL,
+  sha256 CHAR(64) NULL,
+  storage_ref VARCHAR(512) NULL,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_local_executor_artifact_job (job_id),
+  KEY idx_local_executor_artifacts_owner_created (owner_username, created_at)
+) ENGINE=InnoDB`,
+	}
+}
+
 func LocalExecutorMigrations() []Migration {
-	return []Migration{{Version: 7801001, SQL: LocalExecutorStatements(), CallbackChecksum: "v78-local-executor-control-plane-v1"}}
+	return []Migration{
+		{Version: 7801001, SQL: LocalExecutorStatements(), CallbackChecksum: "v78-local-executor-control-plane-v1"},
+		{Version: 7801002, SQL: LocalExecutorJobStatements(), CallbackChecksum: "v78-local-executor-job-leasing-v1"},
+	}
 }
 
 func AppMigrations() []Migration {
