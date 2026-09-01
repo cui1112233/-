@@ -53,8 +53,8 @@ func TestNovelFetchWorkshopBridgeRoundTrip(t *testing.T) {
 	secret := "test-secret"
 	store := novelfetchworkshop.NewMemoryStore()
 	handler := NewRouter(RouterOptions{
-		BridgeSecret:   secret,
-		Now:            func() time.Time { return now },
+		BridgeSecret:    secret,
+		Now:             func() time.Time { return now },
 		NovelFetchStore: store,
 	})
 
