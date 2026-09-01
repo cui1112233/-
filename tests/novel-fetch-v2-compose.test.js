@@ -4,7 +4,7 @@ const path = require('node:path');
 
 const { attachV78NovelFetchV2 } = require('../lib/novel-fetch-workshop/v2-compose');
 
-test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, task ops, and starts scheduler runtime', async () => {
+test('composition reuses core auth, mounts V2 API, batch store, Browser Worker web-submit, task ops, and starts scheduler runtime', async () => {
   const uses = [];
   const shellApp = { locals: {}, use(...args) { uses.push(args); return this; } };
   const accounts = new Map([['alice', { username: 'alice' }]]);
@@ -27,11 +27,18 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
   let started = 0;
   let tombstoneOptions;
   let taskOpsOptions;
+  let batchOptions;
   let webSubmitOptions;
   let credentialOptions;
   let executed = 0;
+  let executorContext = null;
+  const batchCalls = [];
   const tombstones = { id: 'tombstones' };
   const taskOps = { processConflicts(owner, payload) { return payload?.input_text === 'blocked' ? ['book-a'] : []; } };
+  const batches = {
+    current() { return null; }, list() { return []; }, prepareRerun() { return null; },
+    complete(owner, id, result) { batchCalls.push(['complete', owner, id, result]); return { id, status: 'done' }; }
+  };
   const runtime = { queue: { q: true }, scheduler: { s: true }, startScheduler() { started += 1; } };
   const bodyParser = () => {};
   const router = { router: true };
@@ -49,9 +56,13 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
     shellApp,
     coreApp,
     bodyParser,
-    createBatchExecutor(options) { executorOptions = options; return async () => { executed += 1; return { ok: true }; }; },
+    createBatchExecutor(options) {
+      executorOptions = options;
+      return async (_owner, _payload, execution) => { executed += 1; executorContext = execution; return { ok: true, tasks: [] }; };
+    },
     createTombstones(options) { tombstoneOptions = options; return tombstones; },
     createTaskOps(options) { taskOpsOptions = options; return taskOps; },
+    createBatches(options) { batchOptions = options; return batches; },
     createRuntime(options) { runtimeOptions = options; return runtime; },
     createBrowserClient() { return browserClient; },
     createCredentialStore(options) { credentialOptions = options; return credentialStore; },
@@ -60,6 +71,7 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
       assert.equal(options.queue, runtime.queue);
       assert.equal(options.scheduler, runtime.scheduler);
       assert.equal(options.taskOps, taskOps);
+      assert.equal(options.batches, batches);
       assert.equal(options.webSubmit, webSubmit);
       return router;
     }
@@ -81,19 +93,24 @@ test('composition reuses core auth, mounts V2 API, Browser Worker web-submit, ta
   assert.equal(runtimeOptions.usersDir, path.join('/srv/qiantie/data/system', '..', 'users'));
   assert.equal(typeof runtimeOptions.executeBatch, 'function');
   assert.equal(tombstoneOptions.usersDir, runtimeOptions.usersDir);
+  assert.equal(batchOptions.usersDir, runtimeOptions.usersDir);
   assert.equal(taskOpsOptions.tombstones, tombstones);
   assert.equal(taskOpsOptions.accountResolver('alice').username, 'alice');
   assert.equal(shellApp.locals.novelFetchV2TaskOps, taskOps);
+  assert.equal(shellApp.locals.novelFetchV2Batches, batches);
   assert.equal(credentialOptions.usersDir, runtimeOptions.usersDir);
   assert.equal(webSubmitOptions.browserClient, browserClient);
   assert.equal(webSubmitOptions.sessionStore, novelFetchStore);
   assert.equal(webSubmitOptions.credentialStore, credentialStore);
   assert.equal(webSubmitOptions.accountResolver('alice').username, 'alice');
   assert.equal(shellApp.locals.novelFetchV2WebSubmit, webSubmit);
-  await assert.rejects(() => runtimeOptions.executeBatch('alice', { input_text: 'blocked' }), error => { assert.equal(error.status, 410); assert.equal(error.recoverable, false); return true; });
+  await assert.rejects(() => runtimeOptions.executeBatch('alice', { input_text: 'blocked', batch_id: 'batch-blocked' }), error => { assert.equal(error.status, 410); assert.equal(error.recoverable, false); return true; });
   assert.equal(executed, 0);
-  assert.deepEqual(await runtimeOptions.executeBatch('alice', { input_text: 'ok' }), { ok: true });
+  const shouldStop = () => false;
+  assert.deepEqual(await runtimeOptions.executeBatch('alice', { input_text: 'ok', batch_id: 'batch-1' }, { shouldStop }), { ok: true, tasks: [] });
   assert.equal(executed, 1);
+  assert.equal(executorContext.shouldStop, shouldStop);
+  assert.deepEqual(batchCalls, [['complete', 'alice', 'batch-1', { ok: true, tasks: [] }]]);
   assert.equal(started, 1);
   assert.deepEqual(uses, [['/api/batch-rewrite', bodyParser, router]]);
 });
