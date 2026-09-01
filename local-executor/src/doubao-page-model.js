@@ -31,6 +31,7 @@ function detectCapabilities(snapshot = {}) {
   const promptInputs = Array.isArray(snapshot.promptInputs) ? snapshot.promptInputs : [];
   const fileInputs = Array.isArray(snapshot.fileInputs) ? snapshot.fileInputs : [];
   const texts = controls.map(control => String(control.text || control.aria || '').trim()).filter(Boolean);
+  const fullText = normalizeText([snapshot.visibleText || '', ...texts].join(' '));
 
   const durations = uniqueSortedNumbers(texts.flatMap(extractDurations));
   const ratios = unique(texts.flatMap(extractRatios));
@@ -38,6 +39,10 @@ function detectCapabilities(snapshot = {}) {
   const imageUpload = fileInputs.some(input => /image/i.test(String(input.accept || '')))
     || texts.some(text => /参考图|参考图片|上传图片|添加图片/.test(text));
   const submit = texts.some(text => /^(生成|发送|开始制作|立即生成|生成视频|开始生成)$/.test(normalizeText(text)));
+  const videoGeneration = models.length > 0
+    || durations.length > 0
+    || ratios.length > 0
+    || /Seedance|视频生成|生成视频|参考图.{0,8}(视频|生成)/i.test(fullText);
 
   return {
     promptInput: promptInputs.length > 0,
@@ -45,12 +50,20 @@ function detectCapabilities(snapshot = {}) {
     durations,
     ratios,
     models,
-    submit
+    submit,
+    videoGeneration
   };
 }
 
 function selectRequestedOptions(capabilities = {}, payload = {}) {
   const input = normalizeVideoInput(payload);
+  const videoGeneration = capabilities.videoGeneration === true
+    || (Array.isArray(capabilities.models) && capabilities.models.length > 0)
+    || (Array.isArray(capabilities.durations) && capabilities.durations.length > 0)
+    || (Array.isArray(capabilities.ratios) && capabilities.ratios.length > 0);
+  if (!videoGeneration) {
+    throw new DoubaoCapabilityError('VIDEO_MODE_UNAVAILABLE', 'Doubao is not confirmed to be in video generation mode');
+  }
   if (!capabilities.promptInput) {
     throw new DoubaoCapabilityError('PROMPT_INPUT_UNAVAILABLE', 'Doubao prompt input is unavailable');
   }
