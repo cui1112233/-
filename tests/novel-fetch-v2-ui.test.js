@@ -18,7 +18,19 @@ test('processing UI uses sparse target versions and parser-backed preview', () =
   assert.ok(mainSource.includes('AI文案处理优先方案'));
 });
 
-test('processing page exposes lightweight current batch only', () => {
+test('processing page is reflowed to the approved image layout instead of stacked add-on cards', () => {
+  for (const marker of [
+    'mountImageAlignedLayout', 'v78ImageWorkGrid', 'v78ImageInputPanel', 'v78ImageStatusPanel',
+    'v78StatusMetrics', 'v78ProgressRows', 'v78WorkActionBar', 'v78CurrentBatchTable'
+  ]) assert.ok(mainSource.includes(marker), `missing ${marker}`);
+  assert.ok(mainSource.includes('批量输入'));
+  assert.ok(mainSource.includes('处理状态'));
+  assert.ok(mainSource.includes('实时进度'));
+  assert.ok(mainSource.includes('实时日志'));
+  assert.ok(mainSource.includes('grid-template-columns:minmax(0,1.35fr) minmax(360px,1fr)'));
+});
+
+test('processing page exposes current batch controls and table', () => {
   for (const marker of ['/batches/current', '/process/queue/stop', '当前批次', '停止处理', '查看全部任务']) {
     assert.ok(mainSource.includes(marker), `missing ${marker}`);
   }
