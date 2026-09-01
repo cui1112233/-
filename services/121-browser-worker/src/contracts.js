@@ -6,13 +6,17 @@ const SESSION_ROUTES = Object.freeze({
 });
 
 const OWNER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const TARGET_HOST = 'two.121w.com';
+const TARGET_PATH = '/tttadmin';
 
 function normalizeBaseUrl(value) {
   const url = new URL(String(value || '').trim());
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('baseUrl must use http or https');
-  url.hash = '';
-  url.search = '';
-  return url.toString().replace(/\/+$/, '');
+  if (url.username || url.password || url.port) throw new Error('invalid 121 target');
+  if (url.hostname.toLowerCase() !== TARGET_HOST) throw new Error('invalid 121 target');
+  const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (pathname !== TARGET_PATH || url.search || url.hash) throw new Error('invalid 121 target');
+  return `${url.protocol}//${TARGET_HOST}${TARGET_PATH}`;
 }
 
 function normalizeSessionRequest(body = {}, { requireCredentials = false } = {}) {
@@ -22,13 +26,15 @@ function normalizeSessionRequest(body = {}, { requireCredentials = false } = {})
   if (!OWNER_PATTERN.test(owner)) throw new Error('invalid owner');
   if (!username) throw new Error('username is required');
   if (requireCredentials && !password) throw new Error('password is required');
+  const landingPath = String(body.landingPath || 'booklist.php').trim() || 'booklist.php';
+  if (landingPath !== 'booklist.php') throw new Error('invalid 121 landing path');
   return {
     owner,
     baseUrl: normalizeBaseUrl(body.baseUrl),
     username,
     ...(requireCredentials ? { password } : {}),
     headed: body.headed === true,
-    landingPath: String(body.landingPath || 'booklist.php').trim() || 'booklist.php'
+    landingPath
   };
 }
 
@@ -41,4 +47,4 @@ function sanitizeSessionResponse(value = {}) {
   return safe;
 }
 
-module.exports = { SESSION_ROUTES, normalizeBaseUrl, normalizeSessionRequest, sanitizeSessionResponse };
+module.exports = { SESSION_ROUTES, TARGET_HOST, TARGET_PATH, normalizeBaseUrl, normalizeSessionRequest, sanitizeSessionResponse };
