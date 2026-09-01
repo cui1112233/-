@@ -8,7 +8,7 @@ class AmbiguousAcceptanceError extends Error {
 }
 
 class JobRunner {
-  constructor({ api, token, accountPool, adapter, leaseRenewIntervalMs = 20000, retryDelayMs = 1000, maxSubmitAttempts = 3, maxRecoveryAttempts = 3, maxCompletionAttempts = 3, maxDownloadAttempts = 3 }) {
+  constructor({ api, token, accountPool, adapter, leaseRenewIntervalMs = 20000, retryDelayMs = 1000, maxSubmitAttempts = 3, maxRecoveryAttempts = 3, maxCompletionAttempts = 3, maxDownloadAttempts = 3, maxUploadAttempts = 3 }) {
     this.api = api;
     this.token = token;
     this.accountPool = accountPool;
@@ -19,6 +19,7 @@ class JobRunner {
     this.maxRecoveryAttempts = maxRecoveryAttempts;
     this.maxCompletionAttempts = maxCompletionAttempts;
     this.maxDownloadAttempts = maxDownloadAttempts;
+    this.maxUploadAttempts = maxUploadAttempts;
   }
 
   async runClaim(claim) {
@@ -115,11 +116,20 @@ class JobRunner {
         controller.signal
       );
       this.throwLeaseError(leaseError);
-      if (!artifact?.artifactId) throw new Error('adapter did not return artifactId');
+      if (!artifact?.filePath) throw new Error('adapter did not return local artifact filePath');
 
       await this.api.progress(this.token, job.id, lease, 'uploading');
-      await this.api.result(this.token, job.id, lease, artifact.artifactId);
-      return { succeeded: true, artifactId: artifact.artifactId };
+      const uploaded = await retrySameOperation(
+        () => this.api.uploadArtifact(this.token, job.id, lease, artifact.filePath),
+        this.maxUploadAttempts,
+        this.retryDelayMs,
+        controller.signal
+      );
+      this.throwLeaseError(leaseError);
+      if (!uploaded?.artifactId) throw new Error('server did not return artifactId');
+
+      await this.api.result(this.token, job.id, lease, uploaded.artifactId);
+      return { succeeded: true, artifactId: uploaded.artifactId };
     } catch (error) {
       if (isCancellation(error)) throw error;
       if (error instanceof AmbiguousAcceptanceError) {
