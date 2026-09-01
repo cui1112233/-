@@ -6,6 +6,7 @@ class AccountWindows {
     this.session = session;
     this.startUrl = startUrl;
     this.windows = new Map();
+    this.loadPromises = new Map();
   }
 
   open(accountId) {
@@ -35,8 +36,12 @@ class AccountWindows {
       }
     });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    win.on('closed', () => this.windows.delete(safeId));
-    win.loadURL(this.startUrl);
+    win.on('closed', () => {
+      this.windows.delete(safeId);
+      this.loadPromises.delete(safeId);
+    });
+    const loading = Promise.resolve(win.loadURL(this.startUrl));
+    this.loadPromises.set(safeId, loading);
     this.windows.set(safeId, win);
     return win;
   }
@@ -52,11 +57,24 @@ class AccountWindows {
     return win.webContents;
   }
 
+  async ensureWebContents(accountId) {
+    const safeId = safeAccountId(accountId);
+    let win = this.windows.get(safeId);
+    if (!win || win.isDestroyed()) win = this.open(safeId);
+    const loading = this.loadPromises.get(safeId);
+    if (loading) await loading;
+    if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed?.()) {
+      throw new Error('Doubao account browser is not open');
+    }
+    return win.webContents;
+  }
+
   closeAll() {
     for (const win of this.windows.values()) {
       if (!win.isDestroyed()) win.close();
     }
     this.windows.clear();
+    this.loadPromises.clear();
   }
 }
 
