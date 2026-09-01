@@ -23,8 +23,16 @@ function safeActionHeaders(headers = {}) {
   return contentType ? { 'content-type': String(contentType) } : {};
 }
 
+function normalizedRequest(req, options) {
+  return normalizeSessionRequest({
+    ...(req.body && typeof req.body === 'object' ? req.body : {}),
+    owner: String(req.headers['x-qiantie-owner'] || '').trim()
+  }, options);
+}
+
 function createWorkerApp({
   secret,
+  storageSecret = process.env.QIANTIE_121_STORAGE_SECRET || '',
   sessionStore,
   login = loginWithPlaywright,
   action = actionWithPlaywright,
@@ -33,7 +41,12 @@ function createWorkerApp({
   loginTimeoutMs = Number(process.env.QIANTIE_121_LOGIN_TIMEOUT_MS) || 30000
 } = {}) {
   if (!secret) throw new Error('worker internal secret is required');
-  const store = sessionStore || createSessionStore({ rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions') });
+  const storageKey = String(storageSecret || '').trim();
+  if (!sessionStore && !storageKey) throw new Error('121 storage encryption secret is required');
+  const store = sessionStore || createSessionStore({
+    rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions'),
+    secret: storageKey
+  });
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use((req, res, next) => {
@@ -43,10 +56,11 @@ function createWorkerApp({
 
   app.post('/session/login', async (req, res) => {
     try {
-      const input = normalizeSessionRequest(req.body, { requireCredentials: true });
+      const input = normalizedRequest(req, { requireCredentials: true });
       if (input.headed && !headedEnabled) return res.status(409).json({ error: 'headed_browser_unavailable', capability: 'headed_unavailable' });
       const existing = store.load(input);
       const result = await withTimeout(login({ ...input, storageState: existing, timeoutMs: loginTimeoutMs }), loginTimeoutMs + 1000);
+      if (result?.authenticated !== true || !result?.storageState) throw new Error('121 browser login was not authenticated');
       const saved = store.save(input, result.storageState);
       return res.json(sanitizeSessionResponse({ ok: true, owner: input.owner, sessionKey: saved.sessionKey, status: 'ready', detail: existing ? 'session_refreshed' : 'session_created' }));
     } catch (error) {
@@ -57,13 +71,14 @@ function createWorkerApp({
 
   app.post('/session/test', async (req, res) => {
     let input;
-    try { input = normalizeSessionRequest(req.body, { requireCredentials: false }); }
+    try { input = normalizedRequest(req, { requireCredentials: false }); }
     catch (error) { return res.status(400).json({ error: 'invalid_request', detail: error.message }); }
     if (input.headed && !headedEnabled) return res.status(409).json({ error: 'headed_browser_unavailable', capability: 'headed_unavailable' });
     const existing = store.load(input);
     if (!existing) return res.status(404).json({ ok: false, owner: input.owner, status: 'missing' });
     try {
       const result = await withTimeout(login({ ...input, storageState: existing, timeoutMs: verifyTimeoutMs }), verifyTimeoutMs + 1000);
+      if (result?.authenticated !== true || !result?.storageState) throw new Error('121 browser session is not authenticated');
       store.save(input, result.storageState);
       return res.json(sanitizeSessionResponse({ ok: true, owner: input.owner, sessionKey: deriveSessionKey(input), status: 'ready', detail: 'session_valid' }));
     } catch (error) {
@@ -74,10 +89,11 @@ function createWorkerApp({
 
   app.post('/session/refresh', async (req, res) => {
     try {
-      const input = normalizeSessionRequest(req.body, { requireCredentials: true });
+      const input = normalizedRequest(req, { requireCredentials: true });
       if (input.headed && !headedEnabled) return res.status(409).json({ error: 'headed_browser_unavailable', capability: 'headed_unavailable' });
       const existing = store.load(input);
       const result = await withTimeout(login({ ...input, storageState: existing, timeoutMs: loginTimeoutMs }), loginTimeoutMs + 1000);
+      if (result?.authenticated !== true || !result?.storageState) throw new Error('121 browser refresh was not authenticated');
       const saved = store.save(input, result.storageState);
       return res.json(sanitizeSessionResponse({ ok: true, owner: input.owner, sessionKey: saved.sessionKey, status: 'ready', detail: 'session_refreshed', refreshedAt: new Date().toISOString() }));
     } catch (error) {
@@ -88,7 +104,7 @@ function createWorkerApp({
 
   app.post('/session/action', async (req, res) => {
     let input;
-    try { input = normalizeSessionRequest(req.body, { requireCredentials: false }); }
+    try { input = normalizedRequest(req, { requireCredentials: false }); }
     catch (error) { return res.status(400).json({ error: 'invalid_request', detail: error.message }); }
     const existing = store.load(input);
     if (!existing) return res.status(404).json({ ok: false, owner: input.owner, status: 'missing', error: 'session_missing' });
@@ -119,7 +135,7 @@ function createWorkerApp({
 
   app.delete('/session', (req, res) => {
     try {
-      const input = normalizeSessionRequest(req.body, { requireCredentials: false });
+      const input = normalizedRequest(req, { requireCredentials: false });
       const removed = store.remove(input);
       return res.json({ ok: true, owner: input.owner, status: removed ? 'removed' : 'missing' });
     } catch (error) {
@@ -135,8 +151,9 @@ if (require.main === module) {
   const port = Number(process.env.PORT) || 8787;
   const host = process.env.HOST || '0.0.0.0';
   const secret = process.env.QIANTIE_121_WORKER_SECRET;
-  const app = createWorkerApp({ secret });
+  const storageSecret = process.env.QIANTIE_121_STORAGE_SECRET;
+  const app = createWorkerApp({ secret, storageSecret });
   app.listen(port, host, () => console.log(`121 browser worker listening on ${host}:${port}`));
 }
 
-module.exports = { withTimeout, safeActionHeaders, createWorkerApp };
+module.exports = { withTimeout, safeActionHeaders, normalizedRequest, createWorkerApp };
