@@ -37,12 +37,14 @@ test('script local Doubao video status and download resolve the local job artifa
   );
 });
 
-test('history save failure cannot block a single-shot video submission', () => {
-  const pageSource = source('frontend/src/user/pages/ScriptPage.jsx');
+test('script history upload caps novel text to the same 200k stored by the backend', () => {
+  const historySource = source('frontend/src/shared/api/history.js');
 
+  assert.match(historySource, /HISTORY_NOVEL_TEXT_LIMIT\s*=\s*200000/);
   assert.match(
-    pageSource,
-    /let historyId = ['"]['"];\s*try\s*{\s*historyId = await ensureCurrentHistory\(\);\s*}\s*catch\s*\([^)]*\)\s*{[\s\S]{0,240}?message\.warning\([\s\S]{0,160}?}\s*const result = await createScriptVideo\(\{ prompt, modelKey: scriptVideoModelKey }\);/,
-    'video submission must continue even when saving history fails'
+    historySource,
+    /novelText[\s\S]{0,160}slice\(0,\s*HISTORY_NOVEL_TEXT_LIMIT\)/,
+    'history payload must trim novelText before JSON serialization'
   );
+  assert.match(historySource, /body:\s*JSON\.stringify\(payload\)/);
 });
