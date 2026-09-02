@@ -8,6 +8,7 @@ on:
       - 'routes/script-video.js'
       - 'frontend/src/user/pages/ScriptPage.jsx'
       - 'frontend/src/user/pages/scriptDraftStorage.js'
+      - 'frontend/src/shared/api/history.js'
       - 'test/script-video-local-executor-bridge.test.js'
       - '.github/workflows/v78-script-video-local-executor.yml'
   workflow_dispatch:
