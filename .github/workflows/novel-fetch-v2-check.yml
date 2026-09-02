@@ -6,7 +6,6 @@ on:
       - integration/v78-novel-fetch-v2-20260901
       - release/production-v78.3.0.3-batch-factory-go-first
       - fix/v78-full-regression-20260902
-      - fix/v78-schedule-121-contract-20260902
   workflow_dispatch:
 
 jobs:
