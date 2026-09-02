@@ -1,3 +1,5 @@
+const DOUBAO_VIDEO_WORKSPACE_URL = 'https://www.doubao.com/chat/create-image';
+
 class DoubaoControlError extends Error {
   constructor(code, message) {
     super(message);
@@ -27,6 +29,14 @@ class DoubaoPageActions {
     if (result?.count !== 1 || !result?.clicked) {
       throw new DoubaoControlError('CONTROL_AMBIGUOUS', `Doubao control is ambiguous: ${wanted}`);
     }
+    return true;
+  }
+
+  async openVideoWorkspace(webContents) {
+    if (!webContents || typeof webContents.loadURL !== 'function') {
+      throw new DoubaoControlError('VIDEO_WORKSPACE_NAVIGATION_UNAVAILABLE', 'Doubao account browser cannot navigate to the video workspace');
+    }
+    await webContents.loadURL(DOUBAO_VIDEO_WORKSPACE_URL);
     return true;
   }
 
@@ -195,6 +205,7 @@ function buildImageInputExpression() {
 module.exports = {
   DoubaoPageActions,
   DoubaoControlError,
+  DOUBAO_VIDEO_WORKSPACE_URL,
   buildSetPromptScript,
   buildExactClickScript,
   buildPreferredClickScript,
