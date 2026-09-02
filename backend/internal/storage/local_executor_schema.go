@@ -87,10 +87,35 @@ func LocalExecutorJobStatements() []string {
 	}
 }
 
+func LocalExecutorBodySyncStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS local_executor_body_syncs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  book_id VARCHAR(191) NOT NULL,
+  version_id VARCHAR(64) NOT NULL,
+  body_revision BIGINT UNSIGNED NOT NULL,
+  content_hash CHAR(64) NOT NULL,
+  state VARCHAR(32) NOT NULL,
+  lease_executor_id VARCHAR(64) NULL,
+  lease_token_hash BINARY(32) NULL,
+  lease_generation BIGINT NOT NULL DEFAULT 0,
+  lease_expires_at DATETIME(6) NULL,
+  acked_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_local_executor_body_sync_revision (owner_username, book_id, version_id, body_revision),
+  KEY idx_local_executor_body_sync_claim (owner_username, state, lease_expires_at, created_at),
+  KEY idx_local_executor_body_sync_executor (lease_executor_id, updated_at)
+) ENGINE=InnoDB`,
+	}
+}
+
 func LocalExecutorMigrations() []Migration {
 	return []Migration{
 		{Version: 7801001, SQL: LocalExecutorStatements(), CallbackChecksum: "v78-local-executor-control-plane-v1"},
 		{Version: 7801002, SQL: LocalExecutorJobStatements(), CallbackChecksum: "v78-local-executor-job-leasing-v1"},
+		{Version: 7801003, SQL: LocalExecutorBodySyncStatements(), CallbackChecksum: "v78-local-executor-body-sync-v1"},
 	}
 }
 
