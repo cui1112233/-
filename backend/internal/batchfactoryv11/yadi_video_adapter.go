@@ -29,13 +29,13 @@ var _ ProductionAdapter = (*YadiVideoAdapter)(nil)
 var _ ProductionPoller = (*YadiVideoAdapter)(nil)
 
 func (a *YadiVideoAdapter) Validate() error {
-	if _, err := a.validatedURL(strings.TrimSpace(a.CreateURL)); err != nil {
+	if _, err := a.validateEndpoint(strings.TrimSpace(a.CreateURL)); err != nil {
 		return fmt.Errorf("personal video create endpoint: %w", err)
 	}
-	if _, err := a.validatedURL(strings.TrimSpace(a.TasksURL)); err != nil {
+	if _, err := a.validateEndpoint(strings.TrimSpace(a.TasksURL)); err != nil {
 		return fmt.Errorf("personal video tasks endpoint: %w", err)
 	}
-	if _, err := a.validatedURL(strings.TrimSpace(a.ResultURL)); err != nil {
+	if _, err := a.validateEndpoint(strings.TrimSpace(a.ResultURL)); err != nil {
 		return fmt.Errorf("personal video result endpoint: %w", err)
 	}
 	if strings.TrimSpace(a.APIKey) == "" {
@@ -52,6 +52,17 @@ func (a *YadiVideoAdapter) validatedURL(raw string) (*url.URL, error) {
 		return a.ValidateURL(raw)
 	}
 	return validateProductionURL(raw)
+}
+
+func (a *YadiVideoAdapter) validateEndpoint(raw string) (*url.URL, error) {
+	u, err := a.validatedURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	if a.ValidateURL == nil && strings.ToLower(u.Hostname()) != "ydapi.yadiai.cn" {
+		return nil, fmt.Errorf("endpoint host must be ydapi.yadiai.cn")
+	}
+	return u, nil
 }
 
 func (a *YadiVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, prompt FinalPrompt) (ProviderTaskRef, error) {
