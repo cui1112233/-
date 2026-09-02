@@ -38,7 +38,7 @@ test('novel-fetch upload route is Browser Worker only and contains no legacy PHP
   assert.doesNotMatch(source, /PHPSESSID/);
 });
 
-test('workshop ai3 uploads from Body Store without creating a real txt file', async () => {
+test('workshop ai3 uploads from Body Store without creating a real txt file and becomes releasable only after success', async () => {
   const bridgeRequests = [];
   const bridge = http.createServer((req, res) => {
     bridgeRequests.push(`${req.method} ${req.url}`);
@@ -61,6 +61,16 @@ test('workshop ai3 uploads from Body Store without creating a real txt file', as
         meta: { gender: '女', style: '现代甜文' },
         bodyRefs: { ai3: { versionId: 'ai3', revision: 2, state: 'ready' } },
         logs: []
+      }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/novel-fetch-workshop/tasks/123456/bodies/ai3/release') {
+      res.end(JSON.stringify({
+        versionId: 'ai3',
+        revision: 2,
+        state: 'releasable',
+        releasableAt: '2026-09-02T15:30:00Z',
+        expiresAt: '2026-09-09T15:30:00Z'
       }));
       return;
     }
@@ -112,6 +122,7 @@ test('workshop ai3 uploads from Body Store without creating a real txt file', as
     assert.equal(res.body.results[0].status, 'ok');
     assert.equal(fs.existsSync(diskTxt), false);
     assert.equal(bridgeRequests.includes('GET /api/novel-fetch-workshop/tasks/123456/bodies/ai3'), true);
+    assert.equal(bridgeRequests.includes('POST /api/novel-fetch-workshop/tasks/123456/bodies/ai3/release'), true);
     assert.equal(calls.length, 1);
 
     const multipart = Buffer.from(calls[0].payload.bodyBase64, 'base64').toString('utf8');
