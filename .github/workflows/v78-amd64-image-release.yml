@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ops/v78-public-115.190.156.223-amd64-release
+      - ops/v78-public-deploy-v2
   workflow_dispatch:
 
 permissions:
@@ -30,6 +31,13 @@ jobs:
           test "$(docker info --format '{{.OSType}}')" = linux
           test "$(docker info --format '{{.Architecture}}')" = x86_64
 
+      - name: Checkout deployment source
+        uses: actions/checkout@v4
+        with:
+          path: deploy-src
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Checkout locked V78 source
         uses: actions/checkout@v4
         with:
@@ -45,6 +53,12 @@ jobs:
           path: go
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Run Deploy V2 RED contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash deploy-src/deploy/v78-public/tests/deploy-v2-contract.sh
 
       - name: Validate locked sources and clean trees
         shell: bash
