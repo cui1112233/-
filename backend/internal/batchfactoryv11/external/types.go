@@ -185,9 +185,11 @@ func (s *Service) CreateIntent(ctx context.Context, owner, provider, batchID, bo
 		batch, err = s.BatchReader.GetBatch(ctx, owner, batchID)
 		if err != nil { return SubmissionIntent{}, err }
 		if bookID != "" {
-			if _, findErr := bookFromBatch(batch, bookID); findErr != nil {
-				return SubmissionIntent{}, ErrNotFound
+			found := false
+			for _, book := range batch.Books {
+				if book.ID == strings.TrimSpace(bookID) { found = true; break }
 			}
+			if !found { return SubmissionIntent{}, ErrNotFound }
 		}
 	}
 	if len(payload) == 0 { payload = json.RawMessage(`{}`) }
