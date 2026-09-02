@@ -76,6 +76,24 @@ export function BatchFactoryV11UiPage() {
     return () => { cancelled = true; };
   }, [runtime, requestParams]);
 
+  useEffect(() => {
+    if (runtimeState.phase !== 'ready' || !runtimeState.batch?.id) return undefined;
+    const active = (runtimeState.productionStatus?.jobs || []).some(job =>
+      (job.tasks || []).some(task => task.status === 'queued' || task.status === 'running')
+    );
+    if (!active) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      const next = await runtime.load({ ...requestParams, batchId: runtimeState.batch.id });
+      if (!cancelled && next.phase === 'ready') setRuntimeState(next);
+    };
+    const timer = window.setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [runtime, requestParams, runtimeState.phase, runtimeState.batch?.id, runtimeState.productionStatus]);
+
   if (runtimeState.phase === 'loading') {
     return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
       <Spin size="large" tip="正在读取 Batch Factory V11…" />
@@ -508,6 +526,7 @@ export function BatchFactoryV11UiPage() {
         open={externalPublishOpen}
         batch={viewBatch}
         books={books}
+        productionStatus={runtimeState.productionStatus}
         capabilities={capabilities}
         onClose={() => setExternalPublishOpen(false)}
         onGetCredential={getPublishCredential}
