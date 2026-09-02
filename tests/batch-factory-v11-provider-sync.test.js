@@ -1,6 +1,6 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { LOCAL_PROVIDER, PERSONAL_PROVIDER, needsPersonalConfigSync, normalizedProvider } from '../routes/batch-factory-v11.js';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { LOCAL_PROVIDER, PERSONAL_PROVIDER, needsPersonalConfigSync, normalizedProvider } = require('../routes/batch-factory-v11.js');
 
 test('V11 provider aliases normalize to the two supported channels', () => {
   assert.equal(normalizedProvider(''), PERSONAL_PROVIDER);
