@@ -151,7 +151,7 @@ export function saveVideoProviderConfig(payload = {}) {
 }
 
 export function getVideoProviderStatus(provider = 'personal_api') {
-  return apiRequest(`${bf11Path('video-provider/status')}\${query({ provider })}`);
+  return apiRequest(`${bf11Path('video-provider/status')}${query({ provider })}`);
 }
 
 export function listLocalExecutors() {
