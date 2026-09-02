@@ -109,9 +109,7 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 	}
 	if s.ProviderRegistry != nil {
 		cfg, err := s.ProviderRegistry.Resolve(ctx, owner, provider)
-		if err != nil {
-			return nil, FrozenVideoModel{}, err
-		}
+		if err == nil {
 		model := s.Model
 		model.ID = cfg.Model
 		if model.MaxDuration <= 0 {
@@ -125,6 +123,10 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 			return nil, FrozenVideoModel{}, err
 		}
 		return adapter, model, nil
+		}
+		if s.Adapter == nil {
+			return nil, FrozenVideoModel{}, err
+		}
 	}
 	if s.Adapter == nil {
 		return nil, FrozenVideoModel{}, fmt.Errorf("%w: personal video provider is unavailable", ErrUnavailable)
@@ -295,7 +297,9 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 				}
 			} else if s.ProviderRegistry != nil {
 				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
-				if resolveErr != nil {
+				if resolveErr != nil && s.Poller != nil {
+					ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+				} else if resolveErr != nil {
 					pollErr = resolveErr
 				} else if poller, ok := adapter.(ProductionPoller); !ok {
 					pollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
