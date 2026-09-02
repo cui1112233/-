@@ -70,6 +70,16 @@ func TestFinalPromptUsesSavedAssetPromptDraft(t *testing.T) {
 	if strings.Contains(prompt.CompiledPrompt, "林晚：18岁中国女性") { t.Fatalf("stale AI asset prompt remained: %s", prompt.CompiledPrompt) }
 }
 
+func TestFinalPromptAllowsClearingSavedAssetPromptDraft(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	if _, err := store.SaveDraft(context.Background(), "alice", Draft{
+		Key: "asset:character:林晚", Kind: "asset-prompt", Scope: batch.ID, Content: "",
+	}); err != nil { t.Fatal(err) }
+	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+	if err != nil { t.Fatal(err) }
+	if strings.Contains(prompt.CompiledPrompt, "林晚：18岁中国女性") { t.Fatalf("cleared asset prompt was restored: %s", prompt.CompiledPrompt) }
+}
+
 func TestFinalPromptUsesSavedVideoPromptOverride(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	override := "镜头提示词已由用户确认，保持人物连续性。"
