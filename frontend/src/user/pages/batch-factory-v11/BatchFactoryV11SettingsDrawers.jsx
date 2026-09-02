@@ -287,7 +287,10 @@ export function ProductionSettingsDrawer({
           <Space direction="vertical" style={full} size={8}>
             <Select
               value={form.videoProvider || 'personal_api'}
-              onChange={videoProvider => patch({ videoProvider })}
+              onChange={videoProvider => patch({
+                videoProvider,
+                videoModelId: videoProvider === 'doubao_local_executor' ? 'doubao-seedance' : 'yd2.0-mini'
+              })}
               options={VIDEO_PROVIDERS}
               style={full}
             />
@@ -314,7 +317,9 @@ export function ProductionSettingsDrawer({
             placeholder="继承系统模型"
             value={form.videoModelId}
             onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS}
+            options={VIDEO_MODELS.filter(option => (form.videoProvider || 'personal_api') === 'doubao_local_executor'
+              ? option.value === 'doubao-seedance'
+              : option.value === 'yd2.0-mini')}
           />
         </SettingField>
 
