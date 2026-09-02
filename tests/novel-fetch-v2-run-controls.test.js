@@ -20,6 +20,20 @@ test('V78 scheduled processing button writes the current run snapshot to the sch
   }
 });
 
+test('V78 schedule manager can list, cancel, and delete saved scheduled tasks', () => {
+  for (const marker of [
+    'v78ScheduleManagerBtn',
+    '定时任务管理',
+    'openScheduleManager',
+    "api('/schedules')",
+    "method: 'PATCH'",
+    "status: 'cancelled'",
+    "method: 'DELETE'"
+  ]) {
+    assert.ok(runSource.includes(marker), `missing ${marker}`);
+  }
+});
+
 test('V78 sensitive AI repair button uses the existing sensitive reprocess API for the current batch', () => {
   for (const marker of ['v78SensitiveRepairBtn', '敏感词 AI 修复', '/batches/current', '/tasks/reprocess-sensitive', "mode: 'selected'"]) {
     assert.ok(runSource.includes(marker), `missing ${marker}`);
