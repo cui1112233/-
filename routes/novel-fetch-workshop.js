@@ -9,6 +9,7 @@ const rulesModule = require('../lib/novel-fetch-workshop/rules');
 const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge');
 const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { createNovelFetchLifecycleClient } = require('../lib/novel-fetch-workshop/lifecycle-client');
 
 function mergeConfig(current, patch) {
   const merged = { ...(current || {}) };
@@ -80,6 +81,19 @@ function createNovelFetchWorkshopRouter({
     if (!knowledge) throw new Error('知识库未启用（缺少 systemDir）');
     return knowledge.list(kind);
   }
+
+  router.get('/storage/status', async (req, res) => {
+    try {
+      const lifecycle = createNovelFetchLifecycleClient({
+        targetBaseUrl,
+        bridgeSecret,
+        account: req.auth?.account
+      });
+      return res.json(await lifecycle.getBodyStorageStatus());
+    } catch (error) {
+      return res.status(error.status || 500).json({ error: error.message || '读取正文容量状态失败' });
+    }
+  });
 
   // POST /process：解析批量清单 →（可选）AI 分类 → 保存任务 →（可选）并发抓原文 →（可选）AI 改文
   router.post('/process', async (req, res) => {
