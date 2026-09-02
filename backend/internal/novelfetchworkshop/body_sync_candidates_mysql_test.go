@@ -1,6 +1,7 @@
 package novelfetchworkshop
 
 import (
+	"context"
 	"regexp"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ LIMIT ?`
 			AddRow("book-a", "ai3", uint64(4), "hash-a", uint64(1234), "ready", now))
 
 	store := NewMySQLStore(db)
-	items, err := store.ListBodySyncCandidates(t.Context(), "alice", 25)
+	items, err := store.ListBodySyncCandidates(context.Background(), "alice", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
