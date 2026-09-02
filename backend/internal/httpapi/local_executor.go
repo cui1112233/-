@@ -27,7 +27,7 @@ func RegisterLocalExecutorRoutes(root *http.ServeMux, auth BridgeAuth, service *
 			writeExecutorServiceError(w, err)
 			return
 		}
-		writeExecutorJSON(w, http.StatusOK, map[string]any{"executors": executors})
+		writeExecutorJSON(w, http.StatusOK, map[string]any{"executors": executors, "items": executors})
 	})))
 
 	root.Handle("POST /api/shuihuo-production/local-executors/pairings", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
