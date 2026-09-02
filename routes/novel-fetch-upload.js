@@ -2,6 +2,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const target = require('../lib/target-upload');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { createNovelFetchLifecycleClient } = require('../lib/novel-fetch-workshop/lifecycle-client');
 const { create121BrowserClient } = require('../lib/novel-fetch-workshop/121-browser-client');
 
 function isValidBookId(value) {
@@ -90,9 +91,13 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
         }
         let content = '';
         let meta = {};
+        let workshopLifecycle = null;
+        let workshopStorageVersion = '';
         if (item.source === 'workshop') {
           const workshopTasks = createMySQLWorkshopStore({ ...workshopGateway, account: req.auth.account });
           const version = String(item.version || 'edited').trim() || 'edited';
+          workshopStorageVersion = version === 'edited' ? 'original' : version;
+          workshopLifecycle = createNovelFetchLifecycleClient({ ...workshopGateway, account: req.auth.account });
           content = await workshopTasks.readVersionText(req.username, bookId, version);
           if (!content) { results.push({ bookId, status: 'error', error: '未找到该版本的正文' }); continue; }
           const task = await workshopTasks.getTask(req.username, bookId);
@@ -142,8 +147,19 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
           });
           let data = {};
           try { data = JSON.parse(String(response?.body || '')); } catch (_) {}
-          if (data.success === true) results.push({ bookId, status: 'ok', error: null });
-          else results.push({ bookId, status: 'error', error: data.message || data.msg || '上传失败' });
+          if (data.success === true) {
+            let cleanupDeferred = false;
+            if (workshopLifecycle && workshopStorageVersion) {
+              try {
+                await workshopLifecycle.markBodyReleasable(bookId, workshopStorageVersion, 7);
+              } catch (_) {
+                cleanupDeferred = true;
+              }
+            }
+            results.push({ bookId, status: 'ok', error: null, ...(cleanupDeferred ? { cleanupDeferred: true } : {}) });
+          } else {
+            results.push({ bookId, status: 'error', error: data.message || data.msg || '上传失败' });
+          }
         } catch (error) {
           if (isExpiredSessionError(error)) return res.json({ ok: false, notLoggedIn: true, error: '目标站登录已失效，请重新登录' });
           results.push({ bookId, status: 'error', error: error?.message || '上传失败' });
