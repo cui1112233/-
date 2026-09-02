@@ -43,9 +43,18 @@ func NovelFetchWorkshopBodyStatements() []string {
 	}
 }
 
+func NovelFetchWorkshopCleanupStatements() []string {
+	return []string{
+		`ALTER TABLE novel_fetch_workshop_bodies
+  ADD COLUMN releasable_at DATETIME(6) NULL AFTER last_needed_at,
+  ADD KEY idx_nfw_bodies_owner_releasable (owner_username, state, releasable_at)`,
+	}
+}
+
 func NovelFetchWorkshopMigrations() []Migration {
 	return []Migration{
 		{Version: 1200001, SQL: NovelFetchWorkshopStatements(), CallbackChecksum: "novel-fetch-workshop-v1"},
 		{Version: 1200002, SQL: NovelFetchWorkshopBodyStatements(), CallbackChecksum: "novel-fetch-workshop-v2-bodies"},
+		{Version: 1200003, SQL: NovelFetchWorkshopCleanupStatements(), CallbackChecksum: "novel-fetch-workshop-v3-body-cleanup"},
 	}
 }
