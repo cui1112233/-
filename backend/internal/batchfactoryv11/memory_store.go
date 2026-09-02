@@ -26,6 +26,8 @@ type MemoryStore struct {
 	directors      map[string][]DirectorRevision
 	productionJobs map[string]memoryOwned[ProductionJob]
 	productionRequests map[string]string
+	mergeJobs      map[string]memoryOwned[MergeJob]
+	mergeRequests  map[string]string
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -41,6 +43,8 @@ func NewMemoryStore() *MemoryStore {
 		directors:      map[string][]DirectorRevision{},
 		productionJobs: map[string]memoryOwned[ProductionJob]{},
 		productionRequests: map[string]string{},
+		mergeJobs:      map[string]memoryOwned[MergeJob]{},
+		mergeRequests:  map[string]string{},
 	}
 }
 
@@ -132,6 +136,58 @@ func (s *MemoryStore) ListProductionJobs(_ context.Context, owner, batchID strin
 	out := []ProductionJob{}
 	for _, owned := range s.productionJobs {
 		if owned.Owner == owner && owned.Value.BatchID == batchID { out = append(out, cloneProductionJob(owned.Value)) }
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+func cloneMergeJob(value MergeJob) MergeJob {
+	value.Sources = append([]MergeMedia(nil), value.Sources...)
+	return value
+}
+
+func mergeRequestKey(owner, batchID, requestID string) string {
+	return owner + ":" + batchID + ":" + requestID
+}
+
+func (s *MemoryStore) FindMergeJob(_ context.Context, owner, batchID, requestID string) (MergeJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	id, ok := s.mergeRequests[mergeRequestKey(owner, batchID, requestID)]
+	if !ok { return MergeJob{}, ErrNotFound }
+	job, ok := s.mergeJobs[id]
+	if !ok || job.Owner != owner { return MergeJob{}, ErrNotFound }
+	return cloneMergeJob(job.Value), nil
+}
+
+func (s *MemoryStore) CreateMergeJob(_ context.Context, value MergeJob) (MergeJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	batch, ok := s.batches[value.BatchID]
+	if !ok || batch.Owner != value.Owner { return MergeJob{}, ErrNotFound }
+	key := mergeRequestKey(value.Owner, value.BatchID, value.RequestID)
+	if id, exists := s.mergeRequests[key]; exists { return cloneMergeJob(s.mergeJobs[id].Value), nil }
+	value.ID = s.id("merge")
+	value.Status = normalizeMergeState(value.Status)
+	s.mergeJobs[value.ID] = memoryOwned[MergeJob]{Owner:value.Owner, Value:cloneMergeJob(value)}
+	s.mergeRequests[key] = value.ID
+	return cloneMergeJob(value), nil
+}
+
+func (s *MemoryStore) UpdateMergeJob(_ context.Context, owner, jobID string, value MergeJob) (MergeJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	owned, ok := s.mergeJobs[jobID]
+	if !ok || owned.Owner != owner { return MergeJob{}, ErrNotFound }
+	value.ID, value.Owner = jobID, owner
+	value.CreatedAt = owned.Value.CreatedAt
+	value.UpdatedAt = time.Now().UTC()
+	s.mergeJobs[jobID] = memoryOwned[MergeJob]{Owner:owner, Value:cloneMergeJob(value)}
+	return cloneMergeJob(value), nil
+}
+
+func (s *MemoryStore) ListMergeJobs(_ context.Context, owner, batchID string) ([]MergeJob, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	out := []MergeJob{}
+	for _, owned := range s.mergeJobs {
+		if owned.Owner == owner && owned.Value.BatchID == batchID { out = append(out, cloneMergeJob(owned.Value)) }
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
