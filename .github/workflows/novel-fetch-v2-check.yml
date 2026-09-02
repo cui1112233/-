@@ -38,7 +38,13 @@ jobs:
           tests/novel-fetch-v2-compose.test.js
 
       - name: Run full Node regression
-        run: node --test tests/*.test.js lib/*.test.js routes/*.test.js
+        run: |
+          TEST_FILES="$(find tests lib -type f -name '*.test.js' -print)"
+          if [ -d routes ]; then
+            ROUTE_TEST_FILES="$(find routes -type f -name '*.test.js' -print)"
+            TEST_FILES="$TEST_FILES $ROUTE_TEST_FILES"
+          fi
+          node --test $TEST_FILES
 
       - name: Install 121 Browser Worker dependencies
         run: npm --prefix services/121-browser-worker install --ignore-scripts --no-audit --no-fund
