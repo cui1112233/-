@@ -132,17 +132,36 @@ export function getFinalPrompt(batchId, bookId, videoId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
 }
 
-export function submitBookProduction(batchId, bookId, requestId) {
+export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api') {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/production`), {
     method: 'POST',
-    body: body({ requestId })
+    body: body({ requestId, provider })
   });
 }
 
-export function submitBatchProduction(batchId, requestId) {
+export function submitBatchProduction(batchId, requestId, provider = 'personal_api') {
   return apiRequest(bf11Path(`batches/${id(batchId)}/production`), {
     method: 'POST',
-    body: body({ requestId })
+    body: body({ requestId, provider })
+  });
+}
+
+export function saveVideoProviderConfig(payload = {}) {
+  return apiRequest(bf11Path('video-provider/config'), { method: 'PUT', body: body(payload) });
+}
+
+export function getVideoProviderStatus(provider = 'personal_api') {
+  return apiRequest(`${bf11Path('video-provider/status')}\${query({ provider })}`);
+}
+
+export function listLocalExecutors() {
+  return apiRequest('/api/shuihuo-production/local-executors');
+}
+
+export function createLocalExecutorPairing(platform = 'doubao') {
+  return apiRequest('/api/shuihuo-production/local-executors/pairings', {
+    method: 'POST',
+    body: body({ platform })
   });
 }
 
@@ -212,6 +231,10 @@ export default {
   getFinalPrompt,
   submitBookProduction,
   submitBatchProduction,
+  saveVideoProviderConfig,
+  getVideoProviderStatus,
+  listLocalExecutors,
+  createLocalExecutorPairing,
   getProductionStatus,
   submitBatchMerge,
   getMergeStatus,
