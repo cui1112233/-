@@ -13,13 +13,14 @@ import (
 var ErrNotFound = errors.New("novel fetch workshop record not found")
 
 type Document struct {
-	BookID      string         `json:"bookId"`
-	Meta        map[string]any `json:"meta"`
-	Original    string         `json:"original"`
-	OriginalRaw string         `json:"originalRaw"`
-	Versions    map[string]any `json:"versions"`
-	Logs        []any          `json:"logs"`
-	UpdatedAt   string         `json:"updatedAt,omitempty"`
+	BookID      string             `json:"bookId"`
+	Meta        map[string]any     `json:"meta"`
+	BodyRefs    map[string]BodyRef `json:"bodyRefs,omitempty"`
+	Original    string             `json:"original,omitempty"`
+	OriginalRaw string             `json:"originalRaw,omitempty"`
+	Versions    map[string]any     `json:"versions,omitempty"`
+	Logs        []any              `json:"logs"`
+	UpdatedAt   string             `json:"updatedAt,omitempty"`
 }
 
 type BodyRef struct {
@@ -69,6 +70,9 @@ func normalizeDocument(document Document) Document {
 	document.BookID = strings.TrimSpace(document.BookID)
 	if document.Meta == nil {
 		document.Meta = map[string]any{}
+	}
+	if document.BodyRefs == nil {
+		document.BodyRefs = map[string]BodyRef{}
 	}
 	if document.Versions == nil {
 		document.Versions = map[string]any{}
