@@ -117,15 +117,28 @@ type BatchReader interface {
 	GetBatch(context.Context, string, string) (batchfactoryv11.Batch, error)
 }
 
+// ProductionReader and MergeReader expose read-only, owner-scoped status used
+// to build an authoritative publish payload.  The browser may request a
+// publish intent, but it must not be able to substitute an arbitrary media URL.
+type ProductionReader interface {
+	GetBatchStatus(context.Context, string, string) (batchfactoryv11.BatchStatus, error)
+}
+
+type MergeReader interface {
+	GetBatchStatus(context.Context, string, string) ([]batchfactoryv11.MergeJob, error)
+}
+
 type Service struct {
-	Credentials CredentialStore
-	Intents     IntentStore
-	Audits      AuditStore
-	Providers   map[Provider]SubmissionProvider
-	Enabled     map[Provider]bool
-	Key         []byte
-	Now         func() time.Time
-	BatchReader BatchReader
+	Credentials      CredentialStore
+	Intents          IntentStore
+	Audits           AuditStore
+	Providers        map[Provider]SubmissionProvider
+	Enabled          map[Provider]bool
+	Key              []byte
+	Now              func() time.Time
+	BatchReader      BatchReader
+	ProductionReader ProductionReader
+	MergeReader      MergeReader
 }
 
 func (s *Service) CredentialStatus(ctx context.Context, owner, provider string) (CredentialRef, error) {
@@ -166,20 +179,124 @@ func (s *Service) CreateIntent(ctx context.Context, owner, provider, batchID, bo
 	if err != nil { return SubmissionIntent{}, err }
 	if !s.enabled(p) { return SubmissionIntent{}, ErrUnavailable }
 	if s.Intents == nil || strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" { return SubmissionIntent{}, ErrInvalid }
+
+	var batch batchfactoryv11.Batch
 	if s.BatchReader != nil {
-		batch, readErr := s.BatchReader.GetBatch(ctx, owner, batchID)
-		if readErr != nil { return SubmissionIntent{}, readErr }
+		batch, err = s.BatchReader.GetBatch(ctx, owner, batchID)
+		if err != nil { return SubmissionIntent{}, err }
 		if bookID != "" {
-			found := false
-			for _, book := range batch.Books { if book.ID == bookID { found = true; break } }
-			if !found { return SubmissionIntent{}, ErrNotFound }
+			if _, found := bookFromBatch(batch, bookID); found != nil {
+				return SubmissionIntent{}, ErrNotFound
+			}
 		}
 	}
 	if len(payload) == 0 { payload = json.RawMessage(`{}`) }
+	if s.BatchReader != nil && (s.ProductionReader != nil || s.MergeReader != nil) {
+		payload, err = s.normalizePublishPayload(ctx, owner, batchID, strings.TrimSpace(bookID), batch, payload)
+		if err != nil { return SubmissionIntent{}, err }
+	}
 	digest := digestPayload(payload)
 	now := s.now()
 	intent := SubmissionIntent{ID: fmt.Sprintf("intent-%d", now.UnixNano()), Owner: owner, Provider: p, BatchID: batchID, BookID: strings.TrimSpace(bookID), PayloadDigest: digest, Payload: append(json.RawMessage(nil), payload...), ExpiresAt: now.Add(15 * time.Minute)}
 	return s.Intents.CreateIntent(ctx, intent)
+}
+
+// normalizePublishPayload replaces browser-supplied media with URLs from the
+// current owner's successful production/merge jobs.  This keeps the intent
+// confirmation digest bound to server-owned artifacts and prevents publishing
+// another user's URL or an empty placeholder.
+func (s *Service) normalizePublishPayload(ctx context.Context, owner, batchID, bookID string, batch batchfactoryv11.Batch, payload json.RawMessage) (json.RawMessage, error) {
+	var document map[string]any
+	if err := json.Unmarshal(payload, &document); err != nil || document == nil {
+		return nil, fmt.Errorf("%w: publish payload must be a JSON object", ErrInvalid)
+	}
+	rawBooks, ok := document["books"].([]any)
+	if !ok || len(rawBooks) == 0 {
+		return nil, fmt.Errorf("%w: publish payload must contain books", ErrConflict)
+	}
+
+	expected := map[string]batchfactoryv11.Book{}
+	for _, book := range batch.Books {
+		if bookID == "" || book.ID == bookID { expected[book.ID] = book }
+	}
+	if len(expected) == 0 { return nil, ErrNotFound }
+
+	mediaByVideo := map[string]string{}
+	if s.ProductionReader != nil {
+		status, err := s.ProductionReader.GetBatchStatus(ctx, owner, batchID)
+		if err != nil { return nil, err }
+		activeRevision := map[string]string{}
+		for id, book := range expected {
+			if book.DirectorRevision != nil { activeRevision[id] = book.DirectorRevision.ID }
+		}
+		for _, job := range status.Jobs {
+			if _, wanted := expected[job.BookID]; !wanted || job.DirectorRevisionID != activeRevision[job.BookID] { continue }
+			for _, task := range job.Tasks {
+				if task.Status == batchfactoryv11.ProductionSucceeded && strings.TrimSpace(task.MediaURL) != "" {
+					mediaByVideo[task.VideoID] = strings.TrimSpace(task.MediaURL)
+				}
+			}
+		}
+	}
+
+	seenBooks := map[string]bool{}
+	for _, rawBook := range rawBooks {
+		bookMap, ok := rawBook.(map[string]any)
+		if !ok { return nil, fmt.Errorf("%w: invalid book in publish payload", ErrInvalid) }
+		id, _ := bookMap["id"].(string)
+		id = strings.TrimSpace(id)
+		book, wanted := expected[id]
+		if !wanted || seenBooks[id] { return nil, fmt.Errorf("%w: publish payload contains an unexpected or duplicate book", ErrConflict) }
+		seenBooks[id] = true
+		rawVideos, ok := bookMap["videos"].([]any)
+		if !ok || len(rawVideos) == 0 { return nil, fmt.Errorf("%w: book %s has no videos", ErrConflict, id) }
+		videoByID := map[string]map[string]any{}
+		for _, rawVideo := range rawVideos {
+			videoMap, ok := rawVideo.(map[string]any)
+			if !ok { return nil, fmt.Errorf("%w: invalid video in publish payload", ErrInvalid) }
+			videoID, _ := videoMap["id"].(string)
+			videoID = strings.TrimSpace(videoID)
+			if videoID == "" || videoByID[videoID] != nil { return nil, fmt.Errorf("%w: duplicate or empty video id", ErrConflict) }
+			videoByID[videoID] = videoMap
+		}
+		for _, video := range book.Videos {
+			videoMap := videoByID[video.ID]
+			if videoMap == nil { return nil, fmt.Errorf("%w: book %s is missing VIDEO %s", ErrConflict, id, video.ID) }
+			if s.ProductionReader != nil {
+				mediaURL := mediaByVideo[video.ID]
+				if mediaURL == "" { return nil, fmt.Errorf("%w: VIDEO %s has no completed media", ErrConflict, video.ID) }
+				videoMap["url"] = mediaURL
+			}
+		}
+		if len(videoByID) != len(book.Videos) { return nil, fmt.Errorf("%w: book %s contains an unknown VIDEO", ErrConflict, id) }
+	}
+
+	if len(seenBooks) != len(expected) { return nil, fmt.Errorf("%w: publish payload is missing a batch book", ErrConflict) }
+	if s.MergeReader != nil {
+		mergeJobs, err := s.MergeReader.GetBatchStatus(ctx, owner, batchID)
+		if err != nil { return nil, err }
+		mergedURL := ""
+		var latest time.Time
+		for _, job := range mergeJobs {
+			if job.Status != batchfactoryv11.MergeSucceeded || strings.TrimSpace(job.OutputURL) == "" { continue }
+			stamp := job.UpdatedAt
+			if stamp.IsZero() { stamp = job.CreatedAt }
+			if mergedURL == "" || stamp.After(latest) { mergedURL, latest = strings.TrimSpace(job.OutputURL), stamp }
+		}
+		if mergedURL == "" { return nil, fmt.Errorf("%w: batch has no completed merged media", ErrConflict) }
+		for _, rawBook := range rawBooks {
+			bookMap := rawBook.(map[string]any)
+			bookMap["mergedUrl"] = mergedURL
+		}
+	} else {
+		for _, rawBook := range rawBooks {
+			bookMap := rawBook.(map[string]any)
+			if strings.TrimSpace(fmt.Sprint(bookMap["mergedUrl"])) == "" {
+				return nil, fmt.Errorf("%w: mergedUrl is required before publishing", ErrConflict)
+			}
+		}
+	}
+	return json.Marshal(document)
 }
 
 func (s *Service) ConfirmIntent(ctx context.Context, owner, intentID string) (SubmissionIntent, error) {
