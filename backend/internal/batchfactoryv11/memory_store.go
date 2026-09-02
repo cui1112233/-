@@ -54,14 +54,39 @@ func cloneProductionJob(value ProductionJob) ProductionJob {
 }
 
 func productionJobState(tasks []ProductionTask) ProductionState {
-	if len(tasks) == 0 { return ProductionQueued }
-	allSucceeded := true
-	for _, task := range tasks {
-		if task.Status == ProductionQueued || task.Status == ProductionRunning { return ProductionRunning }
-		if task.Status != ProductionSucceeded { allSucceeded = false }
+	if len(tasks) == 0 {
+		return ProductionQueued
 	}
-	if allSucceeded { return ProductionSucceeded }
-	return ProductionFailed
+	allQueued, allSucceeded, hasPending, hasFailed := true, true, false, false
+	for _, task := range tasks {
+		switch task.Status {
+		case ProductionQueued:
+			hasPending = true
+			allSucceeded = false
+		case ProductionRunning:
+			hasPending = true
+			allQueued, allSucceeded = false, false
+		case ProductionSucceeded:
+			allQueued = false
+		case ProductionFailed:
+			allQueued, allSucceeded, hasFailed = false, false, true
+		default:
+			allQueued, allSucceeded, hasPending = false, false, true
+		}
+	}
+	if allQueued {
+		return ProductionQueued
+	}
+	if hasPending {
+		return ProductionRunning
+	}
+	if allSucceeded {
+		return ProductionSucceeded
+	}
+	if hasFailed {
+		return ProductionFailed
+	}
+	return ProductionRunning
 }
 
 func (s *MemoryStore) FindProductionJob(_ context.Context, owner, batchID, bookID, requestID string) (ProductionJob, error) {
@@ -75,7 +100,8 @@ func (s *MemoryStore) FindProductionJob(_ context.Context, owner, batchID, bookI
 
 func (s *MemoryStore) CreateProductionJob(_ context.Context, value ProductionJob) (ProductionJob, error) {
 	s.mu.Lock(); defer s.mu.Unlock()
-	if _, ok := s.batches[value.BatchID]; !ok { return ProductionJob{}, ErrNotFound }
+	batch, ok := s.batches[value.BatchID]
+	if !ok || batch.Owner != value.Owner { return ProductionJob{}, ErrNotFound }
 	key := productionRequestKey(value.Owner, value.BatchID, value.BookID, value.RequestID)
 	if id, exists := s.productionRequests[key]; exists { return cloneProductionJob(s.productionJobs[id].Value), nil }
 	value.ID = s.id("production")

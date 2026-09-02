@@ -219,11 +219,70 @@ func V11DirectorStatements() []string {
 	}
 }
 
+// V11ProductionStatements is deliberately append-only.  A production request
+// must survive a process restart before any external video provider is called,
+// so the job, every VIDEO task and the state-transition audit trail live in
+// separate durable tables.
+func V11ProductionStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_production_jobs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NOT NULL,
+  request_id VARCHAR(128) NOT NULL,
+  director_revision_id VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_bfv11_production_request (owner_username, batch_id, book_id, request_id),
+  KEY idx_bfv11_production_jobs_owner_batch_created (owner_username, batch_id, created_at),
+  CONSTRAINT fk_bfv11_production_job_batch FOREIGN KEY (batch_id) REFERENCES batch_factory_v11_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_production_job_book FOREIGN KEY (book_id) REFERENCES batch_factory_v11_books(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_production_job_director FOREIGN KEY (director_revision_id) REFERENCES batch_factory_v11_director_revisions(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_production_tasks (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  video_id VARCHAR(64) NOT NULL,
+  attempt INT NOT NULL,
+  final_prompt_hash CHAR(64) NOT NULL,
+  compiled_prompt MEDIUMTEXT NOT NULL,
+  provider_task_id VARCHAR(255) NULL,
+  media_url MEDIUMTEXT NULL,
+  status VARCHAR(32) NOT NULL,
+  error_message VARCHAR(255) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_bfv11_production_task_attempt (job_id, video_id, attempt),
+  KEY idx_bfv11_production_tasks_owner_status (owner_username, status, updated_at),
+  CONSTRAINT fk_bfv11_production_task_job FOREIGN KEY (job_id) REFERENCES batch_factory_v11_production_jobs(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_production_task_video FOREIGN KEY (video_id) REFERENCES batch_factory_v11_videos(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_production_events (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  job_id VARCHAR(64) NOT NULL,
+  task_id VARCHAR(64) NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  event_type VARCHAR(64) NOT NULL,
+  from_state VARCHAR(32) NULL,
+  to_state VARCHAR(32) NULL,
+  message VARCHAR(255) NULL,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_production_events_job_created (job_id, created_at, id),
+  CONSTRAINT fk_bfv11_production_event_job FOREIGN KEY (job_id) REFERENCES batch_factory_v11_production_jobs(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_production_event_task FOREIGN KEY (task_id) REFERENCES batch_factory_v11_production_tasks(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
 		{Version: 1100002, SQL: V11SliceOneStatements(), CallbackChecksum: "batch-factory-v11-slice1-v1"},
 		{Version: 1100003, SQL: V11ConfigVersionOwnershipStatements(), CallbackChecksum: "batch-factory-v11-slice1-config-version-ownership-v1"},
 		{Version: 1100004, SQL: V11DirectorStatements(), CallbackChecksum: "batch-factory-v11-director-v1"},
+		{Version: 1100005, SQL: V11ProductionStatements(), CallbackChecksum: "batch-factory-v11-production-v1"},
 	}
 }
