@@ -78,9 +78,13 @@ export function BatchFactoryV11UiPage() {
 
   useEffect(() => {
     if (runtimeState.phase !== 'ready' || !runtimeState.batch?.id) return undefined;
-    const active = (runtimeState.productionStatus?.jobs || []).some(job =>
+    const activeProduction = (runtimeState.productionStatus?.jobs || []).some(job =>
       (job.tasks || []).some(task => task.status === 'queued' || task.status === 'running')
     );
+    const activeMerge = (runtimeState.mergeStatus?.jobs || []).some(job =>
+      job.status === 'queued' || job.status === 'running'
+    );
+    const active = activeProduction || activeMerge;
     if (!active) return undefined;
     let cancelled = false;
     const poll = async () => {
@@ -92,7 +96,7 @@ export function BatchFactoryV11UiPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [runtime, requestParams, runtimeState.phase, runtimeState.batch?.id, runtimeState.productionStatus]);
+  }, [runtime, requestParams, runtimeState.phase, runtimeState.batch?.id, runtimeState.productionStatus, runtimeState.mergeStatus]);
 
   if (runtimeState.phase === 'loading') {
     return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
