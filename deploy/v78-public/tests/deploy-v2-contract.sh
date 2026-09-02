@@ -86,7 +86,7 @@ require_text '13e40da4092046846ad13c5c0bbb15918216465a' "$workflow"
 
 require_text 'offline-deploy.sh' CODEX_RUNBOOK.md
 require_text 'http://115.190.156.223:3000' CODEX_RUNBOOK.md
-require_text '仅 Nginx' CODEX_RUNBOOK.md
+require_text '只绑定 Nginx' CODEX_RUNBOOK.md
 require_text 'incoming' CODEX_RUNBOOK.md
 require_text 'QIANTIE_ALLOW_ONLINE_BUILD_DEPLOY' deploy.sh
 
