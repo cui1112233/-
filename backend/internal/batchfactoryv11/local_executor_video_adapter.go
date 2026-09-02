@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
+
+	"qiantie/backend/internal/localexecutor"
 )
 
 type LocalVideoJobInput struct {
@@ -36,8 +39,13 @@ type LocalVideoExecutorAvailability interface {
 }
 
 type LocalExecutorVideoAdapter struct {
-	Client     LocalVideoJobClient
+	Client       LocalVideoJobClient
 	PublicBaseURL string
+	// ArtifactSecret enables short-lived owner-bound URLs that remote merge
+	// providers can fetch without a user cookie.
+	ArtifactSecret string
+	ArtifactTokenTTL time.Duration
+	Now func() time.Time
 }
 
 func NewLocalExecutorVideoAdapter(client LocalVideoJobClient, publicBaseURL string) *LocalExecutorVideoAdapter {
@@ -94,7 +102,7 @@ func (a *LocalExecutorVideoAdapter) Poll(ctx context.Context, owner, jobID strin
 		if artifactID == "" {
 			return ProviderTaskRef{}, fmt.Errorf("local executor succeeded without an artifact")
 		}
-		ref.MediaURL = a.artifactURL(artifactID)
+		ref.MediaURL = a.artifactURL(owner, artifactID)
 	}
 	if ref.State == ProductionFailed && strings.TrimSpace(job.ErrorMessage) != "" {
 		return ref, fmt.Errorf("%s", boundedProviderError(job.ErrorMessage))
@@ -102,12 +110,22 @@ func (a *LocalExecutorVideoAdapter) Poll(ctx context.Context, owner, jobID strin
 	return ref, nil
 }
 
-func (a *LocalExecutorVideoAdapter) artifactURL(id string) string {
+func (a *LocalExecutorVideoAdapter) artifactURL(owner, id string) string {
 	id = url.PathEscape(strings.TrimSpace(id))
-	if a.PublicBaseURL == "" {
+	base := strings.TrimRight(strings.TrimSpace(a.PublicBaseURL), "/")
+	if base == "" {
 		return "/api/shuihuo-production/local-executor-artifacts/" + id
 	}
-	return a.PublicBaseURL + "/api/shuihuo-production/local-executor-artifacts/" + id
+	if strings.TrimSpace(a.ArtifactSecret) != "" {
+		ttl := a.ArtifactTokenTTL
+		if ttl <= 0 { ttl = 15 * time.Minute }
+		now := time.Now
+		if a.Now != nil { now = a.Now }
+		if token, err := localexecutor.ArtifactPublicToken(a.ArtifactSecret, owner, strings.TrimSpace(id), now().Add(ttl)); err == nil {
+			return base + "/api/local-executor/v1/artifacts/" + id + "?token=" + url.QueryEscape(token)
+		}
+	}
+	return base + "/api/shuihuo-production/local-executor-artifacts/" + id
 }
 
 func mapLocalVideoState(state string) ProductionState {
