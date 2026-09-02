@@ -14,6 +14,29 @@ test('workbenchStateFromLoad never invents demo books when no batch exists', () 
   assert.deepEqual(state.books, []);
 });
 
+test('workbenchStateFromLoad derives status cards from production and merge jobs', () => {
+  const state = workbenchStateFromLoad({
+    capabilities: {},
+    selectedBatch: {
+      id: 'b1',
+      books: [
+        { id: 'k1', title: 'A', videos: [{ id: 'v1' }] },
+        { id: 'k2', title: 'B', videos: [{ id: 'v2' }] }
+      ]
+    },
+    productionStatus: {
+      batchId: 'b1',
+      jobs: [
+        { bookId: 'k1', tasks: [{ videoId: 'v1', status: 'succeeded' }] },
+        { bookId: 'k2', tasks: [{ videoId: 'v2', status: 'failed' }] }
+      ]
+    },
+    mergeStatus: { batchId: 'b1', jobs: [{ status: 'succeeded' }] }
+  });
+  assert.equal(state.books[0].status, '已合并');
+  assert.equal(state.books[1].status, '异常');
+});
+
 test('workbenchStateFromLoad preserves personal prompt categories and read errors', () => {
   const state = workbenchStateFromLoad({
     capabilities: {},
