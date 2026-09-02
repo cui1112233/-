@@ -22,9 +22,9 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Gofmt check
         run: |
-          bad=$(gofmt -l internal/novelfetchworkshop internal/httpapi/novel_fetch_workshop.go internal/httpapi/novel_fetch_workshop_test.go internal/storage/novel_fetch_workshop_schema.go internal/storage/novel_fetch_workshop_schema_test.go)
+          bad=$(gofmt -l internal/novelfetchworkshop internal/localexecutor internal/localartifact internal/httpapi/novel_fetch_workshop.go internal/httpapi/novel_fetch_workshop_test.go internal/httpapi/local_executor.go internal/httpapi/local_executor_jobs.go internal/httpapi/local_executor_artifacts.go internal/httpapi/s2_local_executor_integration_test.go internal/storage/novel_fetch_workshop_schema.go internal/storage/novel_fetch_workshop_schema_test.go internal/storage/local_executor_schema.go internal/storage/local_executor_schema_test.go internal/app/app.go internal/config/config.go)
           test -z "$bad" || { echo "$bad"; exit 1; }
       - name: Focused tests
-        run: go test ./internal/novelfetchworkshop ./internal/httpapi ./internal/storage
+        run: go test ./internal/novelfetchworkshop ./internal/localexecutor ./internal/localartifact ./internal/httpapi ./internal/storage ./internal/app ./internal/config
       - name: Build Go service
         run: go build ./cmd/qiantie
