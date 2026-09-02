@@ -3,6 +3,7 @@ package batchfactoryv11
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -155,6 +156,21 @@ func namedPromptMap(values []NamedPrompt) map[string]string {
 	return out
 }
 
+func (s *PromptCompilerService) namedPromptMapWithDrafts(ctx context.Context, owner, batchID, category string, values []NamedPrompt) (map[string]string, error) {
+	out := namedPromptMap(values)
+	if s == nil || s.Store == nil { return out, nil }
+	for _, value := range values {
+		key := "asset:" + category + ":" + value.Name
+		draft, err := s.Store.GetDraft(ctx, owner, batchID, "asset-prompt", key)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) { continue }
+			return nil, err
+		}
+		if prompt := strings.TrimSpace(draft.Content); prompt != "" { out[value.Name] = prompt }
+	}
+	return out, nil
+}
+
 func selectPrompts(names []string, library map[string]string) string {
 	parts := []string{}
 	for _, name := range names {
@@ -183,15 +199,21 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 	sceneRefs := rawStrings(values, "sceneRefs"); if len(sceneRefs) == 0 && draft.Scene != "" { sceneRefs = []string{draft.Scene} }
 	propRefs := rawStrings(values, "propRefs"); if len(propRefs) == 0 { propRefs = draft.Props }
 
+	characterPrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "character", book.Assets.Characters)
+	if err != nil { return FinalPrompt{}, err }
+	scenePrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "scene", book.Assets.Scenes)
+	if err != nil { return FinalPrompt{}, err }
+	propPrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "prop", book.Assets.Props)
+	if err != nil { return FinalPrompt{}, err }
 	components := []PromptComponent{}
 	addComponent(&components, "visual", "画面主体", rawString(values, "visualPrompt", video.VisualPrompt))
 	if rawBool(values, "injectBaseSettings", true) {
-		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, namedPromptMap(book.Assets.Characters)))
-		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, namedPromptMap(book.Assets.Scenes)))
+		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, characterPrompts))
+		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, scenePrompts))
 	}
-	if rawBool(values, "injectCharacterPrompt", true) { addComponent(&components, "characterPrompt", "人物 Prompt", selectPrompts(characterRefs, namedPromptMap(book.Assets.Characters))) }
-	if rawBool(values, "injectScenePrompt", true) { addComponent(&components, "scenePrompt", "场景 Prompt", selectPrompts(sceneRefs, namedPromptMap(book.Assets.Scenes))) }
-	if rawBool(values, "injectPropPrompt", true) { addComponent(&components, "propPrompt", "道具 Prompt", selectPrompts(propRefs, namedPromptMap(book.Assets.Props))) }
+	if rawBool(values, "injectCharacterPrompt", true) { addComponent(&components, "characterPrompt", "人物 Prompt", selectPrompts(characterRefs, characterPrompts)) }
+	if rawBool(values, "injectScenePrompt", true) { addComponent(&components, "scenePrompt", "场景 Prompt", selectPrompts(sceneRefs, scenePrompts)) }
+	if rawBool(values, "injectPropPrompt", true) { addComponent(&components, "propPrompt", "道具 Prompt", selectPrompts(propRefs, propPrompts)) }
 	prefix := draft.PrefixKey
 	if rawBool(values, "prefixEnabled", false) { prefix = strings.TrimSpace(strings.Join([]string{prefix, rawString(values, "prefix", "")}, "；")) }
 	addComponent(&components, "prefix", "画面前缀", prefix)
