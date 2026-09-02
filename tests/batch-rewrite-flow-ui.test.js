@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const app = fs.readFileSync(path.join(__dirname, '..', 'frontend/public/batch-rewrite/app.js'), 'utf8');
 const uploadRoute = fs.readFileSync(path.join(__dirname, '..', 'routes/novel-fetch-upload.js'), 'utf8');
 const rewriteRoute = fs.readFileSync(path.join(__dirname, '..', 'routes/batch-rewrite.js'), 'utf8');
+const browserClient = fs.readFileSync(path.join(__dirname, '..', 'lib/novel-fetch-workshop/121-browser-client.js'), 'utf8');
 
 test('121 登录验证必须有超时并在结束时恢复按钮', () => {
   assert.match(app, /const PLATFORM_API_TIMEOUT_MS = \d+;/);
@@ -27,7 +28,11 @@ test('登录弹窗在配置尚未加载时也能收口，不会因空配置永�
   assert.match(app, /dialog\.addEventListener\("submit"/);
 });
 
-test('服务端 121 登录和会话验证显式设置超时', () => {
-  assert.match(uploadRoute, /timeoutMs:\s*15000/);
+test('服务端 121 登录和会话验证由 Browser Worker 客户端统一限制为 15 秒', () => {
+  assert.match(uploadRoute, /browserClient\.login\(/);
+  assert.match(uploadRoute, /browserClient\.test\(/);
+  assert.match(browserClient, /timeoutMs\s*=\s*15000/);
+  assert.match(browserClient, /new AbortController\(\)/);
+  assert.match(browserClient, /BROWSER_WORKER_TIMEOUT/);
   assert.match(rewriteRoute, /timeoutMs:\s*15000/);
 });
