@@ -88,6 +88,18 @@ export function createPrompt(payload) {
   return apiRequest(bf11Path('prompts'), { method: 'POST', body: body(payload) });
 }
 
+// Personal-center constraint prompts are intentionally exposed through the V11
+// client module so the V11 page has one approved API boundary. The records are
+// still owned by the authenticated personal-center store, not copied into the
+// V11 prompt library.
+export function listPersonalConstraintPrompts(category) {
+  return apiRequest(`/api/script-constraint-prompts?category=${encodeURIComponent(String(category || ''))}`);
+}
+
+export function savePersonalConstraintPrompt(payload) {
+  return apiRequest('/api/script-constraint-prompts', { method: 'POST', body: body(payload) });
+}
+
 export function getDraft(params = {}) {
   return apiRequest(`${bf11Path('drafts')}${query(params)}`);
 }
@@ -188,6 +200,8 @@ export default {
   getChangeImpact,
   listPrompts,
   createPrompt,
+  listPersonalConstraintPrompts,
+  savePersonalConstraintPrompt,
   getDraft,
   saveDraft,
   runHook,

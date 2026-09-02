@@ -1,7 +1,6 @@
 import { Alert, Button, Empty, Input, Modal, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
-import { listScriptConstraintPrompts, saveScriptConstraintPrompt } from '../../../shared/api/generation';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
@@ -41,7 +40,7 @@ function batchForView(batch, books) {
 export function BatchFactoryV11UiPage() {
   const adapter = useMemo(() => createBf11UiAdapter({
     ...batchFactoryV11,
-    listPersonalConstraintPrompts: listScriptConstraintPrompts
+    listPersonalConstraintPrompts: batchFactoryV11.listPersonalConstraintPrompts
   }), []);
   const runtime = useMemo(() => createBf11Runtime({ adapter }), [adapter]);
   const requestParams = useMemo(requestParamsFromLocation, []);
@@ -382,7 +381,7 @@ export function BatchFactoryV11UiPage() {
     let result;
     if (category) {
       try {
-        const raw = await saveScriptConstraintPrompt({
+        const raw = await batchFactoryV11.savePersonalConstraintPrompt({
           category,
           name: payload?.name || null,
           body: payload?.content || ''
