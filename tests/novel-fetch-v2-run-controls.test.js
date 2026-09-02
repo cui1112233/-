@@ -54,9 +54,10 @@ test('run controls preserve single target-version selection and inject the chose
   assert.ok(!runSource.includes('上传版本选择'));
 });
 
-test('V78 page injects the run-controls client after the existing V2 clients', () => {
+test('V78 page injects the run-controls client after the existing V2 clients with a fresh cache tag', () => {
   assert.ok(pageSource.includes('RUN_CONTROLS_CLIENT_PATH'));
   assert.ok(pageSource.includes('v78-novel-fetch-v2-run-controls.js'));
+  assert.ok(pageSource.includes('20260902-run-controls-r2'));
 });
 
 test('novel fetch completion workflow runs full Node regression, 121 Worker tests and frontend build', () => {
