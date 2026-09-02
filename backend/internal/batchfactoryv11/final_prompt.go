@@ -203,5 +203,5 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 
 	lines := make([]string, 0, len(components))
 	for _, component := range components { lines = append(lines, component.Label+"："+component.Content) }
-	return FinalPrompt{BatchID:batchID, BookID:bookID, VideoID:videoID, DirectorRevisionID:effective.DirectorRevisionID, SnapshotHash:effective.SnapshotHash, CompiledPrompt:strings.Join(lines, "\n"), Components:components, EffectiveSettings:effective}, nil
+	return FinalPrompt{BatchID:batchID, BookID:bookID, VideoID:videoID, DirectorRevisionID:effective.DirectorRevisionID, SnapshotHash:effective.SnapshotHash, CompiledPrompt:strings.Join(lines, "\n"), Components:components, EffectiveSettings:effective, DurationSeconds:duration}, nil
 }
