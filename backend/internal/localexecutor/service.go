@@ -163,7 +163,9 @@ func normalizePairingCode(code string) string {
 	return strings.ToUpper(replacer.Replace(strings.TrimSpace(code)))
 }
 
-func hashPairingCode(code string) SecretHash { return sha256.Sum256([]byte(normalizePairingCode(code))) }
+func hashPairingCode(code string) SecretHash {
+	return sha256.Sum256([]byte(normalizePairingCode(code)))
+}
 func hashSecret(secret string) SecretHash { return sha256.Sum256([]byte(secret)) }
 
 const pairingAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
