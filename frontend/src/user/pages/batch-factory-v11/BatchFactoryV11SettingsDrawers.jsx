@@ -45,7 +45,9 @@ export function ProductionSettingsDrawer({
   onClose,
   onSave,
   onSyncConfigVersion,
-  onPreviewChangeImpact
+  onPreviewChangeImpact,
+  onSaveDraft,
+  onSavePersonalPrompt
 }) {
   const [form, setForm] = useState(initialValue);
   const [selectedConfigVersionId, setSelectedConfigVersionId] = useState(initialValue.versionConfigId || '');
@@ -324,6 +326,9 @@ export function ProductionSettingsDrawer({
           value={form}
           onChange={patch}
           scopeLabel={`应用于当前批次 · ${batch?.count || 0} 本小说`}
+          scope={batch?.id || ''}
+          onSaveDraft={onSaveDraft}
+          onSavePersonalPrompt={onSavePersonalPrompt}
         />
       </section>
 

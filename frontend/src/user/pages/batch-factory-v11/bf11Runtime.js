@@ -128,6 +128,16 @@ export function createBf11Runtime({ adapter }) {
       catch (error) { return actionFailure(error, '新建批次失败，请检查批次内容。'); }
     },
 
+    async saveDraft(input) {
+      try { return { ok: true, raw: await adapter.saveDraft(input) }; }
+      catch (error) { return actionFailure(error, '草稿保存失败，请稍后重试。'); }
+    },
+
+    async createPrompt(input) {
+      try { return { ok: true, raw: await adapter.createPrompt(input) }; }
+      catch (error) { return actionFailure(error, '个人提示词保存失败，请稍后重试。'); }
+    },
+
     async previewChangeImpact(input) {
       try {
         const impact = await adapter.previewChangeImpact(input);

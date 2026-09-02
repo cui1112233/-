@@ -348,13 +348,32 @@ export function BatchFactoryV11UiPage() {
   }
 
   async function saveAssetPrompts(type, items, drafts) {
-    const results = await Promise.all((items || []).map(item => {
+    try {
+      await Promise.all((items || []).map(item => {
       const name = typeof item === 'string' ? item : (item?.name || item?.label || item?.id || '未命名资产');
       const key = `${type}:${item?.id || name}:${items.indexOf(item)}`;
       const content = drafts[key] ?? (typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || ''));
       return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: batch.id, content });
-    }));
-    if (results) message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
+      }));
+      message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
+      return true;
+    } catch (error) {
+      message.error(error?.message || '资产 Prompt 草稿保存失败');
+      return false;
+    }
+  }
+
+  async function saveConstraintDraft(payload) {
+    const result = await runtime.saveDraft(payload);
+    if (!result.ok) { message.error(result.message); return false; }
+    message.success('当前草稿已保存');
+    return true;
+  }
+
+  async function savePersonalPrompt(payload) {
+    const result = await runtime.createPrompt(payload);
+    if (!result.ok) { message.error(result.message); return false; }
+    message.success('已保存为我的提示词');
     return true;
   }
 
@@ -431,6 +450,8 @@ export function BatchFactoryV11UiPage() {
         onClose={() => setProductionSettingsOpen(false)}
         onPreviewChangeImpact={previewBatchChangeImpact}
         onSyncConfigVersion={syncBatchConfigVersion}
+        onSaveDraft={saveConstraintDraft}
+        onSavePersonalPrompt={savePersonalPrompt}
         onSave={saveBatchSettings}
       />
 

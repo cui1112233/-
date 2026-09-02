@@ -12,6 +12,14 @@ export function toV10ViewBatch(batch) {
       return api.createBatch(payload);
     },
 
+    async saveDraft(payload = {}) {
+      return api.saveDraft(payload);
+    },
+
+    async createPrompt(payload = {}) {
+      return api.createPrompt(payload);
+    },
+
     ...batch,
     items: (batch.books || []).map(book => ({
       ...book,

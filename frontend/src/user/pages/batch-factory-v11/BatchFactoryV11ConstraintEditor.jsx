@@ -38,13 +38,23 @@ function sourceLabel(source) {
   }[source] || '当前草稿';
 }
 
-function TextConstraintBlock({ definition, value, onChange, inherited }) {
+function TextConstraintBlock({ definition, value, onChange, inherited, scope, onSaveDraft, onSavePersonalPrompt }) {
   const { key, enabledKey, label, description, placeholder } = definition;
   const enabled = value?.[enabledKey] === true;
   const [source, setSource] = useState('system');
   const [presetId, setPresetId] = useState(PRESET_OPTIONS[key]?.[0]?.value);
   const [expanded, setExpanded] = useState(enabled);
   const body = String(value?.[key] || '');
+
+  async function saveDraft() {
+    if (!onSaveDraft) return;
+    await onSaveDraft({ key: `constraint:${key}`, kind: 'constraint', scope, content: body });
+  }
+
+  async function savePersonalPrompt() {
+    if (!onSavePersonalPrompt) return;
+    await onSavePersonalPrompt({ name: `我的${label}`, kind: `constraint:${key}`, content: body });
+  }
 
   function toggle(next) {
     onChange({ [enabledKey]: next });
@@ -105,10 +115,10 @@ function TextConstraintBlock({ definition, value, onChange, inherited }) {
         placeholder={placeholder}
       />
       <Space wrap>
-        <Button disabled>保存当前草稿</Button>
-        <Button icon={<BookmarkPlus size={14} />} disabled>保存为我的提示词</Button>
+        <Button disabled={!onSaveDraft} onClick={saveDraft}>保存当前草稿</Button>
+        <Button icon={<BookmarkPlus size={14} />} disabled={!onSavePersonalPrompt} onClick={savePersonalPrompt}>保存为我的提示词</Button>
       </Space>
-      <Typography.Text type="secondary">第一阶段可直接编辑当前设置内容；草稿库和个人提示词持久化按钮在第二阶段接入 V11 后解锁。</Typography.Text>
+      <Typography.Text type="secondary">当前设置内容会随批次保存；草稿与个人提示词也会写入 V11 Prompt/Draft 库。</Typography.Text>
     </div> : null}
   </section>;
 }
@@ -130,7 +140,10 @@ export function BatchFactoryV11ConstraintEditor({
   value = {},
   onChange,
   scopeLabel = '当前批次',
-  inherited = false
+  inherited = false,
+  scope = '',
+  onSaveDraft,
+  onSavePersonalPrompt
 }) {
   const normalized = useMemo(() => ({
     injectBaseSettings: value.injectBaseSettings !== false,
@@ -193,6 +206,9 @@ export function BatchFactoryV11ConstraintEditor({
       value={normalized}
       inherited={inherited}
       onChange={patch}
+      scope={scope}
+      onSaveDraft={onSaveDraft}
+      onSavePersonalPrompt={onSavePersonalPrompt}
     />)}
   </div>;
 }

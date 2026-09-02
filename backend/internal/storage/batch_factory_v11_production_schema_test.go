@@ -21,7 +21,7 @@ func TestV11ProductionMigrationAddsDurableJobTaskAndEventTables(t *testing.T) {
 
 func TestV11MigrationsRegisterProductionAfterDirector(t *testing.T) {
 	migrations := V11Migrations()
-	if len(migrations) < 5 || migrations[len(migrations)-1].Version != 1100005 {
+	if len(migrations) < 6 || migrations[4].Version != 1100005 {
 		t.Fatalf("production migration missing: %+v", migrations)
 	}
 }

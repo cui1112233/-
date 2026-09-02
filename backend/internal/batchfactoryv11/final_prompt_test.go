@@ -58,6 +58,19 @@ func TestFinalPromptUsesDirectorAssetsAndEffectiveConstraints(t *testing.T) {
 	if value.DirectorRevisionID != book.DirectorRevision.ID || value.SnapshotHash != value.EffectiveSettings.SnapshotHash { t.Fatalf("prompt identity=%+v", value) }
 }
 
+func TestFinalPromptUsesSavedVideoPromptOverride(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	override := "镜头提示词已由用户确认，保持人物连续性。"
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"visualPrompt": rawSetting(t, override)}, ExpectedRevision: video.Revision,
+	}); err != nil { t.Fatal(err) }
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil { t.Fatal(err) }
+	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, latest.Books[0].ID, latest.Books[0].Videos[0].ID)
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(prompt.CompiledPrompt, "画面主体："+override) { t.Fatalf("compiled prompt=%s", prompt.CompiledPrompt) }
+}
+
 func TestFinalPromptRejectsOrphanedVideoIdentity(t *testing.T) {
 	store, batch, book, oldVideo := seedCompiledVideo(t)
 	provider := &queuedDirectorProvider{values:[]string{validDirectorJSON()}}
