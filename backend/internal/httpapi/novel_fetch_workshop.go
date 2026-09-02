@@ -17,6 +17,7 @@ import (
 )
 
 var novelFetchBookIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+var novelFetchVersionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 
 type NovelFetchBridgeAuth struct {
 	Secret  string
@@ -97,6 +98,20 @@ func (a NovelFetchBridgeAuth) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+func novelFetchBodyPathValues(w http.ResponseWriter, req *http.Request) (string, string, bool) {
+	bookID := strings.TrimSpace(req.PathValue("bookId"))
+	if !novelFetchBookIDPattern.MatchString(bookID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "非法的书籍ID"})
+		return "", "", false
+	}
+	versionID := strings.TrimSpace(req.PathValue("versionId"))
+	if versionID != "" && !novelFetchVersionIDPattern.MatchString(versionID) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "非法的版本ID"})
+		return "", "", false
+	}
+	return bookID, versionID, true
+}
+
 func registerNovelFetchWorkshopRoutes(mux *http.ServeMux, store novelfetchworkshop.Store) {
 	mux.HandleFunc("GET /api/novel-fetch-workshop/tasks", func(w http.ResponseWriter, req *http.Request) {
 		identity, _ := BridgeIdentityFromContext(req.Context())
@@ -106,6 +121,78 @@ func registerNovelFetchWorkshopRoutes(mux *http.ServeMux, store novelfetchworksh
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	})
+
+	mux.HandleFunc("GET /api/novel-fetch-workshop/tasks/{bookId}/bodies", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		bookID, _, ok := novelFetchBodyPathValues(w, req)
+		if !ok {
+			return
+		}
+		bodies, err := store.ListBodyRefs(req.Context(), identity.Username, bookID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "读取正文列表失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"bodies": bodies})
+	})
+
+	mux.HandleFunc("GET /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		bookID, versionID, ok := novelFetchBodyPathValues(w, req)
+		if !ok {
+			return
+		}
+		body, err := store.GetBody(req.Context(), identity.Username, bookID, versionID)
+		if errors.Is(err, novelfetchworkshop.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "正文不存在"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "读取正文失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, body)
+	})
+
+	mux.HandleFunc("PUT /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		bookID, versionID, ok := novelFetchBodyPathValues(w, req)
+		if !ok {
+			return
+		}
+		var input struct {
+			Content string `json:"content"`
+			State   string `json:"state"`
+		}
+		if err := decodeNovelFetchJSON(w, req, &input); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求内容无效"})
+			return
+		}
+		ref, err := store.PutBody(req.Context(), identity.Username, novelfetchworkshop.BodyRecord{
+			BookID:  bookID,
+			BodyRef: novelfetchworkshop.BodyRef{VersionID: versionID, State: input.State},
+			Content: input.Content,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "保存正文失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, ref)
+	})
+
+	mux.HandleFunc("DELETE /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		bookID, versionID, ok := novelFetchBodyPathValues(w, req)
+		if !ok {
+			return
+		}
+		deleted, err := store.DeleteBody(req.Context(), identity.Username, bookID, versionID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "删除正文失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 	})
 
 	mux.HandleFunc("GET /api/novel-fetch-workshop/tasks/{bookId}", func(w http.ResponseWriter, req *http.Request) {
