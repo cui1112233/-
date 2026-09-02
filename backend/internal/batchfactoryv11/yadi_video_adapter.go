@@ -62,7 +62,10 @@ func (a *YadiVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 		return ProviderTaskRef{}, fmt.Errorf("frozen video model does not match personal video model")
 	}
 	values := prompt.EffectiveSettings.Values
-	duration := rawInt(values, "duration", 0)
+	duration := prompt.DurationSeconds
+	if duration <= 0 {
+		duration = rawInt(values, "duration", 0)
+	}
 	if duration <= 0 {
 		duration = model.MaxDuration
 	}
