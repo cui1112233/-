@@ -281,11 +281,12 @@ func (s *Service) normalizePublishPayload(ctx context.Context, owner, batchID, b
 		var latest time.Time
 		for _, job := range mergeJobs {
 			if job.Status != batchfactoryv11.MergeSucceeded || strings.TrimSpace(job.OutputURL) == "" { continue }
+			if s.ProductionReader != nil && !mergeCoversMedia(job, mediaByVideo) { continue }
 			stamp := job.UpdatedAt
 			if stamp.IsZero() { stamp = job.CreatedAt }
 			if mergedURL == "" || stamp.After(latest) { mergedURL, latest = strings.TrimSpace(job.OutputURL), stamp }
 		}
-		if mergedURL == "" { return nil, fmt.Errorf("%w: batch has no completed merged media", ErrConflict) }
+		if mergedURL == "" { return nil, fmt.Errorf("%w: batch has no completed merged media for the active VIDEO revision", ErrConflict) }
 		for _, rawBook := range rawBooks {
 			bookMap := rawBook.(map[string]any)
 			bookMap["mergedUrl"] = mergedURL
@@ -300,6 +301,16 @@ func (s *Service) normalizePublishPayload(ctx context.Context, owner, batchID, b
 		}
 	}
 	return json.Marshal(document)
+}
+
+func mergeCoversMedia(job batchfactoryv11.MergeJob, mediaByVideo map[string]string) bool {
+	if len(job.Sources) != len(mediaByVideo) || len(mediaByVideo) == 0 { return false }
+	for _, source := range job.Sources {
+		if strings.TrimSpace(source.VideoID) == "" || strings.TrimSpace(source.URL) == "" || mediaByVideo[source.VideoID] != strings.TrimSpace(source.URL) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) ConfirmIntent(ctx context.Context, owner, intentID string) (SubmissionIntent, error) {
