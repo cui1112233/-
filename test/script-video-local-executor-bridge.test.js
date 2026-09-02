@@ -36,3 +36,13 @@ test('script local Doubao video status and download resolve the local job artifa
     'successful local task download must stream the bound artifact'
   );
 });
+
+test('history save failure cannot block a single-shot video submission', () => {
+  const pageSource = source('frontend/src/user/pages/ScriptPage.jsx');
+
+  assert.match(
+    pageSource,
+    /let historyId = ['"]['"];\s*try\s*{\s*historyId = await ensureCurrentHistory\(\);\s*}\s*catch\s*\([^)]*\)\s*{[\s\S]{0,240}?message\.warning\([\s\S]{0,160}?}\s*const result = await createScriptVideo\(\{ prompt, modelKey: scriptVideoModelKey }\);/,
+    'video submission must continue even when saving history fails'
+  );
+});
