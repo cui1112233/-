@@ -8,9 +8,43 @@
 - V88 initial integrated baseline SHA: `167891fcb64331ea1f812d86ba201e751c4612d2`
 - Previous V88 baseline preserved at: `archive/v88-pre-consolidation-20260903`
 - Current repository default branch: `master`
-- Rule: do not treat `master` as the authoritative latest product source during V88 consolidation.
+- Last verified functional V88 merge: `995f4b494dd8538acd09c77ef8184082973e2802`
+- Last verified V88 Go Integration Guard run: `33667103680` — **PASS**
 
-> `v88` HEAD will continue to move as core modules are integrated. Always read the live branch HEAD before modifying code.
+> `v88` HEAD continues to move as governance docs and new modules are integrated. Always read the live GitHub branch HEAD before modifying code. Do not treat `master` as the authoritative latest product source during V88 consolidation.
+
+## Verified V88 Milestones
+
+### Integrated and verified
+
+- Integrated Go + Doubao executor foundation from `feat/v78-go-integrated-novel-fetch-doubao`.
+- Local executor novel body store from `feat/v78-novel-fetch-local-first-s2-executor`.
+  - merged through PR #11
+  - V88 merge SHA: `94a61bddfcd0b7bf1d92250f76386d2cf65059ab`
+- Novel Fetch local-first body lifecycle core from `feat/v78-novel-fetch-local-first-s2-go`.
+  - gzip body codec/storage
+  - body/history separation
+  - in-memory + MySQL body persistence
+  - legacy inline-body migration
+  - 1–30 day releasable/expiry cleanup primitives
+  - storage status/capacity primitives
+  - body API + cleanup/status API
+  - schema migrations `1200001`, `1200002`, `1200003`
+  - merged through PR #13
+  - V88 merge SHA: `995f4b494dd8538acd09c77ef8184082973e2802`
+  - post-merge V88 Go guard: PASS (`gofmt`, core Go tests, production Go build, offline bundle)
+- V88 Go CI guard now runs on `v88` and `integrate/v88-*` so new Go integrations are checked on the actual consolidation line.
+
+### Still pending
+
+- Novel Fetch body-sync leasing / executor synchronization reconciliation.
+- Novel Fetch sparse AI selection and final 121/V2 deltas.
+- Batch Factory V11 release-line Go/MySQL fixes.
+- Batch Factory V11 frontend/workbench/settings integration.
+- Unified Settings / Version Config authoritative-source audit and integration.
+- Full Browser Worker/121 runtime/container verification.
+- Full frontend/Node/Go/MySQL regression gate.
+- Production SHA mapping and default-branch promotion.
 
 ## Promotion Rule
 
@@ -32,13 +66,14 @@ Until promotion is complete:
 
 | Subsystem | V88 status | Primary source / action |
 |---|---|---|
-| Integrated Go + Doubao executor foundation | baseline present | `feat/v78-go-integrated-novel-fetch-doubao` |
+| Integrated Go + Doubao executor foundation | verified baseline | `feat/v78-go-integrated-novel-fetch-doubao` |
+| Local executor novel body store | merged + verified | `feat/v78-novel-fetch-local-first-s2-executor` |
+| Novel Fetch local-first Go body lifecycle | merged + verified | `feat/v78-novel-fetch-local-first-s2-go` |
+| Novel Fetch body-sync leasing | pending selective reconciliation | `feat/v78-novel-fetch-local-first-s2-go` against current V88 executor |
 | Batch Factory V11 Go/MySQL backend fixes | pending selective integration | `release/production-v78.3.0.3-batch-factory-go-first` |
 | Batch Factory V11 frontend/workbench/settings | pending integration | `feat/batch-factory-v11-layout-showcase` |
-| Novel Fetch V2 late fixes / 121 | pending selective integration | `release/production-v78.3.0.3-batch-factory-go-first` + check `integration/v78-novel-fetch-v2-final-20260902` |
-| Novel Fetch local-first Go storage/lifecycle | pending integration | `feat/v78-novel-fetch-local-first-s2-go` |
-| Local executor novel body store | pending selective extraction | `feat/v78-novel-fetch-local-first-s2-executor` |
-| Unified Settings / Version Config | pending final source audit | must land on V88, not old page |
+| Novel Fetch V2 late fixes / 121 | pending selective integration | release line + `integration/v78-novel-fetch-v2-final-20260902` and 121 fix branches |
+| Unified Settings / Version Config | pending final source audit | include `08-batch-factory-unified-settings-version-sync`, `10-batch-factory-inline-constraints-version-config`, and verified fixes |
 | Production deployment mapping | pending | final deployment must resolve to one V88 Git SHA |
 
 ## Branches Already Superseded For Consolidation
@@ -77,8 +112,8 @@ Switch only after all of the following are true:
 3. Unified Settings / Version Config points to the current V88 implementation.
 4. Doubao local executor regression tests pass.
 5. 121 / Browser Worker tests and contracts pass.
-6. Go tests pass.
+6. Complete Go tests pass.
 7. Frontend build passes.
 8. Node core regression results are recorded and blockers resolved.
-9. Final V88 HEAD SHA is written here.
+9. Final production candidate V88 HEAD SHA is written here.
 10. Production/deployment SHA maps to that V88 lineage.
