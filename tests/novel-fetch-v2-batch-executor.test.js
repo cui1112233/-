@@ -62,3 +62,41 @@ test('config snapshot exposes synchronous runner/classifier getters without losi
   assert.deepEqual(snapshot.getStyles(), ['现代']);
   assert.deepEqual(snapshot.getAiConfig(), { ai: { model: 'm' }, ai_presets: [{ id: 'p' }], ai_assignments: { classifier: 'p' } });
 });
+
+test('automatic storage cleanup removes only releasable bodies and never deletes history tasks', async () => {
+  const account = { username: 'alice', isOwner: true };
+  let historyDeleteCalled = false;
+  const lifecycleCalls = [];
+  const tasks = {
+    getConfig: async () => ({
+      storage: { cleanup_enabled: true, retention_days: 7 },
+      ai: {}, ai_presets: [], ai_assignments: {}
+    }),
+    getPlatforms: () => [],
+    getStyles: () => [],
+    deleteTasks: async () => {
+      historyDeleteCalled = true;
+      throw new Error('automatic cleanup must never delete history');
+    }
+  };
+  const execute = createV78NovelFetchBatchExecutor({
+    accountResolver: () => account,
+    createStore: () => tasks,
+    createLifecycleClient: () => ({
+      cleanupBodies: async (reason, limit) => {
+        lifecycleCalls.push({ reason, limit });
+        return { deleted: 2, results: [{ bookId: '1', versionId: 'ai1' }, { bookId: '2', versionId: 'original' }] };
+      }
+    }),
+    runBatch: async () => ({ fetched: 2 }),
+    parseBooks: () => ({ tasks: [] }),
+    classifyMissingRows: async ({ tasks: rows }) => ({ tasks: rows, errors: [] }),
+    applyRules: async () => {},
+    generateAiVersions: async () => ({ generated: [] })
+  });
+
+  const result = await execute('alice', { input_text: 'A' });
+  assert.equal(historyDeleteCalled, false);
+  assert.deepEqual(lifecycleCalls, [{ reason: 'expired', limit: 100 }]);
+  assert.equal(result.cleanup.deleted, 2);
+});
