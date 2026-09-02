@@ -277,6 +277,40 @@ func V11ProductionStatements() []string {
 	}
 }
 
+// V11MergeStatements persists the merge request and its exact ordered inputs.
+// Keeping sources separate makes retries idempotent while retaining the media
+// list that was actually handed to the merge provider.
+func V11MergeStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_merge_jobs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  batch_id VARCHAR(64) NOT NULL,
+  request_id VARCHAR(128) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  output_url MEDIUMTEXT NULL,
+  error_message VARCHAR(255) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_bfv11_merge_request (owner_username, batch_id, request_id),
+  KEY idx_bfv11_merge_jobs_owner_batch_created (owner_username, batch_id, created_at),
+  FOREIGN KEY (batch_id) REFERENCES batch_factory_v11_batches(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_merge_sources (
+  job_id VARCHAR(64) NOT NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  video_id VARCHAR(64) NOT NULL,
+  ordinal INT NOT NULL,
+  media_url MEDIUMTEXT NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (job_id, video_id),
+  UNIQUE KEY uq_bfv11_merge_source_ordinal (job_id, ordinal),
+  KEY idx_bfv11_merge_sources_owner_job (owner_username, job_id),
+  FOREIGN KEY (job_id) REFERENCES batch_factory_v11_merge_jobs(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -284,5 +318,6 @@ func V11Migrations() []Migration {
 		{Version: 1100003, SQL: V11ConfigVersionOwnershipStatements(), CallbackChecksum: "batch-factory-v11-slice1-config-version-ownership-v1"},
 		{Version: 1100004, SQL: V11DirectorStatements(), CallbackChecksum: "batch-factory-v11-director-v1"},
 		{Version: 1100005, SQL: V11ProductionStatements(), CallbackChecksum: "batch-factory-v11-production-v1"},
+		{Version: 1100006, SQL: V11MergeStatements(), CallbackChecksum: "batch-factory-v11-merge-v1"},
 	}
 }
