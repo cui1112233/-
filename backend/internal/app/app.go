@@ -25,5 +25,11 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		director = &batchfactoryv11.DirectorService{Store: store, Provider: provider}
 	}
 	compiler := &batchfactoryv11.PromptCompilerService{Store: store}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, RegisterV11: register}), nil
+	var production *batchfactoryv11.ProductionService
+	if cfg.Slice >= 4 {
+		adapter := &batchfactoryv11.HTTPVideoAdapter{Endpoint: cfg.VideoEndpoint, PollEndpoint: cfg.VideoPollEndpoint, APIKey: cfg.VideoAPIKey, Model: cfg.VideoModel}
+		if err := adapter.Validate(); err != nil { return nil, err }
+		production = &batchfactoryv11.ProductionService{Store: store, Compiler: compiler, Adapter: adapter, Enabled: cfg.ProductionEnabled, Model: batchfactoryv11.FrozenVideoModel{ID: cfg.VideoModel}}
+	}
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, RegisterV11: register}), nil
 }
