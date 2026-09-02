@@ -293,7 +293,8 @@ func (s *Service) normalizePublishPayload(ctx context.Context, owner, batchID, b
 	} else {
 		for _, rawBook := range rawBooks {
 			bookMap := rawBook.(map[string]any)
-			if strings.TrimSpace(fmt.Sprint(bookMap["mergedUrl"])) == "" {
+			mergedURL, _ := bookMap["mergedUrl"].(string)
+			if strings.TrimSpace(mergedURL) == "" {
 				return nil, fmt.Errorf("%w: mergedUrl is required before publishing", ErrConflict)
 			}
 		}
