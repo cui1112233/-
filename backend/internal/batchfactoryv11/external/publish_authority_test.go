@@ -42,7 +42,7 @@ func TestCreateIntentBindsAuthoritativeProductionAndMergeMedia(t *testing.T) {
 			BookID: "book-1", DirectorRevisionID: "rev-1",
 			Tasks: []batchfactoryv11.ProductionTask{{VideoID: "video-1", Status: batchfactoryv11.ProductionSucceeded, MediaURL: "https://owned.example/video.mp4"}},
 		}}}},
-		MergeReader: publishMergeReader{jobs: []batchfactoryv11.MergeJob{{Status: batchfactoryv11.MergeSucceeded, OutputURL: "https://owned.example/merged.mp4", UpdatedAt: time.Unix(2, 0)}}},
+		MergeReader: publishMergeReader{jobs: []batchfactoryv11.MergeJob{{Status: batchfactoryv11.MergeSucceeded, Sources: []batchfactoryv11.MergeMedia{{VideoID: "video-1", URL: "https://owned.example/video.mp4"}}, OutputURL: "https://owned.example/merged.mp4", UpdatedAt: time.Unix(2, 0)}}},
 		Enabled: map[Provider]bool{Provider121: true},
 		Now: func() time.Time { return time.Unix(10, 0).UTC() },
 	}
