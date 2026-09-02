@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"qiantie/backend/internal/batchfactoryv11"
 )
 
 var (
@@ -111,6 +113,10 @@ type SubmissionProvider interface {
 	Submit(context.Context, CredentialInput, SubmissionIntent) (ProviderReference, error)
 }
 
+type BatchReader interface {
+	GetBatch(context.Context, string, string) (batchfactoryv11.Batch, error)
+}
+
 type Service struct {
 	Credentials CredentialStore
 	Intents     IntentStore
@@ -119,6 +125,7 @@ type Service struct {
 	Enabled     map[Provider]bool
 	Key         []byte
 	Now         func() time.Time
+	BatchReader BatchReader
 }
 
 func (s *Service) CredentialStatus(ctx context.Context, owner, provider string) (CredentialRef, error) {
@@ -158,6 +165,15 @@ func (s *Service) CreateIntent(ctx context.Context, owner, provider, batchID, bo
 	if err != nil { return SubmissionIntent{}, err }
 	if !s.enabled(p) { return SubmissionIntent{}, ErrUnavailable }
 	if s.Intents == nil || strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" { return SubmissionIntent{}, ErrInvalid }
+	if s.BatchReader != nil {
+		batch, readErr := s.BatchReader.GetBatch(ctx, owner, batchID)
+		if readErr != nil { return SubmissionIntent{}, readErr }
+		if bookID != "" {
+			found := false
+			for _, book := range batch.Books { if book.ID == bookID { found = true; break } }
+			if !found { return SubmissionIntent{}, ErrNotFound }
+		}
+	}
 	if len(payload) == 0 { payload = json.RawMessage(`{}`) }
 	digest := digestPayload(payload)
 	now := s.now()

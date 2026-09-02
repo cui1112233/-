@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"qiantie/backend/internal/batchfactoryv11"
 )
 
 type countingProvider struct { calls int }
@@ -47,3 +49,15 @@ func TestCrossProviderIntentRejected(t *testing.T) {
 	_ = store
 }
 
+type fakeBatchReader struct { batch batchfactoryv11.Batch }
+func (r fakeBatchReader) GetBatch(_ context.Context, owner, id string) (batchfactoryv11.Batch, error) {
+	if owner != "alice" || id != r.batch.ID { return batchfactoryv11.Batch{}, batchfactoryv11.ErrNotFound }
+	return r.batch, nil
+}
+
+func TestIntentChecksBatchOwnershipBeforeCreatingExternalAction(t *testing.T) {
+	service, _ := testService(Provider121, true, &countingProvider{})
+	service.BatchReader = fakeBatchReader{batch: batchfactoryv11.Batch{ID: "batch-1", Books: []batchfactoryv11.Book{{ID: "book-1"}}}}
+	if _, err := service.CreateIntent(context.Background(), "mallory", "121", "batch-1", "book-1", nil); !errors.Is(err, batchfactoryv11.ErrNotFound) { t.Fatalf("expected owner-scoped batch failure, got %v", err) }
+	if _, err := service.CreateIntent(context.Background(), "alice", "121", "batch-1", "book-missing", nil); !errors.Is(err, ErrNotFound) { t.Fatalf("expected book ownership failure, got %v", err) }
+}

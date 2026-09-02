@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"qiantie/backend/internal/batchfactoryv11"
 	"qiantie/backend/internal/batchfactoryv11/external"
 )
 
@@ -55,11 +56,10 @@ func writeExternalError(w http.ResponseWriter, err error) {
 	status, message := http.StatusInternalServerError, "internal error"
 	switch {
 	case errors.Is(err, external.ErrUnavailable): status, message = http.StatusServiceUnavailable, "capability unavailable"
-	case errors.Is(err, external.ErrNotFound): status, message = http.StatusNotFound, "not found"
+	case errors.Is(err, external.ErrNotFound), errors.Is(err, batchfactoryv11.ErrNotFound): status, message = http.StatusNotFound, "not found"
 	case errors.Is(err, external.ErrConflict), errors.Is(err, external.ErrNotConfirmed): status, message = http.StatusConflict, "submission confirmation or ownership conflict"
 	case errors.Is(err, external.ErrIntentExpired): status, message = http.StatusGone, "submission intent expired"
 	case errors.Is(err, external.ErrInvalid): status, message = http.StatusBadRequest, "invalid input"
 	}
 	writeJSON(w, status, map[string]string{"error": message})
 }
-

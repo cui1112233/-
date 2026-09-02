@@ -32,7 +32,7 @@ func (p *HTTPProvider) Submit(ctx context.Context, credential CredentialInput, i
 	if err := p.Validate(); err != nil { return ProviderReference{}, err }
 	endpoint, _ := safeEndpoint(p.Endpoint)
 	payload := map[string]any{
-		"provider": string(p.Provider), "batchId": intent.BatchID, "bookId": intent.BookID,
+		"provider": string(p.Provider), "intentId": intent.ID, "batchId": intent.BatchID, "bookId": intent.BookID,
 		"payloadDigest": intent.PayloadDigest, "payload": json.RawMessage(intent.Payload),
 		"credential": credential,
 	}
@@ -74,4 +74,3 @@ func firstString(value map[string]any, keys ...string) string {
 	}
 	return ""
 }
-
