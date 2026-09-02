@@ -30,6 +30,9 @@ type BodyRef struct {
 	CharCount   int64  `json:"charCount"`
 	State       string `json:"state"`
 	UpdatedAt   string `json:"updatedAt"`
+	LastNeededAt string `json:"lastNeededAt,omitempty"`
+	ReleasableAt string `json:"releasableAt,omitempty"`
+	ExpiresAt    string `json:"expiresAt,omitempty"`
 }
 
 type BodyRecord struct {
@@ -211,18 +214,24 @@ func (s *MemoryStore) PutBody(_ context.Context, owner string, body BodyRecord) 
 	}
 	body.ContentHash = hash
 	body.CharCount = chars
-	body.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	body.UpdatedAt = now
+	body.LastNeededAt = now
+	body.ReleasableAt = ""
+	body.ExpiresAt = ""
 	s.bodies[owner][body.BookID][body.VersionID] = cloneBodyRecord(body)
 	return body.BodyRef, nil
 }
 
 func (s *MemoryStore) GetBody(_ context.Context, owner, bookID, versionID string) (BodyRecord, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	body, ok := s.bodies[owner][bookID][versionID]
 	if !ok {
 		return BodyRecord{}, ErrNotFound
 	}
+	body.LastNeededAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.bodies[owner][bookID][versionID] = body
 	return cloneBodyRecord(body), nil
 }
 
@@ -249,5 +258,10 @@ func (s *MemoryStore) DeleteBody(_ context.Context, owner, bookID, versionID str
 		return false, nil
 	}
 	delete(versions, versionID)
+	if document, ok := s.docs[owner][bookID]; ok {
+		document = normalizeDocument(document)
+		delete(document.BodyRefs, versionID)
+		s.docs[owner][bookID] = cloneDocument(document)
+	}
 	return true, nil
 }
