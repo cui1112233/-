@@ -5,6 +5,7 @@ on:
     branches:
       - feat/v78-novel-fetch-go-bridge
       - feat/v78-novel-fetch-local-first-s1-go
+      - feat/v78-novel-fetch-local-first-s2-go
   workflow_dispatch:
 
 jobs:
