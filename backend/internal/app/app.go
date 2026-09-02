@@ -43,8 +43,10 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		localAdapter := batchfactoryv11.NewLocalExecutorVideoAdapter(&localVideoJobClient{service: localExecutorService}, cfg.LocalExecutorPublicBaseURL)
 		modelID := strings.TrimSpace(cfg.VideoModel)
 		if modelID == "" { modelID = batchfactoryv11.DefaultPersonalVideoModel }
+		var fallbackPoller batchfactoryv11.ProductionPoller
+		if poller, ok := fallbackAdapter.(batchfactoryv11.ProductionPoller); ok { fallbackPoller = poller }
 		production = &batchfactoryv11.ProductionService{
-			Store: store, Compiler: compiler, Adapter: fallbackAdapter, Poller: nil,
+			Store: store, Compiler: compiler, Adapter: fallbackAdapter, Poller: fallbackPoller,
 			ProviderRegistry: videoRegistry, LocalExecutor: localAdapter,
 			Enabled: cfg.ProductionEnabled, Model: batchfactoryv11.FrozenVideoModel{ID: modelID, MaxDuration: 15},
 		}
