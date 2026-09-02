@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -125,6 +126,5 @@ func (s *MySQLStore) CleanupBodies(ctx context.Context, owner string, request Bo
 }
 
 func bodyRefJSONPath(versionID string) string {
-	escaped := strings.ReplaceAll(strings.ReplaceAll(versionID, `\`, `\\`), `"`, `\"`)
-	return `$.bodyRefs."` + escaped + `"`
+	return "$.bodyRefs." + strconv.Quote(versionID)
 }
