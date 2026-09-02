@@ -2,6 +2,8 @@ package batchfactoryv11
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -20,8 +22,12 @@ func TestMemoryVideoProviderRegistryKeepsAPIKeyOutOfView(t *testing.T) {
 	if !view.Configured || view.Model != DefaultPersonalVideoModel || view.Provider != VideoProviderPersonalAPI {
 		t.Fatalf("view=%+v", view)
 	}
-	if _, ok := any(view).(interface{ APIKey() string }); ok {
-		t.Fatal("provider view must not expose an API key")
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "secret-video-key") {
+		t.Fatalf("provider view leaked key: %s", encoded)
 	}
 }
 
