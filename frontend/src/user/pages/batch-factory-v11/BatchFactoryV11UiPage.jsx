@@ -301,7 +301,8 @@ export function BatchFactoryV11UiPage() {
     if (!targetBatch?.id || productionBusy) return false;
     setProductionBusy(true);
     try {
-      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production') });
+      const provider = batchSettingsState.patch.videoProvider || 'personal_api';
+      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
@@ -477,6 +478,9 @@ export function BatchFactoryV11UiPage() {
         configVersionsError={runtimeState.configVersionsError || null}
         personalPrompts={runtimeState.personalPrompts || {}}
         personalPromptsError={runtimeState.personalPromptsError || null}
+        videoProviders={runtimeState.videoProviders || {}}
+        localExecutors={runtimeState.localExecutors || []}
+        onCreateLocalExecutorPairing={runtime.createLocalExecutorPairing}
         initialValue={batchSettingsState.patch}
         onClose={() => setProductionSettingsOpen(false)}
         onPreviewChangeImpact={previewBatchChangeImpact}
