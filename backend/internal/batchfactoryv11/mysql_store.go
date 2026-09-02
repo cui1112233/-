@@ -212,7 +212,11 @@ func (s *MySQLStore) ListBatches(ctx context.Context, owner string) ([]Batch, er
 }
 
 func (s *MySQLStore) GetBatch(ctx context.Context, owner, id string) (Batch, error) {
-	return loadBatch(ctx, s.db, owner, id)
+	batch, err := loadBatch(ctx, s.db, owner, id)
+	if err != nil {
+		return Batch{}, err
+	}
+	return hydrateMySQLBatchSettingsState(ctx, s.db, owner, batch)
 }
 
 type batchQueryer interface {
