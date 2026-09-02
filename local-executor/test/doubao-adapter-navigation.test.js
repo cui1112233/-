@@ -9,6 +9,13 @@ function chatSnapshot() {
     promptInputs: [{ kind: 'contenteditable' }], fileInputs: [], identityNodes: [], videos: []
   };
 }
+function workHomeSnapshot() {
+  return {
+    visibleText: '豆包工作 今天有什么工作要处理 新工作任务 定时任务 技能 连接器 伙伴 云盘 主对话 内容创作 设计与创意',
+    controls: [{ text: '新工作任务' }, { text: '内容创作' }, { text: '设计与创意' }],
+    promptInputs: [{ kind: 'contenteditable' }], fileInputs: [], identityNodes: [], videos: []
+  };
+}
 function creationSnapshot() {
   return {
     visibleText: 'AI创作 图片 视频',
@@ -49,4 +56,37 @@ test('prepare enters AI creation then video mode before touching the prompt', as
   });
   assert.deepEqual(calls.filter(x => x[0] === 'navigate'), [['navigate', 'AI创作'], ['navigate', '视频']]);
   assert.equal(calls.findIndex(x => x[0] === 'prompt') > calls.findIndex(x => x[0] === 'navigate' && x[1] === '视频'), true);
+});
+
+test('prepare leaves Doubao work home through the dedicated creation route and waits for video controls', async () => {
+  const calls = [];
+  const snapshots = [workHomeSnapshot(), workHomeSnapshot(), workHomeSnapshot(), videoSnapshot()];
+  const adapter = new DoubaoAdapter({
+    accountWindows: {
+      async ensureWebContents(id) { calls.push(['ensure', id]); return { id: 2 }; },
+      getWebContents() { throw new Error('should use ensureWebContents'); }
+    },
+    pageProbe: { async capture() { calls.push(['capture']); return snapshots.shift() || videoSnapshot(); } },
+    pageActions: {
+      async openVideoWorkspace() { calls.push(['navigate', 'direct-video-workspace']); return true; },
+      async openCreationWorkspace() { calls.push(['navigate', 'AI创作']); return false; },
+      async openVideoMode() { calls.push(['navigate', '视频']); return false; },
+      async clickExactControl() {},
+      async setPrompt(_wc, text) { calls.push(['prompt', text]); },
+      async setReferenceImages() {}
+    },
+    sleep: async () => { calls.push(['sleep']); },
+    navigationDelayMs: 0,
+    videoWorkspacePollMs: 0,
+    maxVideoWorkspacePolls: 4
+  });
+
+  await adapter.prepare({
+    job: { id: 'job-work-home', payload: { prompt: '从豆包工作首页进入视频生成' } },
+    account: { id: 'acct-1' }
+  });
+
+  assert.equal(calls.some(x => x[0] === 'navigate' && x[1] === 'direct-video-workspace'), true);
+  assert.equal(calls.filter(x => x[0] === 'capture').length >= 4, true);
+  assert.equal(calls.some(x => x[0] === 'prompt'), true);
 });
