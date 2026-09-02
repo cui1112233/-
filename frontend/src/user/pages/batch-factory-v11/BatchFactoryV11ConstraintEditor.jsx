@@ -1,6 +1,6 @@
 import { Button, Input, Segmented, Select, Space, Switch, Tag, Typography } from 'antd';
 import { BookmarkPlus, ChevronDown, ChevronUp, Layers3 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const { TextArea } = Input;
 
@@ -38,13 +38,29 @@ function sourceLabel(source) {
   }[source] || '当前草稿';
 }
 
-function TextConstraintBlock({ definition, value, onChange, inherited, scope, onSaveDraft, onSavePersonalPrompt }) {
+function personalOptionsFor(key, personalPrompts) {
+  return (Array.isArray(personalPrompts?.[key]) ? personalPrompts[key] : [])
+    .filter(prompt => prompt?.id && prompt?.name && prompt?.body)
+    .map(prompt => ({ value: prompt.id, label: prompt.name, body: prompt.body }));
+}
+
+function TextConstraintBlock({ definition, value, onChange, inherited, scope, personalPrompts, personalPromptsError, onSaveDraft, onSavePersonalPrompt }) {
   const { key, enabledKey, label, description, placeholder } = definition;
   const enabled = value?.[enabledKey] === true;
-  const [source, setSource] = useState('system');
-  const [presetId, setPresetId] = useState(PRESET_OPTIONS[key]?.[0]?.value);
+  const sourceKey = `${key}PromptSource`;
+  const idKey = `${key}PromptId`;
+  const personalOptions = useMemo(() => personalOptionsFor(key, personalPrompts), [key, personalPrompts]);
+  const configuredSource = ['system', 'personal', 'draft'].includes(value?.[sourceKey]) ? value[sourceKey] : 'system';
+  const configuredId = typeof value?.[idKey] === 'string' ? value[idKey] : '';
+  const [source, setSource] = useState(configuredSource);
+  const [presetId, setPresetId] = useState(configuredId || PRESET_OPTIONS[key]?.[0]?.value);
   const [expanded, setExpanded] = useState(enabled);
   const body = String(value?.[key] || '');
+
+  useEffect(() => {
+    setSource(configuredSource);
+    setPresetId(configuredId || (configuredSource === 'system' ? PRESET_OPTIONS[key]?.[0]?.value : ''));
+  }, [configuredId, configuredSource, key]);
 
   async function saveDraft() {
     if (!onSaveDraft) return;
@@ -54,6 +70,45 @@ function TextConstraintBlock({ definition, value, onChange, inherited, scope, on
   async function savePersonalPrompt() {
     if (!onSavePersonalPrompt) return;
     await onSavePersonalPrompt({ name: `我的${label}`, kind: `constraint:${key}`, content: body });
+  }
+
+  function selectSource(nextSource) {
+    setSource(nextSource);
+    if (nextSource === 'personal') {
+      const nextId = personalOptions.some(option => option.value === configuredId)
+        ? configuredId
+        : (personalOptions[0]?.value || '');
+      const selected = personalOptions.find(option => option.value === nextId);
+      setPresetId(nextId);
+      onChange({
+        [sourceKey]: 'personal',
+        [idKey]: nextId,
+        ...(selected ? { [key]: selected.body } : {})
+      });
+      return;
+    }
+    if (nextSource === 'system') {
+      const nextId = PRESET_OPTIONS[key]?.[0]?.value || '';
+      setPresetId(nextId);
+      onChange({ [sourceKey]: 'system', [idKey]: nextId });
+      return;
+    }
+    setPresetId('');
+    onChange({ [sourceKey]: 'draft', [idKey]: '' });
+  }
+
+  function selectPrompt(nextId) {
+    setPresetId(nextId);
+    if (source !== 'personal') {
+      onChange({ [sourceKey]: source, [idKey]: nextId });
+      return;
+    }
+    const selected = personalOptions.find(option => option.value === nextId);
+    onChange({
+      [sourceKey]: 'personal',
+      [idKey]: nextId,
+      ...(selected ? { [key]: selected.body } : {})
+    });
   }
 
   function toggle(next) {
@@ -87,7 +142,7 @@ function TextConstraintBlock({ definition, value, onChange, inherited, scope, on
       <Segmented
         block
         value={source}
-        onChange={setSource}
+        onChange={selectSource}
         options={[
           { value: 'system', label: '系统预设' },
           { value: 'personal', label: '我的提示词' },
@@ -97,12 +152,16 @@ function TextConstraintBlock({ definition, value, onChange, inherited, scope, on
 
       {source !== 'draft' ? <Select
         style={{ width: '100%' }}
-        value={presetId}
-        onChange={setPresetId}
+        value={presetId || undefined}
+        onChange={selectPrompt}
+        disabled={source === 'personal' && !personalOptions.length}
+        placeholder={source === 'personal' ? '暂无个人提示词' : '选择系统预设'}
         options={source === 'system'
           ? PRESET_OPTIONS[key]
-          : [{ value: `personal-${key}`, label: `我的${label} 01` }]}
+          : personalOptions}
       /> : null}
+      {source === 'personal' && personalPromptsError ? <Typography.Text type="danger">个人提示词读取失败：{personalPromptsError.message}</Typography.Text> : null}
+      {source === 'personal' && !personalPromptsError && !personalOptions.length ? <Typography.Text type="secondary">个人中心还没有这个分类的提示词，可先在当前文本框编辑后保存。</Typography.Text> : null}
 
       <div className="bf11-constraint-body-head">
         <Typography.Text strong>提示词内容</Typography.Text>
@@ -111,14 +170,14 @@ function TextConstraintBlock({ definition, value, onChange, inherited, scope, on
       <TextArea
         rows={5}
         value={body}
-        onChange={event => onChange({ [key]: event.target.value })}
+        onChange={event => onChange({ [key]: event.target.value, [sourceKey]: 'draft', [idKey]: '' })}
         placeholder={placeholder}
       />
       <Space wrap>
         <Button disabled={!onSaveDraft} onClick={saveDraft}>保存当前草稿</Button>
         <Button icon={<BookmarkPlus size={14} />} disabled={!onSavePersonalPrompt} onClick={savePersonalPrompt}>保存为我的提示词</Button>
       </Space>
-      <Typography.Text type="secondary">当前设置内容会随批次保存；草稿与个人提示词也会写入 V11 Prompt/Draft 库。</Typography.Text>
+      <Typography.Text type="secondary">当前设置内容会随批次保存；草稿会写入 V11 Prompt/Draft 库，个人提示词会保存到个人中心。</Typography.Text>
     </div> : null}
   </section>;
 }
@@ -142,6 +201,8 @@ export function BatchFactoryV11ConstraintEditor({
   scopeLabel = '当前批次',
   inherited = false,
   scope = '',
+  personalPrompts = {},
+  personalPromptsError = null,
   onSaveDraft,
   onSavePersonalPrompt
 }) {
@@ -207,6 +268,8 @@ export function BatchFactoryV11ConstraintEditor({
       inherited={inherited}
       onChange={patch}
       scope={scope}
+      personalPrompts={personalPrompts}
+      personalPromptsError={personalPromptsError}
       onSaveDraft={onSaveDraft}
       onSavePersonalPrompt={onSavePersonalPrompt}
     />)}

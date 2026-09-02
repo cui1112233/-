@@ -29,3 +29,11 @@ test('V78 /batch-factory page points to the final V11 UI instead of the legacy p
   assert.equal(source.includes("shared/api/batchFactory"), false);
   assert.equal(source.includes("shared/api/shuihuoProduction"), false);
 });
+
+test('V11 maps personal-center constraint prompts into the workbench adapter', () => {
+  const source = read('BatchFactoryV11UiPage.jsx');
+  assert.match(source, /listScriptConstraintPrompts/);
+  assert.match(source, /saveScriptConstraintPrompt/);
+  assert.match(source, /listPersonalConstraintPrompts: listScriptConstraintPrompts/);
+  assert.match(source, /category,\s*name:/);
+});

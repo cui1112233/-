@@ -14,6 +14,18 @@ test('workbenchStateFromLoad never invents demo books when no batch exists', () 
   assert.deepEqual(state.books, []);
 });
 
+test('workbenchStateFromLoad preserves personal prompt categories and read errors', () => {
+  const state = workbenchStateFromLoad({
+    capabilities: {},
+    batches: [],
+    selectedBatch: null,
+    personalPrompts: { prefix: [{ id: 'p1', name: '我的前缀', body: 'marker' }] },
+    personalPromptsError: { message: 'negative: 读取失败' }
+  });
+  assert.deepEqual(state.personalPrompts.prefix, [{ id: 'p1', name: '我的前缀', body: 'marker' }]);
+  assert.equal(state.personalPromptsError.message, 'negative: 读取失败');
+});
+
 test('settingsStateFrom preserves explicit false empty string and zero', () => {
   const state = settingsStateFrom({ patch: { enabled: false, body: '', duration: 0 }, revision: 7 });
   assert.deepEqual(state.patch, { enabled: false, body: '', duration: 0 });

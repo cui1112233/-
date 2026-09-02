@@ -1,6 +1,7 @@
 import { Alert, Button, Empty, Input, Modal, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
+import { listScriptConstraintPrompts, saveScriptConstraintPrompt } from '../../../shared/api/generation';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
@@ -38,7 +39,10 @@ function batchForView(batch, books) {
 }
 
 export function BatchFactoryV11UiPage() {
-  const adapter = useMemo(() => createBf11UiAdapter(batchFactoryV11), []);
+  const adapter = useMemo(() => createBf11UiAdapter({
+    ...batchFactoryV11,
+    listPersonalConstraintPrompts: listScriptConstraintPrompts
+  }), []);
   const runtime = useMemo(() => createBf11Runtime({ adapter }), [adapter]);
   const requestParams = useMemo(requestParamsFromLocation, []);
   const [runtimeState, setRuntimeState] = useState({ phase: 'loading' });
@@ -373,7 +377,24 @@ export function BatchFactoryV11UiPage() {
   }
 
   async function savePersonalPrompt(payload) {
-    const result = await runtime.createPrompt(payload);
+    const kind = String(payload?.kind || '');
+    const category = kind.startsWith('constraint:') ? kind.slice('constraint:'.length) : '';
+    let result;
+    if (category) {
+      try {
+        const raw = await saveScriptConstraintPrompt({
+          category,
+          name: payload?.name || null,
+          body: payload?.content || ''
+        });
+        await reload({ announce: false });
+        result = { ok: true, raw };
+      } catch (error) {
+        result = { ok: false, message: error?.message || '个人提示词保存失败，请稍后重试。' };
+      }
+    } else {
+      result = await runtime.createPrompt(payload);
+    }
     if (!result.ok) { message.error(result.message); return false; }
     message.success('已保存为我的提示词');
     return true;
@@ -455,6 +476,8 @@ export function BatchFactoryV11UiPage() {
         batch={viewBatch}
         configVersions={runtimeState.configVersions || []}
         configVersionsError={runtimeState.configVersionsError || null}
+        personalPrompts={runtimeState.personalPrompts || {}}
+        personalPromptsError={runtimeState.personalPromptsError || null}
         initialValue={batchSettingsState.patch}
         onClose={() => setProductionSettingsOpen(false)}
         onPreviewChangeImpact={previewBatchChangeImpact}

@@ -53,6 +53,8 @@ export function workbenchStateFromLoad(loadResult) {
     mergeStatus: load.mergeStatus || null,
     configVersions: Array.isArray(load.configVersions) ? load.configVersions : [],
     configVersionsError: load.configVersionsError || null,
+    personalPrompts: object(load.personalPrompts),
+    personalPromptsError: load.personalPromptsError || null,
     selectedBatchId: load.selectedBatchId || batchObject.id || ''
   };
 }

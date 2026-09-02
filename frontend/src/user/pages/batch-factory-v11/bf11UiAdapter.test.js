@@ -19,6 +19,24 @@ test('loadWorkbench reads capabilities first and never creates an intake batch a
   assert.equal(state.startsDirector, false);
 });
 
+test('loadWorkbench loads the authenticated personal-center constraint prompts by category', async () => {
+  const requested = [];
+  const api = {
+    getCapabilities: async () => ({ 'batch.read': { available: true } }),
+    listBatches: async () => ({ batches: [{ id: 'b1', books: [] }] }),
+    getBatch: async id => ({ batch: { id, books: [] } }),
+    listPersonalConstraintPrompts: async category => {
+      requested.push(category);
+      return { prompts: [{ id: `${category}-1`, name: `我的${category}`, body: `${category} body` }] };
+    }
+  };
+  const state = await createBf11UiAdapter(api).loadWorkbench();
+  assert.deepEqual(requested.sort(), ['negative', 'prefix', 'quality', 'restriction']);
+  assert.deepEqual(state.personalPrompts.prefix, [{ id: 'prefix-1', name: '我的prefix', body: 'prefix body', updatedAt: null }]);
+  assert.deepEqual(state.personalPrompts.negative, [{ id: 'negative-1', name: '我的negative', body: 'negative body', updatedAt: null }]);
+  assert.equal(state.personalPromptsError, null);
+});
+
 test('saveDrawer sends a sparse batch patch including explicit false and empty string', async () => {
   let received;
   const api = {

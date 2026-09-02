@@ -42,6 +42,8 @@ export function ProductionSettingsDrawer({
   initialValue = {},
   configVersions = [],
   configVersionsError = null,
+  personalPrompts = {},
+  personalPromptsError = null,
   onClose,
   onSave,
   onSyncConfigVersion,
@@ -327,6 +329,8 @@ export function ProductionSettingsDrawer({
           onChange={patch}
           scopeLabel={`应用于当前批次 · ${batch?.count || 0} 本小说`}
           scope={batch?.id || ''}
+          personalPrompts={personalPrompts}
+          personalPromptsError={personalPromptsError}
           onSaveDraft={onSaveDraft}
           onSavePersonalPrompt={onSavePersonalPrompt}
         />

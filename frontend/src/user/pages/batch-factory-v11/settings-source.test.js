@@ -32,6 +32,21 @@ test('inline constraints expose editors directly under enabled switches', () => 
   assert.equal(source.includes('编辑按钮'), false);
 });
 
+test('constraint selectors are backed by real personal-center prompt records', () => {
+  const drawer = read('BatchFactoryV11SettingsDrawers.jsx');
+  const editor = read('BatchFactoryV11ConstraintEditor.jsx');
+  assert.match(drawer, /personalPrompts/);
+  assert.match(editor, /personalPrompts/);
+  assert.match(editor, /personalOptions/);
+  assert.doesNotMatch(editor, /personal-\$\{key\}/);
+});
+
+test('personal prompt copy describes the actual persistence boundary', () => {
+  const editor = read('BatchFactoryV11ConstraintEditor.jsx');
+  assert.match(editor, /保存到个人中心/);
+  assert.doesNotMatch(editor, /也会写入 V11 Prompt\/Draft 库/);
+});
+
 test('settings UI stays detached from legacy business APIs', () => {
   const sources = ['BatchFactoryV11SettingsDrawers.jsx', 'BatchFactoryV11ConstraintEditor.jsx']
     .map(name => read(name)).join('\n');

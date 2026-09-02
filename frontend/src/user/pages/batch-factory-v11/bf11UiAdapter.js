@@ -24,6 +24,41 @@ function batchesFrom(result) {
   return Array.isArray(result?.batches) ? result.batches : [];
 }
 
+const PERSONAL_PROMPT_CATEGORIES = ['prefix', 'quality', 'restriction', 'negative'];
+
+function personalPromptRecord(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const id = typeof source.id === 'string' ? source.id : '';
+  const name = typeof source.name === 'string' ? source.name : '';
+  const body = typeof source.body === 'string' ? source.body : '';
+  return id && name && body ? { id, name, body, updatedAt: source.updatedAt || null } : null;
+}
+
+async function loadPersonalPrompts(api) {
+  const empty = Object.fromEntries(PERSONAL_PROMPT_CATEGORIES.map(category => [category, []]));
+  if (typeof api.listPersonalConstraintPrompts !== 'function') {
+    return { personalPrompts: empty, personalPromptsError: null };
+  }
+  const results = await Promise.allSettled(PERSONAL_PROMPT_CATEGORIES.map(category => (
+    api.listPersonalConstraintPrompts(category)
+  )));
+  const personalPrompts = { ...empty };
+  const failures = [];
+  results.forEach((result, index) => {
+    const category = PERSONAL_PROMPT_CATEGORIES[index];
+    if (result.status === 'rejected') {
+      failures.push(`${category}: ${result.reason?.message || '读取失败'}`);
+      return;
+    }
+    const records = Array.isArray(result.value?.prompts) ? result.value.prompts : [];
+    personalPrompts[category] = records.map(personalPromptRecord).filter(Boolean);
+  });
+  return {
+    personalPrompts,
+    personalPromptsError: failures.length ? { message: failures.join('；') } : null
+  };
+}
+
 export function configVersionOptions(configVersions) {
   return (Array.isArray(configVersions) ? configVersions : [])
     .filter(record => record && typeof record.id === 'string' && record.id)
@@ -83,6 +118,7 @@ export function createBf11UiAdapter(api) {
         api.listBatches(),
         configVersionRequest
       ]);
+      const personalPromptState = await loadPersonalPrompts(api);
       const batches = batchesFrom(batchResult);
       const { configVersions, configVersionsError } = configVersionState;
       const selectedBatchId = batchId || batches[0]?.id || '';
@@ -104,6 +140,8 @@ export function createBf11UiAdapter(api) {
         intake: intakeResult?.intake || intakeResult || null,
         configVersions,
         configVersionsError,
+        personalPrompts: personalPromptState.personalPrompts,
+        personalPromptsError: personalPromptState.personalPromptsError,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
         mergeStatus: mergeStatus?.batchId ? mergeStatus : null,
         startsDirector: false
