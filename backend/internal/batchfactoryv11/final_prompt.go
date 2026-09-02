@@ -166,7 +166,9 @@ func (s *PromptCompilerService) namedPromptMapWithDrafts(ctx context.Context, ow
 			if errors.Is(err, ErrNotFound) { continue }
 			return nil, err
 		}
-		if prompt := strings.TrimSpace(draft.Content); prompt != "" { out[value.Name] = prompt }
+		// A found draft is authoritative even when intentionally blank: the
+		// user can clear an inherited asset prompt instead of silently restoring it.
+		out[value.Name] = strings.TrimSpace(draft.Content)
 	}
 	return out, nil
 }
