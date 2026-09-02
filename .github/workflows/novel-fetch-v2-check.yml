@@ -69,6 +69,21 @@ jobs:
   go-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: qiantie_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      BFV11_MYSQL_TEST_DSN: root:root@tcp(127.0.0.1:3306)/qiantie_test?parseTime=true&multiStatements=true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -79,7 +94,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          go test ./... 2>&1 | tee go-test.log
+          go test ./... -count=1 2>&1 | tee go-test.log
           status=${PIPESTATUS[0]}
           exit "$status"
         working-directory: backend
