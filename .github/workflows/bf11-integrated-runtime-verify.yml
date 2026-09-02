@@ -5,6 +5,7 @@ on:
     branches:
       - feat/batch-factory-v11-integrated-runtime
       - feat/batch-factory-v11-legacy-port-runtime
+      - fix/bf11-personal-prompt-bridge-20260902
   workflow_dispatch:
 
 jobs:
