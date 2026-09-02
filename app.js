@@ -226,12 +226,15 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     next();
   });
 
-  // Device-to-Go endpoints must be mounted before express.json so MP4
-  // artifacts stream through without being parsed into memory.
-  app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
+  // Only the MP4 artifact endpoint is mounted before express.json. Other
+  // executor calls carry JSON and must be parsed normally.
+  app.use('/api/local-executor/v1/jobs/:id/artifact', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
 
   // JSON body 解析（解除上限）
   app.use(express.json({ limit: '50mb' }));
+
+  // Forward pairing, heartbeat, claim and lease JSON after parsing.
+  app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
 
   // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {
