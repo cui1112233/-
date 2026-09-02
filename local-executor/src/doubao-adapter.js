@@ -33,6 +33,8 @@ class DoubaoAdapter {
     downloadDir = '',
     sleep = delay,
     navigationDelayMs = 500,
+    videoWorkspacePollMs = 1000,
+    maxVideoWorkspacePolls = 12,
     confirmationDelayMs = 350,
     completionPollMs = 2000,
     maxCompletionPolls = 900
@@ -46,6 +48,8 @@ class DoubaoAdapter {
     this.downloadDir = downloadDir;
     this.sleep = sleep;
     this.navigationDelayMs = navigationDelayMs;
+    this.videoWorkspacePollMs = Math.max(0, Number(videoWorkspacePollMs) || 0);
+    this.maxVideoWorkspacePolls = Math.max(1, Number(maxVideoWorkspacePolls) || 1);
     this.confirmationDelayMs = confirmationDelayMs;
     this.completionPollMs = completionPollMs;
     this.maxCompletionPolls = maxCompletionPolls;
@@ -95,6 +99,16 @@ class DoubaoAdapter {
     let capabilities = detectCapabilities(snapshot);
     if (capabilities.videoGeneration) return { snapshot, capabilities };
 
+    if (isDoubaoWorkHome(snapshot) && typeof this.pageActions.openVideoWorkspace === 'function') {
+      const navigated = await this.pageActions.openVideoWorkspace(webContents);
+      if (navigated) {
+        const workspace = await this.waitForVideoWorkspace(webContents, signal);
+        snapshot = workspace.snapshot;
+        capabilities = workspace.capabilities;
+        if (capabilities.videoGeneration) return workspace;
+      }
+    }
+
     if (typeof this.pageActions.openCreationWorkspace === 'function') {
       const clicked = await this.pageActions.openCreationWorkspace(webContents);
       if (clicked && this.navigationDelayMs > 0) await this.sleep(this.navigationDelayMs, signal);
@@ -112,8 +126,29 @@ class DoubaoAdapter {
       snapshot = await this.pageProbe.capture(webContents);
       assertUsableAccount(snapshot);
       capabilities = detectCapabilities(snapshot);
+      if (clicked && !capabilities.videoGeneration) {
+        const workspace = await this.waitForVideoWorkspace(webContents, signal);
+        snapshot = workspace.snapshot;
+        capabilities = workspace.capabilities;
+      }
     }
     return { snapshot, capabilities };
+  }
+
+  async waitForVideoWorkspace(webContents, signal) {
+    let snapshot = null;
+    let capabilities = {};
+    for (let poll = 0; poll < this.maxVideoWorkspacePolls; poll++) {
+      throwIfAborted(signal);
+      snapshot = await this.pageProbe.capture(webContents);
+      assertUsableAccount(snapshot);
+      capabilities = detectCapabilities(snapshot);
+      if (capabilities.videoGeneration) return { snapshot, capabilities };
+      if (poll + 1 < this.maxVideoWorkspacePolls && this.videoWorkspacePollMs > 0) {
+        await this.sleep(this.videoWorkspacePollMs, signal);
+      }
+    }
+    return { snapshot: snapshot || {}, capabilities };
   }
 
   async submit({ job, account, signal }) {
@@ -237,6 +272,12 @@ class DoubaoAdapter {
   }
 }
 
+function isDoubaoWorkHome(snapshot = {}) {
+  const text = String(snapshot.visibleText || '').replace(/\s+/g, ' ').trim();
+  if (/今天有什么工作要处理/.test(text)) return true;
+  return /豆包\s*工作/.test(text) && /(新工作任务|定时任务|技能.{0,8}连接器)/.test(text);
+}
+
 function assertUsableAccount(snapshot) {
   const state = classifyPageState(snapshot);
   if (state === 'available') return;
@@ -314,6 +355,7 @@ module.exports = {
   DoubaoAdapter,
   DoubaoAccountError,
   DoubaoResultError,
+  isDoubaoWorkHome,
   assertUsableAccount,
   snapshotVideoCandidates,
   mergeMediaCandidates,
