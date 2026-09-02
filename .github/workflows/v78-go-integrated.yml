@@ -14,6 +14,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
@@ -26,3 +28,14 @@ jobs:
         run: go test ./internal/config ./internal/httpapi ./internal/localartifact ./internal/localexecutor ./internal/novelfetchworkshop ./internal/storage
       - name: Build production Go service
         run: go build ./cmd/qiantie
+      - name: Create offline bundle
+        working-directory: .
+        run: |
+          git bundle create v78-go-integrated-20260902.bundle HEAD
+          git bundle verify v78-go-integrated-20260902.bundle
+      - name: Upload offline bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: v78-go-integrated-20260902-bundle
+          path: v78-go-integrated-20260902.bundle
+          if-no-files-found: error
