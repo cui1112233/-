@@ -94,6 +94,11 @@ export function saveWorkshopConfig(patch) {
   });
 }
 
+// 读取正文 Body Store 的真实容量状态（浏览器只访问 Node，由 Node 签名转发到 Go）
+export function getWorkshopStorageStatus() {
+  return apiRequest('/api/novel-fetch-workshop/storage/status');
+}
+
 // 生成规则建议，不自动写入配置
 export function suggestWorkshopRules(text, ruleType, goal) {
   return apiRequest('/api/novel-fetch-workshop/rules/suggest', {
