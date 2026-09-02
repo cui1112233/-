@@ -542,10 +542,12 @@ export function BatchFactoryV11Workbench({
     }
   ];
 
-  const modeLabel = batch?.mode ? (batch.mode === 'viral' ? '爆款开头' : '原文直转') : '生产方式未覆盖';
-  const provider = batch?.settingsState?.patch?.videoProvider || 'personal_api';
+  const batchPatch = batch?.settingsState?.patch || {};
+  const mode = batch?.mode || batchPatch.productionMode;
+  const modeLabel = mode ? (mode === 'viral' || mode === 'viral_hook' ? '爆款开头' : '原文直转') : '生产方式未覆盖';
+  const provider = batchPatch.videoProvider || 'personal_api';
   const providerLabel = provider === 'doubao_local_executor' ? '豆包本地执行器' : '个人中心 API · yd2.0-mini';
-  const batchSubtitle = [modeLabel, providerLabel, batch?.videoModel, batch?.aspectRatio, batch?.configVersion].filter(Boolean).join(' · ');
+  const batchSubtitle = [modeLabel, providerLabel, batchPatch.videoModelId, batchPatch.aspectRatio, batchPatch.versionConfigId].filter(Boolean).join(' · ');
 
   return <div className="batch-factory-workbench bf11-workbench">
     <section className="bf11-batch-header" data-bf-region="batch-header">
