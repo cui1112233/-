@@ -6,6 +6,7 @@ const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
 const PERSONAL_MODEL = 'yd2.0-mini';
 const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
+const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 
 function normalizedProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
@@ -28,6 +29,7 @@ function isProviderConfigPath(pathname) {
 
 function needsPersonalConfigSync(req, pathname) {
   if (isProviderConfigPath(pathname)) return true;
+  if (req.method === 'GET' && pathname === STATUS_PATH) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
   if (req.method === 'GET' && /\/batches\/[^/]+\/status$/.test(pathname)) return true;
   return false;
