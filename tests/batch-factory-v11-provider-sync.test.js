@@ -13,6 +13,7 @@ test('V11 production and status paths require personal API sync, but local jobs 
   assert.equal(needsPersonalConfigSync({ method: 'POST' }, '/api/batch-factory/v11/batches/b1/production'), true);
   assert.equal(needsPersonalConfigSync({ method: 'POST' }, '/api/batch-factory/v11/batches/b1/books/k1/production'), true);
   assert.equal(needsPersonalConfigSync({ method: 'GET' }, '/api/batch-factory/v11/batches/b1/status'), true);
+  assert.equal(needsPersonalConfigSync({ method: 'GET' }, '/api/batch-factory/v11/video-provider/status'), true);
   assert.equal(needsPersonalConfigSync({ method: 'PUT' }, '/api/batch-factory/v11/video-provider/config'), true);
   assert.equal(needsPersonalConfigSync({ method: 'GET' }, '/api/batch-factory/v11/batches/b1'), false);
 });
