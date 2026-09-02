@@ -24,12 +24,12 @@ type Document struct {
 }
 
 type BodyRef struct {
-	VersionID   string `json:"versionId"`
-	Revision    uint64 `json:"revision"`
-	ContentHash string `json:"contentHash"`
-	CharCount   int64  `json:"charCount"`
-	State       string `json:"state"`
-	UpdatedAt   string `json:"updatedAt"`
+	VersionID    string `json:"versionId"`
+	Revision     uint64 `json:"revision"`
+	ContentHash  string `json:"contentHash"`
+	CharCount    int64  `json:"charCount"`
+	State        string `json:"state"`
+	UpdatedAt    string `json:"updatedAt"`
 	LastNeededAt string `json:"lastNeededAt,omitempty"`
 	ReleasableAt string `json:"releasableAt,omitempty"`
 	ExpiresAt    string `json:"expiresAt,omitempty"`
