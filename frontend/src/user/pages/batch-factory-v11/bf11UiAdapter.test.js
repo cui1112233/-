@@ -135,3 +135,27 @@ test('batch management, prompt persistence, production and merge actions use the
   assert.deepEqual(calls[3].slice(0, 4), ['video', 'b1', 'k1', 'v1']);
   assert.deepEqual(calls[4], ['merge', 'b1', { requestId: 'r1', timingMode: 'speed', speed: 1.5, ttsSpeed: 1.7 }]);
 });
+
+
+test('production submission carries the selected provider without fallback', async () => {
+  const calls = [];
+  const api = {
+    submitBatchProduction: async (...args) => { calls.push(args); return { batchId: 'b1' }; }
+  };
+  await createBf11UiAdapter(api).runProduction({ batchId: 'b1', requestId: 'r1', provider: 'doubao_local_executor' });
+  assert.deepEqual(calls, [['b1', 'r1', 'doubao_local_executor']]);
+});
+
+test('loadWorkbench exposes provider status and local executor inventory', async () => {
+  const api = {
+    getCapabilities: async () => ({}),
+    listBatches: async () => ({ batches: [{ id: 'b1', books: [] }] }),
+    getBatch: async id => ({ batch: { id, books: [] } }),
+    getVideoProviderStatus: async provider => ({ provider, configured: provider === 'personal_api', model: provider === 'personal_api' ? 'yd2.0-mini' : 'doubao-seedance' }),
+    listLocalExecutors: async () => ({ executors: [{ id: 'ex1', online: true, platform: 'doubao' }] })
+  };
+  const state = await createBf11UiAdapter(api).loadWorkbench();
+  assert.equal(state.videoProviders.personalAPI.configured, true);
+  assert.equal(state.videoProviders.doubaoLocal.model, 'doubao-seedance');
+  assert.equal(state.localExecutors[0].id, 'ex1');
+});
