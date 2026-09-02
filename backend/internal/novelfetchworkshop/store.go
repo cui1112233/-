@@ -48,20 +48,21 @@ type DeleteRecord struct {
 	Deleted bool   `json:"deleted"`
 }
 
+type BodyStore interface {
+	PutBody(context.Context, string, BodyRecord) (BodyRef, error)
+	GetBody(context.Context, string, string, string) (BodyRecord, error)
+	ListBodyRefs(context.Context, string, string) ([]BodyRef, error)
+	DeleteBody(context.Context, string, string, string) (bool, error)
+}
+
 type Store interface {
+	BodyStore
 	GetDocument(context.Context, string, string) (Document, error)
 	PutDocument(context.Context, string, Document) error
 	ListDocuments(context.Context, string) ([]Document, error)
 	DeleteDocuments(context.Context, string, []string) (DeleteResult, error)
 	GetConfig(context.Context, string) (map[string]any, error)
 	PutConfig(context.Context, string, map[string]any) error
-}
-
-type BodyStore interface {
-	PutBody(context.Context, string, BodyRecord) (BodyRef, error)
-	GetBody(context.Context, string, string, string) (BodyRecord, error)
-	ListBodyRefs(context.Context, string, string) ([]BodyRef, error)
-	DeleteBody(context.Context, string, string, string) (bool, error)
 }
 
 func normalizeDocument(document Document) Document {
