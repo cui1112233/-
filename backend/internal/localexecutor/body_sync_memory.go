@@ -3,6 +3,7 @@ package localexecutor
 import (
 	"context"
 	"crypto/hmac"
+	"strconv"
 	"sync"
 	"time"
 
@@ -20,7 +21,7 @@ func NewMemoryBodySyncStore() *MemoryBodySyncStore {
 }
 
 func bodySyncKey(owner, bookID, versionID string, revision uint64) string {
-	return owner + "\x00" + bookID + "\x00" + versionID + "\x00" + string(rune(revision))
+	return owner + "\x00" + bookID + "\x00" + versionID + "\x00" + strconv.FormatUint(revision, 10)
 }
 
 func (s *MemoryBodySyncStore) ClaimBodySync(_ context.Context, executor ExecutorRecord, syncID string, body novelfetchworkshop.BodyRecord, leaseHash SecretHash, expires, now time.Time) (BodySyncRecord, error) {
