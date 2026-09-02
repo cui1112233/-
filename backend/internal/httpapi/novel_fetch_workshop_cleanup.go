@@ -16,6 +16,16 @@ func novelFetchRouteNow(now func() time.Time) time.Time {
 }
 
 func registerNovelFetchCleanupRoutes(mux *http.ServeMux, store novelfetchworkshop.LifecycleStore, now func() time.Time) {
+	mux.HandleFunc("GET /api/novel-fetch-workshop/bodies/status", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		status, err := store.GetBodyStorageStatus(req.Context(), identity.Username, novelFetchRouteNow(now))
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "读取正文容量状态失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, status)
+	})
+
 	mux.HandleFunc("POST /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}/release", func(w http.ResponseWriter, req *http.Request) {
 		identity, _ := BridgeIdentityFromContext(req.Context())
 		bookID, versionID, ok := novelFetchBodyPathValues(w, req)
