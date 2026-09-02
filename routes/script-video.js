@@ -10,6 +10,7 @@ const YD_TASKS_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/tasks';
 const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
+const LOCAL_EXECUTOR_JOB_PREFIX = 'lej_';
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -107,7 +108,22 @@ function bridgeJSON(gateway, account, method, pathname, payload) {
 
 function bridgeDownload(gateway, account, pathname, res) {
   const target = new URL(gateway?.targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000'); const secret = gateway?.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me'; const issuedAt=String(Math.floor(Date.now()/1000)); const signature=crypto.createHmac('sha256',secret).update([account.username,issuedAt,String(account.isOwner===true),'GET',pathname].join('\n')).digest('hex'); const transport=target.protocol==='https:'?https:http;
-  const upstream=transport.request({protocol:target.protocol,hostname:target.hostname,port:target.port||undefined,method:'GET',path:pathname,headers:{'X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature}},response=>{res.status(response.statusCode||502); if(response.headers['content-type'])res.setHeader('Content-Type',response.headers['content-type']); response.pipe(res)}); upstream.on('error',()=>res.status(503).json({error:'视频下载服务暂不可用'})); upstream.end();
+  const upstream=transport.request({protocol:target.protocol,hostname:target.hostname,port:target.port||undefined,method:'GET',path:pathname,headers:{'X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature}},response=>{res.status(response.statusCode||502); if(response.headers['content-type'])res.setHeader('Content-Type',response.headers['content-type']); if(response.headers['content-length'])res.setHeader('Content-Length',response.headers['content-length']); response.pipe(res)}); upstream.on('error',()=>{ if (!res.headersSent) res.status(503).json({error:'视频下载服务暂不可用'}); else res.destroy(); }); upstream.end();
+}
+
+function isLocalExecutorTask(taskId) {
+  return String(taskId || '').startsWith(LOCAL_EXECUTOR_JOB_PREFIX);
+}
+
+function localExecutorTaskResponse(job, taskId) {
+  const state = String(job?.state || '').trim().toLowerCase();
+  if (state === 'succeeded') {
+    if (!job?.artifactId) return { ok: true, taskId, status: 'failed', error: '本地执行器任务已完成，但没有找到视频文件' };
+    return { ok: true, taskId, status: 'succeeded', videoUrl: `/api/script-video/${encodeURIComponent(taskId)}/download` };
+  }
+  if (state === 'failed') return { ok: true, taskId, status: 'failed', error: String(job?.errorMessage || '本地执行器视频生成失败') };
+  if (state === 'cancelled') return { ok: true, taskId, status: 'failed', error: '本地执行器视频任务已取消' };
+  return { ok: true, taskId, status: 'processing' };
 }
 
 function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway } = {}) {
@@ -118,8 +134,20 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
     if (req.body?.modelKey === 'local-doubao-executor-video') {
-      try { return res.status(202).json(await bridgeJSON(shuihuoGateway, req.auth.account, 'POST', '/api/script-videos/local', { prompt })); }
-      catch (error) { return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' }); }
+      let imageUrls;
+      try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
+      try {
+        const job = await bridgeJSON(shuihuoGateway, req.auth.account, 'POST', '/api/shuihuo-production/local-executor-jobs', {
+          sourceTaskId: `script-video-${crypto.randomUUID()}`,
+          platform: 'doubao',
+          payload: { prompt, images: imageUrls }
+        });
+        const taskId = String(job?.id || '').trim();
+        if (!taskId) return res.status(502).json({ error: '本地执行器服务未返回任务 ID' });
+        return res.status(202).json({ ok: true, taskId });
+      } catch (error) {
+        return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' });
+      }
     }
     let imageUrls;
     try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
@@ -140,11 +168,13 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   router.get('/:taskId', async (req, res) => {
     const taskId = String(req.params.taskId || '').trim();
     if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
-    try {
-      const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/script-videos/${encodeURIComponent(taskId)}`);
-      return res.json(local);
-    } catch (error) {
-      if (error.status !== 404) return res.status(error.status || 503).json({ error: error.message || '本地执行器任务状态查询失败' });
+    if (isLocalExecutorTask(taskId)) {
+      try {
+        const job = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/shuihuo-production/local-executor-jobs/${encodeURIComponent(taskId)}`);
+        return res.json(localExecutorTaskResponse(job, taskId));
+      } catch (error) {
+        return res.status(error.status || 503).json({ error: error.message || '本地执行器任务状态查询失败' });
+      }
     }
     const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
@@ -165,8 +195,18 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
       return res.status(502).json({ error: error?.message === '视频服务响应超时' ? error.message : '视频任务状态暂不可用，请稍后重试' });
     }
   });
-  router.get('/:taskId/download', (req, res) => bridgeDownload(shuihuoGateway, req.auth.account, `/api/script-videos/${encodeURIComponent(String(req.params.taskId || ''))}/download`, res));
+  router.get('/:taskId/download', async (req, res) => {
+    const taskId = String(req.params.taskId || '').trim();
+    if (!isLocalExecutorTask(taskId)) return res.status(404).json({ error: '本地执行器视频任务不存在' });
+    try {
+      const job = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/shuihuo-production/local-executor-jobs/${encodeURIComponent(taskId)}`);
+      if (String(job?.state || '').toLowerCase() !== 'succeeded' || !job?.artifactId) return res.status(409).json({ error: '本地执行器视频尚未完成' });
+      return bridgeDownload(shuihuoGateway, req.auth.account, `/api/shuihuo-production/local-executor-artifacts/${encodeURIComponent(job.artifactId)}`, res);
+    } catch (error) {
+      return res.status(error.status || 503).json({ error: error.message || '本地执行器视频下载失败' });
+    }
+  });
   return router;
 }
 
-module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL };
+module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL, isLocalExecutorTask, localExecutorTaskResponse };
