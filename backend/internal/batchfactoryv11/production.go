@@ -99,9 +99,9 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 			return nil, FrozenVideoModel{}, err
 		}
 		model := s.Model
-		if strings.TrimSpace(model.ID) == "" {
-			model.ID = "doubao-seedance"
-		}
+		// The local executor has its own Doubao model identity; never inherit
+		// the personal Yadi model from static server configuration.
+		model.ID = "doubao-seedance"
 		if model.MaxDuration <= 0 {
 			model.MaxDuration = 15
 		}
