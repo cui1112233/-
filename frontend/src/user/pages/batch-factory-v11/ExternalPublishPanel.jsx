@@ -11,6 +11,7 @@ export function ExternalPublishPanel({
   open,
   batch,
   books = [],
+  productionStatus = null,
   capabilities = {},
   onClose,
   onGetCredential,
@@ -27,6 +28,15 @@ export function ExternalPublishPanel({
   const [intent, setIntent] = useState(null);
   const [busy, setBusy] = useState(false);
   const capability = useMemo(() => providerCapability(capabilities, provider), [capabilities, provider]);
+  const productionTaskByVideoId = useMemo(() => {
+    const map = new Map();
+    for (const job of productionStatus?.jobs || []) {
+      for (const task of job.tasks || []) {
+        if (task?.videoId) map.set(task.videoId, task);
+      }
+    }
+    return map;
+  }, [productionStatus]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +79,11 @@ export function ExternalPublishPanel({
             id: book.id,
             title: book.title,
             mergedUrl: book.mergedUrl || '',
-            videos: (book.videos || []).map(video => ({ id: video.id, label: video.label, url: video.url || video.mediaUrl || '' }))
+            videos: (book.videos || []).map(video => ({
+              id: video.id,
+              label: video.label,
+              url: video.url || video.mediaUrl || productionTaskByVideoId.get(video.id)?.mediaUrl || ''
+            }))
           }))
         }
       });
