@@ -63,14 +63,14 @@ func legacyBodyRecords(document Document) []BodyRecord {
 		}
 		if versionID == "original" {
 			records = append(records, BodyRecord{
-				BookID: document.BookID,
+				BookID:  document.BookID,
 				BodyRef: BodyRef{VersionID: "original", State: "ready"},
 				Content: value,
 			})
 			continue
 		}
 		records = append(records, BodyRecord{
-			BookID: document.BookID,
+			BookID:  document.BookID,
 			BodyRef: BodyRef{VersionID: versionID, State: "ready"},
 			Content: value,
 		})
