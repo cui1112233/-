@@ -207,6 +207,10 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 	for _, video := range pendingVideos {
 		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
 		if compileErr != nil { return ProductionJob{}, compileErr }
+		selectedModel := rawString(prompt.EffectiveSettings.Values, "videoModelId", "")
+		if selectedModel != "" && selectedModel != model.ID {
+			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
+		}
 		prompts[video.ID] = prompt
 		job.Tasks = append(job.Tasks, ProductionTask{VideoID:video.ID, Provider: provider, Status:ProductionQueued, Attempt:1, FinalPromptHash:prompt.SnapshotHash, CompiledPrompt:prompt.CompiledPrompt, CreatedAt:now, UpdatedAt:now})
 	}
