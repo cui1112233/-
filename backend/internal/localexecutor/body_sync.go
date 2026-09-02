@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	ErrNoPendingBodySync   = errors.New("no pending novel body sync")
-	ErrStaleBodySyncLease  = errors.New("stale novel body sync lease")
-	ErrBodySyncLeaseBusy   = errors.New("novel body sync lease busy")
+	ErrNoPendingBodySync    = errors.New("no pending novel body sync")
+	ErrStaleBodySyncLease   = errors.New("stale novel body sync lease")
+	ErrBodySyncLeaseBusy    = errors.New("novel body sync lease busy")
 	ErrBodySyncAlreadyAcked = errors.New("novel body sync revision already acknowledged")
-	ErrBodySyncIntegrity   = errors.New("novel body sync integrity mismatch")
+	ErrBodySyncIntegrity    = errors.New("novel body sync integrity mismatch")
 )
 
 const BodySyncLeaseTTL = 60 * time.Second
@@ -37,28 +37,28 @@ type BodySyncAckInput struct {
 }
 
 type BodySyncRecord struct {
-	ID                string
-	OwnerUsername     string
-	BookID            string
-	VersionID         string
-	BodyRevision      uint64
-	ContentHash       string
-	State             BodySyncState
-	LeaseExecutorID   string
-	LeaseTokenHash    SecretHash
-	LeaseGeneration   int64
-	LeaseExpiresAt    *time.Time
-	AckedAt           *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID              string
+	OwnerUsername   string
+	BookID          string
+	VersionID       string
+	BodyRevision    uint64
+	ContentHash     string
+	State           BodySyncState
+	LeaseExecutorID string
+	LeaseTokenHash  SecretHash
+	LeaseGeneration int64
+	LeaseExpiresAt  *time.Time
+	AckedAt         *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type BodySyncClaim struct {
-	SyncID           string                        `json:"syncId"`
-	Body             novelfetchworkshop.BodyRecord `json:"body"`
-	LeaseToken       string                        `json:"leaseToken"`
-	LeaseGeneration  int64                         `json:"leaseGeneration"`
-	LeaseExpiresAt   time.Time                     `json:"leaseExpiresAt"`
+	SyncID          string                         `json:"syncId"`
+	Body            novelfetchworkshop.BodyRecord `json:"body"`
+	LeaseToken      string                         `json:"leaseToken"`
+	LeaseGeneration int64                          `json:"leaseGeneration"`
+	LeaseExpiresAt  time.Time                      `json:"leaseExpiresAt"`
 }
 
 type BodySyncStore interface {
