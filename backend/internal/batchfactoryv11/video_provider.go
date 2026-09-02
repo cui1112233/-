@@ -28,6 +28,7 @@ type VideoProviderConfig struct {
 type VideoProviderRegistry interface {
 	Put(context.Context, string, VideoProviderConfig) error
 	Resolve(context.Context, string, string) (VideoProviderConfig, error)
+	View(context.Context, string, string) (VideoProviderConfigView, error)
 }
 
 type VideoProviderConfigView struct {
@@ -123,3 +124,5 @@ func normalizeVideoProvider(provider string) string {
 		return strings.ToLower(strings.TrimSpace(provider))
 	}
 }
+
+// NormalizeVideoProviderForHTTP normalizes provider names accepted by HTTP clients.\nfunc NormalizeVideoProviderForHTTP(provider string) string { return normalizeVideoProvider(provider) }\n
