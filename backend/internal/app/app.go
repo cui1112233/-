@@ -70,7 +70,9 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		}
 		externalPublish = &external.Service{
 			Credentials: externalStore, Intents: externalStore, Audits: externalStore,
-			BatchReader: store,
+			BatchReader:      store,
+			ProductionReader: production,
+			MergeReader:      merge,
 			Providers: map[external.Provider]external.SubmissionProvider{
 				external.Provider121: provider121,
 				external.ProviderYadi: providerYadi,
