@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/v78-doubao-local-executor-replacement
+      - feat/v78-novel-fetch-local-first-s2-executor
     paths:
       - 'local-executor/**'
       - 'routes/local-executor-downloads.js'
