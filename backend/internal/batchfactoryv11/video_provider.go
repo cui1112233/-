@@ -125,4 +125,5 @@ func normalizeVideoProvider(provider string) string {
 	}
 }
 
-// NormalizeVideoProviderForHTTP normalizes provider names accepted by HTTP clients.\nfunc NormalizeVideoProviderForHTTP(provider string) string { return normalizeVideoProvider(provider) }\n
+// NormalizeVideoProviderForHTTP normalizes provider names accepted by HTTP clients.
+func NormalizeVideoProviderForHTTP(provider string) string { return normalizeVideoProvider(provider) }
