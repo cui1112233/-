@@ -38,12 +38,17 @@ test('novel-fetch upload route is Browser Worker only and contains no legacy PHP
   assert.doesNotMatch(source, /PHPSESSID/);
 });
 
-test('workshop ai3 uploads from Body Store without creating a real txt file and becomes releasable only after success', async () => {
+test('workshop ai3 uploads from Body Store without creating a real txt file and uses configured retention only after success', async () => {
   const bridgeRequests = [];
   const events = [];
+  let releasePayload = null;
   const bridge = http.createServer((req, res) => {
     bridgeRequests.push(`${req.method} ${req.url}`);
     res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'GET' && req.url === '/api/novel-fetch-workshop/config') {
+      res.end(JSON.stringify({ settings: { storage: { cleanup_enabled: true, retention_days: 12 } } }));
+      return;
+    }
     if (req.method === 'GET' && req.url === '/api/novel-fetch-workshop/tasks/123456/bodies/ai3') {
       res.end(JSON.stringify({
         bookId: '123456',
@@ -66,14 +71,20 @@ test('workshop ai3 uploads from Body Store without creating a real txt file and 
       return;
     }
     if (req.method === 'POST' && req.url === '/api/novel-fetch-workshop/tasks/123456/bodies/ai3/release') {
-      events.push('release');
-      res.end(JSON.stringify({
-        versionId: 'ai3',
-        revision: 2,
-        state: 'releasable',
-        releasableAt: '2026-09-02T15:30:00Z',
-        expiresAt: '2026-09-09T15:30:00Z'
-      }));
+      let raw = '';
+      req.setEncoding('utf8');
+      req.on('data', chunk => { raw += chunk; });
+      req.on('end', () => {
+        releasePayload = raw ? JSON.parse(raw) : {};
+        events.push('release');
+        res.end(JSON.stringify({
+          versionId: 'ai3',
+          revision: 2,
+          state: 'releasable',
+          releasableAt: '2026-09-02T15:30:00Z',
+          expiresAt: '2026-09-14T15:30:00Z'
+        }));
+      });
       return;
     }
     res.statusCode = 404;
@@ -124,8 +135,10 @@ test('workshop ai3 uploads from Body Store without creating a real txt file and 
     assert.equal(res.body.ok, true);
     assert.equal(res.body.results[0].status, 'ok');
     assert.equal(fs.existsSync(diskTxt), false);
+    assert.equal(bridgeRequests.includes('GET /api/novel-fetch-workshop/config'), true);
     assert.equal(bridgeRequests.includes('GET /api/novel-fetch-workshop/tasks/123456/bodies/ai3'), true);
     assert.equal(bridgeRequests.includes('POST /api/novel-fetch-workshop/tasks/123456/bodies/ai3/release'), true);
+    assert.deepEqual(releasePayload, { retentionDays: 12 });
     assert.deepEqual(events, ['121-success', 'release']);
     assert.equal(calls.length, 1);
 
