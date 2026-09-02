@@ -1,0 +1,28 @@
+name: V78 Novel Fetch Go Bridge
+
+on:
+  push:
+    branches:
+      - feat/v78-novel-fetch-go-bridge
+  workflow_dispatch:
+
+jobs:
+  go-bridge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: backend/go.sum
+      - name: Gofmt check
+        run: |
+          bad=$(gofmt -l internal/novelfetchworkshop internal/httpapi/novel_fetch_workshop.go internal/httpapi/novel_fetch_workshop_test.go internal/storage/novel_fetch_workshop_schema.go internal/storage/novel_fetch_workshop_schema_test.go)
+          test -z "$bad" || { echo "$bad"; exit 1; }
+      - name: Focused tests
+        run: go test ./internal/novelfetchworkshop ./internal/httpapi ./internal/storage
+      - name: Build Go service
+        run: go build ./cmd/qiantie
