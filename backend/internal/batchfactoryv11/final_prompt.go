@@ -161,7 +161,7 @@ func (s *PromptCompilerService) namedPromptMapWithDrafts(ctx context.Context, ow
 	if s == nil || s.Store == nil { return out, nil }
 	for _, value := range values {
 		key := "asset:" + category + ":" + value.Name
-		draft, err := s.Store.GetDraft(ctx, owner, batchID, "asset-prompt", key)
+		draft, err := s.Store.GetDraft(ctx, owner, key, "asset-prompt", batchID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) { continue }
 			return nil, err
