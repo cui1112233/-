@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/v78-novel-fetch-v2-completion
+      - feat/v78-novel-fetch-local-first-s1-node
   workflow_dispatch:
 
 jobs:
