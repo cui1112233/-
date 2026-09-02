@@ -18,6 +18,11 @@ function browserErrorStatus(error) {
   if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT'].includes(error?.code)) return 503;
   return Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 400;
 }
+function normalizeBodyRetentionDays(value) {
+  const days = Math.floor(Number(value));
+  if (!Number.isFinite(days)) return 7;
+  return Math.min(30, Math.max(1, days));
+}
 
 function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, browserClient = create121BrowserClient() } = {}) {
   const router = express.Router();
@@ -93,11 +98,14 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
         let meta = {};
         let workshopLifecycle = null;
         let workshopStorageVersion = '';
+        let workshopRetentionDays = 7;
         if (item.source === 'workshop') {
           const workshopTasks = createMySQLWorkshopStore({ ...workshopGateway, account: req.auth.account });
           const version = String(item.version || 'edited').trim() || 'edited';
           workshopStorageVersion = version === 'edited' ? 'original' : version;
           workshopLifecycle = createNovelFetchLifecycleClient({ ...workshopGateway, account: req.auth.account });
+          const workshopConfig = await workshopTasks.getConfig();
+          workshopRetentionDays = normalizeBodyRetentionDays(workshopConfig?.storage?.retention_days);
           content = await workshopTasks.readVersionText(req.username, bookId, version);
           if (!content) { results.push({ bookId, status: 'error', error: '未找到该版本的正文' }); continue; }
           const task = await workshopTasks.getTask(req.username, bookId);
@@ -151,7 +159,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
             let cleanupDeferred = false;
             if (workshopLifecycle && workshopStorageVersion) {
               try {
-                await workshopLifecycle.markBodyReleasable(bookId, workshopStorageVersion, 7);
+                await workshopLifecycle.markBodyReleasable(bookId, workshopStorageVersion, workshopRetentionDays);
               } catch (_) {
                 cleanupDeferred = true;
               }
@@ -174,4 +182,4 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
   return router;
 }
 
-module.exports = { createNovelFetchUploadRouter, isValidBookId, targetBaseUrl, isExpiredSessionError };
+module.exports = { createNovelFetchUploadRouter, isValidBookId, targetBaseUrl, isExpiredSessionError, normalizeBodyRetentionDays };
