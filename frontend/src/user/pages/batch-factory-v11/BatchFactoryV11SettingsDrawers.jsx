@@ -20,7 +20,14 @@ import './batch-factory-v11-settings.css';
 const full = { width: '100%' };
 const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
+const VIDEO_PROVIDERS = [
+  { value: 'personal_api', label: '个人中心 API · yd2.0-mini' },
+  { value: 'doubao_local_executor', label: '豆包本地执行器' }
+];
+
 const VIDEO_MODELS = [
+  { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
+  { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
   { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
   { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
   { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
@@ -49,7 +56,10 @@ export function ProductionSettingsDrawer({
   onSyncConfigVersion,
   onPreviewChangeImpact,
   onSaveDraft,
-  onSavePersonalPrompt
+  onSavePersonalPrompt,
+  videoProviders = {},
+  localExecutors = [],
+  onCreateLocalExecutorPairing
 }) {
   const [form, setForm] = useState(initialValue);
   const [selectedConfigVersionId, setSelectedConfigVersionId] = useState(initialValue.versionConfigId || '');
@@ -59,6 +69,8 @@ export function ProductionSettingsDrawer({
   const [impactLoading, setImpactLoading] = useState(false);
   const impactTimerRef = useRef(null);
   const impactRequestRef = useRef(0);
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingSecret, setPairingSecret] = useState(null);
 
   useEffect(() => {
     if (impactTimerRef.current) {
@@ -69,8 +81,9 @@ export function ProductionSettingsDrawer({
     setImpactLoading(false);
     setImpactResult(null);
     if (!open) return undefined;
-    setForm({ ...initialValue });
+    setForm({ videoProvider: 'personal_api', ...initialValue });
     setSelectedConfigVersionId(initialValue.versionConfigId || '');
+    setPairingSecret(null);
     return () => {
       if (impactTimerRef.current) clearTimeout(impactTimerRef.current);
       impactTimerRef.current = null;
@@ -152,6 +165,21 @@ export function ProductionSettingsDrawer({
       return saved;
     } finally {
       setSyncingConfigVersion(false);
+    }
+  }
+
+  async function createPairing() {
+    if (!onCreateLocalExecutorPairing || pairingBusy) return;
+    setPairingBusy(true);
+    try {
+      const result = await onCreateLocalExecutorPairing('doubao');
+      if (!result?.ok) {
+        setPairingSecret({ error: result?.message || '配对码生成失败' });
+        return;
+      }
+      setPairingSecret(result.raw || {});
+    } finally {
+      setPairingBusy(false);
     }
   }
 
@@ -255,13 +283,43 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
+        <SettingField label="视频生成通道" description="默认使用个人中心 API；选择豆包本地执行器后，任务会交给你已配对且在线的本地电脑执行。">
+          <Space direction="vertical" style={full} size={8}>
+            <Select
+              value={form.videoProvider || 'personal_api'}
+              onChange={videoProvider => patch({
+                videoProvider,
+                videoModelId: videoProvider === 'doubao_local_executor' ? 'doubao-seedance' : 'yd2.0-mini'
+              })}
+              options={VIDEO_PROVIDERS}
+              style={full}
+            />
+            <Space wrap>
+              <Tag color={videoProviders.personalAPI?.configured ? 'green' : 'default'}>
+                个人 API {videoProviders.personalAPI?.configured ? '已配置' : '未配置'}
+              </Tag>
+              <Tag color={localExecutors.some(item => item.online) ? 'green' : 'default'}>
+                豆包执行器 {localExecutors.some(item => item.online) ? '在线' : '未在线'}
+              </Tag>
+            </Space>
+            {(form.videoProvider || 'personal_api') === 'doubao_local_executor' ? <div className="bf11-provider-pairing">
+              <Button size="small" loading={pairingBusy} disabled={!onCreateLocalExecutorPairing} onClick={createPairing}>生成豆包配对码</Button>
+              {pairingSecret?.code ? <Typography.Text copyable={{ text: pairingSecret.code }}>配对码：{pairingSecret.code}（10 分钟内有效）</Typography.Text> : null}
+              {pairingSecret?.error ? <Typography.Text type="danger">{pairingSecret.error}</Typography.Text> : null}
+              <Typography.Text type="secondary">在你的 Mac 执行器中输入配对码并保持豆包账号已登录；本页面不会保存或读取豆包密码。</Typography.Text>
+            </div> : null}
+          </Space>
+        </SettingField>
+
         <SettingField label="视频模型" description="导演前绑定模型；最大时长表示单个 VIDEO 的能力上限。">
           <Select
             allowClear
             placeholder="继承系统模型"
             value={form.videoModelId}
             onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS}
+            options={VIDEO_MODELS.filter(option => (form.videoProvider || 'personal_api') === 'doubao_local_executor'
+              ? option.value === 'doubao-seedance'
+              : option.value === 'yd2.0-mini')}
           />
         </SettingField>
 

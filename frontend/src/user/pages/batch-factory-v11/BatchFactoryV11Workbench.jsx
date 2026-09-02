@@ -234,6 +234,16 @@ export function BatchFactoryV11Workbench({
     return summary;
   }, [books, productionStatus]);
 
+  const productionTaskByVideoId = useMemo(() => {
+    const map = new Map();
+    for (const job of productionStatus?.jobs || []) {
+      for (const task of job.tasks || []) {
+        if (task?.videoId) map.set(task.videoId, task);
+      }
+    }
+    return map;
+  }, [productionStatus]);
+
   const metrics = useMemo(() => ({
     columnWidth: Math.max(20, (gridWidth - ((GRID_COLUMNS - 1) * layout.gap)) / GRID_COLUMNS),
     rowHeight: layout.rowHeight,
@@ -445,9 +455,11 @@ export function BatchFactoryV11Workbench({
         <div className="bf11-unified-player" data-bf-player="unified">
           {(() => {
             const latestMerge = (mergeStatus?.jobs || []).slice(-1)[0];
+            const selectedPreviewVideo = selectedVideos.find(video => video.id === previewTarget);
+            const previewTask = selectedPreviewVideo ? productionTaskByVideoId.get(selectedPreviewVideo.id) : null;
             const mediaURL = previewTarget === 'merged'
               ? (selectedBook?.mergedUrl || latestMerge?.outputUrl || '')
-              : (selectedVideos.find(video => video.id === previewTarget)?.url || '');
+              : (selectedPreviewVideo?.url || selectedPreviewVideo?.mediaUrl || previewTask?.mediaUrl || '');
             return mediaURL ? <video controls preload="metadata" src={mediaURL} style={{ width: '100%', maxHeight: 360 }} /> : <Film size={42} />;
           })()}
           <strong>{previewTarget === 'merged'
@@ -455,7 +467,13 @@ export function BatchFactoryV11Workbench({
             : (selectedVideos.find(video => video.id === previewTarget)?.label || '当前 VIDEO')}</strong>
           <span>{previewTarget === 'merged' ? '最终合并成品统一在这里预览' : '原始 VIDEO 统一切换到同一个播放器预览'}</span>
           <div className="bf11-player-track"><i /></div>
-          <small>{selectedBook?.mergedUrl || (mergeStatus?.jobs || []).some(job => job.outputUrl) || selectedVideos.find(video => video.id === previewTarget)?.url ? '媒体地址已返回，可直接播放' : '当前暂无可播放媒体地址'}</small>
+          <small>{selectedBook?.mergedUrl
+            || (mergeStatus?.jobs || []).some(job => job.outputUrl)
+            || selectedVideos.find(video => video.id === previewTarget)?.url
+            || selectedVideos.find(video => video.id === previewTarget)?.mediaUrl
+            || productionTaskByVideoId.get(previewTarget)?.mediaUrl
+            ? '媒体地址已返回，可直接播放'
+            : '当前暂无可播放媒体地址'}</small>
         </div>
       </div>
     },
@@ -524,8 +542,12 @@ export function BatchFactoryV11Workbench({
     }
   ];
 
-  const modeLabel = batch?.mode ? (batch.mode === 'viral' ? '爆款开头' : '原文直转') : '生产方式未覆盖';
-  const batchSubtitle = [modeLabel, batch?.videoModel, batch?.aspectRatio, batch?.configVersion].filter(Boolean).join(' · ');
+  const batchPatch = batch?.settingsState?.patch || {};
+  const mode = batch?.mode || batchPatch.productionMode;
+  const modeLabel = mode ? (mode === 'viral' || mode === 'viral_hook' ? '爆款开头' : '原文直转') : '生产方式未覆盖';
+  const provider = batchPatch.videoProvider || 'personal_api';
+  const providerLabel = provider === 'doubao_local_executor' ? '豆包本地执行器' : '个人中心 API · yd2.0-mini';
+  const batchSubtitle = [modeLabel, providerLabel, batchPatch.videoModelId, batchPatch.aspectRatio, batchPatch.versionConfigId].filter(Boolean).join(' · ');
 
   return <div className="batch-factory-workbench bf11-workbench">
     <section className="bf11-batch-header" data-bf-region="batch-header">

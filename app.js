@@ -49,6 +49,8 @@ const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-stor
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { createScriptVideoRouter } = require('./routes/script-video');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
+const { createLocalExecutorDeviceRouter } = require('./routes/local-executor-device');
+const { createLocalExecutorArtifactRouter } = require('./routes/local-executor-artifact');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
 const { createPasskeyStore } = require('./lib/passkey-store');
@@ -225,8 +227,15 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     next();
   });
 
+  // Only the MP4 artifact endpoint is mounted before express.json. Other
+  // executor calls carry JSON and must be parsed normally.
+  app.use('/api/local-executor/v1/jobs/:id/artifact', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
+
   // JSON body 解析（解除上限）
   app.use(express.json({ limit: '50mb' }));
+
+  // Forward pairing, heartbeat, claim and lease JSON after parsing.
+  app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
 
   // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {
@@ -346,6 +355,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
+  // Local executor artifacts are user-owned media, so they are bridged to Go
+  // with the normal signed user identity but do not consume AI quota.
+  app.use('/api/shuihuo-production/local-executor-artifacts', apiAuth, createLocalExecutorArtifactRouter({
+    goBaseUrl: process.env.QIANTIE_GO_BASE_URL,
+    bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET
+  }));
   app.use('/api/shuihuo-production', apiAuth, requireShuihuoAiAccess, createShuihuoProductionRouter({ ...shuihuoGateway, presetStore: resolvedPresetStore }));
   // 本地存储文件夹：createStorageRouter 返回的子应用内部自带 /api/storage 前缀，
   // 此处无前缀挂载，避免前缀叠加（见 routes/storage.js）。

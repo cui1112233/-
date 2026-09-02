@@ -34,6 +34,26 @@ function personalPromptRecord(value) {
   return id && name && body ? { id, name, body, updatedAt: source.updatedAt || null } : null;
 }
 
+async function loadVideoProviderState(api) {
+  const empty = {
+    personalAPI: { provider: 'personal_api', model: 'yd2.0-mini', configured: false },
+    doubaoLocal: { provider: 'doubao_local_executor', model: 'doubao-seedance', configured: false }
+  };
+  const statusRequests = [
+    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('personal_api') : Promise.resolve(null),
+    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('doubao_local_executor') : Promise.resolve(null),
+    typeof api.listLocalExecutors === 'function' ? api.listLocalExecutors() : Promise.resolve({ executors: [] })
+  ];
+  const [personal, doubao, executors] = await Promise.all(statusRequests.map(request => Promise.resolve(request).catch(() => null)));
+  return {
+    videoProviders: {
+      personalAPI: personal?.provider ? { ...empty.personalAPI, ...personal } : empty.personalAPI,
+      doubaoLocal: doubao?.provider ? { ...empty.doubaoLocal, ...doubao } : empty.doubaoLocal
+    },
+    localExecutors: Array.isArray(executors?.executors) ? executors.executors : []
+  };
+}
+
 async function loadPersonalPrompts(api) {
   const empty = Object.fromEntries(PERSONAL_PROMPT_CATEGORIES.map(category => [category, []]));
   if (typeof api.listPersonalConstraintPrompts !== 'function') {
@@ -114,9 +134,10 @@ export function createBf11UiAdapter(api) {
             message: error?.message || '读取配置版本失败'
           }
         }));
-      const [batchResult, configVersionState] = await Promise.all([
+      const [batchResult, configVersionState, videoProviderState] = await Promise.all([
         api.listBatches(),
-        configVersionRequest
+        configVersionRequest,
+        loadVideoProviderState(api)
       ]);
       const personalPromptState = await loadPersonalPrompts(api);
       const batches = batchesFrom(batchResult);
@@ -144,6 +165,8 @@ export function createBf11UiAdapter(api) {
         personalPromptsError: personalPromptState.personalPromptsError,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
         mergeStatus: mergeStatus?.batchId ? mergeStatus : null,
+        videoProviders: videoProviderState.videoProviders,
+        localExecutors: videoProviderState.localExecutors,
         startsDirector: false
       };
     },
@@ -205,11 +228,31 @@ export function createBf11UiAdapter(api) {
       };
     },
 
-    async runProduction({ batchId, bookId = '', requestId } = {}) {
+    async runProduction({ batchId, bookId = '', requestId, provider = 'personal_api' } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
       return bookId
-        ? api.submitBookProduction(batchId, bookId, requestId)
-        : api.submitBatchProduction(batchId, requestId);
+        ? api.submitBookProduction(batchId, bookId, requestId, provider)
+        : api.submitBatchProduction(batchId, requestId, provider);
+    },
+
+    async saveVideoProviderConfig(payload = {}) {
+      if (typeof api.saveVideoProviderConfig !== 'function') throw new Error('视频提供方配置接口未接入');
+      return api.saveVideoProviderConfig(payload);
+    },
+
+    async getVideoProviderStatus(provider = 'personal_api') {
+      if (typeof api.getVideoProviderStatus !== 'function') throw new Error('视频提供方状态接口未接入');
+      return api.getVideoProviderStatus(provider);
+    },
+
+    async listLocalExecutors() {
+      if (typeof api.listLocalExecutors !== 'function') throw new Error('本地执行器接口未接入');
+      return api.listLocalExecutors();
+    },
+
+    async createLocalExecutorPairing(platform = 'doubao') {
+      if (typeof api.createLocalExecutorPairing !== 'function') throw new Error('本地执行器配对接口未接入');
+      return api.createLocalExecutorPairing(platform);
     },
 
     async runMerge({ batchId, requestId, timingMode = 'speed', speed = 1, ttsSpeed = 1.7 } = {}) {

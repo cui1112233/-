@@ -76,6 +76,28 @@ export function BatchFactoryV11UiPage() {
     return () => { cancelled = true; };
   }, [runtime, requestParams]);
 
+  useEffect(() => {
+    if (runtimeState.phase !== 'ready' || !runtimeState.batch?.id) return undefined;
+    const activeProduction = (runtimeState.productionStatus?.jobs || []).some(job =>
+      (job.tasks || []).some(task => task.status === 'queued' || task.status === 'running')
+    );
+    const activeMerge = (runtimeState.mergeStatus?.jobs || []).some(job =>
+      job.status === 'queued' || job.status === 'running'
+    );
+    const active = activeProduction || activeMerge;
+    if (!active) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      const next = await runtime.load({ ...requestParams, batchId: runtimeState.batch.id });
+      if (!cancelled && next.phase === 'ready') setRuntimeState(next);
+    };
+    const timer = window.setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [runtime, requestParams, runtimeState.phase, runtimeState.batch?.id, runtimeState.productionStatus, runtimeState.mergeStatus]);
+
   if (runtimeState.phase === 'loading') {
     return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
       <Spin size="large" tip="正在读取 Batch Factory V11…" />
@@ -280,6 +302,20 @@ export function BatchFactoryV11UiPage() {
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
+  function refreshAssets(book) {
+    if (!book?.id || directorAction.type) return false;
+    return new Promise(resolve => {
+      Modal.confirm({
+        title: '重新获取资产',
+        content: '这会重新执行 Director，并生成新的 VIDEO identity；当前旧 VIDEO 的单独设置会保留为历史覆盖。确定继续吗？',
+        okText: '继续重新获取',
+        cancelText: '取消',
+        onOk: async () => { resolve(await runDirector(book)); },
+        onCancel: () => resolve(false)
+      });
+    });
+  }
+
   async function previewFinalPrompt(book, video) {
     if (!book?.id || !video?.id) return false;
     setPromptPreview({ open: true, loading: true, data: null, error: '' });
@@ -299,9 +335,18 @@ export function BatchFactoryV11UiPage() {
 
   async function runProduction(targetBatch) {
     if (!targetBatch?.id || productionBusy) return false;
+    const provider = batchSettingsState.patch.videoProvider || 'personal_api';
+    if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
+      message.error('没有在线的豆包本地执行器；请先在生产统一设置生成配对码并让 Mac 执行器上线。');
+      return false;
+    }
+    if (provider === 'personal_api' && runtimeState.videoProviders?.personalAPI?.configured === false) {
+      message.error('请先在个人中心 API 配置视频 API Key。');
+      return false;
+    }
     setProductionBusy(true);
     try {
-      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production') });
+      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
@@ -429,6 +474,7 @@ export function BatchFactoryV11UiPage() {
         batch={viewBatch}
         books={books}
         productionStatus={runtimeState.productionStatus}
+        mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
         mergeStatus={runtimeState.mergeStatus}
         onOpenBatchManager={() => setBatchManagerOpen(true)}
@@ -446,7 +492,7 @@ export function BatchFactoryV11UiPage() {
         onRunMerge={runMerge}
         onRunUpload={() => setExternalPublishOpen(true)}
         onSaveVideoPrompt={saveVideoPrompt}
-        onRefreshAssets={runDirector}
+        onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}
       />
 
@@ -477,6 +523,9 @@ export function BatchFactoryV11UiPage() {
         configVersionsError={runtimeState.configVersionsError || null}
         personalPrompts={runtimeState.personalPrompts || {}}
         personalPromptsError={runtimeState.personalPromptsError || null}
+        videoProviders={runtimeState.videoProviders || {}}
+        localExecutors={runtimeState.localExecutors || []}
+        onCreateLocalExecutorPairing={runtime.createLocalExecutorPairing}
         initialValue={batchSettingsState.patch}
         onClose={() => setProductionSettingsOpen(false)}
         onPreviewChangeImpact={previewBatchChangeImpact}
@@ -504,6 +553,8 @@ export function BatchFactoryV11UiPage() {
         open={externalPublishOpen}
         batch={viewBatch}
         books={books}
+        productionStatus={runtimeState.productionStatus}
+        mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
         onClose={() => setExternalPublishOpen(false)}
         onGetCredential={getPublishCredential}

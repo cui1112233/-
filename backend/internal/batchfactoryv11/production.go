@@ -31,6 +31,7 @@ type ProviderTaskRef struct {
 type ProductionTask struct {
 	ID              string          `json:"id"`
 	VideoID         string          `json:"videoId"`
+	Provider        string          `json:"provider,omitempty"`
 	Status          ProductionState `json:"status"`
 	Attempt         int             `json:"attempt"`
 	FinalPromptHash string          `json:"finalPromptHash"`
@@ -78,12 +79,65 @@ type ProductionRepository interface {
 }
 
 type ProductionService struct {
-	Store    Store
-	Compiler PromptResolver
-	Adapter  ProductionAdapter
-	Poller   ProductionPoller
-	Enabled  bool
-	Model    FrozenVideoModel
+	Store            Store
+	Compiler         PromptResolver
+	Adapter          ProductionAdapter
+	Poller           ProductionPoller
+	ProviderRegistry VideoProviderRegistry
+	LocalExecutor    *LocalExecutorVideoAdapter
+	Enabled          bool
+	Model            FrozenVideoModel
+}
+
+func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider string) (ProductionAdapter, FrozenVideoModel, error) {
+	provider = normalizeVideoProvider(provider)
+	if provider == VideoProviderDoubaoLocal {
+		if s.LocalExecutor == nil || s.LocalExecutor.Client == nil {
+			return nil, FrozenVideoModel{}, fmt.Errorf("%w: Doubao local executor is offline", ErrUnavailable)
+		}
+		if strings.TrimSpace(s.LocalExecutor.PublicBaseURL) == "" {
+			return nil, FrozenVideoModel{}, fmt.Errorf("%w: local executor public artifact base URL is required for merge and publish", ErrUnavailable)
+		}
+		if err := s.LocalExecutor.EnsureAvailable(ctx, owner); err != nil {
+			return nil, FrozenVideoModel{}, err
+		}
+		model := s.Model
+		// The local executor has its own Doubao model identity; never inherit
+		// the personal Yadi model from static server configuration.
+		model.ID = "doubao-seedance"
+		if model.MaxDuration <= 0 {
+			model.MaxDuration = 15
+		}
+		return nil, model, nil
+	}
+	if provider != VideoProviderPersonalAPI {
+		return nil, FrozenVideoModel{}, fmt.Errorf("%w: unsupported video provider", ErrInvalid)
+	}
+	if s.ProviderRegistry != nil {
+		cfg, err := s.ProviderRegistry.Resolve(ctx, owner, provider)
+		if err == nil {
+		model := s.Model
+		model.ID = cfg.Model
+		if model.MaxDuration <= 0 {
+			model.MaxDuration = 15
+		}
+		adapter := &YadiVideoAdapter{
+			CreateURL: cfg.CreateURL, TasksURL: cfg.TasksURL, ResultURL: cfg.ResultURL,
+			APIKey: cfg.APIKey, Model: cfg.Model,
+		}
+		if err := adapter.Validate(); err != nil {
+			return nil, FrozenVideoModel{}, err
+		}
+		return adapter, model, nil
+		}
+		if s.Adapter == nil {
+			return nil, FrozenVideoModel{}, err
+		}
+	}
+	if s.Adapter == nil {
+		return nil, FrozenVideoModel{}, fmt.Errorf("%w: personal video provider is unavailable", ErrUnavailable)
+	}
+	return s.Adapter, s.Model, nil
 }
 
 func (s *ProductionService) repository() (ProductionRepository, error) {
@@ -109,14 +163,23 @@ func normalizeProductionState(value ProductionState) ProductionState {
 }
 
 func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, batchID, bookID, requestID string) (ProductionJob, error) {
-	// The gate deliberately comes before repository/compiler/adapter work.
+	return s.SubmitBookProductionWithProvider(ctx, owner, batchID, bookID, requestID, VideoProviderPersonalAPI)
+}
+
+func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context, owner, batchID, bookID, requestID, provider string) (ProductionJob, error) {
+	// The gate deliberately comes before repository/compiler/provider work.
 	if s == nil || !s.Enabled { return ProductionJob{}, fmt.Errorf("%w: production is not enabled", ErrUnavailable) }
-	if s.Store == nil || s.Compiler == nil || s.Adapter == nil { return ProductionJob{}, ErrUnavailable }
+	if s.Store == nil || s.Compiler == nil { return ProductionJob{}, ErrUnavailable }
 	if strings.TrimSpace(requestID) == "" { return ProductionJob{}, fmt.Errorf("%w: request id is required", ErrInvalid) }
-	if strings.TrimSpace(s.Model.ID) == "" { return ProductionJob{}, fmt.Errorf("%w: frozen video model is required", ErrInvalid) }
+	provider = normalizeVideoProvider(provider)
 	repository, err := s.repository()
 	if err != nil { return ProductionJob{}, err }
 	if existing, findErr := repository.FindProductionJob(ctx, owner, batchID, bookID, requestID); findErr == nil { return existing, nil } else if findErr != ErrNotFound { return ProductionJob{}, findErr }
+
+	adapter, model, providerErr := s.resolveProvider(ctx, owner, provider)
+	if providerErr != nil { return ProductionJob{}, providerErr }
+	if provider != VideoProviderDoubaoLocal && adapter == nil { return ProductionJob{}, ErrUnavailable }
+	if strings.TrimSpace(model.ID) == "" { return ProductionJob{}, fmt.Errorf("%w: frozen video model is required", ErrInvalid) }
 
 	batch, err := s.Store.GetBatch(ctx, owner, batchID)
 	if err != nil { return ProductionJob{}, err }
@@ -147,8 +210,12 @@ func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, bat
 	for _, video := range pendingVideos {
 		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
 		if compileErr != nil { return ProductionJob{}, compileErr }
+		selectedModel := rawString(prompt.EffectiveSettings.Values, "videoModelId", "")
+		if selectedModel != "" && selectedModel != model.ID {
+			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
+		}
 		prompts[video.ID] = prompt
-		job.Tasks = append(job.Tasks, ProductionTask{VideoID:video.ID, Status:ProductionQueued, Attempt:1, FinalPromptHash:prompt.SnapshotHash, CompiledPrompt:prompt.CompiledPrompt, CreatedAt:now, UpdatedAt:now})
+		job.Tasks = append(job.Tasks, ProductionTask{VideoID:video.ID, Provider: provider, Status:ProductionQueued, Attempt:1, FinalPromptHash:prompt.SnapshotHash, CompiledPrompt:prompt.CompiledPrompt, CreatedAt:now, UpdatedAt:now})
 	}
 	job, err = repository.CreateProductionJob(ctx, job)
 	if err != nil { return ProductionJob{}, err }
@@ -156,7 +223,20 @@ func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, bat
 	for _, task := range job.Tasks {
 		prompt, ok := prompts[task.VideoID]
 		if !ok { return ProductionJob{}, fmt.Errorf("%w: persisted task prompt is missing", ErrConflict) }
-		ref, submitErr := s.Adapter.Submit(ctx, s.Model, prompt)
+		var ref ProviderTaskRef
+		var submitErr error
+		if provider == VideoProviderDoubaoLocal {
+			ref, submitErr = s.LocalExecutor.Submit(ctx, owner, LocalVideoJobInput{
+				SourceTaskID: "bf11:" + batchID + ":" + bookID + ":" + task.VideoID,
+				BatchID: batchID, BookID: bookID, VideoID: task.VideoID,
+				Model: model.ID, Prompt: prompt.CompiledPrompt,
+				Duration: prompt.DurationSeconds,
+				AspectRatio: rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
+				Resolution: rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
+			})
+		} else {
+			ref, submitErr = adapter.Submit(ctx, model, prompt)
+		}
 		task.UpdatedAt = time.Now().UTC()
 		if submitErr != nil {
 			task.Status, task.ErrorMessage = ProductionFailed, productionError(submitErr)
@@ -174,15 +254,20 @@ func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, bat
 // current Director VIDEO identities that have no queued, running, or succeeded
 // task, so a repeated batch-button click cannot duplicate successful work.
 func (s *ProductionService) SubmitBatchProduction(ctx context.Context, owner, batchID, requestID string) (BatchStatus, error) {
+	return s.SubmitBatchProductionWithProvider(ctx, owner, batchID, requestID, VideoProviderPersonalAPI)
+}
+
+func (s *ProductionService) SubmitBatchProductionWithProvider(ctx context.Context, owner, batchID, requestID, provider string) (BatchStatus, error) {
 	if s == nil || !s.Enabled { return BatchStatus{}, fmt.Errorf("%w: production is not enabled", ErrUnavailable) }
 	if strings.TrimSpace(requestID) == "" { return BatchStatus{}, fmt.Errorf("%w: request id is required", ErrInvalid) }
 	if s.Store == nil { return BatchStatus{}, ErrUnavailable }
+	provider = normalizeVideoProvider(provider)
 	batch, err := s.Store.GetBatch(ctx, owner, batchID)
 	if err != nil { return BatchStatus{}, err }
 	submitted := false
 	for _, book := range batch.Books {
 		if book.DirectorRevision == nil || len(book.Videos) == 0 { continue }
-		_, submitErr := s.SubmitBookProduction(ctx, owner, batchID, book.ID, requestID+":"+book.ID)
+		_, submitErr := s.SubmitBookProductionWithProvider(ctx, owner, batchID, book.ID, requestID+":"+book.ID, provider)
 		if errors.Is(submitErr, ErrConflict) { continue }
 		if submitErr != nil { return BatchStatus{}, submitErr }
 		submitted = true
@@ -205,13 +290,37 @@ func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID s
 }
 
 func (s *ProductionService) reconcileBatch(ctx context.Context, repository ProductionRepository, owner, batchID string) error {
-	if s.Poller == nil { return nil }
+	if s.Poller == nil && s.LocalExecutor == nil && s.ProviderRegistry == nil { return nil }
 	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
 	if err != nil { return err }
 	for _, job := range jobs {
 		for _, task := range job.Tasks {
 			if task.ProviderTaskID == "" || (task.Status != ProductionQueued && task.Status != ProductionRunning) { continue }
-			ref, pollErr := s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+			var ref ProviderTaskRef
+			var pollErr error
+			provider := normalizeVideoProvider(task.Provider)
+			if provider == VideoProviderDoubaoLocal {
+				if s.LocalExecutor == nil {
+					pollErr = fmt.Errorf("%w: Doubao local executor is offline", ErrUnavailable)
+				} else {
+					ref, pollErr = s.LocalExecutor.Poll(ctx, owner, task.ProviderTaskID)
+				}
+			} else if s.ProviderRegistry != nil {
+				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
+				if resolveErr != nil && s.Poller != nil {
+					ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+				} else if resolveErr != nil {
+					pollErr = resolveErr
+				} else if poller, ok := adapter.(ProductionPoller); !ok {
+					pollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
+				} else {
+					ref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+				}
+			} else if s.Poller != nil {
+				ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+			} else {
+				continue
+			}
 			updated := task
 			if pollErr != nil {
 				// A transport failure is retryable; persist a bounded diagnostic while

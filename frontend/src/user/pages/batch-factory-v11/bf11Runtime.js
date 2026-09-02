@@ -22,6 +22,24 @@ function subjectSettingsState(subject) {
   return settingsStateFrom(null);
 }
 
+function deriveBookStatus(book, productionStatus, mergeStatus) {
+  if (book?.status) return book.status;
+  const tasks = (productionStatus?.jobs || [])
+    .filter(job => job?.bookId === book?.id)
+    .flatMap(job => job.tasks || []);
+  const statuses = new Set(tasks.map(task => task?.status));
+  if (statuses.has('failed')) return '异常';
+  if (statuses.has('running')) return '生成中';
+  if (statuses.has('queued')) return '排队中';
+  if (tasks.length && [...statuses].every(status => status === 'succeeded')) {
+    const merged = (mergeStatus?.jobs || []).some(job => job?.status === 'succeeded');
+    return merged ? '已合并' : '待合并';
+  }
+  if (book?.directorRevision?.id || book?.director?.id) return '待生成';
+  if (book?.hook?.status === 'draft') return '待审核';
+  return '待开始';
+}
+
 export function createdBatchIdFrom(value) {
   const source = object(value);
   return source?.batch?.id || source?.id || '';
@@ -36,6 +54,7 @@ export function workbenchStateFromLoad(loadResult) {
     : (Array.isArray(batchObject.items) ? batchObject.items : []);
   const books = rawBooks.map(book => ({
     ...book,
+    status: deriveBookStatus(book, load.productionStatus, load.mergeStatus),
     settingsState: subjectSettingsState(book),
     videos: (Array.isArray(book?.videos) ? book.videos : []).map(video => ({
       ...video,
@@ -55,6 +74,8 @@ export function workbenchStateFromLoad(loadResult) {
     configVersionsError: load.configVersionsError || null,
     personalPrompts: object(load.personalPrompts),
     personalPromptsError: load.personalPromptsError || null,
+    videoProviders: object(load.videoProviders),
+    localExecutors: Array.isArray(load.localExecutors) ? load.localExecutors : [],
     selectedBatchId: load.selectedBatchId || batchObject.id || ''
   };
 }
@@ -192,6 +213,21 @@ export function createBf11Runtime({ adapter }) {
     async runProduction(input) {
       try { return { ok: true, raw: await adapter.runProduction(input) }; }
       catch (error) { return actionFailure(error, '视频生成提交失败，请检查 Director revision 和生产配置。'); }
+    },
+
+    async saveVideoProviderConfig(input) {
+      try { return { ok: true, raw: await adapter.saveVideoProviderConfig(input) }; }
+      catch (error) { return actionFailure(error, '视频提供方配置保存失败，请检查个人中心 API Key 或本地执行器配对。'); }
+    },
+
+    async getVideoProviderStatus(provider) {
+      try { return { ok: true, raw: await adapter.getVideoProviderStatus(provider) }; }
+      catch (error) { return actionFailure(error, '视频提供方状态读取失败，请稍后重试。'); }
+    },
+
+    async createLocalExecutorPairing(platform = 'doubao') {
+      try { return { ok: true, raw: await adapter.createLocalExecutorPairing(platform) }; }
+      catch (error) { return actionFailure(error, '豆包本地执行器配对码生成失败，请稍后重试。'); }
     },
 
     async runMerge(input) {
