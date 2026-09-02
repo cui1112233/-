@@ -111,7 +111,8 @@ func (a *LocalExecutorVideoAdapter) Poll(ctx context.Context, owner, jobID strin
 }
 
 func (a *LocalExecutorVideoAdapter) artifactURL(owner, id string) string {
-	id = url.PathEscape(strings.TrimSpace(id))
+	rawID := strings.TrimSpace(id)
+	id = url.PathEscape(rawID)
 	base := strings.TrimRight(strings.TrimSpace(a.PublicBaseURL), "/")
 	if base == "" {
 		return "/api/shuihuo-production/local-executor-artifacts/" + id
@@ -121,7 +122,7 @@ func (a *LocalExecutorVideoAdapter) artifactURL(owner, id string) string {
 		if ttl <= 0 { ttl = 15 * time.Minute }
 		now := time.Now
 		if a.Now != nil { now = a.Now }
-		if token, err := localexecutor.ArtifactPublicToken(a.ArtifactSecret, owner, strings.TrimSpace(id), now().Add(ttl)); err == nil {
+		if token, err := localexecutor.ArtifactPublicToken(a.ArtifactSecret, owner, rawID, now().Add(ttl)); err == nil {
 			return base + "/api/local-executor/v1/artifacts/" + id + "?token=" + url.QueryEscape(token)
 		}
 	}
