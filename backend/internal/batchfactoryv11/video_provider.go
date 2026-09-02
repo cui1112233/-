@@ -76,6 +76,10 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 		}
 	case VideoProviderDoubaoLocal:
 		cfg.APIKey = ""
+		cfg.Model = strings.TrimSpace(cfg.Model)
+		if cfg.Model == "" {
+			cfg.Model = "doubao-seedance"
+		}
 	default:
 		return fmt.Errorf("%w: unsupported video provider", ErrInvalid)
 	}
