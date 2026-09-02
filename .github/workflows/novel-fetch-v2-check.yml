@@ -47,7 +47,7 @@ jobs:
           node --test $TEST_FILES
 
       - name: Install 121 Browser Worker dependencies
-        run: npm --prefix services/121-browser-worker install --ignore-scripts --no-audit --no-fund
+        run: npm --prefix services/121-browser-worker ci --ignore-scripts --no-audit --no-fund
 
       - name: Run 121 Browser Worker tests
         run: npm --prefix services/121-browser-worker test
