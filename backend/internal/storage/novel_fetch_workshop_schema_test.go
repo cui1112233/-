@@ -19,7 +19,13 @@ func TestNovelFetchWorkshopSchemaIsOwnerScopedAndJSONBacked(t *testing.T) {
 		}
 	}
 	migrations := NovelFetchWorkshopMigrations()
-	if len(migrations) != 1 || migrations[0].Version != 1200001 {
+	wantVersions := []int{1200001, 1200002, 1200003}
+	if len(migrations) != len(wantVersions) {
 		t.Fatalf("unexpected migrations: %#v", migrations)
+	}
+	for index, want := range wantVersions {
+		if migrations[index].Version != want {
+			t.Fatalf("migration %d version = %d, want %d", index, migrations[index].Version, want)
+		}
 	}
 }
