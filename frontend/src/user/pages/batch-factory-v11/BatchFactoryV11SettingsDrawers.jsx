@@ -26,6 +26,8 @@ const VIDEO_PROVIDERS = [
 ];
 
 const VIDEO_MODELS = [
+  { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
+  { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
   { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
   { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
   { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
