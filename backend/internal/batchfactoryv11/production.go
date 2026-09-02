@@ -125,21 +125,19 @@ func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, bat
 
 	now := time.Now().UTC()
 	job := ProductionJob{ID:"", Owner:owner, BatchID:batchID, BookID:bookID, RequestID:requestID, DirectorRevisionID:book.DirectorRevision.ID, Status:ProductionQueued, Tasks:[]ProductionTask{}, CreatedAt:now, UpdatedAt:now}
+	prompts := make(map[string]FinalPrompt, len(book.Videos))
 	for _, video := range book.Videos {
 		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
 		if compileErr != nil { return ProductionJob{}, compileErr }
+		prompts[video.ID] = prompt
 		job.Tasks = append(job.Tasks, ProductionTask{VideoID:video.ID, Status:ProductionQueued, Attempt:1, FinalPromptHash:prompt.SnapshotHash, CompiledPrompt:prompt.CompiledPrompt, CreatedAt:now, UpdatedAt:now})
 	}
 	job, err = repository.CreateProductionJob(ctx, job)
 	if err != nil { return ProductionJob{}, err }
 
 	for _, task := range job.Tasks {
-		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, task.VideoID)
-		if compileErr != nil {
-			task.Status, task.ErrorMessage, task.UpdatedAt = ProductionFailed, productionError(compileErr), time.Now().UTC()
-			job, _ = repository.UpdateProductionTask(ctx, owner, job.ID, task.ID, task)
-			continue
-		}
+		prompt, ok := prompts[task.VideoID]
+		if !ok { return ProductionJob{}, fmt.Errorf("%w: persisted task prompt is missing", ErrConflict) }
 		ref, submitErr := s.Adapter.Submit(ctx, s.Model, prompt)
 		task.UpdatedAt = time.Now().UTC()
 		if submitErr != nil {
