@@ -1,13 +1,21 @@
-import { Button, Form, Input, List, Select, Slider, Switch, Typography, message } from 'antd';
+import { Button, Form, Input, List, Modal, Select, Slider, Switch, Typography, message } from 'antd';
 import { Download, FolderOpen, RefreshCw, Save, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
+import { deleteWorkshopTasks, getWorkshopConfig, listWorkshopTasks, saveWorkshopConfig } from '../../shared/api/novelFetchWorkshop';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
 const petOptions = getPetOptions();
+const novelFetchRetentionOptions = Array.from({ length: 30 }, (_, index) => ({ label: `${index + 1} 天`, value: index + 1 }));
+
+function normalizeNovelFetchRetentionDays(value) {
+  const days = Math.floor(Number(value));
+  if (!Number.isFinite(days)) return 7;
+  return Math.min(30, Math.max(1, days));
+}
 
 export function SettingsPage() {
   const [form] = Form.useForm();
@@ -20,6 +28,7 @@ export function SettingsPage() {
   const [localExecutors, setLocalExecutors] = useState([]);
   const [loadingExecutors, setLoadingExecutors] = useState(false);
   const [pairing, setPairing] = useState(null);
+  const [clearingNovelHistory, setClearingNovelHistory] = useState(false);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
   const soundEnabled = Form.useWatch('soundEnabled', form);
@@ -71,6 +80,17 @@ export function SettingsPage() {
     return () => { alive = false; };
   }, [form]);
 
+  useEffect(() => {
+    let alive = true;
+    getWorkshopConfig()
+      .then(result => {
+        if (!alive) return;
+        form.setFieldValue('novelFetchRetentionDays', normalizeNovelFetchRetentionDays(result?.appConfig?.storage?.retention_days));
+      })
+      .catch(error => message.error(error.message || '读取小说获取数据清理设置失败'));
+    return () => { alive = false; };
+  }, [form]);
+
   async function saveSection(section) {
     let values;
     try {
@@ -106,6 +126,66 @@ export function SettingsPage() {
     } finally {
       setSavingSection(null);
     }
+  }
+
+  async function saveNovelFetchDataSettings() {
+    let result;
+    try {
+      result = await form.validateFields(['novelFetchRetentionDays']);
+    } catch (error) {
+      if (!error?.errorFields) message.error(error.message || '保存失败');
+      return;
+    }
+    const retentionDays = normalizeNovelFetchRetentionDays(result.novelFetchRetentionDays);
+    setSavingSection('novelFetch');
+    try {
+      const saved = await saveWorkshopConfig({
+        appConfig: {
+          storage: {
+            cleanup_enabled: true,
+            retention_days: retentionDays
+          }
+        }
+      });
+      const savedDays = normalizeNovelFetchRetentionDays(saved?.config?.storage?.retention_days ?? retentionDays);
+      form.setFieldValue('novelFetchRetentionDays', savedDays);
+      message.success(`正文自动清理已设置为 ${savedDays} 天`);
+    } catch (error) {
+      message.error(error.message || '保存小说获取数据清理设置失败');
+    } finally {
+      setSavingSection(null);
+    }
+  }
+
+  function clearNovelFetchHistory() {
+    Modal.confirm({
+      title: '确认清除小说获取历史记录？',
+      content: '只删除历史元数据，不删除正文内部数据，也不会删除已下载到电脑的 TXT。此操作不可撤销。',
+      okText: '立即清除历史记录',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      async onOk() {
+        setClearingNovelHistory(true);
+        try {
+          const result = await listWorkshopTasks();
+          const tasks = Array.isArray(result) ? result : (Array.isArray(result?.tasks) ? result.tasks : []);
+          const ids = tasks
+            .map(item => String(item?.bookId || item?.book_id || '').trim())
+            .filter(Boolean);
+          if (!ids.length) {
+            message.success('没有可清除的小说获取历史记录');
+            return;
+          }
+          const deleted = await deleteWorkshopTasks(ids);
+          message.success(`已清除 ${Number(deleted?.deleted) || ids.length} 条历史记录；正文内部数据未删除`);
+        } catch (error) {
+          message.error(error.message || '清除小说获取历史记录失败');
+          throw error;
+        } finally {
+          setClearingNovelHistory(false);
+        }
+      }
+    });
   }
 
   async function handleRestore() {
@@ -150,7 +230,7 @@ export function SettingsPage() {
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ storageRoot: '', petId: DEFAULT_PET_ID, soundEnabled: true, soundVolume: 60, petVisible: true }}
+        initialValues={{ storageRoot: '', petId: DEFAULT_PET_ID, soundEnabled: true, soundVolume: 60, petVisible: true, novelFetchRetentionDays: 7 }}
       >
         <section className="settings-section settings-model-section" aria-labelledby="settings-model-title">
           <div>
@@ -248,6 +328,29 @@ export function SettingsPage() {
               />
             </div>
           )}
+        </section>
+
+        <section className="settings-section settings-novel-fetch-section" aria-labelledby="settings-novel-fetch-data-title">
+          <div>
+            <h2 id="settings-novel-fetch-data-title">小说获取 · 数据与清理</h2>
+            <p>历史元数据和完整正文分开管理。正文可按周期自动清理，历史记录不会跟着自动删除。</p>
+          </div>
+          <Form.Item
+            label="正文自动清理"
+            name="novelFetchRetentionDays"
+            extra="范围：1 ～ 30 天；默认 7 天。只有正文进入安全可释放状态后才开始计时。"
+            rules={[{ required: true, message: '请选择正文保留天数' }]}
+          >
+            <Select options={novelFetchRetentionOptions} style={{ maxWidth: 220 }} />
+          </Form.Item>
+          <Typography.Paragraph type="secondary">正在生成、正在同步、等待 121 上传、上传失败等待重试或任务尚未完成的正文不会被普通自动清理；已下载到电脑的 TXT 永远不自动删除。</Typography.Paragraph>
+          <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={saveNovelFetchDataSettings} loading={savingSection === 'novelFetch'}>保存正文清理设置</Button>
+
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--legacy-border)' }}>
+            <Typography.Text strong>历史记录</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 6 }}>只删除历史元数据，不删除正文内部数据，也不会删除已下载到电脑的 TXT。正文仍按上面的自动清理周期独立处理。</Typography.Paragraph>
+            <Button danger onClick={clearNovelFetchHistory} loading={clearingNovelHistory}>立即清除历史记录</Button>
+          </div>
         </section>
 
         <section className="settings-section settings-executor-section" aria-labelledby="settings-executor-title">
