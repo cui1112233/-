@@ -302,6 +302,20 @@ export function BatchFactoryV11UiPage() {
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
+  function refreshAssets(book) {
+    if (!book?.id || directorAction.type) return false;
+    return new Promise(resolve => {
+      Modal.confirm({
+        title: '重新获取资产',
+        content: '这会重新执行 Director，并生成新的 VIDEO identity；当前旧 VIDEO 的单独设置会保留为历史覆盖。确定继续吗？',
+        okText: '继续重新获取',
+        cancelText: '取消',
+        onOk: async () => { resolve(await runDirector(book)); },
+        onCancel: () => resolve(false)
+      });
+    });
+  }
+
   async function previewFinalPrompt(book, video) {
     if (!book?.id || !video?.id) return false;
     setPromptPreview({ open: true, loading: true, data: null, error: '' });
@@ -477,7 +491,7 @@ export function BatchFactoryV11UiPage() {
         onRunMerge={runMerge}
         onRunUpload={() => setExternalPublishOpen(true)}
         onSaveVideoPrompt={saveVideoPrompt}
-        onRefreshAssets={runDirector}
+        onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}
       />
 
