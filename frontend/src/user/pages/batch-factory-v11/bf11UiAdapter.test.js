@@ -91,3 +91,29 @@ test('final prompt preview reads effective settings and compiled prompt from Go'
   assert.equal(result.effectiveSettings.snapshotHash, 's1');
   assert.equal(result.finalPrompt.compiledPrompt, 'ready');
 });
+
+test('batch management, prompt persistence, production and merge actions use the V11 API client', async () => {
+  const calls = [];
+  const api = {
+    listBatches: async () => ({ batches: [{ id: 'b1', books: [] }] }),
+    createBatch: async payload => ({ batch: { id: 'b2', title: payload.title } }),
+    saveDraft: async payload => { calls.push(['draft', payload]); return payload; },
+    createPrompt: async payload => { calls.push(['prompt', payload]); return payload; },
+    runBatchDirector: async id => { calls.push(['director', id]); return { id }; },
+    saveVideoOverride: async (...args) => { calls.push(['video', ...args]); return args; },
+    submitBatchMerge: async (...args) => { calls.push(['merge', ...args]); return args; }
+  };
+  const adapter = createBf11UiAdapter(api);
+  assert.equal((await adapter.listBatches())[0].id, 'b1');
+  assert.equal((await adapter.createBatch({ title: 'new' })).batch.id, 'b2');
+  await adapter.saveDraft({ key: 'k' });
+  await adapter.createPrompt({ name: 'p' });
+  await adapter.runBatchDirector({ batchId: 'b1' });
+  await adapter.saveVideoPrompt({ batchId: 'b1', bookId: 'k1', videoId: 'v1', visualPrompt: 'x', revision: 2 });
+  await adapter.runMerge({ batchId: 'b1', requestId: 'r1', timingMode: 'speed', speed: '1.5', ttsSpeed: 1.7 });
+  assert.equal(calls[0][0], 'draft');
+  assert.equal(calls[1][0], 'prompt');
+  assert.deepEqual(calls[2], ['director', 'b1']);
+  assert.deepEqual(calls[3].slice(0, 4), ['video', 'b1', 'k1', 'v1']);
+  assert.deepEqual(calls[4], ['merge', 'b1', { requestId: 'r1', timingMode: 'speed', speed: 1.5, ttsSpeed: 1.7 }]);
+});

@@ -3,23 +3,6 @@ import { preserveSparsePatch } from './batchFactoryV11State.js';
 export function toV10ViewBatch(batch) {
   if (!batch) return null;
   return {
-    async listBatches() {
-      const result = await api.listBatches();
-      return batchesFrom(result).map(toV10ViewBatch);
-    },
-
-    async createBatch(payload = {}) {
-      return api.createBatch(payload);
-    },
-
-    async saveDraft(payload = {}) {
-      return api.saveDraft(payload);
-    },
-
-    async createPrompt(payload = {}) {
-      return api.createPrompt(payload);
-    },
-
     ...batch,
     items: (batch.books || []).map(book => ({
       ...book,
@@ -58,6 +41,23 @@ export function createBf11UiAdapter(api) {
   if (!api) throw new Error('V11 API client is required');
 
   return {
+    async listBatches() {
+      const result = await api.listBatches();
+      return batchesFrom(result).map(toV10ViewBatch);
+    },
+
+    async createBatch(payload = {}) {
+      return api.createBatch(payload);
+    },
+
+    async saveDraft(payload = {}) {
+      return api.saveDraft(payload);
+    },
+
+    async createPrompt(payload = {}) {
+      return api.createPrompt(payload);
+    },
+
     async createBatchFromIntake({ intakeId, payload = {} } = {}) {
       if (!intakeId) throw new Error('V11 intake id is required');
       return api.createBatchFromIntake(intakeId, payload);
