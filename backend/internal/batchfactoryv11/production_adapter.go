@@ -76,7 +76,10 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 		return ProviderTaskRef{}, fmt.Errorf("frozen video model does not match configured provider model")
 	}
 	values := prompt.EffectiveSettings.Values
-	duration := rawInt(values, "duration", 0)
+	duration := prompt.DurationSeconds
+	if duration <= 0 {
+		duration = rawInt(values, "duration", 0)
+	}
 	if duration <= 0 {
 		duration = model.MaxDuration
 	}
