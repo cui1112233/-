@@ -54,11 +54,11 @@ type BodySyncRecord struct {
 }
 
 type BodySyncClaim struct {
-	SyncID          string                         `json:"syncId"`
+	SyncID          string                        `json:"syncId"`
 	Body            novelfetchworkshop.BodyRecord `json:"body"`
-	LeaseToken      string                         `json:"leaseToken"`
-	LeaseGeneration int64                          `json:"leaseGeneration"`
-	LeaseExpiresAt  time.Time                      `json:"leaseExpiresAt"`
+	LeaseToken      string                        `json:"leaseToken"`
+	LeaseGeneration int64                         `json:"leaseGeneration"`
+	LeaseExpiresAt  time.Time                     `json:"leaseExpiresAt"`
 }
 
 type BodySyncStore interface {
