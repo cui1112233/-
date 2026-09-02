@@ -45,6 +45,34 @@ func (s *MemoryStore) DebugPatch(r ScopeRef) SettingsPatch {
 	return clonePatch(s.patches[scopeKey(r)])
 }
 
+func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch) Batch {
+	b.SettingsState = SettingsState{
+		Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeBatch, BatchID: b.ID})]),
+		Revision: b.Revision,
+	}
+	books := make([]Book, len(b.Books))
+	for i := range b.Books {
+		book := b.Books[i]
+		book.SettingsState = SettingsState{
+			Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeBook, BatchID: b.ID, BookID: book.ID})]),
+			Revision: book.Revision,
+		}
+		videos := make([]Video, len(book.Videos))
+		for j := range book.Videos {
+			video := book.Videos[j]
+			video.SettingsState = SettingsState{
+				Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: video.ID})]),
+				Revision: video.Revision,
+			}
+			videos[j] = video
+		}
+		book.Videos = videos
+		books[i] = book
+	}
+	b.Books = books
+	return b
+}
+
 func (s *MemoryStore) CreateIntake(_ context.Context, owner string, input NovelFetchIntakeInput) (Intake, error) {
 	input = normalizeNovelFetchIntake(input)
 	s.mu.Lock()
@@ -97,8 +125,8 @@ func (s *MemoryStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID
 	bv := b.Value
 	bv.SourceIntakeID = intakeID
 	s.batches[batch.ID] = memoryOwned[Batch]{owner, bv}
+	batch = hydrateMemoryBatchSettingsState(bv, s.patches)
 	s.mu.Unlock()
-	batch.SourceIntakeID = intakeID
 	return batch, nil
 }
 func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateBatchInput) (Batch, error) {
@@ -119,7 +147,7 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 		b.Books = append(b.Books, book)
 	}
 	s.batches[b.ID] = memoryOwned[Batch]{owner, b}
-	return b, nil
+	return hydrateMemoryBatchSettingsState(b, s.patches), nil
 }
 func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, error) {
 	s.mu.Lock()
@@ -127,7 +155,7 @@ func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, err
 	out := []Batch{}
 	for _, v := range s.batches {
 		if v.Owner == owner {
-			out = append(out, v.Value)
+			out = append(out, hydrateMemoryBatchSettingsState(v.Value, s.patches))
 		}
 	}
 	return out, nil
@@ -139,7 +167,7 @@ func (s *MemoryStore) GetBatch(_ context.Context, owner, id string) (Batch, erro
 	if !ok || v.Owner != owner {
 		return Batch{}, ErrNotFound
 	}
-	return v.Value, nil
+	return hydrateMemoryBatchSettingsState(v.Value, s.patches), nil
 }
 func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef, update SettingsUpdate) (SettingsResult, error) {
 	s.mu.Lock()
@@ -189,7 +217,7 @@ func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef
 			return SettingsResult{}, ErrNotFound
 		}
 	}
-	*rev++
+	(*rev)++
 	patch := ApplySparseUpdate(s.patches[scopeKey(ref)], update)
 	s.patches[scopeKey(ref)] = patch
 	b.UpdatedAt = time.Now().UTC()
