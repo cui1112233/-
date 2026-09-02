@@ -38,16 +38,25 @@
       #v78RunMethodGrid label{display:grid;gap:6px;min-width:0;font-size:11px;color:var(--muted)}
       #v78RunMethodGrid select{width:100%;min-height:34px;padding:6px 8px;border-radius:6px}
       #v78RunMethodGrid select:disabled{opacity:.48;cursor:not-allowed}
-      #v78ScheduleBtn,#v78SensitiveRepairBtn{min-height:37px}
-      #v78ScheduleDialog{width:min(420px,calc(100vw - 32px));border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);padding:0;box-shadow:0 24px 80px rgba(0,0,0,.5)}
-      #v78ScheduleDialog::backdrop{background:rgba(0,0,0,.58)}
-      #v78ScheduleDialog .v78-schedule-form{display:grid;gap:12px;padding:18px}
-      #v78ScheduleDialog h3{margin:0;color:var(--v78-blue,#1677ff);font-size:17px}
+      #v78ScheduleBtn,#v78ScheduleManagerBtn,#v78SensitiveRepairBtn{min-height:37px}
+      #v78ScheduleDialog,#v78ScheduleListDialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);padding:0;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+      #v78ScheduleDialog{width:min(420px,calc(100vw - 32px))}
+      #v78ScheduleListDialog{width:min(760px,calc(100vw - 32px));max-height:min(76vh,720px)}
+      #v78ScheduleDialog::backdrop,#v78ScheduleListDialog::backdrop{background:rgba(0,0,0,.58)}
+      #v78ScheduleDialog .v78-schedule-form,#v78ScheduleListDialog .v78-schedule-manager{display:grid;gap:12px;padding:18px}
+      #v78ScheduleDialog h3,#v78ScheduleListDialog h3{margin:0;color:var(--v78-blue,#1677ff);font-size:17px}
       #v78ScheduleDialog label{display:grid;gap:7px;font-size:12px;color:var(--muted)}
       #v78ScheduleDialog input{min-height:38px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel-soft);color:var(--text)}
-      #v78ScheduleDialog .v78-schedule-actions{display:flex;justify-content:flex-end;gap:8px}
-      #v78ScheduleResult{min-height:18px;font-size:12px;color:var(--muted)}
-      @media(max-width:900px){#v78RunMethodGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      #v78ScheduleDialog .v78-schedule-actions,#v78ScheduleListDialog .v78-schedule-manager-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+      #v78ScheduleResult,#v78ScheduleListResult{min-height:18px;font-size:12px;color:var(--muted)}
+      #v78ScheduleList{display:grid;gap:8px;max-height:52vh;overflow:auto;padding-right:2px}
+      .v78-schedule-row{display:grid;grid-template-columns:minmax(150px,1.2fr) minmax(120px,1fr) minmax(86px,.65fr) auto;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel-soft)}
+      .v78-schedule-row strong{font-size:12px;color:var(--text);font-weight:600}
+      .v78-schedule-row small{font-size:11px;color:var(--muted)}
+      .v78-schedule-row .v78-schedule-row-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+      .v78-schedule-row button{min-height:30px;padding:4px 9px;font-size:11px}
+      .v78-schedule-empty{padding:26px 12px;text-align:center;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:12px}
+      @media(max-width:900px){#v78RunMethodGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.v78-schedule-row{grid-template-columns:1fr}.v78-schedule-row .v78-schedule-row-actions{justify-content:flex-start}}
     `;
     document.head.appendChild(style);
   }
@@ -239,6 +248,133 @@
     dialog.showModal();
   }
 
+  function scheduleStatusLabel(item = {}) {
+    if (item.enabled === false || item.status === 'cancelled') return '已取消';
+    const labels = { scheduled: '等待执行', running: '处理中', done: '已完成', failed: '失败' };
+    return labels[item.status] || text(item.status || '等待执行');
+  }
+
+  function scheduleTargetLabel(item = {}) {
+    const versions = Array.isArray(item?.inputSnapshot?.target_versions)
+      ? item.inputSnapshot.target_versions
+      : (Array.isArray(item?.inputSnapshot?.targetVersions) ? item.inputSnapshot.targetVersions : []);
+    if (!versions.length) return '按保存配置';
+    return versions.map(version => version === 'original' ? '原文' : text(version).toUpperCase()).join('、');
+  }
+
+  function ensureScheduleListDialog() {
+    if ($('v78ScheduleListDialog')) return $('v78ScheduleListDialog');
+    const dialog = document.createElement('dialog');
+    dialog.id = 'v78ScheduleListDialog';
+    dialog.innerHTML = `
+      <div class="v78-schedule-manager">
+        <h3>定时任务管理</h3>
+        <div class="v78-run-ai-label">查看已保存的定时处理；等待中的任务可以取消，历史记录可以删除。</div>
+        <div class="v78-schedule-manager-actions"><button id="v78ScheduleListRefresh" type="button">刷新定时任务</button><button id="v78ScheduleListClose" type="button">关闭</button></div>
+        <div id="v78ScheduleListResult"></div>
+        <div id="v78ScheduleList"></div>
+      </div>`;
+    document.body.appendChild(dialog);
+    $('v78ScheduleListRefresh').addEventListener('click', () => void loadSchedules());
+    $('v78ScheduleListClose').addEventListener('click', () => dialog.close());
+    return dialog;
+  }
+
+  function renderScheduleList(schedules = []) {
+    const list = $('v78ScheduleList');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!schedules.length) {
+      const empty = document.createElement('div');
+      empty.className = 'v78-schedule-empty';
+      empty.textContent = '暂无定时任务';
+      list.appendChild(empty);
+      return;
+    }
+    for (const item of schedules) {
+      const row = document.createElement('div');
+      row.className = 'v78-schedule-row';
+
+      const when = document.createElement('strong');
+      const date = new Date(item.runAt);
+      when.textContent = Number.isFinite(date.getTime()) ? date.toLocaleString() : text(item.runAt || '-');
+
+      const versions = document.createElement('small');
+      versions.textContent = `版本：${scheduleTargetLabel(item)}`;
+
+      const status = document.createElement('small');
+      status.textContent = scheduleStatusLabel(item);
+
+      const actions = document.createElement('div');
+      actions.className = 'v78-schedule-row-actions';
+      if (item.enabled !== false && item.status === 'scheduled') {
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = '取消定时';
+        cancel.addEventListener('click', () => void cancelSchedule(item.id));
+        actions.appendChild(cancel);
+      }
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '删除记录';
+      remove.addEventListener('click', () => void deleteSchedule(item.id));
+      actions.appendChild(remove);
+
+      row.append(when, versions, status, actions);
+      list.appendChild(row);
+    }
+  }
+
+  async function loadSchedules() {
+    const result = $('v78ScheduleListResult');
+    if (result) result.textContent = '正在读取定时任务...';
+    try {
+      const data = await api('/schedules');
+      const schedules = Array.isArray(data?.schedules) ? data.schedules : [];
+      renderScheduleList(schedules);
+      if (result) result.textContent = `共 ${schedules.length} 条定时任务`;
+      return schedules;
+    } catch (error) {
+      renderScheduleList([]);
+      if (result) result.textContent = error.message || '定时任务读取失败';
+      return [];
+    }
+  }
+
+  async function cancelSchedule(id) {
+    const result = $('v78ScheduleListResult');
+    if (result) result.textContent = '正在取消定时任务...';
+    try {
+      await api(`/schedules/${encodeURIComponent(text(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: false, status: 'cancelled' })
+      });
+      if (result) result.textContent = '定时任务已取消';
+      await loadSchedules();
+    } catch (error) {
+      if (result) result.textContent = error.message || '取消定时任务失败';
+    }
+  }
+
+  async function deleteSchedule(id) {
+    if (!window.confirm('确定删除这条定时记录吗？')) return;
+    const result = $('v78ScheduleListResult');
+    if (result) result.textContent = '正在删除定时记录...';
+    try {
+      await api(`/schedules/${encodeURIComponent(text(id))}`, { method: 'DELETE' });
+      if (result) result.textContent = '定时记录已删除';
+      await loadSchedules();
+    } catch (error) {
+      if (result) result.textContent = error.message || '删除定时记录失败';
+    }
+  }
+
+  function openScheduleManager() {
+    const dialog = ensureScheduleListDialog();
+    dialog.showModal();
+    void loadSchedules();
+  }
+
   async function repairCurrentBatchSensitive() {
     const button = $('v78SensitiveRepairBtn');
     if (button) button.disabled = true;
@@ -274,13 +410,21 @@
       button.addEventListener('click', openScheduleDialog);
       processBtn.insertAdjacentElement('afterend', button);
     }
+    if (!$('v78ScheduleManagerBtn')) {
+      const button = document.createElement('button');
+      button.id = 'v78ScheduleManagerBtn';
+      button.type = 'button';
+      button.textContent = '定时任务';
+      button.addEventListener('click', openScheduleManager);
+      $('v78ScheduleBtn').insertAdjacentElement('afterend', button);
+    }
     if (!$('v78SensitiveRepairBtn')) {
       const button = document.createElement('button');
       button.id = 'v78SensitiveRepairBtn';
       button.type = 'button';
       button.textContent = '敏感词 AI 修复';
       button.addEventListener('click', () => void repairCurrentBatchSensitive());
-      $('v78ScheduleBtn').insertAdjacentElement('afterend', button);
+      $('v78ScheduleManagerBtn').insertAdjacentElement('afterend', button);
     }
     if (refreshBtn && refreshBtn.parentElement === primary) primary.appendChild(refreshBtn);
     return true;
@@ -335,7 +479,16 @@
     }, 250);
   }
 
-  window.v78NovelFetchRunControls = { buildCurrentRunSnapshot, collectRunMethods, repairCurrentBatchSensitive, openScheduleDialog };
+  window.v78NovelFetchRunControls = {
+    buildCurrentRunSnapshot,
+    collectRunMethods,
+    repairCurrentBatchSensitive,
+    openScheduleDialog,
+    openScheduleManager,
+    loadSchedules,
+    cancelSchedule,
+    deleteSchedule
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
   window.addEventListener('load', mount, { once: true });
