@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
@@ -72,6 +73,35 @@ func RegisterLocalExecutorArtifactRoutes(root *http.ServeMux, auth BridgeAuth, s
 			status = http.StatusOK
 		}
 		writeExecutorJSON(w, status, bound)
+	})
+
+	// Remote merge/publish providers cannot send a user cookie. Accept only a
+	// short-lived HMAC token bound to the owner and artifact id for this media
+	// path; the normal authenticated player route remains unchanged.
+	root.HandleFunc("GET /api/local-executor/v1/artifacts/{id}", func(w http.ResponseWriter, req *http.Request) {
+		owner, err := localexecutor.VerifyArtifactPublicToken(auth.Secret, req.PathValue("id"), req.URL.Query().Get("token"), time.Now().UTC())
+		if err != nil {
+			writeExecutorError(w, http.StatusForbidden, "invalid or expired artifact token")
+			return
+		}
+		artifact, err := service.GetArtifact(req.Context(), owner, req.PathValue("id"))
+		if err != nil {
+			writeArtifactDomainError(w, err)
+			return
+		}
+		file, err := files.Open(artifact.StorageRef)
+		if err != nil {
+			if errors.Is(err, localartifact.ErrInvalidID) {
+				writeExecutorError(w, http.StatusInternalServerError, "invalid artifact storage reference")
+				return
+			}
+			writeExecutorError(w, http.StatusNotFound, "artifact file not found")
+			return
+		}
+		defer file.Close()
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, req, artifact.ID+".mp4", artifact.CreatedAt, file)
 	})
 
 	root.Handle("GET /api/shuihuo-production/local-executor-artifacts/{id}", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
