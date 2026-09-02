@@ -2,6 +2,7 @@ package batchfactoryv11
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -122,11 +123,27 @@ func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, bat
 	if err != nil { return ProductionJob{}, err }
 	if book.DirectorRevision == nil || book.DirectorRevision.ID == "" { return ProductionJob{}, fmt.Errorf("%w: active Director revision is required", ErrConflict) }
 	if len(book.Videos) == 0 { return ProductionJob{}, fmt.Errorf("%w: no active VIDEOs to produce", ErrConflict) }
+	priorJobs, err := repository.ListProductionJobs(ctx, owner, batchID)
+	if err != nil { return ProductionJob{}, err }
+	blockedVideos := map[string]bool{}
+	for _, prior := range priorJobs {
+		if prior.BookID != bookID || prior.DirectorRevisionID != book.DirectorRevision.ID { continue }
+		for _, task := range prior.Tasks {
+			if task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded {
+				blockedVideos[task.VideoID] = true
+			}
+		}
+	}
+	pendingVideos := make([]Video, 0, len(book.Videos))
+	for _, video := range book.Videos {
+		if !blockedVideos[video.ID] { pendingVideos = append(pendingVideos, video) }
+	}
+	if len(pendingVideos) == 0 { return ProductionJob{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict) }
 
 	now := time.Now().UTC()
 	job := ProductionJob{ID:"", Owner:owner, BatchID:batchID, BookID:bookID, RequestID:requestID, DirectorRevisionID:book.DirectorRevision.ID, Status:ProductionQueued, Tasks:[]ProductionTask{}, CreatedAt:now, UpdatedAt:now}
-	prompts := make(map[string]FinalPrompt, len(book.Videos))
-	for _, video := range book.Videos {
+	prompts := make(map[string]FinalPrompt, len(pendingVideos))
+	for _, video := range pendingVideos {
 		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
 		if compileErr != nil { return ProductionJob{}, compileErr }
 		prompts[video.ID] = prompt
@@ -150,6 +167,29 @@ func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, bat
 		job = updated
 	}
 	return job, nil
+}
+
+// SubmitBatchProduction is the "generate pending" operation. It submits only
+// current Director VIDEO identities that have no queued, running, or succeeded
+// task, so a repeated batch-button click cannot duplicate successful work.
+func (s *ProductionService) SubmitBatchProduction(ctx context.Context, owner, batchID, requestID string) (BatchStatus, error) {
+	if s == nil || !s.Enabled { return BatchStatus{}, fmt.Errorf("%w: production is not enabled", ErrUnavailable) }
+	if strings.TrimSpace(requestID) == "" { return BatchStatus{}, fmt.Errorf("%w: request id is required", ErrInvalid) }
+	if s.Store == nil { return BatchStatus{}, ErrUnavailable }
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil { return BatchStatus{}, err }
+	submitted := false
+	for _, book := range batch.Books {
+		if book.DirectorRevision == nil || len(book.Videos) == 0 { continue }
+		_, submitErr := s.SubmitBookProduction(ctx, owner, batchID, book.ID, requestID+":"+book.ID)
+		if errors.Is(submitErr, ErrConflict) { continue }
+		if submitErr != nil { return BatchStatus{}, submitErr }
+		submitted = true
+	}
+	status, err := s.GetBatchStatus(ctx, owner, batchID)
+	if err != nil { return BatchStatus{}, err }
+	if !submitted && len(status.Jobs) == 0 { return BatchStatus{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict) }
+	return status, nil
 }
 
 func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID string) (BatchStatus, error) {

@@ -8,6 +8,10 @@ type Capability struct {
 }
 
 func CapabilitiesForSlice(slice int) map[string]Capability {
+	return capabilitiesForRuntime(slice, slice >= 4)
+}
+
+func capabilitiesForRuntime(slice int, productionAvailable bool) map[string]Capability {
 	caps := map[string]Capability{
 		"batch.read":        {Reason: "V11 settings slice not released"},
 		"batch.create":      {Reason: "V11 settings slice not released"},
@@ -34,11 +38,18 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 	if slice >= 3 {
 		caps["compiler.preview"] = Capability{Available: true}
 	}
+	if slice >= 4 && productionAvailable {
+		caps["production.submit"] = Capability{Available: true}
+	}
 	return caps
 }
 
 func capabilityHandler(slice int) http.HandlerFunc {
+	return capabilityHandlerForRuntime(slice, slice >= 4)
+}
+
+func capabilityHandlerForRuntime(slice int, productionAvailable bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		writeJSON(w, http.StatusOK, CapabilitiesForSlice(slice))
+		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable))
 	}
 }
