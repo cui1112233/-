@@ -58,6 +58,29 @@ type MergeService struct {
 	Enabled bool
 }
 
+func normalizeMergeOptions(options MergeOptions) (MergeOptions, error) {
+	options.TimingMode = strings.TrimSpace(options.TimingMode)
+	if options.TimingMode == "" {
+		options.TimingMode = "speed"
+	}
+	if options.TimingMode != "speed" && options.TimingMode != "audio" {
+		return MergeOptions{}, fmt.Errorf("%w: unsupported merge timing mode", ErrInvalid)
+	}
+	if options.Speed == 0 {
+		options.Speed = 1
+	}
+	if options.Speed < 0.5 || options.Speed > 4 {
+		return MergeOptions{}, fmt.Errorf("%w: merge speed must be between 0.5 and 4", ErrInvalid)
+	}
+	if options.TTSSpeed == 0 {
+		options.TTSSpeed = 1.7
+	}
+	if options.TTSSpeed < 0.5 || options.TTSSpeed > 4 {
+		return MergeOptions{}, fmt.Errorf("%w: tts speed must be between 0.5 and 4", ErrInvalid)
+	}
+	return options, nil
+}
+
 func (s *MergeService) repository() (MergeRepository, error) {
 	if s == nil || s.Store == nil { return nil, ErrUnavailable }
 	repository, ok := s.Store.(MergeRepository)
@@ -78,6 +101,8 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	if s == nil || !s.Enabled { return MergeJob{}, fmt.Errorf("%w: merge is not enabled", ErrUnavailable) }
 	if s.Adapter == nil { return MergeJob{}, ErrUnavailable }
 	if strings.TrimSpace(requestID) == "" { return MergeJob{}, fmt.Errorf("%w: request id is required", ErrInvalid) }
+	options, err := normalizeMergeOptions(options)
+	if err != nil { return MergeJob{}, err }
 	repository, err := s.repository()
 	if err != nil { return MergeJob{}, err }
 	if existing, findErr := repository.FindMergeJob(ctx, owner, batchID, requestID); findErr == nil { return existing, nil } else if !errors.Is(findErr, ErrNotFound) { return MergeJob{}, findErr }
@@ -117,6 +142,17 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	updated, err = repository.UpdateMergeJob(ctx, owner, job.ID, updated)
 	if err != nil { return MergeJob{}, err }
 	return updated, nil
+}
+
+// GetBatchStatus returns merge jobs owned by the caller. It deliberately
+// checks the parent batch first so a missing or cross-owner batch never leaks
+// merge history.
+func (s *MergeService) GetBatchStatus(ctx context.Context, owner, batchID string) ([]MergeJob, error) {
+	if s == nil || !s.Enabled { return nil, fmt.Errorf("%w: merge is not enabled", ErrUnavailable) }
+	repository, err := s.repository()
+	if err != nil { return nil, err }
+	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil { return nil, err }
+	return repository.ListMergeJobs(ctx, owner, batchID)
 }
 
 func latestProductionTasks(jobs []ProductionJob, bookID, directorRevisionID string) map[string]ProductionTask {

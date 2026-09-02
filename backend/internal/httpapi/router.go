@@ -18,11 +18,12 @@ type RouterOptions struct {
 	Director     *batchfactoryv11.DirectorService
 	Compiler     *batchfactoryv11.PromptCompilerService
 	Production   *batchfactoryv11.ProductionService
+	Merge        *batchfactoryv11.MergeService
 }
 
 func NewRouter(options RouterOptions) http.Handler {
 	v11 := http.NewServeMux()
-	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandlerForRuntime(options.Slice, options.Production != nil && options.Production.Enabled))
+	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandlerForRuntime(options.Slice, options.Production != nil && options.Production.Enabled, options.Merge != nil && options.Merge.Enabled))
 	if options.Store != nil && options.Slice >= 1 {
 		registerSliceOneRoutes(v11, options.Store)
 	}
@@ -34,6 +35,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	}
 	if options.Production != nil && options.Slice >= 4 {
 		registerProductionRoutes(v11, options.Production)
+	}
+	if options.Merge != nil && options.Slice >= 5 {
+		registerMergeRoutes(v11, options.Merge)
 	}
 	if options.RegisterV11 != nil {
 		options.RegisterV11(v11)

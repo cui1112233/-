@@ -8,10 +8,10 @@ type Capability struct {
 }
 
 func CapabilitiesForSlice(slice int) map[string]Capability {
-	return capabilitiesForRuntime(slice, slice >= 4)
+	return capabilitiesForRuntime(slice, slice >= 4, slice >= 5)
 }
 
-func capabilitiesForRuntime(slice int, productionAvailable bool) map[string]Capability {
+func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable bool) map[string]Capability {
 	caps := map[string]Capability{
 		"batch.read":        {Reason: "V11 settings slice not released"},
 		"batch.create":      {Reason: "V11 settings slice not released"},
@@ -41,15 +41,22 @@ func capabilitiesForRuntime(slice int, productionAvailable bool) map[string]Capa
 	if slice >= 4 && productionAvailable {
 		caps["production.submit"] = Capability{Available: true}
 	}
+	if slice >= 5 && mergeAvailable {
+		caps["merge.run"] = Capability{Available: true}
+	}
 	return caps
 }
 
 func capabilityHandler(slice int) http.HandlerFunc {
-	return capabilityHandlerForRuntime(slice, slice >= 4)
+	return capabilityHandlerForRuntime(slice, slice >= 4, slice >= 5)
 }
 
-func capabilityHandlerForRuntime(slice int, productionAvailable bool) http.HandlerFunc {
+func capabilityHandlerForRuntime(slice int, productionAvailable bool, mergeAvailability ...bool) http.HandlerFunc {
+	mergeAvailable := slice >= 5
+	if len(mergeAvailability) > 0 {
+		mergeAvailable = mergeAvailability[0]
+	}
 	return func(w http.ResponseWriter, req *http.Request) {
-		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable))
+		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable, mergeAvailable))
 	}
 }
