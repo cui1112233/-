@@ -40,6 +40,7 @@ test('novel-fetch upload route is Browser Worker only and contains no legacy PHP
 
 test('workshop ai3 uploads from Body Store without creating a real txt file and becomes releasable only after success', async () => {
   const bridgeRequests = [];
+  const events = [];
   const bridge = http.createServer((req, res) => {
     bridgeRequests.push(`${req.method} ${req.url}`);
     res.setHeader('Content-Type', 'application/json');
@@ -65,6 +66,7 @@ test('workshop ai3 uploads from Body Store without creating a real txt file and 
       return;
     }
     if (req.method === 'POST' && req.url === '/api/novel-fetch-workshop/tasks/123456/bodies/ai3/release') {
+      events.push('release');
       res.end(JSON.stringify({
         versionId: 'ai3',
         revision: 2,
@@ -91,6 +93,7 @@ test('workshop ai3 uploads from Body Store without creating a real txt file and 
     configured: true,
     async action(input) {
       calls.push(input);
+      events.push('121-success');
       return { ok: true, body: JSON.stringify({ success: true, result: { success: { count: 1, files: ['123456.txt'] }, failed: { count: 0, files: [] } } }) };
     }
   };
@@ -123,6 +126,7 @@ test('workshop ai3 uploads from Body Store without creating a real txt file and 
     assert.equal(fs.existsSync(diskTxt), false);
     assert.equal(bridgeRequests.includes('GET /api/novel-fetch-workshop/tasks/123456/bodies/ai3'), true);
     assert.equal(bridgeRequests.includes('POST /api/novel-fetch-workshop/tasks/123456/bodies/ai3/release'), true);
+    assert.deepEqual(events, ['121-success', 'release']);
     assert.equal(calls.length, 1);
 
     const multipart = Buffer.from(calls[0].payload.bodyBase64, 'base64').toString('utf8');
