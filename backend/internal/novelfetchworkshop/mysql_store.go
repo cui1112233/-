@@ -136,3 +136,96 @@ func (s *MySQLStore) PutConfig(ctx context.Context, owner string, settings map[s
 	_, err = s.DB.ExecContext(ctx, `INSERT INTO novel_fetch_workshop_configs(owner_username,settings_json,created_at,updated_at) VALUES(?,?,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE settings_json=VALUES(settings_json), updated_at=CURRENT_TIMESTAMP(6)`, owner, raw)
 	return err
 }
+
+func (s *MySQLStore) PutBody(ctx context.Context, owner string, body BodyRecord) (BodyRef, error) {
+	bookID := strings.TrimSpace(body.BookID)
+	versionID := strings.TrimSpace(body.VersionID)
+	if bookID == "" {
+		return BodyRef{}, errors.New("book id is required")
+	}
+	if versionID == "" {
+		return BodyRef{}, errors.New("version id is required")
+	}
+	state := strings.TrimSpace(body.State)
+	if state == "" {
+		state = "ready"
+	}
+	blob, hash, charCount, err := encodeBody(body.Content)
+	if err != nil {
+		return BodyRef{}, err
+	}
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO novel_fetch_workshop_bodies(owner_username,book_id,version_id,revision,content_encoding,content_blob,content_hash,char_count,state,created_at,updated_at,last_needed_at,expires_at) VALUES(?,?,?,1,'gzip',?,?,?,?,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6),NULL) ON DUPLICATE KEY UPDATE revision=revision+1, content_encoding=VALUES(content_encoding), content_blob=VALUES(content_blob), content_hash=VALUES(content_hash), char_count=VALUES(char_count), state=VALUES(state), updated_at=CURRENT_TIMESTAMP(6), last_needed_at=CURRENT_TIMESTAMP(6)`, owner, bookID, versionID, blob, hash, charCount, state)
+	if err != nil {
+		return BodyRef{}, err
+	}
+
+	ref := BodyRef{VersionID: versionID}
+	var updated time.Time
+	err = s.DB.QueryRowContext(ctx, `SELECT revision, content_hash, char_count, state, updated_at FROM novel_fetch_workshop_bodies WHERE owner_username=? AND book_id=? AND version_id=?`, owner, bookID, versionID).Scan(&ref.Revision, &ref.ContentHash, &ref.CharCount, &ref.State, &updated)
+	if err != nil {
+		return BodyRef{}, err
+	}
+	ref.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
+	return ref, nil
+}
+
+func (s *MySQLStore) GetBody(ctx context.Context, owner, bookID, versionID string) (BodyRecord, error) {
+	bookID = strings.TrimSpace(bookID)
+	versionID = strings.TrimSpace(versionID)
+	var ref BodyRef
+	ref.VersionID = versionID
+	var encoding string
+	var blob []byte
+	var updated time.Time
+	err := s.DB.QueryRowContext(ctx, `SELECT revision, content_encoding, content_blob, content_hash, char_count, state, updated_at FROM novel_fetch_workshop_bodies WHERE owner_username=? AND book_id=? AND version_id=?`, owner, bookID, versionID).Scan(&ref.Revision, &encoding, &blob, &ref.ContentHash, &ref.CharCount, &ref.State, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BodyRecord{}, ErrNotFound
+	}
+	if err != nil {
+		return BodyRecord{}, err
+	}
+	content, err := decodeBody(blob, encoding)
+	if err != nil {
+		return BodyRecord{}, fmt.Errorf("decode novel fetch body: %w", err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE novel_fetch_workshop_bodies SET last_needed_at=CURRENT_TIMESTAMP(6) WHERE owner_username=? AND book_id=? AND version_id=?`, owner, bookID, versionID); err != nil {
+		return BodyRecord{}, err
+	}
+	ref.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
+	return BodyRecord{BodyRef: ref, BookID: bookID, Content: content}, nil
+}
+
+func (s *MySQLStore) ListBodyRefs(ctx context.Context, owner, bookID string) ([]BodyRef, error) {
+	bookID = strings.TrimSpace(bookID)
+	rows, err := s.DB.QueryContext(ctx, `SELECT version_id, revision, content_hash, char_count, state, updated_at FROM novel_fetch_workshop_bodies WHERE owner_username=? AND book_id=? ORDER BY version_id ASC`, owner, bookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	refs := []BodyRef{}
+	for rows.Next() {
+		var ref BodyRef
+		var updated time.Time
+		if err := rows.Scan(&ref.VersionID, &ref.Revision, &ref.ContentHash, &ref.CharCount, &ref.State, &updated); err != nil {
+			return nil, err
+		}
+		ref.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
+}
+
+func (s *MySQLStore) DeleteBody(ctx context.Context, owner, bookID, versionID string) (bool, error) {
+	bookID = strings.TrimSpace(bookID)
+	versionID = strings.TrimSpace(versionID)
+	result, err := s.DB.ExecContext(ctx, `DELETE FROM novel_fetch_workshop_bodies WHERE owner_username=? AND book_id=? AND version_id=?`, owner, bookID, versionID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
