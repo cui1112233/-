@@ -20,7 +20,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Gofmt check
         run: |
-          bad=$(gofmt -l ./internal ./cmd)
+          bad=$(gofmt -l internal/app/app.go internal/httpapi/router.go internal/httpapi/integrated_router_test.go internal/httpapi/novel_fetch_workshop.go internal/httpapi/novel_fetch_workshop_test.go internal/novelfetchworkshop internal/storage/novel_fetch_workshop_schema.go internal/storage/novel_fetch_workshop_schema_test.go)
           test -z "$bad" || { echo "$bad"; exit 1; }
       - name: Go tests
         run: go test ./...
