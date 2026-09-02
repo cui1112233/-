@@ -5,7 +5,7 @@ function createLocalExecutorArtifactRouter(options = {}) {
   const router = express.Router();
   router.get('/:id', async (req, res, next) => {
     const id = String(req.params.id || '').trim();
-    if (!id || id.includes('/') || id.includes('\\\\')) {
+    if (!id || /[\\\\/]/.test(id)) {
       return res.status(400).json({ error: 'invalid artifact id' });
     }
     try {
