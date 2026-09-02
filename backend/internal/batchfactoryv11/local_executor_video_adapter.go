@@ -31,6 +31,10 @@ type LocalVideoJobClient interface {
 	GetVideoJob(context.Context, string, string) (LocalVideoJob, error)
 }
 
+type LocalVideoExecutorAvailability interface {
+	HasOnlineVideoExecutor(context.Context, string) (bool, error)
+}
+
 type LocalExecutorVideoAdapter struct {
 	Client     LocalVideoJobClient
 	PublicBaseURL string
@@ -38,6 +42,18 @@ type LocalExecutorVideoAdapter struct {
 
 func NewLocalExecutorVideoAdapter(client LocalVideoJobClient, publicBaseURL string) *LocalExecutorVideoAdapter {
 	return &LocalExecutorVideoAdapter{Client: client, PublicBaseURL: strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")}
+}
+
+func (a *LocalExecutorVideoAdapter) EnsureAvailable(ctx context.Context, owner string) error {
+	if a == nil || a.Client == nil {
+		return fmt.Errorf("%w: local executor is unavailable", ErrUnavailable)
+	}
+	if availability, ok := a.Client.(LocalVideoExecutorAvailability); ok {
+		online, err := availability.HasOnlineVideoExecutor(ctx, owner)
+		if err != nil { return err }
+		if !online { return fmt.Errorf("%w: no online Doubao local executor is paired", ErrUnavailable) }
+	}
+	return nil
 }
 
 func (a *LocalExecutorVideoAdapter) Submit(ctx context.Context, owner string, input LocalVideoJobInput) (ProviderTaskRef, error) {
