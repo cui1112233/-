@@ -11,7 +11,7 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 	return capabilitiesForRuntime(slice, slice >= 4, slice >= 5)
 }
 
-func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable bool) map[string]Capability {
+func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable bool, externalAvailability ...bool) map[string]Capability {
 	caps := map[string]Capability{
 		"batch.read":        {Reason: "V11 settings slice not released"},
 		"batch.create":      {Reason: "V11 settings slice not released"},
@@ -44,6 +44,12 @@ func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable 
 	if slice >= 5 && mergeAvailable {
 		caps["merge.run"] = Capability{Available: true}
 	}
+	if slice >= 6 && len(externalAvailability) > 0 && externalAvailability[0] {
+		caps["publish.121"] = Capability{Available: true}
+	}
+	if slice >= 6 && len(externalAvailability) > 1 && externalAvailability[1] {
+		caps["publish.yadi"] = Capability{Available: true}
+	}
 	return caps
 }
 
@@ -53,10 +59,13 @@ func capabilityHandler(slice int) http.HandlerFunc {
 
 func capabilityHandlerForRuntime(slice int, productionAvailable bool, mergeAvailability ...bool) http.HandlerFunc {
 	mergeAvailable := slice >= 5
+	var publish121, publishYadi bool
 	if len(mergeAvailability) > 0 {
 		mergeAvailable = mergeAvailability[0]
 	}
+	if len(mergeAvailability) > 1 { publish121 = mergeAvailability[1] }
+	if len(mergeAvailability) > 2 { publishYadi = mergeAvailability[2] }
 	return func(w http.ResponseWriter, req *http.Request) {
-		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable, mergeAvailable))
+		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable, mergeAvailable, publish121, publishYadi))
 	}
 }

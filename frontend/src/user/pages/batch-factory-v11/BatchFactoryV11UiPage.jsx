@@ -7,6 +7,7 @@ import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
 import { DirectorRefreshProvider } from './DirectorRefreshContext.jsx';
 import { FinalPromptPreviewDrawer } from './FinalPromptPreviewDrawer.jsx';
+import { ExternalPublishPanel } from './ExternalPublishPanel.jsx';
 import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 import { createBf11Runtime, createdBatchIdFrom } from './bf11Runtime.js';
@@ -50,6 +51,7 @@ export function BatchFactoryV11UiPage() {
   const [productionBusy, setProductionBusy] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
   const [publishSettingsOpen, setPublishSettingsOpen] = useState(false);
+  const [externalPublishOpen, setExternalPublishOpen] = useState(false);
   const [batchManagerOpen, setBatchManagerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newBatchTitle, setNewBatchTitle] = useState('');
@@ -395,6 +397,12 @@ export function BatchFactoryV11UiPage() {
     if (next.phase === 'ready') message.success('新批次已创建');
   }
 
+  function getPublishCredential(provider) { return runtime.getPublishCredential(provider); }
+  function savePublishCredential(provider, payload) { return runtime.savePublishCredential(provider, payload); }
+  function createPublishIntent(provider, payload) { return runtime.createPublishIntent(provider, payload); }
+  function confirmPublishIntent(provider, intentId) { return runtime.confirmPublishIntent(provider, intentId); }
+  function submitPublishIntent(provider, intentId) { return runtime.submitPublishIntent(provider, intentId); }
+
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
       <BatchFactoryV11Workbench
@@ -416,6 +424,7 @@ export function BatchFactoryV11UiPage() {
         onPreviewFinalPrompt={previewFinalPrompt}
         onRunProduction={runProduction}
         onRunMerge={runMerge}
+        onRunUpload={() => setExternalPublishOpen(true)}
         onSaveVideoPrompt={saveVideoPrompt}
         onRefreshAssets={runDirector}
         onSaveAssetPrompts={saveAssetPrompts}
@@ -467,6 +476,19 @@ export function BatchFactoryV11UiPage() {
         onSync={async value => {
           await saveScope({ scope: 'batch', batchId: batch.id, patch: { publishSettings: value }, revision: batchSettingsState.revision }, '批量发布配置已同步');
         }}
+      />
+
+      <ExternalPublishPanel
+        open={externalPublishOpen}
+        batch={viewBatch}
+        books={books}
+        capabilities={capabilities}
+        onClose={() => setExternalPublishOpen(false)}
+        onGetCredential={getPublishCredential}
+        onSaveCredential={savePublishCredential}
+        onCreateIntent={createPublishIntent}
+        onConfirmIntent={confirmPublishIntent}
+        onSubmitIntent={submitPublishIntent}
       />
 
       <BookSettingsModal

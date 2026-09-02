@@ -516,9 +516,9 @@ export function BatchFactoryV11Workbench({
         </section>
 
         <section className="bf11-tool-section">
-          <div className="bf11-tool-section-head"><strong>批量上传</strong><Tag>第二阶段后续片</Tag></div>
+          <div className="bf11-tool-section-head"><strong>批量上传</strong><Tag>确认后外发</Tag></div>
           <Button icon={<Upload size={14} />} disabled={!onRunUpload} onClick={() => onRunUpload?.(batch)}>上传待上传</Button>
-          <Typography.Text type="secondary">批量工厂内部上传链在第二阶段接入；121 真实账号与提交保持第三阶段。</Typography.Text>
+          <Typography.Text type="secondary">点击后选择 121/Yadi；先保存加密账号，再生成确认单，最后由你明确确认提交。</Typography.Text>
         </section>
       </div>
     }

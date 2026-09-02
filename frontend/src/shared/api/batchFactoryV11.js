@@ -149,6 +149,30 @@ export function getMergeStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
 }
 
+export function getPublishCredential(provider) {
+  return apiRequest(bf11Path(`publish/${id(provider)}/credential`));
+}
+
+export function savePublishCredential(provider, payload) {
+  return apiRequest(bf11Path(`publish/${id(provider)}/credential`), { method: 'PUT', body: body(payload) });
+}
+
+export function createPublishIntent(provider, payload) {
+  return apiRequest(bf11Path(`publish/${id(provider)}/intents`), { method: 'POST', body: body(payload) });
+}
+
+export function confirmPublishIntent(provider, intentId) {
+  return apiRequest(bf11Path(`publish/${id(provider)}/intents/${id(intentId)}/confirm`), { method: 'POST', body: body({}) });
+}
+
+export function submitPublishIntent(provider, intentId) {
+  return apiRequest(bf11Path(`publish/${id(provider)}/intents/${id(intentId)}/submit`), { method: 'POST', body: body({}) });
+}
+
+export function getPublishAudits(provider, intentId) {
+  return apiRequest(bf11Path(`publish/${id(provider)}/intents/${id(intentId)}/audits`));
+}
+
 export default {
   getCapabilities,
   createNovelFetchIntake,
@@ -176,5 +200,11 @@ export default {
   submitBatchProduction,
   getProductionStatus,
   submitBatchMerge,
-  getMergeStatus
+  getMergeStatus,
+  getPublishCredential,
+  savePublishCredential,
+  createPublishIntent,
+  confirmPublishIntent,
+  submitPublishIntent,
+  getPublishAudits
 };

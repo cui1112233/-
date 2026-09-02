@@ -178,6 +178,30 @@ export function createBf11UiAdapter(api) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
       if (typeof api.submitBatchMerge !== 'function') throw new Error('批量合并接口未接入');
       return api.submitBatchMerge(batchId, { requestId, timingMode, speed: Number(speed), ttsSpeed: Number(ttsSpeed) });
+    },
+
+    async getPublishCredential(provider) {
+      return api.getPublishCredential(provider);
+    },
+
+    async savePublishCredential(provider, payload) {
+      return api.savePublishCredential(provider, payload);
+    },
+
+    async createPublishIntent(provider, payload) {
+      return api.createPublishIntent(provider, payload);
+    },
+
+    async confirmPublishIntent(provider, intentId) {
+      return api.confirmPublishIntent(provider, intentId);
+    },
+
+    async submitPublishIntent(provider, intentId) {
+      return api.submitPublishIntent(provider, intentId);
+    },
+
+    async getPublishAudits(provider, intentId) {
+      return api.getPublishAudits(provider, intentId);
     }
   };
 }

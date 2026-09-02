@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
+	"qiantie/backend/internal/batchfactoryv11/external"
 )
 
 type RouterOptions struct {
@@ -19,11 +20,12 @@ type RouterOptions struct {
 	Compiler     *batchfactoryv11.PromptCompilerService
 	Production   *batchfactoryv11.ProductionService
 	Merge        *batchfactoryv11.MergeService
+	External     *external.Service
 }
 
 func NewRouter(options RouterOptions) http.Handler {
 	v11 := http.NewServeMux()
-	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandlerForRuntime(options.Slice, options.Production != nil && options.Production.Enabled, options.Merge != nil && options.Merge.Enabled))
+	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandlerForRuntime(options.Slice, options.Production != nil && options.Production.Enabled, options.Merge != nil && options.Merge.Enabled, options.External != nil && options.External.Enabled[external.Provider121], options.External != nil && options.External.Enabled[external.ProviderYadi]))
 	if options.Store != nil && options.Slice >= 1 {
 		registerSliceOneRoutes(v11, options.Store)
 	}
@@ -38,6 +40,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	}
 	if options.Merge != nil && options.Slice >= 5 {
 		registerMergeRoutes(v11, options.Merge)
+	}
+	if options.External != nil && options.Slice >= 6 {
+		registerExternalRoutes(v11, options.External)
 	}
 	if options.RegisterV11 != nil {
 		options.RegisterV11(v11)

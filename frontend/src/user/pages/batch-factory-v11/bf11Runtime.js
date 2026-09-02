@@ -195,6 +195,36 @@ export function createBf11Runtime({ adapter }) {
     async runMerge(input) {
       try { return { ok: true, raw: await adapter.runMerge(input) }; }
       catch (error) { return actionFailure(error, '批量合并提交失败，请确认所有 VIDEO 已生成完成。'); }
+    },
+
+    async getPublishCredential(provider) {
+      try { return { ok: true, raw: await adapter.getPublishCredential(provider) }; }
+      catch (error) { return actionFailure(error, '发布账号状态读取失败，请检查发布能力配置。'); }
+    },
+
+    async savePublishCredential(provider, payload) {
+      try { return { ok: true, raw: await adapter.savePublishCredential(provider, payload) }; }
+      catch (error) { return actionFailure(error, '发布账号保存失败，请检查加密密钥和账号信息。'); }
+    },
+
+    async createPublishIntent(provider, payload) {
+      try { return { ok: true, raw: await adapter.createPublishIntent(provider, payload) }; }
+      catch (error) { return actionFailure(error, '发布确认单创建失败，请检查发布能力配置。'); }
+    },
+
+    async confirmPublishIntent(provider, intentId) {
+      try { return { ok: true, raw: await adapter.confirmPublishIntent(provider, intentId) }; }
+      catch (error) { return actionFailure(error, '发布确认失败，确认单可能已过期。'); }
+    },
+
+    async submitPublishIntent(provider, intentId) {
+      try { return { ok: true, raw: await adapter.submitPublishIntent(provider, intentId) }; }
+      catch (error) { return actionFailure(error, '发布提交失败，系统未假报成功。'); }
+    },
+
+    async getPublishAudits(provider, intentId) {
+      try { return { ok: true, raw: await adapter.getPublishAudits(provider, intentId) }; }
+      catch (error) { return actionFailure(error, '发布审计读取失败，请稍后重试。'); }
     }
   };
 }

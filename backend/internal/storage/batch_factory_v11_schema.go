@@ -317,6 +317,57 @@ func V11MergePollerStatements() []string {
 	}
 }
 
+// V11ExternalStatements stores only encrypted provider credentials, immutable
+// submission intents, and bounded redacted audit rows. No provider secret is
+// represented in a JSON response or in cleartext columns.
+func V11ExternalStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_external_credentials (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  provider VARCHAR(16) NOT NULL,
+  credential_name VARCHAR(191) NOT NULL,
+  key_id VARCHAR(32) NOT NULL,
+  nonce VARBINARY(32) NOT NULL,
+  ciphertext BLOB NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  UNIQUE KEY uq_bfv11_external_credential_owner_provider (owner_username, provider),
+  KEY idx_bfv11_external_credential_owner (owner_username)
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_external_intents (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  provider VARCHAR(16) NOT NULL,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NULL,
+  payload_digest CHAR(64) NOT NULL,
+  payload_json JSON NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  confirmed_at DATETIME(6) NULL,
+  submitted_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_external_intent_owner (owner_username, created_at),
+  KEY idx_bfv11_external_intent_owner_provider (owner_username, provider, created_at),
+  FOREIGN KEY (batch_id) REFERENCES batch_factory_v11_batches(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_external_audits (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  provider VARCHAR(16) NOT NULL,
+  intent_id VARCHAR(64) NOT NULL,
+  action VARCHAR(32) NOT NULL,
+  outcome VARCHAR(32) NOT NULL,
+  reference_value VARCHAR(255) NULL,
+  message VARCHAR(255) NULL,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_external_audit_owner_created (owner_username, created_at),
+  KEY idx_bfv11_external_audit_intent (intent_id),
+  FOREIGN KEY (intent_id) REFERENCES batch_factory_v11_external_intents(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -326,5 +377,6 @@ func V11Migrations() []Migration {
 		{Version: 1100005, SQL: V11ProductionStatements(), CallbackChecksum: "batch-factory-v11-production-v1"},
 		{Version: 1100006, SQL: V11MergeStatements(), CallbackChecksum: "batch-factory-v11-merge-v1"},
 		{Version: 1100007, SQL: V11MergePollerStatements(), CallbackChecksum: "batch-factory-v11-merge-poller-v1"},
+		{Version: 1100008, SQL: V11ExternalStatements(), CallbackChecksum: "batch-factory-v11-external-publish-v1"},
 	}
 }
