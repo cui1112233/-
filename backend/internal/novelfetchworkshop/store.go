@@ -22,6 +22,21 @@ type Document struct {
 	UpdatedAt   string         `json:"updatedAt,omitempty"`
 }
 
+type BodyRef struct {
+	VersionID   string `json:"versionId"`
+	Revision    uint64 `json:"revision"`
+	ContentHash string `json:"contentHash"`
+	CharCount   int64  `json:"charCount"`
+	State       string `json:"state"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+type BodyRecord struct {
+	BodyRef
+	BookID  string `json:"bookId"`
+	Content string `json:"content"`
+}
+
 type DeleteResult struct {
 	Requested int            `json:"requested"`
 	Deleted   int            `json:"deleted"`
@@ -40,6 +55,13 @@ type Store interface {
 	DeleteDocuments(context.Context, string, []string) (DeleteResult, error)
 	GetConfig(context.Context, string) (map[string]any, error)
 	PutConfig(context.Context, string, map[string]any) error
+}
+
+type BodyStore interface {
+	PutBody(context.Context, string, BodyRecord) (BodyRef, error)
+	GetBody(context.Context, string, string, string) (BodyRecord, error)
+	ListBodyRefs(context.Context, string, string) ([]BodyRef, error)
+	DeleteBody(context.Context, string, string, string) (bool, error)
 }
 
 func normalizeDocument(document Document) Document {
@@ -73,14 +95,23 @@ func cloneMap(value map[string]any) map[string]any {
 	return cloned
 }
 
+func cloneBodyRecord(body BodyRecord) BodyRecord {
+	return body
+}
+
 type MemoryStore struct {
 	mu      sync.RWMutex
 	docs    map[string]map[string]Document
 	configs map[string]map[string]any
+	bodies  map[string]map[string]map[string]BodyRecord
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{docs: map[string]map[string]Document{}, configs: map[string]map[string]any{}}
+	return &MemoryStore{
+		docs:    map[string]map[string]Document{},
+		configs: map[string]map[string]any{},
+		bodies:  map[string]map[string]map[string]BodyRecord{},
+	}
 }
 
 func (s *MemoryStore) GetDocument(_ context.Context, owner, bookID string) (Document, error) {
@@ -147,4 +178,71 @@ func (s *MemoryStore) PutConfig(_ context.Context, owner string, settings map[st
 	defer s.mu.Unlock()
 	s.configs[owner] = cloneMap(settings)
 	return nil
+}
+
+func (s *MemoryStore) PutBody(_ context.Context, owner string, body BodyRecord) (BodyRef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	body.BookID = strings.TrimSpace(body.BookID)
+	body.VersionID = strings.TrimSpace(body.VersionID)
+	if body.State == "" {
+		body.State = "ready"
+	}
+	_, hash, chars, err := encodeBody(body.Content)
+	if err != nil {
+		return BodyRef{}, err
+	}
+	if s.bodies[owner] == nil {
+		s.bodies[owner] = map[string]map[string]BodyRecord{}
+	}
+	if s.bodies[owner][body.BookID] == nil {
+		s.bodies[owner][body.BookID] = map[string]BodyRecord{}
+	}
+	if previous, ok := s.bodies[owner][body.BookID][body.VersionID]; ok {
+		body.Revision = previous.Revision + 1
+	} else {
+		body.Revision = 1
+	}
+	body.ContentHash = hash
+	body.CharCount = chars
+	body.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.bodies[owner][body.BookID][body.VersionID] = cloneBodyRecord(body)
+	return body.BodyRef, nil
+}
+
+func (s *MemoryStore) GetBody(_ context.Context, owner, bookID, versionID string) (BodyRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	body, ok := s.bodies[owner][bookID][versionID]
+	if !ok {
+		return BodyRecord{}, ErrNotFound
+	}
+	return cloneBodyRecord(body), nil
+}
+
+func (s *MemoryStore) ListBodyRefs(_ context.Context, owner, bookID string) ([]BodyRef, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	bodies := s.bodies[owner][bookID]
+	refs := make([]BodyRef, 0, len(bodies))
+	for _, body := range bodies {
+		refs = append(refs, body.BodyRef)
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].VersionID < refs[j].VersionID })
+	return refs, nil
+}
+
+func (s *MemoryStore) DeleteBody(_ context.Context, owner, bookID, versionID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	versions := s.bodies[owner][bookID]
+	if versions == nil {
+		return false, nil
+	}
+	if _, ok := versions[versionID]; !ok {
+		return false, nil
+	}
+	delete(versions, versionID)
+	return true, nil
 }
