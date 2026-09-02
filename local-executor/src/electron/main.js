@@ -19,6 +19,7 @@ function createMainWindow() {
     minHeight: 600,
     show: false,
     title: '一战晟铭豆包执行器',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
