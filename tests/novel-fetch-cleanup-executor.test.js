@@ -7,49 +7,50 @@ function baseStore(storage) {
   return {
     getConfig: async () => ({ storage, platforms: [], styles: [], workflow: { auto_fetch_original: false } }),
     getPlatforms: () => [],
-    getStyles: () => [],
-    listTasks: async () => [],
-    deleteTasks: async () => ({ deleted: 0 })
+    getStyles: () => []
   };
 }
 
-test('batch executor runs owner cleanup after a successful batch only when enabled', async () => {
+test('batch executor runs owner body cleanup after a successful batch only when enabled', async () => {
   const calls = [];
   const reports = [];
   const executor = createV78NovelFetchBatchExecutor({
     accountResolver: owner => ({ username: owner }),
-    createStore: () => baseStore({ cleanup_enabled: true, retention_days: 30 }),
+    createStore: () => baseStore({ cleanup_enabled: true, retention_days: 7 }),
+    createLifecycleClient: ({ account }) => ({
+      cleanupBodies: async (reason, limit) => {
+        calls.push({ owner: account.username, reason, limit });
+        return { deleted: 2, results: [{ bookId: '1', versionId: 'ai1' }, { bookId: '2', versionId: 'ai3' }] };
+      }
+    }),
     runBatch: async () => ({ fetched: 2 }),
     parseBooks: () => ({ tasks: [] }),
     classifyMissingRows: async ({ tasks }) => ({ tasks, errors: [] }),
     applyRules: async () => false,
     generateAiVersions: async () => ({ generated: [] }),
-    runCleanup: async args => { calls.push(args); return { deleted: 2, deleteIds: ['1', '2'] }; },
     report: (_owner, event) => reports.push(event)
   });
   const result = await executor('alice', { input_text: '1' });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].owner, 'alice');
-  assert.deepEqual(calls[0].policy, { cleanup_enabled: true, retention_days: 30 });
+  assert.deepEqual(calls, [{ owner: 'alice', reason: 'expired', limit: 100 }]);
   assert.equal(result.cleanup.deleted, 2);
-  assert.ok(reports.some(event => event.type === 'storage_cleanup' && event.status === 'done'));
+  assert.ok(reports.some(event => event.type === 'storage_cleanup' && event.status === 'done' && /历史记录保留/.test(event.message)));
 });
 
-test('cleanup failure is warning-only and does not fail the completed batch', async () => {
+test('body cleanup failure is warning-only and does not fail the completed batch', async () => {
   const reports = [];
   const executor = createV78NovelFetchBatchExecutor({
     accountResolver: owner => ({ username: owner }),
-    createStore: () => baseStore({ cleanup_enabled: true, retention_days: 30 }),
+    createStore: () => baseStore({ cleanup_enabled: true, retention_days: 7 }),
+    createLifecycleClient: () => ({ cleanupBodies: async () => { throw new Error('body store busy'); } }),
     runBatch: async () => ({ fetched: 1 }),
     parseBooks: () => ({ tasks: [] }),
     classifyMissingRows: async ({ tasks }) => ({ tasks, errors: [] }),
     applyRules: async () => false,
     generateAiVersions: async () => ({ generated: [] }),
-    runCleanup: async () => { throw new Error('disk busy'); },
     report: (_owner, event) => reports.push(event)
   });
   const result = await executor('alice', { input_text: '1' });
   assert.equal(result.fetched, 1);
-  assert.equal(result.cleanup_error, 'disk busy');
+  assert.equal(result.cleanup_error, 'body store busy');
   assert.ok(reports.some(event => event.type === 'storage_cleanup' && event.status === 'warning'));
 });
