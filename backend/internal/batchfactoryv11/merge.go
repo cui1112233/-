@@ -120,8 +120,15 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	batch, err := s.Store.GetBatch(ctx, owner, batchID)
 	if err != nil { return MergeJob{}, err }
 	sources := []MergeMedia{}
+	if len(batch.Books) == 0 {
+		return MergeJob{}, fmt.Errorf("%w: batch has no books ready for merge", ErrConflict)
+	}
 	for _, book := range batch.Books {
-		if book.DirectorRevision == nil || len(book.Videos) == 0 { continue }
+		// A batch merge is all-or-nothing. Do not silently omit a book and
+		// produce a partial final movie that the UI reports as complete.
+		if book.DirectorRevision == nil || len(book.Videos) == 0 {
+			return MergeJob{}, fmt.Errorf("%w: book %s is not ready for merge", ErrConflict, book.ID)
+		}
 		tasks := latestProductionTasks(productionJobs, book.ID, book.DirectorRevision.ID)
 		for _, video := range book.Videos {
 			task, found := tasks[video.ID]
