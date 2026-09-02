@@ -111,6 +111,7 @@ function AssetPromptGroup({ label, type, items, drafts, onChange }) {
 export function BatchFactoryV11Workbench({
   batch = null,
   books = [],
+  productionStatus = null,
   capabilities = {},
   onOpenBatchManager,
   onOpenHistory,
@@ -211,17 +212,22 @@ export function BatchFactoryV11Workbench({
 
   const videoProgress = useMemo(() => {
     const all = books.flatMap(book => book.videos || []);
+    const taskStatus = new Map();
+    for (const job of productionStatus?.jobs || []) {
+      for (const task of job.tasks || []) taskStatus.set(task.videoId, task.status);
+    }
     const summary = { total: all.length, completed: 0, pending: 0, queued: 0, generating: 0, failed: 0 };
     for (const video of all) {
-      if (video.status === '已完成') summary.completed += 1;
-      else if (video.status === '异常') summary.failed += 1;
-      else if (video.status === '排队中') summary.queued += 1;
-      else if (video.status === '生成中') summary.generating += 1;
+      const durableStatus = taskStatus.get(video.id);
+      if (durableStatus === 'succeeded' || video.status === '已完成') summary.completed += 1;
+      else if (durableStatus === 'failed' || video.status === '异常') summary.failed += 1;
+      else if (durableStatus === 'queued' || video.status === '排队中') summary.queued += 1;
+      else if (durableStatus === 'running' || video.status === '生成中') summary.generating += 1;
       else summary.pending += 1;
     }
     summary.percent = summary.total ? Math.round(((summary.completed + summary.failed) / summary.total) * 100) : 0;
     return summary;
-  }, [books]);
+  }, [books, productionStatus]);
 
   const metrics = useMemo(() => ({
     columnWidth: Math.max(20, (gridWidth - ((GRID_COLUMNS - 1) * layout.gap)) / GRID_COLUMNS),

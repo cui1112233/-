@@ -120,6 +120,24 @@ export function getFinalPrompt(batchId, bookId, videoId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
 }
 
+export function submitBookProduction(batchId, bookId, requestId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/production`), {
+    method: 'POST',
+    body: body({ requestId })
+  });
+}
+
+export function submitBatchProduction(batchId, requestId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/production`), {
+    method: 'POST',
+    body: body({ requestId })
+  });
+}
+
+export function getProductionStatus(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/status`));
+}
+
 export default {
   getCapabilities,
   createNovelFetchIntake,
@@ -142,5 +160,8 @@ export default {
   runDirector,
   runBatchDirector,
   getEffectiveSettings,
-  getFinalPrompt
+  getFinalPrompt,
+  submitBookProduction,
+  submitBatchProduction,
+  getProductionStatus
 };

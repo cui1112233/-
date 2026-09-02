@@ -49,6 +49,7 @@ export function workbenchStateFromLoad(loadResult) {
     batch: batch ? { ...batchObject, settingsState: subjectSettingsState(batch), books } : null,
     books,
     intake: load.intake || null,
+    productionStatus: load.productionStatus || null,
     configVersions: Array.isArray(load.configVersions) ? load.configVersions : [],
     configVersionsError: load.configVersionsError || null,
     selectedBatchId: load.selectedBatchId || batchObject.id || ''
@@ -153,6 +154,11 @@ export function createBf11Runtime({ adapter }) {
     async previewFinalPrompt(input) {
       try { return { ok: true, raw: await adapter.previewFinalPrompt(input) }; }
       catch (error) { return actionFailure(error, '最终提示词预览失败，请检查 Director revision 和 VIDEO 设置。'); }
+    },
+
+    async runProduction(input) {
+      try { return { ok: true, raw: await adapter.runProduction(input) }; }
+      catch (error) { return actionFailure(error, '视频生成提交失败，请检查 Director revision 和生产配置。'); }
     }
   };
 }

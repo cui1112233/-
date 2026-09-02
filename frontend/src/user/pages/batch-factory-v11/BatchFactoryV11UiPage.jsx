@@ -46,6 +46,7 @@ export function BatchFactoryV11UiPage() {
   const [videoSettingsTarget, setVideoSettingsTarget] = useState(null);
   const [directorAction, setDirectorAction] = useState({ type: '', bookId: '' });
   const [promptPreview, setPromptPreview] = useState({ open: false, loading: false, data: null, error: '' });
+  const [productionBusy, setProductionBusy] = useState(false);
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -279,11 +280,33 @@ export function BatchFactoryV11UiPage() {
     return true;
   }
 
+  function newRequestId(prefix) {
+    const random = globalThis.crypto?.randomUUID?.();
+    return `${prefix}-${random || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+  }
+
+  async function runProduction(targetBatch) {
+    if (!targetBatch?.id || productionBusy) return false;
+    setProductionBusy(true);
+    try {
+      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production') });
+      if (!result.ok) { message.error(result.message); return false; }
+      const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
+      setRuntimeState(next);
+      if (next.phase !== 'ready') { message.warning('视频任务已提交，但刷新状态失败，请稍后重试。'); return true; }
+      message.success('待生成 VIDEO 已提交，状态会自动写回工作台。');
+      return true;
+    } finally {
+      setProductionBusy(false);
+    }
+  }
+
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
       <BatchFactoryV11Workbench
         batch={viewBatch}
         books={books}
+        productionStatus={runtimeState.productionStatus}
         capabilities={capabilities}
         onOpenBatchSettings={() => setProductionSettingsOpen(true)}
         onOpenBookSettings={book => setBookSettingsTargetId(book.id)}
@@ -292,6 +315,7 @@ export function BatchFactoryV11UiPage() {
         onApproveHook={approveHook}
         onRunDirector={runDirector}
         onPreviewFinalPrompt={previewFinalPrompt}
+        onRunProduction={runProduction}
       />
 
       <FinalPromptPreviewDrawer

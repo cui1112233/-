@@ -73,6 +73,9 @@ export function createBf11UiAdapter(api) {
         selectedBatchId ? api.getBatch(selectedBatchId) : Promise.resolve(null),
         intakeId ? api.getIntake(intakeId) : Promise.resolve(null)
       ]);
+      const productionStatus = selectedBatchId && typeof api.getProductionStatus === 'function'
+        ? await api.getProductionStatus(selectedBatchId).catch(() => null)
+        : null;
       return {
         capabilities,
         batches: batches.map(toV10ViewBatch),
@@ -81,6 +84,7 @@ export function createBf11UiAdapter(api) {
         intake: intakeResult?.intake || intakeResult || null,
         configVersions,
         configVersionsError,
+        productionStatus: productionStatus?.batchId ? productionStatus : null,
         startsDirector: false
       };
     },
@@ -129,6 +133,13 @@ export function createBf11UiAdapter(api) {
         effectiveSettings: effectiveResult?.effectiveSettings || effectiveResult,
         finalPrompt: promptResult?.finalPrompt || promptResult
       };
+    },
+
+    async runProduction({ batchId, bookId = '', requestId } = {}) {
+      if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
+      return bookId
+        ? api.submitBookProduction(batchId, bookId, requestId)
+        : api.submitBatchProduction(batchId, requestId);
     }
   };
 }
