@@ -368,6 +368,12 @@ func V11ExternalStatements() []string {
 	}
 }
 
+func V11VideoProviderStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN provider VARCHAR(48) NOT NULL DEFAULT 'personal_api' AFTER video_id`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -378,5 +384,6 @@ func V11Migrations() []Migration {
 		{Version: 1100006, SQL: V11MergeStatements(), CallbackChecksum: "batch-factory-v11-merge-v1"},
 		{Version: 1100007, SQL: V11MergePollerStatements(), CallbackChecksum: "batch-factory-v11-merge-poller-v1"},
 		{Version: 1100008, SQL: V11ExternalStatements(), CallbackChecksum: "batch-factory-v11-external-publish-v1"},
+		{Version: 1100009, SQL: V11VideoProviderStatements(), CallbackChecksum: "batch-factory-v11-video-provider-v1"},
 	}
 }
