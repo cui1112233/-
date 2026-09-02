@@ -41,6 +41,7 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 			fallbackAdapter = adapter
 		}
 		localAdapter := batchfactoryv11.NewLocalExecutorVideoAdapter(&localVideoJobClient{service: localExecutorService}, cfg.LocalExecutorPublicBaseURL)
+		localAdapter.ArtifactSecret = cfg.BridgeSecret
 		modelID := strings.TrimSpace(cfg.VideoModel)
 		if modelID == "" { modelID = batchfactoryv11.DefaultPersonalVideoModel }
 		var fallbackPoller batchfactoryv11.ProductionPoller
