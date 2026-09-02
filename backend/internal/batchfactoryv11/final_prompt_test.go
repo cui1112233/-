@@ -58,6 +58,18 @@ func TestFinalPromptUsesDirectorAssetsAndEffectiveConstraints(t *testing.T) {
 	if value.DirectorRevisionID != book.DirectorRevision.ID || value.SnapshotHash != value.EffectiveSettings.SnapshotHash { t.Fatalf("prompt identity=%+v", value) }
 }
 
+func TestFinalPromptUsesSavedAssetPromptDraft(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	if _, err := store.SaveDraft(context.Background(), "alice", Draft{
+		Key: "asset:character:林晚", Kind: "asset-prompt", Scope: batch.ID,
+		Content: "林晚：用户手动确认的角色一致性 Prompt",
+	}); err != nil { t.Fatal(err) }
+	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(prompt.CompiledPrompt, "林晚：用户手动确认的角色一致性 Prompt") { t.Fatalf("compiled prompt=%s", prompt.CompiledPrompt) }
+	if strings.Contains(prompt.CompiledPrompt, "林晚：18岁中国女性") { t.Fatalf("stale AI asset prompt remained: %s", prompt.CompiledPrompt) }
+}
+
 func TestFinalPromptUsesSavedVideoPromptOverride(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	override := "镜头提示词已由用户确认，保持人物连续性。"
