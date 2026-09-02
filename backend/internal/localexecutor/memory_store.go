@@ -21,9 +21,13 @@ type MemoryStore struct {
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord, tokenIDs: make(map[string]string),
-		jobs: make(map[string]JobRecord), sourceJobs: make(map[string]string),
-		artifacts: make(map[string]ArtifactRecord), jobArtifacts: make(map[string]string),
+		pairings:     make(map[string]PairingRecord),
+		executors:    make(map[string]ExecutorRecord),
+		tokenIDs:     make(map[string]string),
+		jobs:         make(map[string]JobRecord),
+		sourceJobs:   make(map[string]string),
+		artifacts:    make(map[string]ArtifactRecord),
+		jobArtifacts: make(map[string]string),
 	}
 }
 
