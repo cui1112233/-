@@ -3,20 +3,24 @@ name: Novel Fetch V2 Check
 on:
   push:
     branches:
-      - integration/v78-novel-fetch-v2-20260901
+      - integration/v78-novel-fetch-v2-final-20260902
       - release/production-v78.3.0.3-batch-factory-go-first
   workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Run novel fetch V2 tests
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run novel fetch V2 focused tests
         run: >-
           node --test
           tests/novel-fetch-v2-ui.test.js
@@ -32,3 +36,21 @@ jobs:
           tests/batch-rewrite-batches-api.test.js
           tests/batch-rewrite-v2-router.test.js
           tests/novel-fetch-v2-compose.test.js
+
+      - name: Run full Node regression
+        run: node --test tests/*.test.js lib/*.test.js routes/*.test.js
+
+      - name: Install 121 Browser Worker dependencies
+        run: npm --prefix services/121-browser-worker install --ignore-scripts --no-audit --no-fund
+
+      - name: Run 121 Browser Worker tests
+        run: npm --prefix services/121-browser-worker test
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Audit frontend dependencies
+        run: npm --prefix frontend audit --audit-level=moderate
+
+      - name: Build frontend
+        run: npm run frontend:build
