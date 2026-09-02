@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -193,7 +194,7 @@ func (a *YadiVideoAdapter) doJSON(req *http.Request) ([]byte, error) {
 			body = append(body, buf[:n]...)
 		}
 		if readErr != nil {
-			if readErr.Error() == "EOF" {
+			if readErr == io.EOF {
 				break
 			}
 			return nil, fmt.Errorf("read personal video provider response")
