@@ -152,10 +152,11 @@ func (s *Service) SaveCredential(ctx context.Context, owner, provider string, in
 	if !s.enabled(p) { return CredentialRef{}, ErrUnavailable }
 	if s.Credentials == nil || len(s.Key) != 32 { return CredentialRef{}, fmt.Errorf("%w: credential encryption key is required", ErrUnavailable) }
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(input.Name) == "" || input.Secret == "" { return CredentialRef{}, ErrInvalid }
-	keyID, nonce, ciphertext, err := EncryptCredential(s.Key, []byte(input.Secret))
+	plaintext := []byte(input.Secret)
+	defer func() { for i := range plaintext { plaintext[i] = 0 } }()
+	keyID, nonce, ciphertext, err := EncryptCredential(s.Key, plaintext)
 	if err != nil { return CredentialRef{}, err }
-	// Keep the caller's secret only in this stack frame; the store receives ciphertext.
-	defer func() { for i := range ciphertext { _ = ciphertext[i] }; for i := range nonce { _ = nonce[i] } }()
+	// Keep the caller's plaintext only in this stack frame; the store receives ciphertext.
 	id := fmt.Sprintf("credential-%d", s.now().UnixNano())
 	return s.Credentials.SaveCredential(ctx, owner, p, encryptedCredential{CredentialRef: CredentialRef{ID: id, Provider: p, Name: input.Name}, Owner: owner, KeyID: keyID, Nonce: nonce, Ciphertext: ciphertext})
 }
