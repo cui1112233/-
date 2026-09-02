@@ -43,6 +43,7 @@ type FinalPrompt struct {
 	CompiledPrompt    string            `json:"compiledPrompt"`
 	Components        []PromptComponent `json:"components"`
 	EffectiveSettings EffectiveSettings `json:"effectiveSettings"`
+	DurationSeconds   int               `json:"durationSeconds"`
 }
 
 type PromptCompilerService struct { Store Store }
