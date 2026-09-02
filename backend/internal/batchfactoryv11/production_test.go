@@ -22,6 +22,16 @@ type countingPromptResolver struct {
 	calls    int
 }
 
+type recordingProductionPoller struct {
+	calls int
+	ref   ProviderTaskRef
+}
+
+func (p *recordingProductionPoller) Poll(context.Context, FrozenVideoModel, ProviderTaskRef) (ProviderTaskRef, error) {
+	p.calls++
+	return p.ref, nil
+}
+
 func (r *countingPromptResolver) Compile(ctx context.Context, owner, batchID, bookID, videoID string) (FinalPrompt, error) {
 	r.calls++
 	return r.delegate.Compile(ctx, owner, batchID, bookID, videoID)
@@ -77,5 +87,18 @@ func TestProductionSubmitsExactlyThePromptItPersisted(t *testing.T) {
 	}
 	if len(adapter.prompts) != 1 || adapter.prompts[0].SnapshotHash != job.Tasks[0].FinalPromptHash || adapter.prompts[0].CompiledPrompt != job.Tasks[0].CompiledPrompt {
 		t.Fatalf("provider prompt diverged from durable task: prompt=%+v task=%+v", adapter.prompts, job.Tasks[0])
+	}
+}
+
+func TestProductionStatusReconcilesRunningProviderTask(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-running", State: ProductionRunning}}
+	poller := &recordingProductionPoller{ref: ProviderTaskRef{ProviderTaskID: "provider-running", State: ProductionSucceeded, MediaURL: "https://media.example/video.mp4"}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Poller: poller, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	if _, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-running"); err != nil { t.Fatal(err) }
+	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil { t.Fatal(err) }
+	if poller.calls != 1 || len(status.Jobs) != 1 || status.Jobs[0].Status != ProductionSucceeded || status.Jobs[0].Tasks[0].MediaURL == "" {
+		t.Fatalf("poller=%+v status=%+v", poller, status)
 	}
 }
