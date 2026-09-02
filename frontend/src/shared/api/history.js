@@ -1,5 +1,7 @@
 import { apiRequest } from './client';
 
+const HISTORY_NOVEL_TEXT_LIMIT = 200000;
+
 export function listHistory() {
   return apiRequest('/api/history');
 }
@@ -9,9 +11,18 @@ export function getHistory(id) {
 }
 
 export function saveHistory(entry) {
+  const payload = entry && typeof entry === 'object'
+    ? {
+        ...entry,
+        novelText: typeof entry.novelText === 'string'
+          ? entry.novelText.slice(0, HISTORY_NOVEL_TEXT_LIMIT)
+          : entry.novelText
+      }
+    : entry;
+
   return apiRequest('/api/history', {
     method: 'POST',
-    body: JSON.stringify(entry)
+    body: JSON.stringify(payload)
   });
 }
 
