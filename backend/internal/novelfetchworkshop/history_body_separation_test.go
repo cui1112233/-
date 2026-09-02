@@ -12,7 +12,7 @@ func TestDeletingHistoryDocumentKeepsBodyStoreData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.PutBody(ctx, "alice", BodyRecord{
-		BookID: "123",
+		BookID:  "123",
 		BodyRef: BodyRef{VersionID: "ai3", State: "ready"},
 		Content: "AI3正文仍然保留",
 	}); err != nil {
