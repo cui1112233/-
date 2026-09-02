@@ -18,8 +18,8 @@ func TestBodySyncClaimIsOwnerIsolatedAndAckedRevisionIsNotReclaimed(t *testing.T
 	executors := NewService(executorStore, now)
 	bodyStore := novelfetchworkshop.NewMemoryStore()
 
-	aliceToken := pairTestExecutor(t, ctx, executors, "alice", nowValue, "Alice PC")
-	bobToken := pairTestExecutor(t, ctx, executors, "bob", nowValue, "Bob PC")
+	aliceToken := pairTestExecutor(t, ctx, executors, "alice", "Alice PC")
+	bobToken := pairTestExecutor(t, ctx, executors, "bob", "Bob PC")
 
 	aliceRef, err := bodyStore.PutBody(ctx, "alice", novelfetchworkshop.BodyRecord{
 		BookID: "book-a", BodyRef: novelfetchworkshop.BodyRef{VersionID: "ai3", State: "ready"}, Content: "alice正文",
@@ -27,7 +27,7 @@ func TestBodySyncClaimIsOwnerIsolatedAndAckedRevisionIsNotReclaimed(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bodyStore.PutDocument(ctx, "alice", novelfetchworkshop.Document{BookID: "book-a", BodyRefs: map[string]novelfetchworkshop.BodyRef{"ai3": aliceRef}}); err != nil {
+	if err := bodyStore.PutDocument(ctx, "alice", novelfetchworkshop.Document{BookID: "book-a", BodyRefs: map[string]novelfetchworkshop.BodyRef{"ai3": aliceRef}}); err != nil {
 		t.Fatal(err)
 	}
 	bobRef, err := bodyStore.PutBody(ctx, "bob", novelfetchworkshop.BodyRecord{
@@ -36,7 +36,7 @@ func TestBodySyncClaimIsOwnerIsolatedAndAckedRevisionIsNotReclaimed(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bodyStore.PutDocument(ctx, "bob", novelfetchworkshop.Document{BookID: "book-b", BodyRefs: map[string]novelfetchworkshop.BodyRef{"ai1": bobRef}}); err != nil {
+	if err := bodyStore.PutDocument(ctx, "bob", novelfetchworkshop.Document{BookID: "book-b", BodyRefs: map[string]novelfetchworkshop.BodyRef{"ai1": bobRef}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,7 +70,7 @@ func TestBodySyncClaimIsOwnerIsolatedAndAckedRevisionIsNotReclaimed(t *testing.T
 	}
 }
 
-func pairTestExecutor(t *testing.T, ctx context.Context, service *Service, owner string, now time.Time, name string) string {
+func pairTestExecutor(t *testing.T, ctx context.Context, service *Service, owner, name string) string {
 	t.Helper()
 	pairing, err := service.CreatePairing(ctx, owner, PlatformDoubao)
 	if err != nil {
@@ -80,6 +80,5 @@ func pairTestExecutor(t *testing.T, ctx context.Context, service *Service, owner
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = now
 	return result.Token
 }
