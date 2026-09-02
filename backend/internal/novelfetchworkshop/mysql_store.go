@@ -30,6 +30,12 @@ func (s *MySQLStore) GetDocument(ctx context.Context, owner, bookID string) (Doc
 	}
 	document = normalizeDocument(document)
 	document.BookID = bookID
+	if hasLegacyDocumentBodies(document) {
+		if err := s.MigrateLegacyDocumentBodies(ctx, owner, bookID); err != nil {
+			return Document{}, err
+		}
+		return s.GetDocument(ctx, owner, bookID)
+	}
 	document.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
 	return document, nil
 }
@@ -67,6 +73,9 @@ func (s *MySQLStore) ListDocuments(ctx context.Context, owner string) ([]Documen
 		}
 		document = normalizeDocument(document)
 		document.BookID = bookID
+		if hasLegacyDocumentBodies(document) {
+			document = lightweightLegacyDocument(document, legacyBodyRecords(document))
+		}
 		document.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
 		result = append(result, document)
 	}
