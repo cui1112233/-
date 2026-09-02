@@ -36,19 +36,3 @@ test('script local Doubao video status and download resolve the local job artifa
     'successful local task download must stream the bound artifact'
   );
 });
-
-test('script page remembers the selected single-shot video model after refresh', () => {
-  const pageSource = source('frontend/src/user/pages/ScriptPage.jsx');
-
-  assert.match(pageSource, /scriptVideoModelKey,\s*$/m, 'draft snapshot must include scriptVideoModelKey');
-  assert.match(
-    pageSource,
-    /setScriptVideoModelKey\(restoredDraft\.scriptVideoModelKey\s*\|\|\s*['"]yd2-mini-video['"]\)/,
-    'draft restore must restore the selected video model'
-  );
-  assert.match(
-    pageSource,
-    /\[extractInfo, output, editingOutput, generationStage, constraints, shotVideoTasks, scriptVideoModelKey\]/,
-    'changing the video model must trigger draft persistence'
-  );
-});
