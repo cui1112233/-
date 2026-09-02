@@ -18,7 +18,7 @@ type RouterOptions struct {
 	Slice           int
 	RegisterV11     func(*http.ServeMux)
 	Store           batchfactoryv11.Store
-	NovelFetchStore novelfetchworkshop.Store
+	NovelFetchStore novelfetchworkshop.LifecycleStore
 	LocalExecutors  *localexecutor.Service
 	LocalArtifacts  *localartifact.Store
 }
@@ -42,6 +42,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	if options.NovelFetchStore != nil {
 		novelFetch := http.NewServeMux()
 		registerNovelFetchWorkshopRoutes(novelFetch, options.NovelFetchStore)
+		registerNovelFetchCleanupRoutes(novelFetch, options.NovelFetchStore, options.Now)
 		root.Handle("/api/novel-fetch-workshop/", NovelFetchBridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}.Middleware(novelFetch))
 	}
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {

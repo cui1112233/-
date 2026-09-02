@@ -13,13 +13,32 @@ import (
 var ErrNotFound = errors.New("novel fetch workshop record not found")
 
 type Document struct {
-	BookID      string         `json:"bookId"`
-	Meta        map[string]any `json:"meta"`
-	Original    string         `json:"original"`
-	OriginalRaw string         `json:"originalRaw"`
-	Versions    map[string]any `json:"versions"`
-	Logs        []any          `json:"logs"`
-	UpdatedAt   string         `json:"updatedAt,omitempty"`
+	BookID      string             `json:"bookId"`
+	Meta        map[string]any     `json:"meta"`
+	BodyRefs    map[string]BodyRef `json:"bodyRefs,omitempty"`
+	Original    string             `json:"original,omitempty"`
+	OriginalRaw string             `json:"originalRaw,omitempty"`
+	Versions    map[string]any     `json:"versions,omitempty"`
+	Logs        []any              `json:"logs"`
+	UpdatedAt   string             `json:"updatedAt,omitempty"`
+}
+
+type BodyRef struct {
+	VersionID    string `json:"versionId"`
+	Revision     uint64 `json:"revision"`
+	ContentHash  string `json:"contentHash"`
+	CharCount    int64  `json:"charCount"`
+	State        string `json:"state"`
+	UpdatedAt    string `json:"updatedAt"`
+	LastNeededAt string `json:"lastNeededAt,omitempty"`
+	ReleasableAt string `json:"releasableAt,omitempty"`
+	ExpiresAt    string `json:"expiresAt,omitempty"`
+}
+
+type BodyRecord struct {
+	BodyRef
+	BookID  string `json:"bookId"`
+	Content string `json:"content"`
 }
 
 type DeleteResult struct {
@@ -33,7 +52,15 @@ type DeleteRecord struct {
 	Deleted bool   `json:"deleted"`
 }
 
+type BodyStore interface {
+	PutBody(context.Context, string, BodyRecord) (BodyRef, error)
+	GetBody(context.Context, string, string, string) (BodyRecord, error)
+	ListBodyRefs(context.Context, string, string) ([]BodyRef, error)
+	DeleteBody(context.Context, string, string, string) (bool, error)
+}
+
 type Store interface {
+	BodyStore
 	GetDocument(context.Context, string, string) (Document, error)
 	PutDocument(context.Context, string, Document) error
 	ListDocuments(context.Context, string) ([]Document, error)
@@ -46,6 +73,9 @@ func normalizeDocument(document Document) Document {
 	document.BookID = strings.TrimSpace(document.BookID)
 	if document.Meta == nil {
 		document.Meta = map[string]any{}
+	}
+	if document.BodyRefs == nil {
+		document.BodyRefs = map[string]BodyRef{}
 	}
 	if document.Versions == nil {
 		document.Versions = map[string]any{}
@@ -73,14 +103,23 @@ func cloneMap(value map[string]any) map[string]any {
 	return cloned
 }
 
+func cloneBodyRecord(body BodyRecord) BodyRecord {
+	return body
+}
+
 type MemoryStore struct {
 	mu      sync.RWMutex
 	docs    map[string]map[string]Document
 	configs map[string]map[string]any
+	bodies  map[string]map[string]map[string]BodyRecord
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{docs: map[string]map[string]Document{}, configs: map[string]map[string]any{}}
+	return &MemoryStore{
+		docs:    map[string]map[string]Document{},
+		configs: map[string]map[string]any{},
+		bodies:  map[string]map[string]map[string]BodyRecord{},
+	}
 }
 
 func (s *MemoryStore) GetDocument(_ context.Context, owner, bookID string) (Document, error) {
@@ -147,4 +186,82 @@ func (s *MemoryStore) PutConfig(_ context.Context, owner string, settings map[st
 	defer s.mu.Unlock()
 	s.configs[owner] = cloneMap(settings)
 	return nil
+}
+
+func (s *MemoryStore) PutBody(_ context.Context, owner string, body BodyRecord) (BodyRef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	body.BookID = strings.TrimSpace(body.BookID)
+	body.VersionID = strings.TrimSpace(body.VersionID)
+	if body.State == "" {
+		body.State = "ready"
+	}
+	_, hash, chars, err := encodeBody(body.Content)
+	if err != nil {
+		return BodyRef{}, err
+	}
+	if s.bodies[owner] == nil {
+		s.bodies[owner] = map[string]map[string]BodyRecord{}
+	}
+	if s.bodies[owner][body.BookID] == nil {
+		s.bodies[owner][body.BookID] = map[string]BodyRecord{}
+	}
+	if previous, ok := s.bodies[owner][body.BookID][body.VersionID]; ok {
+		body.Revision = previous.Revision + 1
+	} else {
+		body.Revision = 1
+	}
+	body.ContentHash = hash
+	body.CharCount = chars
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	body.UpdatedAt = now
+	body.LastNeededAt = now
+	body.ReleasableAt = ""
+	body.ExpiresAt = ""
+	s.bodies[owner][body.BookID][body.VersionID] = cloneBodyRecord(body)
+	return body.BodyRef, nil
+}
+
+func (s *MemoryStore) GetBody(_ context.Context, owner, bookID, versionID string) (BodyRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	body, ok := s.bodies[owner][bookID][versionID]
+	if !ok {
+		return BodyRecord{}, ErrNotFound
+	}
+	body.LastNeededAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.bodies[owner][bookID][versionID] = body
+	return cloneBodyRecord(body), nil
+}
+
+func (s *MemoryStore) ListBodyRefs(_ context.Context, owner, bookID string) ([]BodyRef, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	bodies := s.bodies[owner][bookID]
+	refs := make([]BodyRef, 0, len(bodies))
+	for _, body := range bodies {
+		refs = append(refs, body.BodyRef)
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].VersionID < refs[j].VersionID })
+	return refs, nil
+}
+
+func (s *MemoryStore) DeleteBody(_ context.Context, owner, bookID, versionID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	versions := s.bodies[owner][bookID]
+	if versions == nil {
+		return false, nil
+	}
+	if _, ok := versions[versionID]; !ok {
+		return false, nil
+	}
+	delete(versions, versionID)
+	if document, ok := s.docs[owner][bookID]; ok {
+		document = normalizeDocument(document)
+		delete(document.BodyRefs, versionID)
+		s.docs[owner][bookID] = cloneDocument(document)
+	}
+	return true, nil
 }
