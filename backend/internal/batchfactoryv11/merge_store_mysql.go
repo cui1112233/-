@@ -32,8 +32,9 @@ func loadMergeJob(ctx context.Context, q productionQueryer, owner, id string) (M
 	var value MergeJob
 	var state string
 	var outputURL, errorMessage sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT id,batch_id,request_id,status,output_url,error_message,created_at,updated_at FROM batch_factory_v11_merge_jobs WHERE id=? AND owner_username=?`, id, owner).Scan(
-		&value.ID, &value.BatchID, &value.RequestID, &state, &outputURL, &errorMessage, &value.CreatedAt, &value.UpdatedAt,
+	var providerTaskID sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT id,batch_id,request_id,provider_task_id,status,output_url,error_message,created_at,updated_at FROM batch_factory_v11_merge_jobs WHERE id=? AND owner_username=?`, id, owner).Scan(
+		&value.ID, &value.BatchID, &value.RequestID, &providerTaskID, &state, &outputURL, &errorMessage, &value.CreatedAt, &value.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MergeJob{}, ErrNotFound
@@ -43,6 +44,7 @@ func loadMergeJob(ctx context.Context, q productionQueryer, owner, id string) (M
 	}
 	value.Owner = owner
 	value.Status = MergeState(state)
+	value.ProviderTaskID = providerTaskID.String
 	value.OutputURL = outputURL.String
 	value.ErrorMessage = errorMessage.String
 	value.Sources = []MergeMedia{}
@@ -86,7 +88,7 @@ func (s *MySQLStore) CreateMergeJob(ctx context.Context, value MergeJob) (MergeJ
 	value.ID = jobID
 	value.Status = normalizeMergeState(value.Status)
 	value.CreatedAt, value.UpdatedAt = now, now
-	if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_jobs(id,owner_username,batch_id,request_id,status,output_url,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, value.ID, value.Owner, value.BatchID, value.RequestID, value.Status, nullableString(value.OutputURL), nullableString(value.ErrorMessage), now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_jobs(id,owner_username,batch_id,request_id,provider_task_id,status,output_url,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, value.ID, value.Owner, value.BatchID, value.RequestID, nullableString(value.ProviderTaskID), value.Status, nullableString(value.OutputURL), nullableString(value.ErrorMessage), now, now); err != nil {
 		var duplicate *mysql.MySQLError
 		if errors.As(err, &duplicate) && duplicate.Number == 1062 {
 			_ = tx.Rollback()
@@ -113,7 +115,7 @@ func (s *MySQLStore) UpdateMergeJob(ctx context.Context, owner, jobID string, va
 		return MergeJob{}, ErrInvalid
 	}
 	value.Status = normalizeMergeState(value.Status)
-	result, err := s.db.ExecContext(ctx, `UPDATE batch_factory_v11_merge_jobs SET status=?,output_url=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, value.Status, nullableString(value.OutputURL), nullableString(value.ErrorMessage), time.Now().UTC(), jobID, owner)
+	result, err := s.db.ExecContext(ctx, `UPDATE batch_factory_v11_merge_jobs SET provider_task_id=?,status=?,output_url=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, nullableString(value.ProviderTaskID), value.Status, nullableString(value.OutputURL), nullableString(value.ErrorMessage), time.Now().UTC(), jobID, owner)
 	if err != nil {
 		return MergeJob{}, err
 	}

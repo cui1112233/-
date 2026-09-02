@@ -31,5 +31,11 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		if err := adapter.Validate(); err != nil { return nil, err }
 		production = &batchfactoryv11.ProductionService{Store: store, Compiler: compiler, Adapter: adapter, Poller: adapter, Enabled: cfg.ProductionEnabled, Model: batchfactoryv11.FrozenVideoModel{ID: cfg.VideoModel}}
 	}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, RegisterV11: register}), nil
+	var merge *batchfactoryv11.MergeService
+	if cfg.Slice >= 5 {
+		adapter := &batchfactoryv11.HTTPMergeAdapter{Endpoint: cfg.MergeEndpoint, PollEndpoint: cfg.MergePollEndpoint, APIKey: cfg.MergeAPIKey}
+		if err := adapter.Validate(); err != nil { return nil, err }
+		merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: cfg.MergeEnabled}
+	}
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, RegisterV11: register}), nil
 }

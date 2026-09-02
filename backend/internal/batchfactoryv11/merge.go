@@ -33,6 +33,7 @@ type MergeJob struct {
 	Owner     string      `json:"-"`
 	BatchID   string      `json:"batchId"`
 	RequestID string      `json:"requestId"`
+	ProviderTaskID string  `json:"providerTaskId,omitempty"`
 	Status    MergeState  `json:"status"`
 	Sources   []MergeMedia `json:"sources"`
 	OutputURL string      `json:"outputUrl,omitempty"`
@@ -45,6 +46,10 @@ type MergeAdapter interface {
 	Submit(context.Context, string, []MergeMedia, MergeOptions) (MergeJob, error)
 }
 
+type MergePoller interface {
+	Poll(context.Context, string, MergeJob) (MergeJob, error)
+}
+
 type MergeRepository interface {
 	FindMergeJob(context.Context, string, string, string) (MergeJob, error)
 	CreateMergeJob(context.Context, MergeJob) (MergeJob, error)
@@ -55,6 +60,7 @@ type MergeRepository interface {
 type MergeService struct {
 	Store   Store
 	Adapter MergeAdapter
+	Poller  MergePoller
 	Enabled bool
 }
 
@@ -133,6 +139,7 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	result, submitErr := s.Adapter.Submit(ctx, batchID, append([]MergeMedia(nil), job.Sources...), options)
 	updated := job
 	updated.Status = normalizeMergeState(result.Status)
+	updated.ProviderTaskID = strings.TrimSpace(result.ProviderTaskID)
 	updated.OutputURL = strings.TrimSpace(result.OutputURL)
 	updated.ErrorMessage = strings.TrimSpace(result.ErrorMessage)
 	if submitErr != nil {
@@ -152,7 +159,22 @@ func (s *MergeService) GetBatchStatus(ctx context.Context, owner, batchID string
 	repository, err := s.repository()
 	if err != nil { return nil, err }
 	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil { return nil, err }
-	return repository.ListMergeJobs(ctx, owner, batchID)
+	jobs, err := repository.ListMergeJobs(ctx, owner, batchID)
+	if err != nil { return nil, err }
+	if s.Poller == nil { return jobs, nil }
+	for index, job := range jobs {
+		if job.ProviderTaskID == "" || (job.Status != MergeQueued && job.Status != MergeRunning) { continue }
+		result, pollErr := s.Poller.Poll(ctx, batchID, job)
+		if pollErr != nil { continue }
+		updated := job
+		updated.Status = normalizeMergeState(result.Status)
+		updated.ProviderTaskID = strings.TrimSpace(result.ProviderTaskID)
+		updated.OutputURL = strings.TrimSpace(result.OutputURL)
+		updated.ErrorMessage = strings.TrimSpace(result.ErrorMessage)
+		if _, updateErr := repository.UpdateMergeJob(ctx, owner, job.ID, updated); updateErr != nil { return nil, updateErr }
+		jobs[index] = updated
+	}
+	return jobs, nil
 }
 
 func latestProductionTasks(jobs []ProductionJob, bookID, directorRevisionID string) map[string]ProductionTask {

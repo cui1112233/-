@@ -138,6 +138,17 @@ export function getProductionStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/status`));
 }
 
+export function submitBatchMerge(batchId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/merge`), {
+    method: 'POST',
+    body: body(payload)
+  });
+}
+
+export function getMergeStatus(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
+}
+
 export default {
   getCapabilities,
   createNovelFetchIntake,
@@ -163,5 +174,7 @@ export default {
   getFinalPrompt,
   submitBookProduction,
   submitBatchProduction,
-  getProductionStatus
+  getProductionStatus,
+  submitBatchMerge,
+  getMergeStatus
 };

@@ -18,7 +18,8 @@ test('final UI page mounts the workbench and every approved settings surface', (
   assert.match(source, /onRunHook={runHook}/);
   assert.match(source, /onApproveHook={approveHook}/);
   assert.match(source, /onRunDirector={runDirector}/);
-  assert.doesNotMatch(source, /PublishSettingsDrawer/);
+  assert.match(source, /PublishSettingsDrawer/);
+  assert.match(source, /onOpenPublishSettings/);
 });
 
 test('V78 /batch-factory page points to the final V11 UI instead of the legacy preview', () => {

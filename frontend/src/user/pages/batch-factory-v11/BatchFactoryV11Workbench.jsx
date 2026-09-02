@@ -80,13 +80,13 @@ function assetPrompt(item) {
   return typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || '');
 }
 
-function AssetPromptGroup({ label, type, items, drafts, onChange }) {
+function AssetPromptGroup({ label, type, items, drafts, onChange, onRefresh, onSave }) {
   return <div className="bf11-asset-prompt-group">
     <div className="bf11-asset-prompt-title">
       <Typography.Text strong>{label}</Typography.Text>
       <Space>
-        <Button size="small" disabled>重新获取</Button>
-        <Button size="small" disabled>保存</Button>
+        <Button size="small" disabled={!onRefresh} onClick={onRefresh}>重新获取</Button>
+        <Button size="small" disabled={!onSave} onClick={() => onSave(type, items, drafts)}>保存</Button>
       </Space>
     </div>
     <div className="bf11-asset-prompt-list">
@@ -112,6 +112,7 @@ export function BatchFactoryV11Workbench({
   batch = null,
   books = [],
   productionStatus = null,
+  mergeStatus = null,
   capabilities = {},
   onOpenBatchManager,
   onOpenHistory,
@@ -122,8 +123,12 @@ export function BatchFactoryV11Workbench({
   onRunHook,
   onApproveHook,
   onRunDirector,
+  onRunBatchDirector,
   onPreviewFinalPrompt,
   onRunProduction,
+  onSaveVideoPrompt,
+  onRefreshAssets,
+  onSaveAssetPrompts,
   onRunMerge,
   onRunUpload
 }) {
@@ -303,9 +308,9 @@ export function BatchFactoryV11Workbench({
       key: 'assets',
       label: <span className="bf11-fold-label"><strong>人物 / 场景 / 道具</strong><small>Prompt 直接编辑</small></span>,
       children: <div className="bf11-asset-editor-stack">
-        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} />
-        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} />
-        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} />
+        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
+        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
+        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
       </div>
     },
     {
@@ -347,7 +352,7 @@ export function BatchFactoryV11Workbench({
               onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedVideo.id]: event.target.value }))}
             />
             <Space wrap>
-              <Button disabled>保存画面提示词</Button>
+              <Button disabled={!onSaveVideoPrompt} onClick={() => onSaveVideoPrompt?.(selectedBook, selectedVideo, videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? '')}>保存画面提示词</Button>
               <Button
                 disabled={compilerAction.disabled || !onPreviewFinalPrompt}
                 title={compilerAction.disabled ? compilerAction.reason : ''}
@@ -438,13 +443,19 @@ export function BatchFactoryV11Workbench({
           {selectedVideos.map((video, index) => <button key={video.id} className={previewTarget === video.id ? 'is-active' : ''} onClick={() => { setPreviewTarget(video.id); setSelectedVideoId(video.id); }}>{video.label || `VIDEO ${String(index + 1).padStart(2, '0')}`}</button>)}
         </div>
         <div className="bf11-unified-player" data-bf-player="unified">
-          <Film size={42} />
+          {(() => {
+            const latestMerge = (mergeStatus?.jobs || []).slice(-1)[0];
+            const mediaURL = previewTarget === 'merged'
+              ? (selectedBook?.mergedUrl || latestMerge?.outputUrl || '')
+              : (selectedVideos.find(video => video.id === previewTarget)?.url || '');
+            return mediaURL ? <video controls preload="metadata" src={mediaURL} style={{ width: '100%', maxHeight: 360 }} /> : <Film size={42} />;
+          })()}
           <strong>{previewTarget === 'merged'
             ? (selectedBook?.mergedFileName || '暂无合并成品')
             : (selectedVideos.find(video => video.id === previewTarget)?.label || '当前 VIDEO')}</strong>
           <span>{previewTarget === 'merged' ? '最终合并成品统一在这里预览' : '原始 VIDEO 统一切换到同一个播放器预览'}</span>
           <div className="bf11-player-track"><i /></div>
-          <small>{selectedBook?.mergedUrl || selectedVideos.find(video => video.id === previewTarget)?.url ? '媒体地址已返回，播放器接入在生产 Slice 完成' : '当前暂无可播放媒体地址'}</small>
+          <small>{selectedBook?.mergedUrl || (mergeStatus?.jobs || []).some(job => job.outputUrl) || selectedVideos.find(video => video.id === previewTarget)?.url ? '媒体地址已返回，可直接播放' : '当前暂无可播放媒体地址'}</small>
         </div>
       </div>
     },
@@ -464,7 +475,7 @@ export function BatchFactoryV11Workbench({
             <Tag color="red">失败 {videoProgress.failed}</Tag>
           </Space>
           <div className="bf11-tool-buttons">
-            <Button disabled title="Slice 2 按当前小说执行 Director；批量 Director 尚未开放">批量 Director</Button>
+            <Button disabled={!onRunBatchDirector} onClick={() => onRunBatchDirector?.(batch)} title={!onRunBatchDirector ? '等待 Director 批量接线' : ''}>批量 Director</Button>
             <Button
               disabled={productionAction.disabled || !onRunProduction}
               title={productionAction.disabled ? productionAction.reason : ''}

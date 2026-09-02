@@ -28,10 +28,10 @@ func TestV11MergeMigrationAddsDurableMergeJobs(t *testing.T) {
 
 func TestV11MigrationsRegisterMergeAfterProduction(t *testing.T) {
 	migrations := V11Migrations()
-	if len(migrations) < 6 || migrations[len(migrations)-1].Version != 1100006 {
+	if len(migrations) < 7 || migrations[len(migrations)-2].Version != 1100006 || migrations[len(migrations)-1].Version != 1100007 {
 		t.Fatalf("merge migration missing: %+v", migrations)
 	}
-	if migrations[len(migrations)-1].CallbackChecksum != "batch-factory-v11-merge-v1" {
+	if migrations[len(migrations)-2].CallbackChecksum != "batch-factory-v11-merge-v1" || migrations[len(migrations)-1].CallbackChecksum != "batch-factory-v11-merge-poller-v1" {
 		t.Fatalf("unexpected merge checksum: %+v", migrations[len(migrations)-1])
 	}
 }

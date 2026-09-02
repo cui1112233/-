@@ -51,3 +51,24 @@ func TestFromEnvAcceptsProductionSliceFourOnlyWithVideoProvider(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if cfg.Slice != 4 || !cfg.ProductionEnabled || cfg.VideoModel != "video-model" { t.Fatalf("cfg=%+v", cfg) }
 }
+
+func TestFromEnvAcceptsMergeSliceFiveOnlyWithMergeProvider(t *testing.T) {
+	t.Setenv("QIANTIE_MYSQL_DSN", "user:pass@tcp(mysql:3306)/qiantie")
+	t.Setenv("QIANTIE_BRIDGE_SECRET", "secret")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_SLICE", "5")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_ENDPOINT", "https://example.com/v1/chat/completions")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY", "text-key")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL", "text-model")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_VIDEO_ENDPOINT", "https://video.example/v1/generate")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_VIDEO_POLL_ENDPOINT", "https://video.example/v1/tasks/{id}")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_VIDEO_API_KEY", "video-key")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_VIDEO_MODEL", "video-model")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED", "1")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT", "https://merge.example/v1/merge")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT", "https://merge.example/v1/tasks/{id}")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_API_KEY", "merge-key")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED", "1")
+	cfg, err := FromEnv()
+	if err != nil { t.Fatal(err) }
+	if cfg.Slice != 5 || !cfg.MergeEnabled || cfg.MergeEndpoint == "" { t.Fatalf("cfg=%+v", cfg) }
+}

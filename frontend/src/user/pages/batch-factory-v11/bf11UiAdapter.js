@@ -3,6 +3,15 @@ import { preserveSparsePatch } from './batchFactoryV11State.js';
 export function toV10ViewBatch(batch) {
   if (!batch) return null;
   return {
+    async listBatches() {
+      const result = await api.listBatches();
+      return batchesFrom(result).map(toV10ViewBatch);
+    },
+
+    async createBatch(payload = {}) {
+      return api.createBatch(payload);
+    },
+
     ...batch,
     items: (batch.books || []).map(book => ({
       ...book,
@@ -76,6 +85,9 @@ export function createBf11UiAdapter(api) {
       const productionStatus = selectedBatchId && typeof api.getProductionStatus === 'function'
         ? await api.getProductionStatus(selectedBatchId).catch(() => null)
         : null;
+      const mergeStatus = selectedBatchId && typeof api.getMergeStatus === 'function'
+        ? await api.getMergeStatus(selectedBatchId).catch(() => null)
+        : null;
       return {
         capabilities,
         batches: batches.map(toV10ViewBatch),
@@ -85,6 +97,7 @@ export function createBf11UiAdapter(api) {
         configVersions,
         configVersionsError,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
+        mergeStatus: mergeStatus?.batchId ? mergeStatus : null,
         startsDirector: false
       };
     },
@@ -123,6 +136,17 @@ export function createBf11UiAdapter(api) {
       return api.runDirector(batchId, bookId);
     },
 
+    async runBatchDirector({ batchId } = {}) {
+      if (!batchId) throw new Error('V11 batch id is required');
+      if (typeof api.runBatchDirector !== 'function') throw new Error('批量 Director 接口未接入');
+      return api.runBatchDirector(batchId);
+    },
+
+    async saveVideoPrompt({ batchId, bookId, videoId, visualPrompt, revision = 0 } = {}) {
+      if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
+      return api.saveVideoOverride(batchId, bookId, videoId, { patch: { visualPrompt }, expectedRevision: revision });
+    },
+
     async previewFinalPrompt({ batchId, bookId, videoId } = {}) {
       if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
       const [effectiveResult, promptResult] = await Promise.all([
@@ -140,6 +164,12 @@ export function createBf11UiAdapter(api) {
       return bookId
         ? api.submitBookProduction(batchId, bookId, requestId)
         : api.submitBatchProduction(batchId, requestId);
+    },
+
+    async runMerge({ batchId, requestId, timingMode = 'speed', speed = 1, ttsSpeed = 1.7 } = {}) {
+      if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
+      if (typeof api.submitBatchMerge !== 'function') throw new Error('批量合并接口未接入');
+      return api.submitBatchMerge(batchId, { requestId, timingMode, speed: Number(speed), ttsSpeed: Number(ttsSpeed) });
     }
   };
 }

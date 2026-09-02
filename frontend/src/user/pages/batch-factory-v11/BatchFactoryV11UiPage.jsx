@@ -1,8 +1,9 @@
-import { Alert, Button, Empty, Space, Spin, Tag, Typography, message } from 'antd';
+import { Alert, Button, Empty, Input, Modal, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
+import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
 import { DirectorRefreshProvider } from './DirectorRefreshContext.jsx';
 import { FinalPromptPreviewDrawer } from './FinalPromptPreviewDrawer.jsx';
@@ -47,6 +48,12 @@ export function BatchFactoryV11UiPage() {
   const [directorAction, setDirectorAction] = useState({ type: '', bookId: '' });
   const [promptPreview, setPromptPreview] = useState({ open: false, loading: false, data: null, error: '' });
   const [productionBusy, setProductionBusy] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [publishSettingsOpen, setPublishSettingsOpen] = useState(false);
+  const [batchManagerOpen, setBatchManagerOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [newBatchTitle, setNewBatchTitle] = useState('');
+  const [historyBatches, setHistoryBatches] = useState([]);
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -301,6 +308,74 @@ export function BatchFactoryV11UiPage() {
     }
   }
 
+  async function runMerge(targetBatch, options = {}) {
+    if (!targetBatch?.id || mergeBusy) return false;
+    setMergeBusy(true);
+    try {
+      const result = await runtime.runMerge({ batchId: targetBatch.id, requestId: newRequestId('bf11-merge'), ...options });
+      if (!result.ok) { message.error(result.message); return false; }
+      const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
+      setRuntimeState(next);
+      if (next.phase !== 'ready') { message.warning('合并任务已提交，但刷新状态失败，请稍后重试。'); return true; }
+      message.success('待合并任务已提交，状态会写回工作台。');
+      return true;
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
+  async function runBatchDirector(targetBatch) {
+    if (!targetBatch?.id || directorAction.type) return false;
+    setDirectorAction({ type: 'batch-director', bookId: '' });
+    try {
+      const result = await runtime.runBatchDirector({ batchId: targetBatch.id });
+      if (!result.ok) { message.error(result.message); return false; }
+      const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
+      setRuntimeState(next);
+      message.success('批量 Director 已完成；失败项会保留在返回状态中。');
+      return true;
+    } finally {
+      setDirectorAction({ type: '', bookId: '' });
+    }
+  }
+
+  async function saveVideoPrompt(book, video, visualPrompt) {
+    const result = await runtime.saveVideoPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, visualPrompt, revision: video.settingsState?.revision || 0 });
+    if (!result.ok) { message.error(result.message); return false; }
+    await reload({ announce: false });
+    message.success('画面提示词已保存');
+    return true;
+  }
+
+  async function saveAssetPrompts(type, items, drafts) {
+    const results = await Promise.all((items || []).map(item => {
+      const name = typeof item === 'string' ? item : (item?.name || item?.label || item?.id || '未命名资产');
+      const key = `${type}:${item?.id || name}:${items.indexOf(item)}`;
+      const content = drafts[key] ?? (typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || ''));
+      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: batch.id, content });
+    }));
+    if (results) message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
+    return true;
+  }
+
+  async function openHistory() {
+    const result = await runtime.listBatches();
+    if (!result.ok) { message.error(result.message); return; }
+    setHistoryBatches(result.batches || []);
+    setHistoryOpen(true);
+  }
+
+  async function createNewBatch() {
+    const result = await runtime.createBatch({ title: newBatchTitle.trim() || '未命名批次', books: [] });
+    if (!result.ok) { message.error(result.message); return; }
+    const createdID = createdBatchIdFrom(result.raw);
+    setBatchManagerOpen(false);
+    setNewBatchTitle('');
+    const next = await runtime.load({ ...requestParams, batchId: createdID });
+    setRuntimeState(next);
+    if (next.phase === 'ready') message.success('新批次已创建');
+  }
+
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
       <BatchFactoryV11Workbench
@@ -308,15 +383,36 @@ export function BatchFactoryV11UiPage() {
         books={books}
         productionStatus={runtimeState.productionStatus}
         capabilities={capabilities}
+        mergeStatus={runtimeState.mergeStatus}
+        onOpenBatchManager={() => setBatchManagerOpen(true)}
+        onOpenHistory={openHistory}
         onOpenBatchSettings={() => setProductionSettingsOpen(true)}
+        onOpenPublishSettings={() => setPublishSettingsOpen(true)}
         onOpenBookSettings={book => setBookSettingsTargetId(book.id)}
         onOpenVideoSettings={(book, video) => setVideoSettingsTarget({ bookId: book.id, videoId: video.id })}
         onRunHook={runHook}
         onApproveHook={approveHook}
         onRunDirector={runDirector}
+        onRunBatchDirector={runBatchDirector}
         onPreviewFinalPrompt={previewFinalPrompt}
         onRunProduction={runProduction}
+        onRunMerge={runMerge}
+        onSaveVideoPrompt={saveVideoPrompt}
+        onRefreshAssets={runDirector}
+        onSaveAssetPrompts={saveAssetPrompts}
       />
+
+      <Modal title="新建批次" open={batchManagerOpen} onCancel={() => setBatchManagerOpen(false)} onOk={createNewBatch} okText="创建">
+        <Input placeholder="批次名称" value={newBatchTitle} onChange={event => setNewBatchTitle(event.target.value)} />
+        <Typography.Text type="secondary">创建后可从小说获取导入书目，或在当前批次继续配置。</Typography.Text>
+      </Modal>
+
+      <Modal title="历史批次" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {(historyBatches || []).map(record => <Button key={record.id} block onClick={async () => { const next = await runtime.load({ ...requestParams, batchId: record.id }); setRuntimeState(next); setHistoryOpen(false); }}>{record.title || record.id} · {record.count || record.books?.length || 0} 本</Button>)}
+          {!historyBatches.length ? <Empty description="暂无历史批次" /> : null}
+        </Space>
+      </Modal>
 
       <FinalPromptPreviewDrawer
         open={promptPreview.open}
@@ -336,6 +432,20 @@ export function BatchFactoryV11UiPage() {
         onPreviewChangeImpact={previewBatchChangeImpact}
         onSyncConfigVersion={syncBatchConfigVersion}
         onSave={saveBatchSettings}
+      />
+
+      <PublishSettingsDrawer
+        open={publishSettingsOpen}
+        batch={viewBatch}
+        initialValue={batchSettingsState.patch.publishSettings || undefined}
+        onClose={() => setPublishSettingsOpen(false)}
+        onSave={async value => {
+          const ok = await saveScope({ scope: 'batch', batchId: batch.id, patch: { publishSettings: value }, revision: batchSettingsState.revision }, '发布统一设置已保存');
+          return ok;
+        }}
+        onSync={async value => {
+          await saveScope({ scope: 'batch', batchId: batch.id, patch: { publishSettings: value }, revision: batchSettingsState.revision }, '批量发布配置已同步');
+        }}
       />
 
       <BookSettingsModal

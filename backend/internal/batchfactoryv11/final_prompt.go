@@ -183,7 +183,7 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 	propRefs := rawStrings(values, "propRefs"); if len(propRefs) == 0 { propRefs = draft.Props }
 
 	components := []PromptComponent{}
-	addComponent(&components, "visual", "画面主体", video.VisualPrompt)
+	addComponent(&components, "visual", "画面主体", rawString(values, "visualPrompt", video.VisualPrompt))
 	if rawBool(values, "injectBaseSettings", true) {
 		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, namedPromptMap(book.Assets.Characters)))
 		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, namedPromptMap(book.Assets.Scenes)))

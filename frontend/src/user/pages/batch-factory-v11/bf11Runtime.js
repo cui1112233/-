@@ -50,6 +50,7 @@ export function workbenchStateFromLoad(loadResult) {
     books,
     intake: load.intake || null,
     productionStatus: load.productionStatus || null,
+    mergeStatus: load.mergeStatus || null,
     configVersions: Array.isArray(load.configVersions) ? load.configVersions : [],
     configVersionsError: load.configVersionsError || null,
     selectedBatchId: load.selectedBatchId || batchObject.id || ''
@@ -117,6 +118,16 @@ export function createBf11Runtime({ adapter }) {
       }
     },
 
+    async listBatches() {
+      try { return { ok: true, batches: await adapter.listBatches() }; }
+      catch (error) { return actionFailure(error, '历史批次读取失败，请稍后重试。'); }
+    },
+
+    async createBatch(input) {
+      try { return { ok: true, raw: await adapter.createBatch(input) }; }
+      catch (error) { return actionFailure(error, '新建批次失败，请检查批次内容。'); }
+    },
+
     async previewChangeImpact(input) {
       try {
         const impact = await adapter.previewChangeImpact(input);
@@ -151,6 +162,16 @@ export function createBf11Runtime({ adapter }) {
       catch (error) { return actionFailure(error, 'Director 执行失败，请检查 Hook、模型和时长设置。'); }
     },
 
+    async runBatchDirector(input) {
+      try { return { ok: true, raw: await adapter.runBatchDirector(input) }; }
+      catch (error) { return actionFailure(error, '批量 Director 执行失败，请检查批次设置。'); }
+    },
+
+    async saveVideoPrompt(input) {
+      try { return { ok: true, raw: await adapter.saveVideoPrompt(input) }; }
+      catch (error) { return saveFailure(error); }
+    },
+
     async previewFinalPrompt(input) {
       try { return { ok: true, raw: await adapter.previewFinalPrompt(input) }; }
       catch (error) { return actionFailure(error, '最终提示词预览失败，请检查 Director revision 和 VIDEO 设置。'); }
@@ -159,6 +180,11 @@ export function createBf11Runtime({ adapter }) {
     async runProduction(input) {
       try { return { ok: true, raw: await adapter.runProduction(input) }; }
       catch (error) { return actionFailure(error, '视频生成提交失败，请检查 Director revision 和生产配置。'); }
+    },
+
+    async runMerge(input) {
+      try { return { ok: true, raw: await adapter.runMerge(input) }; }
+      catch (error) { return actionFailure(error, '批量合并提交失败，请确认所有 VIDEO 已生成完成。'); }
     }
   };
 }

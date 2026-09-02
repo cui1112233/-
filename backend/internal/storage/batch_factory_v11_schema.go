@@ -311,6 +311,12 @@ func V11MergeStatements() []string {
 	}
 }
 
+func V11MergePollerStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN IF NOT EXISTS provider_task_id VARCHAR(255) NULL AFTER request_id`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -319,5 +325,6 @@ func V11Migrations() []Migration {
 		{Version: 1100004, SQL: V11DirectorStatements(), CallbackChecksum: "batch-factory-v11-director-v1"},
 		{Version: 1100005, SQL: V11ProductionStatements(), CallbackChecksum: "batch-factory-v11-production-v1"},
 		{Version: 1100006, SQL: V11MergeStatements(), CallbackChecksum: "batch-factory-v11-merge-v1"},
+		{Version: 1100007, SQL: V11MergePollerStatements(), CallbackChecksum: "batch-factory-v11-merge-poller-v1"},
 	}
 }

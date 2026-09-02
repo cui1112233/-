@@ -44,9 +44,11 @@ export function PublishSettingsDrawer({
   batch,
   initialValue = DEFAULT_PUBLISH_SETTINGS,
   onClose,
-  onSave
+  onSave,
+  onSync
 }) {
   const [form, setForm] = useState(initialValue);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -60,6 +62,12 @@ export function PublishSettingsDrawer({
   function save() {
     onSave?.(form);
     onClose?.();
+  }
+
+  async function sync() {
+    if (!onSync || syncing) return;
+    setSyncing(true);
+    try { await onSync(form); } finally { setSyncing(false); }
   }
 
   return <Drawer
@@ -98,7 +106,7 @@ export function PublishSettingsDrawer({
               { value: 'publish-v2.2', label: '发布配置 V2.2 · 历史' }
             ]}
           />
-          <Button icon={<CloudUpload size={14} />}>同步批量后台配置</Button>
+          <Button loading={syncing} icon={<CloudUpload size={14} />} onClick={sync}>同步批量后台配置</Button>
         </div>
       </section>
 
