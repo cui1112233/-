@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 )
@@ -98,4 +99,76 @@ func TestMySQLStoreMigrateLegacyDocumentBodiesIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db
+}
+
+func TestMySQLStoreGetDocumentMigratesLegacyBodiesLazily(t *testing.T) {
+	_, mock, store := newBodySQLMock(t)
+	ctx := context.Background()
+	updated := time.Date(2026, 9, 2, 14, 0, 0, 0, time.UTC)
+	document := Document{
+		BookID:      "123",
+		Original:    "规范原文",
+		OriginalRaw: "原始原文",
+		Versions:    map[string]any{"ai1": "AI1正文"},
+		Logs:        []any{},
+	}
+	raw, _ := json.Marshal(document)
+	migrated := lightweightLegacyDocument(document, legacyBodyRecords(document))
+	migratedRaw, _ := json.Marshal(migrated)
+
+	getSQL := regexp.QuoteMeta(`SELECT document_json, updated_at FROM novel_fetch_workshop_documents WHERE owner_username=? AND book_id=?`)
+	selectSQL := regexp.QuoteMeta(`SELECT document_json FROM novel_fetch_workshop_documents WHERE owner_username=? AND book_id=? FOR UPDATE`)
+	insertSQL := regexp.QuoteMeta(`INSERT IGNORE INTO novel_fetch_workshop_bodies(owner_username,book_id,version_id,revision,content_encoding,content_blob,content_hash,char_count,state,created_at,updated_at,last_needed_at,expires_at) VALUES(?,?,?,1,'gzip',?,?,?,?,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6),NULL)`)
+	updateSQL := regexp.QuoteMeta(`UPDATE novel_fetch_workshop_documents SET document_json=?, updated_at=CURRENT_TIMESTAMP(6) WHERE owner_username=? AND book_id=?`)
+
+	mock.ExpectQuery(getSQL).WithArgs("alice", "123").WillReturnRows(sqlmock.NewRows([]string{"document_json", "updated_at"}).AddRow(raw, updated))
+	mock.ExpectBegin()
+	mock.ExpectQuery(selectSQL).WithArgs("alice", "123").WillReturnRows(sqlmock.NewRows([]string{"document_json"}).AddRow(raw))
+	mock.ExpectExec(insertSQL).WithArgs("alice", "123", "original", sqlmock.AnyArg(), sqlmock.AnyArg(), int64(4), "ready").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(insertSQL).WithArgs("alice", "123", "ai1", sqlmock.AnyArg(), sqlmock.AnyArg(), int64(5), "ready").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(updateSQL).WithArgs(sqlmock.AnyArg(), "alice", "123").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(getSQL).WithArgs("alice", "123").WillReturnRows(sqlmock.NewRows([]string{"document_json", "updated_at"}).AddRow(migratedRaw, updated.Add(time.Second)))
+
+	got, err := store.GetDocument(ctx, "alice", "123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Original != "" || got.OriginalRaw != "" {
+		t.Fatalf("legacy text still returned: %+v", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLStoreListDocumentsNeverReturnsLegacyFullText(t *testing.T) {
+	_, mock, store := newBodySQLMock(t)
+	updated := time.Date(2026, 9, 2, 14, 0, 0, 0, time.UTC)
+	document := Document{
+		BookID:      "123",
+		Original:    "规范原文",
+		OriginalRaw: "原始原文",
+		Versions:    map[string]any{"ai1": "AI1正文"},
+		Logs:        []any{},
+	}
+	raw, _ := json.Marshal(document)
+	listSQL := regexp.QuoteMeta(`SELECT book_id, document_json, updated_at FROM novel_fetch_workshop_documents WHERE owner_username=? ORDER BY updated_at DESC, book_id ASC`)
+	mock.ExpectQuery(listSQL).WithArgs("alice").WillReturnRows(sqlmock.NewRows([]string{"book_id", "document_json", "updated_at"}).AddRow("123", raw, updated))
+
+	got, err := store.ListDocuments(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Original != "" || got[0].OriginalRaw != "" {
+		t.Fatalf("legacy full text leaked from list: %+v", got)
+	}
+	for versionID, value := range got[0].Versions {
+		if _, isText := value.(string); isText {
+			t.Fatalf("version %s leaked full text: %#v", versionID, value)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
 }
