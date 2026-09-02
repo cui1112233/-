@@ -1,0 +1,59 @@
+name: V78 Local Executor Windows
+
+on:
+  push:
+    branches:
+      - feat/v78-go-integrated-novel-fetch-doubao
+    paths:
+      - 'local-executor/**'
+      - '.github/workflows/v78-local-executor-windows.yml'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: local-executor
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run executor tests
+        run: npm test
+
+      - name: Check JavaScript syntax
+        run: npm run check
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Normalize installer name and checksum
+        shell: pwsh
+        run: |
+          $target = "dist/yizhan-local-executor-1.0.0-win-x64.exe"
+          $installer = Get-ChildItem -Path dist -Filter "*.exe" |
+            Where-Object { $_.FullName -ne (Join-Path (Get-Location) $target) } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+          if (-not $installer) { throw "Windows installer not found" }
+          Copy-Item $installer.FullName $target -Force
+          $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLower()
+          "$hash  yizhan-local-executor-1.0.0-win-x64.exe" | Set-Content -NoNewline "dist/yizhan-local-executor-1.0.0-win-x64.exe.sha256"
+          Write-Host "SHA256: $hash"
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: yizhan-local-executor-1.0.0-win-x64
+          path: |
+            local-executor/dist/yizhan-local-executor-1.0.0-win-x64.exe
+            local-executor/dist/yizhan-local-executor-1.0.0-win-x64.exe.sha256
