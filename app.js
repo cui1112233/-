@@ -49,6 +49,7 @@ const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-stor
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { createScriptVideoRouter } = require('./routes/script-video');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
+const { createLocalExecutorDeviceRouter } = require('./routes/local-executor-device');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
 const { createPasskeyStore } = require('./lib/passkey-store');
@@ -224,6 +225,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     console.log(`[${ts}] ${req.method} ${req.url} - ${ip}`);
     next();
   });
+
+  // Device-to-Go endpoints must be mounted before express.json so MP4
+  // artifacts stream through without being parsed into memory.
+  app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
 
   // JSON body 解析（解除上限）
   app.use(express.json({ limit: '50mb' }));
