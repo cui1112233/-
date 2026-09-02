@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/v78-novel-fetch-go-bridge
+      - feat/v78-novel-fetch-local-first-s1-go
   workflow_dispatch:
 
 jobs:
