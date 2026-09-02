@@ -55,6 +55,8 @@ export function workbenchStateFromLoad(loadResult) {
     configVersionsError: load.configVersionsError || null,
     personalPrompts: object(load.personalPrompts),
     personalPromptsError: load.personalPromptsError || null,
+    videoProviders: object(load.videoProviders),
+    localExecutors: Array.isArray(load.localExecutors) ? load.localExecutors : [],
     selectedBatchId: load.selectedBatchId || batchObject.id || ''
   };
 }
@@ -192,6 +194,21 @@ export function createBf11Runtime({ adapter }) {
     async runProduction(input) {
       try { return { ok: true, raw: await adapter.runProduction(input) }; }
       catch (error) { return actionFailure(error, '视频生成提交失败，请检查 Director revision 和生产配置。'); }
+    },
+
+    async saveVideoProviderConfig(input) {
+      try { return { ok: true, raw: await adapter.saveVideoProviderConfig(input) }; }
+      catch (error) { return actionFailure(error, '视频提供方配置保存失败，请检查个人中心 API Key 或本地执行器配对。'); }
+    },
+
+    async getVideoProviderStatus(provider) {
+      try { return { ok: true, raw: await adapter.getVideoProviderStatus(provider) }; }
+      catch (error) { return actionFailure(error, '视频提供方状态读取失败，请稍后重试。'); }
+    },
+
+    async createLocalExecutorPairing(platform = 'doubao') {
+      try { return { ok: true, raw: await adapter.createLocalExecutorPairing(platform) }; }
+      catch (error) { return actionFailure(error, '豆包本地执行器配对码生成失败，请稍后重试。'); }
     },
 
     async runMerge(input) {
