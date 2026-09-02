@@ -474,6 +474,7 @@ export function BatchFactoryV11UiPage() {
         batch={viewBatch}
         books={books}
         productionStatus={runtimeState.productionStatus}
+        mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
         mergeStatus={runtimeState.mergeStatus}
         onOpenBatchManager={() => setBatchManagerOpen(true)}
@@ -553,6 +554,7 @@ export function BatchFactoryV11UiPage() {
         batch={viewBatch}
         books={books}
         productionStatus={runtimeState.productionStatus}
+        mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
         onClose={() => setExternalPublishOpen(false)}
         onGetCredential={getPublishCredential}
