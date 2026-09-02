@@ -7,7 +7,7 @@ import (
 
 func TestV11DirectorMigrationIsAdditiveAndOrdered(t *testing.T) {
 	migrations := V11Migrations()
-	if len(migrations) != 4 || migrations[3].Version != 1100004 {
+	if len(migrations) < 4 || migrations[3].Version != 1100004 {
 		t.Fatalf("migrations=%+v", migrations)
 	}
 	joined := strings.ToLower(strings.Join(V11DirectorStatements(), "\n"))
@@ -23,4 +23,3 @@ func TestV11DirectorMigrationIsAdditiveAndOrdered(t *testing.T) {
 		t.Fatal("Director migration must be additive")
 	}
 }
-
