@@ -22,6 +22,24 @@ function subjectSettingsState(subject) {
   return settingsStateFrom(null);
 }
 
+function deriveBookStatus(book, productionStatus, mergeStatus) {
+  if (book?.status) return book.status;
+  const tasks = (productionStatus?.jobs || [])
+    .filter(job => job?.bookId === book?.id)
+    .flatMap(job => job.tasks || []);
+  const statuses = new Set(tasks.map(task => task?.status));
+  if (statuses.has('failed')) return '异常';
+  if (statuses.has('running')) return '生成中';
+  if (statuses.has('queued')) return '排队中';
+  if (tasks.length && [...statuses].every(status => status === 'succeeded')) {
+    const merged = (mergeStatus?.jobs || []).some(job => job?.status === 'succeeded');
+    return merged ? '已合并' : '待合并';
+  }
+  if (book?.directorRevision?.id || book?.director?.id) return '待生成';
+  if (book?.hook?.status === 'draft') return '待审核';
+  return '待开始';
+}
+
 export function createdBatchIdFrom(value) {
   const source = object(value);
   return source?.batch?.id || source?.id || '';
@@ -36,6 +54,7 @@ export function workbenchStateFromLoad(loadResult) {
     : (Array.isArray(batchObject.items) ? batchObject.items : []);
   const books = rawBooks.map(book => ({
     ...book,
+    status: deriveBookStatus(book, load.productionStatus, load.mergeStatus),
     settingsState: subjectSettingsState(book),
     videos: (Array.isArray(book?.videos) ? book.videos : []).map(video => ({
       ...video,
