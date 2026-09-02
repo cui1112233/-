@@ -220,7 +220,7 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 				SourceTaskID: "bf11:" + batchID + ":" + bookID + ":" + task.VideoID,
 				BatchID: batchID, BookID: bookID, VideoID: task.VideoID,
 				Model: model.ID, Prompt: prompt.CompiledPrompt,
-				Duration: rawInt(prompt.EffectiveSettings.Values, "duration", model.MaxDuration),
+				Duration: prompt.DurationSeconds,
 				AspectRatio: rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
 				Resolution: rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
 			})
