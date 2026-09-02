@@ -60,13 +60,16 @@ test('V78 page injects the run-controls client after the existing V2 clients wit
   assert.ok(pageSource.includes('20260902-run-controls-r2'));
 });
 
-test('novel fetch completion workflow runs full Node regression, 121 Worker tests and frontend build', () => {
+test('novel fetch completion workflow runs portable full Node regression, 121 Worker tests, dependency audit and frontend build', () => {
   for (const marker of [
     'Run full Node regression',
-    'node --test tests/*.test.js lib/*.test.js routes/*.test.js',
+    "find tests lib -type f -name '*.test.js' -print",
+    'if [ -d routes ]; then',
+    'node --test $TEST_FILES',
     'Install 121 Browser Worker dependencies',
     'npm --prefix services/121-browser-worker test',
     'Install frontend dependencies',
+    'npm --prefix frontend audit --audit-level=moderate',
     'npm run frontend:build'
   ]) {
     assert.ok(workflowSource.includes(marker), `missing workflow gate ${marker}`);
