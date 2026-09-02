@@ -32,6 +32,8 @@ export function ExternalPublishPanel({
     if (!open) return;
     setState({ phase: 'idle' });
     setIntent(null);
+    setCredential(null);
+    setName('');
     setSecret('');
     let cancelled = false;
     if (onGetCredential) onGetCredential(provider).then(result => {
@@ -59,7 +61,17 @@ export function ExternalPublishPanel({
       const result = await onCreateIntent(provider, {
         batchId: batch.id,
         bookId: books.length === 1 ? books[0].id : '',
-        payload: { batchId: batch.id, bookCount: books.length, publishSettings: batch.settingsState?.patch?.publishSettings || {} }
+        payload: {
+          batchId: batch.id,
+          bookCount: books.length,
+          publishSettings: batch.settingsState?.patch?.publishSettings || {},
+          books: books.map(book => ({
+            id: book.id,
+            title: book.title,
+            mergedUrl: book.mergedUrl || '',
+            videos: (book.videos || []).map(video => ({ id: video.id, label: video.label, url: video.url || video.mediaUrl || '' }))
+          }))
+        }
       });
       if (!result.ok) { message.error(result.message); return; }
       setIntent(result.raw?.intent || result.raw);

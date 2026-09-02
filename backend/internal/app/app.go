@@ -41,11 +41,19 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	var externalPublish *external.Service
 	if cfg.Slice >= 6 {
 		externalStore := external.NewMySQLStore(db)
+		provider121 := external.New121Provider(cfg.External121Endpoint, cfg.External121APIKey)
+		providerYadi := external.NewYadiProvider(cfg.ExternalYadiEndpoint, cfg.ExternalYadiAPIKey)
+		if cfg.External121Enabled {
+			if err := provider121.Validate(); err != nil { return nil, err }
+		}
+		if cfg.ExternalYadiEnabled {
+			if err := providerYadi.Validate(); err != nil { return nil, err }
+		}
 		externalPublish = &external.Service{
-		Credentials: externalStore, Intents: externalStore, Audits: externalStore,
-		Providers: map[external.Provider]external.SubmissionProvider{
-			external.Provider121: &external.HTTPProvider{Provider: external.Provider121, Endpoint: cfg.External121Endpoint, APIKey: cfg.External121APIKey},
-			external.ProviderYadi: &external.HTTPProvider{Provider: external.ProviderYadi, Endpoint: cfg.ExternalYadiEndpoint, APIKey: cfg.ExternalYadiAPIKey},
+			Credentials: externalStore, Intents: externalStore, Audits: externalStore,
+			Providers: map[external.Provider]external.SubmissionProvider{
+				external.Provider121: provider121,
+				external.ProviderYadi: providerYadi,
 		},
 		Enabled: map[external.Provider]bool{external.Provider121: cfg.External121Enabled, external.ProviderYadi: cfg.ExternalYadiEnabled},
 		Key: cfg.ExternalCredentialsKey,
