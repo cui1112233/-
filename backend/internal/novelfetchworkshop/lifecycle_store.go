@@ -9,4 +9,5 @@ type LifecycleStore interface {
 	Store
 	MarkBodyReleasable(context.Context, string, string, string, time.Time, int) (BodyRef, error)
 	CleanupBodies(context.Context, string, BodyCleanupRequest) (BodyCleanupResult, error)
+	GetBodyStorageStatus(context.Context, string, time.Time) (BodyStorageStatus, error)
 }
