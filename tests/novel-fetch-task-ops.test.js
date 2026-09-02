@@ -48,7 +48,7 @@ test('task list defaults to today plus historical unfinished and supports date/b
   assert.deepEqual(filterTaskList(tasks, { status: 'done' }, now).map(item => item.bookId), ['today-done', 'old-done']);
 });
 
-test('batch AI count rejects the whole update when any selected task already has AI versions', async () => {
+test('batch version selection stores sparse versions and per-slot methods', async () => {
   const updates = [];
   const docs = {
     a: { meta: { bookId: 'a' }, document: { versions: {} } },
@@ -59,15 +59,13 @@ test('batch AI count rejects the whole update when any selected task already has
     async updateTaskMeta(owner, id, patch) { updates.push([owner, id, patch]); }
   };
   const ops = createNovelFetchTaskOps({ accountResolver: owner => ({ username: owner }), createStore: () => store, tombstones: fakeTombstones(), parseBooks: () => ({ tasks: [] }) });
-  const conflict = await ops.setAiCount('alice', ['a', 'b'], 3);
-  assert.equal(conflict.ok, false);
-  assert.deepEqual(conflict.conflicts, ['b']);
-  assert.deepEqual(updates, []);
-
-  const done = await ops.setAiCount('alice', ['a'], 4);
+  const done = await ops.setSelectedVersions('alice', ['a', 'b'], ['ai5', 'original', 'ai1'], { ai1: 'instruction', ai5: 'high_imitation' });
   assert.equal(done.ok, true);
-  assert.deepEqual(updates, [['alice', 'a', { aiCount: 4 }]]);
-  await assert.rejects(() => ops.setAiCount('alice', ['a'], 21), /1.*20/);
+  assert.deepEqual(done.selectedVersions, ['original', 'ai1', 'ai5']);
+  assert.deepEqual(updates, [
+    ['alice', 'a', { selectedVersions: ['original', 'ai1', 'ai5'], aiSlotMethods: { ai1: 'instruction', ai5: 'high_imitation' } }],
+    ['alice', 'b', { selectedVersions: ['original', 'ai1', 'ai5'], aiSlotMethods: { ai1: 'instruction', ai5: 'high_imitation' } }]
+  ]);
 });
 
 test('manual sensitive reprocess uses the V2 saved-rule processor and supports restoring raw original first', async () => {
@@ -108,7 +106,7 @@ test('manual sensitive reprocess uses the V2 saved-rule processor and supports r
 test('V78 task serializer preserves legacy snake_case fields for the existing workbench', () => {
   const task = toV78Task({
     bookId: '123', bookName: '书名', platformId: '15', platformName: '知乎付费', parseMode: 'smart',
-    originalStatus: 'done', originalChars: 88, aiStatus: 'done', aiCount: 3, aiGeneratedCount: 2,
+    originalStatus: 'done', originalChars: 88, aiStatus: 'done', selectedVersions: ['original', 'ai1', 'ai5'], aiGeneratedVersions: ['ai1', 'ai5'],
     classifyStatus: 'classified', classifierModel: 'm', sensitiveHitCount: 4, siteSubmitStatus: 'queued'
   });
   assert.equal(task.id, '123');
@@ -120,8 +118,8 @@ test('V78 task serializer preserves legacy snake_case fields for the existing wo
   assert.equal(task.original_status, 'done');
   assert.equal(task.original_chars, 88);
   assert.equal(task.ai_status, 'done');
-  assert.equal(task.ai_count, 3);
-  assert.deepEqual(task.ai_files, ['ai1', 'ai2']);
+  assert.deepEqual(task.selected_versions, ['original', 'ai1', 'ai5']);
+  assert.deepEqual(task.ai_files, ['ai1', 'ai5']);
   assert.equal(task.classify_status, 'classified');
   assert.equal(task.classifier_model, 'm');
   assert.equal(task.sensitive_hit_count, 4);

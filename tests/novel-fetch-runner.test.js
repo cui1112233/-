@@ -15,7 +15,7 @@ function createConfig(overrides = {}) {
     },
     fetch: { concurrency: 2, default_max_txt: 4000, ...(overrides.fetch || {}) },
     ai: { max_concurrency: 2, ...(overrides.ai || {}) },
-    rewrite: { default_ai_count: 1, max_ai_count: 5, ...(overrides.rewrite || {}) },
+    rewrite: { ...(overrides.rewrite || {}) },
     web_submit: { enabled: false, ...(overrides.web_submit || {}) }
   };
 }
@@ -54,8 +54,8 @@ function fixture({ config = createConfig(), fetchResults = {} } = {}) {
   });
   const classifyMissingRows = async ({ tasks: rows }) => ({ tasks: rows, errors: [] });
   const applyRules = async (_tasks, _username, bookId) => { calls.rules.push(bookId); };
-  const generateAiVersions = async ({ task }) => {
-    calls.rewrites.push(task.bookId);
+  const generateAiVersions = async ({ task, versions, slotMethods }) => {
+    calls.rewrites.push({ bookId: task.bookId, versions, slotMethods });
     return { generated: [{ status: 'done' }] };
   };
   const submit = async body => { calls.submits.push(body); return { success_groups: 1, failed_groups: 0 }; };
@@ -68,7 +68,7 @@ test('runner keeps payload platform fixed and rewrites only successfully fetched
   const f = fixture({ fetchResults: { '1000000000000000002': { status: 'failed' } } });
   const result = await runNovelFetchBatch({
     username: 'tester',
-    payload: { input_text: 'x', platform_id: '15', max_txt: 3500, ai_count: 2 },
+    payload: { input_text: 'x', platform_id: '15', max_txt: 3500, selected_versions: ['original', 'ai1', 'ai5'], ai_slot_methods: { ai1: 'instruction', ai5: 'high_imitation' } },
     ...f
   });
 
@@ -80,7 +80,7 @@ test('runner keeps payload platform fixed and rewrites only successfully fetched
     { bookId: '1000000000000000002', maxTxt: 3500 }
   ]);
   assert.deepEqual(f.calls.rules, ['1000000000000000001']);
-  assert.deepEqual(f.calls.rewrites, ['1000000000000000001']);
+  assert.deepEqual(f.calls.rewrites, [{ bookId: '1000000000000000001', versions: ['original', 'ai1', 'ai5'], slotMethods: { ai1: 'instruction', ai5: 'high_imitation' } }]);
   assert.equal(result.fetched, 1);
   assert.equal(result.fetch_failed, 1);
 });
@@ -103,12 +103,12 @@ test('runner auto submit requires both explicit confirmation and enabled web sub
   const allowed = fixture({ config: createConfig({ workflow: { auto_submit_after_rewrite: true, auto_submit_confirmed: true }, web_submit: { enabled: true } }) });
   await runNovelFetchBatch({ username: 'tester', payload: { input_text: 'x', platform_id: '15' }, ...allowed });
   assert.equal(allowed.calls.submits.length, 1);
-  assert.deepEqual(allowed.calls.submits[0].versions, ['ai1']);
+  assert.equal('versions' in allowed.calls.submits[0], false);
 });
 
 test('runner reports authoritative pipeline stages instead of fake completion', async () => {
   const f = fixture();
   await runNovelFetchBatch({ username: 'tester', payload: { input_text: 'x', platform_id: '15' }, ...f });
   const types = new Set(f.calls.reports.map(item => item.type));
-  for (const type of ['parse', 'classify', 'fetch', 'rewrite', 'submit']) assert.equal(types.has(type), true, `missing ${type}`);
+  for (const type of ['version_config', 'classify', 'fetch', 'rewrite', 'submit']) assert.equal(types.has(type), true, `missing ${type}`);
 });

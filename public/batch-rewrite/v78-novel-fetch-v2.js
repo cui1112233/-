@@ -22,12 +22,10 @@
   function currentWorkSnapshot() {
     return {
       platform_id: value('platformSelect', '2'),
-      parse_mode: value('parseModeSelect', 'smart'),
-      column_preset_id: value('columnPresetSelect'),
-      column_order: value('columnOrderInput', '书籍ID,书名,推荐理由,男女频,标签,评级'),
       input_text: value('inputText'),
       max_txt: Number(value('fetchMaxTxt', 4000)) || 4000,
-      ai_count: Number(value('aiCountDefault', 1)) || 1,
+      selected_versions: [...document.querySelectorAll('.process-version:checked')].map(node => node.value),
+      ai_slot_methods: Object.fromEntries([1, 2, 3, 4, 5].map(index => [`ai${index}`, value(`processAiMethod${index}`)]).filter(([, method]) => method)),
       sensitive_ai_enabled: Boolean(byId('sensitiveAiProcessEnabled')?.checked)
     };
   }
@@ -245,7 +243,7 @@
       <div class="v78-v2-head"><div><h3>V78 高级任务管理</h3><div class="v78-v2-muted">默认查询：今天任务 + 历史未完成；筛选语义由服务端统一判断，结果直接显示在下方原任务表。</div></div>
         <div class="v78-v2-actions"><button id="v78PrevDay">上一天</button><button id="v78TaskToday">今天</button><input id="v78TaskDate" type="date"/><button id="v78NextDay">下一天</button><input id="v78BookIdSearch" placeholder="书籍ID搜索"/><select id="v78TaskStatus"><option value="">全部状态</option><option value="failed">失败</option><option value="waiting">等待</option><option value="done">完成</option></select><button id="v78TaskSearch">查询</button><button id="v78TaskReset">默认视图</button></div>
       </div>
-      <div class="v78-v2-actions"><label>AI文案数量 <input id="v78AiCount" type="number" min="1" max="20" value="1" style="width:72px"/></label><button id="v78AiCountApply">应用到已选任务</button><button id="v78PermanentDelete" class="danger">永久删除已选</button><input id="v78RestoreBookId" placeholder="恢复永久删除的书籍ID"/><button id="v78RestoreTombstone">恢复ID</button><span id="v78TaskOpsStatus" class="v78-v2-muted"></span></div>`;
+      <div class="v78-v2-actions"><button id="v78PermanentDelete" class="danger">永久删除已选</button><input id="v78RestoreBookId" placeholder="恢复永久删除的书籍ID"/><button id="v78RestoreTombstone">恢复ID</button><span id="v78TaskOpsStatus" class="v78-v2-muted"></span></div>`;
     host.insertBefore(panel, listDetails);
 
     byId('v78TaskSearch').onclick = loadAdvancedTasks;
@@ -256,7 +254,6 @@
     };
     byId('v78PrevDay').onclick = () => shiftTaskDate(-1);
     byId('v78NextDay').onclick = () => shiftTaskDate(1);
-    byId('v78AiCountApply').onclick = applyAiCount;
     byId('v78PermanentDelete').onclick = permanentDeleteSelected;
     byId('v78RestoreTombstone').onclick = restoreTombstone;
   }
@@ -290,16 +287,6 @@
       syncTaskFiltersFromControls();
       if (!installLegacyTaskListBridge()) throw new Error('任务列表尚未就绪，请稍后重试');
       await loadTasks();
-    } catch (error) { setText('v78TaskOpsStatus', error.message); }
-  }
-  async function applyAiCount() {
-    try {
-      const ids = selectedTaskIds();
-      if (!ids.length) throw new Error('请先在原任务列表勾选任务');
-      const aiCount = Number(value('v78AiCount', 1));
-      const result = await v2Api('/tasks/batch-ai-count', { method: 'POST', body: JSON.stringify({ ids, ai_count: aiCount }) });
-      setText('v78TaskOpsStatus', `已更新 ${result.updated || 0} 个任务`);
-      refreshLegacyTasks();
     } catch (error) { setText('v78TaskOpsStatus', error.message); }
   }
   async function permanentDeleteSelected() {

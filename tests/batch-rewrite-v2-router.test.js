@@ -45,7 +45,7 @@ test('V2 router applies supplied auth middleware and registers queue/scheduler e
   const auth = () => {};
   const queue = queueFixture();
   const scheduler = { list() { return []; }, create() {}, update() {}, remove() {} };
-  const taskOps = { processConflicts() { return []; }, list() { return []; }, permanentDelete() {}, restoreTombstone() {}, setAiCount() {}, reprocessSensitive() {} };
+  const taskOps = { processConflicts() { return []; }, list() { return []; }, permanentDelete() {}, restoreTombstone() {}, setSelectedVersions() {}, reprocessSensitive() {} };
   const webSubmit = { getConfig() {}, saveConfig() {}, environment() {}, syncConfigs() {}, syncStyles() {}, testVisible() {}, preview() {}, submit() {} };
   const router = createBatchRewriteV2Router({ queue, scheduler, taskOps, webSubmit, auth, routerFactory: fakeRouter });
   assert.deepEqual(router.uses, [auth]);
@@ -54,7 +54,7 @@ test('V2 router applies supplied auth middleware and registers queue/scheduler e
     'POST /process/queue/start', 'POST /process/queue/pause', 'POST /process/queue/resume', 'POST /process/queue/stop',
     'GET /process/queue/status', 'GET /realtime/status', 'GET /schedules', 'POST /schedules', 'PATCH /schedules/:id', 'DELETE /schedules/:id',
     'POST /process/start', 'GET /process/jobs/latest', 'GET /process/jobs/:id',
-    'GET /tasks', 'POST /tasks/batch-delete-permanent', 'POST /tasks/:id/restore-tombstone', 'POST /tasks/batch-ai-count', 'POST /tasks/reprocess-sensitive',
+    'GET /tasks', 'POST /tasks/batch-delete-permanent', 'POST /tasks/:id/restore-tombstone', 'POST /tasks/batch-versions', 'POST /tasks/reprocess-sensitive',
     'GET /web-submit/config', 'POST /web-submit/config', 'GET /web-submit/environment', 'POST /web-submit/sync-configs',
     'POST /web-submit/sync-styles', 'POST /web-submit/test-visible', 'POST /web-submit/preview', 'POST /web-submit/submit'
   ]) assert.ok(paths.has(expected), expected);
@@ -63,7 +63,7 @@ test('V2 router applies supplied auth middleware and registers queue/scheduler e
 test('legacy process/start is terminated by V2 queue bridge and never next() into old Node processPayload', async () => {
   const queue = queueFixture();
   const scheduler = { list() { return []; }, create() {}, update() {}, remove() {} };
-  const taskOps = { processConflicts() { return []; }, list() { return []; }, permanentDelete() {}, restoreTombstone() {}, setAiCount() {} };
+  const taskOps = { processConflicts() { return []; }, list() { return []; }, permanentDelete() {}, restoreTombstone() {}, setSelectedVersions() {} };
   const router = createBatchRewriteV2Router({ queue, scheduler, taskOps, auth: () => {}, routerFactory: fakeRouter });
   const route = router.routes.find(item => item.method === 'post' && item.path === '/process/start');
   const res = response();

@@ -15,7 +15,7 @@ function taskStore(textById = {}) {
     fetchOriginal: async () => ({ status: 'done' }),
     readOriginal: async (_owner, id) => textById[id] || '足够长的正文内容',
     updateTaskMeta: async (_owner, id, patch) => { patches.push([id, patch]); },
-    getTask: async (_owner, id) => ({ meta: { bookId: id, aiCount: 1 } })
+    getTask: async (_owner, id) => ({ meta: { bookId: id, selectedVersions: ['original', 'ai1'] } })
   };
 }
 
@@ -23,7 +23,7 @@ const base = {
   workflow: { auto_classify_missing: false, auto_fetch_original: true, auto_rewrite_after_fetch: false, auto_submit_after_rewrite: false, auto_submit_confirmed: false },
   fetch: { concurrency: 3, min_original_chars: 0, skip_short_original: false },
   ai: { max_concurrency: 4, force_serial_batch: false },
-  rewrite: { default_ai_count: 1, max_ai_count: 5 },
+  rewrite: {},
   web_submit: { enabled: false, batch_size: 20, flush_seconds: 0 },
   sensitive_ai: { enabled: true }
 };
