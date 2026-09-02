@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
-import { deleteWorkshopTasks, getWorkshopConfig, listWorkshopTasks, saveWorkshopConfig } from '../../shared/api/novelFetchWorkshop';
+import { deleteWorkshopTasks, getWorkshopConfig, getWorkshopStorageStatus, listWorkshopTasks, saveWorkshopConfig } from '../../shared/api/novelFetchWorkshop';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
@@ -15,6 +15,14 @@ function normalizeNovelFetchRetentionDays(value) {
   const days = Math.floor(Number(value));
   if (!Number.isFinite(days)) return 7;
   return Math.min(30, Math.max(1, days));
+}
+
+function formatStorageBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 export function SettingsPage() {
@@ -29,6 +37,8 @@ export function SettingsPage() {
   const [loadingExecutors, setLoadingExecutors] = useState(false);
   const [pairing, setPairing] = useState(null);
   const [clearingNovelHistory, setClearingNovelHistory] = useState(false);
+  const [novelFetchStorageStatus, setNovelFetchStorageStatus] = useState(null);
+  const [loadingNovelFetchStorageStatus, setLoadingNovelFetchStorageStatus] = useState(false);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
   const soundEnabled = Form.useWatch('soundEnabled', form);
@@ -90,6 +100,21 @@ export function SettingsPage() {
       .catch(error => message.error(error.message || '读取小说获取数据清理设置失败'));
     return () => { alive = false; };
   }, [form]);
+
+  async function loadNovelFetchStorageStatus() {
+    setLoadingNovelFetchStorageStatus(true);
+    try {
+      const status = await getWorkshopStorageStatus();
+      setNovelFetchStorageStatus(status || null);
+    } catch (error) {
+      setNovelFetchStorageStatus(null);
+      message.warning(error.message || '正文容量状态暂不可用');
+    } finally {
+      setLoadingNovelFetchStorageStatus(false);
+    }
+  }
+
+  useEffect(() => { loadNovelFetchStorageStatus(); }, []);
 
   async function saveSection(section) {
     let values;
@@ -345,6 +370,24 @@ export function SettingsPage() {
           </Form.Item>
           <Typography.Paragraph type="secondary">正在生成、正在同步、等待 121 上传、上传失败等待重试或任务尚未完成的正文不会被普通自动清理；已下载到电脑的 TXT 永远不自动删除。</Typography.Paragraph>
           <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={saveNovelFetchDataSettings} loading={savingSection === 'novelFetch'}>保存正文清理设置</Button>
+
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--legacy-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <Typography.Text strong>容量状态</Typography.Text>
+              <Button size="small" icon={<RefreshCw size={14} strokeWidth={1.8} aria-hidden="true" />} onClick={loadNovelFetchStorageStatus} loading={loadingNovelFetchStorageStatus}>刷新</Button>
+            </div>
+            {novelFetchStorageStatus ? (
+              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontSize: 13 }}>
+                <Typography.Text>实际存储：{formatStorageBytes(novelFetchStorageStatus.storageBytes)} · {Number(novelFetchStorageStatus.bodyCount) || 0} 份正文</Typography.Text>
+                <Typography.Text>正文字符：{(Number(novelFetchStorageStatus.charCount) || 0).toLocaleString()}</Typography.Text>
+                <Typography.Text>可安全释放：{Number(novelFetchStorageStatus.releasableCount) || 0} 份</Typography.Text>
+                <Typography.Text>已到期：{Number(novelFetchStorageStatus.expiredCount) || 0} 份</Typography.Text>
+              </div>
+            ) : (
+              <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0' }}>容量状态暂不可用，可点击刷新重试。</Typography.Paragraph>
+            )}
+            <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0' }}>这里显示 Body Store 的真实压缩占用，不按历史记录推算。当前未配置服务器容量上限时，不显示虚假的使用百分比。</Typography.Paragraph>
+          </div>
 
           <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--legacy-border)' }}>
             <Typography.Text strong>历史记录</Typography.Text>
