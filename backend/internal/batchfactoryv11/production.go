@@ -95,6 +95,9 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 		if s.LocalExecutor == nil || s.LocalExecutor.Client == nil {
 			return nil, FrozenVideoModel{}, fmt.Errorf("%w: Doubao local executor is offline", ErrUnavailable)
 		}
+		if strings.TrimSpace(s.LocalExecutor.PublicBaseURL) == "" {
+			return nil, FrozenVideoModel{}, fmt.Errorf("%w: local executor public artifact base URL is required for merge and publish", ErrUnavailable)
+		}
 		if err := s.LocalExecutor.EnsureAvailable(ctx, owner); err != nil {
 			return nil, FrozenVideoModel{}, err
 		}
