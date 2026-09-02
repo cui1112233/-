@@ -2,76 +2,55 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Separate long-lived novel-fetch task/history metadata from full original/AI body content so body data can later be cleaned independently without deleting history.
+**Goal:** Separate long-lived novel-fetch history/task metadata from full original/AI body content so bodies can later be cleaned independently without deleting history.
 
-**Architecture:** Keep the existing signed Node→Go bridge, but split the Go persistence model into lightweight task documents and compressed body objects keyed by user/book/version. Node keeps the current workshop API surface during migration, while its store adapter reads/writes bodies through dedicated bridge endpoints and exposes only body availability metadata in task lists.
+**Architecture:** Keep the existing signed Node→Go bridge, but split persistence into lightweight task documents plus compressed body objects keyed by user/book/version. S1 keeps the current server 121 Browser Worker and does not enable automatic body deletion yet; it only establishes the safe data boundary and compatibility migration.
 
-**Tech Stack:** Node.js/Express, Go `net/http`, MySQL 8.4, gzip, SHA-256, Node `node:test`, Go `testing`.
+**Tech Stack:** Node.js/Express, Go 1.23 `net/http`, MySQL 8.4, gzip, SHA-256, Node `node:test`, Go `testing`, `go-sqlmock` for MySQL-store unit tests.
 
 **Spec:** `docs/superpowers/specs/2026-09-02-v78-novel-fetch-local-first-design.md`
 
 ## Global Constraints
 
-- Node/V78 behavior baseline: `fc1f5a96364518f0f14073fd5195363ef0e15a77` (`feat/v78-novel-fetch-v2-completion`).
-- Go bridge baseline: `13e40da4092046846ad13c5c0bbb15918216465a` (`feat/v78-novel-fetch-go-bridge`).
-- Keep Node and Go as separate reviewed SHAs; do not force-merge their diverged histories just to implement this slice.
-- Do not touch `master`, public production deployment branches, or the live ECS runtime in this plan.
-- Keep the existing server 121 Browser Worker working in S1; 121 localization is a later plan.
-- History/list APIs must not return full body text after this slice.
-- Default behavior still produces no real `.txt` file.
-- `originalRaw` must not remain as a second long-lived full-body copy after migration.
-- Body deletion and automatic retention are not enabled in S1; this slice only creates the safe separation required for later cleanup.
-- Existing signed bridge authentication and canonical payload format must remain compatible.
+- Node baseline: `fc1f5a96364518f0f14073fd5195363ef0e15a77` on `feat/v78-novel-fetch-v2-completion`.
+- Go baseline: `13e40da4092046846ad13c5c0bbb15918216465a` on `feat/v78-novel-fetch-go-bridge`.
+- Node implementation branch must be `feat/v78-novel-fetch-local-first-s1-node` created from the exact Node baseline.
+- Go implementation branch must be `feat/v78-novel-fetch-local-first-s1-go` created from the exact Go baseline.
+- Keep Node and Go as separate reviewed SHAs; their histories are diverged and S1 must not force-merge them.
+- Do not touch `master`, production deployment branches, or the live ECS runtime.
+- Keep the existing server 121 Browser Worker working in S1.
+- History/list APIs must not return full body text.
+- Default behavior still creates no real `.txt` file.
+- `originalRaw` must not remain as a second long-lived full-body copy.
+- Automatic retention/deletion is **not enabled in S1**; S5 owns timed cleanup.
+- Signed bridge authentication/canonical payload behavior must remain unchanged.
+
+## Execution Order
+
+Execute exactly in this order: **Task 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8**.
 
 ---
 
-## File Structure / Ownership
-
-### Go slice
-
-- `backend/internal/storage/novel_fetch_workshop_schema.go` — MySQL schema/migration for body objects.
-- `backend/internal/storage/novel_fetch_workshop_schema_test.go` — migration contract tests.
-- `backend/internal/novelfetchworkshop/store.go` — metadata/body interfaces and in-memory test store.
-- `backend/internal/novelfetchworkshop/mysql_store.go` — MySQL task metadata + compressed body persistence.
-- `backend/internal/novelfetchworkshop/body_codec.go` — gzip/SHA-256 body encode/decode; no SQL or HTTP.
-- `backend/internal/novelfetchworkshop/body_codec_test.go` — codec round-trip tests.
-- `backend/internal/httpapi/novel_fetch_workshop.go` — dedicated body HTTP bridge endpoints.
-- `backend/internal/httpapi/novel_fetch_workshop_test.go` — auth/API round-trip coverage.
-
-### Node slice
-
-- `lib/novel-fetch-workshop/mysql-store.js` — adapter that maps legacy workshop operations to metadata + dedicated body endpoints.
-- `tests/novel-fetch-mysql-fetch-contract.test.js` — original fetch persistence contract.
-- `tests/novel-fetch-v2-task-list-bridge.test.js` — list/history no-body contract.
-- `tests/novel-fetch-task-api.test.js` — task detail/body availability behavior.
-- `tests/novel-fetch-upload-browser-worker.test.js` — regression that 121 upload still obtains selected body content.
-
----
-
-### Task 1: Add the MySQL Body Object Schema
+### Task 1: Add MySQL Body Object Migration
 
 **Files:**
 - Modify: `backend/internal/storage/novel_fetch_workshop_schema.go`
 - Modify: `backend/internal/storage/novel_fetch_workshop_schema_test.go`
 
 **Interfaces:**
-- Consumes: existing migration version `1200001`.
-- Produces: migration `1200002` and table `novel_fetch_workshop_bodies`.
+- Consumes: migration `1200001`.
+- Produces: migration `1200002`, checksum `novel-fetch-workshop-v2-bodies`, table `novel_fetch_workshop_bodies`.
 
-- [ ] **Step 1: Write the failing schema test**
-
-Add assertions equivalent to:
+- [ ] **Step 1: Write the failing migration test**
 
 ```go
 func TestNovelFetchWorkshopBodyMigration(t *testing.T) {
     migrations := NovelFetchWorkshopMigrations()
-    if len(migrations) < 2 { t.Fatalf("expected v2 migration") }
+    if len(migrations) != 2 { t.Fatalf("migrations=%d", len(migrations)) }
     if migrations[1].Version != 1200002 { t.Fatalf("version=%d", migrations[1].Version) }
     joined := strings.Join(migrations[1].SQL, "\n")
     for _, want := range []string{
         "CREATE TABLE IF NOT EXISTS novel_fetch_workshop_bodies",
-        "owner_username VARCHAR(191) NOT NULL",
-        "book_id VARCHAR(191) NOT NULL",
         "version_id VARCHAR(64) NOT NULL",
         "content_blob LONGBLOB NOT NULL",
         "content_hash CHAR(64) NOT NULL",
@@ -83,20 +62,18 @@ func TestNovelFetchWorkshopBodyMigration(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
-
-Run:
+- [ ] **Step 2: Verify RED**
 
 ```bash
 cd backend
-go test ./internal/storage -run 'TestNovelFetchWorkshopBodyMigration' -v
+go test ./internal/storage -run TestNovelFetchWorkshopBodyMigration -v
 ```
 
-Expected: FAIL because migration `1200002` does not exist.
+Expected: FAIL because `1200002` does not exist.
 
-- [ ] **Step 3: Add migration `1200002`**
+- [ ] **Step 3: Add the migration**
 
-Create the body table with this contract:
+Use this table contract:
 
 ```sql
 CREATE TABLE IF NOT EXISTS novel_fetch_workshop_bodies (
@@ -119,9 +96,7 @@ CREATE TABLE IF NOT EXISTS novel_fetch_workshop_bodies (
 ) ENGINE=InnoDB
 ```
 
-Use callback checksum `novel-fetch-workshop-v2-bodies`.
-
-- [ ] **Step 4: Run storage tests**
+- [ ] **Step 4: Verify GREEN**
 
 ```bash
 cd backend
@@ -130,7 +105,7 @@ go test ./internal/storage -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit Go schema**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add backend/internal/storage/novel_fetch_workshop_schema.go backend/internal/storage/novel_fetch_workshop_schema_test.go
@@ -139,7 +114,7 @@ git commit -m "feat(novel-fetch): add body object schema"
 
 ---
 
-### Task 2: Add Body Codec and Store Interfaces
+### Task 2: Add Body Types, Codec, and Store Interface
 
 **Files:**
 - Create: `backend/internal/novelfetchworkshop/body_codec.go`
@@ -147,25 +122,45 @@ git commit -m "feat(novel-fetch): add body object schema"
 - Modify: `backend/internal/novelfetchworkshop/store.go`
 
 **Interfaces:**
-- Produces:
-  - `type BodyRecord struct { BookID, VersionID, Content, ContentHash string; Revision uint64; CharCount int64; State, UpdatedAt string }`
-  - `PutBody(ctx context.Context, owner string, body BodyRecord) (BodyRecord, error)`
-  - `GetBody(ctx context.Context, owner, bookID, versionID string) (BodyRecord, error)`
-  - `DeleteBody(ctx context.Context, owner, bookID, versionID string) (bool, error)`
-  - `ListBodyRefs(ctx context.Context, owner, bookID string) ([]BodyRef, error)`
 
-- [ ] **Step 1: Write codec RED tests**
+```go
+type BodyRef struct {
+    VersionID   string `json:"versionId"`
+    Revision    uint64 `json:"revision"`
+    ContentHash string `json:"contentHash"`
+    CharCount   int64  `json:"charCount"`
+    State       string `json:"state"`
+    UpdatedAt   string `json:"updatedAt"`
+}
+
+type BodyRecord struct {
+    BodyRef
+    BookID  string `json:"bookId"`
+    Content string `json:"content"`
+}
+```
+
+Extend `Store` with:
+
+```go
+PutBody(context.Context, string, BodyRecord) (BodyRef, error)
+GetBody(context.Context, string, string, string) (BodyRecord, error)
+ListBodyRefs(context.Context, string, string) ([]BodyRef, error)
+DeleteBody(context.Context, string, string, string) (bool, error)
+```
+
+- [ ] **Step 1: Write codec RED test**
 
 ```go
 func TestBodyCodecRoundTrip(t *testing.T) {
     text := "第一章\n你好，世界。"
-    encoded, hash, chars, err := encodeBody(text)
+    blob, hash, chars, err := encodeBody(text)
     if err != nil { t.Fatal(err) }
     if chars != int64(len([]rune(text))) { t.Fatalf("chars=%d", chars) }
     if len(hash) != 64 { t.Fatalf("hash=%q", hash) }
-    decoded, err := decodeBody(encoded, "gzip")
+    got, err := decodeBody(blob, "gzip")
     if err != nil { t.Fatal(err) }
-    if decoded != text { t.Fatalf("decoded=%q", decoded) }
+    if got != text { t.Fatalf("got=%q", got) }
 }
 ```
 
@@ -173,31 +168,23 @@ func TestBodyCodecRoundTrip(t *testing.T) {
 
 ```bash
 cd backend
-go test ./internal/novelfetchworkshop -run 'TestBodyCodecRoundTrip' -v
+go test ./internal/novelfetchworkshop -run TestBodyCodecRoundTrip -v
 ```
 
-Expected: FAIL with missing codec symbols.
+- [ ] **Step 3: Implement codec**
 
-- [ ] **Step 3: Implement gzip + SHA-256 codec**
+Rules: SHA-256 the UTF-8 bytes before gzip; `CharCount` counts runes; reject unknown encoding; codec does not write files.
 
-Rules:
-- Hash the UTF-8 body bytes before compression.
-- `CharCount` uses Unicode rune count, not byte count.
-- Empty body is valid at codec level; API/store validation decides whether to persist it.
-- Decode rejects unknown `content_encoding`.
+- [ ] **Step 4: Extend `MemoryStore`**
 
-- [ ] **Step 4: Extend `Store` and `MemoryStore`**
+Store bodies by owner → book → version and deep-copy records on read. `ListBodyRefs` must never include `Content`.
 
-Keep task metadata methods. Add body methods and clone behavior. Store body records under owner→book→version. `DeleteDocuments` must keep existing semantics in S1; do not implicitly delete bodies until deletion semantics are migrated in a later task.
-
-- [ ] **Step 5: Run package tests**
+- [ ] **Step 5: Verify GREEN**
 
 ```bash
 cd backend
 go test ./internal/novelfetchworkshop -v
 ```
-
-Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -211,75 +198,56 @@ git commit -m "feat(novel-fetch): add body store contract"
 ### Task 3: Implement MySQL Body Persistence
 
 **Files:**
+- Modify: `backend/go.mod`
+- Modify: `backend/go.sum`
 - Modify: `backend/internal/novelfetchworkshop/mysql_store.go`
 - Create: `backend/internal/novelfetchworkshop/mysql_store_body_test.go`
 
-**Interfaces:**
-- Consumes: Task 2 body interface.
-- Produces: MySQL implementation using `novel_fetch_workshop_bodies`.
+**Interfaces:** consumes Task 2; produces MySQL implementations of the four body methods.
 
-- [ ] **Step 1: Write SQL contract tests**
-
-Use the repository's existing SQL mocking/testing pattern. Cover:
-- insert body → gzip blob + hash + char count;
-- update same `(owner, book, version)` increments revision;
-- get body decodes gzip;
-- body not found returns `ErrNotFound`;
-- list refs never returns `Content`.
-
-Core expected query behavior:
-
-```sql
-INSERT INTO novel_fetch_workshop_bodies(...)
-VALUES(...)
-ON DUPLICATE KEY UPDATE
-  revision=revision+1,
-  content_encoding=VALUES(content_encoding),
-  content_blob=VALUES(content_blob),
-  content_hash=VALUES(content_hash),
-  char_count=VALUES(char_count),
-  state=VALUES(state),
-  updated_at=CURRENT_TIMESTAMP(6),
-  last_needed_at=CURRENT_TIMESTAMP(6)
-```
-
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 1: Add test-only SQL mock dependency**
 
 ```bash
 cd backend
-go test ./internal/novelfetchworkshop -run 'Body' -v
+go get github.com/DATA-DOG/go-sqlmock@v1.5.2
 ```
 
-Expected: FAIL because MySQL body methods are missing.
+- [ ] **Step 2: Write RED MySQL tests**
 
-- [ ] **Step 3: Implement methods**
+Cover: insert, update revision, get+decode, 404/`ErrNotFound`, list refs without content, delete only selected version.
 
-Never store uncompressed full body in `document_json`. `ListBodyRefs` returns only:
+Example assertion shape:
 
-```json
-{
-  "versionId": "ai3",
-  "revision": 2,
-  "contentHash": "...",
-  "charCount": 123456,
-  "state": "ready",
-  "updatedAt": "..."
-}
+```go
+ref, err := store.PutBody(ctx, "alice", BodyRecord{
+    BookID: "123", BodyRef: BodyRef{VersionID: "ai3", State: "ready"}, Content: "正文",
+})
+if err != nil { t.Fatal(err) }
+if ref.VersionID != "ai3" || len(ref.ContentHash) != 64 { t.Fatalf("ref=%+v", ref) }
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 3: Verify RED**
+
+```bash
+cd backend
+go test ./internal/novelfetchworkshop -run 'MySQL.*Body' -v
+```
+
+- [ ] **Step 4: Implement SQL methods**
+
+Use gzip blob storage. Upsert the same `(owner, book, version)` by incrementing `revision`. `GetBody` updates `last_needed_at`; `ListBodyRefs` selects metadata columns only.
+
+- [ ] **Step 5: Verify GREEN**
 
 ```bash
 cd backend
 go test ./internal/novelfetchworkshop ./internal/storage -v
 ```
 
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add backend/internal/novelfetchworkshop/mysql_store.go backend/internal/novelfetchworkshop/mysql_store_body_test.go
+git add backend/go.mod backend/go.sum backend/internal/novelfetchworkshop/mysql_store.go backend/internal/novelfetchworkshop/mysql_store_body_test.go
 git commit -m "feat(novel-fetch): persist compressed body objects"
 ```
 
@@ -292,28 +260,23 @@ git commit -m "feat(novel-fetch): persist compressed body objects"
 - Modify: `backend/internal/httpapi/novel_fetch_workshop_test.go`
 
 **Interfaces:**
-- Produces:
-  - `GET /api/novel-fetch-workshop/tasks/{bookId}/bodies`
-  - `GET /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}`
-  - `PUT /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}` body `{ "content": "...", "state": "ready" }`
-  - `DELETE /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}`
-
-- [ ] **Step 1: Add RED API round-trip test**
-
-The test must use the existing signed bridge middleware, not bypass auth. Sequence:
 
 ```text
-PUT body ai3 with Chinese text
-→ 200 and hash/charCount metadata
-GET body ai3
-→ same exact text
-GET bodies list
-→ contains ai3 metadata but not text
-DELETE body ai3
-→ 200 deleted=true
-GET body ai3
-→ 404
+GET    /api/novel-fetch-workshop/tasks/{bookId}/bodies
+GET    /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}
+PUT    /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}
+DELETE /api/novel-fetch-workshop/tasks/{bookId}/bodies/{versionId}
 ```
+
+PUT JSON:
+
+```json
+{"content":"正文","state":"ready"}
+```
+
+- [ ] **Step 1: Add RED signed round-trip test**
+
+Test with the real bridge middleware: PUT `ai3` → GET exact Chinese text → LIST metadata with no `content` key → DELETE → GET returns 404.
 
 - [ ] **Step 2: Verify RED**
 
@@ -322,22 +285,15 @@ cd backend
 go test ./internal/httpapi -run 'NovelFetch.*Body' -v
 ```
 
-Expected: FAIL/404 because routes do not exist.
+- [ ] **Step 3: Implement routes**
 
-- [ ] **Step 3: Implement endpoints**
+Reuse book ID validation. Add `versionId` pattern `^[A-Za-z0-9_.-]{1,64}$`. Keep existing max request size. Do not change signed canonical payload logic.
 
-Validation:
-- reuse `novelFetchBookIDPattern` for `bookId`;
-- `versionId` must match `^[A-Za-z0-9_.-]{1,64}$`;
-- body request stays under existing `http.MaxBytesReader` limit in S1;
-- list endpoint never returns `content`;
-- bridge canonical signature automatically includes the new path exactly as existing middleware does.
+- [ ] **Step 4: Keep legacy task endpoints**
 
-- [ ] **Step 4: Preserve old task endpoints**
+Do not remove existing task GET/PUT endpoints in S1.
 
-Do not remove existing `GET/PUT /tasks/{bookId}` yet. S1 Node migration needs a compatibility window.
-
-- [ ] **Step 5: Run Go bridge tests and build**
+- [ ] **Step 5: Verify Go slice**
 
 ```bash
 cd backend
@@ -345,8 +301,6 @@ gofmt -w internal/novelfetchworkshop internal/httpapi internal/storage
 go test ./internal/httpapi ./internal/novelfetchworkshop ./internal/storage -v
 go build ./...
 ```
-
-Expected: all PASS/build succeeds.
 
 - [ ] **Step 6: Commit**
 
@@ -357,142 +311,7 @@ git commit -m "feat(novel-fetch): expose signed body bridge"
 
 ---
 
-### Task 5: Migrate Node Workshop Adapter to Metadata + Bodies
-
-**Files:**
-- Modify: `lib/novel-fetch-workshop/mysql-store.js`
-- Modify: `tests/novel-fetch-mysql-fetch-contract.test.js`
-- Modify: `tests/novel-fetch-v2-task-list-bridge.test.js`
-- Modify: `tests/novel-fetch-task-api.test.js`
-
-**Interfaces:**
-- Consumes: Task 4 body bridge endpoints.
-- Produces internal Node helpers:
-  - `readBody(bookId, versionId)` → text or `''` for not found where legacy callers expect empty.
-  - `writeBody(bookId, versionId, content, state='ready')` → body metadata.
-  - `listBodyRefs(bookId)` → metadata only.
-  - `deleteBody(bookId, versionId)` → boolean.
-
-- [ ] **Step 1: Write RED list contract**
-
-Add an assertion that list payload does not contain full text:
-
-```js
-assert.equal('original' in task, false);
-assert.equal('originalRaw' in task, false);
-assert.equal('versions' in task, false);
-assert.deepEqual(task.bodyVersions.sort(), ['ai1', 'ai3', 'original']);
-```
-
-- [ ] **Step 2: Write RED fetch persistence contract**
-
-After `fetchOriginal(...)`, assert the adapter issues a dedicated body PUT for `original`, while task PUT contains metadata only. The task PUT body must not contain the fetched novel text.
-
-- [ ] **Step 3: Verify RED**
-
-```bash
-node --test tests/novel-fetch-mysql-fetch-contract.test.js tests/novel-fetch-v2-task-list-bridge.test.js tests/novel-fetch-task-api.test.js
-```
-
-Expected: FAIL against legacy `meta + original + originalRaw + versions + logs` document writes.
-
-- [ ] **Step 4: Split adapter reads/writes**
-
-New task document shape in Node should be lightweight:
-
-```js
-{
-  bookId,
-  meta,
-  bodyRefs: {
-    original: { versionId: 'original', contentHash, charCount, revision, state },
-    ai3: { versionId: 'ai3', contentHash, charCount, revision, state }
-  },
-  logs
-}
-```
-
-Compatibility rules during S1:
-- `getTask()` may reconstruct a legacy-looking in-memory `document` only for internal callers that truly need it.
-- `listTasks()` must never fetch body text.
-- `readVersionText(username, bookId, 'original')` reads body version `original`.
-- `readVersionText(..., 'ai3')` reads body version `ai3`.
-- Stop persisting `originalRaw`; after fetch, normalize once and store only `original` body. Keep raw character count/hash only if needed for diagnostics.
-
-- [ ] **Step 5: Keep AI writer behavior compatible**
-
-Where existing methods previously mutated `document.versions.aiN`, route the full text to `writeBody(bookId, 'aiN', text)` and update only version metadata/status in the task document.
-
-- [ ] **Step 6: Run focused Node tests**
-
-```bash
-node --test tests/novel-fetch-mysql-fetch-contract.test.js tests/novel-fetch-v2-task-list-bridge.test.js tests/novel-fetch-task-api.test.js tests/novel-fetch-runner.test.js tests/novel-fetch-runner-advanced.test.js
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit Node adapter**
-
-```bash
-git add lib/novel-fetch-workshop/mysql-store.js tests/novel-fetch-mysql-fetch-contract.test.js tests/novel-fetch-v2-task-list-bridge.test.js tests/novel-fetch-task-api.test.js
-git commit -m "feat(novel-fetch): separate history metadata from bodies"
-```
-
----
-
-### Task 6: Preserve Existing 121 Upload While Reading New Body Store
-
-**Files:**
-- Modify: `routes/novel-fetch-upload.js` only if the existing `readVersionText()` abstraction is insufficient.
-- Modify: `tests/novel-fetch-upload-browser-worker.test.js`
-- Modify: `tests/novel-fetch-upload-source-contract.test.js`
-
-**Interfaces:**
-- Consumes: Node adapter `readVersionText` from Task 5.
-- Produces: unchanged 121 upload payload contract.
-
-- [ ] **Step 1: Add regression test**
-
-Given `ai3` body exists only in Body Store and no real TXT exists, upload must still construct:
-
-```text
-multipart/form-data
-field: files[]
-filename: <bookId>.txt
-Content-Type: text/plain
-body bytes: UTF-8 AI3 content
-```
-
-- [ ] **Step 2: Run and verify RED if needed**
-
-```bash
-node --test tests/novel-fetch-upload-browser-worker.test.js tests/novel-fetch-upload-source-contract.test.js
-```
-
-If the test is already GREEN through `readVersionText`, do not make a production-code change merely to create churn; keep the regression test and commit it.
-
-- [ ] **Step 3: Minimal compatibility change only if required**
-
-The route must not know SQL/body-table details. It should request selected version text through the store abstraction, then keep using `target.buildTargetUploadFilename(bookId)` and existing multipart construction.
-
-- [ ] **Step 4: Run upload tests**
-
-```bash
-node --test tests/novel-fetch-upload-browser-worker.test.js tests/novel-fetch-upload-source-contract.test.js
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add routes/novel-fetch-upload.js tests/novel-fetch-upload-browser-worker.test.js tests/novel-fetch-upload-source-contract.test.js
-git commit -m "test(novel-fetch): preserve 121 upload from body store"
-```
-
----
-
-### Task 7: Add Compatibility Migration for Existing Stored Documents
+### Task 5: Migrate Existing Full-Text Documents Safely
 
 **Files:**
 - Create: `backend/internal/novelfetchworkshop/legacy_document_migration.go`
@@ -500,59 +319,43 @@ git commit -m "test(novel-fetch): preserve 121 upload from body store"
 - Modify: `backend/internal/novelfetchworkshop/mysql_store.go`
 
 **Interfaces:**
-- Produces: idempotent lazy migration `MigrateLegacyDocumentBodies(ctx, owner, bookID)`.
 
-- [ ] **Step 1: Write RED migration tests**
-
-Cover a legacy document containing:
-
-```json
-{
-  "original": "原文",
-  "originalRaw": "原始原文",
-  "versions": {"ai1": "AI1", "ai3": "AI3"}
-}
+```go
+MigrateLegacyDocumentBodies(ctx context.Context, owner, bookID string) error
 ```
 
-Expected after migration:
-- body `original` contains normalized `original` (not a second permanent `originalRaw` body);
-- bodies `ai1`, `ai3` exist;
-- document JSON no longer contains full `original`, `originalRaw`, or full version strings;
-- running migration twice does not create extra revisions or change content hashes.
+- [ ] **Step 1: Write RED migration test**
+
+Input legacy JSON:
+
+```json
+{"original":"规范原文","originalRaw":"原始原文","versions":{"ai1":"AI1","ai3":"AI3"}}
+```
+
+Assert after migration: body `original`=`规范原文`; body `ai1` and `ai3` exist; no second `originalRaw` body; task JSON has no full text; second migration is a no-op and does not increment body revisions.
 
 - [ ] **Step 2: Verify RED**
 
 ```bash
 cd backend
-go test ./internal/novelfetchworkshop -run 'LegacyDocument' -v
+go test ./internal/novelfetchworkshop -run LegacyDocument -v
 ```
-
-Expected: FAIL because migration helper is missing.
 
 - [ ] **Step 3: Implement transactionally**
 
-Within one DB transaction:
-1. lock the legacy document row;
-2. parse old body fields;
-3. insert missing body rows only;
-4. replace full text fields with body refs/availability metadata;
-5. commit.
+Lock one document row, create only missing body rows, replace full-text fields with lightweight body-ref metadata, then commit. Never delete the task/history row.
 
-Do not delete the task/history row.
+- [ ] **Step 4: Wire lazy migration**
 
-- [ ] **Step 4: Wire lazy migration on task detail write/read boundary**
+When `GetDocument` encounters the legacy full-text shape, migrate that one record and re-read it. Do not run a blocking full-table startup migration.
 
-Run it when an old-format document is encountered. Do not perform a giant blocking full-table migration during application startup in S1.
-
-- [ ] **Step 5: Run package tests**
+- [ ] **Step 5: Verify GREEN**
 
 ```bash
 cd backend
 go test ./internal/novelfetchworkshop ./internal/httpapi ./internal/storage -v
 go build ./...
 ```
-
-Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -563,19 +366,150 @@ git commit -m "feat(novel-fetch): migrate legacy full-text documents"
 
 ---
 
-### Task 8: End-to-End S1 Verification and Review Gate
+### Task 6: Migrate Node Workshop Adapter to Metadata + Bodies
 
 **Files:**
-- No production files unless a verified defect is found.
-- Add focused integration test file if needed: `tests/novel-fetch-body-history-contract.test.js`.
+- Modify: `lib/novel-fetch-workshop/mysql-store.js`
+- Modify: `tests/novel-fetch-mysql-fetch-contract.test.js`
+- Modify: `tests/novel-fetch-v2-task-list-bridge.test.js`
+- Modify: `tests/novel-fetch-task-api.test.js`
+- Modify: `tests/novel-fetch-runner.test.js`
+- Modify: `tests/novel-fetch-runner-advanced.test.js`
 
 **Interfaces:**
-- Produces: exact verified Node SHA and exact verified Go SHA for S2 to consume.
 
-- [ ] **Step 1: Run Node focused suite**
+```js
+readBody(bookId, versionId)            // Promise<string>
+writeBody(bookId, versionId, content, state = 'ready') // Promise<bodyRef>
+listBodyRefs(bookId)                   // Promise<bodyRef[]>
+deleteBody(bookId, versionId)          // Promise<boolean>
+```
+
+`listTasks()` remains compatible with the UI and must return lightweight booleans/metadata such as `hasOriginal`, `hasAi`, and `bodyVersions`, but never the full `original`, `originalRaw`, or `versions` text objects.
+
+- [ ] **Step 1: Write RED list test**
+
+```js
+assert.equal('original' in task, false);
+assert.equal('originalRaw' in task, false);
+assert.equal('versions' in task, false);
+assert.equal(task.hasOriginal, true);
+assert.equal(task.hasAi, true);
+assert.deepEqual(task.bodyVersions.sort(), ['ai1', 'ai3', 'original']);
+```
+
+- [ ] **Step 2: Write RED original-fetch persistence test**
+
+Assert `fetchOriginal()` sends full normalized text only to `PUT .../bodies/original`; task PUT contains metadata/status only and does not contain the novel text or `originalRaw`.
+
+- [ ] **Step 3: Verify RED**
+
+```bash
+node --test tests/novel-fetch-mysql-fetch-contract.test.js tests/novel-fetch-v2-task-list-bridge.test.js tests/novel-fetch-task-api.test.js
+```
+
+- [ ] **Step 4: Implement adapter split**
+
+Task document persisted through Node becomes lightweight:
+
+```js
+{
+  bookId,
+  meta,
+  bodyRefs: {
+    original: { versionId: 'original', revision, contentHash, charCount, state, updatedAt },
+    ai3: { versionId: 'ai3', revision, contentHash, charCount, state, updatedAt }
+  },
+  logs
+}
+```
+
+Full body strings go only through body endpoints. Normalize fetched original once, store one `original` body, and retain only raw/processed counts or hashes in metadata when diagnostics need them.
+
+- [ ] **Step 5: Preserve legacy method contracts**
+
+`readVersionText(username, bookId, 'original')` reads body `original`; AI versions map directly (`ai1`, `ai3`, `ai5`, etc.). Internal task callers may receive body availability metadata, but list/history paths must never auto-fetch bodies.
+
+- [ ] **Step 6: Verify Node focused suite**
 
 ```bash
 node --test \
+  tests/novel-fetch-mysql-fetch-contract.test.js \
+  tests/novel-fetch-v2-task-list-bridge.test.js \
+  tests/novel-fetch-task-api.test.js \
+  tests/novel-fetch-runner.test.js \
+  tests/novel-fetch-runner-advanced.test.js
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/novel-fetch-workshop/mysql-store.js tests/novel-fetch-mysql-fetch-contract.test.js tests/novel-fetch-v2-task-list-bridge.test.js tests/novel-fetch-task-api.test.js tests/novel-fetch-runner.test.js tests/novel-fetch-runner-advanced.test.js
+git commit -m "feat(novel-fetch): separate history metadata from bodies"
+```
+
+---
+
+### Task 7: Prove Existing 121 Upload Still Works Without Real TXT
+
+**Files:**
+- Modify: `tests/novel-fetch-upload-browser-worker.test.js`
+- Modify: `tests/novel-fetch-upload-source-contract.test.js`
+- Production expectation: no change to `routes/novel-fetch-upload.js`; stop and investigate if the new regression test fails before changing upload behavior.
+
+**Interfaces:** consumes `readVersionText`; produces unchanged 121 multipart behavior.
+
+- [ ] **Step 1: Add regression test**
+
+Create a workshop item whose `ai3` exists only in the Body Store. Assert upload body contains UTF-8 AI3 text and multipart headers equivalent to:
+
+```text
+name="files[]"
+filename="123456.txt"
+Content-Type: text/plain
+```
+
+There must be no real `123456.txt` on disk.
+
+- [ ] **Step 2: Run upload tests**
+
+```bash
+node --test tests/novel-fetch-upload-browser-worker.test.js tests/novel-fetch-upload-source-contract.test.js
+```
+
+Expected: PASS through existing `readVersionText()` abstraction. If RED, stop and identify the broken abstraction before editing `routes/novel-fetch-upload.js`.
+
+- [ ] **Step 3: Commit tests**
+
+```bash
+git add tests/novel-fetch-upload-browser-worker.test.js tests/novel-fetch-upload-source-contract.test.js
+git commit -m "test(novel-fetch): preserve 121 upload from body store"
+```
+
+---
+
+### Task 8: S1 Integration Verification and Handoff
+
+**Files:**
+- Create: `tests/novel-fetch-body-history-contract.test.js`
+
+**Interfaces:** produces two exact reviewed SHAs for S2.
+
+- [ ] **Step 1: Add final Node contract test**
+
+Test one book with `original + ai1 + ai3` and assert:
+1. list/history response contains no full text;
+2. body refs report three versions;
+3. removing one body through the fake bridge does not remove task metadata;
+4. selected body remains usable by upload source resolution.
+
+- [ ] **Step 2: Run Node focused suite**
+
+```bash
+node --test \
+  tests/novel-fetch-body-history-contract.test.js \
   tests/novel-fetch-mysql-fetch-contract.test.js \
   tests/novel-fetch-v2-task-list-bridge.test.js \
   tests/novel-fetch-task-api.test.js \
@@ -587,15 +521,15 @@ node --test \
 
 Expected: PASS.
 
-- [ ] **Step 2: Run broader Node novel-fetch suite**
+- [ ] **Step 3: Run broader Node novel-fetch suite**
 
 ```bash
 node --test tests/novel-fetch-*.test.js
 ```
 
-Expected: PASS, or document pre-existing unrelated failures with exact test names; no new failure is accepted.
+Expected: no new failures. Any pre-existing unrelated failure must be named explicitly in the handoff.
 
-- [ ] **Step 3: Run Go tests/build**
+- [ ] **Step 4: Run Go verification**
 
 ```bash
 cd backend
@@ -604,36 +538,19 @@ go test ./internal/novelfetchworkshop ./internal/httpapi ./internal/storage -v
 go build ./...
 ```
 
-Expected: PASS.
-
-- [ ] **Step 4: Verify the key data property manually/in integration test**
-
-For one book with `original + ai1 + ai3`:
-- history/task-list response contains no full text;
-- three body rows/objects exist;
-- deleting a body object does not delete task metadata;
-- old server-side 121 upload can still read selected body text and upload with `<bookId>.txt`.
+Expected: PASS/build succeeds.
 
 - [ ] **Step 5: Request code review**
 
-Use `superpowers:requesting-code-review`. Review must explicitly check:
-- no hidden full-text duplication remains in task JSON;
-- body/list APIs do not leak full content;
-- migration is idempotent;
-- existing 121 upload remains compatible.
+Use `superpowers:requesting-code-review`. Reviewer must check: no hidden full-text duplication in task JSON; body-list API never leaks content; lazy migration is idempotent; old server 121 upload is unchanged.
 
-- [ ] **Step 6: Record handoff SHAs**
+- [ ] **Step 6: Record exact handoff SHAs**
 
-Do not merge into production. Report:
+Node branch is exactly `feat/v78-novel-fetch-local-first-s1-node`; run `git rev-parse HEAD` in that worktree and report the 40-character result.
 
-```text
-Node S1 branch: <branch>
-Node S1 exact SHA: <sha>
-Go S1 branch: <branch>
-Go S1 exact SHA: <sha>
-```
+Go branch is exactly `feat/v78-novel-fetch-local-first-s1-go`; run `git rev-parse HEAD` in that worktree and report the 40-character result.
 
-These become the only accepted baselines for S2.
+Do not merge either branch into production from this task.
 
 ---
 
@@ -641,20 +558,20 @@ These become the only accepted baselines for S2.
 
 S1 is complete only when all are true:
 
-1. Full original/AI bodies are stored outside long-lived task/history JSON.
-2. History/list requests do not retrieve full body content.
+1. Full original/AI bodies are outside long-lived task/history JSON.
+2. History/list requests never retrieve full body content.
 3. `originalRaw` is not kept as a permanent duplicate full text.
-4. Existing books can migrate safely and idempotently.
-5. Existing server 121 upload still works from the new body store without a real TXT file.
-6. No automatic body deletion is enabled yet.
-7. Node and Go exact SHAs have passed their focused suites and build checks.
+4. Existing legacy books migrate safely and idempotently before Node relies on the new shape.
+5. Existing server 121 upload still works from body data without a real TXT file.
+6. Automatic body deletion remains disabled until S5.
+7. Node and Go exact SHAs pass their focused tests/build and code review.
 
-## Next Plans (separate reviewable slices)
+## Subsequent Separate Plans
 
-After S1 passes, write/execute separate plans in this order:
+After S1 passes, create and execute these reviewable plans in order:
 
-1. **S2 Local Executor Body Sync & Export** — device pairing, local internal body store, cloud→local sync, user download/export, exported-file override tracking.
+1. **S2 Local Executor Body Sync & Export** — device pairing, local internal body store, cloud→local sync, download/export, exported-file override tracking.
 2. **S3 Local 121 Login & Upload** — web login entry preserved, local headless Chromium/session, manual verification fallback, local body upload.
 3. **S4 Multi-Device Lease & Transfer** — primary/backup routing, leases, duplicate-upload protection, 24-hour explicit relay.
-4. **S5 Cleanup Settings & Capacity Guard** — navigation settings, 1–30 day retention/default 7, local+cloud cleanup, manual history clear, safe capacity cleanup.
-5. **S6 Server Browser Worker Retirement** — only after S3–S5 production-equivalent verification; remove the server worker from release packaging.
+4. **S5 Cleanup Settings & Capacity Guard** — navigation settings, default 7 days/range 1–30, local+cloud cleanup, manual history clear, safe capacity cleanup.
+5. **S6 Server Browser Worker Retirement** — only after S3–S5 production-equivalent verification; then remove server Browser Worker from release packaging.
