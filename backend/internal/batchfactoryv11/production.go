@@ -81,6 +81,7 @@ type ProductionService struct {
 	Store    Store
 	Compiler PromptResolver
 	Adapter  ProductionAdapter
+	Poller   ProductionPoller
 	Enabled  bool
 	Model    FrozenVideoModel
 }
@@ -197,7 +198,34 @@ func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID s
 	repository, err := s.repository()
 	if err != nil { return BatchStatus{}, err }
 	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil { return BatchStatus{}, err }
+	if err := s.reconcileBatch(ctx, repository, owner, batchID); err != nil { return BatchStatus{}, err }
 	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
 	if err != nil { return BatchStatus{}, err }
 	return BatchStatus{BatchID:batchID, Jobs:jobs}, nil
+}
+
+func (s *ProductionService) reconcileBatch(ctx context.Context, repository ProductionRepository, owner, batchID string) error {
+	if s.Poller == nil { return nil }
+	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
+	if err != nil { return err }
+	for _, job := range jobs {
+		for _, task := range job.Tasks {
+			if task.ProviderTaskID == "" || (task.Status != ProductionQueued && task.Status != ProductionRunning) { continue }
+			ref, pollErr := s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+			updated := task
+			if pollErr != nil {
+				// A transport failure is retryable; persist a bounded diagnostic while
+				// keeping the task running so a later status read can recover it.
+				updated.ErrorMessage = productionError(pollErr)
+			} else {
+				updated.Status = normalizeProductionState(ref.State)
+				updated.ProviderTaskID = strings.TrimSpace(ref.ProviderTaskID)
+				updated.MediaURL = strings.TrimSpace(ref.MediaURL)
+				if updated.Status == ProductionSucceeded { updated.ErrorMessage = "" }
+			}
+			if updated.Status == task.Status && updated.ProviderTaskID == task.ProviderTaskID && updated.MediaURL == task.MediaURL && updated.ErrorMessage == task.ErrorMessage { continue }
+			if _, err := repository.UpdateProductionTask(ctx, owner, job.ID, task.ID, updated); err != nil { return err }
+		}
+	}
+	return nil
 }
