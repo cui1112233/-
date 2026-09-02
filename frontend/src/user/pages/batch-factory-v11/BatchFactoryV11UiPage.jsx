@@ -317,9 +317,17 @@ export function BatchFactoryV11UiPage() {
 
   async function runProduction(targetBatch) {
     if (!targetBatch?.id || productionBusy) return false;
+    const provider = batchSettingsState.patch.videoProvider || 'personal_api';
+    if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
+      message.error('没有在线的豆包本地执行器；请先在生产统一设置生成配对码并让 Mac 执行器上线。');
+      return false;
+    }
+    if (provider === 'personal_api' && runtimeState.videoProviders?.personalAPI?.configured === false) {
+      message.error('请先在个人中心 API 配置视频 API Key。');
+      return false;
+    }
     setProductionBusy(true);
     try {
-      const provider = batchSettingsState.patch.videoProvider || 'personal_api';
       const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
