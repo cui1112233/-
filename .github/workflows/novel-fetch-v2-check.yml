@@ -48,5 +48,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
+      - name: Audit frontend dependencies
+        run: npm --prefix frontend audit --audit-level=moderate
+
       - name: Build frontend
         run: npm run frontend:build
