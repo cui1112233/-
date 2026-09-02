@@ -37,7 +37,7 @@ func TestLocalExecutorSchemaStoresHashesNotPlaintextColumns(t *testing.T) {
 
 func TestLocalExecutorJobMigrationPreservesAcceptanceAndLeaseIdentity(t *testing.T) {
 	migrations := LocalExecutorMigrations()
-	if len(migrations) != 2 || migrations[1].Version != 7801002 {
+	if len(migrations) < 2 || migrations[1].Version != 7801002 {
 		t.Fatalf("migrations=%+v", migrations)
 	}
 	sqlText := strings.ToLower(strings.Join(migrations[1].SQL, "\n"))
@@ -52,5 +52,34 @@ func TestLocalExecutorJobMigrationPreservesAcceptanceAndLeaseIdentity(t *testing
 	}
 	if strings.Contains(sqlText, "lease_token varchar") {
 		t.Fatal("plaintext lease token column present")
+	}
+}
+
+func TestBodySyncMigrationPersistsRevisionLeaseAndAck(t *testing.T) {
+	migrations := LocalExecutorMigrations()
+	if len(migrations) != 3 || migrations[2].Version != 7801003 {
+		t.Fatalf("migrations=%+v", migrations)
+	}
+	sqlText := strings.ToLower(strings.Join(migrations[2].SQL, "\n"))
+	for _, required := range []string{
+		"local_executor_body_syncs",
+		"owner_username varchar(191)",
+		"book_id varchar(191)",
+		"version_id varchar(64)",
+		"body_revision bigint unsigned",
+		"content_hash char(64)",
+		"lease_executor_id varchar(64)",
+		"lease_token_hash binary(32)",
+		"lease_generation bigint",
+		"lease_expires_at datetime(6)",
+		"acked_at datetime(6)",
+		"unique key uq_local_executor_body_sync_revision",
+	} {
+		if !strings.Contains(sqlText, required) {
+			t.Fatalf("missing %q", required)
+		}
+	}
+	if strings.Contains(sqlText, "lease_token varchar") {
+		t.Fatal("plaintext body sync lease token column present")
 	}
 }
