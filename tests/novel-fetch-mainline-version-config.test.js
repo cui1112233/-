@@ -41,7 +41,7 @@ test('主线工作区是版本配置入口，不再保留旧解析入口', () =>
   for (const id of ['versionConfigBtn', 'versionConfigCard', 'syncWebProfilesBtn', 'syncWebStylesBtn', 'webProfileBindingOriginal', 'webProfileBindingAi5', 'processBtn']) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
-  assert.match(styles, /\\.version-config-card/);
+  assert.match(styles, /\.version-config-card/);
   assert.match(app, /openVersionConfigCard/);
   assert.match(app, /closeVersionConfigCard/);
   assert.match(app, /processBtn/);
