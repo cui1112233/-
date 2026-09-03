@@ -39,13 +39,14 @@ test('preferred click treats the Doubao AI creation Video tab as an interactive 
     innerText: '视频',
     textContent: '视频',
     disabled: false,
+    tabIndex: 0,
     getAttribute(name) {
       if (name === 'role') return 'tab';
       if (name === 'aria-disabled') return 'false';
       if (name === 'aria-label') return '';
       return null;
     },
-    getBoundingClientRect() { return { width: 64, height: 32 }; },
+    getBoundingClientRect() { return { left: 10, top: 10, right: 74, bottom: 42, width: 64, height: 32 }; },
     scrollIntoView() {},
     click() { clicked = true; }
   };
@@ -53,8 +54,11 @@ test('preferred click treats the Doubao AI creation Video tab as an interactive 
     document: {
       querySelectorAll(selector) {
         return selector.includes('[role="tab"]') ? [videoTab] : [];
-      }
+      },
+      elementFromPoint() { return videoTab; }
     },
+    innerWidth: 1280,
+    innerHeight: 720,
     getComputedStyle() { return { display: 'block', visibility: 'visible' }; }
   });
 
@@ -62,6 +66,57 @@ test('preferred click treats the Doubao AI creation Video tab as an interactive 
   assert.equal(result.clicked, true);
   assert.equal(result.label, '视频');
   assert.equal(clicked, true);
+});
+
+test('preferred click ignores duplicated carousel Video controls that are not actually hit-testable', () => {
+  let activeClicks = 0;
+  let cloneClicks = 0;
+  const active = {
+    innerText: '视频',
+    textContent: '视频',
+    disabled: false,
+    tabIndex: 0,
+    getAttribute(name) {
+      if (name === 'aria-disabled') return 'false';
+      if (name === 'aria-label') return '';
+      return null;
+    },
+    getBoundingClientRect() { return { left: 410, top: 300, right: 474, bottom: 332, width: 64, height: 32 }; },
+    contains(node) { return node === active; },
+    scrollIntoView() {},
+    click() { activeClicks += 1; }
+  };
+  const clone = {
+    innerText: '视频',
+    textContent: '视频',
+    disabled: false,
+    tabIndex: -1,
+    getAttribute(name) {
+      if (name === 'aria-disabled') return 'false';
+      if (name === 'aria-label') return '';
+      return null;
+    },
+    getBoundingClientRect() { return { left: 800, top: 300, right: 864, bottom: 332, width: 64, height: 32 }; },
+    contains(node) { return node === clone; },
+    scrollIntoView() {},
+    click() { cloneClicks += 1; }
+  };
+  const blocker = {};
+  const result = vm.runInNewContext(buildPreferredClickScript(['视频']), {
+    document: {
+      querySelectorAll() { return [active, clone]; },
+      elementFromPoint(x) { return x < 700 ? active : blocker; }
+    },
+    innerWidth: 1280,
+    innerHeight: 720,
+    getComputedStyle() { return { display: 'block', visibility: 'visible' }; }
+  });
+
+  assert.equal(result.count, 1);
+  assert.equal(result.clicked, true);
+  assert.equal(result.label, '视频');
+  assert.equal(activeClicks, 1);
+  assert.equal(cloneClicks, 0);
 });
 
 test('reference image upload uses CDP file input assignment without a file chooser', async () => {
