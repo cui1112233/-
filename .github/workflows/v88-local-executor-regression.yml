@@ -8,6 +8,8 @@ on:
       - feat/v88-local-executor-auto-update
     paths:
       - 'local-executor/**'
+      - 'routes/local-executor-downloads.js'
+      - 'test/local-executor-updates.test.js'
       - 'branding/**'
       - 'frontend/index.html'
       - 'frontend/public/yizhan-icon.png'
@@ -22,6 +24,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install Node route dependencies
+        run: npm install --ignore-scripts
+      - name: Run executor update feed route tests
+        run: node --test test/local-executor-updates.test.js
       - name: Run full local executor tests
         working-directory: local-executor
         run: npm test
