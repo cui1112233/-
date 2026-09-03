@@ -1,0 +1,23 @@
+name: V88 Local Executor Regression
+
+on:
+  push:
+    branches:
+      - v88
+      - fix/v88-doubao-video-tab
+    paths:
+      - 'local-executor/**'
+      - '.github/workflows/v88-local-executor-regression.yml'
+  workflow_dispatch:
+
+jobs:
+  local-executor-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run focused Doubao page-action regression
+        working-directory: local-executor
+        run: node --test test/doubao-page-actions.test.js
