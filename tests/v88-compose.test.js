@@ -18,6 +18,8 @@ test('V88 review compose wires platform, Go, MySQL, and private 121 worker safel
   assert.match(yaml, /QIANTIE_BRIDGE_SECRET:\s*\$\{QIANTIE_V88_BRIDGE_SECRET:\?required\}/);
   assert.match(yaml, /QIANTIE_MYSQL_DSN:.*@tcp\(mysql:3306\)/);
   assert.match(yaml, /QIANTIE_BATCH_FACTORY_V11_SLICE:\s*\$\{QIANTIE_V88_SLICE:-4\}/);
+  const backendSection = yaml.split(/\n  backend:\s*/)[1]?.split(/\n  platform:\s*/)[0] || '';
+  assert.match(backendSection, /healthcheck:[\s\S]*test:[\s\S]*\/qiantie["']?,?\s*["']?healthcheck/);
   assert.match(yaml, /novel-fetch-121-worker:[\s\S]*?expose:\s*\n\s*- ["']?8787/);
   const workerSection = yaml.split(/\n  novel-fetch-121-worker:\s*/)[1] || '';
   assert.doesNotMatch(workerSection.split(/\n  [a-z0-9-]+:\s*\n/)[0], /\n\s+ports:/);
