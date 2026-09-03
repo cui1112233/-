@@ -86,3 +86,69 @@ jobs:
           QIANTIE_V88_MERGE_ENABLED=0
           EOF
           docker compose --env-file "$review_dir/.env" -f docker-compose.v88-review.yml config >/dev/null
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start isolated V88 review stack
+        run: |
+          set -eu
+          review_dir="$RUNNER_TEMP/qiantie-v88-review"
+          mkdir -p "$review_dir"/{platform-data,mysql-data,worker-data,artifact-data}
+          cat > "$review_dir/.env" <<EOF
+          QIANTIE_V88_HOST_PORT=13188
+          QIANTIE_V88_PUBLIC_BASE_URL=http://127.0.0.1:13188
+          QIANTIE_V88_DATA_DIR=$review_dir/platform-data
+          QIANTIE_V88_MYSQL_DATA_DIR=$review_dir/mysql-data
+          QIANTIE_V88_WORKER_DATA_DIR=$review_dir/worker-data
+          QIANTIE_V88_ARTIFACT_DATA_DIR=$review_dir/artifact-data
+          QIANTIE_V88_MYSQL_PASSWORD=review-mysql-password
+          QIANTIE_V88_MYSQL_ROOT_PASSWORD=review-mysql-root-password
+          QIANTIE_V88_BRIDGE_SECRET=review-bridge-secret
+          QIANTIE_V88_TEXT_ENDPOINT=https://text.example.invalid/v1/chat/completions
+          QIANTIE_V88_TEXT_API_KEY=review-text-key
+          QIANTIE_V88_TEXT_MODEL=review-text-model
+          QIANTIE_V88_121_WORKER_SECRET=review-worker-secret
+          QIANTIE_V88_CREDENTIAL_SECRET=review-credential-secret
+          QIANTIE_V88_121_STORAGE_STATE_SECRET=review-storage-secret
+          QIANTIE_V88_SLICE=4
+          QIANTIE_V88_PRODUCTION_ENABLED=1
+          QIANTIE_V88_MERGE_ENABLED=0
+          EOF
+          export COMPOSE_PROJECT_NAME=qiantie-v88-smoke
+          compose=(docker compose --env-file "$review_dir/.env" -f docker-compose.v88-review.yml)
+          cleanup() {
+            "${compose[@]}" logs --no-color || true
+            "${compose[@]}" down --volumes --remove-orphans || true
+          }
+          trap cleanup EXIT
+          "${compose[@]}" up --build -d
+
+          backend_id="$("${compose[@]}" ps -q backend)"
+          worker_id="$("${compose[@]}" ps -q novel-fetch-121-worker)"
+          test -n "$backend_id"
+          test -n "$worker_id"
+
+          for attempt in $(seq 1 60); do
+            backend_health="$(docker inspect -f '{{.State.Health.Status}}' "$backend_id" 2>/dev/null || true)"
+            worker_health="$(docker inspect -f '{{.State.Health.Status}}' "$worker_id" 2>/dev/null || true)"
+            if [ "$backend_health" = healthy ] && [ "$worker_health" = healthy ] && curl -fsS http://127.0.0.1:13188/api/build-info >/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              echo "isolated V88 stack did not become ready" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$backend_id")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$worker_id")" = healthy
+          curl -fsS http://127.0.0.1:13188/api/build-info
+          if nc -z 127.0.0.1 8787; then
+            echo "121 Worker port 8787 must not be published on the host" >&2
+            exit 1
+          fi
