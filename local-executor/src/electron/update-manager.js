@@ -238,7 +238,7 @@ class UpdateManager {
       message: `正在安装 ${this.downloaded.version}，执行器将重新启动…`,
       errorCode: null
     });
-    await this.spawnInstaller(this.downloaded.filePath, ['/S']);
+    await this.spawnInstaller(this.downloaded.filePath, ['--updated', '/S', '--force-run']);
     this.quitApp();
     return { installing: true };
   }
