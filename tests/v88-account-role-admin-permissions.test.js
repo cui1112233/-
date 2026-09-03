@@ -16,17 +16,19 @@ test('V88 /accounts uses the unified account role page instead of the legacy gov
   assert.doesNotMatch(app, /'\/accounts': AccountGovernancePage/);
 });
 
-test('account role page exposes manager-only backend permissions through the existing grant API', () => {
+test('account role page exposes manager backend permissions only to the primary owner', () => {
   const page = source('frontend/src/user/pages/AccountRolePage.jsx');
   const accountApi = source('frontend/src/shared/api/accountAdmin.js');
 
   assert.match(accountApi, /\/api\/account-admin\/accounts/);
+  assert.match(page, /getCurrentAccount/);
+  assert.match(page, /session\?\.isOwner/);
   assert.match(page, /管理后台访问/);
   assert.match(page, /admin:access/);
   assert.match(page, /账号审核/);
   assert.match(page, /preset:draft/);
   assert.match(page, /preset:publish/);
-  assert.match(page, /selected\.role === 'manager'/);
+  assert.match(page, /session\?\.isOwner && selected\.role === 'manager'/);
   assert.match(page, /listAdminGrants/);
   assert.match(page, /createAdminGrant/);
   assert.match(page, /revokeAdminGrant/);
@@ -44,8 +46,10 @@ test('delegated MANAGER can discover and enter the admin console only when admin
   assert.match(adminLayout, /delegatedNavItems/);
 });
 
-test('server grants backend capabilities only to active MANAGER accounts', () => {
+test('server grants backend capabilities only when the caller is primary owner and subject is active MANAGER', () => {
   const adminRoute = source('routes/admin.js');
+  assert.match(adminRoute, /accountStore\.getAccount\(req\.username\)/);
+  assert.match(adminRoute, /主管理员/);
   assert.match(adminRoute, /memberStore\.getMember\(req\.body\?\.subject\)/);
   assert.match(adminRoute, /member\.role !== 'manager'/);
   assert.match(adminRoute, /仅 MANAGER 可以接收后台权限/);
