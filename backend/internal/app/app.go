@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
+
 	"qiantie/backend/internal/batchfactoryv11"
 	"qiantie/backend/internal/batchfactoryv11/external"
 	"qiantie/backend/internal/config"
 	"qiantie/backend/internal/httpapi"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
+	"qiantie/backend/internal/novelfetchworkshop"
 	"qiantie/backend/internal/storage"
 )
 
@@ -18,10 +20,12 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
-	if err := storage.RunMigrations(ctx, db, storage.AppMigrations()); err != nil {
+	migrations := append(storage.AppMigrations(), storage.NovelFetchWorkshopMigrations()...)
+	if err := storage.RunMigrations(ctx, db, migrations); err != nil {
 		return nil, err
 	}
 	store := batchfactoryv11.NewReadbackMySQLStore(db)
+	novelFetchStore := novelfetchworkshop.NewMySQLStore(db)
 	var director *batchfactoryv11.DirectorService
 	if cfg.Slice >= 2 {
 		provider := &batchfactoryv11.OpenAICompatibleProvider{Endpoint: cfg.DirectorEndpoint, APIKey: cfg.DirectorAPIKey, Model: cfg.DirectorModel}
@@ -77,10 +81,10 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 			Providers: map[external.Provider]external.SubmissionProvider{
 				external.Provider121: provider121,
 				external.ProviderYadi: providerYadi,
-		},
-		Enabled: map[external.Provider]bool{external.Provider121: cfg.External121Enabled, external.ProviderYadi: cfg.ExternalYadiEnabled},
-		Key: cfg.ExternalCredentialsKey,
+			},
+			Enabled: map[external.Provider]bool{external.Provider121: cfg.External121Enabled, external.ProviderYadi: cfg.ExternalYadiEnabled},
+			Key: cfg.ExternalCredentialsKey,
+		}
 	}
-	}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, External: externalPublish, LocalExecutors: localExecutorService, LocalArtifacts: artifactStore, RegisterV11: register}), nil
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, LocalArtifacts: artifactStore, RegisterV11: register}), nil
 }
