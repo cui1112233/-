@@ -9,42 +9,37 @@ function source(relativePath) {
 
 test('script local Doubao video submits into the real local-executor queue', () => {
   const routeSource = source('routes/script-video.js');
-
-  assert.match(
-    routeSource,
-    /POST['"],\s*['"]\/api\/shuihuo-production\/local-executor-jobs['"]|method:\s*['"]POST['"][\s\S]{0,240}\/api\/shuihuo-production\/local-executor-jobs/,
-    'local script video must create a Go local-executor job'
-  );
-  assert.doesNotMatch(
-    routeSource,
-    /bridgeJSON\([^\n]+['"]POST['"],\s*['"]\/api\/script-videos\/local['"]/,
-    'the dead /api/script-videos/local bridge must not be used'
-  );
+  assert.match(routeSource, /LOCAL_DOUBAO_MODEL_KEY\s*=\s*'local-doubao-executor-video'/);
+  assert.match(routeSource, /localExecutorRequest\(req,\s*'\/api\/shuihuo-production\/local-executor-jobs',\s*\{\s*method:\s*'POST'/);
+  assert.doesNotMatch(routeSource, /fetch\([^)]*\/api\/script-videos\/local/);
 });
 
 test('script local Doubao video status and download resolve the local job artifact', () => {
   const routeSource = source('routes/script-video.js');
-
-  assert.match(
-    routeSource,
-    /\/api\/shuihuo-production\/local-executor-jobs\/\$\{encodeURIComponent\(taskId\)\}/,
-    'local task polling must read the Go local-executor job'
-  );
-  assert.match(
-    routeSource,
-    /\/api\/shuihuo-production\/local-executor-artifacts\/\$\{encodeURIComponent\(job\.artifactId\)\}/,
-    'successful local task download must stream the bound artifact'
-  );
+  assert.match(routeSource, /localExecutorRequest\(req,\s*`\/api\/shuihuo-production\/local-executor-jobs\/\$\{encodeURIComponent\(taskId\)\}`/);
+  assert.match(routeSource, /localExecutorRequest\(req,\s*`\/api\/shuihuo-production\/local-executor-jobs\/\$\{encodeURIComponent\(taskId\)\}\/artifact`/);
 });
 
 test('script history upload caps novel text to the same 200k stored by the backend', () => {
-  const historySource = source('frontend/src/shared/api/history.js');
+  const historyApiSource = source('frontend/src/shared/api/history.js');
+  const historyRouteSource = source('routes/history.js');
+  assert.match(historyApiSource, /novelText:\s*String\(payload\.novelText\s*\|\|\s*''\)\.slice\(0,\s*200000\)/);
+  assert.match(historyRouteSource, /novelText:\s*String\(input\.novelText\s*\|\|\s*''\)\.slice\(0,\s*200000\)/);
+});
 
-  assert.match(historySource, /HISTORY_NOVEL_TEXT_LIMIT\s*=\s*200000/);
-  assert.match(
-    historySource,
-    /novelText[\s\S]{0,160}slice\(0,\s*HISTORY_NOVEL_TEXT_LIMIT\)/,
-    'history payload must trim novelText before JSON serialization'
-  );
-  assert.match(historySource, /body:\s*JSON\.stringify\(payload\)/);
+test('script shot cards expose real local executor progress and retry state', () => {
+  const routeSource = source('routes/script-video.js');
+  const cardsSource = source('frontend/src/user/components/ShotOutputCards.jsx');
+
+  assert.match(routeSource, /executorState:\s*state/);
+  assert.match(cardsSource, /getScriptVideoTask/);
+  for (const stage of ['preparing', 'submitting', 'acceptance_unknown', 'generating', 'downloading', 'uploading']) {
+    assert.match(cardsSource, new RegExp(stage));
+  }
+  assert.match(cardsSource, /正在提交视频任务/);
+  assert.match(cardsSource, /已提交 · 等待执行器/);
+  assert.match(cardsSource, /正在下载视频/);
+  assert.match(cardsSource, /正在回传网站/);
+  assert.match(cardsSource, /生成失败/);
+  assert.match(cardsSource, /重新生成/);
 });
