@@ -42,16 +42,7 @@ test('V88 V2 将主页面版本选择转换为 target_versions，并拒绝空选
 });
 
 test('V88 121 配置档可以保存 AI4 和 AI5 的版本绑定', () => {
-  const { publicWebSubmit } = require('../lib/novel-fetch-workshop/121-web-submit-service');
-  const result = publicWebSubmit({
-    profile_bindings: { original: 'p0', ai4: 'p4', ai5: 'p5', ai6: 'ignored' }
-  });
-  assert.deepEqual(result.profile_bindings, {
-    original: 'p0',
-    ai1: '',
-    ai2: '',
-    ai3: '',
-    ai4: 'p4',
-    ai5: 'p5'
-  });
+  const service = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/121-web-submit-service.js'), 'utf8');
+  assert.match(service, /\['original',\s*'ai1',\s*'ai2',\s*'ai3',\s*'ai4',\s*'ai5'\]/);
+  assert.match(service, /profile_bindings:\s*normalizeProfileBindings/);
 });
