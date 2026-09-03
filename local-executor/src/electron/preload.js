@@ -11,5 +11,16 @@ contextBridge.exposeInMainWorld('yiZhanExecutor', {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('executor:state', listener);
     return () => ipcRenderer.removeListener('executor:state', listener);
+  },
+  updater: {
+    getState: () => ipcRenderer.invoke('updater:get-state'),
+    check: () => ipcRenderer.invoke('updater:check'),
+    setChannel: channel => ipcRenderer.invoke('updater:set-channel', channel),
+    install: () => ipcRenderer.invoke('updater:install'),
+    onState: callback => {
+      const listener = (_event, state) => callback(state);
+      ipcRenderer.on('updater:state', listener);
+      return () => ipcRenderer.removeListener('updater:state', listener);
+    }
   }
 });
