@@ -22,23 +22,32 @@
 - Test: `tests/v78-public-nginx-performance.test.js`
 
 - [x] Write the failing contract test.
-- [ ] Add gzip directives and an asset-specific buffered proxy location.
-- [ ] Run the contract test and Nginx syntax check.
+- [x] Add gzip directives and an asset-specific buffered proxy location.
+- [x] Run the contract test and Nginx syntax check.
 
 ### Task 2: Validate and package the patch
 
 **Files:**
 - Modify: `deploy/v78-public/nginx.conf`
 
-- [ ] Run `git diff --check`.
-- [ ] Commit the isolated performance patch.
-- [ ] Record the exact commit and config checksum for deployment.
+- [x] Run `git diff --check`.
+- [x] Commit the isolated performance patch.
+- [x] Record the exact commit and config checksum for deployment.
 
 ### Task 3: Deploy only the Nginx change when host access is available
 
 **Files:**
 - Remote: `deploy/v78-public/nginx.conf`
 
-- [ ] Back up the remote config with a timestamp.
-- [ ] Replace the config and recreate only the Nginx service.
-- [ ] Verify `Content-Encoding: gzip`, `/api/build-info`, and public response timing.
+- [x] Back up the remote config with a timestamp.
+- [x] Replace the config and recreate only the Nginx service.
+- [x] Verify `Content-Encoding: gzip`, `/api/build-info`, and public response timing.
+
+## Deployment Evidence
+
+- V88 commit: `55eb9a8f` (`perf: harden public asset delivery`).
+- Remote backup: `/opt/qiantie/v78/deploy/v78-public/nginx.conf.bak.20260903133131`.
+- Remote config SHA: `ad2ed61ec1e87618299e60d641257d74f869d85747db305044181835ca8626cf`.
+- Remote `nginx -t`: passed; only `v78-public-nginx-1` was recreated.
+- Public `/api/build-info`: unchanged at `v78.3.0.3-remote-workbench-20260819-r1`.
+- Public shared JS transfer: approximately 180 KB compressed, 1.4-2.6 seconds in repeated checks.
