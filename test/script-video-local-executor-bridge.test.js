@@ -44,3 +44,15 @@ test('script shot cards expose real local executor progress and retry state', ()
   assert.match(cardsSource, /生成失败/);
   assert.match(cardsSource, /重新生成/);
 });
+
+test('public V78 serves the branded browser favicon from the built frontend', () => {
+  const appSource = source('app.js');
+  const htmlSource = source('frontend/index.html');
+  const iconPath = path.join(__dirname, '..', 'frontend', 'public', 'yizhan-icon.png');
+  const icon = fs.readFileSync(iconPath);
+
+  assert.match(htmlSource, /<link rel="icon" type="image\/png" href="\/yizhan-icon\.png" \/>/);
+  assert.deepEqual([...icon.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.match(appSource, /app\.get\('\/yizhan-icon\.png'/);
+  assert.match(appSource, /sendFile\(path\.join\(frontendDist,\s*'yizhan-icon\.png'\)\)/);
+});
