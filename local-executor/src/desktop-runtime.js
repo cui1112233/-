@@ -165,7 +165,6 @@ class DesktopRuntime {
       accounts: this.accountPool.summary()
     });
     this.lastHeartbeatAt = new Date().toISOString();
-    this.lastError = null;
     return response;
   }
 
