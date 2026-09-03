@@ -12,8 +12,9 @@ func (m memoryLedger) RecordedChecksum(_ context.Context, v int) (string, bool, 
 	s, ok := m[v]
 	return s, ok, nil
 }
-func (m memoryLedger) Record(_ context.Context, v int, checksum string) {
+func (m memoryLedger) Record(_ context.Context, v int, checksum string) error {
 	m[v] = checksum
+	return nil
 }
 
 func TestRunMigrationPlanRejectsRecordedChecksumMismatch(t *testing.T) {
@@ -43,12 +44,13 @@ func TestChecksumStableAcrossWhitespace(t *testing.T) {
 
 func TestAppMigrationsIncludesV11Migrations(t *testing.T) {
 	migrations := AppMigrations()
-	if len(migrations) != len(V11Migrations()) {
-		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(V11Migrations()))
+	want := V11Migrations()
+	if len(migrations) != len(want) {
+		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(want))
 	}
 	for i, migration := range migrations {
-		if migration.Version != V11Migrations()[i].Version {
-			t.Fatalf("migration[%d]=%d, want %d", i, migration.Version, V11Migrations()[i].Version)
+		if migration.Version != want[i].Version {
+			t.Fatalf("migration[%d]=%d, want %d", i, migration.Version, want[i].Version)
 		}
 	}
 }
