@@ -308,9 +308,19 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 	if b.Title == "" {
 		b.Title = "Untitled Batch"
 	}
-	for _, bi := range input.Books {
-		book := Book{ID: s.id("book"), BatchID: b.ID, Title: bi.Title, SourceText: bi.SourceText, Revision: 1, Videos: []Video{}}
-		book.BookID = book.ID
+	for _, rawBook := range input.Books {
+		bi := normalizeNovelFetchBook(rawBook)
+		internalBookID := s.id("book")
+		sourceID := sourceBookID(bi)
+		if sourceID == "" {
+			sourceID = internalBookID
+		}
+		book := Book{
+			ID: internalBookID, BatchID: b.ID, BookID: sourceID, Title: bi.Title,
+			SourceText: bi.SourceText, SourceTaskID: bi.SourceTaskID, Platform: bi.Platform,
+			TxtText: bi.TxtText, TxtFileName: bi.TxtFileName, SourceMetadata: bi.SourceMetadata,
+			Revision: 1, Videos: []Video{},
+		}
 		for _, vi := range bi.Videos {
 			video := Video{ID: s.id("video"), BatchID: b.ID, BookID: book.ID, Label: vi.Label, VisualPrompt: vi.VisualPrompt, DurationSeconds: vi.DurationSeconds, CompatibilityState: "active", Revision: 1}
 			book.Videos = append(book.Videos, video)
