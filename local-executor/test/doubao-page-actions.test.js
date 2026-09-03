@@ -1,7 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { DoubaoPageActions, DoubaoControlError } = require('../src/doubao-page-actions');
+const vm = require('node:vm');
+const {
+  DoubaoPageActions,
+  DoubaoControlError,
+  buildPreferredClickScript
+} = require('../src/doubao-page-actions');
 
 test('setPrompt uses the live prompt editor and fails closed when none exists', async () => {
   const calls = [];
@@ -25,6 +30,37 @@ test('exact option click fails when zero or multiple live controls match', async
   await assert.rejects(() => actions.clickExactControl({ async executeJavaScript() { return { count: 0 }; } }, '10秒'), error => error.code === 'CONTROL_NOT_FOUND');
   await assert.rejects(() => actions.clickExactControl({ async executeJavaScript() { return { count: 2 }; } }, '10秒'), error => error.code === 'CONTROL_AMBIGUOUS');
   const clicked = await actions.clickExactControl({ async executeJavaScript() { return { count: 1, clicked: true }; } }, '10秒');
+  assert.equal(clicked, true);
+});
+
+test('preferred click treats the Doubao AI creation Video tab as an interactive control', () => {
+  let clicked = false;
+  const videoTab = {
+    innerText: '视频',
+    textContent: '视频',
+    disabled: false,
+    getAttribute(name) {
+      if (name === 'role') return 'tab';
+      if (name === 'aria-disabled') return 'false';
+      if (name === 'aria-label') return '';
+      return null;
+    },
+    getBoundingClientRect() { return { width: 64, height: 32 }; },
+    scrollIntoView() {},
+    click() { clicked = true; }
+  };
+  const result = vm.runInNewContext(buildPreferredClickScript(['视频']), {
+    document: {
+      querySelectorAll(selector) {
+        return selector.includes('[role="tab"]') ? [videoTab] : [];
+      }
+    },
+    getComputedStyle() { return { display: 'block', visibility: 'visible' }; }
+  });
+
+  assert.equal(result.count, 1);
+  assert.equal(result.clicked, true);
+  assert.equal(result.label, '视频');
   assert.equal(clicked, true);
 });
 
