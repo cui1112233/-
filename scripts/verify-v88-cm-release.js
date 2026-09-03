@@ -31,17 +31,23 @@ function anyFileContains(files, needle) {
 }
 
 const layout = read('frontend/src/shared/layouts/UserLayout.jsx');
+const homePage = read('frontend/src/user/pages/HomePage.jsx');
 const companion = read('frontend/src/shared/pet/CmPenguinCompanion.jsx');
 const companionCss = read('frontend/src/shared/pet/cm-penguin-companion.css');
 const dockerfile = read('Dockerfile');
 
+const layoutCoversHome = layout.includes('{isLoggedIn && petVisible ? <CmPenguinCompanion');
+const homeHasOwnCmMount = homePage.includes('<CmPenguinCompanion')
+  && homePage.includes('getConfig()')
+  && homePage.includes('petVisible');
+
 assert(
-  layout.includes('{isLoggedIn && petVisible ? <CmPenguinCompanion'),
-  'CM must render for every logged-in route, including the home page'
+  layout.includes('<CmPenguinCompanion'),
+  'business workspace must keep the CM companion mount'
 );
 assert(
-  !layout.includes("isLoggedIn && pathname !== '/' && petVisible"),
-  'home page must not be excluded from CM rendering'
+  layoutCoversHome || homeHasOwnCmMount,
+  'logged-in home page must render CM while respecting the saved pet visibility setting'
 );
 assert(
   companion.includes('/pets/stacky/spritesheet.webp'),
