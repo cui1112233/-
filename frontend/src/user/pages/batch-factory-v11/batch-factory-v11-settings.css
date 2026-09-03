@@ -1,0 +1,122 @@
+.bf11-settings-drawer {
+  --bf11-settings-line: var(--legacy-border, rgba(148, 163, 184, .22));
+  --bf11-settings-panel: var(--legacy-card, #101c2d);
+  --bf11-settings-soft: var(--legacy-panel, #152337);
+  --bf11-settings-text: var(--legacy-text, #e5edf7);
+  --bf11-settings-muted: var(--legacy-muted, #91a1b7);
+  --bf11-settings-accent: var(--legacy-accent, #7c6cff);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-theme='light'] .bf11-settings-drawer {
+  --bf11-settings-line: var(--legacy-border, rgba(55, 73, 96, .15));
+  --bf11-settings-panel: var(--legacy-card, #fff);
+  --bf11-settings-soft: var(--legacy-panel, #f7f9fc);
+  --bf11-settings-text: var(--legacy-text, #182333);
+  --bf11-settings-muted: var(--legacy-muted, #68788d);
+  --bf11-settings-accent: var(--legacy-accent, #2563eb);
+}
+
+.bf11-settings-scope,
+.bf11-setting-section,
+.bf11-constraint-block,
+.bf11-constraint-toggle-row {
+  border: 1px solid var(--bf11-settings-line);
+  background: color-mix(in srgb, var(--bf11-settings-panel) 96%, transparent);
+}
+
+.bf11-settings-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 9px;
+}
+.bf11-settings-scope > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+
+.bf11-setting-section { border-radius: 9px; overflow: hidden; }
+.bf11-setting-field {
+  display: grid;
+  grid-template-columns: minmax(190px, .7fr) minmax(300px, 1.3fr);
+  gap: 20px;
+  align-items: center;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--bf11-settings-line);
+}
+.bf11-setting-field:last-child { border-bottom: 0; }
+.bf11-setting-field-copy { display: flex; flex-direction: column; gap: 4px; }
+.bf11-setting-field-copy .ant-typography-secondary { line-height: 1.55; }
+.bf11-setting-field-control { min-width: 0; }
+.bf11-setting-field-control .ant-select { width: 100%; }
+
+.bf11-config-version-card { padding: 14px; }
+.bf11-config-version-head,
+.bf11-config-version-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bf11-config-version-head > div { display: flex; flex-direction: column; gap: 3px; }
+.bf11-config-version-actions { margin: 12px 0 8px; }
+.bf11-config-version-actions .ant-select { flex: 1; }
+
+.bf11-constraint-section { padding: 12px; }
+.bf11-section-intro { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.bf11-constraints { display: flex; flex-direction: column; gap: 8px; }
+.bf11-constraints-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px dashed color-mix(in srgb, var(--bf11-settings-accent) 48%, var(--bf11-settings-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bf11-settings-accent) 7%, transparent);
+}
+.bf11-constraints-summary .ant-space > .ant-space-item:last-child > div { display: flex; flex-direction: column; gap: 2px; }
+.bf11-constraint-simple-group { display: grid; gap: 7px; }
+.bf11-constraint-toggle-row,
+.bf11-constraint-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.bf11-constraint-toggle-row { padding: 11px 12px; border-radius: 8px; }
+.bf11-constraint-toggle-row > div,
+.bf11-constraint-head > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+
+.bf11-constraint-block { border-radius: 8px; overflow: hidden; }
+.bf11-constraint-block.is-enabled { border-color: color-mix(in srgb, var(--bf11-settings-accent) 45%, var(--bf11-settings-line)); }
+.bf11-constraint-head { padding: 11px 12px; }
+.bf11-constraint-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border-top: 1px solid var(--bf11-settings-line);
+  background: color-mix(in srgb, var(--bf11-settings-soft) 68%, transparent);
+}
+.bf11-constraint-body-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.bf11-settings-footer-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 12px 4px 2px;
+}
+.bf11-settings-footer-note > svg { flex: 0 0 auto; margin-top: 2px; color: var(--bf11-settings-muted); }
+
+@media (max-width: 760px) {
+  .bf11-settings-scope,
+  .bf11-config-version-head,
+  .bf11-config-version-actions { align-items: stretch; flex-direction: column; }
+  .bf11-setting-field { grid-template-columns: 1fr; gap: 9px; }
+  .bf11-constraint-toggle-row,
+  .bf11-constraint-head { gap: 10px; }
+}

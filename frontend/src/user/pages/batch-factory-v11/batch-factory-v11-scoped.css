@@ -1,0 +1,64 @@
+.bf11-scoped-settings {
+  --bf11-scope-line: var(--legacy-border, rgba(148, 163, 184, .22));
+  --bf11-scope-panel: var(--legacy-card, #101c2d);
+  --bf11-scope-soft: var(--legacy-panel, #152337);
+  --bf11-scope-muted: var(--legacy-muted, #91a1b7);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+[data-theme='light'] .bf11-scoped-settings {
+  --bf11-scope-line: var(--legacy-border, rgba(55, 73, 96, .15));
+  --bf11-scope-panel: var(--legacy-card, #fff);
+  --bf11-scope-soft: var(--legacy-panel, #f7f9fc);
+  --bf11-scope-muted: var(--legacy-muted, #68788d);
+}
+
+.bf11-inheritance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid var(--bf11-scope-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bf11-scope-soft) 65%, transparent);
+}
+.bf11-inheritance-header > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+
+.bf11-scoped-setting-row {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(300px, 1.2fr);
+  align-items: center;
+  gap: 18px;
+  padding: 11px 12px;
+  border: 1px solid var(--bf11-scope-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bf11-scope-panel) 96%, transparent);
+}
+.bf11-scoped-setting-row > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.bf11-scoped-setting-row > .ant-select { width: 100%; }
+.bf11-scoped-setting-row > .ant-segmented { justify-self: stretch; }
+
+.bf11-video-assets-editor {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--bf11-scope-line);
+  border-radius: 8px;
+}
+.bf11-video-assets-editor > div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+.bf11-video-assets-editor .ant-checkbox-group { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.bf11-scoped-footer { padding-top: 5px; }
+
+@media (max-width: 720px) {
+  .bf11-inheritance-header { align-items: flex-start; flex-direction: column; }
+  .bf11-scoped-setting-row { grid-template-columns: 1fr; gap: 9px; }
+  .bf11-video-assets-editor > div { grid-template-columns: 1fr; }
+}

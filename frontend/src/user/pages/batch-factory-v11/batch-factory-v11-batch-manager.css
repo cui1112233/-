@@ -1,0 +1,38 @@
+.bf11-batch-manager-pane {
+  --bf11-manager-line: var(--legacy-border, rgba(148, 163, 184, .22));
+  --bf11-manager-panel: var(--legacy-card, #101c2d);
+  --bf11-manager-soft: var(--legacy-panel, #152337);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+[data-theme='light'] .bf11-batch-manager-pane {
+  --bf11-manager-line: var(--legacy-border, rgba(55, 73, 96, .15));
+  --bf11-manager-panel: var(--legacy-card, #fff);
+  --bf11-manager-soft: var(--legacy-panel, #f7f9fc);
+}
+
+.bf11-batch-intake-card,
+.bf11-batch-intake-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 13px;
+  border: 1px solid var(--bf11-manager-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bf11-manager-panel) 96%, transparent);
+}
+.bf11-batch-intake-card > div:first-child,
+.bf11-batch-intake-actions > div:first-child,
+.bf11-batch-manager-heading > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.bf11-batch-intake-actions { align-items: flex-start; flex-direction: column; }
+.bf11-fallback-import { display: flex; flex-direction: column; gap: 9px; }
+.bf11-batch-manager-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bf11-batch-manager-pane .ant-list-item { padding-inline: 4px; }
+
+@media (max-width: 700px) {
+  .bf11-batch-intake-card,
+  .bf11-batch-manager-heading { align-items: flex-start; flex-direction: column; }
+}
