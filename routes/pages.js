@@ -21,6 +21,15 @@ function serveReactEntry(entryFile, fallbackFile) {
   };
 }
 
+router.get('/yizhan-icon.png', (req, res) => {
+  const iconPath = path.join(frontendDist, 'yizhan-icon.png');
+  if (!fs.existsSync(iconPath)) return res.sendStatus(404);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  return res.sendFile(iconPath);
+});
+
 router.get('/', serveReactEntry('index.html', 'index.html'));
 router.get('/script', serveReactEntry('index.html', 'views/script.html'));
 router.get('/history', serveReactEntry('index.html', 'index.html'));
