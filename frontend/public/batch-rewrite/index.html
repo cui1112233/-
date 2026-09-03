@@ -84,6 +84,22 @@
                     <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
                     <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
                   </div>
+                  <div class="version-config-card-block version-config-prompt-stack">
+                    <div class="field-title">本次处理提示词</div>
+                    <p class="form-hint">以下提示词会同步保存，并应用到本次勾选的原文、AI1～AI5版本。</p>
+                    <label>
+                      改文提示词
+                      <textarea id="versionConfigRewritePrompt" class="small-area" spellcheck="false"></textarea>
+                    </label>
+                    <label>
+                      处理规则提示词
+                      <textarea id="versionConfigProcessingRulePrompt" class="small-area" spellcheck="false" placeholder="整次小说处理共同遵守的剧情、人物、结构规则"></textarea>
+                    </label>
+                    <label>
+                      知识库使用提示词
+                      <textarea id="versionConfigKnowledgeUsagePrompt" class="small-area" spellcheck="false" placeholder="告诉 AI 如何参考知识库，且不得照搬示例内容"></textarea>
+                    </label>
+                  </div>
                 </div>
                 <div class="actions version-config-card-actions">
                   <button id="syncWebProfilesBtn" type="button">同步批量后台配置</button>
