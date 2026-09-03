@@ -18,7 +18,7 @@ function browserErrorStatus(error) {
   return Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 400;
 }
 
-function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, browserClient = create121BrowserClient() } = {}) {
+function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, browserClient = create121BrowserClient({ timeoutMs: 15000 }) } = {}) {
   const router = express.Router();
   router.use(auth);
 
