@@ -1,0 +1,39 @@
+name: V88 Account Role Admin Permissions
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'frontend/src/user/App.jsx'
+      - 'frontend/src/user/pages/AccountRolePage.jsx'
+      - 'frontend/src/shared/api/accountAdmin.js'
+      - 'routes/admin.js'
+      - 'routes/account-admin.js'
+      - 'lib/dev-permissions.js'
+      - 'tests/v88-account-role-admin-permissions.test.js'
+      - '.github/workflows/v88-account-role-admin-permissions.yml'
+  workflow_dispatch:
+
+jobs:
+  account-role-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify account role and permission contract
+        run: node --test tests/v88-account-role-admin-permissions.test.js
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
