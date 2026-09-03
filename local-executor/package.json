@@ -1,7 +1,7 @@
 {
   "name": "yizhan-doubao-local-executor",
   "productName": "一战晟铭豆包执行器",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "main": "src/electron/main.js",
   "type": "commonjs",
