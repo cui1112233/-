@@ -9,7 +9,7 @@ test('V88 正式小说获取主页面使用版本配置入口，不再显示旧�
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
 
-  for (const id of ['versionConfigBtn', 'versionConfigCard', 'processBtn', 'syncWebProfilesBtn', 'syncWebStylesBtn', 'webProfileBindingAi5']) {
+  for (const id of ['versionConfigBtn', 'versionConfigCard', 'processBtn', 'syncWebProfilesBtn', 'syncWebStylesBtn', 'webProfileBindingAi5', 'versionConfigRewritePrompt', 'versionConfigProcessingRulePrompt', 'versionConfigKnowledgeUsagePrompt']) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
   assert.match(html, /版本对应配置档/);
@@ -21,6 +21,9 @@ test('V88 正式小说获取主页面使用版本配置入口，不再显示旧�
   assert.match(app, /selected_versions/);
   assert.match(app, /ai_slot_methods/);
   assert.match(app, /cfg\.submit_versions = selectedProcessVersions\(\)/);
+  assert.match(app, /renderVersionPromptConfig/);
+  assert.match(app, /syncVersionPromptConfigToForm/);
+  assert.match(app, /await saveConfig\(true\)/);
 });
 
 test('V88 V2 将主页面版本选择转换为 target_versions，并拒绝空选择', () => {
