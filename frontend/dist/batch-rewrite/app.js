@@ -1678,6 +1678,10 @@ async function saveWebSubmitConfig(silent = false) {
 async function confirmWebSubmitSelection() {
   const status = $("webSubmitSelectionStatus");
   const versions = selectedProcessVersions();
+  if (!versions.length) {
+    if (status) status.textContent = "请至少选择一个文案版本";
+    return;
+  }
   if (status) status.textContent = "正在保存版本配置...";
   try {
     await saveWorkFormStateNow();
