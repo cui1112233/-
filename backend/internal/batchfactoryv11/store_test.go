@@ -123,3 +123,22 @@ func TestSliceOneChangeImpactDoesNotClaimDirectorInvalidation(t *testing.T) {
 		t.Fatalf("impact=%+v", impact)
 	}
 }
+
+
+func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{
+		Books: []CreateBookInput{{ID: "source-book-207", Title: "A", SourceText: "原文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := s.CreateBatchFromIntake(ctx, "alice", intake.ID, CreateBatchInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Books) != 1 || batch.Books[0].BookID != "source-book-207" {
+		t.Fatalf("book=%+v", batch.Books)
+	}
+}
