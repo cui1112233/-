@@ -25,6 +25,8 @@ test('V88 review compose wires platform, Go, MySQL, and private 121 worker safel
   assert.doesNotMatch(workerSection.split(/\n  [a-z0-9-]+:\s*\n/)[0], /\n\s+ports:/);
   assert.match(yaml, /QIANTIE_121_HEADED_ENABLED:\s*["']1["']/);
   assert.match(yaml, /x-qiantie-internal-secret/);
+  assert.match(yaml, /COPY start-worker\\.sh \.\\/start-worker\\.sh/);
+  assert.match(yaml, /CMD \\[["']\\.\\/start-worker\\.sh["']\\]/);
   for (const variable of ['QIANTIE_V88_DATA_DIR', 'QIANTIE_V88_MYSQL_DATA_DIR', 'QIANTIE_V88_WORKER_DATA_DIR', 'QIANTIE_V88_BRIDGE_SECRET']) {
     assert.match(yaml, new RegExp('\\$\\{' + variable + ':\\?required\\}'));
   }
