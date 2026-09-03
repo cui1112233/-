@@ -3,6 +3,7 @@ import { KeyRound, MoreHorizontal, Plus, RefreshCw, ShieldAlert } from 'lucide-r
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createAccount, getAccountDirectory, getAccountTransferPreview, transferAccountMember, updateAccount } from '../../shared/api/accountAdmin';
 import { createAdminGrant, listAdminGrants, revokeAdminGrant } from '../../shared/api/admin';
+import { getCurrentAccount } from '../../shared/api/auth';
 import { getMemberCenter } from '../../shared/api/member';
 import { MemberIdentity, PageHeader, Panel, RoleBadge, formatTokens } from './accountCenterShared';
 import '../../shared/styles/account-role.css';
@@ -48,6 +49,7 @@ function permissionKey(capability, scope) {
 export default function AccountRolePage() {
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
+  const [session, setSession] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [teamOwners, setTeamOwners] = useState([]);
   const [grants, setGrants] = useState([]);
@@ -67,12 +69,18 @@ export default function AccountRolePage() {
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const center = await getMemberCenter();
-      if (center.member?.role !== 'dev') { setForbidden(true); setAccounts([]); setGrants([]); return; }
+      const [center, currentSession] = await Promise.all([getMemberCenter(), getCurrentAccount()]);
+      setSession(currentSession);
+      if (center.member?.role !== 'dev') {
+        setForbidden(true);
+        setAccounts([]);
+        setGrants([]);
+        return;
+      }
       const [result, ownerResult, grantResult] = await Promise.all([
         getAccountDirectory(filters),
         getAccountDirectory({ active: true }),
-        listAdminGrants()
+        currentSession?.isOwner ? listAdminGrants() : Promise.resolve({ grants: [] })
       ]);
       setForbidden(false);
       setAccounts(result.accounts || []);
@@ -103,7 +111,7 @@ export default function AccountRolePage() {
     setTransferOwner('');
     setPreview(null);
     setResetLimit(false);
-    setPermissionDraft(permissionDraftFor(account.username, grants));
+    setPermissionDraft(session?.isOwner ? permissionDraftFor(account.username, grants) : {});
     form.setFieldsValue({ displayName: account.displayName, role: account.role, monthlyTokenLimit: account.monthlyTokenLimit, active: account.active });
     setDrawerOpen(true);
   }
@@ -122,7 +130,7 @@ export default function AccountRolePage() {
   }
 
   async function saveBackendPermissions() {
-    if (!selected || selected.role !== 'manager') return;
+    if (!session?.isOwner || !selected || selected.role !== 'manager') return;
     setPermissionSaving(true);
     try {
       const current = grants.filter(grant => grant.subject === selected.username);
@@ -196,7 +204,7 @@ export default function AccountRolePage() {
   if (forbidden) return <div className="account-center-page"><div className="ac-empty ac-load-error"><ShieldAlert size={24} /><strong>当前账号没有访问账号与角色的权限</strong><Button onClick={() => load()}>重试</Button></div></div>;
 
   return <div className="account-center-page account-role-page">
-    <PageHeader title="账号与角色" subtitle="统一管理 DEV / MANAGER / MEMBER、团队归属、账号状态和 MANAGER 后台权限。" actions={<><Button icon={<RefreshCw size={16} />} onClick={() => load({ silent: true })}>刷新</Button><Button type="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>创建账号</Button></>} />
+    <PageHeader title="账号与角色" subtitle="统一管理 DEV / MANAGER / MEMBER、团队归属与账号状态；MANAGER 后台权限仅由主管理员授权。" actions={<><Button icon={<RefreshCw size={16} />} onClick={() => load({ silent: true })}>刷新</Button><Button type="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>创建账号</Button></>} />
     <div className="account-role-metrics"><span><b>{stats.total}</b>总账号</span><span><b>{stats.online}</b>在线</span><span><b>{stats.disabled}</b>已停用</span><span><b>{stats.unassigned}</b>未归属成员</span></div>
     <Panel className="account-role-directory" title="账号目录" action={<span className="ac-muted-copy">当前筛选 {accounts.length} 个账号</span>}>
       <div className="account-role-filters">
@@ -209,7 +217,7 @@ export default function AccountRolePage() {
       <div className="account-role-table">
         <div className="account-role-table-head"><span>账号</span><span>角色</span><span>后台权限</span><span>当前团队</span><span>API 托管负责人</span><span>状态</span><span>在线</span><span>本月用量</span><span /></div>
         {accounts.map(account => <div className="account-role-table-row" key={account.username}>
-          <MemberIdentity member={account} /><RoleBadge role={account.role} compact /><span>{account.role === 'manager' ? `${(grantsBySubject[account.username] || []).length} 项` : '—'}</span><span>{account.teamOwner?.team?.name || '未归属'}</span><span>{account.teamOwner ? account.teamOwner.displayName : '未设置'}</span>{statusTag(account)}{onlineTag(account)}<span>{formatTokens(account.usage?.month?.totalTokens)} Tokens</span><Button type="text" aria-label={`管理 ${account.username}`} icon={<MoreHorizontal size={18} />} onClick={() => openDrawer(account)} />
+          <MemberIdentity member={account} /><RoleBadge role={account.role} compact /><span>{account.role === 'manager' ? (session?.isOwner ? `${(grantsBySubject[account.username] || []).length} 项` : '主管理员可见') : '—'}</span><span>{account.teamOwner?.team?.name || '未归属'}</span><span>{account.teamOwner ? account.teamOwner.displayName : '未设置'}</span>{statusTag(account)}{onlineTag(account)}<span>{formatTokens(account.usage?.month?.totalTokens)} Tokens</span><Button type="text" aria-label={`管理 ${account.username}`} icon={<MoreHorizontal size={18} />} onClick={() => openDrawer(account)} />
         </div>)}
         {!accounts.length ? <div className="ac-empty">没有符合条件的账号</div> : null}
       </div>
@@ -224,9 +232,9 @@ export default function AccountRolePage() {
           <Form.Item name="active" label="账号状态" valuePropName="checked"><Switch checkedChildren="正常" unCheckedChildren="停用" disabled={selected.isOwner} /></Form.Item>
           <Button htmlType="submit" type="primary" loading={saving}>保存账号设置</Button>
         </Form>
-        {selected.role === 'manager' ? <section className="account-role-backend-permissions">
+        {session?.isOwner && selected.role === 'manager' ? <section className="account-role-backend-permissions">
           <h3><KeyRound size={17} /> 后台权限</h3>
-          <p>只有 DEV 可以调整这里。MANAGER 不能给自己或其他账号加权限；降级为 MEMBER 时服务端会自动撤销已有后台权限。</p>
+          <p>仅主管理员可以调整 MANAGER 的后台权限。MANAGER 不能给自己或其他账号加权限；降级为 MEMBER 时服务端会自动撤销已有后台权限。</p>
           <div className="account-role-permission-list">
             {MANAGER_BACKEND_CAPABILITIES.map(capability => {
               const draft = permissionDraft[capability.value] || { enabled: false, scope: '*' };
