@@ -65,6 +65,8 @@ test('主线工作区是版本配置入口，不再保留旧解析入口', () =>
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/styles.css'), 'utf8');
+  const distHtml = fs.readFileSync(path.join(root, 'frontend/dist/batch-rewrite/index.html'), 'utf8');
+  const distApp = fs.readFileSync(path.join(root, 'frontend/dist/batch-rewrite/app.js'), 'utf8');
   for (const label of ['版本对应配置档', '同步批量后台配置', '同步批量风格类型', 'AI5']) {
     assert.match(html, new RegExp(label));
   }
@@ -73,6 +75,9 @@ test('主线工作区是版本配置入口，不再保留旧解析入口', () =>
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
   assert.match(styles, /\.version-config-card/);
+  assert.match(distHtml, /版本对应配置档/);
+  assert.match(distHtml, /同步批量后台配置/);
+  assert.match(distApp, /selected_versions/);
   assert.match(app, /openVersionConfigCard/);
   assert.match(app, /closeVersionConfigCard/);
   assert.match(app, /processBtn/);
