@@ -1,7 +1,11 @@
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { createAccountStore } = require('../lib/account-store');
+const { revokeBackendPermissions } = require('../lib/dev-permissions');
+const { PRIMARY_USER } = require('../lib/shared');
 
 const root = path.join(__dirname, '..');
 
@@ -64,4 +68,22 @@ test('role downgrade revokes stale backend grants so MEMBER cannot retain admin 
   assert.match(accountAdminRoute, /revokeBackendPermissions/);
   assert.match(accountAdminRoute, /before\.role !== member\.role/);
   assert.match(accountAdminRoute, /member\.role !== 'dev'/);
+});
+
+test('backend admin access is effective after grant and absent after backend permission revocation', t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v88-account-permissions-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+
+  const store = createAccountStore({ systemDir });
+  store.ensureSeedAccounts();
+  store.createAccount({ username: 'mgrtest', password: 'manager-pass-123', active: true });
+
+  store.grant(PRIMARY_USER, 'mgrtest', { capability: 'admin:access', scope: '*' });
+  assert.equal(store.can('mgrtest', 'admin:access', '*'), true);
+  assert.equal(store.listGrants('mgrtest').length, 1);
+
+  const revoked = revokeBackendPermissions(store, 'mgrtest');
+  assert.equal(revoked.length, 1);
+  assert.equal(store.can('mgrtest', 'admin:access', '*'), false);
+  assert.deepEqual(store.listGrants('mgrtest'), []);
 });
