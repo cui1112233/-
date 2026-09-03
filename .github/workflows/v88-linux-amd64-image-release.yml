@@ -99,7 +99,10 @@ jobs:
           mkdir -p "$release_dir"
           archive="qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz"
           docker save "$IMAGE_NAME" | gzip -1 > "$release_dir/$archive"
-          sha256sum "$release_dir/$archive" > "$release_dir/SHA256SUMS"
+          (
+            cd "$release_dir"
+            sha256sum "$archive" > SHA256SUMS
+          )
           {
             echo "branch=${GITHUB_REF_NAME}"
             echo "commit=${GITHUB_SHA}"
