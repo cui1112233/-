@@ -7,6 +7,9 @@ on:
       - fix/v88-doubao-video-tab
     paths:
       - 'local-executor/**'
+      - 'branding/**'
+      - 'frontend/index.html'
+      - 'frontend/public/yizhan-icon.png'
       - '.github/workflows/v88-local-executor-regression.yml'
   workflow_dispatch:
 
