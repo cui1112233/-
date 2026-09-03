@@ -42,7 +42,9 @@ test('版本处理配置保存后重新读取仍保留选择和槽位方案', as
     accountResolver: owner => ({ username: owner }),
     createStore: () => store,
     tombstones: {},
-    parseBooks: () => ({ tasks: [] })
+    parseBooks: () => ({ tasks: [] }),
+    applySavedRules: async () => {},
+    createConfigSnapshot: () => ({})
   });
   const result = await ops.setSelectedVersions(
     'alice',
