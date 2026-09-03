@@ -7,18 +7,22 @@
 - Integration policy: preserve all base website functions; selectively overlay only verified feature/runtime source; do not merge historical candidate branch history wholesale.
 - Production: unchanged
 - Default branch: unchanged
+- Maintained Doubao desktop executor version: `1.0.2`
 
 ## Included in the V88 consolidation line
 
 - Go Batch Factory V11 backend and MySQL/storage/runtime support
 - Local-executor server integration required by Batch Factory V11 video production
 - Maintained desktop local executor source under `local-executor/`
-- Doubao live-page Video-tab compatibility: AI Creation can discover/click ARIA `role="tab"` controls before VIDEO prompt entry
+- Doubao live-page Video-tab compatibility for the current AI Creation page
+- Doubao carousel duplicate-control filtering: click selection now prefers the control that is actually hit-testable in the viewport instead of treating off-screen/clipped carousel clones as equally actionable
+- Local executor task errors remain visible after successful heartbeat calls so live-page failures are diagnosable instead of disappearing
 - Shared Yizhan branding asset used by the web favicon and Windows executor packaging
 - Batch Factory V11 frontend workbench subtree
 - Batch Factory V11 browser API client
 - Node-to-Go runtime wiring required for V11 APIs
 - V88 local-executor regression workflow
+- V88 Windows local-executor build workflow
 
 ## Explicitly preserved from master base
 
