@@ -6,7 +6,11 @@ on:
       - feat/v78-go-integrated-novel-fetch-doubao
     paths:
       - 'routes/script-video.js'
+      - 'routes/pages.js'
+      - 'frontend/index.html'
+      - 'frontend/public/yizhan-icon.png'
       - 'frontend/src/user/pages/ScriptPage.jsx'
+      - 'frontend/src/user/components/ShotOutputCards.jsx'
       - 'frontend/src/user/pages/scriptDraftStorage.js'
       - 'frontend/src/shared/api/history.js'
       - 'test/script-video-local-executor-bridge.test.js'
