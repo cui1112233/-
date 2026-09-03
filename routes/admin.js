@@ -23,6 +23,16 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
     }
   }
 
+  function ensurePrimaryOwner(req) {
+    const actor = accountStore.getAccount(req.username);
+    if (!actor?.isOwner) {
+      const error = new Error('仅主管理员可以管理后台权限授权');
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+    return actor;
+  }
+
   function requirePresetVersionCapability(capability) {
     return (req, res, next) => {
       try {
@@ -97,6 +107,7 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/grants', requireOwner, (req, res) => {
     try {
+      ensurePrimaryOwner(req);
       if (!memberStore) {
         const error = new Error('后台权限授权服务不可用');
         error.code = 'FORBIDDEN';
@@ -121,6 +132,7 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.get('/grants', requireOwner, (req, res) => {
     try {
+      ensurePrimaryOwner(req);
       res.json({ grants: accountStore.listGrants() });
     } catch (error) {
       sendStoreError(res, error);
@@ -129,6 +141,7 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.delete('/grants/:id', requireOwner, (req, res) => {
     try {
+      ensurePrimaryOwner(req);
       res.json({ grant: accountStore.revokeGrant(req.username, req.params.id) });
     } catch (error) {
       sendStoreError(res, error);
