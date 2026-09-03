@@ -349,8 +349,10 @@ feat(novel-fetch): persist version selections through processing and upload
 **Files:**
 - Modify: `frontend/public/batch-rewrite/index.html`
 - Modify: `frontend/public/batch-rewrite/app.js`
+- Modify: `frontend/public/batch-rewrite/styles.css`
 - Modify: `frontend/dist/batch-rewrite/index.html`
 - Modify: `frontend/dist/batch-rewrite/app.js`
+- Modify: `frontend/dist/batch-rewrite/styles.css`
 - Test: `tests/novel-fetch-mainline-version-config.test.js`
 
 **Interfaces:**
@@ -406,7 +408,7 @@ In the original processing settings area:
   - `同步批量风格类型`;
   - `保存版本配置`;
   - close control.
-- The card must be closable without losing its current selections.
+- The card must be closable without losing its current selections. Add the popup presentation styles to both public and dist stylesheets so the served page has the same modal behavior.
 - Sync success repopulates selectors and keeps existing bindings where profile IDs still exist. Sync failure writes a clear status message and does not silently clear selections.
 - `processInput()` validates that at least one version is checked, saves the current version settings, then submits the task request immediately. It must not require a separate parse-preview action.
 - The site-submit panel reads the same selected version set and per-version profile bindings.
