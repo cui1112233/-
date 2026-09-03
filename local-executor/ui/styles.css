@@ -1,0 +1,63 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #0d1117;
+  color: #f4f7fb;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172033 0, #0d1117 42%); }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+
+.shell { width: min(880px, calc(100% - 40px)); margin: 0 auto; padding: 38px 0 54px; }
+.hero { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+.eyebrow { margin: 0 0 8px; font-size: 12px; letter-spacing: .2em; color: #8ca5cf; }
+h1 { margin: 0; font-size: 32px; letter-spacing: -.02em; }
+.subtitle, .section-head p { color: #9ba8bb; line-height: 1.65; }
+.subtitle { margin: 9px 0 0; }
+
+.status-badge { border: 1px solid #334155; border-radius: 999px; padding: 8px 13px; color: #b8c3d3; background: rgba(15, 23, 42, .72); white-space: nowrap; }
+.status-badge[data-state="ok"] { border-color: #2f6b50; color: #b9f6d2; background: rgba(24, 78, 52, .32); }
+
+.card { background: rgba(17, 24, 39, .88); border: 1px solid #273244; box-shadow: 0 16px 50px rgba(0, 0, 0, .2); border-radius: 18px; padding: 22px; margin-top: 16px; }
+.section-head { display: flex; justify-content: space-between; gap: 22px; align-items: center; }
+h2 { margin: 0; font-size: 18px; }
+.section-head p { margin: 6px 0 0; font-size: 13px; }
+
+.pair-grid { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 12px; align-items: end; margin-top: 18px; }
+label { display: grid; gap: 7px; }
+label span { font-size: 12px; color: #aeb9ca; }
+input { width: 100%; border: 1px solid #334155; border-radius: 11px; padding: 11px 12px; background: #0e1522; color: #f8fafc; outline: none; }
+input:focus { border-color: #7189b7; box-shadow: 0 0 0 3px rgba(113, 137, 183, .16); }
+
+.primary, .secondary { min-height: 40px; border-radius: 11px; padding: 0 15px; border: 1px solid transparent; }
+.primary { background: #edf2ff; color: #101827; font-weight: 650; }
+.secondary { background: #161f2f; border-color: #344156; color: #e4eaf3; }
+.primary:hover:not(:disabled) { background: #fff; }
+.secondary:hover:not(:disabled) { background: #1b2638; }
+.detail-text { margin: 12px 0 0; color: #91a0b5; font-size: 12px; overflow-wrap: anywhere; }
+
+.account-list { display: grid; gap: 10px; margin-top: 18px; }
+.account-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; background: #101825; border: 1px solid #263246; border-radius: 14px; padding: 14px 15px; }
+.account-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.account-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-status { font-size: 12px; color: #9ba8bb; border-left: 1px solid #354258; padding-left: 12px; white-space: nowrap; }
+.account-status[data-state="available"] { color: #9de7bc; }
+.account-status[data-state="human_verification"], .account-status[data-state="auth_required"] { color: #f4c98a; }
+.account-status[data-state="quota_exhausted"] { color: #e7a2a2; }
+.account-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.empty-state { margin-top: 16px; padding: 18px; border: 1px dashed #344156; border-radius: 13px; color: #8290a5; text-align: center; font-size: 13px; }
+
+.automation-card { opacity: .9; }
+.task-line { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #273244; margin-top: 18px; padding-top: 15px; color: #9ba8bb; font-size: 13px; }
+.task-line strong { color: #e8eef8; }
+.error { margin: 14px 2px 0; padding: 12px 14px; border: 1px solid #6b3338; border-radius: 12px; background: rgba(94, 31, 38, .28); color: #ffc4c8; }
+
+@media (max-width: 720px) {
+  .shell { width: min(100% - 24px, 880px); padding-top: 24px; }
+  .hero, .section-head, .account-row { align-items: stretch; flex-direction: column; }
+  .pair-grid { grid-template-columns: 1fr; }
+  .account-actions { justify-content: flex-start; }
+}
