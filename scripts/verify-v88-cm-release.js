@@ -39,6 +39,7 @@ const userApp = read('frontend/src/user/App.jsx');
 const homeRoutePath = 'frontend/src/user/pages/HomeRoute.jsx';
 const homeRoute = exists(homeRoutePath) ? read(homeRoutePath) : '';
 const companion = read('frontend/src/shared/pet/CmPenguinCompanion.jsx');
+const petCatalog = read('frontend/src/shared/pet/petCatalog.js');
 const companionCss = read('frontend/src/shared/pet/cm-penguin-companion.css');
 const dockerfile = read('Dockerfile');
 
@@ -58,14 +59,23 @@ assert(
   'logged-in home page must render CM while respecting the saved pet visibility setting'
 );
 assert(
-  companion.includes('/pets/stacky/spritesheet.webp'),
-  'CM component must reference the Stacky spritesheet'
+  companion.includes('pet.spritesheetPath'),
+  'pet renderer must use the selected pet spritesheet from the catalog'
+);
+assert(
+  petCatalog.includes('/pets/stacky/spritesheet.webp'),
+  'pet catalog must keep the CM/Stacky spritesheet'
+);
+assert(
+  petCatalog.includes('/pets/pixiu/spritesheet.webp'),
+  'pet catalog must keep the Pixiu spritesheet'
 );
 assert(
   companionCss.includes('.cm-penguin-shell'),
   'CM stylesheet must contain the companion shell rules'
 );
 assertFile('pets/stacky/spritesheet.webp');
+assertFile('pets/pixiu/spritesheet.webp');
 assert(
   dockerfile.includes('COPY pets/ ./pets/'),
   'Docker image must copy the pets directory'
@@ -83,7 +93,11 @@ if (!sourceOnly) {
   assert(cssFiles.length > 0, 'frontend build produced no CSS assets');
   assert(
     anyFileContains(jsFiles, '/pets/stacky/spritesheet.webp'),
-    'built frontend does not contain the CM spritesheet reference'
+    'built frontend does not contain the CM/Stacky spritesheet reference'
+  );
+  assert(
+    anyFileContains(jsFiles, '/pets/pixiu/spritesheet.webp'),
+    'built frontend does not contain the Pixiu spritesheet reference'
   );
   assert(
     anyFileContains(cssFiles, '.cm-penguin-shell'),
