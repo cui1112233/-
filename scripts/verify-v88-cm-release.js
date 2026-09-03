@@ -8,6 +8,10 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8');
 }
 
+function exists(relativePath) {
+  return fs.existsSync(path.join(root, relativePath));
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -31,22 +35,26 @@ function anyFileContains(files, needle) {
 }
 
 const layout = read('frontend/src/shared/layouts/UserLayout.jsx');
-const homePage = read('frontend/src/user/pages/HomePage.jsx');
+const userApp = read('frontend/src/user/App.jsx');
+const homeRoutePath = 'frontend/src/user/pages/HomeRoute.jsx';
+const homeRoute = exists(homeRoutePath) ? read(homeRoutePath) : '';
 const companion = read('frontend/src/shared/pet/CmPenguinCompanion.jsx');
 const companionCss = read('frontend/src/shared/pet/cm-penguin-companion.css');
 const dockerfile = read('Dockerfile');
 
 const layoutCoversHome = layout.includes('{isLoggedIn && petVisible ? <CmPenguinCompanion');
-const homeHasOwnCmMount = homePage.includes('<CmPenguinCompanion')
-  && homePage.includes('getConfig()')
-  && homePage.includes('petVisible');
+const homeRouteCoversHome = userApp.includes('HomeRoute')
+  && homeRoute.includes('<CmPenguinCompanion')
+  && homeRoute.includes('getConfig()')
+  && homeRoute.includes('petVisible')
+  && homeRoute.includes('isLoggedIn');
 
 assert(
   layout.includes('<CmPenguinCompanion'),
   'business workspace must keep the CM companion mount'
 );
 assert(
-  layoutCoversHome || homeHasOwnCmMount,
+  layoutCoversHome || homeRouteCoversHome,
   'logged-in home page must render CM while respecting the saved pet visibility setting'
 );
 assert(
