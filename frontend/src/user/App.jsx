@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { UserLayout } from '../shared/layouts/UserLayout';
-import { HomePage } from './pages/HomePage';
+import { HomeRoute } from './pages/HomeRoute';
 
 const ScriptPage = lazy(() => import('./pages/ScriptPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
@@ -64,7 +64,7 @@ function getPage(pathname) {
   if (Page) {
     return <Suspense fallback={<div className="route-loading" role="status">正在加载工作台</div>}><Page /></Suspense>;
   }
-  return <HomePage />;
+  return <HomeRoute />;
 }
 
 export function UserApp() {

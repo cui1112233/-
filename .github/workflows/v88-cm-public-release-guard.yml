@@ -1,0 +1,51 @@
+name: V88 CM Public Release Guard
+
+on:
+  push:
+    branches:
+      - v88
+      - fix/v88-cm-public-release-guard
+  pull_request:
+    branches:
+      - v88
+  workflow_dispatch:
+
+jobs:
+  cm-release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Verify CM source contract
+        run: node scripts/verify-v88-cm-release.js --source-only
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify CM built assets
+        run: node scripts/verify-v88-cm-release.js
+
+      - name: Build V88 public image
+        run: docker build -t qiantie-v88:cm-release-guard .
+
+      - name: Verify pets inside image
+        run: |
+          docker run --rm --entrypoint sh qiantie-v88:cm-release-guard -c '
+            test -s /app/pets/stacky/spritesheet.webp &&
+            test -s /app/pets/pixiu/spritesheet.webp &&
+            test -s /app/frontend/dist/index.html &&
+            grep -R -q "/pets/stacky/spritesheet.webp" /app/frontend/dist/assets/*.js &&
+            grep -R -q "/pets/pixiu/spritesheet.webp" /app/frontend/dist/assets/*.js &&
+            grep -R -q ".cm-penguin-shell" /app/frontend/dist/assets/*.css
+          '
