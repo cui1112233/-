@@ -39,11 +39,13 @@ jobs:
       - name: Build V88 public image
         run: docker build -t qiantie-v88:cm-release-guard .
 
-      - name: Verify CM inside image
+      - name: Verify pets inside image
         run: |
           docker run --rm --entrypoint sh qiantie-v88:cm-release-guard -c '
             test -s /app/pets/stacky/spritesheet.webp &&
+            test -s /app/pets/pixiu/spritesheet.webp &&
             test -s /app/frontend/dist/index.html &&
             grep -R -q "/pets/stacky/spritesheet.webp" /app/frontend/dist/assets/*.js &&
+            grep -R -q "/pets/pixiu/spritesheet.webp" /app/frontend/dist/assets/*.js &&
             grep -R -q ".cm-penguin-shell" /app/frontend/dist/assets/*.css
           '
