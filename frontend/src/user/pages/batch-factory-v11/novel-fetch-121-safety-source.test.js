@@ -15,11 +15,10 @@ function readRequired(relativePath) {
 }
 
 test('novel fetch route installs the hardened 121 login guard', () => {
-  assert.match(appSource, /NovelFetchSafePage/);
-  assert.match(appSource, /\/novel-fetch['"]:\s*NovelFetchSafePage/);
+  assert.match(appSource, /const NovelFetchPage = lazy\(\(\) => import\('\.\/pages\/NovelFetchPage'\)\);/);
+  assert.match(appSource, /'\/novel-fetch': NovelFetchPage/);
 
-  const pageSource = fs.readFileSync(path.join(pagesDir, 'NovelFetchSafePage.jsx'), 'utf8');
-  assert.match(pageSource, /121-login-hotfix\.js/);
+  const pageSource = fs.readFileSync(path.join(pagesDir, 'NovelFetchPage.jsx'), 'utf8');
   assert.match(pageSource, /batch-rewrite\/index\.html/);
 });
 
