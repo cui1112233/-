@@ -35,20 +35,65 @@
                 平台
                 <select id="platformSelect"></select>
               </label>
-              <label>
-                输入格式
-                <select id="parseModeSelect"></select>
-              </label>
-              <label>
-                列顺序预设
-                <select id="columnPresetSelect"></select>
-              </label>
-              <label>
-                自定义列顺序
-                <input id="columnOrderInput" value="书籍ID,书名,推荐理由,男女频,标签,评级" />
-              </label>
             </div>
             <textarea id="inputText" class="input-area" spellcheck="false" placeholder="每行一条：书籍 ID、书名、推荐理由、男女频、标签、评级。&#10;示例：123456789&#9;书名&#9;打脸逆袭、复仇反转&#9;女频&#9;现代世情、爽文&#9;S"></textarea>
+            <div class="version-config-launcher">
+              <div>
+                <h3>版本对应配置档</h3>
+                <span class="form-hint">点击打开卡片，同步 121 配置档并选择本次处理版本。</span>
+              </div>
+              <button id="versionConfigBtn" type="button">打开版本配置</button>
+              <span id="versionConfigSummary" class="form-hint">原文、AI1</span>
+            </div>
+            <dialog id="versionConfigCard" class="version-config-dialog" aria-labelledby="versionConfigCardTitle">
+              <section class="version-config-card">
+                <div class="version-config-card-header">
+                  <div>
+                    <h3 id="versionConfigCardTitle">版本对应配置档</h3>
+                    <p class="form-hint">同步 121 网站配置档后，为原文和 AI1～AI5 指定上传配置。留空表示跟随默认配置档。</p>
+                  </div>
+                  <button id="versionConfigCloseBtn" type="button" aria-label="关闭版本配置">×</button>
+                </div>
+                <div class="version-config-card-body">
+                  <div class="version-config-card-block">
+                    <div class="field-title">本次处理版本</div>
+                    <p class="form-hint">勾选后才会生成或提交对应版本；原文默认选中。</p>
+                    <div class="version-profile-bindings version-selection-grid">
+                      <label><input class="process-version" value="original" type="checkbox" checked /> 原文</label>
+                      <label><input class="process-version" value="ai1" type="checkbox" checked /> AI1 <select id="processAiMethod1"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
+                      <label><input class="process-version" value="ai2" type="checkbox" /> AI2 <select id="processAiMethod2"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
+                      <label><input class="process-version" value="ai3" type="checkbox" /> AI3 <select id="processAiMethod3"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
+                      <label><input class="process-version" value="ai4" type="checkbox" /> AI4 <select id="processAiMethod4"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
+                      <label><input class="process-version" value="ai5" type="checkbox" /> AI5 <select id="processAiMethod5"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
+                    </div>
+                  </div>
+                  <div class="version-config-card-block">
+                    <div class="field-title">121 配置档同步</div>
+                    <div class="control-grid two">
+                      <label>默认 121 配置档<select id="webDefaultProfile"><option value="">请先同步批量后台配置</option></select></label>
+                    </div>
+                    <div class="version-profile-bindings">
+                      <div class="binding-title">版本对应配置档</div>
+                      <label>原文<select id="webProfileBindingOriginal"></select></label>
+                      <label>AI1<select id="webProfileBindingAi1"></select></label>
+                      <label>AI2<select id="webProfileBindingAi2"></select></label>
+                      <label>AI3<select id="webProfileBindingAi3"></select></label>
+                      <label>AI4<select id="webProfileBindingAi4"></select></label>
+                      <label>AI5<select id="webProfileBindingAi5"></select></label>
+                    </div>
+                    <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
+                    <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
+                  </div>
+                </div>
+                <div class="actions version-config-card-actions">
+                  <button id="syncWebProfilesBtn" type="button">同步批量后台配置</button>
+                  <button id="syncWebStylesBtn" type="button">同步批量风格类型</button>
+                  <button id="confirmWebSubmitSelectionBtn" type="button" class="primary">保存版本配置</button>
+                  <button id="versionConfigCloseBtnBottom" type="button">关闭</button>
+                  <span id="webSubmitSelectionStatus" class="form-hint"></span>
+                </div>
+              </section>
+            </dialog>
             <div class="actions">
               <button id="processBtn" class="primary">开始处理</button>
               <label class="inline-check" title="开启后先调用敏感词 AI 修复；AI 失败时自动回退为直接替换">
@@ -114,7 +159,6 @@
                   <th>ID</th>
                   <th>书名</th>
                   <th>平台</th>
-                  <th>解析</th>
                   <th>风格</th>
                   <th>男女频</th>
                   <th>AI判断</th>
@@ -144,14 +188,6 @@
               <label>
                 截取字数
                 <input id="fetchMaxTxt" type="number" min="1" value="4000" />
-              </label>
-              <label>
-                默认AI文案数量
-                <input id="aiCountDefault" type="number" min="1" max="20" value="1" />
-              </label>
-              <label>
-                最大AI文案数量
-                <input id="aiCountMax" type="number" min="1" max="20" value="5" />
               </label>
               <label>
                 抓取并发
@@ -185,10 +221,6 @@
                 出文轮换顺序
                 <input id="methodSequenceInput" placeholder="high_imitation,opening_instruction,instruction" />
               </label>
-              <div class="form-wide">
-                <div class="field-title">AI文案处理优先方案</div>
-                <div id="aiSlotMethods" class="slot-method-grid"></div>
-              </div>
               <label>
                 默认改文模板
                 <select id="rewriteTemplateSelect"></select>
@@ -216,6 +248,10 @@
             <label>
               改文提示词
               <textarea id="rewritePrompt" class="small-area" spellcheck="false"></textarea>
+            </label>
+            <label>
+              处理规则提示词
+              <textarea id="processingRulePrompt" class="small-area" spellcheck="false" placeholder="整次小说处理共同遵守的剧情、人物、结构规则"></textarea>
             </label>
             <div class="actions">
               <button id="saveWorkflowBtn" class="primary">保存自动处理配置</button>
@@ -331,6 +367,9 @@
       </section>
 
       <section id="knowledge" class="panel">
+        <section class="section full">
+          <label>知识库使用提示词<textarea id="knowledgeUsagePrompt" class="small-area" spellcheck="false" placeholder="告诉 AI 如何参考知识库，且不得照搬示例内容"></textarea></label>
+        </section>
         <section class="section full">
           <div class="section-title">
             <h2>三大知识库</h2>
@@ -503,41 +542,13 @@
             <section class="site-submit-card site-submit-configuration">
               <div class="site-submit-card-header">
                 <div>
-                  <h3>2. 选择文案与提交方式</h3>
-                  <p>每个文案版本使用绑定的 121 配置档；未单独绑定时按默认配置档或书籍类型自动匹配。</p>
-                </div>
-              </div>
-              <div class="site-submit-version-select">
-                <span class="site-submit-field-label">提交文案</span>
-                <div class="actions no-top-margin">
-                  <label class="inline-check"><input class="web-version" value="original" type="checkbox" /> 原文</label>
-                  <label class="inline-check"><input class="web-version" value="ai1" type="checkbox" /> AI1</label>
-                  <label class="inline-check"><input class="web-version" value="ai2" type="checkbox" /> AI2</label>
-                  <label class="inline-check"><input class="web-version" value="ai3" type="checkbox" /> AI3</label>
+                  <h3>提交保护设置</h3>
+                  <p>提交版本直接使用上方“版本配置”的选择，这里只设置重试、字数和防重复提交。</p>
                 </div>
               </div>
               <div class="site-submit-mode-static">
                 <span class="site-submit-field-label">提交方式</span>
                 <div class="actions no-top-margin"><strong>版本配置</strong><span class="form-hint">每个文案版本使用绑定的 121 配置档；未绑定时按默认配置档或书籍类型匹配。</span></div>
-              </div>
-              <section id="webVersionConfigSection" class="site-submit-mode-content">
-                <div class="section-title compact"><h3>版本配置</h3><span>优先版本绑定，其次默认配置档和书籍类型；平台、男女频、风格始终取当前书籍分析结果。</span></div>
-                <div class="control-grid two"><label>默认配置档<select id="webDefaultProfile"><option value="">请先同步批量后台配置</option></select></label></div>
-                <div class="version-profile-bindings">
-                  <div class="binding-title">版本对应配置档</div>
-                  <label>原文<select id="webProfileBindingOriginal"></select></label>
-                  <label>AI1<select id="webProfileBindingAi1"></select></label>
-                  <label>AI2<select id="webProfileBindingAi2"></select></label>
-                  <label>AI3<select id="webProfileBindingAi3"></select></label>
-                  <div class="binding-note">“跟随默认配置档”会继续按默认配置档或书籍类型选择；单独选择后，该版本始终优先使用该配置档。</div>
-                </div>
-                <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
-                <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
-                <div class="actions"><button id="syncWebProfilesBtn">同步批量后台配置</button><button id="syncWebStylesBtn">同步批量风格类型</button></div>
-              </section>
-              <div class="site-submit-card-actions">
-                <button id="confirmWebSubmitSelectionBtn" class="primary">确认文案与提交方案</button>
-                <span id="webSubmitSelectionStatus" class="form-hint">确认后会保存本次文案版本、提交方式和素材分配设置。</span>
               </div>
               <div class="site-submit-guard-fields upload-settings-guard">
                 <label>最小文案字数（0 不限制）<input id="webMinTextChars" type="number" min="0" max="100000" value="0" /></label>

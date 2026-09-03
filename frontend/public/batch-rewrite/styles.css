@@ -1067,3 +1067,87 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
     grid-template-columns: 1fr;
   }
 }
+
+
+.version-config-launcher {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+.version-config-launcher > div { display: grid; gap: 4px; flex: 1 1 auto; }
+.version-config-launcher h3 { margin: 0; font-size: 15px; }
+.version-config-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-width: 920px;
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: hidden;
+}
+.version-config-card {
+  display: grid;
+  gap: 0;
+  min-width: min(0, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--panel);
+}
+.version-config-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.version-config-card-header h3 { margin: 0; }
+.version-config-card-header > button {
+  width: 32px;
+  min-width: 32px;
+  padding: 2px 0;
+  font-size: 22px;
+  line-height: 1;
+}
+.version-config-card-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px 20px;
+}
+.version-config-card-block {
+  display: grid;
+  gap: 10px;
+}
+.version-selection-grid {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  margin-top: 0;
+}
+.version-selection-grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.version-selection-grid select { flex: 1 1 auto; margin-top: 0; }
+.version-config-card-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.version-config-card-actions .form-hint { flex: 1 1 100%; }
+@media (max-width: 640px) {
+  .version-config-launcher { align-items: stretch; flex-direction: column; }
+  .version-selection-grid { grid-template-columns: 1fr; }
+  .version-config-dialog { width: calc(100vw - 16px); }
+  .version-config-card-header,
+  .version-config-card-body,
+  .version-config-card-actions { padding-left: 14px; padding-right: 14px; }
+}
