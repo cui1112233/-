@@ -97,8 +97,13 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/grants', requireOwner, (req, res) => {
     try {
-      const member = memberStore?.getMember(req.body?.subject);
-      if (memberStore && (!member || !member.active || member.role !== 'manager')) {
+      if (!memberStore) {
+        const error = new Error('后台权限授权服务不可用');
+        error.code = 'FORBIDDEN';
+        throw error;
+      }
+      const member = memberStore.getMember(req.body?.subject);
+      if (!member || !member.active || member.role !== 'manager') {
         const error = new Error('仅 MANAGER 可以接收后台权限');
         error.code = member ? 'FORBIDDEN' : 'NOT_FOUND';
         throw error;
