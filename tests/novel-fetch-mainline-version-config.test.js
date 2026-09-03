@@ -81,6 +81,9 @@ test('主线工作区是版本配置入口，不再保留旧解析入口', () =>
   assert.match(app, /openVersionConfigCard/);
   assert.match(app, /closeVersionConfigCard/);
   assert.match(app, /processBtn/);
+  assert.match(app, /await saveWebSubmitConfig\(true\)/);
+  assert.match(app, /profile_bindings/);
+  assert.doesNotMatch(app, /\\/api\\/parse/);
   assert.match(app, /selected_versions/);
   assert.match(app, /ai_slot_methods/);
 });
