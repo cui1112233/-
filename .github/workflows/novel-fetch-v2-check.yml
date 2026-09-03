@@ -3,6 +3,7 @@ name: Novel Fetch V2 Check
 on:
   push:
     branches:
+      - v88
       - feat/v78-novel-fetch-v2-completion
   workflow_dispatch:
 
