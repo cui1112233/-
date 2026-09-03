@@ -2753,12 +2753,32 @@ async function transferSelectedToBatchFactory() {
     });
     const skipped = ids.length - items.length;
     if (!items.length) throw new Error("选中的任务都没有可用原文，请先完成原文获取");
-    const result = await platformApi("/api/batch-factory/intakes/novel-fetch", {
+    const result = await platformApi("/api/batch-factory/v11/intakes/novel-fetch", {
       method: "POST",
-      body: JSON.stringify({ name: `小说获取转入 ${items.length} 本`, items }),
+      body: JSON.stringify({
+        books: items.map(item => ({
+          id: item.bookId,
+          bookId: item.bookId,
+          sourceTaskId: item.sourceTaskId,
+          title: item.title,
+          platform: item.platform,
+          sourceText: item.sourceText,
+          txtText: item.txtText,
+          txtFileName: `${item.bookId}.txt`,
+          sourceMetadata: item.sourceMetadata,
+        })),
+        metadata: {
+          name: `小说获取转入 ${items.length} 本`,
+          source: "novel-fetch",
+          transferredAt: new Date().toISOString(),
+        },
+      }),
     });
-    setBatchStatus(`已转入 ${items.length} 本${skipped ? `，跳过 ${skipped} 本未完成任务` : ""}`);
-    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo: result.redirectTo }, window.location.origin);
+    const intakeId = String(result?.intake?.id || "").trim();
+    const redirectTo = result.redirectTo || (intakeId ? `/batch-factory?intake=${encodeURIComponent(intakeId)}` : "");
+    if (!redirectTo) throw new Error("V11 Intake 创建成功但未返回跳转地址");
+    setBatchStatus(`已转入 ${items.length} 本${skipped ? `, 跳过 ${skipped} 本未完成任务` : ""}`);
+    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo }, window.location.origin);
   } catch (error) {
     setBatchStatus(error.message || "转入批量工厂失败");
   } finally {
