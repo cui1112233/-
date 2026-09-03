@@ -144,6 +144,50 @@ test('hash mismatch deletes the downloaded candidate and never makes it installa
   await assert.rejects(() => manager.installDownloaded(), /no verified update installer/i);
 });
 
+test('successful update download cleans older updater installers but preserves unrelated files', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yizhan-updater-cleanup-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const updateDir = path.join(root, 'updates');
+  fs.mkdirSync(updateDir, { recursive: true });
+  const oldFile = 'yizhan-local-executor-v88-1.0.2-win-x64.exe';
+  const newFile = 'yizhan-local-executor-v88-1.0.3-win-x64.exe';
+  fs.writeFileSync(path.join(updateDir, oldFile), 'old');
+  fs.writeFileSync(path.join(updateDir, 'keep-me.txt'), 'keep');
+
+  const manager = new UpdateManager({
+    currentVersion: '1.0.2',
+    platform: 'win32',
+    arch: 'x64',
+    updateBaseUrl: 'https://updates.example.test/downloads/local-executor/updates',
+    userDataDir: root,
+    currentTask: () => null,
+    preferencesStore: fakePreferences('beta'),
+    fetchJson: async () => ({
+      schemaVersion: 1,
+      channel: 'beta',
+      version: '1.0.3',
+      platform: 'win32',
+      arch: 'x64',
+      file: newFile,
+      sha256: 'a'.repeat(64),
+      size: 4,
+      publishedAt: '2026-09-03T00:00:00.000Z'
+    }),
+    downloadFile: async (_url, filePath) => {
+      fs.writeFileSync(filePath, 'next');
+      return { size: 4 };
+    },
+    hashFile: async () => 'a'.repeat(64)
+  });
+
+  await manager.checkForUpdates();
+  const state = await manager.downloadAvailable();
+  assert.equal(state.status, 'downloaded');
+  assert.equal(fs.existsSync(path.join(updateDir, oldFile)), false);
+  assert.equal(fs.existsSync(path.join(updateDir, newFile)), true);
+  assert.equal(fs.existsSync(path.join(updateDir, 'keep-me.txt')), true);
+});
+
 test('channel selection persists and changes the feed path', async () => {
   const store = fakePreferences('beta');
   const manager = new UpdateManager({
