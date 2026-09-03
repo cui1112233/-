@@ -4,8 +4,8 @@ const { slotsForModule } = require('../lib/system-preset-catalog');
 const { createTeamCollaborationStore } = require('../lib/team-collaboration-store');
 
 function sendStoreError(res, error) {
-  if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: 'Not found' });
-  if (error?.code === 'FORBIDDEN') return res.status(403).json({ error: 'Forbidden' });
+  if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: error.message || 'Not found' });
+  if (error?.code === 'FORBIDDEN') return res.status(403).json({ error: error.message || 'Forbidden' });
   if (error?.code === 'CONFLICT') return res.status(409).json({ error: error.message });
   return res.status(400).json({ error: error?.message || 'Invalid request' });
 }
@@ -97,6 +97,17 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/grants', requireOwner, (req, res) => {
     try {
+      const member = memberStore?.getMember(req.body?.subject);
+      if (memberStore && (!member || !member.active || member.role !== 'manager')) {
+        const error = new Error('仅 MANAGER 可以接收后台权限');
+        error.code = member ? 'FORBIDDEN' : 'NOT_FOUND';
+        throw error;
+      }
+      if (['admin:access', 'account:review'].includes(req.body?.capability) && req.body?.scope !== '*') {
+        const error = new Error('该后台权限必须作用于全部模块');
+        error.code = 'INVALID';
+        throw error;
+      }
       res.status(201).json({ grant: accountStore.grant(req.username, req.body?.subject, req.body) });
     } catch (error) {
       sendStoreError(res, error);
