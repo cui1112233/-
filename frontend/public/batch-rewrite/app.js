@@ -1679,14 +1679,18 @@ async function confirmWebSubmitSelection() {
   const status = $("webSubmitSelectionStatus");
   const versions = selectedProcessVersions();
   if (status) status.textContent = "正在保存版本配置...";
-  await saveWorkFormStateNow();
-  const result = await saveWebSubmitConfig(true);
-  if (result) {
-    if (status) status.textContent = `已保存：${versions.map(version => version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
-    updateVersionConfigSummary();
-    closeVersionConfigCard();
-  } else if (status) {
-    status.textContent = "确认失败，请检查连接与设置。";
+  try {
+    await saveWorkFormStateNow();
+    const result = await saveWebSubmitConfig(true);
+    if (result) {
+      if (status) status.textContent = `已保存：${versions.map(version => version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
+      updateVersionConfigSummary();
+      closeVersionConfigCard();
+    } else if (status) {
+      status.textContent = "确认失败，请检查连接与设置。";
+    }
+  } catch (error) {
+    if (status) status.textContent = error.message;
   }
 }
 
@@ -2546,16 +2550,16 @@ async function processInput() {
     return;
   }
   button.disabled = true;
-  await saveWorkFormStateNow();
-  await saveWebSubmitConfig(true);
-  $("processResult").textContent = [
-    "处理中...",
-    "1. 正在读取版本配置",
-    "2. 正在补齐缺失的风格类型/男女频",
-    "3. 正在按所选平台抓取原文",
-    "4. 正在生成所选文案并执行处理规则",
-  ].join("\n");
   try {
+    await saveWorkFormStateNow();
+    await saveWebSubmitConfig(true);
+    $("processResult").textContent = [
+      "处理中...",
+      "1. 正在读取版本配置",
+      "2. 正在补齐缺失的风格类型/男女频",
+      "3. 正在按所选平台抓取原文",
+      "4. 正在生成所选文案并执行处理规则",
+    ].join("\n");
     const payload = {
       platform_id: $("platformSelect").value,
       input_text: $("inputText").value,
