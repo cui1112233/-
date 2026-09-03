@@ -118,12 +118,12 @@ function isLocalExecutorTask(taskId) {
 function localExecutorTaskResponse(job, taskId) {
   const state = String(job?.state || '').trim().toLowerCase();
   if (state === 'succeeded') {
-    if (!job?.artifactId) return { ok: true, taskId, status: 'failed', error: '本地执行器任务已完成，但没有找到视频文件' };
-    return { ok: true, taskId, status: 'succeeded', videoUrl: `/api/script-video/${encodeURIComponent(taskId)}/download` };
+    if (!job?.artifactId) return { ok: true, taskId, status: 'failed', executorState: state, error: '本地执行器任务已完成，但没有找到视频文件' };
+    return { ok: true, taskId, status: 'succeeded', executorState: state, videoUrl: `/api/script-video/${encodeURIComponent(taskId)}/download` };
   }
-  if (state === 'failed') return { ok: true, taskId, status: 'failed', error: String(job?.errorMessage || '本地执行器视频生成失败') };
-  if (state === 'cancelled') return { ok: true, taskId, status: 'failed', error: '本地执行器视频任务已取消' };
-  return { ok: true, taskId, status: 'processing' };
+  if (state === 'failed') return { ok: true, taskId, status: 'failed', executorState: state, error: String(job?.errorMessage || '本地执行器视频生成失败') };
+  if (state === 'cancelled') return { ok: true, taskId, status: 'failed', executorState: state, error: '本地执行器视频任务已取消' };
+  return { ok: true, taskId, status: 'processing', executorState: state };
 }
 
 function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway } = {}) {
