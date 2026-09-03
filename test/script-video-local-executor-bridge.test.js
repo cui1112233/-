@@ -9,22 +9,23 @@ function source(relativePath) {
 
 test('script local Doubao video submits into the real local-executor queue', () => {
   const routeSource = source('routes/script-video.js');
-  assert.match(routeSource, /LOCAL_DOUBAO_MODEL_KEY\s*=\s*'local-doubao-executor-video'/);
-  assert.match(routeSource, /localExecutorRequest\(req,\s*'\/api\/shuihuo-production\/local-executor-jobs',\s*\{\s*method:\s*'POST'/);
+  assert.match(routeSource, /req\.body\?\.modelKey === 'local-doubao-executor-video'/);
+  assert.match(routeSource, /bridgeJSON\(shuihuoGateway,\s*req\.auth\.account,\s*'POST',\s*'\/api\/shuihuo-production\/local-executor-jobs'/);
   assert.doesNotMatch(routeSource, /fetch\([^)]*\/api\/script-videos\/local/);
 });
 
 test('script local Doubao video status and download resolve the local job artifact', () => {
   const routeSource = source('routes/script-video.js');
-  assert.match(routeSource, /localExecutorRequest\(req,\s*`\/api\/shuihuo-production\/local-executor-jobs\/\$\{encodeURIComponent\(taskId\)\}`/);
-  assert.match(routeSource, /localExecutorRequest\(req,\s*`\/api\/shuihuo-production\/local-executor-jobs\/\$\{encodeURIComponent\(taskId\)\}\/artifact`/);
+  assert.match(routeSource, /bridgeJSON\(shuihuoGateway,\s*req\.auth\.account,\s*'GET',\s*`\/api\/shuihuo-production\/local-executor-jobs\/\$\{encodeURIComponent\(taskId\)\}`/);
+  assert.match(routeSource, /bridgeDownload\(shuihuoGateway,\s*req\.auth\.account,\s*`\/api\/shuihuo-production\/local-executor-artifacts\/\$\{encodeURIComponent\(job\.artifactId\)\}`/);
 });
 
 test('script history upload caps novel text to the same 200k stored by the backend', () => {
   const historyApiSource = source('frontend/src/shared/api/history.js');
   const historyRouteSource = source('routes/history.js');
-  assert.match(historyApiSource, /novelText:\s*String\(payload\.novelText\s*\|\|\s*''\)\.slice\(0,\s*200000\)/);
-  assert.match(historyRouteSource, /novelText:\s*String\(input\.novelText\s*\|\|\s*''\)\.slice\(0,\s*200000\)/);
+  assert.match(historyApiSource, /const HISTORY_NOVEL_TEXT_LIMIT = 200000/);
+  assert.match(historyApiSource, /entry\.novelText\.slice\(0,\s*HISTORY_NOVEL_TEXT_LIMIT\)/);
+  assert.match(historyRouteSource, /novelText:\s*typeof novelText === 'string' \? novelText\.slice\(0,\s*200000\) : ''/);
 });
 
 test('script shot cards expose real local executor progress and retry state', () => {
