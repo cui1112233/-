@@ -297,9 +297,36 @@ function updateVersionConfigSummary() {
 function openVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
+  renderVersionPromptConfig();
   updateVersionConfigSummary();
   if (typeof dialog.showModal === "function") dialog.showModal();
   else dialog.setAttribute("open", "");
+}
+
+function renderVersionPromptConfig() {
+  const rewrite = state.config?.app_config?.rewrite || {};
+  const fields = {
+    versionConfigRewritePrompt: rewrite.prompt || "",
+    versionConfigProcessingRulePrompt: rewrite.processing_rule_prompt || "",
+    versionConfigKnowledgeUsagePrompt: state.config?.knowledge?.usage_prompt || "",
+  };
+  for (const [id, value] of Object.entries(fields)) {
+    const element = $(id);
+    if (element) element.value = value;
+  }
+}
+
+function syncVersionPromptConfigToForm() {
+  const pairs = [
+    ["versionConfigRewritePrompt", "rewritePrompt"],
+    ["versionConfigProcessingRulePrompt", "processingRulePrompt"],
+    ["versionConfigKnowledgeUsagePrompt", "knowledgeUsagePrompt"],
+  ];
+  for (const [sourceId, targetId] of pairs) {
+    const source = $(sourceId);
+    const target = $(targetId);
+    if (source && target) target.value = source.value;
+  }
 }
 
 function closeVersionConfigCard() {
@@ -325,6 +352,7 @@ function renderConfig() {
   }
 
   renderWorkflowConfig(appCfg);
+  renderVersionPromptConfig();
   renderAiConfig(appCfg);
   renderPresetControls(appCfg);
   renderKnowledgeSummary(state.config.knowledge_summary || {});
@@ -1686,6 +1714,8 @@ async function confirmWebSubmitSelection() {
   if (status) status.textContent = "正在保存版本配置...";
   try {
     await saveWorkFormStateNow();
+    syncVersionPromptConfigToForm();
+    await saveConfig(true);
     const result = await saveWebSubmitConfig(true);
     if (result) {
       if (status) status.textContent = `已保存：${versions.map(version => version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
@@ -2956,7 +2986,7 @@ function syncFormToAppConfig() {
   return cfg;
 }
 
-async function saveConfig() {
+async function saveConfig(throwOnError = false) {
   $("configStatus").textContent = "保存中...";
   try {
     saveLibraryItem(true);
@@ -2985,8 +3015,10 @@ async function saveConfig() {
     if (knowledgeSave) knowledgeSave.textContent = "已保存";
     const rulesSave = $("rulesSaveStatus");
     if (rulesSave) rulesSave.textContent = "已保存";
+    return data;
   } catch (error) {
     $("configStatus").textContent = error.message;
+    if (throwOnError) throw error;
   }
 }
 
