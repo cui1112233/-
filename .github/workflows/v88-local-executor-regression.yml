@@ -5,6 +5,7 @@ on:
     branches:
       - v88
       - fix/v88-doubao-video-tab
+      - feat/v88-local-executor-auto-update
     paths:
       - 'local-executor/**'
       - 'branding/**'
