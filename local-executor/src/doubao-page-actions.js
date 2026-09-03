@@ -160,7 +160,7 @@ function buildExactClickScript(text) {
       return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
     };
     const label = element => String(element.innerText || element.textContent || element.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim();
-    const matches = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"],label'))
+    const matches = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"],[role="tab"],label'))
       .filter(isVisible)
       .filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true')
       .filter(element => label(element) === wanted);
@@ -180,7 +180,7 @@ function buildPreferredClickScript(labels) {
       return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
     };
     const label = element => String(element.innerText || element.textContent || element.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim();
-    const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"]'))
+    const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"],[role="tab"]'))
       .filter(isVisible)
       .filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true');
     for (const wanted of labels) {
