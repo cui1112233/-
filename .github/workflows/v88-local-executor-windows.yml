@@ -1,15 +1,28 @@
-name: V88 Local Executor Windows 1.0.2
+name: V88 Local Executor Windows 1.0.3
 
 on:
   push:
     branches:
       - v88
       - fix/v88-doubao-video-tab
+      - feat/v88-local-executor-auto-update
     paths:
       - 'local-executor/**'
       - 'branding/**'
       - '.github/workflows/v88-local-executor-windows.yml'
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel for the publication bundle
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - stable
+
+env:
+  EXECUTOR_VERSION: 1.0.3
 
 jobs:
   build-windows:
@@ -29,6 +42,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Verify package version
+        shell: pwsh
+        run: |
+          $actual = node -p "require('./package.json').version"
+          if ($actual -ne $env:EXECUTOR_VERSION) { throw "package version $actual does not match $env:EXECUTOR_VERSION" }
+
       - name: Run executor tests
         run: npm test
 
@@ -40,25 +59,51 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: Normalize installer name and checksum
+      - name: Build updater publication bundle
         shell: pwsh
         run: |
-          $target = "dist/yizhan-local-executor-v88-1.0.2-win-x64.exe"
+          $channel = "${{ github.event.inputs.channel }}"
+          if ([string]::IsNullOrWhiteSpace($channel)) { $channel = "beta" }
+          if ($channel -notin @("beta", "stable")) { throw "unsupported update channel: $channel" }
+
+          $canonicalName = "yizhan-local-executor-v88-$env:EXECUTOR_VERSION-win-x64.exe"
+          $target = Join-Path "dist" $canonicalName
           $installer = Get-ChildItem -Path dist -Filter "*.exe" |
             Where-Object { $_.FullName -ne (Join-Path (Get-Location) $target) } |
             Sort-Object Length -Descending |
             Select-Object -First 1
           if (-not $installer) { throw "Windows installer not found" }
           Copy-Item $installer.FullName $target -Force
-          $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLower()
-          "$hash  yizhan-local-executor-v88-1.0.2-win-x64.exe" | Set-Content -NoNewline "dist/yizhan-local-executor-v88-1.0.2-win-x64.exe.sha256"
-          Write-Host "SHA256: $hash"
 
-      - name: Upload Windows installer
+          $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item $target).Length
+          "$hash  $canonicalName" | Set-Content -NoNewline "dist/$canonicalName.sha256"
+
+          $feedDir = "dist/update-feed/$channel"
+          New-Item -ItemType Directory -Force -Path $feedDir | Out-Null
+          Copy-Item $target (Join-Path $feedDir $canonicalName) -Force
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            channel = $channel
+            version = $env:EXECUTOR_VERSION
+            platform = "win32"
+            arch = "x64"
+            file = $canonicalName
+            sha256 = $hash
+            size = $size
+            publishedAt = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $feedDir "manifest.json")
+          Write-Host "Channel: $channel"
+          Write-Host "SHA256: $hash"
+          Write-Host "Size: $size"
+
+      - name: Upload Windows updater bundle
         uses: actions/upload-artifact@v4
         with:
-          name: yizhan-local-executor-v88-1.0.2-win-x64
+          name: yizhan-local-executor-v88-1.0.3-win-x64-update-bundle
           path: |
-            local-executor/dist/yizhan-local-executor-v88-1.0.2-win-x64.exe
-            local-executor/dist/yizhan-local-executor-v88-1.0.2-win-x64.exe.sha256
+            local-executor/dist/yizhan-local-executor-v88-1.0.3-win-x64.exe
+            local-executor/dist/yizhan-local-executor-v88-1.0.3-win-x64.exe.sha256
+            local-executor/dist/update-feed/**
           if-no-files-found: error
