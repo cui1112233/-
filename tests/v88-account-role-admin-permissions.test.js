@@ -32,6 +32,18 @@ test('account role page exposes manager-only backend permissions through the exi
   assert.match(page, /revokeAdminGrant/);
 });
 
+test('delegated MANAGER can see and enter the admin console only when admin:access is effective', () => {
+  const userLayout = source('frontend/src/shared/layouts/UserLayout.jsx');
+  const adminLayout = source('frontend/src/shared/layouts/AdminLayout.jsx');
+
+  assert.match(userLayout, /effectivePermissions/);
+  assert.match(userLayout, /permission\.capability === 'admin:access'/);
+  assert.match(userLayout, /href="\/admin\/presets"/);
+  assert.match(adminLayout, /effectivePermissions/);
+  assert.match(adminLayout, /permission\.capability === 'admin:access'/);
+  assert.match(adminLayout, /delegatedNavItems/);
+});
+
 test('server grants backend capabilities only to active MANAGER accounts', () => {
   const adminRoute = source('routes/admin.js');
   assert.match(adminRoute, /memberStore\.getMember\(req\.body\?\.subject\)/);
