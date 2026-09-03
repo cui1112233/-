@@ -23,9 +23,9 @@ type LocalVideoJobInput struct {
 }
 
 type LocalVideoJob struct {
-	ID          string
-	State       string
-	ArtifactID  string
+	ID           string
+	State        string
+	ArtifactID   string
 	ErrorMessage string
 }
 
@@ -43,9 +43,9 @@ type LocalExecutorVideoAdapter struct {
 	PublicBaseURL string
 	// ArtifactSecret enables short-lived owner-bound URLs that remote merge
 	// providers can fetch without a user cookie.
-	ArtifactSecret string
+	ArtifactSecret   string
 	ArtifactTokenTTL time.Duration
-	Now func() time.Time
+	Now              func() time.Time
 }
 
 func NewLocalExecutorVideoAdapter(client LocalVideoJobClient, publicBaseURL string) *LocalExecutorVideoAdapter {
@@ -58,8 +58,12 @@ func (a *LocalExecutorVideoAdapter) EnsureAvailable(ctx context.Context, owner s
 	}
 	if availability, ok := a.Client.(LocalVideoExecutorAvailability); ok {
 		online, err := availability.HasOnlineVideoExecutor(ctx, owner)
-		if err != nil { return err }
-		if !online { return fmt.Errorf("%w: no online Doubao local executor is paired", ErrUnavailable) }
+		if err != nil {
+			return err
+		}
+		if !online {
+			return fmt.Errorf("%w: no online Doubao local executor is paired", ErrUnavailable)
+		}
 	}
 	return nil
 }
@@ -68,8 +72,16 @@ func (a *LocalExecutorVideoAdapter) Submit(ctx context.Context, owner string, in
 	if a == nil || a.Client == nil {
 		return ProviderTaskRef{}, fmt.Errorf("%w: local executor is unavailable", ErrUnavailable)
 	}
-	if strings.TrimSpace(owner) == "" || strings.TrimSpace(input.SourceTaskID) == "" {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
 		return ProviderTaskRef{}, fmt.Errorf("%w: local executor task identity is required", ErrInvalid)
+	}
+	if strings.TrimSpace(input.SourceTaskID) == "" {
+		var ok bool
+		input.SourceTaskID, ok = derivedLocalSourceTaskID(input)
+		if !ok {
+			return ProviderTaskRef{}, fmt.Errorf("%w: local executor task identity is required", ErrInvalid)
+		}
 	}
 	if strings.TrimSpace(input.Prompt) == "" {
 		return ProviderTaskRef{}, fmt.Errorf("%w: compiled prompt is required", ErrInvalid)
@@ -82,6 +94,16 @@ func (a *LocalExecutorVideoAdapter) Submit(ctx context.Context, owner string, in
 		return ProviderTaskRef{}, fmt.Errorf("local executor did not return a job id")
 	}
 	return ProviderTaskRef{ProviderTaskID: job.ID, State: mapLocalVideoState(job.State)}, nil
+}
+
+func derivedLocalSourceTaskID(input LocalVideoJobInput) (string, bool) {
+	batchID := strings.TrimSpace(input.BatchID)
+	bookID := strings.TrimSpace(input.BookID)
+	videoID := strings.TrimSpace(input.VideoID)
+	if batchID == "" || bookID == "" || videoID == "" {
+		return "", false
+	}
+	return "bf11:" + batchID + ":" + bookID + ":" + videoID, true
 }
 
 func (a *LocalExecutorVideoAdapter) Poll(ctx context.Context, owner, jobID string) (ProviderTaskRef, error) {
@@ -119,9 +141,13 @@ func (a *LocalExecutorVideoAdapter) artifactURL(owner, id string) string {
 	}
 	if strings.TrimSpace(a.ArtifactSecret) != "" {
 		ttl := a.ArtifactTokenTTL
-		if ttl <= 0 { ttl = 15 * time.Minute }
+		if ttl <= 0 {
+			ttl = 15 * time.Minute
+		}
 		now := time.Now
-		if a.Now != nil { now = a.Now }
+		if a.Now != nil {
+			now = a.Now
+		}
 		if token, err := localexecutor.ArtifactPublicToken(a.ArtifactSecret, owner, rawID, now().Add(ttl)); err == nil {
 			return base + "/api/local-executor/v1/artifacts/" + id + "?token=" + url.QueryEscape(token)
 		}
