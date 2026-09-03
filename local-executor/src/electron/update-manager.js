@@ -7,6 +7,8 @@ const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { normalizeChannel } = require('../update-preferences-store');
 
+const UPDATE_INSTALLER_RE = /^yizhan-local-executor-v88-[0-9]+\.[0-9]+\.[0-9]+-win-x64\.exe$/;
+
 class UpdateSecurityError extends Error {
   constructor(code, message) {
     super(message);
@@ -162,6 +164,7 @@ class UpdateManager {
     const updateDir = path.join(this.userDataDir, 'updates');
     const targetPath = safeUpdateTarget(updateDir, manifest.file);
     await fsp.mkdir(updateDir, { recursive: true });
+    await cleanupOldUpdateInstallers(updateDir, manifest.file);
     await removeIfExists(targetPath);
     this.emit({
       status: 'downloading',
@@ -284,7 +287,7 @@ function parseUpdateManifest(raw, expected = {}) {
   if (String(manifest.arch) !== String(expected.arch)) throw new Error('update manifest architecture mismatch');
   const version = normalizeVersion(manifest.version);
   const file = String(manifest.file || '').trim();
-  if (!/^yizhan-local-executor-v88-[0-9]+\.[0-9]+\.[0-9]+-win-x64\.exe$/.test(file) || path.basename(file) !== file) {
+  if (!UPDATE_INSTALLER_RE.test(file) || path.basename(file) !== file) {
     throw new Error('invalid update installer filename');
   }
   const sha256 = String(manifest.sha256 || '').trim().toLowerCase();
@@ -321,6 +324,19 @@ function safeUpdateTarget(root, file) {
   const resolved = path.resolve(root, file);
   if (path.dirname(resolved) !== base) throw new UpdateSecurityError('UPDATE_PATH_INVALID', 'invalid update installer path');
   return resolved;
+}
+
+async function cleanupOldUpdateInstallers(updateDir, keepFile) {
+  let entries;
+  try {
+    entries = await fsp.readdir(updateDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
+  await Promise.all(entries
+    .filter(entry => entry.isFile() && UPDATE_INSTALLER_RE.test(entry.name) && entry.name !== keepFile)
+    .map(entry => removeIfExists(path.join(updateDir, entry.name))));
 }
 
 async function defaultFetchJson(url) {
@@ -360,5 +376,6 @@ module.exports = {
   parseUpdateManifest,
   compareVersions,
   safeUpdateTarget,
+  cleanupOldUpdateInstallers,
   sha256File
 };
