@@ -18,6 +18,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run focused Doubao page-action regression
+      - name: Run focused Doubao live-page regressions
         working-directory: local-executor
-        run: node --test test/doubao-page-actions.test.js
+        run: node --test test/doubao-page-actions.test.js test/doubao-page-probe.test.js
