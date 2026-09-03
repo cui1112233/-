@@ -12,9 +12,8 @@ func (m memoryLedger) RecordedChecksum(_ context.Context, v int) (string, bool, 
 	s, ok := m[v]
 	return s, ok, nil
 }
-func (m memoryLedger) Record(_ context.Context, v int, checksum string) error {
+func (m memoryLedger) Record(_ context.Context, v int, checksum string) {
 	m[v] = checksum
-	return nil
 }
 
 func TestRunMigrationPlanRejectsRecordedChecksumMismatch(t *testing.T) {
@@ -39,5 +38,31 @@ func TestChecksumStableAcrossWhitespace(t *testing.T) {
 	b := checksumFor(Migration{Version: 1, SQL: []string{"CREATE TABLE x ( id BIGINT );"}})
 	if a != b {
 		t.Fatalf("%s != %s", a, b)
+	}
+}
+
+func TestAppMigrationsIncludesV11Migrations(t *testing.T) {
+	migrations := AppMigrations()
+	if len(migrations) != len(V11Migrations()) {
+		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(V11Migrations()))
+	}
+	for i, migration := range migrations {
+		if migration.Version != V11Migrations()[i].Version {
+			t.Fatalf("migration[%d]=%d, want %d", i, migration.Version, V11Migrations()[i].Version)
+		}
+	}
+}
+
+func TestMergePollerMigrationUsesMySQLCompatibleAddColumnSyntax(t *testing.T) {
+	statements := V11MergePollerStatements()
+	if len(statements) != 1 {
+		t.Fatalf("got %d statements, want 1", len(statements))
+	}
+	upper := strings.ToUpper(statements[0])
+	if strings.Contains(upper, "ADD COLUMN IF NOT EXISTS") {
+		t.Fatalf("MySQL compatibility regression: %s", statements[0])
+	}
+	if !strings.Contains(upper, "ADD COLUMN PROVIDER_TASK_ID") {
+		t.Fatalf("provider_task_id migration missing: %s", statements[0])
 	}
 }
