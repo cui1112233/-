@@ -1,4 +1,4 @@
-name: V88 Local Executor Windows 1.0.1
+name: V88 Local Executor Windows 1.0.2
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
       - name: Normalize installer name and checksum
         shell: pwsh
         run: |
-          $target = "dist/yizhan-local-executor-v88-1.0.1-win-x64.exe"
+          $target = "dist/yizhan-local-executor-v88-1.0.2-win-x64.exe"
           $installer = Get-ChildItem -Path dist -Filter "*.exe" |
             Where-Object { $_.FullName -ne (Join-Path (Get-Location) $target) } |
             Sort-Object Length -Descending |
@@ -51,14 +51,14 @@ jobs:
           if (-not $installer) { throw "Windows installer not found" }
           Copy-Item $installer.FullName $target -Force
           $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLower()
-          "$hash  yizhan-local-executor-v88-1.0.1-win-x64.exe" | Set-Content -NoNewline "dist/yizhan-local-executor-v88-1.0.1-win-x64.exe.sha256"
+          "$hash  yizhan-local-executor-v88-1.0.2-win-x64.exe" | Set-Content -NoNewline "dist/yizhan-local-executor-v88-1.0.2-win-x64.exe.sha256"
           Write-Host "SHA256: $hash"
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: yizhan-local-executor-v88-1.0.1-win-x64
+          name: yizhan-local-executor-v88-1.0.2-win-x64
           path: |
-            local-executor/dist/yizhan-local-executor-v88-1.0.1-win-x64.exe
-            local-executor/dist/yizhan-local-executor-v88-1.0.1-win-x64.exe.sha256
+            local-executor/dist/yizhan-local-executor-v88-1.0.2-win-x64.exe
+            local-executor/dist/yizhan-local-executor-v88-1.0.2-win-x64.exe.sha256
           if-no-files-found: error
