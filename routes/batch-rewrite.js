@@ -10,6 +10,7 @@ const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const ai = require('../lib/novel-fetch-workshop/ai');
 const classifier = require('../lib/novel-fetch-workshop/classifier');
 const rewrite = require('../lib/novel-fetch-workshop/rewrite');
+const versionSelection = require('../lib/novel-fetch-workshop/version-selection');
 const parse = require('../lib/novel-fetch-workshop/parse');
 const rules = require('../lib/novel-fetch-workshop/rules');
 const sensitive = require('../lib/novel-fetch-workshop/sensitive');
@@ -37,8 +38,8 @@ async function runWithConcurrency(items, limit, worker) {
 }
 
 function snakeTask(task = {}) {
-  const aiCount = Number(task.aiCount) || 1;
-  const aiGenerated = Number(task.aiGeneratedCount) || 0;
+  const selectedVersions = versionSelection.taskSelectedVersions(task);
+  const aiFiles = versionSelection.generatedVersions(task);
   return {
     ...task,
     id: task.bookId || task.id || '',
@@ -51,8 +52,9 @@ function snakeTask(task = {}) {
     original_chars: task.originalChars || 0,
     original_raw_chars: task.originalRawChars || 0,
     ai_status: task.aiStatus || '',
-    ai_count: aiCount,
-    ai_files: Array.from({ length: aiGenerated }, (_, index) => `ai${index + 1}`),
+    selected_versions: selectedVersions,
+    ai_slot_methods: versionSelection.normalizeAiSlotMethods(task.aiSlotMethods || task.ai_slot_methods),
+    ai_files: aiFiles,
     classify_status: task.classifyStatus || '',
     classifier_model: task.classifierModel || '',
     sensitive_hit_count: task.sensitiveHitCount || 0,
@@ -88,8 +90,7 @@ function normalizeUploadProfiles(value) {
 }
 
 function normalizeProfileBindings(value) {
-  const source = object(value);
-  return Object.fromEntries(['original', 'ai1', 'ai2', 'ai3'].map(version => [version, String(source[version] || '').trim()]));
+  return versionSelection.normalizeProfileBindings(value);
 }
 
 function selectBoundUploadProfile(cfg, version) {
@@ -656,24 +657,25 @@ function createBatchRewriteRouter({
     const config = object(store.getConfig());
     const parsed = parse.parseBooks({
       inputText,
-      parseMode: payload.parse_mode || 'smart',
-      columnPresetId: payload.column_preset_id || '',
-      columnOrder: payload.column_order || '',
+      parseMode: 'smart',
+      columnPresetId: '',
+      columnOrder: '',
       styles: store.getStyles?.() || []
     });
     const platforms = store.getPlatforms?.() || [];
     const platform = platforms.find(item => String(item.id) === String(payload.platform_id || '2')) || {};
     const workflow = object(config.workflow);
-    const maxAiCount = Math.max(1, Math.min(Number(config.rewrite?.max_ai_count) || 5, 20));
-    const defaultAiCount = Math.max(1, Math.min(Number(config.rewrite?.default_ai_count) || 1, maxAiCount));
+    const selectedVersions = versionSelection.normalizeSelectedVersions(payload.selected_versions);
+    const aiSlotMethods = versionSelection.normalizeAiSlotMethods(payload.ai_slot_methods);
     const prepared = (parsed.tasks || []).map(item => ({
       ...item,
       platformId: String(payload.platform_id || '2'),
       platformName: platform.name || String(payload.platform_id || '2'),
       maxTxt: Number(payload.max_txt) || Number(config.fetch?.default_max_txt) || 4000,
-      aiCount: Math.max(1, Math.min(Number(payload.ai_count) || defaultAiCount, maxAiCount))
+      selectedVersions,
+      aiSlotMethods
     }));
-    report({ type: 'parse', status: 'done', message: `解析完成：有效 ${prepared.length} 个任务。` });
+    report({ type: 'version_config', status: 'done', message: `版本配置已读取：${selectedVersions.map(version => version.toUpperCase()).join('、')}；有效 ${prepared.length} 个任务。` });
     let classified = prepared;
     let classifyErrors = [];
     if (workflow.auto_classify_missing !== false && prepared.length) {
@@ -710,7 +712,7 @@ function createBatchRewriteRouter({
     if (workflow.auto_rewrite_after_fetch) {
       const rewriteResults = await runWithConcurrency(fetchedIds, config.ai?.max_concurrency || 1, async bookId => {
         const task = await tasks.getTask(req.username, bookId);
-        return rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task?.meta, count: task?.meta?.aiCount || 1 });
+        return rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task?.meta, versions: task?.meta?.selectedVersions, slotMethods: task?.meta?.aiSlotMethods });
       });
       for (const [index, item] of rewriteResults.entries()) {
         if (!item?.ok) {
@@ -725,7 +727,7 @@ function createBatchRewriteRouter({
       report({ type: 'rewrite', status: 'skipped', message: '配置未开启抓取后自动改文。' });
     }
     if (workflow.auto_submit_after_rewrite === true && workflow.auto_submit_confirmed === true && config.web_submit?.enabled === true && fetchedIds.length) {
-      const submitted = await submitTasks(req, { mode: 'selected', ids: fetchedIds, versions: ['ai1'] });
+      const submitted = await submitTasks(req, { mode: 'selected', ids: fetchedIds });
       report({ type: 'submit', status: submitted.failed_groups ? 'warning' : 'done', message: `网站提交：成功 ${submitted.success_groups || 0} 组，失败 ${submitted.failed_groups || 0} 组。` });
     } else {
       report({ type: 'submit', status: 'skipped', message: '未开启自动网站提交；文案已保留，需在网站提交页确认后再提交。' });
@@ -753,7 +755,6 @@ function createBatchRewriteRouter({
       username: cfg.username || '',
       password: '',
       password_masked: Boolean(cfg.password_masked),
-      submit_versions: Array.isArray(cfg.submit_versions) && cfg.submit_versions.length ? cfg.submit_versions : ['ai1'],
       skip_submitted: cfg.skip_submitted !== false,
       min_text_chars: Math.max(0, Math.min(Number(cfg.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(cfg.retry_times) || 1, 5)),
@@ -791,7 +792,6 @@ function createBatchRewriteRouter({
       enabled: received.enabled === true,
       username: String(received.username || existing.username || '').trim(),
       password_masked: Boolean(existing.password_masked),
-      submit_versions: Array.isArray(received.submit_versions) && received.submit_versions.length ? received.submit_versions : ['ai1'],
       skip_submitted: received.skip_submitted !== false,
       min_text_chars: Math.max(0, Math.min(Number(received.min_text_chars) || 0, 100000)),
       retry_times: Math.max(0, Math.min(Number(received.retry_times) || 1, 5)),
@@ -877,9 +877,6 @@ function createBatchRewriteRouter({
     const ids = await selectTaskIds(req, body);
     const webConfig = await currentWebConfig(req);
     const submitMode = 'version';
-    const versions = Array.isArray(body?.versions) && body.versions.length
-      ? body.versions
-      : (Array.isArray(webConfig.submit_versions) && webConfig.submit_versions.length ? webConfig.submit_versions : ['ai1']);
     const { tasks } = await resources(req);
     const groupsById = new Map();
     const skipped = [];
@@ -887,6 +884,7 @@ function createBatchRewriteRouter({
     for (const id of ids) {
       const task = await tasks.getTask(req.username, id);
       if (!task?.meta) { skipped.push({ id, status: 'failed', error: '任务不存在' }); continue; }
+      const versions = versionSelection.taskSelectedVersions(task.meta);
       for (const version of versions) {
         const content = await tasks.readVersionText(req.username, id, version);
         if (!content) { skipped.push({ id, version, status: 'skipped', error: '未找到正文版本' }); continue; }
@@ -1073,7 +1071,7 @@ function createBatchRewriteRouter({
         await applySavedRulesToOriginal(tasks, req.username, id, config);
         if (config.workflow?.auto_rewrite_after_fetch) {
           const refreshed = await tasks.getTask(req.username, id);
-          await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: refreshed.meta, count: task.meta.aiCount || 1 });
+          await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: refreshed.meta, versions: refreshed.meta.selectedVersions, slotMethods: refreshed.meta.aiSlotMethods });
         }
         retried++;
       } catch (error) {
@@ -1093,8 +1091,9 @@ function createBatchRewriteRouter({
       if (scope === 'original' || scope === 'both') if (await applySavedRulesToVersion(tasks, req.username, id, 'original', config)) applied++;
       if (scope === 'ai' || scope === 'both') {
         const task = await tasks.getTask(req.username, id);
-        const count = Number(task?.meta?.aiGeneratedCount) || 0;
-        for (let index = 1; index <= count; index++) if (await applySavedRulesToVersion(tasks, req.username, id, `ai${index}`, config)) applied++;
+        for (const version of versionSelection.generatedVersions(task?.meta || {})) {
+          if (await applySavedRulesToVersion(tasks, req.username, id, version, config)) applied++;
+        }
       }
     }
     res.json({ applied, failed: 0, tasks: await listTasks(req) });
@@ -1130,7 +1129,7 @@ function createBatchRewriteRouter({
     }
     res.json({ processed, restored, failed, tasks: await listTasks(req) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const count = Number(task.meta.aiGeneratedCount) || 0; const aiTexts = []; for (let index = 1; index <= count; index++) aiTexts.push({ name: `AI${index}`, text: await tasks.readVersionText(req.username, req.params.id, `ai${index}`) }); const sensitiveLog = await readSensitiveLog(tasks, req.username, req.params.id); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, ...sensitiveLog, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const aiTexts = []; for (const version of versionSelection.generatedVersions(task.meta)) aiTexts.push({ name: version.toUpperCase(), version, text: await tasks.readVersionText(req.username, req.params.id, version) }); const sensitiveLog = await readSensitiveLog(tasks, req.username, req.params.id); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, ...sensitiveLog, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') throw new Error('原文抓取失败'); await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig())); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try {
     const { tasks, configStore: store } = await resources(req);
@@ -1139,7 +1138,7 @@ function createBatchRewriteRouter({
     await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig()));
     res.json({ task: await tasks.getTask(req.username, req.params.id) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const config = object(store.getConfig()); const max = Math.max(1, Math.min(Number(config.rewrite?.max_ai_count) || 5, 20)); const count = Math.max(1, Math.min(Number(req.body?.count) || 1, max)); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: task.meta, count }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const versions = versionSelection.normalizeSelectedVersions(req.body?.selected_versions || task.meta.selectedVersions); const slotMethods = versionSelection.normalizeAiSlotMethods(req.body?.ai_slot_methods || task.meta.aiSlotMethods); await tasks.updateTaskMeta(req.username, req.params.id, { selectedVersions: versions, aiSlotMethods: slotMethods }); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: { ...task.meta, selectedVersions: versions, aiSlotMethods: slotMethods }, versions, slotMethods }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/sensitive-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); res.json({ meta: legacyMeta(task.meta), ...(await readSensitiveLog(tasks, req.username, req.params.id)) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processConfiguredDocumentTrace(text, 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/site-submit-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const logs = typeof tasks.readSiteSubmitLog === 'function' ? await tasks.readSiteSubmitLog(req.username, req.params.id) : []; res.json({ meta: legacyMeta(task?.meta || {}), result: logs.at(-1) || {}, logs }); } catch (error) { res.status(400).json({ error: error.message }); } });
