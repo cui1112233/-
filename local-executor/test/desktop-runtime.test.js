@@ -71,6 +71,23 @@ test('restored pairing can heartbeat with non-sensitive account counters', async
   });
 });
 
+test('successful heartbeat does not erase the last local job error', async () => {
+  const log = [];
+  const runtime = new DesktopRuntime({
+    deviceStore: fakeDeviceStore({ baseUrl: 'https://example.test', executorId: 'lex-1', token: 'secret' }),
+    apiFactory: fakeApiFactory(log),
+    deviceName: 'DESKTOP-1',
+    platform: 'win32',
+    version: '1.0.1'
+  });
+  runtime.recordError(new Error('Doubao control is ambiguous: 视频'));
+  assert.equal(runtime.getState().lastError, 'Doubao control is ambiguous: 视频');
+
+  await runtime.heartbeat();
+
+  assert.equal(runtime.getState().lastError, 'Doubao control is ambiguous: 视频');
+});
+
 test('new accounts require login and may be marked available after manual login', () => {
   const runtime = new DesktopRuntime({
     deviceStore: fakeDeviceStore(),
