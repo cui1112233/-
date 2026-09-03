@@ -10,6 +10,7 @@ const workerDockerfilePath = path.join(__dirname, '..', 'services', '121-browser
 test('V88 review compose wires platform, Go, MySQL, and private 121 worker safely', () => {
   const yaml = fs.readFileSync(composePath, 'utf8');
   assert.match(yaml, /name:\s*qiantie-v88-review/);
+  assert.doesNotMatch(yaml, /default-authentication-plugin=mysql_native_password/);
   for (const service of ['platform:', 'backend:', 'mysql:', 'novel-fetch-121-worker:']) {
     assert.match(yaml, new RegExp('^  ' + service.replace(':', '\\:'), 'm'));
   }
