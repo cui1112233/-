@@ -52,7 +52,8 @@ class DoubaoPageActions {
     const result = await webContents.executeJavaScript(buildPreferredClickScript(labels), true);
     if (!result || result.count === 0) return false;
     if (result.count !== 1 || !result.clicked) {
-      throw new DoubaoControlError(ambiguousCode, `Doubao control is ambiguous: ${result.label || labels[0]}`);
+      const detail = result?.rawCount > result?.count ? ` (${result.count}/${result.rawCount} actionable)` : '';
+      throw new DoubaoControlError(ambiguousCode, `Doubao control is ambiguous: ${result.label || labels[0]}${detail}`);
     }
     return true;
   }
@@ -179,19 +180,51 @@ function buildPreferredClickScript(labels) {
       const rect = element.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
     };
+    const isHitTestable = element => {
+      const rect = element.getBoundingClientRect();
+      const viewportWidth = Number(globalThis.innerWidth) || Number(document.documentElement?.clientWidth) || 0;
+      const viewportHeight = Number(globalThis.innerHeight) || Number(document.documentElement?.clientHeight) || 0;
+      if (viewportWidth > 0 && viewportHeight > 0) {
+        const left = Math.max(0, Number(rect.left) || 0);
+        const top = Math.max(0, Number(rect.top) || 0);
+        const right = Math.min(viewportWidth, Number(rect.right) || (left + Number(rect.width || 0)));
+        const bottom = Math.min(viewportHeight, Number(rect.bottom) || (top + Number(rect.height || 0)));
+        if (right <= left || bottom <= top) return false;
+        if (typeof document.elementFromPoint === 'function') {
+          const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+          if (!hit) return false;
+          const containsHit = typeof element.contains === 'function' && element.contains(hit);
+          const hitContains = typeof hit.contains === 'function' && hit.contains(element);
+          if (hit !== element && !containsHit && !hitContains) return false;
+        }
+      }
+      return true;
+    };
+    const isAriaHidden = element => {
+      if (element.getAttribute?.('aria-hidden') === 'true') return true;
+      const parent = typeof element.closest === 'function' ? element.closest('[aria-hidden="true"]') : null;
+      return Boolean(parent);
+    };
     const label = element => String(element.innerText || element.textContent || element.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim();
     const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"],[role="tab"]'))
       .filter(isVisible)
-      .filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true');
+      .filter(element => !element.disabled && element.getAttribute('aria-disabled') !== 'true')
+      .filter(element => !isAriaHidden(element));
     for (const wanted of labels) {
-      const matches = controls.filter(element => label(element) === wanted);
+      const rawMatches = controls.filter(element => label(element) === wanted);
+      if (rawMatches.length === 0) continue;
+      let matches = rawMatches.filter(isHitTestable);
+      if (matches.length > 1) {
+        const keyboardReachable = matches.filter(element => Number(element.tabIndex) >= 0);
+        if (keyboardReachable.length === 1) matches = keyboardReachable;
+      }
       if (matches.length === 0) continue;
-      if (matches.length !== 1) return { count: matches.length, clicked: false, label: wanted };
+      if (matches.length !== 1) return { count: matches.length, rawCount: rawMatches.length, clicked: false, label: wanted };
       matches[0].scrollIntoView({ block: 'center', inline: 'center' });
       matches[0].click();
-      return { count: 1, clicked: true, label: wanted };
+      return { count: 1, rawCount: rawMatches.length, clicked: true, label: wanted };
     }
-    return { count: 0, clicked: false };
+    return { count: 0, rawCount: 0, clicked: false };
   })()`;
 }
 
