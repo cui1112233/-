@@ -17,9 +17,11 @@ test('V88 review compose wires platform, Go, MySQL, and private 121 worker safel
   assert.doesNotMatch(yaml, /127\.0\.0\.1:\$\{QIANTIE_V88_HOST_PORT:-13188\}:3000/);
   assert.match(yaml, /QIANTIE_GO_BASE_URL:\s*http:\/\/backend:4000/);
   assert.match(yaml, /QIANTIE_BRIDGE_SECRET:\s*\$\{QIANTIE_V88_BRIDGE_SECRET:\?required\}/);
-  assert.match(yaml, /QIANTIE_MYSQL_DSN:.*@tcp\(mysql:3306\)/);
-  assert.match(yaml, /QIANTIE_BATCH_FACTORY_V11_SLICE:\s*\$\{QIANTIE_V88_SLICE:-4\}/);
   const backendSection = yaml.split(/\n  backend:\s*/)[1]?.split(/\n  platform:\s*/)[0] || '';
+  assert.match(backendSection, /context:\s*\.\/backend/);
+  assert.match(backendSection, /dockerfile:\s*Dockerfile/);
+  assert.match(backendSection, /QIANTIE_MYSQL_DSN:.*@tcp\(mysql:3306\)/);
+  assert.match(backendSection, /QIANTIE_BATCH_FACTORY_V11_SLICE:\s*\$\{QIANTIE_V88_SLICE:-4\}/);
   assert.match(backendSection, /healthcheck:[\s\S]*test:[\s\S]*\/qiantie[\s\S]*healthcheck/);
   assert.match(yaml, /novel-fetch-121-worker:[\s\S]*?expose:\s*\n\s*- ["']?8787/);
   const workerSection = yaml.split(/\n  novel-fetch-121-worker:\s*/)[1] || '';
