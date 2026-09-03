@@ -1,0 +1,130 @@
+name: V88 Linux AMD64 Public Image Release
+
+on:
+  push:
+    branches:
+      - v88
+      - ops/v88-public-amd64-release-20260903
+    paths:
+      - 'Dockerfile'
+      - 'app.js'
+      - 'server.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'frontend/**'
+      - 'pets/**'
+      - 'public/**'
+      - 'routes/**'
+      - 'lib/**'
+      - 'middleware/**'
+      - 'prompts/**'
+      - 'scripts/verify-v88-cm-release.js'
+      - '.github/workflows/v88-linux-amd64-image-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_PLATFORM: linux/amd64
+
+jobs:
+  build-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout V88 release source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Assert Linux AMD64 runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker_arch="$(docker info --format '{{.Architecture}}')"
+          case "$docker_arch" in
+            amd64|x86_64) ;;
+            *) echo "Unexpected Docker architecture: $docker_arch" >&2; exit 1 ;;
+          esac
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          npm run build
+
+      - name: Verify V88 pet release contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node scripts/verify-v88-cm-release.js
+
+      - name: Build V88 AMD64 Docker image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          short_sha="${GITHUB_SHA::12}"
+          image="qiantie-v88:public-${short_sha}"
+          docker build --platform "$IMAGE_PLATFORM" -t "$image" .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "$IMAGE_PLATFORM"
+          docker run --rm --entrypoint sh "$image" -c '
+            test -s /app/frontend/dist/index.html &&
+            test -s /app/pets/stacky/spritesheet.webp &&
+            test -s /app/pets/pixiu/spritesheet.webp &&
+            grep -R -q ".cm-penguin-shell" /app/frontend/dist/assets/*.css
+          '
+          echo "IMAGE_NAME=$image" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
+
+      - name: Save release package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_dir="$GITHUB_WORKSPACE/release"
+          mkdir -p "$release_dir"
+          archive="qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz"
+          docker save "$IMAGE_NAME" | gzip -1 > "$release_dir/$archive"
+          sha256sum "$release_dir/$archive" > "$release_dir/SHA256SUMS"
+          {
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "architecture=${IMAGE_PLATFORM}"
+            echo "image=${IMAGE_NAME}"
+            echo "cm_release_guard=passed"
+          } > "$release_dir/RELEASE-METADATA.txt"
+          cat > "$release_dir/ECS-STORAGE.txt" <<EOF
+          Recommended ECS release directory:
+          /opt/qiantie/releases/v88/${SHORT_SHA}/
+
+          After upload:
+          cd /opt/qiantie/releases/v88/${SHORT_SHA}
+          sha256sum -c SHA256SUMS
+          docker load -i ${archive}
+          docker image inspect ${IMAGE_NAME} --format '{{.Id}} {{.Os}}/{{.Architecture}}'
+          EOF
+          cat "$release_dir/RELEASE-METADATA.txt"
+          cat "$release_dir/SHA256SUMS"
+          du -h "$release_dir"/*
+
+      - name: Upload V88 AMD64 release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qiantie-v88-linux-amd64-${{ env.SHORT_SHA }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
