@@ -9,6 +9,11 @@ test('page probe script never reads browser credential stores', () => {
   assert.equal(/sessionStorage/i.test(script), false);
 });
 
+test('page probe includes ARIA tabs in semantic control discovery', () => {
+  const script = buildSnapshotScript();
+  assert.equal(script.includes('[role="tab"]'), true);
+});
+
 test('capture returns only redacted semantic page evidence', async () => {
   let calledWithUserGesture = null;
   const webContents = {
