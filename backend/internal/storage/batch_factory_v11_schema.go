@@ -374,6 +374,19 @@ func V11VideoProviderStatements() []string {
 	}
 }
 
+func V11SourceLineageStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_book_records
+  ADD COLUMN source_book_id VARCHAR(255) NULL AFTER book_id,
+  ADD COLUMN source_task_id VARCHAR(255) NULL AFTER source_book_id,
+  ADD COLUMN platform VARCHAR(128) NULL AFTER source_task_id,
+  ADD COLUMN txt_text MEDIUMTEXT NULL AFTER source_text,
+  ADD COLUMN txt_file_name VARCHAR(255) NULL AFTER txt_text,
+  ADD COLUMN source_metadata_json JSON NULL AFTER txt_file_name,
+  ADD KEY idx_bfv11_book_records_source_book (source_book_id)`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -385,5 +398,6 @@ func V11Migrations() []Migration {
 		{Version: 1100007, SQL: V11MergePollerStatements(), CallbackChecksum: "batch-factory-v11-merge-poller-v1"},
 		{Version: 1100008, SQL: V11ExternalStatements(), CallbackChecksum: "batch-factory-v11-external-publish-v1"},
 		{Version: 1100009, SQL: V11VideoProviderStatements(), CallbackChecksum: "batch-factory-v11-video-provider-v1"},
+		{Version: 1100010, SQL: V11SourceLineageStatements(), CallbackChecksum: "batch-factory-v11-source-lineage-v1"},
 	}
 }
