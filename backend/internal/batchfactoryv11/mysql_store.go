@@ -140,18 +140,30 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		return Batch{}, err
 	}
 	batch := Batch{ID: batchID, Title: title, SourceIntakeID: sourceIntakeID, Revision: 1, Books: []Book{}, CreatedAt: now, UpdatedAt: now}
-	for bookOrdinal, bi := range input.Books {
+	for bookOrdinal, rawBook := range input.Books {
+		bi := normalizeNovelFetchBook(rawBook)
 		bookID, err := newID("book")
 		if err != nil {
 			return Batch{}, err
 		}
+		sourceID := sourceBookID(bi)
+		if sourceID == "" {
+			sourceID = bookID
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_books(id,batch_id,owner_username,ordinal,revision,created_at,updated_at) VALUES(?,?,?,?,1,?,?)`, bookID, batchID, owner, bookOrdinal, now, now); err != nil {
 			return Batch{}, err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_book_records(book_id,title,source_text) VALUES(?,?,?)`, bookID, bi.Title, nullableString(bi.SourceText)); err != nil {
+		metadata := any(nil)
+		if len(bi.SourceMetadata) > 0 {
+			metadata, err = json.Marshal(bi.SourceMetadata)
+			if err != nil {
+				return Batch{}, ErrInvalid
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_book_records(book_id,source_book_id,source_task_id,platform,title,source_text,txt_text,txt_file_name,source_metadata_json) VALUES(?,?,?,?,?,?,?,?,?)`, bookID, nullableString(sourceID), nullableString(bi.SourceTaskID), nullableString(bi.Platform), bi.Title, nullableString(bi.SourceText), nullableString(bi.TxtText), nullableString(bi.TxtFileName), metadata); err != nil {
 			return Batch{}, err
 		}
-		book := Book{ID: bookID, BookID: bookID, BatchID: batchID, Title: bi.Title, SourceText: bi.SourceText, Revision: 1, Videos: []Video{}}
+		book := Book{ID: bookID, BookID: sourceID, BatchID: batchID, Title: bi.Title, SourceText: bi.SourceText, SourceTaskID: bi.SourceTaskID, Platform: bi.Platform, TxtText: bi.TxtText, TxtFileName: bi.TxtFileName, SourceMetadata: bi.SourceMetadata, Revision: 1, Videos: []Video{}}
 		for videoOrdinal, vi := range bi.Videos {
 			videoID, err := newID("video")
 			if err != nil {
@@ -168,6 +180,17 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		batch.Books = append(batch.Books, book)
 	}
 	return batch, nil
+}
+
+func decodeSourceMetadata(raw []byte) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return nil
+	}
+	return metadata
 }
 
 func nullableString(v string) any {
@@ -230,17 +253,21 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 		return Batch{}, err
 	}
 	b.Books = []Book{}
-	rows, err := q.QueryContext(ctx, `SELECT b.id,r.title,COALESCE(r.source_text,''),b.revision FROM batch_factory_v11_books b JOIN batch_factory_v11_book_records r ON r.book_id=b.id WHERE b.batch_id=? AND b.owner_username=? ORDER BY b.ordinal,b.id`, b.ID, owner)
+	rows, err := q.QueryContext(ctx, `SELECT b.id,r.title,COALESCE(r.source_text,''),COALESCE(r.source_book_id,''),COALESCE(r.source_task_id,''),COALESCE(r.platform,''),COALESCE(r.txt_text,''),COALESCE(r.txt_file_name,''),r.source_metadata_json,b.revision FROM batch_factory_v11_books b JOIN batch_factory_v11_book_records r ON r.book_id=b.id WHERE b.batch_id=? AND b.owner_username=? ORDER BY b.ordinal,b.id`, b.ID, owner)
 	if err != nil {
 		return Batch{}, err
 	}
 	for rows.Next() {
 		var book Book
-		if err := rows.Scan(&book.ID, &book.Title, &book.SourceText, &book.Revision); err != nil {
+		var metadata []byte
+		if err := rows.Scan(&book.ID, &book.Title, &book.SourceText, &book.BookID, &book.SourceTaskID, &book.Platform, &book.TxtText, &book.TxtFileName, &metadata, &book.Revision); err != nil {
 			rows.Close()
 			return Batch{}, err
 		}
-		book.BookID = book.ID
+		book.SourceMetadata = decodeSourceMetadata(metadata)
+		if book.BookID == "" {
+			book.BookID = book.ID
+		}
 		book.BatchID = b.ID
 		book.Videos = []Video{}
 		b.Books = append(b.Books, book)
