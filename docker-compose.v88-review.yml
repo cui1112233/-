@@ -94,7 +94,8 @@ services:
       QIANTIE_121_STORAGE_STATE_SECRET: ${QIANTIE_V88_121_STORAGE_STATE_SECRET:?required}
       QIANTIE_121_HEADED_ENABLED: "1"
       QIANTIE_121_SESSION_DIR: /data/sessions
-    expose: ["8787"]
+    expose:
+      - "8787"
     volumes:
       - ${QIANTIE_V88_WORKER_DATA_DIR:?required}:/data
     healthcheck:
