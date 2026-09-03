@@ -30,6 +30,35 @@ test('版本对应配置档覆盖原文和 AI1 到 AI5，并丢弃未知版本',
   });
 });
 
+
+test('版本处理配置保存后重新读取仍保留选择和槽位方案', async () => {
+  const saved = {};
+  const store = {
+    async getTask() { return { meta: { bookId: 'book-1' } }; },
+    async updateTaskMeta(_owner, _id, patch) { Object.assign(saved, patch); }
+  };
+  const { createNovelFetchTaskOps } = require('../lib/novel-fetch-workshop/task-ops');
+  const ops = createNovelFetchTaskOps({
+    accountResolver: owner => ({ username: owner }),
+    createStore: () => store,
+    tombstones: {},
+    parseBooks: () => ({ tasks: [] })
+  });
+  const result = await ops.setSelectedVersions(
+    'alice',
+    ['book-1'],
+    ['original', 'ai5', 'ai2'],
+    { ai5: 'instruction', ai2: 'opening_instruction' }
+  );
+  assert.equal(result.ok, true);
+  assert.deepEqual(saved.targetVersions, ['original', 'ai2', 'ai5']);
+  assert.deepEqual(saved.selectedVersions, ['original', 'ai2', 'ai5']);
+  assert.deepEqual(saved.aiSlotMethodsSnapshot, {
+    ai2: 'opening_instruction',
+    ai5: 'instruction'
+  });
+});
+
 test('主线工作区是版本配置入口，不再保留旧解析入口', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
