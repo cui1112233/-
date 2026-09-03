@@ -6,6 +6,7 @@ on:
       - v88
       - fix/v88-doubao-video-tab
       - feat/v88-local-executor-auto-update
+      - integrate/v88-local-executor-auto-update
     paths:
       - 'local-executor/**'
       - 'routes/local-executor-downloads.js'
