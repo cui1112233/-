@@ -79,6 +79,7 @@ jobs:
           QIANTIE_V88_TEXT_MODEL=review-text-model
           QIANTIE_V88_121_WORKER_SECRET=review-worker-secret
           QIANTIE_V88_CREDENTIAL_SECRET=review-credential-secret
+          QIANTIE_V88_121_STORAGE_STATE_SECRET=review-storage-secret
           QIANTIE_V88_STORAGE_STATE_SECRET=review-storage-secret
           QIANTIE_V88_SLICE=4
           QIANTIE_V88_PRODUCTION_ENABLED=1
