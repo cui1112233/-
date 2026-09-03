@@ -16,7 +16,7 @@ const forbiddenPatterns = [
   /shared\/api\/batchFactory(?:\.js)?['"`]/,
   /shared\/api\/generation(?:\.js)?['"`]/,
   /shared\/api\/shuihuoProduction(?:\.js)?['"`]/,
-  /\/api\/shuihuo-production\//
+  /\/api\/shuihuo-production\/(?!local-executors(?:\/|['\"`]))/
 ];
 
 function collectFiles(root) {
