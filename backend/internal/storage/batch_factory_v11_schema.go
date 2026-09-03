@@ -374,13 +374,6 @@ func V11VideoProviderStatements() []string {
 	}
 }
 
-// AppMigrations is the single application migration registry used during Go startup.
-// Keep it aligned with the V11 migration list so an empty or upgraded database
-// always receives the same durable schema before HTTP routes are registered.
-func AppMigrations() []Migration {
-	return V11Migrations()
-}
-
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
