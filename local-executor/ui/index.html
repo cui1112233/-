@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">YI ZHAN SHENG MING</p>
         <h1>一战晟铭豆包执行器</h1>
-        <p class="subtitle">绑定 V78 后管理本机豆包账号。账号登录信息只保存在本机。</p>
+        <p class="subtitle">绑定一战晟铭网页版后管理本机豆包账号。账号登录信息只保存在本机。</p>
       </div>
       <div id="pairBadge" class="status-badge" aria-live="polite">未绑定</div>
     </header>
@@ -26,7 +26,7 @@
       </div>
       <form id="pairForm" class="pair-grid">
         <label>
-          <span>V78 网站地址</span>
+          <span>一战晟铭网站地址</span>
           <input id="baseUrl" type="url" placeholder="https://你的域名" autocomplete="url" required />
         </label>
         <label>
@@ -61,6 +61,36 @@
       <div class="task-line">
         <span>当前任务</span>
         <strong id="currentTask">暂无</strong>
+      </div>
+    </section>
+
+    <section class="card update-card" aria-labelledby="updateTitle">
+      <div class="section-head update-head">
+        <div>
+          <h2 id="updateTitle">执行器更新</h2>
+          <p>安装一次支持自动更新的版本后，后续更新会下载到程序自己的临时目录，不再堆到“下载”文件夹。</p>
+        </div>
+        <button id="updateCheckButton" class="secondary" type="button">检查更新</button>
+      </div>
+      <div class="update-grid">
+        <label>
+          <span>当前版本</span>
+          <strong id="updateCurrentVersion" class="value-text">读取中…</strong>
+        </label>
+        <label>
+          <span>更新通道</span>
+          <select id="updateChannel">
+            <option value="beta">测试版 beta</option>
+            <option value="stable">稳定版 stable</option>
+          </select>
+        </label>
+      </div>
+      <div class="update-status-line">
+        <div>
+          <span class="update-status-label">更新状态</span>
+          <strong id="updateStatus" aria-live="polite">尚未检查更新</strong>
+        </div>
+        <button id="updateInstallButton" class="primary" type="button" hidden disabled>立即更新并重启</button>
       </div>
     </section>
 

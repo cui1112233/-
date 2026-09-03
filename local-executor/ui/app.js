@@ -1,6 +1,7 @@
 const bridge = window.yiZhanExecutor;
 const ui = window.YiZhanUiState;
 let lastState = null;
+let lastUpdaterState = null;
 
 const elements = {
   pairForm: document.getElementById('pairForm'),
@@ -15,6 +16,11 @@ const elements = {
   automationText: document.getElementById('automationText'),
   automationButton: document.getElementById('automationButton'),
   currentTask: document.getElementById('currentTask'),
+  updateCurrentVersion: document.getElementById('updateCurrentVersion'),
+  updateChannel: document.getElementById('updateChannel'),
+  updateStatus: document.getElementById('updateStatus'),
+  updateCheckButton: document.getElementById('updateCheckButton'),
+  updateInstallButton: document.getElementById('updateInstallButton'),
   globalError: document.getElementById('globalError')
 };
 
@@ -44,6 +50,30 @@ function render(state) {
   elements.automationButton.setAttribute('aria-pressed', automation.enabled ? 'true' : 'false');
   elements.currentTask.textContent = state?.currentTask?.id || '暂无';
   showError(state?.lastError || '');
+  if (lastUpdaterState) renderUpdater(lastUpdaterState);
+}
+
+function renderUpdater(state) {
+  lastUpdaterState = state || {};
+  elements.updateCurrentVersion.textContent = state?.currentVersion || '未知';
+  if (state?.channel && elements.updateChannel.value !== state.channel) {
+    elements.updateChannel.value = state.channel;
+  }
+  elements.updateStatus.textContent = state?.message || '尚未检查更新';
+  elements.updateStatus.dataset.state = state?.status || 'idle';
+  elements.updateCheckButton.disabled = ['checking', 'downloading', 'installing'].includes(state?.status);
+  elements.updateCheckButton.textContent = state?.status === 'checking'
+    ? '检查中…'
+    : state?.status === 'downloading'
+      ? '下载中…'
+      : '检查更新';
+
+  const downloaded = state?.status === 'downloaded' || state?.status === 'install_deferred';
+  elements.updateInstallButton.hidden = !downloaded;
+  elements.updateInstallButton.disabled = state?.status !== 'downloaded' || Boolean(lastState?.currentTask);
+  elements.updateInstallButton.textContent = state?.status === 'install_deferred' || lastState?.currentTask
+    ? '任务结束后更新'
+    : '立即更新并重启';
 }
 
 function renderAccount(account) {
@@ -97,6 +127,22 @@ async function invoke(fn) {
   }
 }
 
+async function invokeUpdater(fn) {
+  try {
+    const result = await fn();
+    if (result?.status) renderUpdater(result);
+    else renderUpdater(await bridge.updater.getState());
+    return result;
+  } catch (error) {
+    renderUpdater({
+      ...(lastUpdaterState || {}),
+      status: 'error',
+      message: error?.message || String(error)
+    });
+    return null;
+  }
+}
+
 elements.pairForm.addEventListener('submit', async event => {
   event.preventDefault();
   elements.pairButton.disabled = true;
@@ -114,6 +160,14 @@ elements.automationButton.addEventListener('click', () => {
   const enabled = Boolean(lastState?.automation?.enabled);
   return invoke(() => bridge.setAutomationEnabled(!enabled));
 });
+elements.updateCheckButton.addEventListener('click', () => invokeUpdater(() => bridge.updater.check()));
+elements.updateChannel.addEventListener('change', async () => {
+  await invokeUpdater(() => bridge.updater.setChannel(elements.updateChannel.value));
+  return invokeUpdater(() => bridge.updater.check());
+});
+elements.updateInstallButton.addEventListener('click', () => invokeUpdater(() => bridge.updater.install()));
 
 bridge.onState(render);
+bridge.updater.onState(renderUpdater);
 invoke(() => bridge.getState());
+invokeUpdater(() => bridge.updater.getState());
