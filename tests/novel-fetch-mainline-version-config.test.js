@@ -33,10 +33,17 @@ test('版本对应配置档覆盖原文和 AI1 到 AI5，并丢弃未知版本',
 test('主线工作区是版本配置入口，不再保留旧解析入口', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/styles.css'), 'utf8');
   for (const label of ['版本对应配置档', '同步批量后台配置', '同步批量风格类型', 'AI5']) {
     assert.match(html, new RegExp(label));
   }
-  assert.doesNotMatch(html, /解析格式|列顺序|默认AI文案数量/);
+  assert.doesNotMatch(html, /解析格式|列顺序|默认AI文案数量|id=["']parseModeSelect["']/);
+  for (const id of ['versionConfigBtn', 'versionConfigCard', 'syncWebProfilesBtn', 'syncWebStylesBtn', 'webProfileBindingOriginal', 'webProfileBindingAi5', 'processBtn']) {
+    assert.match(html, new RegExp(`id=["']${id}["']`));
+  }
+  assert.match(styles, /\\.version-config-card/);
+  assert.match(app, /openVersionConfigCard/);
+  assert.match(app, /closeVersionConfigCard/);
   assert.match(app, /processBtn/);
   assert.match(app, /selected_versions/);
   assert.match(app, /ai_slot_methods/);
