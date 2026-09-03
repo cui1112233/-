@@ -13,6 +13,7 @@ const navItems = [
   { href: '/admin/shuihuo-models', icon: '◇', label: '水货生产模型' },
   { href: '/admin/error-logs', icon: '!', label: '错误日志' }
 ];
+const delegatedNavItems = new Set(['/admin/presets', '/admin/prompts', '/admin/shuihuo-models']);
 
 const THEME_STORAGE_KEY = 'yizhan-theme';
 
@@ -24,16 +25,26 @@ function pageTitle(pathname) {
   return navItems.find(item => item.href === pathname)?.label || '管理后台';
 }
 
+function hasDelegatedAdminAccess(account) {
+  return account?.role === 'dev'
+    || (account?.effectivePermissions || []).some(permission => permission.capability === '*' || permission.capability === 'admin:access');
+}
+
 export function AdminLayout({ children }) {
   const [account, setAccount] = useState(null);
   const [accessState, setAccessState] = useState('checking');
   const [theme, setTheme] = useState(initialTheme);
   const pathname = window.location.pathname;
+  const visibleNavItems = account?.role === 'dev' ? navItems : navItems.filter(item => delegatedNavItems.has(item.href));
 
   useEffect(() => {
     getCurrentAccount().then(nextAccount => {
       setAccount(nextAccount);
-      if (nextAccount?.role === 'dev') {
+      if (hasDelegatedAdminAccess(nextAccount)) {
+        if (nextAccount?.role !== 'dev' && pathname === '/admin') {
+          window.location.replace('/admin/presets');
+          return;
+        }
         setAccessState('allowed');
         return;
       }
@@ -43,7 +54,7 @@ export function AdminLayout({ children }) {
       setAccessState('denied');
       window.location.replace('/');
     });
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -65,11 +76,11 @@ export function AdminLayout({ children }) {
   }
 
   if (accessState === 'checking') {
-    return <ConfigProvider theme={createAntTheme(theme)}><div className="admin-access-screen"><Spin size="large" tip="正在验证开发者权限" /></div></ConfigProvider>;
+    return <ConfigProvider theme={createAntTheme(theme)}><div className="admin-access-screen"><Spin size="large" tip="正在验证管理后台权限" /></div></ConfigProvider>;
   }
 
   if (accessState !== 'allowed') {
-    return <ConfigProvider theme={createAntTheme(theme)}><div className="admin-access-screen"><Result status="403" title="仅 DEV 可访问管理后台" subTitle="账号与组员授权请在个人中心完成。" /></div></ConfigProvider>;
+    return <ConfigProvider theme={createAntTheme(theme)}><div className="admin-access-screen"><Result status="403" title="暂无管理后台权限" subTitle="请联系 DEV 在个人中心为 MANAGER 授予后台权限。" /></div></ConfigProvider>;
   }
 
   return (
@@ -79,11 +90,11 @@ export function AdminLayout({ children }) {
         <div className="admin-brand"><BrandLogo className="admin-brand-logo" /><span>管理后台</span></div>
         <p className="admin-nav-group">运营管理</p>
         <nav className="admin-nav">
-          {navItems.map(item => <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}><span>{item.icon}</span>{item.label}</Link>)}
+          {visibleNavItems.map(item => <Link key={item.href} href={item.href} className={pathname === item.href ? 'active' : ''}><span>{item.icon}</span>{item.label}</Link>)}
         </nav>
         <div className="admin-sidebar-footer">
           <Link href="/profile" reload className="admin-return-link">← 返回个人中心</Link>
-          <div className="admin-user-summary"><span>{account?.username || '正在验证身份'}</span>{account?.isOwner ? <small>主管理员</small> : <small>管理员</small>}</div>
+          <div className="admin-user-summary"><span>{account?.username || '正在验证身份'}</span>{account?.isOwner ? <small>主管理员</small> : <small>{account?.role === 'dev' ? 'DEV' : 'MANAGER'}</small>}</div>
           <Button
             size="small"
             className="admin-theme-toggle"
