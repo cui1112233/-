@@ -313,7 +313,7 @@ func V11MergeStatements() []string {
 
 func V11MergePollerStatements() []string {
 	return []string{
-		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN IF NOT EXISTS provider_task_id VARCHAR(255) NULL AFTER request_id`,
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN provider_task_id VARCHAR(255) NULL AFTER request_id`,
 	}
 }
 
@@ -372,6 +372,13 @@ func V11VideoProviderStatements() []string {
 	return []string{
 		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN provider VARCHAR(48) NOT NULL DEFAULT 'personal_api' AFTER video_id`,
 	}
+}
+
+// AppMigrations is the single application migration registry used during Go startup.
+// Keep it aligned with the V11 migration list so an empty or upgraded database
+// always receives the same durable schema before HTTP routes are registered.
+func AppMigrations() []Migration {
+	return V11Migrations()
 }
 
 func V11Migrations() []Migration {
