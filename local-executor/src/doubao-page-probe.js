@@ -31,7 +31,7 @@ function buildSnapshotScript() {
       return Array.from(new Set(ids)).slice(0, 16);
     };
 
-    const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"],label'))
+    const controls = Array.from(document.querySelectorAll('button,[role="button"],[role="menuitem"],[role="option"],[role="tab"],label'))
       .filter(isVisible)
       .slice(0, 240)
       .map(element => ({
