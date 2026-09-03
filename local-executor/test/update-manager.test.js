@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const {
   UpdateManager,
@@ -77,7 +79,7 @@ test('active VIDEO task defers verified installer launch', async () => {
   assert.equal(manager.getState().status, 'install_deferred');
 });
 
-test('idle executor can launch a verified downloaded installer', async () => {
+test('idle executor launches NSIS in update mode and forces the updated app to restart', async () => {
   const calls = [];
   const manager = new UpdateManager({
     currentVersion: '1.0.2',
@@ -98,9 +100,48 @@ test('idle executor can launch a verified downloaded installer', async () => {
 
   const result = await manager.installDownloaded();
   assert.equal(result.installing, true);
-  assert.deepEqual(calls[0], ['C:/executor-data/updates/1.0.3.exe', ['/S']]);
+  assert.deepEqual(calls[0], ['C:/executor-data/updates/1.0.3.exe', ['--updated', '/S', '--force-run']]);
   assert.deepEqual(calls[1], ['quit']);
   assert.equal(manager.getState().status, 'installing');
+});
+
+test('hash mismatch deletes the downloaded candidate and never makes it installable', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yizhan-updater-hash-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = 'yizhan-local-executor-v88-1.0.3-win-x64.exe';
+  const manager = new UpdateManager({
+    currentVersion: '1.0.2',
+    platform: 'win32',
+    arch: 'x64',
+    updateBaseUrl: 'https://updates.example.test/downloads/local-executor/updates',
+    userDataDir: root,
+    currentTask: () => null,
+    preferencesStore: fakePreferences('beta'),
+    fetchJson: async () => ({
+      schemaVersion: 1,
+      channel: 'beta',
+      version: '1.0.3',
+      platform: 'win32',
+      arch: 'x64',
+      file,
+      sha256: 'e'.repeat(64),
+      size: 4,
+      publishedAt: '2026-09-03T00:00:00.000Z'
+    }),
+    downloadFile: async (_url, filePath) => {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, 'test');
+      return { size: 4 };
+    },
+    hashFile: async () => 'f'.repeat(64)
+  });
+
+  await manager.checkForUpdates();
+  const state = await manager.downloadAvailable();
+  assert.equal(state.status, 'error');
+  assert.equal(state.errorCode, 'UPDATE_HASH_MISMATCH');
+  assert.equal(fs.existsSync(path.join(root, 'updates', file)), false);
+  await assert.rejects(() => manager.installDownloaded(), /no verified update installer/i);
 });
 
 test('channel selection persists and changes the feed path', async () => {
