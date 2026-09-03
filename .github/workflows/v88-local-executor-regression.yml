@@ -18,6 +18,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run focused Doubao live-page regressions
+      - name: Run full local executor tests
         working-directory: local-executor
-        run: node --test test/doubao-page-actions.test.js test/doubao-page-probe.test.js
+        run: npm test
+      - name: Check local executor JavaScript syntax
+        working-directory: local-executor
+        run: npm run check
