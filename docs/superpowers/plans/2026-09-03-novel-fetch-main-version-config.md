@@ -257,8 +257,8 @@ feat(novel-fetch): normalize selected versions and profile bindings
 
 **Interfaces:**
 - `setSelectedVersions(owner, ids, selectedVersions, aiSlotMethods)` validates and stores `targetVersions`, `selectedVersions`, `aiSlotMethodsSnapshot`, `aiSlotMethods), and the derived AI count.
-- Task API responses expose `selected_versions`, `target_versions`, `ai_slot_methods), and generated version lists.
-- AI generation accepts `versions) and `slotMethods) and writes only selected AI slots.
+- Task API responses expose `selected_versions`, `target_versions`, `ai_slot_methods`, and generated version lists.
+- AI generation accepts `versions` and `slotMethods` and writes only selected AI slots.
 - Upload selection consumes the same version list and normalized per-version profile bindings.
 
 - [ ] **Step 1: Add failing persistence and sparse-generation tests**
@@ -280,7 +280,7 @@ test('版本处理配置保存后重新读取仍保留选择和槽位方案', as
 });
 ```
 
-Then replace the placeholder fake-store assertion with a route-level or task-ops invocation that verifies:
+Extend the fake-store case to call `setSelectedVersions` and verify:
 
 ```js
 assert.deepEqual(saved.targetVersions, ['original', 'ai2', 'ai5']);
