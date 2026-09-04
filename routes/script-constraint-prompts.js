@@ -1,10 +1,12 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 
-function createScriptConstraintPromptsRouter({ promptStore, skipAuth = false } = {}) {
+function createScriptConstraintPromptsRouter({ promptStore } = {}) {
   if (!promptStore) throw new Error('promptStore is required');
   const router = express.Router();
-  if (!skipAuth) router.use(apiAuth);
+  // Prompt records are owned by the authenticated user; this router must never
+  // be mounted without apiAuth.
+  router.use(apiAuth);
   function invalid(res) { return res.status(400).json({ error: '提示词参数无效' }); }
   function missing(res) { return res.status(404).json({ error: '提示词不存在' }); }
   router.get('/', (req, res) => {

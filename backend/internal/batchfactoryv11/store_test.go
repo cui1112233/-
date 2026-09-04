@@ -123,3 +123,59 @@ func TestSliceOneChangeImpactDoesNotClaimDirectorInvalidation(t *testing.T) {
 		t.Fatalf("impact=%+v", impact)
 	}
 }
+
+
+func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{
+		Books: []CreateBookInput{{ID: "source-book-207", Title: "A", SourceText: "原文"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := s.CreateBatchFromIntake(ctx, "alice", intake.ID, CreateBatchInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Books) != 1 || batch.Books[0].BookID != "source-book-207" {
+		t.Fatalf("book=%+v", batch.Books)
+	}
+}
+
+
+func TestNovelFetchBatchKeepsSourceLineageFields(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	var input NovelFetchIntakeInput
+	if err := json.Unmarshal([]byte(`{"books":[{"id":"book-207","bookId":"book-207","sourceTaskId":"task-207","title":"A","platform":"番茄","sourceText":"原文","txtText":"TXT","txtFileName":"book-207.txt","sourceMetadata":{"platformId":"fanqie"}}]}`), &input); err != nil {
+		t.Fatal(err)
+	}
+	intake, err := s.CreateIntake(ctx, "alice", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(intake.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	books, ok := payload["books"].([]any)
+	if !ok || len(books) != 1 {
+		t.Fatalf("payload=%v", payload)
+	}
+	bookPayload := books[0].(map[string]any)
+	if bookPayload["sourceTaskId"] != "task-207" || bookPayload["platform"] != "番茄" || bookPayload["txtText"] != "TXT" {
+		t.Fatalf("book payload=%v", bookPayload)
+	}
+	batch, err := s.CreateBatchFromIntake(ctx, "alice", intake.ID, CreateBatchInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	if book.BookID != "book-207" || book.SourceTaskID != "task-207" || book.Platform != "番茄" || book.TxtText != "TXT" || book.TxtFileName != "book-207.txt" {
+		t.Fatalf("book=%+v", book)
+	}
+	if book.SourceMetadata["platformId"] != "fanqie" {
+		t.Fatalf("source metadata=%v", book.SourceMetadata)
+	}
+}

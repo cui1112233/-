@@ -65,3 +65,11 @@ func TestV11SliceOneKeepsFoundationChecksumStable(t *testing.T) {
 		t.Fatalf("Slice 1 checksum length=%d", got)
 	}
 }
+
+
+func TestV11MigrationsIncludeNovelFetchSourceLineageMigration(t *testing.T) {
+	migrations := V11Migrations()
+	if len(migrations) == 0 || migrations[len(migrations)-1].Version != 1100010 {
+		t.Fatalf("last migration=%+v", migrations)
+	}
+}

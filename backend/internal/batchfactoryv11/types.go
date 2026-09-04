@@ -59,12 +59,17 @@ type Video struct {
 	SettingsState      SettingsState `json:"settingsState"`
 }
 type Book struct {
-	ID            string        `json:"id"`
-	BatchID       string        `json:"batchId"`
-	BookID        string        `json:"bookId"`
-	Title         string        `json:"title"`
-	SourceText    string        `json:"sourceText,omitempty"`
-	Revision      int64         `json:"revision"`
+	ID             string         `json:"id"`
+	BatchID        string         `json:"batchId"`
+	BookID         string         `json:"bookId"`
+	Title          string         `json:"title"`
+	SourceText     string         `json:"sourceText,omitempty"`
+	SourceTaskID   string         `json:"sourceTaskId,omitempty"`
+	Platform       string         `json:"platform,omitempty"`
+	TxtText        string         `json:"txtText,omitempty"`
+	TxtFileName    string         `json:"txtFileName,omitempty"`
+	SourceMetadata map[string]any `json:"sourceMetadata,omitempty"`
+	Revision       int64          `json:"revision"`
 	SettingsState SettingsState `json:"settingsState"`
 	Mode          string        `json:"mode,omitempty"`
 	Hook          *HookRevision `json:"hook,omitempty"`
@@ -88,10 +93,16 @@ type CreateVideoInput struct {
 	DurationSeconds float64 `json:"durationSeconds,omitempty"`
 }
 type CreateBookInput struct {
-	ID         string             `json:"id,omitempty"`
-	Title      string             `json:"title"`
-	SourceText string             `json:"sourceText,omitempty"`
-	Videos     []CreateVideoInput `json:"videos,omitempty"`
+	ID             string             `json:"id,omitempty"`
+	BookID         string             `json:"bookId,omitempty"`
+	SourceTaskID   string             `json:"sourceTaskId,omitempty"`
+	Title          string             `json:"title"`
+	Platform       string             `json:"platform,omitempty"`
+	SourceText     string             `json:"sourceText,omitempty"`
+	TxtText        string             `json:"txtText,omitempty"`
+	TxtFileName    string             `json:"txtFileName,omitempty"`
+	SourceMetadata map[string]any     `json:"sourceMetadata,omitempty"`
+	Videos         []CreateVideoInput `json:"videos,omitempty"`
 }
 type CreateBatchInput struct {
 	Title string            `json:"title"`

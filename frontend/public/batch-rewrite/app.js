@@ -164,10 +164,9 @@ function renderOptions(select, items, valueKey = "id", labelKey = "name") {
 function collectWorkFormState() {
   return {
     platform_id: $("platformSelect")?.value || "",
-    parse_mode: $("parseModeSelect")?.value || "smart",
-    column_preset_id: $("columnPresetSelect")?.value || "",
-    column_order: $("columnOrderInput")?.value || DEFAULT_COLUMN_ORDER,
     input_text: $("inputText")?.value || "",
+    selected_versions: selectedProcessVersions(),
+    ai_slot_methods: processAiMethods(),
     sensitive_ai_enabled: sensitiveAiProcessEnabled(),
     updated_at: new Date().toISOString(),
   };
@@ -233,33 +232,35 @@ function restoreWorkFormState() {
   if (saved.platform_id && [...platformSelect.options].some((option) => option.value === String(saved.platform_id))) {
     platformSelect.value = String(saved.platform_id);
   }
-  const parseModeSelect = $("parseModeSelect");
-  if (saved.parse_mode && [...parseModeSelect.options].some((option) => option.value === String(saved.parse_mode))) {
-    parseModeSelect.value = String(saved.parse_mode);
-  }
-  const columnPresetSelect = $("columnPresetSelect");
-  if ([...columnPresetSelect.options].some((option) => option.value === String(saved.column_preset_id || ""))) {
-    columnPresetSelect.value = String(saved.column_preset_id || "");
-  }
-  if (typeof saved.column_order === "string") $("columnOrderInput").value = saved.column_order || DEFAULT_COLUMN_ORDER;
   if (typeof saved.input_text === "string") $("inputText").value = saved.input_text;
+  const selected = new Set(asArray(saved.selected_versions).map(version => String(version).toLowerCase()));
+  if (selected.size) document.querySelectorAll('.process-version').forEach(input => { input.checked = selected.has(input.value); });
+  for (let index = 1; index <= 5; index += 1) {
+    const select = $(`processAiMethod${index}`);
+    if (select) select.value = saved.ai_slot_methods?.[`ai${index}`] || '';
+  }
   if (typeof saved.sensitive_ai_enabled === "boolean" && $("sensitiveAiProcessEnabled")) {
     $("sensitiveAiProcessEnabled").checked = saved.sensitive_ai_enabled;
   }
   if (local.removed || server.removed) window.setTimeout(() => { saveWorkFormStateNow(); }, 0);
+  updateVersionConfigSummary();
 }
 
 function bindWorkFormPersistence() {
-  for (const id of ["platformSelect", "parseModeSelect", "columnPresetSelect"]) {
+  for (const id of ["platformSelect"]) {
     const element = $(id);
     if (element) element.addEventListener("change", saveWorkFormState);
   }
-  for (const id of ["columnOrderInput", "inputText"]) {
+  for (const id of ["inputText"]) {
     const element = $(id);
     if (element) element.addEventListener("input", saveWorkFormState);
   }
   const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
   if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
+  document.querySelectorAll('.process-version, [id^="processAiMethod"]').forEach(element => element.addEventListener('change', () => {
+    saveWorkFormState();
+    updateVersionConfigSummary();
+  }));
 }
 
 function presetOptions() {
@@ -270,37 +271,69 @@ function presetOptions() {
   ];
 }
 
-function renderAiSlotMethodControls(rewrite = {}) {
-  const box = $("aiSlotMethods");
-  if (!box) return;
-  const slotMethods = rewrite.ai_slot_methods || {};
-  box.innerHTML = "";
-  const maxCount = Math.max(1, Math.min(Number(rewrite.max_ai_count || 5), 20));
-  for (let index = 1; index <= Math.min(maxCount, 5); index += 1) {
-    const label = document.createElement("label");
-    label.textContent = `AI${index}`;
-    const select = document.createElement("select");
-    select.id = `aiSlotMethod${index}`;
-    for (const item of REWRITE_METHOD_OPTIONS) {
-      const option = document.createElement("option");
-      option.value = item.id;
-      option.textContent = item.name;
-      select.appendChild(option);
-    }
-    select.value = slotMethods[`ai${index}`] || "";
-    label.appendChild(select);
-    box.appendChild(label);
-  }
-}
-
-function readAiSlotMethods() {
+function processAiMethods() {
   const result = {};
   for (let index = 1; index <= 5; index += 1) {
-    const element = $(`aiSlotMethod${index}`);
+    const element = $(`processAiMethod${index}`);
     const value = element?.value || "";
     if (value) result[`ai${index}`] = value;
   }
   return result;
+}
+
+function selectedProcessVersions() {
+  return [...document.querySelectorAll('.process-version:checked')].map(input => input.value);
+}
+
+function updateVersionConfigSummary() {
+  const summary = $("versionConfigSummary");
+  if (!summary) return;
+  const versions = selectedProcessVersions();
+  summary.textContent = versions.length
+    ? versions.map(version => version === "original" ? "原文" : version.toUpperCase()).join("、")
+    : "未选择版本";
+}
+
+function openVersionConfigCard() {
+  const dialog = $("versionConfigCard");
+  if (!dialog) return;
+  renderVersionPromptConfig();
+  updateVersionConfigSummary();
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function renderVersionPromptConfig() {
+  const rewrite = state.config?.app_config?.rewrite || {};
+  const fields = {
+    versionConfigRewritePrompt: rewrite.prompt || "",
+    versionConfigProcessingRulePrompt: rewrite.processing_rule_prompt || "",
+    versionConfigKnowledgeUsagePrompt: state.config?.knowledge?.usage_prompt || "",
+  };
+  for (const [id, value] of Object.entries(fields)) {
+    const element = $(id);
+    if (element) element.value = value;
+  }
+}
+
+function syncVersionPromptConfigToForm() {
+  const pairs = [
+    ["versionConfigRewritePrompt", "rewritePrompt"],
+    ["versionConfigProcessingRulePrompt", "processingRulePrompt"],
+    ["versionConfigKnowledgeUsagePrompt", "knowledgeUsagePrompt"],
+  ];
+  for (const [sourceId, targetId] of pairs) {
+    const source = $(sourceId);
+    const target = $(targetId);
+    if (source && target) target.value = source.value;
+  }
+}
+
+function closeVersionConfigCard() {
+  const dialog = $("versionConfigCard");
+  if (!dialog) return;
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
 }
 
 function renderConfig() {
@@ -318,26 +351,15 @@ function renderConfig() {
     platformSelect.appendChild(option);
   }
 
-  renderOptions($("parseModeSelect"), state.config.parse_modes || [{ id: "smart", name: "智能识别" }]);
-  $("parseModeSelect").value = appCfg.parser?.default_parse_mode || "smart";
-
-  $("columnPresetSelect").innerHTML = `<option value="">不使用预设</option>`;
-  for (const item of state.config.column_presets || []) {
-    const option = document.createElement("option");
-    option.value = item.id;
-    option.textContent = item.name;
-    $("columnPresetSelect").appendChild(option);
-  }
-  $("columnPresetSelect").value = appCfg.parser?.default_column_preset_id || "sample_input";
-  $("columnOrderInput").value = appCfg.parser?.custom_column_order || DEFAULT_COLUMN_ORDER;
-
   renderWorkflowConfig(appCfg);
+  renderVersionPromptConfig();
   renderAiConfig(appCfg);
   renderPresetControls(appCfg);
   renderKnowledgeSummary(state.config.knowledge_summary || {});
   renderLibraryManager();
   renderRuleEditor();
   renderWebSubmitConfig(state.config.web_submit || {});
+  if ($("knowledgeUsagePrompt")) $("knowledgeUsagePrompt").value = state.config.knowledge?.usage_prompt || "";
 
   $("platformsText").value = pretty(state.config.platforms || []);
   $("stylesText").value = pretty(state.config.styles || []);
@@ -361,19 +383,17 @@ function renderWorkflowConfig(appCfg) {
   $("fetchRetries").value = fetch.retries ?? 1;
   $("fetchTimeout").value = fetch.timeout_seconds || 30;
   $("fetchAutoDetectPlatform").checked = fetch.auto_detect_platform !== false;
-  $("aiCountDefault").value = rewrite.default_ai_count || 1;
-  $("aiCountMax").value = rewrite.max_ai_count || 5;
   $("processLineCount").value = rewrite.process_line_count || 5;
   $("anchorLineCount").value = rewrite.anchor_line_count || 5;
   $("rewriteTemp").value = rewrite.temperature ?? 0.45;
   $("methodSequenceInput").value = Array.isArray(rewrite.method_sequence)
     ? rewrite.method_sequence.join(",")
     : (rewrite.method_sequence || "high_imitation,opening_instruction,instruction");
-  renderAiSlotMethodControls(rewrite);
   $("openingPhraseMode").value = rewrite.opening_phrase_mode || "auto";
   $("highImitationMode").value = rewrite.high_imitation_mode || "auto";
   renderRewriteTemplateOptions(rewrite.default_template_id || "");
   $("rewritePrompt").value = rewrite.prompt || "";
+  $("processingRulePrompt").value = rewrite.processing_rule_prompt || "";
 }
 
 function asArray(value) {
@@ -475,7 +495,6 @@ function sensitiveAiProcessEnabled() {
 function ensureWebSubmitConfig() {
   state.config = state.config || {};
   const current = state.config.web_submit || {};
-  const submitVersions = asArray(current.submit_versions).length ? asArray(current.submit_versions) : ["ai1"];
   const jieyaNum = materialJieyaValue(current.advanced?.jieyaNum ?? 4);
   state.config.web_submit = {
     // 保留旧字段供服务端和历史配置兼容，但网络提交已由任务列表直接触发。
@@ -488,7 +507,6 @@ function ensureWebSubmitConfig() {
     retry_times: Math.max(0, Number(current.retry_times) || 1),
     upload_profiles: asArray(current.upload_profiles),
     profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
-    submit_versions: submitVersions,
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
       jieyaNum,
@@ -1524,14 +1542,6 @@ function renderWebSubmitConfig(settings = {}) {
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
 
-  const versionSet = new Set(asArray(cfg.submit_versions).map((item) => String(item || "").toLowerCase()));
-  document.querySelectorAll(".web-version").forEach((input) => {
-    input.checked = versionSet.has(String(input.value || "").toLowerCase());
-  });
-  if (!document.querySelector(".web-version:checked")) {
-    const ai1 = document.querySelector('.web-version[value="ai1"]');
-    if (ai1) ai1.checked = true;
-  }
   updateResubmitHint();
   renderWebSubmitMode();
   renderWebLoginStatus(cfg);
@@ -1612,7 +1622,7 @@ function profileIdFromIdentity(profiles, identity) {
 }
 
 function renderWebVersionProfileBindings(profiles, bindings) {
-  const fields = { original: "webProfileBindingOriginal", ai1: "webProfileBindingAi1", ai2: "webProfileBindingAi2", ai3: "webProfileBindingAi3" };
+  const fields = { original: "webProfileBindingOriginal", ai1: "webProfileBindingAi1", ai2: "webProfileBindingAi2", ai3: "webProfileBindingAi3", ai4: "webProfileBindingAi4", ai5: "webProfileBindingAi5" };
   const items = asArray(profiles);
   for (const [version, id] of Object.entries(fields)) {
     const select = $(id);
@@ -1634,7 +1644,9 @@ function webProfileBindingsFromForm() {
     original: $("webProfileBindingOriginal")?.value || "",
     ai1: $("webProfileBindingAi1")?.value || "",
     ai2: $("webProfileBindingAi2")?.value || "",
-    ai3: $("webProfileBindingAi3")?.value || ""
+    ai3: $("webProfileBindingAi3")?.value || "",
+    ai4: $("webProfileBindingAi4")?.value || "",
+    ai5: $("webProfileBindingAi5")?.value || ""
   };
 }
 
@@ -1644,13 +1656,6 @@ function updateResubmitHint() {
   if (hint) hint.textContent = allow
     ? "已开启：已成功版本会再次上传。"
     : "默认保护：已成功版本会跳过。";
-}
-
-function webSubmitVersionsFromForm() {
-  const versions = [...document.querySelectorAll(".web-version:checked")]
-    .map((input) => String(input.value || "").trim())
-    .filter(Boolean);
-  return versions.length ? versions : ["ai1"];
 }
 
 function syncFormToWebSubmitConfig() {
@@ -1668,12 +1673,16 @@ function syncFormToWebSubmitConfig() {
   cfg.profile_bindings = webProfileBindingsFromForm();
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
-  cfg.submit_versions = webSubmitVersionsFromForm();
+  cfg.submit_versions = selectedProcessVersions();
   return cfg;
 }
 
 function setSiteSubmitStatus(text) {
   if ($("siteSubmitStatus")) $("siteSubmitStatus").textContent = text || "";
+}
+
+function setVersionConfigStatus(text) {
+  if ($("webSubmitSelectionStatus")) $("webSubmitSelectionStatus").textContent = text || "";
 }
 
 async function saveWebSubmitConfig(silent = false) {
@@ -1697,23 +1706,33 @@ async function saveWebSubmitConfig(silent = false) {
 
 async function confirmWebSubmitSelection() {
   const status = $("webSubmitSelectionStatus");
-  const versions = webSubmitVersionsFromForm();
+  const versions = selectedProcessVersions();
   if (!versions.length) {
-    if (status) status.textContent = "请至少选择一份提交文案。";
+    if (status) status.textContent = "请至少选择一个文案版本";
     return;
   }
-  if (status) status.textContent = "正在确认文案与提交方案...";
-  const result = await saveWebSubmitConfig(true);
-  if (result) {
-    if (status) status.textContent = `已确认：${versions.map(version => version.toUpperCase()).join("、")}；版本配置已保存。`;
-  } else if (status) {
-    status.textContent = "确认失败，请检查连接与设置。";
+  if (status) status.textContent = "正在保存版本配置...";
+  try {
+    await saveWorkFormStateNow();
+    syncVersionPromptConfigToForm();
+    await saveConfig(true);
+    const result = await saveWebSubmitConfig(true);
+    if (result) {
+      if (status) status.textContent = `已保存：${versions.map(version => version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
+      updateVersionConfigSummary();
+      closeVersionConfigCard();
+    } else if (status) {
+      status.textContent = "确认失败，请检查连接与设置。";
+    }
+  } catch (error) {
+    if (status) status.textContent = error.message;
   }
 }
 
 async function syncWebSubmit(kind) {
   const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
+  setVersionConfigStatus(`正在同步${label}...`);
   try {
     await saveWebSubmitConfig(true);
     const result = await api(kind === "styles" ? "/api/web-submit/sync-styles" : "/api/web-submit/sync-configs", {
@@ -1727,9 +1746,12 @@ async function syncWebSubmit(kind) {
       ? `，AI风格 ${result.style_sync.new_count || 0} 个，新增 ${result.style_sync.added?.length || 0}，删除 ${result.style_sync.removed?.length || 0}`
       : "";
     const configText = kind === "configs" ? `：${result.groups?.length || 0} 个配置档已更新` : "";
-    setSiteSubmitStatus(`已同步${label}${configText}${styleText}`);
+    const message = `已同步${label}${configText}${styleText}`;
+    setSiteSubmitStatus(message);
+    setVersionConfigStatus(message);
   } catch (error) {
     setSiteSubmitStatus(error.message);
+    setVersionConfigStatus(error.message);
   }
 }
 
@@ -1848,7 +1870,6 @@ function webSubmitRequestPayload(mode, force = false) {
   return {
     mode,
     ids,
-    versions: webSubmitVersionsFromForm(),
     force,
     grouped: true,
   };
@@ -2090,7 +2111,7 @@ function renderTasks(tasks) {
   const body = $("tasksBody");
   body.innerHTML = "";
   if (!state.tasks.length) {
-    body.innerHTML = `<tr><td colspan="13">${selectedDate === todayDateKey() ? "今日暂无任务" : `${selectedDate} 暂无任务`}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="12">${selectedDate === todayDateKey() ? "今日暂无任务" : `${selectedDate} 暂无任务`}</td></tr>`;
     updateSelectedCount();
     return;
   }
@@ -2107,14 +2128,17 @@ function renderTasks(tasks) {
         : "无敏感词命中";
     const tr = document.createElement("tr");
     const originalText = originalStatusText(task);
-    const aiText = task.ai_status ? taskStatusText(task.ai_status) : `已生成 ${task.ai_files?.length || 0}/${task.ai_count || 1}`;
+    const selectedAi = asArray(task.selected_versions).filter(version => /^ai[1-5]$/.test(version));
+    const generatedAi = asArray(task.ai_files);
+    const aiText = selectedAi.length
+      ? `${generatedAi.map(version => version.toUpperCase()).join("、") || "待生成"}（${generatedAi.length}/${selectedAi.length}）`
+      : "本次未选择 AI 文案";
     const siteText = siteSubmitText(task);
     tr.innerHTML = `
       <td><input class="task-check" type="checkbox" data-id="${escapeHtml(id)}" ${state.selectedIds.has(id) ? "checked" : ""} /></td>
       <td class="id-cell"><button class="task-id-link" data-action="detail" data-id="${escapeHtml(id)}" title="查看任务详情">${escapeHtml(id)}</button></td>
       <td>${escapeHtml(task.book_name || "")}</td>
       <td>${escapeHtml(task.platform_name || "")}</td>
-      <td>${escapeHtml(task.parse_mode === "smart" ? "智能解析" : task.parse_mode || "")}</td>
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
       <td class="${statusClass(task.classify_status)}">${escapeHtml(taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断"))}</td>
@@ -2166,7 +2190,6 @@ function renderDetail(data) {
       ${metaItem("ID", meta.book_id || meta.id)}
       ${metaItem("书名", meta.book_name)}
       ${metaItem("平台", `${meta.platform_name || ""} ${meta.platform_id || ""}`)}
-      ${metaItem("解析", meta.parse_mode)}
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
       ${metaItem("AI判断", taskStatusText(meta.classify_status))}
@@ -2443,7 +2466,7 @@ async function loadRecords() {
 function renderProcessResult(result) {
   const lines = [
     "处理完成",
-    `解析行数：${result.parsed || 0}`,
+    `读取行数：${result.parsed || 0}`,
     `有效任务：${result.unique_tasks || 0}`,
     `重复ID：${result.duplicate_count || 0}`,
     `空ID行：${result.empty_id_count || 0}`,
@@ -2555,22 +2578,29 @@ async function pollProcessJob(jobId) {
 
 async function processInput() {
   const button = $("processBtn");
+  const versions = selectedProcessVersions();
+  if (!versions.length) {
+    $("processResult").textContent = "请至少选择一个文案版本；请打开版本对应配置档勾选版本。";
+    openVersionConfigCard();
+    return;
+  }
   button.disabled = true;
-  await saveWorkFormStateNow();
-  $("processResult").textContent = [
-    "处理中...",
-    "1. 正在解析输入内容",
-    "2. 正在补齐缺失的风格类型/男女频",
-    "3. 正在按所选平台抓取原文",
-    "4. 正在执行系统规则和敏感词处理",
-  ].join("\n");
   try {
+    await saveWorkFormStateNow();
+    await saveWebSubmitConfig(true);
+    $("processResult").textContent = [
+      "处理中...",
+      "1. 正在读取版本配置",
+      "2. 正在补齐缺失的风格类型/男女频",
+      "3. 正在按所选平台抓取原文",
+      "4. 正在生成所选文案并执行处理规则",
+    ].join("\n");
     const payload = {
       platform_id: $("platformSelect").value,
       input_text: $("inputText").value,
-      parse_mode: $("parseModeSelect").value,
-      column_preset_id: $("columnPresetSelect").value,
-      column_order: $("columnOrderInput").value,
+      selected_versions: versions,
+      ai_slot_methods: processAiMethods(),
+      profile_bindings: webProfileBindingsFromForm(),
       sensitive_ai_enabled: sensitiveAiProcessEnabled(),
     };
     const job = await api("/api/process/start", {
@@ -2660,10 +2690,11 @@ async function restoreOriginal(id) {
 
 async function generateAi(id) {
   if (!id) return;
-  const count = Number(state.config?.app_config?.rewrite?.default_ai_count || 1);
+  const task = state.tasks.find(item => String(item.id || item.book_id || "") === String(id));
+  const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
   await api(`/api/tasks/${id}/generate-ai`, {
     method: "POST",
-    body: JSON.stringify({ count, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+    body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
   });
   await loadTasks();
   await showTask(id);
@@ -2722,12 +2753,32 @@ async function transferSelectedToBatchFactory() {
     });
     const skipped = ids.length - items.length;
     if (!items.length) throw new Error("选中的任务都没有可用原文，请先完成原文获取");
-    const result = await platformApi("/api/batch-factory/intakes/novel-fetch", {
+    const result = await platformApi("/api/batch-factory/v11/intakes/novel-fetch", {
       method: "POST",
-      body: JSON.stringify({ name: `小说获取转入 ${items.length} 本`, items }),
+      body: JSON.stringify({
+        books: items.map(item => ({
+          id: item.bookId,
+          bookId: item.bookId,
+          sourceTaskId: item.sourceTaskId,
+          title: item.title,
+          platform: item.platform,
+          sourceText: item.sourceText,
+          txtText: item.txtText,
+          txtFileName: `${item.bookId}.txt`,
+          sourceMetadata: item.sourceMetadata,
+        })),
+        metadata: {
+          name: `小说获取转入 ${items.length} 本`,
+          source: "novel-fetch",
+          transferredAt: new Date().toISOString(),
+        },
+      }),
     });
-    setBatchStatus(`已转入 ${items.length} 本${skipped ? `，跳过 ${skipped} 本未完成任务` : ""}`);
-    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo: result.redirectTo }, window.location.origin);
+    const intakeId = String(result?.intake?.id || "").trim();
+    const redirectTo = result.redirectTo || (intakeId ? `/batch-factory?intake=${encodeURIComponent(intakeId)}` : "");
+    if (!redirectTo) throw new Error("V11 Intake 创建成功但未返回跳转地址");
+    setBatchStatus(`已转入 ${items.length} 本${skipped ? `, 跳过 ${skipped} 本未完成任务` : ""}`);
+    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo }, window.location.origin);
   } catch (error) {
     setBatchStatus(error.message || "转入批量工厂失败");
   } finally {
@@ -2909,12 +2960,6 @@ function clearSelectedTasks() {
 
 function syncFormToAppConfig() {
   const cfg = clone(state.config.app_config || {});
-  cfg.parser = {
-    ...(cfg.parser || {}),
-    default_parse_mode: $("parseModeSelect").value || "smart",
-    default_column_preset_id: $("columnPresetSelect").value || "",
-    custom_column_order: $("columnOrderInput").value || DEFAULT_COLUMN_ORDER,
-  };
   cfg.workflow = {
     ...(cfg.workflow || {}),
     auto_classify_missing: $("workflowAutoClassify").checked,
@@ -2938,18 +2983,18 @@ function syncFormToAppConfig() {
   };
   cfg.rewrite = {
     ...(cfg.rewrite || {}),
-    default_ai_count: numberValue("aiCountDefault", 1),
-    max_ai_count: numberValue("aiCountMax", 5),
     process_line_count: numberValue("processLineCount", 5),
     anchor_line_count: numberValue("anchorLineCount", 5),
     temperature: numberValue("rewriteTemp", 0.45),
     method_sequence: $("methodSequenceInput").value.split(/[\s,，、|\/]+/).map((item) => item.trim()).filter(Boolean),
-    ai_slot_methods: readAiSlotMethods(),
     default_template_id: $("rewriteTemplateSelect").value || "",
     opening_phrase_mode: $("openingPhraseMode").value || "auto",
     high_imitation_mode: $("highImitationMode").value || "auto",
     prompt: $("rewritePrompt").value,
+    processing_rule_prompt: $("processingRulePrompt").value,
   };
+  ensureKnowledgeConfig();
+  state.config.knowledge.usage_prompt = $("knowledgeUsagePrompt")?.value || "";
   cfg.ai = readAiSettingsFromForm();
   cfg.ai_assignments = {
     classifier: $("classifierSelect").value || "__current__",
@@ -2961,7 +3006,7 @@ function syncFormToAppConfig() {
   return cfg;
 }
 
-async function saveConfig() {
+async function saveConfig(throwOnError = false) {
   $("configStatus").textContent = "保存中...";
   try {
     saveLibraryItem(true);
@@ -2990,8 +3035,10 @@ async function saveConfig() {
     if (knowledgeSave) knowledgeSave.textContent = "已保存";
     const rulesSave = $("rulesSaveStatus");
     if (rulesSave) rulesSave.textContent = "已保存";
+    return data;
   } catch (error) {
     $("configStatus").textContent = error.message;
+    if (throwOnError) throw error;
   }
 }
 
@@ -3260,6 +3307,16 @@ window.addEventListener("DOMContentLoaded", async () => {
     sitePanel.remove();
   }
   bindWorkFormPersistence();
+  $("versionConfigBtn").onclick = openVersionConfigCard;
+  $("versionConfigCloseBtn").onclick = closeVersionConfigCard;
+  $("versionConfigCloseBtnBottom").onclick = closeVersionConfigCard;
+  $("versionConfigCard").addEventListener("cancel", event => {
+    event.preventDefault();
+    closeVersionConfigCard();
+  });
+  $("versionConfigCard").addEventListener("click", event => {
+    if (event.target === $("versionConfigCard")) closeVersionConfigCard();
+  });
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
