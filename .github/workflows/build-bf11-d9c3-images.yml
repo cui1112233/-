@@ -6,7 +6,7 @@ on:
       - ci/build-bf11-d9c3-fix-memory-store-20260904
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-images:
@@ -15,6 +15,7 @@ jobs:
       SOURCE_SHA: ${{ github.sha }}
       NODE_IMAGE: qiantie-v88-node-public-v88:${{ github.sha }}
       GO_IMAGE: qiantie-go-api:public-v88-bf11-${{ github.sha }}
+      RELEASE_TAG: bf11-v11-${{ github.sha }}
     steps:
       - name: Checkout pushed source
         uses: actions/checkout@v4
@@ -71,10 +72,15 @@ jobs:
           sha256sum "artifact/batch-factory-v11-$SOURCE_SHA-linux-amd64.tar.gz" > artifact/SHA256SUMS
           docker image inspect "$NODE_IMAGE" "$GO_IMAGE" > artifact/image-inspect.json
 
-      - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: batch-factory-v11-${{ github.sha }}-linux-amd64
-          path: artifact/
-          if-no-files-found: error
-          retention-days: 14
+      - name: Publish Docker image bundle as GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            artifact/batch-factory-v11-"$SOURCE_SHA"-linux-amd64.tar.gz \
+            artifact/SHA256SUMS \
+            artifact/image-inspect.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Batch Factory V11 images $SOURCE_SHA" \
+            --notes "Built from CI fix branch, based on Batch Factory V11 source d9c3a164053473c55704fa0ba904041366564b61." \
+            --prerelease
