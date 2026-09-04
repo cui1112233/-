@@ -46,7 +46,10 @@ func TestLocalExecutorVideoAdapterKeepsV11IdentityAndCompiledPrompt(t *testing.T
 }
 
 func TestLocalExecutorVideoAdapterReturnsExactArtifactURLOnlyForSucceededJob(t *testing.T) {
-	client := &fakeLocalVideoClient{job: LocalVideoJob{ID: "lej_2", State: "succeeded", ArtifactID: "artifact_2"}}
+	client := &fakeLocalVideoClient{
+		createdOwner: "alice",
+		job:          LocalVideoJob{ID: "lej_2", State: "succeeded", ArtifactID: "artifact_2"},
+	}
 	adapter := NewLocalExecutorVideoAdapter(client, "https://platform.example")
 	ref, err := adapter.Poll(context.Background(), "alice", "lej_2")
 	if err != nil {
