@@ -12,6 +12,7 @@ import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetStat
 import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, constraintsForNextGeneration, normalizeScriptConstraints } from './scriptConstraints';
+import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
@@ -115,8 +116,9 @@ export function ScriptPage() {
   const [narrating, setNarrating] = useState(false);
   const [quickDirecting, setQuickDirecting] = useState(false);
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
-  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '' });
+  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '', matchAudio: false });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
+  const [sourceAudioDurationSeconds, setSourceAudioDurationSeconds] = useState(null);
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
@@ -210,29 +212,39 @@ export function ScriptPage() {
   async function quickDirectorStoryboard() {
     const source = String(form.getFieldValue('novelText') || '').trim();
     if (!source) return;
+    if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
+      message.warning('请先生成当前原文配音，匹配音频需要读取实际音频时长');
+      return;
+    }
     const request = beginRequest('workflow');
     setQuickDirecting(true);
     setQuickDirectorOpen(false);
     setGenerationStage('extracting');
-    dispatchPetState('working', { title: '快速导演分镜正在生成' });
+    dispatchPetState('working', { title: '匹配音频分镜正在生成' });
     try {
       const extraction = await extractEntities(source);
       if (!isCurrentRequest(request)) return;
       setExtractInfo(extraction);
       setGenerationStage('generating');
+      const duration = form.getFieldValue('duration') || '10s';
+      const requestConstraints = constraintsForFormat(constraints, 'shotlist', extraction);
       const result = await generateQuickDirectorStoryboard({
         novelText: source,
-        duration: form.getFieldValue('duration') || '10s',
+        duration,
         ...toGenerationEntities(extraction),
         descriptionMode: quickDirectorOptions.descriptionMode,
         mustCoverDetails: quickDirectorOptions.mustCoverDetails,
-        shotRhythmRequirements: quickDirectorOptions.shotRhythmRequirements
+        shotRhythmRequirements: quickDirectorOptions.shotRhythmRequirements,
+        matchAudio: quickDirectorOptions.matchAudio,
+        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null,
+        constraints: requestConstraints
       });
       if (!isCurrentRequest(request)) return;
       const nextOutput = aiText(result);
       if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回分镜内容');
       const historyId = 'react-' + Date.now().toString(36);
       setPreviousOutput(output);
+      setOutputConstraints(requestConstraints);
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
       setCurrentHistoryId('');
@@ -246,7 +258,7 @@ export function ScriptPage() {
           output: nextOutput,
           novelText: source,
           extractInfo: extraction,
-          constraints
+          constraints: requestConstraints
         });
         if (!isCurrentRequest(request)) return;
         setCurrentHistoryId(historyId);
@@ -255,18 +267,18 @@ export function ScriptPage() {
         if (!isCurrentRequest(request)) return;
         message.warning('分镜已生成，但保存历史失败');
       }
-      message.success('快速导演分镜已生成，可直接查看、复制或生成视频');
+      message.success('匹配音频分镜已生成，可直接查看、复制或生成视频');
       playTaskSound('success', soundEnabled, soundVolume);
       dispatchPetState('success', {
-        title: '快速导演分镜已生成',
+        title: '匹配音频分镜已生成',
         detail: historySaved ? '完整分镜已写入当前剧本和生成历史。' : '完整分镜已写入当前剧本，但生成历史保存失败。'
       });
     } catch (error) {
       if (isCurrentRequest(request)) {
         setGenerationStage('error');
-        message.error(error.message || '快速导演分镜生成失败');
+        message.error(error.message || '匹配音频分镜生成失败');
         playTaskSound('warning', soundEnabled, soundVolume);
-        dispatchPetState('error', { title: '快速导演分镜生成失败', detail: error.message || '请检查模型配置后重试。' });
+        dispatchPetState('error', { title: '匹配音频分镜生成失败', detail: error.message || '请检查模型配置后重试。' });
       }
     } finally {
       if (isCurrentRequest(request)) setQuickDirecting(false);
@@ -277,6 +289,7 @@ export function ScriptPage() {
     if (sourceAudioUrlRef.current) URL.revokeObjectURL(sourceAudioUrlRef.current);
     sourceAudioUrlRef.current = nextUrl;
     setSourceAudioUrl(nextUrl);
+    setSourceAudioDurationSeconds(null);
   }
 
   function snapshotDraft(values = form.getFieldsValue()) {
@@ -288,6 +301,7 @@ export function ScriptPage() {
         novelText: values.novelText || '',
         extractionPreset: values.extractionPreset || 'standard'
       },
+      quickDirectorOptions,
       constraints: constraintsForNextGeneration(constraints),
       outputConstraints: normalizeScriptConstraints(outputConstraints),
       extractInfo,
@@ -462,6 +476,9 @@ export function ScriptPage() {
       setOutput(typeof restoredDraft.output === 'string' ? restoredDraft.output : '');
       setEditingOutput(Boolean(restoredDraft.editingOutput));
       setGenerationStage(restoredDraft.generationStage || 'idle');
+      if (restoredDraft.quickDirectorOptions && typeof restoredDraft.quickDirectorOptions === 'object') {
+        setQuickDirectorOptions(current => ({ ...current, ...restoredDraft.quickDirectorOptions }));
+      }
       setConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
@@ -490,7 +507,7 @@ export function ScriptPage() {
   useEffect(() => {
     if (!draftReadyRef.current) return;
     persistDraft();
-  }, [extractInfo, output, editingOutput, generationStage, constraints, shotVideoTasks]);
+  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks]);
 
   useEffect(() => {
     if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks).catch(() => {});
@@ -637,8 +654,17 @@ export function ScriptPage() {
         return;
       }
       replaceSourceAudio(nextAudioUrl);
-      message.success('已按当前配音预设生成原文配音');
-      dispatchPetState('success', { title: '原文配音已生成', detail: '音频已经可以在剧本生成页面播放。' });
+      try {
+        const duration = await readAudioDurationFromUrl(nextAudioUrl);
+        if (!isCurrentRequest(requestId)) return;
+        setSourceAudioDurationSeconds(normalizeAudioDurationSeconds(duration));
+        message.success(`已生成原文配音，已读取 ${duration} 秒`);
+        dispatchPetState('success', { title: '原文配音已生成', detail: `当前配音时长 ${duration} 秒，可用于匹配音频。` });
+      } catch (error) {
+        if (!isCurrentRequest(requestId)) return;
+        message.warning(error.message || '配音已生成，但未能读取音频时长；匹配音频需要重新生成配音。');
+        dispatchPetState('success', { title: '原文配音已生成', detail: '音频可以播放，但暂未读取到时长。' });
+      }
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       message.error(error.message || '原文配音失败');
@@ -1105,6 +1131,7 @@ export function ScriptPage() {
         persistDraft(allValues);
         if (Object.hasOwn(changed, 'novelText')) {
           invalidateRequests();
+          replaceSourceAudio('');
           setExtractInfo(normalizeExtractInfo());
           setOutput('');
           setShotVideoTasks({});
@@ -1154,7 +1181,7 @@ export function ScriptPage() {
                   setInstructionModalOpen(true);
                 }} disabled={extractionUnavailable}><Plus size={17} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" aria-label="配音原文" title="按当前配音预设生成原文配音" onClick={narrateSource} disabled={narrating}><AudioLines size={17} strokeWidth={1.8} aria-hidden="true" /></button>
-                <button type="button" aria-label="快速导演分镜" title="按小说面板导演逻辑生成完整视频分镜" onClick={openQuickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
+                <button type="button" aria-label="匹配音频" title="按当前配音时长生成完整视频分镜" onClick={openQuickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
               </div>
               <Button className="script-chat-submit" type="primary" htmlType="submit" loading={extracting} disabled={generating || extractionUnavailable} aria-label="提取人物与场景" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />}>
                 <span>{generationStage === 'extracting' ? '提取中...' : '提取'}</span>
@@ -1282,7 +1309,7 @@ export function ScriptPage() {
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
       </Modal>
       <Modal
-        title="快速导演分镜"
+        title="匹配音频"
         open={quickDirectorOpen}
         okText="分析并生成"
         cancelText="取消"
@@ -1290,7 +1317,19 @@ export function ScriptPage() {
         onCancel={() => setQuickDirectorOpen(false)}
         onOk={quickDirectorStoryboard}
       >
-        <Typography.Paragraph type="secondary">自动读取全文，先生成统一风格、人物与场景，再按所选画面描述模式路由导演规则生成分镜。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">自动读取全文并生成导演级分镜。开启匹配音频后，所有分镜单元总时长必须等于当前配音秒数；10s / 15s 仍然是每个分镜单元的时长规则。</Typography.Paragraph>
+        <Space align="center" style={{ width: '100%', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div>
+            <Typography.Text strong>匹配音频</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ margin: '2px 0 0' }}>
+              {sourceAudioDurationSeconds ? `当前配音：${sourceAudioDurationSeconds} 秒；总分镜时长将严格匹配。` : '请先点击配音按钮生成当前原文配音。'}
+            </Typography.Paragraph>
+          </div>
+          <Switch
+            checked={quickDirectorOptions.matchAudio}
+            onChange={matchAudio => setQuickDirectorOptions(current => ({ ...current, matchAudio }))}
+          />
+        </Space>
         <Typography.Text>画面描述模式</Typography.Text>
         <Select
           value={quickDirectorOptions.descriptionMode}

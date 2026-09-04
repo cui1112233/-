@@ -2,6 +2,7 @@
 // 程序把「已提取的人物/场景生成的基础设定 + 用户约束设置」注入每个分段卡片，
 // 与小说面板“按秒数分段并合并”的最终组装逻辑一致。
 import { getShotCardsWithinDuration, splitContinuousTimeline, splitTimelineBlocks } from './scriptShotOutput.js';
+import { shouldInjectSmartUnifiedStyle } from './scriptGenerationRules.js';
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -62,10 +63,9 @@ function enabledBody(layer) {
 
 function buildConstraintParts(constraints, visualStyle = '') {
   // 后续沿用开关不影响本次卡片；是否展示文字约束只由各子开关决定。
-  // 与服务端生成请求保持一致：开启画面前缀时，小说提取阶段得到的统一风格
-  // 也属于本次前缀。否则 AI 实际收到了风格，最终卡片却看不到它。
+  // 只有明确选择“智能统一”时，小说提取阶段得到的统一风格才属于本次前缀。
   const prefix = [
-    constraints?.prefix?.enabled === true ? text(visualStyle) : '',
+    shouldInjectSmartUnifiedStyle(constraints) ? text(visualStyle) : '',
     enabledBody(constraints?.prefix)
   ].filter(Boolean).join('\n');
   const quality = enabledBody(constraints?.quality);

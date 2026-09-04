@@ -2,6 +2,11 @@ const express = require('express');
 const { apiAuth, checkRateLimit } = require('../middleware/auth');
 const { readConfig, ensureReadyConfig, requestUpstream, requestUpstreamModels, collectResponse } = require('../lib/shared');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+const {
+  isSmartUnifiedPrefixEnabled,
+  buildAudioMatchRules,
+  buildStoryboardUnitDurationRules
+} = require('../lib/script-generation-rules');
 
 const MODE_PRESET_ID_MAP = {
   continuous: 'script-continuous',
@@ -165,9 +170,8 @@ function resolveConstraintText(presetStore, category, value, personalPromptStore
 
 function buildConstraintWrapper(presetStore, constraints, format, duration, personalPromptStore, username, visualStyle) {
   const prefix = resolveConstraintText(presetStore, 'prefix', constraints?.prefix, personalPromptStore, username);
-  // 统一风格来自本次小说的人物/场景提取。仅在用户开启画面前缀时写入，
-  // 以免未开启约束设置的剧本输出被静态视频提示词污染。
-  const extractedStyle = constraints?.prefix?.enabled === true ? String(visualStyle || '').trim() : '';
+  // 统一风格只有在明确选择“智能统一”时才进入画面前缀；普通画面前缀不自动吸收分析字段。
+  const extractedStyle = isSmartUnifiedPrefixEnabled(constraints) ? String(visualStyle || '').trim() : '';
   const quality = resolveConstraintText(presetStore, 'quality', constraints?.quality, personalPromptStore, username);
   const restriction = resolveConstraintText(presetStore, 'restriction', constraints?.restriction, personalPromptStore, username);
   const negative = resolveConstraintText(presetStore, 'negative', constraints?.negative, personalPromptStore, username);
@@ -222,7 +226,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const compactSourceGuard = sourceText.length <= 600
     ? `## 短原文时长硬校验\n原文仅 ${sourceText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得为了填满内容新增事件、人物、对白或空镜。`
     : '';
-  const durationGuard = `## 时长硬校验（最高优先级）\n每个分镜单元的总时长只能是 ${duration}；时间轴必须从 00:00 连续到 ${endTime}，任何结束时间不得超过 ${endTime}。禁止输出 60s、100s、01:00 或跨单元累计时间；内容不足时保持动作简洁，不得用重复动作填时长。`;
+  const durationGuard = `## 时长硬校验（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个单元的结束时间不得超过 ${endTime}。禁止输出 60s、100s、01:00 或跨单元累计时间；内容不足时保持动作简洁，不得用重复动作填时长。`;
   // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
   // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
   const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
@@ -257,7 +261,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   ];
 }
 
-function buildQuickDirectorMessages(body, presetStore) {
+function buildQuickDirectorMessages(body, presetStore, personalPromptStore, username) {
   const novelText = String(body?.novelText || '').trim();
   if (!novelText) throw new Error('Novel text is required');
   const duration = normalizeDuration(body?.duration);
@@ -267,9 +271,14 @@ function buildQuickDirectorMessages(body, presetStore) {
     example: 'script-quick-director-mode-example', reference: 'script-quick-director-mode-reference'
   };
   const descriptionMode = Object.hasOwn(descriptionModeIds, body?.descriptionMode) ? body.descriptionMode : 'strict';
-  const quickDirectorBase = resolveSystemPresetBody(presetStore, 'script-quick-director-storyboard')
+  const audioMatchRules = body?.matchAudio === true
+    ? buildAudioMatchRules({ audioTotalSeconds: body.audioTotalSeconds, duration })
+    : '';
+  const quickDirectorTemplate = resolveSystemPresetBody(presetStore, 'script-quick-director-storyboard');
+  const quickDirectorBase = quickDirectorTemplate
     .replace(/\{duration\}/g, duration)
-    .replace(/\{descriptionModeRules\}/g, resolveSystemPresetBody(presetStore, descriptionModeIds[descriptionMode]));
+    .replace(/\{descriptionModeRules\}/g, resolveSystemPresetBody(presetStore, descriptionModeIds[descriptionMode]))
+    .replace(/\{audioMatchRules\}/g, audioMatchRules);
   // 小说获取的自动入口与“分段开头 + 分镜模式”共用同一份导演母版；
   // 它只省去人工逐步点击，并不降级场景、事件、连续性与质量规则。
   const directorMaster = resolveSystemPresetBody(presetStore, 'script-director-storyboard-master')
@@ -278,26 +287,42 @@ function buildQuickDirectorMessages(body, presetStore) {
   const compactSourceGuard = novelText.length <= 600
     ? `## 短原文时长硬校验\n原文仅 ${novelText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得新增事件、人物、对白或重复动作。`
     : '';
-  const durationGuard = `## 时长硬校验（最高优先级）\n每个分镜单元总时长只能是 ${duration}，从 00:00 连续到 ${endTime}；禁止输出 60s、100s、01:00 或跨单元累计时间。内容不足时保持动作简洁，不得用重复动作填时长。`;
-  const systemPrompt = [quickDirectorBase, directorMaster, durationGuard, compactSourceGuard].filter(Boolean).join('\n\n---\n\n');
+  const durationGuard = `## 时长硬校验（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个单元的结束时间不得超过 ${endTime}；禁止输出 60s、100s、01:00 或跨单元累计时间。内容不足时保持动作简洁，不得用重复动作填时长。`;
+  const constraintWrapper = buildConstraintWrapper(
+    presetStore,
+    body.constraints,
+    'shotlist',
+    duration,
+    personalPromptStore,
+    username,
+    body.visualStyle
+  );
+  const outputBoundary = '## 输出边界\n只输出分镜单元和镜头画面正文；不得输出独立的“统一风格”“统一人物”“场景环境”或其他共享设定标题，已启用的基础设定与画面前缀由系统按约束设置组装。';
+  const systemPrompt = [quickDirectorBase, directorMaster, durationGuard,
+    quickDirectorTemplate.includes('{audioMatchRules}') ? '' : audioMatchRules,
+    compactSourceGuard, constraintWrapper, outputBoundary
+  ].filter(Boolean).join('\n\n---\n\n');
+  const smartStyle = isSmartUnifiedPrefixEnabled(body.constraints)
+    ? String(body?.visualStyle || '').trim()
+    : '';
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: [
       `## 小说原文\n${novelText}`,
-      `## 分析后的统一风格\n${String(body?.visualStyle || '').trim() || '请根据全文自行判断'}`,
+      smartStyle ? `## 智能统一画面前缀来源\n${smartStyle}` : '',
       `## 人物卡\n${serializePromptSection(body?.characters)}`,
       `## 场景卡\n${serializePromptSection(body?.scenes)}`,
       `## 必须拍出的原文细节\n${String(body?.mustCoverDetails || '').trim() || '未填写；按原文完整还原'}`,
       `## 镜头节奏与推进要求\n${String(body?.shotRhythmRequirements || '').trim() || '未填写；按剧情自动决定'}`,
       '请直接交付完整导演分镜成品。'
-    ].join('\n\n') }
+    ].filter(Boolean).join('\n\n') }
   ];
 }
 
 function buildMessages(body, presetStore, personalPromptStore, username) {
   if (body.promptType === 'extract') return buildExtractMessages(body, presetStore);
   if (body.promptType === 'script') return buildScriptMessages(body, presetStore, personalPromptStore, username);
-  if (body.promptType === 'quick_director') return buildQuickDirectorMessages(body, presetStore);
+  if (body.promptType === 'quick_director') return buildQuickDirectorMessages(body, presetStore, personalPromptStore, username);
   return Array.isArray(body.messages) ? body.messages : [];
 }
 
@@ -478,7 +503,7 @@ function createChatRouter({
       stream: body.stream === true
     };
 
-    const selectedPersonalPromptIds = body.promptType === 'script'
+    const selectedPersonalPromptIds = body.promptType === 'script' || body.promptType === 'quick_director'
       ? [...new Set(['prefix', 'quality', 'restriction', 'negative']
         .map(category => body.constraints?.[category])
         .filter(value => value?.enabled === true && value.source === 'personal' && typeof value.personalPromptId === 'string')

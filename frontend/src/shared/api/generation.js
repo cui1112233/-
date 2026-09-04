@@ -52,7 +52,7 @@ export function generateScript({ mode, format, duration, novelText, characters, 
   });
 }
 
-export function generateQuickDirectorStoryboard({ novelText, duration, characters, scenes, visualStyle, descriptionMode, mustCoverDetails, shotRhythmRequirements }) {
+export function generateQuickDirectorStoryboard({ novelText, duration, characters, scenes, visualStyle, descriptionMode, mustCoverDetails, shotRhythmRequirements, matchAudio, audioTotalSeconds, constraints }) {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -65,6 +65,9 @@ export function generateQuickDirectorStoryboard({ novelText, duration, character
       descriptionMode,
       mustCoverDetails,
       shotRhythmRequirements,
+      matchAudio,
+      audioTotalSeconds,
+      constraints,
       max_tokens: 8192,
       temperature: 0.55,
       stream: false
