@@ -1,0 +1,70 @@
+name: Build Batch Factory V11 Docker Images
+
+on:
+  push:
+    branches:
+      - ci/build-bf11-d9c3-images-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_SHA: d9c3a164053473c55704fa0ba904041366564b61
+      NODE_IMAGE: qiantie-v88-node-public-v88:d9c3a164053473c55704fa0ba904041366564b61
+      GO_IMAGE: qiantie-go-api:public-v88-bf11-d9c3a164053473c55704fa0ba904041366564b61
+    steps:
+      - name: Checkout exact Batch Factory V11 source
+        uses: actions/checkout@v4
+        with:
+          ref: d9c3a164053473c55704fa0ba904041366564b61
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Node image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "$NODE_IMAGE" \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            --load .
+
+      - name: Build Go API image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "$GO_IMAGE" \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            --load backend
+
+      - name: Export images
+        run: |
+          mkdir -p artifact
+          docker save "$NODE_IMAGE" "$GO_IMAGE" | gzip -c > artifact/batch-factory-v11-d9c3a164-linux-amd64.tar.gz
+          sha256sum artifact/batch-factory-v11-d9c3a164-linux-amd64.tar.gz > artifact/SHA256SUMS
+          docker image inspect "$NODE_IMAGE" "$GO_IMAGE" > artifact/image-inspect.json
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-factory-v11-d9c3a164-linux-amd64
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
