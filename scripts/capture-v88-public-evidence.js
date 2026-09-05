@@ -38,8 +38,7 @@ function parseArgs(argv) {
     headers: {},
     repoDir: path.resolve(__dirname, '..'),
     expectedBranch: DEFAULT_EXPECTED_BRANCH,
-    expectedAncestor: DEFAULT_EXPECTED_ANCESTOR,
-    skipProvenance: false
+    expectedAncestor: DEFAULT_EXPECTED_ANCESTOR
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -66,7 +65,6 @@ function parseArgs(argv) {
     } else if (argument === '--repo-dir') options.repoDir = path.resolve(next());
     else if (argument === '--expected-branch') options.expectedBranch = next();
     else if (argument === '--expected-ancestor') options.expectedAncestor = next();
-    else if (argument === '--skip-provenance') options.skipProvenance = true;
     else if (argument === '--help' || argument === '-h') return { help: true };
     else throw new Error(`Unknown argument: ${argument}`);
   }
@@ -413,7 +411,12 @@ function readLocalFiles(repoDir) {
       if (/\.(?:js|css)$/.test(name)) files.push({ path: `frontend/dist/assets/${name}`, name, content: fs.readFileSync(path.join(assetsDir, name)) });
     }
   } catch (_) {}
-  for (const relativePath of ['frontend/dist/index.html', 'frontend/src/shared/api/batchFactoryV11.js']) {
+  for (const relativePath of [
+    'frontend/dist/index.html',
+    'frontend/src/shared/api/batchFactoryV11.js',
+    'public/novel-panel/workbench/app.js',
+    'public/novel-panel/workbench/style.css'
+  ]) {
     try {
       files.push({ path: relativePath, name: path.basename(relativePath), content: fs.readFileSync(path.join(repoDir, relativePath)) });
     } catch (_) {}
@@ -432,14 +435,26 @@ function compatibilityMarkers(text) {
 function compareSourceAndDist(repoDir, results) {
   const localFiles = readLocalFiles(repoDir);
   const localByName = new Map(localFiles.map(file => [file.name, file]));
-  const publicAssets = results.filter(result => result.metadata.url.includes('/assets/') && result.metadata.bodySaved);
-  const publicAssetNames = new Set(publicAssets.map(result => path.basename(new URL(result.metadata.url).pathname)));
-  const mismatchedFiles = publicAssets.map(result => {
-    const filename = path.basename(new URL(result.metadata.url).pathname);
-    const local = localByName.get(filename);
+  const publicResources = results.filter(result => {
+    const publicPath = new URL(result.metadata.url).pathname;
+    return result.metadata.bodySaved && (publicPath.startsWith('/assets/') || /^\/novel-panel\/workbench\/(?:app\.js|style\.css)$/.test(publicPath));
+  });
+  const publicResourcePaths = new Set(publicResources.map(result => new URL(result.metadata.url).pathname));
+  const sourcePathForPublicPath = publicPath => {
+    if (publicPath.startsWith('/assets/')) return localByName.get(path.basename(publicPath));
+    if (publicPath.startsWith('/novel-panel/workbench/')) {
+      return localFiles.find(file => file.path === `public${publicPath}`);
+    }
+    return null;
+  };
+  const mismatchedFiles = publicResources.map(result => {
+    const publicUrl = new URL(result.metadata.url);
+    const publicPath = publicUrl.pathname;
+    const filename = path.basename(publicPath);
+    const local = sourcePathForPublicPath(publicPath);
     return {
       filename,
-      publicPath: new URL(result.metadata.url).pathname,
+      publicPath,
       publicStatus: result.metadata.status,
       publicSha256: result.metadata.sha256,
       sourcePath: local?.path || null,
@@ -447,8 +462,15 @@ function compareSourceAndDist(repoDir, results) {
       sameHash: Boolean(local && sha256(local.content) === result.metadata.sha256)
     };
   }).filter(item => !item.sameHash);
-  for (const local of localFiles.filter(file => /^(?:user-|BatchFactory(?:Page|PreviewPage)-).+\.(?:js|css)$/.test(file.name))) {
-    if (!publicAssetNames.has(local.name)) {
+  const comparableLocalFiles = localFiles.filter(file => (
+    /^(?:user-|BatchFactory(?:Page|PreviewPage)-).+\.(?:js|css)$/.test(file.name)
+    || /^public\/novel-panel\/workbench\/(?:app\.js|style\.css)$/.test(file.path)
+  ));
+  for (const local of comparableLocalFiles) {
+    const publicPath = local.path.startsWith('public/novel-panel/workbench/')
+      ? `/${local.path.slice('public/'.length)}`
+      : `/assets/${local.name}`;
+    if (!publicResourcePaths.has(publicPath)) {
       mismatchedFiles.push({
         filename: local.name,
         publicPath: null,
@@ -492,8 +514,7 @@ function compareSourceAndDist(repoDir, results) {
 async function captureEvidence(inputOptions) {
   const options = { ...inputOptions, outputDir: path.resolve(inputOptions.outputDir) };
   ensureDirectory(options.outputDir);
-  let provenance = null;
-  if (!options.skipProvenance) provenance = captureProvenance(options);
+  const provenance = captureProvenance(options);
   const definitions = resourceDefinitions(options);
   const results = [];
   const seenUrls = new Set();
@@ -539,7 +560,6 @@ async function captureEvidence(inputOptions) {
       repoDir: path.resolve(options.repoDir),
       expectedBranch: options.expectedBranch,
       expectedAncestor: options.expectedAncestor,
-      provenanceSkipped: options.skipProvenance,
       requestHeaders: redactHeaders(options.headers)
     },
     provenance,
@@ -567,8 +587,7 @@ function helpText() {
     '  --path PATH          Capture only an explicit path; repeatable',
     '  --optional-path PATH Mark a repeated --path as non-required',
     '  --header Name=Value  Add a read-only request header; output is redacted when sensitive',
-    '  --repo-dir DIR       Worktree used for provenance/source comparison',
-    '  --skip-provenance    Test-only escape hatch; records that provenance was skipped'
+    '  --repo-dir DIR       Worktree used for provenance/source comparison'
   ].join('\n');
 }
 
@@ -595,8 +614,11 @@ module.exports = {
   V11_CANDIDATE_RESOURCES,
   captureEvidence,
   captureProvenance,
+  compareSourceAndDist,
+  defaultResources,
   parseArgs,
   redactHeaders,
   redactUrl,
+  resourceDefinitions,
   timingStats
 };
