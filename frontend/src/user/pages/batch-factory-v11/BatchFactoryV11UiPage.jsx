@@ -126,6 +126,11 @@ export function BatchFactoryV11UiPage() {
   const batchSettingsState = batch?.settingsState || emptySettingsState();
   const viewBatch = batchForView(batch, books);
 
+  function openNovelFetch() {
+    window.history.pushState({}, '', '/novel-fetch');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
+
   async function createBatchFromIntake() {
     if (!intakeState.intakeId || intakeState.consumed || batchCreateAction.disabled || creatingBatch) return false;
     setCreatingBatch(true);
@@ -170,7 +175,10 @@ export function BatchFactoryV11UiPage() {
             {intakeCount > 0 ? <Tag>{intakeCount} 本</Tag> : null}
           </Space>
           <Typography.Text type="secondary">创建批次不会自动启动 Director。</Typography.Text>
-        </Space> : '当前没有 Batch Factory V11 批次。'}
+        </Space> : <Space direction="vertical" size={8}>
+          <Typography.Text>当前没有 Batch Factory V11 批次。</Typography.Text>
+          <Typography.Text type="secondary">请先在小说获取中选择已完成原文的真实任务，再转入并创建批次。</Typography.Text>
+        </Space>}
       >
         <Space wrap>
           {intake ? <Button
@@ -180,6 +188,7 @@ export function BatchFactoryV11UiPage() {
             title={createDisabledReason}
             onClick={createBatchFromIntake}
           >创建 V11 批次</Button> : null}
+          {!intake ? <Button type="primary" onClick={openNovelFetch}>去小说获取并导入</Button> : null}
           <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
         </Space>
       </Empty>
@@ -476,7 +485,6 @@ export function BatchFactoryV11UiPage() {
         productionStatus={runtimeState.productionStatus}
         mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
-        mergeStatus={runtimeState.mergeStatus}
         onOpenBatchManager={() => setBatchManagerOpen(true)}
         onOpenHistory={openHistory}
         onOpenBatchSettings={() => setProductionSettingsOpen(true)}

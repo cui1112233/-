@@ -60,6 +60,23 @@ export function NovelFetchPage({ theme }) {
   const [frameReady, setFrameReady] = useState(false);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
+  useEffect(() => {
+    function handleBatchFactoryIntake(event) {
+      if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return;
+      const payload = event.data || {};
+      if (payload.type !== 'qiantie:batch-factory-intake' || !payload.redirectTo) return;
+      try {
+        const url = new URL(String(payload.redirectTo), window.location.origin);
+        if (url.origin !== window.location.origin || url.pathname !== '/batch-factory') return;
+        window.history.pushState({}, '', `${url.pathname}${url.search}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } catch (_) {
+        // Ignore malformed or cross-origin redirects from the embedded page.
+      }
+    }
+    window.addEventListener('message', handleBatchFactoryIntake);
+    return () => window.removeEventListener('message', handleBatchFactoryIntake);
+  }, []);
   return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}`}><iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={() => { syncTheme(); requestAnimationFrame(() => setFrameReady(true)); }} /></div>;
 }
 
