@@ -9,6 +9,10 @@ export function setToken(token) {
   else localStorage.removeItem('auth_token');
 }
 
+export function isSessionAuthFailure(response) {
+  return response?.headers?.get?.('X-Qiantie-Auth-Failure') === 'session';
+}
+
 function readableErrorMessage(text, status) {
   try {
     const payload = JSON.parse(text);
@@ -57,7 +61,7 @@ export async function apiRequest(path, options = {}) {
     if (!options.silent && !options.suppressGlobalError) notifyApiFailure({ ...failure, path });
     throw attachApiError(error, { path, method: options.method });
   }
-  if (response.status === 401 && path !== '/api/login') {
+  if (response.status === 401 && path !== '/api/login' && isSessionAuthFailure(response)) {
     const failure = { kind: 'api-response', message: '登录已失效，请重新登录', source: path, method: options.method || 'GET', status: response.status };
     // The request may complete after logout or after a newer account has
     // replaced its token. Preserve the diagnostic, but never surface a stale
