@@ -29,7 +29,7 @@ function checkRateLimit(ip) {
 
 function authenticateRequest(req) {
   const authHeader = req.headers['authorization'] || '';
-  const match = authHeader.match(/^Bearer\\s+(.+)$/i);
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
   const runtime = getRuntime(req);
   const token = match[1];
