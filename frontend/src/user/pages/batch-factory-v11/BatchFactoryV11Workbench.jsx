@@ -30,7 +30,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { DirectorPanel } from './DirectorPanel';
 import { HookReviewPanel } from './HookReviewPanel';
 import { WorkbenchCard } from './WorkbenchCard';
-import { actionState } from './batchFactoryV11State.js';
+import { actionState, batchDirectorActionState } from './batchFactoryV11State.js';
 import {
   DEFAULT_WORKSPACE_LAYOUT,
   GRID_COLUMNS,
@@ -151,6 +151,11 @@ export function BatchFactoryV11Workbench({
   const batchReadAction = actionState(capabilities, 'batch.read');
   const settingsAction = actionState(capabilities, 'settings.edit');
   const overrideAction = actionState(capabilities, 'override.edit');
+  const batchDirectorAction = batchDirectorActionState({
+    batch,
+    capability: capabilities?.['director.run'] || {},
+    connected: typeof onRunBatchDirector === 'function'
+  });
   const productionAction = actionState(capabilities, 'production.submit');
   const mergeAction = actionState(capabilities, 'merge.run');
   const compilerAction = actionState(capabilities, 'compiler.preview');
@@ -493,7 +498,11 @@ export function BatchFactoryV11Workbench({
             <Tag color="red">失败 {videoProgress.failed}</Tag>
           </Space>
           <div className="bf11-tool-buttons">
-            <Button disabled={!onRunBatchDirector} onClick={() => onRunBatchDirector?.(batch)} title={!onRunBatchDirector ? '等待 Director 批量接线' : ''}>批量 Director</Button>
+            <Button
+              disabled={batchDirectorAction.disabled}
+              onClick={() => onRunBatchDirector?.(batch)}
+              title={batchDirectorAction.reason}
+            >批量 Director</Button>
             <Button
               disabled={productionAction.disabled || !onRunProduction}
               title={productionAction.disabled ? productionAction.reason : ''}
