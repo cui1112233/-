@@ -97,5 +97,6 @@ func LocalExecutorMigrations() []Migration {
 func AppMigrations() []Migration {
 	out := append([]Migration(nil), V11Migrations()...)
 	out = append(out, LocalExecutorMigrations()...)
+	out = append(out, NovelFetchWorkshopMigrations()...)
 	return out
 }

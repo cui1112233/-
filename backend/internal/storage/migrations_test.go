@@ -45,6 +45,7 @@ func TestChecksumStableAcrossWhitespace(t *testing.T) {
 func TestAppMigrationsIncludesV11Migrations(t *testing.T) {
 	migrations := AppMigrations()
 	want := append(append([]Migration(nil), V11Migrations()...), LocalExecutorMigrations()...)
+	want = append(want, NovelFetchWorkshopMigrations()...)
 	if len(migrations) != len(want) {
 		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(want))
 	}
