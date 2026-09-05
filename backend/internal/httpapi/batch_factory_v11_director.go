@@ -49,9 +49,8 @@ func safeDirectorError(err error) string {
 	switch {
 	case errors.Is(err, batchfactoryv11.ErrNotFound): return "not found"
 	case errors.Is(err, batchfactoryv11.ErrConflict): return "director prerequisites not satisfied"
-	case errors.Is(err, batchfactoryv11.ErrInvalid): return "invalid director input or output"
+	case errors.Is(err, batchfactoryv11.ErrInvalid): return err.Error()
 	case errors.Is(err, batchfactoryv11.ErrUnavailable): return "director unavailable"
 	default: return "director failed"
 	}
 }
-
