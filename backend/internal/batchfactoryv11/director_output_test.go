@@ -62,6 +62,69 @@ func TestDirectorParseFencedJSON(t *testing.T) {
 	}
 }
 
+func TestDirectorNormalizeAcceptsProviderShotAliases(t *testing.T) {
+	aliased := `{
+  "characters": [{"name":"traveler","prompt":"A drenched traveler."}],
+  "scenes": [{"name":"stormy_road","prompt":"A stormy road."}],
+  "props": [],
+  "storyboard": [{
+    "duration_sec": 3,
+    "characters": ["traveler"],
+    "props": [],
+    "scene": "stormy_road",
+    "prefix_key": "suspense",
+    "shots": [{"start_sec":0,"end_sec":3,"lens_type":"特写","action":"旅行者在雨中前行。"}],
+    "video_desc": "旅行者在雨中前行。"
+  }],
+  "source_coverage": []
+}`
+	result, err := NormalizeDirectorOutput(json.RawMessage(aliased), DirectorSettings{
+		MaxVideoDuration:  15,
+		AspectRatio:       "9:16",
+		AllowedPrefixKeys: []string{"suspense"},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeDirectorOutput returned error for provider aliases: %v", err)
+	}
+	if result.Storyboard[0].Shots[0].Description != "旅行者在雨中前行。" {
+		t.Fatalf("unexpected aliased shot description: %#v", result.Storyboard[0].Shots[0])
+	}
+	if result.Storyboard[0].Shots[0].ShotType != "特写" {
+		t.Fatalf("unexpected aliased shot type: %#v", result.Storyboard[0].Shots[0])
+	}
+}
+
+func TestDirectorNormalizeAcceptsObservedProviderShape(t *testing.T) {
+	observed := `{
+  "characters": [{"name":"traveler","prompt":"A drenched traveler."}],
+  "scenes": [{"name":"stormy_road","prompt":"A stormy road."},{"name":"old_station","prompt":"An old station."}],
+  "props": [{"name":"interactive_button","prompt":"A glowing button."}],
+  "storyboard": [{
+    "duration_sec": 15,
+    "characters": ["traveler"],
+    "props": ["interactive_button"],
+    "scene": "stormy_road",
+    "prefix_key": "suspense",
+    "video_desc": "一个神秘的雨夜探索故事。",
+    "shots": [
+	    {"start_sec":0,"end_sec":3,"lens":"旅行者在雨中前行。","subtitles":""},
+	    {"start_sec":3,"end_sec":7,"lens":"旅行者抵达旧车站。","subtitles":""},
+	    {"start_sec":7,"end_sec":11,"lens":"旅行者在屋檐下避雨。","subtitles":""},
+	    {"start_sec":11,"end_sec":15,"lens":"屏幕浮现互动按钮。","subtitles":""}
+    ]
+  }],
+  "source_coverage": [{"source_shot":1}]
+}`
+	_, err := NormalizeDirectorOutput(json.RawMessage(observed), DirectorSettings{
+		MaxVideoDuration:  15,
+		AspectRatio:       "9:16",
+		AllowedPrefixKeys: DirectorPrefixKeys,
+	})
+	if err != nil {
+		t.Fatalf("NormalizeDirectorOutput rejected observed provider shape: %v", err)
+	}
+}
+
 func TestDirectorNormalizeValidOutput(t *testing.T) {
 	result, err := NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), DirectorSettings{
 		MaxVideoDuration: 15,
@@ -171,4 +234,3 @@ func TestDirectorFixedSingleDefaultSourceCoverage(t *testing.T) {
 		t.Fatalf("unexpected fixed-single source coverage: %#v", result.SourceCoverage)
 	}
 }
-

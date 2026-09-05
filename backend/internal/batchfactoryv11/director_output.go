@@ -50,11 +50,11 @@ type SourceCoverage struct {
 }
 
 type DirectorResult struct {
-	Characters     []NamedPrompt  `json:"characters"`
-	Scenes         []NamedPrompt  `json:"scenes"`
-	Props          []NamedPrompt  `json:"props"`
+	Characters     []NamedPrompt   `json:"characters"`
+	Scenes         []NamedPrompt   `json:"scenes"`
+	Props          []NamedPrompt   `json:"props"`
 	Storyboard     []DirectorVideo `json:"storyboard"`
-	SourceCoverage SourceCoverage `json:"source_coverage"`
+	SourceCoverage SourceCoverage  `json:"source_coverage"`
 }
 
 var fencedDirectorJSON = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
@@ -257,7 +257,11 @@ func normalizeDirectorShots(value any, durationSec, videoIndex int) ([]DirectorS
 		if endSec <= startSec {
 			return nil, fmt.Errorf("storyboard[%d].shots[%d] 结束时间必须大于开始时间", videoIndex, shotIndex)
 		}
-		description := firstDirectorText(entry, "description", "desc", "画面", "prompt")
+		// OpenAI-compatible providers sometimes use their own stable aliases
+		// for the same shot fields (for example lens_type/action). Normalize
+		// those aliases at the V11 boundary so a provider schema variation does
+		// not discard an otherwise executable Director result.
+		description := firstDirectorText(entry, "description", "desc", "画面", "prompt", "action", "lens")
 		if description == "" {
 			return nil, fmt.Errorf("storyboard[%d].shots[%d] 缺少画面描述", videoIndex, shotIndex)
 		}
@@ -265,7 +269,7 @@ func normalizeDirectorShots(value any, durationSec, videoIndex int) ([]DirectorS
 		out = append(out, DirectorShot{
 			StartSec:    startSec,
 			EndSec:      endSec,
-			ShotType:    firstDirectorText(entry, "shot_type", "shotType", "景别"),
+			ShotType:    firstDirectorText(entry, "shot_type", "shotType", "景别", "lens_type"),
 			Camera:      firstDirectorText(entry, "camera", "运镜"),
 			Description: description,
 		})
@@ -426,4 +430,3 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		SourceCoverage: coverage,
 	}, nil
 }
-
