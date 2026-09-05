@@ -29,7 +29,7 @@ function checkRateLimit(ip) {
 
 function authenticateRequest(req) {
   const authHeader = req.headers['authorization'] || '';
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  const match = authHeader.match(/^Bearer\\s+(.+)$/i);
   if (!match) return null;
   const runtime = getRuntime(req);
   const token = match[1];
@@ -58,7 +58,10 @@ function applyAuthentication(req, auth) {
 
 function apiAuth(req, res, next) {
   const auth = authenticateRequest(req);
-  if (!auth) return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+  if (!auth) {
+    res.set('X-Qiantie-Auth-Failure', 'session');
+    return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+  }
   applyAuthentication(req, auth);
   next();
 }
