@@ -49,6 +49,12 @@ const { TextArea } = Input;
 
 const STATUS_ORDER = ['全部', '待开始', '待审核', 'AI处理中', '待生成', '排队中', '生成中', '异常', '待合并', '已合并', '待上传', '已发布'];
 
+function durableVideoStatus(video, productionTaskByVideoId) {
+  const taskStatus = productionTaskByVideoId?.get(video?.id)?.status;
+  const taskLabels = { queued: '排队中', running: '生成中', succeeded: '已完成', failed: '异常' };
+  return taskLabels[taskStatus] || video?.status || '未返回状态';
+}
+
 const statusTone = {
   待开始: 'default',
   待审核: 'gold',
@@ -333,22 +339,25 @@ export function BatchFactoryV11Workbench({
       label: <span className="bf11-fold-label"><strong>VIDEO 方案</strong><small>{selectedVideos.length} 个 VIDEO · 画面提示词</small></span>,
       children: <div className="bf11-video-plan">
         <div className="bf11-video-list">
-          {selectedVideos.map((video, index) => <button
+          {selectedVideos.map((video, index) => {
+            const displayStatus = durableVideoStatus(video, productionTaskByVideoId);
+            return <button
             key={video.id}
             className={selectedVideo?.id === video.id ? 'is-selected' : ''}
             onClick={() => { setSelectedVideoId(video.id); setPreviewTarget(video.id); }}
           >
             <span><Video size={14} /> {video.label || `VIDEO ${String(index + 1).padStart(2, '0')}`}</span>
             <small>{video.duration ? `${video.duration}s` : '—'}</small>
-            <Tag color={statusTone[video.status]}>{video.status || '未返回状态'}</Tag>
-          </button>)}
+            <Tag color={statusTone[displayStatus]}>{displayStatus}</Tag>
+          </button>;
+          })}
         </div>
         {selectedVideo ? <div className="bf11-video-detail">
           <div className="bf11-video-detail-head">
             <Space wrap>
               <strong>{selectedVideo.label || '当前 VIDEO'}</strong>
               {selectedVideo.duration ? <Tag>{selectedVideo.duration}s</Tag> : null}
-              <Tag color={statusTone[selectedVideo.status]}>{selectedVideo.status || '未返回状态'}</Tag>
+              <Tag color={statusTone[durableVideoStatus(selectedVideo, productionTaskByVideoId)]}>{durableVideoStatus(selectedVideo, productionTaskByVideoId)}</Tag>
             </Space>
             <Button
               size="small"
