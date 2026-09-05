@@ -159,3 +159,28 @@ test('loadWorkbench exposes provider status and local executor inventory', async
   assert.equal(state.videoProviders.doubaoLocal.model, 'doubao-seedance');
   assert.equal(state.localExecutors[0].id, 'ex1');
 });
+
+test('loadWorkbench keeps optional provider probes silent when the capability is unavailable', async () => {
+  const statusOptions = [];
+  const executorOptions = [];
+  const api = {
+    getCapabilities: async () => ({}),
+    listBatches: async () => ({ batches: [] }),
+    getVideoProviderStatus: async (_provider, options) => {
+      statusOptions.push(options);
+      throw new Error('optional provider unavailable');
+    },
+    listLocalExecutors: async options => {
+      executorOptions.push(options);
+      throw new Error('optional executor endpoint unavailable');
+    }
+  };
+
+  const state = await createBf11UiAdapter(api).loadWorkbench();
+  assert.deepEqual(statusOptions, [
+    { silent: true, suppressGlobalError: true },
+    { silent: true, suppressGlobalError: true }
+  ]);
+  assert.deepEqual(executorOptions, [{ silent: true, suppressGlobalError: true }]);
+  assert.deepEqual(state.localExecutors, []);
+});

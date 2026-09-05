@@ -150,12 +150,12 @@ export function saveVideoProviderConfig(payload = {}) {
   return apiRequest(bf11Path('video-provider/config'), { method: 'PUT', body: body(payload) });
 }
 
-export function getVideoProviderStatus(provider = 'personal_api') {
-  return apiRequest(`${bf11Path('video-provider/status')}${query({ provider })}`);
+export function getVideoProviderStatus(provider = 'personal_api', options = {}) {
+  return apiRequest(`${bf11Path('video-provider/status')}${query({ provider })}`, options);
 }
 
-export function listLocalExecutors() {
-  return apiRequest('/api/shuihuo-production/local-executors');
+export function listLocalExecutors(options = {}) {
+  return apiRequest('/api/shuihuo-production/local-executors', options);
 }
 
 export function createLocalExecutorPairing(platform = 'doubao') {

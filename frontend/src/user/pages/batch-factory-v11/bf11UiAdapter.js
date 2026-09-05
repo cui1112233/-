@@ -39,10 +39,11 @@ async function loadVideoProviderState(api) {
     personalAPI: { provider: 'personal_api', model: 'yd2.0-mini', configured: false },
     doubaoLocal: { provider: 'doubao_local_executor', model: 'doubao-seedance', configured: false }
   };
+  const optionalProbeOptions = { silent: true, suppressGlobalError: true };
   const statusRequests = [
-    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('personal_api') : Promise.resolve(null),
-    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('doubao_local_executor') : Promise.resolve(null),
-    typeof api.listLocalExecutors === 'function' ? api.listLocalExecutors() : Promise.resolve({ executors: [] })
+    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('personal_api', optionalProbeOptions) : Promise.resolve(null),
+    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('doubao_local_executor', optionalProbeOptions) : Promise.resolve(null),
+    typeof api.listLocalExecutors === 'function' ? api.listLocalExecutors(optionalProbeOptions) : Promise.resolve({ executors: [] })
   ];
   const [personal, doubao, executors] = await Promise.all(statusRequests.map(request => Promise.resolve(request).catch(() => null)));
   return {
