@@ -1,99 +1,264 @@
-import { Alert, Button, Collapse, Drawer, Input, List, Space, Tabs, Tag, Typography } from 'antd';
-import { Archive, FileText, FolderPlus, Upload, WandSparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Alert, Button, Drawer, Empty, Input, List, Select, Space, Tabs, Tag, Typography, message } from 'antd';
+import { Archive, FileText, FolderPlus, RotateCcw, Upload, WandSparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { listAgentSkills } from '../../../shared/api/agent.js';
+import { canImportFile, normalizeImportedFile, normalizeSkillIds, parsePastedContent } from './manualContentImport.js';
 
-const HISTORY = [
-  { id: '20260831-01', title: '批次 20260831-01', count: 100, directorDone: 46, review: 8, failed: 2, state: '制作中' },
-  { id: '20260830-03', title: '批次 20260830-03', count: 80, directorDone: 80, review: 0, failed: 1, state: '待合并' },
-  { id: '20260830-02', title: '批次 20260830-02', count: 100, directorDone: 100, review: 0, failed: 0, state: '已发布' },
-  { id: '20260829-01', title: '批次 20260829-01', count: 60, directorDone: 60, review: 0, failed: 0, state: '已完成' }
-];
+function resultError(result, fallback) {
+  return result?.message || result?.raw?.error || fallback;
+}
 
-export function BatchFactoryV11BatchManager({ open, initialTab = 'new', onClose, onOpenProductionSettings }) {
+function batchCount(batch) {
+  return Number(batch?.count ?? batch?.books?.length ?? 0);
+}
+
+export function BatchFactoryV11BatchManager({
+  open,
+  initialTab = 'new',
+  onClose,
+  batches = [],
+  intake = null,
+  onPreviewManualSkillProcessing,
+  onCreateManualIntake,
+  onManualIntakeCreated,
+  onOpenBatch
+}) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [manualText, setManualText] = useState('');
+  const [items, setItems] = useState([]);
+  const [previewItems, setPreviewItems] = useState([]);
+  const [skillOptions, setSkillOptions] = useState([]);
+  const [skillIds, setSkillIds] = useState([]);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
-    if (open) setActiveTab(initialTab);
+    if (!open) return;
+    setActiveTab(initialTab);
+    let cancelled = false;
+    setLoadingSkills(true);
+    listAgentSkills()
+      .then(result => {
+        if (!cancelled) setSkillOptions(Array.isArray(result?.skills) ? result.skills : []);
+      })
+      .catch(loadError => {
+        if (!cancelled) setError(loadError?.message || '读取可用技能失败');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSkills(false);
+      });
+    return () => { cancelled = true; };
   }, [open, initialTab]);
 
+  function appendItems(nextItems) {
+    setItems(current => [...current, ...nextItems].map((item, index) => ({
+      ...item,
+      title: item.title || `手动导入 ${String(index + 1).padStart(2, '0')}`
+    })));
+    setPreviewItems([]);
+    setError('');
+  }
+
+  function addPastedContent() {
+    try {
+      appendItems(parsePastedContent(manualText));
+      setManualText('');
+    } catch (parseError) {
+      setError(parseError.message || '请输入有效内容');
+    }
+  }
+
+  async function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!canImportFile(file)) {
+      setError('只支持 TXT 或 MD 文件');
+      return;
+    }
+    try {
+      appendItems([normalizeImportedFile(file.name, await file.text())]);
+    } catch (fileError) {
+      setError(fileError.message || '文件读取失败');
+    }
+  }
+
+  async function processContent() {
+    if (!items.length || processing) return;
+    setProcessing(true);
+    setError('');
+    try {
+      const result = await onPreviewManualSkillProcessing({ items, skillIds: normalizeSkillIds(skillIds) });
+      if (!result?.ok) throw new Error(resultError(result, '技能处理预览失败'));
+      const nextItems = result.raw?.items || [];
+      setPreviewItems(nextItems);
+      if (result.raw?.allSucceeded === false) setError('部分内容处理失败，可单独重试失败项。');
+    } catch (processError) {
+      setError(processError.message || '技能处理预览失败');
+      setPreviewItems([]);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function retryItem(item) {
+    setProcessing(true);
+    setError('');
+    try {
+      const source = items[item.index] || { title: item.title, sourceText: item.originalText, txtFileName: item.txtFileName };
+      const result = await onPreviewManualSkillProcessing({ items: [source], skillIds: normalizeSkillIds(skillIds) });
+      if (!result?.ok || !result.raw?.items?.[0]) throw new Error(resultError(result, '重试失败'));
+      const retried = { ...result.raw.items[0], index: item.index };
+      setPreviewItems(current => current.map(candidate => candidate.index === item.index ? retried : candidate));
+    } catch (retryError) {
+      setError(retryError.message || '重试失败');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!previewItems.length || previewItems.some(item => item.status !== 'ready') || confirming) return;
+    setConfirming(true);
+    setError('');
+    try {
+      const selectedSkillIds = normalizeSkillIds(skillIds);
+      const selectedSkills = skillOptions
+        .filter(skill => selectedSkillIds.includes(skill.id))
+        .map(skill => ({ id: skill.id, version: skill.version, name: skill.name }));
+      const books = previewItems.map(item => ({
+        title: item.title,
+        sourceText: item.processedText,
+        txtText: item.processedText,
+        txtFileName: item.txtFileName || `${item.title || 'manual'}.txt`,
+        sourceMetadata: {
+          ...(item.sourceMetadata || {}),
+          sourceType: 'manual',
+          originalText: item.originalText,
+          processedText: item.processedText,
+          skillRuns: item.skillRuns || []
+        }
+      }));
+      const result = await onCreateManualIntake({
+        items: books,
+        metadata: { sourceType: 'manual', skillIds: selectedSkillIds, skills: selectedSkills }
+      });
+      if (!result?.ok) throw new Error(resultError(result, '直接导入失败'));
+      const intakeId = result.raw?.intake?.id || result.raw?.id || '';
+      if (!intakeId) throw new Error('服务器未返回 Intake ID');
+      message.success(`已创建 ${books.length} 条真实 V11 Intake，等待明确创建批次`);
+      onManualIntakeCreated?.(intakeId);
+    } catch (confirmError) {
+      setError(confirmError.message || '直接导入失败');
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  const preview = previewItems.length ? previewItems : items.map((item, index) => ({
+    index,
+    title: item.title,
+    originalText: item.sourceText,
+    processedText: '',
+    status: 'pending',
+    skillRuns: []
+  }));
+
   const newBatch = <div className="bf11-batch-manager-pane">
-    <Alert
+    {intake ? <Alert
       type="success"
       showIcon
-      message="已接收小说获取任务 · 100 本"
-      description="小说获取已经提供 sourceTaskId、Book ID、标题、平台、TXT 与来源元数据；批量工厂不会重新抓小说或再次要求输入 Book ID。"
-    />
+      message="已接收小说获取任务"
+      description="小说获取转入的内容会保留 sourceTaskId、Book ID、平台、TXT 和来源元数据；你需要明确点击创建 V11 批次。"
+    /> : null}
 
     <section className="bf11-batch-intake-card">
       <div>
-        <Typography.Text strong>待建立批次</Typography.Text>
-        <Typography.Text type="secondary">来源任务 NF-20260831-001 · 番茄小说 · 已选择 100 本</Typography.Text>
+        <Typography.Text strong>直接导入内容</Typography.Text>
+        <Typography.Text type="secondary">粘贴一篇或多篇正文，或选择 TXT / MD 文件；内容会先经过选定技能处理，再进入正式 V11 Intake。</Typography.Text>
       </div>
+      <Tag color="blue">最多选择 3 个技能</Tag>
+    </section>
+
+    <section className="bf11-fallback-import">
+      <Typography.Text strong>手动粘贴</Typography.Text>
+      <Input.TextArea
+        rows={7}
+        value={manualText}
+        onChange={event => setManualText(event.target.value)}
+        placeholder="粘贴小说正文；多篇之间单独一行写 --- 分隔。"
+      />
       <Space wrap>
-        <Tag>100 × TXT</Tag>
-        <Tag>{'{bookId}.txt'}</Tag>
-        <Tag color="green">来源完整</Tag>
+        <Button icon={<FileText size={14} />} onClick={addPastedContent}>加入内容</Button>
+        <Button icon={<Upload size={14} />} onClick={() => fileInputRef.current?.click()}>上传 TXT / MD</Button>
+        <input ref={fileInputRef} type="file" accept=".txt,.md,text/plain,text/markdown" onChange={handleFileChange} style={{ display: 'none' }} />
+      </Space>
+      <Select
+        mode="multiple"
+        allowClear
+        maxTagCount={3}
+        loading={loadingSkills}
+        value={skillIds}
+        onChange={value => setSkillIds(normalizeSkillIds(value))}
+        options={skillOptions.map(skill => ({ value: skill.id, label: `${skill.name} v${skill.version}` }))}
+        placeholder="选择 0-3 个现有技能（可选）"
+        style={{ width: '100%' }}
+      />
+      <Space wrap>
+        <Button type="primary" icon={<WandSparkles size={14} />} disabled={!items.length} loading={processing} onClick={processContent}>执行技能并预览</Button>
+        <Typography.Text type="secondary">已加入 {items.length} 条</Typography.Text>
       </Space>
     </section>
 
-    <section className="bf11-batch-intake-actions">
-      <div>
-        <Typography.Text strong>创建前检查</Typography.Text>
-        <Typography.Text type="secondary">先检查生产方式、模型、画幅、配置版本与约束，再由用户明确开始制作。</Typography.Text>
-      </div>
-      <Space wrap>
-        <Button icon={<WandSparkles size={15} />} onClick={onOpenProductionSettings}>检查生产统一设置</Button>
-        <Button type="primary" disabled>应用统一设置并开始制作</Button>
-      </Space>
-      <Typography.Text type="secondary">“开始制作”属于第二阶段真实逻辑；第一阶段不自动导演。</Typography.Text>
-    </section>
+    {error ? <Alert type="warning" showIcon message={error} /> : null}
 
-    <Collapse
-      ghost
-      items={[{
-        key: 'fallback',
-        label: '其他导入方式（备用）',
-        children: <div className="bf11-fallback-import">
-          <Typography.Text type="secondary">正常批量用户从“小说获取”转入；这里只保留临时文案和本地文件的备用入口。</Typography.Text>
-          <Typography.Text strong>手动粘贴</Typography.Text>
-          <Input.TextArea
-            rows={8}
-            value={manualText}
-            onChange={event => setManualText(event.target.value)}
-            placeholder="粘贴小说正文；多篇可按分隔符拆分…"
+    {preview.length ? <section className="bf11-batch-intake-card">
+      <Typography.Text strong>处理预览</Typography.Text>
+      <List
+        dataSource={preview}
+        renderItem={item => <List.Item
+          actions={[
+            item.status === 'failed' ? <Button key="retry" size="small" icon={<RotateCcw size={13} />} loading={processing} onClick={() => retryItem(item)}>重试</Button> : null,
+            <Tag key="status" color={item.status === 'ready' ? 'green' : item.status === 'failed' ? 'red' : 'default'}>{item.status === 'ready' ? '已处理' : item.status === 'failed' ? '失败' : '待处理'}</Tag>
+          ].filter(Boolean)}
+        >
+          <List.Item.Meta
+            title={<Typography.Text strong>{item.title}</Typography.Text>}
+            description={<Space direction="vertical" style={{ width: '100%' }}>
+              <Typography.Text type="secondary">原文：{String(item.originalText || '').slice(0, 120)}{String(item.originalText || '').length > 120 ? '…' : ''}</Typography.Text>
+              {item.status === 'ready' ? <Typography.Text>处理后：{String(item.processedText || '').slice(0, 160)}{String(item.processedText || '').length > 160 ? '…' : ''}</Typography.Text> : null}
+              {item.error ? <Typography.Text type="danger">{item.error}</Typography.Text> : null}
+            </Space>}
           />
-          <Space wrap>
-            <Button icon={<FileText size={14} />} disabled>加入文案</Button>
-            <Button icon={<Upload size={14} />} disabled>上传 TXT / MD</Button>
-          </Space>
-          <Typography.Text type="secondary">输入区用于确认最终布局；“加入文案 / 上传”在第二阶段接 V11 intake 后解锁。</Typography.Text>
-        </div>
-      }]}
-    />
+        </List.Item>}
+      />
+      <Button type="primary" block disabled={!previewItems.length || previewItems.some(item => item.status !== 'ready')} loading={confirming} onClick={confirmImport}>确认导入并创建 V11 批次</Button>
+    </section> : null}
+
   </div>;
 
   const history = <div className="bf11-batch-manager-pane">
     <div className="bf11-batch-manager-heading">
       <div>
         <Typography.Text strong>历史批次</Typography.Text>
-        <Typography.Text type="secondary">重新进入以前创建过的批量生产任务。</Typography.Text>
+        <Typography.Text type="secondary">这里读取真实 V11 API 返回的批次，不展示示例数据。</Typography.Text>
       </div>
-      <Tag>{HISTORY.length} 个示例批次</Tag>
+      <Tag>{batches.length} 个批次</Tag>
     </div>
     <List
-      dataSource={HISTORY}
-      renderItem={item => <List.Item
-        actions={[<Button key="open" size="small" disabled>打开</Button>]}
-      >
+      dataSource={batches}
+      locale={{ emptyText: <Empty description="暂无历史批次" /> }}
+      renderItem={item => <List.Item actions={[<Button key="open" size="small" onClick={() => onOpenBatch?.(item.id)}>打开</Button>]}> 
         <List.Item.Meta
           avatar={<Archive size={18} />}
-          title={<Space wrap><Typography.Text strong>{item.title}</Typography.Text><Tag>{item.state}</Tag></Space>}
-          description={`${item.count} 本 · 导演完成 ${item.directorDone}/${item.count} · 待审核 ${item.review} · 失败 ${item.failed}`}
+          title={<Space wrap><Typography.Text strong>{item.title || item.id}</Typography.Text><Tag>{batchCount(item)} 本</Tag></Space>}
+          description={`V11 · ${item.id}`}
         />
       </List.Item>}
     />
-    <Typography.Text type="secondary">历史批次读取与切换在第二阶段接 V11；UI 不调用旧 Node Batch 数据。</Typography.Text>
   </div>;
 
   return <Drawer
@@ -106,7 +271,7 @@ export function BatchFactoryV11BatchManager({ open, initialTab = 'new', onClose,
       activeKey={activeTab}
       onChange={setActiveTab}
       items={[
-        { key: 'new', label: '新建批次', children: newBatch },
+        { key: 'new', label: '直接导入内容', children: newBatch },
         { key: 'history', label: '历史批次', children: history }
       ]}
     />

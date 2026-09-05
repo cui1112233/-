@@ -1,4 +1,4 @@
-import { Alert, Button, Empty, Input, Modal, Space, Spin, Tag, Typography, message } from 'antd';
+import { Alert, Button, Empty, Modal, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
@@ -8,6 +8,7 @@ import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedS
 import { DirectorRefreshProvider } from './DirectorRefreshContext.jsx';
 import { FinalPromptPreviewDrawer } from './FinalPromptPreviewDrawer.jsx';
 import { ExternalPublishPanel } from './ExternalPublishPanel.jsx';
+import { BatchFactoryV11BatchManager } from './BatchFactoryV11BatchManager.jsx';
 import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 import { createBf11Runtime, createdBatchIdFrom } from './bf11Runtime.js';
@@ -57,7 +58,6 @@ export function BatchFactoryV11UiPage() {
   const [externalPublishOpen, setExternalPublishOpen] = useState(false);
   const [batchManagerOpen, setBatchManagerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [newBatchTitle, setNewBatchTitle] = useState('');
   const [historyBatches, setHistoryBatches] = useState([]);
 
   const reload = useCallback(async ({ announce = false } = {}) => {
@@ -156,6 +156,35 @@ export function BatchFactoryV11UiPage() {
     }
   }
 
+  async function handleManualIntakeCreated(intakeId) {
+    setBatchManagerOpen(false);
+    const nextUrl = `/batch-factory?intake=${encodeURIComponent(intakeId)}`;
+    window.history.pushState({}, '', nextUrl);
+    const next = await runtime.load({ ...requestParams, batchId: '', intakeId });
+    setRuntimeState(next);
+    if (next.phase !== 'ready') message.warning('Intake 已创建，但重新读取失败，请刷新后继续。');
+  }
+
+  async function openV11Batch(batchId) {
+    if (!batchId) return;
+    const next = await runtime.load({ ...requestParams, batchId, intakeId: '' });
+    setRuntimeState(next);
+    setBatchManagerOpen(false);
+    window.history.pushState({}, '', `/batch-factory?batch=${encodeURIComponent(batchId)}`);
+  }
+
+  const batchManager = <BatchFactoryV11BatchManager
+    open={batchManagerOpen}
+    initialTab="new"
+    onClose={() => setBatchManagerOpen(false)}
+    batches={runtimeState.batches || []}
+    intake={runtimeState.intake}
+    onPreviewManualSkillProcessing={input => runtime.previewManualSkillProcessing(input)}
+    onCreateManualIntake={input => runtime.createManualIntake(input)}
+    onManualIntakeCreated={handleManualIntakeCreated}
+    onOpenBatch={openV11Batch}
+  />;
+
   if (!batch) {
     const intake = runtimeState.intake;
     const intakeStatus = intake?.status || (intakeState.consumed ? '已消费' : '待创建批次');
@@ -165,7 +194,8 @@ export function BatchFactoryV11UiPage() {
       : batchCreateAction.reason;
 
     return <div data-bf-v11-ui="final" style={{ minHeight: 460, display: 'grid', placeItems: 'center' }}>
-      <Empty
+      <div>
+        <Empty
         description={intake ? <Space direction="vertical" size={8}>
           <Typography.Text>已读取小说获取转入任务，等待你明确创建 V11 批次。</Typography.Text>
           <Space wrap>
@@ -179,19 +209,22 @@ export function BatchFactoryV11UiPage() {
           <Typography.Text>当前没有 Batch Factory V11 批次。</Typography.Text>
           <Typography.Text type="secondary">请先在小说获取中选择已完成原文的真实任务，再转入并创建批次。</Typography.Text>
         </Space>}
-      >
-        <Space wrap>
-          {intake ? <Button
-            type="primary"
-            loading={creatingBatch}
-            disabled={creatingBatch || intakeState.consumed || batchCreateAction.disabled || !intakeState.intakeId}
-            title={createDisabledReason}
-            onClick={createBatchFromIntake}
-          >创建 V11 批次</Button> : null}
-          {!intake ? <Button type="primary" onClick={openNovelFetch}>去小说获取并导入</Button> : null}
-          <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
-        </Space>
-      </Empty>
+        >
+          <Space wrap>
+            {intake ? <Button
+              type="primary"
+              loading={creatingBatch}
+              disabled={creatingBatch || intakeState.consumed || batchCreateAction.disabled || !intakeState.intakeId}
+              title={createDisabledReason}
+              onClick={createBatchFromIntake}
+            >创建 V11 批次</Button> : null}
+            {!intake ? <Button type="primary" onClick={openNovelFetch}>去小说获取并导入</Button> : null}
+            <Button onClick={() => setBatchManagerOpen(true)}>直接导入内容</Button>
+            <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
+          </Space>
+        </Empty>
+      </div>
+      {batchManager}
     </div>;
   }
 
@@ -460,17 +493,6 @@ export function BatchFactoryV11UiPage() {
     setHistoryOpen(true);
   }
 
-  async function createNewBatch() {
-    const result = await runtime.createBatch({ title: newBatchTitle.trim() || '未命名批次', books: [] });
-    if (!result.ok) { message.error(result.message); return; }
-    const createdID = createdBatchIdFrom(result.raw);
-    setBatchManagerOpen(false);
-    setNewBatchTitle('');
-    const next = await runtime.load({ ...requestParams, batchId: createdID });
-    setRuntimeState(next);
-    if (next.phase === 'ready') message.success('新批次已创建');
-  }
-
   function getPublishCredential(provider) { return runtime.getPublishCredential(provider); }
   function savePublishCredential(provider, payload) { return runtime.savePublishCredential(provider, payload); }
   function createPublishIntent(provider, payload) { return runtime.createPublishIntent(provider, payload); }
@@ -504,10 +526,7 @@ export function BatchFactoryV11UiPage() {
         onSaveAssetPrompts={saveAssetPrompts}
       />
 
-      <Modal title="新建批次" open={batchManagerOpen} onCancel={() => setBatchManagerOpen(false)} onOk={createNewBatch} okText="创建">
-        <Input placeholder="批次名称" value={newBatchTitle} onChange={event => setNewBatchTitle(event.target.value)} />
-        <Typography.Text type="secondary">创建后可从小说获取导入书目，或在当前批次继续配置。</Typography.Text>
-      </Modal>
+      {batchManager}
 
       <Modal title="历史批次" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
         <Space direction="vertical" style={{ width: '100%' }}>

@@ -9,11 +9,12 @@ const source = fs.readFileSync(path.join(here, 'BatchFactoryV11BatchManager.jsx'
 
 test('batch manager keeps the approved intake and history entry points', () => {
   for (const label of [
-    '新建批次',
+    '直接导入内容',
     '已接收小说获取任务',
-    '其他导入方式（备用）',
     '手动粘贴',
     '上传 TXT / MD',
+    '执行技能并预览',
+    '确认导入并创建 V11 批次',
     '历史批次'
   ]) assert.match(source, new RegExp(label));
 });
