@@ -5,6 +5,9 @@ const { createSessionStore, deriveSessionKey } = require('./session-store');
 const { loginWithPlaywright } = require('./login');
 const { actionWithPlaywright } = require('./actions');
 
+const DEFAULT_VERIFY_TIMEOUT_MS = 30000;
+const DEFAULT_LOGIN_TIMEOUT_MS = 30000;
+
 function withTimeout(promise, timeoutMs) {
   const ms = Math.max(1000, Math.min(Number(timeoutMs) || 15000, 60000));
   let timer;
@@ -29,8 +32,8 @@ function createWorkerApp({
   login = loginWithPlaywright,
   action = actionWithPlaywright,
   headedEnabled = process.env.QIANTIE_121_HEADED_ENABLED === '1',
-  verifyTimeoutMs = Number(process.env.QIANTIE_121_VERIFY_TIMEOUT_MS) || 15000,
-  loginTimeoutMs = Number(process.env.QIANTIE_121_LOGIN_TIMEOUT_MS) || 30000
+  verifyTimeoutMs = Number(process.env.QIANTIE_121_VERIFY_TIMEOUT_MS) || DEFAULT_VERIFY_TIMEOUT_MS,
+  loginTimeoutMs = Number(process.env.QIANTIE_121_LOGIN_TIMEOUT_MS) || DEFAULT_LOGIN_TIMEOUT_MS
 } = {}) {
   if (!secret) throw new Error('worker internal secret is required');
   const store = sessionStore || createSessionStore({ rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions') });

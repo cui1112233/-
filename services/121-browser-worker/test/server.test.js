@@ -20,6 +20,21 @@ async function request(base, path, { method = 'POST', secret = 'secret', body } 
 
 const identity = { owner: 'alice', baseUrl: 'http://two.121w.com/tttadmin', username: 'u' };
 
+test('session verification gives a cold browser launch a bounded 30 second budget', async () => {
+  let observedTimeout;
+  const app = createWorkerApp({
+    secret: 'secret',
+    sessionStore: { load: () => ({ cookies: [] }), save: () => ({ sessionKey: 'opaque' }) },
+    login: async input => { observedTimeout = input.timeoutMs; return { authenticated: true, storageState: {} }; }
+  });
+  const { server, base } = await listen(app);
+  try {
+    const result = await request(base, '/session/test', { body: identity });
+    assert.equal(result.status, 200);
+    assert.equal(observedTimeout, 30000);
+  } finally { server.close(); }
+});
+
 test('worker rejects requests without internal secret', async () => {
   const app = createWorkerApp({ secret: 'secret', sessionStore: { load: () => null }, login: async () => ({ authenticated: true, storageState: {} }) });
   const { server, base } = await listen(app);

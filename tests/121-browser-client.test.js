@@ -1,8 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { create121BrowserClient } = require('../lib/novel-fetch-workshop/121-browser-client');
+const { create121BrowserClient, DEFAULT_TIMEOUT_MS } = require('../lib/novel-fetch-workshop/121-browser-client');
 
 const identity = { owner: 'alice', baseUrl: 'http://two.121w.com/tttadmin', username: 'site-user' };
+
+test('browser client gives cold-start browser verification a bounded 35 second budget', () => {
+  assert.equal(DEFAULT_TIMEOUT_MS, 35000);
+});
 
 test('browser client fails closed when worker is not configured', async () => {
   const client = create121BrowserClient({ baseUrl: '', secret: '' });

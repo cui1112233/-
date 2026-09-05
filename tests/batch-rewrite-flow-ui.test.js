@@ -28,11 +28,11 @@ test('登录弹窗在配置尚未加载时也能收口，不会因空配置永�
   assert.match(app, /dialog\.addEventListener\("submit"/);
 });
 
-test('服务端 121 登录和会话验证由 Browser Worker 客户端统一限制为 15 秒', () => {
+test('服务端 121 登录和会话验证由 Browser Worker 客户端统一限制为 35 秒', () => {
   assert.match(uploadRoute, /browserClient\.login\(/);
   assert.match(uploadRoute, /browserClient\.test\(/);
-  assert.match(browserClient, /timeoutMs\s*=\s*15000/);
+  assert.match(browserClient, /DEFAULT_TIMEOUT_MS\s*=\s*35000/);
   assert.match(browserClient, /new AbortController\(\)/);
   assert.match(browserClient, /BROWSER_WORKER_TIMEOUT/);
-  assert.match(rewriteRoute, /timeoutMs:\s*15000/);
+  assert.match(rewriteRoute, /timeoutMs:\s*35000/);
 });

@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG_PATH = '/api/config';
-  const REQUEST_TIMEOUT_MS = 15_000;
+  const REQUEST_TIMEOUT_MS = 35_000;
   const GUARDED_REQUEST = /^\/api\/(?:config|web-submit(?:\/|$))/;
   const originalApi = api;
   const originalSaveWebSubmitConfig = saveWebSubmitConfig;
@@ -64,7 +64,7 @@
       const timedOut = controller.signal.aborted && !inheritedSignal?.aborted;
       if (timedOut) {
         const target = String(path || '').includes('/web-submit/') ? '121 登录/验证请求' : '小说获取配置请求';
-        throw new Error(`请求超时（15 秒）：${target}未返回，请检查主站登录和服务状态后重试。`);
+        throw new Error(`请求超时（35 秒）：${target}未返回，请检查主站登录和服务状态后重试。`);
       }
       throw error;
     } finally {
