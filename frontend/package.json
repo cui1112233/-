@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "test": "node --test src/shared/api/*.test.js",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
