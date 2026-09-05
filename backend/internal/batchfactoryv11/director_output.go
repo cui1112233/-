@@ -261,7 +261,7 @@ func normalizeDirectorShots(value any, durationSec, videoIndex int) ([]DirectorS
 		// for the same shot fields (for example lens_type/action). Normalize
 		// those aliases at the V11 boundary so a provider schema variation does
 		// not discard an otherwise executable Director result.
-		description := firstDirectorText(entry, "description", "desc", "画面", "prompt", "action", "lens")
+		description := firstDirectorText(entry, "description", "desc", "画面", "prompt", "action", "lens", "content")
 		if description == "" {
 			return nil, fmt.Errorf("storyboard[%d].shots[%d] 缺少画面描述", videoIndex, shotIndex)
 		}

@@ -107,10 +107,10 @@ func TestDirectorNormalizeAcceptsObservedProviderShape(t *testing.T) {
     "prefix_key": "suspense",
     "video_desc": "一个神秘的雨夜探索故事。",
     "shots": [
-	    {"start_sec":0,"end_sec":3,"lens":"旅行者在雨中前行。","subtitles":""},
-	    {"start_sec":3,"end_sec":7,"lens":"旅行者抵达旧车站。","subtitles":""},
-	    {"start_sec":7,"end_sec":11,"lens":"旅行者在屋檐下避雨。","subtitles":""},
-	    {"start_sec":11,"end_sec":15,"lens":"屏幕浮现互动按钮。","subtitles":""}
+    {"start_sec":0,"end_sec":3,"content":"旅行者在雨中前行。","subtitles":""},
+    {"start_sec":3,"end_sec":7,"content":"旅行者抵达旧车站。","subtitles":""},
+    {"start_sec":7,"end_sec":11,"content":"旅行者在屋檐下避雨。","subtitles":""},
+    {"start_sec":11,"end_sec":15,"content":"屏幕浮现互动按钮。","subtitles":""}
     ]
   }],
   "source_coverage": [{"source_shot":1}]
