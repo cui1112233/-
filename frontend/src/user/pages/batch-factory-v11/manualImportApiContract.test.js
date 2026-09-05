@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
+import { getMergeStatus, getProductionStatus } from '../../../shared/api/batchFactoryV11.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,5 +28,34 @@ test('adapter sends direct content to skill preview and creates a manual intake'
   assert.deepEqual(calls, [
     ['preview', { items, skillIds: ['skill-a'] }],
     ['intake', { books: items, metadata: { sourceType: 'manual' } }]
+  ]);
+});
+
+test('V11 optional production probes forward silent request options to the API client', async () => {
+  const calls = [];
+  const previousFetch = globalThis.fetch;
+  const previousStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => '' };
+  globalThis.fetch = async (...args) => {
+    calls.push(args);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({})
+    };
+  };
+  try {
+    const options = { silent: true, suppressGlobalError: true };
+    await getProductionStatus('batch-1', options);
+    await getMergeStatus('batch-1', options);
+  } finally {
+    globalThis.fetch = previousFetch;
+    globalThis.localStorage = previousStorage;
+  }
+
+  assert.deepEqual(calls.map(([path, request]) => [path, request.silent, request.suppressGlobalError]), [
+    ['/api/batch-factory/v11/batches/batch-1/status', true, true],
+    ['/api/batch-factory/v11/batches/batch-1/merge-status', true, true]
   ]);
 });

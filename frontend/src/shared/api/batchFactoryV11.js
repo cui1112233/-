@@ -173,8 +173,8 @@ export function createLocalExecutorPairing(platform = 'doubao') {
   });
 }
 
-export function getProductionStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/status`));
+export function getProductionStatus(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/status`), options);
 }
 
 export function submitBatchMerge(batchId, payload = {}) {
@@ -184,8 +184,8 @@ export function submitBatchMerge(batchId, payload = {}) {
   });
 }
 
-export function getMergeStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
+export function getMergeStatus(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`), options);
 }
 
 export function getPublishCredential(provider) {
