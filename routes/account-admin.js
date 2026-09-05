@@ -4,7 +4,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { createTeamCollaborationStore } = require('../lib/team-collaboration-store');
 const { governanceStoreForMemberStore } = require('../lib/team-governance-store');
-const { ensureDevBackendPermissions, devGrantActor } = require('../lib/dev-permissions');
+const { ensureDevBackendPermissions, revokeBackendPermissions, devGrantActor } = require('../lib/dev-permissions');
 
 function sendError(res, error) {
   const status = error?.code === 'NOT_FOUND' ? 404 : error?.code === 'FORBIDDEN' ? 403 : error?.code === 'CONFLICT' ? 409 : 400;
@@ -73,6 +73,7 @@ function createAccountAdminRouter({ memberStore, usageStore, accountStore, authR
       username: member.username,
       displayName: member.displayName,
       role: member.role,
+      isOwner: accountStore.getAccount(member.username)?.isOwner === true,
       active: member.active,
       boundTo: member.boundTo,
       teamOwner: ownerSummary(member.role === 'member' ? member.boundTo : member.username),
@@ -201,9 +202,13 @@ function createAccountAdminRouter({ memberStore, usageStore, accountStore, authR
         role: body.role,
         monthlyTokenLimit: body.monthlyTokenLimit
       });
-      if (member.role === 'dev') ensureDevBackendPermissions(accountStore, member);
-      if (['dev', 'manager'].includes(member.role)) teamForOwner(member);
       let revoked = null;
+      if (member.role === 'dev') {
+        ensureDevBackendPermissions(accountStore, member);
+      } else if (member.role === 'member' || (before.role !== member.role && member.role !== 'dev')) {
+        revoked = revokeBackendPermissions(accountStore, member.username);
+      }
+      if (['dev', 'manager'].includes(member.role)) teamForOwner(member);
       if (typeof body.active === 'boolean' && body.active !== before.active) {
         accountStore.setActive(devGrantActor(accountStore, req.username), member.username, body.active);
         member = memberStore.getMember(member.username);

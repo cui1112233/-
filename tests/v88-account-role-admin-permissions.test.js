@@ -1,0 +1,89 @@
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createAccountStore } = require('../lib/account-store');
+const { revokeBackendPermissions } = require('../lib/dev-permissions');
+const { PRIMARY_USER } = require('../lib/shared');
+
+const root = path.join(__dirname, '..');
+
+function source(relativePath) {
+  return fs.readFileSync(path.join(root, relativePath), 'utf8');
+}
+
+test('V88 /accounts uses the unified account role page instead of the legacy governance page', () => {
+  const app = source('frontend/src/user/App.jsx');
+  assert.match(app, /const AccountRolePage = lazy\(\(\) => import\('\.\/pages\/AccountRolePage'\)\)/);
+  assert.match(app, /'\/accounts': AccountRolePage/);
+  assert.doesNotMatch(app, /'\/accounts': AccountGovernancePage/);
+});
+
+test('account role page exposes manager backend permissions only to the primary owner', () => {
+  const page = source('frontend/src/user/pages/AccountRolePage.jsx');
+  const accountApi = source('frontend/src/shared/api/accountAdmin.js');
+
+  assert.match(accountApi, /\/api\/account-admin\/accounts/);
+  assert.match(page, /getCurrentAccount/);
+  assert.match(page, /session\?\.isOwner/);
+  assert.match(page, /管理后台访问/);
+  assert.match(page, /admin:access/);
+  assert.match(page, /账号审核/);
+  assert.match(page, /preset:draft/);
+  assert.match(page, /preset:publish/);
+  assert.match(page, /session\?\.isOwner && selected\.role === 'manager'/);
+  assert.match(page, /listAdminGrants/);
+  assert.match(page, /createAdminGrant/);
+  assert.match(page, /revokeAdminGrant/);
+});
+
+test('delegated MANAGER can discover and enter the admin console only when admin:access is effective', () => {
+  const profilePage = source('frontend/src/user/pages/ProfilePage.jsx');
+  const adminLayout = source('frontend/src/shared/layouts/AdminLayout.jsx');
+
+  assert.match(profilePage, /effectivePermissions/);
+  assert.match(profilePage, /permission\.capability === 'admin:access'/);
+  assert.match(profilePage, /href="\/admin\/presets"/);
+  assert.match(adminLayout, /effectivePermissions/);
+  assert.match(adminLayout, /permission\.capability === 'admin:access'/);
+  assert.match(adminLayout, /delegatedNavItems/);
+});
+
+test('server grants backend capabilities only when the caller is primary owner and subject is active MANAGER', () => {
+  const adminRoute = source('routes/admin.js');
+  assert.match(adminRoute, /accountStore\.getAccount\(req\.username\)/);
+  assert.match(adminRoute, /主管理员/);
+  assert.match(adminRoute, /memberStore\.getMember\(req\.body\?\.subject\)/);
+  assert.match(adminRoute, /member\.role !== 'manager'/);
+  assert.match(adminRoute, /仅 MANAGER 可以接收后台权限/);
+});
+
+test('role downgrade revokes stale backend grants so MEMBER cannot retain admin access', () => {
+  const accountAdminRoute = source('routes/account-admin.js');
+  const devPermissions = source('lib/dev-permissions.js');
+
+  assert.match(devPermissions, /function revokeBackendPermissions\(/);
+  assert.match(devPermissions, /accountStore\.listGrants\(username\)/);
+  assert.match(accountAdminRoute, /revokeBackendPermissions/);
+  assert.match(accountAdminRoute, /before\.role !== member\.role/);
+  assert.match(accountAdminRoute, /member\.role !== 'dev'/);
+});
+
+test('backend admin access is effective after grant and absent after backend permission revocation', t => {
+  const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v88-account-permissions-'));
+  t.after(() => fs.rmSync(systemDir, { recursive: true, force: true }));
+
+  const store = createAccountStore({ systemDir });
+  store.ensureSeedAccounts();
+  store.createAccount({ username: 'mgrtest', password: 'manager-pass-123', active: true });
+
+  store.grant(PRIMARY_USER, 'mgrtest', { capability: 'admin:access', scope: '*' });
+  assert.equal(store.can('mgrtest', 'admin:access', '*'), true);
+  assert.equal(store.listGrants('mgrtest').length, 1);
+
+  const revoked = revokeBackendPermissions(store, 'mgrtest');
+  assert.equal(revoked.length, 1);
+  assert.equal(store.can('mgrtest', 'admin:access', '*'), false);
+  assert.deepEqual(store.listGrants('mgrtest'), []);
+});

@@ -4,8 +4,8 @@ const { slotsForModule } = require('../lib/system-preset-catalog');
 const { createTeamCollaborationStore } = require('../lib/team-collaboration-store');
 
 function sendStoreError(res, error) {
-  if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: 'Not found' });
-  if (error?.code === 'FORBIDDEN') return res.status(403).json({ error: 'Forbidden' });
+  if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: error.message || 'Not found' });
+  if (error?.code === 'FORBIDDEN') return res.status(403).json({ error: error.message || 'Forbidden' });
   if (error?.code === 'CONFLICT') return res.status(409).json({ error: error.message });
   return res.status(400).json({ error: error?.message || 'Invalid request' });
 }
@@ -21,6 +21,16 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
     for (const member of memberStore.listMembers().filter(item => item.role === 'dev' && item.username !== req.username)) {
       collaborationStore.notify(member.username, { type: 'admin.changed', title, message, metadata });
     }
+  }
+
+  function ensurePrimaryOwner(req) {
+    const actor = accountStore.getAccount(req.username);
+    if (!actor?.isOwner) {
+      const error = new Error('仅主管理员可以管理后台权限授权');
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+    return actor;
   }
 
   function requirePresetVersionCapability(capability) {
@@ -97,6 +107,23 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.post('/grants', requireOwner, (req, res) => {
     try {
+      ensurePrimaryOwner(req);
+      if (!memberStore) {
+        const error = new Error('后台权限授权服务不可用');
+        error.code = 'FORBIDDEN';
+        throw error;
+      }
+      const member = memberStore.getMember(req.body?.subject);
+      if (!member || !member.active || member.role !== 'manager') {
+        const error = new Error('仅 MANAGER 可以接收后台权限');
+        error.code = member ? 'FORBIDDEN' : 'NOT_FOUND';
+        throw error;
+      }
+      if (['admin:access', 'account:review'].includes(req.body?.capability) && req.body?.scope !== '*') {
+        const error = new Error('该后台权限必须作用于全部模块');
+        error.code = 'INVALID';
+        throw error;
+      }
       res.status(201).json({ grant: accountStore.grant(req.username, req.body?.subject, req.body) });
     } catch (error) {
       sendStoreError(res, error);
@@ -105,6 +132,7 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.get('/grants', requireOwner, (req, res) => {
     try {
+      ensurePrimaryOwner(req);
       res.json({ grants: accountStore.listGrants() });
     } catch (error) {
       sendStoreError(res, error);
@@ -113,6 +141,7 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
 
   router.delete('/grants/:id', requireOwner, (req, res) => {
     try {
+      ensurePrimaryOwner(req);
       res.json({ grant: accountStore.revokeGrant(req.username, req.params.id) });
     } catch (error) {
       sendStoreError(res, error);

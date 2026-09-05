@@ -27,6 +27,7 @@
 - Node-to-Go runtime wiring required for V11 APIs
 - V88 local-executor regression workflow
 - V88 Windows local-executor build workflow now produces a publication bundle containing EXE, SHA-256 and update manifest
+- Unified DEV account/role directory with MANAGER backend capability delegation and automatic backend-grant revocation when an account is downgraded to a non-DEV role
 
 ## Update deployment prerequisite
 
