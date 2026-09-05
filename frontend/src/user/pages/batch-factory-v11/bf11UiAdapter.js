@@ -158,11 +158,12 @@ export function createBf11UiAdapter(api) {
         selectedBatchId ? api.getBatch(selectedBatchId) : Promise.resolve(null),
         intakeId ? api.getIntake(intakeId) : Promise.resolve(null)
       ]);
+      const optionalProbeOptions = { silent: true, suppressGlobalError: true };
       const productionStatus = selectedBatchId && typeof api.getProductionStatus === 'function'
-        ? await api.getProductionStatus(selectedBatchId).catch(() => null)
+        ? await api.getProductionStatus(selectedBatchId, optionalProbeOptions).catch(() => null)
         : null;
       const mergeStatus = selectedBatchId && typeof api.getMergeStatus === 'function'
-        ? await api.getMergeStatus(selectedBatchId).catch(() => null)
+        ? await api.getMergeStatus(selectedBatchId, optionalProbeOptions).catch(() => null)
         : null;
       return {
         capabilities,

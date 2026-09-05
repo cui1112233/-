@@ -184,3 +184,27 @@ test('loadWorkbench keeps optional provider probes silent when the capability is
   assert.deepEqual(executorOptions, [{ silent: true, suppressGlobalError: true }]);
   assert.deepEqual(state.localExecutors, []);
 });
+
+test('loadWorkbench keeps optional production and merge status probes silent when slices are disabled', async () => {
+  const statusOptions = [];
+  const api = {
+    getCapabilities: async () => ({}),
+    listBatches: async () => ({ batches: [{ id: 'b1', books: [] }] }),
+    getBatch: async id => ({ batch: { id, books: [] } }),
+    getProductionStatus: async (_batchId, options) => {
+      statusOptions.push(['production', options]);
+      throw new Error('production slice unavailable');
+    },
+    getMergeStatus: async (_batchId, options) => {
+      statusOptions.push(['merge', options]);
+      throw new Error('merge slice unavailable');
+    }
+  };
+
+  await createBf11UiAdapter(api).loadWorkbench();
+
+  assert.deepEqual(statusOptions, [
+    ['production', { silent: true, suppressGlobalError: true }],
+    ['merge', { silent: true, suppressGlobalError: true }]
+  ]);
+});
