@@ -40,6 +40,14 @@ export function createNovelFetchIntake(payload) {
   return apiRequest(bf11Path('intakes/novel-fetch'), { method: 'POST', body: body(payload) });
 }
 
+export function createManualIntake(payload) {
+  return apiRequest(bf11Path('intakes/manual'), { method: 'POST', body: body(payload) });
+}
+
+export function previewManualSkillProcessing(payload) {
+  return apiRequest(bf11Path('manual/skills/preview'), { method: 'POST', body: body(payload) });
+}
+
 export function getIntake(intakeId) {
   return apiRequest(bf11Path(`intakes/${id(intakeId)}`));
 }
@@ -207,6 +215,8 @@ export function getPublishAudits(provider, intentId) {
 export default {
   getCapabilities,
   createNovelFetchIntake,
+  createManualIntake,
+  previewManualSkillProcessing,
   getIntake,
   createBatchFromIntake,
   listBatches,

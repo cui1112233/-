@@ -119,6 +119,16 @@ export function createBf11UiAdapter(api) {
       return api.createBatchFromIntake(intakeId, payload);
     },
 
+    async previewManualSkillProcessing({ items = [], skillIds = [] } = {}) {
+      if (!Array.isArray(items) || !items.length) throw new Error('至少需要一篇可处理内容');
+      return api.previewManualSkillProcessing({ items, skillIds });
+    },
+
+    async createManualIntake({ items = [], metadata = {} } = {}) {
+      if (!Array.isArray(items) || !items.length) throw new Error('至少需要一篇可导入内容');
+      return api.createManualIntake({ books: items, metadata: { sourceType: 'manual', ...metadata } });
+    },
+
     async loadWorkbench({ batchId = '', intakeId = '' } = {}) {
       const capabilityResult = await api.getCapabilities();
       const capabilities = capabilitiesFrom(capabilityResult);

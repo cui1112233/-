@@ -141,6 +141,22 @@ export function createBf11Runtime({ adapter }) {
       }
     },
 
+    async previewManualSkillProcessing(input) {
+      try {
+        return { ok: true, raw: await adapter.previewManualSkillProcessing(input) };
+      } catch (error) {
+        return actionFailure(error, '技能处理预览失败，请检查内容、技能选择和模型配置。');
+      }
+    },
+
+    async createManualIntake(input) {
+      try {
+        return { ok: true, raw: await adapter.createManualIntake(input), startsDirector: false };
+      } catch (error) {
+        return actionFailure(error, '直接导入失败，请稍后重试。');
+      }
+    },
+
     async listBatches() {
       try { return { ok: true, batches: await adapter.listBatches() }; }
       catch (error) { return actionFailure(error, '历史批次读取失败，请稍后重试。'); }

@@ -103,6 +103,20 @@ test('created batch id is read from server response without starting Director', 
   assert.equal(createdBatchIdFrom(result.raw), 'b9');
 });
 
+test('runtime exposes skill preview and manual intake as explicit non-Director actions', async () => {
+  const calls = [];
+  const runtime = createBf11Runtime({ adapter: {
+    previewManualSkillProcessing: async input => { calls.push(['preview', input]); return { items: input.items }; },
+    createManualIntake: async input => { calls.push(['intake', input]); return { intake: { id: 'i1' } }; }
+  } });
+  const preview = await runtime.previewManualSkillProcessing({ items: [{ title: 'A', sourceText: 'B' }], skillIds: [] });
+  const intake = await runtime.createManualIntake({ items: preview.raw.items });
+  assert.equal(preview.ok, true);
+  assert.equal(intake.ok, true);
+  assert.equal(intake.startsDirector, false);
+  assert.deepEqual(calls.map(([kind]) => kind), ['preview', 'intake']);
+});
+
 test('runtime Director actions surface server failure and never claim local success', async () => {
   const runtime = createBf11Runtime({ adapter: {
     runHook: async () => ({ hook: { id: 'h1' } }),
