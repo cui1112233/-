@@ -57,6 +57,7 @@ const { createUsageStore } = require('./lib/usage-store');
 const { createPasskeyStore } = require('./lib/passkey-store');
 const { createAccountRecoveryStore } = require('./lib/account-recovery-store');
 const { createMailerFromEnv } = require('./lib/mail-delivery');
+const { loadReleaseInfo } = require('./lib/release-info');
 const { createTeamConfigReader, createTeamUpstreamRequest, createTeamAgentResponder, estimateTextTokens } = require('./lib/team-model-runtime');
 const { resolveTeamAuthorization } = require('./lib/api-access');
 const { createMemberCenterRouter } = require('./routes/member-center');
@@ -84,6 +85,7 @@ function shuihuoAiRequestMeta(req) {
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer } = {}) {
   const app = express();
+  const releaseInfo = loadReleaseInfo();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
   const dataDir = path.dirname(systemDir);
@@ -210,6 +212,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   }
   seedAgentSkills(resolvedAgentSkillStore, 'choushiyiguai');
   app.locals.authRuntime = authRuntime;
+  app.locals.releaseInfo = releaseInfo;
   app.locals.memberStore = resolvedMemberStore;
   app.locals.usageStore = resolvedUsageStore;
   app.locals.passkeyStore = resolvedPasskeyStore;
@@ -300,7 +303,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   // 路由挂载
   app.get('/api/build-info', (req, res) => {
-    res.json({ app_version: 'v78.3.0.3', build_id: 'v78.3.0.3-remote-workbench-20260819-r1' });
+    res.json(releaseInfo);
   });
   app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore, { passkeyStore: resolvedPasskeyStore })); // POST /api/login
   // Deleted-account tombstones are checked before legacy mutation paths.

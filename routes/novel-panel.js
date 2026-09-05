@@ -24,6 +24,7 @@ const {
 } = require('../lib/novel-panel/quality-gate');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { getStorageRoot, writeNovelPanelExport } = require('../lib/storage-root');
+const { loadReleaseInfo } = require('../lib/release-info');
 
 const router = express.Router();
 const store = createNovelPanelStore({ usersDir: USERS_DIR });
@@ -155,6 +156,14 @@ function premiumStore(req) {
 
 function diagnosticStore(req) {
   return req.app?.locals?.novelPanelAiDiagnosticStore || null;
+}
+
+function platformRelease(req) {
+  return req.app?.locals?.releaseInfo || loadReleaseInfo();
+}
+
+function compatibilityComponents() {
+  return { workbench: V78_BUILD_INFO };
 }
 
 function requestConfig(req) {
@@ -693,7 +702,7 @@ function novelPanelRoutePaths() {
   return paths;
 }
 
-function cleanCoreHealth() {
+function cleanCoreHealth(req) {
   const paths = novelPanelRoutePaths();
   const requiredRoutes = ['/build-info', '/diagnostics/self-check', '/character-core/health', '/character-core/analyze', '/character-core/resolve-scene-cast', '/history'];
   const checks = [];
@@ -713,11 +722,20 @@ function cleanCoreHealth() {
   add('clean_outline_generator', 'Outline Generator Authority', V78_BUILD_INFO.outline_generator_authority === 'outline_generator_authority_v78_phase13', V78_BUILD_INFO.outline_generator_policy);
   add('clean_core_routes', 'Clean Core依赖API完整', requiredRoutes.every(routePath => paths.has(routePath)), '基础路由可访问');
   const failCount = checks.filter(item => item.status === 'fail').length;
-  return { ok: failCount === 0, phase: 'v78_stable', build: V78_BUILD_INFO, checks, transport: { backend: 'remote_json_optimized', hidden_retry: false }, workspace_schema_version: 40 };
+  return {
+    ok: failCount === 0,
+    phase: 'v78_stable',
+    build: V78_BUILD_INFO,
+    platform_release: platformRelease(req),
+    compatibility_components: compatibilityComponents(),
+    checks,
+    transport: { backend: 'remote_json_optimized', hidden_retry: false },
+    workspace_schema_version: 40
+  };
 }
 
 router.get('/clean-core/health', (req, res) => {
-  res.json(cleanCoreHealth());
+  res.json(cleanCoreHealth(req));
 });
 
 router.get('/diagnostics/self-check', (req, res) => {
@@ -753,7 +771,16 @@ router.get('/diagnostics/self-check', (req, res) => {
   const counts = { pass: 0, warn: 0, fail: 0 };
   for (const item of checks) counts[item.status] += 1;
   const traceRecords = diagnosticStore(req)?.listForUser(req.username, 200)?.length || 0;
-  res.json({ ok: counts.fail === 0, build: V78_BUILD_INFO, checks, summary: counts, active_instances: 1, trace_records: traceRecords });
+  res.json({
+    ok: counts.fail === 0,
+    build: V78_BUILD_INFO,
+    platform_release: platformRelease(req),
+    compatibility_components: compatibilityComponents(),
+    checks,
+    summary: counts,
+    active_instances: 1,
+    trace_records: traceRecords
+  });
 });
 
 router.get('/diagnostics/traces', (req, res) => {

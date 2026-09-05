@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Qiantie platform release identity",
+  "type": "object",
+  "required": [
+    "app_version",
+    "build_id",
+    "git_revision",
+    "image_digest",
+    "release_channel",
+    "compatibility_components"
+  ],
+  "properties": {
+    "app_version": { "type": "string", "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+" },
+    "build_id": { "type": "string", "minLength": 1 },
+    "git_revision": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "image_digest": { "type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$" },
+    "release_channel": { "type": "string", "enum": ["development", "candidate", "review", "stable", "production"] },
+    "compatibility_components": { "type": "object" },
+    "generated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}
