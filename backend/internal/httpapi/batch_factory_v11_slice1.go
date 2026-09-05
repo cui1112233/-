@@ -27,6 +27,23 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"intake": intake})
 	})
+	mux.HandleFunc("POST /api/batch-factory/v11/intakes/manual", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input batchfactoryv11.ManualIntakeInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		intake, err := store.CreateManualIntake(r.Context(), owner, input)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"intake": intake})
+	})
 	mux.HandleFunc("GET /api/batch-factory/v11/intakes/{intakeId}", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {

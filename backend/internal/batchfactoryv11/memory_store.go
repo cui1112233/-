@@ -14,37 +14,37 @@ type memoryOwned[T any] struct {
 	Value T
 }
 type MemoryStore struct {
-	mu             sync.Mutex
-	seq            int64
-	batches        map[string]memoryOwned[Batch]
-	intakes        map[string]memoryOwned[Intake]
-	patches        map[string]SettingsPatch
-	configVersions map[string]memoryOwned[ConfigVersion]
-	prompts        map[string][]Prompt
-	drafts         map[string]Draft
-	hooks          map[string][]HookRevision
-	directors      map[string][]DirectorRevision
-	productionJobs map[string]memoryOwned[ProductionJob]
+	mu                 sync.Mutex
+	seq                int64
+	batches            map[string]memoryOwned[Batch]
+	intakes            map[string]memoryOwned[Intake]
+	patches            map[string]SettingsPatch
+	configVersions     map[string]memoryOwned[ConfigVersion]
+	prompts            map[string][]Prompt
+	drafts             map[string]Draft
+	hooks              map[string][]HookRevision
+	directors          map[string][]DirectorRevision
+	productionJobs     map[string]memoryOwned[ProductionJob]
 	productionRequests map[string]string
-	mergeJobs      map[string]memoryOwned[MergeJob]
-	mergeRequests  map[string]string
+	mergeJobs          map[string]memoryOwned[MergeJob]
+	mergeRequests      map[string]string
 }
 
 func NewMemoryStore() *MemoryStore {
 	systemDefault := ConfigVersion{ID: "system-default-v1", Name: "System Default", Config: json.RawMessage(`{"source":"system"}`)}
 	return &MemoryStore{
-		batches:        map[string]memoryOwned[Batch]{},
-		intakes:        map[string]memoryOwned[Intake]{},
-		patches:        map[string]SettingsPatch{},
-		configVersions: map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
-		prompts:        map[string][]Prompt{},
-		drafts:         map[string]Draft{},
-		hooks:          map[string][]HookRevision{},
-		directors:      map[string][]DirectorRevision{},
-		productionJobs: map[string]memoryOwned[ProductionJob]{},
+		batches:            map[string]memoryOwned[Batch]{},
+		intakes:            map[string]memoryOwned[Intake]{},
+		patches:            map[string]SettingsPatch{},
+		configVersions:     map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
+		prompts:            map[string][]Prompt{},
+		drafts:             map[string]Draft{},
+		hooks:              map[string][]HookRevision{},
+		directors:          map[string][]DirectorRevision{},
+		productionJobs:     map[string]memoryOwned[ProductionJob]{},
 		productionRequests: map[string]string{},
-		mergeJobs:      map[string]memoryOwned[MergeJob]{},
-		mergeRequests:  map[string]string{},
+		mergeJobs:          map[string]memoryOwned[MergeJob]{},
+		mergeRequests:      map[string]string{},
 	}
 }
 
@@ -94,48 +94,72 @@ func productionJobState(tasks []ProductionTask) ProductionState {
 }
 
 func (s *MemoryStore) FindProductionJob(_ context.Context, owner, batchID, bookID, requestID string) (ProductionJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	id, ok := s.productionRequests[productionRequestKey(owner, batchID, bookID, requestID)]
-	if !ok { return ProductionJob{}, ErrNotFound }
+	if !ok {
+		return ProductionJob{}, ErrNotFound
+	}
 	job, ok := s.productionJobs[id]
-	if !ok || job.Owner != owner { return ProductionJob{}, ErrNotFound }
+	if !ok || job.Owner != owner {
+		return ProductionJob{}, ErrNotFound
+	}
 	return cloneProductionJob(job.Value), nil
 }
 
 func (s *MemoryStore) CreateProductionJob(_ context.Context, value ProductionJob) (ProductionJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	batch, ok := s.batches[value.BatchID]
-	if !ok || batch.Owner != value.Owner { return ProductionJob{}, ErrNotFound }
+	if !ok || batch.Owner != value.Owner {
+		return ProductionJob{}, ErrNotFound
+	}
 	key := productionRequestKey(value.Owner, value.BatchID, value.BookID, value.RequestID)
-	if id, exists := s.productionRequests[key]; exists { return cloneProductionJob(s.productionJobs[id].Value), nil }
+	if id, exists := s.productionRequests[key]; exists {
+		return cloneProductionJob(s.productionJobs[id].Value), nil
+	}
 	value.ID = s.id("production")
-	for index := range value.Tasks { value.Tasks[index].ID = s.id("production-task") }
+	for index := range value.Tasks {
+		value.Tasks[index].ID = s.id("production-task")
+	}
 	value.Status = productionJobState(value.Tasks)
-	s.productionJobs[value.ID] = memoryOwned[ProductionJob]{Owner:value.Owner, Value:cloneProductionJob(value)}
+	s.productionJobs[value.ID] = memoryOwned[ProductionJob]{Owner: value.Owner, Value: cloneProductionJob(value)}
 	s.productionRequests[key] = value.ID
 	return cloneProductionJob(value), nil
 }
 
 func (s *MemoryStore) UpdateProductionTask(_ context.Context, owner, jobID, taskID string, task ProductionTask) (ProductionJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	owned, ok := s.productionJobs[jobID]
-	if !ok || owned.Owner != owner { return ProductionJob{}, ErrNotFound }
+	if !ok || owned.Owner != owner {
+		return ProductionJob{}, ErrNotFound
+	}
 	job := owned.Value
 	found := false
 	for index := range job.Tasks {
-		if job.Tasks[index].ID == taskID { job.Tasks[index] = task; found = true; break }
+		if job.Tasks[index].ID == taskID {
+			job.Tasks[index] = task
+			found = true
+			break
+		}
 	}
-	if !found { return ProductionJob{}, ErrNotFound }
+	if !found {
+		return ProductionJob{}, ErrNotFound
+	}
 	job.Status, job.UpdatedAt = productionJobState(job.Tasks), time.Now().UTC()
-	s.productionJobs[jobID] = memoryOwned[ProductionJob]{Owner:owner, Value:cloneProductionJob(job)}
+	s.productionJobs[jobID] = memoryOwned[ProductionJob]{Owner: owner, Value: cloneProductionJob(job)}
 	return cloneProductionJob(job), nil
 }
 
 func (s *MemoryStore) ListProductionJobs(_ context.Context, owner, batchID string) ([]ProductionJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := []ProductionJob{}
 	for _, owned := range s.productionJobs {
-		if owned.Owner == owner && owned.Value.BatchID == batchID { out = append(out, cloneProductionJob(owned.Value)) }
+		if owned.Owner == owner && owned.Value.BatchID == batchID {
+			out = append(out, cloneProductionJob(owned.Value))
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
@@ -151,43 +175,59 @@ func mergeRequestKey(owner, batchID, requestID string) string {
 }
 
 func (s *MemoryStore) FindMergeJob(_ context.Context, owner, batchID, requestID string) (MergeJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	id, ok := s.mergeRequests[mergeRequestKey(owner, batchID, requestID)]
-	if !ok { return MergeJob{}, ErrNotFound }
+	if !ok {
+		return MergeJob{}, ErrNotFound
+	}
 	job, ok := s.mergeJobs[id]
-	if !ok || job.Owner != owner { return MergeJob{}, ErrNotFound }
+	if !ok || job.Owner != owner {
+		return MergeJob{}, ErrNotFound
+	}
 	return cloneMergeJob(job.Value), nil
 }
 
 func (s *MemoryStore) CreateMergeJob(_ context.Context, value MergeJob) (MergeJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	batch, ok := s.batches[value.BatchID]
-	if !ok || batch.Owner != value.Owner { return MergeJob{}, ErrNotFound }
+	if !ok || batch.Owner != value.Owner {
+		return MergeJob{}, ErrNotFound
+	}
 	key := mergeRequestKey(value.Owner, value.BatchID, value.RequestID)
-	if id, exists := s.mergeRequests[key]; exists { return cloneMergeJob(s.mergeJobs[id].Value), nil }
+	if id, exists := s.mergeRequests[key]; exists {
+		return cloneMergeJob(s.mergeJobs[id].Value), nil
+	}
 	value.ID = s.id("merge")
 	value.Status = normalizeMergeState(value.Status)
-	s.mergeJobs[value.ID] = memoryOwned[MergeJob]{Owner:value.Owner, Value:cloneMergeJob(value)}
+	s.mergeJobs[value.ID] = memoryOwned[MergeJob]{Owner: value.Owner, Value: cloneMergeJob(value)}
 	s.mergeRequests[key] = value.ID
 	return cloneMergeJob(value), nil
 }
 
 func (s *MemoryStore) UpdateMergeJob(_ context.Context, owner, jobID string, value MergeJob) (MergeJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	owned, ok := s.mergeJobs[jobID]
-	if !ok || owned.Owner != owner { return MergeJob{}, ErrNotFound }
+	if !ok || owned.Owner != owner {
+		return MergeJob{}, ErrNotFound
+	}
 	value.ID, value.Owner = jobID, owner
 	value.CreatedAt = owned.Value.CreatedAt
 	value.UpdatedAt = time.Now().UTC()
-	s.mergeJobs[jobID] = memoryOwned[MergeJob]{Owner:owner, Value:cloneMergeJob(value)}
+	s.mergeJobs[jobID] = memoryOwned[MergeJob]{Owner: owner, Value: cloneMergeJob(value)}
 	return cloneMergeJob(value), nil
 }
 
 func (s *MemoryStore) ListMergeJobs(_ context.Context, owner, batchID string) ([]MergeJob, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := []MergeJob{}
 	for _, owned := range s.mergeJobs {
-		if owned.Owner == owner && owned.Value.BatchID == batchID { out = append(out, cloneMergeJob(owned.Value)) }
+		if owned.Owner == owner && owned.Value.BatchID == batchID {
+			out = append(out, cloneMergeJob(owned.Value))
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
@@ -216,8 +256,12 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 		}
 		effective := ResolveSettings(b.SettingsState.Patch, book.SettingsState.Patch)
 		book.Mode = rawString(effective, "productionMode", rawString(effective, "mode", "original"))
-		if book.Mode == "original_direct" { book.Mode = "original" }
-		if book.Mode == "viral_hook" { book.Mode = "viral" }
+		if book.Mode == "original_direct" {
+			book.Mode = "original"
+		}
+		if book.Mode == "viral_hook" {
+			book.Mode = "viral"
+		}
 		bookKey := b.ID + ":" + book.ID
 		if revisions := hooks[bookKey]; len(revisions) > 0 {
 			latest := revisions[len(revisions)-1]
@@ -253,6 +297,13 @@ func (s *MemoryStore) CreateIntake(_ context.Context, owner string, input NovelF
 	v := Intake{ID: s.id("intake"), Owner: owner, Payload: b, CreatedAt: now}
 	s.intakes[v.ID] = memoryOwned[Intake]{owner, v}
 	return v, nil
+}
+func (s *MemoryStore) CreateManualIntake(ctx context.Context, owner string, input ManualIntakeInput) (Intake, error) {
+	normalized, err := normalizeManualIntake(input)
+	if err != nil {
+		return Intake{}, err
+	}
+	return s.CreateIntake(ctx, owner, NovelFetchIntakeInput{Books: normalized.Books, Metadata: normalized.Metadata})
 }
 func (s *MemoryStore) GetIntake(_ context.Context, owner, id string) (Intake, error) {
 	s.mu.Lock()
@@ -296,7 +347,7 @@ func (s *MemoryStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID
 	bv := b.Value
 	bv.SourceIntakeID = intakeID
 	s.batches[batch.ID] = memoryOwned[Batch]{owner, bv}
-		batch = hydrateMemoryBatchSettingsState(bv, s.patches, s.hooks, s.directors)
+	batch = hydrateMemoryBatchSettingsState(bv, s.patches, s.hooks, s.directors)
 	s.mu.Unlock()
 	return batch, nil
 }
@@ -496,10 +547,19 @@ func (s *MemoryStore) CreateHookRevision(_ context.Context, owner, batchID, book
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	owned, ok := s.batches[batchID]
-	if !ok || owned.Owner != owner { return HookRevision{}, ErrNotFound }
+	if !ok || owned.Owner != owner {
+		return HookRevision{}, ErrNotFound
+	}
 	found := false
-	for _, book := range owned.Value.Books { if book.ID == bookID { found = true; break } }
-	if !found { return HookRevision{}, ErrNotFound }
+	for _, book := range owned.Value.Books {
+		if book.ID == bookID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return HookRevision{}, ErrNotFound
+	}
 	key := memoryBookKey(batchID, bookID)
 	now := time.Now().UTC()
 	revision := HookRevision{ID: s.id("hook"), BatchID: batchID, BookID: bookID, Revision: int64(len(s.hooks[key]) + 1), Status: "draft", Text: text, SourceDigest: digest, CreatedAt: now}
@@ -511,10 +571,14 @@ func (s *MemoryStore) ApproveHookRevision(_ context.Context, owner, batchID, boo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	owned, ok := s.batches[batchID]
-	if !ok || owned.Owner != owner { return HookRevision{}, ErrNotFound }
+	if !ok || owned.Owner != owner {
+		return HookRevision{}, ErrNotFound
+	}
 	key := memoryBookKey(batchID, bookID)
 	for i := range s.hooks[key] {
-		if s.hooks[key][i].ID != hookID { continue }
+		if s.hooks[key][i].ID != hookID {
+			continue
+		}
 		now := time.Now().UTC()
 		s.hooks[key][i].Status = "approved"
 		s.hooks[key][i].ApprovedAt = &now
@@ -527,9 +591,13 @@ func (s *MemoryStore) LatestHookRevision(_ context.Context, owner, batchID, book
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	owned, ok := s.batches[batchID]
-	if !ok || owned.Owner != owner { return HookRevision{}, ErrNotFound }
+	if !ok || owned.Owner != owner {
+		return HookRevision{}, ErrNotFound
+	}
 	revisions := s.hooks[memoryBookKey(batchID, bookID)]
-	if len(revisions) == 0 { return HookRevision{}, ErrNotFound }
+	if len(revisions) == 0 {
+		return HookRevision{}, ErrNotFound
+	}
 	return revisions[len(revisions)-1], nil
 }
 
@@ -537,17 +605,28 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	owned, ok := s.batches[book.BatchID]
-	if !ok || owned.Owner != owner { return DirectorRevision{}, ErrNotFound }
+	if !ok || owned.Owner != owner {
+		return DirectorRevision{}, ErrNotFound
+	}
 	bookIndex := -1
-	for i := range owned.Value.Books { if owned.Value.Books[i].ID == book.ID { bookIndex = i; break } }
-	if bookIndex < 0 { return DirectorRevision{}, ErrNotFound }
+	for i := range owned.Value.Books {
+		if owned.Value.Books[i].ID == book.ID {
+			bookIndex = i
+			break
+		}
+	}
+	if bookIndex < 0 {
+		return DirectorRevision{}, ErrNotFound
+	}
 	b := owned.Value
 	orphaned := []OrphanedOverride{}
 	for vi := range b.Books[bookIndex].Videos {
 		old := &b.Books[bookIndex].Videos[vi]
 		old.CompatibilityState = "orphaned"
 		patch := clonePatch(s.patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: old.ID})])
-		if len(patch) > 0 { orphaned = append(orphaned, OrphanedOverride{VideoID: old.ID, Patch: patch, State: "orphaned"}) }
+		if len(patch) > 0 {
+			orphaned = append(orphaned, OrphanedOverride{VideoID: old.ID, Patch: patch, State: "orphaned"})
+		}
 	}
 	key := memoryBookKey(b.ID, book.ID)
 	now := time.Now().UTC()

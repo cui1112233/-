@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("revision conflict")
-	ErrInvalid  = errors.New("invalid input")
+	ErrNotFound    = errors.New("not found")
+	ErrConflict    = errors.New("revision conflict")
+	ErrInvalid     = errors.New("invalid input")
 	ErrUnavailable = errors.New("capability unavailable")
 )
 
@@ -59,23 +59,23 @@ type Video struct {
 	SettingsState      SettingsState `json:"settingsState"`
 }
 type Book struct {
-	ID             string         `json:"id"`
-	BatchID        string         `json:"batchId"`
-	BookID         string         `json:"bookId"`
-	Title          string         `json:"title"`
-	SourceText     string         `json:"sourceText,omitempty"`
-	SourceTaskID   string         `json:"sourceTaskId,omitempty"`
-	Platform       string         `json:"platform,omitempty"`
-	TxtText        string         `json:"txtText,omitempty"`
-	TxtFileName    string         `json:"txtFileName,omitempty"`
-	SourceMetadata map[string]any `json:"sourceMetadata,omitempty"`
-	Revision       int64          `json:"revision"`
-	SettingsState SettingsState `json:"settingsState"`
-	Mode          string        `json:"mode,omitempty"`
-	Hook          *HookRevision `json:"hook,omitempty"`
+	ID               string            `json:"id"`
+	BatchID          string            `json:"batchId"`
+	BookID           string            `json:"bookId"`
+	Title            string            `json:"title"`
+	SourceText       string            `json:"sourceText,omitempty"`
+	SourceTaskID     string            `json:"sourceTaskId,omitempty"`
+	Platform         string            `json:"platform,omitempty"`
+	TxtText          string            `json:"txtText,omitempty"`
+	TxtFileName      string            `json:"txtFileName,omitempty"`
+	SourceMetadata   map[string]any    `json:"sourceMetadata,omitempty"`
+	Revision         int64             `json:"revision"`
+	SettingsState    SettingsState     `json:"settingsState"`
+	Mode             string            `json:"mode,omitempty"`
+	Hook             *HookRevision     `json:"hook,omitempty"`
 	DirectorRevision *DirectorRevision `json:"directorRevision,omitempty"`
-	Assets        DirectorAssets `json:"assets,omitempty"`
-	Videos        []Video       `json:"videos"`
+	Assets           DirectorAssets    `json:"assets,omitempty"`
+	Videos           []Video           `json:"videos"`
 }
 type Batch struct {
 	ID             string        `json:"id"`
@@ -119,6 +119,10 @@ type NovelFetchIntakeInput struct {
 	Books    []CreateBookInput `json:"books"`
 	Metadata map[string]any    `json:"metadata,omitempty"`
 }
+type ManualIntakeInput struct {
+	Books    []CreateBookInput `json:"books"`
+	Metadata map[string]any    `json:"metadata,omitempty"`
+}
 type ConfigVersion struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
@@ -159,15 +163,15 @@ type Draft struct {
 }
 
 type HookRevision struct {
-	ID         string    `json:"id"`
-	BatchID    string    `json:"batchId"`
-	BookID     string    `json:"bookId"`
-	Revision   int64     `json:"revision"`
-	Status     string    `json:"status"`
-	Text       string    `json:"text"`
-	SourceDigest string  `json:"sourceDigest"`
-	CreatedAt  time.Time `json:"createdAt"`
-	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+	ID           string     `json:"id"`
+	BatchID      string     `json:"batchId"`
+	BookID       string     `json:"bookId"`
+	Revision     int64      `json:"revision"`
+	Status       string     `json:"status"`
+	Text         string     `json:"text"`
+	SourceDigest string     `json:"sourceDigest"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	ApprovedAt   *time.Time `json:"approvedAt,omitempty"`
 }
 
 type DirectorAssets struct {
@@ -218,6 +222,7 @@ type DirectorSnapshot struct {
 
 type Store interface {
 	CreateIntake(context.Context, string, NovelFetchIntakeInput) (Intake, error)
+	CreateManualIntake(context.Context, string, ManualIntakeInput) (Intake, error)
 	GetIntake(context.Context, string, string) (Intake, error)
 	CreateBatchFromIntake(context.Context, string, string, CreateBatchInput) (Batch, error)
 	CreateBatch(context.Context, string, CreateBatchInput) (Batch, error)

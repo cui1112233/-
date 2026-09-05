@@ -43,6 +43,14 @@ func (s *MySQLStore) CreateIntake(ctx context.Context, owner string, input Novel
 	return Intake{ID: id, Owner: owner, Payload: payload, CreatedAt: now}, nil
 }
 
+func (s *MySQLStore) CreateManualIntake(ctx context.Context, owner string, input ManualIntakeInput) (Intake, error) {
+	normalized, err := normalizeManualIntake(input)
+	if err != nil {
+		return Intake{}, err
+	}
+	return s.CreateIntake(ctx, owner, NovelFetchIntakeInput{Books: normalized.Books, Metadata: normalized.Metadata})
+}
+
 func (s *MySQLStore) GetIntake(ctx context.Context, owner, id string) (Intake, error) {
 	var v Intake
 	var payload []byte

@@ -132,6 +132,50 @@ func TestCreateBatchFromOtherOwnersIntakeReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateManualIntakeAndConsumeAsV11Batch(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: store})
+	create := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+		"metadata": map[string]any{"sourceType": "manual"},
+		"books":    []any{map[string]any{"title": "直接内容", "sourceText": "处理后的内容", "sourceMetadata": map[string]any{"originalText": "原始内容"}}},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create=%d body=%s", create.Code, create.Body.String())
+	}
+	intake := decodeBody[map[string]batchfactoryv11.Intake](t, create)["intake"]
+	get := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/batch-factory/v11/intakes/"+intake.ID, nil)
+	if get.Code != http.StatusOK {
+		t.Fatalf("get=%d body=%s", get.Code, get.Body.String())
+	}
+	var stored struct {
+		Intake batchfactoryv11.Intake `json:"intake"`
+	}
+	stored = decodeBody[struct {
+		Intake batchfactoryv11.Intake `json:"intake"`
+	}](t, get)
+	var payload batchfactoryv11.ManualIntakeInput
+	if err := json.Unmarshal(stored.Intake.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Books[0].BookID == "" || payload.Books[0].SourceMetadata["sourceType"] != "manual" {
+		t.Fatalf("payload=%+v", payload)
+	}
+
+	batchRec := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/"+intake.ID+"/batches", map[string]any{"title": "正式直接导入"})
+	if batchRec.Code != http.StatusCreated {
+		t.Fatalf("batch=%d body=%s", batchRec.Code, batchRec.Body.String())
+	}
+	batch := decodeBody[map[string]batchfactoryv11.Batch](t, batchRec)["batch"]
+	if len(batch.Books) != 1 || batch.Books[0].SourceText != "处理后的内容" || batch.SourceIntakeID != intake.ID {
+		t.Fatalf("batch=%+v", batch)
+	}
+	retry := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/"+intake.ID+"/batches", map[string]any{})
+	if retry.Code != http.StatusConflict {
+		t.Fatalf("retry=%d body=%s", retry.Code, retry.Body.String())
+	}
+}
+
 func TestSliceOneRequiredHTTPRoutesAreRegistered(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
@@ -142,6 +186,7 @@ func TestSliceOneRequiredHTTPRoutesAreRegistered(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/batch-factory/v11/capabilities", nil},
 		{http.MethodPost, "/api/batch-factory/v11/intakes/novel-fetch", map[string]any{"books": []any{}}},
+		{http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{"books": []any{}}},
 		{http.MethodGet, "/api/batch-factory/v11/intakes/missing", nil},
 		{http.MethodPost, "/api/batch-factory/v11/intakes/missing/batches", map[string]any{}},
 		{http.MethodGet, "/api/batch-factory/v11/batches", nil},

@@ -87,6 +87,45 @@ func TestNovelFetchIntakeDeduplicatesSourceBookIDs(t *testing.T) {
 	}
 }
 
+func TestManualIntakeAssignsStableSourceIDsAndPreservesSkillMetadata(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateManualIntake(ctx, "alice", ManualIntakeInput{
+		Metadata: map[string]any{"sourceType": "manual"},
+		Books: []CreateBookInput{{
+			Title:      "故事 A",
+			SourceText: "处理后的正文",
+			SourceMetadata: map[string]any{
+				"originalText": "原始正文",
+				"skillRuns":    []any{map[string]any{"id": "skill-a", "version": "2"}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload ManualIntakeInput
+	if err := json.Unmarshal(intake.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Books) != 1 {
+		t.Fatalf("books=%+v", payload.Books)
+	}
+	book := payload.Books[0]
+	if book.ID != "manual-"+manualSourceDigest("故事 A", "原始正文") {
+		t.Fatalf("id=%q", book.ID)
+	}
+	if book.BookID != book.ID || book.SourceText != "处理后的正文" || book.TxtText != "处理后的正文" {
+		t.Fatalf("book=%+v", book)
+	}
+	if book.SourceMetadata["sourceType"] != "manual" || book.SourceMetadata["originalText"] != "原始正文" {
+		t.Fatalf("metadata=%+v", book.SourceMetadata)
+	}
+	if payload.Metadata["sourceType"] != "manual" {
+		t.Fatalf("intake metadata=%+v", payload.Metadata)
+	}
+}
+
 func TestPromptAndDraftAreOwnerScopedAndDraftRecovers(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()
@@ -124,7 +163,6 @@ func TestSliceOneChangeImpactDoesNotClaimDirectorInvalidation(t *testing.T) {
 	}
 }
 
-
 func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()
@@ -142,7 +180,6 @@ func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
 		t.Fatalf("book=%+v", batch.Books)
 	}
 }
-
 
 func TestNovelFetchBatchKeepsSourceLineageFields(t *testing.T) {
 	ctx := context.Background()
