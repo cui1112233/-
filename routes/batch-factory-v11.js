@@ -111,6 +111,24 @@ async function prepareProviderRequest(req, options, pathname) {
 
 function createBatchFactoryV11Router(options = {}) {
   const router = express.Router();
+
+  router.post('/manual/skills/preview', async (req, res) => {
+    if (!options.manualSkillProcessor || typeof options.manualSkillProcessor.preview !== 'function') {
+      return res.status(503).json({ error: 'Batch Factory V11 技能处理服务未配置', code: 'BFV11_MANUAL_SKILL_PROCESSOR_UNAVAILABLE' });
+    }
+    try {
+      const result = await options.manualSkillProcessor.preview({
+        username: req.username,
+        items: req.body?.items,
+        skillIds: req.body?.skillIds
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      const status = error?.code === 'FORBIDDEN' ? 403 : (error?.code === 'INVALID' ? 400 : 503);
+      return res.status(status).json({ error: error.message || '技能处理失败', code: error.code || 'BFV11_MANUAL_SKILL_PREVIEW_FAILED' });
+    }
+  });
+
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');

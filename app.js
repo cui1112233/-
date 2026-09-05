@@ -36,6 +36,7 @@ const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createBatchFactoryV11Router } = require('./routes/batch-factory-v11');
+const { createManualSkillProcessor } = require('./lib/batch-factory/manual-skill-processor');
 const { createMySQLBatchFactoryStoreFactory } = require('./lib/batch-factory/mysql-store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
@@ -126,6 +127,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore
+  });
+  const manualSkillProcessor = createManualSkillProcessor({
+    skillStore: resolvedAgentSkillStore,
+    respond: resolvedAgentResponder
   });
 
   function requireOwnModelConfig(req, res, next) {
@@ -341,7 +346,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
-  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router());
+  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ manualSkillProcessor }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
