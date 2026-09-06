@@ -7,10 +7,15 @@ on:
       - fix/v88-doubao-video-tab
       - feat/v88-local-executor-auto-update
       - integrate/v88-local-executor-auto-update
+      - 'fix/v88-local-executor-*'
     paths:
       - 'local-executor/**'
       - 'routes/local-executor-downloads.js'
       - 'test/local-executor-updates.test.js'
+      - 'backend/internal/httpapi/**'
+      - 'backend/internal/localexecutor/**'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
       - 'branding/**'
       - 'frontend/index.html'
       - 'frontend/public/yizhan-icon.png'
@@ -25,6 +30,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
       - name: Install Node route dependencies
         run: npm install --ignore-scripts
       - name: Run executor update feed route tests
@@ -35,3 +44,6 @@ jobs:
       - name: Check local executor JavaScript syntax
         working-directory: local-executor
         run: npm run check
+      - name: Run Go local executor and HTTP API tests
+        working-directory: backend
+        run: go test ./...
