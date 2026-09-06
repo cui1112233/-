@@ -14,7 +14,7 @@ jobs:
   inspect:
     runs-on: ubuntu-24.04
     steps:
-      - name: Inspect V88 ECS without mutation
+      - name: Inspect final public V88 runtime without mutation
         shell: bash
         env:
           ECS_HOST: 115.190.156.223
@@ -31,29 +31,42 @@ jobs:
           ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
           set -Eeuo pipefail
           main_id="$(docker ps -qf name=v88-public-v88-node-1)"
-          worker_id="$(docker ps -qf name=v88-public-browser-worker-1)"
-          echo '=== configured worker health from v88-node ==='
+          test -n "$main_id"
+          target=/app/lib/novel-fetch-workshop/121-browser-client.js
+          echo "FINAL_PUBLIC_CONTAINER=$main_id"
+          echo "FINAL_PUBLIC_SHA256=$(docker exec "$main_id" sha256sum "$target" | awk '{print $1}')"
+          docker exec "$main_id" sh -lc "grep -n -E 'QIANTIE_121_CLIENT_TIMEOUT_MS|QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS|loginTimeoutMs =|45000|20000' '$target'"
+
           docker exec "$main_id" node -e '
             const base=(process.env.QIANTIE_121_BROWSER_WORKER_URL||"").replace(/\/$/,"");
             const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
-            if(!base||!secret){console.log("CONFIGURED_WORKER_HEALTH=env_missing");process.exit(0)}
-            fetch(base+"/healthz",{headers:{"x-qiantie-internal-secret":secret}})
-              .then(async r=>{console.log(`CONFIGURED_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`)})
-              .catch(e=>{console.log(`CONFIGURED_WORKER_HEALTH=error ${e.name}:${e.message}`);process.exitCode=1});
+            if(!base||!secret) throw new Error("worker env missing");
+            fetch(base+"/healthz",{headers:{"x-qiantie-internal-secret":secret},signal:AbortSignal.timeout(5000)})
+              .then(async r=>{if(!r.ok) throw new Error(`worker health ${r.status}`); console.log(`FINAL_PUBLIC_WORKER=status_${r.status}`)})
+              .catch(e=>{console.error(e);process.exit(1)});
           '
-          echo '=== direct existing worker health from v88-node ==='
+
           docker exec "$main_id" node -e '
-            const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
-            fetch("http://browser-worker:8787/healthz",{headers:{"x-qiantie-internal-secret":secret}})
-              .then(async r=>{console.log(`EXISTING_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`)})
-              .catch(e=>{console.log(`EXISTING_WORKER_HEALTH=error ${e.name}:${e.message}`);process.exitCode=1});
+            const {create121BrowserClient}=require("/app/lib/novel-fetch-workshop/121-browser-client");
+            const fakeFetch=delay=>async (_url,options)=>new Promise((resolve,reject)=>{
+              const timer=setTimeout(()=>resolve({ok:true,status:200,text:async()=>JSON.stringify({ok:true,status:"ready"})}),delay);
+              options.signal.addEventListener("abort",()=>{clearTimeout(timer); const e=new Error("aborted"); e.name="AbortError"; reject(e);});
+            });
+            (async()=>{
+              const client=create121BrowserClient({baseUrl:"http://worker:8787",secret:"test",timeoutMs:1000,loginTimeoutMs:3000,fetchImpl:fakeFetch(1500)});
+              const login=await client.login({owner:"probe"});
+              if(login.status!=="ready") throw new Error("login long budget failed");
+              let normalTimedOut=false;
+              try { await client.test({owner:"probe"}); } catch(e) { normalTimedOut=e.code==="BROWSER_WORKER_TIMEOUT"; }
+              if(!normalTimedOut) throw new Error("normal request timeout protection missing");
+              console.log("FINAL_PUBLIC_TIMEOUT_POLICY=ok");
+            })().catch(e=>{console.error(e);process.exit(1)});
           '
-          echo '=== node timeout/error mapping source ==='
-          docker exec "$main_id" sh -lc 'grep -R -n -E "BROWSER_WORKER_TIMEOUT|browser_timeout|浏览器登录服务请求超时|浏览器登录服务失败|timeoutMs = 15000|session/login" /app/lib/novel-fetch-workshop /app/routes /app/server.js /app/app.js 2>/dev/null | head -200 || true'
-          echo '=== worker login timeout source ==='
-          docker exec "$worker_id" sh -lc 'grep -R -n -E "timeoutMs|page.goto|waitForLoadState|chromium.launch|session/login" /app/src 2>/dev/null | head -160 || true'
-          echo '=== worker recent logs ==='
-          docker logs --tail 120 "$worker_id" 2>&1 || true
-          echo '=== v88 node recent browser logs ==='
-          docker logs --tail 300 "$main_id" 2>&1 | grep -E -i "browser|121|timeout|session" | tail -120 || true
+
+          http_code="$(curl -sS -o /tmp/final-public-probe.out -w '%{http_code}' --max-time 10 http://127.0.0.1:3000/api/novel-panel/build-info || true)"
+          case "$http_code" in
+            200|401) ;;
+            *) echo "unexpected final public HTTP status: $http_code" >&2; exit 1 ;;
+          esac
+          echo "FINAL_PUBLIC_HTTP_STATUS=$http_code"
           REMOTE
