@@ -57,3 +57,37 @@ Result: 12 tests passed, 0 failed; all syntax and whitespace checks passed.
 
 - Watcher/stat invalidation is intentionally fail-safe: after drift, the process serves revalidation URLs until assets are regenerated or the service restarts; it does not rebuild the manifest on requests.
 - Full browser smoke and candidate packaging remain outside Task 3 and are still required by later plan tasks.
+
+## Fix round 2
+
+### Findings addressed
+
+- Removed request-time `resolveAssetPath`, `realpathSync`, `statSync`, and manifest traversal. Source paths are validated once while the router initializes; requests use the cached asset-source map.
+- Each manifest JS/CSS asset is copied once into a process-owned temporary snapshot. Matching hash URLs stream only from that snapshot, so a mutable source cannot be served with old immutable headers. Watcher invalidation switches subsequent HTML and asset requests to source paths with safe revalidation.
+- `router.close()` now closes all bounded watchers and removes the temporary snapshot tree. Tests close routers before removing fixture roots and wait for watcher invalidation deterministically.
+
+### Round-2 TDD evidence
+
+RED after the snapshot implementation but before the drift-test wait update:
+
+```text
+node --test --test-concurrency=1 tests/novel-panel-workbench-cache.test.js
+```
+
+Result: 4 passed, 1 failed. The existing drift assertion observed the request before asynchronous watcher invalidation and received the snapshot's immutable header; the test was updated to wait for the watcher diagnostic before asserting safe revalidation.
+
+GREEN and final checks:
+
+```text
+node --test --test-concurrency=1 tests/novel-panel-asset-contract.test.js tests/novel-panel-workbench-cache.test.js tests/frontend-asset-cache-contract.test.js
+node --check lib/novel-panel/workbench-assets.js
+node --check routes/novel-panel-page.js
+node --check tests/novel-panel-workbench-cache.test.js
+git diff --check
+```
+
+Result: 12 tests passed, 0 failed; syntax and whitespace checks passed. The repeated-request regression also recorded zero synchronous asset reads, zero synchronous realpath/stat checks, and zero hash creations.
+
+### Round-2 commit
+
+- `61647fb2` — `perf: snapshot workbench assets for safe streaming`
