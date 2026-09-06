@@ -1,5 +1,6 @@
 const STRICT_SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
 const RELEASE_MANIFEST_URL = '/downloads/local-executor/manifest.json';
+const EXECUTOR_PROTOCOL_UPDATE_MIN_VERSION = '1.0.3';
 
 function parseSemver(value) {
   const text = String(value || '').trim();
@@ -19,6 +20,11 @@ export function compareSemver(left, right) {
     if (a[index] > b[index]) return 1;
   }
   return 0;
+}
+
+export function supportsExecutorProtocolUpdate(currentVersion) {
+  const comparison = compareSemver(currentVersion, EXECUTOR_PROTOCOL_UPDATE_MIN_VERSION);
+  return comparison !== null && comparison >= 0;
 }
 
 export function executorVersionStatus(currentVersion, release = {}) {
@@ -77,4 +83,4 @@ export async function fetchExecutorReleaseManifest(fetchImpl = globalThis.fetch)
   };
 }
 
-export { RELEASE_MANIFEST_URL };
+export { EXECUTOR_PROTOCOL_UPDATE_MIN_VERSION, RELEASE_MANIFEST_URL };
