@@ -24,7 +24,7 @@ const {
 } = require('../lib/novel-panel/quality-gate');
 const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { getStorageRoot, writeNovelPanelExport } = require('../lib/storage-root');
-const { loadReleaseInfo } = require('../lib/release-info');
+const { DEFAULT_WORKBENCH_COMPATIBILITY, loadReleaseInfo } = require('../lib/release-info');
 
 const router = express.Router();
 const store = createNovelPanelStore({ usersDir: USERS_DIR });
@@ -36,16 +36,16 @@ const MIN_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 600;
 
 const V78_BUILD_INFO = {
-  app_version: 'v78.3.0.2',
+  app_version: DEFAULT_WORKBENCH_COMPATIBILITY.app_version,
   build_date: '2026-08-18',
   character_pipeline: 'character_core_2_all_genres_v78_stable',
   startup_mode: 'shared_backend_multi_instance_v78_stable',
   cache_policy: 'per_instance_profile_no_store',
   session_guard: 'registered_multi_instance',
-  build_id: 'v78.3.0.2-scene-event-canonical-timeline-20260818-r1',
-  workspace_schema_version: 40,
-  release_channel: 'stable',
-  release_version: 'v78.3.0.2',
+  build_id: DEFAULT_WORKBENCH_COMPATIBILITY.build_id,
+  workspace_schema_version: DEFAULT_WORKBENCH_COMPATIBILITY.workspace_schema_version,
+  release_channel: DEFAULT_WORKBENCH_COMPATIBILITY.release_channel,
+  release_version: DEFAULT_WORKBENCH_COMPATIBILITY.release_version,
   formal_roster_policy: 'forced_roster_slots_only_never_infer_formal_people_from_novel_relationship_terms',
   character_image_batch: 'bounded_concurrency_1_6_default_3_immediate_per_asset_persist_no_hidden_retry',
   release_status: 'production',

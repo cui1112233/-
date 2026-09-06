@@ -147,6 +147,37 @@ test('returns a visibly non-release development identity without guessing V88', 
   assert.equal(result.image_digest, null);
 });
 
+test('rejects custom development identity unless complete genuine provenance is supplied', () => {
+  const { loadReleaseInfo } = require(releaseInfoPath);
+  const directory = fixtureDirectory();
+  const missingProvenancePath = writeFixture(directory, {
+    app_version: 'v88.0.0-development.1',
+    build_id: 'v88-local-custom',
+    release_channel: 'development'
+  });
+
+  assert.throws(
+    () => loadReleaseInfo({}, missingProvenancePath),
+    error => error?.code === 'RELEASE_PROVENANCE_REQUIRED'
+      && /git_revision/.test(error.message)
+      && /image_digest/.test(error.message)
+  );
+
+  const completeProvenancePath = writeFixture(directory, {
+    app_version: 'v88.0.0-development.1',
+    build_id: 'v88-local-custom',
+    git_revision: gitRevision,
+    image_digest: imageDigest,
+    release_channel: 'development'
+  }, 'complete-development.json');
+  const result = loadReleaseInfo({}, completeProvenancePath);
+
+  assert.equal(result.app_version, 'v88.0.0-development.1');
+  assert.equal(result.build_id, 'v88-local-custom');
+  assert.equal(result.git_revision, gitRevision);
+  assert.equal(result.image_digest, imageDigest);
+});
+
 test('redacts secrets, database URLs, tokens, and provider credentials from compatibility components', () => {
   const { loadReleaseInfo } = require(releaseInfoPath);
   const directory = fixtureDirectory();
@@ -171,6 +202,44 @@ test('redacts secrets, database URLs, tokens, and provider credentials from comp
   assert.equal('access_token' in result.compatibility_components.provider, false);
   assert.equal('provider_credentials' in result.compatibility_components.provider, false);
   assert.doesNotMatch(JSON.stringify(result), /secret-api-key|mysql:\/\/|secret-token|secret-credentials/);
+});
+
+test('redacts credential-shaped values under neutral keys and inside nested arrays', () => {
+  const { loadReleaseInfo } = require(releaseInfoPath);
+  const directory = fixtureDirectory();
+  const privateKey = '-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----';
+  const filePath = writeFixture(directory, validMetadata({
+    compatibility_components: {
+      workbench: validMetadata().compatibility_components.workbench,
+      provider: {
+        endpoint: 'mysql://user:password@db.example.invalid/platform',
+        value: 'Bearer neutral-key-token-value',
+        signing_material: privateKey,
+        modes: [
+          'remote',
+          ['safe-fallback', 'sk-neutralkeycredential1234567890'],
+          { label: 'primary', value: 'postgresql://user:password@db.example.invalid/platform' }
+        ],
+        harmless_endpoint: 'https://api.example.invalid/v1',
+        harmless_values: ['stable', 'v78-compatible', 40]
+      }
+    }
+  }));
+
+  const result = loadReleaseInfo({}, filePath);
+  const serialized = JSON.stringify(result);
+
+  assert.equal('endpoint' in result.compatibility_components.provider, false);
+  assert.equal('value' in result.compatibility_components.provider, false);
+  assert.equal('signing_material' in result.compatibility_components.provider, false);
+  assert.deepEqual(result.compatibility_components.provider.modes, [
+    'remote',
+    ['safe-fallback'],
+    { label: 'primary' }
+  ]);
+  assert.equal(result.compatibility_components.provider.harmless_endpoint, 'https://api.example.invalid/v1');
+  assert.deepEqual(result.compatibility_components.provider.harmless_values, ['stable', 'v78-compatible', 40]);
+  assert.doesNotMatch(serialized, /mysql:\/\/|postgresql:\/\/|Bearer neutral|BEGIN PRIVATE KEY|sk-neutralkeycredential/);
 });
 
 test('generates sorted release metadata and rejects incomplete candidate output', () => {
@@ -220,6 +289,31 @@ test('generates sorted release metadata and rejects incomplete candidate output'
   ], { encoding: 'utf8' });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /git[_-]revision|image[_-]digest/i);
+
+  const customDevelopment = require('node:child_process').spawnSync(process.execPath, [
+    generatorPath,
+    '--version', 'v88.0.0-development.2',
+    '--build-id', 'v88-local-generator',
+    '--channel', 'development',
+    '--output', path.join(directory, 'custom-development.json')
+  ], { encoding: 'utf8' });
+  assert.notEqual(customDevelopment.status, 0);
+  assert.match(customDevelopment.stderr, /git[_-]revision|image[_-]digest/i);
+
+  const canonicalDevelopmentPath = path.join(directory, 'canonical-development.json');
+  execFileSync(process.execPath, [
+    generatorPath,
+    '--channel', 'development',
+    '--output', canonicalDevelopmentPath
+  ], { encoding: 'utf8' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(canonicalDevelopmentPath, 'utf8')), {
+    app_version: '0.0.0-development',
+    build_id: 'development-unreleased',
+    compatibility_components: validMetadata().compatibility_components,
+    git_revision: null,
+    image_digest: null,
+    release_channel: 'development'
+  });
 });
 
 test('top-level build-info exposes the fixture release while novel-panel diagnostics keep V78 workbench compatibility explicit', async () => {
