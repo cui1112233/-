@@ -11,6 +11,7 @@ on:
       - 'lib/system-preset-catalog.js'
       - 'server.js'
       - 'routes/chat.js'
+      - 'routes/chat-script-prompt-composition.test.js'
       - 'prompts/**'
       - 'frontend/src/shared/api/generation.js'
       - 'frontend/src/user/pages/ScriptPage.jsx'
@@ -36,6 +37,7 @@ jobs:
         run: |
           node --test lib/script-generation-rules.test.js
           node --test lib/script-smart-unified-route.test.js
+          node --test routes/chat-script-prompt-composition.test.js
 
   frontend-build:
     runs-on: ubuntu-latest
