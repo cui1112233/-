@@ -1,4 +1,4 @@
-name: Cancel stale V88 public release
+name: Cancel stale V88 public inspection
 
 on:
   push:
@@ -12,15 +12,15 @@ permissions:
   actions: write
 
 jobs:
-  cancel-stale-release:
+  cancel-stale-inspection:
     runs-on: ubuntu-24.04
     steps:
-      - name: Cancel V88 release #83 after verified public hotfix
+      - name: Cancel stale broad public inspection
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          STALE_RUN_ID: '34033270188'
+          STALE_RUN_ID: '34034209577'
         run: |
           set -Eeuo pipefail
           status="$(curl -sS -o /tmp/cancel-body -w '%{http_code}' \
@@ -35,12 +35,12 @@ jobs:
             *) echo "Unexpected cancel status: $status" >&2; exit 1 ;;
           esac
 
-      - name: Confirm run is no longer actively deploying
+      - name: Confirm stale inspection stopped
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          STALE_RUN_ID: '34033270188'
+          STALE_RUN_ID: '34034209577'
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 30); do
@@ -57,5 +57,5 @@ jobs:
             fi
             sleep 2
           done
-          echo 'release did not stop in time' >&2
+          echo 'stale inspection did not stop' >&2
           exit 1
