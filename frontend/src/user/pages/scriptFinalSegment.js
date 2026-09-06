@@ -1,7 +1,7 @@
 // 剧本生成“最终分段”：模型只管输出提示词（画面内容），
 // 程序把「已提取的人物/场景生成的基础设定 + 用户约束设置」注入每个分段卡片，
 // 与小说面板“按秒数分段并合并”的最终组装逻辑一致。
-import { getShotCardsWithinDuration, splitContinuousTimeline, splitTimelineBlocks } from './scriptShotOutput.js';
+import { getShotCards } from './scriptShotOutput.js';
 import { shouldInjectSmartUnifiedStyle } from './scriptGenerationRules.js';
 
 function text(value) {
@@ -239,39 +239,9 @@ export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 
 export function buildFinalSegments({ output, extractInfo, constraints, format, duration, mode }) {
   const textOutput = String(output || '').trim();
   if (!textOutput) return [];
-  const target = targetSeconds(duration);
-  let cards = [];
-  if (mode === 'segmented' || mode === undefined) {
-    // 分段开头（或未指定 mode）：优先保留 AI 的剧情单元边界（### 分镜N 标题），兜底按目标秒数切段
-    // 剧情模式的 [时间]镜头N 是单元内部镜头，先按模块/目标时长归并，避免一段剧情被拆成多张卡。
-    if (format === 'screenplay') {
-      const blocks = splitTimelineBlocks(textOutput, target);
-      if (blocks.length >= 2) cards = blocks;
-    }
-    if (!cards.length) cards = getShotCardsWithinDuration(format, textOutput, duration);
-    else cards = cards.flatMap(card => {
-      const pieces = splitContinuousTimeline(card, target);
-      return pieces.length > 1 ? pieces : [card];
-    });
-    if (!cards.length && format !== 'shortdrama') {
-      const segments = splitContinuousTimeline(textOutput, target);
-      if (segments.length >= 2) cards = segments;
-    }
-    if (!cards.length && format !== 'shortdrama') {
-      const blocks = splitTimelineBlocks(textOutput, target);
-      if (blocks.length >= 2) cards = blocks;
-    }
-  } else if (format !== 'shortdrama') {
-    // 非分段模式：AI 按小说面板规则输出连续总时间轴，系统按 10s/15s 切分为独立分镜卡。
-    // 即使 AI 误输出 ### 分镜N 标题，也统一按目标秒数切卡，保证单卡不超过模型生成能力。
-    const segments = splitContinuousTimeline(textOutput, target);
-    if (segments.length >= 2) cards = segments;
-    else {
-      const blocks = splitTimelineBlocks(textOutput, target);
-      if (blocks.length >= 2) cards = blocks;
-    }
-  }
-  if (!cards.length) cards = [textOutput];
+  // 外层卡片只由统一的 ### 分镜N 标题决定；format、mode 和 duration
+  // 不再触发任何兼容解析或生成后的二次切段。
+  const cards = getShotCards(format, textOutput);
   return cards
     .map((card, index) => buildFinalSegmentCard(card, { extractInfo, constraints, index, duration }))
     .filter(Boolean);

@@ -62,6 +62,18 @@ function normalizeDuration(value) {
   return value === '15s' ? '15s' : '10s';
 }
 
+function buildScriptCardProtocol(presetStore, duration) {
+  const normalizedDuration = normalizeDuration(duration);
+  const seconds = normalizedDuration === '15s' ? '15' : '10';
+  const endTime = normalizedDuration === '15s' ? '00:15' : '00:10';
+  return resolveSystemPresetBody(presetStore, 'script-card-protocol')
+    .replace(/\{10s或15s\}/g, normalizedDuration)
+    .replace(/\{X\}/g, seconds)
+    .replace(/\{2X\}/g, String(Number(seconds) * 2))
+    .replace(/\{duration\}/g, normalizedDuration)
+    .replace(/\{结束时间\}/g, endTime);
+}
+
 function buildExtractMessages(body, presetStore) {
   const extractionPresetId = resolveExtractionPresetId(body.extractionPreset, presetStore);
   if (!extractionPresetId) throw new Error('No published extraction preset available');
@@ -227,11 +239,7 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     ? `## 短原文时长硬校验\n原文仅 ${sourceText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得为了填满内容新增事件、人物、对白或空镜。`
     : '';
   const durationGuard = `## 时长硬校验（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个单元的结束时间不得超过 ${endTime}。禁止输出 60s、100s、01:00 或跨单元累计时间；内容不足时保持动作简洁，不得用重复动作填时长。`;
-  // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
-  // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
-  const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
-    ? ''
-    : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的${hasBaseSetup ? '人物、场景、基础设定及' : ''}所有已启用约束，确保可独立复制提交。`;
+  const cardProtocol = buildScriptCardProtocol(presetStore, duration);
   const protagonists = hasBaseSetup ? sanitizeProtagonists(body.characters, body.protagonists) : [];
   const protagonistPrompt = protagonists.length
     ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
@@ -240,12 +248,12 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
     directorMaster,
-    unitProtocol,
     durationGuard,
     compactSourceGuard,
     constraintWrapper,
     !hasBaseSetup && '基础设定未启用：不得输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块；只在剧情时间轴中写原文必要的人名、动作和地点。',
-    formatContent
+    formatContent,
+    cardProtocol
   ].filter(Boolean).join('\n\n---\n\n');
 
   return [
@@ -298,9 +306,10 @@ function buildQuickDirectorMessages(body, presetStore, personalPromptStore, user
     body.visualStyle
   );
   const outputBoundary = '## 输出边界\n只输出分镜单元和镜头画面正文；不得输出独立的“统一风格”“统一人物”“场景环境”或其他共享设定标题，已启用的基础设定与画面前缀由系统按约束设置组装。';
+  const cardProtocol = buildScriptCardProtocol(presetStore, duration);
   const systemPrompt = [quickDirectorBase, directorMaster, durationGuard,
     quickDirectorTemplate.includes('{audioMatchRules}') ? '' : audioMatchRules,
-    compactSourceGuard, constraintWrapper, outputBoundary
+    compactSourceGuard, constraintWrapper, outputBoundary, cardProtocol
   ].filter(Boolean).join('\n\n---\n\n');
   const smartStyle = isSmartUnifiedPrefixEnabled(body.constraints)
     ? String(body?.visualStyle || '').trim()
@@ -564,6 +573,7 @@ function createChatRouter({
   buildMessages,
   buildConstraintWrapper,
   normalizeDuration,
+  buildScriptCardProtocol,
   listPublishedExtractionPresets,
   resolveExtractionPresetId,
   normalizeFormat,
