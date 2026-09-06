@@ -10,6 +10,8 @@ const generatorPath = path.join(__dirname, '..', 'scripts', 'generate-release-in
 const identityKeys = ['app_version', 'build_id', 'git_revision', 'image_digest', 'release_channel', 'compatibility_components'];
 const gitRevision = '0123456789abcdef0123456789abcdef01234567';
 const imageDigest = `sha256:${'a'.repeat(64)}`;
+const zeroGitRevision = '0'.repeat(40);
+const zeroImageDigest = `sha256:${'0'.repeat(64)}`;
 
 function fixtureDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-release-info-'));
@@ -108,6 +110,42 @@ test('fails closed for candidate metadata without a full source revision or imag
     error => error?.code === 'RELEASE_PROVENANCE_REQUIRED'
       && /git_revision/.test(error.message)
       && /image_digest/.test(error.message)
+  );
+});
+
+test('rejects explicit all-zero provenance through validation and release loading', () => {
+  const { loadReleaseInfo, validateIdentity } = require(releaseInfoPath);
+  const directory = fixtureDirectory();
+
+  for (const releaseChannel of ['candidate', 'review', 'stable', 'production']) {
+    const metadata = validMetadata({
+      git_revision: zeroGitRevision,
+      image_digest: zeroImageDigest,
+      release_channel: releaseChannel
+    });
+    assert.throws(
+      () => validateIdentity(metadata),
+      error => error?.code === 'RELEASE_INFO_INVALID' && /zero/i.test(error.message),
+      `${releaseChannel} direct validation must reject all-zero provenance`
+    );
+    const filePath = writeFixture(directory, metadata, `${releaseChannel}.json`);
+    assert.throws(
+      () => loadReleaseInfo({}, filePath),
+      error => error?.code === 'RELEASE_INFO_INVALID' && /zero/i.test(error.message),
+      `${releaseChannel} release loading must reject all-zero provenance`
+    );
+  }
+
+  const developmentPath = writeFixture(directory, {
+    app_version: 'v88.0.0-development.3',
+    build_id: 'v88-local-zero-provenance',
+    git_revision: zeroGitRevision,
+    image_digest: zeroImageDigest,
+    release_channel: 'development'
+  }, 'development.json');
+  assert.throws(
+    () => loadReleaseInfo({}, developmentPath),
+    error => error?.code === 'RELEASE_INFO_INVALID' && /zero/i.test(error.message)
   );
 });
 
@@ -314,6 +352,26 @@ test('generates sorted release metadata and rejects incomplete candidate output'
     image_digest: null,
     release_channel: 'development'
   });
+});
+
+test('generator rejects explicit all-zero release and custom development provenance', () => {
+  const directory = fixtureDirectory();
+
+  for (const releaseChannel of ['candidate', 'development']) {
+    const generated = require('node:child_process').spawnSync(process.execPath, [
+      generatorPath,
+      '--version', releaseChannel === 'candidate' ? 'v88.0.0-candidate.5' : 'v88.0.0-development.4',
+      '--build-id', `v88-${releaseChannel}-zero-provenance`,
+      '--git-revision', zeroGitRevision,
+      '--image-digest', zeroImageDigest,
+      '--channel', releaseChannel,
+      '--output', path.join(directory, `${releaseChannel}.json`)
+    ], { encoding: 'utf8' });
+
+    assert.notEqual(generated.status, 0, `${releaseChannel} generation must fail`);
+    assert.match(generated.stderr, /zero/i);
+    assert.equal(fs.existsSync(path.join(directory, `${releaseChannel}.json`)), false);
+  }
 });
 
 test('top-level build-info exposes the fixture release while novel-panel diagnostics keep V78 workbench compatibility explicit', async () => {
