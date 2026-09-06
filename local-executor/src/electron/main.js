@@ -16,6 +16,7 @@ let mainWindow = null;
 let controller = null;
 let updateManager = null;
 let startupUpdateTimer = null;
+let protocolUpdateRequested = false;
 let pendingProtocolAction = findExecutorProtocolAction(process.argv);
 
 function createMainWindow() {
@@ -149,6 +150,7 @@ function buildUpdateManager() {
 }
 
 function scheduleStartupUpdateCheck(delayMs = 2500) {
+  if (protocolUpdateRequested) return;
   if (startupUpdateTimer) clearTimeout(startupUpdateTimer);
   startupUpdateTimer = setTimeout(() => {
     updateManager?.checkForUpdates({ autoDownload: true }).catch(error => {
@@ -156,6 +158,16 @@ function scheduleStartupUpdateCheck(delayMs = 2500) {
     });
   }, delayMs);
   startupUpdateTimer.unref?.();
+}
+
+function requestExecutorUpdate() {
+  protocolUpdateRequested = true;
+  focusExecutorWindow(mainWindow);
+  if (!updateManager) return false;
+  updateManager.checkForUpdates({ autoDownload: true }).catch(error => {
+    console.error('[protocol] update check failed:', error?.message || error);
+  });
+  return true;
 }
 
 function handleExecutorProtocolArguments(argv) {
@@ -166,6 +178,7 @@ function handleExecutorProtocolArguments(argv) {
     return true;
   }
   if (request.action === 'open') return focusExecutorWindow(mainWindow);
+  if (request.action === 'update') return requestExecutorUpdate();
   return false;
 }
 
@@ -174,6 +187,7 @@ function flushPendingProtocolAction() {
   pendingProtocolAction = null;
   if (!request) return false;
   if (request.action === 'open') return focusExecutorWindow(mainWindow);
+  if (request.action === 'update') return requestExecutorUpdate();
   return false;
 }
 
