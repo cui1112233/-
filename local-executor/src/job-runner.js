@@ -8,11 +8,12 @@ class AmbiguousAcceptanceError extends Error {
 }
 
 class JobRunner {
-  constructor({ api, token, accountPool, adapter, leaseRenewIntervalMs = 20000, retryDelayMs = 1000, maxSubmitAttempts = 3, maxRecoveryAttempts = 3, maxCompletionAttempts = 3, maxDownloadAttempts = 3, maxUploadAttempts = 3 }) {
+  constructor({ api, token, accountPool, adapter, logger = null, leaseRenewIntervalMs = 20000, retryDelayMs = 1000, maxSubmitAttempts = 3, maxRecoveryAttempts = 3, maxCompletionAttempts = 3, maxDownloadAttempts = 3, maxUploadAttempts = 3 }) {
     this.api = api;
     this.token = token;
     this.accountPool = accountPool;
     this.adapter = adapter;
+    this.logger = logger;
     this.leaseRenewIntervalMs = leaseRenewIntervalMs;
     this.retryDelayMs = retryDelayMs;
     this.maxSubmitAttempts = maxSubmitAttempts;
@@ -29,6 +30,8 @@ class JobRunner {
     const controller = new AbortController();
     let leaseError = null;
     let timer = null;
+    let currentStage = job.state || 'leased';
+    await emitLog(this.logger, 'JOB_CLAIMED', { jobId: job.id, stage: currentStage });
     if (this.leaseRenewIntervalMs > 0) {
       timer = setInterval(async () => {
         try {
@@ -50,8 +53,10 @@ class JobRunner {
         await this.api.release(this.token, job.id, lease, 'no available local doubao account');
         return { released: true, reason: 'no_account' };
       }
+      await emitLog(this.logger, 'ACCOUNT_ACQUIRED', { jobId: job.id, accountId: account.id, stage: currentStage });
 
       await this.api.progress(this.token, job.id, lease, 'preparing');
+      currentStage = 'preparing';
       this.throwLeaseError(leaseError);
       await this.adapter.prepare({ job, account, signal: controller.signal });
       this.throwLeaseError(leaseError);
@@ -59,6 +64,7 @@ class JobRunner {
       let submission = null;
       for (let attempt = 1; attempt <= this.maxSubmitAttempts; attempt++) {
         await this.api.progress(this.token, job.id, lease, 'submitting');
+        currentStage = 'submitting';
         this.throwLeaseError(leaseError);
         const outcome = await this.adapter.submit({ job, account, signal: controller.signal, attempt });
         this.throwLeaseError(leaseError);
@@ -69,6 +75,8 @@ class JobRunner {
         }
         if (outcome?.status === 'unknown') {
           await this.api.progress(this.token, job.id, lease, 'acceptance_unknown');
+          currentStage = 'acceptance_unknown';
+          await emitLog(this.logger, 'ACCEPTANCE_UNKNOWN', { jobId: job.id, accountId: account.id, stage: currentStage, attempt });
           let recovered = outcome;
           for (let recovery = 1; recovery <= this.maxRecoveryAttempts; recovery++) {
             recovered = await this.adapter.recoverAcceptance({ job, account, signal: controller.signal, recovery });
@@ -99,7 +107,21 @@ class JobRunner {
 
       await this.api.acceptance(this.token, job.id, lease, { accountId: account.id, submissionId: submission.submissionId });
       accepted = true;
+      currentStage = 'accepted';
+      await emitLog(this.logger, 'ACCEPTANCE_DETECTED', {
+        jobId: job.id,
+        accountId: account.id,
+        submissionId: submission.submissionId,
+        stage: currentStage
+      });
       await this.api.progress(this.token, job.id, lease, 'generating');
+      currentStage = 'generating';
+      await emitLog(this.logger, 'GENERATION_STARTED', {
+        jobId: job.id,
+        accountId: account.id,
+        submissionId: submission.submissionId,
+        stage: currentStage
+      });
 
       const completion = await retrySameOperation(
         () => this.adapter.waitForCompletion({ job, account, submissionId: submission.submissionId, signal: controller.signal }),
@@ -110,6 +132,7 @@ class JobRunner {
       this.throwLeaseError(leaseError);
 
       await this.api.progress(this.token, job.id, lease, 'downloading');
+      currentStage = 'downloading';
       const artifact = await retrySameOperation(
         () => this.adapter.fetchArtifact({ job, account, completion, signal: controller.signal }),
         this.maxDownloadAttempts,
@@ -120,6 +143,7 @@ class JobRunner {
       if (!artifact?.filePath) throw new Error('adapter did not return local artifact filePath');
 
       await this.api.progress(this.token, job.id, lease, 'uploading');
+      currentStage = 'uploading';
       const uploaded = await retrySameOperation(
         () => this.api.uploadArtifact(this.token, job.id, lease, artifact.filePath),
         this.maxUploadAttempts,
@@ -128,11 +152,33 @@ class JobRunner {
       );
       this.throwLeaseError(leaseError);
       if (!uploaded?.artifactId) throw new Error('server did not return artifactId');
+      await emitLog(this.logger, 'ARTIFACT_UPLOADED', {
+        jobId: job.id,
+        accountId: account.id,
+        submissionId: submission.submissionId,
+        artifactId: uploaded.artifactId,
+        stage: currentStage
+      });
 
       await this.api.result(this.token, job.id, lease, uploaded.artifactId);
+      currentStage = 'succeeded';
+      await emitLog(this.logger, 'JOB_COMPLETED', {
+        jobId: job.id,
+        accountId: account.id,
+        submissionId: submission.submissionId,
+        artifactId: uploaded.artifactId,
+        stage: currentStage
+      });
       return { succeeded: true, artifactId: uploaded.artifactId };
     } catch (error) {
       if (isAccountHoldState(error?.accountState)) accountReleaseState = error.accountState;
+      await emitLog(this.logger, 'JOB_FAILED', {
+        jobId: job.id,
+        accountId: account?.id,
+        stage: currentStage,
+        errorCode: error?.code || error?.name || 'JOB_FAILED',
+        errorMessage: error?.message || String(error)
+      });
       if (isCancellation(error)) throw error;
       if (error instanceof AmbiguousAcceptanceError) {
         await safeCall(() => this.api.fail(this.token, job.id, lease, { code: 'ACCEPTANCE_UNKNOWN', message: error.message }));
@@ -178,6 +224,14 @@ async function retrySameOperation(fn, attempts, waitMs, signal) {
 
 async function safeCall(fn) { try { return await fn(); } catch { return undefined; } }
 
+async function emitLog(logger, event, fields) {
+  try {
+    await logger?.event?.(event, fields);
+  } catch {
+    // Logging is diagnostic only and must never break a leased video job.
+  }
+}
+
 function delay(ms, signal) {
   if (!ms) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -187,4 +241,4 @@ function delay(ms, signal) {
   });
 }
 
-module.exports = { JobRunner, AmbiguousAcceptanceError, retrySameOperation, isCancellation, isAccountHoldState };
+module.exports = { JobRunner, AmbiguousAcceptanceError, retrySameOperation, isCancellation, isAccountHoldState, emitLog };
