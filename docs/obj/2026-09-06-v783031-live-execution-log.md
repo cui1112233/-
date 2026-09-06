@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS SSH PRECHECK PASSED / ECS DEPLOYMENT IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS SSH PRECHECK PASSED / ECS IMAGE STREAM IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -735,3 +735,28 @@ The job was not started because recent account payments have failed or your spen
 - 公网 `/novel-panel` 验证
 
 当前状态：`ECS SSH PRECHECK PASSED / ECS DEPLOYMENT IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
+
+
+---
+
+## 2026-09-06｜执行节点 18｜发布分支收敛到 Browser Worker 首次上线修正
+
+### 后续分支状态
+
+- 最新 v88 head：`7c51504e7abf7422eafc94fa93569eb24c61e636`
+- 该提交修正了 121 Browser Worker 首次上线的发布策略：
+  - 主应用镜像继续 GHCR 发布
+  - worker 镜像直接流式传输到 ECS
+  - 首次 worker 不要求已有稳定 worker 镜像标签
+  - rollback 区分首次 worker 上线与已有 worker 升级
+- 前一版修正 Release：`34031114328`，在镜像流式传输阶段被后续分支运行取消；未进入 Compose/验证步骤
+- 当前唯一最新 Release：`34031612944`
+- 当前 job：`101482045348`
+- 当前状态：`in_progress`
+- 已完成：构建、worker 构建、主镜像 GHCR、发布包、SSH 预检
+- 当前步骤：`Deploy verified images to V88 ECS`
+- 当前尚未取得：ECS Compose 重建、ECS localhost build-info、公网 V31 build-info、`/novel-panel` 验证
+
+### 安全边界
+
+当前仍未宣称部署成功；以 Release 最终日志和真实 ECS/公网证据为准。
