@@ -130,9 +130,12 @@ function formatSeconds(value) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// 旧兼容工具：显式需要重排历史连续时间轴时仍可调用。
-// 普通剧本/分镜生成路径不再自动使用它；10s/15s 分段必须由 AI 在生成前完成。
-export function splitContinuousTimeline(output, maxSeconds) {
+// 旧兼容工具：只有显式 opt-in 才允许重排历史连续时间轴。
+// 普通剧本/分镜生成路径即使仍保留旧调用，也会得到空数组，因此不会自动机械切卡。
+// 10s/15s 分段必须由 AI 在生成前完成；最终卡牌边界以“分镜一 / 分镜二 ……”为准。
+export function splitContinuousTimeline(output, maxSeconds, { allowMechanicalSplit = false } = {}) {
+  if (!allowMechanicalSplit) return [];
+
   const limit = Math.max(1, Number.parseInt(maxSeconds, 10) || 10);
   const text = String(output || '').trim();
   if (!text) return [];
