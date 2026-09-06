@@ -17,10 +17,11 @@ COPY frontend/dist/ ./frontend/dist/
 
 # Keep the legacy batch-rewrite workbench safe even when a candidate image is
 # built from a previously generated frontend/dist. The React source also loads
-# this guard after a fresh Vite build; the stable script id prevents duplicates.
+# these guards after a fresh Vite build; stable script ids prevent duplicates.
 COPY frontend/public/batch-rewrite/121-login-hotfix.js ./frontend/dist/batch-rewrite/121-login-hotfix.js
 COPY frontend/public/batch-rewrite/interaction-feedback.js ./frontend/dist/batch-rewrite/interaction-feedback.js
-RUN sed -i 's#</body>#    <script id="qiantie-121-login-hotfix" src="./121-login-hotfix.js?v=20260831-config-guard1"></script>\n    <script id="qiantie-novel-fetch-interaction-feedback" src="./interaction-feedback.js?v=20260906-public-feedback1"></script>\n  </body>#' ./frontend/dist/batch-rewrite/index.html
+COPY frontend/public/batch-rewrite/task-visibility-hotfix.js ./frontend/dist/batch-rewrite/task-visibility-hotfix.js
+RUN sed -i 's#</body>#    <script id="qiantie-121-login-hotfix" src="./121-login-hotfix.js?v=20260831-config-guard1"></script>\n    <script id="qiantie-novel-fetch-interaction-feedback" src="./interaction-feedback.js?v=20260906-public-feedback1"></script>\n    <script id="qiantie-novel-fetch-task-visibility" src="./task-visibility-hotfix.js?v=20260906-task-visibility1"></script>\n  </body>#' ./frontend/dist/batch-rewrite/index.html
 
 EXPOSE 3000
 CMD ["node", "server.js"]
