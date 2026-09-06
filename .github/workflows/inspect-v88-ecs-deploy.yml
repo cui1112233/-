@@ -30,26 +30,39 @@ jobs:
           ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
           ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
           set -Eeuo pipefail
-          echo '=== time ==='
-          date -Is
+          main_id="$(docker ps -qf name=v88-public-v88-node-1)"
+          old_worker_id="$(docker ps -qf name=v88-public-browser-worker-1)"
           echo '=== containers ==='
           docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-          echo '=== v88 build info ==='
-          curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info || true
-          echo
-          echo '=== v88 121 env ==='
-          main_id="$(docker ps -qf name=v88-public-v88-node-1)"
-          if [ -n "$main_id" ]; then
-            docker exec "$main_id" sh -lc 'env | grep "^QIANTIE_121_" | sed "s/=.*$/=<set>/" | sort || true'
-            echo '=== v88 browser worker code markers ==='
-            docker exec "$main_id" sh -lc 'grep -R -n -E "QIANTIE_121_BROWSER_WORKER_URL|browser_worker_url_missing|novel-fetch-121-worker" /app/routes /app/lib /app/server.js /app/app.js 2>/dev/null | head -80 || true'
+          echo '=== configured worker URL ==='
+          docker exec "$main_id" printenv QIANTIE_121_BROWSER_WORKER_URL || true
+          echo '=== secret equality with existing browser-worker ==='
+          node_secret="$(docker exec "$main_id" printenv QIANTIE_121_WORKER_SECRET 2>/dev/null || true)"
+          worker_secret="$(docker exec "$old_worker_id" printenv QIANTIE_121_WORKER_SECRET 2>/dev/null || true)"
+          if [ -n "$node_secret" ] && [ "$node_secret" = "$worker_secret" ]; then
+            echo 'NODE_AND_EXISTING_WORKER_SECRET_MATCH=true'
+          else
+            echo 'NODE_AND_EXISTING_WORKER_SECRET_MATCH=false'
           fi
-          echo '=== playwright base image tag ==='
-          docker image inspect mcr.microsoft.com/playwright:v1.55.0-noble --format '{{.Id}} {{.Os}}/{{.Architecture}}' 2>/dev/null || echo 'PLAYWRIGHT_BASE_TAG_MISSING'
-          echo '=== old worker history ==='
-          docker history --no-trunc qiantie-121-browser-worker:public-v78 2>/dev/null | head -20 || true
-          echo '=== relevant images ==='
-          docker images --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' | grep -E 'qiantie-v88|121-browser-worker|qiantie-platform|mcr.microsoft.com/playwright' || true
-          echo '=== active load/gzip processes ==='
-          ps -eo pid,ppid,etime,cmd | grep -E '[d]ocker load|[g]unzip|[g]zip -1' || true
+          echo '=== configured worker health from v88-node ==='
+          docker exec "$main_id" node - <<'NODE'
+          const base = process.env.QIANTIE_121_BROWSER_WORKER_URL || '';
+          const secret = process.env.QIANTIE_121_WORKER_SECRET || '';
+          if (!base || !secret) {
+            console.log('CONFIGURED_WORKER_HEALTH=env_missing');
+            process.exit(0);
+          }
+          fetch(`${base.replace(/\/$/, '')}/healthz`, { headers: { 'x-qiantie-internal-secret': secret } })
+            .then(async r => console.log(`CONFIGURED_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`))
+            .catch(e => console.log(`CONFIGURED_WORKER_HEALTH=error ${e.name}:${e.message}`));
+          NODE
+          echo '=== existing browser-worker health from v88-node ==='
+          docker exec "$main_id" node - <<'NODE'
+          const secret = process.env.QIANTIE_121_WORKER_SECRET || '';
+          fetch('http://browser-worker:8787/healthz', { headers: { 'x-qiantie-internal-secret': secret } })
+            .then(async r => console.log(`EXISTING_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`))
+            .catch(e => console.log(`EXISTING_WORKER_HEALTH=error ${e.name}:${e.message}`));
+          NODE
+          echo '=== existing worker routes ==='
+          docker exec "$old_worker_id" sh -lc 'grep -R -n -E "healthz|/login|/profiles|/styles|upload|session" /app/src 2>/dev/null | head -120 || true'
           REMOTE
