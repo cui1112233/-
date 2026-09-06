@@ -19,7 +19,7 @@ function availableSnapshot(extra = {}) {
   };
 }
 
-function harness({ snapshots, evidence, mediaCandidates = [], downloadPath = '/tmp/exact.mp4', logger = null } = {}) {
+function harness({ snapshots, evidence, mediaCandidates = [], downloadPath = '/tmp/exact.mp4', logger = null, submitError = null } = {}) {
   const calls = [];
   const queue = [...(snapshots || [availableSnapshot(), availableSnapshot()])];
   const webContents = { id: 7, session: {} };
@@ -36,7 +36,7 @@ function harness({ snapshots, evidence, mediaCandidates = [], downloadPath = '/t
       async clickExactControl(_wc, text) { calls.push(['click', text]); },
       async setReferenceImages(_wc, paths) { calls.push(['images', paths]); },
       async setPrompt(_wc, prompt) { calls.push(['prompt', prompt]); },
-      async submit() { calls.push(['submit']); },
+      async submit() { calls.push(['submit']); if (submitError) throw submitError; },
       async confirmNormal() { calls.push(['confirm']); return false; }
     },
     trackerFactory: () => tracker,
@@ -127,6 +127,17 @@ test('adapter emits page, prompt, submit, media and download boundaries without 
     'VIDEO_DOWNLOADED'
   ]);
   assert.equal(JSON.stringify(events).includes('绝不能写进日志的提示词'), false);
+});
+
+test('SUBMIT_CLICKED is not logged when the click itself fails', async () => {
+  const events = [];
+  const logger = { async event(name, fields) { events.push({ name, fields }); } };
+  const { adapter } = harness({ logger, submitError: new Error('button detached') });
+  const job = { id: 'job-submit-fail', payload: { prompt: '测试失败点击' } };
+  const account = { id: 'acct-1' };
+  await adapter.prepare({ job, account });
+  await assert.rejects(() => adapter.submit({ job, account, attempt: 1 }), /button detached/);
+  assert.equal(events.some(item => item.name === 'SUBMIT_CLICKED'), false);
 });
 
 test('human verification is a typed account hold and never submits', async () => {
