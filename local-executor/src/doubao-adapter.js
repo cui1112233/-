@@ -181,13 +181,13 @@ class DoubaoAdapter {
     state.tracker?.stop?.();
     state.tracker = this.trackerFactory(state.webContents);
     await state.tracker.startAttempt({ prompt: state.selected.prompt });
+    await this.pageActions.submit(state.webContents);
     await emitLog(this.logger, 'SUBMIT_CLICKED', {
       jobId: job.id,
       accountId: account.id,
       stage: 'submitting',
       attempt
     });
-    await this.pageActions.submit(state.webContents);
     if (this.confirmationDelayMs > 0) await this.sleep(this.confirmationDelayMs, signal);
     throwIfAborted(signal);
     await this.pageActions.confirmNormal(state.webContents);
