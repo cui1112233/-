@@ -151,13 +151,32 @@ commit=<实际验证提交>
 - [x] Windows npm.cmd 兼容处理。
 - [x] 版本读取自 package.json。
 - [x] stable / minimumVersion / 90 MiB / SHA / report 门槛写入脚本。
+- [x] A2 提交差异核对：从 A2 开始仅新增脚本、契约测试、本 OBJ 三个文件，没有修改业务链路。
+- [x] 再次确认 hosted Actions RED run 仍为 0-step，不能提供真实测试证据。
+- [x] 当前 ChatGPT 执行容器检查过，没有 `pwsh` / `powershell`，不能在这里冒充 Windows 语法或 NSIS 实跑。
 - [ ] 在真实 Windows/ECS 上执行脚本。
 - [ ] 得到完整测试结果。
 - [ ] 得到真实 1.0.4 installer。
 - [ ] 得到真实 bytes / MiB / SHA-256。
 - [ ] 进入 Windows 覆盖安装与协议实机验收。
 
-## 6. 禁止提前宣称
+## 6. 当前唯一需要在 Windows 执行的命令
+
+仓库切到：
+
+```text
+fix/v88-doubao-executor-phase1-20260906
+```
+
+然后在仓库根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify-v88-doubao-phase1.ps1
+```
+
+脚本会自行完成测试、前端构建、NSIS 构建、SHA、体积门槛和报告，不需要逐条复制十几条命令。
+
+## 7. 禁止提前宣称
 
 在真实 Windows 执行完成之前，不允许宣称：
 
