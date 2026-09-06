@@ -43,253 +43,270 @@ cancelled           已取消
 
 只有服务端记录 `accepted` 后才允许进入 `generating`；`queued / preparing / submitting / acceptance_unknown` 绝不能在网页显示成“正在生成视频”。
 
-## 已完成并验证
+## 已完成并有 GREEN 证据
 
 ### Step 1 — Node → Go VIDEO 桥接 + stable 下载源
 
-- 已修复原 `POST /api/script-videos/local`、`GET /api/script-videos/{id}` 404。
-- 新增 `backend/internal/httpapi/script_video_local.go`，复用现有 `localexecutor.Service`。
-- stable manifest 已成为 Windows 正式最新版来源，不再手写版本。
-- 关键提交：`af69bbf90d7416069c7f8d62dd1c9c34f763505e`。
+- 修复 `/api/script-videos/*` 404，复用现有 `localexecutor.Service`。
+- stable manifest 成为 Windows 正式最新版来源。
+- 关键提交：`af69bbf90d7416069c7f8d62dd1c9c34f763505e`
 - GREEN：CI `34017379066`，Go / Node / Electron / Frontend 全通过。
 
 ### Step 2–3 — 设置页动态版本与下载
 
 - 新增 `frontend/src/shared/api/executorRelease.js`。
-- 严格 `x.y.z` 数字比较；支持 latest/minimum/current、updateAvailable、updateRequired。
-- SettingsPage 下载地址来自 manifest；显示当前版本、最新稳定版、最低支持版、已是最新/有新版本/必须更新/版本未知。
-- 关键提交：`0847510b7f552087223412b3efbd0b5a72816e8a`。
-- GREEN：CI `34018080537` 全通过。
+- SettingsPage 显示当前/最新/最低版本及升级状态，下载地址来自 manifest。
+- 关键提交：`0847510b7f552087223412b3efbd0b5a72816e8a`
+- GREEN：CI `34018080537`。
 
 ### Step 4–5 — `yizhan-executor://` + Electron 单实例
 
-- 新增安全协议解析器 `local-executor/src/electron/protocol-handler.js`。
-- 只允许 `yizhan-executor://open`；拒绝任意命令、未知 action、http/https。
-- 主进程增加 `requestSingleInstanceLock`、`second-instance`、冷/热启动聚焦。
-- electron-builder/NSIS 注册 `yizhan-executor` scheme。
-- 关键提交：`9f9fd1fbc948d2fd3cf1dac8c057cddae9e1cc57`。
-- GREEN：CI `34018270271` 全通过。
+- 仅允许 `yizhan-executor://open`，拒绝任意命令和未知 action。
+- 单实例、二次唤起聚焦、NSIS 协议注册已完成。
+- 关键提交：`9f9fd1fbc948d2fd3cf1dac8c057cddae9e1cc57`
+- GREEN：CI `34018270271`。
 
 ### Step 6 — 设置页“打开执行器”
 
-- SettingsPage 增加固定 `[打开执行器] → yizhan-executor://open`。
-- 不拼用户输入，不调用 PowerShell/CMD；下载按钮继续保留。
-- 关键提交：`8b2b6751e31c6ac53c02f840b375a825dff72c64`。
-- GREEN：CI `34018460735` 全通过。
+- `[打开执行器] → yizhan-executor://open`
+- 不拼用户输入，不调用 PowerShell/CMD。
+- 关键提交：`8b2b6751e31c6ac53c02f840b375a825dff72c64`
+- GREEN：CI `34018460735`。
 
 ## Step 7 — `/script` 真实 VIDEO stage
-
-### 已完成代码
 
 阶段 helper：
 
 ```text
 frontend/src/shared/api/scriptVideoStage.js
-commit: 52ff1d55b7ea20a1f4df6a03b183e93485e3cb36
+52ff1d55b7ea20a1f4df6a03b183e93485e3cb36
 ```
 
-RED：`34018608427`；GREEN：`34018665157`。
+该 helper 已经 RED `34018608427` → GREEN `34018665157`。
 
-页面显示层：
-
-```text
-bd2b3f30c8bfb51678ef6d97ddb1a6b80d916bf7
-feat: show precise script video stages
-```
-
-页面链路：
+页面实现：
 
 ```text
-e1a030cf03749ed37f9d4c07fde2f6f4692a95dc
-fix: persist real local executor video stages
-```
-
-契约测试：
-
-```text
-c66cb8e0222a2d52d7d657e6d9c393ed341252de
+bd2b3f30c8bfb51678ef6d97ddb1a6b80d916bf7  显示真实 stage
+e1a030cf03749ed37f9d4c07fde2f6f4692a95dc  轮询持续写回 stage
+c66cb8e0222a2d52d7d657e6d9c393ed341252de  页面集成契约测试
 ```
 
 已修复：
 
-1. Go 正式列表返回 `{"executors": [...]}`，ScriptPage 原来误读 `result.items`，现已改为 `result.executors`。
-2. 创建任务保存真实 `status/stage`，无 stage 时只安全回退 `queued`。
-3. 每轮 poll 都把服务端任务响应合并进 `shotVideoTasks`。
-4. 中间 stage 会自动同步历史。
-5. 草稿/历史恢复会继续轮询所有非终态任务。
-6. 只有 `generating` 显示“豆包正在生成视频”。
-7. `failed/cancelled` 可重新生成。
+1. Go 正式列表返回 `{"executors": [...]}`，ScriptPage 原误读 `result.items`，现改为 `result.executors`。
+2. 创建任务保存真实 `status/stage`，无 stage 时只回退 `queued`。
+3. 每次轮询都将服务端任务结果写回 `shotVideoTasks`。
+4. 历史/草稿恢复继续轮询所有非终态任务。
+5. 只有 `generating` 显示“豆包正在生成视频”。
+6. failed/cancelled 后允许重新生成。
 
-提交级 diff 核对：`ScriptPage.jsx +20/-11`，未波及其他剧本功能。
+验证阻塞：`34020329804 / 34020375585` 均为 GitHub Runner 未启动：`steps=[] / runner_id=0`。因此 Step 7 代码已完成，但尚未正式勾选 GREEN。
 
-### Step 7 当前验证阻塞
+## Step 8 — acceptance / network / exact-media
 
-CI `34020329804`、`34020375585` 都是 GitHub Runner 基础设施故障：
+已确认原有正确机制：
 
-```text
-steps=[]
-runner_id=0
-runner_name=""
-```
+- `doubao-acceptance.js` 保守输出 accepted/unknown/not_accepted。
+- unknown 最多 recover 3 次，恢复时不重新点击提交。
+- 只有明确 not_accepted 才允许重新 submit，最多 3 次。
+- `api.acceptance(...)` 成功后才允许 `progress('generating')`。
+- Go/MySQL 状态机也强制 accepted → generating。
+- human_verification / quota_exhausted / auth_required 会 hold 账号，不绕过验证。
+- `bindExactMedia()` 无唯一精确匹配就失败，不取页面任意最新视频。
 
-测试命令没有启动，所以 Step 7 暂不勾选完成。
+发现并修复风险：原 Network tracker 允许“当前 prompt + 旧 conversationId + 2xx”证明 accepted，并可能让同 conversation 旧视频参与绑定。
 
-## Step 8 — acceptance / network tracker 审计
-
-### 已确认正确机制
-
-`doubao-acceptance.js`：
-
-- 只输出 `accepted / unknown / not_accepted`。
-- 没证据默认 `unknown`，不会乐观当成接单。
-- DOM 接单证据要求“新 identity + 当前 prompt 唯一绑定”；多个候选返回 unknown。
-
-`job-runner.js`：
-
-- `unknown` 进入 `acceptance_unknown`。
-- 最多调用 `recoverAcceptance()` 3 次，使用同一次 tracker 继续取证，**不重新点击提交**。
-- `recoverAcceptance` 仍 unknown → `ACCEPTANCE_UNKNOWN` 失败。
-- 只有明确 `not_accepted` 才允许重新 submit，最多 3 次。
-- accepted 后完成/下载/上传重试都复用同一个 submission，不重新生成。
-- 顺序严格：`api.acceptance(...) → progress('generating')`。
-
-Go + MySQL 状态机：
-
-- `accepted` 只能从 `submitting / acceptance_unknown` 写入。
-- `generating` 只能从已经 accepted 的 `accepted` 状态进入。
-- accepted 任务被 pin，不能 release 回队列。
-
-账号异常：
-
-- `human_verification`
-- `quota_exhausted`
-- `auth_required`
-
-都会抛 `DoubaoAccountError`，账号池进入对应 hold 状态，不会误判 accepted，也不绕过人机验证。
-
-成片绑定：
-
-- `bindExactMedia()` 要求当前 submission identity 唯一匹配。
-- 无匹配直接失败。
-- 多个匹配直接判 ambiguous，不拿“页面任意视频”当当前成片。
-
-### Step 8 新发现风险：conversationId 误判接单/旧片
-
-原 `doubao-network-tracker.js` 的网络 acceptance 逻辑是：
+提交：
 
 ```text
-请求体包含当前 prompt
-+ 任意 stable id（其中包含 conversationId）
-+ HTTP 2xx
-→ accepted=true
+257a5dbab6bc9c91eb814b9d7426da39d4c02148  conversation-only acceptance RED
+a13d7761cc83c95c4b1e98ba38704964d727e9c5?  （历史记录中的前缀误写，真实修复 SHA 见下一行）
+813d7761cc83c95c4b1e98ba38704964d727e9c5  require submission identity
+d3753e84a6110fb004e3ea232cb6534e06c3fe34  reject same-conversation old media
 ```
 
-风险：同一会话中的同步/保存类请求只带旧 `conversationId` 时，也可能被误当“豆包已接单”；并且旧视频若只共享 conversationId，也可能成为候选。
-
-新增回归测试：
-
-```text
-257a5dbab6bc9c91eb814b9d7426da39d4c02148
-test: reject conversation-only submit evidence
-```
-
-规则：当前 prompt + 旧 conversationId + 2xx，但没有新 message/task/generation ID，必须保持 `accepted=false`。
-
-最小修复：
-
-```text
-813d7761cc83c95c4b1e98ba38704964d727e9c5
-fix: require submission identity for network acceptance
-```
-
-修复后身份分层：
+新规则：
 
 ```text
 上下文 stable IDs：conversation/message/task/generation/media/video
-接单级 submission IDs：message/task/generation
+能证明本次接单的 submission IDs：message/task/generation
 ```
 
-只有 `messageId / taskId / generationId` 能推进 network accepted；`conversationId / mediaId / videoId` 不能单独证明接单。
+只有 messageId/taskId/generationId 能推进 network accepted；媒体候选也必须命中当前 submission IDs。
 
-网络媒体候选也只允许通过当前 submission IDs 关联，不能只因共享 conversationId 被绑定。
+相关 Actions `34020644614 / 34020695665` 仍是 `runner_id=0 / steps=[]`，所以 Step 8 修复已落地但等待真实 CI。
 
-额外回归测试：
+## Step 9 — 关键边界结构化日志
+
+### 审计结果
+
+原执行器没有统一业务日志落盘；主要只有 updater/protocol 的 `console.error` 和 UI `lastError`，无法判断任务卡在准备、点击、接单、生成、下载还是回传。
+
+### 新日志器
+
+文件：
 
 ```text
-d3753e84a6110fb004e3ea232cb6534e06c3fe34
-test: reject conversation-only media binding
+local-executor/src/structured-logger.js
+43e70cf9dbdd770dfa5972af2d15419ad2911408
 ```
 
-该测试加入“同一 conversation 的旧 media”并要求只保留真正命中当前 message/task 的 exact media。
-
-### Step 8 验证状态
-
-CI `34020644614`（RED 提交）和 `34020695665`（修复提交）仍是 GitHub Runner 基础设施故障：
+Electron 本地路径：
 
 ```text
-四个 job 全部 steps=[] / runner_id=0
+userData/logs/executor-events.jsonl
 ```
 
-测试没有实际执行。因此 Step 8 的源码审计和修复已落地，但仍等待真实 CI 后才勾选完成。
+特性：
 
-## 当前执行：Step 9 — 关键边界结构化日志
+- 仅 Node 内置 `fs/path`，零第三方依赖。
+- JSONL 追加写；串行写入避免行交叉。
+- 字段白名单 + 长度限制。
+- 日志写入失败只影响诊断，不允许打断视频任务。
 
-目标事件：
+禁止写入：
+
+```text
+完整 prompt
+executor token
+lease token
+Cookie
+Authorization
+签名下载 URL/query
+账号密码
+```
+
+允许的核心字段：timestamp/event/jobId/executorId/accountId/submissionId/mediaId/artifactId/stage/errorCode/errorMessage，以及安全的 model/duration/ratio/imageCount/promptLength/attempt。
+
+### JobRunner 事件
+
+测试：
+
+```text
+8ab7748b3bbbec213aea943fbb6bbfb51e377aa2
+```
+
+实现：
+
+```text
+6bb91ec15fefb6902cce894cd0885b9bfa5c40e1
+```
+
+事件：
 
 ```text
 JOB_CLAIMED
 ACCOUNT_ACQUIRED
-DOUBAO_PAGE_READY
-VIDEO_OPTIONS_SELECTED
-PROMPT_FILLED
-SUBMIT_CLICKED
 ACCEPTANCE_UNKNOWN
 ACCEPTANCE_DETECTED
 GENERATION_STARTED
-MEDIA_DETECTED
-VIDEO_DOWNLOADED
 ARTIFACT_UPLOADED
 JOB_COMPLETED
 JOB_FAILED
 ```
 
-日志至少带：
+### DoubaoAdapter 事件
+
+测试：
 
 ```text
-timestamp
-event
-jobId
-executorId（有则带）
-accountId（有则带）
-submissionId（有则带）
-stage
-errorCode（失败时）
-errorMessage（失败时，限长）
+c3fef70dbdfbc3569e9acdcec657fbe1fac86785
 ```
 
-禁止日志写入：
+实现：
 
 ```text
-完整 prompt
-executor token / lease token
-Cookie / Authorization
-下载签名 URL query
-账号密码
+8b9d9603913a13f44546e9ea49d4f641dde0b2e2
 ```
 
-先审计当前日志设施；若没有统一 logger，则新增轻量 JSONL logger，并通过依赖注入接入 JobRunner/adapter 关键边界，不引入新大型依赖。
+事件：
+
+```text
+DOUBAO_PAGE_READY
+VIDEO_OPTIONS_SELECTED
+PROMPT_FILLED
+SUBMIT_CLICKED
+MEDIA_DETECTED
+VIDEO_DOWNLOADED
+```
+
+`PROMPT_FILLED` 只记录 promptLength，不记录提示词正文。
+
+### Electron wiring
+
+测试：
+
+```text
+59fe7c034d98851e73e07438c9bcf502751b39f7
+```
+
+实现：
+
+```text
+065e06a64510e4069ac8c54bdc5969bd20b9adb8
+```
+
+同一个 logger 同时注入 `DoubaoAdapter` 和 `DesktopRuntime.runnerOptions → JobRunner`。
+
+自查发现 wiring 测试属于 CommonJS 却使用 `import.meta.url`，已主动修正：
+
+```text
+33f8c0164244450ca971f1a349a069a03fd22020
+```
+
+新增提交语义测试：如果 `pageActions.submit()` 本身失败，不得记录 `SUBMIT_CLICKED`：
+
+```text
+5d17aa207c150edcbcdc88bfb6e91d05adfc577f
+```
+
+实现已将 `SUBMIT_CLICKED` 移到真实点击成功之后：
+
+```text
+8297bae21b703758715178e28b970adfba8bcdb7
+```
+
+Step 9 RED workflow `34020824393`、后续 `34021048780` 仍然没有分配 Runner，均为 `steps=[] / runner_id=0`。不能把它们算代码测试失败，也不能宣称 Step 9 GREEN。
+
+## 当前执行：Step 10 / Step 11 准备
+
+### Step 10 — 完整回归
+
+目标必须真实执行：
+
+```text
+backend: go test ./...
+Node route tests
+local-executor npm test
+local-executor syntax check
+frontend npm test
+frontend npm build
+```
+
+当前 GitHub Runner 未启动是唯一验证阻塞；在 Runner 恢复前继续做源码/契约/构建配置审计。
+
+### Step 11 — Windows NSIS
+
+接下来确认：
+
+1. `local-executor/package.json` 当前 Windows build 脚本与 electron-builder 配置。
+2. 是否已有 Windows GitHub Actions 构建 workflow。
+3. NSIS 安装包是否仍为单安装目录覆盖安装。
+4. 构建 artifact 输出路径、文件名、版本来源。
+5. 增加可重复的 Windows build + SHA256 + size 产物记录，但不改 master。
 
 ## 后续顺序
 
 - [x] Step 1：Go VIDEO 桥接 + stable 下载源
-- [x] Step 2：SettingsPage 去掉旧下载版本硬编码
+- [x] Step 2：SettingsPage 去旧版本硬编码
 - [x] Step 3：当前/最新/最低版本状态
 - [x] Step 4：`yizhan-executor://`
 - [x] Step 5：Electron 单实例
 - [x] Step 6：设置页“打开执行器”
-- [ ] Step 7：`/script` 真实 stage + `items/executors` 修复（代码完成，等待真实 CI）
-- [ ] Step 8：接单/网络/成片绑定审计与 conversation-only 修复（代码完成，等待真实 CI）
-- [ ] Step 9：关键边界结构化日志
+- [ ] Step 7：`/script` 真实 stage（代码完成，等待真实 CI）
+- [ ] Step 8：接单/网络/成片精确绑定（代码完成，等待真实 CI）
+- [ ] Step 9：结构化日志（代码完成，等待真实 CI）
 - [ ] Step 10：全套 Go / Node / Electron / Frontend 回归
 - [ ] Step 11：Windows NSIS 构建
 - [ ] Step 12：记录 installer 版本 / 字节数 / MiB / SHA-256
@@ -299,14 +316,14 @@ Cookie / Authorization
 
 ## 安装包与更新硬约束
 
-Phase 1 保留 Electron。已知早期 Windows 安装包约 79 MiB；本阶段不额外捆绑 Chromium/Playwright/Python/Node 副本/完整 FFmpeg，不用 UPX 强行压缩。继续复用现有 UpdateManager + NSIS 原地覆盖；更新临时文件不得堆到 Downloads；持久配对/设备/账号状态不得因更新丢失。
+Phase 1 保留 Electron。早期 Windows 安装包约 79 MiB；本阶段不额外捆绑 Chromium/Playwright/Python/Node 副本/完整 FFmpeg，不用 UPX 强行压缩。继续复用 UpdateManager + NSIS 原地覆盖；更新临时文件不得堆到 Downloads；持久配对/设备/账号状态不得因覆盖更新丢失。
 
 ## 实时进度日志
 
-- 进度 01：修复 Node → Go 404；stable 下载源 GREEN `34017379066`。
-- 进度 02：动态版本/SettingsPage GREEN `34018080537`。
-- 进度 03：协议 + 单实例 GREEN `34018270271`。
-- 进度 04：设置页“打开执行器” GREEN `34018460735`。
-- 进度 05：Step 7 helper RED `34018608427` → GREEN `34018665157`；确认 `items/executors` 接口字段错误。
-- 进度 06：Step 7 页面代码已完成；`34020329804 / 34020375585` 因 GitHub runner_id=0 未执行测试。
-- 进度 07：Step 8 确认 bounded acceptance recovery 与服务端状态机正确；发现 conversation-only 网络接单/旧片关联风险，提交测试 `257a5dba...`、修复 `813d7761...`、旧片回归测试 `d3753e84...`；相关 Actions 仍因 runner_id=0 未实际执行。
+- 进度 01：Step 1 stable 下载源 + VIDEO bridge GREEN `34017379066`。
+- 进度 02：Step 2/3 Settings 动态版本 GREEN `34018080537`。
+- 进度 03：Step 4/5 协议 + 单实例 GREEN `34018270271`。
+- 进度 04：Step 6 打开执行器 GREEN `34018460735`。
+- 进度 05：Step 7 helper RED `34018608427` → GREEN `34018665157`；页面 stage 链路代码完成，后续 Runner 故障阻塞。
+- 进度 06：Step 8 修复 conversation-only 假接单/旧片误绑；Runner 故障阻塞完整验证。
+- 进度 07：Step 9 JSONL 结构化日志、JobRunner/Adapter 边界事件、Electron 落盘 wiring 完成；修正 CommonJS 测试和 SUBMIT_CLICKED 语义；Runner 故障仍阻塞 GREEN。
