@@ -76,6 +76,7 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		externalStore := external.NewMySQLStore(db)
 		provider121 := external.New121Provider(cfg.External121Endpoint, cfg.External121APIKey)
 		providerYadi := external.NewYadiProvider(cfg.ExternalYadiEndpoint, cfg.ExternalYadiAPIKey)
+		external121PublishReady := cfg.External121Enabled && cfg.External121VideoUploadVerified
 		if cfg.External121Enabled {
 			if err := provider121.Validate(); err != nil {
 				return nil, err
@@ -95,7 +96,7 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 				external.Provider121:  provider121,
 				external.ProviderYadi: providerYadi,
 			},
-			Enabled: map[external.Provider]bool{external.Provider121: cfg.External121Enabled, external.ProviderYadi: cfg.ExternalYadiEnabled},
+			Enabled: map[external.Provider]bool{external.Provider121: external121PublishReady, external.ProviderYadi: cfg.ExternalYadiEnabled},
 			Key:     cfg.ExternalCredentialsKey,
 		}
 	}

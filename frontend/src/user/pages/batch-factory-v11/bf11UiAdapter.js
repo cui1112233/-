@@ -80,6 +80,16 @@ async function loadPersonalPrompts(api) {
   };
 }
 
+async function loadPromptCatalog(api) {
+  const kinds = ['hook', 'script', 'asset', 'video'];
+  if (typeof api.listPrompts !== 'function') return Object.fromEntries(kinds.map(kind => [kind, []]));
+  const results = await Promise.all(kinds.map(kind => Promise.resolve(api.listPrompts({ kind })).catch(() => ({ prompts: [] }))));
+  return Object.fromEntries(kinds.map((kind, index) => [
+    kind,
+    Array.isArray(results[index]?.prompts) ? results[index].prompts : []
+  ]));
+}
+
 export function configVersionOptions(configVersions) {
   return (Array.isArray(configVersions) ? configVersions : [])
     .filter(record => record && typeof record.id === 'string' && record.id)
@@ -151,6 +161,7 @@ export function createBf11UiAdapter(api) {
         loadVideoProviderState(api)
       ]);
       const personalPromptState = await loadPersonalPrompts(api);
+      const promptCatalogs = await loadPromptCatalog(api);
       const batches = batchesFrom(batchResult);
       const { configVersions, configVersionsError } = configVersionState;
       const selectedBatchId = batchId || batches[0]?.id || '';
@@ -175,6 +186,7 @@ export function createBf11UiAdapter(api) {
         configVersionsError,
         personalPrompts: personalPromptState.personalPrompts,
         personalPromptsError: personalPromptState.personalPromptsError,
+        promptCatalogs,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
         mergeStatus: mergeStatus?.batchId ? mergeStatus : null,
         videoProviders: videoProviderState.videoProviders,
@@ -208,7 +220,7 @@ export function createBf11UiAdapter(api) {
     },
 
     async approveHook({ batchId, bookId, hookId } = {}) {
-      if (!batchId || !bookId || !hookId) throw new Error('V11 Hook identity is required');
+      if (!batchId || !bookId || !hookId) throw new Error('批次、小说和爆款开头编号不能为空');
       return api.approveHook(batchId, bookId, hookId);
     },
 
@@ -217,19 +229,19 @@ export function createBf11UiAdapter(api) {
       return api.runDirector(batchId, bookId);
     },
 
-    async runBatchDirector({ batchId } = {}) {
+    async runBatchDirector({ batchId, bookIds = [] } = {}) {
       if (!batchId) throw new Error('V11 batch id is required');
-      if (typeof api.runBatchDirector !== 'function') throw new Error('批量 Director 接口未接入');
-      return api.runBatchDirector(batchId);
+      if (typeof api.runBatchDirector !== 'function') throw new Error('批量编剧接口未接入');
+      return api.runBatchDirector(batchId, bookIds);
     },
 
     async saveVideoPrompt({ batchId, bookId, videoId, visualPrompt, revision = 0 } = {}) {
-      if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
+      if (!batchId || !bookId || !videoId) throw new Error('批次、小说和视频编号不能为空');
       return api.saveVideoOverride(batchId, bookId, videoId, { patch: { visualPrompt }, expectedRevision: revision });
     },
 
     async previewFinalPrompt({ batchId, bookId, videoId } = {}) {
-      if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
+      if (!batchId || !bookId || !videoId) throw new Error('批次、小说和视频编号不能为空');
       const [effectiveResult, promptResult] = await Promise.all([
         api.getEffectiveSettings(batchId, bookId, videoId),
         api.getFinalPrompt(batchId, bookId, videoId)
@@ -240,11 +252,11 @@ export function createBf11UiAdapter(api) {
       };
     },
 
-    async runProduction({ batchId, bookId = '', requestId, provider = 'personal_api' } = {}) {
+    async runProduction({ batchId, bookId = '', bookIds = [], requestId, provider = 'personal_api' } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
       return bookId
         ? api.submitBookProduction(batchId, bookId, requestId, provider)
-        : api.submitBatchProduction(batchId, requestId, provider);
+        : (bookIds.length ? api.submitBatchProduction(batchId, requestId, provider, bookIds) : api.submitBatchProduction(batchId, requestId, provider));
     },
 
     async saveVideoProviderConfig(payload = {}) {

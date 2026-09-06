@@ -13,11 +13,11 @@ export function batchDirectorActionState({ batch = null, capability = {}, connec
   if (capability?.available !== true) {
     return {
       disabled: true,
-      reason: capability?.reason || 'Director 尚未启用'
+      reason: capability?.reason || '编剧流程尚未启用'
     };
   }
   if (!connected) {
-    return { disabled: true, reason: '等待 Director 批量动作接线' };
+    return { disabled: true, reason: '等待批量编剧动作接线' };
   }
   if (!batch?.id) {
     return { disabled: true, reason: '当前没有可操作的批次' };

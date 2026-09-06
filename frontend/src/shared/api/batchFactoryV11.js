@@ -128,8 +128,8 @@ export function runDirector(batchId, bookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body({}) });
 }
 
-export function runBatchDirector(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body({}) });
+export function runBatchDirector(batchId, bookIds = []) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body({ bookIds }) });
 }
 
 export function getEffectiveSettings(batchId, bookId, videoId) {
@@ -147,10 +147,10 @@ export function submitBookProduction(batchId, bookId, requestId, provider = 'per
   });
 }
 
-export function submitBatchProduction(batchId, requestId, provider = 'personal_api') {
+export function submitBatchProduction(batchId, requestId, provider = 'personal_api', bookIds = []) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/production`), {
     method: 'POST',
-    body: body({ requestId, provider })
+    body: body({ requestId, provider, bookIds })
   });
 }
 

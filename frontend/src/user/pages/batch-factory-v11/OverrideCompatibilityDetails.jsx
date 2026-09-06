@@ -19,9 +19,9 @@ export function OverrideCompatibilityDetails({ entries = [] }) {
   return <Alert
     type="warning"
     showIcon
-    message="VIDEO 覆盖兼容性"
+    message="视频覆盖兼容性"
     description={<Space direction="vertical" size={6} style={{ width: '100%' }}>
-      <Typography.Text type="secondary">以下明细直接来自 Go；旧 VIDEO 覆盖不会被静默迁移到新 VIDEO。</Typography.Text>
+      <Typography.Text type="secondary">以下明细直接来自服务端；旧视频覆盖不会被静默迁移到新视频。</Typography.Text>
       {details.map((entry, index) => <Space key={entry?.id || entry?.videoId || index} wrap>
         <Tag color={entry?.state === 'orphaned' ? 'gold' : 'red'}>{stateLabel(entry?.state)}</Tag>
         {entry?.videoId ? <Typography.Text code>{entry.videoId}</Typography.Text> : null}

@@ -12,7 +12,7 @@ test('unreleased action remains disabled from server capability', () => {
   assert.equal(actionState({ 'director.run': { available: false, reason: 'not released' } }, 'director.run').disabled, true);
 });
 
-test('batch Director is disabled when the public Director capability is unavailable', () => {
+test('batch 编剧 is disabled when the public capability is unavailable', () => {
   const state = batchDirectorActionState({
     capability: { available: false, reason: 'Director slice not released' },
     connected: true,
@@ -22,14 +22,14 @@ test('batch Director is disabled when the public Director capability is unavaila
   assert.equal(state.reason, 'Director slice not released');
 });
 
-test('batch Director requires a real batch action connection after capability release', () => {
+test('batch 编剧 requires a real batch action connection after capability release', () => {
   const state = batchDirectorActionState({
     capability: { available: true },
     connected: false,
     batch: { id: 'batch-1' }
   });
   assert.equal(state.disabled, true);
-  assert.equal(state.reason, '等待 Director 批量动作接线');
+  assert.equal(state.reason, '等待批量编剧动作接线');
 });
 
 test('batch Director becomes enabled only for a released capability and real batch', () => {

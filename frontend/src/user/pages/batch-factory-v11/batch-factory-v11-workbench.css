@@ -198,10 +198,11 @@
 }
 
 .bf11-book-list-body { height: 100%; display: flex; flex-direction: column; gap: 9px; }
+.bf11-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .bf11-book-list { min-height: 0; display: flex; flex-direction: column; gap: 5px; overflow: auto; }
 .bf11-book-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 24px 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   width: 100%;
@@ -314,8 +315,8 @@
 
 @media (max-width: 620px) {
   .bf11-status-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bf11-book-row { grid-template-columns: 24px minmax(0, 1fr); }
-  .bf11-book-meta { grid-column: 2; align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
+  .bf11-book-row { grid-template-columns: 24px 24px minmax(0, 1fr); }
+  .bf11-book-meta { grid-column: 3; align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
   .bf11-current-book-head,
   .bf11-video-detail-head { align-items: stretch; flex-direction: column; }
   .bf11-tool-buttons { grid-template-columns: 1fr; }

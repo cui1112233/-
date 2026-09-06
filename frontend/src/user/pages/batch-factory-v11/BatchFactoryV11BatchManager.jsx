@@ -1,4 +1,4 @@
-import { Alert, Button, Drawer, Empty, Input, List, Select, Space, Tabs, Tag, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Drawer, Empty, Input, List, Select, Space, Tabs, Tag, Typography, message } from 'antd';
 import { Archive, FileText, FolderPlus, RotateCcw, Upload, WandSparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { listAgentSkills } from '../../../shared/api/agent.js';
@@ -29,6 +29,7 @@ export function BatchFactoryV11BatchManager({
   const [previewItems, setPreviewItems] = useState([]);
   const [skillOptions, setSkillOptions] = useState([]);
   const [skillIds, setSkillIds] = useState([]);
+  const [recognitionEnabled, setRecognitionEnabled] = useState(false);
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -144,12 +145,12 @@ export function BatchFactoryV11BatchManager({
       }));
       const result = await onCreateManualIntake({
         items: books,
-        metadata: { sourceType: 'manual', skillIds: selectedSkillIds, skills: selectedSkills }
+        metadata: { sourceType: 'manual', manualMetadataRecognitionEnabled: recognitionEnabled, skillIds: selectedSkillIds, skills: selectedSkills }
       });
       if (!result?.ok) throw new Error(resultError(result, '直接导入失败'));
       const intakeId = result.raw?.intake?.id || result.raw?.id || '';
-      if (!intakeId) throw new Error('服务器未返回 Intake ID');
-      message.success(`已创建 ${books.length} 条真实 V11 Intake，等待明确创建批次`);
+      if (!intakeId) throw new Error('服务器未返回导入记录编号');
+      message.success(`已创建 ${books.length} 条真实导入记录，等待明确创建批次`);
       onManualIntakeCreated?.(intakeId);
     } catch (confirmError) {
       setError(confirmError.message || '直接导入失败');
@@ -172,13 +173,13 @@ export function BatchFactoryV11BatchManager({
       type="success"
       showIcon
       message="已接收小说获取任务"
-      description="小说获取转入的内容会保留 sourceTaskId、Book ID、平台、TXT 和来源元数据；你需要明确点击创建 V11 批次。"
+      description="小说获取转入的内容会保留来源任务、小说 ID、平台、文本文件和来源元数据；你需要明确点击创建批次。"
     /> : null}
 
     <section className="bf11-batch-intake-card">
       <div>
         <Typography.Text strong>直接导入内容</Typography.Text>
-        <Typography.Text type="secondary">粘贴一篇或多篇正文，或选择 TXT / MD 文件；内容会先经过选定技能处理，再进入正式 V11 Intake。</Typography.Text>
+      <Typography.Text type="secondary">粘贴一篇或多篇正文，或选择 TXT / MD 文件；内容会先经过选定技能处理，再进入正式导入记录。</Typography.Text>
       </div>
       <Tag color="blue">最多选择 3 个技能</Tag>
     </section>
@@ -207,6 +208,9 @@ export function BatchFactoryV11BatchManager({
         placeholder="选择 0-3 个现有技能（可选）"
         style={{ width: '100%' }}
       />
+      <Checkbox checked={recognitionEnabled} onChange={event => setRecognitionEnabled(event.target.checked)}>
+        启用元数据识别（识别性别和类型；关闭时保留“未识别”）
+      </Checkbox>
       <Space wrap>
         <Button type="primary" icon={<WandSparkles size={14} />} disabled={!items.length} loading={processing} onClick={processContent}>执行技能并预览</Button>
         <Typography.Text type="secondary">已加入 {items.length} 条</Typography.Text>
@@ -244,7 +248,7 @@ export function BatchFactoryV11BatchManager({
     <div className="bf11-batch-manager-heading">
       <div>
         <Typography.Text strong>历史批次</Typography.Text>
-        <Typography.Text type="secondary">这里读取真实 V11 API 返回的批次，不展示示例数据。</Typography.Text>
+      <Typography.Text type="secondary">这里读取服务端返回的真实批次，不展示示例数据。</Typography.Text>
       </div>
       <Tag>{batches.length} 个批次</Tag>
     </div>
@@ -255,7 +259,7 @@ export function BatchFactoryV11BatchManager({
         <List.Item.Meta
           avatar={<Archive size={18} />}
           title={<Space wrap><Typography.Text strong>{item.title || item.id}</Typography.Text><Tag>{batchCount(item)} 本</Tag></Space>}
-          description={`V11 · ${item.id}`}
+          description={`服务端记录 · ${item.id}`}
         />
       </List.Item>}
     />

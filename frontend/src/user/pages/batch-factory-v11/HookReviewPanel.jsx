@@ -34,7 +34,7 @@ export function HookReviewPanel({
       type="info"
       showIcon
       message="原文直转模式"
-      description="当前小说不需要爆款 Hook；Director 直接使用服务端冻结的原文输入。"
+      description="当前小说不需要爆款开头；系统会直接使用服务端冻结的原文窗口。"
     />;
   }
 
@@ -43,10 +43,10 @@ export function HookReviewPanel({
       <div>
         <Space wrap>
           <Sparkles size={16} />
-          <Typography.Text strong>爆款 Hook</Typography.Text>
+          <Typography.Text strong>爆款开头</Typography.Text>
           <Tag color={hook?.status === 'approved' ? 'green' : hook?.status ? 'gold' : 'default'}>{hookStatusLabel(hook)}</Tag>
         </Space>
-        <Typography.Text type="secondary">Hook 由 Go 生成并持久化；前端只审核和提交明确动作。</Typography.Text>
+        <Typography.Text type="secondary">爆款开头由服务端生成并保存；这里负责审核和明确批准。</Typography.Text>
       </div>
       <Space wrap>
         <Button
@@ -55,7 +55,7 @@ export function HookReviewPanel({
           disabled={generateState.disabled}
           title={generateState.reason}
           onClick={() => onRunHook?.(book)}
-        >{text ? '重新生成 Hook' : '生成 Hook'}</Button>
+        >{text ? '重新生成开头' : '生成开头'}</Button>
         <Button
           type="primary"
           icon={<Check size={14} />}
@@ -63,18 +63,18 @@ export function HookReviewPanel({
           disabled={approveState.disabled}
           title={approveState.reason}
           onClick={() => onApproveHook?.(book, hook)}
-        >批准 Hook</Button>
+        >批准开头</Button>
       </Space>
     </div>
 
     {text ? <div className="bf11-hook-review-copy">
       <Typography.Paragraph>{text}</Typography.Paragraph>
-      {hook?.id ? <Typography.Text type="secondary">Hook Revision · {hook.id}</Typography.Text> : null}
+      {hook?.id ? <Typography.Text type="secondary">开头记录 · {hook.id}</Typography.Text> : null}
     </div> : <Alert
       type="warning"
       showIcon
-      message="尚未生成 Hook"
-      description={generateState.reason || '生成后需要人工审核并明确批准，Director 才能继续。'}
+      message="尚未生成爆款开头"
+      description={generateState.reason || '生成后需要人工审核并明确批准，编剧流程才会继续。'}
     />}
   </section>;
 }

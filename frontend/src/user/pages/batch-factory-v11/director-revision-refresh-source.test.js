@@ -13,7 +13,7 @@ test('Director revision refresh is controlled by batch.read and never invents a 
   const page = read('BatchFactoryV11UiPage.jsx');
   const bridge = read('DirectorRefreshContext.jsx');
   assert.match(panel, /batch\.read/);
-  assert.match(panel, /刷新 Revision/);
+  assert.match(panel, /刷新编排记录/);
   assert.match(panel, /useDirectorRevisionRefresh/);
   assert.match(page, /DirectorRefreshProvider/);
   assert.match(page, /refreshDirectorRevision/);

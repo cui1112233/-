@@ -89,10 +89,11 @@ func TestFromEnvAcceptsSliceSixWithEncryptedExternalPublishConfig(t *testing.T) 
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_API_KEY", "merge-key")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED", "1")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_121_ENABLED", "1")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_121_VIDEO_UPLOAD_VERIFIED", "1")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_121_ENDPOINT", "https://121-gateway.example/submit")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_121_API_KEY", "121-key")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_CREDENTIALS_KEY", "12345678901234567890123456789012")
 	cfg, err := FromEnv()
 	if err != nil { t.Fatal(err) }
-	if cfg.Slice != 6 || !cfg.External121Enabled || len(cfg.ExternalCredentialsKey) != 32 { t.Fatalf("cfg=%+v", cfg) }
+	if cfg.Slice != 6 || !cfg.External121Enabled || !cfg.External121VideoUploadVerified || len(cfg.ExternalCredentialsKey) != 32 { t.Fatalf("cfg=%+v", cfg) }
 }

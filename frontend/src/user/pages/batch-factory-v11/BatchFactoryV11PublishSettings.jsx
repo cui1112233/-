@@ -112,13 +112,13 @@ export function PublishSettingsDrawer({
 
       <Divider orientation="left">上传 / 发布参数</Divider>
       <section className="bf11-setting-section">
-        <PublishField label="上传视频类型" description="决定发布时上传最终合并成品还是独立 VIDEO。">
+        <PublishField label="上传视频类型" description="决定发布时上传最终合并成品还是独立视频。">
           <Segmented
             value={form.uploadVideoType}
             onChange={uploadVideoType => patch({ uploadVideoType })}
             options={[
               { value: 'merged', label: '合并成品' },
-              { value: 'individual', label: '独立 VIDEO' }
+              { value: 'individual', label: '独立视频' }
             ]}
           />
         </PublishField>

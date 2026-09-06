@@ -45,18 +45,18 @@ export function DirectorPanel({
   const refreshDisabled = refreshAction.disabled || typeof refreshDirector !== 'function';
   const refreshReason = refreshAction.disabled
     ? refreshAction.reason
-    : (refreshDirector ? '' : '等待 Director revision 刷新接线');
+    : (refreshDirector ? '' : '等待编排记录刷新接线');
 
   return <section className="bf11-director-panel" data-bf-director-panel="director">
     <div className="bf11-director-panel-head">
       <div>
         <Space wrap>
           <Clapperboard size={16} />
-          <Typography.Text strong>Director</Typography.Text>
+          <Typography.Text strong>编剧与分镜</Typography.Text>
           <Tag color={revision?.id ? 'blue' : 'default'}>{directorRevisionLabel(revision)}</Tag>
           {book?.fixedSingleVideo ? <Tag color="purple">{fixedVideoLabel({ maxDurationSeconds })}</Tag> : null}
         </Space>
-        <Typography.Text type="secondary">Director 输出、VIDEO identity 与 revision 只以 Go 返回结果为准。</Typography.Text>
+        <Typography.Text type="secondary">人物、场景、道具、视频方案只以服务端保存结果为准。</Typography.Text>
       </div>
       <Space wrap>
         <Button
@@ -65,7 +65,7 @@ export function DirectorPanel({
           disabled={refreshDisabled}
           title={refreshReason}
           onClick={refreshRevision}
-        >刷新 Revision</Button>
+        >刷新编排记录</Button>
         <Button
           type="primary"
           icon={revision?.id ? <RefreshCw size={14} /> : <Play size={14} />}
@@ -73,7 +73,7 @@ export function DirectorPanel({
           disabled={action.disabled}
           title={action.reason}
           onClick={() => onRunDirector?.(book)}
-        >{revision?.id ? '重新 Director' : '开始 Director'}</Button>
+        >{revision?.id ? '重新开启编剧' : '开启编剧'}</Button>
       </Space>
     </div>
 

@@ -24,7 +24,7 @@ const PRESET_OPTIONS = {
 };
 
 const TEXT_CONSTRAINTS = [
-  { key: 'prefix', enabledKey: 'prefixEnabled', label: '画面前缀词', description: '随每个 VIDEO 一起注入；自动模式可再叠加统一前缀。', placeholder: '输入统一画面前缀词…' },
+  { key: 'prefix', enabledKey: 'prefixEnabled', label: '画面前缀词', description: '随每个视频一起注入；自动模式可再叠加统一前缀。', placeholder: '输入统一画面前缀词…' },
   { key: 'quality', enabledKey: 'qualityEnabled', label: '画质约束', description: '控制清晰度、光影、人物稳定性等画质要求。', placeholder: '输入画质约束…' },
   { key: 'restriction', enabledKey: 'restrictionEnabled', label: '画面限制', description: '限制跳轴、服装漂移、构图错误等不希望出现的画面。', placeholder: '输入画面限制…' },
   { key: 'negative', enabledKey: 'negativeEnabled', label: '负面提示词', description: '用于抑制畸形、低清、错误文字、水印等问题。', placeholder: '输入负面提示词…' }
@@ -177,7 +177,7 @@ function TextConstraintBlock({ definition, value, onChange, inherited, scope, pe
         <Button disabled={!onSaveDraft} onClick={saveDraft}>保存当前草稿</Button>
         <Button icon={<BookmarkPlus size={14} />} disabled={!onSavePersonalPrompt} onClick={savePersonalPrompt}>保存为我的提示词</Button>
       </Space>
-      <Typography.Text type="secondary">当前设置内容会随批次保存；草稿会写入 V11 Prompt/Draft 库，个人提示词会保存到个人中心。</Typography.Text>
+      <Typography.Text type="secondary">当前设置内容会随批次保存；草稿会写入批量工厂提示词草稿库，个人提示词会保存到个人中心。</Typography.Text>
     </div> : null}
   </section>;
 }
@@ -233,28 +233,28 @@ export function BatchFactoryV11ConstraintEditor({
     <div className="bf11-constraint-simple-group">
       <ToggleRow
         label="基础设定（人物 / 场景）"
-        description="根据当前 VIDEO 实际引用关系注入人物与场景基础设定。"
+        description="根据当前视频实际引用关系注入人物与场景基础设定。"
         checked={normalized.injectBaseSettings === true}
         inherited={inherited}
         onChange={checked => patch({ injectBaseSettings: checked })}
       />
       <ToggleRow
-        label="人物 Prompt 注入"
-        description="只注入当前 VIDEO 实际引用的人物 Prompt。"
+        label="人物提示词注入"
+        description="只注入当前视频实际引用的人物提示词。"
         checked={normalized.injectCharacterPrompt === true}
         inherited={inherited}
         onChange={checked => patch({ injectCharacterPrompt: checked })}
       />
       <ToggleRow
-        label="场景 Prompt 注入"
-        description="只注入当前 VIDEO 实际引用的场景 Prompt。"
+        label="场景提示词注入"
+        description="只注入当前视频实际引用的场景提示词。"
         checked={normalized.injectScenePrompt === true}
         inherited={inherited}
         onChange={checked => patch({ injectScenePrompt: checked })}
       />
       <ToggleRow
-        label="道具 Prompt 注入"
-        description="只注入当前 VIDEO 实际引用的道具 Prompt。"
+        label="道具提示词注入"
+        description="只注入当前视频实际引用的道具提示词。"
         checked={normalized.injectPropPrompt === true}
         inherited={inherited}
         onChange={checked => patch({ injectPropPrompt: checked })}

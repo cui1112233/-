@@ -1,5 +1,6 @@
 import {
   Button,
+  Checkbox,
   Collapse,
   Empty,
   Input,
@@ -31,6 +32,8 @@ import { DirectorPanel } from './DirectorPanel';
 import { HookReviewPanel } from './HookReviewPanel';
 import { WorkbenchCard } from './WorkbenchCard';
 import { actionState, batchDirectorActionState } from './batchFactoryV11State.js';
+import { HelpButton } from './helpContent.jsx';
+import { selectedBookIds, selectionScopeLabel, toggleAllBooks, toggleBookSelection } from './selectionState.js';
 import {
   DEFAULT_WORKSPACE_LAYOUT,
   GRID_COLUMNS,
@@ -104,7 +107,7 @@ function AssetPromptGroup({ label, type, items, drafts, onChange, onRefresh, onS
           <TextArea
             rows={3}
             value={drafts[key] ?? assetPrompt(item)}
-            placeholder="等待 V11 资产 Prompt 数据"
+            placeholder="等待服务端资产提示词"
             onChange={event => onChange(key, event.target.value)}
           />
         </div>;
@@ -132,6 +135,7 @@ export function BatchFactoryV11Workbench({
   onRunBatchDirector,
   onPreviewFinalPrompt,
   onRunProduction,
+  onRunBookProduction,
   onSaveVideoPrompt,
   onRefreshAssets,
   onSaveAssetPrompts,
@@ -139,6 +143,7 @@ export function BatchFactoryV11Workbench({
   onRunUpload
 }) {
   const [selectedBookId, setSelectedBookId] = useState(books[0]?.id || '');
+  const [bookSelection, setBookSelection] = useState([]);
   const [selectedVideoId, setSelectedVideoId] = useState(books[0]?.videos?.[0]?.id || '');
   const [statusFilter, setStatusFilter] = useState('全部');
   const [bookSearch, setBookSearch] = useState('');
@@ -170,11 +175,16 @@ export function BatchFactoryV11Workbench({
     () => books.find(book => book.id === selectedBookId) || books[0] || null,
     [books, selectedBookId]
   );
+  const selectedIds = useMemo(() => selectedBookIds(bookSelection, books), [bookSelection, books]);
 
   const selectedVideo = useMemo(() => {
     const videos = selectedBook?.videos || [];
     return videos.find(video => video.id === selectedVideoId) || videos[0] || null;
   }, [selectedBook, selectedVideoId]);
+
+  useEffect(() => {
+    setBookSelection(current => selectedBookIds(current, books));
+  }, [books]);
 
   useEffect(() => {
     if (!books.length) {
@@ -303,12 +313,12 @@ export function BatchFactoryV11Workbench({
   const bookCollapseItems = selectedBook ? [
     {
       key: 'source',
-      label: <span className="bf11-fold-label"><strong>原文</strong><small>来源内容</small></span>,
-      children: <Typography.Paragraph className="bf11-source-copy">{selectedBook.sourceText || '当前服务端未返回正文。'}</Typography.Paragraph>
+      label: <span className="bf11-fold-label"><strong>原文 <HelpButton topic="source" /></strong><small>{selectedBook.contentLineLimit || 5} 行内容幅度</small></span>,
+      children: <Typography.Paragraph className="bf11-source-copy">{selectedBook.contentPreview || '当前服务端未返回内容幅度。'}</Typography.Paragraph>
     },
     {
       key: 'hook',
-      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{selectedHook?.status === 'approved' ? '已批准' : selectedHook ? '待审核' : '当前未生成'}</small></span>,
+      label: <span className="bf11-fold-label"><strong>爆款开头</strong><small>{selectedHook?.status === 'approved' ? '已批准' : selectedHook ? '待审核' : '当前未生成'}</small></span>,
       children: <HookReviewPanel
         book={selectedBook}
         capabilities={capabilities}
@@ -318,7 +328,7 @@ export function BatchFactoryV11Workbench({
     },
     {
       key: 'director',
-      label: <span className="bf11-fold-label"><strong>Director</strong><small>{selectedBook?.directorRevision?.id || selectedBook?.director?.id ? '已有 revision' : '等待导演'}</small></span>,
+      label: <span className="bf11-fold-label"><strong>编剧结果 <HelpButton topic="writing" /></strong><small>{selectedBook?.directorRevision?.id || selectedBook?.director?.id ? '已生成' : '等待执行'}</small></span>,
       children: <DirectorPanel
         book={selectedBook}
         capabilities={capabilities}
@@ -327,16 +337,16 @@ export function BatchFactoryV11Workbench({
     },
     {
       key: 'assets',
-      label: <span className="bf11-fold-label"><strong>人物 / 场景 / 道具</strong><small>Prompt 直接编辑</small></span>,
+      label: <span className="bf11-fold-label"><strong>人物 / 场景 / 道具</strong><small>提示词直接编辑</small></span>,
       children: <div className="bf11-asset-editor-stack">
-        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
-        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
-        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
+        <AssetPromptGroup label="人物提示词" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
+        <AssetPromptGroup label="场景提示词" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
+        <AssetPromptGroup label="道具提示词" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
       </div>
     },
     {
       key: 'videos',
-      label: <span className="bf11-fold-label"><strong>VIDEO 方案</strong><small>{selectedVideos.length} 个 VIDEO · 画面提示词</small></span>,
+      label: <span className="bf11-fold-label"><strong>视频方案 <HelpButton topic="video" /></strong><small>{selectedVideos.length} 个视频 · 画面提示词</small></span>,
       children: <div className="bf11-video-plan">
         <div className="bf11-video-list">
           {selectedVideos.map((video, index) => {
@@ -346,7 +356,7 @@ export function BatchFactoryV11Workbench({
             className={selectedVideo?.id === video.id ? 'is-selected' : ''}
             onClick={() => { setSelectedVideoId(video.id); setPreviewTarget(video.id); }}
           >
-            <span><Video size={14} /> {video.label || `VIDEO ${String(index + 1).padStart(2, '0')}`}</span>
+            <span><Video size={14} /> {video.label || `视频 ${String(index + 1).padStart(2, '0')}`}</span>
             <small>{video.duration ? `${video.duration}s` : '—'}</small>
             <Tag color={statusTone[displayStatus]}>{displayStatus}</Tag>
           </button>;
@@ -355,7 +365,7 @@ export function BatchFactoryV11Workbench({
         {selectedVideo ? <div className="bf11-video-detail">
           <div className="bf11-video-detail-head">
             <Space wrap>
-              <strong>{selectedVideo.label || '当前 VIDEO'}</strong>
+              <strong>{selectedVideo.label || '当前视频'}</strong>
               {selectedVideo.duration ? <Tag>{selectedVideo.duration}s</Tag> : null}
               <Tag color={statusTone[durableVideoStatus(selectedVideo, productionTaskByVideoId)]}>{durableVideoStatus(selectedVideo, productionTaskByVideoId)}</Tag>
             </Space>
@@ -365,14 +375,14 @@ export function BatchFactoryV11Workbench({
               disabled={overrideAction.disabled || !onOpenVideoSettings}
               title={overrideAction.disabled ? overrideAction.reason : ''}
               onClick={() => onOpenVideoSettings?.(selectedBook, selectedVideo)}
-            >VIDEO 设置</Button>
+            >视频设置</Button>
           </div>
           <div className="bf11-inline-editor">
-            <div className="bf11-inline-editor-title"><Typography.Text strong>画面提示词</Typography.Text><Tag>visualPrompt</Tag></div>
+            <div className="bf11-inline-editor-title"><Typography.Text strong>画面提示词</Typography.Text><Tag>服务端字段</Tag></div>
             <TextArea
               rows={6}
               value={videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? ''}
-              placeholder="当前服务端未返回 visualPrompt"
+              placeholder="当前服务端未返回画面提示词"
               onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedVideo.id]: event.target.value }))}
             />
             <Space wrap>
@@ -382,7 +392,7 @@ export function BatchFactoryV11Workbench({
                 title={compilerAction.disabled ? compilerAction.reason : ''}
                 onClick={() => onPreviewFinalPrompt?.(selectedBook, selectedVideo)}
               >本次提交预览</Button>
-              <Typography.Text type="secondary">Go 会展示每项设置来源、Director revision 和最终 compiledPrompt。</Typography.Text>
+              <Typography.Text type="secondary">服务端会展示设置来源、编排结果和最终提示词。</Typography.Text>
             </Space>
           </div>
           <div className="bf11-assets compact">
@@ -390,7 +400,7 @@ export function BatchFactoryV11Workbench({
             <div><b>场景</b>{(selectedVideo.scenes || []).map(item => <Tag key={assetName(item)}>{assetName(item)}</Tag>)}</div>
             <div><b>道具</b>{(selectedVideo.props || []).map(item => <Tag key={assetName(item)}>{assetName(item)}</Tag>)}</div>
           </div>
-        </div> : <Typography.Text type="secondary">当前小说没有 VIDEO 数据。</Typography.Text>}
+        </div> : <Typography.Text type="secondary">当前小说没有视频数据。</Typography.Text>}
       </div>
     }
   ] : [];
@@ -401,29 +411,35 @@ export function BatchFactoryV11Workbench({
       title: '小说列表',
       subtitle: `${filteredBooks.length}/${books.length} 本`,
       content: <div data-bf-card="book-list" className="bf11-book-list-body">
+        <div className="bf11-list-heading"><Space><strong>小说列表</strong><HelpButton topic="bookList" /></Space><Space size={6}><Checkbox checked={books.length > 0 && selectedIds.length === books.length} onChange={() => setBookSelection(toggleAllBooks(selectedIds, books))}>全选</Checkbox><Typography.Text type="secondary">{selectionScopeLabel(selectedIds, books)}</Typography.Text></Space></div>
         <Input
           allowClear
           prefix={<Search size={14} />}
           value={bookSearch}
           onChange={event => setBookSearch(event.target.value)}
-          placeholder="搜索书名 / Book ID / 平台"
+          placeholder="搜索书名 / 小说 ID / 平台"
         />
         <div className="bf11-book-list">
-          {filteredBooks.map(book => <button
+          {filteredBooks.map(book => <div
             key={book.id}
             className={`bf11-book-row ${selectedBook?.id === book.id ? 'is-selected' : ''} ${book.status === '异常' ? 'is-error' : ''}`}
+            role="button"
+            tabIndex={0}
             onClick={() => selectBook(book)}
+            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') selectBook(book); }}
           >
+            <Checkbox checked={selectedIds.includes(book.id)} onClick={event => event.stopPropagation()} onChange={() => setBookSelection(current => toggleBookSelection(current, book.id))} />
             <span className="bf11-book-index">{String(books.indexOf(book) + 1).padStart(2, '0')}</span>
             <span className="bf11-book-copy">
               <strong>{book.title || book.bookId || book.id}</strong>
-              <small>{book.platform || '未知来源'} · {book.bookId || book.id}</small>
+              <small>{book.gender || '未识别性别'} · {book.bookId || book.id} · {book.type || '未识别类型'}</small>
+              <small>{book.sourceLabel || book.platform || '未知来源'} · {book.status || '未返回状态'}</small>
             </span>
             <span className="bf11-book-meta">
               {book.overrideCount ? <Tag color="purple">已调整 {book.overrideCount}</Tag> : null}
               <Tag color={statusTone[book.status]}>{book.status || '未返回状态'}</Tag>
             </span>
-          </button>)}
+          </div>)}
           {!filteredBooks.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的小说" /> : null}
         </div>
       </div>
@@ -431,7 +447,7 @@ export function BatchFactoryV11Workbench({
     {
       id: 'book-workbench',
       title: '当前小说工作台',
-      subtitle: selectedBook ? `${selectedBook.platform || '未知来源'} · Book ID ${selectedBook.bookId || selectedBook.id}` : '请选择小说',
+      subtitle: selectedBook ? `${selectedBook.sourceLabel || selectedBook.platform || '未知来源'} · 小说 ID ${selectedBook.bookId || selectedBook.id}` : '请选择小说',
       content: <div data-bf-card="book-workbench" className="bf11-book-workbench-body">
         {selectedBook ? <>
           <div className="bf11-current-book-head">
@@ -442,12 +458,19 @@ export function BatchFactoryV11Workbench({
                 {selectedBook.overrideCount ? <Tag color="purple">当前小说已覆盖 {selectedBook.overrideCount} 项</Tag> : <Tag>当前层无覆盖</Tag>}
               </Space>
             </div>
-            <Button
-              icon={<Settings2 size={15} />}
-              disabled={overrideAction.disabled || !onOpenBookSettings}
-              title={overrideAction.disabled ? overrideAction.reason : ''}
-              onClick={() => onOpenBookSettings?.(selectedBook)}
-            >当前小说设置</Button>
+            <Space wrap>
+              <Button
+                disabled={productionAction.disabled || !onRunBookProduction}
+                title={productionAction.disabled ? productionAction.reason : ''}
+                onClick={() => onRunBookProduction?.(selectedBook)}
+              >生成当前小说视频</Button>
+              <Button
+                icon={<Settings2 size={15} />}
+                disabled={overrideAction.disabled || !onOpenBookSettings}
+                title={overrideAction.disabled ? overrideAction.reason : ''}
+                onClick={() => onOpenBookSettings?.(selectedBook)}
+              >当前小说设置</Button>
+            </Space>
           </div>
           <Collapse
             className="bf11-book-collapse"
@@ -464,7 +487,7 @@ export function BatchFactoryV11Workbench({
       content: <div data-bf-card="preview" className="bf11-preview-body">
         <div className="bf11-preview-tabs">
           <button className={previewTarget === 'merged' ? 'is-active' : ''} onClick={() => setPreviewTarget('merged')}>最终合并</button>
-          {selectedVideos.map((video, index) => <button key={video.id} className={previewTarget === video.id ? 'is-active' : ''} onClick={() => { setPreviewTarget(video.id); setSelectedVideoId(video.id); }}>{video.label || `VIDEO ${String(index + 1).padStart(2, '0')}`}</button>)}
+          {selectedVideos.map((video, index) => <button key={video.id} className={previewTarget === video.id ? 'is-active' : ''} onClick={() => { setPreviewTarget(video.id); setSelectedVideoId(video.id); }}>{video.label || `视频 ${String(index + 1).padStart(2, '0')}`}</button>)}
         </div>
         <div className="bf11-unified-player" data-bf-player="unified">
           {(() => {
@@ -478,8 +501,8 @@ export function BatchFactoryV11Workbench({
           })()}
           <strong>{previewTarget === 'merged'
             ? (selectedBook?.mergedFileName || '暂无合并成品')
-            : (selectedVideos.find(video => video.id === previewTarget)?.label || '当前 VIDEO')}</strong>
-          <span>{previewTarget === 'merged' ? '最终合并成品统一在这里预览' : '原始 VIDEO 统一切换到同一个播放器预览'}</span>
+            : (selectedVideos.find(video => video.id === previewTarget)?.label || '当前视频')}</strong>
+          <span>{previewTarget === 'merged' ? '最终合并成品统一在这里预览' : '生成视频统一切换到同一个播放器预览'}</span>
           <div className="bf11-player-track"><i /></div>
           <small>{selectedBook?.mergedUrl
             || (mergeStatus?.jobs || []).some(job => job.outputUrl)
@@ -509,14 +532,14 @@ export function BatchFactoryV11Workbench({
           <div className="bf11-tool-buttons">
             <Button
               disabled={batchDirectorAction.disabled}
-              onClick={() => onRunBatchDirector?.(batch)}
+              onClick={() => onRunBatchDirector?.(batch, selectedIds)}
               title={batchDirectorAction.reason}
-            >批量 Director</Button>
+            >开启编剧</Button>
             <Button
               disabled={productionAction.disabled || !onRunProduction}
               title={productionAction.disabled ? productionAction.reason : ''}
-              onClick={() => onRunProduction?.(batch)}
-            >生成待生成</Button>
+              onClick={() => onRunProduction?.(batch, selectedIds)}
+            >开启导演</Button>
           </div>
         </section>
 
@@ -553,8 +576,8 @@ export function BatchFactoryV11Workbench({
 
         <section className="bf11-tool-section">
           <div className="bf11-tool-section-head"><strong>批量上传</strong><Tag>确认后外发</Tag></div>
-          <Button icon={<Upload size={14} />} disabled={!onRunUpload} onClick={() => onRunUpload?.(batch)}>上传待上传</Button>
-          <Typography.Text type="secondary">点击后选择 121/Yadi；先保存加密账号，再生成确认单，最后由你明确确认提交。</Typography.Text>
+          <Button icon={<Upload size={14} />} disabled={!onRunUpload} onClick={() => onRunUpload?.(batch, selectedIds)}>开启发布</Button>
+          <Typography.Text type="secondary"><HelpButton topic="publish" /> 选择后需通过登录、确认单和逐项回执；视频会和小说内容一起进入发布校验。</Typography.Text>
         </section>
       </div>
     }
@@ -571,11 +594,11 @@ export function BatchFactoryV11Workbench({
     <section className="bf11-batch-header" data-bf-region="batch-header">
       <div className="bf11-batch-title">
         <Space wrap size={8}>
-          <Typography.Title level={3}>{batch?.title || 'Batch Factory V11'}</Typography.Title>
+          <Typography.Title level={3}>{batch?.title || '批量工厂'}</Typography.Title>
           <Tag>{Number(batch?.count ?? books.length)} 本</Tag>
           {batch?.status ? <Tag color="processing">{batch.status}</Tag> : null}
         </Space>
-        <Typography.Text type="secondary">{batchSubtitle || '等待服务端生产配置'}</Typography.Text>
+        <Typography.Text type="secondary">{batchSubtitle || '等待服务端生产配置'} <HelpButton topic="header" /></Typography.Text>
       </div>
       <Space wrap>
         <Button

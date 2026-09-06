@@ -19,13 +19,13 @@ test('book settings expose inheritance and restore without copying batch setting
 
 test('video settings expose highest-level override controls and assets', () => {
   const source = read('BatchFactoryV11ScopedSettings.jsx');
-  assert.match(source, /单 VIDEO 设置/);
-  assert.match(source, /VIDEO 时长/);
-  assert.match(source, /Director revision 是否失效以 Go change-impact 为准/);
+  assert.match(source, /单个视频设置/);
+  assert.match(source, /视频时长/);
+  assert.match(source, /编排结果是否失效以服务端变更影响为准/);
   assert.match(source, /负面提示词处理/);
   assert.match(source, /追加/);
   assert.match(source, /完全替换/);
-  assert.match(source, /当前 VIDEO 使用资产/);
+  assert.match(source, /当前视频使用资产/);
   assert.match(source, /人物/);
   assert.match(source, /场景/);
   assert.match(source, /道具/);

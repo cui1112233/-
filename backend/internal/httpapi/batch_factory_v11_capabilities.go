@@ -23,8 +23,8 @@ func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable 
 		"compiler.preview":  {Reason: "Final prompt compiler slice not released"},
 		"production.submit": {Reason: "Production slice not released"},
 		"merge.run":         {Reason: "Merge slice not released"},
-		"publish.121":       {Reason: "121 is not enabled"},
-		"publish.yadi":      {Reason: "Yadi is not enabled"},
+		"publish.121":       {Reason: "121 视频上传接口尚未验证"},
+		"publish.yadi":      {Reason: "外部发布未启用"},
 	}
 	if slice >= 1 {
 		for _, key := range []string{"batch.read", "batch.create", "settings.edit", "snapshot.read", "override.edit"} {
@@ -63,8 +63,12 @@ func capabilityHandlerForRuntime(slice int, productionAvailable bool, mergeAvail
 	if len(mergeAvailability) > 0 {
 		mergeAvailable = mergeAvailability[0]
 	}
-	if len(mergeAvailability) > 1 { publish121 = mergeAvailability[1] }
-	if len(mergeAvailability) > 2 { publishYadi = mergeAvailability[2] }
+	if len(mergeAvailability) > 1 {
+		publish121 = mergeAvailability[1]
+	}
+	if len(mergeAvailability) > 2 {
+		publishYadi = mergeAvailability[2]
+	}
 	return func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable, mergeAvailable, publish121, publishYadi))
 	}

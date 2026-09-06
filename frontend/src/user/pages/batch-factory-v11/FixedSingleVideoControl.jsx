@@ -15,7 +15,7 @@ export function FixedSingleVideoControl({
         : <Tag>当前批次未覆盖</Tag>}
     </Space>
     <Typography.Text type="secondary">
-      {fixedVideoLabel({ maxDurationSeconds })}；开启后由 Go Director 保证整本只持久化一个 VIDEO identity。
+      {fixedVideoLabel({ maxDurationSeconds })}；开启后由服务端编排流程保证整本只持久化一个视频方案。
     </Typography.Text>
   </Space>;
 }

@@ -37,6 +37,17 @@ test('workbenchStateFromLoad derives status cards from production and merge jobs
   assert.equal(state.books[1].status, '异常');
 });
 
+test('workbenchStateFromLoad lets durable video status override the book stage label', () => {
+  const state = workbenchStateFromLoad({
+    selectedBatch: {
+      id: 'b1',
+      books: [{ id: 'k1', status: '已编剧', videos: [{ id: 'v1' }] }]
+    },
+    productionStatus: { jobs: [{ bookId: 'k1', tasks: [{ videoId: 'v1', status: 'running' }] }] }
+  });
+  assert.equal(state.books[0].status, '生成中');
+});
+
 test('workbenchStateFromLoad preserves personal prompt categories and read errors', () => {
   const state = workbenchStateFromLoad({
     capabilities: {},

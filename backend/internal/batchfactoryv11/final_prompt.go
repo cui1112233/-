@@ -276,14 +276,26 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, scenePrompts))
 	}
 	if rawBool(values, "injectCharacterPrompt", true) {
-		addComponent(&components, "characterPrompt", "人物 Prompt", selectPrompts(characterRefs, characterPrompts))
+		addComponent(&components, "characterPrompt", "人物提示词", selectPrompts(characterRefs, characterPrompts))
 	}
 	if rawBool(values, "injectScenePrompt", true) {
-		addComponent(&components, "scenePrompt", "场景 Prompt", selectPrompts(sceneRefs, scenePrompts))
+		addComponent(&components, "scenePrompt", "场景提示词", selectPrompts(sceneRefs, scenePrompts))
 	}
 	if rawBool(values, "injectPropPrompt", true) {
-		addComponent(&components, "propPrompt", "道具 Prompt", selectPrompts(propRefs, propPrompts))
+		addComponent(&components, "propPrompt", "道具提示词", selectPrompts(propRefs, propPrompts))
 	}
+	catalog := s.Catalog
+	if catalog == nil {
+		catalog = NewPromptCatalog(s.Store)
+	}
+	bundle, err := catalog.ResolvePromptBundle(ctx, owner, values)
+	if err != nil {
+		return FinalPrompt{}, err
+	}
+	addComponent(&components, "sourceWindow", "原文内容窗口", sourceForPrompt(book))
+	addComponent(&components, "scriptPrompt", "编剧规则", bundle.Script.Content)
+	addComponent(&components, "assetPrompt", "资产规则", bundle.Asset.Content)
+	addComponent(&components, "videoPrompt", "视频规则", bundle.Video.Content)
 	prefix := draft.PrefixKey
 	if rawBool(values, "prefixEnabled", false) {
 		prefix = strings.TrimSpace(strings.Join([]string{prefix, rawString(values, "prefix", "")}, "；"))

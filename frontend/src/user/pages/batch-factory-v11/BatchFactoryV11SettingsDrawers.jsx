@@ -2,6 +2,7 @@ import {
   Button,
   Divider,
   Drawer,
+  InputNumber,
   Segmented,
   Select,
   Space,
@@ -14,6 +15,7 @@ import { BatchFactoryV11ConstraintEditor } from './BatchFactoryV11ConstraintEdit
 import { ChangeImpactNotice } from './ChangeImpactNotice';
 import { FixedSingleVideoControl } from './FixedSingleVideoControl';
 import { buildConfigVersionSyncPatch, configVersionOptions } from './bf11UiAdapter.js';
+import { HelpButton } from './helpContent.jsx';
 import { runSaveFlow } from './saveFlow.js';
 import './batch-factory-v11-settings.css';
 
@@ -51,6 +53,7 @@ export function ProductionSettingsDrawer({
   configVersionsError = null,
   personalPrompts = {},
   personalPromptsError = null,
+  promptCatalogs = {},
   onClose,
   onSave,
   onSyncConfigVersion,
@@ -103,6 +106,8 @@ export function ProductionSettingsDrawer({
   ].filter(Boolean).length, [form]);
 
   const configOptions = useMemo(() => configVersionOptions(configVersions), [configVersions]);
+  const promptOptions = useMemo(() => kind => (Array.isArray(promptCatalogs?.[kind]) ? promptCatalogs[kind] : [])
+    .map(prompt => ({ value: prompt.id, label: prompt.name || prompt.id })), [promptCatalogs]);
   const canSyncConfigVersion = useMemo(
     () => !configVersionsError
       && selectedConfigVersionId !== form.versionConfigId
@@ -241,13 +246,16 @@ export function ProductionSettingsDrawer({
         </div>
         {configVersionsError
           ? <Typography.Text type="danger">配置版本读取失败：{configVersionsError.message || '服务端 catalog 不可用'}。同步保持关闭，不使用本地 fallback。</Typography.Text>
-          : <Typography.Text type="secondary">版本列表和 version ID 只来自 V11 服务端；选择后点击同步只保存当前 Batch 的 versionConfigId。前端不会推断最新版本，也不会修改 Book / VIDEO override。</Typography.Text>}
+          : <Typography.Text type="secondary">版本列表和版本 ID 只来自 V11 服务端；选择后点击同步只保存当前批次配置。前端不会推断最新版本，也不会修改小说或视频覆盖。</Typography.Text>}
       </section>
 
       <ChangeImpactNotice result={impactResult} loading={impactLoading} />
 
-      <Divider orientation="left">基础生产设置</Divider>
+      <Divider orientation="left">基础生产设置 <HelpButton topic="settings" /></Divider>
       <section className="bf11-setting-section">
+        <SettingField label="内容幅度" description="服务端按逻辑行截取原文；默认 5 行，当前小说可单独覆盖。">
+          <InputNumber min={1} max={10000} value={Number(form.contentLineLimit || 5)} onChange={contentLineLimit => patch({ contentLineLimit: Number(contentLineLimit || 5) })} addonAfter="行" />
+        </SettingField>
         <SettingField label="生产方式" description="未选择时继承系统层；选择后写入当前批次 patch。">
           <Segmented
             value={form.productionMode}
@@ -259,28 +267,28 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
-        <SettingField label="剧本提示词" description="普通生产页只选择名称；提示词正文由 V11 Prompt 库管理。">
+        <SettingField label="剧本提示词" description="普通生产页只选择名称；提示词正文由后台提示词库管理。">
           <Select
             allowClear
             placeholder="继承系统提示词"
             value={form.scriptPromptPresetId}
             onChange={scriptPromptPresetId => patch({ scriptPromptPresetId })}
-            options={[
-              { value: 'standard-short-drama', label: '标准短剧分镜' },
-              { value: 'commercial-dynamic', label: '商业动态分镜' },
-              { value: 'spatial-continuity', label: '空间连续分镜' }
-            ]}
+            options={promptOptions('script')}
           />
         </SettingField>
 
-        <SettingField label="人物场景提示词" description="用于人物 / 场景 / 道具基础资产提取。">
+        <SettingField label="人物场景提示词" description="用于人物、场景、道具基础资产提取。">
           <Select
             allowClear
             placeholder="继承系统资产提示词"
             value={form.assetPromptPresetId}
             onChange={assetPromptPresetId => patch({ assetPromptPresetId })}
-            options={[{ value: 'standard-asset-extraction', label: '标准资产提取' }]}
+            options={promptOptions('asset')}
           />
+        </SettingField>
+
+        <SettingField label="视频提示词" description="用于分镜动作和视频生成提示词；正文由后台提示词目录维护。">
+          <Select allowClear placeholder="继承系统视频提示词" value={form.videoPromptPresetId} onChange={videoPromptPresetId => patch({ videoPromptPresetId })} options={promptOptions('video')} />
         </SettingField>
 
         <SettingField label="视频生成通道" description="默认使用个人中心 API；选择豆包本地执行器后，任务会交给你已配对且在线的本地电脑执行。">
@@ -311,7 +319,7 @@ export function ProductionSettingsDrawer({
           </Space>
         </SettingField>
 
-        <SettingField label="视频模型" description="导演前绑定模型；最大时长表示单个 VIDEO 的能力上限。">
+        <SettingField label="视频模型" description="编剧前绑定模型；最大时长表示单个视频的能力上限。">
           <Select
             allowClear
             placeholder="继承系统模型"
@@ -331,7 +339,7 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
-        <SettingField label="VIDEO 时长策略" description="AI 自动按剧情密度自然分配时长，不要求凑满模型最大值。">
+        <SettingField label="视频时长策略" description="AI 自动按剧情密度自然分配时长，不要求凑满模型最大值。">
           <Segmented
             value={form.durationMode}
             onChange={durationMode => patch({ durationMode })}
@@ -342,7 +350,7 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
-        <SettingField label="固定单 VIDEO" description="只有用户操作开关后才写入 true / false；显式 false 也会被保留。">
+        <SettingField label="固定单个视频" description="只有用户操作开关后才写入开启或关闭；显式关闭也会被保留。">
           <FixedSingleVideoControl
             checked={form.fixedSingleVideo === true}
             hasOverride={Object.prototype.hasOwnProperty.call(form, 'fixedSingleVideo')}
@@ -396,7 +404,7 @@ export function ProductionSettingsDrawer({
 
       <div className="bf11-settings-footer-note">
         <TimerReset size={16} />
-        <Typography.Text type="secondary">保存写入 `/api/batch-factory/v11/...` 的 Go SettingsState；Book / VIDEO sparse override 不会被清空。</Typography.Text>
+        <Typography.Text type="secondary">保存写入 V11 服务端设置状态；小说和视频的局部覆盖不会被清空。</Typography.Text>
       </div>
     </div>
   </Drawer>;

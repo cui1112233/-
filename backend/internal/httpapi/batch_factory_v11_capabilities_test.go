@@ -47,8 +47,22 @@ func TestV11CapabilitiesRejectExpiredSignature(t *testing.T) {
 
 func TestSliceThreeUnlocksCompilerPreviewOnly(t *testing.T) {
 	caps := CapabilitiesForSlice(3)
-	if !caps["compiler.preview"].Available { t.Fatalf("compiler.preview=%+v", caps["compiler.preview"]) }
+	if !caps["compiler.preview"].Available {
+		t.Fatalf("compiler.preview=%+v", caps["compiler.preview"])
+	}
 	for _, key := range []string{"production.submit", "merge.run", "publish.121", "publish.yadi"} {
-		if caps[key].Available { t.Fatalf("%s must remain unavailable in Slice 3", key) }
+		if caps[key].Available {
+			t.Fatalf("%s must remain unavailable in Slice 3", key)
+		}
+	}
+}
+
+func TestSliceSixKeeps121UnavailableUntilVideoUploadIsVerified(t *testing.T) {
+	caps := capabilitiesForRuntime(6, true, true, false, false)
+	if caps["publish.121"].Available {
+		t.Fatalf("121 publish must stay unavailable without verified video upload: %+v", caps["publish.121"])
+	}
+	if caps["publish.121"].Reason != "121 视频上传接口尚未验证" {
+		t.Fatalf("reason=%q", caps["publish.121"].Reason)
 	}
 }

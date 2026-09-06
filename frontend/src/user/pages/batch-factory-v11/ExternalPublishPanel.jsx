@@ -11,6 +11,7 @@ export function ExternalPublishPanel({
   open,
   batch,
   books = [],
+  selectedBookIds = [],
   productionStatus = null,
   mergeStatus = null,
   capabilities = {},
@@ -43,6 +44,7 @@ export function ExternalPublishPanel({
     [mergeStatus]
   );
   const mergeStatusKnown = mergeStatus !== null && mergeStatus !== undefined;
+  const publishBooks = useMemo(() => selectedBookIds.length ? books.filter(book => selectedBookIds.includes(book.id)) : books, [books, selectedBookIds]);
 
   useEffect(() => {
     if (!open) return;
@@ -76,12 +78,12 @@ export function ExternalPublishPanel({
     try {
       const result = await onCreateIntent(provider, {
         batchId: batch.id,
-        bookId: books.length === 1 ? books[0].id : '',
+        bookId: publishBooks.length === 1 ? publishBooks[0].id : '',
         payload: {
           batchId: batch.id,
-          bookCount: books.length,
+          bookCount: publishBooks.length,
           publishSettings: batch.settingsState?.patch?.publishSettings || {},
-          books: books.map(book => ({
+          books: publishBooks.map(book => ({
             id: book.id,
             title: book.title,
             mergedUrl: book.mergedUrl || '',
@@ -113,11 +115,12 @@ export function ExternalPublishPanel({
     } finally { setBusy(false); }
   }
 
-  return <Modal title="上传待上传 / 外部发布" open={open} onCancel={onClose} footer={null} destroyOnClose>
+  return <Modal title="开启发布 / 外部发布" open={open} onCancel={onClose} footer={null} destroyOnClose>
     <Space direction="vertical" style={{ width: '100%' }} size={12}>
       <Alert type="info" showIcon message="外部发布必须先生成确认单，再由你明确确认后提交。" description="账号密钥只在保存请求期间存在于页面内；接口返回只含账号名称和脱敏审计。" />
       <Select value={provider} options={PROVIDERS} onChange={setProvider} style={{ width: '100%' }} />
       {!capability.available ? <Alert type="warning" showIcon message={`${provider} 发布当前不可用`} description={capability.reason} /> : null}
+      <Typography.Text type="secondary">本次范围：{publishBooks.length ? `已选 ${publishBooks.length} 本` : '全部小说'}</Typography.Text>
       {mergeStatusKnown && !mergeReady ? <Alert type="warning" showIcon message="请先完成批量合并" description="只有存在成功的合并成片后，发布确认单才会生成；系统不会发布空视频或半成品。" /> : null}
       <Space wrap>
         <Tag color={credential?.configured ? 'green' : 'default'}>{credential?.configured ? `已配置：${credential.name}` : '尚未配置账号'}</Tag>

@@ -20,6 +20,15 @@ test('final V78 workbench contains the approved production regions', () => {
   ]) assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
+test('current novel workbench exposes a single-book video action and selected batch actions', () => {
+  const source = read('BatchFactoryV11Workbench.jsx');
+  assert.match(source, /onRunBookProduction/);
+  assert.match(source, /生成当前小说视频/);
+  assert.match(source, /开启编剧/);
+  assert.match(source, /开启导演/);
+  assert.match(source, /开启发布/);
+});
+
 test('layout editing exposes explicit edit save and restore controls', () => {
   const source = read('BatchFactoryV11Workbench.jsx');
   assert.match(source, /编辑布局/);
@@ -45,5 +54,5 @@ test('workbench has a single unified preview surface rather than per-video playe
   const matches = source.match(/data-bf-player="unified"/g) || [];
   assert.equal(matches.length, 1);
   assert.match(source, /最终合并/);
-  assert.match(source, /VIDEO \$\{String\(index \+ 1\)\.padStart\(2, '0'\)\}/);
+  assert.match(source, /视频 \$\{String\(index \+ 1\)\.padStart\(2, '0'\)\}/);
 });

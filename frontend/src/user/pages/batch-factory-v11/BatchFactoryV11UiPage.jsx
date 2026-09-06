@@ -56,6 +56,7 @@ export function BatchFactoryV11UiPage() {
   const [mergeBusy, setMergeBusy] = useState(false);
   const [publishSettingsOpen, setPublishSettingsOpen] = useState(false);
   const [externalPublishOpen, setExternalPublishOpen] = useState(false);
+  const [publishBookIds, setPublishBookIds] = useState([]);
   const [batchManagerOpen, setBatchManagerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyBatches, setHistoryBatches] = useState([]);
@@ -100,7 +101,7 @@ export function BatchFactoryV11UiPage() {
 
   if (runtimeState.phase === 'loading') {
     return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
-      <Spin size="large" tip="正在读取 Batch Factory V11…" />
+      <Spin size="large" tip="正在读取批量工厂…" />
     </div>;
   }
 
@@ -109,7 +110,7 @@ export function BatchFactoryV11UiPage() {
       <Alert
         type="error"
         showIcon
-        message="Batch Factory V11 暂时不可用"
+        message="批量工厂暂时不可用"
         description={<div>
           <Typography.Paragraph>{runtimeState.message}</Typography.Paragraph>
           <Button onClick={() => reload()}>重新加载</Button>
@@ -149,7 +150,7 @@ export function BatchFactoryV11UiPage() {
         message.warning('批次已创建，但重新读取工作台失败，请刷新后继续。');
         return true;
       }
-      message.success('V11 批次已创建；Director 尚未启动。');
+      message.success('批次已创建；编剧流程尚未启动。');
       return true;
     } finally {
       setCreatingBatch(false);
@@ -162,7 +163,7 @@ export function BatchFactoryV11UiPage() {
     window.history.pushState({}, '', nextUrl);
     const next = await runtime.load({ ...requestParams, batchId: '', intakeId });
     setRuntimeState(next);
-    if (next.phase !== 'ready') message.warning('Intake 已创建，但重新读取失败，请刷新后继续。');
+    if (next.phase !== 'ready') message.warning('导入记录已创建，但重新读取失败，请刷新后继续。');
   }
 
   async function openV11Batch(batchId) {
@@ -204,7 +205,7 @@ export function BatchFactoryV11UiPage() {
             {intake.sourceTaskId ? <Tag>来源 {intake.sourceTaskId}</Tag> : null}
             {intakeCount > 0 ? <Tag>{intakeCount} 本</Tag> : null}
           </Space>
-          <Typography.Text type="secondary">创建批次不会自动启动 Director。</Typography.Text>
+      <Typography.Text type="secondary">创建批次不会自动启动编剧流程。</Typography.Text>
         </Space> : <Space direction="vertical" size={8}>
           <Typography.Text>当前没有 Batch Factory V11 批次。</Typography.Text>
           <Typography.Text type="secondary">请先在小说获取中选择已完成原文的真实任务，再转入并创建批次。</Typography.Text>
@@ -217,7 +218,7 @@ export function BatchFactoryV11UiPage() {
               disabled={creatingBatch || intakeState.consumed || batchCreateAction.disabled || !intakeState.intakeId}
               title={createDisabledReason}
               onClick={createBatchFromIntake}
-            >创建 V11 批次</Button> : null}
+            >创建批次</Button> : null}
             {!intake ? <Button type="primary" onClick={openNovelFetch}>去小说获取并导入</Button> : null}
             <Button onClick={() => setBatchManagerOpen(true)}>直接导入内容</Button>
             <Button onClick={() => reload({ announce: true })}>刷新批次</Button>
@@ -247,7 +248,7 @@ export function BatchFactoryV11UiPage() {
     message.success(successMessage);
     const next = await runtime.load(requestParams);
     setRuntimeState(next);
-    if (next.phase !== 'ready') {
+      if (next.phase !== 'ready') {
       message.warning('设置已保存，但重新读取工作台失败，请稍后刷新。');
     }
     return true;
@@ -265,10 +266,10 @@ export function BatchFactoryV11UiPage() {
     const next = await runtime.load({ ...requestParams, batchId: batch.id });
     setRuntimeState(next);
     if (next.phase !== 'ready') {
-      message.error(next.message || '刷新 Director revision 失败');
+      message.error(next.message || '刷新编排结果失败');
       return false;
     }
-    message.success('Director revision 已刷新');
+    message.success('编排结果已刷新');
     return true;
   }
 
@@ -311,7 +312,7 @@ export function BatchFactoryV11UiPage() {
       videoId: activeVideo.id,
       patch,
       revision: activeVideo.settingsState?.revision || 0
-    }, '单 VIDEO 设置已保存');
+    }, '单个视频设置已保存');
   }
 
   async function finishDirectorAction(result, successMessage) {
@@ -326,21 +327,21 @@ export function BatchFactoryV11UiPage() {
   async function runHook(book) {
     if (!book?.id || directorAction.type) return false;
     setDirectorAction({ type: 'hook', bookId: book.id });
-    try { return await finishDirectorAction(await runtime.runHook({ batchId: batch.id, bookId: book.id }), 'Hook 已生成，等待你审核批准'); }
+    try { return await finishDirectorAction(await runtime.runHook({ batchId: batch.id, bookId: book.id }), '爆款开头已生成，等待你审核批准'); }
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
   async function approveHook(book, hook) {
     if (!book?.id || !hook?.id || directorAction.type) return false;
     setDirectorAction({ type: 'approve', bookId: book.id });
-    try { return await finishDirectorAction(await runtime.approveHook({ batchId: batch.id, bookId: book.id, hookId: hook.id }), 'Hook 已批准'); }
+    try { return await finishDirectorAction(await runtime.approveHook({ batchId: batch.id, bookId: book.id, hookId: hook.id }), '爆款开头已批准'); }
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
   async function runDirector(book) {
     if (!book?.id || directorAction.type) return false;
     setDirectorAction({ type: 'director', bookId: book.id });
-    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id }), 'Director 已完成并生成新的 VIDEO identity'); }
+    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id }), '编剧已完成并生成新的视频方案'); }
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
@@ -349,7 +350,7 @@ export function BatchFactoryV11UiPage() {
     return new Promise(resolve => {
       Modal.confirm({
         title: '重新获取资产',
-        content: '这会重新执行 Director，并生成新的 VIDEO identity；当前旧 VIDEO 的单独设置会保留为历史覆盖。确定继续吗？',
+        content: '这会重新执行编剧流程并生成新的视频方案；当前旧视频的单独设置会保留为历史覆盖。确定继续吗？',
         okText: '继续重新获取',
         cancelText: '取消',
         onOk: async () => { resolve(await runDirector(book)); },
@@ -375,7 +376,7 @@ export function BatchFactoryV11UiPage() {
     return `${prefix}-${random || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   }
 
-  async function runProduction(targetBatch) {
+  async function runProduction(targetBatch, bookIds = []) {
     if (!targetBatch?.id || productionBusy) return false;
     const provider = batchSettingsState.patch.videoProvider || 'personal_api';
     if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
@@ -388,12 +389,48 @@ export function BatchFactoryV11UiPage() {
     }
     setProductionBusy(true);
     try {
-      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
+      const result = await runtime.runProduction({ batchId: targetBatch.id, bookIds, requestId: newRequestId('bf11-production'), provider });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
       if (next.phase !== 'ready') { message.warning('视频任务已提交，但刷新状态失败，请稍后重试。'); return true; }
-      message.success('待生成 VIDEO 已提交，状态会自动写回工作台。');
+      message.success('待生成视频已提交，状态会自动写回工作台。');
+      return true;
+    } finally {
+      setProductionBusy(false);
+    }
+  }
+
+  async function runBookProduction(book) {
+    if (!book?.id || !batch?.id || productionBusy) return false;
+    const provider = batchSettingsState.patch.videoProvider || 'personal_api';
+    if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
+      message.error('没有在线的豆包本地执行器；请先在生产统一设置生成配对码并让 Mac 执行器上线。');
+      return false;
+    }
+    if (provider === 'personal_api' && runtimeState.videoProviders?.personalAPI?.configured === false) {
+      message.error('请先在个人中心 API 配置视频 API Key。');
+      return false;
+    }
+    setProductionBusy(true);
+    try {
+      const result = await runtime.runProduction({
+        batchId: batch.id,
+        bookId: book.id,
+        requestId: newRequestId(`bf11-production-${book.id}`),
+        provider
+      });
+      if (!result.ok) {
+        message.error(result.message);
+        return false;
+      }
+      const next = await runtime.load({ ...requestParams, batchId: batch.id });
+      setRuntimeState(next);
+      if (next.phase !== 'ready') {
+        message.warning('当前小说视频已提交，但刷新状态失败，请稍后重试。');
+        return true;
+      }
+      message.success('当前小说视频已提交，状态会自动写回工作台。');
       return true;
     } finally {
       setProductionBusy(false);
@@ -416,15 +453,15 @@ export function BatchFactoryV11UiPage() {
     }
   }
 
-  async function runBatchDirector(targetBatch) {
+  async function runBatchDirector(targetBatch, bookIds = []) {
     if (!targetBatch?.id || directorAction.type) return false;
     setDirectorAction({ type: 'batch-director', bookId: '' });
     try {
-      const result = await runtime.runBatchDirector({ batchId: targetBatch.id });
+      const result = await runtime.runBatchDirector({ batchId: targetBatch.id, bookIds });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
-      message.success('批量 Director 已完成；失败项会保留在返回状态中。');
+      message.success('批量编剧已完成；失败项会保留在返回状态中。');
       return true;
     } finally {
       setDirectorAction({ type: '', bookId: '' });
@@ -447,10 +484,10 @@ export function BatchFactoryV11UiPage() {
       const content = drafts[key] ?? (typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || ''));
       return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: batch.id, content });
       }));
-      message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
+      message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'}提示词草稿已保存`);
       return true;
     } catch (error) {
-      message.error(error?.message || '资产 Prompt 草稿保存失败');
+      message.error(error?.message || '资产提示词草稿保存失败');
       return false;
     }
   }
@@ -519,8 +556,9 @@ export function BatchFactoryV11UiPage() {
         onRunBatchDirector={runBatchDirector}
         onPreviewFinalPrompt={previewFinalPrompt}
         onRunProduction={runProduction}
+        onRunBookProduction={runBookProduction}
         onRunMerge={runMerge}
-        onRunUpload={() => setExternalPublishOpen(true)}
+        onRunUpload={(_targetBatch, bookIds = []) => { setPublishBookIds(bookIds); setExternalPublishOpen(true); }}
         onSaveVideoPrompt={saveVideoPrompt}
         onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}
@@ -550,6 +588,7 @@ export function BatchFactoryV11UiPage() {
         configVersionsError={runtimeState.configVersionsError || null}
         personalPrompts={runtimeState.personalPrompts || {}}
         personalPromptsError={runtimeState.personalPromptsError || null}
+        promptCatalogs={runtimeState.promptCatalogs || {}}
         videoProviders={runtimeState.videoProviders || {}}
         localExecutors={runtimeState.localExecutors || []}
         onCreateLocalExecutorPairing={runtime.createLocalExecutorPairing}
@@ -580,6 +619,7 @@ export function BatchFactoryV11UiPage() {
         open={externalPublishOpen}
         batch={viewBatch}
         books={books}
+        selectedBookIds={publishBookIds}
         productionStatus={runtimeState.productionStatus}
         mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}

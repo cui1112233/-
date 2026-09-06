@@ -146,6 +146,15 @@ test('production submission carries the selected provider without fallback', asy
   assert.deepEqual(calls, [['b1', 'r1', 'doubao_local_executor']]);
 });
 
+test('single-book production submission uses the same production client with a book identity', async () => {
+  const calls = [];
+  const api = {
+    submitBookProduction: async (...args) => { calls.push(args); return { batchId: 'b1', bookId: 'k1' }; }
+  };
+  await createBf11UiAdapter(api).runProduction({ batchId: 'b1', bookId: 'k1', requestId: 'r1', provider: 'personal_api' });
+  assert.deepEqual(calls, [['b1', 'k1', 'r1', 'personal_api']]);
+});
+
 test('loadWorkbench exposes provider status and local executor inventory', async () => {
   const api = {
     getCapabilities: async () => ({}),

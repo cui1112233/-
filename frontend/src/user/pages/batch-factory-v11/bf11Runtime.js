@@ -23,7 +23,6 @@ function subjectSettingsState(subject) {
 }
 
 function deriveBookStatus(book, productionStatus, mergeStatus) {
-  if (book?.status) return book.status;
   const tasks = (productionStatus?.jobs || [])
     .filter(job => job?.bookId === book?.id)
     .flatMap(job => job.tasks || []);
@@ -37,7 +36,7 @@ function deriveBookStatus(book, productionStatus, mergeStatus) {
   }
   if (book?.directorRevision?.id || book?.director?.id) return '待生成';
   if (book?.hook?.status === 'draft') return '待审核';
-  return '待开始';
+  return book?.status || '待开始';
 }
 
 export function createdBatchIdFrom(value) {
@@ -74,6 +73,7 @@ export function workbenchStateFromLoad(loadResult) {
     configVersionsError: load.configVersionsError || null,
     personalPrompts: object(load.personalPrompts),
     personalPromptsError: load.personalPromptsError || null,
+    promptCatalogs: object(load.promptCatalogs),
     videoProviders: object(load.videoProviders),
     localExecutors: Array.isArray(load.localExecutors) ? load.localExecutors : [],
     selectedBatchId: load.selectedBatchId || batchObject.id || ''
@@ -84,7 +84,7 @@ function loadFailure(error) {
   return {
     phase: 'error',
     status: Number(error?.status || 0),
-    message: error?.message || 'Batch Factory V11 暂时不可用'
+    message: error?.message || '批量工厂暂时不可用'
   };
 }
 
@@ -104,7 +104,7 @@ function createFailure(error) {
   return {
     ok: false,
     status: Number(error?.status || 0),
-    message: error?.message || '创建 V11 批次失败，请稍后重试。',
+    message: error?.message || '创建批次失败，请稍后重试。',
     startsDirector: false
   };
 }
@@ -198,22 +198,22 @@ export function createBf11Runtime({ adapter }) {
 
     async runHook(input) {
       try { return { ok: true, raw: await adapter.runHook(input) }; }
-      catch (error) { return actionFailure(error, '生成 Hook 失败，请检查小说模式和模型配置。'); }
+      catch (error) { return actionFailure(error, '生成爆款开头失败，请检查小说模式和模型配置。'); }
     },
 
     async approveHook(input) {
       try { return { ok: true, raw: await adapter.approveHook(input) }; }
-      catch (error) { return actionFailure(error, '批准 Hook 失败，请刷新后重试。'); }
+      catch (error) { return actionFailure(error, '批准爆款开头失败，请刷新后重试。'); }
     },
 
     async runDirector(input) {
       try { return { ok: true, raw: await adapter.runDirector(input) }; }
-      catch (error) { return actionFailure(error, 'Director 执行失败，请检查 Hook、模型和时长设置。'); }
+      catch (error) { return actionFailure(error, '编剧执行失败，请检查爆款开头、模型和时长设置。'); }
     },
 
     async runBatchDirector(input) {
       try { return { ok: true, raw: await adapter.runBatchDirector(input) }; }
-      catch (error) { return actionFailure(error, '批量 Director 执行失败，请检查批次设置。'); }
+      catch (error) { return actionFailure(error, '批量编剧执行失败，请检查批次设置。'); }
     },
 
     async saveVideoPrompt(input) {
@@ -223,12 +223,12 @@ export function createBf11Runtime({ adapter }) {
 
     async previewFinalPrompt(input) {
       try { return { ok: true, raw: await adapter.previewFinalPrompt(input) }; }
-      catch (error) { return actionFailure(error, '最终提示词预览失败，请检查 Director revision 和 VIDEO 设置。'); }
+      catch (error) { return actionFailure(error, '最终提示词预览失败，请检查编排结果和视频设置。'); }
     },
 
     async runProduction(input) {
       try { return { ok: true, raw: await adapter.runProduction(input) }; }
-      catch (error) { return actionFailure(error, '视频生成提交失败，请检查 Director revision 和生产配置。'); }
+      catch (error) { return actionFailure(error, '视频生成提交失败，请检查编排结果和生产配置。'); }
     },
 
     async saveVideoProviderConfig(input) {
@@ -248,7 +248,7 @@ export function createBf11Runtime({ adapter }) {
 
     async runMerge(input) {
       try { return { ok: true, raw: await adapter.runMerge(input) }; }
-      catch (error) { return actionFailure(error, '批量合并提交失败，请确认所有 VIDEO 已生成完成。'); }
+      catch (error) { return actionFailure(error, '批量合并提交失败，请确认所有视频已生成完成。'); }
     },
 
     async getPublishCredential(provider) {

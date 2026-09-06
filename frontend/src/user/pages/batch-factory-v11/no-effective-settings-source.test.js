@@ -25,5 +25,5 @@ test('scoped settings edit only their own sparse patch instead of merged display
 test('VIDEO duration UI does not invent a default duration or local Director invalidation result', () => {
   assert.equal(scoped.includes('video?.duration || 10'), false);
   assert.equal(scoped.includes('durationChanged'), false);
-  assert.match(scoped, /Director revision 是否失效以 Go change-impact 为准/);
+  assert.match(scoped, /编排结果是否失效以服务端变更影响为准/);
 });

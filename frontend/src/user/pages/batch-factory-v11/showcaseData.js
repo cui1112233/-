@@ -17,7 +17,7 @@ const makeVideos = (bookId, count, state = 'ready', assetNames = {}) => {
   const props = assetNames.props || ['关键道具'];
   return Array.from({ length: count }, (_, index) => ({
     id: `${bookId}-video-${index + 1}`,
-    label: `VIDEO ${String(index + 1).padStart(2, '0')}`,
+    label: `视频 ${String(index + 1).padStart(2, '0')}`,
     duration: [8, 12, 10, 13][index % 4],
     status: state === 'failed' && index === 1 ? '异常' : index % 3 === 0 ? '已完成' : index % 3 === 1 ? '待生成' : '排队中',
     visualPrompt: `镜头 ${index + 1}：保持人物一致性，强化当前剧情冲突与动作表现，画面围绕本段小说内容推进。`,
@@ -93,7 +93,7 @@ const GENERATED_SHOWCASE_BOOKS = Array.from({ length: 94 }, (_, offset) => {
     status,
     overrideCount: offset % 11 === 0 ? 2 : 0,
     sourceText: `这是第 ${number} 本小说的展示正文，用于检查 100 本批次下列表密度、搜索、筛选与工作台布局。`,
-    hookText: offset % 3 === 0 ? `第 ${number} 本小说的爆款 Hook 展示内容。` : '',
+    hookText: offset % 3 === 0 ? `第 ${number} 本小说的爆款开头展示内容。` : '',
     assets,
     videos: makeVideos(bookId, 2 + (offset % 4), status === '异常' ? 'failed' : 'ready', assets)
   };

@@ -51,7 +51,11 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store, dir
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"intake": intake, "metadataRecognition": recognition})
+		response := map[string]any{"intake": intake}
+		if batchfactoryv11.ManualMetadataRecognitionEnabled(input.Metadata) {
+			response["metadataRecognition"] = recognition
+		}
+		writeJSON(w, http.StatusCreated, response)
 	})
 	mux.HandleFunc("POST /api/batch-factory/v11/intakes/manual/classify", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)

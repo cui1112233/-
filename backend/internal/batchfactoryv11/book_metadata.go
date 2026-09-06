@@ -100,7 +100,11 @@ func ApplyManualMetadata(ctx context.Context, input ManualIntakeInput, classifie
 	output.Books = append([]CreateBookInput(nil), input.Books...)
 	results := make([]ManualBookMetadataResult, 0, len(input.Books))
 	for index, book := range output.Books {
-		result, err := ClassifyManualBookMetadata(ctx, classifier, ManualBookMetadataInput{BookID: book.ID, Title: book.Title, Text: book.SourceText}, enabled)
+		text := book.SourceText
+		if strings.TrimSpace(text) == "" {
+			text = book.TxtText
+		}
+		result, err := ClassifyManualBookMetadata(ctx, classifier, ManualBookMetadataInput{BookID: book.ID, Title: book.Title, Text: text}, enabled)
 		if err != nil {
 			return ManualIntakeInput{}, nil, err
 		}
