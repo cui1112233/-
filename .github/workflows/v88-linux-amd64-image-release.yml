@@ -197,49 +197,18 @@ jobs:
           chmod 600 "$HOME/.ssh/known_hosts"
           ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
           set -Eeuo pipefail
-          remote_uid="$(id -u)"
-          echo "remote_uid=$remote_uid"
-          if [ "$remote_uid" != "0" ]; then
-            echo "remote_uid_check=failed" >&2
-            exit 20
-          fi
-          echo "remote_uid_check=passed"
-          if command -v docker >/dev/null 2>&1; then
-            echo "docker_binary=present"
-          else
-            echo "docker_binary=missing" >&2
-            exit 21
-          fi
-          if docker version >/dev/null 2>&1; then
-            echo "docker_daemon=ready"
-          else
-            echo "docker_daemon=unavailable" >&2
-            exit 22
-          fi
-          if docker compose version >/dev/null 2>&1; then
-            echo "docker_compose=ready"
-          else
-            echo "docker_compose=unavailable" >&2
-            exit 23
-          fi
-          if test -f /opt/qiantie/v88/deploy/v88-public/docker-compose.yml; then
-            echo "compose_file=/opt/qiantie/v88/deploy/v88-public/docker-compose.yml"
-            compose_dir="/opt/qiantie/v88/deploy/v88-public"
-            compose_file="$compose_dir/docker-compose.yml"
-            echo "compose_services_begin"
-            docker compose -f "$compose_file" config --services
-            echo "compose_services_end"
-            echo "compose_images_begin"
-            docker compose -f "$compose_file" config --images
-            echo "compose_images_end"
-            echo "compose_status_begin"
-            docker compose -f "$compose_file" ps --all
-            echo "compose_status_end"
-          else
-            echo "compose_file=/opt/qiantie/v88/deploy/v88-public/docker-compose.yml missing" >&2
-            exit 24
-          fi
+          compose_file="/opt/qiantie/v88/deploy/v88-public/docker-compose.yml"
+          test -f "$compose_file"
+          test "$(id -u)" = 0
+          command -v docker >/dev/null 2>&1
+          docker version >/dev/null 2>&1
+          docker compose version >/dev/null 2>&1
+          docker compose -f "$compose_file" config >/dev/null
+          docker compose -f "$compose_file" config --services
+          docker compose -f "$compose_file" ps --all
           REMOTE
+          echo "ECS_COMPOSE_DIR=/opt/qiantie/v88/deploy/v88-public" >> "$GITHUB_ENV"
+          echo "ECS_COMPOSE_FILE=/opt/qiantie/v88/deploy/v88-public/docker-compose.yml" >> "$GITHUB_ENV"
           echo "ECS_DEPLOY_READY=true" >> "$GITHUB_ENV"
           echo "V88 ECS SSH preflight passed."
 
@@ -252,16 +221,18 @@ jobs:
             exit 0
           fi
           ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
-          remote_compose_dir=/opt/qiantie/v88/deploy/v88-public
+          remote_compose_dir="$ECS_COMPOSE_DIR"
           scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 deploy/v88-public/docker-compose.browser-worker.yml "$ECS_USER@$ECS_HOST:${remote_compose_dir}/docker-compose.browser-worker.yml"
           docker save "$IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
           docker save "$WORKER_IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
-          "${ssh_cmd[@]}" bash -s -- "$IMAGE_NAME" "$WORKER_IMAGE_NAME" "$SHORT_SHA" <<'REMOTE'
+          "${ssh_cmd[@]}" bash -s -- "$IMAGE_NAME" "$WORKER_IMAGE_NAME" "$SHORT_SHA" "$ECS_COMPOSE_FILE" <<'REMOTE'
           set -Eeuo pipefail
           image_name="$1"
           worker_image_name="$2"
           short_sha="$3"
-          compose_dir="/opt/qiantie/v88/deploy/v88-public"
+          compose_file="$4"
+          compose_dir="$(dirname "$compose_file")"
+          test -f "$compose_file"
           cd "$compose_dir"
 
           random_hex() {
@@ -269,7 +240,7 @@ jobs:
           }
           ensure_secret() {
             key="$1"
-            if ! grep -q "^${key}=" novel-fetch-121.env 2>/dev/null; then
+            if ! grep -q "^\${key}=" novel-fetch-121.env 2>/dev/null; then
               printf '%s=%s\n' "$key" "$(random_hex)" >> novel-fetch-121.env
             fi
           }
@@ -279,33 +250,35 @@ jobs:
           ensure_secret QIANTIE_121_CREDENTIAL_SECRET
           ensure_secret QIANTIE_121_STORAGE_STATE_SECRET
 
-          compose=(docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml)
+          compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           "${compose[@]}" config >/dev/null
 
-          current_image='v88-public-v88-node:v88-latest'
+          container_id="$(${compose[@]} ps -q v88-node)"
+          test -n "$container_id"
+          service_image="$(docker inspect "$container_id" --format '{{.Config.Image}}')"
+          test -n "$service_image"
+          docker image inspect "$service_image" >/dev/null
           rollback_image="v88-public-v88-node:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
-          if docker image inspect "$current_image" >/dev/null 2>&1; then
-            docker tag "$current_image" "$rollback_image"
-            printf '%s\n' "$rollback_image" > /tmp/v88-last-rollback-image
-          else
-            : > /tmp/v88-last-rollback-image
-          fi
+          docker tag "$service_image" "$rollback_image"
+          printf '%s\n' "$rollback_image" > /tmp/v88-last-rollback-image
+          printf '%s\n' "$service_image" > /tmp/v88-last-service-image
 
-          current_worker_image='v88-public-novel-fetch-121-worker:v88-latest'
+          worker_container_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
+          test -n "$worker_container_id"
+          worker_service_image="$(docker inspect "$worker_container_id" --format '{{.Config.Image}}')"
+          test -n "$worker_service_image"
+          docker image inspect "$worker_service_image" >/dev/null
           rollback_worker_image="v88-public-novel-fetch-121-worker:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
-          if docker image inspect "$current_worker_image" >/dev/null 2>&1; then
-            docker tag "$current_worker_image" "$rollback_worker_image"
-            printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
-          else
-            : > /tmp/v88-last-rollback-worker-image
-          fi
+          docker tag "$worker_service_image" "$rollback_worker_image"
+          printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
+          printf '%s\n' "$worker_service_image" > /tmp/v88-last-worker-service-image
 
-          docker image inspect "$image_name" >/dev/null
-          docker image inspect "$worker_image_name" >/dev/null
-          docker tag "$image_name" "$current_image"
-          docker tag "$worker_image_name" "$current_worker_image"
-          "${compose[@]}" up -d --force-recreate novel-fetch-121-worker
-          "${compose[@]}" up -d --force-recreate v88-node
+          docker image inspect "$image_name" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          docker image inspect "$worker_image_name" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          docker tag "$image_name" "$service_image"
+          docker tag "$worker_image_name" "$worker_service_image"
+          "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
+          "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
           "${compose[@]}" ps novel-fetch-121-worker v88-node
           REMOTE
 
@@ -318,14 +291,15 @@ jobs:
             exit 0
           fi
           ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
-          "${ssh_cmd[@]}" bash -s <<'REMOTE'
+          "${ssh_cmd[@]}" bash -s -- "$ECS_COMPOSE_FILE" <<'REMOTE'
           set -Eeuo pipefail
-          compose_dir="/opt/qiantie/v88/deploy/v88-public"
+          compose_file="$1"
+          compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
-          compose=(docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml)
+          compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           "${compose[@]}" ps novel-fetch-121-worker v88-node
 
-          worker_id="$("${compose[@]}" ps -q novel-fetch-121-worker)"
+          worker_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
           test -n "$worker_id"
           for attempt in $(seq 1 30); do
             worker_health="$(docker inspect -f '{{.State.Health.Status}}' "$worker_id" 2>/dev/null || true)"
@@ -390,33 +364,33 @@ jobs:
             echo "::notice::Rollback skipped because no ECS deployment was attempted."
             exit 0
           fi
-          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          ssh_options=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20)
+          "${ssh_options[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$ECS_COMPOSE_FILE" <<'REMOTE'
           set -Eeuo pipefail
-          if [ ! -s /tmp/v88-last-rollback-image ]; then
-            echo 'No rollback image was recorded; refusing to guess.' >&2
-            exit 1
-          fi
-          rollback_image="$(cat /tmp/v88-last-rollback-image)"
-          docker image inspect "$rollback_image" >/dev/null
-          docker tag "$rollback_image" v88-public-v88-node:v88-latest
-          compose_dir="/opt/qiantie/v88/deploy/v88-public"
+          compose_file="$1"
+          compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
+          compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
+          test -s /tmp/v88-last-rollback-image
+          test -s /tmp/v88-last-service-image
+          rollback_image="$(cat /tmp/v88-last-rollback-image)"
+          service_image="$(cat /tmp/v88-last-service-image)"
+          docker image inspect "$rollback_image" >/dev/null
+          docker image inspect "$service_image" >/dev/null
+          docker tag "$rollback_image" "$service_image"
 
-          if [ -s /tmp/v88-last-rollback-worker-image ]; then
-            rollback_worker_image="$(cat /tmp/v88-last-rollback-worker-image)"
-            docker image inspect "$rollback_worker_image" >/dev/null
-            docker tag "$rollback_worker_image" v88-public-novel-fetch-121-worker:v88-latest
-            compose=(docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml)
-            "${compose[@]}" up -d --force-recreate novel-fetch-121-worker
-            "${compose[@]}" up -d --no-deps --force-recreate v88-node
-            "${compose[@]}" ps novel-fetch-121-worker v88-node
-          else
-            docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml stop novel-fetch-121-worker || true
-            docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml rm -f novel-fetch-121-worker || true
-            docker compose up -d --no-deps --force-recreate v88-node
-            docker compose ps v88-node
-          fi
-          echo "Rolled back V88 ECS to $rollback_image"
+          test -s /tmp/v88-last-rollback-worker-image
+          test -s /tmp/v88-last-worker-service-image
+          rollback_worker_image="$(cat /tmp/v88-last-rollback-worker-image)"
+          worker_service_image="$(cat /tmp/v88-last-worker-service-image)"
+          docker image inspect "$rollback_worker_image" >/dev/null
+          docker image inspect "$worker_service_image" >/dev/null
+          docker tag "$rollback_worker_image" "$worker_service_image"
+
+          "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
+          "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
+          "${compose[@]}" ps novel-fetch-121-worker v88-node
+          echo "Rolled back V88 ECS to $service_image"
           REMOTE
 
       - name: Prune old V88 AMD64 release artifacts
