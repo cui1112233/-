@@ -29,6 +29,7 @@ test('V88 正式小说获取主页面使用版本配置入口，不再显示旧�
   }
   assert.match(html, /版本对应配置档/);
   assert.match(html, /AI5/);
+  assert.match(html, /version-config-authority\.js/);
   assert.doesNotMatch(html, /id=["']parseModeSelect["']/);
   assert.doesNotMatch(html, /id=["']columnPresetSelect["']/);
   assert.doesNotMatch(html, /id=["']aiCountDefault["']/);
@@ -40,9 +41,9 @@ test('V88 正式小说获取主页面使用版本配置入口，不再显示旧�
 });
 
 test('版本对应配置档通过单一权威接口一次保存并立即采用服务端回读配置', () => {
-  const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
-  const handler = functionBody(app, 'confirmWebSubmitSelection');
-  const authority = functionBody(app, 'saveVersionConfigAuthority');
+  const authoritySource = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/version-config-authority.js'), 'utf8');
+  const handler = functionBody(authoritySource, 'confirmWebSubmitSelectionAuthority');
+  const authority = functionBody(authoritySource, 'saveVersionConfigAuthority');
 
   assert.match(handler, /await saveVersionConfigAuthority\(\)/);
   assert.doesNotMatch(handler, /saveWorkFormStateNow\(/);
@@ -53,10 +54,12 @@ test('版本对应配置档通过单一权威接口一次保存并立即采用�
   assert.match(authority, /const formState = collectWorkFormState\(\)/);
   assert.match(authority, /appConfig\.work_form = formState/);
   assert.match(authority, /appConfig\.web_submit = syncFormToWebSubmitConfig\(\)/);
+  assert.match(authority, /appConfig\.knowledge = state\.config\?\.knowledge \|\| \{\}/);
   assert.match(authority, /api\(["']\/api\/config["']/);
   assert.match(authority, /body:\s*JSON\.stringify\(\{\s*app_config:\s*appConfig\s*\}\)/);
   assert.match(authority, /state\.config = result\.config/);
   assert.match(authority, /localStorage\.setItem\(WORK_FORM_STORAGE_KEY/);
+  assert.match(authoritySource, /button\.onclick = confirmWebSubmitSelectionAuthority/);
 });
 
 test('V88 /config 是版本配置档的单次持久化权威入口，可同时写入 work_form 与 web_submit', () => {
