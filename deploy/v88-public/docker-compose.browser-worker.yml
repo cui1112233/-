@@ -1,0 +1,34 @@
+services:
+  v88-node:
+    env_file:
+      - ./novel-fetch-121.env
+    environment:
+      QIANTIE_121_BROWSER_WORKER_URL: http://novel-fetch-121-worker:8787
+    depends_on:
+      novel-fetch-121-worker:
+        condition: service_healthy
+
+  novel-fetch-121-worker:
+    image: v88-public-novel-fetch-121-worker:v88-latest
+    env_file:
+      - ./novel-fetch-121.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      QIANTIE_121_HEADED_ENABLED: "1"
+      QIANTIE_121_SESSION_DIR: /data/sessions
+    expose:
+      - "8787"
+    volumes:
+      - ./data/novel-fetch-121-worker:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get({host:'127.0.0.1',port:8787,path:'/healthz',headers:{'x-qiantie-internal-secret':process.env.QIANTIE_121_WORKER_SECRET}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
