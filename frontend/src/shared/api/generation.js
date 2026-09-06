@@ -81,23 +81,9 @@ export async function generateScript({ mode, format, duration, novelText, charac
     mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints
   });
 
-  // 公网“分镜模式”现在使用第三步 Global Director Plan → 第四步权威执行/验收链。
-  // 其它文本格式继续走原 /api/chat，避免改变短剧/剧情/画布的既有输出合同。
-  if (resolved.format === 'shotlist') {
-    return requestDirectorPipeline({
-      mode: resolved.mode,
-      format: resolved.format,
-      duration: resolved.duration,
-      novelText: resolved.novelText,
-      characters: resolved.characters,
-      scenes: resolved.scenes,
-      visualStyle: resolved.visualStyle,
-      protagonists: resolved.protagonists,
-      constraints: resolved.constraints,
-      matchAudio: false
-    });
-  }
-
+  // 普通“生成剧本/分镜”始终只发起一次 script AI 请求：
+  // 当前开头预设 + 当前输出模式预设 + 10s/15s 运行规则 + 人物场景/主角资料
+  // 在服务端同一次 messages 组合后直接生成最终结果。
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -111,7 +97,7 @@ export async function generateScript({ mode, format, duration, novelText, charac
       visualStyle: resolved.visualStyle,
       protagonists: resolved.protagonists,
       constraints: resolved.constraints,
-      max_tokens: 8192,
+      max_tokens: resolved.format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false
     })
@@ -133,8 +119,7 @@ export async function generateQuickDirectorStoryboard({ novelText, duration, cha
     constraints
   });
 
-  // 快速导演（包括匹配音频）与普通分镜模式共用同一权威第三/第四步事务，
-  // 区别只在 matchAudio 和人工导演要求，不再维护第二套“直接一次出成品”逻辑。
+  // “匹配音频/快速导演”保留独立事务；它不是普通分镜模式的生成路径。
   return requestDirectorPipeline({
     mode: 'quick_director',
     format: 'shotlist',
