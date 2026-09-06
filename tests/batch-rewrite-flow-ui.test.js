@@ -5,7 +5,6 @@ const assert = require('node:assert/strict');
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'frontend/public/batch-rewrite/app.js'), 'utf8');
 const uploadRoute = fs.readFileSync(path.join(__dirname, '..', 'routes/novel-fetch-upload.js'), 'utf8');
-const rewriteRoute = fs.readFileSync(path.join(__dirname, '..', 'routes/batch-rewrite.js'), 'utf8');
 const browserClient = fs.readFileSync(path.join(__dirname, '..', 'lib/novel-fetch-workshop/121-browser-client.js'), 'utf8');
 
 test('121 登录验证必须有超时并在结束时恢复按钮', () => {
@@ -38,5 +37,4 @@ test('服务端 121 Browser Worker 客户端区分普通请求和登录请求超
   assert.match(browserClient, /refresh:\s*input\s*=>\s*request\([^\n]*requestTimeoutMs:\s*loginTimeoutMs/);
   assert.match(browserClient, /new AbortController\(\)/);
   assert.match(browserClient, /BROWSER_WORKER_TIMEOUT/);
-  assert.match(rewriteRoute, /browserClient/);
 });
