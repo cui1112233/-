@@ -164,9 +164,11 @@ function requestExecutorUpdate() {
   protocolUpdateRequested = true;
   focusExecutorWindow(mainWindow);
   if (!updateManager) return false;
-  updateManager.checkForUpdates({ autoDownload: true }).catch(error => {
-    console.error('[protocol] update check failed:', error?.message || error);
-  });
+  updateManager.setChannel('stable')
+    .then(() => updateManager.checkForUpdates({ autoDownload: true }))
+    .catch(error => {
+      console.error('[protocol] update check failed:', error?.message || error);
+    });
   return true;
 }
 
