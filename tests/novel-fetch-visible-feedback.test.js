@@ -60,7 +60,7 @@ test('未选择任务时禁止发起 selected 网络提交', () => {
   assert.notEqual(start, -1, 'submitWebSubmit 必须存在');
   const snippet = source.slice(start, start + 2200);
   assert.match(snippet, /mode === ["']selected["']/);
-  assert.match(snippet, /!selectedIds\.length/);
+  assert.match(snippet, /!selectedTaskIds\(\)\.length/);
   assert.match(snippet, /showWebSubmitSelectionRequired/);
   const guardIndex = snippet.indexOf('showWebSubmitSelectionRequired');
   const requestIndex = snippet.indexOf('webSubmitRequestPayload');
