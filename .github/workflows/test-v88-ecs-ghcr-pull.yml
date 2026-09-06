@@ -1,0 +1,38 @@
+name: Test V88 ECS GHCR pull
+
+on:
+  push:
+    branches:
+      - ops/cancel-stale-v88-release-20260906
+    paths:
+      - '.github/workflows/test-v88-ecs-ghcr-pull.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-pull:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Test unauthenticated GHCR pulls on ECS
+        shell: bash
+        env:
+          ECS_HOST: 115.190.156.223
+          ECS_USER: root
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          docker pull ghcr.io/cui1112233/qiantie-v88:public-7c51504e7abf
+          docker pull ghcr.io/cui1112233/qiantie-v88-121-browser-worker:public-9872dee0d61f
+          docker image inspect ghcr.io/cui1112233/qiantie-v88:public-7c51504e7abf --format '{{.Id}} {{.Os}}/{{.Architecture}}'
+          docker image inspect ghcr.io/cui1112233/qiantie-v88-121-browser-worker:public-9872dee0d61f --format '{{.Id}} {{.Os}}/{{.Architecture}}'
+          REMOTE
