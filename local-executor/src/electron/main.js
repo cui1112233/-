@@ -9,11 +9,13 @@ const { DesktopController } = require('../desktop-controller');
 const { DoubaoAdapter } = require('../doubao-adapter');
 const { AccountWindows } = require('./account-windows');
 const { UpdateManager } = require('./update-manager');
+const { EXECUTOR_PROTOCOL, findExecutorProtocolAction, focusExecutorWindow } = require('./protocol-handler');
 
 let mainWindow = null;
 let controller = null;
 let updateManager = null;
 let startupUpdateTimer = null;
+let pendingProtocolAction = findExecutorProtocolAction(process.argv);
 
 function createMainWindow() {
   const win = new BrowserWindow({
@@ -150,19 +152,68 @@ function scheduleStartupUpdateCheck(delayMs = 2500) {
   startupUpdateTimer.unref?.();
 }
 
-app.whenReady().then(() => {
-  controller = buildController();
-  updateManager = buildUpdateManager();
-  registerIpc();
-  createMainWindow();
-  controller.startHeartbeat(15000);
-  controller.startJobPolling(2000);
-  if (process.platform === 'win32' && app.isPackaged) scheduleStartupUpdateCheck();
+function handleExecutorProtocolArguments(argv) {
+  const request = findExecutorProtocolAction(argv);
+  if (!request) return false;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingProtocolAction = request;
+    return true;
+  }
+  if (request.action === 'open') return focusExecutorWindow(mainWindow);
+  return false;
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+function flushPendingProtocolAction() {
+  const request = pendingProtocolAction;
+  pendingProtocolAction = null;
+  if (!request) return false;
+  if (request.action === 'open') return focusExecutorWindow(mainWindow);
+  return false;
+}
+
+function registerExecutorProtocol() {
+  if (process.platform !== 'win32' || !app.isPackaged) return false;
+  try {
+    return app.setAsDefaultProtocolClient(EXECUTOR_PROTOCOL);
+  } catch (error) {
+    console.error('[protocol] registration failed:', error?.message || error);
+    return false;
+  }
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    handleExecutorProtocolArguments(commandLine);
+    focusExecutorWindow(mainWindow);
   });
-});
+
+  app.on('open-url', (event, url) => {
+    if (!findExecutorProtocolAction([url])) return;
+    event.preventDefault();
+    handleExecutorProtocolArguments([url]);
+  });
+
+  app.whenReady().then(() => {
+    registerExecutorProtocol();
+    controller = buildController();
+    updateManager = buildUpdateManager();
+    registerIpc();
+    createMainWindow();
+    flushPendingProtocolAction();
+    controller.startHeartbeat(15000);
+    controller.startJobPolling(2000);
+    if (process.platform === 'win32' && app.isPackaged) scheduleStartupUpdateCheck();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+      focusExecutorWindow(mainWindow);
+    });
+  });
+}
 
 app.on('before-quit', () => {
   if (startupUpdateTimer) clearTimeout(startupUpdateTimer);
