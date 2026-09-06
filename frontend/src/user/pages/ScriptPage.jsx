@@ -22,6 +22,7 @@ import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatche
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
+import { isScriptVideoTaskActive } from '../../shared/api/scriptVideoStage';
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -145,14 +146,11 @@ export function ScriptPage() {
   const rawShotCards = useMemo(() => {
     const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
     if (parsed.length) return parsed;
-    // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
     if (selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output) {
       const seconds = selectedDuration === '15s' ? 15 : 10;
       const segments = splitContinuousTimeline(output, seconds);
       if (segments.length >= 2) return segments;
     }
-    // 单条分镜或模型标题未被识别时，以前会退回原始文本框，导致程序组装的
-    // 基础设定、画面前缀和其他已开启约束完全不可见。非剧本模式也要走卡片组装。
     return selectedFormat !== 'shortdrama' && output ? [output] : [];
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
@@ -370,7 +368,7 @@ export function ScriptPage() {
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
       try {
         const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
-        const executors = Array.isArray(result?.items) ? result.items : [];
+        const executors = Array.isArray(result?.executors) ? result.executors : [];
         if (!executors.some(item => item.online)) {
           Modal.info({
             title: '本地执行器未连接',
@@ -389,7 +387,15 @@ export function ScriptPage() {
     try {
       const historyId = await ensureCurrentHistory();
       const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey });
-      const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
+      const nextVideoTasks = {
+        ...shotVideoTasks,
+        [index]: {
+          ...result,
+          taskId: result.taskId,
+          status: result.status || 'processing',
+          stage: result.stage || 'queued'
+        }
+      };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
       watchShotVideoTask(index, result.taskId);
@@ -430,16 +436,20 @@ export function ScriptPage() {
     const poll = async () => {
       try {
         const task = await getScriptVideoTask(taskId);
+        const nextTask = { ...task, taskId: task.taskId || taskId };
+        setShotVideoTasks(current => ({
+          ...current,
+          [index]: { ...(current[index] || {}), ...nextTask }
+        }));
         if (task.status === 'succeeded') {
-          setShotVideoTasks(current => ({ ...current, [index]: task }));
           message.success(`第 ${index + 1} 条分镜视频生成成功`);
           return;
         }
-        if (task.status === 'failed') {
-          setShotVideoTasks(current => ({ ...current, [index]: task }));
+        if (task.status === 'failed' || task.status === 'cancelled') {
           message.error(task.error || `第 ${index + 1} 条分镜视频生成失败`);
           return;
         }
+        if (!isScriptVideoTaskActive(nextTask)) return;
       } catch (error) {
         // 上游短暂不可用时继续轮询，避免误判为任务失败。
       }
@@ -465,7 +475,7 @@ export function ScriptPage() {
     setDraftConstraints(restoredConstraints);
     setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
     setShotVideoTasks(entry.videoTasks || {}); setCurrentHistoryId(entry.id); setHistoryOpen(false);
-    Object.entries(entry.videoTasks || {}).forEach(([index, task]) => { if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId); });
+    Object.entries(entry.videoTasks || {}).forEach(([index, task]) => { if (isScriptVideoTaskActive(task)) watchShotVideoTask(Number(index), task.taskId); });
   }
 
   useEffect(() => {
@@ -484,11 +494,10 @@ export function ScriptPage() {
       setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
       setShotVideoTasks(restoredDraft.shotVideoTasks || {});
       Object.entries(restoredDraft.shotVideoTasks || {}).forEach(([index, task]) => {
-        if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId);
+        if (isScriptVideoTaskActive(task)) watchShotVideoTask(Number(index), task.taskId);
       });
     }
 
-    // Wait for restored React state to commit before allowing auto-save.
     const readyTimer = window.setTimeout(() => {
       draftReadyRef.current = true;
       if (restoredDraft) {
