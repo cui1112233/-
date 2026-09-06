@@ -46,7 +46,8 @@ test('ScriptPage consumes the real local-executor list field and persists interm
   assert.doesNotMatch(source, /result\?\.items/);
   assert.match(source, /isScriptVideoTaskActive/);
   assert.match(source, /stage:\s*result\.stage\s*\|\|\s*'queued'/);
-  assert.match(source, /setShotVideoTasks\(current\s*=>\s*\(\{[\s\S]*\.\.\.task/);
+  assert.match(source, /const nextTask\s*=\s*\{\s*\.\.\.task,\s*taskId:\s*task\.taskId\s*\|\|\s*taskId\s*\}/);
+  assert.match(source, /setShotVideoTasks\(current\s*=>\s*\(\{[\s\S]*\.\.\.nextTask/);
 });
 
 test('ShotOutputCards renders precise task stage labels instead of generic 视频生成中', async () => {
