@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS SSH PRECHECK PASSED / ECS IMAGE STREAM IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION FOLLOW-UP REQUIRED / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS DEPLOYMENT RUN CANCELLED / MANUAL DISPATCH READY / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -760,3 +760,33 @@ The job was not started because recent account payments have failed or your spen
 ### 安全边界
 
 当前仍未宣称部署成功；以 Release 最终日志和真实 ECS/公网证据为准。
+
+
+---
+
+## 2026-09-06｜执行节点 19｜长传输 Release 被外部取消，改用稳定手动触发
+
+### 最新运行结果
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34031612944`
+- head：`7c51504e7abf7422eafc94fa93569eb24c61e636`
+- job：`101482045348`
+- 已完成：构建、worker 构建、主镜像 GHCR、发布包、真实 SSH 预检
+- `Deploy verified images to V88 ECS`：在镜像流式传输阶段被外部取消
+- Compose 重建：未取得证据
+- ECS localhost build-info：未取得
+- 公网 V31 build-info：未取得
+- 公网 `/novel-panel` 验证：未取得
+- rollback：未执行
+
+### 触发策略调整
+
+分支连续 push 会使长时间 ECS 镜像流式传输受到取消干扰。后续不再通过修改文件触发 Release，改为：
+
+1. 保持当前 `v88` 工作树稳定；
+2. 使用 `workflow_dispatch` 只触发一个 Release；
+3. 等待该运行完整通过 ECS Compose、ECS localhost build-info 和公网 `/novel-panel` 验证；
+4. 发布完成后再补齐回归测试的当前 workflow 步骤名匹配。
+
+当前状态：`ECS DEPLOYMENT RUN CANCELLED / MANUAL DISPATCH READY / PUBLIC DEPLOYMENT PENDING`
