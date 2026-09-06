@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { isScriptVideoTaskActive, scriptVideoStageLabel } from './scriptVideoStage.js';
 
@@ -37,4 +38,20 @@ test('only non-terminal tasks are considered active for polling', () => {
   assert.equal(isScriptVideoTaskActive({ taskId: 'a', status: 'failed', stage: 'failed' }), false);
   assert.equal(isScriptVideoTaskActive({ taskId: 'a', status: 'cancelled', stage: 'cancelled' }), false);
   assert.equal(isScriptVideoTaskActive({ status: 'processing', stage: 'queued' }), false);
+});
+
+test('ScriptPage consumes the real local-executor list field and persists intermediate task stages', async () => {
+  const source = await readFile(new URL('../../user/pages/ScriptPage.jsx', import.meta.url), 'utf8');
+  assert.match(source, /result\?\.executors/);
+  assert.doesNotMatch(source, /result\?\.items/);
+  assert.match(source, /isScriptVideoTaskActive/);
+  assert.match(source, /stage:\s*result\.stage\s*\|\|\s*'queued'/);
+  assert.match(source, /setShotVideoTasks\(current\s*=>\s*\(\{[\s\S]*\.\.\.task/);
+});
+
+test('ShotOutputCards renders precise task stage labels instead of generic 视频生成中', async () => {
+  const source = await readFile(new URL('../../user/components/ShotOutputCards.jsx', import.meta.url), 'utf8');
+  assert.match(source, /scriptVideoStageLabel/);
+  assert.match(source, /isScriptVideoTaskActive/);
+  assert.doesNotMatch(source, /视频生成中/);
 });
