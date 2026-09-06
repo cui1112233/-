@@ -38,9 +38,13 @@ function createFixture(t) {
 
 function createServer(t, root, options = {}) {
   const app = express();
-  app.use('/novel-panel', createNovelPanelPageRouter({ workbenchRoot: root, ...options }));
+  const router = createNovelPanelPageRouter({ workbenchRoot: root, ...options });
+  app.use('/novel-panel', router);
   const server = http.createServer(app);
-  t.after(() => new Promise(resolve => server.close(resolve)));
+  t.after(async () => {
+    await new Promise(resolve => server.close(resolve));
+    router.close();
+  });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`));
@@ -91,6 +95,43 @@ test('non-versioned and mismatched asset URLs retain the safe revalidation polic
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), revalidateCache);
   }
+});
+
+test('repeated unchanged HTML and asset requests reuse hashes and avoid synchronous asset reads', async t => {
+  const root = createFixture(t);
+  const baseUrl = await createServer(t, root);
+  const originalReadFileSync = fs.readFileSync;
+  const originalCreateHash = crypto.createHash;
+  let synchronousAssetReads = 0;
+  let hashCreations = 0;
+  fs.readFileSync = function countedReadFileSync(filePath, ...args) {
+    if (path.resolve(String(filePath)).startsWith(`${root}${path.sep}`) && /\.(?:css|js)$/.test(String(filePath))) {
+      synchronousAssetReads += 1;
+    }
+    return originalReadFileSync.call(this, filePath, ...args);
+  };
+  crypto.createHash = function countedCreateHash(...args) {
+    hashCreations += 1;
+    return originalCreateHash.apply(this, args);
+  };
+  t.after(() => {
+    fs.readFileSync = originalReadFileSync;
+    crypto.createHash = originalCreateHash;
+  });
+
+  const firstPage = await fetch(`${baseUrl}/novel-panel/workbench`);
+  const secondPage = await fetch(`${baseUrl}/novel-panel/workbench`);
+  const firstAsset = await fetch(`${baseUrl}/novel-panel/workbench/app.js`);
+  const secondAsset = await fetch(`${baseUrl}/novel-panel/workbench/app.js`);
+
+  assert.equal(firstPage.status, 200);
+  assert.equal(secondPage.status, 200);
+  assert.equal(firstAsset.status, 200);
+  assert.equal(secondAsset.status, 200);
+  assert.equal(await firstAsset.text(), 'window.app=true;\n');
+  assert.equal(await secondAsset.text(), 'window.app=true;\n');
+  assert.equal(synchronousAssetReads, 0);
+  assert.equal(hashCreations, 0);
 });
 
 test('an absent manifest serves original URLs and emits an actionable fallback diagnostic', async t => {
