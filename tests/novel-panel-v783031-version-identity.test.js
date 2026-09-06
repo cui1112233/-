@@ -16,9 +16,11 @@ const server = fs.readFileSync(serverPath, 'utf8');
 
 assert.match(release, /const VERSION="v78\.3\.0\.31",BUILD="v78\.3\.0\.31-final-semantics-20260906-r1"/);
 assert.match(release, /label:"V78\.3\.0\.31/);
-assert.match(runtime, /__VIDEO_PROMPT_TOOL_BUILD__/);
-assert.match(runtime, /__V78_CURRENT_RUNTIME__/);
-assert.match(runtime, /V78\.3\.0\.31/);
+assert.match(release, /__VIDEO_PROMPT_TOOL_BUILD__/);
+assert.match(release, /__V78_CURRENT_RUNTIME__/);
+assert.match(release, /dataset\.runtimeVersion=VERSION/);
+assert.match(runtime, /V='v78\.3\.0\.31'/);
+assert.match(runtime, /__V78_STYLE_FIELD_BOUNDARY_FIX__/);
 
 assert.ok(fs.existsSync(buildInfoPath), 'V31 build-info authority middleware must exist');
 const { createV783031BuildInfoMiddleware, V783031_BUILD_INFO_PATCH } = require(buildInfoPath);
