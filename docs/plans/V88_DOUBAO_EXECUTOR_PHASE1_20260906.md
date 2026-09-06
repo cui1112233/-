@@ -81,15 +81,15 @@ cancelled           已取消
 
 ### 已确认 UI 根因
 
-当前 `ScriptPage` 创建任务后只保存：
+原 `ScriptPage` 创建任务后只保存：
 
 ```text
 { taskId, status: 'processing' }
 ```
 
-轮询只在 `succeeded / failed` 时写回任务，中间 stage 没有更新。`ShotOutputCards` 又把所有 `processing` 统一显示为“视频生成中”，导致用户无法知道任务真实卡点。
+原轮询只在 `succeeded / failed` 时写回任务，中间 stage 没有更新。`ShotOutputCards` 又把所有 `processing` 统一显示为“视频生成中”，导致用户无法知道任务真实卡点。
 
-### Step 7 TDD 进度
+### Step 7 TDD 基础阶段 helper
 
 RED：CI `34018608427`
 
@@ -98,25 +98,11 @@ Frontend: 12 个旧测试通过；新增 stage 测试因 scriptVideoStage.js 不
 Go / Node / Electron：success
 ```
 
-已新增：
+新增：
 
 ```text
 frontend/src/shared/api/scriptVideoStage.js
 commit: 52ff1d55b7ea20a1f4df6a03b183e93485e3cb36
-```
-
-已锁定文案：
-
-```text
-queued              等待执行器领取
-leased              执行器已领取
-preparing           正在准备豆包页面
-submitting          正在提交豆包任务
-acceptance_unknown  正在确认豆包是否接单
-accepted            豆包已接单
-generating          豆包正在生成视频
-downloading         正在下载视频
-uploading           正在回传视频
 ```
 
 GREEN：CI `34018665157`
@@ -129,7 +115,7 @@ frontend tests   success
 frontend build   success
 ```
 
-### Step 7 新发现的确定断点
+### Step 7 新发现并已修复的确定断点
 
 Go 正式接口 `GET /api/shuihuo-production/local-executors` 明确返回：
 
@@ -137,22 +123,94 @@ Go 正式接口 `GET /api/shuihuo-production/local-executors` 明确返回：
 {"executors": [...]}
 ```
 
-但 `ScriptPage.generateVideoForShot()` 当前读取：
+原 `ScriptPage.generateVideoForShot()` 错误读取 `result.items`，会把真实在线执行器误判成“未连接”。
+
+已改为：
 
 ```text
-result.items
+result.executors
 ```
 
-因此剧本页可能把真实在线执行器误判成“未连接”，直接阻止任务提交。这个字段错误会在 Step 7 同一轮用 RED 测试锁死并修复。
+### Step 7 已落地代码
 
-### Step 7 接下来
+显示层提交：
 
-1. [进行中] 加页面集成 RED：必须读取 `result.executors`；必须保存/刷新真实 `stage`；ShotOutputCards 必须使用 `scriptVideoStageLabel`。
-2. 修复 `ScriptPage`：创建本地任务默认最多假设 `queued`，绝不假设 generating。
-3. 每次轮询成功都写回 `stage/status`，由现有 effect 同步历史。
-4. 历史/草稿恢复时使用 `isScriptVideoTaskActive()` 恢复所有非终态任务。
-5. 修复 `ShotOutputCards`：只有 `stage=generating` 显示“豆包正在生成视频”。
-6. 完整 CI GREEN 后勾选 Step 7，并进入 Step 8 acceptance/network 审计。
+```text
+bd2b3f30c8bfb51678ef6d97ddb1a6b80d916bf7
+feat: show precise script video stages
+```
+
+`ShotOutputCards` 现在使用：
+
+```text
+scriptVideoStageLabel(stage, status)
+isScriptVideoTaskActive(task)
+```
+
+只有 `stage=generating` 才显示“豆包正在生成视频”；其他处理中阶段显示各自真实文案。失败/取消后允许重新生成。
+
+页面链路提交：
+
+```text
+e1a030cf03749ed37f9d4c07fde2f6f4692a95dc
+fix: persist real local executor video stages
+```
+
+已完成：
+
+1. `result.items → result.executors`。
+2. 创建任务保存服务端 `status/stage`；服务端无 stage 时最多安全回退 `queued`，绝不假设 generating。
+3. 每次轮询成功都把服务端任务结果合并写回 `shotVideoTasks`。
+4. 现有 `shotVideoTasks` effect 会继续同步历史记录。
+5. 历史和草稿恢复统一用 `isScriptVideoTaskActive()` 恢复所有非终态任务。
+6. `succeeded / failed / cancelled` 停止轮询；短暂网络异常继续轮询。
+
+提交级差异核对：
+
+```text
+base: bd2b3f30c8bfb51678ef6d97ddb1a6b80d916bf7
+head: e1a030cf03749ed37f9d4c07fde2f6f4692a95dc
+ScriptPage.jsx: +20 / -11，仅 1 个文件
+```
+
+契约测试调整：
+
+```text
+c66cb8e0222a2d52d7d657e6d9c393ed341252de
+test: verify polled task stage merge
+```
+
+### 当前 CI 基础设施阻塞（不是代码失败）
+
+最近两轮：
+
+```text
+34020329804
+34020375585
+```
+
+四个 job 均返回：
+
+```text
+steps=[]
+runner_id=0
+runner_name=""
+```
+
+即 GitHub Actions 没有分配 Runner，测试命令根本未执行。因此当前不能宣称 Step 7 完整 GREEN，也不能把这些 run 计为代码失败。
+
+当前策略：保留 Step 7 为未勾选，继续 Step 8 源码审计；Runner 恢复后重新跑完整 CI，只有真实测试 + build 全 GREEN 才正式勾选 Step 7。
+
+## 当前执行：Step 8 — acceptance / network tracker 审计
+
+目标：
+
+1. 审计 `doubao-acceptance.js` 是否严格区分 `accepted / unknown / not_accepted`。
+2. 审计 `doubao-network-tracker.js` 是否把“当前提交”与旧请求/旧媒体隔离。
+3. 确认 `unknown` 不会直接进入 generating，也不会无限重试造成重复提交/重复扣额度。
+4. 确认人机验证、额度、登录、平台异常等错误不会被误判成 accepted。
+5. 确认成片绑定依赖 submission/task 证据，而不是“页面出现任意视频”。
+6. 先输出证据和断点；发现 bug 后再按 TDD 写 RED。
 
 ## 后续顺序
 
@@ -162,7 +220,7 @@ result.items
 - [x] Step 4：`yizhan-executor://`
 - [x] Step 5：Electron 单实例
 - [x] Step 6：设置页“打开执行器”
-- [ ] Step 7：`/script` 真实 stage + 修复 `items/executors` 字段错误
+- [ ] Step 7：`/script` 真实 stage + 修复 `items/executors` 字段错误（代码已落地，等待真实 CI）
 - [ ] Step 8：审计 `doubao-acceptance.js` / `doubao-network-tracker.js`
 - [ ] Step 9：关键边界结构化日志
 - [ ] Step 10：全套 Go / Node / Electron / Frontend 回归
@@ -183,3 +241,4 @@ Phase 1 保留 Electron。已知早期 Windows 安装包约 79 MiB；本阶段�
 - 进度 03：协议 + 单实例 GREEN `34018270271`。
 - 进度 04：设置页“打开执行器” GREEN `34018460735`。
 - 进度 05：Step 7 阶段 helper RED `34018608427` → GREEN `34018665157`；确认 `ScriptPage` 误读 `result.items`，正式接口字段为 `result.executors`。
+- 进度 06：Step 7 显示层 `bd2b3f30...`、页面链路 `e1a030cf...`、契约测试 `c66cb8e0...` 已落地；GitHub Actions `34020329804 / 34020375585` 均因 runner_id=0、steps=[] 未真正执行测试。
