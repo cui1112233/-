@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS REMOTE COMPOSE PATH DISCOVERY REQUIRED / ECS SECRET USER-CONFIGURED / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS COMPOSE PATH DISCOVERED / ECS SERVICE VALIDATION REQUIRED / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -584,3 +584,29 @@ The job was not started because recent account payments have failed or your spen
 - 回滚
 
 结论：原部署逻辑中的 `/opt/v88/docker-compose.yml` 是未经现场验证的路径假设；需要先只读发现真实 V88 Compose 工作目录，再更新部署路径。
+
+
+---
+
+## 2026-09-06｜执行节点 14｜ECS 只读发现确认 v88 Compose 真实路径
+
+### 远端发现结果
+
+在不修改 ECS 的前提下，通过真实 SSH 预检发现：
+
+- v78 Compose：`/opt/qiantie/v78/deploy/v78-public/docker-compose.yml`
+- v88 Compose：`/opt/qiantie/v88/deploy/v88-public/docker-compose.yml`
+- Compose 项目：`v78-public`、`v88-public`
+- `/opt/v88/docker-compose.yml`：不存在，为错误路径假设
+
+### 本次边界
+
+- UID / Docker / Docker Compose：均已通过
+- v88 Compose 文件：已发现但尚未切换工作目录
+- v88 service 名称：待只读确认
+- Docker 镜像传输：未执行
+- Compose 重建：未执行
+- 公网服务：未修改
+- 公网 V31 验证：未执行
+
+下一步：只读读取 v88 Compose services/config/images，确认后将部署工作目录改为已存在的 `/opt/qiantie/v88/deploy/v88-public`。
