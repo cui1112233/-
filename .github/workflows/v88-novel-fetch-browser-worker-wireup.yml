@@ -1,0 +1,26 @@
+name: V88 Novel Fetch Browser Worker Wireup
+
+on:
+  push:
+    branches:
+      - fix/v88-novel-fetch-browser-worker-wireup-20260906
+    paths:
+      - 'tests/v88-public-browser-worker-deploy.test.js'
+      - 'deploy/v88-public/docker-compose.browser-worker.yml'
+      - '.github/workflows/v88-linux-amd64-image-release.yml'
+      - '.github/workflows/v88-novel-fetch-browser-worker-wireup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify public 121 Browser Worker deployment contract
+        run: node --test tests/v88-public-browser-worker-deploy.test.js
