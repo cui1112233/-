@@ -17,6 +17,8 @@ on:
       - 'frontend/src/user/pages/ScriptPage.jsx'
       - 'frontend/src/user/pages/SettingsPage.jsx'
       - 'frontend/src/shared/api/scriptVideo.js'
+      - 'frontend/src/shared/api/executorRelease.js'
+      - 'frontend/src/shared/api/executorRelease.test.js'
       - '.github/workflows/v88-doubao-executor-verify.yml'
   pull_request:
     branches:
@@ -33,6 +35,8 @@ on:
       - 'frontend/src/user/pages/ScriptPage.jsx'
       - 'frontend/src/user/pages/SettingsPage.jsx'
       - 'frontend/src/shared/api/scriptVideo.js'
+      - 'frontend/src/shared/api/executorRelease.js'
+      - 'frontend/src/shared/api/executorRelease.test.js'
       - '.github/workflows/v88-doubao-executor-verify.yml'
 
 jobs:
@@ -94,5 +98,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Run frontend tests
+        run: npm test
       - name: Build frontend
         run: npm run build
