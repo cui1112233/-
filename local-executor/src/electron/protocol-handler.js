@@ -1,5 +1,5 @@
 const EXECUTOR_PROTOCOL = 'yizhan-executor';
-const ALLOWED_ACTIONS = new Set(['open']);
+const ALLOWED_ACTIONS = new Set(['open', 'update']);
 
 function parseExecutorProtocol(value) {
   const raw = String(value || '').trim();
