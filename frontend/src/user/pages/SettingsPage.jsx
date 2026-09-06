@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
+import { executorVersionStatus, fetchExecutorReleaseManifest } from '../../shared/api/executorRelease';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
@@ -19,6 +20,9 @@ export function SettingsPage() {
   const [fileList, setFileList] = useState(null);
   const [localExecutors, setLocalExecutors] = useState([]);
   const [loadingExecutors, setLoadingExecutors] = useState(false);
+  const [executorRelease, setExecutorRelease] = useState(null);
+  const [loadingExecutorRelease, setLoadingExecutorRelease] = useState(false);
+  const [executorReleaseError, setExecutorReleaseError] = useState('');
   const [pairing, setPairing] = useState(null);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -40,7 +44,29 @@ export function SettingsPage() {
     } finally { setLoadingExecutors(false); }
   }
 
-  useEffect(() => { loadLocalExecutors(); }, []);
+  async function loadExecutorRelease({ silent = false } = {}) {
+    setLoadingExecutorRelease(true);
+    try {
+      const release = await fetchExecutorReleaseManifest();
+      setExecutorRelease(release);
+      setExecutorReleaseError('');
+    } catch (error) {
+      setExecutorRelease(null);
+      setExecutorReleaseError(error.message || '读取执行器版本信息失败');
+      if (!silent) message.error(error.message || '读取执行器版本信息失败');
+    } finally {
+      setLoadingExecutorRelease(false);
+    }
+  }
+
+  async function refreshLocalExecutorStatus() {
+    await Promise.all([loadLocalExecutors(), loadExecutorRelease()]);
+  }
+
+  useEffect(() => {
+    loadLocalExecutors();
+    loadExecutorRelease({ silent: true });
+  }, []);
 
   async function createLocalExecutorPairing() {
     try {
@@ -261,14 +287,47 @@ export function SettingsPage() {
               <div>
                 <strong>本机视频执行通道</strong>
                 <span>{localExecutors.length} 台已配对 · {localExecutors.filter(item => item.online).length} 台在线</span>
+                <span>最新稳定版：{executorRelease?.latestVersion || '暂不可用'}{executorRelease?.minimumVersion ? ` · 最低支持版：${executorRelease.minimumVersion}` : ''}</span>
               </div>
             </div>
+            {executorReleaseError ? <Typography.Paragraph type="warning" style={{ margin: 0 }}>版本信息暂不可用，请刷新后再下载。</Typography.Paragraph> : null}
+            {localExecutors.length > 0 ? (
+              <List
+                size="small"
+                dataSource={localExecutors}
+                renderItem={item => {
+                  const versionState = executorVersionStatus(item.version, executorRelease || {});
+                  const versionLabel = !executorRelease
+                    ? '发布信息暂不可用'
+                    : !versionState.versionKnown
+                      ? '版本未知'
+                      : versionState.updateRequired
+                        ? '必须更新'
+                        : versionState.updateAvailable
+                          ? '有新版本'
+                          : '已是最新';
+                  return (
+                    <List.Item>
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                        <div>
+                          <Typography.Text strong>{item.name || '本地执行器'}</Typography.Text>
+                          <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+                            {item.online ? '在线' : '离线'} · 当前版本：{item.version || '未知'}
+                          </Typography.Paragraph>
+                        </div>
+                        <Typography.Text type={versionState.updateRequired ? 'danger' : versionState.updateAvailable ? 'warning' : 'secondary'}>{versionLabel}</Typography.Text>
+                      </div>
+                    </List.Item>
+                  );
+                }}
+              />
+            ) : null}
             {pairing ? <p className="settings-executor-pairing">请在本地执行器中输入配对码：<strong>{pairing.code}</strong></p> : null}
             <div className="settings-executor-actions">
-              <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadLocalExecutors} loading={loadingExecutors}>刷新状态</Button>
+              <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={refreshLocalExecutorStatus} loading={loadingExecutors || loadingExecutorRelease}>刷新状态</Button>
               <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-mac-arm64.dmg">下载 Mac 版</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-win-x64.exe">下载 Windows 版</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href={executorRelease?.downloads?.mac || undefined} disabled={!executorRelease?.downloads?.mac} loading={loadingExecutorRelease}>下载 Mac 版</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href={executorRelease?.downloads?.windows || undefined} disabled={!executorRelease?.downloads?.windows} loading={loadingExecutorRelease}>下载 Windows 版{executorRelease?.latestVersion ? ` v${executorRelease.latestVersion}` : ''}</Button>
             </div>
           </div>
         </section>
