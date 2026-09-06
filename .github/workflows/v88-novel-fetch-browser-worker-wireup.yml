@@ -1,9 +1,9 @@
 name: V88 Novel Fetch Browser Worker Wireup
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/v88-novel-fetch-browser-worker-wireup-r2-20260906
+      - v88
     paths:
       - 'tests/v88-public-browser-worker-deploy.test.js'
       - 'deploy/v88-public/docker-compose.browser-worker.yml'
