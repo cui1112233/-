@@ -50,7 +50,7 @@ jobs:
           test "$(docker inspect "$node_id" --format '{{.State.Status}}')" = running
           test "$(docker inspect "$go_id" --format '{{.State.Status}}')" = running
 
-          docker exec "$node_id" node - <<'NODE'
+          docker exec -i "$node_id" node - <<'NODE'
           const crypto = require('node:crypto');
           const { bridgePayload } = require('/app/lib/batch-factory-v11/go-proxy');
 
