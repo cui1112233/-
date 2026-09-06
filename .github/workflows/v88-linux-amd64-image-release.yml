@@ -200,6 +200,13 @@ jobs:
             echo "compose_file=present"
           else
             echo "compose_file=missing" >&2
+            echo "compose_candidates_begin"
+            find /opt -maxdepth 8 -type f \( -name docker-compose.yml -o -name compose.yml \) -print | sort || true
+            echo "compose_projects_begin"
+            docker compose ls --all || true
+            echo "compose_containers_begin"
+            docker ps -a --format 'name={{.Names}} image={{.Image}} workdir={{index .Labels "com.docker.compose.project.working_dir"}} config={{index .Labels "com.docker.compose.project.config_files"}}' || true
+            echo "compose_discovery_end"
             exit 24
           fi
           REMOTE
