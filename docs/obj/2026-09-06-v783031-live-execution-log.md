@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY READY / ECS SECRET MISSING / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY READY / ECS SECRET USER-CONFIGURED / GITHUB HOSTED RUNNER NOT ASSIGNED / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -322,3 +322,110 @@ Secret 配好后，再触发 `V88 Linux AMD64 Public Image Release`，工作流�
 8. 实时更新本 OBJ。
 
 当前状态保持：`ECS SECRET MISSING / PUBLIC DEPLOYMENT PENDING`。
+
+---
+
+## 2026-09-06｜执行节点 10｜Secret 已由用户配置，发布重跑被 GitHub Hosted Runner 分配层阻塞
+
+### Secret 状态
+
+用户已在 GitHub 仓库 Actions secrets 页面完成 `V88_ECS_SSH_PRIVATE_KEY` 的新增操作。
+
+由于 GitHub Secrets API 对当前连接器不可读，这里只能记录为：
+
+`USER-CONFIGURED / WAITING FOR WORKFLOW CONSUMPTION VERIFICATION`
+
+不会读取、输出或记录 Secret 的实际值。
+
+### 已实际触发发布重跑
+
+对原 release workflow 的 `build-release` job 执行 re-run：
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34018081234`
+- attempt：`2`
+- 原 job：`101445406996`
+- attempt 2 新 job：`101461881446`
+
+### attempt 2 实际结果
+
+GitHub API 返回：
+
+- status：`completed`
+- conclusion：`failure`
+- created/start：`2026-09-06T09:14:45Z`
+- completed：`2026-09-06T09:14:48Z`
+- 总耗时：约 3 秒
+- runner label：`ubuntu-24.04`
+- `runner_id=0`
+- `runner_name=""`
+- `steps=[]`
+- job log 不存在，日志下载返回 BlobNotFound
+
+这说明本次失败发生在 **GitHub 分配 Hosted Runner 之前**。因此：
+
+- 没有 Checkout；
+- 没有构建；
+- 没有读取 SSH Secret 的执行步骤；
+- 没有 SSH preflight；
+- 没有连接 ECS；
+- 没有修改公网服务；
+- 没有触发 rollback。
+
+### 与 Secret 无关的交叉证据
+
+在用户配置 Secret 之前，仓库内另一个完全不同的 workflow 已出现相同签名：
+
+- workflow：`V88 CM Public Release Guard`
+- run：`34022984904`
+- job：`101458853545`
+- runner label：`ubuntu-latest`
+- `runner_id=0`
+- `runner_name=""`
+- `steps=[]`
+- 创建后约 2 秒直接 failure
+
+同一时间的 `V88 Linux AMD64 Public Image Release` run `34022984905` 也以 0-step failure 结束。
+
+因此当前故障不能归因于刚新增的 SSH 私钥内容，也不能归因于 `ubuntu-24.04` 单一 runner 镜像。
+
+### 时间边界
+
+已查到 v88 最近仍正常分配 Runner 的成功运行：
+
+- `BF11 Integrated Runtime Verify`
+- run：`34018249890`
+- commit：`ec5c430ab277dae731e536fec5c31c3c0e20373f`
+- created：`2026-09-06T07:06:26Z`
+- conclusion：`success`
+
+而到 `2026-09-06T08:50:36Z` 左右，不同 workflow 已同时出现 runner_id=0 / steps=[] 的秒失败。
+
+### 外部状态交叉检查
+
+GitHub Status 当前显示：
+
+- `All Systems Operational`
+- `Actions: Operational`
+- 2026-09-06：`No incidents reported today`
+
+因此现阶段更符合以下两类根因之一：
+
+1. 当前 GitHub 个人账号/私有仓库的 Hosted Runner 使用额度、Billing/Budget/Spending 限制导致 runner allocation 被拒绝；
+2. GitHub 控制面存在未反映到公开 Status 的账户级/局部 runner allocation 异常。
+
+当前连接器无法读取 GitHub 账户 Billing/Actions budget 页面，因此不能在没有页面证据时把其中某一个宣称为最终根因。
+
+### 当前安全状态
+
+- SSH Secret：✅ 用户已配置（值未读取）
+- release re-run：✅ 已实际触发
+- GitHub Hosted Runner：❌ 未分配
+- SSH preflight：⏸ 未执行
+- ECS 镜像传输：⏸ 未执行
+- Compose 重建：⏸ 未执行
+- ECS localhost V31 验证：⏸ 未执行
+- 公网 V31 验证：⏸ 未执行
+- rollback：⏸ 未触发
+
+当前状态：`GITHUB HOSTED RUNNER NOT ASSIGNED / PUBLIC DEPLOYMENT PENDING`。
