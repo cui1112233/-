@@ -57,6 +57,12 @@ jobs:
           image="ghcr.io/${owner}/qiantie-v88:node-emergency-${short_sha}"
           docker build --platform linux/amd64 -t "$image" .
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = 'linux/amd64'
+          docker run --rm --entrypoint sh "$image" -c '
+            test -s /app/frontend/dist/batch-rewrite/interaction-feedback.js &&
+            test -s /app/frontend/dist/batch-rewrite/task-visibility-hotfix.js &&
+            grep -q "interaction-feedback.js" /app/frontend/dist/batch-rewrite/index.html &&
+            grep -q "task-visibility-hotfix.js" /app/frontend/dist/batch-rewrite/index.html
+          '
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$owner" --password-stdin
           docker push "$image"
           docker logout ghcr.io >/dev/null 2>&1 || true
@@ -85,7 +91,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           printf '%s' "$GHCR_TOKEN" | timeout 60 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
-          timeout 600 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$DEPLOY_IMAGE" "$GITHUB_SHA" <<'REMOTE'
+          timeout 900 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$DEPLOY_IMAGE" "$GITHUB_SHA" <<'REMOTE'
           set -Eeuo pipefail
           deploy_image="$1"
           expected_sha="$2"
@@ -143,16 +149,27 @@ jobs:
           test -n "$node_id"
           test -n "$go_id"
 
+          # Readiness must use a public asset. /api/novel-panel/build-info can
+          # legitimately return 401 under the current auth middleware.
           for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info >/dev/null; then
+            if curl -fsS http://127.0.0.1:3000/batch-rewrite/task-visibility-hotfix.js >/dev/null; then
               break
             fi
             if [ "$attempt" = 30 ]; then
-              echo 'V88 Node did not become reachable after redeploy.' >&2
+              echo 'V88 Node public Novel Fetch assets did not become reachable after redeploy.' >&2
               exit 1
             fi
             sleep 2
           done
+
+          feedback_html="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/)"
+          feedback_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/interaction-feedback.js)"
+          task_visibility_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/task-visibility-hotfix.js)"
+          printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js'
+          printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js'
+          printf '%s' "$feedback_js" | grep -q 'processBtn'
+          printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'
+          printf '%s' "$task_visibility_js" | grep -q '自动切换到最新任务'
 
           docker exec "$node_id" grep -q "bridgePayload" /app/routes/shuihuo-production.js
           docker exec "$node_id" grep -q "lib/batch-factory-v11/go-proxy" /app/routes/shuihuo-production.js
@@ -182,11 +199,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 20); do
-            if curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/api/novel-panel/build-info" >/dev/null; then
-              echo 'Public V88 endpoint is reachable after Node redeploy.'
+            feedback_html="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/" || true)"
+            feedback_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/interaction-feedback.js" || true)"
+            task_visibility_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/task-visibility-hotfix.js" || true)"
+            if printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js' && printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js' && printf '%s' "$feedback_js" | grep -q 'processBtn' && printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'; then
+              echo 'Public V88 Novel Fetch task visibility and interaction feedback are reachable after Node redeploy.'
               exit 0
             fi
             sleep 2
           done
-          echo 'Public V88 endpoint verification failed.' >&2
+          echo 'Public V88 Novel Fetch task visibility verification failed.' >&2
           exit 1
