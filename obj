@@ -1,47 +1,59 @@
-[2026-09-06] 公网小说获取提交反馈与发布容错修复
+[2026-09-06] 公网小说获取提交反馈、任务可见性与发布容错修复
 
 目标：
 1. 小说获取“开始处理/提交网络”等关键操作点击后立即给用户可见状态；失败必须明显提示，不能静默。
-2. V88 ECS 发布遇到 GHCR TLS handshake timeout 等临时网络错误时有限重试，并保留可靠 fallback，避免单次网络抖动导致新版回滚。
-3. 只修改 v88 主线。
+2. 已处理任务必须稳定出现在任务表，不能因为默认日期筛选而出现“ID / 书名 / 平台 / 风格 / 男女频全部空白”。
+3. 未选择任务时禁止发起 selected 网络提交，不能显示“已选 0 个但提交完成 0/0/0”。
+4. V88 ECS 发布遇到 GHCR 网络波动时有限重试，并保留主镜像 fallback。
+5. 只修改 v88 主线。
 
 已确认根因：
 - 公网小说获取由 React iframe 加载 frontend/public/batch-rewrite/index.html，实际交互在 app.js/V78 V2 扩展脚本。
-- 当前前端错误主要写入局部 status/result 元素，用户容易感觉“点击无反应”。
-- V88 最新发布构建和 GHCR push 成功，但 ECS docker pull 因 TLS handshake timeout 失败并自动回滚。
-
-执行策略（已获用户“执行”批准）：
-- TDD：先新增前端可见反馈回归测试并确认 RED，再最小实现。
-- TDD：先新增发布重试/fallback 工作流契约测试并确认 RED，再修改 workflow。
-- 验证：小说获取专项测试、相关全量回归、frontend build、发布 workflow、ECS 公网验证。
+- 原错误提示主要写入局部 status/result 元素，用户容易感觉“点击无反应”。
+- app.js 的 renderTasks() 默认按 state.taskDate（默认今天）过滤任务，并把 state.tasks 覆盖成过滤后的数组；任务时间与当前筛选日期不一致时，即使后端已有任务，表格仍会变成 0 行。
+- 当前 V88 源码已有 selected 零选择保护；公网出现“已选 0 个 / 提交完成 0/0/0”说明当时公网仍运行回滚后的旧逻辑。
+- 第一轮公网发布：ECS docker pull GHCR 出现 TLS handshake timeout，自动回滚。
+- 第二轮：为了 fallback 在尝试 GHCR 前强制 SCP 68MB 主镜像 tar，timeout 600 后 exit 124，自动回滚。
+- 紧急 GHCR-first Node 部署已经证明 ECS 可以完整拉取新镜像并成功启动；但部署脚本把受认证保护的 /api/novel-panel/build-info 当 readiness，启动后返回 401，被误判为“Node 未启动”并自动回滚。
 
 已实施：
-- 新增 frontend/public/batch-rewrite/interaction-feedback.js。
-  - 开始处理、提交网络等按钮点击后立即显示“正在处理/正在提交”提示，并设置 aria-busy。
+- frontend/public/batch-rewrite/interaction-feedback.js
+  - “开始处理/提交网络”等按钮立即显示正在处理/正在提交，并设置 aria-busy。
   - MutationObserver 监听 processResult、siteSubmitStatus、batchStatus、webSubmitSelectionStatus。
-  - 校验失败、4xx/5xx、网络失败、超时、121 未登录/登录失效、Browser Worker 异常等升级为明显红色 role=alert 提示。
+  - 校验失败、4xx/5xx、网络失败、超时、121 未登录/登录失效、Browser Worker 异常等升级为明显 role=alert 错误提示。
   - 捕获 unhandledrejection 与 window error，避免异常静默。
-- Dockerfile 强制把 interaction-feedback.js 注入最终公网 batch-rewrite 页面，并带版本 query，避免仅改源码但镜像漏带脚本。
-- 新增 tests/novel-fetch-visible-feedback.test.js：3 项反馈行为契约。
-- 新增 tests/v88-release-registry-resilience.test.js：2 项发布容错契约。
-- 修正 batch-rewrite-flow-ui.test.js 过时的 15 秒 Browser Worker 超时断言，使其与当前普通 20 秒/登录 45 秒实现一致。
-- 修正 tests/script-generation-prompt-rules.test.js 内互相矛盾的旧断言：15s 规则保持“最大 15 秒、无最低时长”，只更新测试期望，不修改运行逻辑。
-- 更新 .github/workflows/v88-linux-amd64-image-release.yml：
-  - 主镜像和 Browser Worker GHCR pull 使用有限重试与退避。
-  - 主镜像持续拉取失败时，使用本次构建的 qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz + SHA256SUMS 作为 fallback，并 docker load。
-  - ECS 发布前把 tar 和校验文件传到 /opt/qiantie/releases/v88/${SHORT_SHA}/。
-  - 发布验证增加公网 /batch-rewrite/interaction-feedback.js 与页面脚本注入校验。
+- frontend/public/batch-rewrite/task-visibility-hotfix.js
+  - renderTasks 收到任务但当前日期无匹配项时，自动切换到最新任务日期，并同步 taskDateFilter。
+  - 自动切换后在 batchStatus 明确显示最新任务日期与任务数量。
+  - 真正没有任务时，任务表显示“当前没有可提交任务，请先开始处理”。
+  - 有历史任务但指定日期无数据时，任务表显示明确解释，不再静默空表。
+- Dockerfile 强制把 interaction-feedback.js 与 task-visibility-hotfix.js 注入最终公网 batch-rewrite 页面并带版本 query。
+- selected 网络提交继续保留 !selectedTaskIds().length 前置保护，零选择直接 showWebSubmitSelectionRequired() 并 return。
+- .github/workflows/v88-linux-amd64-image-release.yml
+  - 改为 GHCR pull-first：先在 ECS 有限重试拉主镜像；只有主镜像确实拉取失败时才上传 68MB tar + SHA256 fallback。
+  - docker pull 单次有超时，整体有限重试/退避。
+  - release artifact 使用 if: always()，发布失败也保留人工恢复包。
+  - 公网验证增加 interaction-feedback.js 与 task-visibility-hotfix.js。
+- .github/workflows/v88-node-emergency-redeploy.yml
+  - GHCR pull 使用单次 120 秒上限和有限重试。
+  - readiness 不再调用会合法返回 401 的受保护 build-info；改为公网静态 /batch-rewrite/task-visibility-hotfix.js。
+  - Node 镜像构建时、ECS 本机部署后、最终公网三层都验证 task-visibility-hotfix.js / interaction-feedback.js 确实存在并可访问。
 
-TDD/验证状态：
-- 初始 RED：新增 5 项测试按预期失败（反馈层不存在、发布无重试/fallback）。
-- 实现后：上述 5 项全部 GREEN。
-- 小说获取 V2 focused tests：52/52 通过。
-- 全量 Node regression：218/218 通过。
+测试/验证：
+- 小说获取 focused tests：通过。
+- 全量 Node regression：通过。
 - 121 Browser Worker tests：通过。
 - frontend dependency audit：通过。
 - frontend build：通过。
-- Novel Fetch V2 Check：test / compose-config / compose-smoke 全部通过。
-- V78.3.0.31 专项 regression：通过。
+- Novel Fetch V2 Check：通过。
+- Novel Panel V78.3.0.31 Regression：通过。
 - V78.3.0.31 guarded ECS deployment regression：通过。
-- V78.3.0.31 release distribution regression：通过。
-- V88 发布流水线已完成 frontend build、主镜像构建、121 Browser Worker 镜像构建、GHCR push、release tar、ECS SSH preflight；正在执行 ECS 部署与最终公网验证。
+- V88 CM Public Release Guard：通过。
+- 任务可见性与零选择保护已加入 tests/novel-fetch-visible-feedback.test.js。
+- pull-first / fallback / bounded pull 已加入 tests/v88-release-registry-resilience.test.js 与 ECS deployment regression。
+
+当前发布状态：
+- 新镜像可构建并成功 push 到 GHCR。
+- ECS 已实证能从 GHCR 下载新 Node 镜像并启动。
+- 上一轮因 readiness 错用受保护 API 返回 401 而误回滚，已修复为公开小说获取静态资源验收。
+- 最新紧急部署正在以“公网 task-visibility-hotfix.js + interaction-feedback.js 可访问”为最终完成条件重新执行。
