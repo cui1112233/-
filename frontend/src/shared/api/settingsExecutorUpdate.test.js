@@ -17,6 +17,9 @@ test('Settings page uses the installed executor for supported self-updates', () 
 
 test('legacy Windows executors get a one-time installer migration instead of a broken update protocol action', () => {
   const source = fs.readFileSync(settingsPage, 'utf8');
+  assert.match(source, /isWindowsExecutor/);
+  assert.match(source, /windows/);
+  assert.match(source, /win32/);
   assert.match(source, /needsInstallerMigration/);
   assert.match(source, /下载新版安装器/);
   assert.match(source, /首次安装 Windows 版/);
