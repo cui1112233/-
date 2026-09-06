@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   compareSemver,
@@ -46,7 +47,7 @@ test('loads public executor manifest as the download/version source', async () =
           minimumVersion: '1.0.3',
           downloads: {
             windows: '/downloads/local-executor/updates/stable/yizhan-local-executor-v88-1.0.4-win-x64.exe',
-            mac: '/downloads/local-executor/yizhan-local-executor-0.1.14-mac-arm64.dmg'
+            mac: '/downloads/local-executor/yizhan-local-executor-legacy-mac-arm64.dmg'
           }
         };
       }
@@ -65,4 +66,12 @@ test('loads public executor manifest as the download/version source', async () =
 test('rejects malformed release manifests instead of inventing a latest version', async () => {
   const fakeFetch = async () => ({ ok: true, async json() { return { version: 'latest', downloads: {} }; } });
   await assert.rejects(() => fetchExecutorReleaseManifest(fakeFetch), /执行器发布信息无效/);
+});
+
+test('SettingsPage consumes the dynamic executor release source and has no legacy version literal', async () => {
+  const settingsUrl = new URL('../../user/pages/SettingsPage.jsx', import.meta.url);
+  const source = await readFile(settingsUrl, 'utf8');
+  assert.doesNotMatch(source, /0\.1\.14/);
+  assert.match(source, /fetchExecutorReleaseManifest/);
+  assert.match(source, /executorVersionStatus/);
 });
