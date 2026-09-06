@@ -1,0 +1,16 @@
+[2026-09-06] 公网小说获取提交反馈与发布容错修复
+
+目标：
+1. 小说获取“开始处理/提交网络”等关键操作点击后立即给用户可见状态；失败必须明显提示，不能静默。
+2. V88 ECS 发布遇到 GHCR TLS handshake timeout 等临时网络错误时有限重试，并保留可靠 fallback，避免单次网络抖动导致新版回滚。
+3. 只修改 v88 主线。
+
+已确认根因：
+- 公网小说获取由 React iframe 加载 frontend/public/batch-rewrite/index.html，实际交互在 app.js/V78 V2 扩展脚本。
+- 当前前端错误主要写入局部 status/result 元素，用户容易感觉“点击无反应”。
+- V88 最新发布构建和 GHCR push 成功，但 ECS docker pull 因 TLS handshake timeout 失败并自动回滚。
+
+执行策略（已获用户“执行”批准）：
+- TDD：先新增前端可见反馈回归测试并确认 RED，再最小实现。
+- TDD：先新增发布重试/fallback 工作流契约测试并确认 RED，再修改 workflow。
+- 验证：小说获取专项测试、相关全量回归、frontend build、发布 workflow、ECS 公网验证。
