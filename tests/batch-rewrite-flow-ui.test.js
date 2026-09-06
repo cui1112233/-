@@ -28,11 +28,15 @@ test('登录弹窗在配置尚未加载时也能收口，不会因空配置永�
   assert.match(app, /dialog\.addEventListener\("submit"/);
 });
 
-test('服务端 121 登录和会话验证由 Browser Worker 客户端统一限制为 15 秒', () => {
+test('服务端 121 Browser Worker 客户端区分普通请求和登录请求超时预算', () => {
   assert.match(uploadRoute, /browserClient\.login\(/);
   assert.match(uploadRoute, /browserClient\.test\(/);
-  assert.match(browserClient, /timeoutMs\s*=\s*15000/);
+  assert.match(browserClient, /timeoutMs\s*=\s*Number\(process\.env\.QIANTIE_121_CLIENT_TIMEOUT_MS\)\s*\|\|\s*20000/);
+  assert.match(browserClient, /loginTimeoutMs\s*=\s*Number\(process\.env\.QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS\)\s*\|\|\s*45000/);
+  assert.match(browserClient, /requestTimeoutMs\s*=\s*timeoutMs/);
+  assert.match(browserClient, /login:\s*input\s*=>\s*request\([^\n]*requestTimeoutMs:\s*loginTimeoutMs/);
+  assert.match(browserClient, /refresh:\s*input\s*=>\s*request\([^\n]*requestTimeoutMs:\s*loginTimeoutMs/);
   assert.match(browserClient, /new AbortController\(\)/);
   assert.match(browserClient, /BROWSER_WORKER_TIMEOUT/);
-  assert.match(rewriteRoute, /timeoutMs:\s*15000/);
+  assert.match(rewriteRoute, /browserClient/);
 });
