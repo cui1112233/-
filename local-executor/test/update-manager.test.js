@@ -54,6 +54,21 @@ test('semantic version comparison never treats an older version as newer', () =>
   assert.equal(compareVersions('1.10.0', '1.9.9') > 0, true);
 });
 
+test('updater falls back to stable when preferences cannot be read', () => {
+  const manager = new UpdateManager({
+    currentVersion: '1.0.3',
+    platform: 'win32',
+    arch: 'x64',
+    updateBaseUrl: 'https://updates.example.test/downloads/local-executor/updates',
+    userDataDir: 'C:/executor-data',
+    preferencesStore: {
+      load() { throw new Error('preferences unreadable'); },
+      save(next) { return next; }
+    }
+  });
+  assert.equal(manager.getState().channel, 'stable');
+});
+
 test('active VIDEO task defers verified installer launch', async () => {
   let spawned = 0;
   const manager = new UpdateManager({
