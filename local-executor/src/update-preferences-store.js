@@ -16,7 +16,7 @@ class UpdatePreferencesStore {
       return { channel: normalizeChannel(parsed?.channel) };
     } catch (error) {
       if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
-      return { channel: 'beta' };
+      return { channel: 'stable' };
     }
   }
 
@@ -31,7 +31,7 @@ class UpdatePreferencesStore {
 }
 
 function normalizeChannel(value) {
-  const channel = String(value || 'beta').trim().toLowerCase();
+  const channel = String(value || 'stable').trim().toLowerCase();
   if (!VALID_CHANNELS.has(channel)) throw new Error('update channel must be beta or stable');
   return channel;
 }
