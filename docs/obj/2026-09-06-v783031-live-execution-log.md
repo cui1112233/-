@@ -271,3 +271,16 @@ V31 regression run：
 值必须是当前 ECS `root@115.190.156.223` 已授权的 SSH **私钥完整内容**。不要把私钥提交到 Git、OBJ 或聊天记录。
 
 Secret 配好后，再触发 `V88 Linux AMD64 Public Image Release`，工作流将自动完成：SSH 预检 → 镜像流式传输 → 生产镜像 rollback 备份 → Compose 重建 → ECS 内网 V31 验证 → 公网 V31 验证 → 失败自动回滚。
+
+---
+
+## 2026-09-06｜执行节点 08｜独立公网探测边界
+
+为避免仅依据 workflow 的“跳过验证”推断公网状态，额外进行了独立探测：
+
+1. Web 浏览工具尝试访问 `http://115.190.156.223:3000/api/novel-panel/build-info` 与 `/novel-panel`：该工具不接受裸 IP + 3000 端口形式，无法建立有效页面引用。
+2. 当前执行环境直接 `curl --connect-timeout 8 --max-time 12 http://115.190.156.223:3000/api/novel-panel/build-info`：当前运行环境无法连接该公网端口，返回 `curl: (7) Failed to connect`。
+
+因此这里不把上述探测解释为“服务器下线”，也不把它解释为“公网已经更新”。权威事实仍是：本轮 release 日志明确记录 `ECS_DEPLOY_READY=false`，所以本轮没有执行 ECS 切换，也没有完成 V31 公网验收。
+
+当前状态保持：`PUBLIC DEPLOYMENT PENDING`。
