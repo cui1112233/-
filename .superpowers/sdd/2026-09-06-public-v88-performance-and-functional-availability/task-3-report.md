@@ -91,3 +91,28 @@ Result: 12 tests passed, 0 failed; syntax and whitespace checks passed. The repe
 ### Round-2 commit
 
 - `61647fb2` — `perf: snapshot workbench assets for safe streaming`
+
+## Fix round 3
+
+### Findings addressed
+
+- Invalid or absent manifests now retain a validated real workbench root for safe fallback delivery. Original HTML URLs remain unchanged, and requested JS/CSS are streamed from that root with `private, max-age=0, must-revalidate` instead of returning 404.
+- Snapshot creation is transactional. Any validation, copy, or verification failure removes the partially-created temporary snapshot directory; `router.close()` removes successful snapshots and unregisters every bounded watcher.
+- Each copied snapshot is verified once against the manifest byte count and SHA-256 before it can be published in the immutable asset map. A mismatch falls back to source delivery with revalidation; no request-time rehashing was introduced.
+- Directory watching was replaced with bounded per-source `fs.watchFile` listeners and explicit cleanup, making asynchronous drift invalidation deterministic in tests while keeping all realpath/stat traversal out of request handling.
+
+### Round-3 verification
+
+```text
+node --test --test-concurrency=1 tests/novel-panel-asset-contract.test.js tests/novel-panel-workbench-cache.test.js tests/frontend-asset-cache-contract.test.js
+node --check lib/novel-panel/workbench-assets.js
+node --check routes/novel-panel-page.js
+node --check tests/novel-panel-workbench-cache.test.js
+git diff --check
+```
+
+Result: 13 tests passed, 0 failed; syntax and whitespace checks passed. Coverage includes fallback `app.js` status/body/cache policy, partial snapshot cleanup, one-time snapshot verification, watcher-driven drift, immutable streaming, and zero request-time synchronous realpath/stat/read/hash operations.
+
+### Round-3 commit
+
+- `f703c250` — `perf: harden workbench asset fallback snapshots`
