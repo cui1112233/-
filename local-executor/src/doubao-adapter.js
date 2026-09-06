@@ -31,6 +31,7 @@ class DoubaoAdapter {
     trackerFactory = webContents => new DoubaoNetworkTracker({ webContents }),
     downloader = downloadMp4WithSession,
     downloadDir = '',
+    logger = null,
     sleep = delay,
     navigationDelayMs = 500,
     videoWorkspacePollMs = 1000,
@@ -46,6 +47,7 @@ class DoubaoAdapter {
     this.trackerFactory = trackerFactory;
     this.downloader = downloader;
     this.downloadDir = downloadDir;
+    this.logger = logger;
     this.sleep = sleep;
     this.navigationDelayMs = navigationDelayMs;
     this.videoWorkspacePollMs = Math.max(0, Number(videoWorkspacePollMs) || 0);
@@ -64,13 +66,33 @@ class DoubaoAdapter {
     const webContents = await this.getAccountWebContents(account.id);
     const workspace = await this.captureVideoWorkspace(webContents, signal);
     const before = workspace.snapshot;
+    await emitLog(this.logger, 'DOUBAO_PAGE_READY', {
+      jobId: job.id,
+      accountId: account.id,
+      stage: 'preparing'
+    });
     const selected = selectRequestedOptions(workspace.capabilities, payload);
 
     if (selected.model) await this.pageActions.clickExactControl(webContents, selected.model);
     if (selected.duration !== null) await this.pageActions.clickExactControl(webContents, `${selected.duration}秒`);
     if (selected.ratio) await this.pageActions.clickExactControl(webContents, selected.ratio);
     if (selected.needsImageUpload) await this.pageActions.setReferenceImages(webContents, selected.images);
+    await emitLog(this.logger, 'VIDEO_OPTIONS_SELECTED', {
+      jobId: job.id,
+      accountId: account.id,
+      stage: 'preparing',
+      model: selected.model,
+      duration: selected.duration,
+      ratio: selected.ratio,
+      imageCount: Array.isArray(selected.images) ? selected.images.length : 0
+    });
     await this.pageActions.setPrompt(webContents, selected.prompt);
+    await emitLog(this.logger, 'PROMPT_FILLED', {
+      jobId: job.id,
+      accountId: account.id,
+      stage: 'preparing',
+      promptLength: String(selected.prompt || '').length
+    });
     throwIfAborted(signal);
 
     this.jobs.set(job.id, {
@@ -151,7 +173,7 @@ class DoubaoAdapter {
     return { snapshot: snapshot || {}, capabilities };
   }
 
-  async submit({ job, account, signal }) {
+  async submit({ job, account, signal, attempt }) {
     const state = this.requirePrepared(job, account);
     throwIfAborted(signal);
     if (state.submission?.status === 'accepted') return { ...state.submission };
@@ -159,6 +181,12 @@ class DoubaoAdapter {
     state.tracker?.stop?.();
     state.tracker = this.trackerFactory(state.webContents);
     await state.tracker.startAttempt({ prompt: state.selected.prompt });
+    await emitLog(this.logger, 'SUBMIT_CLICKED', {
+      jobId: job.id,
+      accountId: account.id,
+      stage: 'submitting',
+      attempt
+    });
     await this.pageActions.submit(state.webContents);
     if (this.confirmationDelayMs > 0) await this.sleep(this.confirmationDelayMs, signal);
     throwIfAborted(signal);
@@ -213,7 +241,15 @@ class DoubaoAdapter {
         snapshotVideoCandidates(snapshot)
       );
       try {
-        return bindExactMedia(state.submission, candidates);
+        const media = bindExactMedia(state.submission, candidates);
+        await emitLog(this.logger, 'MEDIA_DETECTED', {
+          jobId: job.id,
+          accountId: account.id,
+          submissionId: state.submission.submissionId,
+          mediaId: media.mediaId,
+          stage: 'generating'
+        });
+        return media;
       } catch (error) {
         if (!(error instanceof MediaBindingError) || error.code !== 'EXACT_MEDIA_NOT_FOUND') throw error;
       }
@@ -244,6 +280,13 @@ class DoubaoAdapter {
       signal
     });
     if (!artifact?.filePath) throw new DoubaoResultError('DOWNLOAD_FILE_MISSING', 'Doubao downloader did not return a local MP4 file');
+    await emitLog(this.logger, 'VIDEO_DOWNLOADED', {
+      jobId: job.id,
+      accountId: account.id,
+      submissionId: state.submission.submissionId,
+      mediaId: media.mediaId,
+      stage: 'downloading'
+    });
     state.tracker?.stop?.();
     state.tracker = null;
     return artifact;
@@ -335,6 +378,14 @@ function stateSubmissionId(state) {
   return state?.submission?.submissionId || '';
 }
 
+async function emitLog(logger, event, fields) {
+  try {
+    await logger?.event?.(event, fields);
+  } catch {
+    // Logging is diagnostic only and must never interfere with browser automation.
+  }
+}
+
 function throwIfAborted(signal) {
   if (signal?.aborted) throw signal.reason || new Error('aborted');
 }
@@ -359,5 +410,6 @@ module.exports = {
   assertUsableAccount,
   snapshotVideoCandidates,
   mergeMediaCandidates,
-  payloadOf
+  payloadOf,
+  emitLog
 };
