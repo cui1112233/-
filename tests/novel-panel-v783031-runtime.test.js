@@ -46,6 +46,8 @@ assert.equal(vm.runInContext("/[A-Za-z]/.test('random english')", context), true
 assert.ok(api.directorGrammar.includes('Reaction Shot'));
 assert.ok(api.directorGrammar.includes('L-cut/J-cut'));
 assert.ok(api.directorGrammar.includes('Cut on Action'));
+assert.equal(api.requestKind('/api/ai', JSON.stringify({ prompt: '【统一风格规则】不得返回英文摄影术语，全部改写为中文。' })), 'style');
+assert.ok(api.patchPromptText('【统一风格规则】不得返回英文摄影术语，全部改写为中文。所有字符串字段必须为简体中文，不得出现任何英文字母。', 'style').includes('ARRI ALEXA 35'));
 const locked = api.buildPatchTimingContract({ duration: 6, micro_shots: [{start:0,end:3},{start:3,end:6}] });
 assert.equal(locked.preserve_total_duration, true);
 assert.equal(locked.locked_duration, 6);
