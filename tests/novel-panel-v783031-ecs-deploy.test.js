@@ -28,17 +28,26 @@ assert.match(workflow, /V88_ECS_SSH_PRIVATE_KEY/);
 assert.match(workflow, /ECS_DEPLOY_READY/);
 assert.match(workflow, /115\.190\.156\.223/);
 assert.match(workflow, /ECS_USER:\s*root/);
-assert.match(workflow, /docker save "\$IMAGE_NAME" \| gzip -1 \| ssh/,
-  'runner must stream the already verified image directly to ECS without persisting registry credentials there');
-assert.match(workflow, /docker save "\$WORKER_IMAGE_NAME" \| gzip -1 \| ssh/,
-  'runner must stream the already verified Browser Worker directly to ECS');
-assert.doesNotMatch(workflow, /docker push "\$WORKER_GHCR_IMAGE"/,
-  'the large Browser Worker registry upload must not block the production rollout');
+assert.match(workflow, /docker push "\$WORKER_GHCR_IMAGE"/,
+  'the Browser Worker must have an immutable GHCR image before ECS rollout');
+assert.match(workflow, /docker pull "\$ghcr_image"/,
+  'ECS must pull the immutable main image instead of using an unbounded SSH image stream');
+assert.match(workflow, /docker pull "\$worker_ghcr_image"/,
+  'ECS must pull the immutable Browser Worker image instead of using an unbounded SSH image stream');
+assert.doesNotMatch(workflow, /docker save "\$IMAGE_NAME" \| gzip -1 \| ssh/,
+  'ECS rollout must not use an unbounded main-image SSH stream');
+assert.doesNotMatch(workflow, /docker save "\$WORKER_IMAGE_NAME" \| gzip -1 \| ssh/,
+  'ECS rollout must not use an unbounded Browser Worker SSH stream');
+assert.match(workflow, /ServerAliveInterval=15/);
+assert.match(workflow, /timeout 900/,
+  'ECS rollout must have a finite transfer/deploy timeout');
+assert.match(workflow, /concurrency:\s*[\s\S]*?cancel-in-progress:\s*true/,
+  'public ECS rollouts must not run concurrently');
 assert.match(workflow, /v88-public-v88-node:rollback-/,
   'current production image must be tagged for rollback before replacement');
 assert.match(workflow, /service_image/,
   'deployment must discover and preserve the actual v88-node Compose image tag');
-assert.match(workflow, /docker tag .*\$image_name.*\$service_image/,
+assert.match(workflow, /docker tag .*\$ghcr_image.*\$service_image/,
   'verified image must replace the actual Compose image tag used by production');
 assert.match(workflow, /\/opt\/qiantie\/v88\/deploy\/v88-public\/docker-compose\.yml/,
   'deployment must use the verified v88-public Compose file');

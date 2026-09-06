@@ -34,6 +34,10 @@ env:
   ECS_HOST: 115.190.156.223
   ECS_USER: root
 
+concurrency:
+  group: v88-public-release
+  cancel-in-progress: true
+
 jobs:
   build-release:
     runs-on: ubuntu-24.04
@@ -106,9 +110,13 @@ jobs:
         run: |
           set -Eeuo pipefail
           worker_image="qiantie-v88-121-browser-worker:public-${SHORT_SHA}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          worker_ghcr_image="ghcr.io/${owner}/qiantie-v88-121-browser-worker:public-${SHORT_SHA}"
           docker build --platform "$IMAGE_PLATFORM" -t "$worker_image" ./services/121-browser-worker
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$worker_image")" = "$IMAGE_PLATFORM"
+          docker tag "$worker_image" "$worker_ghcr_image"
           echo "WORKER_IMAGE_NAME=$worker_image" >> "$GITHUB_ENV"
+          echo "WORKER_GHCR_IMAGE=$worker_ghcr_image" >> "$GITHUB_ENV"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -122,9 +130,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker push "$GHCR_IMAGE"
+          docker push "$WORKER_GHCR_IMAGE"
           docker image inspect "$GHCR_IMAGE" >/dev/null
+          docker image inspect "$WORKER_GHCR_IMAGE" >/dev/null
           echo "Published durable image: $GHCR_IMAGE"
-          echo "Novel Fetch Browser Worker will be streamed directly to ECS after verification."
+          echo "Published durable Browser Worker image: $WORKER_GHCR_IMAGE"
 
       - name: Save release package
         shell: bash
@@ -146,7 +156,8 @@ jobs:
             echo "image=${IMAGE_NAME}"
             echo "registry_image=${GHCR_IMAGE}"
             echo "browser_worker_image=${WORKER_IMAGE_NAME}"
-            echo "browser_worker_distribution=direct-ecs-stream"
+            echo "browser_worker_registry_image=${WORKER_GHCR_IMAGE}"
+            echo "browser_worker_distribution=ghcr-pull"
             echo "cm_release_guard=passed"
           } > "$release_dir/RELEASE-METADATA.txt"
           cat > "$release_dir/ECS-STORAGE.txt" <<EOF
@@ -157,7 +168,7 @@ jobs:
           ${GHCR_IMAGE}
 
           Novel Fetch 121 Browser Worker distribution:
-          Built from this commit and streamed directly to ECS during guarded deployment.
+          Built from this commit, pushed to GHCR, and pulled by ECS during guarded deployment.
 
           Main image tar fallback after upload:
           cd /opt/qiantie/releases/v88/${SHORT_SHA}
@@ -206,26 +217,28 @@ jobs:
 
       - name: Deploy verified images to V88 ECS
         shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -Eeuo pipefail
           if [ "$ECS_DEPLOY_READY" != "true" ]; then
             echo "::notice::ECS deployment skipped because V88_ECS_SSH_PRIVATE_KEY is unavailable."
             exit 0
           fi
-          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST")
           remote_compose_dir="$ECS_COMPOSE_DIR"
-          scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 deploy/v88-public/docker-compose.browser-worker.yml "$ECS_USER@$ECS_HOST:${remote_compose_dir}/docker-compose.browser-worker.yml"
-          docker save "$IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
-          docker save "$WORKER_IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
-          "${ssh_cmd[@]}" bash -s -- "$IMAGE_NAME" "$WORKER_IMAGE_NAME" "$SHORT_SHA" "$ECS_COMPOSE_FILE" <<'REMOTE'
+          timeout 120 scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 deploy/v88-public/docker-compose.browser-worker.yml "$ECS_USER@$ECS_HOST:${remote_compose_dir}/docker-compose.browser-worker.yml"
+          printf '%s' "$GHCR_TOKEN" | timeout 120 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
+          timeout 900 "${ssh_cmd[@]}" bash -s -- "$GHCR_IMAGE" "$WORKER_GHCR_IMAGE" "$SHORT_SHA" "$ECS_COMPOSE_FILE" <<'REMOTE'
           set -Eeuo pipefail
-          image_name="$1"
-          worker_image_name="$2"
+          ghcr_image="$1"
+          worker_ghcr_image="$2"
           short_sha="$3"
           compose_file="$4"
           compose_dir="$(dirname "$compose_file")"
           test -f "$compose_file"
           cd "$compose_dir"
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
           random_hex() {
             od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
@@ -268,10 +281,12 @@ jobs:
             printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
           fi
 
-          docker image inspect "$image_name" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
-          docker image inspect "$worker_image_name" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
-          docker tag "$image_name" "$service_image"
-          docker tag "$worker_image_name" "$worker_service_image"
+          docker pull "$ghcr_image"
+          docker pull "$worker_ghcr_image"
+          docker image inspect "$ghcr_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          docker image inspect "$worker_ghcr_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          docker tag "$ghcr_image" "$service_image"
+          docker tag "$worker_ghcr_image" "$worker_service_image"
           "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
           "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
           "${compose[@]}" ps novel-fetch-121-worker v88-node

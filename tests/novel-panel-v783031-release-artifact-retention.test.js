@@ -13,7 +13,7 @@ assert.match(workflow, /permissions:\s*[\s\S]*?contents:\s*read[\s\S]*?actions:\
 
 const cleanupMarker = '- name: Prune old V88 AMD64 release artifacts';
 const loginMarker = '- name: Login to GHCR';
-const pushMarker = '- name: Push V88 AMD64 images to GHCR';
+const pushMarker = '- name: Push V88 AMD64 image to GHCR';
 const uploadMarker = '- name: Upload V88 AMD64 release artifact';
 assert.ok(workflow.includes(cleanupMarker), 'release workflow must prune old V88 AMD64 artifacts before upload');
 assert.ok(workflow.indexOf(cleanupMarker) < workflow.indexOf(uploadMarker), 'artifact pruning must run before upload');
@@ -31,6 +31,7 @@ assert.match(workflow, /docker\/login-action@v3/);
 assert.match(workflow, /registry:\s*ghcr\.io/);
 assert.match(workflow, /GHCR_IMAGE/);
 assert.match(workflow, /docker push "\$GHCR_IMAGE"/);
+assert.match(workflow, /docker push "\$WORKER_GHCR_IMAGE"/);
 assert.match(workflow, /registry_image=\$\{GHCR_IMAGE\}/,
   'release metadata must record the durable GHCR image reference');
 
