@@ -1,0 +1,43 @@
+name: Inspect V88 ECS deploy state
+
+on:
+  push:
+    branches:
+      - ops/cancel-stale-v88-release-20260906
+    paths:
+      - '.github/workflows/inspect-v88-ecs-deploy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect V88 ECS without mutation
+        shell: bash
+        env:
+          ECS_HOST: 115.190.156.223
+          ECS_USER: root
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo '=== time ==='
+          date -Is
+          echo '=== containers ==='
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+          echo '=== relevant images ==='
+          docker images --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' | grep -E 'qiantie-v88|121-browser-worker|qiantie-platform' || true
+          echo '=== active load/gzip processes ==='
+          ps -eo pid,ppid,etime,cmd | grep -E '[d]ocker load|[g]unzip|[g]zip -1' || true
+          echo '=== docker disk ==='
+          docker system df
+          REMOTE
