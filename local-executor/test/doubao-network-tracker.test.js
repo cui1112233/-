@@ -82,6 +82,33 @@ test('tracks only prompt-bound submit request and returns redacted acceptance id
   tracker.stop();
 });
 
+test('conversation id alone never proves that the current prompt was accepted', async () => {
+  const debug = new EventEmitter();
+  debug.isAttached = () => true;
+  debug.sendCommand = async (method, params) => method === 'Network.getResponseBody'
+    ? { body: JSON.stringify({ conversation_id: 'conv-existing', ok: true }), base64Encoded: false }
+    : {};
+
+  const tracker = new DoubaoNetworkTracker({ webContents: { debugger: debug } });
+  await tracker.startAttempt({ prompt: '本次视频任务' });
+  debug.emit('message', {}, 'Network.requestWillBeSent', {
+    requestId: 'sync',
+    request: {
+      url: 'https://www.doubao.com/api/conversation/sync',
+      postData: JSON.stringify({ prompt: '本次视频任务', conversation_id: 'conv-existing' })
+    }
+  });
+  debug.emit('message', {}, 'Network.responseReceived', {
+    requestId: 'sync',
+    response: { status: 200, url: 'https://www.doubao.com/api/conversation/sync', mimeType: 'application/json' }
+  });
+  debug.emit('message', {}, 'Network.loadingFinished', { requestId: 'sync' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(tracker.getEvidence().accepted, false);
+  tracker.stop();
+});
+
 test('records only media response that carries an accepted submission identity', async () => {
   const debug = new EventEmitter();
   debug.isAttached = () => true;
