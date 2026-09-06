@@ -5,6 +5,7 @@ const { HOST, PORT } = require('./lib/shared');
 const { createApp } = require('./app');
 const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { attachV78NovelFetchV2 } = require('./lib/novel-fetch-workshop/v2-compose');
+const { createV783031RegenerationMiddleware } = require('./lib/novel-panel/v783031-regeneration-middleware');
 
 // ============================================================
 // 启动服务器
@@ -15,6 +16,11 @@ const app = express();
 const coreApp = createApp();
 app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
 attachV78NovelFetchV2({ shellApp: app, coreApp, bodyParser: express.json({ limit: '50mb' }) });
+// V78.3.0.27/28 final semantics: single-card regeneration is a current-truth Patch.
+// Parse/enrich the request before the legacy core route, then hard-validate the
+// legacy route response before it can be accepted by the browser writeback path.
+// Authentication, model config and usage accounting still execute in coreApp.
+app.use('/api/novel-panel/regenerate-scene-outline', express.json({ limit: '50mb' }), createV783031RegenerationMiddleware());
 app.use(coreApp);
 
 app.listen(PORT, HOST, () => {
