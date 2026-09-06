@@ -113,7 +113,8 @@ test('records only media response that carries an accepted submission identity',
   const debug = new EventEmitter();
   debug.isAttached = () => true;
   const bodies = new Map([
-    ['submit', JSON.stringify({ message_id: 'msg-42', task_id: 'task-9' })],
+    ['submit', JSON.stringify({ conversation_id: 'conv-1', message_id: 'msg-42', task_id: 'task-9' })],
+    ['same-conversation-old', JSON.stringify({ conversation_id: 'conv-1', media_id: 'media-old', download_url: 'https://cdn.example/old.mp4' })],
     ['other', JSON.stringify({ message_id: 'msg-other', media_id: 'media-newest', download_url: 'https://cdn.example/newest.mp4' })],
     ['exact', JSON.stringify({ message_id: 'msg-42', media_id: 'media-exact', download_url: 'https://cdn.example/exact.mp4?sig=local' })]
   ]);
@@ -129,7 +130,7 @@ test('records only media response that carries an accepted submission identity',
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(tracker.getEvidence().accepted, true);
 
-  for (const requestId of ['other', 'exact']) {
+  for (const requestId of ['same-conversation-old', 'other', 'exact']) {
     debug.emit('message', {}, 'Network.responseReceived', { requestId, response: { status: 200, url: `https://x.test/status/${requestId}`, mimeType: 'application/json' } });
     debug.emit('message', {}, 'Network.loadingFinished', { requestId });
   }
