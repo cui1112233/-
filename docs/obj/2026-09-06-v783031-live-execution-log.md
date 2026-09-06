@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY READY / ECS SECRET USER-CONFIGURED / GITHUB HOSTED RUNNER NOT ASSIGNED / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY READY / ECS SECRET USER-CONFIGURED / GITHUB ACTIONS BLOCKED BY ACCOUNT BILLING / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -429,3 +429,77 @@ GitHub Status 当前显示：
 - rollback：⏸ 未触发
 
 当前状态：`GITHUB HOSTED RUNNER NOT ASSIGNED / PUBLIC DEPLOYMENT PENDING`。
+
+---
+
+## 2026-09-06｜执行节点 11｜Actions 账户级计费门槛复核与本机 SSH 只读边界
+
+### GitHub Actions 当前真实状态
+
+在用户已配置 V88_ECS_SSH_PRIVATE_KEY 后，对既有发布 run 34018081234 的 build-release job 再次执行真实 re-run：
+
+- 最新 attempt：3
+- 最新 job：101475048709
+- head SHA：e4b59f272806e203b251c5a47f772d958d9760e2
+- status：completed
+- conclusion：failure
+- job started：2026-09-06T11:01:11Z
+- job completed：2026-09-06T11:01:13Z
+- runner label：ubuntu-24.04
+- runner_id：0
+- runner_name：空
+- steps：空
+- 总耗时：约 2 秒
+
+GitHub Actions 页面 Annotations 的原文为：
+
+The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings
+
+该错误发生在 Hosted Runner 分配前。没有 Checkout、Secret 消费、SSH preflight、ECS 连接、镜像传输、Compose 重建或 rollback。
+
+### 本机真实 SSH 只读检查
+
+执行目标：root@115.190.156.223
+
+结果：
+
+- 连接返回：Permission denied (publickey,password).
+- SSH_EXIT=255
+- 未读取、打印或记录任何私钥内容。
+- 未修改 ECS、Docker、Compose、数据卷或公网服务。
+
+本机当前没有可用于该目标的已认证 SSH 通道；因此不使用本机绕过 GitHub Actions 执行生产切换。
+
+### 公网当前版本与页面证据
+
+直接公网请求：
+
+- /novel-panel：HTTP 200，返回现有前端 HTML。
+- /api/novel-panel/build-info：HTTP 401 Unauthorized，返回 invalid or expired token；未取得可认证的 build-info 版本值。
+
+已登录浏览器打开的公网 /novel-panel 页面可见：
+
+- 页面版本：V78.3.0.2 · 场景锚点/事件归属/连续时间轴根治
+- Clean Core 自检：runtime=v78.3.0.2 / v78.3.0.2-scene-event-canonical-timeline-20260818-r1
+- 页面 Build 版本：page=v78.3.0.2
+- 自检汇总：PASS 29 · WARN 2 · FAIL 1
+
+因此公网当前明确不是目标 V78.3.0.31，不能标记为 PUBLIC DEPLOYED。
+
+### ECS 与发布状态边界
+
+- ECS SSH preflight：未执行
+- Docker image load：未执行
+- /opt/v88 Compose：未执行
+- v88-node 重建：未执行
+- ECS localhost build-info：未执行
+- 公网 V31 build-info：未执行
+- 公网 V31 /novel-panel 验证：未通过
+- rollback：未触发
+- 公网现有服务：本轮未修改
+
+### 当前阻塞与下一步
+
+代码、V31 回归、Linux AMD64 镜像、GHCR 发布和部署 workflow 逻辑均已有记录；当前新增的实际阻塞是 GitHub 账户 Billing/Spending 门槛导致 Hosted Runner 无法启动。
+
+在 GitHub Settings 的 Billing & plans 中处理付款失败或提高 Spending limit 后，继续重跑 V88 Linux AMD64 Public Image Release。只有看到 Runner 被实际分配并完成 SSH preflight → Docker/Compose → ECS localhost build-info → 公网 build-info 与 /novel-panel 验证，才允许把状态改为 PUBLIC DEPLOYED / VERIFIED。
