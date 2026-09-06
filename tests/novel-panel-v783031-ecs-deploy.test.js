@@ -14,11 +14,12 @@ const deployMarker = '- name: Deploy verified images to V88 ECS';
 const verifyMarker = '- name: Verify V88 ECS deployment';
 const rollbackMarker = '- name: Rollback V88 ECS on failed verification';
 
+assert.ok(workflow.includes(pushMarker), 'release workflow must publish the compact main V88 image to GHCR');
 assert.ok(workflow.includes(sshMarker), 'release workflow must prepare the ECS SSH channel');
 assert.ok(workflow.includes(deployMarker), 'release workflow must contain a guarded ECS deploy step');
 assert.ok(workflow.includes(verifyMarker), 'release workflow must verify the ECS rollout');
 assert.ok(workflow.includes(rollbackMarker), 'release workflow must automatically rollback a failed ECS verification');
-assert.ok(workflow.indexOf(pushMarker) < workflow.indexOf(sshMarker), 'ECS rollout must only start after GHCR publication succeeds');
+assert.ok(workflow.indexOf(pushMarker) < workflow.indexOf(sshMarker), 'main-image GHCR publication must finish before ECS rollout starts');
 assert.ok(workflow.indexOf(sshMarker) < workflow.indexOf(deployMarker), 'SSH setup must precede deployment');
 assert.ok(workflow.indexOf(deployMarker) < workflow.indexOf(verifyMarker), 'deployment must precede public/runtime verification');
 assert.ok(workflow.indexOf(verifyMarker) < workflow.indexOf(rollbackMarker), 'rollback handler must be defined after verification');
@@ -29,6 +30,10 @@ assert.match(workflow, /115\.190\.156\.223/);
 assert.match(workflow, /ECS_USER:\s*root/);
 assert.match(workflow, /docker save "\$IMAGE_NAME" \| gzip -1 \| ssh/,
   'runner must stream the already verified image directly to ECS without persisting registry credentials there');
+assert.match(workflow, /docker save "\$WORKER_IMAGE_NAME" \| gzip -1 \| ssh/,
+  'runner must stream the already verified Browser Worker directly to ECS');
+assert.doesNotMatch(workflow, /docker push "\$WORKER_GHCR_IMAGE"/,
+  'the large Browser Worker registry upload must not block the production rollout');
 assert.match(workflow, /v88-public-v88-node:rollback-/,
   'current production image must be tagged for rollback before replacement');
 assert.match(workflow, /service_image/,
@@ -57,5 +62,20 @@ assert.match(workflow, /\/tmp\/v88-last-service-image/,
   'rollback must persist the actual Compose service image tag');
 assert.match(workflow, /docker tag "\$rollback_image" "\$service_image"/,
   'rollback must restore the prior actual Compose service image tag');
+
+const deployBlock = workflow.slice(workflow.indexOf(deployMarker), workflow.indexOf(verifyMarker));
+const rollbackBlock = workflow.slice(workflow.indexOf(rollbackMarker));
+assert.ok(deployBlock.includes('grep -q "^${key}=" novel-fetch-121.env'),
+  'secret generation must detect an existing key instead of appending a new value on every release');
+assert.ok(deployBlock.includes("worker_service_image='v88-public-novel-fetch-121-worker:v88-latest'"),
+  'first Browser Worker rollout must have a stable target image tag even when no old worker container exists');
+assert.ok(deployBlock.includes('if [ -n "$worker_container_id" ]; then'),
+  'existing Browser Worker rollback capture must be conditional');
+assert.ok(!deployBlock.includes('test -n "$worker_container_id"'),
+  'first Browser Worker rollout must not require a pre-existing worker container');
+assert.ok(rollbackBlock.includes('if [ -s /tmp/v88-last-rollback-worker-image ]'),
+  'rollback must distinguish upgrade rollback from a first-time worker rollout');
+assert.ok(rollbackBlock.includes('rm -f novel-fetch-121-worker'),
+  'first-time worker rollback must remove the newly introduced worker instead of requiring a nonexistent old image');
 
 console.log('V78.3.0.31 guarded ECS deployment regression: PASS');
