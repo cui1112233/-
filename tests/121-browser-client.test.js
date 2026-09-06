@@ -31,6 +31,29 @@ test('browser client sends only internal worker request with secret', async () =
   assert.equal(JSON.parse(calls[0].options.body).password, 'pw');
 });
 
+test('browser login gets a longer wall-clock budget than normal worker calls', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787',
+    secret: 'internal-secret',
+    timeoutMs: 20,
+    loginTimeoutMs: 2500,
+    fetchImpl: async (_url, options) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, status: 'ready', sessionKey: 'opaque' })
+      }), 1250);
+      options.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      });
+    })
+  });
+
+  const result = await client.login({ ...identity, password: 'pw' });
+  assert.equal(result.status, 'ready');
+});
+
 test('browser client authenticated action stays inside worker contract', async () => {
   const calls = [];
   const client = create121BrowserClient({
