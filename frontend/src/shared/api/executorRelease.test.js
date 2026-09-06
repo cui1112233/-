@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 import {
   compareSemver,
   executorVersionStatus,
-  fetchExecutorReleaseManifest
+  fetchExecutorReleaseManifest,
+  supportsExecutorProtocolUpdate
 } from './executorRelease.js';
 
 test('compares strict x.y.z executor versions numerically', () => {
@@ -32,6 +33,14 @@ test('keeps unknown executor versions explicit instead of guessing', () => {
     executorVersionStatus('', { latestVersion: '1.0.4', minimumVersion: '1.0.3' }),
     { currentVersion: '', latestVersion: '1.0.4', minimumVersion: '1.0.3', updateAvailable: false, updateRequired: false, versionKnown: false }
   );
+});
+
+test('only updater-bootstrap executors can use yizhan-executor update action', () => {
+  assert.equal(supportsExecutorProtocolUpdate('0.1.14'), false);
+  assert.equal(supportsExecutorProtocolUpdate('1.0.2'), false);
+  assert.equal(supportsExecutorProtocolUpdate('1.0.3'), true);
+  assert.equal(supportsExecutorProtocolUpdate('1.0.4'), true);
+  assert.equal(supportsExecutorProtocolUpdate(''), false);
 });
 
 test('loads public executor manifest as the download/version source', async () => {
