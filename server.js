@@ -11,6 +11,7 @@ const { createV783031OutlineHandler } = require('./lib/novel-panel/v783031-outli
 const { createV783031BuildInfoMiddleware } = require('./lib/novel-panel/v783031-build-info');
 const { createScriptSmartUnifiedStyleHandler } = require('./lib/script-smart-unified-route');
 const { createScriptDirectorPipelineHandler } = require('./lib/script-director-pipeline-route');
+const { migrateLegacyScriptPromptPresets } = require('./lib/script-prompt-preset-migration');
 
 // ============================================================
 // 启动服务器
@@ -19,6 +20,12 @@ const { createScriptDirectorPipelineHandler } = require('./lib/script-director-p
 // 其余请求继续原样进入现有 V78 Express 应用，避免重写旧兼容页面或 API。
 const app = express();
 const coreApp = createApp();
+
+// 2026-09-06 剧本提示词收口：只有仍等于旧系统默认正文的后台预设才自动
+// 升级为当前“分段开头 / 分镜模式 / 通用规则”元提示词。管理员已经编辑过
+// 任意正文时哈希会改变，因此迁移器会保留该版本，不做覆盖。
+migrateLegacyScriptPromptPresets(coreApp.locals.presetStore, 'choushiyiguai');
+
 // Shell-level V31 routes must authenticate against exactly the same runtime as
 // coreApp; otherwise a valid core session would be rejected before reaching it.
 app.locals.authRuntime = coreApp.locals.authRuntime;
@@ -37,11 +44,9 @@ app.post(
   createScriptSmartUnifiedStyleHandler()
 );
 
-// V88 script director pipeline: third/fourth steps share one authoritative backend
-// transaction. Global Director Plan first freezes semantic source units, scene/event
-// batches, continuity and duration; execution then creates one outer video prompt per
-// source unit with 1-6 micro shots. V78.3.0.31 quality/audit/targeted-repair rules are
-// reused before any result is returned to the public /script workbench.
+// 快速导演 / 匹配音频保留独立导演事务。普通“分段开头 + 分镜模式”不走
+// 该接口，而是在 /api/chat 的一次 script 请求中组合用户当前选择的开头、
+// 输出模式和 10s/15s 规则，直接返回最终分镜成品。
 app.post(
   '/api/script/director-pipeline',
   express.json({ limit: '50mb' }),
