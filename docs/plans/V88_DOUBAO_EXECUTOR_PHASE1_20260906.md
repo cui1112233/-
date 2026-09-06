@@ -75,7 +75,7 @@ GET  /api/script-videos/{taskId}
 GET  /api/script-videos/{taskId}/download
 ```
 
-原 V88 Go Router 未注册这组兼容路由，TDD 红灯明确为：
+原 V88 Go Router 未注册这组兼容路由。TDD 红灯：
 
 ```text
 TestScriptVideoLocalCompatibilityRouteCreatesQueuedJob
@@ -97,7 +97,7 @@ Node /api/script-video/*
 
 ### 根因 B：公网执行器下载仍写死旧版本
 
-原 `routes/local-executor-downloads.js` 使用固定 `RELEASE_VERSION`，而执行器更新系统已经使用 `stable/beta manifest`。
+原 `routes/local-executor-downloads.js` 使用固定版本，而执行器更新系统已经使用 `stable/beta manifest`。
 
 TDD 红灯：
 
@@ -135,17 +135,10 @@ af69bbf90d7416069c7f8d62dd1c9c34f763505e
 fix: drive public executor download from stable manifest
 ```
 
-验证工作流：
+完整 GREEN：
 
 ```text
-V88 Doubao Executor Verify
 run_id: 34017379066
-conclusion: success
-```
-
-四个作业全部成功：
-
-```text
 node-routes      success
 local-executor   success
 backend-go       success
@@ -154,69 +147,58 @@ frontend         success
 
 ### Step 2 + Step 3：SettingsPage 动态下载与版本状态
 
-先增加前端版本契约测试，RED 证据：
+RED 1：
 
 ```text
 run_id: 34017881181
 ERR_MODULE_NOT_FOUND: executorRelease.js
 ```
 
-随后新增：
+新增：
 
 ```text
 frontend/src/shared/api/executorRelease.js
 commit: 0d495b7e18e95ab795808148745b2e1d68f23f67
 ```
 
-该模块实现：
+实现：严格 `x.y.z` 数字比较、latest/minimum/current、updateAvailable/updateRequired/versionKnown、公共 manifest 读取和 fail-closed 校验。
 
-```text
-严格 x.y.z 数字版本比较
-currentVersion / latestVersion / minimumVersion
-updateAvailable / updateRequired / versionKnown
-读取 /downloads/local-executor/manifest.json
-发布清单无效时拒绝猜测版本
-```
-
-版本工具独立 GREEN：
+独立 GREEN：
 
 ```text
 run_id: 34017916203
 conclusion: success
 ```
 
-然后增加 SettingsPage 源码契约测试，RED 证据：
+RED 2：
 
 ```text
 run_id: 34017950137
 frontend: failure
 原因：SettingsPage 仍含旧版固定下载路径
-其余 backend-go / node-routes / local-executor 均 success
 ```
 
-正式页面修复提交：
+正式页面修复：
 
 ```text
 0847510b7f552087223412b3efbd0b5a72816e8a
 feat: show dynamic local executor release status
 ```
 
-完成内容：
+完成：
 
 ```text
 SettingsPage 不再写死执行器版本号
 Windows/Mac 下载地址来自 manifest
 显示最新稳定版 / 最低支持版
-每台已配对设备显示 heartbeat 上报的当前 version
+显示每台执行器 heartbeat 上报的当前 version
 显示 已是最新 / 有新版本 / 必须更新 / 版本未知
-发布信息不可用时禁止伪造最新版并禁用下载按钮
-刷新状态同时刷新设备状态和发布清单
+manifest 不可用时不猜版本并禁用下载
 ```
 
 完整 GREEN：
 
 ```text
-V88 Doubao Executor Verify
 run_id: 34018080537
 backend-go       success
 node-routes      success
@@ -225,50 +207,119 @@ frontend tests   success
 frontend build   success
 ```
 
-因此 Step 2、Step 3 已正式完成。
+### Step 4 + Step 5：Windows URL 协议 + Electron 单实例
+
+源码审计确认原实现缺失：
+
+```text
+app.requestSingleInstanceLock()
+app.setAsDefaultProtocolClient(...)
+second-instance
+installer protocols registration
+```
+
+TDD RED：
+
+```text
+run_id: 34018196143
+local-executor: failure
+旧测试 94 个通过，新测试 3 个失败
+```
+
+明确失败原因：
+
+```text
+Cannot find module '../src/electron/protocol-handler'
+main.js 不含 requestSingleInstanceLock
+package.json build.protocols 不含 yizhan-executor
+```
+
+正式实现：
+
+```text
+local-executor/src/electron/protocol-handler.js
+local-executor/src/electron/main.js
+local-executor/package.json
+```
+
+关键提交：
+
+```text
+8db2615cc9445bd6a1d5bae4ed9dfd5c15aa14c6  safe protocol handler
+f6742953c00e1c7465efbce6b274d493b4405542  single instance + protocol handling
+9f9fd1fbc948d2fd3cf1dac8c057cddae9e1cc57  installer protocol registration
+```
+
+安全行为：
+
+```text
+仅允许 yizhan-executor://open
+拒绝 http/https 与未知 action
+拒绝 yizhan-executor://run?cmd=...
+不把 URL 参数转为命令
+不调用 PowerShell/CMD
+```
+
+单实例行为：
+
+```text
+首次启动 → 正常创建执行器
+重复启动 → second-instance → 聚焦已有窗口
+URL 冷启动 → 解析 open → 创建后聚焦
+URL 热启动 → second-instance → 恢复/显示/聚焦已有窗口
+```
+
+安装器：
+
+```text
+electron-builder build.protocols
+scheme = yizhan-executor
+```
+
+完整 GREEN：
+
+```text
+V88 Doubao Executor Verify
+run_id: 34018270271
+backend-go       success
+node-routes      success
+local-executor   success
+frontend tests   success
+frontend build   success
+```
+
+因此 Step 4、Step 5 已正式完成。
 
 ## 5. 当前正在执行
 
-### Step 4 + Step 5：`yizhan-executor://` + Electron 单实例
+### Step 6：设置页增加“打开执行器”
 
 目标：
 
 ```text
-网页点击“打开执行器”
-→ yizhan-executor://open
-→ Windows 唤起已安装的一战晟铭豆包执行器
-→ 如果已经运行，不启动第二份
-→ 恢复并聚焦原执行器窗口
+设置 → 豆包本地执行器
+[打开执行器]
+↓
+yizhan-executor://open
+↓
+Windows 调起已安装执行器
 ```
 
-安全边界：
+实施规则：
 
-```text
-只识别固定 scheme 与有限 action
-不允许网页传任意命令
-不调用 PowerShell/CMD
-不允许 URL 参数变成系统命令
-未知 action 安全忽略
-```
-
-实施顺序：
-
-1. 读取当前 Electron 主进程入口与 package/NSIS 配置。
-2. 先写协议 URL 解析与单实例行为的失败测试。
-3. 增加 `app.requestSingleInstanceLock()`。
-4. Windows packaged app 注册 `app.setAsDefaultProtocolClient('yizhan-executor')`。
-5. `second-instance` 提取 `yizhan-executor://...`，只执行 allow-list action。
-6. 已运行时恢复/显示/聚焦主窗口。
-7. 验证 Electron 单测与 syntax GREEN。
-8. 完成后实时更新本文件，再进入 Step 6 网页“打开执行器”按钮。
+1. 先增加 SettingsPage 源码契约测试，要求页面包含 `yizhan-executor://open`。
+2. 只使用固定协议字符串，不拼接任意命令或用户输入。
+3. “打开执行器”和“下载 Windows 版”并存：未安装用户仍可下载安装。
+4. 前端 build + tests GREEN 后同步本文件。
+5. 然后进入 Step 7：`/script` 真实 `stage`。
 
 ## 6. 后续严格顺序
 
 - [x] Step 1：stable manifest → 公网下载入口 GREEN
 - [x] Step 2：SettingsPage 去掉旧版硬编码
 - [x] Step 3：设置页显示当前/最新/可升级/强制升级状态
-- [ ] Step 4：增加 `yizhan-executor://` Windows 自定义协议
-- [ ] Step 5：增加 Electron 单实例锁与二次唤起聚焦
+- [x] Step 4：增加 `yizhan-executor://` Windows 自定义协议
+- [x] Step 5：增加 Electron 单实例锁与二次唤起聚焦
 - [ ] Step 6：设置页增加“打开执行器”
 - [ ] Step 7：`/script` 保存并显示真实 `stage`
 - [ ] Step 8：审计 `doubao-acceptance.js` 与 `doubao-network-tracker.js`
@@ -356,7 +407,7 @@ JOB_FAILED
 
 Phase 1 继续 Electron，不立即 Go 重写。已知早期 Windows 安装包约 79 MiB；Electron 自带 Chromium，因此本阶段 15–25 MB 不现实。
 
-本阶段硬约束：
+硬约束：
 
 - 不额外捆绑第二套 Chromium/Chrome。
 - 不捆绑 Playwright 浏览器。
@@ -370,13 +421,7 @@ Phase 1 继续 Electron，不立即 Go 重写。已知早期 Windows 安装包�
 
 ## 10. CI
 
-已新增：
-
-```text
-.github/workflows/v88-doubao-executor-verify.yml
-```
-
-目前覆盖：
+`.github/workflows/v88-doubao-executor-verify.yml` 当前覆盖：
 
 ```text
 backend: go test ./...
@@ -393,8 +438,8 @@ frontend npm build
 - [x] stable manifest 已成为 Windows 公网正式版本源并通过完整 CI
 - [x] SettingsPage 不再硬编码旧版下载地址
 - [x] 网页显示真实执行器版本状态
-- [ ] 网站可唤起本机执行器
-- [ ] 执行器保持单实例
+- [ ] 网站可唤起本机执行器（底层协议已完成，待 Step 6 页面按钮）
+- [x] 执行器保持单实例
 - [ ] `/script` 显示真实任务阶段
 - [ ] 未确认豆包接单时绝不显示 generating
 - [ ] 豆包确认接单后进入 generating
@@ -414,14 +459,22 @@ frontend npm build
 - 完成 Node → Go 本地视频兼容路由 TDD 修复。
 - 完成 stable manifest 驱动公网 Windows 下载源。
 - CI `34017379066` 四项全部 GREEN。
-- 进入 Step 2/3：SettingsPage 动态版本/下载管理。
 
 ### 2026-09-06 · 进度 02
 
 - 新增 `executorRelease.js` 与严格版本比较/最低版本逻辑。
-- RED `34017881181`：缺少 release helper，符合预期。
-- GREEN `34017916203`：release helper 单测及完整 CI 通过。
-- RED `34017950137`：SettingsPage 仍含旧版硬编码，符合预期。
-- 修复 SettingsPage，提交 `0847510b7f552087223412b3efbd0b5a72816e8a`。
-- GREEN `34018080537`：backend-go、node-routes、local-executor、frontend tests/build 全部通过。
-- Step 2、Step 3 完成；当前进入 Step 4/5：Windows URL 协议 + Electron 单实例。
+- RED `34017881181`：缺少 release helper。
+- GREEN `34017916203`：release helper 通过。
+- RED `34017950137`：SettingsPage 仍含旧版硬编码。
+- 修复 SettingsPage：`0847510b7f552087223412b3efbd0b5a72816e8a`。
+- GREEN `34018080537`：四项完整验证通过。
+
+### 2026-09-06 · 进度 03
+
+- 审计确认 Electron 原先没有自定义 URL 协议和单实例。
+- RED `34018196143`：新增协议/单实例测试 3 项按预期失败，旧测试 94 项通过。
+- 新增安全 `protocol-handler.js`，只允许 `yizhan-executor://open`。
+- 主进程增加 `requestSingleInstanceLock`、`second-instance`、冷/热启动聚焦和 packaged Windows 协议注册。
+- electron-builder/NSIS 注册 `yizhan-executor` scheme。
+- GREEN `34018270271`：backend-go、node-routes、local-executor、frontend tests/build 全部通过。
+- Step 4、Step 5 完成；当前进入 Step 6：设置页“打开执行器”。
