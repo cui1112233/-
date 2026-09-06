@@ -22,9 +22,9 @@ type RouterOptions struct {
 	Compiler     *batchfactoryv11.PromptCompilerService
 	Production   *batchfactoryv11.ProductionService
 	Merge        *batchfactoryv11.MergeService
-	External        *external.Service
-	LocalExecutors  *localexecutor.Service
-	LocalArtifacts  *localartifact.Store
+	External       *external.Service
+	LocalExecutors *localexecutor.Service
+	LocalArtifacts *localartifact.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -58,6 +58,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
+	RegisterScriptVideoLocalRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
