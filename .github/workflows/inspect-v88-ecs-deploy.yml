@@ -31,38 +31,29 @@ jobs:
           ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
           set -Eeuo pipefail
           main_id="$(docker ps -qf name=v88-public-v88-node-1)"
-          old_worker_id="$(docker ps -qf name=v88-public-browser-worker-1)"
-          echo '=== containers ==='
-          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-          echo '=== configured worker URL ==='
-          docker exec "$main_id" printenv QIANTIE_121_BROWSER_WORKER_URL || true
-          echo '=== secret equality with existing browser-worker ==='
-          node_secret="$(docker exec "$main_id" printenv QIANTIE_121_WORKER_SECRET 2>/dev/null || true)"
-          worker_secret="$(docker exec "$old_worker_id" printenv QIANTIE_121_WORKER_SECRET 2>/dev/null || true)"
-          if [ -n "$node_secret" ] && [ "$node_secret" = "$worker_secret" ]; then
-            echo 'NODE_AND_EXISTING_WORKER_SECRET_MATCH=true'
-          else
-            echo 'NODE_AND_EXISTING_WORKER_SECRET_MATCH=false'
-          fi
+          worker_id="$(docker ps -qf name=v88-public-browser-worker-1)"
           echo '=== configured worker health from v88-node ==='
-          docker exec "$main_id" node - <<'NODE'
-          const base = process.env.QIANTIE_121_BROWSER_WORKER_URL || '';
-          const secret = process.env.QIANTIE_121_WORKER_SECRET || '';
-          if (!base || !secret) {
-            console.log('CONFIGURED_WORKER_HEALTH=env_missing');
-            process.exit(0);
-          }
-          fetch(`${base.replace(/\/$/, '')}/healthz`, { headers: { 'x-qiantie-internal-secret': secret } })
-            .then(async r => console.log(`CONFIGURED_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`))
-            .catch(e => console.log(`CONFIGURED_WORKER_HEALTH=error ${e.name}:${e.message}`));
-          NODE
-          echo '=== existing browser-worker health from v88-node ==='
-          docker exec "$main_id" node - <<'NODE'
-          const secret = process.env.QIANTIE_121_WORKER_SECRET || '';
-          fetch('http://browser-worker:8787/healthz', { headers: { 'x-qiantie-internal-secret': secret } })
-            .then(async r => console.log(`EXISTING_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`))
-            .catch(e => console.log(`EXISTING_WORKER_HEALTH=error ${e.name}:${e.message}`));
-          NODE
-          echo '=== existing worker routes ==='
-          docker exec "$old_worker_id" sh -lc 'grep -R -n -E "healthz|/login|/profiles|/styles|upload|session" /app/src 2>/dev/null | head -120 || true'
+          docker exec "$main_id" node -e '
+            const base=(process.env.QIANTIE_121_BROWSER_WORKER_URL||"").replace(/\/$/,"");
+            const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
+            if(!base||!secret){console.log("CONFIGURED_WORKER_HEALTH=env_missing");process.exit(0)}
+            fetch(base+"/healthz",{headers:{"x-qiantie-internal-secret":secret}})
+              .then(async r=>{console.log(`CONFIGURED_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`)})
+              .catch(e=>{console.log(`CONFIGURED_WORKER_HEALTH=error ${e.name}:${e.message}`);process.exitCode=1});
+          '
+          echo '=== direct existing worker health from v88-node ==='
+          docker exec "$main_id" node -e '
+            const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
+            fetch("http://browser-worker:8787/healthz",{headers:{"x-qiantie-internal-secret":secret}})
+              .then(async r=>{console.log(`EXISTING_WORKER_HEALTH=status_${r.status} body=${(await r.text()).slice(0,300)}`)})
+              .catch(e=>{console.log(`EXISTING_WORKER_HEALTH=error ${e.name}:${e.message}`);process.exitCode=1});
+          '
+          echo '=== node timeout/error mapping source ==='
+          docker exec "$main_id" sh -lc 'grep -R -n -E "BROWSER_WORKER_TIMEOUT|browser_timeout|浏览器登录服务请求超时|浏览器登录服务失败|timeoutMs = 15000|session/login" /app/lib/novel-fetch-workshop /app/routes /app/server.js /app/app.js 2>/dev/null | head -200 || true'
+          echo '=== worker login timeout source ==='
+          docker exec "$worker_id" sh -lc 'grep -R -n -E "timeoutMs|page.goto|waitForLoadState|chromium.launch|session/login" /app/src 2>/dev/null | head -160 || true'
+          echo '=== worker recent logs ==='
+          docker logs --tail 120 "$worker_id" 2>&1 || true
+          echo '=== v88 node recent browser logs ==='
+          docker logs --tail 300 "$main_id" 2>&1 | grep -E -i "browser|121|timeout|session" | tail -120 || true
           REMOTE
