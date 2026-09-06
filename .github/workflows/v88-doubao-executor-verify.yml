@@ -1,6 +1,7 @@
 name: V88 Doubao Executor Verify
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - v88
