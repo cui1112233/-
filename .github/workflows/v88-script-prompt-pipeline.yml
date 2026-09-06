@@ -8,6 +8,8 @@ on:
       - 'lib/script-generation-rules.test.js'
       - 'lib/script-smart-unified-route.js'
       - 'lib/script-smart-unified-route.test.js'
+      - 'lib/script-prompt-preset-migration.js'
+      - 'lib/script-prompt-preset-migration.test.js'
       - 'lib/system-preset-catalog.js'
       - 'server.js'
       - 'routes/chat.js'
@@ -37,6 +39,7 @@ jobs:
         run: |
           node --test lib/script-generation-rules.test.js
           node --test lib/script-smart-unified-route.test.js
+          node --test lib/script-prompt-preset-migration.test.js
           node --test routes/chat-script-prompt-composition.test.js
 
   frontend-build:
