@@ -29,8 +29,8 @@ test('audio match rules keep the selected 10s or 15s unit rule', () => {
   assert.match(ten, /10s 模式无最低时长/);
 
   const fifteen = buildAudioMatchRules({ audioTotalSeconds: 28, duration: '15s' });
-  assert.match(fifteen, /每个独立分镜单元原则上大于 10 秒且不超过 15 秒/);
-  assert.match(fifteen, /空间切换和最终收尾可以短于 10 秒/);
+  assert.match(fifteen, /每个独立分镜单元不超过 15 秒/);
+  assert.match(fifteen, /15s 模式无最低时长/);
 });
 
 test('unit duration rules preserve short boundary units instead of forcing exact 10s or 15s', () => {
@@ -40,8 +40,8 @@ test('unit duration rules preserve short boundary units instead of forcing exact
   assert.doesNotMatch(ten, /总时长只能是 10s/);
 
   const fifteen = buildStoryboardUnitDurationRules('15s');
-  assert.match(fifteen, /原则上大于 10 秒且不超过 15 秒/);
-  assert.match(fifteen, /空间切换和最终收尾可以短于 10 秒/);
+  assert.match(fifteen, /不超过 15 秒/);
+  assert.match(fifteen, /15s 模式无最低时长/);
   assert.doesNotMatch(fifteen, /总时长只能是 15s/);
 });
 
