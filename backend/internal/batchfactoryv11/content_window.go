@@ -80,8 +80,22 @@ func decorateBookContent(book *Book, batchPatch SettingsPatch) error {
 	if book.SourceLabel == "" {
 		book.SourceLabel = "未知来源"
 	}
+	if book.Status == "" {
+		book.Status = "待编剧"
+	}
 	_ = used
 	return nil
+}
+
+func decorateBookWorkflowStatus(book *Book) {
+	if book == nil {
+		return
+	}
+	if book.DirectorRevision != nil && len(book.Videos) > 0 {
+		book.Status = "已编剧"
+		return
+	}
+	book.Status = "待编剧"
 }
 
 func firstMetadataValue(metadata map[string]any, keys ...string) string {

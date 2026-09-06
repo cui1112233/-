@@ -6,11 +6,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
 )
+
+type metadataRouteProvider struct{ calls int }
+
+func (p *metadataRouteProvider) Complete(context.Context, batchfactoryv11.TextCompletionRequest) (string, error) {
+	p.calls++
+	return `{"gender":"女频","type":"现代言情"}`, nil
+}
 
 func signedJSONRequest(t *testing.T, api http.Handler, now time.Time, username, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
@@ -84,6 +92,29 @@ func TestSliceOneCreateListAndGetBatch(t *testing.T) {
 	get := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/batch-factory/v11/batches/"+created.ID, nil)
 	if get.Code != http.StatusOK {
 		t.Fatalf("get=%d body=%s", get.Code, get.Body.String())
+	}
+}
+
+func TestManualIntakeClassifiesMetadataOnlyWhenEnabled(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	provider := &metadataRouteProvider{}
+	director := &batchfactoryv11.DirectorService{Store: store, Provider: provider}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 2, Store: store, Director: director})
+	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+		"metadata": map[string]any{"manualMetadataRecognitionEnabled": true},
+		"books":    []any{map[string]any{"title": "测试书", "sourceText": "第一行\n第二行"}},
+	})
+	if rec.Code != http.StatusCreated || provider.calls != 1 {
+		t.Fatalf("status=%d body=%s calls=%d", rec.Code, rec.Body.String(), provider.calls)
+	}
+	intake := decodeBody[map[string]any](t, rec)["intake"].(map[string]any)
+	payload, err := json.Marshal(intake["payload"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), "女频") || !strings.Contains(string(payload), "现代言情") {
+		t.Fatalf("payload=%s", payload)
 	}
 }
 

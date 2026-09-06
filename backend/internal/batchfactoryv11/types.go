@@ -72,6 +72,7 @@ type Book struct {
 	Gender           string            `json:"gender,omitempty"`
 	Type             string            `json:"type,omitempty"`
 	SourceLabel      string            `json:"sourceLabel,omitempty"`
+	Status           string            `json:"status,omitempty"`
 	TxtText          string            `json:"txtText,omitempty"`
 	TxtFileName      string            `json:"txtFileName,omitempty"`
 	SourceMetadata   map[string]any    `json:"sourceMetadata,omitempty"`

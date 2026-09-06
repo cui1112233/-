@@ -66,6 +66,7 @@ func (s *ReadbackMySQLStore) hydrateSettingsState(ctx context.Context, owner str
 			}
 			video.SettingsState = SettingsState{Patch: clonePatch(patch), Revision: video.Revision}
 		}
+		decorateBookWorkflowStatus(book)
 	}
 	return batch, nil
 }

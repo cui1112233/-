@@ -9,7 +9,11 @@ import (
 	"qiantie/backend/internal/batchfactoryv11"
 )
 
-func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
+func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store, director *batchfactoryv11.DirectorService) {
+	var classifier batchfactoryv11.DirectorProvider
+	if director != nil {
+		classifier = director.Provider
+	}
 	mux.HandleFunc("POST /api/batch-factory/v11/intakes/novel-fetch", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {
@@ -37,12 +41,46 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		intake, err := store.CreateManualIntake(r.Context(), owner, input)
+		enriched, recognition, err := batchfactoryv11.ApplyManualMetadata(r.Context(), input, classifier)
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"intake": intake})
+		intake, err := store.CreateManualIntake(r.Context(), owner, enriched)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"intake": intake, "metadataRecognition": recognition})
+	})
+	mux.HandleFunc("POST /api/batch-factory/v11/intakes/manual/classify", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input struct {
+			Books   []batchfactoryv11.ManualBookMetadataInput `json:"books"`
+			Enabled *bool                                     `json:"enabled,omitempty"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		results := make([]batchfactoryv11.ManualBookMetadataResult, 0, len(input.Books))
+		for _, book := range input.Books {
+			enabled := true
+			if input.Enabled != nil {
+				enabled = *input.Enabled
+			}
+			result, err := batchfactoryv11.ClassifyManualBookMetadata(r.Context(), classifier, book, enabled)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+			results = append(results, result)
+		}
+		_ = owner
+		writeJSON(w, http.StatusOK, map[string]any{"books": results})
 	})
 	mux.HandleFunc("GET /api/batch-factory/v11/intakes/{intakeId}", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)

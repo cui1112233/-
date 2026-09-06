@@ -256,7 +256,7 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 		}
 		effective := ResolveSettings(b.SettingsState.Patch, book.SettingsState.Patch)
 		if err := decorateBookContent(&book, b.SettingsState.Patch); err != nil {
-			continue
+			_ = decorateBookContent(&book, SettingsPatch{})
 		}
 		book.Mode = rawString(effective, "productionMode", rawString(effective, "mode", "original"))
 		if book.Mode == "original_direct" {
@@ -285,6 +285,7 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 			videos[j] = video
 		}
 		book.Videos = videos
+		decorateBookWorkflowStatus(&book)
 		books[i] = book
 	}
 	b.Books = books
