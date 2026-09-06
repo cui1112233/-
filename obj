@@ -52,8 +52,12 @@
 - 任务可见性与零选择保护已加入 tests/novel-fetch-visible-feedback.test.js。
 - pull-first / fallback / bounded pull 已加入 tests/v88-release-registry-resilience.test.js 与 ECS deployment regression。
 
-当前发布状态：
-- 新镜像可构建并成功 push 到 GHCR。
-- ECS 已实证能从 GHCR 下载新 Node 镜像并启动。
-- 上一轮因 readiness 错用受保护 API 返回 401 而误回滚，已修复为公开小说获取静态资源验收。
-- 最新紧急部署正在以“公网 task-visibility-hotfix.js + interaction-feedback.js 可访问”为最终完成条件重新执行。
+最终公网发布结果：
+- V88 Node Emergency Redeploy run 34043961912：SUCCESS。
+- 部署代码 commit：f5e67f6fc7f76ada28f78427c4b6d2fd47c45215。
+- ECS 第一次 GHCR pull 达到单次 120 秒上限后自动进入重试；第二次复用已下载层并成功完成完整镜像下载。
+- v88-public-v88-node-1 已成功 recreate / start，未触发 rollback。
+- ECS 本机验证通过：task-visibility-hotfix.js、interaction-feedback.js、batch-rewrite 页面脚本注入均正常。
+- 公网 115.190.156.223:3000 最终验证通过，日志明确输出：Public V88 Novel Fetch task visibility and interaction feedback are reachable after Node redeploy.
+- 因此“任务被日期筛选后整表空白”和“提交动作缺少明显反馈”的修复已实际进入公网。
+- 后续 8d44841772f48fb689b7e8fe3b043e5a1cc60b0d 及本次 obj 更新仅为文档记录，不影响已部署运行代码。
