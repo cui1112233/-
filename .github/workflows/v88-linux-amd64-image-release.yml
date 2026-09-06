@@ -24,9 +24,13 @@ on:
 
 permissions:
   contents: read
+  actions: write
+  packages: write
 
 env:
   IMAGE_PLATFORM: linux/amd64
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
 
 jobs:
   build-release:
@@ -80,6 +84,8 @@ jobs:
           set -Eeuo pipefail
           short_sha="${GITHUB_SHA::12}"
           image="qiantie-v88:public-${short_sha}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          ghcr_image="ghcr.io/${owner}/qiantie-v88:public-${short_sha}"
           docker build --platform "$IMAGE_PLATFORM" -t "$image" .
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "$IMAGE_PLATFORM"
           docker run --rm --entrypoint sh "$image" -c '
@@ -88,8 +94,25 @@ jobs:
             test -s /app/pets/pixiu/spritesheet.webp &&
             grep -R -q ".cm-penguin-shell" /app/frontend/dist/assets/*.css
           '
+          docker tag "$image" "$ghcr_image"
           echo "IMAGE_NAME=$image" >> "$GITHUB_ENV"
+          echo "GHCR_IMAGE=$ghcr_image" >> "$GITHUB_ENV"
           echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push V88 AMD64 image to GHCR
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker push "$GHCR_IMAGE"
+          docker image inspect "$GHCR_IMAGE" >/dev/null
+          echo "Published durable image: $GHCR_IMAGE"
 
       - name: Save release package
         shell: bash
@@ -108,13 +131,17 @@ jobs:
             echo "commit=${GITHUB_SHA}"
             echo "architecture=${IMAGE_PLATFORM}"
             echo "image=${IMAGE_NAME}"
+            echo "registry_image=${GHCR_IMAGE}"
             echo "cm_release_guard=passed"
           } > "$release_dir/RELEASE-METADATA.txt"
           cat > "$release_dir/ECS-STORAGE.txt" <<EOF
           Recommended ECS release directory:
           /opt/qiantie/releases/v88/${SHORT_SHA}/
 
-          After upload:
+          Primary distribution (does not depend on Actions Artifact quota):
+          ${GHCR_IMAGE}
+
+          Artifact/tar fallback after upload:
           cd /opt/qiantie/releases/v88/${SHORT_SHA}
           sha256sum -c SHA256SUMS
           docker load -i ${archive}
@@ -124,7 +151,149 @@ jobs:
           cat "$release_dir/SHA256SUMS"
           du -h "$release_dir"/*
 
+      - name: Prepare V88 ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${V88_ECS_SSH_PRIVATE_KEY:-}" ]; then
+            echo "ECS_DEPLOY_READY=false" >> "$GITHUB_ENV"
+            echo "::notice::V88_ECS_SSH_PRIVATE_KEY is not configured; ECS deployment will be skipped."
+            exit 0
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" 'test "$(id -u)" = 0 && docker version >/dev/null && docker compose version >/dev/null && test -f /opt/v88/docker-compose.yml'
+          echo "ECS_DEPLOY_READY=true" >> "$GITHUB_ENV"
+          echo "V88 ECS SSH preflight passed."
+
+      - name: Deploy verified image to V88 ECS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ "$ECS_DEPLOY_READY" != "true" ]; then
+            echo "::notice::ECS deployment skipped because V88_ECS_SSH_PRIVATE_KEY is unavailable."
+            exit 0
+          fi
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
+          docker save "$IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
+          "${ssh_cmd[@]}" bash -s -- "$IMAGE_NAME" "$SHORT_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          image_name="$1"
+          short_sha="$2"
+          cd /opt/v88
+          docker compose config >/dev/null
+          current_image='v88-public-v88-node:v88-latest'
+          rollback_image="v88-public-v88-node:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
+          if docker image inspect "$current_image" >/dev/null 2>&1; then
+            docker tag "$current_image" "$rollback_image"
+            printf '%s\n' "$rollback_image" > /tmp/v88-last-rollback-image
+          else
+            : > /tmp/v88-last-rollback-image
+          fi
+          docker image inspect "$image_name" >/dev/null
+          docker tag "$image_name" v88-public-v88-node:v88-latest
+          docker compose up -d --no-deps --force-recreate v88-node
+          docker compose ps v88-node
+          REMOTE
+
+      - name: Verify V88 ECS deployment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ "$ECS_DEPLOY_READY" != "true" ]; then
+            echo "::notice::ECS verification skipped because deployment was not attempted."
+            exit 0
+          fi
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/v88
+          docker compose ps v88-node
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info || true)"
+            if printf '%s' "$body" | grep -q '"app_version":"v78.3.0.31"' && printf '%s' "$body" | grep -q '"release_version":"v78.3.0.31"'; then
+              printf '%s\n' "$body"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Local ECS V31 build-info verification failed.' >&2
+          exit 1
+          REMOTE
+          for attempt in $(seq 1 20); do
+            public_body="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/api/novel-panel/build-info" || true)"
+            if printf '%s' "$public_body" | grep -q '"app_version":"v78.3.0.31"' && printf '%s' "$public_body" | grep -q '"release_version":"v78.3.0.31"'; then
+              printf '%s\n' "$public_body"
+              curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/novel-panel" >/dev/null
+              echo "Public V88 /novel-panel V78.3.0.31 verification passed."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Public V31 build-info verification failed.' >&2
+          exit 1
+
+      - name: Rollback V88 ECS on failed verification
+        if: failure()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ "${ECS_DEPLOY_READY:-false}" != "true" ]; then
+            echo "::notice::Rollback skipped because no ECS deployment was attempted."
+            exit 0
+          fi
+          ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          if [ ! -s /tmp/v88-last-rollback-image ]; then
+            echo 'No rollback image was recorded; refusing to guess.' >&2
+            exit 1
+          fi
+          rollback_image="$(cat /tmp/v88-last-rollback-image)"
+          docker image inspect "$rollback_image" >/dev/null
+          docker tag "$rollback_image" v88-public-v88-node:v88-latest
+          cd /opt/v88
+          docker compose up -d --no-deps --force-recreate v88-node
+          docker compose ps v88-node
+          echo "Rolled back V88 ECS to $rollback_image"
+          REMOTE
+
+      - name: Prune old V88 AMD64 release artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prefix = 'qiantie-v88-linux-amd64-';
+            const keepLatest = 2;
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+              },
+            );
+            const releaseArtifacts = artifacts
+              .filter((artifact) => artifact.name.startsWith(prefix))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const obsolete = releaseArtifacts.slice(keepLatest);
+            core.info(`Found ${releaseArtifacts.length} V88 AMD64 release artifacts; pruning ${obsolete.length}.`);
+            for (const artifact of obsolete) {
+              core.info(`Deleting old artifact ${artifact.name} (${artifact.id})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+            }
+
       - name: Upload V88 AMD64 release artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: qiantie-v88-linux-amd64-${{ env.SHORT_SHA }}

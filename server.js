@@ -8,6 +8,7 @@ const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop
 const { attachV78NovelFetchV2 } = require('./lib/novel-fetch-workshop/v2-compose');
 const { createV783031RegenerationMiddleware } = require('./lib/novel-panel/v783031-regeneration-middleware');
 const { createV783031OutlineHandler } = require('./lib/novel-panel/v783031-outline-route');
+const { createV783031BuildInfoMiddleware } = require('./lib/novel-panel/v783031-build-info');
 
 // ============================================================
 // 启动服务器
@@ -21,6 +22,10 @@ const coreApp = createApp();
 app.locals.authRuntime = coreApp.locals.authRuntime;
 app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
 attachV78NovelFetchV2({ shellApp: app, coreApp, bodyParser: express.json({ limit: '50mb' }) });
+
+// V78.3.0.31 final public identity: preserve the existing build-info payload but
+// overlay the verified final-semantics version/build fields before it is emitted.
+app.use('/api/novel-panel/build-info', createV783031BuildInfoMiddleware());
 
 // V78.3.0.20/21 final semantics: full outline generation uses one authoritative
 // backend semantic-contract/audit chain. It compiles the user's director rules,
