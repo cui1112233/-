@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION BASELINE 7/7 PASS / IMAGE BUILT / RELEASE DISTRIBUTION FIX IN CI / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 8/8 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ARTIFACT QUOTA RECALC PENDING / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -142,12 +142,84 @@ V31 regression run：
 - 保留最近 `2` 个旧发布 artifact
 - `actions/upload-artifact@v4` 保留为兼容通道并设置 `continue-on-error: true`
 
-### 当前阶段
+---
 
-实现已提交，正在等待/检查真实 GitHub Actions：
+## 2026-09-06｜执行节点 04｜发布链 GREEN + GHCR 实际发布成功
 
-1. V31 regression 是否从 RED → GREEN。
-2. Linux AMD64 release workflow 是否能登录并推送 GHCR。
-3. artifact cleanup 是否具备权限并真实执行。
-4. 即使 Artifact 配额仍未刷新，GHCR 成功时 workflow 是否保持 success。
+### V31 回归
 
+Workflow：`Novel Panel V78.3.0.31 Regression`
+
+- run：`34017818181`
+- result：`success`
+- 当前 V31 regression：`8 / 8 PASS`
+
+说明：新增的 release distribution regression 已进入专用 V31 CI，并从 RED 转为 GREEN。
+
+### Linux AMD64 发布
+
+Workflow：`V88 Linux AMD64 Public Image Release`
+
+- run：`34017818178`
+- job：`101444667352`
+- conclusion：`success`
+
+实际步骤：
+
+1. Checkout V88 release source：PASS
+2. Assert Linux AMD64 runner：PASS
+3. Setup Node：PASS
+4. Build frontend：PASS
+5. Verify V88 pet release contract：PASS
+6. Build V88 AMD64 Docker image：PASS
+7. Login to GHCR：PASS
+8. Push V88 AMD64 image to GHCR：PASS
+9. Save release package：PASS
+10. Prune old V88 AMD64 release artifacts：PASS
+11. Upload V88 AMD64 release artifact：Artifact quota 仍未刷新，但已设置兼容非阻断；release job 最终 SUCCESS
+
+### 正式 GHCR 镜像
+
+- image：`ghcr.io/cui1112233/qiantie-v88:public-90cd3c1a9084`
+- registry digest：`sha256:cbfcd3de69c06617af545559c2266cca1d4db29d57f2cd10f6b3f8a4cae5aad8`
+- local build image：`qiantie-v88:public-90cd3c1a9084`
+- local Docker image SHA：`sha256:01e589a8eca6527419f4a491ef4f785738c86e31d7907586ca20c6357770f994`
+- architecture：`linux/amd64`
+
+### tar fallback
+
+- archive：`qiantie-v88-linux-amd64-90cd3c1a9084.tar.gz`
+- size：约 `68M`
+- SHA256：`05650cc6105a250eea8f35d21a2f2368893ed3ffcd1af98ee8c469133d588efe`
+
+### Artifact 清理
+
+真实执行结果：
+
+- 检测到旧 V88 AMD64 release artifacts：`16`
+- 自动删除：`14`
+- 保留最近：`2`
+- cleanup step：PASS
+
+Artifact 存储额度仍提示需要 `6–12 hours` 重新计算，因此本次兼容 tar artifact 尚未重新持久化；这不影响 GHCR 正式镜像已经发布。
+
+### 当前发布状态
+
+- V31 源码：✅
+- V31 regression：✅ `8/8`
+- Linux AMD64 Docker build：✅
+- GHCR durable image：✅
+- Release workflow：✅ SUCCESS
+- Artifact cleanup：✅
+- tar fallback 本地生成：✅
+- GitHub Artifact 持久化：⏳ 等 GitHub 配额刷新，可选兼容通道
+- ECS：❌ 尚未切换
+- 公网：❌ 尚未验证
+
+### 下一步
+
+进入 ECS 发布阶段。优先使用不可变 GHCR 镜像：
+
+`ghcr.io/cui1112233/qiantie-v88:public-90cd3c1a9084`
+
+部署时必须保留当前生产容器的环境变量、volume、network、端口和数据库/Redis 等配置；部署后验证 `/api/novel-panel/build-info` 和完整 `/novel-panel` 冒烟测试。
