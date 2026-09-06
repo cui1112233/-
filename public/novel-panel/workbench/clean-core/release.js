@@ -32,3 +32,14 @@
   globalThis.__V78_CURRENT_RUNTIME__=globalThis.__V78_CURRENT_RUNTIME__||globalThis.__V77_CURRENT_RUNTIME__||Object.freeze({version:VERSION,buildId:BUILD,label:"V78.3.0.2 · 场景锚点/事件归属/连续时间轴根治"});
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>console.info("[V78 Stable] release ready",snapshot()),{once:true});else console.info("[V78 Stable] release ready",snapshot());
 })();
+
+/* V78.3.0.31 final-semantics compatibility layer. Keep the public release identity on 3.0.2 until the remaining backend/current-truth migration is verified end-to-end. */
+(function loadV783031CompatibilityRuntime(){
+  if(globalThis.__V783031_RUNTIME__||document.querySelector('script[data-v783031-runtime="true"]')) return;
+  const script=document.createElement('script');
+  script.src='/novel-panel/workbench/v783031-runtime.js';
+  script.async=false;
+  script.dataset.v783031Runtime='true';
+  script.addEventListener('error',()=>console.error('[V78.3.0.31] compatibility runtime failed to load'));
+  document.head.appendChild(script);
+})();
