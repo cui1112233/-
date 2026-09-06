@@ -284,3 +284,41 @@ Secret 配好后，再触发 `V88 Linux AMD64 Public Image Release`，工作流�
 因此这里不把上述探测解释为“服务器下线”，也不把它解释为“公网已经更新”。权威事实仍是：本轮 release 日志明确记录 `ECS_DEPLOY_READY=false`，所以本轮没有执行 ECS 切换，也没有完成 V31 公网验收。
 
 当前状态保持：`PUBLIC DEPLOYMENT PENDING`。
+
+---
+
+## 2026-09-06｜执行节点 09｜用户要求由 ChatGPT 代执行 Secret 配置
+
+### 执行能力检查
+
+已检查当前 GitHub 连接器能力。连接器明确限制：
+
+- GitHub 仓库文件、Actions runs、workflow、PR/issue 等可以读写/查询。
+- GitHub **Secrets API 属于敏感 endpoint family，当前连接器不支持**。
+- 当前会话也不能读取用户电脑上的 ECS SSH 私钥文件。
+
+因此 `V88_ECS_SSH_PRIVATE_KEY` 不能由当前 ChatGPT 会话直接写入 GitHub，也不能从用户本机私钥中自动取值。
+
+### 安全边界
+
+这不是代码阻塞，而是凭据写入权限边界。私钥不得：
+
+- 提交到 Git 仓库；
+- 写入 OBJ；
+- 粘贴到普通源码、workflow 或日志；
+- 通过聊天记录长期保存。
+
+### 可由 ChatGPT 继续自动执行的部分
+
+当用户本人完成一次 GitHub Actions Secret 写入后，ChatGPT 可以继续执行/核验：
+
+1. 触发 `V88 Linux AMD64 Public Image Release`；
+2. 检查 SSH preflight；
+3. 检查镜像是否真正传入 ECS；
+4. 检查 `v88-node` 是否重建；
+5. 检查 ECS localhost V31 build-info；
+6. 检查公网 V31 build-info 与 `/novel-panel`；
+7. 若失败，检查自动 rollback 是否执行；
+8. 实时更新本 OBJ。
+
+当前状态保持：`ECS SECRET MISSING / PUBLIC DEPLOYMENT PENDING`。
