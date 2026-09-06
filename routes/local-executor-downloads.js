@@ -2,9 +2,10 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const RELEASE_VERSION = '0.1.14';
+const LEGACY_RELEASE_VERSION = '0.1.14';
 const UPDATE_CHANNELS = new Set(['beta', 'stable']);
 const UPDATE_FILE_RE = /^yizhan-local-executor-v88-\d+\.\d+\.\d+-win-x64\.exe$/;
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
 
 const DOWNLOADS = {
   'yizhan-local-executor-0.1.14-mac-arm64.dmg': {
@@ -50,12 +51,30 @@ function createLocalExecutorDownloadsRouter({ downloadsDir = path.join(process.c
 
   router.get('/manifest.json', (req, res) => {
     const origin = `${req.protocol}://${req.get('host')}`;
+    const stable = readStableManifest(updateRoot);
+    const macUrl = `${origin}/downloads/local-executor/yizhan-local-executor-${LEGACY_RELEASE_VERSION}-mac-arm64.dmg`;
+
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    if (stable) {
+      const windowsUrl = `${origin}/downloads/local-executor/updates/stable/${encodeURIComponent(stable.file)}`;
+      return res.json({
+        version: stable.version,
+        latestVersion: stable.version,
+        minimumVersion: stable.minimumVersion || null,
+        downloads: { mac: macUrl, windows: windowsUrl },
+        windows: { ...stable, url: windowsUrl },
+        mac: { version: LEGACY_RELEASE_VERSION, url: macUrl }
+      });
+    }
+
+    const windowsUrl = `${origin}/downloads/local-executor/yizhan-local-executor-${LEGACY_RELEASE_VERSION}-win-x64.exe`;
     return res.json({
-      version: RELEASE_VERSION,
-      downloads: {
-        mac: `${origin}/downloads/local-executor/yizhan-local-executor-${RELEASE_VERSION}-mac-arm64.dmg`,
-        windows: `${origin}/downloads/local-executor/yizhan-local-executor-${RELEASE_VERSION}-win-x64.exe`
-      }
+      version: LEGACY_RELEASE_VERSION,
+      latestVersion: LEGACY_RELEASE_VERSION,
+      minimumVersion: null,
+      downloads: { mac: macUrl, windows: windowsUrl },
+      windows: { version: LEGACY_RELEASE_VERSION, url: windowsUrl, legacy: true },
+      mac: { version: LEGACY_RELEASE_VERSION, url: macUrl }
     });
   });
 
@@ -69,6 +88,45 @@ function createLocalExecutorDownloadsRouter({ downloadsDir = path.join(process.c
     return res.download(filePath, item.downloadName);
   });
   return router;
+}
+
+function readStableManifest(updateRoot) {
+  const filePath = safeUpdatePath(updateRoot, 'stable', 'manifest.json');
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+  return normalizeStableManifest(raw);
+}
+
+function normalizeStableManifest(raw) {
+  if (!raw || typeof raw !== 'object' || raw.schemaVersion !== 1) return null;
+  if (normalizeUpdateChannel(raw.channel) !== 'stable') return null;
+  if (String(raw.platform || '') !== 'win32' || String(raw.arch || '') !== 'x64') return null;
+  const version = String(raw.version || '').trim();
+  const file = normalizeUpdateFile(raw.file);
+  const sha256 = String(raw.sha256 || '').trim().toLowerCase();
+  const size = Number(raw.size);
+  const publishedAt = String(raw.publishedAt || '').trim();
+  if (!VERSION_RE.test(version) || !file || !/^[a-f0-9]{64}$/.test(sha256)) return null;
+  if (!Number.isSafeInteger(size) || size <= 0 || !publishedAt || Number.isNaN(Date.parse(publishedAt))) return null;
+  const minimumVersionRaw = String(raw.minimumVersion || '').trim();
+  const minimumVersion = VERSION_RE.test(minimumVersionRaw) ? minimumVersionRaw : null;
+  return {
+    schemaVersion: 1,
+    channel: 'stable',
+    version,
+    minimumVersion,
+    platform: 'win32',
+    arch: 'x64',
+    file,
+    sha256,
+    size,
+    publishedAt
+  };
 }
 
 function normalizeUpdateChannel(value) {
@@ -94,6 +152,8 @@ function safeUpdatePath(root, channel, file) {
 
 module.exports = {
   createLocalExecutorDownloadsRouter,
+  readStableManifest,
+  normalizeStableManifest,
   normalizeUpdateChannel,
   normalizeUpdateFile,
   safeUpdatePath
