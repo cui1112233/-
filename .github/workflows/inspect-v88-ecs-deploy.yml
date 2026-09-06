@@ -14,7 +14,7 @@ jobs:
   inspect:
     runs-on: ubuntu-24.04
     steps:
-      - name: Inspect final public V88 runtime without mutation
+      - name: Inspect public version profile save and reload path without mutation
         shell: bash
         env:
           ECS_HOST: 115.190.156.223
@@ -32,41 +32,23 @@ jobs:
           set -Eeuo pipefail
           main_id="$(docker ps -qf name=v88-public-v88-node-1)"
           test -n "$main_id"
-          target=/app/lib/novel-fetch-workshop/121-browser-client.js
-          echo "FINAL_PUBLIC_CONTAINER=$main_id"
-          echo "FINAL_PUBLIC_SHA256=$(docker exec "$main_id" sha256sum "$target" | awk '{print $1}')"
-          docker exec "$main_id" sh -lc "grep -n -E 'QIANTIE_121_CLIENT_TIMEOUT_MS|QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS|loginTimeoutMs =|45000|20000' '$target'"
+          echo "PUBLIC_CONTAINER=$main_id"
 
+          echo '=== exact UI labels and nearby source ==='
+          docker exec "$main_id" sh -lc 'grep -R -n -C 10 -E "版本对应配置档|版本配置|配置档|同步批量后台配置|同步批量风格类型" /app/frontend /app/public /app/routes /app/lib 2>/dev/null | head -500 || true'
+
+          echo '=== likely profile/config API source ==='
+          docker exec "$main_id" sh -lc 'grep -R -n -C 8 -E "version.*profile|profile.*version|version.*config|config.*version|batch.*config|config.*batch|saveConfig|loadConfig|sync.*121|121.*sync" /app/frontend /app/routes /app/lib 2>/dev/null | head -700 || true'
+
+          echo '=== novel panel route registrations ==='
+          docker exec "$main_id" sh -lc 'grep -R -n -C 5 -E "novel-panel|batch-rewrite-v2|novel-fetch|router\.(get|post|put|patch).*config|router\.(get|post|put|patch).*profile" /app/routes /app/app.js /app/server.js 2>/dev/null | head -700 || true'
+
+          echo '=== recent runtime logs related to config/profile/save ==='
+          docker logs --since 6h "$main_id" 2>&1 | grep -E -i 'novel|profile|config|version|save|121|timeout|sync' | tail -300 || true
+
+          echo '=== mysql env presence only ==='
           docker exec "$main_id" node -e '
-            const base=(process.env.QIANTIE_121_BROWSER_WORKER_URL||"").replace(/\/$/,"");
-            const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
-            if(!base||!secret) throw new Error("worker env missing");
-            fetch(base+"/healthz",{headers:{"x-qiantie-internal-secret":secret},signal:AbortSignal.timeout(5000)})
-              .then(async r=>{if(!r.ok) throw new Error(`worker health ${r.status}`); console.log(`FINAL_PUBLIC_WORKER=status_${r.status}`)})
-              .catch(e=>{console.error(e);process.exit(1)});
+            const keys=["MYSQL_HOST","MYSQL_DATABASE","MYSQL_USER","DB_HOST","DB_NAME","DATABASE_URL"];
+            for (const k of keys) console.log(`${k}=${process.env[k]?"SET":"UNSET"}`);
           '
-
-          docker exec "$main_id" node -e '
-            const {create121BrowserClient}=require("/app/lib/novel-fetch-workshop/121-browser-client");
-            const fakeFetch=delay=>async (_url,options)=>new Promise((resolve,reject)=>{
-              const timer=setTimeout(()=>resolve({ok:true,status:200,text:async()=>JSON.stringify({ok:true,status:"ready"})}),delay);
-              options.signal.addEventListener("abort",()=>{clearTimeout(timer); const e=new Error("aborted"); e.name="AbortError"; reject(e);});
-            });
-            (async()=>{
-              const client=create121BrowserClient({baseUrl:"http://worker:8787",secret:"test",timeoutMs:1000,loginTimeoutMs:3000,fetchImpl:fakeFetch(1500)});
-              const login=await client.login({owner:"probe"});
-              if(login.status!=="ready") throw new Error("login long budget failed");
-              let normalTimedOut=false;
-              try { await client.test({owner:"probe"}); } catch(e) { normalTimedOut=e.code==="BROWSER_WORKER_TIMEOUT"; }
-              if(!normalTimedOut) throw new Error("normal request timeout protection missing");
-              console.log("FINAL_PUBLIC_TIMEOUT_POLICY=ok");
-            })().catch(e=>{console.error(e);process.exit(1)});
-          '
-
-          http_code="$(curl -sS -o /tmp/final-public-probe.out -w '%{http_code}' --max-time 10 http://127.0.0.1:3000/api/novel-panel/build-info || true)"
-          case "$http_code" in
-            200|401) ;;
-            *) echo "unexpected final public HTTP status: $http_code" >&2; exit 1 ;;
-          esac
-          echo "FINAL_PUBLIC_HTTP_STATUS=$http_code"
           REMOTE
