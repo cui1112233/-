@@ -51,7 +51,7 @@ class UpdateManager {
     this.onState = onState;
     this.manifest = null;
     this.downloaded = null;
-    let channel = 'beta';
+    let channel = 'stable';
     try { channel = normalizeChannel(this.preferencesStore.load()?.channel); } catch {}
     this.state = {
       status: 'idle',
