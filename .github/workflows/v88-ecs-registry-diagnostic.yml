@@ -1,0 +1,54 @@
+name: V88 ECS Registry Diagnostic
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - '.github/workflows/v88-ecs-registry-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+  PROBE_IMAGE: ghcr.io/cui1112233/qiantie-v88:node-emergency-f5e67f6fc7f7
+
+jobs:
+  registry-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Probe ECS to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" 'set -e; echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; getent ahostsv4 ghcr.io | head -n 2; code=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 20 https://ghcr.io/v2/ || true); echo "ghcr_v2_http=$code"; test "$code" = 401 || test "$code" = 200'
+          printf '%s' "$GHCR_TOKEN" | timeout 45 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
+          set +e
+          timeout 45 "${ssh_cmd[@]}" "timeout 30 docker manifest inspect '$PROBE_IMAGE' >/dev/null"
+          status=$?
+          set -e
+          "${ssh_cmd[@]}" 'docker logout ghcr.io >/dev/null 2>&1 || true'
+          echo "manifest_probe_exit=$status"
+          test "$status" -eq 0
