@@ -81,7 +81,7 @@ function entityText(value, maxLength) {
 
 function entityName(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
-  return entityText(value['\u89d2\u8272\u540d\u79f0'] || value['\u573a\u666f\u540d\u79f0'] || value['\u540d\u79f0'] || value.name, 160);
+  return entityText(value['角色名称'] || value['场景名称'] || value['名称'] || value.name, 160);
 }
 
 function sanitizeEntityFields(value) {
@@ -134,10 +134,10 @@ function parseEntityEnrichment(value) {
 function buildEntityEnrichmentMessages(body, presetStore) {
   const input = validateEntityEnrichmentBody(body, presetStore);
   const base = resolveSystemPresetBody(presetStore, input.extractionPreset);
-  const protocol = '\u5c0f\u8bf4\u539f\u6587\u4e3a\u4e3b\u8981\u4f9d\u636e\uff1b\u73b0\u6709\u5361\u6458\u8981\u4ec5\u7528\u4e8e\u907f\u514d\u91cd\u590d\u6216\u51b2\u7a81\u3002\u4e0d\u5f97\u8986\u76d6\u7528\u6237\u5df2\u586b\u5199\u7684\u975e\u7a7a\u5b57\u6bb5\uff1b\u5bf9\u51b2\u7a81\u5224\u65ad\u5199\u5165 suggestions\u3002\u6ca1\u6709\u539f\u6587\u4f9d\u636e\u7684\u5185\u5bb9\u5fc5\u987b\u5199\u5165 uncertainties\uff0c\u4e0d\u5f97\u4f5c\u4e3a\u4e8b\u5b9e\u5199\u5165 fields\u3002\u53ea\u8fd4\u56de JSON\uff1afields\u3001evidence\u3001suggestions\u3001uncertainties\u3002';
+  const protocol = '小说原文为主要依据；现有卡摘要仅用于避免重复或冲突。不得覆盖用户已填写的非空字段；对冲突判断写入 suggestions。没有原文依据的内容必须写入 uncertainties，不得作为事实写入 fields。只返回 JSON：fields、evidence、suggestions、uncertainties。';
   return [
     { role: 'system', content: [base, protocol].filter(Boolean).join('\n\n---\n\n') },
-    { role: 'user', content: `\u5b9e\u4f53\u7c7b\u578b\uff1a${input.entityType}\n\n\u5c0f\u8bf4\u539f\u6587\uff1a\n${input.novelText}\n\n\u5f53\u524d\u5b9e\u4f53\uff08\u4eba\u5de5\u5b57\u6bb5\uff09\uff1a\n${JSON.stringify(input.entity)}\n\n\u5df2\u6709\u5b9e\u4f53\u6458\u8981\uff1a\n${JSON.stringify(input.existingEntitySummary)}` }
+    { role: 'user', content: `实体类型：${input.entityType}\n\n小说原文：\n${input.novelText}\n\n当前实体（人工字段）：\n${JSON.stringify(input.entity)}\n\n已有实体摘要：\n${JSON.stringify(input.existingEntitySummary)}` }
   ];
 }
 
@@ -192,6 +192,47 @@ function sanitizeProtagonists(characters, protagonists) {
   return (Array.isArray(protagonists) ? protagonists : []).filter(item => known.has(JSON.stringify(item)));
 }
 
+function protagonistName(value) {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return String(value['角色名称'] || value['姓名'] || value['名称'] || value.name || '').trim();
+}
+
+function protagonistGender(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  const raw = String(value['性别'] || value.gender || '').trim().toLowerCase();
+  if (raw === '男' || raw === '男性' || raw === 'male' || raw === 'man' || raw === 'm') return 'male';
+  if (raw === '女' || raw === '女性' || raw === 'female' || raw === 'woman' || raw === 'f') return 'female';
+  return '';
+}
+
+function buildProtagonistPrompt(characters, protagonists) {
+  const selected = sanitizeProtagonists(characters, protagonists)
+    .map(item => ({ item, name: protagonistName(item), gender: protagonistGender(item) }))
+    .filter(item => item.name);
+  if (!selected.length) return '';
+
+  let leadLine = '';
+  if (selected.length === 1) {
+    leadLine = `以${selected[0].name}为主角展开剧情。`;
+  } else if (selected.length === 2) {
+    const male = selected.find(item => item.gender === 'male');
+    const female = selected.find(item => item.gender === 'female');
+    leadLine = male && female
+      ? `以${male.name}为男主角、${female.name}为女主角展开剧情。`
+      : `以${selected.map(item => item.name).join('、')}为核心人物展开剧情。`;
+  } else {
+    leadLine = `以${selected.map(item => item.name).join('、')}为核心人物展开剧情。`;
+  }
+
+  return [
+    '## 核心人物要求（星标白名单，优先级最高）',
+    leadLine,
+    '核心人物实际参与当前原文事件时，镜头、人物行为、情绪反应和叙事重点优先围绕核心人物展开；其他人物按原文承担必要功能。',
+    '不得因为某人被星标就把其强行加入原文没有该人物的分镜，不得修改人物关系，也不得把原文由其他人物执行的动作改给核心人物。'
+  ].join('\n');
+}
+
 function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const mode = normalizeMode(body.mode);
   const format = normalizeFormat(body.format);
@@ -208,12 +249,6 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   formatContent = formatContent.replace(/\{duration\}/g, duration);
   formatContent = formatContent.replace(/\{结束时间\}/g, endTime);
 
-  let directorMaster = format === 'shotlist'
-    ? resolveSystemPresetBody(presetStore, 'script-director-storyboard-master')
-    : '';
-  directorMaster = directorMaster.replace(/\{10s或15s\}/g, duration);
-  directorMaster = directorMaster.replace(/\{duration\}/g, duration);
-
   let modeContent = resolveSystemPresetBody(presetStore, MODE_PRESET_ID_MAP[mode]);
   modeContent = modeContent.replace(/\{10s或15s\}/g, duration);
   modeContent = modeContent.replace(/\{X\}/g, secs);
@@ -222,29 +257,14 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   modeContent = modeContent.replace(/\{结束时间\}/g, endTime);
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
-  const sourceText = String(body.novelText || '').trim();
-  const compactSourceGuard = sourceText.length <= 600
-    ? `## 短原文时长硬校验\n原文仅 ${sourceText.length} 字，且没有明确的地点/时间/叙事层切换时，只输出 1 个分镜单元；不得为了填满内容新增事件、人物、对白或空镜。`
-    : '';
-  const durationGuard = `## 时长硬校验（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个单元的结束时间不得超过 ${endTime}。禁止输出 60s、100s、01:00 或跨单元累计时间；内容不足时保持动作简洁，不得用重复动作填时长。`;
-  // 分段开头使用用户已发布的“分镜模式/分段开头”预设自行定义输出结构（如“镜头一/镜头二”独立段），
-  // 不再注入额外的完整分镜协议，避免与已发布预设冲突、让模型困惑。
-  const unitProtocol = format === 'shortdrama' || format === 'q版' || mode === 'segmented'
-    ? ''
-    : `## 强制完整分镜协议\n只输出一个或多个独立完整分镜。每个单元从 ### 分镜一（总时长：${duration}）开始，后续为 ### 分镜二。禁止顶层镜头标题或共享前言。每个分镜从 00:00 开始并于 ${endTime} 结束；每个分镜自身必须写入当前格式需要的${hasBaseSetup ? '人物、场景、基础设定及' : ''}所有已启用约束，确保可独立复制提交。`;
-  const protagonists = hasBaseSetup ? sanitizeProtagonists(body.characters, body.protagonists) : [];
-  const protagonistPrompt = protagonists.length
-    ? '## 主角白名单（优先级最高）\n' + serializePromptSection(protagonists) + '\n\n必须优先围绕这些主角组织剧情、镜头和人物一致性；不得改名、合并、替换或弱化其身份、外形与关键关系。'
-    : '';
+  const durationGuard = `## 当前单条视频最大时长（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个最终外层分镜的结束时间不得超过 ${endTime}。10s/15s 是上限，不是固定目标时长；禁止先输出超时分镜再按固定秒数硬切。`;
+  const protagonistPrompt = buildProtagonistPrompt(body.characters, body.protagonists);
   const systemPrompt = [
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
-    directorMaster,
-    unitProtocol,
     durationGuard,
-    compactSourceGuard,
     constraintWrapper,
-    !hasBaseSetup && '基础设定未启用：不得输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块；只在剧情时间轴中写原文必要的人名、动作和地点。',
+    !hasBaseSetup && '基础设定展示未启用：人物和场景资料仍必须作为生成依据，但不得在最终结果中输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块。',
     formatContent
   ].filter(Boolean).join('\n\n---\n\n');
 
@@ -253,10 +273,10 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
     {
       role: 'user',
       content: '## 小说原文\n' + String(body.novelText || '') +
-        (hasBaseSetup ? '\n\n## 人物信息\n' + serializePromptSection(body.characters) +
-        '\n\n## 场景信息\n' + serializePromptSection(body.scenes) : '') +
+        '\n\n## 人物信息\n' + serializePromptSection(body.characters) +
+        '\n\n## 场景信息\n' + serializePromptSection(body.scenes) +
         (protagonistPrompt ? '\n\n' + protagonistPrompt : '') +
-        '\n\n请将以上小说章节转化为' + formatName + '。'
+        '\n\n请在同一次推理中，先执行当前选中的开头提示词，再继续执行当前选中的' + formatName + '提示词，并直接输出最终成品。'
     }
   ];
 }
@@ -458,7 +478,7 @@ function createChatRouter({
       try {
         data = JSON.parse(upstream.text);
       } catch {
-        return res.status(502).json({ ok: false, kind: 'image', error: '上游生图模型未返回有效 JSON。' });
+        return res.status(502).json({ ok: false, kind: 'image', error: '上游生图模型目录格式无效。' });
       }
       if (!Array.isArray(data?.data)) {
         return res.status(502).json({ ok: false, kind: 'image', error: '上游生图模型目录格式无效。' });
@@ -563,6 +583,7 @@ function createChatRouter({
   buildQuickDirectorMessages,
   buildMessages,
   buildConstraintWrapper,
+  buildProtagonistPrompt,
   normalizeDuration,
   listPublishedExtractionPresets,
   resolveExtractionPresetId,
