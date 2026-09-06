@@ -27,5 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Check authority script syntax
+        run: node --check frontend/public/batch-rewrite/version-config-authority.js
       - name: Run version config persistence regression
         run: node --test tests/novel-fetch-v88-mainline-version-config.test.js
