@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
-import { executorVersionStatus, fetchExecutorReleaseManifest } from '../../shared/api/executorRelease';
+import { executorVersionStatus, fetchExecutorReleaseManifest, supportsExecutorProtocolUpdate } from '../../shared/api/executorRelease';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
@@ -279,7 +279,7 @@ export function SettingsPage() {
         <section className="settings-section settings-executor-section" aria-labelledby="settings-executor-title">
           <div>
             <h2 id="settings-executor-title">豆包本地执行器</h2>
-            <p>本机账号登录状态只保存在本地，平台仅接收任务状态和视频结果。首次使用请下载安装客户端；已安装设备检测到新版本后请直接点“立即更新”，无需重新下载安装包。</p>
+            <p>本机账号登录状态只保存在本地，平台仅接收任务状态和视频结果。首次使用请下载安装客户端；1.0.3 及以上版本检测到新版本后可直接点“立即更新”，更旧版本只需再下载安装一次新版完成迁移。</p>
           </div>
           <div className="settings-executor-layout">
             <div className="settings-executor-status">
@@ -306,9 +306,11 @@ export function SettingsPage() {
                         : versionState.updateAvailable
                           ? '有新版本'
                           : '已是最新';
-                  const canUpdateInstalled = item.os === 'windows'
-                    && versionState.versionKnown
+                  const needsUpdate = versionState.versionKnown
                     && (versionState.updateRequired || versionState.updateAvailable);
+                  const supportsSelfUpdate = item.os === 'windows' && supportsExecutorProtocolUpdate(item.version);
+                  const canUpdateInstalled = needsUpdate && supportsSelfUpdate;
+                  const needsInstallerMigration = item.os === 'windows' && needsUpdate && !supportsSelfUpdate;
                   return (
                     <List.Item>
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
@@ -322,6 +324,9 @@ export function SettingsPage() {
                           <Typography.Text type={versionState.updateRequired ? 'danger' : versionState.updateAvailable ? 'warning' : 'secondary'}>{versionLabel}</Typography.Text>
                           {canUpdateInstalled ? (
                             <Button size="small" type={versionState.updateRequired ? 'primary' : 'default'} href="yizhan-executor://update">立即更新</Button>
+                          ) : null}
+                          {needsInstallerMigration ? (
+                            <Button size="small" href={executorRelease?.downloads?.windows || undefined} disabled={!executorRelease?.downloads?.windows}>下载新版安装器</Button>
                           ) : null}
                         </div>
                       </div>
