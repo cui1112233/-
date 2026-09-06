@@ -1,0 +1,31 @@
+name: V88 Version Config Persistence
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'frontend/public/batch-rewrite/**'
+      - 'routes/batch-rewrite.js'
+      - 'tests/novel-fetch-v88-mainline-version-config.test.js'
+      - '.github/workflows/v88-version-config-persistence.yml'
+  push:
+    branches:
+      - v88
+    paths:
+      - 'frontend/public/batch-rewrite/**'
+      - 'routes/batch-rewrite.js'
+      - 'tests/novel-fetch-v88-mainline-version-config.test.js'
+      - '.github/workflows/v88-version-config-persistence.yml'
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run version config persistence regression
+        run: node --test tests/novel-fetch-v88-mainline-version-config.test.js
