@@ -14,3 +14,28 @@
 - TDD：先新增前端可见反馈回归测试并确认 RED，再最小实现。
 - TDD：先新增发布重试/fallback 工作流契约测试并确认 RED，再修改 workflow。
 - 验证：小说获取专项测试、相关全量回归、frontend build、发布 workflow、ECS 公网验证。
+
+已实施：
+- 新增 frontend/public/batch-rewrite/interaction-feedback.js。
+  - 开始处理、提交网络等按钮点击后立即显示“正在处理/正在提交”提示，并设置 aria-busy。
+  - MutationObserver 监听 processResult、siteSubmitStatus、batchStatus、webSubmitSelectionStatus。
+  - 校验失败、4xx/5xx、网络失败、超时、121 未登录/登录失效、Browser Worker 异常等升级为明显红色 role=alert 提示。
+  - 捕获 unhandledrejection 与 window error，避免异常静默。
+- Dockerfile 强制把 interaction-feedback.js 注入最终公网 batch-rewrite 页面，并带版本 query，避免仅改源码但镜像漏带脚本。
+- 新增 tests/novel-fetch-visible-feedback.test.js：3 项反馈行为契约。
+- 新增 tests/v88-release-registry-resilience.test.js：2 项发布容错契约。
+- 修正 batch-rewrite-flow-ui.test.js 过时的 15 秒 Browser Worker 超时断言，使其与当前普通 20 秒/登录 45 秒实现一致。
+- 更新 .github/workflows/v88-linux-amd64-image-release.yml：
+  - 主镜像和 Browser Worker GHCR pull 使用有限重试与退避。
+  - 主镜像持续拉取失败时，使用本次构建的 qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz + SHA256SUMS 作为 fallback，并 docker load。
+  - ECS 发布前把 tar 和校验文件传到 /opt/qiantie/releases/v88/${SHORT_SHA}/。
+  - 发布验证增加公网 /batch-rewrite/interaction-feedback.js 与页面脚本注入校验。
+
+TDD/验证状态：
+- 初始 RED：新增 5 项测试按预期失败（反馈层不存在、发布无重试/fallback）。
+- 实现后：上述 5 项全部 GREEN。
+- 小说获取 V2 focused tests：52/52 通过。
+- 全量 Node regression：218 项中 216 通过、2 失败；剩余 2 项均为既有 tests/script-generation-prompt-rules.test.js 的 15s 分镜规则旧断言，与本次小说获取/发布修复无关。
+- V78.3.0.31 guarded ECS deployment regression：通过。
+- V78.3.0.31 release distribution regression：通过。
+- V88 发布流水线当前已完成 frontend build、主镜像构建、121 Browser Worker 镜像构建、GHCR push、release tar、ECS SSH preflight；正在执行 ECS 部署与最终公网验证。
