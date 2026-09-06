@@ -260,26 +260,9 @@ f6742953c00e1c7465efbce6b274d493b4405542  single instance + protocol handling
 不调用 PowerShell/CMD
 ```
 
-单实例行为：
-
-```text
-首次启动 → 正常创建执行器
-重复启动 → second-instance → 聚焦已有窗口
-URL 冷启动 → 解析 open → 创建后聚焦
-URL 热启动 → second-instance → 恢复/显示/聚焦已有窗口
-```
-
-安装器：
-
-```text
-electron-builder build.protocols
-scheme = yizhan-executor
-```
-
 完整 GREEN：
 
 ```text
-V88 Doubao Executor Verify
 run_id: 34018270271
 backend-go       success
 node-routes      success
@@ -288,30 +271,80 @@ frontend tests   success
 frontend build   success
 ```
 
-因此 Step 4、Step 5 已正式完成。
+### Step 6：设置页“打开执行器”
+
+TDD RED：
+
+```text
+run_id: 34018384833
+frontend tests: 11 pass / 1 fail
+唯一失败：SettingsPage 缺少固定 yizhan-executor://open
+backend-go / node-routes / local-executor 全部 success
+```
+
+正式修复：
+
+```text
+8b2b6751e31c6ac53c02f840b375a825dff72c64
+feat: add open local executor action
+```
+
+SettingsPage 增加固定按钮：
+
+```text
+[打开执行器] → yizhan-executor://open
+```
+
+规则：不拼用户输入、不传命令、不依赖执行器在线状态；下载按钮继续保留给首次安装/修复安装。
+
+完整 GREEN：
+
+```text
+run_id: 34018460735
+backend-go       success
+node-routes      success
+local-executor   success
+frontend tests   success
+frontend build   success
+```
+
+因此 Step 6 代码链路已完成；Windows 真机协议唤起仍在 Step 13 做最终验收。
 
 ## 5. 当前正在执行
 
-### Step 6：设置页增加“打开执行器”
+### Step 7：`/script` 保存并显示真实 VIDEO `stage`
 
-目标：
+当前已确认的问题：创建视频任务后前端直接保存：
 
 ```text
-设置 → 豆包本地执行器
-[打开执行器]
-↓
-yizhan-executor://open
-↓
-Windows 调起已安装执行器
+{ taskId, status: 'processing' }
 ```
 
-实施规则：
+轮询阶段只处理：
 
-1. 先增加 SettingsPage 源码契约测试，要求页面包含 `yizhan-executor://open`。
-2. 只使用固定协议字符串，不拼接任意命令或用户输入。
-3. “打开执行器”和“下载 Windows 版”并存：未安装用户仍可下载安装。
-4. 前端 build + tests GREEN 后同步本文件。
-5. 然后进入 Step 7：`/script` 真实 `stage`。
+```text
+succeeded
+failed
+```
+
+中间的真实状态：
+
+```text
+queued / leased / preparing / submitting / acceptance_unknown / accepted /
+generating / downloading / uploading
+```
+
+没有持续写回 `shotVideoTasks`，因此用户只能看到笼统“生成视频”，无法知道真实卡点。
+
+本步骤目标：
+
+1. 增加纯函数 `scriptVideoStageLabel(stage, status)`，单测覆盖全部状态。
+2. `status=processing + stage=queued` 必须显示“等待执行器领取”，不得显示“生成视频”。
+3. 只有 `stage=generating` 显示“豆包正在生成视频”。
+4. 每次轮询成功都把服务端返回的 `stage` 写回 `shotVideoTasks` 和历史记录，而不只在 succeeded/failed 时更新。
+5. 创建本地任务时初始阶段使用服务端返回的 `stage`；若服务端只返回 taskId，则安全使用 `queued`，不得假设 generating。
+6. 恢复历史/草稿时，对所有非终态任务继续轮询。
+7. 前端 tests + build 和完整 CI GREEN 后实时更新本文件。
 
 ## 6. 后续严格顺序
 
@@ -320,7 +353,7 @@ Windows 调起已安装执行器
 - [x] Step 3：设置页显示当前/最新/可升级/强制升级状态
 - [x] Step 4：增加 `yizhan-executor://` Windows 自定义协议
 - [x] Step 5：增加 Electron 单实例锁与二次唤起聚焦
-- [ ] Step 6：设置页增加“打开执行器”
+- [x] Step 6：设置页增加“打开执行器”
 - [ ] Step 7：`/script` 保存并显示真实 `stage`
 - [ ] Step 8：审计 `doubao-acceptance.js` 与 `doubao-network-tracker.js`
 - [ ] Step 9：补关键边界结构化日志
@@ -438,8 +471,8 @@ frontend npm build
 - [x] stable manifest 已成为 Windows 公网正式版本源并通过完整 CI
 - [x] SettingsPage 不再硬编码旧版下载地址
 - [x] 网页显示真实执行器版本状态
-- [ ] 网站可唤起本机执行器（底层协议已完成，待 Step 6 页面按钮）
-- [x] 执行器保持单实例
+- [x] 网站具备 `yizhan-executor://open` 唤起代码链路（Windows 真机待 Step 13）
+- [x] 执行器保持单实例（代码/CI，Windows 真机待 Step 13）
 - [ ] `/script` 显示真实任务阶段
 - [ ] 未确认豆包接单时绝不显示 generating
 - [ ] 豆包确认接单后进入 generating
@@ -474,7 +507,13 @@ frontend npm build
 - 审计确认 Electron 原先没有自定义 URL 协议和单实例。
 - RED `34018196143`：新增协议/单实例测试 3 项按预期失败，旧测试 94 项通过。
 - 新增安全 `protocol-handler.js`，只允许 `yizhan-executor://open`。
-- 主进程增加 `requestSingleInstanceLock`、`second-instance`、冷/热启动聚焦和 packaged Windows 协议注册。
+- 主进程增加单实例、冷/热启动聚焦和 packaged Windows 协议注册。
 - electron-builder/NSIS 注册 `yizhan-executor` scheme。
-- GREEN `34018270271`：backend-go、node-routes、local-executor、frontend tests/build 全部通过。
-- Step 4、Step 5 完成；当前进入 Step 6：设置页“打开执行器”。
+- GREEN `34018270271`：四项完整验证通过。
+
+### 2026-09-06 · 进度 04
+
+- RED `34018384833`：前端 12 项中 11 项通过，仅缺“打开执行器”按钮。
+- 设置页增加固定 `yizhan-executor://open` 按钮，提交 `8b2b6751e31c6ac53c02f840b375a825dff72c64`。
+- GREEN `34018460735`：backend-go、node-routes、local-executor、frontend tests/build 全部通过。
+- Step 6 完成；当前进入 Step 7：`/script` 真实 VIDEO stage。
