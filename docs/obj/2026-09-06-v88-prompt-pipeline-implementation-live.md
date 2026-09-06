@@ -1,266 +1,438 @@
-# V88 视频画面提示词流水线复刻实施记录（Live OBJ）
+# V88 剧本提示词架构实施记录（Live OBJ）
 
 > 日期：2026-09-06  
 > 分支：`v88`  
-> 依据：`docs/obj/2026-09-06-v783031-prompt-generation-logic-analysis.md`  
-> 状态：执行中  
-> 原则：实时同步；每完成一个阶段立即更新本文；源码事实与新增设计分开记录。
+> 状态：实现已写入；自动化验证仍被 GitHub Runner 阻塞  
+> 当前产品结论优先级：以本文件为准；此前“普通分镜必须走多阶段 Global Director Plan / Director Pipeline”的方案已被产品确认推翻，不再作为普通生成路径。
 
 ---
 
-## 1. 最终目标
+## 1. 当前最终目标
 
-把 V78.3.0.31 已验证的提示词制作逻辑，按 V88 公网现有架构增量落地，并保留 V88 已确定的 `matchAudio=true` 音频总时长硬约束。
+一战晟铭“剧本生成”的核心目标不是照搬 V77/V78 的多页面、多次 AI 操作，而是把过去散落在代码里的 AI 决策逻辑重新收口为**管理后台可编辑的元提示词**。
 
-目标链：
+普通剧本 / 分镜生成遵守：
 
 ```text
-剧本
-→ 智能统一规则（统一风格附加视觉信息）
-→ 导演要求语义合同
-→ Global Director Plan
-→ Scene/Event 语义分批
-→ 每条原文完整视频画面提示词（1~6 micro_shots）
-→ 验收 / 定向修复
-→ 第三步 + 第四步同源写入
-→ 第五步确定性本地分段（0 AI）
-→ Segment 级视频生成任务
-→ 最终顺序合成
+用户上传原文
+→ 人物 / 场景提取
+→ 用户可给人物加星标，形成核心人物白名单
+→ 智能统一（需要时自动分析并保存为视觉基线）
+→ 用户选择一个“开头类型”
+→ 用户选择一个“输出模式”
+→ 用户选择 10s / 15s
+→ 一次 script AI 请求
+   ├─ 先读取 10s / 15s 最大时长
+   ├─ 同一次推理内部执行当前被选择的开头提示词
+   ├─ 内部判断内容怎样组织 / 分段
+   ├─ 不单独输出中间规划
+   └─ 同一次推理继续执行当前被选择的输出模式提示词
+→ 一次返回最终成品
 ```
 
----
-
-## 2. 执行计划
-
-### Phase 0 — V88 基线定位与测试框架确认【已完成】
-- [x] 定位公网剧本生成页面、约束设置、画面前缀词、`matchAudio` 的前端入口。
-- [x] 定位后端剧本生成/提示词/约束接口与现有 prompt builder。
-- [x] 定位视频段生成、合并、执行器相关逻辑。
-- [x] 确认前端/后端现有测试框架和可执行测试命令。
-- [x] 明确本轮最小修改边界，避免无关重构。
-
-### Phase 1 — 智能统一规则【实现已写入；自动验证受 GitHub Runner 阻塞】
-- [x] 先补合同测试：统一风格字段、职责边界、完整剧本输入、不能混入单镜头时间码/焦段/灯位。
-- [x] 后端新增独立系统级元提示词与 11 字段结构化输出契约。
-- [x] 接入公网“约束设置 → 画面前缀词 → 智能统一”：仅明确选中时额外运行一次完整原文分析。
-- [x] 系统元提示词保留在后端；前端只接收结构化结果与服务端确定性拼出的统一视觉前缀。
-- [x] 本次实际统一风格写入 outputConstraints/history，并由第五步最终卡优先使用。
-- [x] 最终视频 prompt 不再混入“智能统一系统元提示词”正文。
-- [!] 自动测试/构建已配置，但当前 GitHub Actions job 在获取 runner 前即失败；见验证记录，不宣称通过。
-
-### Phase 2 — 第三步：Global Director Plan【执行中】
-- [ ] 读透并复用 `lib/novel-panel/v783031-outline-route.js` 的语义合同、审核、失败行修复事务。
-- [ ] 确认现有 V78.3.0.31 请求字段、outline_shots/timeline_segments、返回字段与导出函数。
-- [ ] 先补失败合同测试：逐条原文索引、事件语义、时长规划、上下文承接。
-- [ ] 建立公网 `/script` 专用适配层，不复制一套近似算法。
-- [ ] 实现/整理 Global Director Plan 元提示词与结构化输出。
-- [ ] 对长剧本引入 Scene/Event 语义批次和 Story Map/上下文摘要机制（仅在现有 V78 核心没有覆盖时补）。
-- [ ] `matchAudio=true` 时将总时长作为硬约束传到导演规划和最终校验。
-
-### Phase 3 — 第四步：每条完整视频画面提示词【待执行】
-- [ ] 先补失败测试：一条原文 = 一张权威外层画面卡；每卡 1~6 个 micro_shots。
-- [ ] 第三步与第四步使用同一权威执行事务，禁止第四步独立重写第三步结论。
-- [ ] 输出完整镜头字段：时间、景别、观察角度、运镜、动作、环境、光线、节奏等。
-- [ ] 复用语义验收；只对失败原文行做定向修复一次。
-- [ ] 原子写入第三/第四步结果。
-
-### Phase 4 — 第五步：确定性最终分段【部分已提前完成】
-- [x] 智能统一元提示词与最终视觉前缀已彻底分层；最终卡只使用 resolved style。
-- [x] 已保留 0-AI 本地卡片组装，不新增最终润色模型调用。
-- [ ] 补最终总时长硬校验：`matchAudio=true` 时最后一段结束时间必须严格等于 `audioDurationSec`。
-- [ ] 进一步固定拼接顺序：统一风格 → 本段人物 → 镜头画面 → 负面提示词 → 声音/文字隔离 → 画质约束，并与现有 UI 卡顺序兼容。
-- [ ] 保护 Master Visual Prompt；精品/参考图模式只注入 `(@图N)` 索引，不重写内容（若公网当前链存在该模式）。
-- [x] Segment 级独立任务已是 V88 现有能力；单段任务独立 taskId/status，不合成 mega prompt。
-
-### Phase 5 — 全链路验证与收口【待执行】
-- [ ] 跑相关单元/集成测试。
-- [ ] 跑前端构建。
-- [ ] 跑后端构建/测试。
-- [ ] 用代表性剧本验证普通模式与 `matchAudio=true`。
-- [ ] 检查无独立重复 AI 改写、无时间空缺/重叠、无最终时长漂移。
-- [ ] 把实际修改文件、提交 SHA、测试证据、剩余风险写回本文。
-
----
-
-## 3. Phase 0 基线调查结果
-
-### 3.1 公网真实入口
-
-- 主页面：`frontend/src/user/pages/ScriptPage.jsx`。
-- 约束状态：`frontend/src/user/pages/scriptConstraints.js`。
-- 智能统一选择判定与音频时长读取：`frontend/src/user/pages/scriptGenerationRules.js`。
-- 模型输出解析/按时长拆卡：`frontend/src/user/pages/scriptShotOutput.js`。
-- 最终卡片确定性组装：`frontend/src/user/pages/scriptFinalSegment.js`。
-- 文本 AI 客户端：`frontend/src/shared/api/generation.js`，普通文本生成请求 `/api/chat`。
-- 文本 AI 服务端：`routes/chat.js`。
-- 系统预设目录：`prompts/`，注册表在 `lib/system-preset-catalog.js`。
-- 视频段任务：`routes/script-video.js`；当前已经按单卡独立提交并单独轮询状态。
-
-### 3.2 当前已有能力
-
-1. **原智能统一入口存在，但旧实现没有独立分析层。**
-   - 预设 ID：`script-constraint-prefix-smart-unified`。
-   - 旧逻辑只是把人物/场景提取阶段得到的 `visualStyle` 再注入画面前缀。
-
-2. **V88 原有十一项统一风格雏形。**
-   - `prompts/小说面板人物场景提取.md` 已要求统一风格按十一项生成一行中文，但它与人物/场景提取混在一次 AI 调用中。
-
-3. **已有导演母版，但 `/script` 原路径仍是一轮直接出成品。**
-   - `prompts/导演级分镜母版.md` 已包含完整读原文、场景边界、blocking、连续性、动作链和静默质检等规则。
-   - `routes/chat.js` 的 `script` / `quick_director` 仍是单次 upstream AI 调用。
-
-4. **`matchAudio=true` 总时长硬约束已经存在。**
-   - `lib/script-generation-rules.js::buildAudioMatchRules()` 明确要求所有独立分镜单元时长之和精确等于真实音频总秒数。
-
-5. **第五步已有 0-AI 雏形。**
-   - `scriptShotOutput.js` 与 `scriptFinalSegment.js` 会本地解析、切段、重置相对时间、剥离模型乱输出的共享设定，再按实际开关注入约束。
-   - 不为形式一致强迁到 Go；先强化现有确定性 JS 层。
-
-6. **Segment 级失败隔离已有基础。**
-   - 每张最终分镜卡独立调用 `/api/script-video`，拥有独立 taskId/status。
-
-7. **发现可直接复用的 V78.3.0.31 核心。**
-   - `server.js` 已注册 `/api/novel-panel/outline-scenes`。
-   - 实际核心位于 `lib/novel-panel/v783031-outline-route.js`。
-   - 它已经实现“导演要求语义合同 → 生成 → 逐项语义验收 → 只修失败 source row 一次并保持时长 → 再验收”的权威事务。
-   - Phase 2/3 不重新发明近似逻辑，而是为公网 `/script` 写适配层复用它。
-
-### 3.3 测试/验证条件
-
-- 前端有 `npm --prefix frontend run test`，原脚本主要覆盖 `src/shared/api/*.test.js`。
-- 根 Node 代码采用 `node:test`，本轮已新增独立合同测试文件。
-- 本轮新增 `.github/workflows/v88-script-prompt-pipeline.yml`，用于专门跑提示词流水线 Node 合同、前端合同与构建。
-- **当前 GitHub Actions runner 基础设施异常**：workflow 能创建 run，但 job 未获得 runner 即终止；不能把这类 failure 当成代码断言失败，也不能把未执行的测试宣称为通过。
-
----
-
-## 4. Phase 1：智能统一规则实际实现
-
-### 4.1 新的真实运行链
+例如用户选择：
 
 ```text
-用户选择：约束设置 → 画面前缀词 → 智能统一
-  ↓
-前端生成 API 检测 smart preset
-  ↓
-POST /api/script/smart-unified-style
-  ↓
-后端读取 prompts/智能统一视觉分析.md
-  ↓
-完整原文 + 已确认人物/场景事实
-  ↓
-AI 只返回 11 字段 JSON
-  ↓
-服务端校验字段完整性和边界
-  ↓
-拒绝具体 mm 焦段 / 时间码 / 分镜编号等单镜泄漏
-  ↓
-服务端按固定字段顺序确定性重建最终统一视觉 prefix
-  ↓
-写入本次 requestConstraints.prefix.smartUnifiedStyle
-  ↓
-再进入原剧本/分镜生成
-  ↓
-第五步最终卡优先使用 smartUnifiedStyle
+分段开头 + 分镜模式 + 10s
 ```
 
-没有选择智能统一时，不增加这次 AI 调用。
+本次 AI 只应加载：
 
-### 4.2 十一项权威字段
+```text
+分段开头元提示词
++ 分镜模式元提示词
++ 10s 最大时长运行规则
++ 小说原文
++ 人物资料
++ 场景资料
++ 星标核心人物运行指令
++ 智能统一视觉信息（如本次存在）
+```
 
-固定顺序：
-
-1. `imageMedium` — 影像媒介
-2. `captureProcess` — 成像介质
-3. `grainTexture` — 颗粒与材质纹理
-4. `filterColorSystem` — 滤镜与色彩体系
-5. `lensLanguage` — 镜头语言基线
-6. `opticalCharacter` — 光学特性
-7. `contrast` — 对比度
-8. `saturation` — 饱和度
-9. `lightingHierarchy` — 光线与明暗层次
-10. `narrativeComposition` — 叙事构图原则
-11. `atmosphere` — 整体氛围
-
-服务端不信任模型自行输出的总 `prompt`；模型只负责 11 字段，最终 prefix 由程序重建。
-
-### 4.3 边界修复
-
-- 统一风格只控制全片成像基线。
-- 不允许 `24mm/35mm/50mm/85mm` 等具体焦段进入统一字段。
-- 不允许 `00:00-00:03` 等时间码、分镜编号进入统一字段。
-- 不允许某一镜具体灯位/人物动作/走位写进统一风格。
-- 用户选择智能统一后，最终视频卡**不会再把系统元提示词模板正文一起塞给视频模型**。
-- 新生成结果优先使用本次独立分析的 `smartUnifiedStyle`；旧历史没有该字段时回退到原 `extractInfo.visualStyle`。
+不得因为系统还存在“连续开头 / 爆款开头 / 剧本模式”等其他预设，就把未选择的提示词混入当前任务。
 
 ---
 
-## 5. 实时执行日志
+## 2. 10s / 15s 最终定义
 
-### 2026-09-06 — 启动
-- 用户明确批准执行并要求实时同步 Git OBJ。
-- 已调用 Superpowers：`using-superpowers`、`brainstorming`、`writing-plans`、`executing-plans`、`test-driven-development`。
+10s / 15s 是**单条外层视频分镜的最大时长开关**，不是固定目标时长，也不是两套不同的分镜算法。
 
-### 2026-09-06 — Phase 0 完成
-- 已核对公网 React、Node prompt builder、系统预设目录、约束拼接、matchAudio、最终分段和视频段任务。
-- 结论：保留 V88 已有导演母版、音频硬约束、0-AI 最终卡片组装与 Segment 独立任务。
+### 10s
 
-### 2026-09-06 — Phase 1 实现写入
-- 增加独立智能统一后端端点，不修改巨大 `/api/chat` 主路由来硬塞新职责。
-- 增加专用 11 字段系统元提示词。
-- 增加服务端确定性规范化与单镜泄漏拦截。
-- 前端 `generateScript` 和 `generateQuickDirectorStoryboard` 在明确选择智能统一时自动先运行独立分析。
-- 本次 resolved style 写入 outputConstraints/history。
-- 第五步最终卡改为优先使用 resolved style，并阻止系统元提示词正文进入最终视频 prompt。
-- 新增 Node/前端合同测试和专用 GitHub Actions workflow。
-- GitHub Actions run `34022552877` 两个 job 均在 runner 分配前终止：`runner_id=0`、`steps=[]`；因此当前没有可声称“测试已通过”的执行证据。
-- Phase 2 开始：复用 V78.3.0.31 Outline 语义合同链。
+- 每条最终外层分镜 `<= 10s`。
+- 没有最低时长要求。
+- 允许 3s、5s、7s、9s、10s 等自然实际时长。
 
----
+### 15s
 
-## 6. 本轮已修改文件与提交
+- 每条最终外层分镜 `<= 15s`。
+- 没有“必须大于 10s”的要求。
+- 允许 5s、8s、10s、12s、15s 等自然实际时长。
 
-- `.github/workflows/v88-script-prompt-pipeline.yml`
-  - `012287872c16f6e7d794b626816d7a15a1988890` 初建验证流水线
-  - `7353852872e7aba1098dcae000003b6d85c73273` 扩充智能统一/最终分段合同覆盖
-- `lib/script-generation-rules.test.js`
-  - `919ed18ce21ed96c54648deaa70c5e801393d6a8`
-- `lib/script-generation-rules.js`
-  - `63a01da2bf7dc792a7f5828547a302cb3d334b9f`
-- `prompts/智能统一视觉分析.md`
-  - `83bbad7d389fa5c79de69c0002340003452bd153`
-- `lib/script-smart-unified-route.test.js`
-  - `e3fe288d5ed7696356d1563f52d2748c38e70cd0`
-- `lib/script-smart-unified-route.js`
-  - `1eb7d78ffe454e3da6e47e2b619a4f40e2c39ce2`
-- `server.js`
-  - `5e955a4272c792bac63955df1dbd00ae0b4e6f09`
-- `frontend/src/shared/api/generation.js`
-  - `380dc99fdbad48e6c64ac083575dddf158d07037`
-- `frontend/src/user/pages/scriptConstraints.js`
-  - `a7ad21afb31c7fc40de6d52bd52f5c71b9db3fbf`
-- `frontend/src/user/pages/scriptConstraints.test.js`
-  - `f3b39205c1ac01d828de7ed9fd9af3f013d957f2`
-- `frontend/src/user/pages/scriptFinalSegment.test.js`
-  - `97fe69068a341fdf6ca515b2f94f81fe555e694b`
-- `frontend/src/user/pages/scriptFinalSegment.js`
-  - `37c3128ed11a2c1e0782b84e9bd162ab5b4026d9`
-- 临时 `routes/chat.prompt-pipeline.test.js` 已因改用独立路由设计删除；不作为最终实现文件。
+### 共用原则
+
+- 先读取当前上限，再判断怎样分段。
+- 一个完整事件能在上限内自然完成时，优先保持完整。
+- 超过上限时，才在事件 / 动作链内部寻找自然节点继续拆分。
+- 禁止先输出一个超时分镜，再由前端从 10 秒或 15 秒位置机械硬切。
+- 禁止为了凑满时长增加原文不存在的剧情、动作、对白、空镜或停顿。
+
+相关实现：`lib/script-generation-rules.js::buildStoryboardUnitDurationRules()`。
 
 ---
 
-## 7. 验证记录
+## 3. 星标人物 / 核心人物白名单
 
-### 已有静态证据
-- 新智能统一端点已在 `server.js` 注册并带 `apiAuth`。
-- 系统元提示词存放在后端 `prompts/智能统一视觉分析.md`，前端没有硬编码完整真实元提示词。
-- 服务端统一字段解析会拒绝空字段、数值焦段、时间码与分镜编号泄漏。
-- 最终视频卡的智能统一来源已改为 `prefix.smartUnifiedStyle` 优先，`extractInfo.visualStyle` 仅作旧历史回退。
+人物卡上的星标用于确定导演叙事优先级。
 
-### 自动执行验证当前阻塞
-- Workflow run：`34022552877`。
-- `node-contracts`：`runner_id=0`，`steps=[]`，未实际执行 npm/test 命令。
-- `frontend-build`：`runner_id=0`，`steps=[]`，未实际执行 npm/test/build 命令。
-- 所以当前准确状态是：**代码和测试均已写入，但 GitHub Runner 没有实际执行；没有“测试通过/构建通过”的证据。**
+运行时由后端根据星标人物自动生成自然语言指令：
 
-下一次 runner 恢复后，Phase 5 必须重新获得新鲜通过证据后才能宣称完成。
+- 1 名：`以XXX为主角展开剧情。`
+- 恰好 2 名，且人物资料能可靠判断一男一女：`以XXX为男主角、YYY为女主角展开剧情。`
+- 其他情况：`以XXX、YYY……为核心人物展开剧情。`
+
+白名单的约束含义：
+
+- 核心人物实际参与当前原文事件时，镜头、动作、情绪反应和叙事关注优先围绕核心人物。
+- 不得把核心人物强行加入原文没有其出场的内容。
+- 不得因为星标而修改人物关系。
+- 不得把原文明示由其他人物完成的动作转移给核心人物。
+- 多核心人物但无法可靠推断男女主关系时，不自行编造男女主 / 恋爱关系。
+
+实现位置：`routes/chat.js::buildProtagonistPrompt()`。
+
+---
+
+## 4. 人物 / 场景资料的最终规则
+
+人物资料与场景资料是普通分镜 AI 的**必传生成上下文**，与界面的“基础设定是否展示”是两回事。
+
+也就是说：
+
+```text
+基础设定展示关闭
+!=
+人物 / 场景资料不送给 AI
+```
+
+后端 `buildScriptMessages()` 始终把：
+
+```text
+## 人物信息
+...
+
+## 场景信息
+...
+```
+
+发送给普通 script AI。
+
+如果基础设定展示关闭，只禁止最终结果额外输出独立的人物卡 / 场景卡 / 基础设定区块；不影响人物与场景作为生成依据。
+
+此前曾临时通过“强制打开 baseSetup”达到人物场景必传，现已撤销，避免破坏用户的显示开关。
+
+---
+
+## 5. 分段开头元提示词
+
+文件：`prompts/分段开头.md`
+
+该提示词**只有用户选择“分段开头”时才启用**。
+
+职责只负责：
+
+```text
+当前原文内容怎样划成一个个可独立生成的视频内容段
+```
+
+它不负责最终画面提示词展示格式。
+
+核心逻辑已经写入提示词正文，包括：
+
+- 先完整阅读全部原文，再决定第一段边界。
+- 禁止固定字数 / 固定句数 / 固定行数 / 逢标点切分。
+- 综合 Scene、时间、地点、叙事层、Event、行动目标、动作链、关键道具、对白及直接反应、信息揭示、情绪转折判断边界。
+- 连续动作链在时长允许时优先保持完整。
+- 超过当前 10s / 15s 上限时，在动作自然阶段节点继续拆分。
+- 原文顺序不变，不漏关键内容，不重复消费，不借用后文填充前段。
+- 相邻分镜同一时空时继承人物位置、朝向、动作、道具、情绪和场景状态。
+- 分段完成后不输出分析 / JSON / Scene-Event 调试表；同一次推理立即继续当前输出模式。
+
+提交：`af630f23300028474d10e350b36c7b5a8e156be2`。
+
+---
+
+## 6. 分镜模式元提示词
+
+文件：`prompts/分镜模式.md`
+
+该提示词**只有用户选择“分镜模式”时才启用**。
+
+职责：把当前开头策略在同一次推理中已经确定的每一个外层内容段，直接写成一条完整视频画面提示词。
+
+关键规则：
+
+- 不重新划分原文。
+- 不修改外层分镜已经判断好的实际时长。
+- 一个外层分镜 = 一条独立视频生成任务。
+- 每条外层分镜内部时间码重新从 `00:00` 开始。
+- 内部镜头数量按真实剧情需要决定，不固定 1~N 数量。
+- 内部时间片连续、无重叠、无空缺，并准确结束于本条实际时长。
+- 具体画面要求包含可拍摄的空间、人物位置、动作起始状态、连续动作、道具变化、可见反应、镜头落点。
+- 摄影参数服务当前镜，智能统一不能锁死所有镜头的焦段 / 机位 / 灯位 / 构图 / 运镜。
+- 人物、场景、核心人物白名单作为一致性和叙事权重依据。
+- 剧情状态跨外层分镜连续，但每条独立视频的时间码重新归零。
+
+提交：`88498e76664945fd97a3d28db93d28484049d421`。
+
+---
+
+## 7. 通用规则元提示词
+
+文件：`prompts/通用规则.md`
+
+当前作用：
+
+- 解释“开头提示词负责怎样组织内容，输出模式提示词负责怎样展示最终结果”。
+- 明确只启用用户当前选择的预设。
+- 统一原文事实优先级。
+- 固化人物 / 场景资料始终作为生成依据。
+- 固化星标白名单解释。
+- 固化 10s / 15s 最大值语义。
+- 固化智能统一只作为全片视觉基线。
+- 固化“同一次 AI 推理先执行开头，再继续执行输出模式”。
+
+提交：`d22dc0329b105624fec5fa42e803a1ae80fbf272`。
+
+---
+
+## 8. 普通生成已经恢复为一次 AI 调用
+
+前端：`frontend/src/shared/api/generation.js::generateScript()`
+
+普通剧本 / 分镜生成现在重新走：
+
+```text
+POST /api/chat
+promptType = script
+```
+
+普通 `shotlist` 不再进入 `/api/script/director-pipeline`。
+
+提交：`3278930a856d1776fd462e21aced21f7cb42d7a9`。
+
+此前提交 `d4e08074e202acc5ae79b07291f13595ca2bd5b1` 曾把普通 `shotlist` 改到 Director Pipeline；该产品方案已被确认不符合一战晟铭的正常生成逻辑，现由 `3278930a...` 覆盖，不再作为普通生成路径。
+
+### 独立快速导演 / 匹配音频
+
+`/api/script/director-pipeline` 代码暂时保留，仅供独立的快速导演 / 匹配音频事务使用，不属于普通“分段开头 + 分镜模式”的必经路径。
+
+---
+
+## 9. 后端一次请求的 Prompt 组合器
+
+文件：`routes/chat.js`
+
+普通 `promptType=script` 当前组合顺序：
+
+```text
+System:
+  当前被选择的开头元提示词
+  + 通用规则
+  + 10s / 15s 最大时长规则
+  + 当前确实启用的附加约束内容
+  + 当前被选择的输出模式元提示词
+
+User:
+  小说原文
+  + 人物信息
+  + 场景信息
+  + 星标核心人物运行指令
+  + “同一次推理先执行当前开头，再继续当前输出模式并直接输出成品”
+```
+
+普通分镜不再额外注入 `script-director-storyboard-master`。
+
+提交：`f8f90f539f0cb40b2e0242da62967669ae540d40`。
+
+组合测试：`routes/chat-script-prompt-composition.test.js`，提交 `2a0f26e87d820f8034da289409e24c5798027e61`。
+
+---
+
+## 10. 智能统一
+
+智能统一继续保留现有实现：
+
+```text
+用户 / 产品启用智能统一
+→ 独立完整原文视觉分析
+→ 只允许返回 11 个全片级视觉字段
+→ 后端按固定顺序重建权威视觉前缀
+→ 本次普通 script AI 使用该视觉基线
+```
+
+11 个字段：
+
+1. imageMedium
+2. captureProcess
+3. grainTexture
+4. filterColorSystem
+5. lensLanguage
+6. opticalCharacter
+7. contrast
+8. saturation
+9. lightingHierarchy
+10. narrativeComposition
+11. atmosphere
+
+智能统一不得包含具体单镜时间码、数值焦段、具体人物动作或具体灯位。
+
+主要提交：
+
+- `83bbad7d389fa5c79de69c0002340003452bd153`
+- `63a01da2bf7dc792a7f5828547a302cb3d334b9f`
+- `1eb7d78ffe454e3da6e47e2b619a4f40e2c39ce2`
+- `380dc99fdbad48e6c64ac083575dddf158d07037`
+- `a7ad21afb31c7fc40de6d52bd52f5c71b9db3fbf`
+
+---
+
+## 11. 后台元提示词安全迁移
+
+问题：`system-preset-catalog` 的默认预设种子只会补缺失项；已有后台发布版本不会因为仓库 prompt 文件变化而自动变成新正文。因此仅改 `prompts/分段开头.md` / `prompts/分镜模式.md` 不足以保证公网后台拿到新版。
+
+新增：`lib/script-prompt-preset-migration.js`
+
+启动时迁移规则：
+
+- 只检查旧默认正文的精确 Git blob SHA。
+- 只有后台当前正文仍与旧系统默认正文完全一致时，才自动升级到当前新元提示词。
+- 管理员只要手工改过一个字，哈希即不同，系统不覆盖。
+- `script-format-shotlist` 已存在的系统兼容守卫会被保留。
+
+旧默认 SHA：
+
+- `script-segmented`: `899729b47dc34601fd212487c54104d5ba220e43`
+- `script-format-shotlist`: `41d634208a3d662a83f3dcb8d09041bfcc4af186`
+- `script-general`: `ccc7bdcad77302ae150b057a79eca7b4f1c0cd34`
+
+提交：
+
+- 测试：`9e15e5e57c179d0ede42a70649a85369605a2c7b`
+- 实现：`b4605f0c017e720ea8343b235460c84a3b4691a3`
+- 启动接入：`9a1d09ced4de8181c433e129dca8f902e28b56c0`
+
+---
+
+## 12. 10s / 15s 规则测试
+
+测试文件：`lib/script-generation-rules.test.js`
+
+当前合同覆盖：
+
+- 10s 是最大值，无最低值。
+- 15s 是最大值，无最低值。
+- 15s 不再要求 `>10s`。
+
+提交：
+
+- 测试：`287725d404d00d0e600aeb79c32d15ab54db2e5c`
+- 实现：`41501ef5ae60594b15c5967f08667b488554cccc`
+
+---
+
+## 13. 被撤销的临时实现
+
+曾临时通过前端强行把 `baseSetup.enabled=true` 来保证人物 / 场景送给 AI：
+
+- 临时测试：`35060ff6971311360e50c8dcd756f023460466db`
+- 临时实现：`9eeed530d6328ff446b80135f0c8696ff666867d`
+
+该做法会混淆“AI 是否获得人物场景”和“用户是否要求最终展示基础设定”。现已撤销：
+
+- 修正：`f8ce7449c4d2af5d69f7a12cca5148897ff49b60`
+- 删除过期测试：`bf58d9db43e57223e13ab2b328de8008613aff57`
+
+当前由后端 `buildScriptMessages()` 直接始终传入人物 / 场景，不再修改用户显示开关。
+
+---
+
+## 14. 自动化验证状态
+
+CI 文件：`.github/workflows/v88-script-prompt-pipeline.yml`
+
+最新 CI 配置提交：`38d4ef1db90ee19eb737d1c1d062868ff4c8945b`。
+
+当前计划运行：
+
+```text
+node --test lib/script-generation-rules.test.js
+node --test lib/script-smart-unified-route.test.js
+node --test lib/script-prompt-preset-migration.test.js
+node --test routes/chat-script-prompt-composition.test.js
+前端相关 node tests
+frontend test
+frontend build
+```
+
+### 最新 GitHub Actions 事实
+
+Run：`34029975309`（V88 Script Prompt Pipeline，head=`38d4ef1d...`）
+
+结果：
+
+```text
+node-contracts: failure, steps=null
+frontend-build: failure, steps=null
+```
+
+两个 job 均在没有任何 recorded step 的情况下结束，因此目前仍属于 GitHub Runner / 执行环境未启动问题，而不是可以据此判定代码测试失败。
+
+**当前不能声称测试已通过，也不能声称代码测试失败。**
+
+---
+
+## 15. 当前产品真值总结
+
+普通剧本生成最终架构：
+
+```text
+用户当前开头选择
++
+用户当前输出模式选择
++
+10s / 15s 最大时长
++
+完整原文
++
+人物资料
++
+场景资料
++
+星标主角自然语言要求
++
+智能统一视觉基线（如存在）
+
+↓
+
+一次 /api/chat script AI 请求
+
+↓
+
+同一次推理：
+先按当前开头规则组织 / 分段
+→ 不返回中间规划
+→ 继续按当前输出模式生成
+→ 直接返回最终成品
+```
+
+其中“分段开头 + 分镜模式”只是所有可选组合中的一种，不能被写死成全局唯一模式。
+
+---
+
+## 16. 当前下一步
+
+1. 等待 / 恢复可用 GitHub Runner 后执行新合同测试与前端 build。
+2. 部署到公网 V88 后，验证管理后台能看到升级后的“分段开头 / 分镜模式 / 通用规则”；如果管理员已经编辑过旧正文，应确认迁移器不覆盖。
+3. 公网实测至少覆盖：`分段开头 + 分镜模式 + 10s`、`分段开头 + 分镜模式 + 15s`、单主角星标、男女双主角星标、多核心人物、基础设定显示关闭但 AI 仍使用人物场景。
+4. 在自动化或公网实测完成之前，不把本轮标记为“已验证完成”。
