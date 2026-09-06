@@ -6,6 +6,7 @@ on:
       - v88
     paths:
       - 'tests/v88-public-browser-worker-deploy.test.js'
+      - 'tests/novel-panel-v783031-ecs-deploy.test.js'
       - 'deploy/v88-public/docker-compose.browser-worker.yml'
       - 'services/121-browser-worker/**'
       - '.github/workflows/v88-linux-amd64-image-release.yml'
@@ -27,6 +28,9 @@ jobs:
 
       - name: Verify public Browser Worker deployment contract
         run: node --test tests/v88-public-browser-worker-deploy.test.js
+
+      - name: Verify guarded ECS first-deploy contract
+        run: node tests/novel-panel-v783031-ecs-deploy.test.js
 
       - name: Validate compose overlay against a synthetic V88 base
         shell: bash
