@@ -8,8 +8,9 @@ const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'v88-li
 
 test('V88 ECS 发布对 GHCR 临时网络错误执行有限重试', () => {
   assert.match(workflow, /pull_with_retry\s*\(\)/);
-  assert.match(workflow, /docker pull ["']?\$ghcr_image/);
-  assert.match(workflow, /docker pull ["']?\$worker_ghcr_image/);
+  assert.match(workflow, /docker pull ["']?\$image/);
+  assert.match(workflow, /pull_with_retry ["']\$ghcr_image["']/);
+  assert.match(workflow, /pull_with_retry ["']\$worker_ghcr_image["']/);
   assert.match(workflow, /sleep/);
 });
 
