@@ -44,8 +44,7 @@ function expandLongTimelineRows(rows, limit) {
       expanded.push(row);
       return;
     }
-    // 模型偶尔把两三行原文夸成 60/100 秒。按上限拆成可执行片段，
-    // 保留原动作描述并标明“延续”，避免任何单卡越过视频引擎时长。
+    // 仅供显式调用旧时间轴切分工具时使用。普通剧本/分镜生成不再自动调用该逻辑。
     let cursor = row.start;
     while (cursor < row.end) {
       const next = Math.min(row.end, cursor + limit);
@@ -106,13 +105,11 @@ export function getShotCards(format, output) {
 }
 
 export function getShotCardsWithinDuration(format, output, duration) {
-  const cards = getShotCards(format, output);
-  const limit = Math.max(1, Number.parseInt(String(duration), 10) || 10);
-  if (!cards.length) return cards;
-  return cards.flatMap(card => {
-    const segments = splitContinuousTimeline(card, limit);
-    return segments.length > 1 ? segments : [card];
-  });
+  // 10s / 15s 是发给 AI 的“单条外层分镜最大时长”规则，而不是生成后的切刀。
+  // 模型已经按当前开头策略完成语义分段后，前端只负责解析/展示原结果；
+  // 即使模型偶发违反上限，也不能在这里机械重切并改变已经生成的剧情边界。
+  void duration;
+  return getShotCards(format, output);
 }
 
 export function joinShotCards(cards, selectedIndexes) {
@@ -133,10 +130,8 @@ function formatSeconds(value) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// 把一条连续时间轴按所选秒数机械切段（对齐小说面板“按秒数分段并合并”）：
-// 每段时长不超过 maxSeconds，段内时间轴从 00:00 重新排布，返回多个"### 分镜N"块。
-// 输出开头第一个时间轴行之前的内容（人物/场景/负面提示词等前言）会复制到每一段，
-// 保证每段可独立复制提交，与小说面板的“镜头画面”一致。
+// 旧兼容工具：显式需要重排历史连续时间轴时仍可调用。
+// 普通剧本/分镜生成路径不再自动使用它；10s/15s 分段必须由 AI 在生成前完成。
 export function splitContinuousTimeline(output, maxSeconds) {
   const limit = Math.max(1, Number.parseInt(maxSeconds, 10) || 10);
   const text = String(output || '').trim();
@@ -153,7 +148,6 @@ export function splitContinuousTimeline(output, maxSeconds) {
   );
   if (timelineRows.length === 0) return [];
 
-  // 前言：第一个时间轴行之前的所有非空行（统一人物/场景/负面提示词等）
   const firstTimelineIndex = rows.findIndex(row => row.start !== null);
   const preamble = rows
     .slice(0, Math.max(0, firstTimelineIndex))
