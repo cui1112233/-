@@ -1,6 +1,7 @@
 # V88 Current Version
 
 - Branch: `v88`
+- Current V88 HEAD: `86a1c5507053669dadd985d385b28df68d901602`
 - Status: integration branch, not production/default
 - Base source: `master@fc1f5a96364518f0f14073fd5195363ef0e15a77`
 - Batch Factory source candidate: `d9c3a164053473c55704fa0ba904041366564b61`
@@ -8,6 +9,18 @@
 - Production: unchanged
 - Default branch: unchanged
 - Maintained Doubao desktop executor version: `1.0.3`
+- Maintained Doubao desktop executor source entry: `local-executor/`
+- Maintained web settings entry: `frontend/src/user/pages/SettingsPage.jsx`
+- Maintained script VIDEO entry: `frontend/src/user/pages/ScriptPage.jsx`
+
+## Active Doubao Phase 1 candidate — not yet promoted to V88
+
+- Candidate branch: `fix/v88-doubao-executor-phase1-20260906`
+- Latest V88 baseline has been synced into the candidate; after sync it was `behind 0` relative to `v88`.
+- Candidate contains the real VIDEO-stage UI, stricter acceptance/media binding, structured JSONL logging, Windows installer size/build reporting, overwrite-install smoke checks, and allow-listed `yizhan-executor://update` web-to-local update initiation.
+- These candidate features are **not** considered part of formal V88 until the full regression, Windows build, installer checks, HTTPS updater-origin check, and real VIDEO end-to-end test pass.
+- Candidate execution record: `docs/obj/2026-09-06-v88-doubao-executor-phase1-execution-record.md`.
+- Update-protocol record: `docs/obj/2026-09-06-v88-doubao-executor-update-protocol-progress.md`.
 
 ## Included in the V88 consolidation line
 
