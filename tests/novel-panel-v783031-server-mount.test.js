@@ -1,0 +1,11 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const source = fs.readFileSync(path.resolve(__dirname, '../server.js'), 'utf8');
+assert.match(source, /v783031-regeneration-middleware/);
+assert.match(source, /\/api\/novel-panel\/regenerate-scene-outline/);
+assert.match(source, /createV783031RegenerationMiddleware\(\)/);
+const mount = source.indexOf("/api/novel-panel/regenerate-scene-outline");
+const core = source.indexOf('app.use(coreApp)');
+assert.ok(mount >= 0 && core >= 0 && mount < core, 'V31 patch middleware must run before coreApp');
+console.log('V78.3.0.31 server mount regression: PASS');
