@@ -106,13 +106,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           worker_image="qiantie-v88-121-browser-worker:public-${SHORT_SHA}"
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
-          worker_ghcr_image="ghcr.io/${owner}/qiantie-v88-121-browser-worker:public-${SHORT_SHA}"
           docker build --platform "$IMAGE_PLATFORM" -t "$worker_image" ./services/121-browser-worker
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$worker_image")" = "$IMAGE_PLATFORM"
-          docker tag "$worker_image" "$worker_ghcr_image"
           echo "WORKER_IMAGE_NAME=$worker_image" >> "$GITHUB_ENV"
-          echo "WORKER_GHCR_IMAGE=$worker_ghcr_image" >> "$GITHUB_ENV"
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -121,16 +117,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push V88 AMD64 images to GHCR
+      - name: Push V88 AMD64 image to GHCR
         shell: bash
         run: |
           set -Eeuo pipefail
           docker push "$GHCR_IMAGE"
-          docker push "$WORKER_GHCR_IMAGE"
           docker image inspect "$GHCR_IMAGE" >/dev/null
-          docker image inspect "$WORKER_GHCR_IMAGE" >/dev/null
           echo "Published durable image: $GHCR_IMAGE"
-          echo "Published Novel Fetch Browser Worker: $WORKER_GHCR_IMAGE"
+          echo "Novel Fetch Browser Worker will be streamed directly to ECS after verification."
 
       - name: Save release package
         shell: bash
@@ -139,13 +133,11 @@ jobs:
           release_dir="$GITHUB_WORKSPACE/release"
           mkdir -p "$release_dir"
           archive="qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz"
-          worker_archive="qiantie-v88-121-browser-worker-linux-amd64-${SHORT_SHA}.tar.gz"
           docker save "$IMAGE_NAME" | gzip -1 > "$release_dir/$archive"
-          docker save "$WORKER_IMAGE_NAME" | gzip -1 > "$release_dir/$worker_archive"
           cp deploy/v88-public/docker-compose.browser-worker.yml "$release_dir/docker-compose.browser-worker.yml"
           (
             cd "$release_dir"
-            sha256sum "$archive" "$worker_archive" > SHA256SUMS
+            sha256sum "$archive" > SHA256SUMS
           )
           {
             echo "branch=${GITHUB_REF_NAME}"
@@ -154,24 +146,24 @@ jobs:
             echo "image=${IMAGE_NAME}"
             echo "registry_image=${GHCR_IMAGE}"
             echo "browser_worker_image=${WORKER_IMAGE_NAME}"
-            echo "browser_worker_registry_image=${WORKER_GHCR_IMAGE}"
+            echo "browser_worker_distribution=direct-ecs-stream"
             echo "cm_release_guard=passed"
           } > "$release_dir/RELEASE-METADATA.txt"
           cat > "$release_dir/ECS-STORAGE.txt" <<EOF
           Recommended ECS release directory:
           /opt/qiantie/releases/v88/${SHORT_SHA}/
 
-          Primary distribution (does not depend on Actions Artifact quota):
+          Primary V88 distribution:
           ${GHCR_IMAGE}
-          ${WORKER_GHCR_IMAGE}
 
-          Artifact/tar fallback after upload:
+          Novel Fetch 121 Browser Worker distribution:
+          Built from this commit and streamed directly to ECS during guarded deployment.
+
+          Main image tar fallback after upload:
           cd /opt/qiantie/releases/v88/${SHORT_SHA}
           sha256sum -c SHA256SUMS
           docker load -i ${archive}
-          docker load -i ${worker_archive}
           docker image inspect ${IMAGE_NAME} --format '{{.Id}} {{.Os}}/{{.Architecture}}'
-          docker image inspect ${WORKER_IMAGE_NAME} --format '{{.Id}} {{.Os}}/{{.Architecture}}'
           EOF
           cat "$release_dir/RELEASE-METADATA.txt"
           cat "$release_dir/SHA256SUMS"
@@ -240,7 +232,7 @@ jobs:
           }
           ensure_secret() {
             key="$1"
-            if ! grep -q "^\${key}=" novel-fetch-121.env 2>/dev/null; then
+            if ! grep -q "^${key}=" novel-fetch-121.env 2>/dev/null; then
               printf '%s=%s\n' "$key" "$(random_hex)" >> novel-fetch-121.env
             fi
           }
@@ -263,15 +255,18 @@ jobs:
           printf '%s\n' "$rollback_image" > /tmp/v88-last-rollback-image
           printf '%s\n' "$service_image" > /tmp/v88-last-service-image
 
-          worker_container_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
-          test -n "$worker_container_id"
-          worker_service_image="$(docker inspect "$worker_container_id" --format '{{.Config.Image}}')"
-          test -n "$worker_service_image"
-          docker image inspect "$worker_service_image" >/dev/null
-          rollback_worker_image="v88-public-novel-fetch-121-worker:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
-          docker tag "$worker_service_image" "$rollback_worker_image"
-          printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
+          worker_service_image='v88-public-novel-fetch-121-worker:v88-latest'
+          worker_container_id="$(${compose[@]} ps -q novel-fetch-121-worker || true)"
+          : > /tmp/v88-last-rollback-worker-image
           printf '%s\n' "$worker_service_image" > /tmp/v88-last-worker-service-image
+          if [ -n "$worker_container_id" ]; then
+            previous_worker_image="$(docker inspect "$worker_container_id" --format '{{.Config.Image}}')"
+            test -n "$previous_worker_image"
+            docker image inspect "$previous_worker_image" >/dev/null
+            rollback_worker_image="v88-public-novel-fetch-121-worker:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
+            docker tag "$previous_worker_image" "$rollback_worker_image"
+            printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
+          fi
 
           docker image inspect "$image_name" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
           docker image inspect "$worker_image_name" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
@@ -333,7 +328,7 @@ jobs:
 
           for attempt in $(seq 1 30); do
             body="$(curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info || true)"
-            if printf '%s' "$body" | grep -q '"app_version":"v78.3.0.31"' && printf '%s' "$body" | grep -q '"release_version":"v78.3.0.31"'; then
+            if printf '%s' "$body" | grep -q '\"app_version\":\"v78.3.0.31\"' && printf '%s' "$body" | grep -q '\"release_version\":\"v78.3.0.31\"'; then
               printf '%s\n' "$body"
               exit 0
             fi
@@ -344,7 +339,7 @@ jobs:
           REMOTE
           for attempt in $(seq 1 20); do
             public_body="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/api/novel-panel/build-info" || true)"
-            if printf '%s' "$public_body" | grep -q '"app_version":"v78.3.0.31"' && printf '%s' "$public_body" | grep -q '"release_version":"v78.3.0.31"'; then
+            if printf '%s' "$public_body" | grep -q '\"app_version\":\"v78.3.0.31\"' && printf '%s' "$public_body" | grep -q '\"release_version\":\"v78.3.0.31\"'; then
               printf '%s\n' "$public_body"
               curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/novel-panel" >/dev/null
               echo "Public V88 /novel-panel V78.3.0.31 verification passed."
@@ -379,17 +374,21 @@ jobs:
           docker image inspect "$service_image" >/dev/null
           docker tag "$rollback_image" "$service_image"
 
-          test -s /tmp/v88-last-rollback-worker-image
-          test -s /tmp/v88-last-worker-service-image
-          rollback_worker_image="$(cat /tmp/v88-last-rollback-worker-image)"
-          worker_service_image="$(cat /tmp/v88-last-worker-service-image)"
-          docker image inspect "$rollback_worker_image" >/dev/null
-          docker image inspect "$worker_service_image" >/dev/null
-          docker tag "$rollback_worker_image" "$worker_service_image"
-
-          "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
-          "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
-          "${compose[@]}" ps novel-fetch-121-worker v88-node
+          if [ -s /tmp/v88-last-rollback-worker-image ]; then
+            test -s /tmp/v88-last-worker-service-image
+            rollback_worker_image="$(cat /tmp/v88-last-rollback-worker-image)"
+            worker_service_image="$(cat /tmp/v88-last-worker-service-image)"
+            docker image inspect "$rollback_worker_image" >/dev/null
+            docker tag "$rollback_worker_image" "$worker_service_image"
+            "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
+            "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
+            "${compose[@]}" ps novel-fetch-121-worker v88-node
+          else
+            "${compose[@]}" stop novel-fetch-121-worker || true
+            "${compose[@]}" rm -f novel-fetch-121-worker || true
+            docker compose -f "$compose_file" up -d --no-deps --force-recreate --pull never v88-node
+            docker compose -f "$compose_file" ps v88-node
+          fi
           echo "Rolled back V88 ECS to $service_image"
           REMOTE
 
