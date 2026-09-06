@@ -23,6 +23,9 @@ on:
           - beta
           - stable
 
+env:
+  MAX_INSTALLER_MIB: 90
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -81,6 +84,10 @@ jobs:
           $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item $target).Length
           $sizeMiB = [math]::Round($size / 1MB, 2)
+          $maxSizeMiB = [double]$env:MAX_INSTALLER_MIB
+          if ($size -gt ($maxSizeMiB * 1MB)) {
+            throw "installer is too large: $sizeMiB MiB exceeds Phase 1 ceiling $maxSizeMiB MiB"
+          }
           "$hash  $canonicalName" | Set-Content -NoNewline "dist/$canonicalName.sha256"
 
           $feedDir = "dist/update-feed/$channel"
@@ -108,6 +115,7 @@ jobs:
             file = $canonicalName
             sizeBytes = $size
             sizeMiB = $sizeMiB
+            maxInstallerMiB = $maxSizeMiB
             sha256 = $hash
             builtAt = $publishedAt
             commit = "${{ github.sha }}"
@@ -117,7 +125,7 @@ jobs:
           Write-Host "Channel: $channel"
           Write-Host "Version: $version"
           Write-Host "SHA256: $hash"
-          Write-Host "Size: $size bytes ($sizeMiB MiB)"
+          Write-Host "Size: $size bytes ($sizeMiB MiB), ceiling: $maxSizeMiB MiB"
 
       - name: Upload Windows updater bundle
         uses: actions/upload-artifact@v4
