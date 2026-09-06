@@ -127,6 +127,13 @@ jobs:
           Write-Host "SHA256: $hash"
           Write-Host "Size: $size bytes ($sizeMiB MiB), ceiling: $maxSizeMiB MiB"
 
+      - name: Verify Windows installer overwrite and protocol
+        shell: pwsh
+        run: |
+          $version = "${{ steps.metadata.outputs.version }}"
+          $installer = Join-Path "dist" "yizhan-local-executor-v88-$version-win-x64.exe"
+          ./scripts/verify-windows-installer.ps1 -InstallerPath $installer
+
       - name: Upload Windows updater bundle
         uses: actions/upload-artifact@v4
         with:
