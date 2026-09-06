@@ -4,6 +4,7 @@ const https = require('node:https');
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig } = require('../lib/shared');
+const { bridgePayload } = require('../lib/batch-factory-v11/go-proxy');
 const { listPublishedForSlot, resolveSystemPresetBody, slotDefinition } = require('../lib/system-preset-catalog');
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -12,7 +13,7 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 function signBridgeRequest(secret, { username, isOwner, issuedAt, method, pathname }) {
-  const payload = [username, issuedAt, String(isOwner), method, pathname].join('\n');
+  const payload = bridgePayload({ username, issuedAt, isOwner: String(isOwner), method, pathname });
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
 }
 
