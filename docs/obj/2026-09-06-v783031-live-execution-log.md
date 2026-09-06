@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS REAL COMPOSE PATH VERIFIED / ECS DEPLOYMENT FIX IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS SSH PRECHECK PASSED / ECS DEPLOYMENT IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -687,3 +687,51 @@ The job was not started because recent account payments have failed or your spen
 - 仅重建 v88-node/121 worker，不触碰 MySQL、正式数据卷和无关功能
 
 当前状态：`ECS REAL COMPOSE PATH VERIFIED / ECS DEPLOYMENT FIX IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
+
+
+---
+
+## 2026-09-06｜执行节点 17｜真实 Compose/service 修正通过回归，Release 进入 ECS 部署
+
+### 回归 GREEN
+
+- workflow：`Novel Panel V78.3.0.31 Regression`
+- run：`34031158633`
+- head：`654c418eba4332abc3211f6d4e7fe2988596f13b`
+- 结果：`success`
+
+### 修正版 Release 当前状态
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34031114328`
+- head：`9872dee0d61f1eab4f68d73ee8a4d48857baf3bd`
+- job：`101480672191`
+- runner：已实际分配
+- Build frontend：✅
+- V88 release contract：✅
+- Linux AMD64 主镜像构建：✅
+- 121 worker AMD64 镜像构建：✅
+- 双镜像 GHCR 推送：✅
+- 发布包生成：✅
+- 真实 SSH 预检：✅
+- 当前步骤：`Deploy verified images to V88 ECS`
+
+### ECS 部署边界
+
+修正版已使用：
+
+- Compose 文件：`/opt/qiantie/v88/deploy/v88-public/docker-compose.yml`
+- Compose override：`/opt/qiantie/v88/deploy/v88-public/docker-compose.browser-worker.yml`
+- 从运行中 `v88-node`、`novel-fetch-121-worker` 容器读取实际镜像标签
+- 分别保存主服务和 worker rollback 标签
+- 仅重建 `v88-node` 与 `novel-fetch-121-worker`
+- 使用 `--no-deps`、`--pull never`
+
+当前仍未取得：
+
+- ECS Compose 重建完成证据
+- ECS localhost V31 build-info
+- 公网 V31 build-info
+- 公网 `/novel-panel` 验证
+
+当前状态：`ECS SSH PRECHECK PASSED / ECS DEPLOYMENT IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
