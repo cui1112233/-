@@ -116,3 +116,26 @@ Result: 13 tests passed, 0 failed; syntax and whitespace checks passed. Coverage
 ### Round-3 commit
 
 - `f703c250` — `perf: harden workbench asset fallback snapshots`
+
+## Fix round 4
+
+### Finding addressed
+
+- A valid manifest now strictly limits delivery to its referenced, snapshotted `assetSources`; a safe-path JS/CSS request absent from that map returns 404. Original-root fallback is reachable only after manifest initialization has failed or watcher invalidation has set the manifest to null.
+- Added a focused regression for an unreferenced `unreferenced.js` under a valid manifest, while retaining the invalid-manifest fallback assertion that `app.js` returns 200 with private revalidation.
+
+### Round-4 verification
+
+```text
+node --test --test-concurrency=1 tests/novel-panel-asset-contract.test.js tests/novel-panel-workbench-cache.test.js tests/frontend-asset-cache-contract.test.js
+node --check lib/novel-panel/workbench-assets.js
+node --check routes/novel-panel-page.js
+node --check tests/novel-panel-workbench-cache.test.js
+git diff --check
+```
+
+Result: 14 tests passed, 0 failed; syntax and whitespace checks passed.
+
+### Round-4 commit
+
+- `35cabfd3` — `fix: preserve workbench manifest asset boundary`
