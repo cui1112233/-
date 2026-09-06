@@ -790,3 +790,46 @@ The job was not started because recent account payments have failed or your spen
 4. 发布完成后再补齐回归测试的当前 workflow 步骤名匹配。
 
 当前状态：`ECS DEPLOYMENT RUN CANCELLED / MANUAL DISPATCH READY / PUBLIC DEPLOYMENT PENDING`
+
+---
+
+## 2026-09-06｜执行节点 20｜按用户要求停止长时间部署等待
+
+### 停止原因
+
+用户明确要求：未完成的执行不应持续占用 Actions 运行时；应在可确认的节点停止，待传输完成后再启动后续步骤。
+
+因此停止手动 Release，不继续等待当前长时间 ECS 镜像传输，也不进入后续验证。
+
+### 最新运行结果
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34032419713`
+- job：`101484284830`
+- head SHA：`6b2e2ffd579c6fe19b93608e624b1f7efadc0be9`
+- cancel request：已提交
+- job 最终状态：`completed`
+- job conclusion：`cancelled`
+- completed：`2026-09-06T12:53:46Z`
+
+取消前已确认：
+
+- 前端构建：✅
+- V88 release contract：✅
+- Linux AMD64 主镜像构建：✅
+- 121 Browser Worker AMD64 镜像构建：✅
+- 主镜像 GHCR 推送：✅
+- 发布包生成：✅
+- 真实 SSH 预检：✅
+- `Deploy verified images to V88 ECS`：运行中，后被取消
+- `Verify V88 ECS deployment`：未开始
+- rollback：未触发
+- ECS localhost V31 build-info：未取得
+- 公网 V31 build-info：未取得
+- 公网 `/novel-panel` 验证：未取得
+
+### 安全边界
+
+本次取消后，不把公网部署标记为成功，也不假设 ECS 当前状态未发生任何临时镜像导入；恢复执行时第一步应先通过真实 SSH 做只读状态核对，再决定是否继续传输或重建。没有读取、输出或记录 `V88_ECS_SSH_PRIVATE_KEY` 内容。
+
+当前状态：`MANUAL ECS DEPLOYMENT STOPPED / PUBLIC DEPLOYMENT PENDING / READ-ONLY ECS RECHECK REQUIRED BEFORE RESUME`
