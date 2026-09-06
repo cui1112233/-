@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS IMAGE-TRANSFER CANCELLATION CHECK REQUIRED / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS REAL COMPOSE PATH VERIFIED / ECS DEPLOYMENT FIX IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -644,3 +644,46 @@ The job was not started because recent account payments have failed or your spen
 - ECS 是否存在未完成/未标记的临时镜像：待只读核对
 
 下一步：通过真实 SSH 只读检查 v88-public 当前容器、镜像和 Compose 状态；确认原环境未被改变后，再将部署脚本改为真实 Compose 路径。
+
+
+---
+
+## 2026-09-06｜执行节点 16｜并行旧发布已停止，真实 Compose/service 契约进入 RED
+
+### 并行运行安全处理
+
+以下旧 Release 运行已由本次执行取消并确认完成取消：
+
+- `34030649733`
+- `34030682250`
+- `34030881712`
+
+它们未形成可接受的 V31 公网验收结果；保留单一修正后的发布链，避免并行 ECS 操作竞态。
+
+### TDD RED
+
+- 回归 workflow：`Novel Panel V78.3.0.31 Regression`
+- run：`34030993368`
+- job：`101480335016`
+- 结果：`8 / 9 PASS`
+- 唯一失败：发布脚本尚未发现并保存真实 v88-node Compose `service_image`
+
+### 当前已确认的现网契约
+
+- Compose 文件：`/opt/qiantie/v88/deploy/v88-public/docker-compose.yml`
+- Compose 项目：`v88-public`
+- service：`v88-node`、`novel-fetch-121-worker` 等
+- 现有 v88-node 镜像：由远端运行容器实际配置决定，不能继续假设 `v88-public-v88-node:v88-latest`
+
+### 实现边界
+
+只修改 v88 发布 workflow 与对应回归测试：
+
+- 使用已验证的 v88 Compose 目录
+- 从现有 v88-node 容器读取实际服务镜像标签
+- 旧镜像按实际服务标签保存 rollback
+- 新镜像按实际服务标签替换
+- rollback 恢复实际服务标签
+- 仅重建 v88-node/121 worker，不触碰 MySQL、正式数据卷和无关功能
+
+当前状态：`ECS REAL COMPOSE PATH VERIFIED / ECS DEPLOYMENT FIX IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
