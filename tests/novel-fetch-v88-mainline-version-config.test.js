@@ -5,6 +5,21 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 
+function functionBody(source, name) {
+  const start = source.indexOf(`async function ${name}(`);
+  assert.notEqual(start, -1, `missing async function ${name}`);
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(bodyStart + 1, index);
+    }
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
 test('V88 正式小说获取主页面使用版本配置入口，不再显示旧解析入口', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
@@ -17,13 +32,40 @@ test('V88 正式小说获取主页面使用版本配置入口，不再显示旧�
   assert.doesNotMatch(html, /id=["']parseModeSelect["']/);
   assert.doesNotMatch(html, /id=["']columnPresetSelect["']/);
   assert.doesNotMatch(html, /id=["']aiCountDefault["']/);
-  assert.match(app, /await saveWebSubmitConfig\(true\)/);
   assert.match(app, /selected_versions/);
   assert.match(app, /ai_slot_methods/);
   assert.match(app, /cfg\.submit_versions = selectedProcessVersions\(\)/);
   assert.match(app, /renderVersionPromptConfig/);
   assert.match(app, /syncVersionPromptConfigToForm/);
-  assert.match(app, /await saveConfig\(true\)/);
+});
+
+test('版本对应配置档通过单一权威接口一次保存并立即采用服务端回读配置', () => {
+  const app = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/app.js'), 'utf8');
+  const handler = functionBody(app, 'confirmWebSubmitSelection');
+  const authority = functionBody(app, 'saveVersionConfigAuthority');
+
+  assert.match(handler, /await saveVersionConfigAuthority\(\)/);
+  assert.doesNotMatch(handler, /saveWorkFormStateNow\(/);
+  assert.doesNotMatch(handler, /saveConfig\(/);
+  assert.doesNotMatch(handler, /saveWebSubmitConfig\(/);
+
+  assert.match(authority, /clearTimeout\(workFormSaveTimer\)/);
+  assert.match(authority, /const formState = collectWorkFormState\(\)/);
+  assert.match(authority, /appConfig\.work_form = formState/);
+  assert.match(authority, /appConfig\.web_submit = syncFormToWebSubmitConfig\(\)/);
+  assert.match(authority, /api\(["']\/api\/config["']/);
+  assert.match(authority, /body:\s*JSON\.stringify\(\{\s*app_config:\s*appConfig\s*\}\)/);
+  assert.match(authority, /state\.config = result\.config/);
+  assert.match(authority, /localStorage\.setItem\(WORK_FORM_STORAGE_KEY/);
+});
+
+test('V88 /config 是版本配置档的单次持久化权威入口，可同时写入 work_form 与 web_submit', () => {
+  const route = fs.readFileSync(path.join(root, 'routes/batch-rewrite.js'), 'utf8');
+  assert.match(route, /\.\.\.\(object\(body\.app_config\)\)/);
+  assert.match(route, /await tasks\.saveConfig\(next\)/);
+  assert.match(route, /router\.post\('\/config'/);
+  assert.match(route, /work_form:\s*current\.work_form\s*\|\|\s*\{\}/);
+  assert.match(route, /web_submit:\s*publicWebSubmit\(current\.web_submit\)/);
 });
 
 test('V88 V2 将主页面版本选择转换为 target_versions，并拒绝空选择', () => {
