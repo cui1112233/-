@@ -26,6 +26,12 @@ const scriptPresetSections = [
     matches: preset => preset.protocolLock?.format === 'extract' || ['script-extract', 'script-extract-novel-panel'].includes(preset.id)
   },
   {
+    key: 'card-protocol',
+    title: '系统级外层协议',
+    description: '统一所有剧本模式的外层分镜卡片标题、边界与 10s/15s 时长规则；模式预设只维护卡内格式。',
+    matches: preset => preset.id === 'script-card-protocol'
+  },
+  {
     key: 'constraints',
     title: '约束设置',
     description: '按分镜写入顺序管理：画面前缀词 → 画质约束 / 画面限制 → 分镜正文 → 负面提示词。',
@@ -46,6 +52,7 @@ const scriptPresetSections = [
 ];
 
 const formatPriority = [
+  'script-card-protocol',
   'shuihuo-extract-characters',
   'shuihuo-extract-scenes',
   'shuihuo-smart-segmentation',

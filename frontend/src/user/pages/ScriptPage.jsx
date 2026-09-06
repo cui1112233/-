@@ -17,7 +17,7 @@ import { filterExtractionPresets, selectAvailableExtractionPreset } from './scri
 import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
-import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
+import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
@@ -143,18 +143,8 @@ export function ScriptPage() {
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
-    const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
-    if (parsed.length) return parsed;
-    // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
-    if (selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output) {
-      const seconds = selectedDuration === '15s' ? 15 : 10;
-      const segments = splitContinuousTimeline(output, seconds);
-      if (segments.length >= 2) return segments;
-    }
-    // 单条分镜或模型标题未被识别时，以前会退回原始文本框，导致程序组装的
-    // 基础设定、画面前缀和其他已开启约束完全不可见。非剧本模式也要走卡片组装。
-    return selectedFormat !== 'shortdrama' && output ? [output] : [];
-  }, [selectedMode, selectedFormat, selectedDuration, output]);
+    return getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
+  }, [selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
     constraints: constraintsForFormat(outputConstraints, selectedFormat, extractInfo),

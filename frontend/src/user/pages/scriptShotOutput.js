@@ -1,40 +1,22 @@
-const SHOT_ARRAY_KEYS = ['shots', 'scenes', 'storyboard', '分镜'];
-// 三种格式预设的镜头/分镜标题都识别为分镜单元：
-//   - 分镜模式：### 分镜一（总时长：10s） / 镜头一：
-//   - 画布模式：分镜1：xxx（0-10s）
-//   - 剧情模式：[00:00-00:10]镜头1:xxx(...)
-// 兼容模型常见的轻微格式漂移，但不把普通“镜头画面/画面描述”行误判成新卡。
-const UNIT_HEADING = /^(?:#{1,6}\s*)?(?:\[?\d{1,2}:\d{2}\s*[-—~]\d{1,2}:\d{2}\]?\s*)?(?:分镜|镜头)\s*[第#]?\s*(?:\d+|[一二三四五六七八九十百千万两]+)\s*(?:(?:[：:]|[（(]|[-—])[^\n]*)?$/gim;
-const TIMELINE_LINE_RE = /^(\s*)(\d{1,2}:\d{2})\s*[-—~]\s*(\d{1,2}:\d{2})(\s*\|.*)$/;
+// 剧本生成只使用一个外层协议：每个“### 分镜N”区块就是一张卡片。
+// 时间轴、---、镜头标题和 JSON 只能是卡内内容，不能参与外层拆卡。
+const UNIFIED_OUTER_HEADING = /^###\s+分镜(?:\d+|[一二三四五六七八九十百千万两]+)(?:[ \t]*(?:（[^\n]*）|\([^\n]*\)))?[ \t]*$/gim;
 
-export function isShotCardFormat(format) {
-  return format !== 'shortdrama';
-}
+function parseUnifiedOuterCards(output) {
+  const text = String(output || '').trim();
+  if (!text) return [];
 
-function parseJsonShots(output) {
-  try {
-    const parsed = JSON.parse(output);
-    const shots = Array.isArray(parsed)
-      ? parsed
-      : SHOT_ARRAY_KEYS.map(key => parsed?.[key]).find(Array.isArray);
-    return Array.isArray(shots) ? shots.map(item => typeof item === 'string' ? item : JSON.stringify(item, null, 2)).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
+  const matches = [...text.matchAll(UNIFIED_OUTER_HEADING)];
+  if (!matches.length) return [];
 
-function parseShotUnits(output) {
-  const matches = [...output.matchAll(UNIT_HEADING)];
-  if (matches.length < 2) return [];
-  // 头部共享基础设定：第一个标题之前的非空内容（【基础设定】人物/场景等），
-  // 复制到每一张卡，保证每张卡可独立复制提交，与小说面板“镜头画面”一致。
-  const preamble = output.slice(0, matches[0].index).replace(/\n?---\s*$/m, '').trim();
   return matches
-    .map((match, index) => {
-      const unit = output.slice(match.index, matches[index + 1]?.index).replace(/\n?---\s*$/m, '').trim();
-      return preamble ? `${preamble}\n\n${unit}` : unit;
-    })
+    .map((match, index) => text.slice(match.index, matches[index + 1]?.index ?? text.length).trim())
     .filter(Boolean);
+}
+
+// 保留旧函数签名，避免页面调用方和历史草稿升级时出现格式分支；所有格式现在都走同一协议。
+export function isShotCardFormat() {
+  return true;
 }
 
 function expandLongTimelineRows(rows, limit) {
@@ -90,18 +72,11 @@ function parseDividerUnits(output) {
 }
 
 export function parseShotOutput(output) {
-  const text = String(output || '').trim();
-  if (!text) return [];
-  const jsonShots = parseJsonShots(text);
-  if (jsonShots.length) return jsonShots;
-  const headedUnits = parseShotUnits(text);
-  return headedUnits.length ? headedUnits : parseDividerUnits(text);
+  return parseUnifiedOuterCards(output);
 }
 
-export function getShotCards(format, output) {
-  if (!isShotCardFormat(format)) return [];
-  const cards = parseShotOutput(output);
-  return cards.length >= 2 ? cards : [];
+export function getShotCards(_format, output) {
+  return parseShotOutput(output);
 }
 
 export function getShotCardsWithinDuration(format, output, duration) {
@@ -115,7 +90,6 @@ export function getShotCardsWithinDuration(format, output, duration) {
 export function joinShotCards(cards, selectedIndexes) {
   return cards.filter((_, index) => selectedIndexes.has(index)).join('\n\n');
 }
-
 const TIMELINE_RE = /^\s*(\d{1,2}:\d{2})-(\d{1,2}:\d{2})\s*\|/;
 
 function toSeconds(value) {

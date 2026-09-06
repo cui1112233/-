@@ -62,6 +62,18 @@ function normalizeDuration(value) {
   return value === '15s' ? '15s' : '10s';
 }
 
+function buildScriptCardProtocol(presetStore, duration) {
+  const normalizedDuration = normalizeDuration(duration);
+  const seconds = normalizedDuration === '15s' ? '15' : '10';
+  const endTime = normalizedDuration === '15s' ? '00:15' : '00:10';
+  return resolveSystemPresetBody(presetStore, 'script-card-protocol')
+    .replace(/\{10s或15s\}/g, normalizedDuration)
+    .replace(/\{X\}/g, seconds)
+    .replace(/\{2X\}/g, String(Number(seconds) * 2))
+    .replace(/\{duration\}/g, normalizedDuration)
+    .replace(/\{结束时间\}/g, endTime);
+}
+
 function buildExtractMessages(body, presetStore) {
   const extractionPresetId = resolveExtractionPresetId(body.extractionPreset, presetStore);
   if (!extractionPresetId) throw new Error('No published extraction preset available');
@@ -259,13 +271,16 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
   const durationGuard = `## 当前单条视频最大时长（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个最终外层分镜的结束时间不得超过 ${endTime}。10s/15s 是上限，不是固定目标时长；禁止先输出超时分镜再按固定秒数硬切。`;
   const protagonistPrompt = buildProtagonistPrompt(body.characters, body.protagonists);
+  const cardProtocol = buildScriptCardProtocol(presetStore, duration);
   const systemPrompt = [
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
     durationGuard,
     constraintWrapper,
     !hasBaseSetup && '基础设定展示未启用：人物和场景资料仍必须作为生成依据，但不得在最终结果中输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块。',
-    formatContent
+    !hasBaseSetup && '基础设定展示未启用：人物和场景资料仍必须作为生成依据，但不得在最终结果中输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块。',
+    formatContent,
+    cardProtocol
   ].filter(Boolean).join('\n\n---\n\n');
 
   return [
@@ -318,9 +333,10 @@ function buildQuickDirectorMessages(body, presetStore, personalPromptStore, user
     body.visualStyle
   );
   const outputBoundary = '## 输出边界\n只输出分镜单元和镜头画面正文；不得输出独立的“统一风格”“统一人物”“场景环境”或其他共享设定标题，已启用的基础设定与画面前缀由系统按约束设置组装。';
+  const cardProtocol = buildScriptCardProtocol(presetStore, duration);
   const systemPrompt = [quickDirectorBase, directorMaster, durationGuard,
     quickDirectorTemplate.includes('{audioMatchRules}') ? '' : audioMatchRules,
-    compactSourceGuard, constraintWrapper, outputBoundary
+    compactSourceGuard, constraintWrapper, outputBoundary, cardProtocol
   ].filter(Boolean).join('\n\n---\n\n');
   const smartStyle = isSmartUnifiedPrefixEnabled(body.constraints)
     ? String(body?.visualStyle || '').trim()
@@ -585,6 +601,7 @@ function createChatRouter({
   buildConstraintWrapper,
   buildProtagonistPrompt,
   normalizeDuration,
+  buildScriptCardProtocol,
   listPublishedExtractionPresets,
   resolveExtractionPresetId,
   normalizeFormat,
