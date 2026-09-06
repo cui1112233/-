@@ -15,12 +15,12 @@ jobs:
   cancel-stale-release:
     runs-on: ubuntu-24.04
     steps:
-      - name: Cancel slow V88 release #81 before GHCR ECS deploy
+      - name: Cancel V88 release #83 after verified public hotfix
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          STALE_RUN_ID: '34031612944'
+          STALE_RUN_ID: '34033270188'
         run: |
           set -Eeuo pipefail
           status="$(curl -sS -o /tmp/cancel-body -w '%{http_code}' \
@@ -35,12 +35,12 @@ jobs:
             *) echo "Unexpected cancel status: $status" >&2; exit 1 ;;
           esac
 
-      - name: Confirm slow run is no longer actively deploying
+      - name: Confirm run is no longer actively deploying
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          STALE_RUN_ID: '34031612944'
+          STALE_RUN_ID: '34033270188'
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 30); do
@@ -51,11 +51,11 @@ jobs:
               "https://api.github.com/repos/${REPO}/actions/runs/${STALE_RUN_ID}")"
             status="$(printf '%s' "$payload" | jq -r '.status')"
             conclusion="$(printf '%s' "$payload" | jq -r '.conclusion // ""')"
-            echo "slow run status=${status} conclusion=${conclusion}"
+            echo "run status=${status} conclusion=${conclusion}"
             if [ "$status" = completed ]; then
               exit 0
             fi
             sleep 2
           done
-          echo 'slow release did not stop in time' >&2
+          echo 'release did not stop in time' >&2
           exit 1
