@@ -39,7 +39,7 @@ type BridgeAuth struct {
 }
 
 func canonicalBridgePayload(username, issuedAt, isOwner, method, pathname string) string {
-	return strings.Join([]string{username, issuedAt, isOwner, method, pathname}, "\n")
+	return username + issuedAt + isOwner + method + pathname
 }
 
 func bridgeSignature(secret, payload string) string {
