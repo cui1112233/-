@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS COMPOSE PATH DISCOVERED / ECS SERVICE VALIDATION REQUIRED / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS IMAGE-TRANSFER CANCELLATION CHECK REQUIRED / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -610,3 +610,37 @@ The job was not started because recent account payments have failed or your spen
 - 公网 V31 验证：未执行
 
 下一步：只读读取 v88 Compose services/config/images，确认后将部署工作目录改为已存在的 `/opt/qiantie/v88/deploy/v88-public`。
+
+
+---
+
+## 2026-09-06｜执行节点 15｜误触发运行已取消，Compose 未执行，需核对镜像传输边界
+
+### 运行结果
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34030429156`
+- head SHA：`f8db2764d4073f6f1891cdc99e5ceab11b3400bf`
+- conclusion：`cancelled`
+- Prepare V88 ECS SSH：✅
+- Deploy verified image to V88 ECS：⏹ 被取消
+- Verify V88 ECS deployment：未执行
+- Rollback：未执行
+
+### 取消时的实际边界
+
+日志显示部署步骤已启动第一段：
+
+`docker save | gzip | ssh ... 'gunzip | docker load'`
+
+随后在约 25 秒后收到取消信号。用于 `cd /opt/v88`、记录 rollback image、打 tag、`docker compose up` 的第二个 SSH 命令尚未开始。
+
+因此已确认：
+
+- 生产 Compose 重建：未执行
+- v88-node 容器切换：未执行
+- 公网服务验证：未执行
+- 旧容器回滚：未执行
+- ECS 是否存在未完成/未标记的临时镜像：待只读核对
+
+下一步：通过真实 SSH 只读检查 v88-public 当前容器、镜像和 Compose 状态；确认原环境未被改变后，再将部署脚本改为真实 Compose 路径。
