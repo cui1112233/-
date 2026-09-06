@@ -7,16 +7,18 @@ const {
   focusExecutorWindow
 } = require('../src/electron/protocol-handler');
 
-test('accepts only the allow-listed yizhan executor open action', () => {
+test('accepts only the allow-listed yizhan executor open and update actions', () => {
   assert.equal(EXECUTOR_PROTOCOL, 'yizhan-executor');
   assert.deepEqual(findExecutorProtocolAction(['app.exe', 'yizhan-executor://open']), { action: 'open' });
   assert.deepEqual(findExecutorProtocolAction(['app.exe', '--flag', 'yizhan-executor:///open']), { action: 'open' });
+  assert.deepEqual(findExecutorProtocolAction(['app.exe', 'yizhan-executor://update']), { action: 'update' });
+  assert.deepEqual(findExecutorProtocolAction(['app.exe', 'yizhan-executor:///update']), { action: 'update' });
 });
 
 test('rejects unrelated schemes and unknown actions instead of executing arbitrary input', () => {
   assert.equal(findExecutorProtocolAction(['app.exe', 'https://example.com/open']), null);
   assert.equal(findExecutorProtocolAction(['app.exe', 'yizhan-executor://run?cmd=powershell']), null);
-  assert.equal(findExecutorProtocolAction(['app.exe', 'yizhan-executor://update']), null);
+  assert.equal(findExecutorProtocolAction(['app.exe', 'yizhan-executor://install?url=https://evil.example/a.exe']), null);
   assert.equal(findExecutorProtocolAction(['app.exe', 'yizhan-executor://']), null);
 });
 
