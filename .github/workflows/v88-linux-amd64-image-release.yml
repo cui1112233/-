@@ -169,7 +169,40 @@ jobs:
           : > "$HOME/.ssh/known_hosts"
           timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
-          ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" 'test "$(id -u)" = 0 && docker version >/dev/null && docker compose version >/dev/null && test -f /opt/v88/docker-compose.yml'
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          remote_uid="$(id -u)"
+          echo "remote_uid=$remote_uid"
+          if [ "$remote_uid" != "0" ]; then
+            echo "remote_uid_check=failed" >&2
+            exit 20
+          fi
+          echo "remote_uid_check=passed"
+          if command -v docker >/dev/null 2>&1; then
+            echo "docker_binary=present"
+          else
+            echo "docker_binary=missing" >&2
+            exit 21
+          fi
+          if docker version >/dev/null 2>&1; then
+            echo "docker_daemon=ready"
+          else
+            echo "docker_daemon=unavailable" >&2
+            exit 22
+          fi
+          if docker compose version >/dev/null 2>&1; then
+            echo "docker_compose=ready"
+          else
+            echo "docker_compose=unavailable" >&2
+            exit 23
+          fi
+          if test -f /opt/v88/docker-compose.yml; then
+            echo "compose_file=present"
+          else
+            echo "compose_file=missing" >&2
+            exit 24
+          fi
+          REMOTE
           echo "ECS_DEPLOY_READY=true" >> "$GITHUB_ENV"
           echo "V88 ECS SSH preflight passed."
 
