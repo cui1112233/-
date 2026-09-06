@@ -324,6 +324,7 @@ export function SettingsPage() {
             ) : null}
             {pairing ? <p className="settings-executor-pairing">请在本地执行器中输入配对码：<strong>{pairing.code}</strong></p> : null}
             <div className="settings-executor-actions">
+              <Button href="yizhan-executor://open">打开执行器</Button>
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={refreshLocalExecutorStatus} loading={loadingExecutors || loadingExecutorRelease}>刷新状态</Button>
               <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
               <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href={executorRelease?.downloads?.mac || undefined} disabled={!executorRelease?.downloads?.mac} loading={loadingExecutorRelease}>下载 Mac 版</Button>
