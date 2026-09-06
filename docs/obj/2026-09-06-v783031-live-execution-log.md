@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY READY / ECS SECRET USER-CONFIGURED / GITHUB ACTIONS BLOCKED BY ACCOUNT BILLING / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY IN PROGRESS / ECS SECRET USER-CONFIGURED / GITHUB ACTIONS RUNNER ALLOCATED / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -503,3 +503,44 @@ The job was not started because recent account payments have failed or your spen
 代码、V31 回归、Linux AMD64 镜像、GHCR 发布和部署 workflow 逻辑均已有记录；当前新增的实际阻塞是 GitHub 账户 Billing/Spending 门槛导致 Hosted Runner 无法启动。
 
 在 GitHub Settings 的 Billing & plans 中处理付款失败或提高 Spending limit 后，继续重跑 V88 Linux AMD64 Public Image Release。只有看到 Runner 被实际分配并完成 SSH preflight → Docker/Compose → ECS localhost build-info → 公网 build-info 与 /novel-panel 验证，才允许把状态改为 PUBLIC DEPLOYED / VERIFIED。
+
+
+---
+
+## 2026-09-06｜执行节点 12｜仓库公开后 Hosted Runner 已实际分配，自动部署进行中
+
+### GitHub 仓库状态
+
+- repository：`cui1112233/-`
+- visibility：`public`（已由用户完成切换）
+- branch：`v88`
+
+### 最新 Release workflow 真实状态
+
+对既有 run `34018081234` 的失败 job 重新触发后，GitHub 已实际分配 Hosted Runner：
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- attempt：`4`
+- job：`101477911494`
+- head SHA：`e4b59f272806e203b251c5a47f772d958d9760e2`
+- runner label：`ubuntu-24.04`
+- status：`in_progress`
+- runner allocation：✅
+- Set up job：✅
+- Checkout：✅
+- Assert Linux AMD64 runner：✅
+- Setup Node：✅
+- 当前步骤：`Build frontend`
+- ECS SSH Secret：仅由 workflow 消费；未读取、输出或写入本 OBJ
+
+### 当前边界
+
+- Linux AMD64 镜像：⏳ 构建中
+- GHCR 推送：⏳ 未到达
+- ECS SSH preflight：⏳ 未到达
+- Docker/Compose 切换：⏳ 未执行
+- ECS localhost build-info：⏳ 未验证
+- 公网 V31 build-info 与 `/novel-panel`：⏳ 未验证
+- rollback：⏳ 未触发
+
+当前状态：`GITHUB HOSTED RUNNER ALLOCATED / ECS DEPLOYMENT IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
