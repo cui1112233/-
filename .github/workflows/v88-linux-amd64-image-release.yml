@@ -96,6 +96,8 @@ jobs:
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "$IMAGE_PLATFORM"
           docker run --rm --entrypoint sh "$image" -c '
             test -s /app/frontend/dist/index.html &&
+            test -s /app/frontend/dist/batch-rewrite/interaction-feedback.js &&
+            grep -q "interaction-feedback.js" /app/frontend/dist/batch-rewrite/index.html &&
             test -s /app/pets/stacky/spritesheet.webp &&
             test -s /app/pets/pixiu/spritesheet.webp &&
             grep -R -q ".cm-penguin-shell" /app/frontend/dist/assets/*.css
@@ -227,16 +229,29 @@ jobs:
           fi
           ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST")
           remote_compose_dir="$ECS_COMPOSE_DIR"
+          remote_release_dir="/opt/qiantie/releases/v88/${SHORT_SHA}"
+          main_image_tar="$GITHUB_WORKSPACE/release/qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz"
+          main_image_sha="$GITHUB_WORKSPACE/release/SHA256SUMS"
+          remote_main_image_tar="${remote_release_dir}/qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz"
+          remote_main_image_sha="${remote_release_dir}/SHA256SUMS"
+          test -s "$main_image_tar"
+          test -s "$main_image_sha"
+          timeout 120 "${ssh_cmd[@]}" "mkdir -p '${remote_release_dir}'"
           timeout 120 scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 deploy/v88-public/docker-compose.browser-worker.yml "$ECS_USER@$ECS_HOST:${remote_compose_dir}/docker-compose.browser-worker.yml"
+          timeout 600 scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$main_image_tar" "$main_image_sha" "$ECS_USER@$ECS_HOST:${remote_release_dir}/"
           printf '%s' "$GHCR_TOKEN" | timeout 120 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
-          timeout 900 "${ssh_cmd[@]}" bash -s -- "$GHCR_IMAGE" "$WORKER_GHCR_IMAGE" "$SHORT_SHA" "$ECS_COMPOSE_FILE" <<'REMOTE'
+          timeout 900 "${ssh_cmd[@]}" bash -s -- "$GHCR_IMAGE" "$WORKER_GHCR_IMAGE" "$SHORT_SHA" "$ECS_COMPOSE_FILE" "$remote_main_image_tar" "$remote_main_image_sha" <<'REMOTE'
           set -Eeuo pipefail
           ghcr_image="$1"
           worker_ghcr_image="$2"
           short_sha="$3"
           compose_file="$4"
+          main_image_tar="$5"
+          main_image_sha="$6"
           compose_dir="$(dirname "$compose_file")"
           test -f "$compose_file"
+          test -s "$main_image_tar"
+          test -s "$main_image_sha"
           cd "$compose_dir"
           trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
@@ -249,6 +264,35 @@ jobs:
               printf '%s=%s\n' "$key" "$(random_hex)" >> novel-fetch-121.env
             fi
           }
+          pull_with_retry() {
+            image="$1"
+            max_attempts="${2:-6}"
+            attempt=1
+            delay=5
+            while [ "$attempt" -le "$max_attempts" ]; do
+              if [ "$image" = "$ghcr_image" ]; then
+                if docker pull "$ghcr_image"; then
+                  return 0
+                fi
+              else
+                if docker pull "$worker_ghcr_image"; then
+                  return 0
+                fi
+              fi
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                return 1
+              fi
+              echo "Registry pull failed for ${image} (attempt ${attempt}/${max_attempts}); retrying in ${delay}s..." >&2
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              if [ "$delay" -lt 30 ]; then
+                delay=$((delay * 2))
+                if [ "$delay" -gt 30 ]; then delay=30; fi
+              fi
+            done
+            return 1
+          }
+
           touch novel-fetch-121.env
           chmod 600 novel-fetch-121.env
           ensure_secret QIANTIE_121_WORKER_SECRET
@@ -281,8 +325,22 @@ jobs:
             printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
           fi
 
-          docker pull "$ghcr_image"
-          docker pull "$worker_ghcr_image"
+          if ! pull_with_retry "$ghcr_image" 4; then
+            echo "Main GHCR pull failed after retries; loading verified release tar fallback." >&2
+            release_dir="$(dirname "$main_image_tar")"
+            (
+              cd "$release_dir"
+              sha256sum -c "$(basename "$main_image_sha")"
+            )
+            docker load -i "$main_image_tar"
+            fallback_image="qiantie-v88:public-${short_sha}"
+            docker image inspect "$fallback_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+            docker tag "$fallback_image" "$ghcr_image"
+          fi
+          if ! pull_with_retry "$worker_ghcr_image" 6; then
+            echo "Browser Worker GHCR pull failed after bounded retries." >&2
+            exit 1
+          fi
           docker image inspect "$ghcr_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
           docker image inspect "$worker_ghcr_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
           docker tag "$ghcr_image" "$service_image"
@@ -344,25 +402,33 @@ jobs:
           for attempt in $(seq 1 30); do
             body="$(curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info || true)"
             if printf '%s' "$body" | grep -q '\"app_version\":\"v78.3.0.31\"' && printf '%s' "$body" | grep -q '\"release_version\":\"v78.3.0.31\"'; then
+              feedback_html="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/ || true)"
+              feedback_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/interaction-feedback.js || true)"
+              printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js'
+              printf '%s' "$feedback_js" | grep -q 'processBtn'
               printf '%s\n' "$body"
               exit 0
             fi
             sleep 2
           done
-          echo 'Local ECS V31 build-info verification failed.' >&2
+          echo 'Local ECS V31 build-info or Novel Fetch feedback verification failed.' >&2
           exit 1
           REMOTE
           for attempt in $(seq 1 20); do
             public_body="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/api/novel-panel/build-info" || true)"
             if printf '%s' "$public_body" | grep -q '\"app_version\":\"v78.3.0.31\"' && printf '%s' "$public_body" | grep -q '\"release_version\":\"v78.3.0.31\"'; then
+              public_feedback_html="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/" || true)"
+              public_feedback_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/interaction-feedback.js" || true)"
+              printf '%s' "$public_feedback_html" | grep -q 'interaction-feedback.js'
+              printf '%s' "$public_feedback_js" | grep -q 'processBtn'
               printf '%s\n' "$public_body"
               curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/novel-panel" >/dev/null
-              echo "Public V88 /novel-panel V78.3.0.31 verification passed."
+              echo "Public V88 Novel Fetch visible-feedback verification passed."
               exit 0
             fi
             sleep 2
           done
-          echo 'Public V31 build-info verification failed.' >&2
+          echo 'Public V31 build-info or Novel Fetch feedback verification failed.' >&2
           exit 1
 
       - name: Rollback V88 ECS on failed verification
