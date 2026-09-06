@@ -85,19 +85,7 @@ TestScriptVideoLocalCompatibilityRouteReturnsRealStage
 status=404 body=404 page not found
 ```
 
-已新增：
-
-```text
-backend/internal/httpapi/script_video_local.go
-```
-
-并在：
-
-```text
-backend/internal/httpapi/router.go
-```
-
-注册。目标链路：
+已新增 `backend/internal/httpapi/script_video_local.go`，并在 `backend/internal/httpapi/router.go` 注册：
 
 ```text
 Node /api/script-video/*
@@ -107,15 +95,11 @@ Node /api/script-video/*
 
 不创建第二套任务系统。
 
-### 根因 B：公网执行器下载仍写死 0.1.14
+### 根因 B：公网执行器下载仍写死旧版本
 
-原 `routes/local-executor-downloads.js` 用：
+原 `routes/local-executor-downloads.js` 使用固定 `RELEASE_VERSION`，而执行器更新系统已经使用 `stable/beta manifest`。
 
-```text
-RELEASE_VERSION = 0.1.14
-```
-
-而执行器更新系统已经使用 `stable/beta manifest`。TDD 红灯：
+TDD 红灯：
 
 ```text
 actual   = 0.1.14
@@ -128,7 +112,7 @@ expected = 1.0.3
 /downloads/local-executor/updates/stable/manifest.json
 ```
 
-驱动 Windows 公网最新版；旧 0.1.14 仅在 stable 清单不存在/无效时作为兼容兜底。公共 manifest 同时返回：
+驱动 Windows 公网最新版。旧安装包仅作为 stable 清单缺失/无效时的兼容兜底。公共 manifest 返回：
 
 ```text
 version
@@ -168,34 +152,121 @@ backend-go       success
 frontend         success
 ```
 
-因此 Step 1 已正式完成，不再是“仅写代码未验证”。
+### Step 2 + Step 3：SettingsPage 动态下载与版本状态
+
+先增加前端版本契约测试，RED 证据：
+
+```text
+run_id: 34017881181
+ERR_MODULE_NOT_FOUND: executorRelease.js
+```
+
+随后新增：
+
+```text
+frontend/src/shared/api/executorRelease.js
+commit: 0d495b7e18e95ab795808148745b2e1d68f23f67
+```
+
+该模块实现：
+
+```text
+严格 x.y.z 数字版本比较
+currentVersion / latestVersion / minimumVersion
+updateAvailable / updateRequired / versionKnown
+读取 /downloads/local-executor/manifest.json
+发布清单无效时拒绝猜测版本
+```
+
+版本工具独立 GREEN：
+
+```text
+run_id: 34017916203
+conclusion: success
+```
+
+然后增加 SettingsPage 源码契约测试，RED 证据：
+
+```text
+run_id: 34017950137
+frontend: failure
+原因：SettingsPage 仍含旧版固定下载路径
+其余 backend-go / node-routes / local-executor 均 success
+```
+
+正式页面修复提交：
+
+```text
+0847510b7f552087223412b3efbd0b5a72816e8a
+feat: show dynamic local executor release status
+```
+
+完成内容：
+
+```text
+SettingsPage 不再写死执行器版本号
+Windows/Mac 下载地址来自 manifest
+显示最新稳定版 / 最低支持版
+每台已配对设备显示 heartbeat 上报的当前 version
+显示 已是最新 / 有新版本 / 必须更新 / 版本未知
+发布信息不可用时禁止伪造最新版并禁用下载按钮
+刷新状态同时刷新设备状态和发布清单
+```
+
+完整 GREEN：
+
+```text
+V88 Doubao Executor Verify
+run_id: 34018080537
+backend-go       success
+node-routes      success
+local-executor   success
+frontend tests   success
+frontend build   success
+```
+
+因此 Step 2、Step 3 已正式完成。
 
 ## 5. 当前正在执行
 
-### Step 2 + Step 3：设置页动态版本管理
+### Step 4 + Step 5：`yizhan-executor://` + Electron 单实例
 
-当前 `frontend/src/user/pages/SettingsPage.jsx` 仍硬编码：
+目标：
 
 ```text
-yizhan-local-executor-0.1.14-mac-arm64.dmg
-yizhan-local-executor-0.1.14-win-x64.exe
+网页点击“打开执行器”
+→ yizhan-executor://open
+→ Windows 唤起已安装的一战晟铭豆包执行器
+→ 如果已经运行，不启动第二份
+→ 恢复并聚焦原执行器窗口
 ```
 
-下一修改必须做到：
+安全边界：
 
-1. 页面读取 `/downloads/local-executor/manifest.json`。
-2. Windows 下载按钮使用 manifest 的 `downloads.windows`，前端不再写死 0.1.14。
-3. Mac 下载按钮也使用 manifest 的 `downloads.mac`，前端不再写死文件名。
-4. 现有 `/api/shuihuo-production/local-executors` 已返回每台执行器 `version`，直接复用。
-5. 页面显示：当前版本、最新稳定版、是否可升级、是否低于最低版本。
-6. 版本比较只接受 `x.y.z`，不凭字符串大小比较。
-7. 发布清单读取失败时不伪造“最新版”，按钮应安全降级/提示刷新。
+```text
+只识别固定 scheme 与有限 action
+不允许网页传任意命令
+不调用 PowerShell/CMD
+不允许 URL 参数变成系统命令
+未知 action 安全忽略
+```
+
+实施顺序：
+
+1. 读取当前 Electron 主进程入口与 package/NSIS 配置。
+2. 先写协议 URL 解析与单实例行为的失败测试。
+3. 增加 `app.requestSingleInstanceLock()`。
+4. Windows packaged app 注册 `app.setAsDefaultProtocolClient('yizhan-executor')`。
+5. `second-instance` 提取 `yizhan-executor://...`，只执行 allow-list action。
+6. 已运行时恢复/显示/聚焦主窗口。
+7. 验证 Electron 单测与 syntax GREEN。
+8. 完成后实时更新本文件，再进入 Step 6 网页“打开执行器”按钮。
 
 ## 6. 后续严格顺序
 
 - [x] Step 1：stable manifest → 公网下载入口 GREEN
-- [ ] Step 2：SettingsPage 去掉 0.1.14 硬编码
-- [ ] Step 3：设置页显示当前/最新/可升级/强制升级状态
+- [x] Step 2：SettingsPage 去掉旧版硬编码
+- [x] Step 3：设置页显示当前/最新/可升级/强制升级状态
 - [ ] Step 4：增加 `yizhan-executor://` Windows 自定义协议
 - [ ] Step 5：增加 Electron 单实例锁与二次唤起聚焦
 - [ ] Step 6：设置页增加“打开执行器”
@@ -305,13 +376,14 @@ Phase 1 继续 Electron，不立即 Go 重写。已知早期 Windows 安装包�
 .github/workflows/v88-doubao-executor-verify.yml
 ```
 
-覆盖：
+目前覆盖：
 
 ```text
 backend: go test ./...
 Node executor/script-video route tests
 local-executor npm test
 local-executor syntax check
+frontend npm test
 frontend npm build
 ```
 
@@ -319,8 +391,8 @@ frontend npm build
 
 - [x] Go `/api/script-videos/*` 404 已由测试复现并修复
 - [x] stable manifest 已成为 Windows 公网正式版本源并通过完整 CI
-- [ ] SettingsPage 不再硬编码 0.1.14
-- [ ] 网页显示真实执行器版本状态
+- [x] SettingsPage 不再硬编码旧版下载地址
+- [x] 网页显示真实执行器版本状态
 - [ ] 网站可唤起本机执行器
 - [ ] 执行器保持单实例
 - [ ] `/script` 显示真实任务阶段
@@ -342,4 +414,14 @@ frontend npm build
 - 完成 Node → Go 本地视频兼容路由 TDD 修复。
 - 完成 stable manifest 驱动公网 Windows 下载源。
 - CI `34017379066` 四项全部 GREEN。
-- 当前进入 Step 2/3：SettingsPage 动态版本/下载管理。
+- 进入 Step 2/3：SettingsPage 动态版本/下载管理。
+
+### 2026-09-06 · 进度 02
+
+- 新增 `executorRelease.js` 与严格版本比较/最低版本逻辑。
+- RED `34017881181`：缺少 release helper，符合预期。
+- GREEN `34017916203`：release helper 单测及完整 CI 通过。
+- RED `34017950137`：SettingsPage 仍含旧版硬编码，符合预期。
+- 修复 SettingsPage，提交 `0847510b7f552087223412b3efbd0b5a72816e8a`。
+- GREEN `34018080537`：backend-go、node-routes、local-executor、frontend tests/build 全部通过。
+- Step 2、Step 3 完成；当前进入 Step 4/5：Windows URL 协议 + Electron 单实例。
