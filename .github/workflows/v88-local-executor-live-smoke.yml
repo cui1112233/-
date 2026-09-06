@@ -1,0 +1,91 @@
+name: V88 Local Executor Live Smoke
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - '.github/workflows/v88-local-executor-live-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Verify live Node to Go local-executor authorization
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timeout 90 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          compose_file='/opt/qiantie/v88/deploy/v88-public/docker-compose.yml'
+          cd "$(dirname "$compose_file")"
+          node_id="$(docker compose -f "$compose_file" ps -q v88-node)"
+          go_id="$(docker compose -f "$compose_file" ps -q go-api)"
+          test -n "$node_id"
+          test -n "$go_id"
+          test "$(docker inspect "$node_id" --format '{{.State.Status}}')" = running
+          test "$(docker inspect "$go_id" --format '{{.State.Status}}')" = running
+
+          docker exec "$node_id" node - <<'NODE'
+          const crypto = require('node:crypto');
+          const { bridgePayload } = require('/app/lib/batch-factory-v11/go-proxy');
+
+          (async () => {
+            const secret = String(process.env.QIANTIE_BRIDGE_SECRET || '');
+            if (!secret) throw new Error('QIANTIE_BRIDGE_SECRET missing in live v88-node');
+            const base = String(process.env.QIANTIE_GO_BASE_URL || 'http://go-api:4000').replace(/\/$/, '');
+            const pathname = '/api/shuihuo-production/local-executors';
+            const username = 'v88-live-smoke';
+            const issuedAt = String(Math.floor(Date.now() / 1000));
+            const isOwner = 'false';
+            const method = 'GET';
+            const payload = bridgePayload({ username, issuedAt, isOwner, method, pathname });
+            const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+            const response = await fetch(base + pathname, {
+              method,
+              headers: {
+                'X-Qiantie-Username': username,
+                'X-Qiantie-Is-Owner': isOwner,
+                'X-Qiantie-Issued-At': issuedAt,
+                'X-Qiantie-Signature': signature,
+                Accept: 'application/json'
+              }
+            });
+            console.log(`local_executor_live_status=${response.status}`);
+            if (response.status === 401 || response.status === 403) {
+              throw new Error(`live Node->Go bridge authorization still rejected: ${response.status}`);
+            }
+            if (!response.ok) {
+              throw new Error(`live local-executor endpoint returned unexpected status: ${response.status}`);
+            }
+            console.log('local_executor_live_auth=passed');
+          })().catch(error => {
+            console.error(error.message);
+            process.exit(1);
+          });
+          NODE
+          REMOTE
