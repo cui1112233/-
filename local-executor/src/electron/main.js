@@ -7,6 +7,7 @@ const { UpdatePreferencesStore } = require('../update-preferences-store');
 const { DesktopRuntime } = require('../desktop-runtime');
 const { DesktopController } = require('../desktop-controller');
 const { DoubaoAdapter } = require('../doubao-adapter');
+const { createJsonlLogger } = require('../structured-logger');
 const { AccountWindows } = require('./account-windows');
 const { UpdateManager } = require('./update-manager');
 const { EXECUTOR_PROTOCOL, findExecutorProtocolAction, focusExecutorWindow } = require('./protocol-handler');
@@ -70,6 +71,9 @@ function registerIpc() {
 
 function buildController() {
   const userData = app.getPath('userData');
+  const logger = createJsonlLogger({
+    filePath: path.join(userData, 'logs', 'executor-events.jsonl')
+  });
   const deviceStore = new DeviceStore({
     safeStorage,
     filePath: path.join(userData, 'device.json')
@@ -87,14 +91,16 @@ function buildController() {
   const accountWindows = new AccountWindows({ BrowserWindow, session });
   const adapter = new DoubaoAdapter({
     accountWindows,
-    downloadDir: path.join(userData, 'returned-videos')
+    downloadDir: path.join(userData, 'returned-videos'),
+    logger
   });
   const runtimeOptions = {
     deviceName: os.hostname(),
     platform: process.platform,
     version: app.getVersion(),
     accounts,
-    adapter
+    adapter,
+    runnerOptions: { logger }
   };
 
   let runtime;
