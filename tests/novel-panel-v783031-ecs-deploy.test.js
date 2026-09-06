@@ -30,9 +30,13 @@ assert.match(workflow, /115\.190\.156\.223/);
 assert.match(workflow, /ECS_USER:\s*root/);
 assert.match(workflow, /docker push "\$WORKER_GHCR_IMAGE"/,
   'the Browser Worker must have an immutable GHCR image before ECS rollout');
-assert.match(workflow, /docker pull "\$ghcr_image"/,
-  'ECS must pull the immutable main image instead of using an unbounded SSH image stream');
-assert.match(workflow, /docker pull "\$worker_ghcr_image"/,
+assert.match(workflow, /pull_with_retry\s*\(\)/,
+  'ECS rollout must use a bounded registry pull helper');
+assert.match(workflow, /timeout 120 docker pull "\$image"/,
+  'the bounded helper must pull its immutable image with a finite timeout');
+assert.match(workflow, /pull_with_retry "\$ghcr_image"/,
+  'ECS must pull the immutable main image before considering the tar fallback');
+assert.match(workflow, /pull_with_retry "\$worker_ghcr_image"/,
   'ECS must pull the immutable Browser Worker image instead of using an unbounded SSH image stream');
 assert.doesNotMatch(workflow, /docker save "\$IMAGE_NAME" \| gzip -1 \| ssh/,
   'ECS rollout must not use an unbounded main-image SSH stream');
@@ -40,7 +44,7 @@ assert.doesNotMatch(workflow, /docker save "\$WORKER_IMAGE_NAME" \| gzip -1 \| s
   'ECS rollout must not use an unbounded Browser Worker SSH stream');
 assert.match(workflow, /ServerAliveInterval=15/);
 assert.match(workflow, /timeout 900/,
-  'ECS rollout must have a finite transfer/deploy timeout');
+  'ECS rollout must have a finite worker transfer/deploy timeout');
 assert.match(workflow, /concurrency:\s*[\s\S]*?cancel-in-progress:\s*true/,
   'public ECS rollouts must not run concurrently');
 assert.match(workflow, /v88-public-v88-node:rollback-/,
