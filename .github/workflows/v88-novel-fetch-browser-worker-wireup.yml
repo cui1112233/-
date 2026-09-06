@@ -1,0 +1,57 @@
+name: V88 Novel Fetch Browser Worker Wireup
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'tests/v88-public-browser-worker-deploy.test.js'
+      - 'deploy/v88-public/docker-compose.browser-worker.yml'
+      - 'services/121-browser-worker/**'
+      - '.github/workflows/v88-linux-amd64-image-release.yml'
+      - '.github/workflows/v88-novel-fetch-browser-worker-wireup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify public Browser Worker deployment contract
+        run: node --test tests/v88-public-browser-worker-deploy.test.js
+
+      - name: Validate compose overlay against a synthetic V88 base
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > deploy/v88-public/.base.test.yml <<'EOF'
+          services:
+            v88-node:
+              image: node:22-alpine
+          EOF
+          cat > deploy/v88-public/novel-fetch-121.env <<'EOF'
+          QIANTIE_121_WORKER_SECRET=test-worker-secret
+          QIANTIE_121_CREDENTIAL_SECRET=test-credential-secret
+          QIANTIE_121_STORAGE_STATE_SECRET=test-storage-secret
+          EOF
+          docker compose \
+            -f deploy/v88-public/.base.test.yml \
+            -f deploy/v88-public/docker-compose.browser-worker.yml \
+            config > /tmp/v88-browser-worker-compose.yml
+          grep -q 'novel-fetch-121-worker:' /tmp/v88-browser-worker-compose.yml
+          grep -q 'QIANTIE_121_BROWSER_WORKER_URL: http://novel-fetch-121-worker:8787' /tmp/v88-browser-worker-compose.yml
+          rm -f deploy/v88-public/.base.test.yml deploy/v88-public/novel-fetch-121.env
+
+      - name: Install existing 121 Browser Worker dependencies
+        run: npm --prefix services/121-browser-worker install --ignore-scripts --no-audit --no-fund
+
+      - name: Run existing 121 Browser Worker tests
+        run: npm --prefix services/121-browser-worker test

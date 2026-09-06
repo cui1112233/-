@@ -18,6 +18,8 @@ on:
       - 'lib/**'
       - 'middleware/**'
       - 'prompts/**'
+      - 'services/121-browser-worker/**'
+      - 'deploy/v88-public/docker-compose.browser-worker.yml'
       - 'scripts/verify-v88-cm-release.js'
       - '.github/workflows/v88-linux-amd64-image-release.yml'
   workflow_dispatch:
@@ -99,6 +101,19 @@ jobs:
           echo "GHCR_IMAGE=$ghcr_image" >> "$GITHUB_ENV"
           echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
 
+      - name: Build Novel Fetch 121 Browser Worker AMD64 image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          worker_image="qiantie-v88-121-browser-worker:public-${SHORT_SHA}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          worker_ghcr_image="ghcr.io/${owner}/qiantie-v88-121-browser-worker:public-${SHORT_SHA}"
+          docker build --platform "$IMAGE_PLATFORM" -t "$worker_image" ./services/121-browser-worker
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$worker_image")" = "$IMAGE_PLATFORM"
+          docker tag "$worker_image" "$worker_ghcr_image"
+          echo "WORKER_IMAGE_NAME=$worker_image" >> "$GITHUB_ENV"
+          echo "WORKER_GHCR_IMAGE=$worker_ghcr_image" >> "$GITHUB_ENV"
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -106,13 +121,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push V88 AMD64 image to GHCR
+      - name: Push V88 AMD64 images to GHCR
         shell: bash
         run: |
           set -Eeuo pipefail
           docker push "$GHCR_IMAGE"
+          docker push "$WORKER_GHCR_IMAGE"
           docker image inspect "$GHCR_IMAGE" >/dev/null
+          docker image inspect "$WORKER_GHCR_IMAGE" >/dev/null
           echo "Published durable image: $GHCR_IMAGE"
+          echo "Published Novel Fetch Browser Worker: $WORKER_GHCR_IMAGE"
 
       - name: Save release package
         shell: bash
@@ -121,10 +139,13 @@ jobs:
           release_dir="$GITHUB_WORKSPACE/release"
           mkdir -p "$release_dir"
           archive="qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz"
+          worker_archive="qiantie-v88-121-browser-worker-linux-amd64-${SHORT_SHA}.tar.gz"
           docker save "$IMAGE_NAME" | gzip -1 > "$release_dir/$archive"
+          docker save "$WORKER_IMAGE_NAME" | gzip -1 > "$release_dir/$worker_archive"
+          cp deploy/v88-public/docker-compose.browser-worker.yml "$release_dir/docker-compose.browser-worker.yml"
           (
             cd "$release_dir"
-            sha256sum "$archive" > SHA256SUMS
+            sha256sum "$archive" "$worker_archive" > SHA256SUMS
           )
           {
             echo "branch=${GITHUB_REF_NAME}"
@@ -132,6 +153,8 @@ jobs:
             echo "architecture=${IMAGE_PLATFORM}"
             echo "image=${IMAGE_NAME}"
             echo "registry_image=${GHCR_IMAGE}"
+            echo "browser_worker_image=${WORKER_IMAGE_NAME}"
+            echo "browser_worker_registry_image=${WORKER_GHCR_IMAGE}"
             echo "cm_release_guard=passed"
           } > "$release_dir/RELEASE-METADATA.txt"
           cat > "$release_dir/ECS-STORAGE.txt" <<EOF
@@ -140,12 +163,15 @@ jobs:
 
           Primary distribution (does not depend on Actions Artifact quota):
           ${GHCR_IMAGE}
+          ${WORKER_GHCR_IMAGE}
 
           Artifact/tar fallback after upload:
           cd /opt/qiantie/releases/v88/${SHORT_SHA}
           sha256sum -c SHA256SUMS
           docker load -i ${archive}
+          docker load -i ${worker_archive}
           docker image inspect ${IMAGE_NAME} --format '{{.Id}} {{.Os}}/{{.Architecture}}'
+          docker image inspect ${WORKER_IMAGE_NAME} --format '{{.Id}} {{.Os}}/{{.Architecture}}'
           EOF
           cat "$release_dir/RELEASE-METADATA.txt"
           cat "$release_dir/SHA256SUMS"
@@ -217,7 +243,7 @@ jobs:
           echo "ECS_DEPLOY_READY=true" >> "$GITHUB_ENV"
           echo "V88 ECS SSH preflight passed."
 
-      - name: Deploy verified image to V88 ECS
+      - name: Deploy verified images to V88 ECS
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -225,14 +251,37 @@ jobs:
             echo "::notice::ECS deployment skipped because V88_ECS_SSH_PRIVATE_KEY is unavailable."
             exit 0
           fi
-          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
-          docker save "$IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
-          "${ssh_cmd[@]}" bash -s -- "$IMAGE_NAME" "$SHORT_SHA" <<'REMOTE'
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
+          remote_compose_dir=/opt/qiantie/v88/deploy/v88-public
+          scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 deploy/v88-public/docker-compose.browser-worker.yml "$ECS_USER@$ECS_HOST:${remote_compose_dir}/docker-compose.browser-worker.yml"
+          docker save "$IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
+          docker save "$WORKER_IMAGE_NAME" | gzip -1 | ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'gunzip | docker load'
+          "${ssh_cmd[@]}" bash -s -- "$IMAGE_NAME" "$WORKER_IMAGE_NAME" "$SHORT_SHA" <<'REMOTE'
           set -Eeuo pipefail
           image_name="$1"
-          short_sha="$2"
-          cd /opt/v88
-          docker compose config >/dev/null
+          worker_image_name="$2"
+          short_sha="$3"
+          compose_dir="/opt/qiantie/v88/deploy/v88-public"
+          cd "$compose_dir"
+
+          random_hex() {
+            od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+          }
+          ensure_secret() {
+            key="$1"
+            if ! grep -q "^${key}=" novel-fetch-121.env 2>/dev/null; then
+              printf '%s=%s\n' "$key" "$(random_hex)" >> novel-fetch-121.env
+            fi
+          }
+          touch novel-fetch-121.env
+          chmod 600 novel-fetch-121.env
+          ensure_secret QIANTIE_121_WORKER_SECRET
+          ensure_secret QIANTIE_121_CREDENTIAL_SECRET
+          ensure_secret QIANTIE_121_STORAGE_STATE_SECRET
+
+          compose=(docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml)
+          "${compose[@]}" config >/dev/null
+
           current_image='v88-public-v88-node:v88-latest'
           rollback_image="v88-public-v88-node:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
           if docker image inspect "$current_image" >/dev/null 2>&1; then
@@ -241,10 +290,23 @@ jobs:
           else
             : > /tmp/v88-last-rollback-image
           fi
+
+          current_worker_image='v88-public-novel-fetch-121-worker:v88-latest'
+          rollback_worker_image="v88-public-novel-fetch-121-worker:rollback-${short_sha}-$(date +%Y%m%d%H%M%S)"
+          if docker image inspect "$current_worker_image" >/dev/null 2>&1; then
+            docker tag "$current_worker_image" "$rollback_worker_image"
+            printf '%s\n' "$rollback_worker_image" > /tmp/v88-last-rollback-worker-image
+          else
+            : > /tmp/v88-last-rollback-worker-image
+          fi
+
           docker image inspect "$image_name" >/dev/null
-          docker tag "$image_name" v88-public-v88-node:v88-latest
-          docker compose up -d --no-deps --force-recreate v88-node
-          docker compose ps v88-node
+          docker image inspect "$worker_image_name" >/dev/null
+          docker tag "$image_name" "$current_image"
+          docker tag "$worker_image_name" "$current_worker_image"
+          "${compose[@]}" up -d --force-recreate novel-fetch-121-worker
+          "${compose[@]}" up -d --force-recreate v88-node
+          "${compose[@]}" ps novel-fetch-121-worker v88-node
           REMOTE
 
       - name: Verify V88 ECS deployment
@@ -255,11 +317,46 @@ jobs:
             echo "::notice::ECS verification skipped because deployment was not attempted."
             exit 0
           fi
-          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
           "${ssh_cmd[@]}" bash -s <<'REMOTE'
           set -Eeuo pipefail
-          cd /opt/v88
-          docker compose ps v88-node
+          compose_dir="/opt/qiantie/v88/deploy/v88-public"
+          cd "$compose_dir"
+          compose=(docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml)
+          "${compose[@]}" ps novel-fetch-121-worker v88-node
+
+          worker_id="$("${compose[@]}" ps -q novel-fetch-121-worker)"
+          test -n "$worker_id"
+          for attempt in $(seq 1 30); do
+            worker_health="$(docker inspect -f '{{.State.Health.Status}}' "$worker_id" 2>/dev/null || true)"
+            if [ "$worker_health" = healthy ]; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              echo "Novel Fetch 121 Browser Worker did not become healthy" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          "${compose[@]}" exec -T v88-node node - <<'NODE'
+          (async () => {
+            const required = ['QIANTIE_121_BROWSER_WORKER_URL', 'QIANTIE_121_WORKER_SECRET', 'QIANTIE_121_CREDENTIAL_SECRET'];
+            for (const key of required) {
+              if (!String(process.env[key] || '').trim()) throw new Error(`${key} missing inside v88-node`);
+            }
+            const response = await fetch(`${process.env.QIANTIE_121_BROWSER_WORKER_URL}/healthz`, {
+              headers: { 'x-qiantie-internal-secret': process.env.QIANTIE_121_WORKER_SECRET }
+            });
+            if (!response.ok) throw new Error(`121 Browser Worker health request failed: ${response.status}`);
+            const body = await response.json();
+            if (body.ok !== true) throw new Error('121 Browser Worker health response is not ok');
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
           for attempt in $(seq 1 30); do
             body="$(curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info || true)"
             if printf '%s' "$body" | grep -q '"app_version":"v78.3.0.31"' && printf '%s' "$body" | grep -q '"release_version":"v78.3.0.31"'; then
@@ -293,7 +390,7 @@ jobs:
             echo "::notice::Rollback skipped because no ECS deployment was attempted."
             exit 0
           fi
-          ssh -i "$HOME/.ssh/v88_ecs" -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
           set -Eeuo pipefail
           if [ ! -s /tmp/v88-last-rollback-image ]; then
             echo 'No rollback image was recorded; refusing to guess.' >&2
@@ -302,9 +399,23 @@ jobs:
           rollback_image="$(cat /tmp/v88-last-rollback-image)"
           docker image inspect "$rollback_image" >/dev/null
           docker tag "$rollback_image" v88-public-v88-node:v88-latest
-          cd /opt/v88
-          docker compose up -d --no-deps --force-recreate v88-node
-          docker compose ps v88-node
+          compose_dir="/opt/qiantie/v88/deploy/v88-public"
+          cd "$compose_dir"
+
+          if [ -s /tmp/v88-last-rollback-worker-image ]; then
+            rollback_worker_image="$(cat /tmp/v88-last-rollback-worker-image)"
+            docker image inspect "$rollback_worker_image" >/dev/null
+            docker tag "$rollback_worker_image" v88-public-novel-fetch-121-worker:v88-latest
+            compose=(docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml)
+            "${compose[@]}" up -d --force-recreate novel-fetch-121-worker
+            "${compose[@]}" up -d --no-deps --force-recreate v88-node
+            "${compose[@]}" ps novel-fetch-121-worker v88-node
+          else
+            docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml stop novel-fetch-121-worker || true
+            docker compose -f docker-compose.yml -f docker-compose.browser-worker.yml rm -f novel-fetch-121-worker || true
+            docker compose up -d --no-deps --force-recreate v88-node
+            docker compose ps v88-node
+          fi
           echo "Rolled back V88 ECS to $rollback_image"
           REMOTE
 
