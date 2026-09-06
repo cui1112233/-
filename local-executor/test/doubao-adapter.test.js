@@ -19,7 +19,7 @@ function availableSnapshot(extra = {}) {
   };
 }
 
-function harness({ snapshots, evidence, mediaCandidates = [], downloadPath = '/tmp/exact.mp4' } = {}) {
+function harness({ snapshots, evidence, mediaCandidates = [], downloadPath = '/tmp/exact.mp4', logger = null } = {}) {
   const calls = [];
   const queue = [...(snapshots || [availableSnapshot(), availableSnapshot()])];
   const webContents = { id: 7, session: {} };
@@ -41,6 +41,7 @@ function harness({ snapshots, evidence, mediaCandidates = [], downloadPath = '/t
     },
     trackerFactory: () => tracker,
     downloader: async input => { calls.push(['download', input.url, input.media.mediaId]); return { filePath: downloadPath }; },
+    logger,
     sleep: async () => {},
     maxCompletionPolls: 2,
     completionPollMs: 0
@@ -97,6 +98,35 @@ test('completion and download are bound to the accepted submission, never the ne
   const artifact = await adapter.fetchArtifact({ job, account, completion });
   assert.equal(artifact.filePath, '/tmp/exact.mp4');
   assert.deepEqual(calls.find(x => x[0] === 'download'), ['download', 'https://cdn.example/exact.mp4', 'media-exact']);
+});
+
+test('adapter emits page, prompt, submit, media and download boundaries without logging prompt text', async () => {
+  const events = [];
+  const logger = { async event(name, fields) { events.push({ name, fields }); } };
+  const snapshots = [
+    availableSnapshot(),
+    availableSnapshot(),
+    availableSnapshot({ videos: [{ mediaId: 'media-exact', identities: ['msg-1', 'media-exact'], srcKind: 'https' }] })
+  ];
+  const mediaCandidates = [{ mediaId: 'media-exact', identities: ['msg-1', 'media-exact'], downloadUrl: 'https://cdn.example/exact.mp4' }];
+  const { adapter } = harness({ snapshots, mediaCandidates, logger });
+  const job = { id: 'job-log', payload: { prompt: '绝不能写进日志的提示词', model: 'Seedance 2.0 Fast', duration: 10, ratio: '9:16' } };
+  const account = { id: 'acct-log' };
+
+  await adapter.prepare({ job, account });
+  const accepted = await adapter.submit({ job, account, attempt: 1 });
+  const completion = await adapter.waitForCompletion({ job, account, submissionId: accepted.submissionId });
+  await adapter.fetchArtifact({ job, account, completion });
+
+  assert.deepEqual(events.map(item => item.name), [
+    'DOUBAO_PAGE_READY',
+    'VIDEO_OPTIONS_SELECTED',
+    'PROMPT_FILLED',
+    'SUBMIT_CLICKED',
+    'MEDIA_DETECTED',
+    'VIDEO_DOWNLOADED'
+  ]);
+  assert.equal(JSON.stringify(events).includes('绝不能写进日志的提示词'), false);
 });
 
 test('human verification is a typed account hold and never submits', async () => {
