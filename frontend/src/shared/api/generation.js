@@ -38,6 +38,19 @@ async function resolveSmartUnifiedGenerationInput(input) {
   return { ...input, visualStyle: prompt };
 }
 
+export function constraintsForScriptAiContext(format, constraints) {
+  if (format !== 'shotlist' || !constraints || typeof constraints !== 'object') return constraints;
+  return {
+    ...constraints,
+    // 分镜生成必须始终把已经提取的人物/场景和星标主角送进同一次 AI 请求。
+    // 这里只改变发给 AI 的上下文开关，不修改用户界面当前是否展示“基础设定”的选择。
+    baseSetup: {
+      ...(constraints.baseSetup && typeof constraints.baseSetup === 'object' ? constraints.baseSetup : {}),
+      enabled: true
+    }
+  };
+}
+
 function requestDirectorPipeline(payload) {
   return apiRequest('/api/script/director-pipeline', {
     method: 'POST',
@@ -80,6 +93,7 @@ export async function generateScript({ mode, format, duration, novelText, charac
   const resolved = await resolveSmartUnifiedGenerationInput({
     mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints
   });
+  const aiConstraints = constraintsForScriptAiContext(resolved.format, resolved.constraints);
 
   // 普通“生成剧本/分镜”始终只发起一次 script AI 请求：
   // 当前开头预设 + 当前输出模式预设 + 10s/15s 运行规则 + 人物场景/主角资料
@@ -96,7 +110,7 @@ export async function generateScript({ mode, format, duration, novelText, charac
       scenes: resolved.scenes,
       visualStyle: resolved.visualStyle,
       protagonists: resolved.protagonists,
-      constraints: resolved.constraints,
+      constraints: aiConstraints,
       max_tokens: resolved.format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false
