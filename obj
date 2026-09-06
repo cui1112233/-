@@ -25,6 +25,7 @@
 - 新增 tests/novel-fetch-visible-feedback.test.js：3 项反馈行为契约。
 - 新增 tests/v88-release-registry-resilience.test.js：2 项发布容错契约。
 - 修正 batch-rewrite-flow-ui.test.js 过时的 15 秒 Browser Worker 超时断言，使其与当前普通 20 秒/登录 45 秒实现一致。
+- 修正 tests/script-generation-prompt-rules.test.js 内互相矛盾的旧断言：15s 规则保持“最大 15 秒、无最低时长”，只更新测试期望，不修改运行逻辑。
 - 更新 .github/workflows/v88-linux-amd64-image-release.yml：
   - 主镜像和 Browser Worker GHCR pull 使用有限重试与退避。
   - 主镜像持续拉取失败时，使用本次构建的 qiantie-v88-linux-amd64-${SHORT_SHA}.tar.gz + SHA256SUMS 作为 fallback，并 docker load。
@@ -35,7 +36,12 @@ TDD/验证状态：
 - 初始 RED：新增 5 项测试按预期失败（反馈层不存在、发布无重试/fallback）。
 - 实现后：上述 5 项全部 GREEN。
 - 小说获取 V2 focused tests：52/52 通过。
-- 全量 Node regression：218 项中 216 通过、2 失败；剩余 2 项均为既有 tests/script-generation-prompt-rules.test.js 的 15s 分镜规则旧断言，与本次小说获取/发布修复无关。
+- 全量 Node regression：218/218 通过。
+- 121 Browser Worker tests：通过。
+- frontend dependency audit：通过。
+- frontend build：通过。
+- Novel Fetch V2 Check：test / compose-config / compose-smoke 全部通过。
+- V78.3.0.31 专项 regression：通过。
 - V78.3.0.31 guarded ECS deployment regression：通过。
 - V78.3.0.31 release distribution regression：通过。
-- V88 发布流水线当前已完成 frontend build、主镜像构建、121 Browser Worker 镜像构建、GHCR push、release tar、ECS SSH preflight；正在执行 ECS 部署与最终公网验证。
+- V88 发布流水线已完成 frontend build、主镜像构建、121 Browser Worker 镜像构建、GHCR push、release tar、ECS SSH preflight；正在执行 ECS 部署与最终公网验证。
