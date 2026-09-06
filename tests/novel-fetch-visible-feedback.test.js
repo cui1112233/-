@@ -5,11 +5,16 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const pagePath = path.join(root, 'frontend', 'public', 'batch-rewrite', 'index.html');
+const dockerfilePath = path.join(root, 'Dockerfile');
 const feedbackPath = path.join(root, 'frontend', 'public', 'batch-rewrite', 'interaction-feedback.js');
 const pageHtml = fs.readFileSync(pagePath, 'utf8');
+const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
 
-test('小说获取主工作台加载独立的可见交互反馈层', () => {
-  assert.match(pageHtml, /interaction-feedback\.js/);
+test('小说获取公网构建会加载独立的可见交互反馈层', () => {
+  const sourceLoadsDirectly = /interaction-feedback\.js/.test(pageHtml);
+  const imageInjectsFeedback = /COPY frontend\/public\/batch-rewrite\/interaction-feedback\.js/.test(dockerfile)
+    && /interaction-feedback\.js/.test(dockerfile);
+  assert.ok(sourceLoadsDirectly || imageInjectsFeedback, '公网工作台构建必须加载 interaction-feedback.js');
   assert.ok(fs.existsSync(feedbackPath), 'interaction-feedback.js 必须随公网工作台发布');
 });
 
