@@ -1,20 +1,19 @@
 # V88 豆包执行器 Phase 1 执行计划与实时进度
 
 > 项目：一战晟铭 V88  
-> 模块：公网 `/script` → 豆包本地执行器 → 豆包网页 → 视频生成 → 回传公网  
 > 基线分支：`v88`  
 > 工作分支：`fix/v88-doubao-executor-phase1-20260906`  
-> 执行原则：不修改 master；证据优先；TDD 红灯→最小修复→GREEN；每个关键步骤完成后实时更新本文件。
+> 原则：不改 master；源码证据优先；TDD RED → 最小修复 → GREEN；每个关键节点实时更新本文件。
 
-## 1. 最终目标
+## 最终链路
 
 ```text
 公网 /script
 → Node 视频任务入口
-→ Go 本地执行器任务服务
+→ Go localexecutor
 → Windows 一战晟铭豆包执行器
-→ 豆包账号/页面
-→ 填写提示词/参考图/模型/时长/比例
+→ 豆包账号/视频页面
+→ 填词/参考图/模型/时长/比例
 → 提交
 → 确认豆包真正接单
 → generating
@@ -25,26 +24,7 @@
 → /script 可播放
 ```
 
-## 2. 状态机硬规则
-
-继续复用现有状态：
-
-```text
-queued
-leased
-preparing
-submitting
-acceptance_unknown
-accepted
-generating
-downloading
-uploading
-succeeded
-failed
-cancelled
-```
-
-中文显示：
+## 状态机硬规则
 
 ```text
 queued              等待执行器领取
@@ -61,459 +41,145 @@ failed              失败
 cancelled           已取消
 ```
 
-**只有服务端已记录 `accepted` 后，才允许进入 `generating`。**
+只有服务端记录 `accepted` 后才允许进入 `generating`；`queued / preparing / submitting / acceptance_unknown` 绝不能在网页显示成“正在生成视频”。
 
-## 3. 已确认根因与修复
+## 已完成并验证
 
-### 根因 A：Node → Go `/api/script-videos/*` 断链
+### Step 1 — Node → Go VIDEO 桥接 + stable 下载源
 
-Node `routes/script-video.js` 调用：
+- 已修复原 `POST /api/script-videos/local`、`GET /api/script-videos/{id}` 404。
+- 新增 `backend/internal/httpapi/script_video_local.go`，复用现有 `localexecutor.Service`。
+- stable manifest 已成为 Windows 正式最新版来源，不再手写版本。
+- 关键提交：`af69bbf90d7416069c7f8d62dd1c9c34f763505e`。
+- GREEN：CI `34017379066`，Go / Node / Electron / Frontend 全通过。
 
-```text
-POST /api/script-videos/local
-GET  /api/script-videos/{taskId}
-GET  /api/script-videos/{taskId}/download
-```
+### Step 2–3 — 设置页动态版本与下载
 
-原 V88 Go Router 未注册这组兼容路由。TDD 红灯：
+- 新增 `frontend/src/shared/api/executorRelease.js`。
+- 严格 `x.y.z` 数字比较；支持 latest/minimum/current、updateAvailable、updateRequired。
+- SettingsPage 下载地址来自 manifest；显示当前版本、最新稳定版、最低支持版、已是最新/有新版本/必须更新/版本未知。
+- 关键提交：`0847510b7f552087223412b3efbd0b5a72816e8a`。
+- GREEN：CI `34018080537` 全通过。
 
-```text
-TestScriptVideoLocalCompatibilityRouteCreatesQueuedJob
-status=404 body=404 page not found
+### Step 4–5 — `yizhan-executor://` + Electron 单实例
 
-TestScriptVideoLocalCompatibilityRouteReturnsRealStage
-status=404 body=404 page not found
-```
+- 新增安全协议解析器 `local-executor/src/electron/protocol-handler.js`。
+- 只允许 `yizhan-executor://open`；拒绝任意命令、未知 action、http/https。
+- 主进程增加 `requestSingleInstanceLock`、`second-instance`、冷/热启动聚焦。
+- electron-builder/NSIS 注册 `yizhan-executor` scheme。
+- 关键提交：`9f9fd1fbc948d2fd3cf1dac8c057cddae9e1cc57`。
+- GREEN：CI `34018270271` 全通过。
 
-已新增 `backend/internal/httpapi/script_video_local.go`，并在 `backend/internal/httpapi/router.go` 注册：
+### Step 6 — 设置页“打开执行器”
 
-```text
-Node /api/script-video/*
-→ Go /api/script-videos/*
-→ existing localexecutor.Service
-```
+- SettingsPage 增加固定 `[打开执行器] → yizhan-executor://open`。
+- 不拼用户输入，不调用 PowerShell/CMD；下载按钮继续保留。
+- 关键提交：`8b2b6751e31c6ac53c02f840b375a825dff72c64`。
+- GREEN：CI `34018460735` 全通过。
 
-不创建第二套任务系统。
+## 当前执行：Step 7 — `/script` 真实 VIDEO stage
 
-### 根因 B：公网执行器下载仍写死旧版本
+### 已确认 UI 根因
 
-原 `routes/local-executor-downloads.js` 使用固定版本，而执行器更新系统已经使用 `stable/beta manifest`。
-
-TDD 红灯：
-
-```text
-actual   = 0.1.14
-expected = 1.0.3
-```
-
-已改为：
-
-```text
-/downloads/local-executor/updates/stable/manifest.json
-```
-
-驱动 Windows 公网最新版。旧安装包仅作为 stable 清单缺失/无效时的兼容兜底。公共 manifest 返回：
-
-```text
-version
-latestVersion
-minimumVersion
-downloads.windows
-windows.sha256
-windows.size
-windows.publishedAt
-```
-
-## 4. 已验证 GREEN
-
-### Step 1：stable manifest → 公网下载入口
-
-修复提交：
-
-```text
-af69bbf90d7416069c7f8d62dd1c9c34f763505e
-fix: drive public executor download from stable manifest
-```
-
-完整 GREEN：
-
-```text
-run_id: 34017379066
-node-routes      success
-local-executor   success
-backend-go       success
-frontend         success
-```
-
-### Step 2 + Step 3：SettingsPage 动态下载与版本状态
-
-RED 1：
-
-```text
-run_id: 34017881181
-ERR_MODULE_NOT_FOUND: executorRelease.js
-```
-
-新增：
-
-```text
-frontend/src/shared/api/executorRelease.js
-commit: 0d495b7e18e95ab795808148745b2e1d68f23f67
-```
-
-实现：严格 `x.y.z` 数字比较、latest/minimum/current、updateAvailable/updateRequired/versionKnown、公共 manifest 读取和 fail-closed 校验。
-
-独立 GREEN：
-
-```text
-run_id: 34017916203
-conclusion: success
-```
-
-RED 2：
-
-```text
-run_id: 34017950137
-frontend: failure
-原因：SettingsPage 仍含旧版固定下载路径
-```
-
-正式页面修复：
-
-```text
-0847510b7f552087223412b3efbd0b5a72816e8a
-feat: show dynamic local executor release status
-```
-
-完成：
-
-```text
-SettingsPage 不再写死执行器版本号
-Windows/Mac 下载地址来自 manifest
-显示最新稳定版 / 最低支持版
-显示每台执行器 heartbeat 上报的当前 version
-显示 已是最新 / 有新版本 / 必须更新 / 版本未知
-manifest 不可用时不猜版本并禁用下载
-```
-
-完整 GREEN：
-
-```text
-run_id: 34018080537
-backend-go       success
-node-routes      success
-local-executor   success
-frontend tests   success
-frontend build   success
-```
-
-### Step 4 + Step 5：Windows URL 协议 + Electron 单实例
-
-源码审计确认原实现缺失：
-
-```text
-app.requestSingleInstanceLock()
-app.setAsDefaultProtocolClient(...)
-second-instance
-installer protocols registration
-```
-
-TDD RED：
-
-```text
-run_id: 34018196143
-local-executor: failure
-旧测试 94 个通过，新测试 3 个失败
-```
-
-明确失败原因：
-
-```text
-Cannot find module '../src/electron/protocol-handler'
-main.js 不含 requestSingleInstanceLock
-package.json build.protocols 不含 yizhan-executor
-```
-
-正式实现：
-
-```text
-local-executor/src/electron/protocol-handler.js
-local-executor/src/electron/main.js
-local-executor/package.json
-```
-
-关键提交：
-
-```text
-8db2615cc9445bd6a1d5bae4ed9dfd5c15aa14c6  safe protocol handler
-f6742953c00e1c7465efbce6b274d493b4405542  single instance + protocol handling
-9f9fd1fbc948d2fd3cf1dac8c057cddae9e1cc57  installer protocol registration
-```
-
-安全行为：
-
-```text
-仅允许 yizhan-executor://open
-拒绝 http/https 与未知 action
-拒绝 yizhan-executor://run?cmd=...
-不把 URL 参数转为命令
-不调用 PowerShell/CMD
-```
-
-完整 GREEN：
-
-```text
-run_id: 34018270271
-backend-go       success
-node-routes      success
-local-executor   success
-frontend tests   success
-frontend build   success
-```
-
-### Step 6：设置页“打开执行器”
-
-TDD RED：
-
-```text
-run_id: 34018384833
-frontend tests: 11 pass / 1 fail
-唯一失败：SettingsPage 缺少固定 yizhan-executor://open
-backend-go / node-routes / local-executor 全部 success
-```
-
-正式修复：
-
-```text
-8b2b6751e31c6ac53c02f840b375a825dff72c64
-feat: add open local executor action
-```
-
-SettingsPage 增加固定按钮：
-
-```text
-[打开执行器] → yizhan-executor://open
-```
-
-规则：不拼用户输入、不传命令、不依赖执行器在线状态；下载按钮继续保留给首次安装/修复安装。
-
-完整 GREEN：
-
-```text
-run_id: 34018460735
-backend-go       success
-node-routes      success
-local-executor   success
-frontend tests   success
-frontend build   success
-```
-
-因此 Step 6 代码链路已完成；Windows 真机协议唤起仍在 Step 13 做最终验收。
-
-## 5. 当前正在执行
-
-### Step 7：`/script` 保存并显示真实 VIDEO `stage`
-
-当前已确认的问题：创建视频任务后前端直接保存：
+当前 `ScriptPage` 创建任务后只保存：
 
 ```text
 { taskId, status: 'processing' }
 ```
 
-轮询阶段只处理：
+轮询只在 `succeeded / failed` 时写回任务，中间 stage 没有更新。`ShotOutputCards` 又把所有 `processing` 统一显示为“视频生成中”，导致用户无法知道任务真实卡点。
+
+### Step 7 TDD 进度
+
+RED：CI `34018608427`
 
 ```text
-succeeded
-failed
+Frontend: 12 个旧测试通过；新增 stage 测试因 scriptVideoStage.js 不存在而失败
+Go / Node / Electron：success
 ```
 
-中间的真实状态：
+已新增：
 
 ```text
-queued / leased / preparing / submitting / acceptance_unknown / accepted /
-generating / downloading / uploading
+frontend/src/shared/api/scriptVideoStage.js
+commit: 52ff1d55b7ea20a1f4df6a03b183e93485e3cb36
 ```
 
-没有持续写回 `shotVideoTasks`，因此用户只能看到笼统“生成视频”，无法知道真实卡点。
+已锁定文案：
 
-本步骤目标：
+```text
+queued              等待执行器领取
+leased              执行器已领取
+preparing           正在准备豆包页面
+submitting          正在提交豆包任务
+acceptance_unknown  正在确认豆包是否接单
+accepted            豆包已接单
+generating          豆包正在生成视频
+downloading         正在下载视频
+uploading           正在回传视频
+```
 
-1. 增加纯函数 `scriptVideoStageLabel(stage, status)`，单测覆盖全部状态。
-2. `status=processing + stage=queued` 必须显示“等待执行器领取”，不得显示“生成视频”。
-3. 只有 `stage=generating` 显示“豆包正在生成视频”。
-4. 每次轮询成功都把服务端返回的 `stage` 写回 `shotVideoTasks` 和历史记录，而不只在 succeeded/failed 时更新。
-5. 创建本地任务时初始阶段使用服务端返回的 `stage`；若服务端只返回 taskId，则安全使用 `queued`，不得假设 generating。
-6. 恢复历史/草稿时，对所有非终态任务继续轮询。
-7. 前端 tests + build 和完整 CI GREEN 后实时更新本文件。
+GREEN：CI `34018665157`
 
-## 6. 后续严格顺序
+```text
+backend-go       success
+node-routes      success
+local-executor   success
+frontend tests   success
+frontend build   success
+```
 
-- [x] Step 1：stable manifest → 公网下载入口 GREEN
-- [x] Step 2：SettingsPage 去掉旧版硬编码
-- [x] Step 3：设置页显示当前/最新/可升级/强制升级状态
-- [x] Step 4：增加 `yizhan-executor://` Windows 自定义协议
-- [x] Step 5：增加 Electron 单实例锁与二次唤起聚焦
-- [x] Step 6：设置页增加“打开执行器”
-- [ ] Step 7：`/script` 保存并显示真实 `stage`
-- [ ] Step 8：审计 `doubao-acceptance.js` 与 `doubao-network-tracker.js`
-- [ ] Step 9：补关键边界结构化日志
-- [ ] Step 10：完整 Go / Node / Electron / Frontend CI GREEN
+### Step 7 新发现的确定断点
+
+Go 正式接口 `GET /api/shuihuo-production/local-executors` 明确返回：
+
+```json
+{"executors": [...]}
+```
+
+但 `ScriptPage.generateVideoForShot()` 当前读取：
+
+```text
+result.items
+```
+
+因此剧本页可能把真实在线执行器误判成“未连接”，直接阻止任务提交。这个字段错误会在 Step 7 同一轮用 RED 测试锁死并修复。
+
+### Step 7 接下来
+
+1. [进行中] 加页面集成 RED：必须读取 `result.executors`；必须保存/刷新真实 `stage`；ShotOutputCards 必须使用 `scriptVideoStageLabel`。
+2. 修复 `ScriptPage`：创建本地任务默认最多假设 `queued`，绝不假设 generating。
+3. 每次轮询成功都写回 `stage/status`，由现有 effect 同步历史。
+4. 历史/草稿恢复时使用 `isScriptVideoTaskActive()` 恢复所有非终态任务。
+5. 修复 `ShotOutputCards`：只有 `stage=generating` 显示“豆包正在生成视频”。
+6. 完整 CI GREEN 后勾选 Step 7，并进入 Step 8 acceptance/network 审计。
+
+## 后续顺序
+
+- [x] Step 1：Go VIDEO 桥接 + stable 下载源
+- [x] Step 2：SettingsPage 去掉旧下载版本硬编码
+- [x] Step 3：当前/最新/最低版本状态
+- [x] Step 4：`yizhan-executor://`
+- [x] Step 5：Electron 单实例
+- [x] Step 6：设置页“打开执行器”
+- [ ] Step 7：`/script` 真实 stage + 修复 `items/executors` 字段错误
+- [ ] Step 8：审计 `doubao-acceptance.js` / `doubao-network-tracker.js`
+- [ ] Step 9：关键边界结构化日志
+- [ ] Step 10：全套 Go / Node / Electron / Frontend 回归
 - [ ] Step 11：Windows NSIS 构建
-- [ ] Step 12：记录 installer 版本 / 实际大小 / SHA-256
-- [ ] Step 13：Windows 实机安装、覆盖升级、协议唤起、单实例验证
-- [ ] Step 14：实机完整 `/script → executor → doubao → mp4 → upload → succeeded`
-- [ ] Step 15：全部通过后合并回 `v88`，不合 master
+- [ ] Step 12：记录 installer 版本 / 字节数 / MiB / SHA-256
+- [ ] Step 13：Windows 实机安装 / 覆盖更新 / 协议唤起 / 单实例
+- [ ] Step 14：实机 `/script → executor → doubao → mp4 → upload → succeeded`
+- [ ] Step 15：全部通过后合并到 `v88`，不合 master
 
-## 7. 豆包执行链审计标准
+## 安装包与更新硬约束
 
-### 任务领取
+Phase 1 保留 Electron。已知早期 Windows 安装包约 79 MiB；本阶段不额外捆绑 Chromium/Playwright/Python/Node 副本/完整 FFmpeg，不用 UPX 强行压缩。继续复用现有 UpdateManager + NSIS 原地覆盖；更新临时文件不得堆到 Downloads；持久配对/设备/账号状态不得因更新丢失。
 
-```text
-queued → leased
-```
+## 实时进度日志
 
-检查 executor token / owner / platform / heartbeat。
-
-### 页面准备
-
-必须确认：登录正常、非人机验证、额度正常、视频模式可用、输入框和提交按钮存在、请求的模型/时长/比例/图片能力可用。
-
-### 提交与接单
-
-`adapter.submit()` 只能返回：
-
-```text
-accepted
-unknown
-not_accepted
-```
-
-`unknown` 必须进入 `acceptance_unknown` 并有限次恢复。一直无法判断时失败为 `ACCEPTANCE_UNKNOWN`，不能无限卡住，也不能重复提交造成重复扣额度。
-
-### 生成结果绑定
-
-必须使用：
-
-```text
-submissionId
-+ network media candidates
-+ page media candidates
-→ bindExactMedia()
-```
-
-禁止“页面出现任意视频就算当前任务完成”。
-
-### 下载/上传
-
-```text
-generating
-→ downloading
-→ uploading
-→ succeeded
-```
-
-服务端继续验证 MP4、lease、文件大小、SHA-256。
-
-## 8. 结构化日志目标
-
-关键事件：
-
-```text
-JOB_CLAIMED
-ACCOUNT_ACQUIRED
-DOUBAO_PAGE_READY
-VIDEO_OPTIONS_SELECTED
-PROMPT_FILLED
-SUBMIT_CLICKED
-ACCEPTANCE_DETECTED
-GENERATION_STARTED
-MEDIA_DETECTED
-VIDEO_DOWNLOADED
-ARTIFACT_UPLOADED
-JOB_COMPLETED
-JOB_FAILED
-```
-
-至少包含：jobId、executorId、accountId、submissionId、stage、errorCode、errorMessage、timestamp。
-
-## 9. 安装/更新与体积约束
-
-Phase 1 继续 Electron，不立即 Go 重写。已知早期 Windows 安装包约 79 MiB；Electron 自带 Chromium，因此本阶段 15–25 MB 不现实。
-
-硬约束：
-
-- 不额外捆绑第二套 Chromium/Chrome。
-- 不捆绑 Playwright 浏览器。
-- 不捆绑 Python/Node 独立运行时副本。
-- 不捆绑完整 FFmpeg，除非真实链路需要。
-- 不使用 UPX 只为省几 MB，避免杀毒误报。
-- 继续复用现有 UpdateManager + NSIS 覆盖安装。
-- 更新临时包放程序数据/临时目录，不让 Downloads 堆 `(1)(2)(3)`。
-- 配对、设备、账号状态、日志等持久数据不得因覆盖更新丢失。
-- Windows 构建后必须记录真实 installer size 和 SHA-256。
-
-## 10. CI
-
-`.github/workflows/v88-doubao-executor-verify.yml` 当前覆盖：
-
-```text
-backend: go test ./...
-Node executor/script-video route tests
-local-executor npm test
-local-executor syntax check
-frontend npm test
-frontend npm build
-```
-
-## 11. Phase 1 完成标准
-
-- [x] Go `/api/script-videos/*` 404 已由测试复现并修复
-- [x] stable manifest 已成为 Windows 公网正式版本源并通过完整 CI
-- [x] SettingsPage 不再硬编码旧版下载地址
-- [x] 网页显示真实执行器版本状态
-- [x] 网站具备 `yizhan-executor://open` 唤起代码链路（Windows 真机待 Step 13）
-- [x] 执行器保持单实例（代码/CI，Windows 真机待 Step 13）
-- [ ] `/script` 显示真实任务阶段
-- [ ] 未确认豆包接单时绝不显示 generating
-- [ ] 豆包确认接单后进入 generating
-- [ ] 当前任务成片精确匹配
-- [ ] MP4 下载/上传成功
-- [ ] 服务端任务 succeeded
-- [ ] 公网页面可播放结果
-- [ ] Windows NSIS 构建成功
-- [ ] 安装包大小/SHA-256 已记录
-- [ ] 覆盖更新不产生多份正式安装
-- [ ] Windows 实机完整 VIDEO 闭环通过
-
-## 12. 实时进度日志
-
-### 2026-09-06 · 进度 01
-
-- 完成 Node → Go 本地视频兼容路由 TDD 修复。
-- 完成 stable manifest 驱动公网 Windows 下载源。
-- CI `34017379066` 四项全部 GREEN。
-
-### 2026-09-06 · 进度 02
-
-- 新增 `executorRelease.js` 与严格版本比较/最低版本逻辑。
-- RED `34017881181`：缺少 release helper。
-- GREEN `34017916203`：release helper 通过。
-- RED `34017950137`：SettingsPage 仍含旧版硬编码。
-- 修复 SettingsPage：`0847510b7f552087223412b3efbd0b5a72816e8a`。
-- GREEN `34018080537`：四项完整验证通过。
-
-### 2026-09-06 · 进度 03
-
-- 审计确认 Electron 原先没有自定义 URL 协议和单实例。
-- RED `34018196143`：新增协议/单实例测试 3 项按预期失败，旧测试 94 项通过。
-- 新增安全 `protocol-handler.js`，只允许 `yizhan-executor://open`。
-- 主进程增加单实例、冷/热启动聚焦和 packaged Windows 协议注册。
-- electron-builder/NSIS 注册 `yizhan-executor` scheme。
-- GREEN `34018270271`：四项完整验证通过。
-
-### 2026-09-06 · 进度 04
-
-- RED `34018384833`：前端 12 项中 11 项通过，仅缺“打开执行器”按钮。
-- 设置页增加固定 `yizhan-executor://open` 按钮，提交 `8b2b6751e31c6ac53c02f840b375a825dff72c64`。
-- GREEN `34018460735`：backend-go、node-routes、local-executor、frontend tests/build 全部通过。
-- Step 6 完成；当前进入 Step 7：`/script` 真实 VIDEO stage。
+- 进度 01：修复 Node → Go 404；stable 下载源 GREEN `34017379066`。
+- 进度 02：动态版本/SettingsPage GREEN `34018080537`。
+- 进度 03：协议 + 单实例 GREEN `34018270271`。
+- 进度 04：设置页“打开执行器” GREEN `34018460735`。
+- 进度 05：Step 7 阶段 helper RED `34018608427` → GREEN `34018665157`；确认 `ScriptPage` 误读 `result.items`，正式接口字段为 `result.executors`。
