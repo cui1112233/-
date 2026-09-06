@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 RELEASE DISTRIBUTION VERIFIED / ECS AUTO-DEPLOY IMPLEMENTED / ECS SSH SECRET CHECK IN CI / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY READY / ECS SECRET MISSING / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -49,17 +49,6 @@ GitHub Actions `actions/upload-artifact@v4` 返回：
 
 > V31 Linux AMD64 镜像并没有构建失败。镜像、tar.gz、SHA256、ECS 元数据全部成功生成；失败只发生在 GitHub Actions Artifact 持久化阶段，因为 Artifact 存储配额已满。
 
-### 当前判断
-
-- 业务源码：正常
-- V31 回归：7/7 PASS
-- Docker build：正常
-- Linux AMD64 image：已成功构建
-- release tar.gz：已成功生成在 runner 临时磁盘
-- GitHub Artifact：未保存
-- ECS：尚未部署
-- 公网：尚未验证
-
 ---
 
 ## 2026-09-06｜执行节点 02｜发布链修复 TDD RED
@@ -95,19 +84,7 @@ V31 regression run：
 
 `release workflow must have actions: write so it can prune old release artifacts`
 
-随后测试继续扩展，要求：
-
-- `actions: write`
-- `packages: write`
-- `actions/github-script@v7`
-- `listArtifactsForRepo`
-- `deleteArtifact`
-- 保留最近 2 个 V88 AMD64 release artifacts
-- `docker/login-action@v3`
-- GHCR 登录
-- immutable GHCR image push
-- release metadata 记录 `registry_image`
-- Artifact 上传为兼容通道，配额失败不阻断 GHCR 成功发布
+随后测试扩展为要求 GHCR 主发布通道、Artifact 自动清理与非阻断兼容上传。
 
 扩展测试提交：
 
@@ -127,20 +104,12 @@ V31 regression run：
 
 ### 已加入
 
-- workflow permissions：
-  - `contents: read`
-  - `actions: write`
-  - `packages: write`
-- Docker build 后生成 GHCR immutable image 名称：
-  - `ghcr.io/<owner>/qiantie-v88:public-<SHORT_SHA>`
-- `docker/login-action@v3` 登录 GHCR
-- `docker push "$GHCR_IMAGE"`
-- `RELEASE-METADATA.txt` 新增：
-  - `registry_image=${GHCR_IMAGE}`
-- `ECS-STORAGE.txt` 记录 GHCR 为主发布通道
+- workflow permissions：`contents: read / actions: write / packages: write`
+- GHCR immutable image push
+- release metadata 记录 `registry_image`
 - `actions/github-script@v7` 自动清理旧 V88 AMD64 release artifacts
 - 保留最近 `2` 个旧发布 artifact
-- `actions/upload-artifact@v4` 保留为兼容通道并设置 `continue-on-error: true`
+- `actions/upload-artifact@v4` 作为兼容通道，`continue-on-error: true`
 
 ---
 
@@ -148,172 +117,157 @@ V31 regression run：
 
 ### V31 回归
 
-Workflow：`Novel Panel V78.3.0.31 Regression`
-
+- workflow：`Novel Panel V78.3.0.31 Regression`
 - run：`34017818181`
 - result：`success`
-- 当前 V31 regression：`8 / 8 PASS`
-
-说明：新增的 release distribution regression 已进入专用 V31 CI，并从 RED 转为 GREEN。
+- regression：`8 / 8 PASS`
 
 ### Linux AMD64 发布
 
-Workflow：`V88 Linux AMD64 Public Image Release`
-
+- workflow：`V88 Linux AMD64 Public Image Release`
 - run：`34017818178`
 - job：`101444667352`
 - conclusion：`success`
-
-实际步骤：
-
-1. Checkout V88 release source：PASS
-2. Assert Linux AMD64 runner：PASS
-3. Setup Node：PASS
-4. Build frontend：PASS
-5. Verify V88 pet release contract：PASS
-6. Build V88 AMD64 Docker image：PASS
-7. Login to GHCR：PASS
-8. Push V88 AMD64 image to GHCR：PASS
-9. Save release package：PASS
-10. Prune old V88 AMD64 release artifacts：PASS
-11. Upload V88 AMD64 release artifact：Artifact quota 仍未刷新，但已设置兼容非阻断；release job 最终 SUCCESS
 
 ### 正式 GHCR 镜像
 
 - image：`ghcr.io/cui1112233/qiantie-v88:public-90cd3c1a9084`
 - registry digest：`sha256:cbfcd3de69c06617af545559c2266cca1d4db29d57f2cd10f6b3f8a4cae5aad8`
-- local build image：`qiantie-v88:public-90cd3c1a9084`
-- local Docker image SHA：`sha256:01e589a8eca6527419f4a491ef4f785738c86e31d7907586ca20c6357770f994`
 - architecture：`linux/amd64`
-
-### tar fallback
-
-- archive：`qiantie-v88-linux-amd64-90cd3c1a9084.tar.gz`
-- size：约 `68M`
-- SHA256：`05650cc6105a250eea8f35d21a2f2368893ed3ffcd1af98ee8c469133d588efe`
 
 ### Artifact 清理
 
-真实执行结果：
-
-- 检测到旧 V88 AMD64 release artifacts：`16`
+- 检测旧 V88 AMD64 release artifacts：`16`
 - 自动删除：`14`
 - 保留最近：`2`
-- cleanup step：PASS
-
-Artifact 存储额度仍提示需要 `6–12 hours` 重新计算，因此本次兼容 tar artifact 尚未重新持久化；这不影响 GHCR 正式镜像已经发布。
+- cleanup：PASS
 
 ---
 
 ## 2026-09-06｜执行节点 05｜ECS 自动部署通道检查
 
-### 检查结果
+仓库未发现既有 SSH/ECS/TOS 自动发布通道，因此新增基于 GitHub Actions + SSH 的最后一跳。
 
-仓库未发现以下现成部署通道：
-
-- 公网 ECS IP 写入现有 workflow
-- `SSH_HOST` / ECS SSH secrets 命名
-- `appleboy/ssh-action`
-- `scp` / SSH 自动发布脚本
-- Volcano Engine / TOS 发布脚本
-
-已知生产运行形态按现有 V88 部署保持：
+生产目标：
 
 - ECS：`115.190.156.223`
 - SSH 用户：`root`
-- Docker Compose 工作目录：`/opt/v88`
+- Compose 工作目录：`/opt/v88`
 - Compose 文件：`/opt/v88/docker-compose.yml`
 - service：`v88-node`
-- 当前生产镜像 tag：`v88-public-v88-node:v88-latest`
+- 生产镜像 tag：`v88-public-v88-node:v88-latest`
 
-设计决定：
-
-> 不在 ECS 上保存 GHCR 凭据。GitHub Runner 使用已经构建并验证通过的本地镜像，通过 SSH 流式执行 `docker save | gzip | ssh ... docker load`，然后在 ECS 原地给镜像打生产 tag，并用现有 Docker Compose 强制重建 `v88-node`。这样数据库、Redis、环境变量、volume、network、端口均继续由现有 Compose 管理。
+设计：GitHub Runner 将已验证镜像通过 `docker save | gzip | ssh ... docker load` 直接流式送入 ECS，不在 ECS 保存 GHCR 登录凭据。
 
 唯一需要的 GitHub Secret：
 
 `V88_ECS_SSH_PRIVATE_KEY`
 
-如果该 Secret 不存在：workflow 必须显式记录 `ECS_DEPLOY_READY=false` 并跳过 ECS；不能伪装成已经部署。
-
 ---
 
 ## 2026-09-06｜执行节点 06｜ECS 部署 TDD RED + 实现
 
-### RED 测试
+### RED
 
-新增：
+新增：`tests/novel-panel-v783031-ecs-deploy.test.js`
 
-`tests/novel-panel-v783031-ecs-deploy.test.js`
-
-初始提交：
-
-`183106449b1862dab9ec20ab142bbb016b0ba8c9`
-
-随后增加生产安全要求：验证失败必须自动恢复旧生产镜像，而不只是保留 rollback tag。
-
-扩展测试提交：
-
-`09b24b78e1c38a5201fdeb1b666a4f7d381b6e37`
-
-V31 regression：
-
-- run：`34017985059`
+- 初始提交：`183106449b1862dab9ec20ab142bbb016b0ba8c9`
+- 自动回滚约束提交：`09b24b78e1c38a5201fdeb1b666a4f7d381b6e37`
+- RED run：`34017985059`
 - job：`101445141537`
-- 结果：按预期 RED
-- 总测试：`9`
-- PASS：`8`
-- FAIL：`1`
-- 唯一失败：`V78.3.0.31 guarded ECS deployment regression`
-- 期望错误：`release workflow must prepare the ECS SSH channel`
-
-原有 V31 业务、发布分发、版本身份等测试继续 PASS。
+- 总测试：9
+- PASS：8
+- FAIL：1
+- 唯一失败：缺少 ECS SSH 部署步骤
 
 ### GREEN 实现
 
-修改：
-
-`.github/workflows/v88-linux-amd64-image-release.yml`
-
-提交：
-
-`e4b59f272806e203b251c5a47f772d958d9760e2`
+提交：`e4b59f272806e203b251c5a47f772d958d9760e2`
 
 加入：
 
-1. 固定生产目标：
-   - `ECS_HOST=115.190.156.223`
-   - `ECS_USER=root`
-2. `Prepare V88 ECS SSH`
-   - 读取 `V88_ECS_SSH_PRIVATE_KEY`
-   - Secret 缺失时设置 `ECS_DEPLOY_READY=false` 并明确跳过
-   - Secret 存在时仅允许 key-only / password-disabled SSH
-   - 预检 root、Docker、Docker Compose、`/opt/v88/docker-compose.yml`
-3. `Deploy verified image to V88 ECS`
-   - `docker save "$IMAGE_NAME" | gzip -1 | ssh ... 'gunzip | docker load'`
-   - 当前 `v88-public-v88-node:v88-latest` 先保存为 `v88-public-v88-node:rollback-<SHA>-<timestamp>`
-   - 新镜像重新 tag 为 `v88-public-v88-node:v88-latest`
-   - `cd /opt/v88`
-   - `docker compose up -d --no-deps --force-recreate v88-node`
-4. `Verify V88 ECS deployment`
-   - ECS 本机 `127.0.0.1:3000/api/novel-panel/build-info`
-   - 公网 `115.190.156.223:3000/api/novel-panel/build-info`
-   - 强制要求 `app_version=v78.3.0.31`
-   - 强制要求 `release_version=v78.3.0.31`
-   - 验证公网 `/novel-panel` 可访问
-5. `Rollback V88 ECS on failed verification`
-   - `if: failure()`
-   - 读取部署前记录的 rollback image
-   - 恢复 `v88-public-v88-node:v88-latest`
-   - 再次强制重建 `v88-node`
-   - 没有 rollback 记录时拒绝猜测
+1. `Prepare V88 ECS SSH`
+2. `Deploy verified image to V88 ECS`
+3. 部署前自动保存 rollback image
+4. `/opt/v88` 原地 Compose 重建 `v88-node`
+5. ECS localhost + 公网 V31 build-info 验证
+6. 公网 `/novel-panel` 验证
+7. 验证失败自动 rollback
+8. GitHub Secret 缺失时显式跳过，绝不虚报部署
 
-### 当前阶段
+---
 
-正在检查提交 `e4b59f27...` 触发的真实 Actions：
+## 2026-09-06｜执行节点 07｜ECS 自动部署最终 CI 验证
 
-- V31 regression 是否 9/9 GREEN
-- Linux AMD64 release 是否继续成功
-- `V88_ECS_SSH_PRIVATE_KEY` 在 GitHub 是否已经存在
-- 如果存在：本轮会直接执行 ECS 发布 + 公网 V31 验证
-- 如果不存在：本轮会明确跳过 ECS，下一步只剩一次性把现有 ECS SSH 私钥加入 GitHub Secret
+### V31 专用回归最终 GREEN
+
+- workflow：`Novel Panel V78.3.0.31 Regression`
+- run：`34018081211`
+- conclusion：`success`
+- 最终 regression：`9 / 9 PASS`
+
+新增 ECS deployment regression 已从 RED 转 GREEN，原有业务/版本/发布分发测试继续全部 PASS。
+
+### Release workflow
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34018081234`
+- job：`101445406996`
+- conclusion：`success`
+
+镜像重新构建和发布成功：
+
+- local image：`qiantie-v88:public-e4b59f272806`
+- Docker image SHA：`sha256:86966626ae01cdcd370828673ad295181a025289f1934a6cb746a78f572949fd`
+- GHCR image：`ghcr.io/cui1112233/qiantie-v88:public-e4b59f272806`
+- GHCR digest：`sha256:d9468422533313cecc2b9f70fcf442ba6710cecce15ca8b39b5345381af23b29`
+- tar：`qiantie-v88-linux-amd64-e4b59f272806.tar.gz`
+- tar SHA256：`5c31c06e2f8175bd5604ee0a024e584242b05196df1db63d9387e87076a7f748`
+- tar size：约 `68M`
+
+### GitHub ECS Secret 检查结果
+
+真实日志：
+
+- `V88_ECS_SSH_PRIVATE_KEY:` 为空
+- notice：`V88_ECS_SSH_PRIVATE_KEY is not configured; ECS deployment will be skipped.`
+- `ECS_DEPLOY_READY=false`
+- Deploy step：安全跳过
+- Verify step：安全跳过
+- Rollback step：未触发（因为根本没有部署）
+
+结论：
+
+> 当前唯一剩余阻塞不是代码、镜像、CI 或发布链，而是 GitHub 仓库尚未配置 `V88_ECS_SSH_PRIVATE_KEY`。因此本轮没有修改 ECS，也没有公网 V31 验证。工作流没有误报部署。
+
+### Artifact 兼容通道
+
+- cleanup 检测到 2 个旧 V88 AMD64 artifacts，保留 2，删除 0
+- GitHub Artifact quota 仍未完成 6–12 小时重新计算
+- upload-artifact 仍提示 quota hit
+- 因 GHCR 已成功发布，该兼容通道不阻断正式 release workflow
+
+### 当前最终状态
+
+- V31 源码：✅
+- V31 正式版本身份：✅
+- V31 regression：✅ `9/9 PASS`
+- Linux AMD64 Docker image：✅
+- GHCR durable image：✅
+- Release workflow：✅
+- 自动清理旧 Artifact：✅
+- ECS 自动部署代码：✅
+- 自动回滚：✅
+- GitHub ECS SSH Secret：❌ 未配置
+- ECS 实际切换：❌ 未执行
+- 公网 V31 验证：❌ 未执行
+
+### 唯一下一步
+
+在 GitHub 仓库 Actions Secret 中一次性新增：
+
+`V88_ECS_SSH_PRIVATE_KEY`
+
+值必须是当前 ECS `root@115.190.156.223` 已授权的 SSH **私钥完整内容**。不要把私钥提交到 Git、OBJ 或聊天记录。
+
+Secret 配好后，再触发 `V88 Linux AMD64 Public Image Release`，工作流将自动完成：SSH 预检 → 镜像流式传输 → 生产镜像 rollback 备份 → Compose 重建 → ECS 内网 V31 验证 → 公网 V31 验证 → 失败自动回滚。
