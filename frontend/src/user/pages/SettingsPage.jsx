@@ -279,7 +279,7 @@ export function SettingsPage() {
         <section className="settings-section settings-executor-section" aria-labelledby="settings-executor-title">
           <div>
             <h2 id="settings-executor-title">豆包本地执行器</h2>
-            <p>本机账号登录状态只保存在本地，平台仅接收任务状态和视频结果。请先下载客户端，再生成配对码完成绑定。</p>
+            <p>本机账号登录状态只保存在本地，平台仅接收任务状态和视频结果。首次使用请下载安装客户端；已安装设备检测到新版本后请直接点“立即更新”，无需重新下载安装包。</p>
           </div>
           <div className="settings-executor-layout">
             <div className="settings-executor-status">
@@ -306,6 +306,9 @@ export function SettingsPage() {
                         : versionState.updateAvailable
                           ? '有新版本'
                           : '已是最新';
+                  const canUpdateInstalled = item.os === 'windows'
+                    && versionState.versionKnown
+                    && (versionState.updateRequired || versionState.updateAvailable);
                   return (
                     <List.Item>
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
@@ -315,7 +318,12 @@ export function SettingsPage() {
                             {item.online ? '在线' : '离线'} · 当前版本：{item.version || '未知'}
                           </Typography.Paragraph>
                         </div>
-                        <Typography.Text type={versionState.updateRequired ? 'danger' : versionState.updateAvailable ? 'warning' : 'secondary'}>{versionLabel}</Typography.Text>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Typography.Text type={versionState.updateRequired ? 'danger' : versionState.updateAvailable ? 'warning' : 'secondary'}>{versionLabel}</Typography.Text>
+                          {canUpdateInstalled ? (
+                            <Button size="small" type={versionState.updateRequired ? 'primary' : 'default'} href="yizhan-executor://update">立即更新</Button>
+                          ) : null}
+                        </div>
                       </div>
                     </List.Item>
                   );
@@ -328,7 +336,7 @@ export function SettingsPage() {
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={refreshLocalExecutorStatus} loading={loadingExecutors || loadingExecutorRelease}>刷新状态</Button>
               <Button type="primary" onClick={createLocalExecutorPairing}>生成配对码</Button>
               <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href={executorRelease?.downloads?.mac || undefined} disabled={!executorRelease?.downloads?.mac} loading={loadingExecutorRelease}>下载 Mac 版</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href={executorRelease?.downloads?.windows || undefined} disabled={!executorRelease?.downloads?.windows} loading={loadingExecutorRelease}>下载 Windows 版{executorRelease?.latestVersion ? ` v${executorRelease.latestVersion}` : ''}</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href={executorRelease?.downloads?.windows || undefined} disabled={!executorRelease?.downloads?.windows} loading={loadingExecutorRelease}>首次安装 Windows 版{executorRelease?.latestVersion ? ` v${executorRelease.latestVersion}` : ''}</Button>
             </div>
           </div>
         </section>
