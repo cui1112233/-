@@ -24,6 +24,8 @@ on:
 
 permissions:
   contents: read
+  actions: write
+  packages: write
 
 env:
   IMAGE_PLATFORM: linux/amd64
@@ -80,6 +82,8 @@ jobs:
           set -Eeuo pipefail
           short_sha="${GITHUB_SHA::12}"
           image="qiantie-v88:public-${short_sha}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          ghcr_image="ghcr.io/${owner}/qiantie-v88:public-${short_sha}"
           docker build --platform "$IMAGE_PLATFORM" -t "$image" .
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "$IMAGE_PLATFORM"
           docker run --rm --entrypoint sh "$image" -c '
@@ -88,8 +92,25 @@ jobs:
             test -s /app/pets/pixiu/spritesheet.webp &&
             grep -R -q ".cm-penguin-shell" /app/frontend/dist/assets/*.css
           '
+          docker tag "$image" "$ghcr_image"
           echo "IMAGE_NAME=$image" >> "$GITHUB_ENV"
+          echo "GHCR_IMAGE=$ghcr_image" >> "$GITHUB_ENV"
           echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push V88 AMD64 image to GHCR
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker push "$GHCR_IMAGE"
+          docker image inspect "$GHCR_IMAGE" >/dev/null
+          echo "Published durable image: $GHCR_IMAGE"
 
       - name: Save release package
         shell: bash
@@ -108,13 +129,17 @@ jobs:
             echo "commit=${GITHUB_SHA}"
             echo "architecture=${IMAGE_PLATFORM}"
             echo "image=${IMAGE_NAME}"
+            echo "registry_image=${GHCR_IMAGE}"
             echo "cm_release_guard=passed"
           } > "$release_dir/RELEASE-METADATA.txt"
           cat > "$release_dir/ECS-STORAGE.txt" <<EOF
           Recommended ECS release directory:
           /opt/qiantie/releases/v88/${SHORT_SHA}/
 
-          After upload:
+          Primary distribution (does not depend on Actions Artifact quota):
+          ${GHCR_IMAGE}
+
+          Artifact/tar fallback after upload:
           cd /opt/qiantie/releases/v88/${SHORT_SHA}
           sha256sum -c SHA256SUMS
           docker load -i ${archive}
@@ -124,7 +149,36 @@ jobs:
           cat "$release_dir/SHA256SUMS"
           du -h "$release_dir"/*
 
+      - name: Prune old V88 AMD64 release artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prefix = 'qiantie-v88-linux-amd64-';
+            const keepLatest = 2;
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+              },
+            );
+            const releaseArtifacts = artifacts
+              .filter((artifact) => artifact.name.startsWith(prefix))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const obsolete = releaseArtifacts.slice(keepLatest);
+            core.info(`Found ${releaseArtifacts.length} V88 AMD64 release artifacts; pruning ${obsolete.length}.`);
+            for (const artifact of obsolete) {
+              core.info(`Deleting old artifact ${artifact.name} (${artifact.id})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+            }
+
       - name: Upload V88 AMD64 release artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: qiantie-v88-linux-amd64-${{ env.SHORT_SHA }}
