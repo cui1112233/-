@@ -64,8 +64,14 @@ type Book struct {
 	BookID           string            `json:"bookId"`
 	Title            string            `json:"title"`
 	SourceText       string            `json:"sourceText,omitempty"`
+	ContentPreview   string            `json:"contentPreview,omitempty"`
+	ContentLineLimit int               `json:"contentLineLimit,omitempty"`
+	ContentLineCount int               `json:"contentLineCount,omitempty"`
 	SourceTaskID     string            `json:"sourceTaskId,omitempty"`
 	Platform         string            `json:"platform,omitempty"`
+	Gender           string            `json:"gender,omitempty"`
+	Type             string            `json:"type,omitempty"`
+	SourceLabel      string            `json:"sourceLabel,omitempty"`
 	TxtText          string            `json:"txtText,omitempty"`
 	TxtFileName      string            `json:"txtFileName,omitempty"`
 	SourceMetadata   map[string]any    `json:"sourceMetadata,omitempty"`

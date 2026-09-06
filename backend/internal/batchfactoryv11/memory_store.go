@@ -255,6 +255,9 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 			Revision: book.Revision,
 		}
 		effective := ResolveSettings(b.SettingsState.Patch, book.SettingsState.Patch)
+		if err := decorateBookContent(&book, b.SettingsState.Patch); err != nil {
+			continue
+		}
 		book.Mode = rawString(effective, "productionMode", rawString(effective, "mode", "original"))
 		if book.Mode == "original_direct" {
 			book.Mode = "original"

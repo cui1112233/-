@@ -34,18 +34,29 @@ func (s *ReadbackMySQLStore) hydrateSettingsState(ctx context.Context, owner str
 			return Batch{}, err
 		}
 		book.SettingsState = SettingsState{Patch: clonePatch(patch), Revision: book.Revision}
+		if err := decorateBookContent(book, batch.SettingsState.Patch); err != nil {
+			return Batch{}, err
+		}
 		effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
 		book.Mode = rawString(effective, "productionMode", rawString(effective, "mode", "original"))
-		if book.Mode == "original_direct" { book.Mode = "original" }
-		if book.Mode == "viral_hook" { book.Mode = "viral" }
+		if book.Mode == "original_direct" {
+			book.Mode = "original"
+		}
+		if book.Mode == "viral_hook" {
+			book.Mode = "viral"
+		}
 		if hook, err := s.LatestHookRevision(ctx, owner, batch.ID, book.ID); err == nil {
 			book.Hook = &hook
-		} else if !errors.Is(err, ErrNotFound) { return Batch{}, err }
+		} else if !errors.Is(err, ErrNotFound) {
+			return Batch{}, err
+		}
 		if revision, err := loadLatestDirectorRevision(ctx, s.db, owner, batch.ID, book.ID); err == nil {
 			revision.Videos = append([]Video(nil), book.Videos...)
 			book.DirectorRevision = &revision
 			book.Assets = DirectorAssets{Characters: revision.Output.Characters, Scenes: revision.Output.Scenes, Props: revision.Output.Props}
-		} else if !errors.Is(err, ErrNotFound) { return Batch{}, err }
+		} else if !errors.Is(err, ErrNotFound) {
+			return Batch{}, err
+		}
 
 		for videoIndex := range book.Videos {
 			video := &book.Videos[videoIndex]
