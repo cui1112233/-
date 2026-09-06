@@ -1,0 +1,47 @@
+name: V88 Script Prompt Pipeline
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - 'lib/script-generation-rules.js'
+      - 'lib/script-generation-rules.test.js'
+      - 'lib/system-preset-catalog.js'
+      - 'routes/chat.js'
+      - 'routes/chat.prompt-pipeline.test.js'
+      - 'prompts/**'
+      - 'frontend/src/shared/api/generation.js'
+      - 'frontend/src/user/pages/ScriptPage.jsx'
+      - 'frontend/src/user/pages/scriptGenerationRules.js'
+      - 'frontend/src/user/pages/scriptFinalSegment.js'
+      - 'frontend/src/user/pages/scriptPromptPipeline.test.js'
+      - '.github/workflows/v88-script-prompt-pipeline.yml'
+  workflow_dispatch:
+
+jobs:
+  node-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prompt pipeline contracts
+        run: |
+          node --test lib/script-generation-rules.test.js
+          if [ -f routes/chat.prompt-pipeline.test.js ]; then node --test routes/chat.prompt-pipeline.test.js; fi
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run test
+      - run: npm --prefix frontend run build
