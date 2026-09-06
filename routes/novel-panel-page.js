@@ -1,5 +1,6 @@
 const express = require('express');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const {
   assertSafeAssetPath,
@@ -56,10 +57,6 @@ function sameManifest(left, right) {
   return left?.version === right?.version && JSON.stringify(left?.assets) === JSON.stringify(right?.assets);
 }
 
-function assetFingerprint(stat) {
-  return `${stat.size}:${stat.mtimeMs}:${stat.ino ?? ''}`;
-}
-
 function renderWorkbenchHtml(html, manifest) {
   return html.replace(/((?:src|href)\s*=\s*)(["'])([^"']+)\2/gi, (match, prefix, quote, rawUrl) => {
     let url;
@@ -86,34 +83,37 @@ function createNovelPanelPageRouter(options = {}) {
     logger.error(`[novel-panel-workbench] ${message}`);
   };
   let manifest = null;
-  let manifestFingerprints = new Map();
+  let assetSources = new Map();
+  let snapshotRoot = null;
   const watchers = [];
 
   function invalidateManifest(message) {
     if (!manifest) return;
     manifest = null;
-    manifestFingerprints = new Map();
     reportFallback(message);
   }
 
-  function captureManifestFingerprints(nextManifest) {
-    const fingerprints = new Map();
+  function createAssetSources(nextManifest) {
+    const sources = new Map();
+    const nextSnapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-workbench-snapshot-'));
     for (const relativePath of Object.keys(nextManifest.assets)) {
       const assetPath = resolveAssetPath(workbenchRoot, relativePath);
-      fingerprints.set(relativePath, assetFingerprint(fs.statSync(assetPath)));
+      const snapshotPath = path.join(nextSnapshotRoot, ...relativePath.split('/'));
+      fs.mkdirSync(path.dirname(snapshotPath), { recursive: true });
+      fs.copyFileSync(assetPath, snapshotPath);
+      sources.set(relativePath, { sourcePath: assetPath, snapshotPath });
     }
-    return fingerprints;
+    snapshotRoot = nextSnapshotRoot;
+    return sources;
   }
 
   function watchManifestAssets() {
     if (!manifest) return;
-    const directories = new Set(Object.keys(manifest.assets).map(relativePath => (
-      path.dirname(resolveAssetPath(workbenchRoot, relativePath))
-    )));
+    const directories = new Set([...assetSources.values()].map(asset => path.dirname(asset.sourcePath)));
     for (const directory of directories) {
       try {
         const watcher = fs.watch(directory, { persistent: false }, () => {
-          void currentManifest();
+          invalidateManifest('Workbench JS/CSS files changed after snapshot creation; serving source assets with revalidation. Regenerate the manifest or restart the service.');
         });
         watchers.push(watcher);
       } catch (error) {
@@ -128,29 +128,14 @@ function createNovelPanelPageRouter(options = {}) {
     } else {
       manifest = buildWorkbenchManifest(workbenchRoot);
     }
-    manifestFingerprints = captureManifestFingerprints(manifest);
+    assetSources = createAssetSources(manifest);
     watchManifestAssets();
   } catch (error) {
     manifest = null;
+    assetSources = new Map();
+    if (snapshotRoot) fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    snapshotRoot = null;
     reportFallback(`Asset manifest unavailable or invalid (${error.message}); serving non-versioned assets with revalidation. Regenerate/sync the workbench assets and restart the service.`);
-  }
-
-  async function currentManifest() {
-    if (!manifest) return null;
-    for (const relativePath of Object.keys(manifest.assets)) {
-      try {
-        const assetPath = resolveAssetPath(workbenchRoot, relativePath);
-        const stat = await fs.promises.stat(assetPath);
-        if (assetFingerprint(stat) !== manifestFingerprints.get(relativePath)) {
-          invalidateManifest('Workbench JS/CSS bytes changed after manifest creation; serving non-versioned assets with revalidation. Regenerate the manifest or restart the service.');
-          return null;
-        }
-      } catch (error) {
-        invalidateManifest(`Workbench asset validation failed (${error.message}); serving non-versioned assets with revalidation. Regenerate/sync the workbench assets and restart the service.`);
-        return null;
-      }
-    }
-    return manifest;
   }
 
   async function sendWorkbenchHtml(req, res) {
@@ -162,10 +147,9 @@ function createNovelPanelPageRouter(options = {}) {
       if (error?.code === 'ENOENT') return res.status(404).send('Novel panel workbench assets are not synced.');
       throw error;
     }
-    const usableManifest = await currentManifest();
-    if (usableManifest) {
+    if (manifest) {
       try {
-        html = renderWorkbenchHtml(html, usableManifest);
+        html = renderWorkbenchHtml(html, manifest);
       } catch (error) {
         reportFallback(`Workbench HTML could not be versioned (${error.message}); serving original asset URLs with revalidation. Regenerate/sync the workbench assets and restart the service.`);
       }
@@ -184,34 +168,39 @@ function createNovelPanelPageRouter(options = {}) {
       return res.status(404).send('Not found');
     }
 
-    let assetPath;
-    try {
-      assetPath = resolveAssetPath(workbenchRoot, requestedPath);
-    } catch (_) {
+    const asset = assetSources.get(requestedPath);
+    if (!asset) {
       return res.status(404).send('Not found');
     }
 
-    const usableManifest = await currentManifest();
-    const entry = usableManifest?.assets?.[requestedPath];
+    const entry = manifest?.assets?.[requestedPath];
     const expectedVersion = entry?.sha256?.slice(0, 16);
     const versionMatches = typeof req.query.v === 'string'
       && req.query.v === expectedVersion
-      && usableManifest === manifest;
+      && Boolean(manifest);
     if (versionMatches) setImmutableAssetCache(res);
     else setAssetCache(res);
-    let stat;
-    try {
-      stat = await fs.promises.stat(assetPath);
-    } catch (_) {
-      return res.status(404).send('Not found');
+    let sendPath;
+    let sendRoot;
+    if (versionMatches) {
+      sendPath = path.relative(snapshotRoot, asset.snapshotPath);
+      sendRoot = snapshotRoot;
+      res.set('ETag', `"${entry.sha256.slice(0, 16)}"`);
+    } else {
+      sendPath = requestedPath;
+      sendRoot = workbenchRoot;
+      let stat;
+      try {
+        stat = await fs.promises.stat(asset.sourcePath);
+      } catch (_) {
+        return res.status(404).send('Not found');
+      }
+      res.set('ETag', `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`);
     }
-    res.set('ETag', entry
-      ? `"${entry.sha256.slice(0, 16)}"`
-      : `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`);
     res.type(requestedPath);
-    return res.sendFile(requestedPath, { root: workbenchRoot }, error => {
+    return res.sendFile(sendPath, { root: sendRoot }, error => {
       if (!error || res.headersSent) return;
-      reportFallback(`Workbench asset delivery failed (${error.code || error.message}); serving 404 for ${requestedPath} at ${assetPath}.`);
+      reportFallback(`Workbench asset delivery failed (${error.code || error.message}); serving 404 for ${requestedPath}.`);
       res.status(error.statusCode || 404).send('Not found');
     });
   }
@@ -219,7 +208,13 @@ function createNovelPanelPageRouter(options = {}) {
   router.get('/workbench', sendWorkbenchHtml);
   router.get('/workbench/index.html', sendWorkbenchHtml);
   router.get(/^\/workbench\/(.*)$/, sendWorkbenchAsset);
-  router.close = () => watchers.splice(0).forEach(watcher => watcher.close());
+  router.close = () => {
+    watchers.splice(0).forEach(watcher => watcher.close());
+    if (snapshotRoot) {
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+      snapshotRoot = null;
+    }
+  };
   return router;
 }
 

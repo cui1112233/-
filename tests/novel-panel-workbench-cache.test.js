@@ -55,6 +55,15 @@ function localResources(html) {
   return [...html.matchAll(/(?:src|href)=["'](\/novel-panel\/workbench\/[^"']+)["']/g)].map(match => match[1]);
 }
 
+async function waitFor(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail('Timed out waiting for asynchronous workbench invalidation');
+}
+
 test('delivered HTML versions every local JS/CSS resource and each hash URL has immutable verified bytes', async t => {
   const root = realWorkbenchRoot;
   const manifest = buildWorkbenchManifest(root);
@@ -101,8 +110,11 @@ test('repeated unchanged HTML and asset requests reuse hashes and avoid synchron
   const root = createFixture(t);
   const baseUrl = await createServer(t, root);
   const originalReadFileSync = fs.readFileSync;
+  const originalRealpathSync = fs.realpathSync;
+  const originalStatSync = fs.statSync;
   const originalCreateHash = crypto.createHash;
   let synchronousAssetReads = 0;
+  let synchronousPathChecks = 0;
   let hashCreations = 0;
   fs.readFileSync = function countedReadFileSync(filePath, ...args) {
     if (path.resolve(String(filePath)).startsWith(`${root}${path.sep}`) && /\.(?:css|js)$/.test(String(filePath))) {
@@ -110,12 +122,22 @@ test('repeated unchanged HTML and asset requests reuse hashes and avoid synchron
     }
     return originalReadFileSync.call(this, filePath, ...args);
   };
+  fs.realpathSync = function countedRealpathSync(filePath, ...args) {
+    if (path.resolve(String(filePath)).startsWith(`${root}${path.sep}`)) synchronousPathChecks += 1;
+    return originalRealpathSync.call(this, filePath, ...args);
+  };
+  fs.statSync = function countedStatSync(filePath, ...args) {
+    if (path.resolve(String(filePath)).startsWith(`${root}${path.sep}`)) synchronousPathChecks += 1;
+    return originalStatSync.call(this, filePath, ...args);
+  };
   crypto.createHash = function countedCreateHash(...args) {
     hashCreations += 1;
     return originalCreateHash.apply(this, args);
   };
   t.after(() => {
     fs.readFileSync = originalReadFileSync;
+    fs.realpathSync = originalRealpathSync;
+    fs.statSync = originalStatSync;
     crypto.createHash = originalCreateHash;
   });
 
@@ -131,6 +153,7 @@ test('repeated unchanged HTML and asset requests reuse hashes and avoid synchron
   assert.equal(await firstAsset.text(), 'window.app=true;\n');
   assert.equal(await secondAsset.text(), 'window.app=true;\n');
   assert.equal(synchronousAssetReads, 0);
+  assert.equal(synchronousPathChecks, 0);
   assert.equal(hashCreations, 0);
 });
 
@@ -161,6 +184,7 @@ test('asset drift cannot retain immutable caching or stale versioned HTML', asyn
   const oldHash = manifest.assets['app.js'].sha256.slice(0, 16);
   fs.writeFileSync(path.join(root, 'app.js'), 'window.app=false;\n');
 
+  await waitFor(() => diagnostics.some(message => /changed/i.test(message)));
   const asset = await fetch(`${baseUrl}/novel-panel/workbench/app.js?v=${oldHash}`);
   assert.equal(asset.headers.get('cache-control'), revalidateCache);
   const page = await fetch(`${baseUrl}/novel-panel/workbench`);
