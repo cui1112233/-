@@ -196,17 +196,21 @@ jobs:
             echo "docker_compose=unavailable" >&2
             exit 23
           fi
-          if test -f /opt/v88/docker-compose.yml; then
-            echo "compose_file=present"
+          if test -f /opt/qiantie/v88/deploy/v88-public/docker-compose.yml; then
+            echo "compose_file=/opt/qiantie/v88/deploy/v88-public/docker-compose.yml"
+            compose_dir="/opt/qiantie/v88/deploy/v88-public"
+            compose_file="$compose_dir/docker-compose.yml"
+            echo "compose_services_begin"
+            docker compose -f "$compose_file" config --services
+            echo "compose_services_end"
+            echo "compose_images_begin"
+            docker compose -f "$compose_file" config --images
+            echo "compose_images_end"
+            echo "compose_status_begin"
+            docker compose -f "$compose_file" ps --all
+            echo "compose_status_end"
           else
-            echo "compose_file=missing" >&2
-            echo "compose_candidates_begin"
-            find /opt -maxdepth 8 -type f \( -name docker-compose.yml -o -name compose.yml \) -print | sort || true
-            echo "compose_projects_begin"
-            docker compose ls --all || true
-            echo "compose_containers_begin"
-            docker ps -a --format 'name={{.Names}} image={{.Image}} workdir={{index .Labels "com.docker.compose.project.working_dir"}} config={{index .Labels "com.docker.compose.project.config_files"}}' || true
-            echo "compose_discovery_end"
+            echo "compose_file=/opt/qiantie/v88/deploy/v88-public/docker-compose.yml missing" >&2
             exit 24
           fi
           REMOTE
