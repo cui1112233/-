@@ -15,15 +15,6 @@ $ExecutorPackagePath = Join-Path $ExecutorDir 'package.json'
 $ExecutorDistDir = Join-Path $ExecutorDir 'dist'
 $ReportPath = Join-Path $ExecutorDistDir 'local-validation-report.json'
 
-function Require-Command {
-  param([Parameter(Mandatory = $true)][string]$Name)
-  $command = Get-Command $Name -ErrorAction SilentlyContinue
-  if (-not $command) {
-    throw "Required command is missing: $Name"
-  }
-  return $command
-}
-
 function Invoke-NativeStep {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -47,7 +38,6 @@ function Invoke-NativeStep {
 if ($env:OS -ne 'Windows_NT') {
   throw 'Phase 1 local validation must run on Windows because it builds the NSIS Windows installer.'
 }
-
 if ($Channel -ne 'stable') {
   throw 'Phase 1 release-candidate validation must use channel=stable.'
 }
@@ -55,13 +45,18 @@ if ($MinimumVersion -ne '1.0.3') {
   throw 'Phase 1 release-candidate validation requires minimumVersion=1.0.3.'
 }
 
-Require-Command node | Out-Null
-Require-Command npm | Out-Null
-Require-Command go | Out-Null
-Require-Command git | Out-Null
+Get-Command node -ErrorAction Stop | Out-Null
+Get-Command npm -ErrorAction Stop | Out-Null
+Get-Command go -ErrorAction Stop | Out-Null
+Get-Command git -ErrorAction Stop | Out-Null
+$npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $npmCommand) {
+  $npmCommand = Get-Command npm -ErrorAction Stop
+}
+$npmPath = $npmCommand.Source
 
 $nodeVersion = (& node --version).Trim()
-$npmVersion = (& npm --version).Trim()
+$npmVersion = (& $npmPath --version).Trim()
 $goVersion = (& go version).Trim()
 $gitVersion = (& git --version).Trim()
 Write-Host "Node: $nodeVersion"
@@ -81,7 +76,7 @@ if ($version -ne '1.0.4') {
 # backend: go test ./...
 Invoke-NativeStep -Name 'Backend Go tests' -WorkingDirectory $BackendDir -FilePath 'go' -Arguments @('test', './...')
 
-Invoke-NativeStep -Name 'Root dependency install' -WorkingDirectory $RepoRoot -FilePath 'npm' -Arguments @('ci')
+Invoke-NativeStep -Name 'Root dependency install' -WorkingDirectory $RepoRoot -FilePath $npmPath -Arguments @('ci')
 $routeTests = @((Join-Path $RepoRoot 'test/local-executor-updates.test.js'))
 $routeTests += @(Get-ChildItem -Path (Join-Path $RepoRoot 'test') -Filter 'script-video*.test.js' -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
 if (-not (Test-Path $routeTests[0])) {
@@ -90,23 +85,23 @@ if (-not (Test-Path $routeTests[0])) {
 # node --test test/local-executor-updates.test.js test/script-video*.test.js
 Invoke-NativeStep -Name 'Node executor route tests' -WorkingDirectory $RepoRoot -FilePath 'node' -Arguments (@('--test') + $routeTests)
 
-Invoke-NativeStep -Name 'Executor dependency install' -WorkingDirectory $ExecutorDir -FilePath 'npm' -Arguments @('install')
+Invoke-NativeStep -Name 'Executor dependency install' -WorkingDirectory $ExecutorDir -FilePath $npmPath -Arguments @('install')
 # npm test
-Invoke-NativeStep -Name 'Executor tests' -WorkingDirectory $ExecutorDir -FilePath 'npm' -Arguments @('test')
+Invoke-NativeStep -Name 'Executor tests' -WorkingDirectory $ExecutorDir -FilePath $npmPath -Arguments @('test')
 # npm run check
-Invoke-NativeStep -Name 'Executor syntax check' -WorkingDirectory $ExecutorDir -FilePath 'npm' -Arguments @('run', 'check')
+Invoke-NativeStep -Name 'Executor syntax check' -WorkingDirectory $ExecutorDir -FilePath $npmPath -Arguments @('run', 'check')
 
-Invoke-NativeStep -Name 'Frontend dependency install' -WorkingDirectory $FrontendDir -FilePath 'npm' -Arguments @('ci')
+Invoke-NativeStep -Name 'Frontend dependency install' -WorkingDirectory $FrontendDir -FilePath $npmPath -Arguments @('ci')
 # npm test
-Invoke-NativeStep -Name 'Frontend tests' -WorkingDirectory $FrontendDir -FilePath 'npm' -Arguments @('test')
+Invoke-NativeStep -Name 'Frontend tests' -WorkingDirectory $FrontendDir -FilePath $npmPath -Arguments @('test')
 # npm run build
-Invoke-NativeStep -Name 'Frontend build' -WorkingDirectory $FrontendDir -FilePath 'npm' -Arguments @('run', 'build')
+Invoke-NativeStep -Name 'Frontend build' -WorkingDirectory $FrontendDir -FilePath $npmPath -Arguments @('run', 'build')
 
 if (Test-Path $ExecutorDistDir) {
   Remove-Item -Recurse -Force $ExecutorDistDir
 }
 # npm run dist:win
-Invoke-NativeStep -Name 'Windows NSIS build' -WorkingDirectory $ExecutorDir -FilePath 'npm' -Arguments @('run', 'dist:win')
+Invoke-NativeStep -Name 'Windows NSIS build' -WorkingDirectory $ExecutorDir -FilePath $npmPath -Arguments @('run', 'dist:win')
 
 $canonicalName = "yizhan-local-executor-v88-$version-win-x64.exe"
 $canonicalPath = Join-Path $ExecutorDistDir $canonicalName
