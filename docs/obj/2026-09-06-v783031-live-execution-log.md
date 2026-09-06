@@ -4,7 +4,7 @@
 > 仓库：`cui1112233/-`
 > 分支：`v88`
 > 主记录：`docs/obj/2026-09-06-v783031-execution-record.md`
-> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS AUTO-DEPLOY IN PROGRESS / ECS SECRET USER-CONFIGURED / GITHUB ACTIONS RUNNER ALLOCATED / PUBLIC DEPLOYMENT PENDING`
+> 当前状态：`SOURCE VERIFIED / V31 REGRESSION 9/9 PASS / LINUX AMD64 RELEASE SUCCESS / GHCR PUBLISHED / ECS REMOTE COMPOSE PATH DISCOVERY REQUIRED / ECS SECRET USER-CONFIGURED / PUBLIC DEPLOYMENT PENDING`
 
 ---
 
@@ -544,3 +544,43 @@ The job was not started because recent account payments have failed or your spen
 - rollback：⏳ 未触发
 
 当前状态：`GITHUB HOSTED RUNNER ALLOCATED / ECS DEPLOYMENT IN PROGRESS / PUBLIC DEPLOYMENT PENDING`
+
+
+---
+
+## 2026-09-06｜执行节点 13｜ECS 预检逐项诊断确认 Compose 文件路径假设错误
+
+### 最新 Release workflow 真实结果
+
+- workflow：`V88 Linux AMD64 Public Image Release`
+- run：`34030235329`
+- job：`101478280173`
+- head SHA：`9b900a3e4a58b6aeb93a3fd0f5ba88aa713481c9`
+- runner：`ubuntu-24.04`
+- build frontend：✅
+- V88 release contract：✅
+- Linux AMD64 Docker build：✅
+- GHCR push：✅
+- release package：✅
+- Prepare V88 ECS SSH：❌
+
+### 远端逐项非敏感诊断
+
+- SSH 连接与指定 Secret 消费：✅（Secret 值未读取、未输出）
+- `remote_uid=0`：✅
+- `docker_binary=present`：✅
+- `docker_daemon=ready`：✅
+- `docker_compose=ready`：✅
+- `compose_file=/opt/v88/docker-compose.yml`：❌，文件不存在，退出码 24
+
+### 安全边界
+
+本次未执行：
+
+- Docker 镜像传输
+- ECS `docker load`
+- 生产 Compose 重建
+- 公网服务切换
+- 回滚
+
+结论：原部署逻辑中的 `/opt/v88/docker-compose.yml` 是未经现场验证的路径假设；需要先只读发现真实 V88 Compose 工作目录，再更新部署路径。
