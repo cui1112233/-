@@ -12,7 +12,7 @@ function read(file) {
   return fs.readFileSync(file, 'utf8');
 }
 
-function walkText(dir, seen = new Set()) {
+function walkFiles(dir, seen = new Set()) {
   let real;
   try {
     real = fs.realpathSync(dir);
@@ -27,15 +27,15 @@ function walkText(dir, seen = new Set()) {
     const full = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) {
-      files.push(...walkText(full, seen));
+      files.push(...walkFiles(full, seen));
       continue;
     }
     if (/\.(?:js|html|css)$/i.test(entry.name)) files.push(full);
   }
-  return files.map(file => read(file));
+  return files;
 }
 
-const allWorkbenchText = walkText(workbench).join('\n');
+const allWorkbenchText = walkFiles(workbench).map(read).join('\n');
 const runtime = read(runtimePath);
 const index = read(indexPath);
 const app = read(appPath);
