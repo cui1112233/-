@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -57,6 +58,10 @@ function sameManifest(left, right) {
   return left?.version === right?.version && JSON.stringify(left?.assets) === JSON.stringify(right?.assets);
 }
 
+function assetFingerprint(stat) {
+  return `${stat.size}:${stat.mtimeMs}:${stat.ino ?? ''}`;
+}
+
 function renderWorkbenchHtml(html, manifest) {
   return html.replace(/((?:src|href)\s*=\s*)(["'])([^"']+)\2/gi, (match, prefix, quote, rawUrl) => {
     let url;
@@ -85,7 +90,14 @@ function createNovelPanelPageRouter(options = {}) {
   let manifest = null;
   let assetSources = new Map();
   let snapshotRoot = null;
+  let fallbackRoot = null;
   const watchers = [];
+
+  try {
+    fallbackRoot = fs.realpathSync(workbenchRoot);
+  } catch (error) {
+    reportFallback(`Workbench root is unavailable (${error.message}); asset fallback requests will return 404.`);
+  }
 
   function invalidateManifest(message) {
     if (!manifest) return;
@@ -96,12 +108,28 @@ function createNovelPanelPageRouter(options = {}) {
   function createAssetSources(nextManifest) {
     const sources = new Map();
     const nextSnapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-workbench-snapshot-'));
-    for (const relativePath of Object.keys(nextManifest.assets)) {
-      const assetPath = resolveAssetPath(workbenchRoot, relativePath);
-      const snapshotPath = path.join(nextSnapshotRoot, ...relativePath.split('/'));
-      fs.mkdirSync(path.dirname(snapshotPath), { recursive: true });
-      fs.copyFileSync(assetPath, snapshotPath);
-      sources.set(relativePath, { sourcePath: assetPath, snapshotPath });
+    try {
+      for (const relativePath of Object.keys(nextManifest.assets)) {
+        const assetPath = resolveAssetPath(workbenchRoot, relativePath);
+        const snapshotPath = path.join(nextSnapshotRoot, ...relativePath.split('/'));
+        fs.mkdirSync(path.dirname(snapshotPath), { recursive: true });
+        fs.copyFileSync(assetPath, snapshotPath);
+        const copiedBytes = fs.readFileSync(snapshotPath);
+        const copiedStat = fs.statSync(snapshotPath);
+        const copiedHash = crypto.createHash('sha256').update(copiedBytes).digest('hex');
+        const expected = nextManifest.assets[relativePath];
+        if (copiedStat.size !== expected.bytes || copiedHash !== expected.sha256) {
+          throw new Error(`Snapshot verification failed for ${relativePath}`);
+        }
+        sources.set(relativePath, {
+          sourcePath: assetPath,
+          snapshotPath,
+          sourceFingerprint: assetFingerprint(fs.statSync(assetPath))
+        });
+      }
+    } catch (error) {
+      fs.rmSync(nextSnapshotRoot, { recursive: true, force: true });
+      throw error;
     }
     snapshotRoot = nextSnapshotRoot;
     return sources;
@@ -109,17 +137,34 @@ function createNovelPanelPageRouter(options = {}) {
 
   function watchManifestAssets() {
     if (!manifest) return;
-    const directories = new Set([...assetSources.values()].map(asset => path.dirname(asset.sourcePath)));
-    for (const directory of directories) {
-      try {
-        const watcher = fs.watch(directory, { persistent: false }, () => {
+    for (const asset of assetSources.values()) {
+      const listener = current => {
+        if (assetFingerprint(current) !== asset.sourceFingerprint) {
           invalidateManifest('Workbench JS/CSS files changed after snapshot creation; serving source assets with revalidation. Regenerate the manifest or restart the service.');
-        });
-        watchers.push(watcher);
+        }
+      };
+      try {
+        fs.watchFile(asset.sourcePath, { persistent: false, interval: 25 }, listener);
+        watchers.push({ close: () => fs.unwatchFile(asset.sourcePath, listener) });
       } catch (error) {
         reportFallback(`Could not watch workbench assets (${error.message}); asset requests will use revalidation after drift detection. Regenerate the manifest or restart the service.`);
       }
     }
+  }
+
+  function sendFallbackAsset(req, res, requestedPath) {
+    if (!fallbackRoot) return res.status(404).send('Not found');
+    const sourcePath = path.resolve(fallbackRoot, ...requestedPath.split('/'));
+    return fs.promises.stat(sourcePath).then(stat => {
+      if (!stat.isFile()) return res.status(404).send('Not found');
+      setAssetCache(res);
+      res.set('ETag', `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`);
+      res.type(requestedPath);
+      return res.sendFile(requestedPath, { root: fallbackRoot }, error => {
+        if (!error || res.headersSent) return;
+        res.status(error.statusCode || 404).send('Not found');
+      });
+    }).catch(() => res.status(404).send('Not found'));
   }
 
   try {
@@ -139,7 +184,7 @@ function createNovelPanelPageRouter(options = {}) {
   }
 
   async function sendWorkbenchHtml(req, res) {
-    const indexPath = path.join(workbenchRoot, 'index.html');
+    const indexPath = path.join(fallbackRoot || workbenchRoot, 'index.html');
     let html;
     try {
       html = await fs.promises.readFile(indexPath, 'utf8');
@@ -170,7 +215,7 @@ function createNovelPanelPageRouter(options = {}) {
 
     const asset = assetSources.get(requestedPath);
     if (!asset) {
-      return res.status(404).send('Not found');
+      return sendFallbackAsset(req, res, requestedPath);
     }
 
     const entry = manifest?.assets?.[requestedPath];

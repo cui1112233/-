@@ -170,7 +170,37 @@ test('an absent manifest serves original URLs and emits an actionable fallback d
   assert.match(response.headers.get('cache-control') || '', /no-store/);
   assert.match(html, /src="\/novel-panel\/workbench\/app\.js"/);
   assert.doesNotMatch(html, /app\.js\?v=/);
+  const asset = await fetch(`${baseUrl}/novel-panel/workbench/app.js`);
+  assert.equal(asset.status, 200);
+  assert.equal(asset.headers.get('cache-control'), revalidateCache);
+  assert.equal(await asset.text(), 'window.app=true;\n');
   assert.ok(diagnostics.some(message => /manifest/i.test(message) && /revalidation/i.test(message)));
+});
+
+test('failed snapshot creation cleans its partial directory and keeps fallback assets available', t => {
+  const root = createFixture(t);
+  const manifest = buildWorkbenchManifest(root);
+  const originalCopyFileSync = fs.copyFileSync;
+  const originalMkdtempSync = fs.mkdtempSync;
+  let snapshotRoot;
+  fs.mkdtempSync = function trackedMkdtempSync(...args) {
+    const result = originalMkdtempSync.apply(this, args);
+    if (String(args[0]).includes('qiantie-workbench-snapshot-')) snapshotRoot = result;
+    return result;
+  };
+  fs.copyFileSync = function failSnapshotCopy() {
+    throw new Error('synthetic snapshot copy failure');
+  };
+  let router;
+  try {
+    router = createNovelPanelPageRouter({ workbenchRoot: root, manifest, logger: { error() {} } });
+  } finally {
+    fs.copyFileSync = originalCopyFileSync;
+    fs.mkdtempSync = originalMkdtempSync;
+  }
+  t.after(() => router.close());
+  assert.ok(snapshotRoot);
+  assert.equal(fs.existsSync(snapshotRoot), false);
 });
 
 test('asset drift cannot retain immutable caching or stale versioned HTML', async t => {
