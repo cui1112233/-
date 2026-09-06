@@ -215,6 +215,7 @@ function createNovelPanelPageRouter(options = {}) {
 
     const asset = assetSources.get(requestedPath);
     if (!asset) {
+      if (manifest) return res.status(404).send('Not found');
       return sendFallbackAsset(req, res, requestedPath);
     }
 

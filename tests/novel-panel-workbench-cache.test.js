@@ -32,6 +32,7 @@ function createFixture(t) {
   fs.writeFileSync(path.join(root, 'style.css'), 'body{}\n');
   fs.writeFileSync(path.join(root, 'bridge.js'), 'window.bridge=true;\n');
   fs.writeFileSync(path.join(root, 'app.js'), 'window.app=true;\n');
+  fs.writeFileSync(path.join(root, 'unreferenced.js'), 'window.unreferenced=true;\n');
   fs.writeFileSync(path.join(root, 'clean-core', 'runtime.js'), 'window.runtime=true;\n');
   return root;
 }
@@ -104,6 +105,14 @@ test('non-versioned and mismatched asset URLs retain the safe revalidation polic
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), revalidateCache);
   }
+});
+
+test('valid manifests do not expose unreferenced workbench assets', async t => {
+  const root = createFixture(t);
+  const baseUrl = await createServer(t, root);
+
+  const response = await fetch(`${baseUrl}/novel-panel/workbench/unreferenced.js`);
+  assert.equal(response.status, 404);
 });
 
 test('repeated unchanged HTML and asset requests reuse hashes and avoid synchronous asset reads', async t => {
