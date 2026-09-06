@@ -10,6 +10,7 @@ const { createV783031RegenerationMiddleware } = require('./lib/novel-panel/v7830
 const { createV783031OutlineHandler } = require('./lib/novel-panel/v783031-outline-route');
 const { createV783031BuildInfoMiddleware } = require('./lib/novel-panel/v783031-build-info');
 const { createScriptSmartUnifiedStyleHandler } = require('./lib/script-smart-unified-route');
+const { createScriptDirectorPipelineHandler } = require('./lib/script-director-pipeline-route');
 
 // ============================================================
 // 启动服务器
@@ -34,6 +35,18 @@ app.post(
   express.json({ limit: '50mb' }),
   apiAuth,
   createScriptSmartUnifiedStyleHandler()
+);
+
+// V88 script director pipeline: third/fourth steps share one authoritative backend
+// transaction. Global Director Plan first freezes semantic source units, scene/event
+// batches, continuity and duration; execution then creates one outer video prompt per
+// source unit with 1-6 micro shots. V78.3.0.31 quality/audit/targeted-repair rules are
+// reused before any result is returned to the public /script workbench.
+app.post(
+  '/api/script/director-pipeline',
+  express.json({ limit: '50mb' }),
+  apiAuth,
+  createScriptDirectorPipelineHandler()
 );
 
 // V78.3.0.31 final public identity: preserve the existing build-info payload but
