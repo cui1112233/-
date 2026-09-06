@@ -308,9 +308,11 @@ export function SettingsPage() {
                           : '已是最新';
                   const needsUpdate = versionState.versionKnown
                     && (versionState.updateRequired || versionState.updateAvailable);
-                  const supportsSelfUpdate = item.os === 'windows' && supportsExecutorProtocolUpdate(item.version);
+                  const executorOs = String(item.os || '').trim().toLowerCase();
+                  const isWindowsExecutor = executorOs === 'windows' || executorOs === 'win32';
+                  const supportsSelfUpdate = isWindowsExecutor && supportsExecutorProtocolUpdate(item.version);
                   const canUpdateInstalled = needsUpdate && supportsSelfUpdate;
-                  const needsInstallerMigration = item.os === 'windows' && needsUpdate && !supportsSelfUpdate;
+                  const needsInstallerMigration = isWindowsExecutor && needsUpdate && !supportsSelfUpdate;
                   return (
                     <List.Item>
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
