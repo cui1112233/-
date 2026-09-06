@@ -31,10 +31,16 @@ assert.match(workflow, /docker save "\$IMAGE_NAME" \| gzip -1 \| ssh/,
   'runner must stream the already verified image directly to ECS without persisting registry credentials there');
 assert.match(workflow, /v88-public-v88-node:rollback-/,
   'current production image must be tagged for rollback before replacement');
-assert.match(workflow, /docker tag .*v88-public-v88-node:v88-latest/,
-  'verified image must replace the compose image tag currently used by production');
-assert.match(workflow, /cd \/opt\/v88/);
-assert.match(workflow, /docker compose up -d --no-deps --force-recreate v88-node/);
+assert.match(workflow, /service_image/,
+  'deployment must discover and preserve the actual v88-node Compose image tag');
+assert.match(workflow, /docker tag .*\$image_name.*\$service_image/,
+  'verified image must replace the actual Compose image tag used by production');
+assert.match(workflow, /\/opt\/qiantie\/v88\/deploy\/v88-public\/docker-compose\.yml/,
+  'deployment must use the verified v88-public Compose file');
+assert.match(workflow, /docker compose -f "\$compose_file" config/,
+  'deployment must validate the real Compose file');
+assert.match(workflow, /docker compose -f "\$compose_file" up -d --no-deps --force-recreate --pull never v88-node/,
+  'deployment must recreate only v88-node from the real Compose project without pulling dependencies');
 assert.match(workflow, /api\/novel-panel\/build-info/);
 assert.match(workflow, /v78\.3\.0\.31/,
   'post-deploy verification must require the V31 public identity');
@@ -43,7 +49,11 @@ assert.match(workflow, /if \[ "\$ECS_DEPLOY_READY" != "true" \]/,
 assert.match(workflow, /if:\s*failure\(\)/,
   'rollback step must run when verification fails');
 assert.match(workflow, /rollback_image/);
-assert.match(workflow, /docker tag "\$rollback_image" v88-public-v88-node:v88-latest/,
-  'rollback must restore the prior production image tag');
+assert.match(workflow, /container_id/,
+  'deployment must identify the existing v88-node container before replacement');
+assert.match(workflow, /\/tmp\/v88-last-service-image/,
+  'rollback must persist the actual Compose service image tag');
+assert.match(workflow, /docker tag "\$rollback_image" "\$service_image"/,
+  'rollback must restore the prior actual Compose service image tag');
 
 console.log('V78.3.0.31 guarded ECS deployment regression: PASS');
