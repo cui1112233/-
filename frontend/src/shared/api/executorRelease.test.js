@@ -75,3 +75,10 @@ test('SettingsPage consumes the dynamic executor release source and has no legac
   assert.match(source, /fetchExecutorReleaseManifest/);
   assert.match(source, /executorVersionStatus/);
 });
+
+test('SettingsPage offers a fixed safe action to launch the installed executor', async () => {
+  const settingsUrl = new URL('../../user/pages/SettingsPage.jsx', import.meta.url);
+  const source = await readFile(settingsUrl, 'utf8');
+  assert.match(source, /yizhan-executor:\/\/open/);
+  assert.match(source, />打开执行器</);
+});
