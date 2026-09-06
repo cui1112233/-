@@ -47,11 +47,18 @@ type FinalPrompt struct {
 	DurationSeconds    int               `json:"durationSeconds"`
 }
 
-type PromptCompilerService struct{ Store Store }
+type PromptCompilerService struct {
+	Store   Store
+	Catalog *PromptCatalog
+}
 
 var systemSettings = SettingsPatch{
 	"productionMode":        json.RawMessage(`"original"`),
 	"contentLineLimit":      json.RawMessage(`5`),
+	"hookPromptPresetId":    json.RawMessage(`"system-hook-v1"`),
+	"scriptPromptPresetId":  json.RawMessage(`"system-script-v1"`),
+	"assetPromptPresetId":   json.RawMessage(`"system-asset-v1"`),
+	"videoPromptPresetId":   json.RawMessage(`"system-video-v1"`),
 	"aspectRatio":           json.RawMessage(`"9:16"`),
 	"durationMode":          json.RawMessage(`"auto"`),
 	"fixedSingleVideo":      json.RawMessage(`false`),

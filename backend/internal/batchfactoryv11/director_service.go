@@ -12,6 +12,7 @@ import (
 type DirectorService struct {
 	Store    Store
 	Provider DirectorProvider
+	Catalog  *PromptCatalog
 }
 
 func sourceDigest(source string) string {
@@ -99,6 +100,13 @@ func (s *DirectorService) validate() error {
 	return nil
 }
 
+func (s *DirectorService) promptCatalog() *PromptCatalog {
+	if s.Catalog != nil {
+		return s.Catalog
+	}
+	return NewPromptCatalog(s.Store)
+}
+
 func (s *DirectorService) RunHook(ctx context.Context, owner, batchID, bookID string) (HookRevision, error) {
 	if err := s.validate(); err != nil {
 		return HookRevision{}, err
@@ -124,7 +132,11 @@ func (s *DirectorService) RunHook(ctx context.Context, owner, batchID, bookID st
 	if strings.TrimSpace(book.SourceText) == "" {
 		return HookRevision{}, fmt.Errorf("%w: source text is required", ErrInvalid)
 	}
-	contract := BuildHookContract(book)
+	bundle, err := s.promptCatalog().ResolvePromptBundle(ctx, owner, snapshot.Effective)
+	if err != nil {
+		return HookRevision{}, err
+	}
+	contract := BuildHookContract(book, bundle.Hook)
 	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
 	if err != nil {
 		return HookRevision{}, err
@@ -171,7 +183,11 @@ func (s *DirectorService) RunDirector(ctx context.Context, owner, batchID, bookI
 			return DirectorRevision{}, fmt.Errorf("%w: viral mode requires approved Hook", ErrConflict)
 		}
 	}
-	contract, err := BuildDirectorContract(book, hook, snapshot)
+	bundle, err := s.promptCatalog().ResolvePromptBundle(ctx, owner, snapshot.Effective)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
+	contract, err := BuildDirectorContract(book, hook, snapshot, bundle)
 	if err != nil {
 		return DirectorRevision{}, err
 	}

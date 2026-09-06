@@ -23,6 +23,7 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		return nil, err
 	}
 	store := batchfactoryv11.NewReadbackMySQLStore(db)
+	promptCatalog := batchfactoryv11.NewPromptCatalog(store)
 	novelFetchStore := novelfetchworkshop.NewMySQLStore(db)
 	var director *batchfactoryv11.DirectorService
 	if cfg.Slice >= 2 {
@@ -30,9 +31,9 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		if err := provider.Validate(); err != nil {
 			return nil, err
 		}
-		director = &batchfactoryv11.DirectorService{Store: store, Provider: provider}
+		director = &batchfactoryv11.DirectorService{Store: store, Provider: provider, Catalog: promptCatalog}
 	}
-	compiler := &batchfactoryv11.PromptCompilerService{Store: store}
+	compiler := &batchfactoryv11.PromptCompilerService{Store: store, Catalog: promptCatalog}
 	videoRegistry := batchfactoryv11.NewMemoryVideoProviderRegistry()
 	localExecutorService := localexecutor.NewService(localexecutor.NewMySQLStore(db), nil)
 	artifactStore := localartifact.NewStore(cfg.LocalExecutorArtifactDir, cfg.LocalExecutorArtifactMaxBytes)

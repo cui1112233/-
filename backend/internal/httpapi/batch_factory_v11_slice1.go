@@ -156,7 +156,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		prompts, err := store.ListPrompts(r.Context(), owner, r.URL.Query().Get("kind"))
+		prompts, err := batchfactoryv11.NewPromptCatalog(store).List(r.Context(), owner, r.URL.Query().Get("kind"))
 		if err != nil {
 			writeStoreError(w, err)
 			return
