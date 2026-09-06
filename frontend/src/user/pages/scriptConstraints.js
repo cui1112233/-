@@ -3,7 +3,7 @@ export const DEFAULT_SCRIPT_CONSTRAINTS = Object.freeze({
   // 新草稿必须由用户明确开启基础设定，避免子项显示为“已开”但总开关仍关闭的误导。
   baseSetup: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   entityReferences: [],
-  prefix: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
+  prefix: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '', smartUnifiedStyle: '' },
   quality: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   restriction: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
   negative: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' }
@@ -17,6 +17,7 @@ function normalizeLayer(value) {
   const presetId = typeof value?.presetId === 'string' ? value.presetId : '';
   const personalPromptId = typeof value?.personalPromptId === 'string' ? value.personalPromptId : '';
   const body = typeof value?.body === 'string' ? value.body : (typeof value?.customText === 'string' ? value.customText : '');
+  const smartUnifiedStyle = typeof value?.smartUnifiedStyle === 'string' ? value.smartUnifiedStyle.trim() : '';
   const source = ['system', 'personal', 'draft'].includes(value?.source)
     ? value.source
     : (personalPromptId ? 'personal' : (presetId ? 'system' : (body.trim() ? 'draft' : 'system')));
@@ -25,7 +26,8 @@ function normalizeLayer(value) {
     source,
     presetId,
     personalPromptId,
-    body
+    body,
+    smartUnifiedStyle
   };
 }
 

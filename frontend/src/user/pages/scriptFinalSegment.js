@@ -62,18 +62,22 @@ function enabledBody(layer) {
 }
 
 function buildConstraintParts(constraints, visualStyle = '') {
-  // 后续沿用开关不影响本次卡片；是否展示文字约束只由各子开关决定。
-  // 只有明确选择“智能统一”时，小说提取阶段得到的统一风格才属于本次前缀。
-  const prefix = [
-    shouldInjectSmartUnifiedStyle(constraints) ? text(visualStyle) : '',
-    enabledBody(constraints?.prefix)
-  ].filter(Boolean).join('\n');
+  // 智能统一的“系统元提示词”只负责产出十一项全片视觉基线，绝不能进入最终视频 prompt。
+  // 新生成结果优先使用本次独立分析得到的 smartUnifiedStyle；旧历史没有该字段时才回退
+  // 到人物/场景提取阶段已有的 visualStyle。只有两者都没有时才保留旧版 preset body 兼容。
+  const smartUnified = shouldInjectSmartUnifiedStyle(constraints);
+  const resolvedSmartStyle = smartUnified
+    ? (text(constraints?.prefix?.smartUnifiedStyle) || text(visualStyle))
+    : '';
+  const prefix = smartUnified
+    ? (resolvedSmartStyle || enabledBody(constraints?.prefix))
+    : enabledBody(constraints?.prefix);
   const quality = enabledBody(constraints?.quality);
   const restriction = enabledBody(constraints?.restriction);
   const negative = enabledBody(constraints?.negative);
   return {
     leading: [
-    prefix && `【画面前缀】\n${prefix}`,
+      prefix && `【画面前缀】\n${prefix}`,
       (quality || restriction) && `【画质约束】\n${[quality, restriction].filter(Boolean).join('\n')}`
     ].filter(Boolean).join('\n\n'),
     negative: negative ? `负面提示词：\n${negative}` : ''
@@ -104,7 +108,7 @@ export function stripBaseSetupSection(text) {
         || /^[（(]?\d+\s*[-—~]\s*\d+\s*(?:s|秒)[)）]/.test(trimmed)
         || trimmed === '';
       if (boundary) inSetup = false;
-      else continue; // 跳过基础设定段内的人物/场景行
+      else continue;
     }
     out.push(line);
   }
@@ -211,10 +215,8 @@ export function unitTotalSeconds(text) {
 
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
 export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0, duration }) {
-  // 历史草稿没有总开关字段时，基础设定沿用原本默认开启的行为；只有明确关闭才隐藏。
   const baseOn = constraints?.baseSetup?.enabled === true;
   const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints, extractInfo?.visualStyle);
-  // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
   const target = targetSeconds(duration);
   let body = stripLegacySharedSetupSections(card);
   body = stripBaseSetupSection(body);
@@ -222,9 +224,6 @@ export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 
   const rawTotal = unitTotalSeconds(card) ?? unitTotalSeconds(body);
   const total = rawTotal ? Math.min(rawTotal, target) : null;
   body = stripUnitHeading(body);
-  // 无论用户是否启用文字约束，都先清理模型擅自输出的约束标题。
-  // 这样 Q 版等格式不能通过返回“【画面前缀】”绕过前缀开关；
-  // 最终只由下方按当前开关重新注入的约束决定是否展示。
   body = stripConstraintLines(body);
   body = clampTimelineToTarget(body, target);
   const parts = [`### 分镜${chineseOrdinal(index)}${total ? `（总时长：${total}s）` : ''}`];
