@@ -1,0 +1,145 @@
+name: OPS V88 Public 121 Timeout Hotfix
+
+on:
+  push:
+    branches:
+      - ops/v88-public-121-timeout-hotfix-20260906-live
+    paths:
+      - '.github/workflows/ops-v88-public-121-timeout-hotfix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+      V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+
+      - name: Inspect public runtime before mutation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          main_id="$(docker ps -qf name=v88-public-v88-node-1)"
+          test -n "$main_id"
+          target=/app/lib/novel-fetch-workshop/121-browser-client.js
+          echo "PUBLIC_CONTAINER=$main_id"
+          echo "PUBLIC_BEFORE_SHA256=$(docker exec "$main_id" sha256sum "$target" | awk '{print $1}')"
+          docker exec "$main_id" sh -lc "grep -n -E 'timeoutMs =|loginTimeoutMs =|QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS' '$target' || true"
+          docker exec "$main_id" node -e '
+            const base=(process.env.QIANTIE_121_BROWSER_WORKER_URL||"").replace(/\/$/,"");
+            const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
+            if(!base||!secret) throw new Error("worker env missing");
+            fetch(base+"/healthz",{headers:{"x-qiantie-internal-secret":secret}})
+              .then(async r=>{if(!r.ok) throw new Error(`worker health ${r.status}`); console.log(`PUBLIC_WORKER_BEFORE=status_${r.status}`)})
+              .catch(e=>{console.error(e);process.exit(1)});
+          '
+          REMOTE
+
+      - name: Copy hotfix source to public ECS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no \
+            lib/novel-fetch-workshop/121-browser-client.js \
+            "$ECS_USER@$ECS_HOST:/tmp/121-browser-client.js.hotfix"
+
+      - name: Apply public hotfix with rollback guard
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          main_id="$(docker ps -qf name=v88-public-v88-node-1)"
+          test -n "$main_id"
+          target=/app/lib/novel-fetch-workshop/121-browser-client.js
+          incoming=/tmp/121-browser-client.js.hotfix
+          backup_dir=/opt/qiantie/v88/hotfix-backups
+          mkdir -p "$backup_dir"
+          backup="$backup_dir/121-browser-client.js.$(date +%Y%m%d%H%M%S).bak"
+          docker cp "$main_id:$target" "$backup"
+          rollback() {
+            echo "ROLLBACK=starting"
+            docker cp "$backup" "$main_id:$target" || true
+            docker restart "$main_id" >/dev/null || true
+            echo "ROLLBACK=restored"
+          }
+          trap rollback ERR
+
+          docker cp "$incoming" "$main_id:$target"
+          docker restart "$main_id" >/dev/null
+
+          for attempt in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Status}}' "$main_id" 2>/dev/null || true)"
+            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$main_id" 2>/dev/null || true)"
+            if [ "$status" = running ] && { [ "$health" = healthy ] || [ "$health" = none ]; }; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              echo "public v88-node did not become ready: status=$status health=$health" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          docker exec "$main_id" sh -lc "grep -q 'QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS' '$target'"
+          docker exec "$main_id" sh -lc "grep -q '45000' '$target'"
+          docker exec "$main_id" sh -lc "grep -q '20000' '$target'"
+
+          docker exec "$main_id" node -e '
+            const base=(process.env.QIANTIE_121_BROWSER_WORKER_URL||"").replace(/\/$/,"");
+            const secret=process.env.QIANTIE_121_WORKER_SECRET||"";
+            if(!base||!secret) throw new Error("worker env missing");
+            fetch(base+"/healthz",{headers:{"x-qiantie-internal-secret":secret}})
+              .then(async r=>{if(!r.ok) throw new Error(`worker health ${r.status}`); console.log(`PUBLIC_WORKER_AFTER=status_${r.status}`)})
+              .catch(e=>{console.error(e);process.exit(1)});
+          '
+
+          docker exec "$main_id" node -e '
+            const {create121BrowserClient}=require("/app/lib/novel-fetch-workshop/121-browser-client");
+            const fakeFetch=delay=>async (_url,options)=>new Promise((resolve,reject)=>{
+              const timer=setTimeout(()=>resolve({ok:true,status:200,text:async()=>JSON.stringify({ok:true,status:"ready"})}),delay);
+              options.signal.addEventListener("abort",()=>{clearTimeout(timer); const e=new Error("aborted"); e.name="AbortError"; reject(e);});
+            });
+            (async()=>{
+              const loginClient=create121BrowserClient({baseUrl:"http://worker:8787",secret:"test",timeoutMs:1000,loginTimeoutMs:3000,fetchImpl:fakeFetch(1500)});
+              const login=await loginClient.login({owner:"probe"});
+              if(login.status!=="ready") throw new Error("login long budget did not complete");
+              let normalTimedOut=false;
+              try { await loginClient.test({owner:"probe"}); } catch(e) { normalTimedOut=e.code==="BROWSER_WORKER_TIMEOUT"; }
+              if(!normalTimedOut) throw new Error("normal request short timeout protection missing");
+              console.log("PUBLIC_TIMEOUT_POLICY=ok");
+            })().catch(e=>{console.error(e);process.exit(1)});
+          '
+
+          curl -fsS --max-time 10 http://127.0.0.1:3000/api/novel-panel/build-info >/tmp/v88-build-info.json
+          echo "PUBLIC_BUILD_INFO=$(cat /tmp/v88-build-info.json | tr '\n' ' ' | head -c 500)"
+          echo "PUBLIC_AFTER_SHA256=$(docker exec "$main_id" sha256sum "$target" | awk '{print $1}')"
+          echo "PUBLIC_BACKUP=$backup"
+          trap - ERR
+          rm -f "$incoming"
+          REMOTE
+
+      - name: Verify public endpoint from outside ECS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl -fsS --max-time 15 "http://115.190.156.223:3000/api/novel-panel/build-info"
