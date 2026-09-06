@@ -7,6 +7,12 @@ const STABLE_ID_KEYS = new Set([
   'videoid'
 ]);
 
+const SUBMISSION_ID_KEYS = new Set([
+  'messageid',
+  'taskid',
+  'generationid'
+]);
+
 const MEDIA_ID_KEYS = new Set(['mediaid', 'videoid']);
 
 class DoubaoNetworkTracker {
@@ -36,6 +42,7 @@ class DoubaoNetworkTracker {
       requests: new Map(),
       responses: new Map(),
       identities: [],
+      submissionIdentities: [],
       mediaCandidates: [],
       accepted: false,
       endpoint: null
@@ -54,13 +61,16 @@ class DoubaoNetworkTracker {
       const request = params.request || {};
       if (!postDataContainsPrompt(request.postData, this.attempt.prompt)) return;
       const identities = extractIdentityEvidence(request.postData);
+      const submissionIdentities = extractSubmissionIdentityEvidence(request.postData);
       this.attempt.requests.set(params.requestId, {
         status: null,
         mimeType: '',
         endpoint: sanitizeNetworkUrl(request.url),
-        identities
+        identities,
+        submissionIdentities
       });
       this.mergeIdentities(identities);
+      this.mergeSubmissionIdentities(submissionIdentities);
       return;
     }
 
@@ -77,7 +87,7 @@ class DoubaoNetworkTracker {
         tracked.status = responseMeta.status;
         tracked.mimeType = responseMeta.mimeType;
         tracked.endpoint = sanitizeNetworkUrl(responseMeta.url || tracked.endpoint);
-        if (tracked.status >= 200 && tracked.status < 300 && tracked.identities.length > 0) {
+        if (tracked.status >= 200 && tracked.status < 300 && tracked.submissionIdentities.length > 0) {
           this.attempt.accepted = true;
           this.attempt.endpoint = tracked.endpoint;
         }
@@ -101,16 +111,19 @@ class DoubaoNetworkTracker {
     const tracked = this.attempt.requests.get(params.requestId);
     if (tracked) {
       const identities = extractIdentityEvidence(text);
+      const submissionIdentities = extractSubmissionIdentityEvidence(text);
       tracked.identities = unique([...tracked.identities, ...identities]);
+      tracked.submissionIdentities = unique([...tracked.submissionIdentities, ...submissionIdentities]);
       this.mergeIdentities(identities);
-      if (this.attempt.identities.length > 0) {
+      this.mergeSubmissionIdentities(submissionIdentities);
+      if (this.attempt.submissionIdentities.length > 0) {
         this.attempt.accepted = true;
         this.attempt.endpoint = tracked.endpoint;
       }
     }
 
-    if (this.attempt.accepted && this.attempt.identities.length > 0) {
-      const accepted = new Set(this.attempt.identities);
+    if (this.attempt.accepted && this.attempt.submissionIdentities.length > 0) {
+      const accepted = new Set(this.attempt.submissionIdentities);
       for (const candidate of extractMediaCandidates(text)) {
         if (!(candidate.identities || []).some(identity => accepted.has(identity))) continue;
         this.addMediaCandidate(candidate);
@@ -120,6 +133,10 @@ class DoubaoNetworkTracker {
 
   mergeIdentities(values) {
     this.attempt.identities = unique([...this.attempt.identities, ...values]);
+  }
+
+  mergeSubmissionIdentities(values) {
+    this.attempt.submissionIdentities = unique([...this.attempt.submissionIdentities, ...values]);
   }
 
   addMediaCandidate(candidate) {
@@ -132,7 +149,7 @@ class DoubaoNetworkTracker {
     if (!this.attempt) return { accepted: false, identities: [] };
     const evidence = {
       accepted: Boolean(this.attempt.accepted),
-      identities: [...this.attempt.identities]
+      identities: [...this.attempt.submissionIdentities]
     };
     if (this.attempt.endpoint) evidence.endpoint = this.attempt.endpoint;
     return evidence;
@@ -161,23 +178,33 @@ class DoubaoNetworkTracker {
 }
 
 function extractIdentityEvidence(input) {
+  return extractIdentityEvidenceByKeys(input, STABLE_ID_KEYS);
+}
+
+function extractSubmissionIdentityEvidence(input) {
+  return extractIdentityEvidenceByKeys(input, SUBMISSION_ID_KEYS);
+}
+
+function extractIdentityEvidenceByKeys(input, allowedKeys) {
   if (input === null || input === undefined) return [];
   if (typeof input === 'string') {
     const text = input.slice(0, 2_000_000);
     try {
-      return extractIdentityEvidence(JSON.parse(text));
+      return extractIdentityEvidenceByKeys(JSON.parse(text), allowedKeys);
     } catch {
       const ids = [];
       const re = /["']?(conversation[_-]?id|message[_-]?id|task[_-]?id|generation[_-]?id|media[_-]?id|video[_-]?id)["']?\s*[:=]\s*["']([^"'\s,}]{1,160})["']/gi;
       let match;
-      while ((match = re.exec(text))) ids.push(match[2]);
+      while ((match = re.exec(text))) {
+        if (allowedKeys.has(normalizeKey(match[1]))) ids.push(match[2]);
+      }
       return unique(ids);
     }
   }
 
   const ids = [];
   walk(input, (key, value) => {
-    if (!STABLE_ID_KEYS.has(normalizeKey(key))) return;
+    if (!allowedKeys.has(normalizeKey(key))) return;
     if (typeof value !== 'string' && typeof value !== 'number') return;
     const identity = String(value).trim();
     if (identity && identity.length <= 160) ids.push(identity);
@@ -309,6 +336,7 @@ function unique(values) {
 module.exports = {
   DoubaoNetworkTracker,
   extractIdentityEvidence,
+  extractSubmissionIdentityEvidence,
   extractMediaCandidates,
   sanitizeNetworkUrl,
   postDataContainsPrompt,
