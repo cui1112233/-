@@ -14,9 +14,10 @@ test('Electron main process enforces one instance and registers the executor pro
   assert.match(source, /focusExecutorWindow/);
 });
 
-test('update protocol focuses the executor and invokes the built-in verified updater', () => {
+test('update protocol focuses the executor, selects stable, and invokes the built-in verified updater', () => {
   const source = fs.readFileSync(path.join(root, 'src', 'electron', 'main.js'), 'utf8');
   assert.match(source, /request\.action\s*===\s*['"]update['"]/);
+  assert.match(source, /setChannel\(['"]stable['"]\)/);
   assert.match(source, /checkForUpdates\(\{\s*autoDownload:\s*true\s*\}\)/);
   assert.doesNotMatch(source, /powershell|cmd\.exe|curl\s/i);
 });
