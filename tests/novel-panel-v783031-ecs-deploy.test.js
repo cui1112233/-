@@ -39,7 +39,9 @@ assert.match(workflow, /\/opt\/qiantie\/v88\/deploy\/v88-public\/docker-compose\
   'deployment must use the verified v88-public Compose file');
 assert.match(workflow, /docker compose -f "\$compose_file" config/,
   'deployment must validate the real Compose file');
-assert.match(workflow, /docker compose -f "\$compose_file" up -d --no-deps --force-recreate --pull never v88-node/,
+assert.match(workflow, /compose=\(docker compose -f "\$compose_file"/,
+  'deployment must build the Compose command from the real project file');
+assert.match(workflow, /"\$\{compose\[@\]\}" up -d --no-deps --force-recreate --pull never v88-node/,
   'deployment must recreate only v88-node from the real Compose project without pulling dependencies');
 assert.match(workflow, /api\/novel-panel\/build-info/);
 assert.match(workflow, /v78\.3\.0\.31/,
