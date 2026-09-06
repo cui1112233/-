@@ -10,7 +10,7 @@ const workflow = fs.readFileSync(workflowPath, 'utf8');
 
 const pushMarker = '- name: Push V88 AMD64 image to GHCR';
 const sshMarker = '- name: Prepare V88 ECS SSH';
-const deployMarker = '- name: Deploy verified image to V88 ECS';
+const deployMarker = '- name: Deploy verified images to V88 ECS';
 const verifyMarker = '- name: Verify V88 ECS deployment';
 const rollbackMarker = '- name: Rollback V88 ECS on failed verification';
 
