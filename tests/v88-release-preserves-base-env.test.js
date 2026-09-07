@@ -3,22 +3,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
 
-const root = path.resolve(__dirname, '..');
-const workflow = fs.readFileSync(path.join(root, '.github/workflows/v88-linux-amd64-image-release.yml'), 'utf8');
+const stage = fs.readFileSync('deploy/v88-direct/stage-node-host.sh', 'utf8');
 
-const dualEnvCompose = /compose=\(docker compose --env-file "\$compose_dir\/\.env" --env-file "\$compose_dir\/novel-fetch-121\.env" -f "\$compose_file"/g;
-
-test('V88 ECS release preserves the existing base .env while adding Novel Fetch 121 secrets', () => {
-  const matches = workflow.match(dualEnvCompose) || [];
-  assert.ok(matches.length >= 4, `expected deploy, release override, verify and rollback to use both env files; found ${matches.length}`);
-  assert.match(workflow, /test -s "\$compose_dir\/\.env"/,
-    'release must refuse to recreate v88-node when the canonical ECS .env is missing');
+test('V88 Git-direct staging inherits the running production Node environment instead of inventing a new base env', () => {
+  assert.match(stage, /docker inspect -f '\{\{range \.Config\.Env\}\}\{\{println \.\}\}\{\{end\}\}' "\$node_id"/);
+  assert.match(stage, /install -m 0600 "\$tmp_env" "\$STAGE_ENV"/);
+  assert.match(stage, /v88-public-v88-node/);
 });
 
-test('V88 ECS verification rejects a Node container with missing MySQL runtime configuration', () => {
-  assert.match(workflow, /MYSQL_USER/);
-  assert.match(workflow, /MYSQL_PASSWORD/);
-  assert.match(workflow, /MYSQL_DATABASE/);
+test('V88 Git-direct staging preserves MySQL runtime configuration while overriding only release and upstream fields', () => {
+  const filter = stage.match(/grep -vE '([^']+)'/);
+  assert.ok(filter, 'staging must explicitly filter only container/runtime-specific environment fields');
+  assert.doesNotMatch(filter[1], /MYSQL_USER|MYSQL_PASSWORD|MYSQL_DATABASE|MYSQL_HOST|MYSQL_PORT/,
+    'MySQL runtime configuration must flow through from the running production Node');
+  assert.match(stage, /QIANTIE_GO_BASE_URL/);
+  assert.match(stage, /QIANTIE_121_BROWSER_WORKER_URL/);
+  assert.match(stage, /QIANTIE_RELEASE_SHA/);
+  assert.match(stage, /QIANTIE_DEPLOY_MODE=git-direct-stage/);
 });
