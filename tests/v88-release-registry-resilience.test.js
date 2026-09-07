@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
-const path = require('node:path');
+const path = require('path');
 const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
@@ -71,21 +71,29 @@ test('ECS 必须先尝试 GHCR，再按需上传 68MB 主镜像 fallback', () =>
   assert.match(deploy, /Main GHCR pull failed|MAIN_PULL_FAILED|main_pull_status/);
 });
 
-test('正式发布必须用 release override 直接绑定精确 GHCR 镜像，不能 retag 到旧 service image', () => {
+test('正式发布直接绑定并验证本次精确 GHCR 镜像，同时不匿名探测受保护接口', () => {
   const deploy = workflowRunBlock('Deploy verified images to V88 ECS');
   const verify = workflowRunBlock('Verify V88 ECS deployment');
 
-  assert.match(deploy, /docker-compose\.release-images\.yml/, 'deploy 必须生成本次 release 专属 compose image override');
-  assert.match(deploy, /printf 'services:\n\s*v88-node:\n\s*image: %s\n\s*novel-fetch-121-worker:\n\s*image: %s\n'/, 'release override 必须同时声明 v88-node 与 121 Worker 的精确 image 槽位');
-  assert.match(deploy, /"\$ghcr_image" "\$worker_ghcr_image" > "\$release_override"/, 'release override 必须写入本次精确 GHCR 主镜像与 Worker 镜像引用');
-  assert.match(deploy, /-f\s+[^\n]*docker-compose\.release-images\.yml/, 'compose up 必须加载 release image override');
+  assert.match(deploy, /release_override="\$release_dir\/docker-compose\.release-images\.yml"/, 'deploy 必须生成本次 release 专属 compose image override');
+  assert.ok(
+    deploy.includes("printf 'services:\\n  v88-node:\\n    image: %s\\n  novel-fetch-121-worker:\\n    image: %s\\n' \"$ghcr_image\" \"$worker_ghcr_image\" > \"$release_override\""),
+    'release override 必须同时写入本次精确 GHCR 主镜像与 Worker 镜像引用'
+  );
+  assert.match(deploy, /-f "\$release_dir\/docker-compose\.release-images\.yml"/, 'compose up 必须加载 release image override');
   assert.doesNotMatch(deploy, /docker tag "\$ghcr_image" "\$service_image"/, '不能再把新主镜像 retag 到旧 service image 名称');
   assert.doesNotMatch(deploy, /docker tag "\$worker_ghcr_image" "\$worker_service_image"/, '不能再把新 Worker retag 到可变 latest 名称');
 
+  assert.match(verify, /"\$ECS_COMPOSE_FILE" "\$GHCR_IMAGE" "\$WORKER_GHCR_IMAGE" "\$SHORT_SHA"/, '验证阶段必须拿到本次两张精确镜像和 release 标识');
   assert.match(verify, /expected_node_image/, '验证阶段必须知道本次期望的主镜像');
   assert.match(verify, /expected_worker_image/, '验证阶段必须知道本次期望的 Worker 镜像');
-  assert.match(verify, /\.Config\.Image/, '验证阶段必须核对容器实际 Config.Image');
-  assert.match(verify, /127\.0\.0\.1:3000\/api\/novel-panel\/build-info/, '必须在 v88-node 容器内部先验证 build-info');
+  assert.match(verify, /actual_node_image/, '验证阶段必须核对主容器 Config.Image');
+  assert.match(verify, /actual_worker_image/, '验证阶段必须核对 Worker 容器 Config.Image');
+  assert.match(verify, /expected_node_image_id/, '验证阶段必须核对主镜像 ID');
+  assert.match(verify, /expected_worker_image_id/, '验证阶段必须核对 Worker 镜像 ID');
+  assert.doesNotMatch(verify, /\/api\/novel-panel\/build-info/, '受 apiAuth 保护的 Novel Panel build-info 不能被匿名发布验收探测');
+  assert.match(verify, /127\.0\.0\.1:3000\/api\/build-info/, '公开 build-info 仅用于本机 HTTP 存活验收');
+  assert.match(verify, /x-qiantie-internal-secret/, 'Node 到 121 Worker 的健康请求必须继续携带内部密钥');
 });
 
 test('ECS deploy workflow shell 必须通过 bash -n 语法检查', () => {
