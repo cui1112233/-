@@ -1,0 +1,52 @@
+name: V88 Node Persistence Diagnostic
+
+on:
+  push:
+    branches:
+      - feat/v88-git-ecs-direct-deploy-20260907
+    paths:
+      - '.github/workflows/v88-node-persistence-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H 115.190.156.223 > "$HOME/.ssh/known_hosts"
+
+      - name: Inspect Node persistence only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timeout 60 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 root@115.190.156.223 bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          node_id="$(docker ps -q --filter name=v88-public-v88-node | head -n1)"
+          test -n "$node_id"
+          echo '=== node mounts ==='
+          docker inspect -f '{{range .Mounts}}{{.Type}}|{{.Source}}|{{.Destination}}|rw={{.RW}}{{println}}{{end}}' "$node_id"
+          echo '=== app persistence paths ==='
+          for path in /app/data /app/outputs; do
+            docker exec "$node_id" sh -lc "if [ -e '$path' ]; then printf '%s|' '$path'; stat -c '%F|%s|%U:%G' '$path'; else echo '$path|missing'; fi"
+          done
+          echo '=== host candidate persistence paths ==='
+          for path in /opt/qiantie/v88/data /opt/qiantie/v88/outputs /opt/qiantie/v88/shared/data /opt/qiantie/v88/shared/outputs /opt/qiantie/v88/deploy/v88-public/data /opt/qiantie/v88/deploy/v88-public/outputs; do
+            if [ -e "$path" ]; then
+              printf '%s|' "$path"
+              stat -c '%F|%s|%U:%G' "$path"
+            fi
+          done
+          REMOTE
