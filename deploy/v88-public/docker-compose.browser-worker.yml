@@ -7,6 +7,8 @@ services:
     depends_on:
       novel-fetch-121-worker:
         condition: service_healthy
+    networks:
+      default: {}
 
   novel-fetch-121-worker:
     image: v88-public-novel-fetch-121-worker:v88-latest
@@ -32,6 +34,8 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+    networks:
+      default: {}
 
 volumes:
   novel-fetch-121-data:

@@ -6,6 +6,7 @@ const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'v88-linux-amd64-image-release.yml'), 'utf8');
+const workerOverlay = fs.readFileSync(path.join(root, 'deploy', 'v88-public', 'docker-compose.browser-worker.yml'), 'utf8');
 
 function workflowRunBlock(stepName) {
   const marker = `      - name: ${stepName}\n`;
@@ -24,6 +25,22 @@ function workflowRunBlock(stepName) {
     .split('\n')
     .map(line => line.startsWith('          ') ? line.slice(10) : line)
     .join('\n');
+}
+
+function composeServiceBlock(source, serviceName) {
+  const lines = source.split('\n');
+  const marker = `  ${serviceName}:`;
+  const start = lines.findIndex(line => line === marker);
+  assert.ok(start >= 0, `必须找到 compose service: ${serviceName}`);
+
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^  [A-Za-z0-9_.-]+:\s*$/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start, end).join('\n');
 }
 
 test('V88 ECS 发布对 GHCR 临时网络错误执行有限重试', () => {
@@ -58,6 +75,14 @@ test('ECS deploy workflow shell 必须通过 bash -n 语法检查', () => {
   const deployScript = workflowRunBlock('Deploy verified images to V88 ECS');
   const result = spawnSync('bash', ['-n'], { input: deployScript, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout || 'bash -n failed');
+});
+
+test('121 Browser Worker 与 v88-node 必须显式共享 default 网络，保证容器 DNS 可解析', () => {
+  const nodeBlock = composeServiceBlock(workerOverlay, 'v88-node');
+  const workerBlock = composeServiceBlock(workerOverlay, 'novel-fetch-121-worker');
+  assert.match(nodeBlock, /\n    networks:\n      default:/, 'v88-node 必须接入 overlay default 网络');
+  assert.match(workerBlock, /\n    networks:\n      default:/, 'novel-fetch-121-worker 必须接入同一个 overlay default 网络');
+  assert.match(nodeBlock, /QIANTIE_121_BROWSER_WORKER_URL: http:\/\/novel-fetch-121-worker:8787/);
 });
 
 test('发布失败时仍保留 release artifact 供人工恢复', () => {
