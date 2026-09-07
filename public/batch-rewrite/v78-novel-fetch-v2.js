@@ -87,6 +87,29 @@
     const query = params.toString();
     return query ? `?${query}` : '';
   }
+  const TASK_STATUS_LABELS = {
+    input_ready: '分类信息已就绪',
+    queued: '排队中',
+    running: '正在执行中…',
+    processing: '正在执行中…',
+    classifying: 'AI判断中…',
+    generating: '正在生成AI文案…'
+  };
+  function taskStatusLabel(value, fallback = '') {
+    const text = String(value || '').trim();
+    if (!text) return fallback;
+    if (TASK_STATUS_LABELS[text]) return TASK_STATUS_LABELS[text];
+    return /^[a-z0-9_:-]+$/i.test(text) ? (fallback || '处理中') : text;
+  }
+  function originalCountLabel(task = {}) {
+    const meta = task.meta && typeof task.meta === 'object' ? task.meta : {};
+    const raw = Number(task.original_raw_chars ?? task.originalRawChars ?? meta.original_raw_chars ?? meta.originalRawChars ?? 0);
+    const maxTxt = Number(task.max_txt ?? task.maxTxt ?? meta.max_txt ?? meta.maxTxt ?? 0);
+    const actual = Number(task.original_chars ?? task.originalChars ?? meta.original_chars ?? meta.originalChars ?? 0);
+    const processed = raw > 0 && maxTxt > 0 ? Math.min(maxTxt, raw) : actual;
+    return raw > 0 ? `${processed}/${raw}` : (actual > 0 ? `${actual}字` : '');
+  }
+
   function taskFilterLabel() {
     const parts = [];
     if (taskFilters.date) parts.push(taskFilters.date);
@@ -250,22 +273,10 @@
     if (legacyTaskBridgeInstalled) return true;
     if (typeof loadTasks !== 'function' || typeof renderTasks !== 'function' || typeof taskDateKey !== 'function' || typeof state !== 'object') return false;
     const legacyRenderTasks = renderTasks;
-    const legacyTaskDateKey = taskDateKey;
     renderTasks = function(tasks) {
-      const marker = '2099-12-31';
-      const previousDate = state.taskDate;
-      const previousInputValue = byId('taskDateFilter')?.value || '';
-      taskDateKey = () => marker;
-      state.taskDate = marker;
-      try {
-        const result = legacyRenderTasks(tasks);
-        patchTaskTableForV78(tasks);
-        return result;
-      } finally {
-        taskDateKey = legacyTaskDateKey;
-        state.taskDate = previousDate;
-        if (byId('taskDateFilter')) byId('taskDateFilter').value = previousInputValue;
-      }
+      const result = legacyRenderTasks(tasks);
+      patchTaskTableForV78(state.tasks || []);
+      return result;
     };
     loadTasks = async function() {
       const data = await v2Api(`/tasks${buildTaskQuery(taskFilters)}`);
@@ -291,8 +302,10 @@
     }
     headers = [...headerRow.children];
     const pushIndex = headers.findIndex(th => th.textContent.trim() === '推送日期');
+    const classifyIndex = headers.findIndex(th => th.textContent.trim() === 'AI判断');
+    const originalIndex = headers.findIndex(th => th.textContent.trim() === '原文');
     const aiIndex = headers.findIndex(th => th.textContent.trim() === 'AI文案');
-    const taskById = new Map(asArray(tasks).map(task => [String(task.id || task.book_id || ''), task]));
+    const taskById = new Map(asArray(tasks).map(task => [String(task.id || task.book_id || task.bookId || ''), task]));
     for (const row of byId('tasksBody').querySelectorAll('tr')) {
       const id = String(row.querySelector('.task-check')?.dataset.id || row.querySelector('[data-id]')?.dataset.id || '');
       const task = taskById.get(id);
@@ -303,6 +316,13 @@
         row.insertBefore(td, row.children[pushIndex] || null);
       } else if (row.children[pushIndex]) {
         row.children[pushIndex].textContent = localDateText(task.push_date || task.created_at || task.createdAt);
+      }
+      if (classifyIndex >= 0 && row.children[classifyIndex]) {
+        row.children[classifyIndex].textContent = taskStatusLabel(task.classify_status ?? task.classifyStatus, task.classifier_model || task.classifierModel ? '已完成判断' : '待判断');
+      }
+      if (originalIndex >= 0 && row.children[originalIndex]) {
+        const label = originalCountLabel(task);
+        if (label) row.children[originalIndex].textContent = label;
       }
       const selected = selectedAiVersions(task);
       const generated = new Set(asArray(task.ai_generated_versions).concat(asArray(task.ai_files)).map(version => String(version).toLowerCase()));

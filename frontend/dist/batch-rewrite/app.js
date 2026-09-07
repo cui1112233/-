@@ -2043,7 +2043,12 @@ function updateSelectedCount() {
 }
 
 function originalStatusText(task) {
-  if (task.original_status === "done") return `${task.original_chars || 0}字`;
+  if (task.original_status === "done") {
+    const raw = Number(task.original_raw_chars ?? task.originalRawChars ?? 0);
+    const maxTxt = Number(task.max_txt ?? task.maxTxt ?? 0);
+    const processed = raw > 0 && maxTxt > 0 ? Math.min(maxTxt, raw) : Number(task.original_chars ?? task.originalChars ?? 0);
+    return raw > 0 ? `${processed}/${raw}` : `${processed}字`;
+  }
   if (task.original_status === "process_failed") {
     return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
   }
@@ -2059,11 +2064,11 @@ function originalStatusText(task) {
 function taskStatusText(value, fallback = "") {
   const text = String(value || "").trim();
   const labels = {
-    created: "待处理", queued: "等待处理", running: "处理中", classified: "已完成判断", classifying: "正在判断", classify_failed: "判断失败",
+    created: "待处理", queued: "排队中", running: "正在执行中…", processing: "正在执行中…", input_ready: "分类信息已就绪", classified: "已完成判断", classifying: "AI判断中…", classify_failed: "判断失败",
     fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
-    generating: "正在生成", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
+    generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
-    queued: "排队中", uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
+    uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
   };
   return labels[text] || text || fallback;
 }
