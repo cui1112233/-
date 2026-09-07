@@ -87,7 +87,7 @@ test('正式发布必须用 release override 直接绑定精确 GHCR 镜像，�
   assert.match(verify, /expected_node_image/, '验证阶段必须知道本次期望的主镜像');
   assert.match(verify, /expected_worker_image/, '验证阶段必须知道本次期望的 Worker 镜像');
   assert.match(verify, /\.Config\.Image/, '验证阶段必须核对容器实际 Config.Image');
-  assert.match(verify, /127\.0\.0\.1:3000\/api\/novel-panel\/build-info/, '必须在 v88-node 容器内部先验证 build-info');
+  assert.doesNotMatch(verify, /127\.0\.0\.1:3000\/api\/novel-panel\/build-info/, '发布验收不能匿名访问受保护的 Novel Panel build-info');
 });
 
 test('ECS deploy workflow shell 必须通过 bash -n 语法检查', () => {
