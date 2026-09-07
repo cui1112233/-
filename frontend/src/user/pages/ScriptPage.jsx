@@ -287,7 +287,7 @@ export function ScriptPage() {
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
       try {
         const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
-        const executors = Array.isArray(result?.items) ? result.items : [];
+        const executors = Array.isArray(result?.executors) ? result.executors : Array.isArray(result?.items) ? result.items : [];
         if (!executors.some(item => item.online)) {
           Modal.info({
             title: '本地执行器未连接',
