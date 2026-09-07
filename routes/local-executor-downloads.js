@@ -2,19 +2,15 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const RELEASE_VERSION = '0.1.14';
+const RELEASE_VERSION = '1.0.3';
+const WINDOWS_INSTALLER = `yizhan-local-executor-v88-${RELEASE_VERSION}-win-x64.exe`;
 const UPDATE_CHANNELS = new Set(['beta', 'stable']);
 const UPDATE_FILE_RE = /^yizhan-local-executor-v88-\d+\.\d+\.\d+-win-x64\.exe$/;
 
 const DOWNLOADS = {
-  'yizhan-local-executor-0.1.14-mac-arm64.dmg': {
-    diskName: '一战晟铭本地执行器-0.1.14-mac-arm64.dmg',
-    downloadName: '一战晟铭本地执行器-0.1.14-mac-arm64.dmg',
-    contentType: 'application/x-apple-diskimage'
-  },
-  'yizhan-local-executor-0.1.14-win-x64.exe': {
-    diskName: '一战晟铭本地执行器-0.1.14-win-x64.exe',
-    downloadName: '一战晟铭本地执行器-0.1.14-win-x64.exe',
+  [WINDOWS_INSTALLER]: {
+    diskName: WINDOWS_INSTALLER,
+    downloadName: WINDOWS_INSTALLER,
     contentType: 'application/vnd.microsoft.portable-executable'
   }
 };
@@ -53,8 +49,8 @@ function createLocalExecutorDownloadsRouter({ downloadsDir = path.join(process.c
     return res.json({
       version: RELEASE_VERSION,
       downloads: {
-        mac: `${origin}/downloads/local-executor/yizhan-local-executor-${RELEASE_VERSION}-mac-arm64.dmg`,
-        windows: `${origin}/downloads/local-executor/yizhan-local-executor-${RELEASE_VERSION}-win-x64.exe`
+        mac: null,
+        windows: `${origin}/downloads/local-executor/${WINDOWS_INSTALLER}`
       }
     });
   });
@@ -93,6 +89,8 @@ function safeUpdatePath(root, channel, file) {
 }
 
 module.exports = {
+  RELEASE_VERSION,
+  WINDOWS_INSTALLER,
   createLocalExecutorDownloadsRouter,
   normalizeUpdateChannel,
   normalizeUpdateFile,
