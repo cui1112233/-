@@ -1,0 +1,71 @@
+name: V88 Go Config Log Probe
+
+on:
+  push:
+    branches:
+      - diag/v88-novel-config-chain-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+    steps:
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Inspect sanitized Go config logs
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          go_id="$(docker ps --filter 'name=v88-public-go-api' --format '{{.ID}}' | head -n1)"
+          node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
+          test -n "$go_id"
+          test -n "$node_id"
+          docker logs --since 120m "$go_id" 2>&1 > /tmp/v88-go.log || true
+          docker exec -i "$node_id" node - <<'NODE' > /tmp/v88-usernames.txt
+          const { createApp } = require('/app/app');
+          const app = createApp();
+          for (const account of app.locals.authRuntime.accountStore.listAccounts()) {
+            if (account && account.username) console.log(account.username);
+          }
+          NODE
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('/tmp/v88-go.log').read_text(encoding='utf-8', errors='replace')
+          users = [x.strip() for x in Path('/tmp/v88-usernames.txt').read_text(encoding='utf-8', errors='replace').splitlines() if x.strip()]
+          for user in sorted(users, key=len, reverse=True):
+              text = text.replace(user, '<user>')
+          lines = text.splitlines()
+          hits = []
+          for i, line in enumerate(lines):
+              low = line.lower()
+              if 'novel-fetch-workshop' in low or ('config' in low and ('error' in low or '500' in low or 'sql' in low)):
+                  for j in range(max(0, i-1), min(len(lines), i+3)):
+                      hits.append((j, lines[j]))
+          seen=set(); out=[]
+          for j,line in hits:
+              if j in seen: continue
+              seen.add(j); out.append(line)
+          print('SANITIZED_MATCH_LINES=' + str(len(out)))
+          for line in out[-120:]:
+              print(line[:600])
+          PY
+          REMOTE
