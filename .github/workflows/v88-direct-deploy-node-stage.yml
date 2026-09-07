@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feat/v88-direct-deploy-integration-20260907
+      - v88
     paths:
       - 'deploy/v88-direct/STAGE-REQUEST'
 
