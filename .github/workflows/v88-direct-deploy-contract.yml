@@ -40,4 +40,6 @@ jobs:
             tests/v88-release-preserves-base-env.test.js \
             tests/v88-release-registry-resilience.test.js \
             tests/novel-panel-v783031-ecs-deploy.test.js \
-            tests/v88-public-browser-worker-deploy.test.js
+            tests/v88-public-browser-worker-deploy.test.js \
+            tests/novel-fetch-version-config-mainline.test.js \
+            tests/novel-fetch-rewrite-sparse-mainline.test.js
