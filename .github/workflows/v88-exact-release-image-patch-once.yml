@@ -39,3 +39,5 @@ jobs:
           fi
           git commit -m 'fix(v88): deploy exact public release images'
           git push origin HEAD:v88
+
+# retry: exact-release-images-20260907
