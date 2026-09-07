@@ -29,7 +29,7 @@ jobs:
           ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Probe live Node novel config store
+      - name: Probe live Node novel config store and route handler
         run: |
           set -Eeuo pipefail
           ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
@@ -37,19 +37,47 @@ jobs:
           node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
           test -n "$node_id"
           docker exec -i "$node_id" node - <<'NODE'
+          const express = require('express');
           const { createMySQLWorkshopStore } = require('/app/lib/novel-fetch-workshop/mysql-store');
+          const { createBatchRewriteRouter } = require('/app/routes/batch-rewrite');
+
           (async () => {
+            const store = createMySQLWorkshopStore({ account: { username: 'choushiyiguai', isOwner: true } });
+            const config = await store.getConfig();
+            if (!config || typeof config !== 'object') throw new Error('config payload is not an object');
+            console.log('LIVE_NODE_NOVEL_CONFIG_READ_OK=yes');
+
+            const app = express();
+            const auth = (req, res, next) => {
+              req.username = 'choushiyiguai';
+              req.auth = { username: 'choushiyiguai', account: { username: 'choushiyiguai', isOwner: true } };
+              next();
+            };
+            app.use('/api/batch-rewrite', createBatchRewriteRouter({ auth }));
+            const server = app.listen(0, '127.0.0.1');
+            await new Promise((resolve, reject) => {
+              server.once('listening', resolve);
+              server.once('error', reject);
+            });
             try {
-              const store = createMySQLWorkshopStore({ account: { username: 'choushiyiguai', isOwner: true } });
-              const config = await store.getConfig();
-              if (!config || typeof config !== 'object') throw new Error('config payload is not an object');
-              console.log('LIVE_NODE_NOVEL_CONFIG_READ_OK=yes');
-            } catch (error) {
-              console.log('LIVE_NODE_NOVEL_CONFIG_READ_OK=no');
-              console.log('LIVE_NODE_NOVEL_CONFIG_STATUS=' + String(error?.status || ''));
-              console.log('LIVE_NODE_NOVEL_CONFIG_ERROR=' + String(error?.message || error || '').replace(/\s+/g, ' ').slice(0, 240));
-              process.exitCode = 1;
+              const address = server.address();
+              const response = await fetch(`http://127.0.0.1:${address.port}/api/batch-rewrite/config`);
+              const text = await response.text();
+              console.log('BATCH_REWRITE_CONFIG_HTTP=' + response.status);
+              let body = {};
+              try { body = text ? JSON.parse(text) : {}; } catch (_) {}
+              const ok = response.ok && body && typeof body === 'object' && body.app_config;
+              console.log('BATCH_REWRITE_CONFIG_OK=' + (ok ? 'yes' : 'no'));
+              if (!ok) {
+                console.log('BATCH_REWRITE_CONFIG_ERROR=' + String(body.error || body.message || text || '').replace(/\s+/g, ' ').slice(0, 240));
+                process.exitCode = 1;
+              }
+            } finally {
+              await new Promise(resolve => server.close(resolve));
             }
-          })();
+          })().catch(error => {
+            console.log('PROBE_FATAL=' + String(error?.message || error || '').replace(/\s+/g, ' ').slice(0, 240));
+            process.exitCode = 1;
+          });
           NODE
           REMOTE
