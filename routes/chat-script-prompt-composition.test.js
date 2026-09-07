@@ -8,6 +8,7 @@ function presetStore() {
     'script-segmented': 'SEGMENTED_OPENING_PROMPT',
     'script-format-shotlist': 'SHOTLIST_MODE_PROMPT',
     'script-general': 'GENERAL_PROMPT',
+    'script-character-focus': 'STAR_FOCUS_RULE：剧情聚焦变量={focusCharacters}；数量={focusCount}；不得自动定义为主角。',
     'script-director-storyboard-master': 'DIRECTOR_MASTER_SHOULD_NOT_BE_IN_NORMAL_SCRIPT_CALL'
   };
   return {
@@ -29,7 +30,7 @@ function character(name, gender, role = '') {
   return { 角色名称: name, 性别: gender, 身份: role };
 }
 
-test('分段开头 + 分镜模式在一次 script 请求中组合，并始终带人物场景与主角白名单', () => {
+test('分段开头 + 分镜模式在一次 script 请求中组合，并始终带人物场景与星标聚焦变量', () => {
   const body = {
     promptType: 'script',
     mode: 'segmented',
@@ -63,30 +64,34 @@ test('分段开头 + 分镜模式在一次 script 请求中组合，并始终带
 
   assert.match(system, /SEGMENTED_OPENING_PROMPT/);
   assert.match(system, /SHOTLIST_MODE_PROMPT/);
+  assert.match(system, /STAR_FOCUS_RULE：剧情聚焦变量=陆沉、林晚；数量=2/);
   assert.doesNotMatch(system, /DIRECTOR_MASTER_SHOULD_NOT_BE_IN_NORMAL_SCRIPT_CALL/);
+  assert.doesNotMatch(system, /陆沉为男主角|林晚为女主角/);
 
   assert.match(user, /## 人物信息/);
   assert.match(user, /陆沉/);
   assert.match(user, /林晚/);
   assert.match(user, /## 场景信息/);
   assert.match(user, /办公室/);
-  assert.match(user, /以陆沉为男主角、林晚为女主角展开剧情/);
+  assert.doesNotMatch(user, /男主角|女主角|为主角展开剧情/);
 });
 
-test('单核心人物白名单生成明确主角运行指令', () => {
-  const protagonist = character('林晚', '女', '设计师');
+test('单星标人物只生成聚焦规则，不生成主角身份指令', () => {
+  const starred = character('林晚', '女', '设计师');
   const body = {
     promptType: 'script',
     mode: 'segmented',
     format: 'shotlist',
     duration: '15s',
     novelText: '林晚独自站在雨中。',
-    characters: [protagonist],
+    characters: [starred],
     scenes: [{ 场景名称: '街道', 场景描述: '雨夜街道' }],
-    protagonists: [protagonist],
+    protagonists: [starred],
     constraints: { baseSetup: { enabled: false } }
   };
 
   const messages = chatRouter._private.buildScriptMessages(body, presetStore(), null, 'tester');
-  assert.match(messages[1].content, /以林晚为主角展开剧情/);
+  assert.match(messages[0].content, /STAR_FOCUS_RULE：剧情聚焦变量=林晚；数量=1/);
+  assert.doesNotMatch(messages[0].content, /林晚为主角/);
+  assert.doesNotMatch(messages[1].content, /林晚为主角|为主角展开剧情/);
 });
