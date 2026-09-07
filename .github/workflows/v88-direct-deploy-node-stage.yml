@@ -87,6 +87,8 @@ jobs:
             --exclude='services/121-browser-worker/node_modules' \
             -czf "release/v88-node-${GITHUB_SHA}.tar.gz" .
           test -s "release/v88-node-${GITHUB_SHA}.tar.gz"
+          echo "PAYLOAD_BYTES=$(stat -c '%s' "release/v88-node-${GITHUB_SHA}.tar.gz")"
+          du -h "release/v88-node-${GITHUB_SHA}.tar.gz"
 
       - name: Prepare ECS SSH
         shell: bash
@@ -106,18 +108,31 @@ jobs:
         run: |
           set -Eeuo pipefail
           release_dir="${STAGE_ROOT}/${GITHUB_SHA}"
-          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20)
-          ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
-          scp "${ssh_opts[@]}" "release/v88-node-${GITHUB_SHA}.tar.gz" "$ECS_USER@$ECS_HOST:$release_dir/source.tar.gz"
-          ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$release_dir" "$GITHUB_SHA" <<'REMOTE'
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+
+          echo 'REMOTE_PREPARE_START'
+          timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
+          echo 'REMOTE_PREPARE_DONE'
+
+          echo 'SCP_UPLOAD_START'
+          timeout 180 scp -C "${ssh_opts[@]}" "release/v88-node-${GITHUB_SHA}.tar.gz" "$ECS_USER@$ECS_HOST:$release_dir/source.tar.gz"
+          echo 'SCP_UPLOAD_DONE'
+
+          echo 'REMOTE_STAGE_START'
+          timeout 240 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$release_dir" "$GITHUB_SHA" <<'REMOTE'
           set -Eeuo pipefail
           release_dir="$1"
           sha="$2"
           cd "$release_dir"
+          echo 'REMOTE_EXTRACT_START'
           tar -xzf source.tar.gz
+          echo 'REMOTE_EXTRACT_DONE'
           test "$(tr -d '\r\n' < RELEASE-SHA)" = "$sha"
+          echo 'REMOTE_HOST_STAGE_SCRIPT_START'
           bash deploy/v88-direct/stage-node-host.sh "$release_dir" "$sha"
+          echo 'REMOTE_HOST_STAGE_SCRIPT_DONE'
           REMOTE
+          echo 'REMOTE_STAGE_DONE'
 
       - name: Confirm public traffic is still on existing route
         shell: bash
