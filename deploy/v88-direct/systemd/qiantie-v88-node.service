@@ -1,0 +1,19 @@
+[Unit]
+Description=Qiantie V88 Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qiantie
+Group=qiantie
+WorkingDirectory=/opt/qiantie/v88/current
+EnvironmentFile=/opt/qiantie/v88/shared/env/v88.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/env node server.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
