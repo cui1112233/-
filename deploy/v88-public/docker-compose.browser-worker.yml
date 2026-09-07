@@ -1,15 +1,19 @@
-# release-trigger: public-build-info-auth-20260907
+# release-trigger: local-executor-public-regression-20260907
 services:
   v88-node:
     env_file:
       - ./novel-fetch-121.env
     environment:
+      QIANTIE_BASE_ENV_FILE: /run/qiantie/base.env
       QIANTIE_121_BROWSER_WORKER_URL: http://novel-fetch-121-worker:8787
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
       QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
       QIANTIE_121_STORAGE_STATE_SECRET: ${QIANTIE_121_STORAGE_STATE_SECRET}
       QIANTIE_121_CLIENT_TIMEOUT_MS: "40000"
       QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS: "55000"
+    volumes:
+      - /opt/qiantie/v88/deploy/v88-public/.env:/run/qiantie/base.env:ro
+      - /opt/qiantie/v88/data/downloads:/app/data/downloads:ro
     depends_on:
       novel-fetch-121-worker:
         condition: service_healthy

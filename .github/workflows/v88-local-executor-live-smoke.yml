@@ -5,7 +5,15 @@ on:
     branches:
       - v88
     paths:
+      - 'server.js'
+      - 'lib/runtime-env.js'
+      - 'routes/shuihuo-production.js'
+      - 'routes/local-executor-downloads.js'
+      - 'frontend/src/user/pages/ScriptPage.jsx'
+      - 'frontend/src/user/pages/SettingsPage.jsx'
+      - 'deploy/v88-public/docker-compose.browser-worker.yml'
       - '.github/workflows/v88-local-executor-live-smoke.yml'
+      - '.github/workflows/v88-local-executor-windows.yml'
   workflow_dispatch:
 
 permissions:
@@ -82,6 +90,8 @@ jobs:
             if (!response.ok) {
               throw new Error(`live local-executor endpoint returned unexpected status: ${response.status}`);
             }
+            const body = await response.json();
+            if (!Array.isArray(body?.executors)) throw new Error('live local-executor response missing executors array');
             console.log('local_executor_live_auth=passed');
           })().catch(error => {
             console.error(error.message);
