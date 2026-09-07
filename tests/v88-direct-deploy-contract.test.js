@@ -57,7 +57,7 @@ test('change classifier isolates frontend-only changes', () => {
   fs.writeFileSync(path.join(tmp, 'frontend', 'a.txt'), 'b');
   execFileSync('git', ['commit', '-am', 'frontend'], { cwd: tmp, stdio: 'ignore' });
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
-  const out = execFileSync(script, [base, head], { cwd: tmp, encoding: 'utf8' });
+  const out = execFileSync('bash', [script, base, head], { cwd: tmp, encoding: 'utf8' });
   assert.match(out, /FRONTEND_CHANGED=1/);
   assert.match(out, /NODE_CHANGED=0/);
   assert.match(out, /GO_CHANGED=0/);
@@ -68,11 +68,11 @@ test('change classifier isolates frontend-only changes', () => {
 test('release preparation refuses current and writes exact SHA', () => {
   const script = path.resolve('deploy/v88-direct/prepare-release.sh');
   assert.ok(fs.existsSync(script), 'prepare-release.sh must exist');
-  const bad = run(script, ['/opt/qiantie/v88/current', 'abc123']);
+  const bad = run('bash', [script, '/opt/qiantie/v88/current', 'abc123']);
   assert.notEqual(bad.status, 0);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'v88-release-'));
   const release = path.join(tmp, 'abc123');
-  const good = run(script, [release, 'abc123']);
+  const good = run('bash', [script, release, 'abc123']);
   assert.equal(good.status, 0, good.stderr || good.stdout);
   assert.equal(fs.readFileSync(path.join(release, 'RELEASE-SHA'), 'utf8').trim(), 'abc123');
 });
