@@ -29,12 +29,15 @@ test('Node release payload is whitelist-only and mirrors the production Node run
   assert.match(source, /PAYLOAD_BYTES|stat\s+-c/);
 });
 
-test('Node staging workflow uses whitelist packager and bounded transfer phases', () => {
+test('Node staging workflow uses whitelist packager and bounded resumable-friendly SSH chunk transfer', () => {
   const workflow = readIfExists(stageWorkflow);
   assert.ok(workflow, 'v88-direct-deploy-node-stage.yml must exist');
   assert.match(workflow, /package-node-release\.sh/);
   assert.doesNotMatch(workflow, /--exclude=['"]?\.git|tar\s+\\?[\s\S]{0,500}-czf[^\n]*\s\.\s*$/m, 'workflow must not build a whole-repo tarball');
-  assert.match(workflow, /timeout\s+\d+\s+scp/);
-  assert.match(workflow, /timeout\s+\d+\s+ssh/);
+  assert.doesNotMatch(workflow, /\bscp\b/, 'cross-region release transfer must not depend on one monolithic SCP/SFTP upload');
+  assert.match(workflow, /split\s+-b\s+\d+[KMG]/, 'release payload must be split into bounded chunks');
+  assert.match(workflow, /timeout\s+\d+\s+ssh/, 'every remote transfer/control phase must stay bounded');
+  assert.match(workflow, /cat\s+>[^\n]*source\.tar\.gz\.part-/, 'chunks must stream over the already-verified SSH command channel');
+  assert.match(workflow, /sha256sum/, 'reassembled remote payload must be integrity checked');
   assert.match(workflow, /PAYLOAD_BYTES/);
 });
