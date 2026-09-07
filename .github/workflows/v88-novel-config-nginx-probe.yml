@@ -1,0 +1,48 @@
+name: V88 Novel Config Nginx Probe
+
+on:
+  push:
+    branches:
+      - diag/v88-novel-config-chain-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+    steps:
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Summarize public config HTTP statuses
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          nginx_id="$(docker ps --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
+          test -n "$nginx_id"
+          logs="$(docker logs --since 90m "$nginx_id" 2>&1 || true)"
+          matches="$(printf '%s\n' "$logs" | grep -E '"GET /api/batch-rewrite/config([ ?]| HTTP/)' || true)"
+          count="$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')"
+          echo "CONFIG_REQUEST_COUNT=${count}"
+          if [ "$count" -gt 0 ]; then
+            printf '%s\n' "$matches" | sed -nE 's/.*"GET \/api\/batch-rewrite\/config[^\"]*" ([0-9]{3}) .*/\1/p' | sort | uniq -c | awk '{print "CONFIG_HTTP_" $2 "=" $1}'
+            last_status="$(printf '%s\n' "$matches" | tail -n1 | sed -nE 's/.*"GET \/api\/batch-rewrite\/config[^\"]*" ([0-9]{3}) .*/\1/p')"
+            echo "CONFIG_LAST_HTTP=${last_status:-unknown}"
+          fi
+          REMOTE
