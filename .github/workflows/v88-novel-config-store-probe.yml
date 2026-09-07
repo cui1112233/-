@@ -1,0 +1,55 @@
+name: V88 Novel Config Store Probe
+
+on:
+  push:
+    branches:
+      - diag/v88-novel-config-chain-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+    steps:
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Probe live Node novel config store
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
+          test -n "$node_id"
+          docker exec -i "$node_id" node - <<'NODE'
+          const { createMySQLWorkshopStore } = require('/app/lib/novel-fetch-workshop/mysql-store');
+          (async () => {
+            try {
+              const store = createMySQLWorkshopStore({ account: { username: 'choushiyiguai', isOwner: true } });
+              const config = await store.getConfig();
+              if (!config || typeof config !== 'object') throw new Error('config payload is not an object');
+              console.log('LIVE_NODE_NOVEL_CONFIG_READ_OK=yes');
+            } catch (error) {
+              console.log('LIVE_NODE_NOVEL_CONFIG_READ_OK=no');
+              console.log('LIVE_NODE_NOVEL_CONFIG_STATUS=' + String(error?.status || ''));
+              console.log('LIVE_NODE_NOVEL_CONFIG_ERROR=' + String(error?.message || error || '').replace(/\s+/g, ' ').slice(0, 240));
+              process.exitCode = 1;
+            }
+          })();
+          NODE
+          REMOTE
