@@ -38,3 +38,19 @@ test('V88 public release workflow builds and deploys the existing 121 Browser Wo
   assert.match(workflow, /QIANTIE_121_BROWSER_WORKER_URL/);
   assert.match(workflow, /\/healthz/);
 });
+
+test('V88 deployment attaches the new Browser Worker to every existing v88-node Docker network before recreating v88-node', () => {
+  const workflow = read('.github/workflows/v88-linux-amd64-image-release.yml');
+  const deployStart = workflow.indexOf('- name: Deploy verified images to V88 ECS');
+  const verifyStart = workflow.indexOf('- name: Verify V88 ECS deployment');
+  assert.ok(deployStart >= 0 && verifyStart > deployStart, 'must find V88 ECS deploy step');
+  const deploy = workflow.slice(deployStart, verifyStart);
+
+  assert.match(deploy, /node_networks=.*NetworkSettings\.Networks/);
+  assert.match(deploy, /docker network connect --alias novel-fetch-121-worker/);
+
+  const connectIndex = deploy.indexOf('docker network connect --alias novel-fetch-121-worker');
+  const recreateNodeIndex = deploy.indexOf('up -d --no-deps --force-recreate --pull never v88-node');
+  assert.ok(connectIndex >= 0, 'Browser Worker must be connected to v88-node networks');
+  assert.ok(recreateNodeIndex > connectIndex, 'network bridge must be ready before v88-node is recreated');
+});
