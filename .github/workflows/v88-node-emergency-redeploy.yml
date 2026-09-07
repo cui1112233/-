@@ -1,5 +1,5 @@
 name: V88 Node Emergency Redeploy
-# trigger: novel-fetch-v2-readback-20260907
+# trigger: script-constraint-inline-20260907
 
 on:
   push:
