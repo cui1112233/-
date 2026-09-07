@@ -115,3 +115,69 @@ TDD / 根因确认：
 
 附带观察（不阻塞本次发布）：
 - production build 仍报告 BatchFactoryV11UiPage.jsx 存在重复 mergeStatus JSX 属性警告；本次任务未修改该文件，构建与部署均成功，建议单独任务清理。
+
+[2026-09-07] 剧本分镜卡恢复显示“基础设定 / 画面前缀 / 画质约束 / 画面限制 / 负面提示词”
+
+目标：
+1. 用户开启“基础设定（人物 / 场景）”后，最终分镜卡必须显示已提取人物和首个场景。
+2. 画面前缀词、画质约束、画面限制、负面提示词开启后，也必须在最终分镜卡中可见。
+3. AI 偶发没有按统一协议输出 `### 分镜N` 外层标题时，不能退回裸文本导致约束全部消失。
+4. 用户保存约束开关后，当前已生成分镜卡立即重新组装显示，不重新请求 AI。
+5. 保留现有统一 `### 分镜N` 外层协议，不恢复机械按 10s/15s 二次切段。
+
+Git 根因追溯：
+- `frontend/src/user/pages/scriptFinalSegment.js` 的最终组装逻辑一直存在且正确：`buildFinalSegmentCard()` 会按开关注入 `【基础设定】`、`【画面前缀】`、`【画质约束】`（含画面限制）和 `负面提示词`。
+- `ShotOutputCards.jsx` 直接渲染传入的完整 card，不会过滤这些文本。
+- 旧提交 `75cb23b9eec0eb61e31b6bf4e898a12254ef9d04` 的 `ScriptPage.jsx` 已明确存在兜底：标准分镜解析失败时仍把 `output` 作为一张卡送入最终组装；代码注释明确写过“否则基础设定、画面前缀和其他已开启约束完全不可见”。
+- 回归来自 commit `94d1b2fd098a9ba4eb9ad61dc3f07408507bea64`（`feat(v88): unify script outer card protocol`）：为了统一外层卡协议，删除了上述 display fallback，`rawShotCards` 变成严格只接受 `### 分镜N`；模型标题不标准时 `rawShotCards=[]`，因此 `buildFinalSegmentCard()` 根本不执行。
+- 第二个问题是可见卡片用 `outputConstraints`（生成瞬间快照）组装，而不是当前已保存的 `constraints`，所以生成后再开/关约束，当前卡片不会立即变化。
+
+TDD：
+- 新增 `tests/script-constraint-card-visibility.test.js`。
+- RED commit：`a8bb3111b230e3c9c8c057110bc5a937ae7a2757`。
+- RED 的全量 Node regression：229 项，227 通过、2 失败；唯一失败就是：
+  1. 非标准 AI 外层标题没有 display fallback；
+  2. 可见分镜仍使用 `outputConstraints` 而非当前 `constraints`。
+- 同一个测试中的第三项确认 `scriptFinalSegment.js` 本身已经拥有全部约束层，证明问题不在最终组装器。
+
+已实施：
+- 功能修复 commit：`c224c63d1bdda1d4233723b8eec8d11bdcbe9ef3`（`fix(v88): restore constraints in storyboard cards`）。
+- `ScriptPage.jsx` 的 `rawShotCards`：
+  - 首选 `getShotCardsWithinDuration()`，继续严格按统一 `### 分镜N` 协议拆卡；
+  - 如果标准解析结果为空但已有 `output`，只作为“展示兜底”返回 `[output]`，确保仍进入 `buildFinalSegmentCard()`；
+  - 没有恢复 `splitContinuousTimeline` 或任何机械二次切段。
+- 可见 `shotCards` 改为 `constraintsForFormat(constraints, selectedFormat, extractInfo)`；保存开关后，React 直接重新组装当前卡片，不调用 AI。
+- `outputConstraints` 继续保留，仍用于生成时快照、历史和草稿兼容，不删除原数据语义。
+- 为安全修改大文件使用的一次性 patch workflow 已在执行后删除；当前 V88 不保留该临时 workflow。
+
+GREEN 验证：
+- 清理提交：`623c329c3825bb034ea6fc3f68aa9b12a29c0d07` 后触发完整 CI。
+- Novel Fetch V2 Check run `34076210805`：
+  - Novel Fetch V2 focused tests：SUCCESS；
+  - full Node regression：SUCCESS（包含新增的约束卡片可见性测试）；
+  - 121 Browser Worker tests：SUCCESS；
+  - frontend dependency audit：SUCCESS；
+  - frontend production build：SUCCESS；
+  - compose-config：SUCCESS；
+  - isolated compose-smoke：SUCCESS。
+- V88 CM Public Release Guard run `34076210796`：SUCCESS。
+- Novel Panel V78.3.0.31 Regression run `34076210795`：SUCCESS。
+- BF11 Integrated Runtime Verify run `34076210830`：Node / Frontend / Go 全部 SUCCESS。
+
+公网发布：
+- 触发提交：`3aae6bac4877a8b1331cec87c4693a57a86a84ef`（只更新既有 Node emergency workflow 的 trigger 标记，发布逻辑不变；包含前述功能修复）。
+- V88 Node Emergency Redeploy run `34076376543`：SUCCESS。
+- production build 产出新的 `ScriptPage-9hKemvBP.js`。
+- 新镜像：`ghcr.io/cui1112233/qiantie-v88:node-emergency-3aae6bac4877`。
+- 镜像 digest：`sha256:6db51162062dcde680a44ac52799ecdbe3ace467b9d046f4eb9bdfeb9d0c7afc`。
+- ECS GHCR pull 成功完成；`v88-public-v88-node-1` 已 `Recreate -> Recreated -> Starting -> Started`。
+- Node 启动阶段出现两次短暂 502，随后 readiness 成功；日志明确输出：`V88 Node emergency deploy verified for commit 3aae6bac4877a8b1331cec87c4693a57a86a84ef.`
+- 最终公网 endpoint 验证 SUCCESS；没有触发 rollback。
+- 自动发布验收验证了 production bundle、Node 容器重建和公网可访问性；当前工具没有用户登录态，因此未在用户账号中人工点击“基础设定/画面前缀”等开关做截图式验收。
+
+预期公网行为：
+- 开启基础设定并保存后，当前分镜卡立即出现 `【基础设定】`、人物与首个场景；无需重新生成 AI。
+- 开启画面前缀后，当前卡出现 `【画面前缀】`。
+- 开启画质约束/画面限制后，对应内容进入 `【画质约束】` 区域。
+- 开启负面提示词后，卡片末尾出现 `负面提示词`。
+- 若 AI 没有输出标准 `### 分镜N`，仍会至少显示一张经过最终组装的分镜卡，不再让已开启约束静默消失。
