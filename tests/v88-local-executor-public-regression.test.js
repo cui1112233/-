@@ -6,6 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 
+// RED first: these contracts describe the public behavior that regressed after release.
 test('ScriptPage accepts the public local-executor response shape', () => {
   const source = read('frontend/src/user/pages/ScriptPage.jsx');
   assert.match(source, /Array\.isArray\(result\?\.executors\)/);
