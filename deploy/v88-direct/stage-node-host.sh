@@ -21,8 +21,8 @@ RUNTIME_ROOT=/opt/qiantie/runtime
 NODE_HOME="$RUNTIME_ROOT/$NODE_DIST"
 ROOT=/opt/qiantie/v88
 SHARED="$ROOT/shared"
-SHARED_DATA="$SHARED/data"
-SHARED_OUTPUTS="$SHARED/outputs"
+SHARED_DATA=/opt/qiantie/v88/shared/data
+SHARED_OUTPUTS=/opt/qiantie/v88/shared/outputs
 STAGE_ENV="$SHARED/env/v88-stage.env"
 STAGE_UNIT=/etc/systemd/system/qiantie-v88-node-stage.service
 NETWORK=v88-public_qiantie_internal
@@ -112,7 +112,7 @@ fi
 tmp_env="$(mktemp)"
 trap 'rm -f "$tmp_env"' EXIT
 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$node_id" \
-  | grep -vE '^(PATH|HOSTNAME|HOME|NODE_VERSION|YARN_VERSION|QIANTIE_NODE_PORT|QIANTIE_GO_BASE_URL|QIANTIE_121_BROWSER_WORKER_URL|QIANTIE_RELEASE_SHA|QIANTIE_DEPLOY_MODE|QIANTIE_DEPLOYED_AT|QIANTIE_RELEASE_SHA_FILE)=' \
+  | grep -vE '^(PATH|HOSTNAME|HOME|NODE_VERSION|YARN_VERSION|NODE_ENV|QIANTIE_NODE_PORT|QIANTIE_GO_BASE_URL|QIANTIE_121_BROWSER_WORKER_URL|QIANTIE_RELEASE_SHA|QIANTIE_DEPLOY_MODE|QIANTIE_DEPLOYED_AT|QIANTIE_RELEASE_SHA_FILE)=' \
   > "$tmp_env"
 printf '%s\n' \
   "NODE_ENV=production" \
