@@ -32,11 +32,11 @@ test('121 guard fails closed when batch rewrite config is unavailable', () => {
   assert.match(source, /qiantieSafeLoginBound/);
 });
 
-test('121 guard applies a 15 second frontend deadline to config and web-submit requests', () => {
+test('121 guard keeps a 65 second frontend deadline above active worker budgets', () => {
   const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
-  assert.match(source, /REQUEST_TIMEOUT_MS\s*=\s*15_?000/);
+  assert.match(source, /REQUEST_TIMEOUT_MS\s*=\s*65_?000/);
   assert.match(source, /AbortController/);
-  assert.match(source, /请求超时（15 秒）/);
+  assert.match(source, /REQUEST_TIMEOUT_SECONDS\s*=\s*Math\.ceil\(REQUEST_TIMEOUT_MS\s*\/\s*1000\)/);
 });
 
 test('121 backend transport also defaults to a 15 second deadline', () => {
