@@ -12,6 +12,7 @@ const { createV783031BuildInfoMiddleware } = require('./lib/novel-panel/v783031-
 const { createScriptSmartUnifiedStyleHandler } = require('./lib/script-smart-unified-route');
 const { createScriptDirectorPipelineHandler } = require('./lib/script-director-pipeline-route');
 const { migrateLegacyScriptPromptPresets } = require('./lib/script-prompt-preset-migration');
+const { readReleaseInfo } = require('./lib/release-info');
 
 // ============================================================
 // 启动服务器
@@ -57,6 +58,16 @@ app.post(
 // V78.3.0.31 final public identity: preserve the existing build-info payload but
 // overlay the verified final-semantics version/build fields before it is emitted.
 app.use('/api/novel-panel/build-info', createV783031BuildInfoMiddleware());
+
+// Git-direct release identity is exposed without changing the legacy build-info
+// compatibility fields consumed by existing pages and diagnostics.
+app.get('/api/build-info', (req, res) => {
+  res.json({
+    app_version: 'v78.3.0.3',
+    build_id: 'v78.3.0.3-remote-workbench-20260819-r1',
+    ...readReleaseInfo()
+  });
+});
 
 // V78.3.0.20/21 final semantics: full outline generation uses one authoritative
 // backend semantic-contract/audit chain. It compiles the user's director rules,
