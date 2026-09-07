@@ -1,0 +1,90 @@
+name: V88 Novel Config Chain Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/v88-novel-config-chain-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+    steps:
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Diagnose Node to Go novel config chain
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+
+          container_id() {
+            docker ps --filter "name=$1" --format '{{.ID}}' | head -n1
+          }
+          env_value() {
+            local id="$1"
+            local key="$2"
+            docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id" | sed -n "s/^${key}=//p" | head -n1
+          }
+
+          node_id="$(container_id v88-public-v88-node)"
+          go_id="$(container_id v88-public-go-api)"
+          test -n "$node_id"
+          test -n "$go_id"
+
+          node_bridge="$(env_value "$node_id" QIANTIE_BRIDGE_SECRET)"
+          go_bridge="$(env_value "$go_id" QIANTIE_BRIDGE_SECRET)"
+          node_go_url="$(env_value "$node_id" QIANTIE_GO_BASE_URL)"
+          go_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$go_id")"
+
+          if [ -n "$node_bridge" ]; then echo 'NODE_BRIDGE_SECRET_PRESENT=yes'; else echo 'NODE_BRIDGE_SECRET_PRESENT=no'; fi
+          if [ -n "$go_bridge" ]; then echo 'GO_BRIDGE_SECRET_PRESENT=yes'; else echo 'GO_BRIDGE_SECRET_PRESENT=no'; fi
+          if [ -n "$node_bridge" ] && [ "$node_bridge" = "$go_bridge" ]; then echo 'BRIDGE_SECRET_MATCH=yes'; else echo 'BRIDGE_SECRET_MATCH=no'; fi
+          if [ -n "$node_go_url" ]; then echo 'NODE_GO_BASE_URL_PRESENT=yes'; else echo 'NODE_GO_BASE_URL_PRESENT=no'; fi
+          if [ -s /opt/qiantie/v88/shared/env/v88-stage.env ] && grep -q '^QIANTIE_BRIDGE_SECRET=.' /opt/qiantie/v88/shared/env/v88-stage.env; then echo 'STAGE_BRIDGE_SECRET_PRESENT=yes'; else echo 'STAGE_BRIDGE_SECRET_PRESENT=no'; fi
+
+          health_code="$(curl -sS -o /tmp/v88-go-health.json -w '%{http_code}' --max-time 5 "http://${go_ip}:4000/health" || true)"
+          config_code="$(curl -sS -o /tmp/v88-go-novel-config.json -w '%{http_code}' --max-time 5 "http://${go_ip}:4000/api/novel-fetch-workshop/config" || true)"
+          echo "GO_HEALTH_HTTP=${health_code}"
+          echo "GO_NOVEL_CONFIG_UNAUTH_HTTP=${config_code}"
+
+          if [ "$health_code" != 200 ]; then
+            echo 'GO_HEALTH_OK=no'
+          else
+            echo 'GO_HEALTH_OK=yes'
+          fi
+
+          case "$config_code" in
+            401|403) echo 'GO_NOVEL_CONFIG_ROUTE_PRESENT=yes' ;;
+            404) echo 'GO_NOVEL_CONFIG_ROUTE_PRESENT=no' ;;
+            200) echo 'GO_NOVEL_CONFIG_ROUTE_PRESENT=yes' ;;
+            *) echo 'GO_NOVEL_CONFIG_ROUTE_PRESENT=unknown' ;;
+          esac
+
+          stage_pid="$(systemctl show -p MainPID --value qiantie-v88-node-stage.service 2>/dev/null || true)"
+          if [ -n "$stage_pid" ] && [ "$stage_pid" != 0 ] && [ -r "/proc/$stage_pid/environ" ]; then
+            stage_bridge="$(tr '\0' '\n' < "/proc/$stage_pid/environ" | sed -n 's/^QIANTIE_BRIDGE_SECRET=//p' | head -n1)"
+            if [ -n "$stage_bridge" ]; then echo 'STAGE_PROCESS_BRIDGE_SECRET_PRESENT=yes'; else echo 'STAGE_PROCESS_BRIDGE_SECRET_PRESENT=no'; fi
+            if [ -n "$stage_bridge" ] && [ "$stage_bridge" = "$go_bridge" ]; then echo 'STAGE_GO_BRIDGE_SECRET_MATCH=yes'; else echo 'STAGE_GO_BRIDGE_SECRET_MATCH=no'; fi
+          else
+            echo 'STAGE_PROCESS_BRIDGE_SECRET_PRESENT=unknown'
+            echo 'STAGE_GO_BRIDGE_SECRET_MATCH=unknown'
+          fi
+          REMOTE
