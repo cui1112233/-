@@ -61,9 +61,22 @@ assert.match(workflow, /compose=\(docker compose --env-file "\$compose_dir\/nove
   'deployment must build the Compose command from the real project file and canonical 121 env file');
 assert.match(workflow, /"\$\{compose\[@\]\}" up -d --no-deps --force-recreate --pull never v88-node/,
   'deployment must recreate only v88-node from the real Compose project without pulling dependencies');
-assert.match(workflow, /api\/novel-panel\/build-info/);
-assert.match(workflow, /v78\.3\.0\.31/,
-  'post-deploy verification must require the V31 public identity');
+
+const verifyBlock = workflow.slice(workflow.indexOf(verifyMarker), workflow.indexOf(rollbackMarker));
+assert.doesNotMatch(verifyBlock, /api\/novel-panel\/build-info/,
+  'release verification must not anonymously probe the authenticated Novel Panel build-info endpoint');
+assert.match(verifyBlock, /GHCR_IMAGE/,
+  'release verification must receive the immutable commit-specific GHCR image');
+assert.match(verifyBlock, /docker image inspect "\$ghcr_image" --format '\{\{\.Id\}\}'/,
+  'release verification must resolve the expected image ID from the immutable GHCR image');
+assert.match(verifyBlock, /docker inspect "\$node_id" --format '\{\{\.Image\}\}'/,
+  'release verification must read the running v88-node container image ID');
+assert.match(verifyBlock, /expected_node_image_id/,
+  'release verification must compare the expected main image ID');
+assert.match(verifyBlock, /running_node_image_id/,
+  'release verification must compare the running main image ID');
+assert.match(verifyBlock, /api\/build-info/,
+  'release verification may use the public build-info endpoint only as an HTTP liveness probe');
 assert.match(workflow, /if \[ "\$ECS_DEPLOY_READY" != "true" \]/,
   'deployment must explicitly skip when the SSH secret is unavailable rather than pretending to deploy');
 assert.match(workflow, /if:\s*failure\(\)/,
