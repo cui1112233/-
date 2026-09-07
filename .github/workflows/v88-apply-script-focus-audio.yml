@@ -1,0 +1,55 @@
+name: V88 Apply Script Focus Audio
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - .github/workflows/v88-apply-script-focus-audio.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v88-apply-script-focus-audio
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout v88
+        uses: actions/checkout@v4
+        with:
+          ref: v88
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Apply approved focus and audio integration
+        run: node scripts/apply-script-focus-audio.js
+
+      - name: Run focused RED-to-GREEN regressions
+        run: |
+          node --test tests/novel-panel-v783031-script-focus-audio.test.js
+          node --test tests/script-generation-rules-frontend.test.mjs tests/script-match-audio-ui-contract.test.js
+
+      - name: Remove one-shot migration files
+        run: |
+          rm -f scripts/apply-script-focus-audio.js
+          rm -f .github/workflows/v88-apply-script-focus-audio.yml
+
+      - name: Commit product changes to v88
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(script): integrate star focus and audio match into normal generation"
+          git push origin HEAD:v88
