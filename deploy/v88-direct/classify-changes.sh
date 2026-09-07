@@ -15,13 +15,17 @@ if [ -z "$new_sha" ]; then
   exit 2
 fi
 
-# First direct deployment has no prior Git-direct SHA. Build everything once.
+# First direct deployment has no prior Git-direct SHA. Build all application
+# components once. Migrations stay off unless an actual migration file exists;
+# the current V88 Go service performs its own embedded storage migrations.
 if [ -z "$old_sha" ] || ! git cat-file -e "${old_sha}^{commit}" 2>/dev/null; then
   FRONTEND_CHANGED=1
   NODE_CHANGED=1
   GO_CHANGED=1
   WORKER_CHANGED=1
-  MIGRATIONS_CHANGED=1
+  if find backend/migrations migrations database/migrations -type f 2>/dev/null | grep -q .; then
+    MIGRATIONS_CHANGED=1
+  fi
 else
   while IFS= read -r file; do
     [ -n "$file" ] || continue
