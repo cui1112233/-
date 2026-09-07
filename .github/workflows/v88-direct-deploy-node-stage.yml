@@ -103,15 +103,54 @@ jobs:
         run: |
           set -Eeuo pipefail
           release_dir="${STAGE_ROOT}/${GITHUB_SHA}"
-          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+          payload="release/v88-node-${GITHUB_SHA}.tar.gz"
+          payload_sha="$(sha256sum "$payload" | awk '{print $1}')"
+          chunk_dir="release/v88-node-${GITHUB_SHA}-chunks"
+          rm -rf "$chunk_dir"
+          mkdir -p "$chunk_dir"
+          split -b 512K -d -a 4 "$payload" "$chunk_dir/source.tar.gz.part-"
+
+          control_path="$HOME/.ssh/v88-stage-%C"
+          ssh_opts=(
+            -i "$HOME/.ssh/v88_ecs"
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o PasswordAuthentication=no
+            -o ConnectTimeout=15
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=4
+            -o ControlMaster=auto
+            -o ControlPersist=300
+            -o "ControlPath=$control_path"
+          )
 
           echo 'REMOTE_PREPARE_START'
           timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
           echo 'REMOTE_PREPARE_DONE'
 
-          echo 'SCP_UPLOAD_START'
-          timeout 180 scp -C "${ssh_opts[@]}" "release/v88-node-${GITHUB_SHA}.tar.gz" "$ECS_USER@$ECS_HOST:$release_dir/source.tar.gz"
-          echo 'SCP_UPLOAD_DONE'
+          chunk_count="$(find "$chunk_dir" -type f -name 'source.tar.gz.part-*' | wc -l | tr -d ' ')"
+          test "$chunk_count" -gt 0
+          echo "SSH_CHUNK_UPLOAD_START chunks=$chunk_count sha256=$payload_sha"
+          chunk_index=0
+          for part in "$chunk_dir"/source.tar.gz.part-*; do
+            chunk_index=$((chunk_index + 1))
+            suffix="${part##*-}"
+            uploaded=false
+            for attempt in 1 2 3; do
+              echo "SSH_CHUNK_UPLOAD chunk=${chunk_index}/${chunk_count} attempt=${attempt}"
+              if timeout 120 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "cat > '$release_dir/source.tar.gz.part-$suffix'" < "$part"; then
+                uploaded=true
+                break
+              fi
+              sleep 2
+            done
+            test "$uploaded" = true
+          done
+
+          echo 'REMOTE_REASSEMBLE_START'
+          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" \
+            "cd '$release_dir' && cat source.tar.gz.part-* > source.tar.gz && test \"\$(sha256sum source.tar.gz | awk '{print \$1}')\" = '$payload_sha' && rm -f source.tar.gz.part-*"
+          echo 'REMOTE_REASSEMBLE_DONE'
 
           echo 'REMOTE_STAGE_START'
           timeout 240 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$release_dir" "$GITHUB_SHA" <<'REMOTE'
@@ -124,6 +163,8 @@ jobs:
           bash deploy/v88-direct/stage-node-host.sh "$release_dir" "$sha"
           REMOTE
           echo 'REMOTE_STAGE_DONE'
+
+          timeout 20 ssh "${ssh_opts[@]}" -O exit "$ECS_USER@$ECS_HOST" >/dev/null 2>&1 || true
 
       - name: Confirm existing public route remains healthy
         shell: bash
