@@ -1,0 +1,17 @@
+name: V88 Release Shell Check
+
+on:
+  push:
+    branches:
+      - fix/v88-release-heredoc-20260907
+
+jobs:
+  shell-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify V88 public deploy shell syntax
+        run: node --test tests/v88-public-release-shell-syntax.test.js
