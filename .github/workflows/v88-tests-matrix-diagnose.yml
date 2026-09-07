@@ -1,0 +1,36 @@
+name: V88 Tests Matrix Diagnose
+
+on:
+  push:
+    branches:
+      - fix/v88-novel-fetch-consolidation-20260907
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        shell: bash
+        run: |
+          files="$(node -e "const fs=require('fs'); console.log(JSON.stringify(fs.readdirSync('tests').filter(x=>x.endsWith('.test.js')).map(x=>'tests/'+x)))")"
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+  per-file:
+    needs: discover
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        file: ${{ fromJson(needs.discover.outputs.files) }}
+    name: ${{ matrix.file }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: node --test "${{ matrix.file }}"
