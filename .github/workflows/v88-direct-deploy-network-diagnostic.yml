@@ -40,31 +40,6 @@ jobs:
           echo "network=$network"
           echo "gateway=$gateway"
 
-          echo '=== container resolution boundary ==='
-          for pattern in \
-            v88-public-mysql \
-            v88-public-go-api \
-            v88-public-browser-worker \
-            v88-public-nginx \
-            v88-public-v88-node
-          do
-            set +e
-            matches="$(docker ps --filter "name=$pattern" --format '{{.ID}} {{.Names}}')"
-            status=$?
-            set -e
-            count="$(printf '%s\n' "$matches" | sed '/^$/d' | wc -l | tr -d ' ')"
-            echo "pattern=$pattern docker_ps_status=$status match_count=$count"
-            printf '%s\n' "$matches" | sed '/^$/d' | sed 's/^/match=/' || true
-          done
-
-          echo '=== network membership boundary ==='
-          set +e
-          network_members="$(docker network inspect "$network" --format '{{range $id,$c := .Containers}}{{$id}} {{$c.Name}} {{$c.IPv4Address}}{{println}}{{end}}')"
-          network_status=$?
-          set -e
-          echo "network_inspect_status=$network_status"
-          printf '%s\n' "$network_members" | sed '/^$/d' | sed 's/^/member=/' || true
-
           container_id() {
             local pattern="$1"
             local rows first
@@ -82,37 +57,16 @@ jobs:
           worker_id="$(container_id v88-public-browser-worker)"
           nginx_id="$(container_id v88-public-nginx)"
           node_id="$(container_id v88-public-v88-node)"
-          echo "mysql_id_present=$([ -n "$mysql_id" ] && echo true || echo false)"
-          echo "go_id_present=$([ -n "$go_id" ] && echo true || echo false)"
-          echo "worker_id_present=$([ -n "$worker_id" ] && echo true || echo false)"
-          echo "nginx_id_present=$([ -n "$nginx_id" ] && echo true || echo false)"
-          echo "node_id_present=$([ -n "$node_id" ] && echo true || echo false)"
-          test -n "$mysql_id"
-          test -n "$go_id"
-          test -n "$worker_id"
-          test -n "$nginx_id"
-          test -n "$node_id"
+          for id in "$mysql_id" "$go_id" "$worker_id" "$nginx_id" "$node_id"; do test -n "$id"; done
 
-          for pair in "mysql:$mysql_id" "go:$go_id" "worker:$worker_id" "nginx:$nginx_id"; do
-            label="${pair%%:*}"
-            id="${pair#*:}"
-            set +e
-            ip="$(container_ip "$id" 2>/tmp/qiantie-${label}-inspect.err)"
-            status=$?
-            set -e
-            echo "${label}_network_ip_status=$status"
-            if [ "$status" -ne 0 ]; then
-              sed 's/^/inspect_error=/' "/tmp/qiantie-${label}-inspect.err" || true
-              exit "$status"
-            fi
-            echo "${label}_ip=$ip"
-            case "$label" in
-              mysql) mysql_ip="$ip" ;;
-              go) go_ip="$ip" ;;
-              worker) worker_ip="$ip" ;;
-              nginx) nginx_ip="$ip" ;;
-            esac
-          done
+          mysql_ip="$(container_ip "$mysql_id")"
+          go_ip="$(container_ip "$go_id")"
+          worker_ip="$(container_ip "$worker_id")"
+          nginx_ip="$(container_ip "$nginx_id")"
+          echo "mysql_ip=$mysql_ip"
+          echo "go_ip=$go_ip"
+          echo "worker_ip=$worker_ip"
+          echo "nginx_ip=$nginx_ip"
 
           timeout 3 bash -c "</dev/tcp/$mysql_ip/3306"
           echo 'host_to_mysql_tcp=true'
@@ -136,6 +90,11 @@ jobs:
           else
             echo 'current_go_mysql_host=missing'
           fi
+
+          echo '=== node persistence mounts ==='
+          docker inspect -f '{{range .Mounts}}{{.Type}} {{.Source}} -> {{.Destination}} rw={{.RW}}{{println}}{{end}}' "$node_id"
+          echo '=== node env names ==='
+          docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$node_id" | sed 's/=.*$//' | sort | sed 's/^/env_name=/'
 
           echo '=== nginx mounts ==='
           docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' "$nginx_id"
