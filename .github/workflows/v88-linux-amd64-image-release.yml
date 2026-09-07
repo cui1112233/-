@@ -356,7 +356,7 @@ jobs:
           ensure_secret QIANTIE_121_CREDENTIAL_SECRET
           ensure_secret QIANTIE_121_STORAGE_STATE_SECRET
 
-          compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
+          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           "${compose[@]}" config >/dev/null
 
           container_id="$(${compose[@]} ps -q v88-node)"
@@ -405,7 +405,7 @@ jobs:
           compose_file="$1"
           compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
-          compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
+          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           "${compose[@]}" ps novel-fetch-121-worker v88-node
 
           worker_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
@@ -494,7 +494,7 @@ jobs:
           compose_file="$1"
           compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
-          compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
+          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           test -s /tmp/v88-last-rollback-image
           test -s /tmp/v88-last-service-image
           rollback_image="$(cat /tmp/v88-last-rollback-image)"
