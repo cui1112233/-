@@ -31,7 +31,7 @@ jobs:
           chmod 600 "$HOME/.ssh/v88_ecs"
           : > "$HOME/.ssh/known_hosts"
           timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
-      - name: Inspect active release transfer
+      - name: Inspect active release and public probes
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -50,6 +50,17 @@ jobs:
             else
               echo "$image present=false"
             fi
+          done
+          echo '--- local HTTP status ---'
+          for path in \
+            /api/build-info \
+            /api/novel-panel/build-info \
+            /batch-rewrite/ \
+            /batch-rewrite/interaction-feedback.js \
+            /batch-rewrite/task-visibility-hotfix.js \
+            /novel-panel; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "http://127.0.0.1:3000${path}" || true)"
+            echo "${path} status=${code}"
           done
           echo '--- docker disk ---'
           docker system df || true
