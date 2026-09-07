@@ -1,3 +1,4 @@
+# release-trigger: public-build-info-auth-20260907
 services:
   v88-node:
     env_file:
