@@ -41,14 +41,14 @@ test('V88 public release workflow builds and deploys the existing 121 Browser Wo
   assert.match(workflow, /\/healthz/);
 });
 
-test('V88 release verification identifies the exact deployed images and public build identity', () => {
+test('V88 release verification identifies exact deployed images without calling protected Novel Panel build-info', () => {
   const workflow = read('.github/workflows/v88-linux-amd64-image-release.yml');
   const verifyStart = workflow.indexOf('- name: Verify V88 ECS deployment');
   const rollbackStart = workflow.indexOf('- name: Rollback V88 ECS on failed verification');
   assert.ok(verifyStart >= 0 && rollbackStart > verifyStart, 'must find verify and rollback steps');
   const verify = workflow.slice(verifyStart, rollbackStart);
 
-  assert.match(verify, /\/api\/novel-panel\/build-info/, 'verify step must check the now-public Novel Panel build identity inside the exact Node container');
+  assert.doesNotMatch(verify, /\/api\/novel-panel\/build-info/, 'verify step must not anonymously call the protected Novel Panel build-info endpoint');
   assert.match(verify, /GHCR_IMAGE/, 'verify step must carry the commit-specific GHCR image');
   assert.match(verify, /WORKER_GHCR_IMAGE/, 'verify step must carry the commit-specific Browser Worker image');
   assert.match(verify, /docker image inspect[^\n]*expected_node_image[^\n]*\.Id/, 'verify step must resolve the expected main image ID');
