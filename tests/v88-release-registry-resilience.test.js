@@ -17,8 +17,11 @@ test('V88 Git-direct release uses a bounded slim payload instead of a registry o
   assert.match(packageScript, /forbidden=\(/);
   assert.match(packageScript, /PAYLOAD_BYTES/);
   assert.doesNotMatch(packageScript, /tar[^\n]*-czf[^\n]*\s\.\s*$/m);
-  assert.match(stageWorkflow, /timeout\s+180\s+scp/);
+  assert.doesNotMatch(stageWorkflow, /\bscp\b/);
+  assert.match(stageWorkflow, /split\s+-b\s+512K/);
+  assert.match(stageWorkflow, /timeout\s+120\s+ssh/);
   assert.match(stageWorkflow, /timeout\s+240\s+ssh/);
+  assert.match(stageWorkflow, /sha256sum/);
   assert.doesNotMatch(stageWorkflow, /docker build|docker push|docker pull|docker\/login-action/);
 });
 
