@@ -9,6 +9,7 @@ User=qiantie
 Group=qiantie
 WorkingDirectory=/opt/qiantie/v88/current
 EnvironmentFile=/opt/qiantie/v88/shared/env/v88.env
+EnvironmentFile=-/opt/qiantie/v88/current/RELEASE-ENV
 ExecStart=/opt/qiantie/v88/current/bin/qiantie
 Restart=on-failure
 RestartSec=3
