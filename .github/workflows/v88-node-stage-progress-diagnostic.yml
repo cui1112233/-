@@ -1,0 +1,67 @@
+name: V88 Node Stage Progress Diagnostic
+
+on:
+  push:
+    branches:
+      - feat/v88-git-ecs-direct-deploy-20260907
+    paths:
+      - '.github/workflows/v88-node-stage-progress-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H 115.190.156.223 > "$HOME/.ssh/known_hosts"
+
+      - name: Locate staging boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timeout 30 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=10 root@115.190.156.223 bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo "stage_root_exists=$([ -d /opt/qiantie/releases/v88-stage ] && echo true || echo false)"
+          if [ -d /opt/qiantie/releases/v88-stage ]; then
+            find /opt/qiantie/releases/v88-stage -mindepth 1 -maxdepth 1 -type d -printf 'stage_release=%f\n' | tail -n 5 || true
+          fi
+          echo "node_runtime_exists=$([ -x /opt/qiantie/runtime/node-v24.19.0-linux-x64/bin/node ] && echo true || echo false)"
+          if [ -x /opt/qiantie/runtime/node-v24.19.0-linux-x64/bin/node ]; then
+            echo "node_runtime_version=$(/opt/qiantie/runtime/node-v24.19.0-linux-x64/bin/node --version)"
+          fi
+          echo "stage_env_exists=$([ -s /opt/qiantie/v88/shared/env/v88-stage.env ] && echo true || echo false)"
+          echo "stage_unit_exists=$([ -s /etc/systemd/system/qiantie-v88-node-stage.service ] && echo true || echo false)"
+          echo "stage_service_active=$(systemctl is-active qiantie-v88-node-stage.service 2>/dev/null || true)"
+          echo "port_18081_listening=$(ss -ltn 2>/dev/null | grep -q ':18081 ' && echo true || echo false)"
+          if curl -fsS --connect-timeout 2 --max-time 4 http://127.0.0.1:18081/api/build-info >/tmp/v88-stage-build-info.json 2>/dev/null; then
+            python3 - <<'PY'
+          import json
+          with open('/tmp/v88-stage-build-info.json', encoding='utf-8') as f:
+              d=json.load(f)
+          print('stage_build_info_ok=true')
+          print('stage_git_sha=' + str(d.get('git_sha','')))
+          print('stage_deploy_mode=' + str(d.get('deploy_mode','')))
+          PY
+          else
+            echo 'stage_build_info_ok=false'
+          fi
+          if curl -fsS --connect-timeout 3 --max-time 8 https://nodejs.org/dist/v24.19.0/SHASUMS256.txt >/dev/null 2>&1; then
+            echo 'ecs_to_nodejs_org=true'
+          else
+            echo 'ecs_to_nodejs_org=false'
+          fi
+          echo "public_3000_ok=$(curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/api/build-info >/dev/null && echo true || echo false)"
+          REMOTE
