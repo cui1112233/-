@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'fix(novel-fetch): consolidate V88 task semantics')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
