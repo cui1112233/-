@@ -1,0 +1,56 @@
+name: V88 ECS Deploy Status Once
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - '.github/workflows/v88-ecs-deploy-status-once.yml'
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+      - name: Inspect active release transfer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo '--- active docker/transfer processes ---'
+          ps -eo pid,etime,args | grep -E '[d]ocker pull|[s]cp .*qiantie|[s]ha256sum|[d]ocker load' || true
+          echo '--- release image presence ---'
+          for image in \
+            ghcr.io/cui1112233/qiantie-v88:public-f4a88c86331c \
+            ghcr.io/cui1112233/qiantie-v88-121-browser-worker:public-f4a88c86331c \
+            v88-public-novel-fetch-121-worker:v88-latest; do
+            if docker image inspect "$image" >/dev/null 2>&1; then
+              echo "$image present=true"
+            else
+              echo "$image present=false"
+            fi
+          done
+          echo '--- docker disk ---'
+          docker system df || true
+          REMOTE
