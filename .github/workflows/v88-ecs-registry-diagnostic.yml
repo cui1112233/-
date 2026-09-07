@@ -36,6 +36,42 @@ jobs:
           : > "$HOME/.ssh/known_hosts"
           timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
 
+      - name: Inspect current 121 deployment safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/qiantie/v88/deploy/v88-public
+          test -s novel-fetch-121.env
+          test -s docker-compose.browser-worker.yml
+          compose=(docker compose --env-file "$PWD/novel-fetch-121.env" -f docker-compose.yml -f docker-compose.browser-worker.yml)
+          "${compose[@]}" config >/dev/null
+          "${compose[@]}" ps v88-node novel-fetch-121-worker || true
+
+          node_id="$(${compose[@]} ps -q v88-node || true)"
+          worker_id="$(${compose[@]} ps -q novel-fetch-121-worker || true)"
+          echo "node_present=$([ -n "$node_id" ] && echo true || echo false)"
+          echo "worker_present=$([ -n "$worker_id" ] && echo true || echo false)"
+          if [ -n "$worker_id" ]; then
+            echo "worker_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$worker_id")"
+          fi
+
+          file_secret="$(awk -F= '$1=="QIANTIE_121_WORKER_SECRET" {value=substr($0,index($0,"=")+1)} END {print value}' novel-fetch-121.env)"
+          test -n "$file_secret"
+          if [ -n "$node_id" ]; then
+            node_secret="$(docker exec "$node_id" node -e 'process.stdout.write(String(process.env.QIANTIE_121_WORKER_SECRET || ""))')"
+            echo "node_secret_matches_env=$([ "$node_secret" = "$file_secret" ] && echo true || echo false)"
+            echo "node_image=$(docker inspect "$node_id" --format '{{.Config.Image}}')"
+          fi
+          if [ -n "$worker_id" ]; then
+            worker_secret="$(docker exec "$worker_id" node -e 'process.stdout.write(String(process.env.QIANTIE_121_WORKER_SECRET || ""))')"
+            echo "worker_secret_matches_env=$([ "$worker_secret" = "$file_secret" ] && echo true || echo false)"
+            echo "worker_image=$(docker inspect "$worker_id" --format '{{.Config.Image}}')"
+          fi
+          REMOTE
+
       - name: Compare 121 secret sources without revealing values
         shell: bash
         run: |
