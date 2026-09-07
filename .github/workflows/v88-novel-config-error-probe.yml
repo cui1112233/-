@@ -1,0 +1,60 @@
+name: V88 Novel Config Error Probe
+
+on:
+  push:
+    branches:
+      - diag/v88-novel-config-chain-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+    steps:
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Inspect recent config errors
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
+          test -n "$node_id"
+          docker exec -i "$node_id" node - <<'NODE'
+          const fs = require('fs');
+          const path = '/app/data/system/error-logs.json';
+          let rows = [];
+          try { rows = JSON.parse(fs.readFileSync(path, 'utf8')); } catch (_) {}
+          const matches = (Array.isArray(rows) ? rows : [])
+            .filter(item => String(item?.path || '').includes('/api/batch-rewrite/config') || String(item?.message || '').includes('配置'))
+            .slice(0, 20);
+          console.log('MATCH_COUNT=' + matches.length);
+          for (const item of matches) {
+            const safe = {
+              at: item.at || '',
+              kind: item.kind || '',
+              message: String(item.message || '').slice(0, 300),
+              path: item.path || '',
+              status: item.status || '',
+              source: item.source || ''
+            };
+            console.log(JSON.stringify(safe));
+          }
+          NODE
+          REMOTE
