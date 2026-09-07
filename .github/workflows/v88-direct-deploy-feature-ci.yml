@@ -14,4 +14,4 @@ jobs:
         with:
           node-version: '22'
       - name: Run direct deploy contracts
-        run: node --test tests/v88-direct-deploy-contract.test.js tests/v88-build-info-release.test.js
+        run: node --test tests/v88-direct-deploy-contract.test.js tests/v88-build-info-release.test.js tests/v88-node-stage-contract.test.js
