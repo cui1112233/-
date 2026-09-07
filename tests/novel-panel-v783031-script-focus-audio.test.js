@@ -19,6 +19,8 @@ test('starred characters are an editable focus variable, never an automatic prot
   assert.match(focus.body, /\{focusCharacters\}/);
   assert.match(focus.body, /不得创造原文不存在的冲突/);
   assert.match(route, /resolveSystemPresetBody\(presetStore,\s*['"]script-character-focus['"]\)/);
+  assert.doesNotMatch(route, /buildProtagonistPrompt/);
+  assert.doesNotMatch(route, /protagonistPrompt/);
   assert.doesNotMatch(route, /为男主角、/);
   assert.doesNotMatch(route, /为女主角展开剧情/);
   assert.doesNotMatch(page, /selectDefaultProtagonistIds/);
@@ -32,14 +34,16 @@ test('match audio is a backend-editable rule injected into normal script generat
   assert.match(audio.body, /\{unitMaxSec\}/);
   assert.match(audio.body, /时长总和/);
   assert.match(route, /resolveSystemPresetBody\(presetStore,\s*['"]script-audio-match['"]\)/);
-  assert.match(route, /audioMatchPrompt/);
+  assert.match(route, /const systemPrompt = \[[\s\S]*?audioMatchPrompt,[\s\S]*?characterFocusPrompt,[\s\S]*?constraintWrapper/);
   assert.match(page, /generateScript\(\{[\s\S]*?matchAudio:\s*quickDirectorOptions\.matchAudio[\s\S]*?audioTotalSeconds:/);
 });
 
 test('match-audio UI is only a generation setting and no longer exposes quick-director description modes', () => {
   assert.match(page, /匹配音频设置/);
+  assert.match(page, /这里只控制下一次“生成剧本”是否加入匹配音频规则，不会单独调用 AI/);
   assert.doesNotMatch(page, /画面描述模式/);
   assert.doesNotMatch(page, /descriptionMode/);
+  assert.doesNotMatch(page, /quickDirecting/);
   assert.doesNotMatch(page, /generateQuickDirectorStoryboard/);
   assert.doesNotMatch(page, /quickDirectorStoryboard/);
 });
