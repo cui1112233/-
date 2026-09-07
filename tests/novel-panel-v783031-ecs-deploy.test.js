@@ -69,8 +69,8 @@ assert.match(workflow, /"\$\{compose\[@\]\}" up -d --no-deps --force-recreate --
   'deployment must recreate only v88-node from the real Compose project without pulling dependencies');
 
 const verifyBlock = workflow.slice(workflow.indexOf(verifyMarker), workflow.indexOf(rollbackMarker));
-assert.match(verifyBlock, /api\/novel-panel\/build-info/,
-  'release verification must probe the now-public Novel Panel build identity from inside the exact Node container');
+assert.doesNotMatch(verifyBlock, /api\/novel-panel\/build-info/,
+  'release verification must not anonymously probe the protected Novel Panel build-info endpoint');
 assert.match(verifyBlock, /GHCR_IMAGE/,
   'release verification must receive the immutable commit-specific GHCR image');
 assert.match(verifyBlock, /expected_node_image/,
