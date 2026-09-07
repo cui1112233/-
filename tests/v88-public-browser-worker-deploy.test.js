@@ -16,6 +16,7 @@ test('V88 public compose overlay connects Novel Fetch to the existing 121 Browse
   assert.match(compose, /v88-node:/);
   assert.match(compose, /QIANTIE_121_BROWSER_WORKER_URL:\s*http:\/\/novel-fetch-121-worker:8787/);
   assert.ok((compose.match(/\.\/novel-fetch-121\.env/g) || []).length >= 2, 'both v88-node and Browser Worker must load the shared secret env file');
+  assert.match(compose, /QIANTIE_121_WORKER_SECRET:\s*\$\{QIANTIE_121_WORKER_SECRET\}/);
   assert.match(compose, /v88-public-novel-fetch-121-worker:v88-latest/);
   assert.match(compose, /novel-fetch-121-data:\/data/);
   assert.match(compose, /volumes:\s*\n\s+novel-fetch-121-data:/);
@@ -33,7 +34,7 @@ test('V88 public release workflow builds and deploys the existing 121 Browser Wo
   assert.match(workflow, /ensure_secret QIANTIE_121_CREDENTIAL_SECRET/);
   assert.match(workflow, /ensure_secret QIANTIE_121_STORAGE_STATE_SECRET/);
   assert.match(workflow, /novel-fetch-121-worker/);
-  assert.match(workflow, /compose=\(docker compose -f "\$compose_file" -f "\$compose_dir\/docker-compose\.browser-worker\.yml"\)/);
+  assert.match(workflow, /compose=\(docker compose --env-file "\$compose_dir\/novel-fetch-121\.env" -f "\$compose_file" -f "\$compose_dir\/docker-compose\.browser-worker\.yml"\)/);
   assert.match(workflow, /"\$\{compose\[@\]\}" config/);
   assert.match(workflow, /QIANTIE_121_BROWSER_WORKER_URL/);
   assert.match(workflow, /\/healthz/);
