@@ -50,9 +50,15 @@ assert.match(workflow, /concurrency:\s*[\s\S]*?cancel-in-progress:\s*true/,
 assert.match(workflow, /v88-public-v88-node:rollback-/,
   'current production image must be tagged for rollback before replacement');
 assert.match(workflow, /service_image/,
-  'deployment must discover and preserve the actual v88-node Compose image tag');
-assert.match(workflow, /docker tag .*\$ghcr_image.*\$service_image/,
-  'verified image must replace the actual Compose image tag used by production');
+  'deployment must discover and preserve the actual v88-node Compose image tag for rollback');
+assert.match(workflow, /docker-compose\.release-images\.yml/,
+  'verified images must be bound through a release-specific Compose override');
+assert.match(workflow, /"\$ghcr_image" "\$worker_ghcr_image" > "\$release_override"/,
+  'release override must contain the exact immutable Node and Browser Worker image refs');
+assert.doesNotMatch(workflow, /docker tag "\$ghcr_image" "\$service_image"/,
+  'new Node image must not be retagged onto a mutable production service tag');
+assert.doesNotMatch(workflow, /docker tag "\$worker_ghcr_image" "\$worker_service_image"/,
+  'new Browser Worker image must not be retagged onto a mutable latest tag');
 assert.match(workflow, /\/opt\/qiantie\/v88\/deploy\/v88-public\/docker-compose\.yml/,
   'deployment must use the verified v88-public Compose file');
 assert.match(workflow, /docker compose -f "\$compose_file" config/,
@@ -63,20 +69,20 @@ assert.match(workflow, /"\$\{compose\[@\]\}" up -d --no-deps --force-recreate --
   'deployment must recreate only v88-node from the real Compose project without pulling dependencies');
 
 const verifyBlock = workflow.slice(workflow.indexOf(verifyMarker), workflow.indexOf(rollbackMarker));
-assert.doesNotMatch(verifyBlock, /api\/novel-panel\/build-info/,
-  'release verification must not anonymously probe the authenticated Novel Panel build-info endpoint');
+assert.match(verifyBlock, /api\/novel-panel\/build-info/,
+  'release verification must probe the now-public Novel Panel build identity from inside the exact Node container');
 assert.match(verifyBlock, /GHCR_IMAGE/,
   'release verification must receive the immutable commit-specific GHCR image');
-assert.match(verifyBlock, /docker image inspect "\$ghcr_image" --format '\{\{\.Id\}\}'/,
-  'release verification must resolve the expected image ID from the immutable GHCR image');
+assert.match(verifyBlock, /expected_node_image/,
+  'release verification must carry the expected immutable main image ref');
+assert.match(verifyBlock, /expected_node_image_id/,
+  'release verification must resolve the expected image ID from the immutable image ref');
 assert.match(verifyBlock, /docker inspect "\$node_id" --format '\{\{\.Image\}\}'/,
   'release verification must read the running v88-node container image ID');
-assert.match(verifyBlock, /expected_node_image_id/,
-  'release verification must compare the expected main image ID');
-assert.match(verifyBlock, /running_node_image_id/,
-  'release verification must compare the running main image ID');
+assert.match(verifyBlock, /actual_node_image/,
+  'release verification must also compare the running container Config.Image ref');
 assert.match(verifyBlock, /api\/build-info/,
-  'release verification may use the public build-info endpoint only as an HTTP liveness probe');
+  'release verification also keeps the public generic build-info endpoint as an HTTP liveness probe');
 assert.match(workflow, /if \[ "\$ECS_DEPLOY_READY" != "true" \]/,
   'deployment must explicitly skip when the SSH secret is unavailable rather than pretending to deploy');
 assert.match(workflow, /if:\s*failure\(\)/,
@@ -94,7 +100,7 @@ const rollbackBlock = workflow.slice(workflow.indexOf(rollbackMarker));
 assert.ok(deployBlock.includes('grep -q "^${key}=" novel-fetch-121.env'),
   'secret generation must detect an existing key instead of appending a new value on every release');
 assert.ok(deployBlock.includes("worker_service_image='v88-public-novel-fetch-121-worker:v88-latest'"),
-  'first Browser Worker rollout must have a stable target image tag even when no old worker container exists');
+  'rollback capture keeps the prior worker service tag even though the new release uses an immutable override');
 assert.ok(deployBlock.includes('if [ -n "$worker_container_id" ]; then'),
   'existing Browser Worker rollback capture must be conditional');
 assert.ok(!deployBlock.includes('test -n "$worker_container_id"'),
