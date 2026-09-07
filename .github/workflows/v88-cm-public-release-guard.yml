@@ -25,6 +25,9 @@ jobs:
       - name: Verify CM source contract
         run: node scripts/verify-v88-cm-release.js --source-only
 
+      - name: Verify V88 release workflow shell syntax
+        run: node --test tests/v88-release-registry-resilience.test.js
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci

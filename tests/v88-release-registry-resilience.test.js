@@ -2,9 +2,29 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'v88-linux-amd64-image-release.yml'), 'utf8');
+
+function workflowRunBlock(stepName) {
+  const marker = `      - name: ${stepName}\n`;
+  const stepStart = workflow.indexOf(marker);
+  assert.ok(stepStart >= 0, `必须找到 workflow step: ${stepName}`);
+
+  const runMarker = '        run: |\n';
+  const runStart = workflow.indexOf(runMarker, stepStart);
+  assert.ok(runStart >= 0, `必须找到 ${stepName} 的 run block`);
+
+  const contentStart = runStart + runMarker.length;
+  const nextStep = workflow.indexOf('\n      - name:', contentStart);
+  const raw = workflow.slice(contentStart, nextStep >= 0 ? nextStep : workflow.length);
+
+  return raw
+    .split('\n')
+    .map(line => line.startsWith('          ') ? line.slice(10) : line)
+    .join('\n');
+}
 
 test('V88 ECS 发布对 GHCR 临时网络错误执行有限重试', () => {
   assert.match(workflow, /pull_with_retry\s*\(\)/);
@@ -32,6 +52,12 @@ test('ECS 必须先尝试 GHCR，再按需上传 68MB 主镜像 fallback', () =>
   assert.ok(scpIndex >= 0, '主镜像失败时必须保留 tar fallback 上传');
   assert.ok(pullIndex < scpIndex, '主镜像 GHCR pull 必须发生在 68MB fallback SCP 之前');
   assert.match(deploy, /Main GHCR pull failed|MAIN_PULL_FAILED|main_pull_status/);
+});
+
+test('ECS deploy workflow shell 必须通过 bash -n 语法检查', () => {
+  const deployScript = workflowRunBlock('Deploy verified images to V88 ECS');
+  const result = spawnSync('bash', ['-n'], { input: deployScript, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout || 'bash -n failed');
 });
 
 test('发布失败时仍保留 release artifact 供人工恢复', () => {
