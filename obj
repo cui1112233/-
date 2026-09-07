@@ -61,3 +61,57 @@
 - 公网 115.190.156.223:3000 最终验证通过，日志明确输出：Public V88 Novel Fetch task visibility and interaction feedback are reachable after Node redeploy.
 - 因此“任务被日期筛选后整表空白”和“提交动作缺少明显反馈”的修复已实际进入公网。
 - 后续 8d44841772f48fb689b7e8fe3b043e5a1cc60b0d 及本次 obj 更新仅为文档记录，不影响已部署运行代码。
+
+[2026-09-07] 公网剧本生成“约束设置”改为当前剧本卡片内展开
+
+目标：
+1. 点击剧本页“约束设置”后，不再显示独立遮罩弹窗。
+2. 约束设置直接在当前右侧剧本卡片内、工具栏下方展开。
+3. 再次点击“约束设置”可以收起；保留原有关闭按钮。
+4. 原约束数据、保存逻辑、个人提示词、CM 联动与后端接口不改，只调整展示层。
+5. 只修改 V88 主线并发布公网。
+
+TDD / 根因确认：
+- 新增 tests/script-constraint-inline-panel.test.js。
+- RED 阶段全量 Node regression 为 225 通过、1 失败；唯一失败就是“用户端未安装卡片内展开适配器”，证明测试锁定了目标行为，没有误伤其他功能。
+- 当前 ScriptPage 约束设置本体使用 Ant Design Modal；功能逻辑可复用，问题是 Modal 默认渲染为页面级遮罩弹层，与当前剧本卡片上下文分离。
+
+已实施：
+- frontend/src/user/scriptConstraintInline.js
+  - 识别标题为“约束设置”的 Ant Modal。
+  - 在 .script-right 内、.script-toolbar 后创建 script-constraint-inline-slot 原位空间。
+  - 将现有 Modal 视觉定位到该 slot，不复制表单、不改保存逻辑。
+  - 点击约束设置时设置 aria-expanded；再次点击同一按钮时触发原 Modal close 收起。
+  - resize / scroll 时重新测量卡片位置，保持面板贴合当前剧本卡片。
+  - MutationObserver 只监听 DOM/class 变化，不监听自身持续写入的 style，避免无意义反馈循环和浏览器持续占用 CPU。
+- frontend/src/user/script-constraint-inline.css
+  - 隐藏该约束 Modal 的独立 ant-modal-mask。
+  - 移除独立弹窗阴影/圆角边界，改为卡片内连续区域。
+  - 标题、底部按钮保持 sticky，内容区可滚动。
+- frontend/src/user/main.jsx
+  - 引入 script-constraint-inline.css。
+  - 启动 installScriptConstraintInlinePanel()。
+
+验证：
+- 目标测试转 GREEN。
+- frontend build：SUCCESS。
+- 最终功能代码 commit：f92f4e3617128d3c72d979180bda23994ffbc7f8。
+- Novel Fetch V2 Check run 34074176466：SUCCESS。
+- Novel Panel V78.3.0.31 Regression：SUCCESS。
+- BF11 Integrated Runtime Verify：SUCCESS。
+- V88 CM Public Release Guard：SUCCESS。
+- V88 Linux AMD64 Public Image Release run 34074176463 在整包多镜像发布链路失败，因此未拿该失败结果作为公网完成依据。
+
+公网发布：
+- 为避免整包 Browser Worker / 多镜像链路影响本次纯 Node/前端改动，使用既有 V88 Node Emergency Redeploy。
+- 触发提交：08891b5e9b04109b1e909676bdba6325901a919e（仅修改 workflow trigger 注释，不改变产品功能代码）。
+- V88 Node Emergency Redeploy run 34074450411：SUCCESS。
+- 新镜像：ghcr.io/cui1112233/qiantie-v88:node-emergency-08891b5e9b04。
+- 镜像 digest：sha256:850eb98d9783fb0c0556a855a7ff94bfa3caeb3210bc31d9c3cc7a0f78d8d56b。
+- ECS 成功 recreate / start v88-public-v88-node-1。
+- 部署日志明确输出：V88 Node emergency deploy verified for commit 08891b5e9b04109b1e909676bdba6325901a919e。
+- 最终公网验证步骤 SUCCESS；未触发 rollback。
+- 本轮 workflow 的公网自动验证仍主要验证 Novel Fetch 静态资源与 Node 运行状态；“约束设置卡片内展开”的真实浏览器点击视觉效果由回归测试 + production build 覆盖，未做人工浏览器截图验收。
+
+附带观察（不阻塞本次发布）：
+- production build 仍报告 BatchFactoryV11UiPage.jsx 存在重复 mergeStatus JSX 属性警告；本次任务未修改该文件，构建与部署均成功，建议单独任务清理。
