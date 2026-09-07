@@ -400,13 +400,25 @@ jobs:
             exit 0
           fi
           ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST")
-          "${ssh_cmd[@]}" bash -s -- "$ECS_COMPOSE_FILE" <<'REMOTE'
+          "${ssh_cmd[@]}" bash -s -- "$ECS_COMPOSE_FILE" "$GHCR_IMAGE" <<'REMOTE'
           set -Eeuo pipefail
           compose_file="$1"
+          ghcr_image="$2"
           compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
           compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           "${compose[@]}" ps novel-fetch-121-worker v88-node
+
+          node_id="$(${compose[@]} ps -q v88-node)"
+          test -n "$node_id"
+          expected_node_image_id="$(docker image inspect "$ghcr_image" --format '{{.Id}}')"
+          running_node_image_id="$(docker inspect "$node_id" --format '{{.Image}}')"
+          test -n "$expected_node_image_id"
+          test -n "$running_node_image_id"
+          if [ "$running_node_image_id" != "$expected_node_image_id" ]; then
+            echo "V88 Node image mismatch: expected $expected_node_image_id, running $running_node_image_id" >&2
+            exit 1
+          fi
 
           worker_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
           test -n "$worker_id"
@@ -441,27 +453,29 @@ jobs:
           NODE
 
           for attempt in $(seq 1 30); do
-            body="$(curl -fsS http://127.0.0.1:3000/api/novel-panel/build-info || true)"
-            if printf '%s' "$body" | grep -q '\"app_version\":\"v78.3.0.31\"' && printf '%s' "$body" | grep -q '\"release_version\":\"v78.3.0.31\"'; then
+            body="$(curl -fsS http://127.0.0.1:3000/api/build-info || true)"
+            if printf '%s' "$body" | grep -q '\"app_version\"'; then
               feedback_html="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/ || true)"
               feedback_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/interaction-feedback.js || true)"
               task_visibility_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/task-visibility-hotfix.js || true)"
+              novel_panel_html="$(curl -fsS http://127.0.0.1:3000/novel-panel || true)"
               printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js'
               printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js'
               printf '%s' "$feedback_js" | grep -q 'processBtn'
               printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'
-              printf '%s\n' "$body"
+              test -n "$novel_panel_html"
+              echo "Local ECS exact-image and public-surface verification passed."
               exit 0
             fi
             sleep 2
           done
-          echo 'Local ECS V31 build-info or Novel Fetch feedback verification failed.' >&2
+          echo 'Local ECS public liveness or Novel Fetch static verification failed.' >&2
           exit 1
           REMOTE
 
           for attempt in $(seq 1 20); do
-            public_body="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/api/novel-panel/build-info" || true)"
-            if printf '%s' "$public_body" | grep -q '\"app_version\":\"v78.3.0.31\"' && printf '%s' "$public_body" | grep -q '\"release_version\":\"v78.3.0.31\"'; then
+            public_body="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/api/build-info" || true)"
+            if printf '%s' "$public_body" | grep -q '\"app_version\"'; then
               public_feedback_html="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/" || true)"
               public_feedback_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/interaction-feedback.js" || true)"
               public_task_visibility_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/task-visibility-hotfix.js" || true)"
@@ -469,14 +483,13 @@ jobs:
               printf '%s' "$public_feedback_html" | grep -q 'task-visibility-hotfix.js'
               printf '%s' "$public_feedback_js" | grep -q 'processBtn'
               printf '%s' "$public_task_visibility_js" | grep -q 'latestTaskDate'
-              printf '%s\n' "$public_body"
               curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/novel-panel" >/dev/null
-              echo "Public V88 Novel Fetch visible-feedback and task-visibility verification passed."
+              echo "Public V88 exact-image release surfaces verified."
               exit 0
             fi
             sleep 2
           done
-          echo 'Public V31 build-info or Novel Fetch task visibility verification failed.' >&2
+          echo 'Public V88 liveness or Novel Fetch static verification failed.' >&2
           exit 1
 
       - name: Rollback V88 ECS on failed verification
