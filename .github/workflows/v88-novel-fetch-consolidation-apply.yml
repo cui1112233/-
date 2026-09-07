@@ -1,0 +1,45 @@
+name: V88 Novel Fetch Consolidation Apply
+
+on:
+  push:
+    branches:
+      - fix/v88-novel-fetch-consolidation-20260907
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'fix(novel-fetch): consolidate V88 task semantics')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/v88-novel-fetch-consolidation-20260907
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Apply deterministic source consolidation
+        run: node scripts/apply-v88-novel-fetch-consolidation.js
+
+      - name: Verify syntax and focused regression contract
+        run: |
+          node --check lib/novel-fetch-workshop/mysql-store.js
+          node --check frontend/dist/batch-rewrite/app.js
+          node --check public/batch-rewrite/v78-novel-fetch-v2.js
+          node --test tests/v88-novel-fetch-regression.test.js
+
+      - name: Commit formal source changes
+        run: |
+          if git diff --quiet -- lib/novel-fetch-workshop/mysql-store.js frontend/dist/batch-rewrite/app.js public/batch-rewrite/v78-novel-fetch-v2.js; then
+            echo 'No source changes remain to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/novel-fetch-workshop/mysql-store.js frontend/dist/batch-rewrite/app.js public/batch-rewrite/v78-novel-fetch-v2.js
+          git commit -m 'fix(novel-fetch): consolidate V88 task semantics'
+          git push origin HEAD:fix/v88-novel-fetch-consolidation-20260907
