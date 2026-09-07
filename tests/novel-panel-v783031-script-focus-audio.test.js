@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const { SYSTEM_PRESETS } = require('../lib/system-preset-catalog');
 
 const page = fs.readFileSync('frontend/src/user/pages/ScriptPage.jsx', 'utf8');
-const route = fs.readFileSync('routes/prompt.js', 'utf8');
+const route = fs.readFileSync('routes/chat.js', 'utf8');
 const frontendRules = fs.readFileSync('frontend/src/user/pages/scriptGenerationRules.js', 'utf8');
 
 function preset(id) {
