@@ -13228,24 +13228,22 @@ function initializeApp() {
   });
   bindEvent("#mergeBtn", "click", mergeSegments);
   bindEvent("#copyAllBtn", "click", () => copyText(allEnhancedSegmentText(), $("#copyAllBtn")));
-  bindEvent("#exportTxtBtn", "click", exportTxt);
-  bindEvent("#exportResultBtn", "click", exportResult);
-  bindEvent("#saveProjectBtn", "click", saveProject);
-  bindEvent("#historyBtn", "click", openHistory);
+  bindEvent("#exportTxtBtn", "click", () => invokeWorkbenchFeature("history-save-export", "exportTxt"));
+  bindEvent("#exportResultBtn", "click", () => invokeWorkbenchFeature("history-save-export", "exportResult"));
+  bindEvent("#saveProjectBtn", "click", () => invokeWorkbenchFeature("history-save-export", "save"));
+  bindEvent("#historyBtn", "click", () => invokeWorkbenchFeature("history-save-export", "history"));
   bindEvent("#promptSettingsBtn", "click", () => {
-    if (typeof globalThis.__openV23InstructionCenter === "function") { globalThis.__openV23InstructionCenter(); return; }
-    writeAiInstructionForm();
-    $("#promptSettingsDialog")?.showModal?.();
+    invokeWorkbenchFeature("settings-instructions", "openInstructionCenter");
   });
-  bindEvent("#savePromptSettingsBtn", "click", saveAiInstructionSettings);
-  bindEvent("#resetPromptSettingsBtn", "click", resetAiInstructionSettings);
+  bindEvent("#savePromptSettingsBtn", "click", () => invokeWorkbenchFeature("settings-instructions", "saveInstructions"));
+  bindEvent("#resetPromptSettingsBtn", "click", () => invokeWorkbenchFeature("settings-instructions", "resetInstructions"));
   bindEvent("#settingsBtn", "click", () => {
-    writeSettingsForm();
-    $("#settingsDialog")?.showModal?.();
+    invokeWorkbenchFeature("settings-instructions", "openSettings");
   });
-  bindEvent("#saveSettingsBtn", "click", saveSettings);
-  bindEvent("#testSettingsBtn", "click", testSettings);
-  bindEvent("#clearKeyBtn", "click", clearSavedKey);
+  bindEvent("#saveSettingsBtn", "click", () => invokeWorkbenchFeature("settings-instructions", "saveSettings"));
+  bindEvent("#testSettingsBtn", "click", () => invokeWorkbenchFeature("settings-instructions", "testSettings"));
+  bindEvent("#clearKeyBtn", "click", () => invokeWorkbenchFeature("settings-instructions", "clearSavedKey"));
+  bindEvent("[data-output-mode=\"premium\"]", "click", () => invokeWorkbenchFeature("premium-image", "setMode", ["premium"]));
   Object.keys(STYLE_LOCK_SELECTORS).forEach((fieldKey) => {
     bindEvent(`[data-lock-toggle="${fieldKey}"]`, "click", () => toggleStyleLock(fieldKey));
   });
@@ -13293,6 +13291,36 @@ function initializeApp() {
   togglePromptExamplePanel();
   renderStyleLockState();
   loadSettings();
+}
+
+const workbenchFeatureContext = {
+  state,
+  allEnhancedSegmentText: (...args) => allEnhancedSegmentText(...args),
+  text: (...args) => text(...args),
+  readFieldValue: (...args) => readFieldValue(...args),
+  apiError: (...args) => apiError(...args),
+  requestJSON: (...args) => requestJSON(...args),
+  writeSettingsForm: (...args) => writeSettingsForm(...args),
+  saveSettings: (...args) => saveSettings(...args),
+  testSettings: (...args) => testSettings(...args),
+  clearSavedKey: (...args) => clearSavedKey(...args),
+  saveAiInstructionSettings: (...args) => saveAiInstructionSettings(...args),
+  resetAiInstructionSettings: (...args) => resetAiInstructionSettings(...args),
+  writeAiInstructionForm: (...args) => writeAiInstructionForm(...args),
+};
+globalThis.__QIANTE_WORKBENCH_CONTEXT__ = workbenchFeatureContext;
+
+function invokeWorkbenchFeature(name, method, args = []) {
+  const loader = globalThis.__QIANTE_WORKBENCH__;
+  if (!loader?.invoke) {
+    const error = new Error("可选功能加载器尚未就绪，请刷新页面后重试。");
+    apiError(error.message);
+    return Promise.reject(error);
+  }
+  return loader.invoke(name, method, workbenchFeatureContext, args).catch((error) => {
+    apiError(error?.message || "可选功能加载失败，请重试。");
+    return undefined;
+  });
 }
 
 /* ========================================================================
@@ -20089,7 +20117,7 @@ if (typeof globalThis !== "undefined") {
   };
 }
 
-if (document.readyState === "loading") {
+if (document.readyState !== "complete") {
   document.addEventListener("DOMContentLoaded", initializeApp, { once: true });
 } else {
   initializeApp();
@@ -21904,6 +21932,13 @@ if (typeof buildAnalysisNovelPayload === "function") {
     }catch(error){if(status){status.className="settings-message error";status.textContent=error?.message||String(error);}else apiError(error?.message||String(error));}
   }
 
+  globalThis.__QIANTE_WORKBENCH_HISTORY_LEGACY__={
+    openHistoryPage:v24OpenHistoryPage,
+    openSaveDialog:v24OpenSaveDialog,
+    loadHistoryRecord:v24LoadHistoryRecord,
+    saveHistory:v24SaveHistory
+  };
+
   // Replace project entry points before initializeApp binds its click handlers.
   saveProject = v24OpenSaveDialog;
   openHistory = v24OpenHistoryPage;
@@ -22993,7 +23028,7 @@ if (typeof buildAnalysisNovelPayload === "function") {
     if(document.querySelector("#v35DiagnosticsDialog"))return;
     const dialog=document.createElement("dialog");dialog.id="v35DiagnosticsDialog";dialog.className="v35-diagnostics-dialog";dialog.innerHTML=`<div class="v35-diag-head"><div><p class="eyebrow">V78 正式版 · 全链路回归</p><h2>全链路诊断与自动回归中心</h2></div><button type="button" class="btn secondary" data-v35-close>关闭</button></div><p class="hint">默认自检不会调用远程AI，不产生模型费用；只检查当前运行时、数据引用、执行器所有权和本地/后端链路。AI Trace 只展示已经发生过的请求。</p><div class="v35-diag-actions"><button id="v35RunDiagnostics" class="btn primary">运行全链路自检（不调用AI）</button><button id="v35RefreshTraces" class="btn secondary">刷新AI Trace</button><button id="v35CopyReport" class="btn secondary">复制诊断报告</button><span id="v35DiagSummary" class="v35-diag-summary">尚未检测</span></div><div class="v35-diag-grid"><section><h3>自动回归检查</h3><div id="v35DiagChecks" class="v35-diag-checks"></div></section><section><h3>当前执行器所有权</h3><table class="v35-executor-table"><thead><tr><th>功能</th><th>执行器ID</th><th>所有者</th><th>函数</th></tr></thead><tbody id="v35DiagExecutors"></tbody></table><h3>AI原始返回 vs 最终写入</h3><div class="v35-trace-controls"><select id="v35TraceList"><option value="">选择最近一次AI Trace</option></select><span id="v35TraceStatus" class="hint"></span></div><div class="v35-trace-grid"><label>发送给AI<textarea id="v35TraceRequest" readonly></textarea></label><label>AI原始返回<textarea id="v35TraceRaw" readonly></textarea></label><label>后端协议解析<textarea id="v35TraceParsed" readonly></textarea></label><label>软件最终写入<textarea id="v35TraceFinal" readonly></textarea></label></div></section></div>`;
     document.body.appendChild(dialog);dialog.querySelector("[data-v35-close]")?.addEventListener("click",()=>dialog.close());dialog.querySelector("#v35RunDiagnostics")?.addEventListener("click",runDiagnostics);dialog.querySelector("#v35RefreshTraces")?.addEventListener("click",refreshTraces);dialog.querySelector("#v35CopyReport")?.addEventListener("click",copyReport);dialog.querySelector("#v35TraceList")?.addEventListener("change",e=>loadTrace(e.target.value));
-    const actions=document.querySelector(".top-actions");if(actions&&!document.querySelector("#diagnosticsBtn")){const b=document.createElement("button");b.id="diagnosticsBtn";b.type="button";b.className="btn secondary";b.textContent="诊断中心";b.title="运行无AI成本全链路自检，查看当前执行器与AI Trace";b.addEventListener("click",()=>{dialog.showModal?.();runDiagnostics();refreshTraces();});actions.insertBefore(b,document.querySelector("#settingsBtn"));}
+    const actions=document.querySelector(".top-actions");if(actions&&!document.querySelector("#diagnosticsBtn")){const b=document.createElement("button");b.id="diagnosticsBtn";b.type="button";b.className="btn secondary";b.textContent="诊断中心";b.title="运行无AI成本全链路自检，查看当前执行器与AI Trace";b.addEventListener("click",()=>invokeWorkbenchFeature("diagnostics-runtime","open"));actions.insertBefore(b,document.querySelector("#settingsBtn"));}
   }
   globalThis.__V77_DIAGNOSTICS__={version:VERSION,build:BUILD,run:runDiagnostics,localChecks:localRegressionChecks,refreshTraces,loadTrace,makeTraceId,localTraces};
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",installDialog,{once:true});else installDialog();
