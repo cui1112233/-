@@ -1,0 +1,58 @@
+name: V88 Nginx Route Diagnostic
+
+on:
+  push:
+    branches:
+      - feat/v88-direct-deploy-integration-20260907
+    paths:
+      - 'deploy/v88-direct/NGINX-DIAG-REQUEST'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-nginx:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H 115.190.156.223 > "$HOME/.ssh/known_hosts"
+
+      - name: Inspect current public route without changes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+          timeout 90 ssh "${ssh_opts[@]}" root@115.190.156.223 bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          network=v88-public_qiantie_internal
+          nginx_id="$(docker ps --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
+          node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
+          test -n "$nginx_id"
+          test -n "$node_id"
+          gateway="$(docker network inspect "$network" --format '{{(index .IPAM.Config 0).Gateway}}')"
+          echo "NGINX_ID=$nginx_id"
+          echo "NODE_ID=$node_id"
+          echo "NETWORK_GATEWAY=$gateway"
+          echo '--- NGINX_MOUNTS ---'
+          docker inspect -f '{{range .Mounts}}{{println .Source " -> " .Destination}}{{end}}' "$nginx_id"
+          echo '--- NGINX_ROUTE_LINES ---'
+          docker exec "$nginx_id" sh -c "nginx -T 2>&1 | grep -E 'upstream|proxy_pass|listen|server_name|include' | head -n 200"
+          echo '--- STAGE_FROM_NGINX ---'
+          docker exec "$nginx_id" sh -c "wget -qO- -T 5 http://$gateway:18081/api/build-info"
+          echo
+          echo '--- CURRENT_PUBLIC_BUILD_INFO ---'
+          curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info
+          echo
+          REMOTE
