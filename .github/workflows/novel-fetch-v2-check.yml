@@ -5,6 +5,7 @@ on:
     branches:
       - v88
       - feat/v78-novel-fetch-v2-completion
+      - fix/v88-novel-fetch-final2-20260907
   workflow_dispatch:
 
 jobs:
