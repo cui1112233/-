@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
@@ -13,13 +14,23 @@ test('ScriptPage accepts the public local-executor response shape', () => {
   assert.match(source, /result\.executors/);
 });
 
-test('V88 release preserves the base compose environment and verifies Node to Go bridge auth', () => {
-  const workflow = read('.github/workflows/v88-linux-amd64-image-release.yml');
-  assert.doesNotMatch(workflow, /docker compose --env-file \"\$compose_dir\/novel-fetch-121\.env\"/);
-  assert.match(workflow, /set -a[\s\S]*\. \"\$compose_dir\/novel-fetch-121\.env\"[\s\S]*set \+a/);
-  assert.match(workflow, /node_bridge_secret/);
-  assert.match(workflow, /go_bridge_secret/);
-  assert.match(workflow, /QIANTIE_BRIDGE_SECRET mismatch between v88-node and go-api/);
+test('production Node can recover a missing bridge secret from the mounted base env without overwriting explicit env', () => {
+  const { hydrateMissingEnvFromFile } = require('../lib/runtime-env');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v88-runtime-env-'));
+  const file = path.join(dir, 'base.env');
+  fs.writeFileSync(file, 'QIANTIE_BRIDGE_SECRET=from-base-env\nOTHER_KEY=ignored\n');
+  const env = { QIANTIE_BRIDGE_SECRET: '' };
+  hydrateMissingEnvFromFile(file, ['QIANTIE_BRIDGE_SECRET'], env);
+  assert.equal(env.QIANTIE_BRIDGE_SECRET, 'from-base-env');
+  const explicit = { QIANTIE_BRIDGE_SECRET: 'already-set' };
+  hydrateMissingEnvFromFile(file, ['QIANTIE_BRIDGE_SECRET'], explicit);
+  assert.equal(explicit.QIANTIE_BRIDGE_SECRET, 'already-set');
+
+  const server = read('server.js');
+  const overlay = read('deploy/v88-public/docker-compose.browser-worker.yml');
+  assert.match(server, /hydrateMissingEnvFromFile/);
+  assert.match(server, /QIANTIE_BRIDGE_SECRET/);
+  assert.match(overlay, /\/opt\/qiantie\/v88\/deploy\/v88-public\/\.env:\/run\/qiantie\/base\.env:ro/);
 });
 
 test('current Windows executor is exposed through the public downloads mount', () => {
