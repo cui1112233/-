@@ -31,6 +31,19 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Repair one-shot migration quoting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply-script-focus-audio.js')
+          text = path.read_text()
+          old = "{sourceAudioDurationSeconds ? `当前配音：${sourceAudioDurationSeconds} 秒；生成剧本时总分镜时长将严格匹配。` : '请先点击配音按钮生成当前原文配音。'}"
+          new = "{sourceAudioDurationSeconds ? '当前配音：' + sourceAudioDurationSeconds + ' 秒；生成剧本时总分镜时长将严格匹配。' : '请先点击配音按钮生成当前原文配音。'}"
+          if old not in text:
+              raise SystemExit('migration quote target not found')
+          path.write_text(text.replace(old, new))
+          PY
+
       - name: Apply approved focus and audio integration
         run: node scripts/apply-script-focus-audio.js
 
