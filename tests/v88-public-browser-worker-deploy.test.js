@@ -34,7 +34,7 @@ test('V88 public release workflow builds and deploys the existing 121 Browser Wo
   assert.match(workflow, /ensure_secret QIANTIE_121_CREDENTIAL_SECRET/);
   assert.match(workflow, /ensure_secret QIANTIE_121_STORAGE_STATE_SECRET/);
   assert.match(workflow, /novel-fetch-121-worker/);
-  assert.match(workflow, /docker compose --env-file "\$compose_dir\/novel-fetch-121\.env" -f "\$compose_file" -f "\$compose_dir\/docker-compose\.browser-worker\.yml"/);
+  assert.match(workflow, /docker compose --env-file "\$compose_dir\/\.env" --env-file "\$compose_dir\/novel-fetch-121\.env" -f "\$compose_file" -f "\$compose_dir\/docker-compose\.browser-worker\.yml"/);
   assert.match(workflow, /docker-compose\.release-images\.yml/);
   assert.match(workflow, /"\$\{compose\[@\]\}" config/);
   assert.match(workflow, /QIANTIE_121_BROWSER_WORKER_URL/);
