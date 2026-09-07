@@ -1,0 +1,17 @@
+name: V88 Direct Deploy Feature CI
+
+on:
+  push:
+    branches:
+      - feat/v88-git-ecs-direct-deploy-20260907
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run direct deploy contract
+        run: node --test tests/v88-direct-deploy-contract.test.js
