@@ -31,9 +31,9 @@ test('V88 发布必须让 Node 与 121 Worker 共享同一组内部密钥，并�
   ];
 
   for (const secretName of secretNames) {
-    const pattern = new RegExp(`${secretName}: \\${${secretName}}`);
-    assert.match(node, pattern, `Node 必须从共享配置注入 ${secretName}`);
-    assert.match(worker, pattern, `121 Worker 必须从共享配置注入 ${secretName}`);
+    const expectedPlaceholder = secretName + ': ${' + secretName + '}';
+    assert.ok(node.includes(expectedPlaceholder), `Node 必须从共享配置注入 ${secretName}`);
+    assert.ok(worker.includes(expectedPlaceholder), `121 Worker 必须从共享配置注入 ${secretName}`);
   }
 
   assert.match(node, /env_file:\s*\n\s*- \.\/novel-fetch-121\.env/);
