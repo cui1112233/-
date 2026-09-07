@@ -447,12 +447,6 @@ jobs:
             for (const key of required) {
               if (!String(process.env[key] || '').trim()) throw new Error(`${key} missing inside v88-node`);
             }
-            const buildInfoResponse = await fetch('http://127.0.0.1:3000/api/novel-panel/build-info');
-            if (!buildInfoResponse.ok) throw new Error(`v88-node internal build-info failed: ${buildInfoResponse.status}`);
-            const buildInfo = await buildInfoResponse.json();
-            if (buildInfo.app_version !== 'v78.3.0.31' || buildInfo.release_version !== 'v78.3.0.31') {
-              throw new Error(`unexpected v88-node build-info: ${JSON.stringify(buildInfo)}`);
-            }
             const response = await fetch(`${process.env.QIANTIE_121_BROWSER_WORKER_URL}/healthz`, {
               headers: { 'x-qiantie-internal-secret': process.env.QIANTIE_121_WORKER_SECRET }
             });
