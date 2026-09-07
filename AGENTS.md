@@ -13,6 +13,31 @@ All agents, chats, Codex sessions, and automation working on this repository mus
 9. **Novel Fetch confirmed semantics must not regress:** preserve full `originalRaw`; process only up to `maxTxt`; display processed/raw counts such as `4000/27831`; `input_ready` displays `分类信息已就绪`; `running/processing` displays `正在执行中…`; date filters must use real task dates and must not be bypassed with fake dates such as `2099-12-31`.
 10. If the user says only **“执行”** or **“发布”**, default to the latest Git `v88`, ensure the change is committed to Git first, and use the currently approved deployment path. Do not silently choose direct production edits or a full Docker rebuild.
 
+## V88 consolidation freeze
+
+The repository is now in the seven-stage consolidation program:
+
+1. inventory and freeze;
+2. V88 feature consolidation;
+3. Git rule consolidation;
+4. multi-chat / GPT collaboration consolidation;
+5. release-path consolidation;
+6. production-runtime consolidation;
+7. delete obsolete branches and workflows.
+
+During stages 1-6, apply these additional rules:
+
+11. **Historical branches are read-only reference sources.** Do not continue maintained development on V78, old feature/fix/integration/ops/design/release/archive/tmp branches. New maintained work must end in `v88`.
+12. **Do not delete historical branches or workflows before stage 7.** First prove their functionality and runtime dependencies have been consolidated and replaced.
+13. **Do not introduce another public release path during consolidation.** The approved Node public release path is `V88 Direct Deploy Node Stage` -> exact staged SHA -> `V88 Direct Deploy Node Cutover` -> external exact-SHA verification/rollback protection.
+14. **Old Docker/GHCR emergency/one-time workflows are not normal release entry points.** They may remain temporarily for audit or recovery until stage 7, but must not be selected for ordinary deployment unless the user explicitly approves an emergency recovery path.
+15. **Production is still a hybrid runtime while stage 6 is pending.** The Git-direct host Node currently depends on the existing Docker network and existing Go API / Browser Worker / Nginx services. Do not remove Docker networks, containers, overlays, or ECS-only runtime configuration merely because Node release is Git-direct.
+16. **Before starting a V88 task in any chat, read the current consolidation inventory OBJ and `docs/V88_PROJECT_EXECUTION_MEMORY.md`.** Do not rely on stale `master`, historical production snapshots, or prior-chat assumptions.
+
 For the full project memory and deployment rationale, read:
 
 `docs/V88_PROJECT_EXECUTION_MEMORY.md`
+
+For the current consolidation inventory/freeze baseline, read:
+
+`docs/obj/2026-09-08-v88-consolidation-stage1-inventory-freeze.md`
