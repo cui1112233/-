@@ -143,14 +143,18 @@ export function ScriptPage() {
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
-    return getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
+    const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
+    if (parsed.length) return parsed;
+    // 统一 ### 分镜N 协议仍是首选边界；但模型偶发未按协议输出标题时，
+    // 仍需把现有输出作为一张展示卡送入最终组装，否则基础设定和已开启约束会全部不可见。
+    return output ? [output] : [];
   }, [selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(outputConstraints, selectedFormat, extractInfo),
+    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
     index,
     duration: selectedDuration
-  })), [rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration]);
+  })), [rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
