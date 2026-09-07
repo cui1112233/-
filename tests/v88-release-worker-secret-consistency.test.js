@@ -21,7 +21,7 @@ function serviceBlock(source, serviceName) {
   return lines.slice(start, end).join('\n');
 }
 
-test('V88 发布必须让 Node 与 121 Worker 共享同一组内部密钥，并由 Git-direct Stage 继承现网 Node 环境', () => {
+test('V88 发布必须让 Node 与 121 Worker 共享同一组内部密钥，并由 Git-direct Stage 继承现网配置', () => {
   const node = serviceBlock(overlay, 'v88-node');
   const worker = serviceBlock(overlay, 'novel-fetch-121-worker');
   const secretNames = [
@@ -46,10 +46,18 @@ test('V88 发布必须让 Node 与 121 Worker 共享同一组内部密钥，并�
   assert.match(stageHost, /EnvironmentFile=\$STAGE_ENV/,
     'Stage systemd 服务必须使用继承后的环境文件');
 
-  for (const secretName of secretNames) {
+  // Worker 内部鉴权密钥的权威来源必须是“正在运行的 Worker”，不能继续信任旧 Node 容器中的副本。
+  assert.match(stageHost, /worker_secret=.*docker inspect[\s\S]*"\$worker_id"[\s\S]*QIANTIE_121_WORKER_SECRET/,
+    'Stage 必须从当前运行的 Browser Worker 读取真实内部鉴权密钥');
+  assert.match(stageHost, /grep -vE[^\n]*QIANTIE_121_WORKER_SECRET/,
+    'Stage 必须过滤旧 Node 环境中的 Worker 鉴权密钥，避免漂移值覆盖真实值');
+  assert.match(stageHost, /QIANTIE_121_WORKER_SECRET=\$worker_secret/,
+    'Stage 必须把当前 Worker 的真实鉴权密钥写入新的 Node 环境');
+
+  for (const secretName of ['QIANTIE_121_CREDENTIAL_SECRET', 'QIANTIE_121_STORAGE_STATE_SECRET']) {
     const exclusionPattern = new RegExp(`grep -vE[^\\n]*${secretName}`);
     assert.doesNotMatch(stageHost, exclusionPattern,
-      `${secretName} 不得在 Git-direct Stage 的环境继承中过滤掉`);
+      `${secretName} 仍应从现网 Node 环境继承，当前没有证据需要替换`);
   }
 
   assert.match(stageHost, /QIANTIE_121_BROWSER_WORKER_URL=http:\/\/\$worker_ip:8787/,
