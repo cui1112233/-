@@ -44,7 +44,7 @@ jobs:
           for pattern in \
             v88-public-mysql \
             v88-public-go-api \
-            v88-public-novel-fetch-121-worker \
+            v88-public-browser-worker \
             v88-public-nginx \
             v88-public-v88-node
           do
@@ -79,7 +79,7 @@ jobs:
 
           mysql_id="$(container_id v88-public-mysql)"
           go_id="$(container_id v88-public-go-api)"
-          worker_id="$(container_id v88-public-novel-fetch-121-worker)"
+          worker_id="$(container_id v88-public-browser-worker)"
           nginx_id="$(container_id v88-public-nginx)"
           node_id="$(container_id v88-public-v88-node)"
           echo "mysql_id_present=$([ -n "$mysql_id" ] && echo true || echo false)"
