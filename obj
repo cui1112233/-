@@ -181,3 +181,48 @@ GREEN 验证：
 - 开启画质约束/画面限制后，对应内容进入 `【画质约束】` 区域。
 - 开启负面提示词后，卡片末尾出现 `负面提示词`。
 - 若 AI 没有输出标准 `### 分镜N`，仍会至少显示一张经过最终组装的分镜卡，不再让已开启约束静默消失。
+
+[2026-09-07] 剧本生成“约束设置”恢复独立弹跳卡片
+
+目标：
+1. 用户反馈卡片内展开约束设置影响分镜区域观感，因此恢复为独立 Ant Design Modal 弹跳卡片。
+2. 点击“约束设置”后居中弹出并带遮罩；关闭后不占用右侧分镜卡空间。
+3. 不改约束数据、保存逻辑、个人提示词、CM 联动、后端接口，也不回退上一轮“分镜卡显示已开启约束”的修复。
+
+根因与范围：
+- `ScriptPage.jsx` 原生 `Modal title="约束设置"` 一直保留，真正把它变成卡片内展开的是用户入口额外安装的 `scriptConstraintInline.js` 与 `script-constraint-inline.css`。
+- 因此本次只撤销这层视觉适配，不重写 Modal 本体，不动提示词与生成链路。
+
+TDD：
+- 将 `tests/script-constraint-inline-panel.test.js` 改为新的展示契约：用户入口不得再安装 inline 适配器/样式；两份 inline 文件必须删除；`ScriptPage.jsx` 必须继续保留现有 Ant Modal、`constraintModalOpen`、`onCancel`、`saveConstraints` 与 `width={720}`。
+- RED commit：`ce35019454957ba3a3443af84e1732b7df03616d`。
+- RED run `34077267480`：full Node regression 共 229 项，228 通过、仅新增测试 1 项失败，失败原因正是 `main.jsx` 仍安装 inline 适配器。
+
+已实施：
+- `af87ecb0c92443630fdcb26205b6232551309ce2`：从 `frontend/src/user/main.jsx` 删除 inline CSS import、`installScriptConstraintInlinePanel` import 和安装调用。
+- `7deeb7da92fd09a3e1dea3a66b7b3407555acaed`：删除 `frontend/src/user/scriptConstraintInline.js`。
+- `8539937ff7630a325d1fd2f6291297396acc3423`：删除 `frontend/src/user/script-constraint-inline.css`。
+- `ScriptPage.jsx` 的原生约束 Modal 与保存逻辑未修改；上一轮 `rawShotCards` 展示兜底和使用当前 `constraints` 重组分镜卡的逻辑继续保留。
+
+GREEN 验证：
+- Novel Fetch V2 Check run `34077357782`：focused tests、full Node regression、121 Browser Worker tests、frontend audit/build、compose-config、compose-smoke 全部 SUCCESS。
+- V88 CM Public Release Guard run `34077357742`：SUCCESS。
+- Novel Panel V78.3.0.31 Regression run `34077357776`：SUCCESS。
+- BF11 Integrated Runtime Verify run `34077357781`：Node / Frontend / Go 全部 SUCCESS。
+- V88 Linux AMD64 Public Image Release run `34077357765`：构建/镜像推送均成功，但 ECS 多镜像 Deploy 步骤失败，随后 Rollback 步骤 SUCCESS，因此没有把这次失败当作公网完成证据。
+
+公网发布：
+- Node-only 触发提交：`651c57ca2c88b0c6d0104794474610fe91e4f5ce`（只修改既有 emergency workflow 的 trigger 注释，产品代码仍为上述 GREEN 内容）。
+- V88 Node Emergency Redeploy run `34077606654`：SUCCESS。
+- production build 产出 `ScriptPage-5uAFGpcD.js`，用户主 bundle 为 `user-CTfB29G3.js`。
+- 新镜像：`ghcr.io/cui1112233/qiantie-v88:node-emergency-651c57ca2c88`。
+- 镜像 digest：`sha256:41da6162fb33a8c68d501b692c2ab341232779020df1378facb71134ef3902bc`。
+- ECS 日志确认 `v88-public-v88-node-1` 已 `Recreate -> Recreated -> Starting -> Started`；启动后一次短暂 502，随后 readiness 成功。
+- 日志明确输出：`V88 Node emergency deploy verified for commit 651c57ca2c88b0c6d0104794474610fe91e4f5ce.`
+- 最终公网 endpoint 验证 SUCCESS；未触发 emergency rollback。
+- 当前自动验证证明新版 production bundle 与 Node 容器已进入公网；由于当前工具没有用户登录态，未做登录后真实点击“约束设置”的截图式视觉验收。
+
+预期公网行为：
+- 点击“约束设置”恢复为独立居中弹跳 Modal，并显示正常遮罩。
+- Modal 不再挤占或改变右侧分镜卡布局。
+- 保存约束后，当前分镜卡仍会按已开启的基础设定 / 画面前缀 / 画质约束 / 画面限制 / 负面提示词即时重组显示，不重新调用 AI。
