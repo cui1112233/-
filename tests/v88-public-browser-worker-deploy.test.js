@@ -34,13 +34,12 @@ test('V88 public release workflow builds and deploys the existing 121 Browser Wo
   assert.match(workflow, /ensure_secret QIANTIE_121_CREDENTIAL_SECRET/);
   assert.match(workflow, /ensure_secret QIANTIE_121_STORAGE_STATE_SECRET/);
   assert.match(workflow, /novel-fetch-121-worker/);
-  assert.match(workflow, /compose=\(docker compose --env-file "\$compose_dir\/novel-fetch-121\.env" -f "\$compose_file" -f "\$compose_dir\/docker-compose\.browser-worker\.yml"\)/);
-  assert.match(workflow, /"\$\{compose\[@\]\}" config/);
+  assert.match(workflow, /docker-compose\.release-images\.yml/);
   assert.match(workflow, /QIANTIE_121_BROWSER_WORKER_URL/);
   assert.match(workflow, /\/healthz/);
 });
 
-test('V88 release verification identifies the exact deployed image without probing an authenticated Novel Panel API', () => {
+test('V88 release verification identifies both exact deployed images without probing an authenticated Novel Panel API', () => {
   const workflow = read('.github/workflows/v88-linux-amd64-image-release.yml');
   const verifyStart = workflow.indexOf('- name: Verify V88 ECS deployment');
   const rollbackStart = workflow.indexOf('- name: Rollback V88 ECS on failed verification');
@@ -48,11 +47,15 @@ test('V88 release verification identifies the exact deployed image without probi
   const verify = workflow.slice(verifyStart, rollbackStart);
 
   assert.doesNotMatch(verify, /\/api\/novel-panel\/build-info/, 'release verification must not probe an authenticated Novel Panel endpoint without credentials');
-  assert.match(verify, /GHCR_IMAGE/, 'verify step must carry the commit-specific GHCR image');
-  assert.match(verify, /docker image inspect[^\n]*ghcr_image[^\n]*\.Id/, 'verify step must resolve the expected main image ID');
-  assert.match(verify, /docker inspect[^\n]*node_id[^\n]*\.Image/, 'verify step must read the running Node container image ID');
-  assert.match(verify, /expected_node_image_id/, 'verify step must compare the expected image ID');
-  assert.match(verify, /running_node_image_id/, 'verify step must compare the running container image ID');
+  assert.match(verify, /GHCR_IMAGE/, 'verify step must carry the commit-specific main GHCR image');
+  assert.match(verify, /WORKER_GHCR_IMAGE/, 'verify step must carry the commit-specific Browser Worker GHCR image');
+  assert.match(verify, /docker-compose\.release-images\.yml/, 'verify step must load the same exact-image release override used for deployment');
+  assert.match(verify, /actual_node_image/, 'verify step must read the running Node Config.Image ref');
+  assert.match(verify, /actual_worker_image/, 'verify step must read the running Worker Config.Image ref');
+  assert.match(verify, /expected_node_image_id/, 'verify step must resolve the expected Node image ID');
+  assert.match(verify, /expected_worker_image_id/, 'verify step must resolve the expected Worker image ID');
+  assert.match(verify, /docker inspect[^\n]*node_id[^\n]*\.Image/, 'verify step must compare the running Node image ID');
+  assert.match(verify, /docker inspect[^\n]*worker_id[^\n]*\.Image/, 'verify step must compare the running Worker image ID');
   assert.match(verify, /\/api\/build-info/, 'verify step should use the public build-info endpoint only as HTTP liveness');
   assert.match(verify, /batch-rewrite\/interaction-feedback\.js/);
   assert.match(verify, /batch-rewrite\/task-visibility-hotfix\.js/);
