@@ -1,0 +1,85 @@
+name: V88 Novel Fetch 121 Live Diagnostic
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - '.github/workflows/v88-novel-fetch-121-live-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+
+      - name: Inspect live Node to Browser Worker path
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15)
+          timeout 180 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          ENV_FILE=/opt/qiantie/v88/shared/env/v88-stage.env
+          NETWORK=v88-public_qiantie_internal
+          echo "=== BUILD ==="
+          curl -fsS --max-time 4 http://127.0.0.1:18081/api/build-info || true
+          echo
+          echo "=== SERVICES ==="
+          systemctl is-active qiantie-v88-node-stage.service || true
+          worker_id="$(docker ps --filter 'name=v88-public-browser-worker' --format '{{.ID}}' | head -n1)"
+          echo "worker_container_present=$([ -n "$worker_id" ] && echo yes || echo no)"
+          test -n "$worker_id"
+          worker_ip="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$worker_id")"
+          worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_id")"
+          worker_restarts="$(docker inspect -f '{{.RestartCount}}' "$worker_id")"
+          echo "worker_status=$worker_status"
+          echo "worker_restarts=$worker_restarts"
+          echo "worker_ip=$worker_ip"
+          echo
+          echo "=== NODE ENV ==="
+          test -f "$ENV_FILE"
+          node_url="$(grep '^QIANTIE_121_BROWSER_WORKER_URL=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+          node_secret="$(grep '^QIANTIE_121_WORKER_SECRET=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+          worker_secret="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$worker_id" | grep '^QIANTIE_121_WORKER_SECRET=' | tail -n1 | cut -d= -f2-)"
+          echo "node_worker_url=$node_url"
+          echo "expected_worker_url=http://$worker_ip:8787"
+          echo "node_secret_present=$([ -n "$node_secret" ] && echo yes || echo no)"
+          echo "worker_secret_present=$([ -n "$worker_secret" ] && echo yes || echo no)"
+          node_hash="$(printf '%s' "$node_secret" | sha256sum | cut -c1-12)"
+          worker_hash="$(printf '%s' "$worker_secret" | sha256sum | cut -c1-12)"
+          echo "secret_hash_match=$([ "$node_hash" = "$worker_hash" ] && echo yes || echo no)"
+          echo "worker_url_match=$([ "$node_url" = "http://$worker_ip:8787" ] && echo yes || echo no)"
+          echo
+          echo "=== HEALTH USING NODE CONFIGURED URL ==="
+          curl -sS -o /tmp/node-worker-health.json -w 'http_code=%{http_code}\n' --connect-timeout 2 --max-time 5 -H "x-qiantie-internal-secret: $node_secret" "$node_url/healthz" || true
+          cat /tmp/node-worker-health.json 2>/dev/null || true
+          echo
+          echo "=== HEALTH USING CURRENT WORKER IP ==="
+          curl -sS -o /tmp/current-worker-health.json -w 'http_code=%{http_code}\n' --connect-timeout 2 --max-time 5 -H "x-qiantie-internal-secret: $node_secret" "http://$worker_ip:8787/healthz" || true
+          cat /tmp/current-worker-health.json 2>/dev/null || true
+          echo
+          echo "=== RECENT NODE 121 ERRORS ==="
+          journalctl -u qiantie-v88-node-stage.service -n 250 --no-pager 2>/dev/null | grep -Ei '121|browser.worker|BROWSER_WORKER|ECONN|timeout|unauthorized' | tail -n 60 || true
+          echo
+          echo "=== RECENT WORKER LOGS ==="
+          docker logs --tail 80 "$worker_id" 2>&1 | tail -n 80 || true
+          REMOTE
