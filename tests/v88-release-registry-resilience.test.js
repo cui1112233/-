@@ -76,8 +76,10 @@ test('正式发布必须用 release override 直接绑定精确 GHCR 镜像，�
   const verify = workflowRunBlock('Verify V88 ECS deployment');
 
   assert.match(deploy, /docker-compose\.release-images\.yml/, 'deploy 必须生成本次 release 专属 compose image override');
-  assert.match(deploy, /printf 'services:\n\s*v88-node:\n\s*image: %s\n\s*novel-fetch-121-worker:\n\s*image: %s\n'/, 'release override 必须同时声明 v88-node 与 121 Worker 的精确 image 槽位');
-  assert.match(deploy, /"\$ghcr_image" "\$worker_ghcr_image" > "\$release_override"/, 'release override 必须写入本次精确 GHCR 主镜像与 Worker 镜像引用');
+  assert.ok(
+    deploy.includes("printf 'services:\\n  v88-node:\\n    image: %s\\n  novel-fetch-121-worker:\\n    image: %s\\n' \"$ghcr_image\" \"$worker_ghcr_image\" > \"$release_override\""),
+    'release override 必须同时声明 v88-node 与 121 Worker，并写入本次精确 GHCR 镜像引用'
+  );
   assert.match(deploy, /-f\s+[^\n]*docker-compose\.release-images\.yml/, 'compose up 必须加载 release image override');
   assert.doesNotMatch(deploy, /docker tag "\$ghcr_image" "\$service_image"/, '不能再把新主镜像 retag 到旧 service image 名称');
   assert.doesNotMatch(deploy, /docker tag "\$worker_ghcr_image" "\$worker_service_image"/, '不能再把新 Worker retag 到可变 latest 名称');
