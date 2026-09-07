@@ -1,0 +1,112 @@
+name: V88 Direct Deploy Network Diagnostic
+
+on:
+  push:
+    branches:
+      - feat/v88-git-ecs-direct-deploy-20260907
+    paths:
+      - '.github/workflows/v88-direct-deploy-network-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H 115.190.156.223 > "$HOME/.ssh/known_hosts"
+
+      - name: Verify host-container reachability without exposing secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 root@115.190.156.223 bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          network=v88-public_qiantie_internal
+          gateway="$(docker network inspect "$network" --format '{{(index .IPAM.Config 0).Gateway}}')"
+          echo "network=$network"
+          echo "gateway=$gateway"
+
+          container_id() {
+            docker ps -q --filter "name=$1" | head -n1
+          }
+          container_ip() {
+            docker inspect -f "{{with index .NetworkSettings.Networks \"$network\"}}{{.IPAddress}}{{end}}" "$1"
+          }
+
+          mysql_id="$(container_id v88-public-mysql)"
+          go_id="$(container_id v88-public-go-api)"
+          worker_id="$(container_id v88-public-novel-fetch-121-worker)"
+          nginx_id="$(container_id v88-public-nginx)"
+          node_id="$(container_id v88-public-v88-node)"
+          test -n "$mysql_id"
+          test -n "$go_id"
+          test -n "$worker_id"
+          test -n "$nginx_id"
+          test -n "$node_id"
+
+          mysql_ip="$(container_ip "$mysql_id")"
+          go_ip="$(container_ip "$go_id")"
+          worker_ip="$(container_ip "$worker_id")"
+          nginx_ip="$(container_ip "$nginx_id")"
+          echo "mysql_ip=$mysql_ip"
+          echo "go_ip=$go_ip"
+          echo "worker_ip=$worker_ip"
+          echo "nginx_ip=$nginx_ip"
+
+          timeout 3 bash -c "</dev/tcp/$mysql_ip/3306"
+          echo 'host_to_mysql_tcp=true'
+          curl -fsS --max-time 5 "http://$go_ip:4000/health" >/dev/null
+          echo 'host_to_go_health=true'
+
+          worker_secret="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$worker_id" | sed -n 's/^QIANTIE_121_WORKER_SECRET=//p' | tail -n1)"
+          test -n "$worker_secret"
+          curl -fsS --max-time 5 -H "x-qiantie-internal-secret: $worker_secret" "http://$worker_ip:8787/healthz" >/dev/null
+          echo 'host_to_worker_health=true'
+
+          go_url="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$node_id" | sed -n 's/^QIANTIE_GO_BASE_URL=//p' | tail -n1)"
+          worker_url="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$node_id" | sed -n 's/^QIANTIE_121_BROWSER_WORKER_URL=//p' | tail -n1)"
+          echo "current_node_go_host=$(printf '%s' "$go_url" | sed -E 's#^[a-zA-Z]+://([^/:]+).*#\1#')"
+          echo "current_node_worker_host=$(printf '%s' "$worker_url" | sed -E 's#^[a-zA-Z]+://([^/:]+).*#\1#')"
+
+          dsn="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$go_id" | sed -n 's/^QIANTIE_MYSQL_DSN=//p' | tail -n1)"
+          if [ -n "$dsn" ]; then
+            dsn_host="$(printf '%s' "$dsn" | sed -nE 's#.*@tcp\(([^)]*)\).*#\1#p')"
+            echo "current_go_mysql_host=${dsn_host:-unparsed}"
+          else
+            echo 'current_go_mysql_host=missing'
+          fi
+
+          echo '=== nginx mounts ==='
+          docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' "$nginx_id"
+
+          echo '=== nginx-to-host gateway probe ==='
+          if ! command -v python3 >/dev/null 2>&1; then
+            echo 'python3=missing'
+            exit 40
+          fi
+          tmp="$(mktemp -d)"
+          printf 'QIATIE_HOST_GATEWAY_OK\n' > "$tmp/index.html"
+          python3 -m http.server 18081 --bind 0.0.0.0 --directory "$tmp" >/tmp/qiantie-host-probe.log 2>&1 &
+          probe_pid=$!
+          cleanup() { kill "$probe_pid" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
+          trap cleanup EXIT
+          sleep 1
+          docker exec "$nginx_id" sh -c "wget -qO- -T 4 http://$gateway:18081/" | grep -qx 'QIATIE_HOST_GATEWAY_OK'
+          echo 'nginx_to_host_18081=true'
+          cleanup
+          trap - EXIT
+          REMOTE
