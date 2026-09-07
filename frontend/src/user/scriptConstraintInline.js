@@ -136,7 +136,7 @@ export function installScriptConstraintInlinePanel() {
   installed = true;
 
   const observer = new MutationObserver(scheduleSync);
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   document.addEventListener('click', collapseFromToolbar, true);
   window.addEventListener('resize', scheduleSync);
   window.addEventListener('scroll', scheduleSync, true);
