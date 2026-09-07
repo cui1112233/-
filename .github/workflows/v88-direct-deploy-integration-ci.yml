@@ -25,5 +25,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
-      - name: RED/GREEN direct deploy packaging contract
-        run: node --test tests/v88-node-release-package.test.js
+      - name: RED/GREEN direct deploy contracts
+        run: node --test tests/v88-node-release-package.test.js tests/v88-build-info-release.test.js
