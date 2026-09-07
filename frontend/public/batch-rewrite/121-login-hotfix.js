@@ -2,7 +2,7 @@
   'use strict';
 
   const CONFIG_PATH = '/api/config';
-  const REQUEST_TIMEOUT_MS = 35_000;
+  const REQUEST_TIMEOUT_MS = 65_000;
   const REQUEST_TIMEOUT_SECONDS = Math.ceil(REQUEST_TIMEOUT_MS / 1000);
   const GUARDED_REQUEST = /^\/api\/(?:config|web-submit(?:\/|$))/;
   const originalApi = api;
