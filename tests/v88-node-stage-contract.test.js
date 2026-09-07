@@ -39,11 +39,12 @@ test('Node staging installs pinned runtime and proves exact release SHA', () => 
   assert.match(source, /git_sha/);
 });
 
-test('staging workflow is manual, exact-SHA, bounded and Docker-image-free', () => {
+test('staging workflow exact-SHA trigger is restricted to one marker on the integration branch', () => {
   const workflow = readIfExists(workflowPath);
   assert.ok(workflow, 'node staging workflow must exist');
   assert.match(workflow, /workflow_dispatch/);
-  assert.doesNotMatch(workflow, /push:\s*\n/);
+  assert.match(workflow, /push:\s*\n\s*branches:\s*\n\s*- feat\/v88-direct-deploy-integration-20260907/);
+  assert.match(workflow, /paths:\s*\n\s*- ['"]deploy\/v88-direct\/STAGE-REQUEST['"]/);
   assert.match(workflow, /GITHUB_SHA/);
   assert.match(workflow, /stage-node-host\.sh/);
   assert.match(workflow, /package-node-release\.sh/);
