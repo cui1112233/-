@@ -1,0 +1,22 @@
+[Unit]
+Description=Qiantie V88 Browser Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qiantie
+Group=qiantie
+WorkingDirectory=/opt/qiantie/v88/current/services/121-browser-worker
+EnvironmentFile=/opt/qiantie/v88/shared/env/v88.env
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=QIANTIE_121_SESSION_DIR=/opt/qiantie/v88/shared/browser-worker-sessions
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/qiantie/v88/shared/playwright
+ExecStart=/bin/bash /opt/qiantie/v88/current/services/121-browser-worker/start-worker.sh
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
