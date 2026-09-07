@@ -36,6 +36,50 @@ jobs:
           : > "$HOME/.ssh/known_hosts"
           timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
 
+      - name: Compare 121 secret sources without revealing values
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/qiantie/v88/deploy/v88-public
+          test -s novel-fetch-121.env
+          node_id="$(docker compose -f docker-compose.yml ps -q v88-node)"
+          test -n "$node_id"
+
+          file_secret="$(awk -F= '$1=="QIANTIE_121_WORKER_SECRET" {value=substr($0,index($0,"=")+1)} END {print value}' novel-fetch-121.env)"
+          node_secret="$(docker exec "$node_id" node -e 'process.stdout.write(String(process.env.QIANTIE_121_WORKER_SECRET || ""))')"
+          test -n "$file_secret"
+
+          if [ -n "$node_secret" ]; then
+            echo 'node_worker_secret_present=true'
+          else
+            echo 'node_worker_secret_present=false'
+          fi
+          if [ "$node_secret" = "$file_secret" ]; then
+            echo 'node_worker_secret_matches_env_file=true'
+          else
+            echo 'node_worker_secret_matches_env_file=false'
+          fi
+
+          if grep -q 'QIANTIE_121_WORKER_SECRET' docker-compose.yml; then
+            echo 'base_compose_defines_worker_secret=true'
+          else
+            echo 'base_compose_defines_worker_secret=false'
+          fi
+          if grep -q 'QIANTIE_121_CREDENTIAL_SECRET' docker-compose.yml; then
+            echo 'base_compose_defines_credential_secret=true'
+          else
+            echo 'base_compose_defines_credential_secret=false'
+          fi
+          if grep -q 'QIANTIE_121_STORAGE_STATE_SECRET' docker-compose.yml; then
+            echo 'base_compose_defines_storage_state_secret=true'
+          else
+            echo 'base_compose_defines_storage_state_secret=false'
+          fi
+          REMOTE
+
       - name: Probe ECS to GHCR
         shell: bash
         env:
