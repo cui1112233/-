@@ -2,6 +2,11 @@ name: V88 Direct Deploy Node Stage
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/v88-direct-deploy-integration-20260907
+    paths:
+      - 'deploy/v88-direct/STAGE-REQUEST'
 
 permissions:
   contents: read
