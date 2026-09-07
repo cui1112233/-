@@ -1,0 +1,56 @@
+name: V88 Fix Chat Private Exports
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - .github/workflows/v88-fix-chat-private-exports.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout v88
+        uses: actions/checkout@v4
+        with:
+          ref: v88
+          fetch-depth: 0
+
+      - name: Remove stale protagonist private exports
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('routes/chat.js')
+          text = path.read_text()
+          old = "  buildConstraintWrapper,\n  buildProtagonistPrompt,\n  normalizeDuration,"
+          new = "  buildConstraintWrapper,\n  buildCharacterFocusPrompt,\n  buildScriptAudioMatchPrompt,\n  normalizeDuration,"
+          if old not in text:
+              raise SystemExit('stale buildProtagonistPrompt export not found')
+          text = text.replace(old, new, 1)
+          old = "  serializePromptSection,\n  sanitizeProtagonists,\n  describeUpstreamFailure,"
+          new = "  serializePromptSection,\n  sanitizeFocusCharacters,\n  describeUpstreamFailure,"
+          if old not in text:
+              raise SystemExit('stale sanitizeProtagonists export not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Verify focused V78 contract
+        run: node --test tests/novel-panel-v783031-script-focus-audio.test.js
+
+      - name: Remove one-shot workflow
+        run: rm -f .github/workflows/v88-fix-chat-private-exports.yml
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(script): remove stale protagonist private exports"
+          git push origin HEAD:v88
