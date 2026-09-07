@@ -4,6 +4,7 @@ const express = require('express');
 const { HOST, PORT } = require('./lib/shared');
 const { createApp } = require('./app');
 const { apiAuth } = require('./middleware/auth');
+const { readReleaseInfo } = require('./lib/release-info');
 const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { attachV78NovelFetchV2 } = require('./lib/novel-fetch-workshop/v2-compose');
 const { createV783031RegenerationMiddleware } = require('./lib/novel-panel/v783031-regeneration-middleware');
@@ -31,6 +32,17 @@ migrateLegacyScriptPromptPresets(coreApp.locals.presetStore, 'choushiyiguai');
 app.locals.authRuntime = coreApp.locals.authRuntime;
 app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
 attachV78NovelFetchV2({ shellApp: app, coreApp, bodyParser: express.json({ limit: '50mb' }) });
+
+// Direct-deploy identity overlays the legacy build-info route without removing
+// compatibility fields consumed by older clients. The SHA comes from the exact
+// release directory/environment, never from a moving branch head.
+app.get('/api/build-info', (req, res) => {
+  res.json({
+    app_version: 'v78.3.0.3',
+    build_id: 'v78.3.0.3-remote-workbench-20260819-r1',
+    ...readReleaseInfo()
+  });
+});
 
 // V88 script smart-unified semantics: when the user explicitly selects
 // “画面前缀词 → 智能统一”, run an independent full-source visual analysis first.
