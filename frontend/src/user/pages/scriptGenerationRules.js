@@ -8,7 +8,7 @@ export function shouldInjectSmartUnifiedStyle(constraints) {
 export function normalizeAudioDurationSeconds(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 600) return null;
-  return Math.ceil(parsed);
+  return Math.round(parsed * 100) / 100;
 }
 
 export function readAudioDurationFromUrl(url, { AudioCtor = globalThis.Audio } = {}) {

@@ -76,14 +76,14 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints }) {
+export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds }) {
   const resolved = await resolveSmartUnifiedGenerationInput({
-    mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints
+    mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds
   });
 
   // 普通“生成剧本/分镜”始终只发起一次 script AI 请求：
-  // 当前开头预设 + 当前输出模式预设 + 10s/15s 运行规则 + 人物场景/主角资料
-  // 在服务端同一次 messages 组合后直接生成最终结果。
+  // 开头 + 通用规则 + 输出模式 + 人物场景 + 星标聚焦变量 + 10s/15s 上限 + 可选匹配音频规则
+  // 都由服务端后台预设在同一次 messages 中组合后直接生成最终结果。
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -97,6 +97,8 @@ export async function generateScript({ mode, format, duration, novelText, charac
       visualStyle: resolved.visualStyle,
       protagonists: resolved.protagonists,
       constraints: resolved.constraints,
+      matchAudio: resolved.matchAudio === true,
+      audioTotalSeconds: resolved.matchAudio === true ? resolved.audioTotalSeconds : null,
       max_tokens: resolved.format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false

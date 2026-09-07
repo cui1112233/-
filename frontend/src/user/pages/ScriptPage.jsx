@@ -1,7 +1,7 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
 import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateQuickDirectorStoryboard, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
+import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
@@ -14,7 +14,7 @@ import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptD
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, constraintsForNextGeneration, normalizeScriptConstraints } from './scriptConstraints';
 import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
-import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
+import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
@@ -114,9 +114,8 @@ export function ScriptPage() {
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
-  const [quickDirecting, setQuickDirecting] = useState(false);
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
-  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '', matchAudio: false });
+  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ matchAudio: false });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [sourceAudioDurationSeconds, setSourceAudioDurationSeconds] = useState(null);
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
@@ -197,86 +196,10 @@ export function ScriptPage() {
     persistDraft({ ...form.getFieldsValue(), novelText: '' });
   }
 
-  function openQuickDirectorStoryboard() {
+  function openAudioMatchSettings() {
     const source = String(form.getFieldValue('novelText') || '').trim();
     if (!source) return message.warning('请先粘贴小说原文');
     setQuickDirectorOpen(true);
-  }
-
-  async function quickDirectorStoryboard() {
-    const source = String(form.getFieldValue('novelText') || '').trim();
-    if (!source) return;
-    if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
-      message.warning('请先生成当前原文配音，匹配音频需要读取实际音频时长');
-      return;
-    }
-    const request = beginRequest('workflow');
-    setQuickDirecting(true);
-    setQuickDirectorOpen(false);
-    setGenerationStage('extracting');
-    dispatchPetState('working', { title: '匹配音频分镜正在生成' });
-    try {
-      const extraction = await extractEntities(source);
-      if (!isCurrentRequest(request)) return;
-      setExtractInfo(extraction);
-      setGenerationStage('generating');
-      const duration = form.getFieldValue('duration') || '10s';
-      const requestConstraints = constraintsForFormat(constraints, 'shotlist', extraction);
-      const result = await generateQuickDirectorStoryboard({
-        novelText: source,
-        duration,
-        ...toGenerationEntities(extraction),
-        descriptionMode: quickDirectorOptions.descriptionMode,
-        mustCoverDetails: quickDirectorOptions.mustCoverDetails,
-        shotRhythmRequirements: quickDirectorOptions.shotRhythmRequirements,
-        matchAudio: quickDirectorOptions.matchAudio,
-        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null,
-        constraints: requestConstraints
-      });
-      if (!isCurrentRequest(request)) return;
-      const nextOutput = aiText(result);
-      if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回分镜内容');
-      const historyId = 'react-' + Date.now().toString(36);
-      setPreviousOutput(output);
-      setOutputConstraints(requestConstraints);
-      updateOutputDraft(nextOutput);
-      setGenerationStage('complete');
-      setCurrentHistoryId('');
-      let historySaved = false;
-      try {
-        await saveHistory({
-          id: historyId,
-          mode: form.getFieldValue('mode') || 'continuous',
-          format: form.getFieldValue('format') || 'storyboard',
-          duration: form.getFieldValue('duration') || '10s',
-          output: nextOutput,
-          novelText: source,
-          extractInfo: extraction,
-          constraints: requestConstraints
-        });
-        if (!isCurrentRequest(request)) return;
-        setCurrentHistoryId(historyId);
-        historySaved = true;
-      } catch {
-        if (!isCurrentRequest(request)) return;
-        message.warning('分镜已生成，但保存历史失败');
-      }
-      message.success('匹配音频分镜已生成，可直接查看、复制或生成视频');
-      playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success', {
-        title: '匹配音频分镜已生成',
-        detail: historySaved ? '完整分镜已写入当前剧本和生成历史。' : '完整分镜已写入当前剧本，但生成历史保存失败。'
-      });
-    } catch (error) {
-      if (isCurrentRequest(request)) {
-        setGenerationStage('error');
-        message.error(error.message || '匹配音频分镜生成失败');
-        playTaskSound('warning', soundEnabled, soundVolume);
-        dispatchPetState('error', { title: '匹配音频分镜生成失败', detail: error.message || '请检查模型配置后重试。' });
-      }
-    } finally {
-      if (isCurrentRequest(request)) setQuickDirecting(false);
-    }
   }
 
   function replaceSourceAudio(nextUrl) {
@@ -705,7 +628,7 @@ export function ScriptPage() {
     if (!extraction.characters.length && !extraction.scenes.length) {
       throw new Error('模型未返回人物或场景，请检查提取模板或重试');
     }
-    return { ...extraction, protagonistIds: selectDefaultProtagonistIds(extraction, novelText) };
+    return extraction;
   }
 
   async function handleExtract(values) {
@@ -764,6 +687,9 @@ export function ScriptPage() {
   async function generateOutput() {
     const values = form.getFieldsValue();
     if (!extractInfo.characters.length && !extractInfo.scenes.length) return message.warning('请先提取人物与场景');
+    if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
+      return message.warning('请先生成当前原文配音；匹配音频需要读取实际音频时长');
+    }
     const requestId = beginRequest('workflow');
     setGenerating(true);
     setGenerationStage('generating');
@@ -778,7 +704,9 @@ export function ScriptPage() {
         duration: values.duration,
         novelText: values.novelText,
         ...entities,
-        constraints: requestConstraints
+        constraints: requestConstraints,
+        matchAudio: quickDirectorOptions.matchAudio,
+        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null
       });
       const nextOutput = aiText(scriptResponse);
       if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回剧本内容');
@@ -1175,7 +1103,7 @@ export function ScriptPage() {
                   setInstructionModalOpen(true);
                 }} disabled={extractionUnavailable}><Plus size={17} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" aria-label="配音原文" title="按当前配音预设生成原文配音" onClick={narrateSource} disabled={narrating}><AudioLines size={17} strokeWidth={1.8} aria-hidden="true" /></button>
-                <button type="button" aria-label="匹配音频" title="按当前配音时长生成完整视频分镜" onClick={openQuickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
+                <button type="button" aria-label="匹配音频" title="设置生成剧本时是否匹配当前配音时长" onClick={openAudioMatchSettings}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
               </div>
               <Button className="script-chat-submit" type="primary" htmlType="submit" loading={extracting} disabled={generating || extractionUnavailable} aria-label="提取人物与场景" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />}>
                 <span>{generationStage === 'extracting' ? '提取中...' : '提取'}</span>
@@ -1303,20 +1231,27 @@ export function ScriptPage() {
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
       </Modal>
       <Modal
-        title="匹配音频"
+        title="匹配音频设置"
         open={quickDirectorOpen}
-        okText="分析并生成"
+        okText="保存设置"
         cancelText="取消"
-        confirmLoading={quickDirecting}
         onCancel={() => setQuickDirectorOpen(false)}
-        onOk={quickDirectorStoryboard}
+        onOk={() => {
+          if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
+            message.warning('请先生成当前原文配音；匹配音频需要读取实际音频时长');
+            return;
+          }
+          setQuickDirectorOpen(false);
+        }}
       >
-        <Typography.Paragraph type="secondary">自动读取全文并生成导演级分镜。开启匹配音频后，所有分镜单元总时长必须等于当前配音秒数；10s / 15s 仍然是每个分镜单元的时长规则。</Typography.Paragraph>
-        <Space align="center" style={{ width: '100%', justifyContent: 'space-between', marginBottom: 14 }}>
+        <Typography.Paragraph type="secondary">
+          这里只控制下一次“生成剧本”是否加入匹配音频规则，不会单独调用 AI。开启后，后台会把实际配音秒数与当前 10s / 15s 单分镜上限一起加入本次生成提示词。
+        </Typography.Paragraph>
+        <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
           <div>
-            <Typography.Text strong>匹配音频</Typography.Text>
+            <Typography.Text strong>匹配当前配音时长</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ margin: '2px 0 0' }}>
-              {sourceAudioDurationSeconds ? `当前配音：${sourceAudioDurationSeconds} 秒；总分镜时长将严格匹配。` : '请先点击配音按钮生成当前原文配音。'}
+              {sourceAudioDurationSeconds ? '当前配音：' + sourceAudioDurationSeconds + ' 秒；生成剧本时总分镜时长将严格匹配。' : '请先点击配音按钮生成当前原文配音。'}
             </Typography.Paragraph>
           </div>
           <Switch
@@ -1324,24 +1259,6 @@ export function ScriptPage() {
             onChange={matchAudio => setQuickDirectorOptions(current => ({ ...current, matchAudio }))}
           />
         </Space>
-        <Typography.Text>画面描述模式</Typography.Text>
-        <Select
-          value={quickDirectorOptions.descriptionMode}
-          style={{ width: '100%', marginTop: 8, marginBottom: 14 }}
-          onChange={descriptionMode => setQuickDirectorOptions(current => ({ ...current, descriptionMode }))}
-          options={[
-            { value: 'strict', label: '导演级完整成品版（推荐）' },
-            { value: 'concise', label: '通用小说精简版' },
-            { value: 'balanced', label: '通用小说标准版' },
-            { value: 'detailed', label: '通用小说较细版' },
-            { value: 'example', label: '案例学习增强版' },
-            { value: 'reference', label: '样例对照转换版' }
-          ]}
-        />
-        <Typography.Text>必须拍出的原文细节（可选）</Typography.Text>
-        <Input.TextArea rows={3} style={{ marginTop: 8, marginBottom: 14 }} value={quickDirectorOptions.mustCoverDetails} placeholder="例如：产检单被拍照、手机语音、女主的反应不能遗漏" onChange={event => setQuickDirectorOptions(current => ({ ...current, mustCoverDetails: event.target.value }))} />
-        <Typography.Text>镜头节奏与推进要求（可选）</Typography.Text>
-        <Input.TextArea rows={3} style={{ marginTop: 8 }} value={quickDirectorOptions.shotRhythmRequirements} placeholder="例如：先铺场再切反应，关键动作单独拆镜，同场景避免重复" onChange={event => setQuickDirectorOptions(current => ({ ...current, shotRhythmRequirements: event.target.value }))} />
       </Modal>
       <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
         {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length} 个</Typography.Text></Button>) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}

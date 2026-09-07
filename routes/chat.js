@@ -199,50 +199,43 @@ function buildConstraintWrapper(presetStore, constraints, format, duration, pers
   return `${protocol}\n\n## 分镜内约束\n${constraintText}\n\n每个完整分镜必须在自身标题之后写入以上所有非空约束；不得在全部分镜之外单独输出这些约束。`;
 }
 
-function sanitizeProtagonists(characters, protagonists) {
+function sanitizeFocusCharacters(characters, selectedCharacters) {
   const known = new Set((Array.isArray(characters) ? characters : []).map(item => JSON.stringify(item)));
-  return (Array.isArray(protagonists) ? protagonists : []).filter(item => known.has(JSON.stringify(item)));
+  return (Array.isArray(selectedCharacters) ? selectedCharacters : []).filter(item => known.has(JSON.stringify(item)));
 }
 
-function protagonistName(value) {
+function focusCharacterName(value) {
   if (typeof value === 'string') return value.trim();
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
   return String(value['角色名称'] || value['姓名'] || value['名称'] || value.name || '').trim();
 }
 
-function protagonistGender(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
-  const raw = String(value['性别'] || value.gender || '').trim().toLowerCase();
-  if (raw === '男' || raw === '男性' || raw === 'male' || raw === 'man' || raw === 'm') return 'male';
-  if (raw === '女' || raw === '女性' || raw === 'female' || raw === 'woman' || raw === 'f') return 'female';
-  return '';
+function buildCharacterFocusPrompt(presetStore, characters, selectedCharacters) {
+  const names = sanitizeFocusCharacters(characters, selectedCharacters)
+    .map(focusCharacterName)
+    .filter(Boolean);
+  if (!names.length) return '';
+  const focusCharacters = names.join('、');
+  return resolveSystemPresetBody(presetStore, 'script-character-focus')
+    .replace(/\{focusCharacters\}/g, focusCharacters)
+    .replace(/\{focusCount\}/g, String(names.length));
 }
 
-function buildProtagonistPrompt(characters, protagonists) {
-  const selected = sanitizeProtagonists(characters, protagonists)
-    .map(item => ({ item, name: protagonistName(item), gender: protagonistGender(item) }))
-    .filter(item => item.name);
-  if (!selected.length) return '';
+function normalizeScriptAudioSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 600) return null;
+  return Math.round(parsed * 100) / 100;
+}
 
-  let leadLine = '';
-  if (selected.length === 1) {
-    leadLine = `以${selected[0].name}为主角展开剧情。`;
-  } else if (selected.length === 2) {
-    const male = selected.find(item => item.gender === 'male');
-    const female = selected.find(item => item.gender === 'female');
-    leadLine = male && female
-      ? `以${male.name}为男主角、${female.name}为女主角展开剧情。`
-      : `以${selected.map(item => item.name).join('、')}为核心人物展开剧情。`;
-  } else {
-    leadLine = `以${selected.map(item => item.name).join('、')}为核心人物展开剧情。`;
-  }
-
-  return [
-    '## 核心人物要求（星标白名单，优先级最高）',
-    leadLine,
-    '核心人物实际参与当前原文事件时，镜头、人物行为、情绪反应和叙事重点优先围绕核心人物展开；其他人物按原文承担必要功能。',
-    '不得因为某人被星标就把其强行加入原文没有该人物的分镜，不得修改人物关系，也不得把原文由其他人物执行的动作改给核心人物。'
-  ].join('\n');
+function buildScriptAudioMatchPrompt(presetStore, body, duration) {
+  if (body?.matchAudio !== true) return '';
+  const audioDurationSec = normalizeScriptAudioSeconds(body?.audioTotalSeconds);
+  if (audioDurationSec === null) throw new Error('匹配音频已开启，但没有有效的当前配音时长');
+  const unitMaxSec = normalizeDuration(duration) === '15s' ? '15' : '10';
+  return resolveSystemPresetBody(presetStore, 'script-audio-match')
+    .replace(/\{audioDurationSec\}/g, String(audioDurationSec))
+    .replace(/\{unitMaxSec\}/g, unitMaxSec)
+    .replace(/\{duration\}/g, normalizeDuration(duration));
 }
 
 function buildScriptMessages(body, presetStore, personalPromptStore, username) {
@@ -270,12 +263,15 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
 
   const constraintWrapper = buildConstraintWrapper(presetStore, body.constraints, format, duration, personalPromptStore, username, body.visualStyle);
   const durationGuard = `## 当前单条视频最大时长（最高优先级）\n${buildStoryboardUnitDurationRules(duration)} 每个最终外层分镜的结束时间不得超过 ${endTime}。10s/15s 是上限，不是固定目标时长；禁止先输出超时分镜再按固定秒数硬切。`;
-  const protagonistPrompt = buildProtagonistPrompt(body.characters, body.protagonists);
+  const characterFocusPrompt = buildCharacterFocusPrompt(presetStore, body.characters, body.protagonists);
+  const audioMatchPrompt = buildScriptAudioMatchPrompt(presetStore, body, duration);
   const cardProtocol = buildScriptCardProtocol(presetStore, duration);
   const systemPrompt = [
     modeContent,
     resolveSystemPresetBody(presetStore, 'script-general').replace(/\{duration\}/g, duration),
     durationGuard,
+    audioMatchPrompt,
+    characterFocusPrompt,
     constraintWrapper,
     !hasBaseSetup && '基础设定展示未启用：人物和场景资料仍必须作为生成依据，但不得在最终结果中输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块。',
     !hasBaseSetup && '基础设定展示未启用：人物和场景资料仍必须作为生成依据，但不得在最终结果中输出【基础设定】、【人物与场景】、人物卡、场景卡、统一人物或场景环境等独立设定区块。',
@@ -290,7 +286,6 @@ function buildScriptMessages(body, presetStore, personalPromptStore, username) {
       content: '## 小说原文\n' + String(body.novelText || '') +
         '\n\n## 人物信息\n' + serializePromptSection(body.characters) +
         '\n\n## 场景信息\n' + serializePromptSection(body.scenes) +
-        (protagonistPrompt ? '\n\n' + protagonistPrompt : '') +
         '\n\n请在同一次推理中，先执行当前选中的开头提示词，再继续执行当前选中的' + formatName + '提示词，并直接输出最终成品。'
     }
   ];
