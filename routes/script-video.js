@@ -118,8 +118,31 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
     if (req.body?.modelKey === 'local-doubao-executor-video') {
-      try { return res.status(202).json(await bridgeJSON(shuihuoGateway, req.auth.account, 'POST', '/api/script-videos/local', { prompt })); }
-      catch (error) { return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' }); }
+      const sourceTaskId = `script-video:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`;
+      const localPayload = {
+        bookId: String(req.body?.bookId || req.body?.book_id || '').trim(),
+        videoId: String(req.body?.videoId || req.body?.video_id || '').trim(),
+        model: String(req.body?.model || req.body?.videoModel || 'doubao').trim(),
+        prompt,
+        duration: Math.max(1, Number(req.body?.duration || 10) || 10),
+        aspectRatio: String(req.body?.aspectRatio || req.body?.aspect_ratio || '9:16').trim(),
+        resolution: String(req.body?.resolution || '720p').trim()
+      };
+      try {
+        const created = await bridgeJSON(
+          shuihuoGateway,
+          req.auth.account,
+          'POST',
+          '/api/shuihuo-production/local-executor-jobs',
+          { sourceTaskId, platform: 'doubao', payload: localPayload }
+        );
+        const createdBody = payloadOf(created);
+        const taskId = String(createdBody.id || readTaskID(created) || '').trim();
+        if (!taskId) return res.status(502).json({ error: '本地执行器服务未返回任务 ID' });
+        return res.status(202).json({ ok: true, taskId, status: 'processing' });
+      } catch (error) {
+        return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' });
+      }
     }
     let imageUrls;
     try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
@@ -141,8 +164,26 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     const taskId = String(req.params.taskId || '').trim();
     if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
     try {
-      const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/script-videos/${encodeURIComponent(taskId)}`);
-      return res.json(local);
+      const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/shuihuo-production/local-executor-jobs/${encodeURIComponent(taskId)}`);
+      const localBody = payloadOf(local);
+      const state = String(localBody.state || '').trim().toLowerCase();
+      const artifactId = String(localBody.artifactId || localBody.artifact_id || '').trim();
+      if (['queued', 'leased', 'preparing', 'submitting', 'accepted', 'generating', 'downloading', 'uploading'].includes(state)) {
+        return res.json({ ok: true, taskId, status: 'processing' });
+      }
+      if (['failed', 'cancelled', 'canceled'].includes(state)) {
+        return res.json({ ok: true, taskId, status: 'failed', error: taskError(local) });
+      }
+      if (['succeeded', 'success', 'completed'].includes(state)) {
+        if (!artifactId) return res.status(502).json({ error: '本地执行器任务已完成，但没有返回视频文件' });
+        return res.json({
+          ok: true,
+          taskId,
+          status: 'succeeded',
+          videoUrl: `/api/shuihuo-production/local-executor-artifacts/${encodeURIComponent(artifactId)}`
+        });
+      }
+      return res.json({ ok: true, taskId, status: 'processing' });
     } catch (error) {
       if (error.status !== 404) return res.status(error.status || 503).json({ error: error.message || '本地执行器任务状态查询失败' });
     }
