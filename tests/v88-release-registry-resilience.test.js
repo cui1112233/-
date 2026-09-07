@@ -71,6 +71,23 @@ test('ECS 必须先尝试 GHCR，再按需上传 68MB 主镜像 fallback', () =>
   assert.match(deploy, /Main GHCR pull failed|MAIN_PULL_FAILED|main_pull_status/);
 });
 
+test('正式发布必须用 release override 直接绑定精确 GHCR 镜像，不能 retag 到旧 service image', () => {
+  const deploy = workflowRunBlock('Deploy verified images to V88 ECS');
+  const verify = workflowRunBlock('Verify V88 ECS deployment');
+
+  assert.match(deploy, /docker-compose\.release-images\.yml/, 'deploy 必须生成本次 release 专属 compose image override');
+  assert.match(deploy, /image:\s*\$\{ghcr_image\}/, 'v88-node 必须直接绑定本次 GHCR 主镜像');
+  assert.match(deploy, /image:\s*\$\{worker_ghcr_image\}/, '121 Worker 必须直接绑定本次 GHCR 镜像');
+  assert.match(deploy, /-f\s+[^\n]*docker-compose\.release-images\.yml/, 'compose up 必须加载 release image override');
+  assert.doesNotMatch(deploy, /docker tag "\$ghcr_image" "\$service_image"/, '不能再把新主镜像 retag 到旧 service image 名称');
+  assert.doesNotMatch(deploy, /docker tag "\$worker_ghcr_image" "\$worker_service_image"/, '不能再把新 Worker retag 到可变 latest 名称');
+
+  assert.match(verify, /expected_node_image/, '验证阶段必须知道本次期望的主镜像');
+  assert.match(verify, /expected_worker_image/, '验证阶段必须知道本次期望的 Worker 镜像');
+  assert.match(verify, /\.Config\.Image/, '验证阶段必须核对容器实际 Config.Image');
+  assert.match(verify, /127\.0\.0\.1:3000\/api\/novel-panel\/build-info/, '必须在 v88-node 容器内部先验证 build-info');
+});
+
 test('ECS deploy workflow shell 必须通过 bash -n 语法检查', () => {
   const deployScript = workflowRunBlock('Deploy verified images to V88 ECS');
   const result = spawnSync('bash', ['-n'], { input: deployScript, encoding: 'utf8' });
