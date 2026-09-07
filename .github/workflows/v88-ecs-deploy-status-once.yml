@@ -1,5 +1,5 @@
 name: V88 ECS Deploy Status Once
-# trigger: public-recovery-20260907-b
+# trigger: public-recovery-20260907-c
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
-      - name: Prepare SSH
+      - name: Prepare SSH key
         shell: bash
         env:
           V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
@@ -30,19 +30,17 @@ jobs:
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
-          : > "$HOME/.ssh/known_hosts"
-          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" || true
-          test -s "$HOME/.ssh/known_hosts"
       - name: Inspect active release and public probes
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15)
+          ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
           set -Eeuo pipefail
           echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo '--- docker containers ---'
-          docker ps -a --format '{{.Names}} {{.Status}} {{.Ports}}' | grep -E 'v88-public-(nginx|v88-node)|qiantie-v88-node-stage' || true
-          echo '--- nginx/listeners ---'
+          docker ps -a --format '{{.Names}} {{.Status}} {{.Ports}}' | grep -E 'v88-public-(nginx|v88-node)' || true
+          echo '--- listeners ---'
           ss -ltnp | grep -E '(:3000|:18081)' || true
           nginx_id="$(docker ps -a --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
           if [ -n "$nginx_id" ]; then
@@ -53,11 +51,15 @@ jobs:
               grep -nE 'proxy_pass http://(v88-public-v88-node-1:3000|[0-9.]+:18081)' "$config_source" || true
             fi
           fi
+          echo '--- systemd stage ---'
+          systemctl is-active qiantie-v88-node-stage.service || true
+          systemctl --no-pager --full status qiantie-v88-node-stage.service | head -n 25 || true
           echo '--- local HTTP status ---'
           for url in \
             http://127.0.0.1:3000/ \
             http://127.0.0.1:3000/api/build-info \
             http://127.0.0.1:18081/api/build-info; do
+            rm -f /tmp/probe.out
             code="$(curl -sS -o /tmp/probe.out -w '%{http_code}' --connect-timeout 3 --max-time 5 "$url" || true)"
             echo "$url status=$code body=$(head -c 180 /tmp/probe.out 2>/dev/null || true)"
           done
