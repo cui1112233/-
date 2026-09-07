@@ -338,6 +338,7 @@ jobs:
           compose_dir="$(dirname "$compose_file")"
           test -f "$compose_file"
           cd "$compose_dir"
+          test -s "$compose_dir/.env"
           trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
           random_hex() {
@@ -356,7 +357,7 @@ jobs:
           ensure_secret QIANTIE_121_CREDENTIAL_SECRET
           ensure_secret QIANTIE_121_STORAGE_STATE_SECRET
 
-          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
+          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           "${compose[@]}" config >/dev/null
 
           container_id="$(${compose[@]} ps -q v88-node)"
@@ -388,7 +389,7 @@ jobs:
           mkdir -p "$release_dir"
           release_override="$release_dir/docker-compose.release-images.yml"
           printf 'services:\n  v88-node:\n    image: %s\n  novel-fetch-121-worker:\n    image: %s\n' "$ghcr_image" "$worker_ghcr_image" > "$release_override"
-          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml" -f "$release_dir/docker-compose.release-images.yml")
+          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml" -f "$release_dir/docker-compose.release-images.yml")
           "${compose[@]}" config >/dev/null
           "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
           "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
@@ -414,7 +415,8 @@ jobs:
           release_override="/opt/qiantie/releases/v88/${short_sha}/docker-compose.release-images.yml"
           test -s "$release_override"
           cd "$compose_dir"
-          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml" -f "$release_override")
+          test -s "$compose_dir/.env"
+          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml" -f "$release_override")
           "${compose[@]}" ps novel-fetch-121-worker v88-node
 
           node_id="$(${compose[@]} ps -q v88-node)"
@@ -443,7 +445,7 @@ jobs:
 
           "${compose[@]}" exec -T v88-node node - <<'NODE'
           (async () => {
-            const required = ['QIANTIE_121_BROWSER_WORKER_URL', 'QIANTIE_121_WORKER_SECRET', 'QIANTIE_121_CREDENTIAL_SECRET'];
+            const required = ['QIANTIE_121_BROWSER_WORKER_URL', 'QIANTIE_121_WORKER_SECRET', 'QIANTIE_121_CREDENTIAL_SECRET', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
             for (const key of required) {
               if (!String(process.env[key] || '').trim()) throw new Error(`${key} missing inside v88-node`);
             }
@@ -514,7 +516,8 @@ jobs:
           compose_file="$1"
           compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
-          compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
+          test -s "$compose_dir/.env"
+          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
           test -s /tmp/v88-last-rollback-image
           test -s /tmp/v88-last-service-image
           rollback_image="$(cat /tmp/v88-last-rollback-image)"
