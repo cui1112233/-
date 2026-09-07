@@ -12,8 +12,10 @@ on:
       - 'local-executor/**'
       - 'routes/local-executor-downloads.js'
       - 'routes/shuihuo-production.js'
+      - 'routes/script-video.js'
       - 'test/local-executor-updates.test.js'
       - 'test/batch-factory-v11-shuihuo-bridge.test.js'
+      - 'test/script-video-local-executor.test.js'
       - 'backend/internal/httpapi/**'
       - 'backend/internal/localexecutor/**'
       - 'backend/go.mod'
@@ -39,7 +41,7 @@ jobs:
       - name: Install Node route dependencies
         run: npm install --ignore-scripts
       - name: Run gateway and executor route tests
-        run: node --test test/local-executor-updates.test.js test/batch-factory-v11-shuihuo-bridge.test.js
+        run: node --test test/local-executor-updates.test.js test/batch-factory-v11-shuihuo-bridge.test.js test/script-video-local-executor.test.js
       - name: Run full local executor tests
         working-directory: local-executor
         run: npm test
