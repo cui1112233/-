@@ -1,0 +1,114 @@
+name: TEMP Patch V88 Release Env
+
+on:
+  push:
+    branches:
+      - fix/v88-preserve-ecs-env-20260907
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v88-preserve-ecs-env-20260907
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify regression is red before production patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if node --test tests/v88-release-preserves-base-env.test.js; then
+            echo 'Regression unexpectedly passed before patch.' >&2
+            exit 1
+          fi
+          echo 'Regression reproduced the missing base .env bug.'
+
+      - name: Patch release workflow and legacy contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow_path = Path('.github/workflows/v88-linux-amd64-image-release.yml')
+          workflow = workflow_path.read_text(encoding='utf-8')
+          old = 'compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file"'
+          new = 'compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file"'
+          count = workflow.count(old)
+          if count != 4:
+              raise SystemExit(f'expected 4 vulnerable Compose commands, found {count}')
+          workflow = workflow.replace(old, new)
+
+          deploy_anchor = '          cd "$compose_dir"\n          trap \'docker logout ghcr.io >/dev/null 2>&1 || true\' EXIT\n'
+          if deploy_anchor not in workflow:
+              raise SystemExit('deploy compose directory anchor missing')
+          workflow = workflow.replace(
+              deploy_anchor,
+              '          cd "$compose_dir"\n          test -s "$compose_dir/.env"\n          trap \'docker logout ghcr.io >/dev/null 2>&1 || true\' EXIT\n',
+              1,
+          )
+
+          verify_anchor = '          cd "$compose_dir"\n          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml" -f "$release_override")\n'
+          if verify_anchor not in workflow:
+              raise SystemExit('verify compose anchor missing')
+          workflow = workflow.replace(
+              verify_anchor,
+              '          cd "$compose_dir"\n          test -s "$compose_dir/.env"\n          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml" -f "$release_override")\n',
+              1,
+          )
+
+          rollback_anchor = '          cd "$compose_dir"\n          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")\n'
+          if rollback_anchor not in workflow:
+              raise SystemExit('rollback compose anchor missing')
+          workflow = workflow.replace(
+              rollback_anchor,
+              '          cd "$compose_dir"\n          test -s "$compose_dir/.env"\n          compose=(docker compose --env-file "$compose_dir/.env" --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")\n',
+              1,
+          )
+
+          required_old = "const required = ['QIANTIE_121_BROWSER_WORKER_URL', 'QIANTIE_121_WORKER_SECRET', 'QIANTIE_121_CREDENTIAL_SECRET'];"
+          required_new = "const required = ['QIANTIE_121_BROWSER_WORKER_URL', 'QIANTIE_121_WORKER_SECRET', 'QIANTIE_121_CREDENTIAL_SECRET', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];"
+          if required_old not in workflow:
+              raise SystemExit('runtime verification required-list anchor missing')
+          workflow = workflow.replace(required_old, required_new, 1)
+          workflow_path.write_text(workflow, encoding='utf-8')
+
+          legacy_path = Path('tests/novel-panel-v783031-ecs-deploy.test.js')
+          legacy = legacy_path.read_text(encoding='utf-8')
+          legacy_old = 'compose=\\(docker compose --env-file "\\$compose_dir\\/novel-fetch-121\\.env" -f "\\$compose_file"'
+          legacy_new = 'compose=\\(docker compose --env-file "\\$compose_dir\\/\\.env" --env-file "\\$compose_dir\\/novel-fetch-121\\.env" -f "\\$compose_file"'
+          if legacy_old not in legacy:
+              raise SystemExit('legacy ECS contract anchor missing')
+          legacy = legacy.replace(legacy_old, legacy_new, 1)
+          legacy_path.write_text(legacy, encoding='utf-8')
+          PY
+
+      - name: Verify regression is green after patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --test tests/v88-release-preserves-base-env.test.js
+          node tests/novel-panel-v783031-ecs-deploy.test.js
+
+      - name: Commit patched release contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'v88-release-env-patcher'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows/v88-linux-amd64-image-release.yml tests/novel-panel-v783031-ecs-deploy.test.js
+          if git diff --cached --quiet; then
+            echo 'No patch required.'
+            exit 0
+          fi
+          git commit -m 'fix(v88): preserve ECS base env during release'
+          git push origin HEAD:fix/v88-preserve-ecs-env-20260907
