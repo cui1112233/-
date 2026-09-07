@@ -298,7 +298,7 @@ jobs:
             fallback_image="qiantie-v88:public-${short_sha}"
             docker image inspect "$fallback_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
             docker tag "$fallback_image" "$ghcr_image"
-            REMOTE
+          REMOTE
           fi
 
           timeout 900 "${ssh_cmd[@]}" bash -s -- "$WORKER_GHCR_IMAGE" <<'REMOTE'
