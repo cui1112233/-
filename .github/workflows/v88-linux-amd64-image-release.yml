@@ -298,7 +298,7 @@ jobs:
             fallback_image="qiantie-v88:public-${short_sha}"
             docker image inspect "$fallback_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
             docker tag "$fallback_image" "$ghcr_image"
-            REMOTE
+          REMOTE
           fi
 
           timeout 900 "${ssh_cmd[@]}" bash -s -- "$WORKER_GHCR_IMAGE" <<'REMOTE'
@@ -406,7 +406,7 @@ jobs:
           compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
           compose=(docker compose -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")
-          "${compose[@]}" ps novel-fetch-121-worker v88-node
+          "${compose[@]}" ps novel-fetch-121-browser-worker v88-node
 
           worker_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
           test -n "$worker_id"
