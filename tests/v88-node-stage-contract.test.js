@@ -48,6 +48,9 @@ test('staging workflow exact-SHA trigger is restricted to one marker on v88', ()
   assert.match(workflow, /GITHUB_SHA/);
   assert.match(workflow, /stage-node-host\.sh/);
   assert.match(workflow, /package-node-release\.sh/);
-  assert.match(workflow, /timeout\s+\d+\s+scp/);
+  assert.doesNotMatch(workflow, /\bscp\b/);
+  assert.match(workflow, /split\s+-b\s+512K/);
+  assert.match(workflow, /timeout\s+120\s+ssh/);
+  assert.match(workflow, /sha256sum/);
   assert.doesNotMatch(workflow, /docker build|docker push|docker pull/);
 });
