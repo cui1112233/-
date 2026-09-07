@@ -59,6 +59,7 @@ jobs:
           cp frontend/public/batch-rewrite/121-login-hotfix.js frontend/dist/batch-rewrite/121-login-hotfix.js
           cp frontend/public/batch-rewrite/interaction-feedback.js frontend/dist/batch-rewrite/interaction-feedback.js
           cp frontend/public/batch-rewrite/task-visibility-hotfix.js frontend/dist/batch-rewrite/task-visibility-hotfix.js
+          cp frontend/public/batch-rewrite/v88-novel-status-center.js frontend/dist/batch-rewrite/v88-novel-status-center.js
           python3 - <<'PY'
           from pathlib import Path
           p = Path('frontend/dist/batch-rewrite/index.html')
@@ -67,6 +68,7 @@ jobs:
               ('qiantie-121-login-hotfix', '<script id="qiantie-121-login-hotfix" src="./121-login-hotfix.js?v=20260831-config-guard1"></script>'),
               ('qiantie-novel-fetch-interaction-feedback', '<script id="qiantie-novel-fetch-interaction-feedback" src="./interaction-feedback.js?v=20260906-public-feedback1"></script>'),
               ('qiantie-novel-fetch-task-visibility', '<script id="qiantie-novel-fetch-task-visibility" src="./task-visibility-hotfix.js?v=20260906-task-visibility1"></script>'),
+              ('qiantie-novel-status-center', '<script id="qiantie-novel-status-center" src="./v88-novel-status-center.js?v=20260907-r1"></script>'),
           ]
           missing = [tag for marker, tag in tags if f'id="{marker}"' not in text]
           if missing:
