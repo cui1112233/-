@@ -1,6 +1,15 @@
 const os = require('os');
 const express = require('express');
 
+const { hydrateMissingEnvFromFile } = require('./lib/runtime-env');
+hydrateMissingEnvFromFile(
+  process.env.QIANTIE_BASE_ENV_FILE || '/run/qiantie/base.env',
+  ['QIANTIE_BRIDGE_SECRET']
+);
+if (process.env.NODE_ENV === 'production' && !String(process.env.QIANTIE_BRIDGE_SECRET || '').trim()) {
+  throw new Error('QIANTIE_BRIDGE_SECRET is required in production');
+}
+
 const { HOST, PORT } = require('./lib/shared');
 const { createApp } = require('./app');
 const { apiAuth } = require('./middleware/auth');
