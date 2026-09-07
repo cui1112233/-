@@ -42,7 +42,8 @@ test('current Windows executor is exposed through the public downloads mount', (
   const windowsWorkflow = read('.github/workflows/v88-local-executor-windows.yml');
   const installer = `yizhan-local-executor-v88-${pkg.version}-win-x64.exe`;
   assert.ok(settings.includes(`/downloads/local-executor/${installer}`));
-  assert.ok(route.includes(installer));
+  assert.match(route, new RegExp(`const RELEASE_VERSION = ['\"]${pkg.version.replace(/\./g, '\\.') }['\"]`));
+  assert.match(route, /WINDOWS_INSTALLER\s*=\s*`yizhan-local-executor-v88-\$\{RELEASE_VERSION\}-win-x64\.exe`/);
   assert.match(overlay, /\/opt\/qiantie\/v88\/data\/downloads:\/app\/data\/downloads:ro/);
   assert.match(windowsWorkflow, /Publish Windows installer to V88 ECS/);
   assert.match(windowsWorkflow, /\/opt\/qiantie\/v88\/data\/downloads/);
