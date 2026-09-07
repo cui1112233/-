@@ -84,8 +84,11 @@ assert.ok(deployBlock.includes("worker_service_image='v88-public-novel-fetch-121
   'first Browser Worker rollout must have a stable target image tag even when no old worker container exists');
 assert.ok(deployBlock.includes('if [ -n "$worker_container_id" ]; then'),
   'existing Browser Worker rollback capture must be conditional');
-assert.ok(!deployBlock.includes('test -n "$worker_container_id"'),
-  'first Browser Worker rollout must not require a pre-existing worker container');
+const firstWorkerUp = deployBlock.indexOf('up -d --no-deps --force-recreate --pull never novel-fetch-121-worker');
+assert.ok(firstWorkerUp >= 0,
+  'deployment must create or recreate the Browser Worker');
+assert.ok(!deployBlock.slice(0, firstWorkerUp).includes('test -n "$worker_container_id"'),
+  'first Browser Worker rollout must not require a pre-existing worker container before it is created');
 assert.ok(rollbackBlock.includes('if [ -s /tmp/v88-last-rollback-worker-image ]'),
   'rollback must distinguish upgrade rollback from a first-time worker rollout');
 assert.ok(rollbackBlock.includes('rm -f novel-fetch-121-worker'),

@@ -387,6 +387,15 @@ jobs:
           docker tag "$ghcr_image" "$service_image"
           docker tag "$worker_ghcr_image" "$worker_service_image"
           "${compose[@]}" up -d --no-deps --force-recreate --pull never novel-fetch-121-worker
+          worker_container_id="$(${compose[@]} ps -q novel-fetch-121-worker)"
+          test -n "$worker_container_id"
+          node_networks="$(docker inspect "$container_id" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{printf "%s " $name}}{{end}}')"
+          test -n "${node_networks// }"
+          for network in $node_networks; do
+            if ! docker inspect "$worker_container_id" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}' | grep -Fxq "$network"; then
+              docker network connect --alias novel-fetch-121-worker "$network" "$worker_container_id"
+            fi
+          done
           "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
           "${compose[@]}" ps novel-fetch-121-worker v88-node
           REMOTE
