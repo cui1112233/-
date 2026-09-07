@@ -1,0 +1,43 @@
+name: V88 Full Regression Diagnose
+
+on:
+  push:
+    branches:
+      - fix/v88-novel-fetch-consolidation-20260907
+
+jobs:
+  tests-dir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: Run tests directory
+        run: node --test tests/*.test.js
+
+  lib-dir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: Run lib directory
+        run: node --test lib/*.test.js
+
+  routes-dir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: Run routes directory
+        run: node --test routes/*.test.js
