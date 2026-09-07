@@ -1,5 +1,5 @@
 name: V88 ECS Deploy Status Once
-# trigger: public-recovery-20260907-c
+# trigger: public-recovery-20260907-d
 
 on:
   push:
@@ -17,7 +17,7 @@ env:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 2
     steps:
       - name: Prepare SSH key
         shell: bash
@@ -30,37 +30,36 @@ jobs:
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
-      - name: Inspect active release and public probes
+      - name: Inspect active release with bounded probes
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15)
-          ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
-          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2)
+          timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set +e
           echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo '--- docker containers ---'
-          docker ps -a --format '{{.Names}} {{.Status}} {{.Ports}}' | grep -E 'v88-public-(nginx|v88-node)' || true
+          echo "docker_service=$(systemctl is-active docker 2>&1)"
+          echo "stage_service=$(systemctl is-active qiantie-v88-node-stage.service 2>&1)"
           echo '--- listeners ---'
-          ss -ltnp | grep -E '(:3000|:18081)' || true
-          nginx_id="$(docker ps -a --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
+          timeout 5 ss -ltnp | grep -E '(:3000|:18081)' || true
+          echo '--- docker ps ---'
+          timeout 8 docker ps -a --format '{{.Names}}|{{.Status}}|{{.Ports}}' | grep -E 'v88-public-(nginx|v88-node)' || echo 'docker_ps_unavailable_or_no_match'
+          echo '--- host probes ---'
+          for url in http://127.0.0.1:3000/ http://127.0.0.1:3000/api/build-info http://127.0.0.1:18081/api/build-info; do
+            code="$(timeout 7 curl -sS -o /tmp/probe.out -w '%{http_code}' --connect-timeout 2 --max-time 5 "$url" 2>/tmp/probe.err)"
+            rc=$?
+            echo "$url rc=$rc status=${code:-none} err=$(head -c 120 /tmp/probe.err 2>/dev/null) body=$(head -c 160 /tmp/probe.out 2>/dev/null)"
+          done
+          echo '--- nginx state/config when docker responds ---'
+          nginx_id="$(timeout 8 docker ps -a --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
+          echo "nginx_id=${nginx_id:-none}"
           if [ -n "$nginx_id" ]; then
-            echo "nginx_state=$(docker inspect "$nginx_id" --format '{{.State.Status}}')"
-            config_source="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}' "$nginx_id")"
-            echo "nginx_config_source=$config_source"
+            timeout 5 docker inspect "$nginx_id" --format 'nginx_state={{.State.Status}}' || true
+            config_source="$(timeout 5 docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}' "$nginx_id")"
+            echo "nginx_config_source=${config_source:-none}"
             if [ -n "$config_source" ] && [ -f "$config_source" ]; then
               grep -nE 'proxy_pass http://(v88-public-v88-node-1:3000|[0-9.]+:18081)' "$config_source" || true
             fi
           fi
-          echo '--- systemd stage ---'
-          systemctl is-active qiantie-v88-node-stage.service || true
-          systemctl --no-pager --full status qiantie-v88-node-stage.service | head -n 25 || true
-          echo '--- local HTTP status ---'
-          for url in \
-            http://127.0.0.1:3000/ \
-            http://127.0.0.1:3000/api/build-info \
-            http://127.0.0.1:18081/api/build-info; do
-            rm -f /tmp/probe.out
-            code="$(curl -sS -o /tmp/probe.out -w '%{http_code}' --connect-timeout 3 --max-time 5 "$url" || true)"
-            echo "$url status=$code body=$(head -c 180 /tmp/probe.out 2>/dev/null || true)"
-          done
+          exit 0
           REMOTE
