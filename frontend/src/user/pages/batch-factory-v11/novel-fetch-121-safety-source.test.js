@@ -50,3 +50,14 @@ test('candidate image injects the guard even when tracked frontend dist is stale
   assert.match(dockerfile, /qiantie-121-login-hotfix/);
   assert.match(dockerfile, /frontend\/dist\/batch-rewrite\/index\.html/);
 });
+
+test('novel status center survives frontend rebuild and direct release packaging', () => {
+  const source = readRequired('public/batch-rewrite/v88-novel-status-center.js');
+  assert.match(source, /V88NovelStatusCenter/);
+  assert.match(source, /处理完成/);
+  assert.match(source, /视频管理系统提交/);
+
+  const workflow = fs.readFileSync(path.join(repoDir, '.github/workflows/v88-direct-deploy-node-stage.yml'), 'utf8');
+  assert.match(workflow, /cp frontend\/public\/batch-rewrite\/v88-novel-status-center\.js frontend\/dist\/batch-rewrite\/v88-novel-status-center\.js/);
+  assert.match(workflow, /qiantie-novel-status-center/);
+});
