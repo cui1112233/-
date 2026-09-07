@@ -5,38 +5,39 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 
 const root = path.resolve(__dirname, '..');
-const workflowPath = path.join(root, '.github/workflows/v88-linux-amd64-image-release.yml');
-const workflow = fs.readFileSync(workflowPath, 'utf8');
+const retiredWorkflow = fs.readFileSync(
+  path.join(root, '.github/workflows/v88-linux-amd64-image-release.yml'),
+  'utf8',
+);
+const stageWorkflow = fs.readFileSync(
+  path.join(root, '.github/workflows/v88-direct-deploy-node-stage.yml'),
+  'utf8',
+);
+const cutoverWorkflow = fs.readFileSync(
+  path.join(root, '.github/workflows/v88-direct-deploy-node-cutover.yml'),
+  'utf8',
+);
 
-assert.match(workflow, /permissions:\s*[\s\S]*?contents:\s*read[\s\S]*?actions:\s*write[\s\S]*?packages:\s*write/,
-  'release workflow must be able to prune artifacts and push GHCR images');
+assert.match(retiredWorkflow, /V88 Linux AMD64 Public Image Release \(Retired\)/);
+assert.match(retiredWorkflow, /automatic Docker\/GHCR V88 public release path is retired/);
+assert.match(retiredWorkflow, /Use V88 Direct Deploy Node Stage and V88 Direct Deploy Node Cutover/);
+assert.doesNotMatch(retiredWorkflow, /packages:\s*write/,
+  'retired image workflow must not retain package-publish permission');
+assert.doesNotMatch(retiredWorkflow, /actions:\s*write/,
+  'retired image workflow must not retain artifact-delete permission');
+assert.doesNotMatch(retiredWorkflow, /docker\/login-action|docker push|ghcr\.io/,
+  'retired image workflow must not publish Docker images');
 
-const cleanupMarker = '- name: Prune old V88 AMD64 release artifacts';
-const loginMarker = '- name: Login to GHCR';
-const pushMarker = '- name: Push V88 AMD64 image to GHCR';
-const uploadMarker = '- name: Upload V88 AMD64 release artifact';
-assert.ok(workflow.includes(cleanupMarker), 'release workflow must prune old V88 AMD64 artifacts before upload');
-assert.ok(workflow.indexOf(cleanupMarker) < workflow.indexOf(uploadMarker), 'artifact pruning must run before upload');
-assert.match(workflow, /actions\/github-script@v7/);
-assert.match(workflow, /qiantie-v88-linux-amd64-/);
-assert.match(workflow, /listArtifactsForRepo/);
-assert.match(workflow, /deleteArtifact/);
-assert.match(workflow, /keepLatest\s*=\s*2/,
-  'retention cleanup should preserve the two newest V88 AMD64 release artifacts');
+assert.match(stageWorkflow, /deploy\/v88-direct\/STAGE-REQUEST/,
+  'current release must be explicitly marker-gated before staging');
+assert.match(stageWorkflow, /package-node-release\.sh/,
+  'current release must build the whitelisted Git-direct Node payload');
+assert.match(stageWorkflow, /Stage exact SHA without cutting public traffic/,
+  'staging must remain parallel and must not cut public traffic');
 
-assert.ok(workflow.includes(loginMarker), 'release workflow must authenticate to GHCR');
-assert.ok(workflow.includes(pushMarker), 'release workflow must push the immutable AMD64 image to GHCR');
-assert.ok(workflow.indexOf(loginMarker) < workflow.indexOf(pushMarker), 'GHCR login must happen before push');
-assert.match(workflow, /docker\/login-action@v3/);
-assert.match(workflow, /registry:\s*ghcr\.io/);
-assert.match(workflow, /GHCR_IMAGE/);
-assert.match(workflow, /docker push "\$GHCR_IMAGE"/);
-assert.match(workflow, /docker push "\$WORKER_GHCR_IMAGE"/);
-assert.match(workflow, /registry_image=\$\{GHCR_IMAGE\}/,
-  'release metadata must record the durable GHCR image reference');
+assert.match(cutoverWorkflow, /deploy\/v88-direct\/CUTOVER-REQUEST/,
+  'public cutover must use a separate marker');
+assert.match(cutoverWorkflow, /cutover-node-host\.sh/,
+  'current release must use the guarded Node cutover helper');
 
-const uploadBlock = workflow.slice(workflow.indexOf(uploadMarker));
-assert.match(uploadBlock, /continue-on-error:\s*true/,
-  'artifact upload is a compatibility channel and must not block a verified GHCR release when quota is exhausted');
-
-console.log('V78.3.0.31 release distribution regression: PASS');
+console.log('V88 Git-direct release retirement/distribution regression: PASS');
