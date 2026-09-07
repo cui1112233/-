@@ -1,0 +1,91 @@
+name: V88 Direct Deploy Host Diagnostic
+
+on:
+  push:
+    branches:
+      - feat/v88-git-ecs-direct-deploy-20260907
+    paths:
+      - '.github/workflows/v88-direct-deploy-host-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H 115.190.156.223 > "$HOME/.ssh/known_hosts"
+
+      - name: Inspect host and current V88 runtime safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 root@115.190.156.223 bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo '=== host ==='
+          uname -a
+          echo "systemd=$([ -d /run/systemd/system ] && echo true || echo false)"
+          echo "disk_free_kb=$(df -Pk /opt 2>/dev/null | awk 'NR==2{print $4}')"
+          for cmd in node npm go Xvfb curl systemctl git tar; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+              echo "$cmd=$(command -v "$cmd")"
+            else
+              echo "$cmd=missing"
+            fi
+          done
+          command -v node >/dev/null 2>&1 && node --version || true
+          command -v npm >/dev/null 2>&1 && npm --version || true
+          command -v go >/dev/null 2>&1 && go version || true
+
+          echo '=== listening ports ==='
+          ss -ltn 2>/dev/null | awk 'NR==1 || $4 ~ /:(3000|18081|4000|8787|3306|6379)$/' || true
+
+          echo '=== containers ==='
+          docker ps --format 'name={{.Names}} image={{.Image}} status={{.Status}} ports={{.Ports}}' | grep -E 'v88-public|qiantie' || true
+
+          compose_dir=/opt/qiantie/v88/deploy/v88-public
+          if [ -f "$compose_dir/docker-compose.yml" ]; then
+            cd "$compose_dir"
+            docker compose -f docker-compose.yml ps --all || true
+          fi
+
+          echo '=== host-published infrastructure ports ==='
+          for pattern in 'v88-public-mysql' 'v88-public-redis' 'v88-public-go-api' 'v88-public-v88-node' 'v88-public-nginx' 'browser-worker'; do
+            id="$(docker ps -q --filter "name=$pattern" | head -n1)"
+            if [ -n "$id" ]; then
+              name="$(docker inspect -f '{{.Name}}' "$id" | sed 's#^/##')"
+              echo "container=$name"
+              docker port "$id" 2>/dev/null || true
+              echo "networks=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$id")"
+            fi
+          done
+
+          echo '=== Node runtime env keys only ==='
+          node_id="$(docker ps -q --filter name=v88-public-v88-node | head -n1)"
+          if [ -n "$node_id" ]; then
+            docker exec "$node_id" node -e 'Object.keys(process.env).filter(k=>/^QIANTIE_/.test(k)).sort().forEach(k=>console.log(k))' || true
+          fi
+
+          echo '=== nginx upstream summary ==='
+          nginx_id="$(docker ps -q --filter name=v88-public-nginx | head -n1)"
+          if [ -n "$nginx_id" ]; then
+            docker exec "$nginx_id" sh -c "nginx -T 2>/dev/null | grep -E 'listen |proxy_pass|upstream '" || true
+          fi
+
+          echo '=== current build info ==='
+          curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info || true
+          echo
+          REMOTE
