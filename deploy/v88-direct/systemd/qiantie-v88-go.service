@@ -1,0 +1,18 @@
+[Unit]
+Description=Qiantie V88 Go API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qiantie
+Group=qiantie
+WorkingDirectory=/opt/qiantie/v88/current
+EnvironmentFile=/opt/qiantie/v88/shared/env/v88.env
+ExecStart=/opt/qiantie/v88/current/bin/qiantie
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
