@@ -1,0 +1,49 @@
+name: V88 Version Config Mainline Patch Once
+
+on:
+  push:
+    branches:
+      - 'ops/v88-consolidation-runtime-a-20260907'
+    paths:
+      - '.github/workflows/v88-version-config-mainline-patch-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/v88-consolidation-runtime-a-20260907
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Install runtime dependencies
+        run: npm ci --omit=dev
+      - name: Apply bounded sparse-version fix
+        run: python3 scripts/patch-v88-version-config-mainline.py
+      - name: Verify focused RED-to-GREEN contracts
+        run: |
+          node --test \
+            tests/novel-fetch-version-config-mainline.test.js \
+            tests/novel-fetch-rewrite-sparse-mainline.test.js
+      - name: Commit patch to isolated branch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --check
+          git diff -- routes/batch-rewrite.js lib/novel-fetch-workshop/rewrite.js
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add routes/batch-rewrite.js lib/novel-fetch-workshop/rewrite.js
+          if git diff --cached --quiet; then
+            echo 'No patch changes produced.'
+            exit 1
+          fi
+          git commit -m 'fix(v88): preserve selected novel AI versions'
+          git push origin HEAD:ops/v88-consolidation-runtime-a-20260907
