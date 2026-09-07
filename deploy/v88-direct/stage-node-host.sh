@@ -55,6 +55,16 @@ go_ip="$(container_ip "$go_id")"
 worker_ip="$(container_ip "$worker_id")"
 [ -n "$go_ip" ] && [ -n "$worker_ip" ] || { echo "Docker upstream IP resolution failed" >&2; exit 10; }
 
+# The running Browser Worker is authoritative for its internal request secret.
+# A Git-direct Node may outlive/restart independently from the Docker Node; inheriting
+# the old Docker Node copy can therefore produce 401 unauthorized after a Worker change.
+worker_secret="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$worker_id" | grep '^QIANTIE_121_WORKER_SECRET=' | tail -n1 | cut -d= -f2-)"
+[ -n "$worker_secret" ] || { echo "running 121 Browser Worker has no QIANTIE_121_WORKER_SECRET" >&2; exit 11; }
+curl -fsS --connect-timeout 2 --max-time 5 \
+  -H "x-qiantie-internal-secret: $worker_secret" \
+  "http://$worker_ip:8787/healthz" >/dev/null \
+  || { echo "running 121 Browser Worker rejected its configured internal secret" >&2; exit 12; }
+
 mount_source_for() {
   local destination="$1"
   docker inspect -f "{{range .Mounts}}{{if eq .Destination \"$destination\"}}{{.Source}}{{end}}{{end}}" "$node_id"
@@ -93,18 +103,19 @@ if [ ! -x "$NODE_HOME/bin/node" ] || [ "$($NODE_HOME/bin/node --version 2>/dev/n
   rm -rf "$tmp"
   trap - RETURN
 fi
-[ "$($NODE_HOME/bin/node --version)" = "v$NODE_VERSION" ] || { echo "pinned Node runtime verification failed" >&2; exit 11; }
+[ "$($NODE_HOME/bin/node --version)" = "v$NODE_VERSION" ] || { echo "pinned Node runtime verification failed" >&2; exit 13; }
 
 tmp_env="$(mktemp)"
 trap 'rm -f "$tmp_env"' EXIT
 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$node_id" \
-  | grep -vE '^(PATH|HOSTNAME|HOME|NODE_VERSION|YARN_VERSION|NODE_ENV|QIANTIE_NODE_PORT|QIANTIE_GO_BASE_URL|QIANTIE_121_BROWSER_WORKER_URL|QIANTIE_RELEASE_SHA|QIANTIE_DEPLOY_MODE|QIANTIE_DEPLOYED_AT|QIANTIE_RELEASE_SHA_FILE)=' \
+  | grep -vE '^(PATH|HOSTNAME|HOME|NODE_VERSION|YARN_VERSION|NODE_ENV|QIANTIE_NODE_PORT|QIANTIE_GO_BASE_URL|QIANTIE_121_BROWSER_WORKER_URL|QIANTIE_121_WORKER_SECRET|QIANTIE_RELEASE_SHA|QIANTIE_DEPLOY_MODE|QIANTIE_DEPLOYED_AT|QIANTIE_RELEASE_SHA_FILE)=' \
   > "$tmp_env"
 printf '%s\n' \
   "NODE_ENV=production" \
   "QIANTIE_NODE_PORT=$STAGE_PORT" \
   "QIANTIE_GO_BASE_URL=http://$go_ip:4000" \
   "QIANTIE_121_BROWSER_WORKER_URL=http://$worker_ip:8787" \
+  "QIANTIE_121_WORKER_SECRET=$worker_secret" \
   "QIANTIE_RELEASE_SHA=$sha" \
   "QIANTIE_RELEASE_SHA_FILE=$release_dir/RELEASE-SHA" \
   "QIANTIE_DEPLOY_MODE=git-direct-stage" \
@@ -139,7 +150,7 @@ for _ in $(seq 1 30); do
   if build_info="$(curl -fsS --max-time 3 "http://127.0.0.1:$STAGE_PORT/api/build-info" 2>/dev/null)"; then break; fi
   sleep 1
 done
-[ -n "$build_info" ] || { systemctl status qiantie-v88-node-stage.service --no-pager >&2 || true; exit 12; }
+[ -n "$build_info" ] || { systemctl status qiantie-v88-node-stage.service --no-pager >&2 || true; exit 14; }
 
 printf '%s' "$build_info" | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected, (data.get("git_sha"), expected)' "$sha"
 curl -fsS --max-time 5 "http://127.0.0.1:$STAGE_PORT/" >/dev/null
