@@ -30,8 +30,8 @@ test('登录弹窗在配置尚未加载时也能收口，不会因空配置永�
 test('服务端 121 Browser Worker 客户端区分普通请求和登录请求超时预算', () => {
   assert.match(uploadRoute, /browserClient\.login\(/);
   assert.match(uploadRoute, /browserClient\.test\(/);
-  assert.match(browserClient, /timeoutMs\s*=\s*Number\(process\.env\.QIANTIE_121_CLIENT_TIMEOUT_MS\)\s*\|\|\s*20000/);
-  assert.match(browserClient, /loginTimeoutMs\s*=\s*Number\(process\.env\.QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS\)\s*\|\|\s*45000/);
+  assert.match(browserClient, /timeoutMs\s*=\s*Number\(process\.env\.QIANTIE_121_CLIENT_TIMEOUT_MS\)\s*\|\|\s*40_000/);
+  assert.match(browserClient, /loginTimeoutMs\s*=\s*Number\(process\.env\.QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS\)\s*\|\|\s*55_000/);
   assert.match(browserClient, /requestTimeoutMs\s*=\s*timeoutMs/);
   assert.match(browserClient, /login:\s*input\s*=>\s*request\([^\n]*requestTimeoutMs:\s*loginTimeoutMs/);
   assert.match(browserClient, /refresh:\s*input\s*=>\s*request\([^\n]*requestTimeoutMs:\s*loginTimeoutMs/);
