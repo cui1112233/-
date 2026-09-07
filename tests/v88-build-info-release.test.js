@@ -39,10 +39,10 @@ test('release info falls back to RELEASE-SHA file without inventing a commit', (
   assert.equal(info.deploy_mode, 'git-direct');
 });
 
-test('server build-info route includes release identity fields', () => {
+test('server build-info route preserves legacy identity and overlays release identity', () => {
   const source = fs.readFileSync('server.js', 'utf8');
-  assert.match(source, /readReleaseInfo/);
-  assert.match(source, /git_sha/);
-  assert.match(source, /deploy_mode/);
-  assert.match(source, /deployed_at/);
+  assert.match(source, /app\.get\(['"]\/api\/build-info['"]/);
+  assert.match(source, /app_version:\s*['"]v78\.3\.0\.3['"]/);
+  assert.match(source, /build_id:\s*['"]v78\.3\.0\.3-remote-workbench-20260819-r1['"]/);
+  assert.match(source, /\.\.\.readReleaseInfo\(\)/);
 });
