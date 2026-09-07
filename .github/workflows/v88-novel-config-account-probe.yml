@@ -1,0 +1,77 @@
+name: V88 Novel Config Account Probe
+
+on:
+  push:
+    branches:
+      - diag/v88-novel-config-chain-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ECS_HOST: 115.190.156.223
+      ECS_USER: root
+    steps:
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Probe config for active account roles
+        run: |
+          set -Eeuo pipefail
+          ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" 'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
+          test -n "$node_id"
+          docker exec -i "$node_id" node - <<'NODE'
+          const { createApp } = require('/app/app');
+          const { createMySQLWorkshopStore } = require('/app/lib/novel-fetch-workshop/mysql-store');
+
+          (async () => {
+            const app = createApp();
+            const accounts = app.locals.authRuntime.accountStore.listAccounts().filter(item => item.active !== false);
+            const summary = { owner: { total: 0, ok: 0, failed: 0 }, member: { total: 0, ok: 0, failed: 0 } };
+            const errors = new Map();
+            for (const account of accounts) {
+              const role = account.isOwner ? 'owner' : 'member';
+              summary[role].total += 1;
+              try {
+                const store = createMySQLWorkshopStore({ account });
+                const config = await store.getConfig();
+                if (!config || typeof config !== 'object') throw new Error('config payload is not an object');
+                summary[role].ok += 1;
+              } catch (error) {
+                summary[role].failed += 1;
+                const key = `${role}|${error?.status || ''}|${String(error?.message || error || '').replace(/\s+/g, ' ').slice(0, 220)}`;
+                errors.set(key, (errors.get(key) || 0) + 1);
+              }
+            }
+            console.log('OWNER_TOTAL=' + summary.owner.total);
+            console.log('OWNER_OK=' + summary.owner.ok);
+            console.log('OWNER_FAILED=' + summary.owner.failed);
+            console.log('MEMBER_TOTAL=' + summary.member.total);
+            console.log('MEMBER_OK=' + summary.member.ok);
+            console.log('MEMBER_FAILED=' + summary.member.failed);
+            for (const [key, count] of errors) {
+              const [role, status, message] = key.split('|');
+              console.log(`ERROR_ROLE=${role};COUNT=${count};STATUS=${status};MESSAGE=${message}`);
+            }
+          })().catch(error => {
+            console.log('PROBE_FATAL=' + String(error?.message || error || '').replace(/\s+/g, ' ').slice(0, 240));
+            process.exitCode = 1;
+          });
+          NODE
+          REMOTE
