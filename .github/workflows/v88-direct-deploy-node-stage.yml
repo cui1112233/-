@@ -91,7 +91,10 @@ jobs:
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
-          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 20 ssh-keyscan -T 5 -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" || test -s "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Stage exact SHA without cutting public traffic
         shell: bash
