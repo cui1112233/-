@@ -11,6 +11,15 @@ function preset(id) {
   return SYSTEM_PRESETS.find(item => item.id === id);
 }
 
+test('chat route loads with focus/audio private helpers after protagonist migration', () => {
+  const chatRoute = require('../routes/chat');
+  assert.equal(typeof chatRoute?._private?.buildCharacterFocusPrompt, 'function');
+  assert.equal(typeof chatRoute?._private?.buildScriptAudioMatchPrompt, 'function');
+  assert.equal(typeof chatRoute?._private?.sanitizeFocusCharacters, 'function');
+  assert.equal(chatRoute?._private?.buildProtagonistPrompt, undefined);
+  assert.equal(chatRoute?._private?.sanitizeProtagonists, undefined);
+});
+
 test('starred characters are an editable focus variable, never an automatic protagonist identity', () => {
   const focus = preset('script-character-focus');
   assert.ok(focus, 'script-character-focus must be registered in the backend preset catalog');
