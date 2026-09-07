@@ -42,18 +42,19 @@ jobs:
           const { createBatchRewriteRouter } = require('/app/routes/batch-rewrite');
 
           (async () => {
-            const store = createMySQLWorkshopStore({ account: { username: 'choushiyiguai', isOwner: true } });
+            const account = { username: 'choushiyiguai', isOwner: true };
+            const store = createMySQLWorkshopStore({ account });
             const config = await store.getConfig();
             if (!config || typeof config !== 'object') throw new Error('config payload is not an object');
             console.log('LIVE_NODE_NOVEL_CONFIG_READ_OK=yes');
 
             const app = express();
             const auth = (req, res, next) => {
-              req.username = 'choushiyiguai';
-              req.auth = { username: 'choushiyiguai', account: { username: 'choushiyiguai', isOwner: true } };
+              req.username = account.username;
+              req.auth = { username: account.username, account };
               next();
             };
-            app.use('/api/batch-rewrite', createBatchRewriteRouter({ auth }));
+            app.use('/api/batch-rewrite', createBatchRewriteRouter({ auth, systemDir: '/app/data/system' }));
             const server = app.listen(0, '127.0.0.1');
             await new Promise((resolve, reject) => {
               server.once('listening', resolve);
