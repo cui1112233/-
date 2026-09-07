@@ -21,6 +21,13 @@ function serviceBlock(source, serviceName) {
   return lines.slice(start, end).join('\n');
 }
 
+function stepBlock(name, nextName) {
+  const start = workflow.indexOf(`- name: ${name}`);
+  const end = workflow.indexOf(`- name: ${nextName}`, start);
+  assert.ok(start >= 0 && end > start, `missing workflow step ${name}`);
+  return workflow.slice(start, end);
+}
+
 test('V88 发布必须让 Node 与 121 Worker 从同一 compose env-file 注入内部密钥', () => {
   const node = serviceBlock(overlay, 'v88-node');
   const worker = serviceBlock(overlay, 'novel-fetch-121-worker');
@@ -31,6 +38,14 @@ test('V88 发布必须让 Node 与 121 Worker 从同一 compose env-file 注入�
     assert.match(block, /QIANTIE_121_STORAGE_STATE_SECRET: \$\{QIANTIE_121_STORAGE_STATE_SECRET\}/);
   }
 
-  const canonical = 'compose=(docker compose --env-file "$compose_dir/novel-fetch-121.env" -f "$compose_file" -f "$compose_dir/docker-compose.browser-worker.yml")';
-  assert.equal(workflow.split(canonical).length - 1, 3, 'deploy/verify/rollback 三处必须使用同一 env-file 做 Compose 插值');
+  const canonicalEnv = '--env-file "$compose_dir/novel-fetch-121.env"';
+  const deploy = stepBlock('Deploy verified images to V88 ECS', 'Verify V88 ECS deployment');
+  const verify = stepBlock('Verify V88 ECS deployment', 'Rollback V88 ECS on failed verification');
+  const rollback = stepBlock('Rollback V88 ECS on failed verification', 'Prune old V88 AMD64 release artifacts');
+
+  for (const [name, block] of [['deploy', deploy], ['verify', verify], ['rollback', rollback]]) {
+    assert.ok(block.includes(canonicalEnv), `${name} 必须使用同一 novel-fetch-121.env 做 Compose 插值`);
+  }
+  assert.match(deploy, /docker-compose\.release-images\.yml/, 'deploy 可以额外叠加精确镜像 override，但不能绕过共享 env-file');
+  assert.match(verify, /docker-compose\.release-images\.yml/, 'verify 必须用同一个精确镜像 override 与共享 env-file');
 });
