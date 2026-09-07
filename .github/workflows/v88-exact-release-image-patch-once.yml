@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 1
 
       - name: Patch exact release image deployment
-        run: python scripts/patch-v88-release-exact-images.py
+        run: python scripts/patch-v88-release-exact-images-v2.py
 
       - name: Verify focused release regression
         run: node --test tests/v88-release-registry-resilience.test.js
