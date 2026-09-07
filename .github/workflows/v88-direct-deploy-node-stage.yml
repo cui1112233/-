@@ -1,0 +1,127 @@
+name: V88 Direct Deploy Node Stage
+
+on:
+  push:
+    branches:
+      - feat/v88-git-ecs-direct-deploy-20260907
+    paths:
+      - 'deploy/v88-direct/stage-node-host.sh'
+      - '.github/workflows/v88-direct-deploy-node-stage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+  STAGE_ROOT: /opt/qiantie/releases/v88-stage
+
+concurrency:
+  group: v88-node-parallel-stage
+  cancel-in-progress: true
+
+jobs:
+  stage-node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact feature SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Assert exact source SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+
+      - name: Verify staging contracts
+        shell: bash
+        run: node --test tests/v88-direct-deploy-contract.test.js tests/v88-build-info-release.test.js tests/v88-node-stage-contract.test.js
+
+      - name: Build Node release payload in CI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm ci --omit=dev
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+
+          install -d frontend/dist/batch-rewrite
+          cp frontend/public/batch-rewrite/121-login-hotfix.js frontend/dist/batch-rewrite/121-login-hotfix.js
+          cp frontend/public/batch-rewrite/interaction-feedback.js frontend/dist/batch-rewrite/interaction-feedback.js
+          cp frontend/public/batch-rewrite/task-visibility-hotfix.js frontend/dist/batch-rewrite/task-visibility-hotfix.js
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/dist/batch-rewrite/index.html')
+          text = p.read_text(encoding='utf-8')
+          tags = [
+              ('qiantie-121-login-hotfix', '<script id="qiantie-121-login-hotfix" src="./121-login-hotfix.js?v=20260831-config-guard1"></script>'),
+              ('qiantie-novel-fetch-interaction-feedback', '<script id="qiantie-novel-fetch-interaction-feedback" src="./interaction-feedback.js?v=20260906-public-feedback1"></script>'),
+              ('qiantie-novel-fetch-task-visibility', '<script id="qiantie-novel-fetch-task-visibility" src="./task-visibility-hotfix.js?v=20260906-task-visibility1"></script>'),
+          ]
+          missing = [tag for marker, tag in tags if f'id="{marker}"' not in text]
+          if missing:
+              if '</body>' not in text:
+                  raise SystemExit('batch-rewrite index has no </body> injection point')
+              text = text.replace('</body>', '    ' + '\n    '.join(missing) + '\n  </body>')
+              p.write_text(text, encoding='utf-8')
+          PY
+          rm -rf frontend/node_modules
+          printf '%s\n' "$GITHUB_SHA" > RELEASE-SHA
+          mkdir -p release
+          tar \
+            --exclude='.git' \
+            --exclude='release' \
+            --exclude='data' \
+            --exclude='outputs' \
+            --exclude='services/121-browser-worker/node_modules' \
+            -czf "release/v88-node-${GITHUB_SHA}.tar.gz" .
+          test -s "release/v88-node-${GITHUB_SHA}.tar.gz"
+
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
+
+      - name: Stage exact SHA on ECS without cutting traffic
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_dir="${STAGE_ROOT}/${GITHUB_SHA}"
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20)
+          ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
+          scp "${ssh_opts[@]}" "release/v88-node-${GITHUB_SHA}.tar.gz" "$ECS_USER@$ECS_HOST:$release_dir/source.tar.gz"
+          ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$release_dir" "$GITHUB_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          release_dir="$1"
+          sha="$2"
+          cd "$release_dir"
+          tar -xzf source.tar.gz
+          test "$(tr -d '\r\n' < RELEASE-SHA)" = "$sha"
+          bash deploy/v88-direct/stage-node-host.sh "$release_dir" "$sha"
+          REMOTE
+
+      - name: Confirm public traffic is still on existing route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl -fsS --max-time 10 "http://${ECS_HOST}:3000/api/build-info" >/dev/null
+          echo 'PUBLIC_ROUTE_STILL_HEALTHY=true'
