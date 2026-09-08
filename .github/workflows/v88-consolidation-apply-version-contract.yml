@@ -1,0 +1,39 @@
+name: V88 Consolidation Apply Version Contract
+
+on:
+  push:
+    branches:
+      - ops/v88-consolidation-runtime-a-20260908
+    paths:
+      - '.github/workflows/v88-consolidation-apply-version-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/v88-consolidation-runtime-a-20260908
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install root dependencies
+        run: npm ci
+      - name: Apply deterministic minimal patch
+        run: python3 scripts/apply-v88-version-contract-minimal.py
+      - name: Verify focused contract before commit
+        run: node --test tests/novel-fetch-version-config-contract.test.js
+      - name: Commit patched production files
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/novel-fetch-workshop/task-ops.js lib/novel-fetch-workshop/rewrite.js routes/batch-rewrite.js
+          git diff --cached --check
+          git commit -m 'fix(v88): align version config backend contract'
+          git push origin HEAD:ops/v88-consolidation-runtime-a-20260908
