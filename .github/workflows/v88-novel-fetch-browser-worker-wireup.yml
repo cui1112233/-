@@ -5,6 +5,7 @@ on:
     branches:
       - v88
     paths:
+      - 'tests/121-browser-client.test.js'
       - 'tests/v88-public-browser-worker-deploy.test.js'
       - 'tests/novel-panel-v783031-ecs-deploy.test.js'
       - 'deploy/v88-public/docker-compose.browser-worker.yml'
@@ -25,6 +26,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Verify Node to Browser Worker auth contract
+        run: node --test tests/121-browser-client.test.js
 
       - name: Verify public Browser Worker deployment contract
         run: node --test tests/v88-public-browser-worker-deploy.test.js
