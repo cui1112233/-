@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createNovelFetchUploadRouter } = require('../routes/novel-fetch-upload');
+const target = require('../lib/target-upload');
 
 function routeHandler(router, method, path) {
   const layer = router.stack.find(item => item.route?.path === path && item.route?.methods?.[method]);
@@ -139,6 +140,23 @@ test('upload-login keeps worker HTTP failures as non-success responses with safe
   }
 });
 
+test('upload-login maps the Browser Worker raw unauthorized response to infrastructure 503', async () => {
+  const f = fixture();
+  const failure = Object.assign(new Error('浏览器登录服务失败：unauthorized'), {
+    status: 401,
+    code: 'unauthorized',
+    workerResponse: { error: 'unauthorized' }
+  });
+  f.browserClient.login = async () => { throw failure; };
+  const handler = routeHandler(f.router, 'post', '/upload-login');
+  const res = response();
+  await handler({ username: 'alice', body: { username: 'site-user', password: 'secret-pw' } }, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.code, 'BROWSER_WORKER_UNAUTHORIZED');
+  assertNoSensitiveResponseFields(res.body);
+});
+
 test('upload-batch does not turn worker HTTP failures into an ok batch response', async () => {
   for (const failure of [
     Object.assign(new Error('not found'), { status: 404 }),
@@ -154,6 +172,71 @@ test('upload-batch does not turn worker HTTP failures into an ok batch response'
     assert.notEqual(res.statusCode, 200);
     assert.equal(res.body.ok, false);
     assertNoSensitiveResponseFields(res.body);
+  }
+});
+
+test('upload-batch maps the Browser Worker raw unauthorized response to infrastructure 503', async () => {
+  const f = fixture();
+  f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' });
+  f.browserClient.action = async () => {
+    throw Object.assign(new Error('浏览器登录服务失败：unauthorized'), {
+      status: 401,
+      code: 'unauthorized',
+      workerResponse: { error: 'unauthorized' }
+    });
+  };
+  const handler = routeHandler(f.router, 'post', '/upload-batch');
+  const res = response();
+  await handler({ username: 'alice', auth: { account: { username: 'alice' } }, body: { platformId: 2, advanced: {}, items: [{ bookId: '10001', gender: '女', style: '现代甜文' }] } }, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.code, 'BROWSER_WORKER_UNAUTHORIZED');
+  assertNoSensitiveResponseFields(res.body);
+});
+
+test('upload-batch keeps Browser Worker action_failed as a per-book error and continues the batch', async () => {
+  const f = fixture();
+  f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' });
+  let calls = 0;
+  f.browserClient.action = async () => {
+    calls += 1;
+    if (calls === 1) {
+      throw Object.assign(new Error('target rejected upload'), {
+        status: 400,
+        code: 'action_failed',
+        workerResponse: { ok: false, error: 'action_failed' }
+      });
+    }
+    return { ok: true, body: JSON.stringify({ success: true }) };
+  };
+  const handler = routeHandler(f.router, 'post', '/upload-batch');
+  const res = response();
+  await handler({ username: 'alice', auth: { account: { username: 'alice' } }, body: { platformId: 2, advanced: {}, items: [
+    { bookId: '10001', gender: '女', style: '现代甜文' },
+    { bookId: '10001', gender: '女', style: '现代甜文' }
+  ] } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.deepEqual(res.body.results.map(item => item.status), ['error', 'ok']);
+  assertNoSensitiveResponseFields(res.body);
+});
+
+test('upload-batch safely maps buildUploadFields exceptions without returning sensitive text', async () => {
+  const f = fixture();
+  f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' });
+  const originalBuildUploadFields = target.buildUploadFields;
+  target.buildUploadFields = () => { throw new Error('password=secret-pw Token=private-token'); };
+  try {
+    const handler = routeHandler(f.router, 'post', '/upload-batch');
+    const res = response();
+    await handler({ username: 'alice', auth: { account: { username: 'alice' } }, body: { platformId: 2, advanced: {}, items: [{ bookId: '10001', gender: '女', style: '现代甜文' }] } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.results[0].status, 'error');
+    assertNoSensitiveResponseFields(res.body);
+    assert.doesNotMatch(JSON.stringify(res.body), /secret-pw|private-token/);
+  } finally {
+    target.buildUploadFields = originalBuildUploadFields;
   }
 });
 
