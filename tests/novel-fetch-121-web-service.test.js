@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { create121WebSubmitService } = require('../lib/novel-fetch-workshop/121-web-submit-service');
+const { create121WebSubmitService, targetReceipt } = require('../lib/novel-fetch-workshop/121-web-submit-service');
 
 function fixture() {
   let config = {
@@ -145,6 +145,34 @@ test('an upload response without a verifiable receipt stays accepted_pending ins
   assert.equal(result.success_groups, 0);
   assert.equal(result.accepted_groups, 1);
   assert.equal(f.docs.get('10001').meta.siteSubmitStatus, 'accepted_pending');
+});
+
+test('a queued remote task is accepted but not confirmed by the upload receipt alone', () => {
+  const receipt = targetReceipt({
+    success: true,
+    result: { task_id: 'task-1', status: 'queued' }
+  });
+  assert.equal(receipt.accepted, true);
+  assert.equal(receipt.verified, true);
+  assert.equal(receipt.confirmed, false);
+});
+
+test('a queued task remains accepted_pending until book_list confirms matching data', async () => {
+  const f = fixture();
+  f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
+  await f.service.syncConfigs('alice');
+  const original = f.browserClient.action.bind(f.browserClient);
+  f.browserClient.action = async input => {
+    if (input.action === 'upload') return { ok: true, body: JSON.stringify({ success: true, result: { task_id: 'task-1', status: 'queued' } }) };
+    if (input.action === 'book_list') return { ok: true, body: JSON.stringify({ success: true, data: [] }) };
+    return original(input);
+  };
+  const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
+  assert.equal(result.success_groups, 0);
+  assert.equal(result.accepted_groups, 1);
+  assert.equal(result.groups[0].items[0].status, 'accepted_pending');
+  assert.equal(f.docs.get('10001').meta.siteSubmitStatus, 'accepted_pending');
+  assert.deepEqual(f.docs.get('10001').meta.siteSubmitDoneVersions || [], []);
 });
 
 test('remote record verification reports parameter mismatch rather than claiming a complete match', async () => {
