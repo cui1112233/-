@@ -2,6 +2,23 @@
 
 All agents, chats, Codex sessions, and automation working on this repository must follow these rules before changing or deploying V88.
 
+## Read order and roles
+
+Before any V88 task, read these in order:
+
+1. `AGENTS.md` — hard execution rules.
+2. `docs/V88_CURRENT_STATE.md` — live branch / production / deployment state.
+3. `docs/V88_PROJECT_EXECUTION_MEMORY.md` — long-term project conventions.
+4. The current consolidation inventory / audit documents under `docs/obj/` and `docs/audits/`.
+
+`obj` and old chat history are historical evidence. They must not override the current-state document or these rules.
+
+Every session has exactly one role:
+
+- **Development Worker:** starts from the latest `v88`, works on a short-lived task branch, runs tests, commits, and reports branch + SHA. It does not deploy production and does not force-update `v88`.
+- **Release Coordinator:** the only normal role allowed to integrate approved worker commits into `v88` and run the normal public Stage / Cutover path. It checks current `v88` HEAD again immediately before integration and deployment.
+- **Emergency Recovery:** used only when production is unavailable. It restores the most recently verified stable runtime first; it must not bundle feature development into recovery. Any ECS-only recovery edit must be ported back to Git.
+
 1. **Git branch `v88` is the canonical maintained source and future total branch.** Do not treat production/ECS files, old V78 branches, historical releases, or hotfix bundles as the source of truth.
 2. **Every feature and bug fix must be written into Git first.** Normal flow: feature/fix branch -> tests -> merge into `v88` -> record commit SHA -> deploy/sync production.
 3. **Production/ECS is a runtime copy, not a development source.** Do not complete a task by editing only the running server/container. Emergency production edits must be ported back to `v88` immediately; otherwise the task is incomplete.
@@ -32,7 +49,11 @@ During stages 1-6, apply these additional rules:
 13. **Do not introduce another public release path during consolidation.** The approved Node public release path is `V88 Direct Deploy Node Stage` -> exact staged SHA -> `V88 Direct Deploy Node Cutover` -> external exact-SHA verification/rollback protection.
 14. **Old Docker/GHCR emergency/one-time workflows are not normal release entry points.** They may remain temporarily for audit or recovery until stage 7, but must not be selected for ordinary deployment unless the user explicitly approves an emergency recovery path.
 15. **Production is still a hybrid runtime while stage 6 is pending.** The Git-direct host Node currently depends on the existing Docker network and existing Go API / Browser Worker / Nginx services. Do not remove Docker networks, containers, overlays, or ECS-only runtime configuration merely because Node release is Git-direct.
-16. **Before starting a V88 task in any chat, read the current consolidation inventory OBJ and `docs/V88_PROJECT_EXECUTION_MEMORY.md`.** Do not rely on stale `master`, historical production snapshots, or prior-chat assumptions.
+16. **Before starting a V88 task in any chat, read the current state and consolidation inventory.** Do not rely on stale `master`, historical production snapshots, old `obj` conclusions, or prior-chat assumptions.
+
+For the live current state, read:
+
+`docs/V88_CURRENT_STATE.md`
 
 For the full project memory and deployment rationale, read:
 
