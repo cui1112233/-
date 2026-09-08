@@ -15,6 +15,7 @@ const { createApp } = require('./app');
 const { apiAuth } = require('./middleware/auth');
 const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { attachV78NovelFetchV2 } = require('./lib/novel-fetch-workshop/v2-compose');
+const { createSourceFetchOriginal } = require('./lib/novel-fetch-workshop/source-workflow');
 const { createV783031RegenerationMiddleware } = require('./lib/novel-panel/v783031-regeneration-middleware');
 const { createV783031OutlineHandler } = require('./lib/novel-panel/v783031-outline-route');
 const { createV783031BuildInfoMiddleware } = require('./lib/novel-panel/v783031-build-info');
@@ -30,6 +31,10 @@ const { readReleaseInfo } = require('./lib/release-info');
 // 其余请求继续原样进入现有 V78 Express 应用，避免重写旧兼容页面或 API。
 const app = express();
 const coreApp = createApp();
+// No source-site network adapter is configured here until its submit/poll/result/download
+// contract has been captured and verified. The wrapper therefore keeps the existing verified
+// fetch path and exposes a tested injection boundary without inventing any remote endpoint.
+const sourceFetchOriginal = createSourceFetchOriginal();
 
 // 2026-09-06 剧本提示词收口：只有仍等于旧系统默认正文的后台预设才自动
 // 升级为当前“分段开头 / 分镜模式 / 通用规则”元提示词。管理员已经编辑过
@@ -40,7 +45,12 @@ migrateLegacyScriptPromptPresets(coreApp.locals.presetStore, 'choushiyiguai');
 // coreApp; otherwise a valid core session would be rejected before reaching it.
 app.locals.authRuntime = coreApp.locals.authRuntime;
 app.get(['/batch-rewrite/index.html', '/batch-rewrite/'], createNovelFetchV2PageMiddleware());
-attachV78NovelFetchV2({ shellApp: app, coreApp, bodyParser: express.json({ limit: '50mb' }) });
+attachV78NovelFetchV2({
+  shellApp: app,
+  coreApp,
+  bodyParser: express.json({ limit: '50mb' }),
+  sourceFetchOriginal
+});
 
 // V88 script smart-unified semantics: when the user explicitly selects
 // “画面前缀词 → 智能统一”, run an independent full-source visual analysis first.
