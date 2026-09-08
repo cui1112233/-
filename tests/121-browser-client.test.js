@@ -31,6 +31,22 @@ test('browser client sends only internal worker request with secret', async () =
   assert.equal(JSON.parse(calls[0].options.body).password, 'pw');
 });
 
+test('browser client preserves worker secret exactly on the wire', async () => {
+  const calls = [];
+  const secret = '  internal-secret-with-padding  ';
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, status: 'ready' }) };
+    }
+  });
+
+  await client.test(identity);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.headers['x-qiantie-internal-secret'], secret);
+});
+
 test('browser login gets a longer wall-clock budget than normal worker calls', async () => {
   const client = create121BrowserClient({
     baseUrl: 'http://worker:8787',
