@@ -1,0 +1,23 @@
+name: V88 Consolidation Audit Check
+
+on:
+  push:
+    branches:
+      - ops/v88-consolidation-runtime-a-20260908
+
+permissions:
+  contents: read
+
+jobs:
+  version-config-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install root dependencies
+        run: npm ci
+      - name: Run version-config contract regression
+        run: node --test tests/novel-fetch-version-config-contract.test.js
