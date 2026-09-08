@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { toV78Task } = require('../lib/novel-fetch-workshop/task-ops');
+const versionSelection = require('../lib/novel-fetch-workshop/version-selection');
 
 const root = path.resolve(__dirname, '..');
 
@@ -28,12 +29,27 @@ test('task API exposes the exact selected AI1-AI5 contract used by the workbench
   assert.deepEqual(task.ai_files, ['ai2']);
 });
 
-test('batch rewrite route accepts selected versions and all six profile bindings', () => {
+test('batch rewrite route accepts selected versions and the shared normalizer preserves all six profile bindings', () => {
   const route = fs.readFileSync(path.join(root, 'routes/batch-rewrite.js'), 'utf8');
   const profileNormalizer = route.match(/function normalizeProfileBindings\(value\) \{[\s\S]*?\n\}/)?.[0] || '';
 
   assert.match(route, /selected_versions/);
   assert.match(route, /ai_slot_methods/);
-  assert.match(profileNormalizer, /ai4/);
-  assert.match(profileNormalizer, /ai5/);
+  assert.match(profileNormalizer, /versionSelection\.normalizeProfileBindings/);
+  assert.deepEqual(versionSelection.normalizeProfileBindings({
+    original: 'p0',
+    ai1: 'p1',
+    ai2: 'p2',
+    ai3: 'p3',
+    ai4: 'p4',
+    ai5: 'p5',
+    ai6: 'ignored'
+  }), {
+    original: 'p0',
+    ai1: 'p1',
+    ai2: 'p2',
+    ai3: 'p3',
+    ai4: 'p4',
+    ai5: 'p5'
+  });
 });
