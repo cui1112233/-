@@ -8,7 +8,7 @@ on:
 jobs:
   source-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,3 +22,5 @@ jobs:
           tests/novel-fetch-source-workflow.test.js
           tests/novel-fetch-source-wiring.test.js
           tests/novel-fetch-121-web-service.test.js
+      - name: Run full Node regression
+        run: node --test tests/*.test.js lib/*.test.js routes/*.test.js
