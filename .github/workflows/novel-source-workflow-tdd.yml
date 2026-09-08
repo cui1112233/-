@@ -22,5 +22,23 @@ jobs:
           tests/novel-fetch-source-workflow.test.js
           tests/novel-fetch-source-wiring.test.js
           tests/novel-fetch-121-web-service.test.js
+      - name: Diagnose sparse rewrite on current and exact baseline
+        shell: bash
+        run: |
+          set +e
+          node --test tests/novel-fetch-rewrite-sparse.test.js
+          current_status=$?
+          git fetch --depth=1 origin ab685184576b13fe886e0844093d8f042b282c82
+          rm -rf /tmp/novel-source-baseline
+          git worktree add --detach /tmp/novel-source-baseline FETCH_HEAD
+          (
+            cd /tmp/novel-source-baseline
+            npm ci >/dev/null 2>&1
+            node --test tests/novel-fetch-rewrite-sparse.test.js
+          )
+          baseline_status=$?
+          echo "CURRENT_SPARSE_EXIT=${current_status}"
+          echo "BASELINE_SPARSE_EXIT=${baseline_status}"
+          exit 0
       - name: Run full Node regression
         run: node --test tests/*.test.js lib/*.test.js routes/*.test.js
