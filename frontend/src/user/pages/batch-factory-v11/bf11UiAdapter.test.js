@@ -19,6 +19,39 @@ test('loadWorkbench reads capabilities first and never creates an intake batch a
   assert.equal(state.startsDirector, false);
 });
 
+test('loadWorkbench skips merge status when merge capability is unavailable', async () => {
+  let mergeStatusCalls = 0;
+  const api = {
+    getCapabilities: async () => ({ 'batch.read': { available: true }, 'merge.run': { available: false, reason: 'Merge slice not released' } }),
+    listBatches: async () => ({ batches: [{ id: 'b1', books: [] }] }),
+    getBatch: async id => ({ batch: { id, books: [] } }),
+    getMergeStatus: async () => {
+      mergeStatusCalls += 1;
+      return { batchId: 'b1', jobs: [] };
+    }
+  };
+  const state = await createBf11UiAdapter(api).loadWorkbench();
+  assert.equal(mergeStatusCalls, 0);
+  assert.equal(state.mergeStatus, null);
+});
+
+test('loadWorkbench reads merge status when merge capability is available', async () => {
+  const calls = [];
+  const api = {
+    getCapabilities: async () => ({ 'batch.read': { available: true }, 'merge.run': { available: true } }),
+    listBatches: async () => ({ batches: [{ id: 'b1', books: [] }] }),
+    getBatch: async id => ({ batch: { id, books: [] } }),
+    getMergeStatus: async id => {
+      calls.push(id);
+      return { batchId: id, jobs: [{ id: 'merge-1', status: 'running' }] };
+    }
+  };
+  const state = await createBf11UiAdapter(api).loadWorkbench();
+  assert.deepEqual(calls, ['b1']);
+  assert.equal(state.mergeStatus.batchId, 'b1');
+  assert.equal(state.mergeStatus.jobs[0].status, 'running');
+});
+
 test('loadWorkbench loads the authenticated personal-center constraint prompts by category', async () => {
   const requested = [];
   const api = {
