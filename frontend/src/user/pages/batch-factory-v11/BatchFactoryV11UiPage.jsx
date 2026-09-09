@@ -1,7 +1,8 @@
-import { Alert, Button, Empty, Input, Modal, Space, Spin, Tag, Typography, message } from 'antd';
+import { Button, Empty, Input, Modal, Space, Spin, Tag, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { BatchFactoryV11Workbench } from './BatchFactoryV11Workbench';
+import { BatchFactoryUnavailableShell } from './BatchFactoryUnavailableShell';
 import { ProductionSettingsDrawer } from './BatchFactoryV11SettingsDrawers';
 import { PublishSettingsDrawer } from './BatchFactoryV11PublishSettings';
 import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedSettings';
@@ -105,17 +106,10 @@ export function BatchFactoryV11UiPage() {
   }
 
   if (runtimeState.phase === 'error') {
-    return <div data-bf-v11-ui="final" style={{ minHeight: 420, display: 'grid', placeItems: 'center' }}>
-      <Alert
-        type="error"
-        showIcon
-        message="Batch Factory V11 暂时不可用"
-        description={<div>
-          <Typography.Paragraph>{runtimeState.message}</Typography.Paragraph>
-          <Button onClick={() => reload()}>重新加载</Button>
-        </div>}
-      />
-    </div>;
+    return <BatchFactoryUnavailableShell
+      message={runtimeState.message}
+      onRetry={() => reload()}
+    />;
   }
 
   const batch = runtimeState.batch;
@@ -396,7 +390,7 @@ export function BatchFactoryV11UiPage() {
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
-      message.success('批量 Director 已完成；失败项会保留在返回状态中。');
+      message.success('批量剧本生成已完成；失败项会保留在返回状态中。');
       return true;
     } finally {
       setDirectorAction({ type: '', bookId: '' });
@@ -490,7 +484,6 @@ export function BatchFactoryV11UiPage() {
         productionStatus={runtimeState.productionStatus}
         mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
-        mergeStatus={runtimeState.mergeStatus}
         onOpenBatchManager={() => setBatchManagerOpen(true)}
         onOpenHistory={openHistory}
         onOpenBatchSettings={() => setProductionSettingsOpen(true)}
