@@ -31,12 +31,15 @@ STAGE_UNIT=/etc/systemd/system/qiantie-v88-node-stage.service
 NETWORK=v88-public_qiantie_internal
 STAGE_PORT=18081
 
+stage_log release_validation_start
+
 stage_log "validate release sha=$sha"
 [ -f "$release_dir/package.json" ] || { echo "release source is incomplete" >&2; exit 4; }
 [ -f "$release_dir/RELEASE-SHA" ] || { echo "RELEASE-SHA is missing" >&2; exit 5; }
 [ "$(tr -d '\r\n' < "$release_dir/RELEASE-SHA")" = "$sha" ] || { echo "RELEASE-SHA does not match requested SHA" >&2; exit 6; }
 [ -d "$release_dir/node_modules" ] || { echo "prebuilt root node_modules is missing" >&2; exit 7; }
 [ -s "$release_dir/frontend/dist/index.html" ] || { echo "prebuilt frontend/dist is missing" >&2; exit 8; }
+stage_log release_validation_done
 
 docker network inspect "$NETWORK" >/dev/null
 gateway="$(docker network inspect "$NETWORK" --format '{{(index .IPAM.Config 0).Gateway}}')"
@@ -117,6 +120,7 @@ fi
 [ "$($NODE_HOME/bin/node --version)" = "v$NODE_VERSION" ] || { echo "pinned Node runtime verification failed" >&2; exit 13; }
 stage_log "pinned node runtime verified"
 
+stage_log service_environment_start
 tmp_env="$(mktemp)"
 trap 'rm -f "$tmp_env"' EXIT
 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$node_id" \
@@ -134,6 +138,7 @@ printf '%s\n' \
   "QIANTIE_DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   >> "$tmp_env"
 install -m 0600 "$tmp_env" "$STAGE_ENV"
+stage_log service_environment_done
 
 cat > "$STAGE_UNIT" <<UNIT
 [Unit]
@@ -157,18 +162,22 @@ UNIT
 stage_log "restart parallel stage service"
 systemctl daemon-reload
 systemctl restart qiantie-v88-node-stage.service
+stage_log service_restart_done
 
+stage_log build_info_wait_start
 build_info=""
 for _ in $(seq 1 30); do
   if build_info="$(curl -fsS --max-time 3 "http://127.0.0.1:$STAGE_PORT/api/build-info" 2>/dev/null)"; then break; fi
   sleep 1
 done
 [ -n "$build_info" ] || { systemctl status qiantie-v88-node-stage.service --no-pager >&2 || true; exit 14; }
+stage_log build_info_ready
 
 printf '%s' "$build_info" | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected, (data.get("git_sha"), expected)' "$sha"
 curl -fsS --max-time 5 "http://127.0.0.1:$STAGE_PORT/" >/dev/null
 docker exec "$nginx_id" sh -c "wget -qO- -T 5 http://$gateway:$STAGE_PORT/api/build-info" \
   | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected' "$sha"
+stage_log nginx_reachability_verified
 
 stage_log "parallel stage verified sha=$sha port=$STAGE_PORT"
 printf 'V88_NODE_STAGE_OK sha=%s port=%s\n' "$sha" "$STAGE_PORT"

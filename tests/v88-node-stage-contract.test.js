@@ -54,3 +54,17 @@ test('staging workflow exact-SHA trigger is restricted to one marker on v88', ()
   assert.match(workflow, /sha256sum/);
   assert.doesNotMatch(workflow, /docker build|docker push|docker pull/);
 });
+
+test('Node staging leaves headroom for remote startup and reports stage timing', () => {
+  const workflow = readIfExists(workflowPath);
+  const source = readIfExists(scriptPath);
+  assert.match(workflow, /timeout-minutes:\s*30/);
+  const timeoutMatch = workflow.match(/REMOTE_STAGE_TIMEOUT_SECONDS:\s*(\d+)/);
+  assert.ok(timeoutMatch, 'remote stage timeout must be declared explicitly');
+  assert.ok(Number(timeoutMatch[1]) > 240, 'remote stage timeout must exceed the failed 240-second window');
+  assert.match(workflow, /REMOTE_STAGE_START timeout_seconds=\$\{REMOTE_STAGE_TIMEOUT_SECONDS\}/);
+  assert.match(workflow, /REMOTE_STAGE_DONE.*elapsed_seconds/);
+  assert.match(source, /stage_log "cold bootstrap node v\$NODE_VERSION"/);
+  assert.match(source, /stage_log "restart parallel stage service"/);
+  assert.match(source, /stage_log "parallel stage verified sha=\$sha port=\$STAGE_PORT"/);
+});
