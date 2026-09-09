@@ -192,9 +192,10 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     if (modelKey === H3_MODEL_KEY) {
       let imageUrls;
       try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || 'H3 参考图片参数不正确' }); }
-      const workflow = h3WorkflowForImages(imageUrls);
+      const effectiveImageUrls = imageUrls.length ? imageUrls : [DEFAULT_FIRST_FRAME_URL];
+      const workflow = h3WorkflowForImages(effectiveImageUrls);
       try {
-        const ref = await h3Submit({ account: req.auth.account, modelKey: H3_MODEL_KEY, prompt, imageUrls, workflow });
+        const ref = await h3Submit({ account: req.auth.account, modelKey: H3_MODEL_KEY, prompt, imageUrls: effectiveImageUrls, workflow });
         const providerTaskId = String(ref?.providerTaskId || ref?.provider_task_id || ref?.taskId || '').trim();
         if (!providerTaskId) return res.status(502).json({ error: 'MiniMax H3 服务未返回任务 ID' });
         return res.status(202).json({ ok: true, taskId: H3_TASK_PREFIX + providerTaskId, status: 'processing' });
