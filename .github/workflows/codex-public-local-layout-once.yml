@@ -24,7 +24,7 @@ jobs:
       - name: Checkout V88 deployment scripts
         uses: actions/checkout@v4
         with:
-          ref: v88
+          ref: ${{ github.ref_name }}
           fetch-depth: 1
           persist-credentials: false
 
