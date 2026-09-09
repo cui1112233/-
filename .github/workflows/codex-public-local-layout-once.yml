@@ -182,21 +182,22 @@ jobs:
           printf '%s\n' "$sha" > "$release_dir/RELEASE-SHA"
           chmod 700 "/tmp/stage-node-host.sh" "/tmp/cutover-node-host.sh"
           bash /tmp/stage-node-host.sh "$release_dir" "$sha"
-          bash /tmp/cutover-node-host.sh "$sha"
 
-          public_html_file="/tmp/public-local-layout-${sha}.html"
-          curl -fsS --max-time 10 http://127.0.0.1:3000/batch-rewrite/index.html -o "$public_html_file"
-          public_html_sha="$(sha256sum "$public_html_file" | awk '{print $1}')"
-          test "$public_html_sha" = 'ec83d734faf6279a8c907aa7ac9c89b52e38c67e4585b5361ad035b6b19d1130'
-          grep -q 'columnOrderInput' "$public_html_file"
-          if grep -q 'v78-novel-fetch-v2.js' "$public_html_file"; then
+          stage_html_file="/tmp/stage-local-layout-${sha}.html"
+          curl -fsS --max-time 10 http://127.0.0.1:18081/batch-rewrite/index.html -o "$stage_html_file"
+          stage_html_sha="$(sha256sum "$stage_html_file" | awk '{print $1}')"
+          test "$stage_html_sha" = 'ec83d734faf6279a8c907aa7ac9c89b52e38c67e4585b5361ad035b6b19d1130'
+          grep -q 'columnOrderInput' "$stage_html_file"
+          if grep -q 'v78-novel-fetch-v2.js' "$stage_html_file"; then
             echo 'unexpected V78 layout override script remains in public HTML' >&2
             exit 1
           fi
+          rm -f "$stage_html_file"
+          bash /tmp/cutover-node-host.sh "$sha"
+
           curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
 
-          rm -f "$public_html_file"
           rm -f /tmp/stage-node-host.sh /tmp/cutover-node-host.sh
           rm -rf /tmp/qiantie-batch-rewrite
           docker logout ghcr.io >/dev/null 2>&1 || true
@@ -208,15 +209,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          html_file="$(mktemp)"
-          trap 'rm -f "$html_file"' EXIT
-          curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/batch-rewrite/index.html" -o "$html_file"
-          test "$(sha256sum "$html_file" | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
-          grep -q 'columnOrderInput' "$html_file"
-          if grep -q 'v78-novel-fetch-v2.js' "$html_file"; then
-            echo 'public still serves the old V78 layout override' >&2
-            exit 1
-          fi
           curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/novel-fetch" >/dev/null
           curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/api/build-info" \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
