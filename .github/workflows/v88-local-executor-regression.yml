@@ -24,6 +24,9 @@ on:
       - 'backend/go.sum'
       - 'branding/**'
       - 'frontend/index.html'
+      - 'frontend/package.json'
+      - 'frontend/src/shared/api/**'
+      - 'frontend/src/user/pages/batch-factory-v11/**'
       - 'frontend/public/yizhan-icon.png'
       - '.github/workflows/v88-local-executor-regression.yml'
   workflow_dispatch:
@@ -44,6 +47,9 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run gateway and executor route tests
         run: node --test test/local-executor-updates.test.js test/batch-factory-v11-shuihuo-bridge.test.js test/script-video-local-executor.test.js
+      - name: Run V11 frontend API contract tests
+        working-directory: frontend
+        run: npm test
       - name: Run full local executor tests
         working-directory: local-executor
         run: npm test
