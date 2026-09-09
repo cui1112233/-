@@ -1,5 +1,5 @@
 const express = require('express');
-const { readConfig } = require('../lib/shared');
+const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 
 const PERSONAL_PROVIDER = 'personal_api';
@@ -50,8 +50,7 @@ function needsH3ConfigSync(req, pathname) {
 
 function personalApiKeyForUser(req) {
   const config = readConfig(req.username);
-  const apiKey = config?.video?.apiKey;
-  return typeof apiKey === 'string' ? apiKey.trim() : '';
+  return getVideoApiKey(config, 'yd');
 }
 
 async function syncPersonalProviderConfig(req, options, { allowMissing = false } = {}) {
@@ -98,7 +97,7 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
 }
 
 function h3ApiKeyForRequest(req, configReader = readConfig) {
-  const personalKey = String(configReader(req.username)?.video?.apiKey || '').trim();
+  const personalKey = getVideoApiKey(configReader(req.username), 'h3');
   return personalKey || String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
 }
 

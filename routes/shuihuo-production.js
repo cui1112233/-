@@ -3,7 +3,7 @@ const http = require('node:http');
 const https = require('node:https');
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig } = require('../lib/shared');
+const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { bridgePayload } = require('../lib/batch-factory-v11/go-proxy');
 const { listPublishedForSlot, resolveSystemPresetBody, slotDefinition } = require('../lib/system-preset-catalog');
 const { getDefaultVideoModels } = require('../lib/video-model-catalog');
@@ -43,7 +43,7 @@ function accountAIConfigPayload(config) {
   const imageBaseURL = String(config?.image?.baseUrl || '').trim();
   const imageModel = String(config?.image?.model || '').trim();
   const imageAPIKey = String(config?.image?.apiKey || '').trim();
-  const videoAPIKey = String(config?.video?.apiKey || '').trim();
+  const videoAPIKey = getVideoApiKey(config, 'yd');
   const text = baseUrl && model && apiKey
     ? { provider: provider || 'custom', baseUrl, model, apiKey }
     : null;
@@ -238,10 +238,10 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStor
   router.get('/models', (req, res) => {
     const accountConfig = configReader(req.auth.account.username);
     const models = getDefaultVideoModels({
-      h3Configured: Boolean(String(accountConfig?.video?.apiKey || process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim())
+      h3Configured: Boolean(getVideoApiKey(accountConfig, 'h3') || process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY)
     }).map(model => {
       if (model.key === 'yd2-mini-video') {
-        return { ...model, configured: Boolean(String(accountConfig?.video?.apiKey || '').trim()) };
+        return { ...model, configured: Boolean(getVideoApiKey(accountConfig, 'yd')) };
       }
       return model;
     });

@@ -20,7 +20,7 @@ test('V11 H3 production and status paths require server-side AutoDL config sync'
 
 test('V11 H3 provider sync prefers the personal-center video key', () => {
   const request = { username: 'alice' };
-  const key = h3ApiKeyForRequest(request, username => username === 'alice' ? { video: { apiKey: 'personal-center-h3-token' } } : {});
+  const key = h3ApiKeyForRequest(request, username => username === 'alice' ? { video: { ydApiKey: 'personal-center-yd-token', h3ApiKey: 'personal-center-h3-token' } } : {});
   assert.equal(key, 'personal-center-h3-token');
 });
 

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig } = require('../lib/shared');
+const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { H3_MODEL_KEY } = require('../lib/video-model-catalog');
 const {
   H3_API_BASE_URL,
@@ -56,7 +56,7 @@ function h3ApiKeyFromEnvironment() {
 }
 
 function h3ApiKeyForRequest(req, configReader, h3ApiKeyReader) {
-  const personalKey = String(configReader?.(req.username)?.video?.apiKey || '').trim();
+  const personalKey = getVideoApiKey(configReader?.(req.username), 'h3');
   return personalKey || String(h3ApiKeyReader?.(req) || '').trim();
 }
 
@@ -234,7 +234,7 @@ function createScriptVideoRouter({
     }
     let imageUrls;
     try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
-    const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
+    const apiKey = getVideoApiKey(configReader(req.username), 'yd');
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {
       const upstream = await submit({ apiKey, payload: { model: 'yd2.0-mini', prompt, image_urls: [DEFAULT_FIRST_FRAME_URL, ...imageUrls], duration: '1', aspect_ratio: '9:16', resolution: '720p' } });
@@ -294,7 +294,7 @@ function createScriptVideoRouter({
     } catch (error) {
       if (error.status !== 404) return res.status(error.status || 503).json({ error: error.message || '本地执行器任务状态查询失败' });
     }
-    const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
+    const apiKey = getVideoApiKey(configReader(req.username), 'yd');
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {
       const statusReply = await request(`${YD_TASKS_URL}/${encodeURIComponent(taskId)}`, apiKey);

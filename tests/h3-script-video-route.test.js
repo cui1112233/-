@@ -63,7 +63,7 @@ test('H3 script route submits without exposing the server token and polls AutoDL
 test('H3 script route reads the video API key from the personal-center config', async t => {
   let submitted;
   const h3App = await startApp({
-    configReader: username => username === 'alice' ? { video: { apiKey: 'personal-center-h3-token' } } : {},
+    configReader: username => username === 'alice' ? { video: { ydApiKey: 'personal-center-yd-token', h3ApiKey: 'personal-center-h3-token' } } : {},
     h3ApiKeyReader: () => '',
     h3Submit: async input => {
       submitted = input;

@@ -59,7 +59,7 @@ test('video model endpoint marks H3 configured from the personal-center video ke
   delete process.env.QIANTIE_AUTODL_H3_API_KEY;
   try {
     const response = await requestModels(makeApp({
-      configReader: username => username === 'h3-model-route-test' ? { video: { apiKey: 'personal-center-h3-token' } } : {}
+      configReader: username => username === 'h3-model-route-test' ? { video: { ydApiKey: 'personal-center-yd-token', h3ApiKey: 'personal-center-h3-token' } } : {}
     }));
     assert.equal(response.statusCode, 200);
     const h3 = response.body.models.find(model => model.key === 'minimax-h3-video');
