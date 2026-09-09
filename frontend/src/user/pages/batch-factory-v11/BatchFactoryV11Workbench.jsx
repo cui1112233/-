@@ -493,7 +493,7 @@ export function BatchFactoryV11Workbench({
             <Tag color="red">失败 {videoProgress.failed}</Tag>
           </Space>
           <div className="bf11-tool-buttons">
-            <Button disabled={!onRunBatchDirector} onClick={() => onRunBatchDirector?.(batch)} title={!onRunBatchDirector ? '等待 Director 批量接线' : ''}>批量 Director</Button>
+            <Button disabled={!onRunBatchDirector} onClick={() => onRunBatchDirector?.(batch)} title={!onRunBatchDirector ? '等待批量剧本生成接线' : ''}>批量剧本生成</Button>
             <Button
               disabled={productionAction.disabled || !onRunProduction}
               title={productionAction.disabled ? productionAction.reason : ''}
@@ -534,9 +534,9 @@ export function BatchFactoryV11Workbench({
         </section>
 
         <section className="bf11-tool-section">
-          <div className="bf11-tool-section-head"><strong>批量上传</strong><Tag>确认后外发</Tag></div>
-          <Button icon={<Upload size={14} />} disabled={!onRunUpload} onClick={() => onRunUpload?.(batch)}>上传待上传</Button>
-          <Typography.Text type="secondary">点击后选择 121/Yadi；先保存加密账号，再生成确认单，最后由你明确确认提交。</Typography.Text>
+          <div className="bf11-tool-section-head"><strong>批量上传 121</strong><Tag>确认后外发</Tag></div>
+          <Button icon={<Upload size={14} />} disabled={!onRunUpload} onClick={() => onRunUpload?.(batch)}>上传 121</Button>
+          <Typography.Text type="secondary">默认进入 121；也可切换 Yadi。先保存加密账号，再生成确认单，最后由你明确确认提交。</Typography.Text>
         </section>
       </div>
     }
@@ -546,7 +546,11 @@ export function BatchFactoryV11Workbench({
   const mode = batch?.mode || batchPatch.productionMode;
   const modeLabel = mode ? (mode === 'viral' || mode === 'viral_hook' ? '爆款开头' : '原文直转') : '生产方式未覆盖';
   const provider = batchPatch.videoProvider || 'personal_api';
-  const providerLabel = provider === 'doubao_local_executor' ? '豆包本地执行器' : '个人中心 API · yd2.0-mini';
+  const providerLabel = provider === 'autodl_comfyui'
+    ? 'MiniMax H3'
+    : provider === 'doubao_local_executor'
+      ? '豆包本地执行器'
+      : '个人中心 API · yd2.0-mini';
   const batchSubtitle = [modeLabel, providerLabel, batchPatch.videoModelId, batchPatch.aspectRatio, batchPatch.versionConfigId].filter(Boolean).join(' · ');
 
   return <div className="batch-factory-workbench bf11-workbench">
