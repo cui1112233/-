@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
 
+const EMPTY_IMAGE_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
+
 function installAuthStub() {
   const authPath = require.resolve('../middleware/auth');
   const original = require.cache[authPath];
@@ -61,7 +63,7 @@ async function makeApp(t, options = {}) {
   return base;
 }
 
-test('MiniMax H3 zero-image submit selects no_pic without personal API key', async t => {
+test('MiniMax H3 zero-image submit injects empty.png into image workflow without personal API key', async t => {
   const calls = [];
   const base = await makeApp(t, {
     h3Submit: async input => {
@@ -81,8 +83,8 @@ test('MiniMax H3 zero-image submit selects no_pic without personal API key', asy
     account: { username: 'tester', isOwner: true },
     modelKey: 'minimax-h3',
     prompt: '雨夜街道',
-    imageUrls: [],
-    workflow: 'minimax_h3_lightx2v_no_pic'
+    imageUrls: [EMPTY_IMAGE_URL],
+    workflow: 'minimax_h3_lightx2v_v5_15s'
   });
   assert.equal('apiKey' in calls[0], false);
   assert.equal('token' in calls[0], false);
@@ -105,6 +107,7 @@ test('MiniMax H3 with valid images selects v5_15s automatically', async t => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].workflow, 'minimax_h3_lightx2v_v5_15s');
   assert.deepEqual(calls[0].imageUrls, ['https://example.com/ref.png']);
+  assert.equal(calls[0].imageUrls.includes(EMPTY_IMAGE_URL), false);
 });
 
 test('MiniMax H3 rejects invalid supplied images instead of downgrading to text-only', async t => {
