@@ -1,1 +1,1 @@
-stage V88 direct deploy trigger 2026-09-09 timeout-1200 target-after-workflow-timeout-fix
+stage V88 direct deploy trigger 2026-09-09 timeout-1200 latest-head-retrigger-1
