@@ -1699,7 +1699,11 @@ select {
 .entity-media-status { color: var(--legacy-muted); font-size: 11px; }
 .entity-media-editor { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--legacy-border); }
 .entity-media-candidates { display: grid; gap: 8px; margin-top: 10px; }
-.entity-media-candidate { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.entity-media-candidate { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; min-width: 0; padding: 8px; border: 1px solid var(--legacy-border); border-radius: 10px; background: var(--legacy-input); }
+.entity-media-candidate.is-main { border-color: var(--legacy-accent); }
+.entity-media-image-button { grid-column: 1 / -1; display: block; width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--legacy-border-strong); border-radius: 8px; background: var(--legacy-card); cursor: pointer; }
+.entity-media-image-button:hover { border-color: var(--legacy-accent); }
+.entity-media-image-button img { display: block; width: 100%; height: 150px; object-fit: cover; }
 .entity-protagonist-toggle { color: var(--legacy-muted) !important; }
 .entity-protagonist-toggle:hover { color: var(--legacy-accent) !important; }
 .entity-protagonist-toggle.is-protagonist { color: #f5b700 !important; }

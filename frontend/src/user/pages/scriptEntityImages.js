@@ -46,3 +46,11 @@ export function appendImageCandidate(imageUrls, imageUrl) {
   if (!candidate || current.includes(candidate)) return current;
   return [...current, candidate];
 }
+
+export function appendImageCandidateAndSelectSingle(imageUrls, mainImageUrl, imageUrl) {
+  const nextImageUrls = appendImageCandidate(imageUrls, imageUrl);
+  return {
+    imageUrls: nextImageUrls,
+    mainImageUrl: nextImageUrls.length === 1 ? nextImageUrls[0] : text(mainImageUrl)
+  };
+}
