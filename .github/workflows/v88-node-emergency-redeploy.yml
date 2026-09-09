@@ -1,5 +1,5 @@
 name: V88 Node Emergency Redeploy
-# trigger: script-audio-focus-fast-release-20260907-1615
+# trigger: novel-fetch-121-current-v88-release-20260909
 
 on:
   push:
@@ -59,6 +59,9 @@ jobs:
           docker build --platform linux/amd64 -t "$image" .
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = 'linux/amd64'
           docker run --rm --entrypoint sh "$image" -c '
+            test -s /app/frontend/dist/batch-rewrite/121-login-hotfix.js &&
+            grep -q "REQUEST_TIMEOUT_MS = 65_000" /app/frontend/dist/batch-rewrite/121-login-hotfix.js &&
+            grep -q "121-login-hotfix.js" /app/frontend/dist/batch-rewrite/index.html &&
             test -s /app/frontend/dist/batch-rewrite/interaction-feedback.js &&
             test -s /app/frontend/dist/batch-rewrite/task-visibility-hotfix.js &&
             grep -q "interaction-feedback.js" /app/frontend/dist/batch-rewrite/index.html &&
@@ -153,19 +156,22 @@ jobs:
           # Readiness must use a public asset. /api/novel-panel/build-info can
           # legitimately return 401 under the current auth middleware.
           for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/batch-rewrite/task-visibility-hotfix.js >/dev/null; then
+            if curl -fsS http://127.0.0.1:3000/batch-rewrite/121-login-hotfix.js | grep -q 'REQUEST_TIMEOUT_MS = 65_000'; then
               break
             fi
             if [ "$attempt" = 30 ]; then
-              echo 'V88 Node public Novel Fetch assets did not become reachable after redeploy.' >&2
+              echo 'V88 Node public Novel Fetch 121 login guard did not become reachable after redeploy.' >&2
               exit 1
             fi
             sleep 2
           done
 
           feedback_html="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/)"
+          login_hotfix_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/121-login-hotfix.js)"
           feedback_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/interaction-feedback.js)"
           task_visibility_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/task-visibility-hotfix.js)"
+          printf '%s' "$feedback_html" | grep -q '121-login-hotfix.js'
+          printf '%s' "$login_hotfix_js" | grep -q 'REQUEST_TIMEOUT_MS = 65_000'
           printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js'
           printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js'
           printf '%s' "$feedback_js" | grep -q 'processBtn'
@@ -201,13 +207,14 @@ jobs:
           set -Eeuo pipefail
           for attempt in $(seq 1 20); do
             feedback_html="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/" || true)"
+            login_hotfix_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/121-login-hotfix.js" || true)"
             feedback_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/interaction-feedback.js" || true)"
             task_visibility_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/task-visibility-hotfix.js" || true)"
-            if printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js' && printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js' && printf '%s' "$feedback_js" | grep -q 'processBtn' && printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'; then
-              echo 'Public V88 Novel Fetch task visibility and interaction feedback are reachable after Node redeploy.'
+            if printf '%s' "$feedback_html" | grep -q '121-login-hotfix.js' && printf '%s' "$login_hotfix_js" | grep -q 'REQUEST_TIMEOUT_MS = 65_000' && printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js' && printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js' && printf '%s' "$feedback_js" | grep -q 'processBtn' && printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'; then
+              echo 'Public V88 Novel Fetch 121 login guard, task visibility and interaction feedback are reachable after Node redeploy.'
               exit 0
             fi
             sleep 2
           done
-          echo 'Public V88 Novel Fetch task visibility verification failed.' >&2
+          echo 'Public V88 Novel Fetch 121 login guard verification failed.' >&2
           exit 1
