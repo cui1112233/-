@@ -24,13 +24,13 @@ services:
   redis:
     profiles: ["merge"]
     image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${QIANTIE_V88_REDIS_PASSWORD:-}
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${QIANTIE_V88_REDIS_PASSWORD:-}"]
     volumes:
       - ${QIANTIE_V88_REDIS_DATA_DIR:-/tmp/qiantie-v88-review/redis-data}:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
-      environment:
-        REDIS_PASSWORD: ${QIANTIE_V88_REDIS_PASSWORD:-}
       interval: 5s
       timeout: 3s
       retries: 20
