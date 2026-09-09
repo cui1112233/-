@@ -38,17 +38,6 @@ services:
       - qiantie_internal
     restart: unless-stopped
 
-  go-api:
-    image: ${QIANTIE_GO_API_IMAGE:-qiantie-go-api:public-v88-merge}
-    env_file:
-      - ./merge.env
-    environment:
-      QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT: http://merge-worker:8790/v1/merge
-      QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT: http://merge-worker:8790/v1/merge/{id}
-    depends_on:
-      merge-worker:
-        condition: service_started
-
 volumes:
   merge_redis_data:
 
