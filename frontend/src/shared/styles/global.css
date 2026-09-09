@@ -1683,12 +1683,20 @@ select {
 .shot-output-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--legacy-border); border-radius: 10px; background: var(--legacy-input); color: var(--legacy-muted); font-size: 12px; }
 .shot-output-card { border: 1px solid var(--legacy-border); border-radius: 10px; overflow: hidden; background: var(--legacy-input); }
 .shot-output-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--legacy-border); }
+.shot-output-card-references { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--legacy-border); color: var(--legacy-muted); font-size: 12px; }
+.shot-output-card-references-label { font-weight: 600; color: var(--legacy-text); }
+.shot-output-card-no-references { color: var(--legacy-muted); }
 .shot-output-card-content { margin: 0; padding: 14px; overflow: auto; color: var(--legacy-text); font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .shot-output-card-match { background: #ffe58f; color: #3b2d00; border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 @media (max-width: 640px) { .shot-output-toolbar, .shot-output-card-header { align-items: flex-start; flex-direction: column; } }
 
 .entity-card-row { display: flex; align-items: stretch; gap: 6px; }
 .entity-card-main { flex: 1; text-align: left; }
+.entity-card-main { display: flex; flex-direction: column; gap: 3px; }
+.entity-media-status { color: var(--legacy-muted); font-size: 11px; }
+.entity-media-editor { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--legacy-border); }
+.entity-media-candidates { display: grid; gap: 8px; margin-top: 10px; }
+.entity-media-candidate { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .entity-protagonist-toggle { color: var(--legacy-muted) !important; }
 .entity-protagonist-toggle:hover { color: var(--legacy-accent) !important; }
 .entity-protagonist-toggle.is-protagonist { color: #f5b700 !important; }
