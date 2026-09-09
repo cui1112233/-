@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
+import './v78Parity.contract.test.js';
 
 test('V11 client exposes the unified video-model catalog boundary', () => {
   assert.equal(typeof batchFactoryV11.getVideoModels, 'function');
