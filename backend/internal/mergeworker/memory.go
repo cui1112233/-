@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-var ErrNotFound = errors.New("merge worker job not found")
+var (
+	ErrNotFound = errors.New("merge worker job not found")
+	ErrQueueEmpty = errors.New("merge worker queue empty")
+)
 
 type Store interface {
 	Create(context.Context, Job) (Job, error)
@@ -17,6 +20,7 @@ type Store interface {
 
 type Queue interface {
 	Enqueue(context.Context, string) error
+	Dequeue(context.Context, time.Duration) (string, error)
 }
 
 type MemoryStore struct {
@@ -76,6 +80,28 @@ func (q *MemoryQueue) Enqueue(_ context.Context, id string) error {
 	defer q.mu.Unlock()
 	q.ids = append(q.ids, id)
 	return nil
+}
+
+func (q *MemoryQueue) Dequeue(ctx context.Context, timeout time.Duration) (string, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		q.mu.Lock()
+		if len(q.ids) > 0 {
+			id := q.ids[0]
+			q.ids = q.ids[1:]
+			q.mu.Unlock()
+			return id, nil
+		}
+		q.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-deadline.C:
+			return "", ErrQueueEmpty
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 func (q *MemoryQueue) IDs() []string {
