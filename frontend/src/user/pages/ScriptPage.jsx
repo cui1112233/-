@@ -15,6 +15,7 @@ import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, constraintsForNextGen
 import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
+import { appendImageCandidateAndSelectSingle, buildReferenceAssetGenerationPayload } from './scriptEntityImages';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
@@ -25,6 +26,7 @@ import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, to
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
+import { generateReferenceAssetImage, uploadReferenceAssetImage } from '../../shared/api/novelPanel';
 
 function videoModelKey(model) {
   return String(model?.key || model?.modelKey || '').trim();
@@ -1661,7 +1663,7 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
             return <div className="entity-card-row" key={item.id}>
               <button className="entity-card entity-card-button entity-card-main" type="button" onClick={() => onEdit(item.id)}>
                 <span>{formatEntity(item)}</span>
-                <small className="entity-media-status">{mainImageUrl ? '主图已选择' : '未选择主图'}{imageCount ? ` · 候选图 ${imageCount} 张` : ''}</small>
+                <small className="entity-media-status">{mainImageUrl ? '主图已选择' : '未选择主图'}{imageCount ? ` · 图片 ${imageCount} 张` : ''}</small>
               </button>
               {isCharacter && <Button
                 className={`entity-protagonist-toggle${isProtagonist ? ' is-protagonist' : ''}`}
@@ -1679,6 +1681,15 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
+function readImageFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
@@ -1687,22 +1698,37 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentError, setEnrichmentError] = useState('');
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageGenerationError, setImageGenerationError] = useState('');
+  const imageFileInputRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
     setFields(Object.fromEntries(visualFields(entity).map(field => [field.key, field.value])));
     const media = getEntityMedia(entity);
     setImageUrls(media.imageUrls);
-    setMainImageUrl(media.mainImageUrl);
+    setMainImageUrl(media.mainImageUrl || (media.imageUrls.length === 1 ? media.imageUrls[0] : ''));
     setNewImageUrl('');
     setEnrichment(null);
     setEnrichmentError('');
+    setGeneratingImage(false);
+    setUploadingImage(false);
+    setImageGenerationError('');
   }, [entity, open]);
 
   const fieldsToRender = visualFields(entity);
   const title = `${isNew ? '添加' : '编辑'}${type === 'characters' ? '人物' : '场景'}`;
   const deleteLabel = type === 'characters' ? '删除人物' : '删除场景';
   const canEnrich = Boolean(String(novelText || '').trim() && entityName(fields));
+  const canGenerateImage = Boolean(entityName(fields));
+
+  function appendAndSelectImage(url) {
+    const next = appendImageCandidateAndSelectSingle(imageUrls, mainImageUrl, url);
+    setImageUrls(next.imageUrls);
+    setMainImageUrl(next.mainImageUrl);
+    return next;
+  }
 
   function addImageCandidate() {
     const url = String(newImageUrl || '').trim();
@@ -1711,7 +1737,7 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
       const parsed = new URL(url);
       if (parsed.protocol !== 'https:') throw new Error('参考图必须使用 HTTPS 地址');
       const normalized = parsed.toString();
-      setImageUrls(current => current.includes(normalized) ? current : [...current, normalized]);
+      appendAndSelectImage(normalized);
       setNewImageUrl('');
     } catch (error) {
       message.warning(error.message || '请输入有效的 HTTPS 图片地址');
@@ -1740,6 +1766,60 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
     }
   }
 
+  async function uploadImage(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!String(file.type || '').startsWith('image/')) {
+      message.warning('请选择图片文件');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      message.warning('图片大小不能超过 10MB');
+      return;
+    }
+    setUploadingImage(true);
+    setImageGenerationError('');
+    try {
+      const response = await uploadReferenceAssetImage({
+        asset_type: type === 'characters' ? 'character' : 'scene',
+        asset_id: String(entity?.id || `${type}-${Date.now()}`),
+        variant: 'source',
+        data_url: await readImageFileAsDataUrl(file)
+      });
+      const url = String(response?.url || '').trim();
+      if (!url) throw new Error('图片上传接口未返回图片地址');
+      appendAndSelectImage(url);
+      message.success('图片已上传');
+    } catch (error) {
+      setImageGenerationError(error.message || '图片上传失败，请稍后重试');
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  async function generateImage() {
+    if (!canGenerateImage) return;
+    setGeneratingImage(true);
+    setImageGenerationError('');
+    try {
+      const response = await generateReferenceAssetImage(buildReferenceAssetGenerationPayload({
+        type,
+        entity,
+        fields,
+        novelText,
+        extractionPreset
+      }));
+      const url = String(response?.url || '').trim();
+      if (!url) throw new Error('图片生成接口未返回图片地址');
+      appendAndSelectImage(url);
+    } catch (error) {
+      setImageGenerationError(error.message || '人物/场景图片生成失败，请稍后重试');
+    } finally {
+      setGeneratingImage(false);
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -1758,25 +1838,51 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
         ))}
       </div>
       <div className="entity-media-editor">
-        <Typography.Text strong>参考图候选</Typography.Text>
-        <Typography.Paragraph type="secondary" style={{ margin: '4px 0 8px' }}>候选图不会自动成为主图；请明确点击“设为主图”。</Typography.Paragraph>
+        <Typography.Text strong>图片</Typography.Text>
+        <Typography.Paragraph type="secondary" style={{ margin: '4px 0 8px' }}>只有一张图片时自动设为主图；有多张图片时，点击图片选择主图。</Typography.Paragraph>
         <Space.Compact block>
           <Input value={newImageUrl} placeholder="粘贴 HTTPS 图片地址" onChange={event => setNewImageUrl(event.target.value)} onPressEnter={addImageCandidate} />
-          <Button onClick={addImageCandidate}>添加候选图</Button>
+          <Button onClick={addImageCandidate}>添加图片</Button>
         </Space.Compact>
+        <Space wrap style={{ marginTop: 10 }}>
+          <Button onClick={() => imageFileInputRef.current?.click()} loading={uploadingImage}>上传图片</Button>
+          <input ref={imageFileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadImage} />
+          <Typography.Text type="secondary">支持上传本地人物图或场景图。</Typography.Text>
+        </Space>
         <div className="entity-media-candidates">
           {imageUrls.length ? imageUrls.map(url => (
-            <div className="entity-media-candidate" key={url}>
-              <Input value={url} onChange={event => setImageUrls(current => current.map(item => item === url ? event.target.value : item))} />
+            <div className={`entity-media-candidate${mainImageUrl === url ? ' is-main' : ''}`} key={url}>
+              <button
+                className="entity-media-image-button"
+                type="button"
+                title={mainImageUrl === url ? '当前主图' : '点击设为主图'}
+                aria-label={mainImageUrl === url ? '当前主图' : '点击设为主图'}
+                onClick={() => setMainImageUrl(url)}
+              >
+                <img src={url} alt={`${type === 'characters' ? '人物' : '场景'}图片`} />
+              </button>
+              <Input
+                value={url}
+                onChange={event => {
+                  const nextUrl = event.target.value;
+                  setImageUrls(current => current.map(item => item === url ? nextUrl : item));
+                  setMainImageUrl(current => current === url ? nextUrl : current);
+                }}
+              />
               <Button type={mainImageUrl === url ? 'primary' : 'default'} onClick={() => setMainImageUrl(url)}>{mainImageUrl === url ? '当前主图' : '设为主图'}</Button>
             </div>
-          )) : <Typography.Text type="secondary">暂无候选图。添加后仍需手动设为主图。</Typography.Text>}
+          )) : <Typography.Text type="secondary">暂无图片，可上传、粘贴地址或点击生成图片。</Typography.Text>}
         </div>
+        <Space wrap style={{ marginTop: 10 }}>
+          <Button onClick={generateImage} loading={generatingImage} disabled={!canGenerateImage}>根据当前设定生成图片</Button>
+          <Typography.Text type="secondary">生成结果会加入图片列表。</Typography.Text>
+        </Space>
       </div>
       <Space wrap style={{ marginTop: 8 }}>
         <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
         {!String(novelText || '').trim() ? <Typography.Text type="secondary">请先输入小说原文</Typography.Text> : null}
       </Space>
+      {imageGenerationError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{imageGenerationError}</Typography.Paragraph> : null}
       {enrichmentError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{enrichmentError}</Typography.Paragraph> : null}
       {enrichment ? <div className="entity-enrichment-result">
         {enrichment.evidence.length ? <EnrichmentList title="原文依据" items={enrichment.evidence} /> : null}
