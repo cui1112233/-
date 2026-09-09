@@ -96,8 +96,17 @@ jobs:
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
           : > "$HOME/.ssh/known_hosts"
-          timeout 20 ssh-keyscan -T 5 -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" || test -s "$HOME/.ssh/known_hosts"
-          test -s "$HOME/.ssh/known_hosts"
+          keyscan_ready=false
+          for keyscan_attempt in 1 2 3; do
+            if timeout 20 ssh-keyscan -T 5 -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" && test -s "$HOME/.ssh/known_hosts"; then
+              keyscan_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$keyscan_ready" != true ]; then
+            echo 'SSH_HOSTKEYSCAN_FALLBACK=accept-new'
+          fi
           chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Stage exact SHA without cutting public traffic
@@ -119,6 +128,8 @@ jobs:
             -o BatchMode=yes
             -o PasswordAuthentication=no
             -o ConnectTimeout=15
+            -o StrictHostKeyChecking=accept-new
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts"
             -o ServerAliveInterval=15
             -o ServerAliveCountMax=4
             -o ControlMaster=auto

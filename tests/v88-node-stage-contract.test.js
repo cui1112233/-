@@ -68,3 +68,10 @@ test('Node staging leaves headroom for remote startup and reports stage timing',
   assert.match(source, /stage_log "restart parallel stage service"/);
   assert.match(source, /stage_log "parallel stage verified sha=\$sha port=\$STAGE_PORT"/);
 });
+
+test('ECS SSH preparation retries host-key discovery and has a bounded accept-new fallback', () => {
+  const workflow = readIfExists(workflowPath);
+  assert.match(workflow, /for keyscan_attempt in 1 2 3/);
+  assert.match(workflow, /SSH_HOSTKEYSCAN_FALLBACK=accept-new/);
+  assert.match(workflow, /StrictHostKeyChecking=accept-new/);
+});
