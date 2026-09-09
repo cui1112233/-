@@ -66,13 +66,18 @@ jobs:
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
           timeout 180 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$TARGET_SHA" < deploy/v88-direct/cutover-node-host.sh
 
-      - name: Verify public exact SHA externally
+      - name: Verify public exact SHA and 121 login artifact externally
         shell: bash
         env:
           TARGET_SHA: ${{ steps.target.outputs.sha }}
         run: |
           set -Eeuo pipefail
-          curl -fsS --max-time 10 "http://${ECS_HOST}:3000/api/build-info" \
+          curl -fsS --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/api/build-info" \
             | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected, (data.get("git_sha"), expected); assert data.get("deploy_mode")=="git-direct", data.get("deploy_mode")' "$TARGET_SHA"
-          curl -fsS --max-time 10 "http://${ECS_HOST}:3000/" >/dev/null
+
+          hotfix="$(curl -fsS --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/batch-rewrite/121-login-hotfix.js")"
+          printf '%s\n' "$hotfix" | grep -Eq 'REQUEST_TIMEOUT_MS[[:space:]]*=[[:space:]]*65_000'
+
+          curl -fsS --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/" >/dev/null
           echo "PUBLIC_CUTOVER_VERIFIED_SHA=$TARGET_SHA"
+          echo "PUBLIC_121_LOGIN_TIMEOUT_VERIFIED=65000"
