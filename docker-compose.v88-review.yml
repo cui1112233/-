@@ -21,6 +21,47 @@ services:
     networks: [v88-review]
     restart: "no"
 
+  redis:
+    profiles: ["merge"]
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${QIANTIE_V88_REDIS_PASSWORD:-}"]
+    volumes:
+      - ${QIANTIE_V88_REDIS_DATA_DIR:-/tmp/qiantie-v88-review/redis-data}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      environment:
+        REDIS_PASSWORD: ${QIANTIE_V88_REDIS_PASSWORD:-}
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [v88-review]
+    restart: "no"
+
+  merge-worker:
+    profiles: ["merge"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.merge-worker
+    image: ${QIANTIE_V88_MERGE_WORKER_IMAGE:-qiantie-merge-worker:v88-review}
+    environment:
+      QIANTIE_MERGE_WORKER_LISTEN_ADDR: ":8790"
+      QIANTIE_MERGE_WORKER_SECRET: ${QIANTIE_V88_MERGE_WORKER_SECRET:-}
+      QIANTIE_MERGE_REDIS_URL: "redis://:${QIANTIE_V88_REDIS_PASSWORD:-}@redis:6379/0"
+      QIANTIE_MERGE_REDIS_PREFIX: qiantie:v88-review:bf11:merge
+      QIANTIE_MERGE_WORK_ROOT: /tmp/qiantie-merge
+      QIANTIE_MERGE_TOS_ENDPOINT: ${QIANTIE_V88_MERGE_TOS_ENDPOINT:-}
+      QIANTIE_MERGE_TOS_REGION: ${QIANTIE_V88_MERGE_TOS_REGION:-}
+      QIANTIE_MERGE_TOS_BUCKET: ${QIANTIE_V88_MERGE_TOS_BUCKET:-}
+      QIANTIE_MERGE_TOS_ACCESS_KEY: ${QIANTIE_V88_MERGE_TOS_ACCESS_KEY:-}
+      QIANTIE_MERGE_TOS_SECRET_KEY: ${QIANTIE_V88_MERGE_TOS_SECRET_KEY:-}
+      QIANTIE_MERGE_TOS_PUBLIC_BASE_URL: ${QIANTIE_V88_MERGE_TOS_PUBLIC_BASE_URL:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose: ["8790"]
+    networks: [v88-review]
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -36,8 +77,8 @@ services:
       QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL: ${QIANTIE_V88_TEXT_MODEL:?required}
       QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED: ${QIANTIE_V88_PRODUCTION_ENABLED:-1}
       QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED: ${QIANTIE_V88_MERGE_ENABLED:-0}
-      QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT: ${QIANTIE_V88_MERGE_ENDPOINT:-}
-      QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT: ${QIANTIE_V88_MERGE_POLL_ENDPOINT:-}
+      QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT: ${QIANTIE_V88_MERGE_ENDPOINT:-http://merge-worker:8790/v1/merge}
+      QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT: ${QIANTIE_V88_MERGE_POLL_ENDPOINT:-http://merge-worker:8790/v1/merge/{id}}
       QIANTIE_BATCH_FACTORY_V11_MERGE_API_KEY: ${QIANTIE_V88_MERGE_API_KEY:-}
       QIANTIE_BATCH_FACTORY_V11_121_ENABLED: ${QIANTIE_V88_121_ENABLED:-0}
       QIANTIE_BATCH_FACTORY_V11_121_ENDPOINT: ${QIANTIE_V88_121_ENDPOINT:-}
