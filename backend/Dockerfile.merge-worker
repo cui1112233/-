@@ -1,0 +1,18 @@
+FROM golang:1.23-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/merge-worker ./cmd/merge-worker
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system qiantie \
+    && useradd --system --gid qiantie --home-dir /nonexistent --no-create-home qiantie
+COPY --from=build /out/merge-worker /merge-worker
+RUN mkdir -p /tmp/qiantie-merge && chown qiantie:qiantie /tmp/qiantie-merge
+USER qiantie:qiantie
+EXPOSE 8790
+ENTRYPOINT ["/merge-worker"]
