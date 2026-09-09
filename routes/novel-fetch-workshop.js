@@ -73,6 +73,20 @@ function createNovelFetchWorkshopRouter({
     return { tasks, config, configStore };
   }
 
+  async function fetchOriginalWithSource(req, tasks, username, bookId, maxTxt) {
+    const fallbackFetchOriginal = tasks.fetchOriginal.bind(tasks);
+    const sourceFetchOriginal = req.app?.locals?.novelFetchSourceFetchOriginal;
+    if (typeof sourceFetchOriginal !== 'function') {
+      return fallbackFetchOriginal(username, bookId, maxTxt);
+    }
+    return sourceFetchOriginal(username, {
+      bookId,
+      maxTxt,
+      tasks,
+      fallbackFetchOriginal
+    });
+  }
+
   const knowledge = injectedKnowledgeStore || (systemDir ? createKnowledgeStore({ systemDir }) : null);
   const opening = injectedOpeningStore || (systemDir ? createOpeningStore({ systemDir, styles: [] }) : null);
 
@@ -134,7 +148,7 @@ function createNovelFetchWorkshopRouter({
       const concurrency = (config.fetch && config.fetch.concurrency) || 4;
       if (workflow.auto_fetch_original && tasksToProcess.length) {
         const results = await runWithConcurrency(tasksToProcess, concurrency, async task => {
-          const result = await tasks.fetchOriginal(username, task.bookId, task.maxTxt);
+          const result = await fetchOriginalWithSource(req, tasks, username, task.bookId, task.maxTxt);
           return { task, status: (result && result.status) || 'failed' };
         });
         for (const item of results) {
@@ -229,7 +243,7 @@ function createNovelFetchWorkshopRouter({
       const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
       if (typeof tasks.batchRetry === 'function') {
         const result = await tasks.batchRetry(username, ids, {
-          fetchOriginal: (user, id, maxTxt) => tasks.fetchOriginal(user, id, maxTxt),
+          fetchOriginal: (user, id, maxTxt) => fetchOriginalWithSource(req, tasks, user, id, maxTxt),
           generateAi: async (user, id, count) => {
             const current = await tasks.getTask(user, id);
             if (!current?.meta || current.meta.originalStatus !== 'done') return { status: 'skipped' };
@@ -241,7 +255,7 @@ function createNovelFetchWorkshopRouter({
       for (const id of ids) {
         const current = await tasks.getTask(username, id);
         if (current && typeof tasks.fetchOriginal === 'function') {
-          await tasks.fetchOriginal(username, id, current.meta?.maxTxt || 4000);
+          await fetchOriginalWithSource(req, tasks, username, id, current.meta?.maxTxt || 4000);
         }
       }
       return res.json({ ok: true, tasks: await tasks.listTasks(username) });
@@ -296,7 +310,7 @@ function createNovelFetchWorkshopRouter({
       if (!task) return res.status(400).json({ ok: false, error: '任务不存在' });
       const { maxTxt } = req.body || {};
       const resolvedMaxTxt = maxTxt != null ? maxTxt : ((task.meta && task.meta.maxTxt) || 4000);
-      const result = await tasks.fetchOriginal(username, bookId, resolvedMaxTxt);
+      const result = await fetchOriginalWithSource(req, tasks, username, bookId, resolvedMaxTxt);
       const current = await tasks.getTask(username, bookId);
       if (!result || result.status === 'failed') {
         const errorText = (current && current.meta && current.meta.error) || '抓取失败';

@@ -35,6 +35,7 @@ const coreApp = createApp();
 // contract has been captured and verified. The wrapper therefore keeps the existing verified
 // fetch path and exposes a tested injection boundary without inventing any remote endpoint.
 const sourceFetchOriginal = createSourceFetchOriginal();
+coreApp.locals.novelFetchSourceFetchOriginal = sourceFetchOriginal;
 
 // 2026-09-06 剧本提示词收口：只有仍等于旧系统默认正文的后台预设才自动
 // 升级为当前“分段开头 / 分镜模式 / 通用规则”元提示词。管理员已经编辑过
