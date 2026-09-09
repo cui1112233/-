@@ -1,4 +1,5 @@
 import { reportClientError } from '../error-reporting.js';
+import { normalizeLocalExecutorsResponse } from './localExecutors.js';
 
 export function getToken() {
   return localStorage.getItem('auth_token') || '';
@@ -94,7 +95,13 @@ export async function apiRequest(path, options = {}) {
   }
   if (options.responseType === 'blob') return response.blob();
   const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) return response.json();
+  if (contentType.includes('application/json')) {
+    const payload = await response.json();
+    if (path === '/api/shuihuo-production/local-executors') {
+      return normalizeLocalExecutorsResponse(payload);
+    }
+    return payload;
+  }
   return response.text();
 }
 export function listMyErrorLogs(limit = 100) {
