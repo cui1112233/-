@@ -10,6 +10,7 @@ const YD_TASKS_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/tasks';
 const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
+const MAX_H3_REFERENCE_IMAGES = 9;
 const H3_MODEL_KEY = 'minimax-h3';
 const H3_TASK_PREFIX = 'h3:';
 const H3_WORKFLOW_NO_PIC = 'minimax_h3_lightx2v_no_pic';
@@ -21,9 +22,9 @@ function readTaskID(payload) {
   return value === undefined ? '' : String(value).trim();
 }
 
-function validOptionalImageURLs(value) {
+function validOptionalImageURLs(value, maxImages = MAX_OPTIONAL_IMAGES) {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > MAX_OPTIONAL_IMAGES) throw new Error('可选图片最多 3 张');
+  if (!Array.isArray(value) || value.length > maxImages) throw new Error(`可选图片最多 ${maxImages} 张`);
   return value.map(item => {
     const imageURL = String(item || '').trim();
     if (!imageURL) throw new Error('可选图片地址不能为空');
@@ -84,6 +85,14 @@ function h3WorkflowForImages(imageUrls) {
   return imageUrls.length ? H3_WORKFLOW_WITH_PIC : H3_WORKFLOW_NO_PIC;
 }
 
+function h3SubmissionPayload({ prompt, imageUrls, workflow }) {
+  const payload = { model: H3_MODEL_KEY, prompt, duration: 15, aspectRatio: '9:16', workflow };
+  imageUrls.forEach((imageUrl, index) => {
+    payload[`ref_image_${index}`] = imageUrl;
+  });
+  return payload;
+}
+
 function resultURL(body) {
   const payload = payloadOf(body);
   const candidates = [
@@ -141,7 +150,7 @@ async function defaultH3Submit({ prompt, imageUrls, workflow }) {
   if (!cfg) throw Object.assign(new Error('MiniMax H3 服务端尚未配置'), { status: 503, code: 'H3_SCRIPT_VIDEO_UNAVAILABLE' });
   const reply = await h3HTTPSRequest(cfg.endpoint, {
     method: 'POST', apiKey: cfg.apiKey,
-    payload: { model: H3_MODEL_KEY, prompt, duration: 15, aspectRatio: '9:16', workflow, imageUrls }
+    payload: h3SubmissionPayload({ prompt, imageUrls, workflow })
   });
   if (reply.statusCode < 200 || reply.statusCode >= 300) throw Object.assign(new Error(`MiniMax H3 服务请求失败（HTTP ${reply.statusCode}）`), { status: 502 });
   let body;
@@ -191,9 +200,9 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     const modelKey = String(req.body?.modelKey || '').trim();
     if (modelKey === H3_MODEL_KEY) {
       let imageUrls;
-      try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || 'H3 参考图片参数不正确' }); }
+      try { imageUrls = validOptionalImageURLs(req.body?.imageUrls, MAX_H3_REFERENCE_IMAGES); } catch (error) { return res.status(400).json({ error: error.message || 'H3 参考图片参数不正确' }); }
+      const workflow = h3WorkflowForImages(imageUrls);
       const effectiveImageUrls = imageUrls.length ? imageUrls : [DEFAULT_FIRST_FRAME_URL];
-      const workflow = h3WorkflowForImages(effectiveImageUrls);
       try {
         const ref = await h3Submit({ account: req.auth.account, modelKey: H3_MODEL_KEY, prompt, imageUrls: effectiveImageUrls, workflow });
         const providerTaskId = String(ref?.providerTaskId || ref?.provider_task_id || ref?.taskId || '').trim();
@@ -315,4 +324,4 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   return router;
 }
 
-module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, H3_MODEL_KEY, h3WorkflowForImages, validOptionalImageURLs, readTaskID, taskState, resultURL };
+module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, H3_MODEL_KEY, h3WorkflowForImages, h3SubmissionPayload, validOptionalImageURLs, readTaskID, taskState, resultURL };
