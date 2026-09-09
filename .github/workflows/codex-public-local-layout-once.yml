@@ -10,7 +10,7 @@ permissions:
 env:
   ECS_HOST: 115.190.156.223
   ECS_USER: root
-  NODE_LAYOUT_SHA256: ec83d734faf6279a8c907aa7ac9c89b52e38c67e4585b5361ad035b6b19d1130
+  NODE_LAYOUT_SHA256: 7aea02f318f2573ad0ab111e6578c4d6d5b91ae412abb6f99128c2c75225b728
 
 concurrency:
   group: codex-public-local-layout-once
@@ -36,11 +36,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout the exact local-layout Node source
+      - name: Checkout the exact local V78 processing-layout Node source
         uses: actions/checkout@v4
         with:
-          ref: integration/remote-workbench-20260819
-          path: v78-node-source
+          ref: v88
+          path: v88-node-source
           fetch-depth: 1
           persist-credentials: false
 
@@ -48,12 +48,19 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(sha256sum v78-node-source/frontend/public/batch-rewrite/index.html | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
-          grep -q 'columnOrderInput' v78-node-source/frontend/public/batch-rewrite/index.html
-          grep -q '20260827-org-selection' v78-node-source/frontend/public/batch-rewrite/index.html
-          grep -q 'buildLoginRequest' v78-node-source/routes/novel-fetch-upload.js
-          grep -q "headers\['set-cookie'\]" v78-node-source/routes/novel-fetch-upload.js
-          grep -q 'Cookie: cookie' v78-node-source/routes/novel-fetch-upload.js
+          test "$(sha256sum v88-node-source/frontend/dist/batch-rewrite/index.html | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
+          grep -q 'versionConfigBtn' v88-node-source/frontend/dist/batch-rewrite/index.html
+          for file in \
+            v78-novel-fetch-v2.js \
+            v78-novel-fetch-v2-date.js \
+            v78-novel-fetch-v2-config.js \
+            v78-novel-fetch-v2-layout.js \
+            v78-novel-fetch-v2-run-controls.js; do
+            test -s "v88-node-source/public/batch-rewrite/$file"
+          done
+          grep -q 'buildLoginRequest' v88-node-source/routes/novel-fetch-upload.js
+          grep -q "headers\['set-cookie'\]" v88-node-source/routes/novel-fetch-upload.js
+          grep -q 'Cookie: cookie' v88-node-source/routes/novel-fetch-upload.js
           grep -q 'NovelFetchStore' v88-go-source/backend/internal/httpapi/router.go
           test -f deploy/v88-direct/stage-node-host.sh
           test -f deploy/v88-direct/cutover-node-host.sh
@@ -106,9 +113,36 @@ jobs:
           release_dir="/opt/qiantie/releases/v88-stage/${GITHUB_SHA}"
 
           mkdir -p release/v88-batch-rewrite
-          cp v78-node-source/frontend/public/batch-rewrite/index.html release/v88-batch-rewrite/
-          cp v78-node-source/frontend/public/batch-rewrite/app.js release/v88-batch-rewrite/
-          cp v78-node-source/frontend/public/batch-rewrite/styles.css release/v88-batch-rewrite/
+          cp v88-node-source/frontend/dist/batch-rewrite/index.html release/v88-batch-rewrite/
+          cp v88-node-source/frontend/dist/batch-rewrite/app.js release/v88-batch-rewrite/
+          cp v88-node-source/frontend/dist/batch-rewrite/styles.css release/v88-batch-rewrite/
+          cp v88-node-source/frontend/dist/batch-rewrite/121-login-hotfix.js release/v88-batch-rewrite/
+          for file in \
+            v78-novel-fetch-v2.js \
+            v78-novel-fetch-v2-date.js \
+            v78-novel-fetch-v2-config.js \
+            v78-novel-fetch-v2-layout.js \
+            v78-novel-fetch-v2-run-controls.js; do
+            cp "v88-node-source/public/batch-rewrite/$file" "release/v88-batch-rewrite/$file"
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+
+          index = Path('release/v88-batch-rewrite/index.html')
+          source = index.read_text(encoding='utf-8')
+          tags = [
+              '<script src="/batch-rewrite/v78-novel-fetch-v2.js?v=20260901-source-aligned-r3"></script>',
+              '<script src="/batch-rewrite/v78-novel-fetch-v2-date.js?v=20260901-source-aligned-r3"></script>',
+              '<script src="/batch-rewrite/v78-novel-fetch-v2-config.js?v=20260901-source-aligned-r3"></script>',
+              '<script src="/batch-rewrite/v78-novel-fetch-v2-layout.js?v=20260901-image-layout-r2"></script>',
+              '<script src="/batch-rewrite/v78-novel-fetch-v2-run-controls.js?v=20260902-run-controls-r2"></script>',
+          ]
+          marker = '</body>'
+          if marker not in source:
+              raise SystemExit('V88 batch-rewrite index has no body marker')
+          source = source.replace(marker, '    ' + '\n    '.join(tags) + '\n  ' + marker, 1)
+          index.write_text(source, encoding='utf-8')
+          PY
           timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf /tmp/qiantie-batch-rewrite && mkdir -p /tmp/qiantie-batch-rewrite"
           timeout 60 scp "${ssh_opts[@]}" \
             deploy/v88-direct/stage-node-host.sh \
@@ -118,6 +152,12 @@ jobs:
             release/v88-batch-rewrite/index.html \
             release/v88-batch-rewrite/app.js \
             release/v88-batch-rewrite/styles.css \
+            release/v88-batch-rewrite/121-login-hotfix.js \
+            release/v88-batch-rewrite/v78-novel-fetch-v2.js \
+            release/v88-batch-rewrite/v78-novel-fetch-v2-date.js \
+            release/v88-batch-rewrite/v78-novel-fetch-v2-config.js \
+            release/v88-batch-rewrite/v78-novel-fetch-v2-layout.js \
+            release/v88-batch-rewrite/v78-novel-fetch-v2-run-controls.js \
             "$ECS_USER@$ECS_HOST:/tmp/qiantie-batch-rewrite/"
 
       - name: Deploy Go route and cut public Node to the local layout
@@ -185,19 +225,27 @@ jobs:
           cp /tmp/qiantie-batch-rewrite/index.html "$release_dir/frontend/dist/batch-rewrite/"
           cp /tmp/qiantie-batch-rewrite/app.js "$release_dir/frontend/dist/batch-rewrite/"
           cp /tmp/qiantie-batch-rewrite/styles.css "$release_dir/frontend/dist/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/121-login-hotfix.js "$release_dir/frontend/public/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/121-login-hotfix.js "$release_dir/frontend/dist/batch-rewrite/"
+          for file in \
+            v78-novel-fetch-v2.js \
+            v78-novel-fetch-v2-date.js \
+            v78-novel-fetch-v2-config.js \
+            v78-novel-fetch-v2-layout.js \
+            v78-novel-fetch-v2-run-controls.js; do
+            cp "/tmp/qiantie-batch-rewrite/$file" "$release_dir/frontend/public/batch-rewrite/$file"
+            cp "/tmp/qiantie-batch-rewrite/$file" "$release_dir/frontend/dist/batch-rewrite/$file"
+          done
           printf '%s\n' "$sha" > "$release_dir/RELEASE-SHA"
           chmod 700 "/tmp/stage-node-host.sh" "/tmp/cutover-node-host.sh"
           bash /tmp/stage-node-host.sh "$release_dir" "$sha"
 
           stage_html_file="/tmp/stage-local-layout-${sha}.html"
           curl -fsS --max-time 10 http://127.0.0.1:18081/batch-rewrite/index.html -o "$stage_html_file"
-          stage_html_sha="$(sha256sum "$stage_html_file" | awk '{print $1}')"
-          test "$stage_html_sha" = 'ec83d734faf6279a8c907aa7ac9c89b52e38c67e4585b5361ad035b6b19d1130'
-          grep -q 'columnOrderInput' "$stage_html_file"
-          if grep -q 'v78-novel-fetch-v2.js' "$stage_html_file"; then
-            echo 'unexpected V78 layout override script remains in public HTML' >&2
-            exit 1
-          fi
+          grep -q 'versionConfigBtn' "$stage_html_file"
+          grep -q '/batch-rewrite/v78-novel-fetch-v2.js' "$stage_html_file"
+          grep -q '/batch-rewrite/v78-novel-fetch-v2-layout.js' "$stage_html_file"
+          grep -q '/batch-rewrite/v78-novel-fetch-v2-run-controls.js' "$stage_html_file"
           rm -f "$stage_html_file"
           bash /tmp/cutover-node-host.sh "$sha"
 
@@ -216,6 +264,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/novel-fetch" >/dev/null
+          public_html="$(curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/batch-rewrite/index.html")"
+          grep -q 'versionConfigBtn' <<<"$public_html"
+          grep -q '/batch-rewrite/v78-novel-fetch-v2-run-controls.js' <<<"$public_html"
           curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/api/build-info" \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
           echo 'PUBLIC_LOCAL_NOVEL_FETCH_LAYOUT_VERIFIED=true'
