@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log"
@@ -16,6 +17,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if err := healthcheck(); err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
@@ -103,6 +111,28 @@ func run() error {
 	}
 }
 
+func healthcheck() error {
+	secret := required("QIANTIE_MERGE_WORKER_SECRET")
+	if secret == "" {
+		return fmt.Errorf("merge worker healthcheck secret is required")
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	request, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:8790/healthz", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("merge worker healthcheck failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("merge worker healthcheck returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func required(name string) string { return strings.TrimSpace(os.Getenv(name)) }
 func env(name, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
@@ -116,5 +146,6 @@ func subtleHeaderMatch(header, secret string) bool {
 	if !strings.HasPrefix(header, prefix) {
 		return false
 	}
-	return strings.TrimSpace(strings.TrimPrefix(header, prefix)) == secret
+	candidate := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	return len(candidate) == len(secret) && subtle.ConstantTimeCompare([]byte(candidate), []byte(secret)) == 1
 }
