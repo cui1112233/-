@@ -32,6 +32,7 @@ export default function ApiConfigPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testingText, setTestingText] = useState(false);
+  const [savingText, setSavingText] = useState(false);
   const [testingImage, setTestingImage] = useState(false);
   const [savingVideo, setSavingVideo] = useState(false);
   const [provider, setProvider] = useState('openai');
@@ -123,6 +124,28 @@ export default function ApiConfigPage() {
     }
   }
 
+  async function saveText() {
+    if (!canManageApi) return;
+    try {
+      const values = await form.validateFields(['provider', 'baseUrl', 'model']);
+      const { provider, baseUrl, model } = values;
+      setSavingText(true);
+      const saved = await saveConfig({
+        provider,
+        baseUrl,
+        model,
+        apiKey: form.getFieldValue('apiKey') || ''
+      });
+      setConfig(saved);
+      form.setFieldValue('apiKey', '');
+      message.success('文本模型配置已保存');
+    } catch (error) {
+      if (!error?.errorFields) message.error(error.message || '文本模型配置保存失败');
+    } finally {
+      setSavingText(false);
+    }
+  }
+
   async function testImage() {
     try {
       const image = form.getFieldValue('image');
@@ -176,7 +199,7 @@ export default function ApiConfigPage() {
             </div>
             <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}><Input prefix={<Server size={15} />} placeholder="https://api.openai.com/v1" /></Form.Item>
             <Form.Item label="API Key" name="apiKey"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testText} loading={testingText}>测试文本连接</Button></div>
+            <div className="ac-api-actions"><Button htmlType="button" icon={<Cable size={16} />} onClick={testText} loading={testingText}>测试文本连接</Button><Button htmlType="button" type="primary" icon={<Save size={16} />} onClick={saveText} loading={savingText}>保存文本模型</Button></div>
           </Panel>
 
           <Panel title="费用估算价格快照" eyebrow="PRICING SNAPSHOT" className="ac-form-panel">
@@ -196,10 +219,10 @@ export default function ApiConfigPage() {
                 { label: 'OpenAI 兼容', value: 'openai_compatible' },
                 { label: '自定义（OpenAI 兼容）', value: 'custom' }
               ]} /></Form.Item>
-              <Form.Item label="生图模型" name={['image', 'model']} rules={[{ required: true, message: '请输入生图模型' }]}><Input placeholder="例如 gpt-image-1" /></Form.Item>
+              <Form.Item label="生图模型" name={['image', 'model']}><Input placeholder="例如 gpt-image-1" /></Form.Item>
             </div>
             {imageMode === 'custom' ? <Form.Item label="供应商显示名称" name={['image', 'displayName']}><Input maxLength={80} /></Form.Item> : null}
-            <Form.Item label="Base URL" name={['image', 'baseUrl']} rules={[{ required: true, message: '请输入生图 Base URL' }]}><Input prefix={<Server size={15} />} /></Form.Item>
+            <Form.Item label="Base URL" name={['image', 'baseUrl']}><Input prefix={<Server size={15} />} /></Form.Item>
             <Form.Item label="API Key" name={['image', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testImage} loading={testingImage}>测试生图连接</Button></div>
           </Panel>
