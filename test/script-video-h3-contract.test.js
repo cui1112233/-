@@ -28,13 +28,17 @@ function installAuthStub() {
   };
 }
 
-function loadRouterFactory() {
+function loadRouteModule() {
   const restoreAuth = installAuthStub();
   const routePath = require.resolve('../routes/script-video');
   delete require.cache[routePath];
   const route = require(routePath);
   restoreAuth();
-  return route.createScriptVideoRouter;
+  return route;
+}
+
+function loadRouterFactory() {
+  return loadRouteModule().createScriptVideoRouter;
 }
 
 async function listen(server) {
@@ -63,7 +67,7 @@ async function makeApp(t, options = {}) {
   return base;
 }
 
-test('MiniMax H3 zero-image submit injects empty.png into image workflow without personal API key', async t => {
+test('MiniMax H3 zero user images selects text workflow while supplying empty.png placeholder', async t => {
   const calls = [];
   const base = await makeApp(t, {
     h3Submit: async input => {
@@ -84,14 +88,15 @@ test('MiniMax H3 zero-image submit injects empty.png into image workflow without
     modelKey: 'minimax-h3',
     prompt: '雨夜街道',
     imageUrls: [EMPTY_IMAGE_URL],
-    workflow: 'minimax_h3_lightx2v_v5_15s'
+    workflow: 'minimax_h3_lightx2v_no_pic'
   });
   assert.equal('apiKey' in calls[0], false);
   assert.equal('token' in calls[0], false);
 });
 
-test('MiniMax H3 with valid images selects v5_15s automatically', async t => {
+test('MiniMax H3 accepts up to nine real reference images and selects image workflow automatically', async t => {
   const calls = [];
+  const imageUrls = Array.from({ length: 9 }, (_, index) => `https://example.com/ref-${index}.png`);
   const base = await makeApp(t, {
     h3Submit: async input => {
       calls.push(input);
@@ -101,13 +106,45 @@ test('MiniMax H3 with valid images selects v5_15s automatically', async t => {
   const response = await fetch(`${base}/api/script-video`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ modelKey: 'minimax-h3', prompt: '人物回头', imageUrls: ['https://example.com/ref.png'] })
+    body: JSON.stringify({ modelKey: 'minimax-h3', prompt: '人物回头', imageUrls })
   });
   assert.equal(response.status, 202);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].workflow, 'minimax_h3_lightx2v_v5_15s');
-  assert.deepEqual(calls[0].imageUrls, ['https://example.com/ref.png']);
+  assert.deepEqual(calls[0].imageUrls, imageUrls);
   assert.equal(calls[0].imageUrls.includes(EMPTY_IMAGE_URL), false);
+});
+
+test('MiniMax H3 maps nine references to ref_image_0 through ref_image_8 and omits imageUrls wire field', () => {
+  const { h3SubmissionPayload } = loadRouteModule();
+  const imageUrls = Array.from({ length: 9 }, (_, index) => `https://example.com/ref-${index}.png`);
+  const payload = h3SubmissionPayload({
+    prompt: '九图参考',
+    imageUrls,
+    workflow: 'minimax_h3_lightx2v_v5_15s'
+  });
+  assert.equal(payload.model, 'minimax-h3');
+  assert.equal(payload.workflow, 'minimax_h3_lightx2v_v5_15s');
+  assert.equal('imageUrls' in payload, false);
+  for (let index = 0; index < 9; index += 1) {
+    assert.equal(payload[`ref_image_${index}`], imageUrls[index]);
+  }
+  assert.equal('ref_image_9' in payload, false);
+});
+
+test('MiniMax H3 rejects a tenth supplied reference image', async t => {
+  let called = false;
+  const imageUrls = Array.from({ length: 10 }, (_, index) => `https://example.com/ref-${index}.png`);
+  const base = await makeApp(t, {
+    h3Submit: async () => { called = true; return { providerTaskId: 'unexpected' }; }
+  });
+  const response = await fetch(`${base}/api/script-video`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ modelKey: 'minimax-h3', prompt: '人物回头', imageUrls })
+  });
+  assert.equal(response.status, 400);
+  assert.equal(called, false);
 });
 
 test('MiniMax H3 rejects invalid supplied images instead of downgrading to text-only', async t => {
