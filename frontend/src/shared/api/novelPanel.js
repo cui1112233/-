@@ -6,3 +6,10 @@ export function generateReferenceAssetImage(payload) {
     body: JSON.stringify(payload)
   });
 }
+
+export function uploadReferenceAssetImage(payload) {
+  return apiRequest('/api/novel-panel/reference-assets/upload', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
