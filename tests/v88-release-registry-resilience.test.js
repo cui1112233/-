@@ -20,7 +20,7 @@ test('V88 Git-direct release uses a bounded slim payload instead of a registry o
   assert.doesNotMatch(stageWorkflow, /\bscp\b/);
   assert.match(stageWorkflow, /split\s+-b\s+512K/);
   assert.match(stageWorkflow, /timeout\s+120\s+ssh/);
-  assert.match(stageWorkflow, /timeout\s+240\s+ssh/);
+  assert.match(stageWorkflow, /timeout\s+600\s+ssh/);
   assert.match(stageWorkflow, /sha256sum/);
   assert.doesNotMatch(stageWorkflow, /docker build|docker push|docker pull|docker\/login-action/);
 });
@@ -37,9 +37,12 @@ test('V88 Git-direct public cutover backs up routing and automatically restores 
   assert.match(cutoverScript, /backup=/);
   assert.match(cutoverScript, /rollback\(\)/);
   assert.match(cutoverScript, /trap rollback ERR/);
-  assert.match(cutoverScript, /v88-public-v88-node-1:3000/);
+  assert.match(cutoverScript, /docker ps --filter ['"]name=v88-public-v88-node['"]/);
+  assert.match(cutoverScript, /current_node_endpoints/);
+  assert.match(cutoverScript, /matching_node_endpoints/);
   assert.match(cutoverScript, /nginx -t/);
   assert.match(cutoverScript, /nginx -s reload/);
+  assert.doesNotMatch(cutoverScript, /OLD_UPSTREAM=v88-public-v88-node-1:3000/);
   assert.doesNotMatch(cutoverScript, /docker\s+(stop|rm)|docker\s+compose\s+down/);
 });
 
