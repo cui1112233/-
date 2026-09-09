@@ -27,7 +27,10 @@ test('Git-direct host Node reuses the running 121 Browser Worker instead of rebu
 });
 
 test('Node public cutover leaves Browser Worker and Go routing untouched', () => {
-  assert.match(cutover, /v88-public-v88-node-1:3000/);
+  assert.match(cutover, /docker ps --filter ['"]name=v88-public-v88-node['"]/);
+  assert.match(cutover, /current_node_endpoints/);
+  assert.match(cutover, /matching_node_endpoints/);
+  assert.match(cutover, /STAGE_PORT=18081/);
   assert.doesNotMatch(cutover, /novel-fetch-121-worker:8787/);
   assert.doesNotMatch(cutover, /go-api:4000/);
   assert.doesNotMatch(cutover, /docker\s+(stop|rm)|docker\s+compose\s+down/);
