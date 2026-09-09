@@ -22,12 +22,17 @@ function functionBody(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
-test('版本对应配置档必须通过单一权威保存链路持久化并采用服务端回读状态', () => {
-  const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
+test('V2 页面必须加载版本配置单一权威保存脚本', () => {
+  const pageSource = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/v2-page.js'), 'utf8');
   const authorityPath = path.join(root, 'frontend/public/batch-rewrite/version-config-authority.js');
 
   assert.equal(fs.existsSync(authorityPath), true, 'missing version-config-authority.js');
-  assert.match(html, /version-config-authority\.js/);
+  assert.match(pageSource, /version-config-authority\.js/);
+});
+
+test('版本对应配置档必须一次持久化并采用服务端回读状态', () => {
+  const authorityPath = path.join(root, 'frontend/public/batch-rewrite/version-config-authority.js');
+  assert.equal(fs.existsSync(authorityPath), true, 'missing version-config-authority.js');
 
   const source = fs.readFileSync(authorityPath, 'utf8');
   const saveBody = functionBody(source, 'saveVersionConfigAuthority');
