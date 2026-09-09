@@ -17,7 +17,7 @@ function response() {
   };
 }
 
-function fixture({ sourceHook, withBatchRetry = false } = {}) {
+function fixture({ sourceHook, withBatchRetry = false, withFallback = true } = {}) {
   const calls = [];
   const current = new Map([
     ['book-a', { meta: { bookId: 'book-a', maxTxt: 4000 } }],
@@ -27,11 +27,13 @@ function fixture({ sourceHook, withBatchRetry = false } = {}) {
     async saveTasks(owner, rows) { calls.push(['saveTasks', owner, rows]); },
     async listTasks(owner) { calls.push(['listTasks', owner]); return [...current.values()]; },
     async getTask(owner, bookId) { calls.push(['getTask', owner, bookId]); return current.get(bookId) || null; },
-    async fetchOriginal(owner, bookId, maxTxt) {
+  };
+  if (withFallback) {
+    tasks.fetchOriginal = async (owner, bookId, maxTxt) => {
       calls.push(['fallback', owner, bookId, maxTxt]);
       return { status: 'done' };
-    }
-  };
+    };
+  }
   if (withBatchRetry) {
     tasks.batchRetry = async (owner, ids, options) => {
       calls.push(['batchRetry', owner, ids]);
@@ -103,4 +105,16 @@ test('all three workshop fetch paths retain tasks.fetchOriginal when no source h
     ['alice', 'book-a', 4000],
     ['alice', 'book-b', 4000]
   ]);
+});
+
+test('batch retry still invokes the source hook when the injected task adapter has no legacy fallback method', async () => {
+  const hookCalls = [];
+  const f = fixture({ withBatchRetry: false, withFallback: false, sourceHook: async (...args) => {
+    hookCalls.push(args);
+    return { status: 'done' };
+  } });
+  const retry = response();
+  await routeHandler(f.router, 'post', '/tasks/batch-retry')({ username: 'alice', body: { ids: ['book-a'] } }, retry);
+  assert.deepEqual(hookCalls, [['alice', 'book-a', 4000]]);
+  assert.equal(retry.statusCode, 200);
 });

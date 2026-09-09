@@ -84,6 +84,11 @@ function createNovelFetchWorkshopRouter({
     return tasks.fetchOriginal(username, bookId, maxTxt);
   }
 
+  function hasSourceFetcher(tasks) {
+    const hook = sourceHook || tasks?.sourceHook;
+    return typeof hook === 'function' || typeof hook?.fetchOriginal === 'function' || typeof tasks?.fetchOriginal === 'function';
+  }
+
   function readKnowledge(kind) {
     if (!knowledge) throw new Error('知识库未启用（缺少 systemDir）');
     return knowledge.list(kind);
@@ -248,8 +253,8 @@ function createNovelFetchWorkshopRouter({
       }
       for (const id of ids) {
         const current = await tasks.getTask(username, id);
-        if (current && typeof tasks.fetchOriginal === 'function') {
-        await fetchOriginal(tasks, username, id, current.meta?.maxTxt || 4000);
+        if (current && hasSourceFetcher(tasks)) {
+          await fetchOriginal(tasks, username, id, current.meta?.maxTxt || 4000);
         }
       }
       return res.json({ ok: true, tasks: await tasks.listTasks(username) });
