@@ -174,11 +174,17 @@ jobs:
           test -d "$current_release_dir"
           rm -rf "$release_dir"/*
           cp -a "$current_release_dir/." "$release_dir/"
-          rm -rf "$release_dir/frontend/dist/batch-rewrite"
+          # The running legacy Node serves /batch-rewrite from frontend/dist
+          # before its authenticated fallback route. Keep the public copy too,
+          # but never remove the runtime directory or requests become 401.
+          mkdir -p "$release_dir/frontend/dist/batch-rewrite"
           mkdir -p "$release_dir/frontend/public/batch-rewrite"
           cp /tmp/qiantie-batch-rewrite/index.html "$release_dir/frontend/public/batch-rewrite/"
           cp /tmp/qiantie-batch-rewrite/app.js "$release_dir/frontend/public/batch-rewrite/"
           cp /tmp/qiantie-batch-rewrite/styles.css "$release_dir/frontend/public/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/index.html "$release_dir/frontend/dist/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/app.js "$release_dir/frontend/dist/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/styles.css "$release_dir/frontend/dist/batch-rewrite/"
           printf '%s\n' "$sha" > "$release_dir/RELEASE-SHA"
           chmod 700 "/tmp/stage-node-host.sh" "/tmp/cutover-node-host.sh"
           bash /tmp/stage-node-host.sh "$release_dir" "$sha"
