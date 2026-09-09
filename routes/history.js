@@ -45,6 +45,22 @@ function normalizeVideoTasks(value) {
   return result;
 }
 
+function normalizeShotReferenceStates(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  for (const [index, state] of Object.entries(value)) {
+    if (!/^\d+$/.test(index) || !state || typeof state !== 'object' || Array.isArray(state)) continue;
+    const disabledImageUrls = Array.isArray(state.disabledImageUrls)
+      ? Array.from(new Set(state.disabledImageUrls
+        .filter(item => typeof item === 'string' && item.trim())
+        .map(item => item.trim().slice(0, 2000))))
+        .slice(0, 9)
+      : [];
+    result[index] = { disabledImageUrls };
+  }
+  return result;
+}
+
 // historyHasId — 判断历史索引中是否已含该 id（供本地存储恢复去重）
 function historyHasId(username, id) {
   if (isInvalidHistoryId(id)) return false;
@@ -68,6 +84,7 @@ function historyAppend(username, record) {
     extractInfo: record.extractInfo && typeof record.extractInfo === 'object' ? record.extractInfo : null,
     constraints: record.constraints && typeof record.constraints === 'object' ? record.constraints : null,
     videoTasks: normalizeVideoTasks(record.videoTasks),
+    shotReferenceStates: normalizeShotReferenceStates(record.shotReferenceStates),
     restoredFrom: record.restoredFrom || 'local',
     createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString()
   };
@@ -122,6 +139,7 @@ router.post('/', (req, res) => {
       extractInfo: extractInfo && typeof extractInfo === 'object' ? extractInfo : null,
       constraints: constraints && typeof constraints === 'object' ? constraints : null,
       videoTasks: normalizeVideoTasks(req.body?.videoTasks),
+      shotReferenceStates: normalizeShotReferenceStates(req.body?.shotReferenceStates),
       createdAt: new Date().toISOString()
     });
 
@@ -156,6 +174,9 @@ router.patch('/:id', (req, res) => {
   const entry = data.entries.find(item => item.id === id);
   if (!entry) return res.status(404).json({ error: '记录不存在' });
   entry.videoTasks = normalizeVideoTasks(req.body?.videoTasks);
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'shotReferenceStates')) {
+    entry.shotReferenceStates = normalizeShotReferenceStates(req.body.shotReferenceStates);
+  }
   writeHistoryIndex(req.username, data);
   res.json({ ok: true, entry });
 });
@@ -224,3 +245,4 @@ router.delete('/:id', (req, res) => {
 module.exports = router;
 module.exports.historyHasId = historyHasId;
 module.exports.historyAppend = historyAppend;
+module.exports.normalizeShotReferenceStates = normalizeShotReferenceStates;

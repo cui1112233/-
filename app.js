@@ -46,7 +46,9 @@ const { createNovelPanelAiDiagnosticStore } = require('./lib/novel-panel/ai-diag
 const { createNovelPanelHistoryStore } = require('./lib/novel-panel/history-store');
 const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-store');
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
-const { createScriptVideoRouter } = require('./routes/script-video');
+const { issueReferenceAssetCapability } = require('./lib/novel-panel/reference-asset-capability');
+const { createScriptVideoRouter, createH3ReferenceImageResolver } = require('./routes/script-video');
+const { createReferenceAssetPublicRouter } = require('./routes/reference-assets-public');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
@@ -78,7 +80,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, referenceAssetSecret } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -107,12 +109,21 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
+  const resolvedReferenceAssetSecret = referenceAssetSecret === undefined
+    ? String(process.env.QIANTIE_REFERENCE_ASSET_SECRET || process.env.QIANTIE_BRIDGE_SECRET || '').trim()
+    : String(referenceAssetSecret || '').trim();
   const resolvedNovelFetchStore = novelFetchStore || createNovelFetchStore({ usersDir });
   const resolvedBatchFactoryStore = createMySQLBatchFactoryStoreFactory(shuihuoGateway);
   const teamConfigReader = createTeamConfigReader({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore
+  });
+  const teamImageConfigReader = createTeamConfigReader({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore,
+    scope: 'image'
   });
   const resolvedChatRouter = chatRouter.createChatRouter({
     configReader: teamConfigReader,
@@ -215,6 +226,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
   app.locals.novelFetchStore = resolvedNovelFetchStore;
   app.locals.novelPanelConfig = username => teamConfigReader(username);
+  app.locals.novelPanelImageConfig = username => teamImageConfigReader(username);
 
   // 请求日志
   app.use((req, res, next) => {
@@ -320,6 +332,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     accountStore: authRuntime.accountStore
   }));
   app.use('/api/client-errors', createClientErrorsRouter(resolvedErrorLogStore));
+  app.use('/api/reference-assets', createReferenceAssetPublicRouter({ usersDir, secret: resolvedReferenceAssetSecret }));
   app.use('/api/applications', createApplicationsRouter(authRuntime.accountStore));
   app.use('/api/admin', createAdminRouter(authRuntime.accountStore, resolvedPresetStore, resolvedAgentSkillStore, resolvedErrorLogStore, { memberStore: resolvedMemberStore }));
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
@@ -335,7 +348,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
   app.use('/api/config', createConfigRouter({ shuihuoGateway, memberStore: resolvedMemberStore })); // GET/POST /api/config
-  app.use('/api/script-video', createScriptVideoRouter({ shuihuoGateway }));
+  app.use('/api/script-video', createScriptVideoRouter({
+    shuihuoGateway,
+    referenceImageResolver: createH3ReferenceImageResolver({
+      issueCapability: fields => issueReferenceAssetCapability({ secret: resolvedReferenceAssetSecret, ...fields })
+    })
+  }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
   app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
   app.use('/api/tts', ttsRouter); // POST /api/tts

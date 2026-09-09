@@ -15,9 +15,9 @@ export function saveHistory(entry) {
   });
 }
 
-export function updateHistoryVideoTasks(id, videoTasks) {
+export function updateHistoryVideoTasks(id, videoTasks, shotReferenceStates) {
   return apiRequest(`/api/history/${encodeURIComponent(id)}`, {
-    method: 'PATCH', body: JSON.stringify({ videoTasks }), suppressGlobalError: true
+    method: 'PATCH', body: JSON.stringify({ videoTasks, shotReferenceStates }), suppressGlobalError: true
   });
 }
 

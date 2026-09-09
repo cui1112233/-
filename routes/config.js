@@ -53,7 +53,7 @@ function managedPublicConfig(config, member) {
     model: '',
     hasApiKey: false,
     image: { ...safe.image, baseUrl: '', model: '', displayName: '', hasApiKey: false },
-    video: { ...safe.video, baseUrl: '', model: '', displayName: '', hasApiKey: false },
+    video: { ...safe.video, baseUrl: '', model: '', displayName: '', hasApiKey: false, ydHasApiKey: false, h3HasApiKey: false },
     canManageApi: false,
     managedBy: member?.boundTo || null
   };

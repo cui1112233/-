@@ -166,6 +166,28 @@ function requestConfig(req) {
   return isPlainObject(override) ? { ...current, ...override } : current;
 }
 
+function referenceImageSettings(req) {
+  const panelSettingsValue = premiumStore(req).readImageSettingsRaw(req.username);
+  let image;
+  try {
+    const configured = req.app?.locals?.novelPanelImageConfig || req.app?.locals?.novelPanelConfig;
+    const override = typeof configured === 'function' ? configured(req.username) : configured;
+    image = isPlainObject(override?.image) ? override.image : readConfig(req.username).image;
+  } catch {
+    image = readConfig(req.username).image;
+  }
+  if (!isPlainObject(image)) return panelSettingsValue;
+  const baseUrl = text(image.baseUrl || image.base_url);
+  const model = text(image.model);
+  const apiKey = text(image.apiKey || image.api_key);
+  return {
+    ...panelSettingsValue,
+    ...(baseUrl ? { base_url: baseUrl } : {}),
+    ...(model ? { model } : {}),
+    ...(apiKey ? { api_key: apiKey } : {})
+  };
+}
+
 function operationSuffix(value, fallback) {
   const normalized = text(value, 180).replace(/\s+/g, '_');
   return normalized || fallback;
@@ -958,19 +980,36 @@ router.post('/reference-assets/upload', (req, res) => {
     const assetId = premiumStore(req).safeAssetId(body.asset_id);
     const variant = premiumStore(req).safeAssetVariant(body.variant || 'source');
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
-    const filePath = premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, variant, payload, mime);
-    const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
+    const storedAssetId = premiumStore(req).nextReferenceAssetId(req.username, assetType, assetId, variant);
+    const filePath = premiumStore(req).writeReferenceAssetBytes(req.username, assetType, storedAssetId, variant, payload, mime);
+    const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, storedAssetId);
     return res.json({
       ok: true,
-      asset_id: assetId,
+      asset_id: storedAssetId,
       asset_type: assetType,
       variant,
       file_name: path.basename(filePath),
-      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, variant),
+      url: premiumStore(req).referenceAssetPublicUrl(assetType, storedAssetId, variant),
       ...metadata
     });
   } catch (error) {
     return res.status(400).json({ error: `保存参考图失败：${error.message}`, code: 'REFERENCE_ASSET_UPLOAD_FAILED' });
+  }
+});
+
+router.delete('/reference-assets/file/:assetType/:assetId/:variant', (req, res) => {
+  try {
+    const assetType = premiumStore(req).safeAssetType(req.params.assetType);
+    const assetId = premiumStore(req).safeAssetId(req.params.assetId);
+    const variant = premiumStore(req).safeAssetVariant(req.params.variant);
+    const deleted = premiumStore(req).deleteReferenceAsset(req.username, assetType, assetId, variant);
+    const deletedSource = variant === 'main'
+      ? premiumStore(req).deleteReferenceAsset(req.username, assetType, assetId, 'source')
+      : false;
+    if (!deleted && !deletedSource) return res.status(404).json({ error: '参考图片不存在。', code: 'REFERENCE_ASSET_NOT_FOUND', deleted: false });
+    return res.json({ ok: true, deleted: true, asset_id: assetId, asset_type: assetType, variant, ...premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId) });
+  } catch (error) {
+    return res.status(400).json({ error: `删除参考图失败：${error.message}`, code: 'REFERENCE_ASSET_DELETE_FAILED', deleted: false });
   }
 });
 
@@ -1002,7 +1041,16 @@ router.get('/reference-assets/file/:assetType/:assetId/:variant', (req, res) => 
     res.set('Cache-Control', 'private, max-age=3600');
     res.set('Content-Type', mime);
     res.set('X-Content-Type-Options', 'nosniff');
-    return res.sendFile(filePath);
+    // Express 5's sendFile can resolve this account-scoped path incorrectly
+    // when the router is mounted below /api/novel-panel. Stream the already
+    // validated file path directly so previews and zoomed images are readable.
+    const stream = fs.createReadStream(filePath);
+    stream.once('error', error => {
+      if (!res.headersSent) return res.status(404).json({ error: '参考图片不存在。', code: 'REFERENCE_ASSET_NOT_FOUND' });
+      return res.destroy(error);
+    });
+    stream.pipe(res);
+    return undefined;
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_FILE_FAILED' });
   }
@@ -1069,7 +1117,7 @@ router.post('/reference-assets/generate', async (req, res) => {
     // Web deployment generates reference images through the per-account image AI
     // settings (OpenAI Images compatible /images/generations). Missing config
     // degrades gracefully and keeps the existing reference image state.
-    const settings = premiumStore(req).readImageSettingsRaw(req.username);
+    const settings = referenceImageSettings(req);
     const missing = ['base_url', 'model', 'api_key'].filter(key => !text(settings[key] || '').trim());
     if (missing.length) {
       return res.status(400).json({
@@ -1128,10 +1176,11 @@ router.post('/reference-assets/generate', async (req, res) => {
         if (!imageBuffer || !imageBuffer.length) throw new Error('图片AI未返回可用的图像内容。');
         const assetType = premiumStore(req).safeAssetType(text(body.asset_type) || 'character');
         const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
-        premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, 'main', imageBuffer, mime);
-        const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
+        const storedAssetId = premiumStore(req).nextReferenceAssetId(req.username, assetType, assetId, 'main');
+        premiumStore(req).writeReferenceAssetBytes(req.username, assetType, storedAssetId, 'main', imageBuffer, mime);
+        const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, storedAssetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, 'main'), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: storedAssetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, storedAssetId, 'main'), main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {
@@ -1654,3 +1703,4 @@ router._private = {
 };
 
 module.exports = router;
+module.exports.referenceImageSettings = referenceImageSettings;

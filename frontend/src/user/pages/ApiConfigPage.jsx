@@ -1,4 +1,4 @@
-import { AutoComplete, Button, Form, Input, InputNumber, Select, Skeleton, Tag, message } from 'antd';
+import { AutoComplete, Button, Form, Input, InputNumber, Select, Skeleton, Space, Tag, message } from 'antd';
 import { Cable, CheckCircle2, Coins, Image, KeyRound, Save, Server, ShieldCheck, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
@@ -65,7 +65,7 @@ export default function ApiConfigPage() {
           model: nextConfig.image?.model || '',
           apiKey: ''
         },
-        video: { apiKey: '' }
+        video: { ydApiKey: '', h3ApiKey: '' }
       });
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
       .finally(() => { if (alive) setLoading(false); });
@@ -140,10 +140,12 @@ export default function ApiConfigPage() {
     if (!canManageApi) return;
     setSavingVideo(true);
     try {
-      const apiKey = form.getFieldValue(['video', 'apiKey']) || '';
-      const saved = await saveConfig({ video: { apiKey } });
+      const ydApiKey = form.getFieldValue(['video', 'ydApiKey']) || '';
+      const h3ApiKey = form.getFieldValue(['video', 'h3ApiKey']) || '';
+      const saved = await saveConfig({ video: { ydApiKey, h3ApiKey } });
       setConfig(saved);
-      form.setFieldValue(['video', 'apiKey'], '');
+      form.setFieldValue(['video', 'ydApiKey'], '');
+      form.setFieldValue(['video', 'h3ApiKey'], '');
       message.success('视频生成配置已保存');
     } catch (error) {
       message.error(error.message || '视频生成配置保存失败');
@@ -201,9 +203,10 @@ export default function ApiConfigPage() {
             <Form.Item label="API Key" name={['image', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testImage} loading={testingImage}>测试生图连接</Button></div>
           </Panel>
-          <Panel title="视频生成服务" eyebrow="VIDEO MODEL" className="ac-form-panel" action={<Tag color={config?.video?.hasApiKey ? 'green' : 'default'}>{config?.video?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
+          <Panel title="视频生成服务" eyebrow="VIDEO MODEL" className="ac-form-panel" action={<Space size={4}><Tag color={config?.video?.ydHasApiKey ? 'green' : 'default'}>{config?.video?.ydHasApiKey ? 'YD 已保存' : 'YD 未保存'}</Tag><Tag color={config?.video?.h3HasApiKey ? 'green' : 'default'}>{config?.video?.h3HasApiKey ? 'H3 已保存' : 'H3 未保存'}</Tag></Space>}>
             <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>独立视频生成凭据</strong><small>视频服务按自己的保存入口维护，不会覆盖文本或图片配置。</small></div></div>
-            <Form.Item label="视频服务 API Key" name={['video', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
+            <Form.Item label="YD2.0 Mini API Key" name={['video', 'ydApiKey']} extra="普通 YD2.0 Mini 视频链路使用此 Key。"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
+            <Form.Item label="MiniMax H3 API Key" name={['video', 'h3ApiKey']} extra="剧本页 H3 视频生成使用此 Key；如果没有参考图，将自动使用 H3 无图工作流。"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Save size={16} />} onClick={saveVideo} loading={savingVideo}>保存视频生成</Button></div>
           </Panel>
         </div>
@@ -216,7 +219,8 @@ export default function ApiConfigPage() {
               <div><CheckCircle2 size={17} className={config?.model ? 'ok' : ''} /><span>默认模型</span><b>{config?.model || '未配置'}</b></div>
               <div><CheckCircle2 size={17} className={config?.pricing ? 'ok' : ''} /><span>费用价格快照</span><b>{config?.pricing ? `${config.pricing.currency}` : '未配置'}</b></div>
               <div><CheckCircle2 size={17} className={config?.image?.hasApiKey ? 'ok' : ''} /><span>生图 API Key</span><b>{config?.image?.hasApiKey ? '已保存' : '未配置'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.video?.hasApiKey ? 'ok' : ''} /><span>视频 API Key</span><b>{config?.video?.hasApiKey ? '已保存' : '未配置'}</b></div>
+              <div><CheckCircle2 size={17} className={config?.video?.ydHasApiKey ? 'ok' : ''} /><span>YD 视频 API Key</span><b>{config?.video?.ydHasApiKey ? '已保存' : '未配置'}</b></div>
+              <div><CheckCircle2 size={17} className={config?.video?.h3HasApiKey ? 'ok' : ''} /><span>MiniMax H3 Token</span><b>{config?.video?.h3HasApiKey ? '已保存' : '未配置'}</b></div>
             </div>
           </Panel>
           <Panel title="安全说明" eyebrow="SECURITY">

@@ -3,7 +3,7 @@ const http = require('node:http');
 const https = require('node:https');
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig } = require('../lib/shared');
+const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { listPublishedForSlot, resolveSystemPresetBody, slotDefinition } = require('../lib/system-preset-catalog');
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -41,16 +41,17 @@ function accountAIConfigPayload(config) {
   const imageBaseURL = String(config?.image?.baseUrl || '').trim();
   const imageModel = String(config?.image?.model || '').trim();
   const imageAPIKey = String(config?.image?.apiKey || '').trim();
-  const videoAPIKey = String(config?.video?.apiKey || '').trim();
+  const ydAPIKey = getVideoApiKey(config, 'yd');
   const text = baseUrl && model && apiKey
     ? { provider: provider || 'custom', baseUrl, model, apiKey }
     : null;
   const image = imageProvider === 'openai_compatible' && imageBaseURL && imageModel && imageAPIKey
     ? { mode: imageMode === 'custom' ? 'custom' : 'openai_compatible', provider: imageProvider, displayName: imageDisplayName, baseUrl: imageBaseURL, model: imageModel, apiKey: imageAPIKey }
     : null;
-  const video = videoAPIKey
-    ? { provider: 'yd_video', apiKey: videoAPIKey }
-    : null;
+  // The public V78 Go bridge only defines the legacy YD video schema. H3 is
+  // handled by the Node script-video route, so never send an unknown H3 field
+  // to the existing Shuihuo bridge and risk breaking its strict decoder.
+  const video = ydAPIKey ? { provider: 'yd_video', apiKey: ydAPIKey } : null;
   if (!text && !image && !video) {
     return null;
   }
@@ -318,6 +319,7 @@ module.exports = {
   requirePublishedSlot,
   signBridgeRequest,
   syncAccountAIConfig,
+  accountAIConfigPayload,
   isTextInferenceRequest,
   systemPromptBodyForRequest,
   upstreamTimeoutForRequest
