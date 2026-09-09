@@ -7,6 +7,7 @@ on:
       - v88
     paths:
       - 'deploy/v88-direct/STAGE-REQUEST'
+      - '.github/workflows/v88-direct-deploy-node-stage.yml'
 
 permissions:
   contents: read
