@@ -1,12 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as batchFactoryV11 from '../../../shared/api/batchFactoryV11.js';
-import * as scriptVideo from '../../../shared/api/scriptVideo.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 
-test('shared clients expose one unified video-model catalog boundary', () => {
+test('V11 client exposes the unified video-model catalog boundary', () => {
   assert.equal(typeof batchFactoryV11.getVideoModels, 'function');
-  assert.equal(typeof scriptVideo.listScriptVideoModels, 'function');
 });
 
 test('V11 workbench reads and exposes server video models', async () => {
