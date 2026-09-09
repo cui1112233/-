@@ -150,7 +150,8 @@ export function createBf11UiAdapter(api) {
       const productionStatus = selectedBatchId && typeof api.getProductionStatus === 'function'
         ? await api.getProductionStatus(selectedBatchId).catch(() => null)
         : null;
-      const mergeStatus = selectedBatchId && typeof api.getMergeStatus === 'function'
+      const mergeAvailable = capabilities?.['merge.run']?.available === true;
+      const mergeStatus = selectedBatchId && mergeAvailable && typeof api.getMergeStatus === 'function'
         ? await api.getMergeStatus(selectedBatchId).catch(() => null)
         : null;
       return {
