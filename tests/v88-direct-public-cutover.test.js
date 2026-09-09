@@ -23,11 +23,20 @@ test('production staging is marker-gated on v88 and deploys exact Git SHA withou
   assert.doesNotMatch(source, /docker build|docker push|docker pull/);
 });
 
+test('public cutover discovers the live Docker Node endpoint instead of hard-coding a compose container name', () => {
+  const source = read('deploy/v88-direct/cutover-node-host.sh');
+  assert.ok(source, 'cutover-node-host.sh must exist');
+  assert.match(source, /docker ps --filter ['"]name=v88-public-v88-node['"]/);
+  assert.match(source, /NetworkSettings\.Networks/);
+  assert.match(source, /Aliases/);
+  assert.match(source, /IPAddress/);
+  assert.doesNotMatch(source, /OLD_UPSTREAM=v88-public-v88-node-1:3000/);
+});
+
 test('public cutover only rewires the mounted Nginx Node upstream and has automatic rollback', () => {
   const source = read('deploy/v88-direct/cutover-node-host.sh');
   assert.ok(source, 'cutover-node-host.sh must exist');
   assert.match(source, /\/etc\/nginx\/conf\.d\/default\.conf/);
-  assert.match(source, /v88-public-v88-node-1:3000/);
   assert.match(source, /18081/);
   assert.match(source, /api\/build-info/);
   assert.match(source, /git_sha/);
@@ -35,6 +44,8 @@ test('public cutover only rewires the mounted Nginx Node upstream and has automa
   assert.match(source, /nginx -s reload/);
   assert.match(source, /backup/);
   assert.match(source, /rollback/);
+  assert.match(source, /current_node_endpoints/);
+  assert.match(source, /matching_node_endpoints/);
   assert.doesNotMatch(source, /docker\s+(stop|rm)|docker\s+compose\s+down/);
   assert.doesNotMatch(source, /go-api:4000/);
 });
