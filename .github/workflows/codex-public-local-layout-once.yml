@@ -27,6 +27,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Checkout the tested V88 Go route source
+        uses: actions/checkout@v4
+        with:
+          ref: codex-public-local-layout-runtime
+          path: v88-go-source
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Checkout the exact local-layout Node source
         uses: actions/checkout@v4
         with:
@@ -42,7 +50,7 @@ jobs:
           test "$(sha256sum v78-node-source/frontend/dist/batch-rewrite/index.html | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
           grep -q 'buildLoginRequest' v78-node-source/routes/novel-fetch-upload.js
           grep -q 'cookieHeaderFromSetCookie' v78-node-source/routes/novel-fetch-upload.js
-          grep -q 'NovelFetchStore' backend/internal/httpapi/router.go
+          grep -q 'NovelFetchStore' v88-go-source/backend/internal/httpapi/router.go
           test -f deploy/v88-direct/stage-node-host.sh
           test -f deploy/v88-direct/cutover-node-host.sh
 
@@ -58,7 +66,7 @@ jobs:
           go_image="ghcr.io/${owner}/qiantie-v88:public-local-layout-go-${short_sha}"
 
           docker build --platform linux/amd64 --provenance=false -t "$node_image" v78-node-source
-          docker build --platform linux/amd64 --provenance=false -t "$go_image" backend
+          docker build --platform linux/amd64 --provenance=false -t "$go_image" v88-go-source/backend
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = linux/amd64
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = linux/amd64
 
