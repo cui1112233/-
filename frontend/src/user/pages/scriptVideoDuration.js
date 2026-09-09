@@ -1,4 +1,5 @@
-const SHOT_DURATION_PATTERN = /总时长\s*[：:]\s*(\d+(?:\.\d+)?)\s*s/i;
+const SHOT_DURATION_MARKER_PATTERN = /总时长\s*[：:]/i;
+const SHOT_DURATION_PATTERN = /总时长\s*[：:]\s*([+-]?\d+(?:\.\d+)?)\s*s/i;
 
 export function extractShotDurationSeconds(shotText) {
   const match = String(shotText ?? '').match(SHOT_DURATION_PATTERN);
@@ -13,9 +14,10 @@ function parseDuration(value) {
 }
 
 export function resolveShotVideoDuration({ shotText, fallbackDuration }) {
+  const hasShotDurationMarker = SHOT_DURATION_MARKER_PATTERN.test(String(shotText ?? ''));
   const shotDuration = extractShotDurationSeconds(shotText);
-  const source = shotDuration === null ? 'fallback' : 'shot';
-  const duration = parseDuration(shotDuration === null ? fallbackDuration : shotDuration);
+  const source = hasShotDurationMarker ? 'shot' : 'fallback';
+  const duration = parseDuration(hasShotDurationMarker ? shotDuration : fallbackDuration);
 
   if (!Number.isFinite(duration)) {
     return { ok: false, error: '时长必须是有效数字' };

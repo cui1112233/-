@@ -72,3 +72,24 @@ test('rejects an explicit fractional duration because H3 requires an integer', (
   assert.equal(result.ok, false);
   assert.match(result.error, /整数/);
 });
+
+test('rejects an explicit negative duration with the minimum-duration message', () => {
+  const result = resolveShotVideoDuration({ shotText: '总时长：-1s', fallbackDuration: 10 });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /至少 1 秒/);
+});
+
+test('rejects an explicit signed duration above the H3 limit', () => {
+  const result = resolveShotVideoDuration({ shotText: '总时长：+16s', fallbackDuration: 10 });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /超过 H3 单次 15 秒上限/);
+});
+
+test('rejects an explicit non-numeric duration instead of using the fallback', () => {
+  const result = resolveShotVideoDuration({ shotText: '总时长：abc', fallbackDuration: 10 });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /有效数字/);
+});
