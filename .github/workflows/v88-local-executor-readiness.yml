@@ -1,0 +1,27 @@
+name: V88 Local Executor Readiness
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'frontend/src/shared/api/localExecutors.js'
+      - 'frontend/src/shared/api/localExecutors.test.js'
+      - 'frontend/src/shared/api/client.js'
+      - '.github/workflows/v88-local-executor-readiness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run shared frontend API contracts
+        working-directory: frontend
+        run: npm test
