@@ -45,7 +45,7 @@ test('V88 Git-direct public cutover backs up routing and automatically restores 
 
 test('121 Browser Worker stays on the shared Docker network while host Node discovers its proven runtime IP', () => {
   assert.match(workerOverlay, /novel-fetch-121-worker:/);
-  assert.match(workerOverlay, /\n    networks:\n      default:/);
+  assert.match(workerOverlay, /\r?\n    networks:\r?\n      default:/);
   assert.match(stageScript, /v88-public-browser-worker/);
   assert.match(stageScript, /container_ip/);
   assert.match(stageScript, /QIANTIE_121_BROWSER_WORKER_URL=http:\/\/\$worker_ip:8787/);
