@@ -58,6 +58,7 @@ func loadMergeJob(ctx context.Context, q productionQueryer, owner, id string) (M
 		if err := rows.Scan(&source.VideoID, &source.Order, &source.MediaURL); err != nil {
 			return MergeJob{}, err
 		}
+		source.URL = source.MediaURL
 		value.Sources = append(value.Sources, source)
 	}
 	if err := rows.Err(); err != nil {
