@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	H3WorkflowNoPicture   = "minimax_h3_lightx2v_no_pic"
-	H3WorkflowWithPicture = "minimax_h3_lightx2v_v5_15s"
-	maxH3ReferenceImages  = 3
+	H3WorkflowNoPicture       = "minimax_h3_lightx2v_no_pic"
+	H3WorkflowWithPicture     = "minimax_h3_lightx2v_v5_15s"
+	H3EmptyReferenceImageURL  = "https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png"
+	maxH3ReferenceImages      = 9
 )
 
 func H3WorkflowForValidImages(imageURLs []string) string {
@@ -18,6 +19,16 @@ func H3WorkflowForValidImages(imageURLs []string) string {
 		return H3WorkflowNoPicture
 	}
 	return H3WorkflowWithPicture
+}
+
+func addH3ReferenceImages(payload map[string]any, imageURLs []string) {
+	references := imageURLs
+	if len(references) == 0 {
+		references = []string{H3EmptyReferenceImageURL}
+	}
+	for index, imageURL := range references {
+		payload[fmt.Sprintf("ref_image_%d", index)] = imageURL
+	}
 }
 
 func h3ImageURLs(values SettingsPatch) ([]string, error) {
