@@ -46,6 +46,21 @@ jobs:
           echo "stage_env_release=$(sed -n 's/^QIANTIE_RELEASE_SHA=//p' "$stage_env" | tail -n1)"
           echo "stage_env_data=$(sed -n 's#^QIANTIE_DATA_DIR=##p' "$stage_env" | tail -n1)"
 
+          echo '--- runtime identity ---'
+          systemctl show "$stage_unit" -p FragmentPath -p ExecStart -p MainPID
+          main_pid="$(systemctl show "$stage_unit" -p MainPID --value)"
+          echo "main_pid=$main_pid"
+          if [ -n "$main_pid" ] && [ "$main_pid" != 0 ]; then
+            tr '\0' ' ' < "/proc/$main_pid/cmdline" | sed 's/ *$//' | sed 's/^/process_cmdline=/'
+          fi
+          for file in server.js app.js lib/novel-fetch-workshop/v2-page.js middleware/auth.js; do
+            if [ -f "$stage_dir/$file" ]; then
+              echo "runtime_file=$file"
+              sha256sum "$stage_dir/$file"
+              rg -n "createNovelFetchV2PageMiddleware|apiAuth|invalid or expired token|express.static|batch-rewrite" "$stage_dir/$file" 2>/dev/null | head -40 || true
+            fi
+          done
+
           echo '--- persistence paths ---'
           for path in \
             "$stage_dir/data" \
@@ -62,15 +77,13 @@ jobs:
           done
 
           echo '--- session summary ---'
-          python3 - <<'PY'
+          python3 - "$stage_dir/data/sessions.json" <<'PY'
           import json
           import os
+          import sys
           import time
 
-          candidates = [
-              '/opt/qiantie/v88/shared/data/sessions.json',
-              '/opt/qiantie/v88/shared/data/data/sessions.json',
-          ]
+          candidates = [sys.argv[1]]
           seen = set()
           for path in candidates:
               real = os.path.realpath(path)
@@ -91,6 +104,12 @@ jobs:
               except Exception as exc:
                   print(f'sessions_parse_error={type(exc).__name__}')
           PY
+
+          echo '--- internal response headers ---'
+          for path in /batch-rewrite/index.html /user-content/avatars/choushiyiguai.jpg; do
+            echo "stage_headers_${path//\//_}"
+            curl -sS --max-time 5 -D - -o /dev/null "http://127.0.0.1:18081$path" | sed -n '1,12p'
+          done
 
           echo '--- internal status codes ---'
           for path in /api/build-info /api/login/session /batch-rewrite/index.html /user-content/avatars/choushiyiguai.jpg; do
