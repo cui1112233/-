@@ -8,7 +8,7 @@ const overlay = fs.readFileSync(path.join(root, 'deploy', 'v88-public', 'docker-
 const stageHost = fs.readFileSync(path.join(root, 'deploy', 'v88-direct', 'stage-node-host.sh'), 'utf8');
 
 function serviceBlock(source, serviceName) {
-  const lines = source.split('\n');
+  const lines = source.split('\n').map(line => line.replace(/\r$/, ''));
   const start = lines.findIndex(line => line === `  ${serviceName}:`);
   assert.ok(start >= 0, `missing service ${serviceName}`);
   let end = lines.length;

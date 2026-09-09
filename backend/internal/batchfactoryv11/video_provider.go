@@ -8,21 +8,22 @@ import (
 )
 
 const (
-	VideoProviderPersonalAPI       = "personal_api"
-	VideoProviderDoubaoLocal       = "doubao_local_executor"
-	PersonalVideoProviderID        = "yd_video"
-	DefaultPersonalVideoModel      = "yd2.0-mini"
-	DefaultPersonalVideoCreateURL  = "https://ydapi.yadiai.cn/openapi/v1/video/create"
-	DefaultPersonalVideoTasksURL   = "https://ydapi.yadiai.cn/openapi/v1/video/tasks"
+	VideoProviderPersonalAPI      = "personal_api"
+	VideoProviderDoubaoLocal      = "doubao_local_executor"
+	VideoProviderAutoDLH3         = "autodl_comfyui"
+	PersonalVideoProviderID       = "yd_video"
+	DefaultPersonalVideoModel     = "yd2.0-mini"
+	DefaultPersonalVideoCreateURL = "https://ydapi.yadiai.cn/openapi/v1/video/create"
+	DefaultPersonalVideoTasksURL  = "https://ydapi.yadiai.cn/openapi/v1/video/tasks"
 )
 
 type VideoProviderConfig struct {
-	Provider     string
-	APIKey       string
-	Model        string
-	CreateURL    string
-	TasksURL     string
-	ResultURL    string
+	Provider  string
+	APIKey    string
+	Model     string
+	CreateURL string
+	TasksURL  string
+	ResultURL string
 }
 
 type VideoProviderRegistry interface {
@@ -38,8 +39,8 @@ type VideoProviderConfigView struct {
 }
 
 type MemoryVideoProviderRegistry struct {
-	mu      sync.RWMutex
-	values  map[string]VideoProviderConfig
+	mu     sync.RWMutex
+	values map[string]VideoProviderConfig
 }
 
 func NewMemoryVideoProviderRegistry() *MemoryVideoProviderRegistry {
@@ -79,6 +80,21 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 		cfg.Model = strings.TrimSpace(cfg.Model)
 		if cfg.Model == "" {
 			cfg.Model = "doubao-seedance"
+		}
+	case VideoProviderAutoDLH3:
+		cfg.APIKey = strings.TrimSpace(cfg.APIKey)
+		if cfg.APIKey == "" {
+			return fmt.Errorf("%w: AutoDL H3 API key is required", ErrInvalid)
+		}
+		cfg.Model = strings.TrimSpace(cfg.Model)
+		if cfg.Model == "" {
+			cfg.Model = AutoDLH3Model
+		}
+		if strings.TrimSpace(cfg.CreateURL) == "" {
+			cfg.CreateURL = DefaultAutoDLH3CreateURL
+		}
+		if strings.TrimSpace(cfg.TasksURL) == "" {
+			cfg.TasksURL = DefaultAutoDLH3TasksURL
 		}
 	default:
 		return fmt.Errorf("%w: unsupported video provider", ErrInvalid)
@@ -124,6 +140,8 @@ func normalizeVideoProvider(provider string) string {
 		return VideoProviderPersonalAPI
 	case "doubao", "doubao_local", "doubao_local_executor", "local-doubao-executor-video":
 		return VideoProviderDoubaoLocal
+	case "h3", "minimax_h3", "autodl", "autodl_comfyui", "autodl_comfyui_video", "minimax-h3-video":
+		return VideoProviderAutoDLH3
 	default:
 		return strings.ToLower(strings.TrimSpace(provider))
 	}

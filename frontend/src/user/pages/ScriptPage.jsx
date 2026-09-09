@@ -20,8 +20,23 @@ import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntit
 import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
+import { resolveShotVideoDuration } from './scriptVideoDuration';
+import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
+import { listModels } from '../../shared/api/shuihuoProduction';
+
+function videoModelKey(model) {
+  return String(model?.key || model?.modelKey || '').trim();
+}
+
+function videoModelLabel(model) {
+  const key = videoModelKey(model);
+  const name = String(model?.name || key || '未命名视频模型').trim();
+  return key === 'minimax-h3-video' && model?.configured === false
+    ? `${name}（待配置 Token）`
+    : name;
+}
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -80,7 +95,10 @@ function visualFields(item) {
   const value = entityData(item);
   if (typeof value === 'string') return [{ key: '描述', label: '设定 / 描述', value }];
   const labels = { name: '名称', 名称: '名称', 人物: '名称', 场景: '名称', scene: '名称', 角色名称: '名称', 场景名称: '名称', identity: '身份', 身份: '身份', appearance: '外形', 外形: '外形', 外观描述: '外形', personality: '性格', 性格: '性格', relation: '关系', 关系: '关系', time: '时段', 时段: '时段', atmosphere: '氛围', 氛围: '氛围', 氛围概述: '氛围', description: '设定 / 描述', 描述: '设定 / 描述', 场景描述: '设定 / 描述' };
-  return Object.entries(value || {}).map(([key, fieldValue]) => ({ key, label: labels[key] || key, value: typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue) }));
+  const mediaKeys = new Set(['imageUrls', 'images', 'imageList', 'mainImageUrl']);
+  return Object.entries(value || {})
+    .filter(([key]) => !mediaKeys.has(key))
+    .map(([key, fieldValue]) => ({ key, label: labels[key] || key, value: typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue) }));
 }
 
 export function ScriptPage() {
@@ -100,7 +118,10 @@ export function ScriptPage() {
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
+  const [shotReferenceStates, setShotReferenceStates] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [scriptVideoModels, setScriptVideoModels] = useState([]);
+  const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -140,6 +161,23 @@ export function ScriptPage() {
   const selectedMode = Form.useWatch('mode', form);
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
+  useEffect(() => {
+    let active = true;
+    setLoadingScriptVideoModels(true);
+    listModels()
+      .then(result => {
+        if (!active) return;
+        const models = (Array.isArray(result?.models) ? result.models : [])
+          .filter(model => model?.kind === 'video' && videoModelKey(model));
+        setScriptVideoModels(models);
+        setScriptVideoModelKey(current => models.some(model => videoModelKey(model) === current)
+          ? current
+          : videoModelKey(models[0]) || current);
+      })
+      .catch(error => { if (active) message.warning(error?.message || '读取视频模型失败'); })
+      .finally(() => { if (active) setLoadingScriptVideoModels(false); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
     const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
@@ -225,6 +263,7 @@ export function ScriptPage() {
       output,
       editingOutput,
       shotVideoTasks,
+      shotReferenceStates,
       generationStage: generationStage === 'extracting' || generationStage === 'generating' ? 'idle' : generationStage
     };
   }
@@ -286,7 +325,7 @@ export function ScriptPage() {
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
       try {
-        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
+        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true, suppressAuthExpiry: true });
         const executors = Array.isArray(result?.executors) ? result.executors : Array.isArray(result?.items) ? result.items : [];
         if (!executors.some(item => item.online)) {
           Modal.info({
@@ -302,10 +341,27 @@ export function ScriptPage() {
         return;
       }
     }
+    const fallbackDuration = selectedDuration === '15s' ? 15 : 10;
+    const resolvedDuration = scriptVideoModelKey === 'minimax-h3-video'
+      ? resolveShotVideoDuration({ shotText: prompt, fallbackDuration })
+      : { ok: true, duration: fallbackDuration };
+    if (!resolvedDuration.ok) {
+      message.error(resolvedDuration.error);
+      return;
+    }
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
-      const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey });
+      const videoPayload = buildScriptVideoPayload({
+        prompt,
+        modelKey: scriptVideoModelKey,
+        duration: resolvedDuration.duration,
+        resolution: '480p竖',
+        imageUrls: scriptVideoModelKey === 'minimax-h3-video'
+          ? collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
+          : []
+      });
+      const result = await createScriptVideo(videoPayload);
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
@@ -337,7 +393,8 @@ export function ScriptPage() {
       novelText: values.novelText || '',
       extractInfo,
       constraints: constraintsForFormat(outputConstraints, values.format, extractInfo),
-      videoTasks: shotVideoTasks
+      videoTasks: shotVideoTasks,
+      shotReferenceStates
     });
     setCurrentHistoryId(historyId);
     return historyId;
@@ -381,7 +438,9 @@ export function ScriptPage() {
     setOutputConstraints(restoredConstraints);
     setDraftConstraints(restoredConstraints);
     setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
-    setShotVideoTasks(entry.videoTasks || {}); setCurrentHistoryId(entry.id); setHistoryOpen(false);
+    setShotVideoTasks(entry.videoTasks || {});
+    setShotReferenceStates(entry.shotReferenceStates || {});
+    setCurrentHistoryId(entry.id); setHistoryOpen(false);
     Object.entries(entry.videoTasks || {}).forEach(([index, task]) => { if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId); });
   }
 
@@ -400,6 +459,7 @@ export function ScriptPage() {
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
       setShotVideoTasks(restoredDraft.shotVideoTasks || {});
+      setShotReferenceStates(restoredDraft.shotReferenceStates || {});
       Object.entries(restoredDraft.shotVideoTasks || {}).forEach(([index, task]) => {
         if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId);
       });
@@ -424,7 +484,7 @@ export function ScriptPage() {
   useEffect(() => {
     if (!draftReadyRef.current) return;
     persistDraft();
-  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks]);
+  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks, shotReferenceStates]);
 
   useEffect(() => {
     if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks).catch(() => {});
@@ -636,6 +696,7 @@ export function ScriptPage() {
     setExtractInfo(normalizeExtractInfo());
     setOutput('');
     setShotVideoTasks({});
+    setShotReferenceStates({});
     setSelectedShotIndexes(new Set());
     setEditingOutput(false);
     setExtracting(true);
@@ -714,6 +775,7 @@ export function ScriptPage() {
       if (!isCurrentRequest(requestId)) return;
 
       setShotVideoTasks({});
+      setShotReferenceStates({});
       setOutputConstraints(requestConstraints);
       updateOutputDraft(nextOutput);
       setGenerationStage('complete');
@@ -802,6 +864,7 @@ export function ScriptPage() {
   function invalidateEntityOutput(nextInfo) {
     setOutput('');
     setShotVideoTasks({});
+    setShotReferenceStates({});
     setEditingOutput(false);
     setSelectedShotIndexes(new Set());
     setGenerationStage(nextInfo.characters.length || nextInfo.scenes.length ? 'extracted' : 'idle');
@@ -820,16 +883,25 @@ export function ScriptPage() {
     setFullscreenEditor(false);
   }
 
-  function updateActiveEntity(fields) {
+  function updateActiveEntity(fields, media = {}) {
     if (!activeEntity) return;
     setExtractInfo(current => {
       const normalized = normalizeExtractInfo(current);
       const items = [...normalized[activeEntity.type]];
       const currentIndex = items.findIndex(item => item.id === activeEntity.id);
-      if (activeEntity.isNew) items.push(createEntity(fields));
-      else if (currentIndex !== -1) items[currentIndex] = { ...items[currentIndex], data: fields };
+      let dataChanged = activeEntity.isNew;
+      if (activeEntity.isNew) items.push({ ...createEntity(fields), ...media });
+      else if (currentIndex !== -1) {
+        dataChanged = JSON.stringify(items[currentIndex].data || {}) !== JSON.stringify(fields || {});
+        items[currentIndex] = {
+          ...items[currentIndex],
+          data: fields,
+          imageUrls: Array.isArray(media.imageUrls) ? media.imageUrls : items[currentIndex].imageUrls,
+          mainImageUrl: typeof media.mainImageUrl === 'string' ? media.mainImageUrl : items[currentIndex].mainImageUrl
+        };
+      }
       const next = { ...normalized, [activeEntity.type]: items };
-      invalidateEntityOutput(next);
+      if (dataChanged) invalidateEntityOutput(next);
       return next;
     });
   }
@@ -1057,6 +1129,7 @@ export function ScriptPage() {
           setExtractInfo(normalizeExtractInfo());
           setOutput('');
           setShotVideoTasks({});
+          setShotReferenceStates({});
           setSelectedShotIndexes(new Set());
           setCurrentHistoryId('');
           setEditingOutput(false);
@@ -1164,9 +1237,14 @@ export function ScriptPage() {
           >约束设置</Button>
           <Select
             style={{ width: 164 }}
+            loading={loadingScriptVideoModels}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
+            options={scriptVideoModels.map(model => ({
+              label: videoModelLabel(model),
+              value: videoModelKey(model)
+            }))}
+            notFoundContent="暂无可用的视频模型"
             title="单分镜视频模型"
           />
           <Space>
@@ -1205,6 +1283,16 @@ export function ScriptPage() {
               onGenerateVideo={generateVideoForShot}
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
+              extractInfo={extractInfo}
+              shotReferenceStates={shotReferenceStates}
+              onToggleReferenceImages={(index, enabled) => setShotReferenceStates(current => toggleShotReferenceState(current, index, { enabled }))}
+              onToggleReferenceImage={(index, imageUrl) => setShotReferenceStates(current => {
+                const state = current[index] || {};
+                const disabledImageUrls = new Set(Array.isArray(state.disabledImageUrls) ? state.disabledImageUrls : []);
+                if (disabledImageUrls.has(imageUrl)) disabledImageUrls.delete(imageUrl);
+                else disabledImageUrls.add(imageUrl);
+                return toggleShotReferenceState(current, index, { disabledImageUrls: [...disabledImageUrls] });
+              })}
               onOpenVideo={setPreviewVideoTask}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
@@ -1568,8 +1656,13 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
         ) : (
           items.map(item => {
             const isProtagonist = protagonistIdSet.has(item.id);
+            const mainImageUrl = getEntityMedia(item).mainImageUrl;
+            const imageCount = getEntityMedia(item).imageUrls.length;
             return <div className="entity-card-row" key={item.id}>
-              <button className="entity-card entity-card-button entity-card-main" type="button" onClick={() => onEdit(item.id)}>{formatEntity(item)}</button>
+              <button className="entity-card entity-card-button entity-card-main" type="button" onClick={() => onEdit(item.id)}>
+                <span>{formatEntity(item)}</span>
+                <small className="entity-media-status">{mainImageUrl ? '主图已选择' : '未选择主图'}{imageCount ? ` · 候选图 ${imageCount} 张` : ''}</small>
+              </button>
               {isCharacter && <Button
                 className={`entity-protagonist-toggle${isProtagonist ? ' is-protagonist' : ''}`}
                 type="text"
@@ -1588,6 +1681,9 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
 
 function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
+  const [imageUrls, setImageUrls] = useState([]);
+  const [mainImageUrl, setMainImageUrl] = useState('');
+  const [newImageUrl, setNewImageUrl] = useState('');
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentError, setEnrichmentError] = useState('');
@@ -1595,6 +1691,10 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
   useEffect(() => {
     if (!open) return;
     setFields(Object.fromEntries(visualFields(entity).map(field => [field.key, field.value])));
+    const media = getEntityMedia(entity);
+    setImageUrls(media.imageUrls);
+    setMainImageUrl(media.mainImageUrl);
+    setNewImageUrl('');
     setEnrichment(null);
     setEnrichmentError('');
   }, [entity, open]);
@@ -1603,6 +1703,20 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
   const title = `${isNew ? '添加' : '编辑'}${type === 'characters' ? '人物' : '场景'}`;
   const deleteLabel = type === 'characters' ? '删除人物' : '删除场景';
   const canEnrich = Boolean(String(novelText || '').trim() && entityName(fields));
+
+  function addImageCandidate() {
+    const url = String(newImageUrl || '').trim();
+    if (!url) return;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:') throw new Error('参考图必须使用 HTTPS 地址');
+      const normalized = parsed.toString();
+      setImageUrls(current => current.includes(normalized) ? current : [...current, normalized]);
+      setNewImageUrl('');
+    } catch (error) {
+      message.warning(error.message || '请输入有效的 HTTPS 图片地址');
+    }
+  }
 
   async function enrich() {
     if (!canEnrich) return;
@@ -1634,7 +1748,7 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
       width={fullscreen ? '100vw' : 760}
       style={fullscreen ? { top: 0, paddingBottom: 0 } : undefined}
       onCancel={onClose}
-      footer={<Space><Button onClick={onToggleFullscreen}>{fullscreen ? '退出全屏' : '全屏编辑'}</Button>{!isNew && <Popconfirm title={`确认${deleteLabel}？`} onConfirm={onDelete}><Button danger className="entity-editor-danger">{deleteLabel}</Button></Popconfirm>}<Button type="primary" onClick={() => { onChange(fields); onClose(); }}>完成</Button></Space>}
+      footer={<Space><Button onClick={onToggleFullscreen}>{fullscreen ? '退出全屏' : '全屏编辑'}</Button>{!isNew && <Popconfirm title={`确认${deleteLabel}？`} onConfirm={onDelete}><Button danger className="entity-editor-danger">{deleteLabel}</Button></Popconfirm>}<Button type="primary" onClick={() => { onChange(fields, { imageUrls, mainImageUrl }); onClose(); }}>完成</Button></Space>}
     >
       <div className="entity-editor-fields">
         {fieldsToRender.map(field => (
@@ -1642,6 +1756,22 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
             <Input.TextArea value={fields[field.key] || ''} autoSize={{ minRows: 1, maxRows: 6 }} onChange={event => setFields(current => ({ ...current, [field.key]: event.target.value }))} />
           </Form.Item>
         ))}
+      </div>
+      <div className="entity-media-editor">
+        <Typography.Text strong>参考图候选</Typography.Text>
+        <Typography.Paragraph type="secondary" style={{ margin: '4px 0 8px' }}>候选图不会自动成为主图；请明确点击“设为主图”。</Typography.Paragraph>
+        <Space.Compact block>
+          <Input value={newImageUrl} placeholder="粘贴 HTTPS 图片地址" onChange={event => setNewImageUrl(event.target.value)} onPressEnter={addImageCandidate} />
+          <Button onClick={addImageCandidate}>添加候选图</Button>
+        </Space.Compact>
+        <div className="entity-media-candidates">
+          {imageUrls.length ? imageUrls.map(url => (
+            <div className="entity-media-candidate" key={url}>
+              <Input value={url} onChange={event => setImageUrls(current => current.map(item => item === url ? event.target.value : item))} />
+              <Button type={mainImageUrl === url ? 'primary' : 'default'} onClick={() => setMainImageUrl(url)}>{mainImageUrl === url ? '当前主图' : '设为主图'}</Button>
+            </div>
+          )) : <Typography.Text type="secondary">暂无候选图。添加后仍需手动设为主图。</Typography.Text>}
+        </div>
       </div>
       <Space wrap style={{ marginTop: 8 }}>
         <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
