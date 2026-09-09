@@ -1,5 +1,7 @@
 'use strict';
 
+// Baseline trigger: unified local-video handoff contract suite.
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
