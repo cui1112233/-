@@ -15,6 +15,7 @@ env:
   ECS_HOST: 115.190.156.223
   ECS_USER: root
   STAGE_ROOT: /opt/qiantie/releases/v88-stage
+  REMOTE_STAGE_TIMEOUT_SECONDS: 1200
 
 concurrency:
   group: v88-node-parallel-stage
@@ -23,7 +24,7 @@ concurrency:
 jobs:
   stage-node:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@v4
@@ -152,8 +153,10 @@ jobs:
             "cd '$release_dir' && cat source.tar.gz.part-* > source.tar.gz && test \"\$(sha256sum source.tar.gz | awk '{print \$1}')\" = '$payload_sha' && rm -f source.tar.gz.part-*"
           echo 'REMOTE_REASSEMBLE_DONE'
 
-          echo 'REMOTE_STAGE_START'
-          timeout 600 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$release_dir" "$GITHUB_SHA" <<'REMOTE'
+          echo "REMOTE_STAGE_START timeout_seconds=${REMOTE_STAGE_TIMEOUT_SECONDS}"
+          stage_started_at="$(date +%s)"
+          set +e
+          timeout "$REMOTE_STAGE_TIMEOUT_SECONDS" ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$release_dir" "$GITHUB_SHA" <<'REMOTE'
           set -Eeuo pipefail
           release_dir="$1"
           sha="$2"
@@ -162,7 +165,14 @@ jobs:
           test "$(tr -d '\r\n' < RELEASE-SHA)" = "$sha"
           bash deploy/v88-direct/stage-node-host.sh "$release_dir" "$sha"
           REMOTE
-          echo 'REMOTE_STAGE_DONE'
+          stage_status=$?
+          set -e
+          stage_elapsed=$(( $(date +%s) - stage_started_at ))
+          if [ "$stage_status" -ne 0 ]; then
+            echo "REMOTE_STAGE_FAILED status=$stage_status elapsed_seconds=$stage_elapsed timeout_seconds=${REMOTE_STAGE_TIMEOUT_SECONDS}" >&2
+            exit "$stage_status"
+          fi
+          echo "REMOTE_STAGE_DONE elapsed_seconds=$stage_elapsed"
 
           timeout 20 ssh "${ssh_opts[@]}" -O exit "$ECS_USER@$ECS_HOST" >/dev/null 2>&1 || true
 
