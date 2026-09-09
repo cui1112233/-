@@ -1,0 +1,36 @@
+name: V88 H3 Minimize Diff
+
+on:
+  push:
+    branches:
+      - feat/v88-h3-unified-video-20260909
+    paths:
+      - .github/workflows/v88-h3-minimize-diff.yml
+
+permissions:
+  contents: write
+
+jobs:
+  minimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/v88-h3-unified-video-20260909
+          fetch-depth: 0
+      - name: Fetch v88
+        run: git fetch origin v88 --depth=1
+      - name: Replay minimal Go hunks
+        run: python scripts/minimize-v88-h3-go-diff.py
+      - name: Guard diff scope
+        run: |
+          git diff --check
+          git diff --stat
+          test -z "$(git diff --name-only | grep -E '(^|/)(novel-fetch|121-|v78|deploy/)' || true)"
+      - name: Commit minimal Go diff
+        run: |
+          git config user.name 'cui1112233'
+          git config user.email '732223510@qq.com'
+          git add backend/internal/batchfactoryv11/video_provider.go backend/internal/batchfactoryv11/production.go backend/internal/httpapi/router.go backend/internal/httpapi/batch_factory_v11_production.go
+          git commit -m 'refactor(v88): minimize H3 integration diff'
+          git push origin HEAD:feat/v88-h3-unified-video-20260909
