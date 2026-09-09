@@ -12,14 +12,44 @@ STAGE_PORT=18081
 STAGE_ENV=/opt/qiantie/v88/shared/env/v88-stage.env
 STAGE_UNIT=qiantie-v88-node-stage.service
 NGINX_DEST=/etc/nginx/conf.d/default.conf
-OLD_UPSTREAM=v88-public-v88-node-1:3000
 
 nginx_id="$(docker ps --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
 [ -n "$nginx_id" ] || { echo "running V88 Nginx container not found" >&2; exit 3; }
 
+node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
+[ -n "$node_id" ] || { echo "running V88 Docker Node container not found" >&2; exit 3; }
+
 gateway="$(docker network inspect "$NETWORK" --format '{{(index .IPAM.Config 0).Gateway}}')"
 [ -n "$gateway" ] || { echo "V88 Docker bridge gateway not found" >&2; exit 4; }
 NEW_UPSTREAM="${gateway}:${STAGE_PORT}"
+
+# Discover every endpoint that can legitimately identify the currently running
+# Docker Node on the V88 internal network. This keeps cutover compatible with
+# Compose aliases (for example v88-node:3000), concrete container names, and
+# the current container IP without ever doing a broad :3000 replacement.
+node_name="$(docker inspect -f '{{.Name}}' "$node_id" | sed 's#^/##')"
+node_ip="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$node_id")"
+mapfile -t node_aliases < <(
+  docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{range .Aliases}}{{println .}}{{end}}{{end}}" "$node_id" \
+    | sed '/^$/d'
+)
+
+current_node_endpoints=()
+add_current_node_endpoint() {
+  value="${1:-}"
+  [ -n "$value" ] || return 0
+  endpoint="${value}:3000"
+  for existing in "${current_node_endpoints[@]:-}"; do
+    [ "$existing" = "$endpoint" ] && return 0
+  done
+  current_node_endpoints+=("$endpoint")
+}
+add_current_node_endpoint "$node_name"
+add_current_node_endpoint "$node_ip"
+for node_alias in "${node_aliases[@]:-}"; do
+  add_current_node_endpoint "$node_alias"
+done
+[ "${#current_node_endpoints[@]}" -gt 0 ] || { echo "no live Docker Node endpoints discovered" >&2; exit 4; }
 
 validate_build_info() {
   expected_sha="$1"
@@ -47,7 +77,7 @@ cp -a "$STAGE_ENV" "$env_backup"
 rollback() {
   status=$?
   trap - ERR
-  echo "V88 Node cutover failed; rollback to Docker Node upstream" >&2
+  echo "V88 Node cutover failed; rollback to previous Nginx Node upstream" >&2
   if [ -f "$backup" ]; then
     cat "$backup" > "$config_source"
     docker exec "$nginx_id" nginx -t >/dev/null
@@ -85,15 +115,40 @@ for _ in $(seq 1 30); do
 done
 [ -n "$build_info" ] || { echo "promoted host Node did not become healthy" >&2; exit 7; }
 
-# Replace only the Node upstream. Go/worker routes and every other Nginx rule
-# remain byte-for-byte unchanged. Docker Node stays running as the rollback target.
-if grep -q "http://${OLD_UPSTREAM}" "$config_source"; then
-  sed "s#http://${OLD_UPSTREAM}#http://${NEW_UPSTREAM}#g" "$config_source" > "$tmp_conf"
+# Replace only endpoints proven to belong to the currently running Docker Node.
+# Go/worker routes and every other Nginx rule remain byte-for-byte unchanged.
+# Docker Node stays running as the rollback target.
+matching_node_endpoints=()
+for endpoint in "${current_node_endpoints[@]}"; do
+  if grep -Fq "$endpoint" "$config_source"; then
+    matching_node_endpoints+=("$endpoint")
+  fi
+done
+
+if [ "${#matching_node_endpoints[@]}" -gt 0 ]; then
+  python3 - "$config_source" "$tmp_conf" "$NEW_UPSTREAM" "${matching_node_endpoints[@]}" <<'PY'
+import re
+import sys
+
+source, target, replacement, *endpoints = sys.argv[1:]
+text = open(source, 'r', encoding='utf-8').read()
+changed = 0
+for endpoint in endpoints:
+    pattern = r'(?<![A-Za-z0-9._-])' + re.escape(endpoint) + r'(?![A-Za-z0-9._-])'
+    text, count = re.subn(pattern, replacement, text)
+    changed += count
+if changed < 1:
+    raise SystemExit('no exact live Docker Node endpoint was replaced')
+with open(target, 'w', encoding='utf-8') as fh:
+    fh.write(text)
+print(f'NODE_UPSTREAM_REPLACEMENTS={changed}')
+PY
   cat "$tmp_conf" > "$config_source"
-elif grep -q "http://${NEW_UPSTREAM}" "$config_source"; then
+elif grep -Fq "$NEW_UPSTREAM" "$config_source"; then
   echo "Nginx already points to ${NEW_UPSTREAM}; verifying idempotently."
 else
-  echo "neither expected old nor new Node upstream exists in Nginx config" >&2
+  echo "no discovered live Docker Node endpoint or staged upstream exists in Nginx config" >&2
+  printf 'discovered_node_endpoint=%s\n' "${current_node_endpoints[@]}" >&2
   exit 8
 fi
 
