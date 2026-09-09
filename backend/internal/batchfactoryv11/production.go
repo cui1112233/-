@@ -305,7 +305,7 @@ func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID s
 }
 
 func (s *ProductionService) reconcileBatch(ctx context.Context, repository ProductionRepository, owner, batchID string) error {
-	if s.Poller == nil && s.LocalExecutor == nil && s.ProviderRegistry == nil { return nil }
+	if s.Poller == nil && s.LocalExecutor == nil && s.ProviderRegistry == nil && s.Adapter == nil { return nil }
 	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
 	if err != nil { return err }
 	for _, job := range jobs {
@@ -319,6 +319,15 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 					pollErr = fmt.Errorf("%w: Doubao local executor is offline", ErrUnavailable)
 				} else {
 					ref, pollErr = s.LocalExecutor.Poll(ctx, owner, task.ProviderTaskID)
+				}
+			} else if provider == VideoProviderAutoDLComfyUI {
+				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
+				if resolveErr != nil {
+					pollErr = resolveErr
+				} else if poller, ok := adapter.(ProductionPoller); !ok {
+					pollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
+				} else {
+					ref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
 				}
 			} else if s.ProviderRegistry != nil {
 				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
