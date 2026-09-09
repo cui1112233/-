@@ -119,14 +119,12 @@ jobs:
           set -Eeuo pipefail
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           release_dir="/opt/qiantie/releases/v88-stage/${GITHUB_SHA}"
-          payload="release/v88-node-${GITHUB_SHA}.tar.gz"
-          payload_sha="$(sha256sum "$payload" | awk '{print $1}')"
 
           timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
-          timeout 600 scp "${ssh_opts[@]}" "$payload" "$ECS_USER@$ECS_HOST:$release_dir/source.tar.gz"
-          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" \
-            "cd '$release_dir' && test \"\$(sha256sum source.tar.gz | awk '{print \$1}')\" = '$payload_sha'"
-          timeout 60 scp "${ssh_opts[@]}" deploy/v88-direct/cutover-node-host.sh "$ECS_USER@$ECS_HOST:/tmp/cutover-node-host-${GITHUB_SHA}.sh"
+          timeout 60 scp "${ssh_opts[@]}" \
+            deploy/v88-direct/stage-node-host.sh \
+            deploy/v88-direct/cutover-node-host.sh \
+            "$ECS_USER@$ECS_HOST:/tmp/"
 
       - name: Deploy Go route and cut public Node to the local layout
         shell: bash
@@ -146,6 +144,7 @@ jobs:
           release_dir="/opt/qiantie/releases/v88-stage/$sha"
           network=v88-public_qiantie_internal
           compose=(docker compose -f "$compose_file")
+          node_release_id=""
 
           test -s "$compose_file"
           go_id="$(docker ps --filter 'name=v88-public-go-api' --format '{{.ID}}' | head -n1)"
@@ -157,6 +156,9 @@ jobs:
           rollback_go() {
             status=$?
             trap - ERR
+            if [ -n "$node_release_id" ]; then
+              docker rm -f "$node_release_id" >/dev/null 2>&1 || true
+            fi
             if [ "$status" -ne 0 ]; then
               docker tag "$rollback_go_image" "$old_go_image" || true
               "${compose[@]}" up -d --no-build --no-deps --force-recreate --pull never go-api || true
@@ -171,17 +173,20 @@ jobs:
           docker tag "$go_image" "$old_go_image"
           "${compose[@]}" up -d --no-build --no-deps --force-recreate --pull never go-api
 
+          docker pull "$node_image"
+          docker image inspect "$node_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx linux/amd64
+
           go_id="$(docker ps --filter 'name=v88-public-go-api' --format '{{.ID}}' | head -n1)"
           test -n "$go_id"
           test "$(docker inspect "$go_id" --format '{{.State.Status}}')" = running
 
-          cd "$release_dir"
-          test -s source.tar.gz
-          tar -xzf source.tar.gz
-          test "$(tr -d '\r\n' < RELEASE-SHA)" = "$sha"
-          bash deploy/v88-direct/stage-node-host.sh "$release_dir" "$sha"
-          chmod 700 "/tmp/cutover-node-host-${sha}.sh"
-          bash "/tmp/cutover-node-host-${sha}.sh" "$sha"
+          rm -rf "$release_dir"/*
+          node_release_id="$(docker create "$node_image")"
+          docker cp "$node_release_id:/app/." "$release_dir/"
+          printf '%s\n' "$sha" > "$release_dir/RELEASE-SHA"
+          chmod 700 "/tmp/stage-node-host.sh" "/tmp/cutover-node-host.sh"
+          bash /tmp/stage-node-host.sh "$release_dir" "$sha"
+          bash /tmp/cutover-node-host.sh "$sha"
 
           public_html="$(curl -fsS --max-time 10 http://127.0.0.1:3000/batch-rewrite/index.html)"
           printf '%s' "$public_html" | sha256sum | awk -v expected='64bb852e2c7abac64165fbee12b079f937a140a571fc74f57a076352fa3e485b' '$1 == expected { ok=1 } END { exit ok ? 0 : 1 }'
@@ -193,7 +198,8 @@ jobs:
           curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("git_sha")==sys.argv[1]; assert d.get("deploy_mode")=="git-direct"' "$sha"
 
-          rm -f "/tmp/cutover-node-host-${sha}.sh" "$release_dir/source.tar.gz"
+          docker rm -f "$node_release_id" >/dev/null 2>&1 || true
+          rm -f /tmp/stage-node-host.sh /tmp/cutover-node-host.sh
           docker logout ghcr.io >/dev/null 2>&1 || true
           trap - ERR
           echo "PUBLIC_LOCAL_LAYOUT_CUTOVER_OK sha=$sha"
