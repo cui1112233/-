@@ -25,6 +25,7 @@ on:
       - 'branding/**'
       - 'frontend/index.html'
       - 'frontend/package.json'
+      - 'frontend/package-lock.json'
       - 'frontend/src/shared/api/**'
       - 'frontend/src/user/pages/batch-factory-v11/**'
       - 'frontend/public/yizhan-icon.png'
@@ -47,9 +48,15 @@ jobs:
         run: npm install --ignore-scripts
       - name: Run gateway and executor route tests
         run: node --test test/local-executor-updates.test.js test/batch-factory-v11-shuihuo-bridge.test.js test/script-video-local-executor.test.js
+      - name: Install V11 frontend dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts
       - name: Run V11 frontend API contract tests
         working-directory: frontend
         run: npm test
+      - name: Build V11 frontend
+        working-directory: frontend
+        run: npm run build
       - name: Run full local executor tests
         working-directory: local-executor
         run: npm test
