@@ -139,3 +139,28 @@ test('legacy auto_detect_platform=true never causes cross-platform fallback in V
     assert.equal(saved.meta.originalStatus, 'failed');
   });
 });
+
+test('MySQL workshop fetch records explicit empty-source failure without false success', async () => {
+  const bookId = '2074000000000000005';
+  await withBridge({
+    fetchConfig: { endpoint: 'https://txt.121w.com/api.php', timeout_seconds: 5, retries: 0 },
+    document: seedDocument(bookId, '15')
+  }, async ({ baseUrl, getSaved }) => {
+    const store = createMySQLWorkshopStore({
+      targetBaseUrl: baseUrl,
+      bridgeSecret: 'test-secret',
+      account: { username: 'tester', isOwner: true },
+      fetchUpstream: async () => ({ code: 200, data: '' })
+    });
+
+    const result = await store.fetchOriginal('tester', bookId, 4000);
+
+    assert.deepEqual(result, { status: 'failed', attempts: 1, code: 'EMPTY_ORIGINAL' });
+    const saved = getSaved();
+    assert.equal(saved.meta.originalStatus, 'failed');
+    assert.equal(saved.meta.originalFetchAttempts, 1);
+    assert.equal(saved.meta.originalErrorCode, 'EMPTY_ORIGINAL');
+    assert.equal(saved.logs.at(-1).event, 'original_fetch_failed');
+    assert.equal(saved.logs.at(-1).data.code, 'EMPTY_ORIGINAL');
+  });
+});
