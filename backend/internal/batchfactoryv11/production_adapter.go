@@ -98,7 +98,7 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 			return ProviderTaskRef{}, imageErr
 		}
 		payload["workflow"] = H3WorkflowForValidImages(imageURLs)
-		payload["imageUrls"] = imageURLs
+		addH3ReferenceImages(payload, imageURLs)
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
