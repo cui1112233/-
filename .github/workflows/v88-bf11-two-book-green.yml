@@ -23,7 +23,7 @@ jobs:
           go-version: '1.23.x'
           cache: false
       - name: Apply minimal V11 reconcile fix
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
           p = Path('backend/internal/batchfactoryv11/production.go')
