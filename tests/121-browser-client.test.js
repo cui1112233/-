@@ -109,3 +109,21 @@ test('browser client wall-clock timeout settles request', async () => {
     return true;
   });
 });
+
+test('browser client gives login requests a longer deadline than session checks', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret', timeoutMs: 1000, loginTimeoutMs: 1100,
+    fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+    })
+  });
+  const startedAt = Date.now();
+  const settled = {};
+  await Promise.all([
+    client.test(identity).catch(error => { settled.test = { elapsed: Date.now() - startedAt, error }; }),
+    client.login({ ...identity, password: 'pw' }).catch(error => { settled.login = { elapsed: Date.now() - startedAt, error }; })
+  ]);
+  assert.equal(settled.test.error.code, 'BROWSER_WORKER_TIMEOUT');
+  assert.equal(settled.login.error.code, 'BROWSER_WORKER_TIMEOUT');
+  assert.ok(settled.login.elapsed >= settled.test.elapsed + 50, JSON.stringify(settled));
+});
