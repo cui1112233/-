@@ -20,6 +20,7 @@ import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntit
 import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
+import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
@@ -340,13 +341,21 @@ export function ScriptPage() {
         return;
       }
     }
+    const fallbackDuration = selectedDuration === '15s' ? 15 : 10;
+    const resolvedDuration = scriptVideoModelKey === 'minimax-h3-video'
+      ? resolveShotVideoDuration({ shotText: prompt, fallbackDuration })
+      : { ok: true, duration: fallbackDuration };
+    if (!resolvedDuration.ok) {
+      message.error(resolvedDuration.error);
+      return;
+    }
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
       const videoPayload = buildScriptVideoPayload({
         prompt,
         modelKey: scriptVideoModelKey,
-        duration: selectedDuration === '15s' ? 15 : 10,
+        duration: resolvedDuration.duration,
         resolution: '480p竖',
         imageUrls: scriptVideoModelKey === 'minimax-h3-video'
           ? collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })

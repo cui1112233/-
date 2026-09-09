@@ -82,6 +82,47 @@ test('H3 script route switches to reference workflow when a valid image is suppl
   assert.equal(submitted.payload.ref_image_0, 'https://cdn.example.test/ref.png');
 });
 
+test('H3 script route accepts the maximum 15-second duration and returns the async task contract', async t => {
+  let submitted;
+  const h3App = await startApp({
+    h3ApiKeyReader: () => 'server-only-h3-token',
+    h3Submit: async input => {
+      submitted = input;
+      return { statusCode: 200, text: JSON.stringify({ data: { task_id: 'task-15' } }) };
+    }
+  });
+  t.after(() => h3App.server.close());
+
+  const response = await fetch(`${h3App.baseURL}/api/script-video`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelKey: H3_MODEL_KEY, prompt: '十五秒镜头', duration: 15, resolution: '480p竖' })
+  });
+
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { ok: true, taskId: 'h3:task-15', provider: 'autodl_comfyui' });
+  assert.equal(submitted.payload.duration, 15);
+});
+
+test('H3 script route rejects duration above 15 seconds without submitting', async t => {
+  let submitCount = 0;
+  const h3App = await startApp({
+    h3ApiKeyReader: () => 'server-only-h3-token',
+    h3Submit: async () => { submitCount += 1; return { statusCode: 200, text: '{}' }; }
+  });
+  t.after(() => h3App.server.close());
+
+  const response = await fetch(`${h3App.baseURL}/api/script-video`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelKey: H3_MODEL_KEY, prompt: '超长镜头', duration: 16, resolution: '480p竖' })
+  });
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /1-15/);
+  assert.equal(submitCount, 0);
+});
+
 test('H3 script route blocks submission when the server token is missing', async t => {
   let submitCount = 0;
   const h3App = await startApp({
