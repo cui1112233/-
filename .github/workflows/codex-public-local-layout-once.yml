@@ -66,35 +66,16 @@ jobs:
           set -Eeuo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           short_sha="${GITHUB_SHA::12}"
-          node_image="ghcr.io/${owner}/qiantie-v88:public-local-layout-node-${short_sha}"
           go_image="ghcr.io/${owner}/qiantie-v88:public-local-layout-go-${short_sha}"
 
-          ( cd v78-node-source && npm ci --omit=dev )
-          rsync -a --delete frontend/dist/ v78-node-source/frontend/dist/
-          docker build --platform linux/amd64 --provenance=false -f v78-node-source/deploy/Dockerfile.platform -t "$node_image" v78-node-source
           docker build --platform linux/amd64 --provenance=false -t "$go_image" v88-go-source/backend
-          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = linux/amd64
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = linux/amd64
 
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$owner" --password-stdin
-          docker push "$node_image"
           docker push "$go_image"
           docker logout ghcr.io >/dev/null 2>&1 || true
 
-          echo "NODE_IMAGE=$node_image" >> "$GITHUB_ENV"
           echo "GO_IMAGE=$go_image" >> "$GITHUB_ENV"
-
-      - name: Package the local-layout Node release
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          mkdir -p v78-node-source/deploy
-          cp -a deploy/v88-direct v78-node-source/deploy/v88-direct
-          ( cd v78-node-source && npm ci --omit=dev )
-          mkdir -p release
-          cd v78-node-source
-          bash deploy/v88-direct/package-node-release.sh "$GITHUB_SHA" "$GITHUB_WORKSPACE/release/v88-node-${GITHUB_SHA}.tar.gz"
-          sha256sum "$GITHUB_WORKSPACE/release/v88-node-${GITHUB_SHA}.tar.gz" | tee "$GITHUB_WORKSPACE/release/v88-node-${GITHUB_SHA}.tar.gz.sha256"
 
       - name: Prepare ECS SSH
         shell: bash
@@ -117,18 +98,27 @@ jobs:
           done
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Upload Node release to an isolated ECS stage directory
+      - name: Upload local novel-fetch assets and stage scripts
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           release_dir="/opt/qiantie/releases/v88-stage/${GITHUB_SHA}"
 
-          timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
+          mkdir -p release/v88-batch-rewrite
+          cp v78-node-source/frontend/public/batch-rewrite/index.html release/v88-batch-rewrite/
+          cp v78-node-source/frontend/public/batch-rewrite/app.js release/v88-batch-rewrite/
+          cp v78-node-source/frontend/public/batch-rewrite/styles.css release/v88-batch-rewrite/
+          timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf /tmp/qiantie-batch-rewrite && mkdir -p /tmp/qiantie-batch-rewrite"
           timeout 60 scp "${ssh_opts[@]}" \
             deploy/v88-direct/stage-node-host.sh \
             deploy/v88-direct/cutover-node-host.sh \
             "$ECS_USER@$ECS_HOST:/tmp/"
+          timeout 60 scp "${ssh_opts[@]}" \
+            release/v88-batch-rewrite/index.html \
+            release/v88-batch-rewrite/app.js \
+            release/v88-batch-rewrite/styles.css \
+            "$ECS_USER@$ECS_HOST:/tmp/qiantie-batch-rewrite/"
 
       - name: Deploy Go route and cut public Node to the local layout
         shell: bash
@@ -139,16 +129,14 @@ jobs:
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           printf '%s' "$GHCR_TOKEN" | timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '$owner' --password-stdin"
-          timeout 1200 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$GO_IMAGE" "$NODE_IMAGE" "$GITHUB_SHA" <<'REMOTE'
+          timeout 1200 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$GO_IMAGE" "$GITHUB_SHA" <<'REMOTE'
           set -Eeuo pipefail
           go_image="$1"
-          node_image="$2"
-          sha="$3"
+          sha="$2"
           compose_file=/opt/qiantie/v88/deploy/v88-public/docker-compose.yml
           release_dir="/opt/qiantie/releases/v88-stage/$sha"
           network=v88-public_qiantie_internal
           compose=(docker compose -f "$compose_file")
-          node_release_id=""
 
           test -s "$compose_file"
           go_id="$(docker ps --filter 'name=v88-public-go-api' --format '{{.ID}}' | head -n1)"
@@ -160,9 +148,6 @@ jobs:
           rollback_go() {
             status=$?
             trap - ERR
-            if [ -n "$node_release_id" ]; then
-              docker rm -f "$node_release_id" >/dev/null 2>&1 || true
-            fi
             if [ "$status" -ne 0 ]; then
               docker tag "$rollback_go_image" "$old_go_image" || true
               "${compose[@]}" up -d --no-build --no-deps --force-recreate --pull never go-api || true
@@ -177,16 +162,23 @@ jobs:
           docker tag "$go_image" "$old_go_image"
           "${compose[@]}" up -d --no-build --no-deps --force-recreate --pull never go-api
 
-          docker pull "$node_image"
-          docker image inspect "$node_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx linux/amd64
-
           go_id="$(docker ps --filter 'name=v88-public-go-api' --format '{{.ID}}' | head -n1)"
           test -n "$go_id"
           test "$(docker inspect "$go_id" --format '{{.State.Status}}')" = running
 
+          current_release_dir="$(systemctl show qiantie-v88-node-stage.service -p WorkingDirectory --value)"
+          case "$current_release_dir" in
+            /opt/qiantie/releases/v88-stage/*) ;;
+            *) echo "current host Node stage directory is invalid: $current_release_dir" >&2; exit 1 ;;
+          esac
+          test -d "$current_release_dir"
           rm -rf "$release_dir"/*
-          node_release_id="$(docker create "$node_image")"
-          docker cp "$node_release_id:/app/." "$release_dir/"
+          cp -a "$current_release_dir/." "$release_dir/"
+          rm -rf "$release_dir/frontend/dist/batch-rewrite"
+          mkdir -p "$release_dir/frontend/public/batch-rewrite"
+          cp /tmp/qiantie-batch-rewrite/index.html "$release_dir/frontend/public/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/app.js "$release_dir/frontend/public/batch-rewrite/"
+          cp /tmp/qiantie-batch-rewrite/styles.css "$release_dir/frontend/public/batch-rewrite/"
           printf '%s\n' "$sha" > "$release_dir/RELEASE-SHA"
           chmod 700 "/tmp/stage-node-host.sh" "/tmp/cutover-node-host.sh"
           bash /tmp/stage-node-host.sh "$release_dir" "$sha"
@@ -204,9 +196,9 @@ jobs:
           curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
 
-          docker rm -f "$node_release_id" >/dev/null 2>&1 || true
           rm -f "$public_html_file"
           rm -f /tmp/stage-node-host.sh /tmp/cutover-node-host.sh
+          rm -rf /tmp/qiantie-batch-rewrite
           docker logout ghcr.io >/dev/null 2>&1 || true
           trap - ERR
           echo "PUBLIC_LOCAL_LAYOUT_CUTOVER_OK sha=$sha"
