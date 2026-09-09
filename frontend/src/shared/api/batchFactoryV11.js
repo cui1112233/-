@@ -1,6 +1,7 @@
 import { apiRequest } from './client.js';
 
 const BASE = '/api/batch-factory/v11';
+const LOCAL_EXECUTOR_ARTIFACT_PREFIX = '/api/shuihuo-production/local-executor-artifacts/';
 
 function id(value) {
   return encodeURIComponent(String(value ?? ''));
@@ -18,6 +19,41 @@ function query(params = {}) {
   }
   const suffix = search.toString();
   return suffix ? `?${suffix}` : '';
+}
+
+function localExecutorArtifactRequestPath(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/')) {
+    try {
+      const parsed = new URL(raw, 'http://qiantie.local');
+      return parsed.pathname.startsWith(LOCAL_EXECUTOR_ARTIFACT_PREFIX)
+        ? `${parsed.pathname}${parsed.search}`
+        : '';
+    } catch (_) {
+      return '';
+    }
+  }
+  if (typeof window === 'undefined' || !window.location?.origin) return '';
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin !== window.location.origin || !parsed.pathname.startsWith(LOCAL_EXECUTOR_ARTIFACT_PREFIX)) return '';
+    return `${parsed.pathname}${parsed.search}`;
+  } catch (_) {
+    return '';
+  }
+}
+
+export function isProtectedProductionMediaURL(value) {
+  return Boolean(localExecutorArtifactRequestPath(value));
+}
+
+export function getProductionMediaBlob(mediaUrl) {
+  const path = localExecutorArtifactRequestPath(mediaUrl);
+  if (!path) {
+    return Promise.reject(new Error('Production media URL is not a local executor artifact'));
+  }
+  return apiRequest(path, { responseType: 'blob' });
 }
 
 export function bf11Path(path = '') {
@@ -236,6 +272,8 @@ export default {
   listLocalExecutors,
   createLocalExecutorPairing,
   getProductionStatus,
+  getProductionMediaBlob,
+  isProtectedProductionMediaURL,
   submitBatchMerge,
   getMergeStatus,
   getPublishCredential,

@@ -1,5 +1,6 @@
 import { Button, Space, Tooltip } from 'antd';
 import { ChevronDown, ChevronUp, EyeOff, GripVertical, Maximize2, Minimize2, MoveDiagonal2 } from 'lucide-react';
+import { ProductionMediaBoundary } from './ProductionMediaBoundary.jsx';
 
 export function WorkbenchCard({
   id,
@@ -68,6 +69,10 @@ export function WorkbenchCard({
     window.addEventListener('pointerup', up);
   }
 
+  const cardBody = id === 'preview'
+    ? <ProductionMediaBoundary>{children}</ProductionMediaBoundary>
+    : children;
+
   return <section className={`bf11-card ${editMode ? 'is-editing' : ''} ${maximized ? 'is-maximized' : ''}`} style={style} data-bf-card={id}>
     <header className="bf11-card-head" onPointerDown={startDrag}>
       <div className="bf11-card-title">
@@ -87,7 +92,7 @@ export function WorkbenchCard({
         {editMode ? <Tooltip title="隐藏卡片"><Button type="text" size="small" icon={<EyeOff size={15} />} onClick={onHide} /></Tooltip> : null}
       </Space>
     </header>
-    {!item.collapsed ? <div className="bf11-card-body">{children}</div> : null}
+    {!item.collapsed ? <div className="bf11-card-body">{cardBody}</div> : null}
     {editMode && !item.collapsed && !maximized ? <button className="bf11-resize-handle" aria-label={`调整${title}大小`} onPointerDown={startResize}><MoveDiagonal2 size={15} /></button> : null}
   </section>;
 }
