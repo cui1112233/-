@@ -83,6 +83,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          mkdir -p v78-node-source/deploy
           cp -a deploy/v88-direct v78-node-source/deploy/v88-direct
           ( cd v78-node-source && npm ci --omit=dev )
           mkdir -p release
