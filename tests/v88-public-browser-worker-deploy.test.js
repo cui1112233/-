@@ -43,5 +43,12 @@ test('served novel-fetch page injects the current cache-busted 121 login guard a
   assert.match(first, /\/batch-rewrite\/121-login-hotfix\.js\?v=20260909-login-timeout65-r1/);
   assert.ok(first.indexOf('app.js?v=20260826-login-layout2') < first.indexOf('121-login-hotfix.js'), 'the hotfix must run after app.js defines api/openWebLoginDialog');
   assert.equal((second.match(/121-login-hotfix\.js/g) || []).length, 1, 'the served page must load one login guard only');
-  assert.doesNotMatch(first, /20260831-config-guard1/, 'the served page must not pin the historical 15-second guard asset id');
+});
+
+test('served novel-fetch page replaces the historical 15-second guard asset id instead of preserving it', () => {
+  const stale = '<html><body><script src="./app.js?v=20260826-login-layout2"></script><script id="qiantie-121-login-hotfix" src="./121-login-hotfix.js?v=20260831-config-guard1"></script></body></html>';
+  const served = injectNovelFetchV2Script(stale);
+  assert.match(served, /\/batch-rewrite\/121-login-hotfix\.js\?v=20260909-login-timeout65-r1/);
+  assert.doesNotMatch(served, /20260831-config-guard1/);
+  assert.equal((served.match(/121-login-hotfix\.js/g) || []).length, 1, 'the stale release tag must be canonicalized, not duplicated');
 });
