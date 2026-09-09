@@ -1,0 +1,57 @@
+name: V88 H3 Contract Verify
+
+on:
+  push:
+    branches:
+      - feat/v88-h3-unified-video-20260909
+  pull_request:
+    branches:
+      - v88
+  workflow_dispatch:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: backend/go.sum
+      - name: Run H3 and V11 Go tests
+        run: go test ./internal/batchfactoryv11 ./internal/httpapi -count=1
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci
+      - name: Run H3 Node contracts
+        run: node --test test/batch-factory-v11-h3-provider.test.js test/script-video-h3-contract.test.js test/script-video-local-executor.test.js
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run H3 frontend contracts
+        run: node --test src/user/pages/batch-factory-v11/h3VideoCatalog.contract.test.js src/user/pages/batch-factory-v11/bf11UiAdapter.test.js
+      - name: Build frontend
+        run: npm run build
