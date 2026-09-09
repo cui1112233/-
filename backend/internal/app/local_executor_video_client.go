@@ -42,7 +42,9 @@ func (c *localVideoJobClient) HasOnlineVideoExecutor(ctx context.Context, owner 
 	executors, err := c.service.List(ctx, owner)
 	if err != nil { return false, err }
 	for _, executor := range executors {
-		if executor.Platform == localexecutor.PlatformDoubao && executor.Online { return true, nil }
+		if executor.Platform == localexecutor.PlatformDoubao && executor.Online && executor.Accounts.Available > 0 {
+			return true, nil
+		}
 	}
 	return false, nil
 }
