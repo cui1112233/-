@@ -11,6 +11,8 @@ on:
       - 'backend/go.sum'
       - 'docker-compose.v88-review.yml'
       - '.env.v88-review.example'
+      - 'deploy/v88-public/docker-compose.merge.yml'
+      - 'deploy/v88-public/merge.env.example'
       - '.github/workflows/bf11-merge-worker-verify.yml'
   workflow_dispatch:
 
@@ -72,3 +74,47 @@ jobs:
           QIANTIE_V88_MERGE_TOS_SECRET_KEY: review-only-sk
           QIANTIE_V88_MERGE_TOS_PUBLIC_BASE_URL: https://cdn.example.invalid
         run: docker compose -f docker-compose.v88-review.yml --profile merge config >/tmp/v88-review-compose.yml
+
+      - name: Validate public merge overlay contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > deploy/v88-public/.merge-base.test.yml <<'EOF'
+          name: v88-public
+          services:
+            go-api:
+              image: qiantie-go-api:existing
+              networks: [qiantie_internal]
+          networks:
+            qiantie_internal:
+              driver: bridge
+          EOF
+          cat > deploy/v88-public/merge.env <<'EOF'
+          QIANTIE_BATCH_FACTORY_V11_SLICE=3
+          QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED=0
+          QIANTIE_BATCH_FACTORY_V11_MERGE_API_KEY=test-merge-secret
+          QIANTIE_MERGE_WORKER_SECRET=test-merge-secret
+          QIANTIE_MERGE_REDIS_PASSWORD=test-redis-password
+          QIANTIE_MERGE_REDIS_URL=redis://:test-redis-password@merge-redis:6379/0
+          QIANTIE_MERGE_TOS_ENDPOINT=https://tos.example.invalid
+          QIANTIE_MERGE_TOS_REGION=cn-test
+          QIANTIE_MERGE_TOS_BUCKET=test-bucket
+          QIANTIE_MERGE_TOS_ACCESS_KEY=test-ak
+          QIANTIE_MERGE_TOS_SECRET_KEY=test-sk
+          QIANTIE_MERGE_TOS_PUBLIC_BASE_URL=https://cdn.example.invalid
+          EOF
+          QIANTIE_GO_API_IMAGE=qiantie-go-api:test \
+          QIANTIE_MERGE_WORKER_IMAGE=qiantie-merge-worker:test \
+            docker compose \
+              -f deploy/v88-public/.merge-base.test.yml \
+              -f deploy/v88-public/docker-compose.merge.yml \
+              config > /tmp/v88-public-merge-compose.yml
+          grep -q 'merge-redis:' /tmp/v88-public-merge-compose.yml
+          grep -q 'merge-worker:' /tmp/v88-public-merge-compose.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT: http://merge-worker:8790/v1/merge' /tmp/v88-public-merge-compose.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT: http://merge-worker:8790/v1/merge/{id}' /tmp/v88-public-merge-compose.yml
+          if grep -A40 '^  merge-worker:' /tmp/v88-public-merge-compose.yml | grep -q 'published:'; then
+            echo 'merge-worker must not publish a host port' >&2
+            exit 1
+          fi
+          rm -f deploy/v88-public/.merge-base.test.yml deploy/v88-public/merge.env
