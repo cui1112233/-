@@ -48,14 +48,14 @@ func loadMergeJob(ctx context.Context, q productionQueryer, owner, id string) (M
 	value.OutputURL = outputURL.String
 	value.ErrorMessage = errorMessage.String
 	value.Sources = []MergeMedia{}
-	rows, err := q.QueryContext(ctx, `SELECT video_id,media_url FROM batch_factory_v11_merge_sources WHERE job_id=? AND owner_username=? ORDER BY ordinal,video_id`, id, owner)
+	rows, err := q.QueryContext(ctx, `SELECT video_id,ordinal,media_url FROM batch_factory_v11_merge_sources WHERE job_id=? AND owner_username=? ORDER BY ordinal,video_id`, id, owner)
 	if err != nil {
 		return MergeJob{}, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var source MergeMedia
-		if err := rows.Scan(&source.VideoID, &source.URL); err != nil {
+		if err := rows.Scan(&source.VideoID, &source.Order, &source.MediaURL); err != nil {
 			return MergeJob{}, err
 		}
 		value.Sources = append(value.Sources, source)
@@ -97,10 +97,10 @@ func (s *MySQLStore) CreateMergeJob(ctx context.Context, value MergeJob) (MergeJ
 		return MergeJob{}, err
 	}
 	for ordinal, source := range value.Sources {
-		if strings.TrimSpace(source.VideoID) == "" || strings.TrimSpace(source.URL) == "" {
+		if strings.TrimSpace(source.VideoID) == "" || strings.TrimSpace(source.MediaURL) == "" || source.Order != ordinal {
 			return MergeJob{}, ErrInvalid
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_sources(job_id,owner_username,video_id,ordinal,media_url,created_at) VALUES(?,?,?,?,?,?)`, value.ID, value.Owner, source.VideoID, ordinal, source.URL, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_sources(job_id,owner_username,video_id,ordinal,media_url,created_at) VALUES(?,?,?,?,?,?)`, value.ID, value.Owner, source.VideoID, source.Order, source.MediaURL, now); err != nil {
 			return MergeJob{}, err
 		}
 	}
