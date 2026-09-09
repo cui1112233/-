@@ -1,1 +1,1 @@
-stage V88 novel fetch 121 login current branch release 2026-09-09
+stage V88 novel fetch 121 login current branch release 2026-09-09 retry-after-600s-stage-timeout-fix
