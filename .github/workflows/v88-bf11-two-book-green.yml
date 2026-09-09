@@ -23,8 +23,8 @@ jobs:
           go-version: '1.23.x'
           cache: false
       - name: Apply minimal V11 reconcile fix
-        shell: python {0}
         run: |
+          python - <<'PY'
           from pathlib import Path
           p = Path('backend/internal/batchfactoryv11/production.go')
           text = p.read_text(encoding='utf-8')
@@ -33,24 +33,12 @@ jobs:
           if text.count(old_guard) != 1:
               raise SystemExit(f'expected exactly one reconcile guard, got {text.count(old_guard)}')
           text = text.replace(old_guard, new_guard, 1)
-          old_branch = '''\t\t\t} else if s.ProviderRegistry != nil {
-\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
-'''
-          new_branch = '''\t\t\t} else if provider == VideoProviderAutoDLComfyUI {
-\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
-\t\t\t\tif resolveErr != nil {
-\t\t\t\t\tpollErr = resolveErr
-\t\t\t\t} else if poller, ok := adapter.(ProductionPoller); !ok {
-\t\t\t\t\tpollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
-\t\t\t\t} else {
-\t\t\t\t\tref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
-\t\t\t\t}
-\t\t\t} else if s.ProviderRegistry != nil {
-\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
-'''
+          old_branch = '\t\t\t} else if s.ProviderRegistry != nil {\n\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)\n'
+          new_branch = '\t\t\t} else if provider == VideoProviderAutoDLComfyUI {\n\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)\n\t\t\t\tif resolveErr != nil {\n\t\t\t\t\tpollErr = resolveErr\n\t\t\t\t} else if poller, ok := adapter.(ProductionPoller); !ok {\n\t\t\t\t\tpollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)\n\t\t\t\t} else {\n\t\t\t\t\tref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})\n\t\t\t\t}\n\t\t\t} else if s.ProviderRegistry != nil {\n\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)\n'
           if text.count(old_branch) != 1:
               raise SystemExit(f'expected exactly one provider-registry branch, got {text.count(old_branch)}')
           p.write_text(text.replace(old_branch, new_branch, 1), encoding='utf-8')
+          PY
       - name: Verify exact scope
         run: |
           git diff --check
