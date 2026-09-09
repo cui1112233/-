@@ -45,7 +45,16 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
             <Button size="small" type={referenceEnabled ? 'primary' : 'default'} aria-pressed={referenceEnabled} onClick={() => onToggleReferenceImages?.(index, !referenceEnabled)}>{referenceEnabled ? '亮' : '灭'}</Button>
             {referenceImages.length ? referenceImages.map(reference => {
               const disabled = disabledImageUrls.has(reference.url);
-              return <Button key={`${reference.type}-${reference.url}`} size="small" type={disabled || !referenceEnabled ? 'default' : 'primary'} aria-pressed={!disabled && referenceEnabled} onClick={() => onToggleReferenceImage?.(index, reference.url)}>{reference.label} · {disabled || !referenceEnabled ? '灭' : '亮'}</Button>;
+              return <span className="shot-output-card-reference-item" key={`${reference.type}-${reference.url}`}>
+                <img
+                  className="shot-output-card-reference-thumbnail"
+                  src={reference.url}
+                  alt={`${reference.label}参考图`}
+                  loading="lazy"
+                  aria-disabled={disabled || !referenceEnabled}
+                />
+                <Button size="small" type={disabled || !referenceEnabled ? 'default' : 'primary'} aria-pressed={!disabled && referenceEnabled} onClick={() => onToggleReferenceImage?.(index, reference.url)}>{reference.label} · {disabled || !referenceEnabled ? '灭' : '亮'}</Button>
+              </span>;
             }) : <span className="shot-output-card-no-references">当前镜头没有已选择的主图</span>}
           </div>
           <pre className="shot-output-card-content">{highlight ? <>{highlight.before}<mark className="shot-output-card-match" ref={activeMatchRef}>{highlight.highlight}</mark>{highlight.after}</> : card}</pre>
