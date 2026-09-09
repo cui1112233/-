@@ -69,7 +69,7 @@ jobs:
           node_image="ghcr.io/${owner}/qiantie-v88:public-local-layout-node-${short_sha}"
           go_image="ghcr.io/${owner}/qiantie-v88:public-local-layout-go-${short_sha}"
 
-          docker build --platform linux/amd64 --provenance=false -t "$node_image" v78-node-source
+          docker build --platform linux/amd64 --provenance=false -f v78-node-source/deploy/Dockerfile.platform -t "$node_image" v78-node-source
           docker build --platform linux/amd64 --provenance=false -t "$go_image" v88-go-source/backend
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = linux/amd64
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = linux/amd64
