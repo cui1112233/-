@@ -55,6 +55,11 @@ function h3ApiKeyFromEnvironment() {
   return String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
 }
 
+function h3ApiKeyForRequest(req, configReader, h3ApiKeyReader) {
+  const personalKey = String(configReader?.(req.username)?.video?.apiKey || '').trim();
+  return personalKey || String(h3ApiKeyReader?.(req) || '').trim();
+}
+
 function h3TaskID(rawTaskID) {
   const value = String(rawTaskID || '').trim();
   return value.startsWith(H3_TASK_PREFIX) ? value.slice(H3_TASK_PREFIX.length).trim() : '';
@@ -202,7 +207,7 @@ function createScriptVideoRouter({
     }
     if (req.body?.modelKey === H3_MODEL_KEY) {
       const h3Prompt = prompt.slice(0, MAX_H3_PROMPT_LENGTH);
-      const apiKey = String(h3ApiKeyReader() || '').trim();
+      const apiKey = h3ApiKeyForRequest(req, configReader, h3ApiKeyReader);
       if (!apiKey) return res.status(400).json({ error: 'MiniMax H3 尚未配置服务端 Token，请联系管理员配置' });
       let referenceImages;
       let duration;
@@ -248,7 +253,7 @@ function createScriptVideoRouter({
     if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
     const rawH3TaskID = h3TaskID(taskId);
     if (rawH3TaskID) {
-      const apiKey = String(h3ApiKeyReader() || '').trim();
+      const apiKey = h3ApiKeyForRequest(req, configReader, h3ApiKeyReader);
       if (!apiKey) return res.status(400).json({ error: 'MiniMax H3 尚未配置服务端 Token，请联系管理员配置' });
       try {
         const statusReply = await h3Request({ apiKey, taskId: rawH3TaskID, baseUrl: process.env.QIANTIE_AUTODL_H3_BASE_URL || H3_API_BASE_URL });

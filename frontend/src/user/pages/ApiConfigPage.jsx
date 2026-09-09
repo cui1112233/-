@@ -203,7 +203,7 @@ export default function ApiConfigPage() {
           </Panel>
           <Panel title="视频生成服务" eyebrow="VIDEO MODEL" className="ac-form-panel" action={<Tag color={config?.video?.hasApiKey ? 'green' : 'default'}>{config?.video?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
             <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>独立视频生成凭据</strong><small>视频服务按自己的保存入口维护，不会覆盖文本或图片配置。</small></div></div>
-            <Form.Item label="视频服务 API Key" name={['video', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
+            <Form.Item label="视频服务 API Key（H3 / YD）" name={['video', 'apiKey']} extra="剧本、批量工厂和通用视频生产会从这里读取当前账号的视频凭据。"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Save size={16} />} onClick={saveVideo} loading={savingVideo}>保存视频生成</Button></div>
           </Panel>
         </div>

@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const { createShuihuoProductionRouter } = require('../routes/shuihuo-production');
 
-function makeApp() {
+function makeApp(options = {}) {
   const app = express();
   app.use(express.json());
   app.use('/api/shuihuo-production', createShuihuoProductionRouter({
@@ -13,7 +13,8 @@ function makeApp() {
       req.auth = { account: { username: 'h3-model-route-test', isOwner: true } };
       req.username = 'h3-model-route-test';
       next();
-    }
+    },
+    ...options
   }));
   return app;
 }
@@ -47,6 +48,23 @@ test('video model endpoint exposes H3 without exposing credentials', async () =>
     assert.ok(h3);
     assert.equal(h3.configured, true);
     assert.equal(JSON.stringify(response.body).includes('test-token-that-must-not-leak'), false);
+  } finally {
+    if (previousToken === undefined) delete process.env.QIANTIE_AUTODL_H3_API_KEY;
+    else process.env.QIANTIE_AUTODL_H3_API_KEY = previousToken;
+  }
+});
+
+test('video model endpoint marks H3 configured from the personal-center video key', async () => {
+  const previousToken = process.env.QIANTIE_AUTODL_H3_API_KEY;
+  delete process.env.QIANTIE_AUTODL_H3_API_KEY;
+  try {
+    const response = await requestModels(makeApp({
+      configReader: username => username === 'h3-model-route-test' ? { video: { apiKey: 'personal-center-h3-token' } } : {}
+    }));
+    assert.equal(response.statusCode, 200);
+    const h3 = response.body.models.find(model => model.key === 'minimax-h3-video');
+    assert.equal(h3.configured, true);
+    assert.equal(JSON.stringify(response.body).includes('personal-center-h3-token'), false);
   } finally {
     if (previousToken === undefined) delete process.env.QIANTIE_AUTODL_H3_API_KEY;
     else process.env.QIANTIE_AUTODL_H3_API_KEY = previousToken;

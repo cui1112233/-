@@ -228,7 +228,7 @@ function upstreamTimeoutForRequest(method, pathname) {
   return waitsForTextModel ? 100_000 : 15_000;
 }
 
-function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStore, authenticate = apiAuth } = {}) {
+function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStore, configReader = readConfig, authenticate = apiAuth } = {}) {
   const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
   const transport = target.protocol === 'https:' ? https : http;
@@ -236,9 +236,9 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStor
 
   router.use(authenticate);
   router.get('/models', (req, res) => {
-    const accountConfig = readConfig(req.auth.account.username);
+    const accountConfig = configReader(req.auth.account.username);
     const models = getDefaultVideoModels({
-      h3Configured: Boolean(String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim())
+      h3Configured: Boolean(String(accountConfig?.video?.apiKey || process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim())
     }).map(model => {
       if (model.key === 'yd2-mini-video') {
         return { ...model, configured: Boolean(String(accountConfig?.video?.apiKey || '').trim()) };

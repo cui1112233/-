@@ -97,14 +97,15 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
   return true;
 }
 
-function h3ApiKeyForRequest() {
-  return String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
+function h3ApiKeyForRequest(req, configReader = readConfig) {
+  const personalKey = String(configReader(req.username)?.video?.apiKey || '').trim();
+  return personalKey || String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
 }
 
 async function syncH3ProviderConfig(req, options, { allowMissing = false } = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!fetchImpl) throw new Error('fetch implementation is required');
-  const apiKey = h3ApiKeyForRequest();
+  const apiKey = h3ApiKeyForRequest(req, options.configReader);
   if (!apiKey) {
     if (allowMissing) return false;
     const error = new Error('服务端尚未配置 AutoDL H3 API Key');
@@ -147,7 +148,7 @@ async function prepareProviderRequest(req, options, pathname) {
     if (!needsH3ConfigSync(req, pathname)) return;
     const allowMissing = req.method === 'GET' && pathname !== CONFIG_PATH;
     if (pathname === CONFIG_PATH) {
-      const apiKey = h3ApiKeyForRequest();
+      const apiKey = h3ApiKeyForRequest(req, options.configReader);
       if (!apiKey) {
         const error = new Error('服务端尚未配置 AutoDL H3 API Key');
         error.status = 400;
@@ -211,6 +212,7 @@ module.exports = {
   H3_PROVIDER,
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,
+  h3ApiKeyForRequest,
   normalizedProvider,
   needsH3ConfigSync,
   needsPersonalConfigSync,

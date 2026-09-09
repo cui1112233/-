@@ -60,6 +60,29 @@ test('H3 script route submits without exposing the server token and polls AutoDL
   assert.equal(calls[1][1].taskId, 'task-1');
 });
 
+test('H3 script route reads the video API key from the personal-center config', async t => {
+  let submitted;
+  const h3App = await startApp({
+    configReader: username => username === 'alice' ? { video: { apiKey: 'personal-center-h3-token' } } : {},
+    h3ApiKeyReader: () => '',
+    h3Submit: async input => {
+      submitted = input;
+      return { statusCode: 200, text: JSON.stringify({ data: { task_id: 'task-personal-config' } }) };
+    }
+  });
+  t.after(() => h3App.server.close());
+
+  const response = await fetch(`${h3App.baseURL}/api/script-video`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelKey: H3_MODEL_KEY, prompt: '个人中心配置的 H3 镜头' })
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(submitted.apiKey, 'personal-center-h3-token');
+  assert.equal(JSON.stringify(await response.json()).includes('personal-center-h3-token'), false);
+});
+
 test('H3 script route switches to reference workflow when a valid image is supplied', async t => {
   let submitted;
   const h3App = await startApp({
