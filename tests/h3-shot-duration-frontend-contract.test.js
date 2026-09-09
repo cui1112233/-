@@ -6,7 +6,7 @@ const test = require('node:test');
 const scriptPagePath = path.join(__dirname, '..', 'frontend', 'src', 'user', 'pages', 'ScriptPage.jsx');
 
 test('H3 shot submission resolves the card duration before entering the generating state', () => {
-  const source = fs.readFileSync(scriptPagePath, 'utf8');
+  const source = fs.readFileSync(scriptPagePath, 'utf8').replace(/\r\n?/g, '\n');
   const resolverImport = "import { resolveShotVideoDuration } from './scriptVideoDuration';";
   const resolverCall = '? resolveShotVideoDuration({ shotText: prompt, fallbackDuration })';
   const invalidResultGuard = "if (!resolvedDuration.ok) {\n      message.error(resolvedDuration.error);\n      return;\n    }";
