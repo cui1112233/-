@@ -121,20 +121,11 @@ jobs:
           release_dir="/opt/qiantie/releases/v88-stage/${GITHUB_SHA}"
           payload="release/v88-node-${GITHUB_SHA}.tar.gz"
           payload_sha="$(sha256sum "$payload" | awk '{print $1}')"
-          chunk_dir="release/v88-node-${GITHUB_SHA}-chunks"
-          rm -rf "$chunk_dir"
-          mkdir -p "$chunk_dir"
-          split -b 512K -d -a 4 "$payload" "$chunk_dir/source.tar.gz.part-"
 
           timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "rm -rf '$release_dir' && mkdir -p '$release_dir'"
-          index=0
-          for part in "$chunk_dir"/source.tar.gz.part-*; do
-            index=$((index + 1))
-            suffix="${part##*-}"
-            timeout 120 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "cat > '$release_dir/source.tar.gz.part-$suffix'" < "$part"
-          done
+          timeout 600 scp "${ssh_opts[@]}" "$payload" "$ECS_USER@$ECS_HOST:$release_dir/source.tar.gz"
           timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" \
-            "cd '$release_dir' && cat source.tar.gz.part-* > source.tar.gz && test \"\$(sha256sum source.tar.gz | awk '{print \$1}')\" = '$payload_sha' && rm -f source.tar.gz.part-*"
+            "cd '$release_dir' && test \"\$(sha256sum source.tar.gz | awk '{print \$1}')\" = '$payload_sha'"
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-direct/cutover-node-host.sh "$ECS_USER@$ECS_HOST:/tmp/cutover-node-host-${GITHUB_SHA}.sh"
 
       - name: Deploy Go route and cut public Node to the local layout
