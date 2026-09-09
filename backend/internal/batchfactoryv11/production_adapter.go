@@ -92,6 +92,14 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 	if resolution := rawString(values, "resolution", ""); resolution != "" {
 		payload["resolution"] = resolution
 	}
+	if model.ID == VideoModelMiniMaxH3 {
+		imageURLs, imageErr := h3ImageURLs(values)
+		if imageErr != nil {
+			return ProviderTaskRef{}, imageErr
+		}
+		payload["workflow"] = H3WorkflowForValidImages(imageURLs)
+		payload["imageUrls"] = imageURLs
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return ProviderTaskRef{}, err
@@ -195,7 +203,9 @@ func firstVideoValue(raw []byte, keys ...string) string {
 			if value, ok := object[key]; ok {
 				switch typed := value.(type) {
 				case string:
-					if strings.TrimSpace(typed) != "" { return strings.TrimSpace(typed) }
+					if strings.TrimSpace(typed) != "" {
+						return strings.TrimSpace(typed)
+					}
 				case float64:
 					return fmt.Sprintf("%.0f", typed)
 				}

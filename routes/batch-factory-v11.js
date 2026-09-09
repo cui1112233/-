@@ -4,6 +4,7 @@ const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-fac
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
+const AUTODL_PROVIDER = 'autodl_comfyui';
 const PERSONAL_MODEL = 'yd2.0-mini';
 const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
@@ -12,6 +13,7 @@ function normalizedProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
   if (!provider || ['personal', 'personal_api', 'yd_video', 'yadi'].includes(provider)) return PERSONAL_PROVIDER;
   if (['doubao', 'doubao_local', 'doubao_local_executor'].includes(provider)) return LOCAL_PROVIDER;
+  if (['autodl', 'autodl_comfyui'].includes(provider)) return AUTODL_PROVIDER;
   return provider;
 }
 
@@ -28,10 +30,11 @@ function isProviderConfigPath(pathname) {
 }
 
 function needsPersonalConfigSync(req, pathname) {
+  const provider = providerFromRequest(req);
+  if (provider === LOCAL_PROVIDER || provider === AUTODL_PROVIDER) return false;
   if (isProviderConfigPath(pathname)) return true;
   if (req.method === 'GET' && pathname === STATUS_PATH) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
-  if (req.method === 'GET' && /\/batches\/[^/]+\/status$/.test(pathname)) return true;
   return false;
 }
 
@@ -86,7 +89,13 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
 
 async function prepareProviderRequest(req, options, pathname) {
   const provider = providerFromRequest(req);
-  if (provider === LOCAL_PROVIDER) return;
+  if (provider === AUTODL_PROVIDER && isProviderConfigPath(pathname)) {
+    const error = new Error('MiniMax H3 使用服务端环境变量配置，浏览器不能写入凭据');
+    error.status = 400;
+    error.code = 'H3_PROVIDER_CONFIG_SERVER_MANAGED';
+    throw error;
+  }
+  if (provider === LOCAL_PROVIDER || provider === AUTODL_PROVIDER) return;
   if (!needsPersonalConfigSync(req, pathname)) return;
   const allowMissing = req.method === 'GET' || isProviderConfigPath(pathname) === false && req.method !== 'POST';
   if (isProviderConfigPath(pathname)) {
@@ -130,6 +139,7 @@ function createBatchFactoryV11Router(options = {}) {
 module.exports = {
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,
+  AUTODL_PROVIDER,
   normalizedProvider,
   needsPersonalConfigSync,
   createBatchFactoryV11Router

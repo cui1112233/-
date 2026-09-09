@@ -10,6 +10,10 @@ const YD_TASKS_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/tasks';
 const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
+const H3_MODEL_KEY = 'minimax-h3';
+const H3_TASK_PREFIX = 'h3:';
+const H3_WORKFLOW_NO_PIC = 'minimax_h3_lightx2v_no_pic';
+const H3_WORKFLOW_WITH_PIC = 'minimax_h3_lightx2v_v5_15s';
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -76,6 +80,10 @@ function taskError(body) {
   return String(payload.errorMessage || payload.error || payload.message || nested.errorMessage || nested.error || nested.message || '视频生成失败').trim();
 }
 
+function h3WorkflowForImages(imageUrls) {
+  return imageUrls.length ? H3_WORKFLOW_WITH_PIC : H3_WORKFLOW_NO_PIC;
+}
+
 function resultURL(body) {
   const payload = payloadOf(body);
   const candidates = [
@@ -90,6 +98,69 @@ function resultURL(body) {
     } catch { /* ignore malformed result URLs */ }
   }
   return '';
+}
+
+function h3ServerConfig() {
+  const endpoint = String(process.env.QIANTIE_BATCH_FACTORY_V11_VIDEO_ENDPOINT || '').trim();
+  const pollEndpoint = String(process.env.QIANTIE_BATCH_FACTORY_V11_VIDEO_POLL_ENDPOINT || '').trim();
+  const apiKey = String(process.env.QIANTIE_BATCH_FACTORY_V11_VIDEO_API_KEY || '').trim();
+  const model = String(process.env.QIANTIE_BATCH_FACTORY_V11_VIDEO_MODEL || '').trim();
+  if (model !== H3_MODEL_KEY || !endpoint || !apiKey) return null;
+  return { endpoint, pollEndpoint, apiKey };
+}
+
+function h3HTTPSRequest(rawURL, { method = 'GET', apiKey, payload } = {}) {
+  let target;
+  try { target = new URL(rawURL); } catch { throw Object.assign(new Error('MiniMax H3 服务地址无效'), { status: 503 }); }
+  if (target.protocol !== 'https:') throw Object.assign(new Error('MiniMax H3 服务地址必须使用 HTTPS'), { status: 503 });
+  return new Promise((resolve, reject) => {
+    const body = payload === undefined ? null : Buffer.from(JSON.stringify(payload));
+    const request = https.request(target, {
+      method,
+      timeout: method === 'POST' ? 120000 : 30000,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        ...(body ? { 'Content-Type': 'application/json', 'Content-Length': String(body.length) } : {})
+      }
+    }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve({ statusCode: response.statusCode || 500, text: Buffer.concat(chunks).toString('utf8') }));
+      response.on('error', reject);
+    });
+    request.on('timeout', () => request.destroy(new Error('MiniMax H3 服务响应超时')));
+    request.on('error', () => reject(Object.assign(new Error('MiniMax H3 服务暂不可用'), { status: 503 })));
+    if (body) request.write(body);
+    request.end();
+  });
+}
+
+async function defaultH3Submit({ prompt, imageUrls, workflow }) {
+  const cfg = h3ServerConfig();
+  if (!cfg) throw Object.assign(new Error('MiniMax H3 服务端尚未配置'), { status: 503, code: 'H3_SCRIPT_VIDEO_UNAVAILABLE' });
+  const reply = await h3HTTPSRequest(cfg.endpoint, {
+    method: 'POST', apiKey: cfg.apiKey,
+    payload: { model: H3_MODEL_KEY, prompt, duration: 15, aspectRatio: '9:16', workflow, imageUrls }
+  });
+  if (reply.statusCode < 200 || reply.statusCode >= 300) throw Object.assign(new Error(`MiniMax H3 服务请求失败（HTTP ${reply.statusCode}）`), { status: 502 });
+  let body;
+  try { body = JSON.parse(reply.text || '{}'); } catch { throw Object.assign(new Error('MiniMax H3 服务返回了无法识别的响应'), { status: 502 }); }
+  const providerTaskId = readTaskID(body);
+  if (!providerTaskId) throw Object.assign(new Error('MiniMax H3 服务未返回任务 ID'), { status: 502 });
+  return { providerTaskId, state: 'queued' };
+}
+
+async function defaultH3Poll({ providerTaskId }) {
+  const cfg = h3ServerConfig();
+  if (!cfg || !cfg.pollEndpoint) throw Object.assign(new Error('MiniMax H3 任务查询尚未配置'), { status: 503, code: 'H3_SCRIPT_VIDEO_UNAVAILABLE' });
+  const target = cfg.pollEndpoint.replaceAll('{id}', encodeURIComponent(providerTaskId));
+  const reply = await h3HTTPSRequest(target, { method: 'GET', apiKey: cfg.apiKey });
+  if (reply.statusCode < 200 || reply.statusCode >= 300) throw Object.assign(new Error('MiniMax H3 任务状态查询失败'), { status: 502 });
+  let body;
+  try { body = JSON.parse(reply.text || '{}'); } catch { throw Object.assign(new Error('MiniMax H3 任务状态无法识别'), { status: 502 }); }
+  const state = taskState(body).toLowerCase();
+  return { providerTaskId, state, mediaUrl: resultURL(body), errorMessage: taskError(body) };
 }
 
 function bridgeJSON(gateway, account, method, pathname, payload) {
@@ -110,14 +181,28 @@ function bridgeDownload(gateway, account, pathname, res) {
   const upstream=transport.request({protocol:target.protocol,hostname:target.hostname,port:target.port||undefined,method:'GET',path:pathname,headers:{'X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature}},response=>{res.status(response.statusCode||502); if(response.headers['content-type'])res.setHeader('Content-Type',response.headers['content-type']); response.pipe(res)}); upstream.on('error',()=>res.status(503).json({error:'视频下载服务暂不可用'})); upstream.end();
 }
 
-function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway } = {}) {
+function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway, h3Submit = defaultH3Submit, h3Poll = defaultH3Poll } = {}) {
   const router = express.Router();
   router.use(apiAuth);
   router.post('/', async (req, res) => {
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
-    if (req.body?.modelKey === 'local-doubao-executor-video') {
+    const modelKey = String(req.body?.modelKey || '').trim();
+    if (modelKey === H3_MODEL_KEY) {
+      let imageUrls;
+      try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || 'H3 参考图片参数不正确' }); }
+      const workflow = h3WorkflowForImages(imageUrls);
+      try {
+        const ref = await h3Submit({ account: req.auth.account, modelKey: H3_MODEL_KEY, prompt, imageUrls, workflow });
+        const providerTaskId = String(ref?.providerTaskId || ref?.provider_task_id || ref?.taskId || '').trim();
+        if (!providerTaskId) return res.status(502).json({ error: 'MiniMax H3 服务未返回任务 ID' });
+        return res.status(202).json({ ok: true, taskId: H3_TASK_PREFIX + providerTaskId, status: 'processing' });
+      } catch (error) {
+        return res.status(error?.status || 503).json({ error: error?.message || 'MiniMax H3 视频任务提交失败', ...(error?.code ? { code: error.code } : {}) });
+      }
+    }
+    if (modelKey === 'local-doubao-executor-video' || modelKey === 'doubao-seedance') {
       const sourceTaskId = `script-video:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`;
       const localPayload = {
         bookId: String(req.body?.bookId || req.body?.book_id || '').trim(),
@@ -163,6 +248,25 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   router.get('/:taskId', async (req, res) => {
     const taskId = String(req.params.taskId || '').trim();
     if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
+    if (taskId.startsWith(H3_TASK_PREFIX)) {
+      const providerTaskId = taskId.slice(H3_TASK_PREFIX.length).trim();
+      if (!providerTaskId) return res.status(400).json({ error: 'MiniMax H3 任务 ID 不能为空' });
+      try {
+        const ref = await h3Poll({ account: req.auth.account, modelKey: H3_MODEL_KEY, providerTaskId });
+        const state = String(ref?.state || '').trim().toLowerCase();
+        if (['queued', 'submitted', 'running', 'pending', 'processing'].includes(state)) return res.json({ ok: true, taskId, status: 'processing' });
+        if (['failed', 'error', 'cancelled', 'canceled'].includes(state)) return res.json({ ok: true, taskId, status: 'failed', error: String(ref?.errorMessage || 'MiniMax H3 视频生成失败') });
+        if (['succeeded', 'success', 'completed', 'done'].includes(state)) {
+          let mediaUrl = '';
+          try { const parsed = new URL(String(ref?.mediaUrl || '').trim()); if (parsed.protocol === 'https:') mediaUrl = parsed.toString(); } catch { /* fail closed below */ }
+          if (!mediaUrl) return res.status(502).json({ error: 'MiniMax H3 视频任务成功，但没有返回可播放的 HTTPS 结果 URL' });
+          return res.json({ ok: true, taskId, status: 'succeeded', videoUrl: mediaUrl });
+        }
+        return res.json({ ok: true, taskId, status: 'processing' });
+      } catch (error) {
+        return res.status(error?.status || 503).json({ error: error?.message || 'MiniMax H3 任务状态查询失败', ...(error?.code ? { code: error.code } : {}) });
+      }
+    }
     try {
       const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/shuihuo-production/local-executor-jobs/${encodeURIComponent(taskId)}`);
       const localBody = payloadOf(local);
@@ -210,4 +314,4 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   return router;
 }
 
-module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL };
+module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, H3_MODEL_KEY, h3WorkflowForImages, validOptionalImageURLs, readTaskID, taskState, resultURL };

@@ -26,6 +26,20 @@ function batchesFrom(result) {
 
 const PERSONAL_PROMPT_CATEGORIES = ['prefix', 'quality', 'restriction', 'negative'];
 
+async function loadVideoModelCatalog(api) {
+  if (typeof api.getVideoModels !== 'function') return { videoModels: [], videoModelsError: null };
+  try {
+    const result = await api.getVideoModels();
+    const videoModels = Array.isArray(result?.videoModels) ? result.videoModels.map(model => ({
+      id: String(model?.id || ''), label: String(model?.label || model?.id || ''),
+      provider: String(model?.provider || ''), maxDuration: Number(model?.maxDuration || 0)
+    })).filter(model => model.id && model.provider) : [];
+    return { videoModels, videoModelsError: null };
+  } catch (error) {
+    return { videoModels: [], videoModelsError: { status: Number(error?.status || 0), message: error?.message || '读取视频模型目录失败' } };
+  }
+}
+
 function personalPromptRecord(value) {
   const source = value && typeof value === 'object' ? value : {};
   const id = typeof source.id === 'string' ? source.id : '';
@@ -37,18 +51,21 @@ function personalPromptRecord(value) {
 async function loadVideoProviderState(api) {
   const empty = {
     personalAPI: { provider: 'personal_api', model: 'yd2.0-mini', configured: false },
-    doubaoLocal: { provider: 'doubao_local_executor', model: 'doubao-seedance', configured: false }
+    doubaoLocal: { provider: 'doubao_local_executor', model: 'doubao-seedance', configured: false },
+    h3Server: { provider: 'autodl_comfyui', model: 'minimax-h3', configured: false }
   };
   const statusRequests = [
     typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('personal_api') : Promise.resolve(null),
     typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('doubao_local_executor') : Promise.resolve(null),
+    typeof api.getVideoProviderStatus === 'function' ? api.getVideoProviderStatus('autodl_comfyui') : Promise.resolve(null),
     typeof api.listLocalExecutors === 'function' ? api.listLocalExecutors() : Promise.resolve({ executors: [] })
   ];
-  const [personal, doubao, executors] = await Promise.all(statusRequests.map(request => Promise.resolve(request).catch(() => null)));
+  const [personal, doubao, h3, executors] = await Promise.all(statusRequests.map(request => Promise.resolve(request).catch(() => null)));
   return {
     videoProviders: {
       personalAPI: personal?.provider ? { ...empty.personalAPI, ...personal } : empty.personalAPI,
-      doubaoLocal: doubao?.provider ? { ...empty.doubaoLocal, ...doubao } : empty.doubaoLocal
+      doubaoLocal: doubao?.provider ? { ...empty.doubaoLocal, ...doubao } : empty.doubaoLocal,
+      h3Server: h3?.provider ? { ...empty.h3Server, ...h3 } : empty.h3Server
     },
     localExecutors: Array.isArray(executors?.executors) ? executors.executors : []
   };
@@ -134,10 +151,11 @@ export function createBf11UiAdapter(api) {
             message: error?.message || '读取配置版本失败'
           }
         }));
-      const [batchResult, configVersionState, videoProviderState] = await Promise.all([
+      const [batchResult, configVersionState, videoProviderState, videoModelState] = await Promise.all([
         api.listBatches(),
         configVersionRequest,
-        loadVideoProviderState(api)
+        loadVideoProviderState(api),
+        loadVideoModelCatalog(api)
       ]);
       const personalPromptState = await loadPersonalPrompts(api);
       const batches = batchesFrom(batchResult);
@@ -167,6 +185,8 @@ export function createBf11UiAdapter(api) {
         mergeStatus: mergeStatus?.batchId ? mergeStatus : null,
         videoProviders: videoProviderState.videoProviders,
         localExecutors: videoProviderState.localExecutors,
+        videoModels: videoModelState.videoModels,
+        videoModelsError: videoModelState.videoModelsError,
         startsDirector: false
       };
     },
@@ -228,8 +248,9 @@ export function createBf11UiAdapter(api) {
       };
     },
 
-    async runProduction({ batchId, bookId = '', requestId, provider = 'personal_api' } = {}) {
+    async runProduction({ batchId, bookId = '', requestId, provider } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
+      if (!provider) throw new Error('视频提供方 / provider 未保存，请先保存视频模型');
       return bookId
         ? api.submitBookProduction(batchId, bookId, requestId, provider)
         : api.submitBatchProduction(batchId, requestId, provider);

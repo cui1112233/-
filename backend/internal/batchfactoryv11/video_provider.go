@@ -8,21 +8,22 @@ import (
 )
 
 const (
-	VideoProviderPersonalAPI       = "personal_api"
-	VideoProviderDoubaoLocal       = "doubao_local_executor"
-	PersonalVideoProviderID        = "yd_video"
-	DefaultPersonalVideoModel      = "yd2.0-mini"
-	DefaultPersonalVideoCreateURL  = "https://ydapi.yadiai.cn/openapi/v1/video/create"
-	DefaultPersonalVideoTasksURL   = "https://ydapi.yadiai.cn/openapi/v1/video/tasks"
+	VideoProviderPersonalAPI      = "personal_api"
+	VideoProviderDoubaoLocal      = "doubao_local_executor"
+	VideoProviderAutoDLComfyUI    = "autodl_comfyui"
+	PersonalVideoProviderID       = "yd_video"
+	DefaultPersonalVideoModel     = "yd2.0-mini"
+	DefaultPersonalVideoCreateURL = "https://ydapi.yadiai.cn/openapi/v1/video/create"
+	DefaultPersonalVideoTasksURL  = "https://ydapi.yadiai.cn/openapi/v1/video/tasks"
 )
 
 type VideoProviderConfig struct {
-	Provider     string
-	APIKey       string
-	Model        string
-	CreateURL    string
-	TasksURL     string
-	ResultURL    string
+	Provider  string
+	APIKey    string
+	Model     string
+	CreateURL string
+	TasksURL  string
+	ResultURL string
 }
 
 type VideoProviderRegistry interface {
@@ -38,8 +39,8 @@ type VideoProviderConfigView struct {
 }
 
 type MemoryVideoProviderRegistry struct {
-	mu      sync.RWMutex
-	values  map[string]VideoProviderConfig
+	mu     sync.RWMutex
+	values map[string]VideoProviderConfig
 }
 
 func NewMemoryVideoProviderRegistry() *MemoryVideoProviderRegistry {
@@ -124,6 +125,8 @@ func normalizeVideoProvider(provider string) string {
 		return VideoProviderPersonalAPI
 	case "doubao", "doubao_local", "doubao_local_executor", "local-doubao-executor-video":
 		return VideoProviderDoubaoLocal
+	case "autodl", "autodl_comfyui":
+		return VideoProviderAutoDLComfyUI
 	default:
 		return strings.ToLower(strings.TrimSpace(provider))
 	}

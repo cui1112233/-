@@ -335,7 +335,21 @@ export function BatchFactoryV11UiPage() {
 
   async function runProduction(targetBatch) {
     if (!targetBatch?.id || productionBusy) return false;
-    const provider = batchSettingsState.patch.videoProvider || 'personal_api';
+    const provider = String(batchSettingsState.patch.videoProvider || '').trim();
+    const videoModelId = String(batchSettingsState.patch.videoModelId || '').trim();
+    if (!provider || !videoModelId) {
+      message.error('当前批次尚未保存视频模型，请先打开生产统一设置并保存。');
+      return false;
+    }
+    const selectedModel = (runtimeState.videoModels || []).find(model => model.id === videoModelId);
+    if (!selectedModel || selectedModel.provider !== provider) {
+      message.error('当前批次的视频模型与 provider 不一致，请重新保存生产统一设置。');
+      return false;
+    }
+    if (provider === 'autodl_comfyui' && runtimeState.videoProviders?.h3Server?.configured === false) {
+      message.error('MiniMax H3 服务端尚未配置，任务不会回退到个人 API。');
+      return false;
+    }
     if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
       message.error('没有在线的豆包本地执行器；请先在生产统一设置生成配对码并让 Mac 执行器上线。');
       return false;
@@ -525,6 +539,8 @@ export function BatchFactoryV11UiPage() {
         personalPromptsError={runtimeState.personalPromptsError || null}
         videoProviders={runtimeState.videoProviders || {}}
         localExecutors={runtimeState.localExecutors || []}
+        videoModels={runtimeState.videoModels || []}
+        videoModelsError={runtimeState.videoModelsError || null}
         onCreateLocalExecutorPairing={runtime.createLocalExecutorPairing}
         initialValue={batchSettingsState.patch}
         onClose={() => setProductionSettingsOpen(false)}

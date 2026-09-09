@@ -14,38 +14,69 @@ type productionSubmitInput struct {
 }
 
 type videoProviderConfigInput struct {
-	Provider string `json:"provider"`
-	APIKey string `json:"apiKey,omitempty"`
-	Model string `json:"model,omitempty"`
+	Provider  string `json:"provider"`
+	APIKey    string `json:"apiKey,omitempty"`
+	Model     string `json:"model,omitempty"`
 	CreateURL string `json:"createUrl,omitempty"`
-	TasksURL string `json:"tasksUrl,omitempty"`
+	TasksURL  string `json:"tasksUrl,omitempty"`
 	ResultURL string `json:"resultUrl,omitempty"`
 }
 
 func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.ProductionService) {
 	mux.HandleFunc("PUT /api/batch-factory/v11/video-provider/config", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
-		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error":"unauthorized"}); return }
-		if service == nil || service.ProviderRegistry == nil { writeStoreError(w, batchfactoryv11.ErrUnavailable); return }
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if service == nil || service.ProviderRegistry == nil {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
 		var input videoProviderConfigInput
-		if !decodeJSON(w, r, &input) { return }
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		provider := batchfactoryv11.NormalizeVideoProviderForHTTP(input.Provider)
+		if provider == batchfactoryv11.VideoProviderAutoDLComfyUI {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "MiniMax H3 使用服务端环境变量配置，浏览器不能写入凭据", "code": "H3_PROVIDER_CONFIG_SERVER_MANAGED"})
+			return
+		}
 		err := service.ProviderRegistry.Put(r.Context(), owner, batchfactoryv11.VideoProviderConfig{
 			Provider: input.Provider, APIKey: input.APIKey, Model: input.Model,
 			CreateURL: input.CreateURL, TasksURL: input.TasksURL, ResultURL: input.ResultURL,
 		})
-		if err != nil { writeStoreError(w, err); return }
-		provider := batchfactoryv11.NormalizeVideoProviderForHTTP(input.Provider)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
 		model := input.Model
-		if provider == batchfactoryv11.VideoProviderPersonalAPI && strings.TrimSpace(model) == "" { model = batchfactoryv11.DefaultPersonalVideoModel }
+		if provider == batchfactoryv11.VideoProviderPersonalAPI && strings.TrimSpace(model) == "" {
+			model = batchfactoryv11.DefaultPersonalVideoModel
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"provider": provider, "model": model, "configured": true})
 	})
 	mux.HandleFunc("GET /api/batch-factory/v11/video-provider/status", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
-		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error":"unauthorized"}); return }
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		provider := batchfactoryv11.NormalizeVideoProviderForHTTP(r.URL.Query().Get("provider"))
-		if service == nil || service.ProviderRegistry == nil { writeStoreError(w, batchfactoryv11.ErrUnavailable); return }
+		if provider == batchfactoryv11.VideoProviderAutoDLComfyUI {
+			configured := service != nil && service.HasServerManagedVideoProvider(provider)
+			writeJSON(w, http.StatusOK, batchfactoryv11.VideoProviderConfigView{Provider: provider, Model: batchfactoryv11.VideoModelMiniMaxH3, Configured: configured})
+			return
+		}
+		if service == nil || service.ProviderRegistry == nil {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
 		view, err := service.ProviderRegistry.View(r.Context(), owner, provider)
-		if err != nil && !errors.Is(err, batchfactoryv11.ErrUnavailable) { writeStoreError(w, err); return }
+		if err != nil && !errors.Is(err, batchfactoryv11.ErrUnavailable) {
+			writeStoreError(w, err)
+			return
+		}
 		if errors.Is(err, batchfactoryv11.ErrUnavailable) {
 			view = batchfactoryv11.VideoProviderConfigView{Provider: provider, Configured: false}
 		}
@@ -53,29 +84,57 @@ func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.Produ
 	})
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/books/{bookId}/production", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
-		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error":"unauthorized"}); return }
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		var input productionSubmitInput
-		if !decodeJSON(w, r, &input) { return }
-		if strings.TrimSpace(input.RequestID) == "" { writeStoreError(w, batchfactoryv11.ErrInvalid); return }
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if strings.TrimSpace(input.RequestID) == "" {
+			writeStoreError(w, batchfactoryv11.ErrInvalid)
+			return
+		}
 		job, err := service.SubmitBookProductionWithProvider(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, input.Provider)
-		if err != nil { writeStoreError(w, err); return }
-		writeJSON(w, http.StatusCreated, map[string]any{"job":job})
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"job": job})
 	})
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/production", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
-		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error":"unauthorized"}); return }
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		var input productionSubmitInput
-		if !decodeJSON(w, r, &input) { return }
-		if strings.TrimSpace(input.RequestID) == "" { writeStoreError(w, batchfactoryv11.ErrInvalid); return }
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if strings.TrimSpace(input.RequestID) == "" {
+			writeStoreError(w, batchfactoryv11.ErrInvalid)
+			return
+		}
 		status, err := service.SubmitBatchProductionWithProvider(r.Context(), owner, r.PathValue("batchId"), input.RequestID, input.Provider)
-		if err != nil { writeStoreError(w, err); return }
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusCreated, status)
 	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/status", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
-		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error":"unauthorized"}); return }
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		status, err := service.GetBatchStatus(r.Context(), owner, r.PathValue("batchId"))
-		if err != nil { writeStoreError(w, err); return }
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, status)
 	})
 }

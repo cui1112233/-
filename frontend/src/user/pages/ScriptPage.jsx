@@ -21,7 +21,7 @@ import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
-import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
+import { createScriptVideo, getScriptVideoTask, listScriptVideoModels } from '../../shared/api/scriptVideo.js';
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -100,12 +100,30 @@ export function ScriptPage() {
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
-  const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [scriptVideoModelKey, setScriptVideoModelKey] = useState('');
+  const [scriptVideoModels, setScriptVideoModels] = useState([]);
+  const [scriptVideoModelsError, setScriptVideoModelsError] = useState('');
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [currentHistoryId, setCurrentHistoryId] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    listScriptVideoModels().then(models => {
+      if (cancelled) return;
+      setScriptVideoModels(models);
+      setScriptVideoModelsError('');
+      setScriptVideoModelKey(current => models.some(model => model.id === current) ? current : (models[0]?.id || ''));
+    }).catch(error => {
+      if (cancelled) return;
+      setScriptVideoModels([]);
+      setScriptVideoModelKey('');
+      setScriptVideoModelsError(error?.message || '视频模型目录读取失败');
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [shotReplaceOpen, setShotReplaceOpen] = useState(false);
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
@@ -284,7 +302,8 @@ export function ScriptPage() {
   async function generateVideoForShot(card, index) {
     const prompt = String(card || '').trim();
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
-    if (scriptVideoModelKey === 'local-doubao-executor-video') {
+    if (!scriptVideoModelKey) return message.error(scriptVideoModelsError || '视频模型目录不可用，请稍后重试');
+    if (scriptVideoModelKey === 'local-doubao-executor-video' || scriptVideoModelKey === 'doubao-seedance') {
       try {
         const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
         const executors = Array.isArray(result?.executors) ? result.executors : Array.isArray(result?.items) ? result.items : [];
@@ -305,7 +324,7 @@ export function ScriptPage() {
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
-      const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey });
+      const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey, imageUrls: [] });
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
@@ -1166,8 +1185,10 @@ export function ScriptPage() {
             style={{ width: 164 }}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
-            title="单分镜视频模型"
+            options={scriptVideoModels.map(model => ({ label: `${model.label}${model.maxDuration ? ` · 最大 ${model.maxDuration}s` : ''}`, value: model.id }))}
+            loading={!scriptVideoModels.length && !scriptVideoModelsError}
+            disabled={!scriptVideoModels.length}
+            title={scriptVideoModelsError || '单分镜视频模型；MiniMax H3 自动判断文生/图生'}
           />
           <Space>
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>

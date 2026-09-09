@@ -36,6 +36,10 @@ export function getCapabilities() {
   return apiRequest(bf11Path('capabilities'));
 }
 
+export function getVideoModels() {
+  return apiRequest(bf11Path('video-models'));
+}
+
 export function createNovelFetchIntake(payload) {
   return apiRequest(bf11Path('intakes/novel-fetch'), { method: 'POST', body: body(payload) });
 }
@@ -132,14 +136,16 @@ export function getFinalPrompt(batchId, bookId, videoId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
 }
 
-export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api') {
+export function submitBookProduction(batchId, bookId, requestId, provider) {
+  if (!provider) throw new Error('视频提供方未保存');
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/production`), {
     method: 'POST',
     body: body({ requestId, provider })
   });
 }
 
-export function submitBatchProduction(batchId, requestId, provider = 'personal_api') {
+export function submitBatchProduction(batchId, requestId, provider) {
+  if (!provider) throw new Error('视频提供方未保存');
   return apiRequest(bf11Path(`batches/${id(batchId)}/production`), {
     method: 'POST',
     body: body({ requestId, provider })
@@ -206,6 +212,7 @@ export function getPublishAudits(provider, intentId) {
 
 export default {
   getCapabilities,
+  getVideoModels,
   createNovelFetchIntake,
   getIntake,
   createBatchFromIntake,

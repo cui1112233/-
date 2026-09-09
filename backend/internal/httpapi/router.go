@@ -12,24 +12,25 @@ import (
 )
 
 type RouterOptions struct {
-	BridgeSecret string
-	Now          func() time.Time
-	Users        BridgeUserResolver
-	Slice        int
-	RegisterV11  func(*http.ServeMux)
-	Store        batchfactoryv11.Store
-	Director     *batchfactoryv11.DirectorService
-	Compiler     *batchfactoryv11.PromptCompilerService
-	Production   *batchfactoryv11.ProductionService
-	Merge        *batchfactoryv11.MergeService
-	External        *external.Service
-	LocalExecutors  *localexecutor.Service
-	LocalArtifacts  *localartifact.Store
+	BridgeSecret   string
+	Now            func() time.Time
+	Users          BridgeUserResolver
+	Slice          int
+	RegisterV11    func(*http.ServeMux)
+	Store          batchfactoryv11.Store
+	Director       *batchfactoryv11.DirectorService
+	Compiler       *batchfactoryv11.PromptCompilerService
+	Production     *batchfactoryv11.ProductionService
+	Merge          *batchfactoryv11.MergeService
+	External       *external.Service
+	LocalExecutors *localexecutor.Service
+	LocalArtifacts *localartifact.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
 	v11 := http.NewServeMux()
 	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandlerForRuntime(options.Slice, options.Production != nil && options.Production.Enabled, options.Merge != nil && options.Merge.Enabled, options.External != nil && options.External.Enabled[external.Provider121], options.External != nil && options.External.Enabled[external.ProviderYadi]))
+	v11.HandleFunc("GET /api/batch-factory/v11/video-models", videoModelCatalogHandler)
 	if options.Store != nil && options.Slice >= 1 {
 		registerSliceOneRoutes(v11, options.Store)
 	}

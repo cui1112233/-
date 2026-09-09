@@ -20,18 +20,11 @@ import './batch-factory-v11-settings.css';
 const full = { width: '100%' };
 const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
-const VIDEO_PROVIDERS = [
-  { value: 'personal_api', label: '个人中心 API · yd2.0-mini' },
-  { value: 'doubao_local_executor', label: '豆包本地执行器' }
-];
-
-const VIDEO_MODELS = [
-  { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
-  { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
-  { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
-  { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
-  { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
-];
+const PROVIDER_LABELS = {
+  personal_api: '个人中心 API',
+  doubao_local_executor: '豆包本地执行器',
+  autodl_comfyui: 'MiniMax H3 · 服务端托管'
+};
 
 function SettingField({ label, description, children }) {
   return <div className="bf11-setting-field">
@@ -59,6 +52,8 @@ export function ProductionSettingsDrawer({
   onSavePersonalPrompt,
   videoProviders = {},
   localExecutors = [],
+  videoModels = [],
+  videoModelsError = null,
   onCreateLocalExecutorPairing
 }) {
   const [form, setForm] = useState(initialValue);
@@ -81,7 +76,7 @@ export function ProductionSettingsDrawer({
     setImpactLoading(false);
     setImpactResult(null);
     if (!open) return undefined;
-    setForm({ videoProvider: 'personal_api', ...initialValue });
+    setForm({ ...initialValue });
     setSelectedConfigVersionId(initialValue.versionConfigId || '');
     setPairingSecret(null);
     return () => {
@@ -103,6 +98,16 @@ export function ProductionSettingsDrawer({
   ].filter(Boolean).length, [form]);
 
   const configOptions = useMemo(() => configVersionOptions(configVersions), [configVersions]);
+  const videoModelOptions = useMemo(() => (Array.isArray(videoModels) ? videoModels : []).map(model => ({
+    value: model.id,
+    provider: model.provider,
+    label: `${model.label || model.id}${model.maxDuration ? ` · 最大 ${model.maxDuration}s` : ''}`
+  })), [videoModels]);
+  const videoProviderOptions = useMemo(() => {
+    const seen = new Set();
+    return videoModelOptions.filter(option => option.provider && !seen.has(option.provider) && seen.add(option.provider))
+      .map(option => ({ value: option.provider, label: PROVIDER_LABELS[option.provider] || option.provider }));
+  }, [videoModelOptions]);
   const canSyncConfigVersion = useMemo(
     () => !configVersionsError
       && selectedConfigVersionId !== form.versionConfigId
@@ -283,26 +288,25 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
-        <SettingField label="视频生成通道" description="默认使用个人中心 API；选择豆包本地执行器后，任务会交给你已配对且在线的本地电脑执行。">
+        <SettingField label="视频生成通道" description="通道由统一视频模型目录约束；MiniMax H3 凭据只在服务端环境变量中读取。">
           <Space direction="vertical" style={full} size={8}>
             <Select
-              value={form.videoProvider || 'personal_api'}
-              onChange={videoProvider => patch({
-                videoProvider,
-                videoModelId: videoProvider === 'doubao_local_executor' ? 'doubao-seedance' : 'yd2.0-mini'
-              })}
-              options={VIDEO_PROVIDERS}
+              placeholder="先选择服务端视频通道"
+              value={form.videoProvider || undefined}
+              onChange={videoProvider => {
+                const firstModel = videoModelOptions.find(option => option.provider === videoProvider);
+                patch({ videoProvider, videoModelId: firstModel?.value || '' });
+              }}
+              options={videoProviderOptions}
+              disabled={!videoProviderOptions.length}
               style={full}
             />
             <Space wrap>
-              <Tag color={videoProviders.personalAPI?.configured ? 'green' : 'default'}>
-                个人 API {videoProviders.personalAPI?.configured ? '已配置' : '未配置'}
-              </Tag>
-              <Tag color={localExecutors.some(item => item.online) ? 'green' : 'default'}>
-                豆包执行器 {localExecutors.some(item => item.online) ? '在线' : '未在线'}
-              </Tag>
+              <Tag color={videoProviders.personalAPI?.configured ? 'green' : 'default'}>个人 API {videoProviders.personalAPI?.configured ? '已配置' : '未配置'}</Tag>
+              <Tag color={localExecutors.some(item => item.online) ? 'green' : 'default'}>豆包执行器 {localExecutors.some(item => item.online) ? '在线' : '未在线'}</Tag>
+              <Tag color={videoProviders.h3Server?.configured ? 'green' : 'default'}>MiniMax H3 {videoProviders.h3Server?.configured ? '服务端已配置' : '服务端未配置'}</Tag>
             </Space>
-            {(form.videoProvider || 'personal_api') === 'doubao_local_executor' ? <div className="bf11-provider-pairing">
+            {form.videoProvider === 'doubao_local_executor' ? <div className="bf11-provider-pairing">
               <Button size="small" loading={pairingBusy} disabled={!onCreateLocalExecutorPairing} onClick={createPairing}>生成豆包配对码</Button>
               {pairingSecret?.code ? <Typography.Text copyable={{ text: pairingSecret.code }}>配对码：{pairingSecret.code}（10 分钟内有效）</Typography.Text> : null}
               {pairingSecret?.error ? <Typography.Text type="danger">{pairingSecret.error}</Typography.Text> : null}
@@ -311,16 +315,23 @@ export function ProductionSettingsDrawer({
           </Space>
         </SettingField>
 
-        <SettingField label="视频模型" description="导演前绑定模型；最大时长表示单个 VIDEO 的能力上限。">
-          <Select
-            allowClear
-            placeholder="继承系统模型"
-            value={form.videoModelId}
-            onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS.filter(option => (form.videoProvider || 'personal_api') === 'doubao_local_executor'
-              ? option.value === 'doubao-seedance'
-              : option.value === 'yd2.0-mini')}
-          />
+        <SettingField label="视频模型" description="统一目录由 V11 服务端返回；选择模型时会同时绑定正确 provider。">
+          <Space direction="vertical" style={full} size={6}>
+            <Select
+              allowClear
+              placeholder={videoModelsError ? '视频模型目录读取失败' : '选择视频模型'}
+              value={form.videoModelId || undefined}
+              onChange={videoModelId => {
+                const selected = videoModelOptions.find(option => option.value === videoModelId);
+                patch({ videoModelId, videoProvider: selected?.provider || '' });
+              }}
+              options={videoModelOptions.filter(option => !form.videoProvider || option.provider === form.videoProvider)}
+              disabled={Boolean(videoModelsError) || !videoModelOptions.length}
+              style={full}
+            />
+            {videoModelsError ? <Typography.Text type="danger">{videoModelsError.message || '视频模型目录不可用'}；不会回退到个人 API。</Typography.Text> : null}
+            {form.videoModelId === 'minimax-h3' ? <Typography.Text type="secondary">MiniMax H3 会自动判断：无有效参考图使用文生视频，有有效参考图使用图生视频；无需手动选择模式。</Typography.Text> : null}
+          </Space>
         </SettingField>
 
         <SettingField label="视频画幅" description="未覆盖时继续继承系统层。">
