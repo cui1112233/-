@@ -41,7 +41,14 @@ jobs:
           chmod 700 "$HOME/.ssh"
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
-          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
+          : > "$HOME/.ssh/known_hosts"
+          for attempt in 1 2 3 4 5; do
+            if timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null && [ -s "$HOME/.ssh/known_hosts" ]; then
+              break
+            fi
+            [ "$attempt" -eq 5 ] && { echo 'STATUS=BLOCKED unable to obtain ECS SSH host key'; exit 1; }
+            sleep 2
+          done
           chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Guard production merge.env before any mutation
