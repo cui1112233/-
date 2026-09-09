@@ -58,9 +58,8 @@ jobs:
             v78-novel-fetch-v2-run-controls.js; do
             test -s "v88-node-source/public/batch-rewrite/$file"
           done
-          grep -q 'buildLoginRequest' v88-node-source/routes/novel-fetch-upload.js
-          grep -q "headers\['set-cookie'\]" v88-node-source/routes/novel-fetch-upload.js
-          grep -q 'Cookie: cookie' v88-node-source/routes/novel-fetch-upload.js
+          test -s v88-node-source/lib/novel-fetch-workshop/v2-page.js
+          grep -q 'v78-novel-fetch-v2-run-controls.js' v88-node-source/lib/novel-fetch-workshop/v2-page.js
           grep -q 'NovelFetchStore' v88-go-source/backend/internal/httpapi/router.go
           test -f deploy/v88-direct/stage-node-host.sh
           test -f deploy/v88-direct/cutover-node-host.sh
