@@ -1685,6 +1685,9 @@ select {
 .shot-output-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--legacy-border); }
 .shot-output-card-references { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--legacy-border); color: var(--legacy-muted); font-size: 12px; }
 .shot-output-card-references-label { font-weight: 600; color: var(--legacy-text); }
+.shot-output-card-reference-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.shot-output-card-reference-thumbnail { width: 48px; height: 48px; flex: 0 0 48px; object-fit: cover; border: 1px solid var(--legacy-border-strong); border-radius: 6px; background: var(--legacy-card); }
+.shot-output-card-reference-thumbnail[aria-disabled='true'] { opacity: .45; filter: grayscale(1); }
 .shot-output-card-no-references { color: var(--legacy-muted); }
 .shot-output-card-content { margin: 0; padding: 14px; overflow: auto; color: var(--legacy-text); font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .shot-output-card-match { background: #ffe58f; color: #3b2d00; border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }

@@ -15,6 +15,7 @@ import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, constraintsForNextGen
 import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
 import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
+import { appendImageCandidate, buildReferenceAssetGenerationPayload } from './scriptEntityImages';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
 import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
@@ -25,6 +26,7 @@ import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, to
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
+import { generateReferenceAssetImage } from '../../shared/api/novelPanel';
 
 function videoModelKey(model) {
   return String(model?.key || model?.modelKey || '').trim();
@@ -1687,6 +1689,8 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentError, setEnrichmentError] = useState('');
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [imageGenerationError, setImageGenerationError] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -1697,12 +1701,15 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
     setNewImageUrl('');
     setEnrichment(null);
     setEnrichmentError('');
+    setGeneratingImage(false);
+    setImageGenerationError('');
   }, [entity, open]);
 
   const fieldsToRender = visualFields(entity);
   const title = `${isNew ? '添加' : '编辑'}${type === 'characters' ? '人物' : '场景'}`;
   const deleteLabel = type === 'characters' ? '删除人物' : '删除场景';
   const canEnrich = Boolean(String(novelText || '').trim() && entityName(fields));
+  const canGenerateImage = Boolean(entityName(fields));
 
   function addImageCandidate() {
     const url = String(newImageUrl || '').trim();
@@ -1740,6 +1747,28 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
     }
   }
 
+  async function generateImage() {
+    if (!canGenerateImage) return;
+    setGeneratingImage(true);
+    setImageGenerationError('');
+    try {
+      const response = await generateReferenceAssetImage(buildReferenceAssetGenerationPayload({
+        type,
+        entity,
+        fields,
+        novelText,
+        extractionPreset
+      }));
+      const url = String(response?.url || '').trim();
+      if (!url) throw new Error('图片生成接口未返回图片地址');
+      setImageUrls(current => appendImageCandidate(current, url));
+    } catch (error) {
+      setImageGenerationError(error.message || '人物/场景图片生成失败，请稍后重试');
+    } finally {
+      setGeneratingImage(false);
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -1772,11 +1801,16 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
             </div>
           )) : <Typography.Text type="secondary">暂无候选图。添加后仍需手动设为主图。</Typography.Text>}
         </div>
+        <Space wrap style={{ marginTop: 10 }}>
+          <Button onClick={generateImage} loading={generatingImage} disabled={!canGenerateImage}>根据当前设定生成图片</Button>
+          <Typography.Text type="secondary">生成结果会加入候选图，不会自动设为主图。</Typography.Text>
+        </Space>
       </div>
       <Space wrap style={{ marginTop: 8 }}>
         <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
         {!String(novelText || '').trim() ? <Typography.Text type="secondary">请先输入小说原文</Typography.Text> : null}
       </Space>
+      {imageGenerationError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{imageGenerationError}</Typography.Paragraph> : null}
       {enrichmentError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{enrichmentError}</Typography.Paragraph> : null}
       {enrichment ? <div className="entity-enrichment-result">
         {enrichment.evidence.length ? <EnrichmentList title="原文依据" items={enrichment.evidence} /> : null}
