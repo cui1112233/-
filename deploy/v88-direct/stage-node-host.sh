@@ -14,6 +14,10 @@ case "$release_dir" in
   *) echo "stage release must live under /opt/qiantie/releases/v88-stage" >&2; exit 3 ;;
 esac
 
+stage_log() {
+  printf '[stage-node] %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+}
+
 NODE_VERSION=24.19.0
 NODE_DIST="node-v${NODE_VERSION}-linux-x64"
 NODE_ARCHIVE="${NODE_DIST}.tar.xz"
@@ -27,6 +31,7 @@ STAGE_UNIT=/etc/systemd/system/qiantie-v88-node-stage.service
 NETWORK=v88-public_qiantie_internal
 STAGE_PORT=18081
 
+stage_log "validate release sha=$sha"
 [ -f "$release_dir/package.json" ] || { echo "release source is incomplete" >&2; exit 4; }
 [ -f "$release_dir/RELEASE-SHA" ] || { echo "RELEASE-SHA is missing" >&2; exit 5; }
 [ "$(tr -d '\r\n' < "$release_dir/RELEASE-SHA")" = "$sha" ] || { echo "RELEASE-SHA does not match requested SHA" >&2; exit 6; }
@@ -43,6 +48,7 @@ container_ip() {
   docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$1"
 }
 
+stage_log "resolve current v88 docker upstreams"
 node_id="$(container_id v88-public-v88-node)"
 go_id="$(container_id v88-public-go-api)"
 worker_id="$(container_id v88-public-browser-worker)"
@@ -64,6 +70,7 @@ curl -fsS --connect-timeout 2 --max-time 5 \
   -H "x-qiantie-internal-secret: $worker_secret" \
   "http://$worker_ip:8787/healthz" >/dev/null \
   || { echo "running 121 Browser Worker rejected its configured internal secret" >&2; exit 12; }
+stage_log "browser worker health and internal auth accepted"
 
 mount_source_for() {
   local destination="$1"
@@ -89,21 +96,26 @@ prepare_persistence() {
   ln -s "$shared_path" "$release_dir${destination#/app}"
 }
 
+stage_log "prepare persistent data and outputs"
 mkdir -p "$SHARED_DATA" "$SHARED_OUTPUTS" "$ROOT/shared/env" "$RUNTIME_ROOT"
 prepare_persistence /app/data "$SHARED_DATA"
 prepare_persistence /app/outputs "$SHARED_OUTPUTS"
 
 if [ ! -x "$NODE_HOME/bin/node" ] || [ "$($NODE_HOME/bin/node --version 2>/dev/null || true)" != "v$NODE_VERSION" ]; then
+  stage_log "cold bootstrap node v$NODE_VERSION"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
-  curl -fsSLo "$tmp/$NODE_ARCHIVE" "https://nodejs.org/dist/v$NODE_VERSION/$NODE_ARCHIVE"
-  curl -fsSLo "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt"
+  curl -fsSL --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 3 --retry-all-errors -o "$tmp/$NODE_ARCHIVE" "https://nodejs.org/dist/v$NODE_VERSION/$NODE_ARCHIVE"
+  curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 --retry-delay 3 --retry-all-errors -o "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt"
   (cd "$tmp" && grep "  $NODE_ARCHIVE\$" SHASUMS256.txt | sha256sum -c -)
   tar -xJf "$tmp/$NODE_ARCHIVE" -C "$RUNTIME_ROOT"
   rm -rf "$tmp"
   trap - RETURN
+else
+  stage_log "reuse pinned node v$NODE_VERSION"
 fi
 [ "$($NODE_HOME/bin/node --version)" = "v$NODE_VERSION" ] || { echo "pinned Node runtime verification failed" >&2; exit 13; }
+stage_log "pinned node runtime verified"
 
 tmp_env="$(mktemp)"
 trap 'rm -f "$tmp_env"' EXIT
@@ -142,6 +154,7 @@ TimeoutStopSec=20
 WantedBy=multi-user.target
 UNIT
 
+stage_log "restart parallel stage service"
 systemctl daemon-reload
 systemctl restart qiantie-v88-node-stage.service
 
@@ -157,4 +170,5 @@ curl -fsS --max-time 5 "http://127.0.0.1:$STAGE_PORT/" >/dev/null
 docker exec "$nginx_id" sh -c "wget -qO- -T 5 http://$gateway:$STAGE_PORT/api/build-info" \
   | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected' "$sha"
 
+stage_log "parallel stage verified sha=$sha port=$STAGE_PORT"
 printf 'V88_NODE_STAGE_OK sha=%s port=%s\n' "$sha" "$STAGE_PORT"
