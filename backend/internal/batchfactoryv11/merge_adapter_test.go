@@ -24,7 +24,10 @@ func TestHTTPMergeAdapterSubmitsOrderedSourcesAndPolls(t *testing.T) {
 	}))
 	defer server.Close()
 	adapter := &HTTPMergeAdapter{Endpoint: server.URL + "/merge", PollEndpoint: server.URL + "/merge/{id}", APIKey: "secret", Client: server.Client(), ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) }}
-	sources := []MergeMedia{{VideoID: "v1", URL: "https://media.example/1.mp4"}, {VideoID: "v2", URL: "https://media.example/2.mp4"}}
+	sources := []MergeMedia{
+		{ProductionJobID: "production-1", VideoID: "v1", MediaURL: "https://media.example/1.mp4", Order: 0},
+		{ProductionJobID: "production-1", VideoID: "v2", MediaURL: "https://media.example/2.mp4", Order: 1},
+	}
 	job, err := adapter.Submit(context.Background(), "batch-1", sources, MergeOptions{TimingMode: "speed", Speed: 1.5})
 	if err != nil { t.Fatal(err) }
 	if job.Status != MergeQueued || job.ProviderTaskID != "merge-task-1" { t.Fatalf("job=%+v", job) }
@@ -56,8 +59,8 @@ func TestHTTPMergeAdapterProviderContractIncludesSourceIdentityOrder(t *testing.
 		},
 	}
 	_, err := adapter.Submit(context.Background(), "batch-1", []MergeMedia{
-		{VideoID: "video-1", URL: "https://media.example/1.mp4"},
-		{VideoID: "video-2", URL: "https://media.example/2.mp4"},
+		{ProductionJobID: "production-1", VideoID: "video-1", MediaURL: "https://media.example/1.mp4", Order: 0},
+		{ProductionJobID: "production-1", VideoID: "video-2", MediaURL: "https://media.example/2.mp4", Order: 1},
 	}, MergeOptions{TimingMode: "speed", Speed: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -94,5 +97,5 @@ func asString(value any) string {
 
 func TestHTTPMergeAdapterRejectsUnsafeSource(t *testing.T) {
 	adapter := &HTTPMergeAdapter{Endpoint: "https://merge.example/submit", APIKey: "secret"}
-	if _, err := adapter.Submit(context.Background(), "batch-1", []MergeMedia{{VideoID: "v1", URL: "http://media.example/1.mp4"}}, MergeOptions{}); err == nil { t.Fatal("expected unsafe source rejection") }
+	if _, err := adapter.Submit(context.Background(), "batch-1", []MergeMedia{{ProductionJobID: "production-1", VideoID: "v1", MediaURL: "http://media.example/1.mp4", Order: 0}}, MergeOptions{}); err == nil { t.Fatal("expected unsafe source rejection") }
 }
