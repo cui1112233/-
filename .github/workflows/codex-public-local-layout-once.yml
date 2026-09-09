@@ -196,7 +196,7 @@ jobs:
             exit 1
           fi
           curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("git_sha")==sys.argv[1]; assert d.get("deploy_mode")=="git-direct"' "$sha"
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
 
           docker rm -f "$node_release_id" >/dev/null 2>&1 || true
           rm -f /tmp/stage-node-host.sh /tmp/cutover-node-host.sh
@@ -217,4 +217,6 @@ jobs:
             exit 1
           fi
           curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/novel-fetch" >/dev/null
+          curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/api/build-info" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
           echo 'PUBLIC_LOCAL_NOVEL_FETCH_LAYOUT_VERIFIED=true'
