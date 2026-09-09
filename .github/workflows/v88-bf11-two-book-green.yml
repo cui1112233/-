@@ -1,0 +1,70 @@
+name: V88 BF11 Two Book GREEN
+
+on:
+  push:
+    branches:
+      - feat/v88-h3-unified-video-20260909
+    paths:
+      - .github/workflows/v88-bf11-two-book-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/v88-h3-unified-video-20260909
+          fetch-depth: 1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Apply minimal V11 reconcile fix
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('backend/internal/batchfactoryv11/production.go')
+          text = p.read_text(encoding='utf-8')
+          old_guard = 'if s.Poller == nil && s.LocalExecutor == nil && s.ProviderRegistry == nil { return nil }'
+          new_guard = 'if s.Poller == nil && s.LocalExecutor == nil && s.ProviderRegistry == nil && s.Adapter == nil { return nil }'
+          if text.count(old_guard) != 1:
+              raise SystemExit(f'expected exactly one reconcile guard, got {text.count(old_guard)}')
+          text = text.replace(old_guard, new_guard, 1)
+          old_branch = '''\t\t\t} else if s.ProviderRegistry != nil {
+\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
+'''
+          new_branch = '''\t\t\t} else if provider == VideoProviderAutoDLComfyUI {
+\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
+\t\t\t\tif resolveErr != nil {
+\t\t\t\t\tpollErr = resolveErr
+\t\t\t\t} else if poller, ok := adapter.(ProductionPoller); !ok {
+\t\t\t\t\tpollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
+\t\t\t\t} else {
+\t\t\t\t\tref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+\t\t\t\t}
+\t\t\t} else if s.ProviderRegistry != nil {
+\t\t\t\tadapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
+'''
+          if text.count(old_branch) != 1:
+              raise SystemExit(f'expected exactly one provider-registry branch, got {text.count(old_branch)}')
+          p.write_text(text.replace(old_branch, new_branch, 1), encoding='utf-8')
+      - name: Verify exact scope
+        run: |
+          git diff --check
+          test "$(git diff --name-only)" = "backend/internal/batchfactoryv11/production.go"
+      - name: Run focused RED-to-GREEN regression
+        working-directory: backend
+        run: go test ./internal/batchfactoryv11 -run 'TestBatchProductionH3(TwoBooksMultiVideoKeepsFinalPromptsIsolatedAndAggregatesStatus|UnconfiguredBlocksBeforeFinalPromptAndCreatesNoJobs)' -count=1
+      - name: Run full V11 Go regression
+        working-directory: backend
+        run: go test ./internal/batchfactoryv11 ./internal/httpapi -count=1
+      - name: Commit minimal fix
+        run: |
+          git config user.name 'cui1112233'
+          git config user.email '732223510@qq.com'
+          git add backend/internal/batchfactoryv11/production.go
+          git commit -m 'fix(v88): reconcile server-managed H3 batch status'
+          git push origin HEAD:feat/v88-h3-unified-video-20260909
