@@ -1,9 +1,23 @@
 const { registerNovelFetchV2Routes } = require('../lib/novel-fetch-workshop/v2-api-contract');
 
 function errorStatus(error) {
+  if (error?.code === 'unauthorized' || error?.workerResponse?.error === 'unauthorized' || error?.workerResponse?.code === 'unauthorized') return 503;
+  if (error?.code === 'BROWSER_WORKER_UNAUTHORIZED') return 503;
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599) return error.status;
   if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT'].includes(error?.code)) return 503;
   return 400;
+}
+
+function safeErrorMessage(error, fallback = '121 操作失败') {
+  const message = String(error?.message || fallback);
+  return /password|cookie|session|secret|token|authorization/i.test(message) ? fallback : message;
+}
+
+function safeErrorResponse(error) {
+  const response = { ok: false, error: safeErrorMessage(error) };
+  if (error?.code === 'unauthorized' || error?.workerResponse?.error === 'unauthorized' || error?.workerResponse?.code === 'unauthorized') response.code = 'BROWSER_WORKER_UNAUTHORIZED';
+  else if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT', 'BROWSER_WORKER_UNAUTHORIZED'].includes(error?.code)) response.code = error.code;
+  return response;
 }
 
 function registerWebSubmitRoutes(router, webSubmit) {
@@ -12,7 +26,7 @@ function registerWebSubmitRoutes(router, webSubmit) {
     try { return await handler(req, res); }
     catch (error) {
       if (res.headersSent) return next(error);
-      return res.status(errorStatus(error)).json({ ok: false, error: error?.message || '121 操作失败', ...(error?.code ? { code: error.code } : {}) });
+      return res.status(errorStatus(error)).json(safeErrorResponse(error));
     }
   };
 

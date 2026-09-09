@@ -99,6 +99,34 @@ test('worker failure never falls back to guessed 121 login API', async () => {
   assert.equal(urls.some(url => url.includes('tttadmin/api/login.php')), false);
 });
 
+test('browser client classifies raw worker 401 unauthorized as infrastructure failure', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret',
+    fetchImpl: async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: 'unauthorized' }) })
+  });
+
+  await assert.rejects(client.test(identity), error => {
+    assert.equal(error.code, 'BROWSER_WORKER_UNAUTHORIZED');
+    assert.equal(error.status, 503);
+    assert.equal(error.recoverable, false);
+    assert.equal(error.workerResponse.error, 'unauthorized');
+    return true;
+  });
+});
+
+test('browser client classifies worker timeout responses as infrastructure 503', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret',
+    fetchImpl: async () => ({ ok: false, status: 504, text: async () => JSON.stringify({ error: 'browser_timeout', status: 'unknown' }) })
+  });
+
+  await assert.rejects(client.test(identity), error => {
+    assert.equal(error.code, 'BROWSER_WORKER_TIMEOUT');
+    assert.equal(error.status, 503);
+    return true;
+  });
+});
+
 test('browser client wall-clock timeout settles request', async () => {
   const client = create121BrowserClient({
     baseUrl: 'http://worker:8787', secret: 'internal-secret', timeoutMs: 20,

@@ -189,3 +189,8 @@ test('remote record verification reports parameter mismatch rather than claiming
   assert.equal(remote.found, true);
   assert.ok(remote.mismatches.length >= 1);
 });
+
+test('121 web submit service exposes the existing ensureSession implementation for V2 composition', async () => {
+  const f = fixture();
+  assert.equal(typeof f.service.ensureSession, 'function');
+});
