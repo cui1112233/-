@@ -21,9 +21,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Checkout V88 deployment scripts and Go source
+      - name: Checkout V88 deployment scripts
         uses: actions/checkout@v4
         with:
+          ref: v88
           fetch-depth: 1
           persist-credentials: false
 
