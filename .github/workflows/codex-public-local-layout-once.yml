@@ -149,7 +149,7 @@ jobs:
           go_id="$(docker ps --filter 'name=v88-public-go-api' --format '{{.ID}}' | head -n1)"
           test -n "$go_id"
           old_go_image="$(docker inspect "$go_id" --format '{{.Config.Image}}')"
-          rollback_go_image="${old_go_image}:codex-rollback-${sha:0:12}-$(date +%Y%m%d%H%M%S)"
+          rollback_go_image="qiantie-go-api:codex-rollback-${sha:0:12}-$(date +%Y%m%d%H%M%S)"
           docker tag "$old_go_image" "$rollback_go_image"
 
           rollback_go() {
