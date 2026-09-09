@@ -21,6 +21,9 @@ type MergeMedia struct {
 	ProductionJobID string `json:"productionJobId"`
 	VideoID         string `json:"videoId"`
 	MediaURL        string `json:"mediaUrl"`
+	// URL is an internal compatibility alias for older V11 consumers. It is
+	// deliberately excluded from the provider JSON contract.
+	URL             string `json:"-"`
 	Order           int    `json:"order"`
 }
 
@@ -163,10 +166,12 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 			if !found || selection.Task.Status != ProductionSucceeded || strings.TrimSpace(selection.Task.MediaURL) == "" {
 				return MergeJob{}, fmt.Errorf("%w: book %s has VIDEOs without completed media", ErrConflict, book.ID)
 			}
+			mediaURL := strings.TrimSpace(selection.Task.MediaURL)
 			sources = append(sources, MergeMedia{
 				ProductionJobID: selection.JobID,
 				VideoID:         video.ID,
-				MediaURL:        selection.Task.MediaURL,
+				MediaURL:        mediaURL,
+				URL:             mediaURL,
 				Order:           len(sources),
 			})
 		}
