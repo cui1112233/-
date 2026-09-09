@@ -49,7 +49,8 @@ jobs:
           set -Eeuo pipefail
           test "$(sha256sum v78-node-source/frontend/dist/batch-rewrite/index.html | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
           grep -q 'buildLoginRequest' v78-node-source/routes/novel-fetch-upload.js
-          grep -q 'cookieHeaderFromSetCookie' v78-node-source/routes/novel-fetch-upload.js
+          grep -q "headers\['set-cookie'\]" v78-node-source/routes/novel-fetch-upload.js
+          grep -q 'Cookie: cookie' v78-node-source/routes/novel-fetch-upload.js
           grep -q 'NovelFetchStore' v88-go-source/backend/internal/httpapi/router.go
           test -f deploy/v88-direct/stage-node-host.sh
           test -f deploy/v88-direct/cutover-node-host.sh
