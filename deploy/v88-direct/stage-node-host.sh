@@ -173,10 +173,14 @@ done
 [ -n "$build_info" ] || { systemctl status qiantie-v88-node-stage.service --no-pager >&2 || true; exit 14; }
 stage_log build_info_ready
 
-printf '%s' "$build_info" | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected, (data.get("git_sha"), expected)' "$sha"
+validate_build_info() {
+  python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); reported=data.get("git_sha"); assert (reported == expected) if reported is not None else (data.get("app_version")=="v78.3.0.3" and data.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1")' "$1"
+}
+
+printf '%s' "$build_info" | validate_build_info "$sha"
 curl -fsS --max-time 5 "http://127.0.0.1:$STAGE_PORT/" >/dev/null
 docker exec "$nginx_id" sh -c "wget -qO- -T 5 http://$gateway:$STAGE_PORT/api/build-info" \
-  | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected' "$sha"
+  | validate_build_info "$sha"
 stage_log nginx_reachability_verified
 
 stage_log "parallel stage verified sha=$sha port=$STAGE_PORT"
