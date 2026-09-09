@@ -70,7 +70,7 @@ jobs:
           go_image="ghcr.io/${owner}/qiantie-v88:public-local-layout-go-${short_sha}"
 
           ( cd v78-node-source && npm ci --omit=dev )
-          ( cd v78-node-source/frontend && npm ci && npm run build )
+          rsync -a --delete frontend/dist/ v78-node-source/frontend/dist/
           docker build --platform linux/amd64 --provenance=false -f v78-node-source/deploy/Dockerfile.platform -t "$node_image" v78-node-source
           docker build --platform linux/amd64 --provenance=false -t "$go_image" v88-go-source/backend
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = linux/amd64

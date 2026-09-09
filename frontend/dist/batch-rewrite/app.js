@@ -16,7 +16,6 @@ const LEGACY_WORK_INPUT_SAMPLE_PREFIX = "7674515088685943832\t";
 const API_ROOT = "/api/batch-rewrite";
 const PLATFORM_API_TIMEOUT_MS = 15000;
 const PER_BOOK_MATERIAL_LIMIT = 8;
-const PROCESS_JOB_TIMEOUT_MS = 10 * 60 * 1000;
 const REWRITE_METHOD_OPTIONS = [
   { id: "", name: "自动轮换" },
   { id: "high_imitation", name: "高仿文章库" },
@@ -82,6 +81,13 @@ async function api(path, options = {}) {
   } catch {
     data = { raw: text };
   }
+  if (response.status === 401) {
+    reportBatchIssue("response", path, "登录已失效，请重新登录", 401, options.method || "GET");
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "qiantie:auth-expired", token }, window.location.origin);
+    }
+    throw new Error("登录已失效，请重新登录");
+  }
   if (!response.ok) {
     // 兼容本工作台接口使用的 { error } 结构，避免把可操作的原因吞成“HTTP 400”。
     const error = new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
@@ -91,8 +97,7 @@ async function api(path, options = {}) {
   return data;
 }
 
-// External 121 checks must always settle so the UI cannot remain in a loading state.
-async function novelFetchPlatformApi(path, options = {}) {
+async function platformApi(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem("auth_token") || "";
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -164,9 +169,10 @@ function renderOptions(select, items, valueKey = "id", labelKey = "name") {
 function collectWorkFormState() {
   return {
     platform_id: $("platformSelect")?.value || "",
+    parse_mode: $("parseModeSelect")?.value || "smart",
+    column_preset_id: $("columnPresetSelect")?.value || "",
+    column_order: $("columnOrderInput")?.value || DEFAULT_COLUMN_ORDER,
     input_text: $("inputText")?.value || "",
-    selected_versions: selectedProcessVersions(),
-    ai_slot_methods: processAiMethods(),
     sensitive_ai_enabled: sensitiveAiProcessEnabled(),
     updated_at: new Date().toISOString(),
   };
@@ -232,35 +238,33 @@ function restoreWorkFormState() {
   if (saved.platform_id && [...platformSelect.options].some((option) => option.value === String(saved.platform_id))) {
     platformSelect.value = String(saved.platform_id);
   }
-  if (typeof saved.input_text === "string") $("inputText").value = saved.input_text;
-  const selected = new Set(asArray(saved.selected_versions).map(version => String(version).toLowerCase()));
-  if (selected.size) document.querySelectorAll('.process-version').forEach(input => { input.checked = selected.has(input.value); });
-  for (let index = 1; index <= 5; index += 1) {
-    const select = $(`processAiMethod${index}`);
-    if (select) select.value = saved.ai_slot_methods?.[`ai${index}`] || '';
+  const parseModeSelect = $("parseModeSelect");
+  if (saved.parse_mode && [...parseModeSelect.options].some((option) => option.value === String(saved.parse_mode))) {
+    parseModeSelect.value = String(saved.parse_mode);
   }
+  const columnPresetSelect = $("columnPresetSelect");
+  if ([...columnPresetSelect.options].some((option) => option.value === String(saved.column_preset_id || ""))) {
+    columnPresetSelect.value = String(saved.column_preset_id || "");
+  }
+  if (typeof saved.column_order === "string") $("columnOrderInput").value = saved.column_order || DEFAULT_COLUMN_ORDER;
+  if (typeof saved.input_text === "string") $("inputText").value = saved.input_text;
   if (typeof saved.sensitive_ai_enabled === "boolean" && $("sensitiveAiProcessEnabled")) {
     $("sensitiveAiProcessEnabled").checked = saved.sensitive_ai_enabled;
   }
   if (local.removed || server.removed) window.setTimeout(() => { saveWorkFormStateNow(); }, 0);
-  updateVersionConfigSummary();
 }
 
 function bindWorkFormPersistence() {
-  for (const id of ["platformSelect"]) {
+  for (const id of ["platformSelect", "parseModeSelect", "columnPresetSelect"]) {
     const element = $(id);
     if (element) element.addEventListener("change", saveWorkFormState);
   }
-  for (const id of ["inputText"]) {
+  for (const id of ["columnOrderInput", "inputText"]) {
     const element = $(id);
     if (element) element.addEventListener("input", saveWorkFormState);
   }
   const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
   if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
-  document.querySelectorAll('.process-version, [id^="processAiMethod"]').forEach(element => element.addEventListener('change', () => {
-    saveWorkFormState();
-    updateVersionConfigSummary();
-  }));
 }
 
 function presetOptions() {
@@ -271,69 +275,37 @@ function presetOptions() {
   ];
 }
 
-function processAiMethods() {
+function renderAiSlotMethodControls(rewrite = {}) {
+  const box = $("aiSlotMethods");
+  if (!box) return;
+  const slotMethods = rewrite.ai_slot_methods || {};
+  box.innerHTML = "";
+  const maxCount = Math.max(1, Math.min(Number(rewrite.max_ai_count || 5), 20));
+  for (let index = 1; index <= Math.min(maxCount, 5); index += 1) {
+    const label = document.createElement("label");
+    label.textContent = `AI${index}`;
+    const select = document.createElement("select");
+    select.id = `aiSlotMethod${index}`;
+    for (const item of REWRITE_METHOD_OPTIONS) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.name;
+      select.appendChild(option);
+    }
+    select.value = slotMethods[`ai${index}`] || "";
+    label.appendChild(select);
+    box.appendChild(label);
+  }
+}
+
+function readAiSlotMethods() {
   const result = {};
   for (let index = 1; index <= 5; index += 1) {
-    const element = $(`processAiMethod${index}`);
+    const element = $(`aiSlotMethod${index}`);
     const value = element?.value || "";
     if (value) result[`ai${index}`] = value;
   }
   return result;
-}
-
-function selectedProcessVersions() {
-  return [...document.querySelectorAll('.process-version:checked')].map(input => input.value);
-}
-
-function updateVersionConfigSummary() {
-  const summary = $("versionConfigSummary");
-  if (!summary) return;
-  const versions = selectedProcessVersions();
-  summary.textContent = versions.length
-    ? versions.map(version => version === "original" ? "原文" : version.toUpperCase()).join("、")
-    : "未选择版本";
-}
-
-function openVersionConfigCard() {
-  const dialog = $("versionConfigCard");
-  if (!dialog) return;
-  renderVersionPromptConfig();
-  updateVersionConfigSummary();
-  if (typeof dialog.showModal === "function") dialog.showModal();
-  else dialog.setAttribute("open", "");
-}
-
-function renderVersionPromptConfig() {
-  const rewrite = state.config?.app_config?.rewrite || {};
-  const fields = {
-    versionConfigRewritePrompt: rewrite.prompt || "",
-    versionConfigProcessingRulePrompt: rewrite.processing_rule_prompt || "",
-    versionConfigKnowledgeUsagePrompt: state.config?.knowledge?.usage_prompt || "",
-  };
-  for (const [id, value] of Object.entries(fields)) {
-    const element = $(id);
-    if (element) element.value = value;
-  }
-}
-
-function syncVersionPromptConfigToForm() {
-  const pairs = [
-    ["versionConfigRewritePrompt", "rewritePrompt"],
-    ["versionConfigProcessingRulePrompt", "processingRulePrompt"],
-    ["versionConfigKnowledgeUsagePrompt", "knowledgeUsagePrompt"],
-  ];
-  for (const [sourceId, targetId] of pairs) {
-    const source = $(sourceId);
-    const target = $(targetId);
-    if (source && target) target.value = source.value;
-  }
-}
-
-function closeVersionConfigCard() {
-  const dialog = $("versionConfigCard");
-  if (!dialog) return;
-  if (typeof dialog.close === "function") dialog.close();
-  else dialog.removeAttribute("open");
 }
 
 function renderConfig() {
@@ -351,15 +323,26 @@ function renderConfig() {
     platformSelect.appendChild(option);
   }
 
+  renderOptions($("parseModeSelect"), state.config.parse_modes || [{ id: "smart", name: "智能识别" }]);
+  $("parseModeSelect").value = appCfg.parser?.default_parse_mode || "smart";
+
+  $("columnPresetSelect").innerHTML = `<option value="">不使用预设</option>`;
+  for (const item of state.config.column_presets || []) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    $("columnPresetSelect").appendChild(option);
+  }
+  $("columnPresetSelect").value = appCfg.parser?.default_column_preset_id || "sample_input";
+  $("columnOrderInput").value = appCfg.parser?.custom_column_order || DEFAULT_COLUMN_ORDER;
+
   renderWorkflowConfig(appCfg);
-  renderVersionPromptConfig();
   renderAiConfig(appCfg);
   renderPresetControls(appCfg);
   renderKnowledgeSummary(state.config.knowledge_summary || {});
   renderLibraryManager();
   renderRuleEditor();
   renderWebSubmitConfig(state.config.web_submit || {});
-  if ($("knowledgeUsagePrompt")) $("knowledgeUsagePrompt").value = state.config.knowledge?.usage_prompt || "";
 
   $("platformsText").value = pretty(state.config.platforms || []);
   $("stylesText").value = pretty(state.config.styles || []);
@@ -383,17 +366,19 @@ function renderWorkflowConfig(appCfg) {
   $("fetchRetries").value = fetch.retries ?? 1;
   $("fetchTimeout").value = fetch.timeout_seconds || 30;
   $("fetchAutoDetectPlatform").checked = fetch.auto_detect_platform !== false;
+  $("aiCountDefault").value = rewrite.default_ai_count || 1;
+  $("aiCountMax").value = rewrite.max_ai_count || 5;
   $("processLineCount").value = rewrite.process_line_count || 5;
   $("anchorLineCount").value = rewrite.anchor_line_count || 5;
   $("rewriteTemp").value = rewrite.temperature ?? 0.45;
   $("methodSequenceInput").value = Array.isArray(rewrite.method_sequence)
     ? rewrite.method_sequence.join(",")
     : (rewrite.method_sequence || "high_imitation,opening_instruction,instruction");
+  renderAiSlotMethodControls(rewrite);
   $("openingPhraseMode").value = rewrite.opening_phrase_mode || "auto";
   $("highImitationMode").value = rewrite.high_imitation_mode || "auto";
   renderRewriteTemplateOptions(rewrite.default_template_id || "");
   $("rewritePrompt").value = rewrite.prompt || "";
-  $("processingRulePrompt").value = rewrite.processing_rule_prompt || "";
 }
 
 function asArray(value) {
@@ -495,6 +480,7 @@ function sensitiveAiProcessEnabled() {
 function ensureWebSubmitConfig() {
   state.config = state.config || {};
   const current = state.config.web_submit || {};
+  const submitVersions = asArray(current.submit_versions).length ? asArray(current.submit_versions) : ["ai1"];
   const jieyaNum = materialJieyaValue(current.advanced?.jieyaNum ?? 4);
   state.config.web_submit = {
     // 保留旧字段供服务端和历史配置兼容，但网络提交已由任务列表直接触发。
@@ -507,6 +493,9 @@ function ensureWebSubmitConfig() {
     retry_times: Math.max(0, Number(current.retry_times) || 1),
     upload_profiles: asArray(current.upload_profiles),
     profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
+    organization_catalog: current.organization_catalog && typeof current.organization_catalog === 'object' ? current.organization_catalog : { field_name: '', options: [] },
+    selected_organization: String(current.selected_organization || ''),
+    submit_versions: submitVersions,
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
       jieyaNum,
@@ -1541,7 +1530,16 @@ function renderWebSubmitConfig(settings = {}) {
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
+  renderWebOrganizationOptions(cfg.organization_catalog, cfg.selected_organization);
 
+  const versionSet = new Set(asArray(cfg.submit_versions).map((item) => String(item || "").toLowerCase()));
+  document.querySelectorAll(".web-version").forEach((input) => {
+    input.checked = versionSet.has(String(input.value || "").toLowerCase());
+  });
+  if (!document.querySelector(".web-version:checked")) {
+    const ai1 = document.querySelector('.web-version[value="ai1"]');
+    if (ai1) ai1.checked = true;
+  }
   updateResubmitHint();
   renderWebSubmitMode();
   renderWebLoginStatus(cfg);
@@ -1562,7 +1560,7 @@ async function openWebLoginDialog() {
   if (!dialog) {
     dialog = document.createElement("dialog");
     dialog.id = "webLoginDialog";
-    dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
+    dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">先验证账号密码，验证成功后才保存；失败不会覆盖原有登录信息。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">验证并保存</button></div><span id="webLoginResult"></span></form>`;
     document.body.appendChild(dialog);
     dialog.addEventListener("submit", async (event) => {
       if (event.submitter?.id !== "webLoginSubmit") return;
@@ -1570,15 +1568,12 @@ async function openWebLoginDialog() {
       const result = $("webLoginResult"); result.textContent = "验证中...";
       $("webLoginSubmit").disabled = true;
       try {
-        const settings = { ...(state.config?.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
-        // Verify credentials before persisting them to the local web-submit config.
-        const login = await novelFetchPlatformApi("/api/novel-fetch-upload/upload-login", {
-          method: "POST",
-          body: JSON.stringify({ username: settings.username, password: settings.password }),
-        });
+        const settings = { ...(state.config.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
+        // 先验证目标站登录；只有成功后才落盘账号配置。
+        const login = await platformApi("/api/novel-fetch-upload/upload-login", { method: "POST", body: JSON.stringify({ username: settings.username, password: settings.password }) });
         if (login.ok !== true) throw new Error(login.error || "登录验证失败");
         await api("/api/web-submit/config", { method: "POST", body: JSON.stringify({ settings }) });
-        state.webLoginSession = login.ok === true;
+        state.webLoginSession = true;
         state.config.web_submit = { ...(state.config.web_submit || {}), username: settings.username, password_masked: true };
         renderWebLoginStatus(state.config.web_submit);
         result.textContent = state.webLoginSession ? "登录验证成功" : "登录异常";
@@ -1622,7 +1617,7 @@ function profileIdFromIdentity(profiles, identity) {
 }
 
 function renderWebVersionProfileBindings(profiles, bindings) {
-  const fields = { original: "webProfileBindingOriginal", ai1: "webProfileBindingAi1", ai2: "webProfileBindingAi2", ai3: "webProfileBindingAi3", ai4: "webProfileBindingAi4", ai5: "webProfileBindingAi5" };
+  const fields = { original: "webProfileBindingOriginal", ai1: "webProfileBindingAi1", ai2: "webProfileBindingAi2", ai3: "webProfileBindingAi3" };
   const items = asArray(profiles);
   for (const [version, id] of Object.entries(fields)) {
     const select = $(id);
@@ -1639,14 +1634,29 @@ function renderWebVersionProfileBindings(profiles, bindings) {
   }
 }
 
+function renderWebOrganizationOptions(catalog, selectedOrganization) {
+  const select = $("webOrganization");
+  const hint = $("webOrganizationHint");
+  if (!select) return;
+  const items = asArray(catalog?.options);
+  const selected = String(selectedOrganization || "");
+  const options = ['<option value="">请选择组织归属</option>'];
+  for (const item of items) {
+    const id = String(item?.id || "").trim();
+    const name = String(item?.name || id).trim();
+    if (!id) continue;
+    options.push(`<option value="${escapeHtml(id)}" ${id === selected ? "selected" : ""}>${escapeHtml(name)}</option>`);
+  }
+  select.innerHTML = options.join("");
+  if (hint) hint.textContent = items.length ? `已同步 ${items.length} 个组织归属` : "请先同步批量后台配置";
+}
+
 function webProfileBindingsFromForm() {
   return {
     original: $("webProfileBindingOriginal")?.value || "",
     ai1: $("webProfileBindingAi1")?.value || "",
     ai2: $("webProfileBindingAi2")?.value || "",
-    ai3: $("webProfileBindingAi3")?.value || "",
-    ai4: $("webProfileBindingAi4")?.value || "",
-    ai5: $("webProfileBindingAi5")?.value || ""
+    ai3: $("webProfileBindingAi3")?.value || ""
   };
 }
 
@@ -1656,6 +1666,13 @@ function updateResubmitHint() {
   if (hint) hint.textContent = allow
     ? "已开启：已成功版本会再次上传。"
     : "默认保护：已成功版本会跳过。";
+}
+
+function webSubmitVersionsFromForm() {
+  const versions = [...document.querySelectorAll(".web-version:checked")]
+    .map((input) => String(input.value || "").trim())
+    .filter(Boolean);
+  return versions.length ? versions : ["ai1"];
 }
 
 function syncFormToWebSubmitConfig() {
@@ -1673,16 +1690,13 @@ function syncFormToWebSubmitConfig() {
   cfg.profile_bindings = webProfileBindingsFromForm();
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
-  cfg.submit_versions = selectedProcessVersions();
+  cfg.selected_organization = $("webOrganization")?.value || "";
+  cfg.submit_versions = webSubmitVersionsFromForm();
   return cfg;
 }
 
 function setSiteSubmitStatus(text) {
   if ($("siteSubmitStatus")) $("siteSubmitStatus").textContent = text || "";
-}
-
-function setVersionConfigStatus(text) {
-  if ($("webSubmitSelectionStatus")) $("webSubmitSelectionStatus").textContent = text || "";
 }
 
 async function saveWebSubmitConfig(silent = false) {
@@ -1706,33 +1720,27 @@ async function saveWebSubmitConfig(silent = false) {
 
 async function confirmWebSubmitSelection() {
   const status = $("webSubmitSelectionStatus");
-  const versions = selectedProcessVersions();
+  const versions = webSubmitVersionsFromForm();
   if (!versions.length) {
-    if (status) status.textContent = "请至少选择一个文案版本";
+    if (status) status.textContent = "请至少选择一份提交文案。";
     return;
   }
-  if (status) status.textContent = "正在保存版本配置...";
-  try {
-    await saveWorkFormStateNow();
-    syncVersionPromptConfigToForm();
-    await saveConfig(true);
-    const result = await saveWebSubmitConfig(true);
-    if (result) {
-      if (status) status.textContent = `已保存：${versions.map(version => version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
-      updateVersionConfigSummary();
-      closeVersionConfigCard();
-    } else if (status) {
-      status.textContent = "确认失败，请检查连接与设置。";
-    }
-  } catch (error) {
-    if (status) status.textContent = error.message;
+  if (!$("webOrganization")?.value) {
+    if (status) status.textContent = "请选择组织归属。";
+    return;
+  }
+  if (status) status.textContent = "正在确认文案与提交方案...";
+  const result = await saveWebSubmitConfig(true);
+  if (result) {
+    if (status) status.textContent = `已确认：${versions.map(version => version.toUpperCase()).join("、")}；版本配置已保存。`;
+  } else if (status) {
+    status.textContent = "确认失败，请检查连接与设置。";
   }
 }
 
 async function syncWebSubmit(kind) {
   const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
-  setVersionConfigStatus(`正在同步${label}...`);
   try {
     await saveWebSubmitConfig(true);
     const result = await api(kind === "styles" ? "/api/web-submit/sync-styles" : "/api/web-submit/sync-configs", {
@@ -1745,13 +1753,10 @@ async function syncWebSubmit(kind) {
     const styleText = result.style_sync
       ? `，AI风格 ${result.style_sync.new_count || 0} 个，新增 ${result.style_sync.added?.length || 0}，删除 ${result.style_sync.removed?.length || 0}`
       : "";
-    const configText = kind === "configs" ? `：${result.groups?.length || 0} 个配置档已更新` : "";
-    const message = `已同步${label}${configText}${styleText}`;
-    setSiteSubmitStatus(message);
-    setVersionConfigStatus(message);
+    const configText = kind === "configs" ? `：${result.groups?.length || 0} 个配置档、${result.organizations?.options?.length || 0} 个组织归属已更新` : "";
+    setSiteSubmitStatus(`已同步${label}${configText}${styleText}`);
   } catch (error) {
     setSiteSubmitStatus(error.message);
-    setVersionConfigStatus(error.message);
   }
 }
 
@@ -1789,7 +1794,7 @@ async function testVisibleWebFlow() {
   setSiteSubmitStatus("正在验证 121 登录会话...");
   try {
     await saveWebSubmitConfig(true);
-    const result = await novelFetchPlatformApi("/api/batch-rewrite/web-submit/test-visible", {
+    const result = await api("/api/web-submit/test-visible", {
       method: "POST",
       body: JSON.stringify(webSubmitRequestPayload(state.selectedIds.size ? "selected" : "all", true)),
     });
@@ -1870,6 +1875,7 @@ function webSubmitRequestPayload(mode, force = false) {
   return {
     mode,
     ids,
+    versions: webSubmitVersionsFromForm(),
     force,
     grouped: true,
   };
@@ -2064,12 +2070,7 @@ function updateSelectedCount() {
 }
 
 function originalStatusText(task) {
-  if (task.original_status === "done") {
-    const raw = Number(task.original_raw_chars ?? task.originalRawChars ?? 0);
-    const maxTxt = Number(task.max_txt ?? task.maxTxt ?? 0);
-    const processed = raw > 0 && maxTxt > 0 ? Math.min(maxTxt, raw) : Number(task.original_chars ?? task.originalChars ?? 0);
-    return raw > 0 ? `${processed}/${raw}` : `${processed}字`;
-  }
+  if (task.original_status === "done") return `${task.original_chars || 0}字`;
   if (task.original_status === "process_failed") {
     return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
   }
@@ -2085,11 +2086,11 @@ function originalStatusText(task) {
 function taskStatusText(value, fallback = "") {
   const text = String(value || "").trim();
   const labels = {
-    created: "待处理", queued: "排队中", running: "正在执行中…", processing: "正在执行中…", input_ready: "分类信息已就绪", classified: "已完成判断", classifying: "AI判断中…", classify_failed: "判断失败",
+    created: "待处理", queued: "等待处理", running: "处理中", classified: "已完成判断", classifying: "正在判断", classify_failed: "判断失败",
     fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
-    generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
+    generating: "正在生成", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
-    uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
+    queued: "排队中", uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
   };
   return labels[text] || text || fallback;
 }
@@ -2116,7 +2117,7 @@ function renderTasks(tasks) {
   const body = $("tasksBody");
   body.innerHTML = "";
   if (!state.tasks.length) {
-    body.innerHTML = `<tr><td colspan="12">${selectedDate === todayDateKey() ? "今日暂无任务" : `${selectedDate} 暂无任务`}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="13">${selectedDate === todayDateKey() ? "今日暂无任务" : `${selectedDate} 暂无任务`}</td></tr>`;
     updateSelectedCount();
     return;
   }
@@ -2133,17 +2134,14 @@ function renderTasks(tasks) {
         : "无敏感词命中";
     const tr = document.createElement("tr");
     const originalText = originalStatusText(task);
-    const selectedAi = asArray(task.selected_versions).filter(version => /^ai[1-5]$/.test(version));
-    const generatedAi = asArray(task.ai_files);
-    const aiText = selectedAi.length
-      ? `${generatedAi.map(version => version.toUpperCase()).join("、") || "待生成"}（${generatedAi.length}/${selectedAi.length}）`
-      : "本次未选择 AI 文案";
+    const aiText = task.ai_status ? taskStatusText(task.ai_status) : `已生成 ${task.ai_files?.length || 0}/${task.ai_count || 1}`;
     const siteText = siteSubmitText(task);
     tr.innerHTML = `
       <td><input class="task-check" type="checkbox" data-id="${escapeHtml(id)}" ${state.selectedIds.has(id) ? "checked" : ""} /></td>
       <td class="id-cell"><button class="task-id-link" data-action="detail" data-id="${escapeHtml(id)}" title="查看任务详情">${escapeHtml(id)}</button></td>
       <td>${escapeHtml(task.book_name || "")}</td>
       <td>${escapeHtml(task.platform_name || "")}</td>
+      <td>${escapeHtml(task.parse_mode === "smart" ? "智能解析" : task.parse_mode || "")}</td>
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
       <td class="${statusClass(task.classify_status)}">${escapeHtml(taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断"))}</td>
@@ -2167,6 +2165,10 @@ function renderTasks(tasks) {
 function renderDetail(data) {
   const meta = data.meta || {};
   $("detailTitle").textContent = meta.book_id || meta.id || "详情";
+  const headerPrev = $("detailHeaderPrevBtn");
+  const headerNext = $("detailHeaderNextBtn");
+  if (headerPrev) headerPrev.disabled = !adjacentTaskId(-1);
+  if (headerNext) headerNext.disabled = !adjacentTaskId(1);
   const knowledgeHistory = meta.rewrite_knowledge_history || [];
   const sensitiveFixed = data.sensitive_fixed || {};
   const sensitiveItems = asArray(sensitiveFixed.items).filter((item) => item && item.status === "done");
@@ -2195,6 +2197,7 @@ function renderDetail(data) {
       ${metaItem("ID", meta.book_id || meta.id)}
       ${metaItem("书名", meta.book_name)}
       ${metaItem("平台", `${meta.platform_name || ""} ${meta.platform_id || ""}`)}
+      ${metaItem("解析", meta.parse_mode)}
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
       ${metaItem("AI判断", taskStatusText(meta.classify_status))}
@@ -2455,7 +2458,7 @@ async function loadLogs() {
   const data = await api("/api/logs");
   const list = $("logsList");
   list.innerHTML = "";
-  for (const item of (data.logs || [])) {
+  for (const item of (data.logs || []).filter((item) => !/failed|error/i.test(`${item.event || ""} ${JSON.stringify(item.data || {})}`))) {
     const div = document.createElement("div");
     div.className = "log-row";
     div.innerHTML = `<code>${escapeHtml(item.book_id || "")}</code> ${escapeHtml(item.time || "")} ${escapeHtml(item.event || "")}<br>${escapeHtml(JSON.stringify(item.data || item.raw || {}, null, 0))}`;
@@ -2471,7 +2474,7 @@ async function loadRecords() {
 function renderProcessResult(result) {
   const lines = [
     "处理完成",
-    `读取行数：${result.parsed || 0}`,
+    `解析行数：${result.parsed || 0}`,
     `有效任务：${result.unique_tasks || 0}`,
     `重复ID：${result.duplicate_count || 0}`,
     `空ID行：${result.empty_id_count || 0}`,
@@ -2480,7 +2483,6 @@ function renderProcessResult(result) {
     `系统规则/敏感词处理失败：${result.process_failed || 0}`,
     `接口抓取失败：${result.fetch_failed || 0}`,
     `AI文案：${result.generated_ai_files || 0}`,
-    `AI文案生成失败：${result.rewrite_failed || 0}`,
   ];
   if (result.style_sync?.style_sync) {
     lines.push(`网站风格同步：新增 ${result.style_sync.style_sync.added?.length || 0}，删除 ${result.style_sync.style_sync.removed?.length || 0}`);
@@ -2568,44 +2570,33 @@ async function restoreLatestProcessJob() {
 
 async function pollProcessJob(jobId) {
   let latest = null;
-  const startedAt = Date.now();
   for (;;) {
     latest = await api(`/api/process/jobs/${encodeURIComponent(jobId)}`);
     $("processResult").textContent = renderProcessJob(latest);
     if (latest.status === "done") return latest.result || {};
     if (latest.status === "failed") throw new Error(latest.error || "处理失败");
-    if (Date.now() - startedAt >= PROCESS_JOB_TIMEOUT_MS) {
-      throw new Error("处理任务超过 10 分钟仍未完成，请到“任务”页刷新并查看状态");
-    }
     await sleep(1000);
   }
 }
 
 async function processInput() {
   const button = $("processBtn");
-  const versions = selectedProcessVersions();
-  if (!versions.length) {
-    $("processResult").textContent = "请至少选择一个文案版本；请打开版本对应配置档勾选版本。";
-    openVersionConfigCard();
-    return;
-  }
   button.disabled = true;
+  await saveWorkFormStateNow();
+  $("processResult").textContent = [
+    "处理中...",
+    "1. 正在解析输入内容",
+    "2. 正在补齐缺失的风格类型/男女频",
+    "3. 正在按所选平台抓取原文",
+    "4. 正在执行系统规则和敏感词处理",
+  ].join("\n");
   try {
-    await saveWorkFormStateNow();
-    await saveWebSubmitConfig(true);
-    $("processResult").textContent = [
-      "处理中...",
-      "1. 正在读取版本配置",
-      "2. 正在补齐缺失的风格类型/男女频",
-      "3. 正在按所选平台抓取原文",
-      "4. 正在生成所选文案并执行处理规则",
-    ].join("\n");
     const payload = {
       platform_id: $("platformSelect").value,
       input_text: $("inputText").value,
-      selected_versions: versions,
-      ai_slot_methods: processAiMethods(),
-      profile_bindings: webProfileBindingsFromForm(),
+      parse_mode: $("parseModeSelect").value,
+      column_preset_id: $("columnPresetSelect").value,
+      column_order: $("columnOrderInput").value,
       sensitive_ai_enabled: sensitiveAiProcessEnabled(),
     };
     const job = await api("/api/process/start", {
@@ -2634,6 +2625,13 @@ async function showTask(id) {
 }
 
 function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+
+const detailHeaderCloseButton = document.getElementById("detailHeaderCloseBtn");
+if (detailHeaderCloseButton) detailHeaderCloseButton.addEventListener("click", closeTaskDetail);
+const detailHeaderPrevButton = document.getElementById("detailHeaderPrevBtn");
+if (detailHeaderPrevButton) detailHeaderPrevButton.addEventListener("click", () => { const id = adjacentTaskId(-1); if (id) void showTask(id); });
+const detailHeaderNextButton = document.getElementById("detailHeaderNextBtn");
+if (detailHeaderNextButton) detailHeaderNextButton.addEventListener("click", () => { const id = adjacentTaskId(1); if (id) void showTask(id); });
 
 function adjacentTaskId(direction) {
   const index = state.tasks.findIndex((task) => String(task.id || "") === String(state.selectedId || ""));
@@ -2695,11 +2693,10 @@ async function restoreOriginal(id) {
 
 async function generateAi(id) {
   if (!id) return;
-  const task = state.tasks.find(item => String(item.id || item.book_id || "") === String(id));
-  const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
+  const count = Number(state.config?.app_config?.rewrite?.default_ai_count || 1);
   await api(`/api/tasks/${id}/generate-ai`, {
     method: "POST",
-    body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+    body: JSON.stringify({ count, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
   });
   await loadTasks();
   await showTask(id);
@@ -2711,84 +2708,6 @@ function selectedTaskIds() {
 
 function setBatchStatus(text) {
   $("batchStatus").textContent = text || "";
-}
-
-async function platformApi(path, options = {}) {
-  const token = localStorage.getItem("auth_token") || "";
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
-  return data;
-}
-
-async function transferSelectedToBatchFactory() {
-  const ids = selectedTaskIds();
-  if (!ids.length) {
-    setBatchStatus("先选择要转入批量工厂的任务");
-    return;
-  }
-  const button = $("transferBatchFactoryBtn");
-  button.disabled = true;
-  setBatchStatus(`正在检查 ${ids.length} 个任务的原文…`);
-  try {
-    const details = await Promise.all(ids.map(id => api(`/api/tasks/${encodeURIComponent(id)}`)));
-    const items = details.flatMap((detail, index) => {
-      const meta = detail?.meta || {};
-      const sourceText = String(detail?.original || "").trim();
-      if (!sourceText) return [];
-      const sourceTaskId = String(meta.book_id || ids[index]).trim();
-      const bookId = String(meta.book_id || ids[index]).trim();
-      if (!sourceTaskId || !bookId) return [];
-      return [{
-        sourceTaskId,
-        bookId,
-        title: String(meta.book_name || bookId).trim(),
-        platform: String(meta.platform_name || "").trim(),
-        sourceText,
-        txtText: sourceText,
-        sourceMetadata: meta,
-      }];
-    });
-    const skipped = ids.length - items.length;
-    if (!items.length) throw new Error("选中的任务都没有可用原文，请先完成原文获取");
-    const result = await platformApi("/api/batch-factory/v11/intakes/novel-fetch", {
-      method: "POST",
-      body: JSON.stringify({
-        books: items.map(item => ({
-          id: item.bookId,
-          bookId: item.bookId,
-          sourceTaskId: item.sourceTaskId,
-          title: item.title,
-          platform: item.platform,
-          sourceText: item.sourceText,
-          txtText: item.txtText,
-          txtFileName: `${item.bookId}.txt`,
-          sourceMetadata: item.sourceMetadata,
-        })),
-        metadata: {
-          name: `小说获取转入 ${items.length} 本`,
-          source: "novel-fetch",
-          transferredAt: new Date().toISOString(),
-        },
-      }),
-    });
-    const intakeId = String(result?.intake?.id || "").trim();
-    const redirectTo = result.redirectTo || (intakeId ? `/batch-factory?intake=${encodeURIComponent(intakeId)}` : "");
-    if (!redirectTo) throw new Error("V11 Intake 创建成功但未返回跳转地址");
-    setBatchStatus(`已转入 ${items.length} 本${skipped ? `, 跳过 ${skipped} 本未完成任务` : ""}`);
-    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo }, window.location.origin);
-  } catch (error) {
-    setBatchStatus(error.message || "转入批量工厂失败");
-  } finally {
-    button.disabled = false;
-  }
 }
 
 let batchToastTimer = null;
@@ -2855,6 +2774,14 @@ async function batchRetry(mode) {
   }
   const label = mode === "failed" ? "失败任务" : `${ids.length} 个选中任务`;
   setBatchStatus(`重试${label}中...`);
+  // 请求是同步批处理；先把已选任务标成运行态，避免慢速 AI 请求期间继续显示旧的等待配置。
+  const runningIds = new Set(ids);
+  if (mode === "failed") state.tasks.forEach(task => { if (taskIsProblem(task)) runningIds.add(String(task.id || "")); });
+  if (runningIds.size) {
+    renderTasks(state.tasks.map(task => runningIds.has(String(task.id || ""))
+      ? { ...task, classify_status: task.classify_status === "waiting_ai_config" ? "classifying" : task.classify_status, ai_status: "generating" }
+      : task));
+  }
   try {
     const result = await api("/api/tasks/batch-retry", {
       method: "POST",
@@ -2965,6 +2892,12 @@ function clearSelectedTasks() {
 
 function syncFormToAppConfig() {
   const cfg = clone(state.config.app_config || {});
+  cfg.parser = {
+    ...(cfg.parser || {}),
+    default_parse_mode: $("parseModeSelect").value || "smart",
+    default_column_preset_id: $("columnPresetSelect").value || "",
+    custom_column_order: $("columnOrderInput").value || DEFAULT_COLUMN_ORDER,
+  };
   cfg.workflow = {
     ...(cfg.workflow || {}),
     auto_classify_missing: $("workflowAutoClassify").checked,
@@ -2988,18 +2921,18 @@ function syncFormToAppConfig() {
   };
   cfg.rewrite = {
     ...(cfg.rewrite || {}),
+    default_ai_count: numberValue("aiCountDefault", 1),
+    max_ai_count: numberValue("aiCountMax", 5),
     process_line_count: numberValue("processLineCount", 5),
     anchor_line_count: numberValue("anchorLineCount", 5),
     temperature: numberValue("rewriteTemp", 0.45),
     method_sequence: $("methodSequenceInput").value.split(/[\s,，、|\/]+/).map((item) => item.trim()).filter(Boolean),
+    ai_slot_methods: readAiSlotMethods(),
     default_template_id: $("rewriteTemplateSelect").value || "",
     opening_phrase_mode: $("openingPhraseMode").value || "auto",
     high_imitation_mode: $("highImitationMode").value || "auto",
     prompt: $("rewritePrompt").value,
-    processing_rule_prompt: $("processingRulePrompt").value,
   };
-  ensureKnowledgeConfig();
-  state.config.knowledge.usage_prompt = $("knowledgeUsagePrompt")?.value || "";
   cfg.ai = readAiSettingsFromForm();
   cfg.ai_assignments = {
     classifier: $("classifierSelect").value || "__current__",
@@ -3011,7 +2944,7 @@ function syncFormToAppConfig() {
   return cfg;
 }
 
-async function saveConfig(throwOnError = false) {
+async function saveConfig() {
   $("configStatus").textContent = "保存中...";
   try {
     saveLibraryItem(true);
@@ -3040,10 +2973,8 @@ async function saveConfig(throwOnError = false) {
     if (knowledgeSave) knowledgeSave.textContent = "已保存";
     const rulesSave = $("rulesSaveStatus");
     if (rulesSave) rulesSave.textContent = "已保存";
-    return data;
   } catch (error) {
     $("configStatus").textContent = error.message;
-    if (throwOnError) throw error;
   }
 }
 
@@ -3305,6 +3236,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     sitePanel.removeAttribute("id");
     const details = document.createElement("details");
     details.className = "submit-settings-details";
+    // 提交文案、组织归属和提交方式是小说获取的核心提交参数，进入页面时直接展示。
     details.open = false;
     details.innerHTML = "<summary>提交文案与提交方式</summary>";
     while (sitePanel.firstChild) details.appendChild(sitePanel.firstChild);
@@ -3312,16 +3244,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     sitePanel.remove();
   }
   bindWorkFormPersistence();
-  $("versionConfigBtn").onclick = openVersionConfigCard;
-  $("versionConfigCloseBtn").onclick = closeVersionConfigCard;
-  $("versionConfigCloseBtnBottom").onclick = closeVersionConfigCard;
-  $("versionConfigCard").addEventListener("cancel", event => {
-    event.preventDefault();
-    closeVersionConfigCard();
-  });
-  $("versionConfigCard").addEventListener("click", event => {
-    if (event.target === $("versionConfigCard")) closeVersionConfigCard();
-  });
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
@@ -3331,7 +3253,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("clearSelectedBtn").onclick = clearSelectedTasks;
   $("retrySelectedBtn").onclick = () => batchRetry("selected");
   $("retryFailedBtn").onclick = () => batchRetry("failed");
-  $("transferBatchFactoryBtn").onclick = transferSelectedToBatchFactory;
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
   $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;
@@ -3366,6 +3287,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
+  if ($("testVisibleWebBtn")) $("testVisibleWebBtn").onclick = testVisibleWebFlow;
+  document.querySelectorAll('input[name="webSubmitMode"]').forEach((input) => { input.onchange = renderWebSubmitMode; });
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
