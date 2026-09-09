@@ -59,7 +59,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
       }
       return res.json({ ok: true, loggedIn: result?.ok === true, status: String(result?.status || 'ready'), lastVerifiedAt: new Date().toISOString() });
     } catch (error) {
-      if (isExpiredSessionError(error)) return res.json({ ok: true, loggedIn: false, status: 'expired', lastVerifiedAt: null });
+      if (isExpiredSessionError(error)) return res.status(401).json({ ok: false, loggedIn: false, notLoggedIn: true, status: 'expired', lastVerifiedAt: null, error: '目标站登录已失效，请重新登录' });
       return res.status(browserErrorStatus(error)).json({ ok: false, loggedIn: false, error: error?.message || '浏览器会话验证失败', ...(error?.code ? { code: error.code } : {}) });
     }
   });

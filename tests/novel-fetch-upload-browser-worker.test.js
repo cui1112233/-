@@ -68,6 +68,46 @@ test('upload-session verifies the browser-owned storage_state session instead of
   assert.equal(f.calls.some(([kind]) => kind === 'test'), true);
 });
 
+test('upload-session returns 401 plus notLoggedIn when the target-site browser session is expired', async () => {
+  const f = fixture();
+  f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' });
+  f.browserClient.test = async () => {
+    const error = new Error('expired');
+    error.status = 401;
+    error.code = 'session_expired';
+    throw error;
+  };
+  const handler = routeHandler(f.router, 'get', '/upload-session');
+  const res = response();
+  await handler({ username: 'alice' }, res);
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.loggedIn, false);
+  assert.equal(res.body.notLoggedIn, true);
+  assert.equal(res.body.status, 'expired');
+  assert.equal(res.body.lastVerifiedAt, null);
+  assert.equal(Object.hasOwn(res.body, 'sessionKey'), false);
+  assert.equal(Object.hasOwn(res.body, 'cookie'), false);
+});
+
+test('upload-session keeps Browser Worker unavailability as 503 instead of misclassifying it as logged out', async () => {
+  const f = fixture();
+  f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' });
+  f.browserClient.test = async () => {
+    const error = new Error('worker unavailable');
+    error.code = 'BROWSER_WORKER_UNAVAILABLE';
+    throw error;
+  };
+  const handler = routeHandler(f.router, 'get', '/upload-session');
+  const res = response();
+  await handler({ username: 'alice' }, res);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.loggedIn, false);
+  assert.equal(res.body.code, 'BROWSER_WORKER_UNAVAILABLE');
+  assert.equal(Object.hasOwn(res.body, 'notLoggedIn'), false);
+});
+
 test('upload-batch sends exact multipart bytes through Browser Worker authenticated action and never requires cookie material', async () => {
   const f = fixture();
   f.setSession({ mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' });
