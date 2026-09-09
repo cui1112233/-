@@ -23,7 +23,7 @@ env:
 jobs:
   preflight:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,114 +45,58 @@ jobs:
           timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Read-only sanitized ECS merge preflight
+      - name: Read-only bounded ECS merge preflight
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
-          timeout 120 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$V88_ROOT" <<'REMOTE'
+          timeout 55 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$V88_ROOT" <<'REMOTE'
           set -Eeuo pipefail
           root="$1"
           public_dir="$root/deploy/v88-public"
-          base_compose="$public_dir/docker-compose.yml"
           base_env="$public_dir/.env"
 
-          echo '=== MERGE_PUBLIC_PREFLIGHT_BEGIN ==='
-          echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "HOST_KERNEL=$(uname -srm | tr ' ' '_')"
+          echo '=== MERGE_PUBLIC_PREFLIGHT_V2_BEGIN ==='
 
-          echo '--- docker containers (name|image|status) ---'
-          docker ps --format '{{.Names}}|{{.Image}}|{{.Status}}' | sort
-
-          echo '--- v88 compose labels (name|project|service|image-id) ---'
-          ids="$(docker ps -q)"
-          if [ -n "$ids" ]; then
-            for id in $ids; do
-              name="$(docker inspect -f '{{.Name}}' "$id" | sed 's#^/##')"
-              project="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$id" 2>/dev/null || true)"
-              service="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.service" }}' "$id" 2>/dev/null || true)"
-              image_id="$(docker inspect -f '{{.Image}}' "$id" 2>/dev/null || true)"
-              case "$name|$project|$service" in
-                *v88*|*qiantie*) printf '%s|%s|%s|%s\n' "$name" "$project" "$service" "$image_id" ;;
-              esac
-            done | sort
+          # Non-secret runtime setting only.
+          if [ -f "$base_env" ]; then
+            slice="$(sed -n 's/^QIANTIE_BATCH_FACTORY_V11_SLICE=//p' "$base_env" | tail -n1 | tr -d '\r' || true)"
+            case "$slice" in
+              ''|*[!0-9]*) echo 'SLICE_VALUE=UNKNOWN' ;;
+              *) echo "SLICE_VALUE=$slice" ;;
+            esac
+          else
+            echo 'SLICE_VALUE=UNKNOWN'
           fi
 
-          echo '--- production file presence ---'
-          for f in "$base_compose" "$base_env" "$public_dir/docker-compose.browser-worker.yml"; do
-            if [ -f "$f" ]; then echo "PRESENT:${f#$root/}"; else echo "MISSING:${f#$root/}"; fi
-          done
-
-          echo '--- docker networks relevant to v88/qiantie ---'
-          docker network ls --format '{{.Name}}' | grep -E 'v88|qiantie' | sort || true
-          for net in v88-public_qiantie_internal v88-public_default; do
-            if docker network inspect "$net" >/dev/null 2>&1; then
-              echo "NETWORK:$net"
-              docker network inspect "$net" -f '{{range $id,$c := .Containers}}{{$c.Name}}{{"\n"}}{{end}}' | sed '/^$/d' | sort
+          echo '--- merge/redis/tos env key names only ---'
+          for f in "$base_env" "$public_dir/merge.env"; do
+            if [ -f "$f" ]; then
+              echo "ENV_FILE_PRESENT:${f#$root/}"
+              timeout 3 sed -n 's/=.*$//p' "$f" \
+                | grep -Ei '(^|_)(MERGE|REDIS|TOS)(_|$)' \
+                | sort -u || true
             fi
           done
 
-          echo '--- required env key presence only (never values) ---'
-          check_key() {
-            key="$1"
-            found=0
-            for f in "$base_env" "$public_dir/merge.env" "$public_dir/novel-fetch-121.env"; do
-              if [ -f "$f" ] && grep -qE "^${key}=" "$f"; then found=1; break; fi
-            done
-            if [ "$found" -eq 1 ]; then echo "ENV_PRESENT:$key"; else echo "ENV_MISSING:$key"; fi
-          }
-          for key in \
-            QIANTIE_BATCH_FACTORY_V11_SLICE \
-            QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED \
-            QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT \
-            QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT \
-            QIANTIE_BATCH_FACTORY_V11_MERGE_API_KEY \
-            QIANTIE_MERGE_WORKER_SECRET \
-            QIANTIE_MERGE_REDIS_URL \
-            QIANTIE_MERGE_TOS_ENDPOINT \
-            QIANTIE_MERGE_TOS_REGION \
-            QIANTIE_MERGE_TOS_BUCKET \
-            QIANTIE_MERGE_TOS_ACCESS_KEY \
-            QIANTIE_MERGE_TOS_SECRET_KEY \
-            QIANTIE_MERGE_TOS_PUBLIC_BASE_URL; do
-            check_key "$key"
-          done
-
-          echo '--- running container env key names only ---'
-          for id in $ids; do
-            name="$(docker inspect -f '{{.Name}}' "$id" | sed 's#^/##')"
-            case "$name" in
-              *v88*|*qiantie*|*redis*)
-                names="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id" \
-                  | sed -n 's/=.*$//p' \
-                  | grep -E '^(QIANTIE_.*(MERGE|REDIS|TOS)|REDIS_.*)$' \
-                  | sort -u || true)"
-                if [ -n "$names" ]; then
-                  echo "CONTAINER_ENV_KEYS:$name"
-                  printf '%s\n' "$names"
-                fi
-                ;;
-            esac
-          done
-
-          echo '--- public build-info sanitized ---'
-          curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k:d.get(k) for k in ("git_sha","deploy_mode","version","built_at") if k in d}, ensure_ascii=False, sort_keys=True))' \
-            || echo 'PUBLIC_BUILD_INFO_UNAVAILABLE'
-
-          echo '--- redis presence ---'
-          if docker ps --format '{{.Names}}|{{.Image}}' | grep -qi redis; then
+          echo '--- redis container presence ---'
+          containers="$(timeout 8 docker ps --format '{{.Names}}|{{.Image}}' 2>/dev/null || true)"
+          if printf '%s\n' "$containers" | grep -qi redis; then
             echo 'REDIS_CONTAINER_PRESENT=true'
+            printf '%s\n' "$containers" | grep -i redis | sed -E 's/\|.*$/|IMAGE_REDACTED/'
           else
             echo 'REDIS_CONTAINER_PRESENT=false'
           fi
 
           echo '--- merge worker presence ---'
-          if docker ps --format '{{.Names}}|{{.Image}}' | grep -qi 'merge-worker'; then
+          if printf '%s\n' "$containers" | grep -qi 'merge-worker'; then
             echo 'MERGE_WORKER_PRESENT=true'
           else
             echo 'MERGE_WORKER_PRESENT=false'
           fi
 
-          echo '=== MERGE_PUBLIC_PREFLIGHT_END ==='
+          echo '--- go-api identity ---'
+          printf '%s\n' "$containers" | grep '^v88-public-go-api-1|' || echo 'V88_GO_API_NOT_LISTED'
+
+          echo '=== MERGE_PUBLIC_PREFLIGHT_V2_END ==='
           REMOTE
