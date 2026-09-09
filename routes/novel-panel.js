@@ -16,7 +16,7 @@ const { createNovelPanelStore } = require('../lib/novel-panel/project-store');
 const { isPlainObject, isValidProjectId } = require('../lib/novel-panel/contracts');
 const { createNovelPanelRuntime } = require('../lib/novel-panel/runtime');
 const { createNovelPanelHistoryStore } = require('../lib/novel-panel/history-store');
-const { createNovelPanelPremiumStore, normalizeImageBaseUrl } = require('../lib/novel-panel/premium-store');
+const { createNovelPanelPremiumStore, imageSettingsFromAccountConfig, normalizeImageBaseUrl } = require('../lib/novel-panel/premium-store');
 const {
   validateOutlineApplyGate,
   validateOutlineShotApplyGate,
@@ -1067,13 +1067,13 @@ function buildImageApiUrl(baseUrl, generatePath) {
 router.post('/reference-assets/generate', async (req, res) => {
   try {
     // Web deployment generates reference images through the per-account image AI
-    // settings (OpenAI Images compatible /images/generations). Missing config
+    // settings from Personal Center API Config (OpenAI Images compatible /images/generations). Missing config
     // degrades gracefully and keeps the existing reference image state.
-    const settings = premiumStore(req).readImageSettingsRaw(req.username);
+    const settings = imageSettingsFromAccountConfig(requestConfig(req));
     const missing = ['base_url', 'model', 'api_key'].filter(key => !text(settings[key] || '').trim());
     if (missing.length) {
       return res.status(400).json({
-        error: `图片AI未配置：缺少 ${missing.join('、')}。请在小说面板“AI 设置”→“图片 AI”中填写图片生成 API 地址、模型与密钥；也可上传参考图或使用文本表达。`,
+        error: `图片AI未配置：缺少 ${missing.join('、')}。请在个人中心“API 配置”→“生图服务”中填写生图 API 地址、模型与 Key；也可上传参考图或使用文本表达。`,
         code: 'IMAGE_SETTINGS_INCOMPLETE'
       });
     }
