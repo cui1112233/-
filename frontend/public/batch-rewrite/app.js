@@ -217,6 +217,37 @@ function removeLegacyWorkInputSample(formState) {
   return { formState: { ...formState, input_text: "" }, removed: true };
 }
 
+function applyWorkFormStateToVersionControls(saved) {
+  if (!saved || typeof saved !== "object") return false;
+  const selected = new Set(asArray(saved.selected_versions).map(version => String(version).toLowerCase()));
+  const outerControls = [
+    ["original", $("v78TargetOriginal")],
+    ...Array.from({ length: 5 }, (_, index) => [`ai${index + 1}`, $(`v78TargetAi${index + 1}`)]),
+  ];
+  const hasOuterControls = outerControls.some(([, input]) => input);
+  if (Array.isArray(saved.selected_versions)) {
+    for (const [version, input] of outerControls) if (input) input.checked = selected.has(version);
+    document.querySelectorAll('.process-version').forEach(input => { input.checked = selected.has(String(input.value || '').toLowerCase()); });
+  }
+  for (let index = 1; index <= 5; index += 1) {
+    const method = saved.ai_slot_methods?.[`ai${index}`] || "";
+    const outer = $(`v78RunAiMethod${index}`);
+    const legacy = $(`processAiMethod${index}`);
+    if (outer) outer.value = method;
+    if (legacy) legacy.value = method;
+  }
+  if (state.config?.app_config) {
+    state.config.app_config.rewrite = state.config.app_config.rewrite || {};
+    state.config.app_config.rewrite.ai_slot_methods = {
+      ...(state.config.app_config.rewrite.ai_slot_methods || {}),
+      ...(saved.ai_slot_methods || {}),
+    };
+  }
+  return hasOuterControls;
+}
+
+window.batchRewriteApplyWorkFormState = applyWorkFormStateToVersionControls;
+
 function restoreWorkFormState() {
   let localState = null;
   try {
@@ -233,12 +264,7 @@ function restoreWorkFormState() {
     platformSelect.value = String(saved.platform_id);
   }
   if (typeof saved.input_text === "string") $("inputText").value = saved.input_text;
-  const selected = new Set(asArray(saved.selected_versions).map(version => String(version).toLowerCase()));
-  if (selected.size) document.querySelectorAll('.process-version').forEach(input => { input.checked = selected.has(input.value); });
-  for (let index = 1; index <= 5; index += 1) {
-    const select = $(`processAiMethod${index}`);
-    if (select) select.value = saved.ai_slot_methods?.[`ai${index}`] || '';
-  }
+  if (!applyWorkFormStateToVersionControls(saved)) window.__batchRewritePendingWorkFormState = saved;
   if (typeof saved.sensitive_ai_enabled === "boolean" && $("sensitiveAiProcessEnabled")) {
     $("sensitiveAiProcessEnabled").checked = saved.sensitive_ai_enabled;
   }
@@ -257,10 +283,12 @@ function bindWorkFormPersistence() {
   }
   const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
   if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
-  document.querySelectorAll('.process-version, [id^="processAiMethod"]').forEach(element => element.addEventListener('change', () => {
+  const persistVersionSelection = event => {
+    if (!event.target.matches('.process-version, [id^="processAiMethod"], #v78TargetVersions input, [id^="v78RunAiMethod"]')) return;
     saveWorkFormState();
     updateVersionConfigSummary();
-  }));
+  };
+  document.addEventListener('change', persistVersionSelection);
 }
 
 function presetOptions() {
@@ -274,7 +302,7 @@ function presetOptions() {
 function processAiMethods() {
   const result = {};
   for (let index = 1; index <= 5; index += 1) {
-    const element = $(`processAiMethod${index}`);
+    const element = $(`v78RunAiMethod${index}`) || $(`processAiMethod${index}`);
     const value = element?.value || "";
     if (value) result[`ai${index}`] = value;
   }
@@ -282,7 +310,12 @@ function processAiMethods() {
 }
 
 function selectedProcessVersions() {
-  return [...document.querySelectorAll('.process-version:checked')].map(input => input.value);
+  const outerControls = [
+    ["original", $("v78TargetOriginal")],
+    ...Array.from({ length: 5 }, (_, index) => [`ai${index + 1}`, $(`v78TargetAi${index + 1}`)]),
+  ];
+  if (outerControls.some(([, input]) => input)) return outerControls.filter(([, input]) => input?.checked).map(([version]) => version);
+  return [...document.querySelectorAll('.process-version:checked')].map(input => String(input.value || '').toLowerCase());
 }
 
 function updateVersionConfigSummary() {
@@ -1570,18 +1603,19 @@ async function openWebLoginDialog() {
       const result = $("webLoginResult"); result.textContent = "验证中...";
       $("webLoginSubmit").disabled = true;
       try {
-        const settings = { ...(state.config?.web_submit || {}), username: $("webLoginUsername").value.trim(), password: $("webLoginPassword").value };
-        // Verify credentials before persisting them to the local web-submit config.
-        const login = await novelFetchPlatformApi("/api/novel-fetch-upload/upload-login", {
+        const username = $("webLoginUsername").value.trim();
+        const password = $("webLoginPassword").value;
+        const operation = await api("/api/web-submit/operations", {
           method: "POST",
-          body: JSON.stringify({ username: settings.username, password: settings.password }),
+          body: JSON.stringify({ kind: "login", username, password }),
         });
-        if (login.ok !== true) throw new Error(login.error || "登录验证失败");
-        await api("/api/web-submit/config", { method: "POST", body: JSON.stringify({ settings }) });
-        state.webLoginSession = login.ok === true;
-        state.config.web_submit = { ...(state.config.web_submit || {}), username: settings.username, password_masked: true };
+        const completed = await waitWebSubmitOperation(operation.id);
+        if (completed.status === "failed") throw new Error(completed.error || "登录验证失败");
+        const settings = completed.result?.settings || {};
+        state.webLoginSession = true;
+        state.config.web_submit = { ...(state.config.web_submit || {}), ...settings, username, password_masked: true };
         renderWebLoginStatus(state.config.web_submit);
-        result.textContent = state.webLoginSession ? "登录验证成功" : "登录异常";
+        result.textContent = "登录批量后台成功";
         if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
       } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
       finally { $("webLoginSubmit").disabled = false; }
@@ -1704,6 +1738,35 @@ async function saveWebSubmitConfig(silent = false) {
   }
 }
 
+async function saveVersionConfigAuthority() {
+  clearTimeout(workFormSaveTimer);
+  workFormSaveTimer = null;
+  syncVersionPromptConfigToForm();
+  const formState = collectWorkFormState();
+  const appConfig = syncFormToAppConfig();
+  appConfig.rewrite = {
+    ...(appConfig.rewrite || {}),
+    ai_slot_methods: { ...(appConfig.rewrite?.ai_slot_methods || {}), ...processAiMethods() },
+  };
+  appConfig.work_form = formState;
+  const webSubmit = syncFormToWebSubmitConfig();
+  delete webSubmit.password;
+  appConfig.web_submit = webSubmit;
+  const payload = {
+    app_config: appConfig,
+    platforms: JSON.parse($("platformsText").value),
+    styles: JSON.parse($("stylesText").value),
+    sensitive: state.config.sensitive || { groups: [] },
+    knowledge: state.config.knowledge || {},
+  };
+  const data = await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
+  if (!data?.config) throw new Error("版本配置保存失败：服务器没有返回保存结果");
+  state.config = data.config;
+  try { localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState)); } catch (_) {}
+  renderConfig();
+  return data.config;
+}
+
 async function confirmWebSubmitSelection() {
   const status = $("webSubmitSelectionStatus");
   const versions = selectedProcessVersions();
@@ -1713,19 +1776,32 @@ async function confirmWebSubmitSelection() {
   }
   if (status) status.textContent = "正在保存版本配置...";
   try {
-    await saveWorkFormStateNow();
-    syncVersionPromptConfigToForm();
-    await saveConfig(true);
-    const result = await saveWebSubmitConfig(true);
-    if (result) {
-      if (status) status.textContent = `已保存：${versions.map(version => version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
-      updateVersionConfigSummary();
-      closeVersionConfigCard();
-    } else if (status) {
-      status.textContent = "确认失败，请检查连接与设置。";
-    }
+    await saveVersionConfigAuthority();
+    if (status) status.textContent = `已保存：${versions.map(version => version === "original" ? "原文" : version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
+    updateVersionConfigSummary();
+    closeVersionConfigCard();
   } catch (error) {
     if (status) status.textContent = error.message;
+  }
+}
+
+function renderWebSubmitOperation(operation) {
+  const text = asArray(operation?.steps).map(step => step.message).filter(Boolean).join("\n");
+  if (text) {
+    setSiteSubmitStatus(text);
+    setVersionConfigStatus(text);
+    if ($("webLoginResult")) $("webLoginResult").textContent = text;
+  }
+}
+
+async function waitWebSubmitOperation(id) {
+  const deadline = Date.now() + (5 * 60 * 1000);
+  for (;;) {
+    const operation = await api(`/api/web-submit/operations/${encodeURIComponent(id)}`);
+    renderWebSubmitOperation(operation);
+    if (operation.status === "done" || operation.status === "failed") return operation;
+    if (Date.now() >= deadline) throw new Error("121 后台操作等待超时，请稍后刷新查看状态");
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 }
 
@@ -1735,10 +1811,13 @@ async function syncWebSubmit(kind) {
   setVersionConfigStatus(`正在同步${label}...`);
   try {
     await saveWebSubmitConfig(true);
-    const result = await api(kind === "styles" ? "/api/web-submit/sync-styles" : "/api/web-submit/sync-configs", {
+    const operation = await api("/api/web-submit/operations", {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify({ kind }),
     });
+    const completed = await waitWebSubmitOperation(operation.id);
+    if (completed.status === "failed") throw new Error(completed.error || `${label}同步失败`);
+    const result = completed.result || {};
     state.config.web_submit = result.settings || state.config.web_submit;
     if (result.styles) state.config.styles = result.styles;
     renderWebSubmitConfig(state.config.web_submit);
@@ -3370,11 +3449,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
-  try {
-    const environment = await api("/api/web-submit/environment");
-    state.webLoginSession = environment.ok === true;
-    renderWebLoginStatus(state.config?.web_submit || {});
-  } catch (_) { state.webLoginSession = false; renderWebLoginStatus(state.config?.web_submit || {}); }
+  void (async () => {
+    try {
+      const environment = await api("/api/web-submit/environment");
+      state.webLoginSession = environment.ok === true;
+      renderWebLoginStatus(state.config?.web_submit || {});
+    } catch (_) { state.webLoginSession = false; renderWebLoginStatus(state.config?.web_submit || {}); }
+  })();
   await loadTasks();
   await restoreLatestProcessJob();
 });

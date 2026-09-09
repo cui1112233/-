@@ -23,7 +23,7 @@ test('V88 正式小说获取主页面使用版本配置入口，不再显示旧�
   assert.match(app, /cfg\.submit_versions = selectedProcessVersions\(\)/);
   assert.match(app, /renderVersionPromptConfig/);
   assert.match(app, /syncVersionPromptConfigToForm/);
-  assert.match(app, /await saveConfig\(true\)/);
+  assert.match(app, /saveVersionConfigAuthority/);
 });
 
 test('V88 V2 将主页面版本选择转换为 target_versions，并拒绝空选择', () => {

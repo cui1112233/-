@@ -5,6 +5,7 @@
   let rerunSourceBatchId = '';
   let legacyTaskBridgeInstalled = false;
   let currentBatchTimer = null;
+  const processLogState = { lines: [] };
 
   function byId(id) { return document.getElementById(id); }
   function value(id, fallback = '') { return byId(id)?.value ?? fallback; }
@@ -22,6 +23,25 @@
     return data;
   }
   function setText(id, text) { const node = byId(id); if (node) node.textContent = String(text || ''); }
+  function resetProcessLog() {
+    processLogState.lines = [];
+    setText('processResult', '');
+  }
+  function appendProcessLog(message) {
+    const text = String(message || '').trim();
+    if (!text) return;
+    const stamp = new Date().toLocaleTimeString();
+    processLogState.lines.push(`[${stamp}] ${text}`);
+    if (processLogState.lines.length > 120) processLogState.lines.splice(0, processLogState.lines.length - 120);
+    const node = byId('processResult');
+    if (node) {
+      node.textContent = processLogState.lines.join('\n');
+      node.scrollTop = node.scrollHeight;
+    }
+  }
+  function queueStateLabel(value) {
+    return ({ queued: '任务已进入队列', running: '批次正在处理', waiting_retry: '处理失败，正在等待重试', done: '处理完成', failed: '处理失败', stopped: '处理已停止' })[String(value || '')] || `任务状态：${value || '处理中'}`;
+  }
   function localDateText(raw) {
     if (!raw) return '-';
     const date = new Date(raw);
@@ -145,7 +165,7 @@
     box.id = 'v78TargetVersions';
     box.className = 'v78-inline-box';
     box.innerHTML = `
-      <div class="v78-inline-head"><div><h3>本次处理</h3><div class="v78-muted">选择本次需要的文案版本；AI1～AI5 可以单独选择。</div></div><button id="v78ParsePreviewBtn" type="button">解析输入</button></div>
+      <div class="v78-inline-head"><div><h3>本次处理</h3><div class="v78-muted">选择本次需要的文案版本；点击“开始处理”后自动解析并创建当前批次。</div></div></div>
       <div class="v78-version-grid">
         <label class="v78-version-item"><input id="v78TargetOriginal" type="checkbox"/> 原文</label>
         <label class="v78-version-item"><input id="v78TargetAi1" type="checkbox" checked/> AI1 <small data-v78-method="ai1">自动轮换</small></label>
@@ -158,8 +178,16 @@
       <div id="v78ParsedBooks" class="v78-parsed-list" hidden></div>
       <div class="v78-actions compact"><button id="v78BackToInput" type="button" hidden>返回编辑</button><span id="v78PreviewStatus" class="v78-muted"></span></div>`;
     input.insertAdjacentElement('afterend', box);
-    byId('v78ParsePreviewBtn').onclick = () => void previewInput();
     byId('v78BackToInput').onclick = backToInput;
+    box.addEventListener('change', event => {
+      if (!event.target.matches('#v78TargetVersions input')) return;
+      if (typeof saveWorkFormState === 'function') saveWorkFormState();
+      if (typeof updateVersionConfigSummary === 'function') updateVersionConfigSummary();
+    });
+    if (window.__batchRewritePendingWorkFormState && typeof window.batchRewriteApplyWorkFormState === 'function') {
+      window.batchRewriteApplyWorkFormState(window.__batchRewritePendingWorkFormState);
+      delete window.__batchRewritePendingWorkFormState;
+    }
     refreshSlotMethodLabels();
     const processButton = byId('processBtn');
     if (processButton) processButton.onclick = () => void startSelectedProcessing();
@@ -231,41 +259,64 @@
 
   async function startSelectedProcessing() {
     const button = byId('processBtn');
+    if (button?.disabled) return;
     if (!selectedTargetVersions().length) { setText('v78PreviewStatus', '请至少选择一个文案版本'); return; }
-    if (!previewState.active) {
-      await previewInput();
-      if (previewState.active) setText('v78PreviewStatus', '请确认小说和本次版本后，再点“开始处理”');
-      return;
-    }
-    if (!previewState.selected.size) { setText('v78PreviewStatus', '请至少选择一本小说'); return; }
-    button.disabled = true;
+    if (button) button.disabled = true;
     const processResult = byId('processResult');
-    const targets = selectedTargetVersions().map(item => item === 'original' ? '原文' : item.toUpperCase());
-    if (processResult) processResult.textContent = `处理中...\n本次版本：${targets.join('、')}\n已选小说：${previewState.selected.size} 本`;
     try {
+      resetProcessLog();
+      appendProcessLog('正在解析批量输入...');
+      if (!previewState.active) {
+        await previewInput();
+        if (!previewState.active) {
+          appendProcessLog('输入解析失败，未创建批次');
+          return;
+        }
+      }
+      appendProcessLog(`输入解析完成：${previewState.selected.size} 本小说`);
+      if (!previewState.selected.size) { setText('v78PreviewStatus', '请至少填写一本有效小说'); appendProcessLog('没有解析到可处理的小说'); return; }
+      const targets = selectedTargetVersions().map(item => item === 'original' ? '原文' : item.toUpperCase());
+      appendProcessLog(`正在创建当前批次：${targets.join('、')}`);
       const job = await v2Api('/process/start', { method: 'POST', body: JSON.stringify(currentWorkSnapshot()) });
       if (typeof state === 'object') state.activeProcessJobId = job.id;
+      appendProcessLog(`当前批次已创建${job.batch_id ? `：${job.batch_id}` : ''}，任务已排队`);
+      await Promise.allSettled([loadCurrentBatch(), typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()]);
+      let lastQueueState = '';
+      let lastRefreshAt = Date.now();
+      const deadline = Date.now() + (10 * 60 * 1000);
       for (;;) {
         await new Promise(resolve => setTimeout(resolve, 800));
         const current = await v2Api(`/process/jobs/${encodeURIComponent(job.id)}`);
+        if (current.queue_state && current.queue_state !== lastQueueState) {
+          lastQueueState = current.queue_state;
+          appendProcessLog(queueStateLabel(current.queue_state));
+        }
+        if (Date.now() - lastRefreshAt >= 1500 || ['done', 'failed', 'cancelled'].includes(current.status)) {
+          await Promise.allSettled([loadCurrentBatch(), typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()]);
+          lastRefreshAt = Date.now();
+        }
         if (current.status === 'done') {
           const result = current.result || {};
-          if (typeof renderProcessResult === 'function' && processResult) processResult.textContent = renderProcessResult(result);
-          else if (processResult) processResult.textContent = `处理完成：${result.unique_tasks || previewState.selected.size} 本`;
+          appendProcessLog(`处理完成：${result.unique_tasks || previewState.selected.size} 本`);
+          if (typeof renderProcessResult === 'function') {
+            const summary = renderProcessResult(result);
+            if (summary) appendProcessLog(summary);
+          }
           if (typeof renderTasks === 'function') renderTasks(result.tasks || []);
           break;
         }
         if (current.status === 'failed' || current.status === 'cancelled') {
-          if (processResult) processResult.textContent = current.status === 'cancelled' ? '处理已取消；已完成内容已保留。' : (current.error || '处理失败');
+          appendProcessLog(current.status === 'cancelled' ? '处理已取消；已完成内容已保留。' : (current.error || '处理失败'));
           break;
         }
+        if (Date.now() >= deadline) { appendProcessLog('处理轮询超时，请到当前批次或任务列表查看进度'); break; }
       }
       rerunSourceBatchId = '';
       await Promise.allSettled([loadCurrentBatch(), typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()]);
     } catch (error) {
-      if (processResult) processResult.textContent = error.message;
+      appendProcessLog(error.message);
     } finally {
-      button.disabled = false;
+      if (button) button.disabled = false;
     }
   }
 
