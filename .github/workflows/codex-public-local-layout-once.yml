@@ -10,7 +10,7 @@ permissions:
 env:
   ECS_HOST: 115.190.156.223
   ECS_USER: root
-  NODE_LAYOUT_SHA256: 64bb852e2c7abac64165fbee12b079f937a140a571fc74f57a076352fa3e485b
+  NODE_LAYOUT_SHA256: ec83d734faf6279a8c907aa7ac9c89b52e38c67e4585b5361ad035b6b19d1130
 
 concurrency:
   group: codex-public-local-layout-once
@@ -39,7 +39,7 @@ jobs:
       - name: Checkout the exact local-layout Node source
         uses: actions/checkout@v4
         with:
-          ref: feat/v78-go-integrated-novel-fetch-doubao
+          ref: integration/remote-workbench-20260819
           path: v78-node-source
           fetch-depth: 1
           persist-credentials: false
@@ -48,7 +48,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$(sha256sum v78-node-source/frontend/dist/batch-rewrite/index.html | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
+          test "$(sha256sum v78-node-source/frontend/public/batch-rewrite/index.html | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
+          grep -q 'columnOrderInput' v78-node-source/frontend/public/batch-rewrite/index.html
+          grep -q '20260827-org-selection' v78-node-source/frontend/public/batch-rewrite/index.html
           grep -q 'buildLoginRequest' v78-node-source/routes/novel-fetch-upload.js
           grep -q "headers\['set-cookie'\]" v78-node-source/routes/novel-fetch-upload.js
           grep -q 'Cookie: cookie' v78-node-source/routes/novel-fetch-upload.js
@@ -188,10 +190,12 @@ jobs:
           bash /tmp/stage-node-host.sh "$release_dir" "$sha"
           bash /tmp/cutover-node-host.sh "$sha"
 
-          public_html="$(curl -fsS --max-time 10 http://127.0.0.1:3000/batch-rewrite/index.html)"
-          printf '%s' "$public_html" | sha256sum | awk -v expected='64bb852e2c7abac64165fbee12b079f937a140a571fc74f57a076352fa3e485b' '$1 == expected { ok=1 } END { exit ok ? 0 : 1 }'
-          printf '%s' "$public_html" | grep -q 'columnOrderInput'
-          if printf '%s' "$public_html" | grep -q 'v78-novel-fetch-v2.js'; then
+          public_html_file="/tmp/public-local-layout-${sha}.html"
+          curl -fsS --max-time 10 http://127.0.0.1:3000/batch-rewrite/index.html -o "$public_html_file"
+          public_html_sha="$(sha256sum "$public_html_file" | awk '{print $1}')"
+          test "$public_html_sha" = 'ec83d734faf6279a8c907aa7ac9c89b52e38c67e4585b5361ad035b6b19d1130'
+          grep -q 'columnOrderInput' "$public_html_file"
+          if grep -q 'v78-novel-fetch-v2.js' "$public_html_file"; then
             echo 'unexpected V78 layout override script remains in public HTML' >&2
             exit 1
           fi
@@ -199,6 +203,7 @@ jobs:
             | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("app_version")=="v78.3.0.3"; assert d.get("build_id")=="v78.3.0.3-remote-workbench-20260819-r1"'
 
           docker rm -f "$node_release_id" >/dev/null 2>&1 || true
+          rm -f "$public_html_file"
           rm -f /tmp/stage-node-host.sh /tmp/cutover-node-host.sh
           docker logout ghcr.io >/dev/null 2>&1 || true
           trap - ERR
@@ -209,10 +214,12 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          html="$(curl -fsS --retry 2 --retry-delay 1 --max-time 15 http://${ECS_HOST}:3000/batch-rewrite/index.html)"
-          printf '%s' "$html" | sha256sum | awk -v expected="$NODE_LAYOUT_SHA256" '$1 == expected { ok=1 } END { exit ok ? 0 : 1 }'
-          printf '%s' "$html" | grep -q 'columnOrderInput'
-          if printf '%s' "$html" | grep -q 'v78-novel-fetch-v2.js'; then
+          html_file="$(mktemp)"
+          trap 'rm -f "$html_file"' EXIT
+          curl -fsS --retry 2 --retry-delay 1 --max-time 15 "http://${ECS_HOST}:3000/batch-rewrite/index.html" -o "$html_file"
+          test "$(sha256sum "$html_file" | awk '{print $1}')" = "$NODE_LAYOUT_SHA256"
+          grep -q 'columnOrderInput' "$html_file"
+          if grep -q 'v78-novel-fetch-v2.js' "$html_file"; then
             echo 'public still serves the old V78 layout override' >&2
             exit 1
           fi
