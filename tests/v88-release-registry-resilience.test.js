@@ -20,7 +20,11 @@ test('V88 Git-direct release uses a bounded slim payload instead of a registry o
   assert.doesNotMatch(stageWorkflow, /\bscp\b/);
   assert.match(stageWorkflow, /split\s+-b\s+512K/);
   assert.match(stageWorkflow, /timeout\s+120\s+ssh/);
-  assert.match(stageWorkflow, /timeout\s+600\s+ssh/);
+  const timeoutMatch = stageWorkflow.match(/REMOTE_STAGE_TIMEOUT_SECONDS:\s*(\d+)/);
+  assert.ok(timeoutMatch, 'remote stage timeout must be declared explicitly');
+  const timeoutSeconds = Number(timeoutMatch[1]);
+  assert.ok(timeoutSeconds > 240 && timeoutSeconds <= 1800, 'remote stage timeout must allow cold bootstrap but remain bounded');
+  assert.match(stageWorkflow, /timeout\s+"\$REMOTE_STAGE_TIMEOUT_SECONDS"\s+ssh/);
   assert.match(stageWorkflow, /sha256sum/);
   assert.doesNotMatch(stageWorkflow, /docker build|docker push|docker pull|docker\/login-action/);
 });
