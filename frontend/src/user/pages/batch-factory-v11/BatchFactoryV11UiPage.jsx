@@ -344,6 +344,10 @@ export function BatchFactoryV11UiPage() {
       message.error('请先在个人中心 API 配置视频 API Key。');
       return false;
     }
+    if (provider === 'autodl_comfyui' && runtimeState.videoProviders?.h3?.configured === false) {
+      message.error('服务端尚未配置 AutoDL H3 API Key，请先配置后再提交。');
+      return false;
+    }
     setProductionBusy(true);
     try {
       const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
@@ -476,7 +480,6 @@ export function BatchFactoryV11UiPage() {
         productionStatus={runtimeState.productionStatus}
         mergeStatus={runtimeState.mergeStatus}
         capabilities={capabilities}
-        mergeStatus={runtimeState.mergeStatus}
         onOpenBatchManager={() => setBatchManagerOpen(true)}
         onOpenHistory={openHistory}
         onOpenBatchSettings={() => setProductionSettingsOpen(true)}

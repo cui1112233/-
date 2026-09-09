@@ -22,6 +22,19 @@ import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatche
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
+import { listModels } from '../../shared/api/shuihuoProduction';
+
+function videoModelKey(model) {
+  return String(model?.key || model?.modelKey || '').trim();
+}
+
+function videoModelLabel(model) {
+  const key = videoModelKey(model);
+  const name = String(model?.name || key || '未命名视频模型').trim();
+  return key === 'minimax-h3-video' && model?.configured === false
+    ? `${name}（待配置 Token）`
+    : name;
+}
 
 function extractJSON(value) {
   if (value && typeof value === 'object') return value;
@@ -101,6 +114,8 @@ export function ScriptPage() {
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [scriptVideoModels, setScriptVideoModels] = useState([]);
+  const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -140,6 +155,23 @@ export function ScriptPage() {
   const selectedMode = Form.useWatch('mode', form);
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
+  useEffect(() => {
+    let active = true;
+    setLoadingScriptVideoModels(true);
+    listModels()
+      .then(result => {
+        if (!active) return;
+        const models = (Array.isArray(result?.models) ? result.models : [])
+          .filter(model => model?.kind === 'video' && videoModelKey(model));
+        setScriptVideoModels(models);
+        setScriptVideoModelKey(current => models.some(model => videoModelKey(model) === current)
+          ? current
+          : videoModelKey(models[0]) || current);
+      })
+      .catch(error => { if (active) message.warning(error?.message || '读取视频模型失败'); })
+      .finally(() => { if (active) setLoadingScriptVideoModels(false); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
     const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
@@ -200,6 +232,79 @@ export function ScriptPage() {
     const source = String(form.getFieldValue('novelText') || '').trim();
     if (!source) return message.warning('请先粘贴小说原文');
     setQuickDirectorOpen(true);
+  }
+
+  async function quickDirectorStoryboard() {
+    const source = String(form.getFieldValue('novelText') || '').trim();
+    if (!source) return;
+    if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
+      message.warning('请先生成当前原文配音，匹配音频需要读取实际音频时长');
+      return;
+    }
+    const request = beginRequest('workflow');
+    setQuickDirecting(true);
+    setQuickDirectorOpen(false);
+    setGenerationStage('extracting');
+    dispatchPetState('working', { title: '匹配音频分镜正在生成' });
+    try {
+      const extraction = await extractEntities(source);
+      if (!isCurrentRequest(request)) return;
+      setExtractInfo(extraction);
+      setGenerationStage('generating');
+      const duration = form.getFieldValue('duration') || '10s';
+      const requestConstraints = constraintsForFormat(constraints, 'shotlist', extraction);
+      const result = await generateQuickDirectorStoryboard({
+        novelText: source,
+        duration,
+        ...toGenerationEntities(extraction),
+        matchAudio: quickDirectorOptions.matchAudio,
+        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null,
+        constraints: requestConstraints
+      });
+      if (!isCurrentRequest(request)) return;
+      const nextOutput = aiText(result);
+      if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回分镜内容');
+      const historyId = 'react-' + Date.now().toString(36);
+      setPreviousOutput(output);
+      setOutputConstraints(requestConstraints);
+      updateOutputDraft(nextOutput);
+      setGenerationStage('complete');
+      setCurrentHistoryId('');
+      let historySaved = false;
+      try {
+        await saveHistory({
+          id: historyId,
+          mode: form.getFieldValue('mode') || 'continuous',
+          format: form.getFieldValue('format') || 'storyboard',
+          duration: form.getFieldValue('duration') || '10s',
+          output: nextOutput,
+          novelText: source,
+          extractInfo: extraction,
+          constraints: requestConstraints
+        });
+        if (!isCurrentRequest(request)) return;
+        setCurrentHistoryId(historyId);
+        historySaved = true;
+      } catch {
+        if (!isCurrentRequest(request)) return;
+        message.warning('分镜已生成，但保存历史失败');
+      }
+      message.success('匹配音频分镜已生成，可直接查看、复制或生成视频');
+      playTaskSound('success', soundEnabled, soundVolume);
+      dispatchPetState('success', {
+        title: '匹配音频分镜已生成',
+        detail: historySaved ? '完整分镜已写入当前剧本和生成历史。' : '完整分镜已写入当前剧本，但生成历史保存失败。'
+      });
+    } catch (error) {
+      if (isCurrentRequest(request)) {
+        setGenerationStage('error');
+        message.error(error.message || '匹配音频分镜生成失败');
+        playTaskSound('warning', soundEnabled, soundVolume);
+        dispatchPetState('error', { title: '匹配音频分镜生成失败', detail: error.message || '请检查模型配置后重试。' });
+      }
+    } finally {
+      if (isCurrentRequest(request)) setQuickDirecting(false);
+    }
   }
 
   function replaceSourceAudio(nextUrl) {
@@ -286,7 +391,7 @@ export function ScriptPage() {
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
       try {
-        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
+        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true, suppressAuthExpiry: true });
         const executors = Array.isArray(result?.executors) ? result.executors : Array.isArray(result?.items) ? result.items : [];
         if (!executors.some(item => item.online)) {
           Modal.info({
@@ -305,7 +410,12 @@ export function ScriptPage() {
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
-      const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey });
+      const videoPayload = { prompt, modelKey: scriptVideoModelKey };
+      if (scriptVideoModelKey === 'minimax-h3-video') {
+        videoPayload.duration = selectedDuration === '15s' ? 15 : 10;
+        videoPayload.resolution = '480p竖';
+      }
+      const result = await createScriptVideo(videoPayload);
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
@@ -1164,9 +1274,14 @@ export function ScriptPage() {
           >约束设置</Button>
           <Select
             style={{ width: 164 }}
+            loading={loadingScriptVideoModels}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
+            options={scriptVideoModels.map(model => ({
+              label: videoModelLabel(model),
+              value: videoModelKey(model)
+            }))}
+            notFoundContent="暂无可用的视频模型"
             title="单分镜视频模型"
           />
           <Space>

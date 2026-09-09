@@ -6,6 +6,7 @@ const { apiAuth } = require('../middleware/auth');
 const { readConfig } = require('../lib/shared');
 const { bridgePayload } = require('../lib/batch-factory-v11/go-proxy');
 const { listPublishedForSlot, resolveSystemPresetBody, slotDefinition } = require('../lib/system-preset-catalog');
+const { getDefaultVideoModels } = require('../lib/video-model-catalog');
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -227,13 +228,25 @@ function upstreamTimeoutForRequest(method, pathname) {
   return waitsForTextModel ? 100_000 : 15_000;
 }
 
-function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStore } = {}) {
+function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStore, authenticate = apiAuth } = {}) {
   const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
   const transport = target.protocol === 'https:' ? https : http;
   const router = express.Router();
 
-  router.use(apiAuth);
+  router.use(authenticate);
+  router.get('/models', (req, res) => {
+    const accountConfig = readConfig(req.auth.account.username);
+    const models = getDefaultVideoModels({
+      h3Configured: Boolean(String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim())
+    }).map(model => {
+      if (model.key === 'yd2-mini-video') {
+        return { ...model, configured: Boolean(String(accountConfig?.video?.apiKey || '').trim()) };
+      }
+      return model;
+    });
+    return res.json({ models });
+  });
   router.get('/preset-slots', (req, res) => {
     const slots = [
       ASSET_ANALYSIS_PRESET.slot,

@@ -22,12 +22,14 @@ const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
 const VIDEO_PROVIDERS = [
   { value: 'personal_api', label: '个人中心 API · yd2.0-mini' },
-  { value: 'doubao_local_executor', label: '豆包本地执行器' }
+  { value: 'doubao_local_executor', label: '豆包本地执行器' },
+  { value: 'autodl_comfyui', label: 'AutoDL · MiniMax H3（自动文生/图生）' }
 ];
 
 const VIDEO_MODELS = [
   { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
   { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
+  { value: 'minimax-h3-video', label: 'AutoDL · MiniMax H3 · 最大 15s' },
   { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
   { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
   { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
@@ -289,7 +291,9 @@ export function ProductionSettingsDrawer({
               value={form.videoProvider || 'personal_api'}
               onChange={videoProvider => patch({
                 videoProvider,
-                videoModelId: videoProvider === 'doubao_local_executor' ? 'doubao-seedance' : 'yd2.0-mini'
+                videoModelId: videoProvider === 'doubao_local_executor'
+                  ? 'doubao-seedance'
+                  : videoProvider === 'autodl_comfyui' ? 'minimax-h3-video' : 'yd2.0-mini'
               })}
               options={VIDEO_PROVIDERS}
               style={full}
@@ -300,6 +304,9 @@ export function ProductionSettingsDrawer({
               </Tag>
               <Tag color={localExecutors.some(item => item.online) ? 'green' : 'default'}>
                 豆包执行器 {localExecutors.some(item => item.online) ? '在线' : '未在线'}
+              </Tag>
+              <Tag color={videoProviders.h3?.configured ? 'green' : 'default'}>
+                AutoDL H3 {videoProviders.h3?.configured ? '已配置' : '未配置'}
               </Tag>
             </Space>
             {(form.videoProvider || 'personal_api') === 'doubao_local_executor' ? <div className="bf11-provider-pairing">
@@ -317,9 +324,12 @@ export function ProductionSettingsDrawer({
             placeholder="继承系统模型"
             value={form.videoModelId}
             onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS.filter(option => (form.videoProvider || 'personal_api') === 'doubao_local_executor'
-              ? option.value === 'doubao-seedance'
-              : option.value === 'yd2.0-mini')}
+            options={VIDEO_MODELS.filter(option => {
+              const provider = form.videoProvider || 'personal_api';
+              if (provider === 'doubao_local_executor') return option.value === 'doubao-seedance';
+              if (provider === 'autodl_comfyui') return option.value === 'minimax-h3-video';
+              return option.value === 'yd2.0-mini';
+            })}
           />
         </SettingField>
 

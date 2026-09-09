@@ -4,7 +4,11 @@ const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-fac
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
+const H3_PROVIDER = 'autodl_comfyui';
 const PERSONAL_MODEL = 'yd2.0-mini';
+const H3_MODEL = 'minimax-h3-video';
+const H3_CREATE_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}';
+const H3_TASKS_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}';
 const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 
@@ -12,6 +16,7 @@ function normalizedProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
   if (!provider || ['personal', 'personal_api', 'yd_video', 'yadi'].includes(provider)) return PERSONAL_PROVIDER;
   if (['doubao', 'doubao_local', 'doubao_local_executor'].includes(provider)) return LOCAL_PROVIDER;
+  if (['h3', 'minimax_h3', 'minimax-h3-video', 'autodl', 'autodl_comfyui', 'autodl_comfyui_video'].includes(provider)) return H3_PROVIDER;
   return provider;
 }
 
@@ -29,6 +34,14 @@ function isProviderConfigPath(pathname) {
 
 function needsPersonalConfigSync(req, pathname) {
   if (isProviderConfigPath(pathname)) return true;
+  if (req.method === 'GET' && pathname === STATUS_PATH) return true;
+  if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
+  if (req.method === 'GET' && /\/batches\/[^/]+\/status$/.test(pathname)) return true;
+  return false;
+}
+
+function needsH3ConfigSync(req, pathname) {
+  if (pathname === CONFIG_PATH) return true;
   if (req.method === 'GET' && pathname === STATUS_PATH) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
   if (req.method === 'GET' && /\/batches\/[^/]+\/status$/.test(pathname)) return true;
@@ -84,9 +97,76 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
   return true;
 }
 
+function h3ApiKeyForRequest() {
+  return String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
+}
+
+async function syncH3ProviderConfig(req, options, { allowMissing = false } = {}) {
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (!fetchImpl) throw new Error('fetch implementation is required');
+  const apiKey = h3ApiKeyForRequest();
+  if (!apiKey) {
+    if (allowMissing) return false;
+    const error = new Error('服务端尚未配置 AutoDL H3 API Key');
+    error.status = 400;
+    error.code = 'H3_API_KEY_REQUIRED';
+    throw error;
+  }
+  const base = String(options.goBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+  const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
+  const headers = {
+    ...createSignedBridgeHeaders({
+      username: req.username,
+      isOwner: req.auth?.account?.isOwner === true,
+      method: 'PUT',
+      pathname: CONFIG_PATH,
+      secret,
+      now: (options.now || Date.now)()
+    }),
+    'Content-Type': 'application/json'
+  };
+  const response = await fetchImpl(base + CONFIG_PATH, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ provider: H3_PROVIDER, model: H3_MODEL, apiKey, createUrl: H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
+    redirect: 'manual'
+  });
+  if (!response || response.status < 200 || response.status >= 300) {
+    const error = new Error('AutoDL H3 视频配置同步失败');
+    error.status = response?.status === 401 ? 401 : 503;
+    error.code = 'H3_PROVIDER_SYNC_FAILED';
+    throw error;
+  }
+  return true;
+}
+
 async function prepareProviderRequest(req, options, pathname) {
   const provider = providerFromRequest(req);
   if (provider === LOCAL_PROVIDER) return;
+  if (provider === H3_PROVIDER) {
+    if (!needsH3ConfigSync(req, pathname)) return;
+    const allowMissing = req.method === 'GET' && pathname !== CONFIG_PATH;
+    if (pathname === CONFIG_PATH) {
+      const apiKey = h3ApiKeyForRequest();
+      if (!apiKey) {
+        const error = new Error('服务端尚未配置 AutoDL H3 API Key');
+        error.status = 400;
+        error.code = 'H3_API_KEY_REQUIRED';
+        throw error;
+      }
+      req.body = {
+        ...(req.body || {}),
+        provider: H3_PROVIDER,
+        model: req.body?.model || H3_MODEL,
+        apiKey,
+        createUrl: req.body?.createUrl || H3_CREATE_URL,
+        tasksUrl: req.body?.tasksUrl || H3_TASKS_URL
+      };
+      return;
+    }
+    await syncH3ProviderConfig(req, options, { allowMissing });
+    return;
+  }
   if (!needsPersonalConfigSync(req, pathname)) return;
   const allowMissing = req.method === 'GET' || isProviderConfigPath(pathname) === false && req.method !== 'POST';
   if (isProviderConfigPath(pathname)) {
@@ -128,9 +208,11 @@ function createBatchFactoryV11Router(options = {}) {
 }
 
 module.exports = {
+  H3_PROVIDER,
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,
   normalizedProvider,
+  needsH3ConfigSync,
   needsPersonalConfigSync,
   createBatchFactoryV11Router
 };

@@ -546,7 +546,9 @@ export function BatchFactoryV11Workbench({
   const mode = batch?.mode || batchPatch.productionMode;
   const modeLabel = mode ? (mode === 'viral' || mode === 'viral_hook' ? '爆款开头' : '原文直转') : '生产方式未覆盖';
   const provider = batchPatch.videoProvider || 'personal_api';
-  const providerLabel = provider === 'doubao_local_executor' ? '豆包本地执行器' : '个人中心 API · yd2.0-mini';
+  const providerLabel = provider === 'doubao_local_executor'
+    ? '豆包本地执行器'
+    : provider === 'autodl_comfyui' ? 'AutoDL · MiniMax H3' : '个人中心 API · yd2.0-mini';
   const batchSubtitle = [modeLabel, providerLabel, batchPatch.videoModelId, batchPatch.aspectRatio, batchPatch.versionConfigId].filter(Boolean).join(' · ');
 
   return <div className="batch-factory-workbench bf11-workbench">
