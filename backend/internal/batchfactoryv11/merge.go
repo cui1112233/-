@@ -31,17 +31,17 @@ type MergeOptions struct {
 }
 
 type MergeJob struct {
-	ID            string       `json:"id"`
-	Owner         string       `json:"-"`
-	BatchID       string       `json:"batchId"`
-	RequestID     string       `json:"requestId"`
+	ID             string       `json:"id"`
+	Owner          string       `json:"-"`
+	BatchID        string       `json:"batchId"`
+	RequestID      string       `json:"requestId"`
 	ProviderTaskID string       `json:"providerTaskId,omitempty"`
-	Status        MergeState   `json:"status"`
-	Sources       []MergeMedia `json:"sources"`
-	OutputURL     string       `json:"outputUrl,omitempty"`
-	ErrorMessage  string       `json:"errorMessage,omitempty"`
-	CreatedAt     time.Time    `json:"createdAt"`
-	UpdatedAt     time.Time    `json:"updatedAt"`
+	Status         MergeState   `json:"status"`
+	Sources        []MergeMedia `json:"sources"`
+	OutputURL      string       `json:"outputUrl,omitempty"`
+	ErrorMessage   string       `json:"errorMessage,omitempty"`
+	CreatedAt      time.Time    `json:"createdAt"`
+	UpdatedAt      time.Time    `json:"updatedAt"`
 }
 
 type MergeAdapter interface {
@@ -174,13 +174,19 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	if len(sources) == 0 {
 		return MergeJob{}, fmt.Errorf("%w: no completed production media", ErrConflict)
 	}
+
+	// Preserve the complete provider payload before persistence. Existing V11
+	// merge-source storage predates ProductionJobID, so a MySQL readback may
+	// contain only video/order/media URL. The provider must receive the exact
+	// source identity selected from production, not a lossy persistence view.
+	providerSources := append([]MergeMedia(nil), sources...)
 	now := time.Now().UTC()
 	job := MergeJob{Owner: owner, BatchID: batchID, RequestID: requestID, Status: MergeQueued, Sources: sources, CreatedAt: now, UpdatedAt: now}
 	job, err = repository.CreateMergeJob(ctx, job)
 	if err != nil {
 		return MergeJob{}, err
 	}
-	result, submitErr := s.Adapter.Submit(ctx, batchID, append([]MergeMedia(nil), job.Sources...), options)
+	result, submitErr := s.Adapter.Submit(ctx, batchID, providerSources, options)
 	updated := job
 	updated.Status = normalizeMergeState(result.Status)
 	updated.ProviderTaskID = strings.TrimSpace(result.ProviderTaskID)
