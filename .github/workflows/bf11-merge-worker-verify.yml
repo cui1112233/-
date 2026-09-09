@@ -1,0 +1,74 @@
+name: BF11 Merge Worker Verify
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - 'backend/internal/mergeworker/**'
+      - 'backend/cmd/merge-worker/**'
+      - 'backend/Dockerfile.merge-worker'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'docker-compose.v88-review.yml'
+      - '.env.v88-review.example'
+      - '.github/workflows/bf11-merge-worker-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: backend/go.sum
+
+      - name: Verify Go module lock
+        working-directory: backend
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Run merge worker tests
+        working-directory: backend
+        run: go test ./internal/mergeworker ./cmd/merge-worker -count=1
+
+      - name: Build merge worker binary
+        working-directory: backend
+        run: go build ./cmd/merge-worker
+
+      - name: Build isolated FFmpeg worker image
+        run: docker build -f backend/Dockerfile.merge-worker -t qiantie-merge-worker:verify backend
+
+      - name: Validate review compose merge profile
+        env:
+          QIANTIE_V88_MYSQL_PASSWORD: review-only
+          QIANTIE_V88_MYSQL_ROOT_PASSWORD: review-only-root
+          QIANTIE_V88_BRIDGE_SECRET: review-only-bridge
+          QIANTIE_V88_TEXT_ENDPOINT: https://example.invalid/v1
+          QIANTIE_V88_TEXT_API_KEY: review-only-text
+          QIANTIE_V88_TEXT_MODEL: review-model
+          QIANTIE_V88_PUBLIC_BASE_URL: http://127.0.0.1:13188
+          QIANTIE_V88_DATA_DIR: /tmp/qiantie-v88-review/platform-data
+          QIANTIE_V88_MYSQL_DATA_DIR: /tmp/qiantie-v88-review/mysql-data
+          QIANTIE_V88_WORKER_DATA_DIR: /tmp/qiantie-v88-review/worker-data
+          QIANTIE_V88_ARTIFACT_DATA_DIR: /tmp/qiantie-v88-review/artifact-data
+          QIANTIE_V88_REDIS_DATA_DIR: /tmp/qiantie-v88-review/redis-data
+          QIANTIE_V88_121_WORKER_SECRET: review-only-121-worker
+          QIANTIE_V88_CREDENTIAL_SECRET: review-only-credential
+          QIANTIE_V88_121_STORAGE_STATE_SECRET: review-only-state
+          QIANTIE_V88_MERGE_WORKER_SECRET: review-only-merge
+          QIANTIE_V88_MERGE_API_KEY: review-only-merge
+          QIANTIE_V88_REDIS_PASSWORD: review-only-redis
+          QIANTIE_V88_MERGE_TOS_ENDPOINT: https://tos.example.invalid
+          QIANTIE_V88_MERGE_TOS_REGION: cn-test
+          QIANTIE_V88_MERGE_TOS_BUCKET: review-bucket
+          QIANTIE_V88_MERGE_TOS_ACCESS_KEY: review-only-ak
+          QIANTIE_V88_MERGE_TOS_SECRET_KEY: review-only-sk
+          QIANTIE_V88_MERGE_TOS_PUBLIC_BASE_URL: https://cdn.example.invalid
+        run: docker compose -f docker-compose.v88-review.yml --profile merge config >/tmp/v88-review-compose.yml
