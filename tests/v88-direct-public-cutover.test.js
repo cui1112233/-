@@ -60,3 +60,12 @@ test('public cutover is marker-gated on v88 and target SHA comes from the reques
   assert.match(source, /cutover-node-host\.sh/);
   assert.doesNotMatch(source, /docker build|docker push|docker pull/);
 });
+
+test('public cutover proves the deployed 121 login hotfix uses the v88 65 second timeout', () => {
+  const source = read('.github/workflows/v88-direct-deploy-node-cutover.yml');
+  assert.ok(source, 'production Node cutover workflow must exist');
+  assert.match(source, /batch-rewrite\/121-login-hotfix\.js/);
+  assert.match(source, /REQUEST_TIMEOUT_MS\[\[:space:\]\]\*=/);
+  assert.match(source, /65_000/);
+  assert.match(source, /PUBLIC_121_LOGIN_TIMEOUT_VERIFIED=65000/);
+});
