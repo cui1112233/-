@@ -35,12 +35,17 @@ test('V78.3.0.31 public Node cutover is separately marker-gated and verifies exa
 });
 
 test('V78.3.0.31 cutover changes only Node routing and keeps a guarded Docker-Node rollback target', () => {
-  assert.match(cutoverScript, /OLD_UPSTREAM=v88-public-v88-node-1:3000/);
+  assert.match(cutoverScript, /docker ps --filter ['"]name=v88-public-v88-node['"]/);
+  assert.match(cutoverScript, /NetworkSettings\.Networks/);
+  assert.match(cutoverScript, /Aliases/);
+  assert.match(cutoverScript, /current_node_endpoints/);
+  assert.match(cutoverScript, /matching_node_endpoints/);
   assert.match(cutoverScript, /STAGE_PORT=18081/);
   assert.match(cutoverScript, /backup=/);
   assert.match(cutoverScript, /rollback\(\)/);
   assert.match(cutoverScript, /nginx -t/);
   assert.match(cutoverScript, /nginx -s reload/);
+  assert.doesNotMatch(cutoverScript, /OLD_UPSTREAM=v88-public-v88-node-1:3000/);
   assert.doesNotMatch(cutoverScript, /docker\s+(stop|rm)|docker\s+compose\s+down/);
   assert.doesNotMatch(cutoverScript, /go-api:4000/);
 });
