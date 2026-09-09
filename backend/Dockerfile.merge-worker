@@ -15,4 +15,5 @@ COPY --from=build /out/merge-worker /merge-worker
 RUN mkdir -p /tmp/qiantie-merge && chown qiantie:qiantie /tmp/qiantie-merge
 USER qiantie:qiantie
 EXPOSE 8790
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=20 CMD ["/merge-worker", "healthcheck"]
 ENTRYPOINT ["/merge-worker"]
