@@ -18,6 +18,8 @@ on:
       - 'test/script-video-local-executor.test.js'
       - 'backend/internal/httpapi/**'
       - 'backend/internal/localexecutor/**'
+      - 'backend/internal/app/**'
+      - 'backend/internal/batchfactoryv11/**'
       - 'backend/go.mod'
       - 'backend/go.sum'
       - 'branding/**'
