@@ -1,0 +1,35 @@
+name: Temporary Novel Fetch Upload Session RED
+
+on:
+  push:
+    branches:
+      - tdd/v88-upload-session-expired-401-20260909
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      - name: Confirm expired upload-session contract is RED before implementation
+        shell: bash
+        run: |
+          set +e
+          node --test tests/novel-fetch-upload-browser-worker.test.js > /tmp/upload-session-red.txt 2>&1
+          status=$?
+          set -e
+          cat /tmp/upload-session-red.txt
+          if [ "$status" -eq 0 ]; then
+            echo "Expected the new expired upload-session GET contract to fail before implementation" >&2
+            exit 1
+          fi
+          grep -F "upload-session returns 401 plus notLoggedIn" /tmp/upload-session-red.txt
+          echo "RED_EXIT=$status"
