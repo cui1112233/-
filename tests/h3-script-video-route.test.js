@@ -15,6 +15,7 @@ function startApp(options) {
       req.auth = { account: { username: 'alice', isOwner: true } };
       next();
     },
+    memberStore: { canUseApi: () => true },
     ...options
   }));
   const server = http.createServer(app);
