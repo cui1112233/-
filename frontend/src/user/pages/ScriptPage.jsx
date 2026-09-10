@@ -27,6 +27,7 @@ import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
 import { generateReferenceAssetImage, uploadReferenceAssetImage } from '../../shared/api/novelPanel';
+import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 
 function videoModelKey(model) {
   return String(model?.key || model?.modelKey || '').trim();
@@ -152,6 +153,7 @@ export function ScriptPage() {
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
   const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '' });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
+  const [sourceAudioDurationSeconds, setSourceAudioDurationSeconds] = useState(null);
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
@@ -259,6 +261,12 @@ export function ScriptPage() {
     setQuickDirectorOpen(true);
   }
 
+  function openAudioMatchSettings() {
+    const source = String(form.getFieldValue('novelText') || '').trim();
+    if (!source) return message.warning('请先粘贴小说原文');
+    setQuickDirectorOpen(true);
+  }
+
   async function quickDirectorStoryboard() {
     const source = String(form.getFieldValue('novelText') || '').trim();
     if (!source) return;
@@ -330,6 +338,7 @@ export function ScriptPage() {
     if (sourceAudioUrlRef.current) URL.revokeObjectURL(sourceAudioUrlRef.current);
     sourceAudioUrlRef.current = nextUrl;
     setSourceAudioUrl(nextUrl);
+    setSourceAudioDurationSeconds(null);
   }
 
   function snapshotDraft(values = form.getFieldsValue()) {
@@ -712,6 +721,12 @@ export function ScriptPage() {
         return;
       }
       replaceSourceAudio(nextAudioUrl);
+      try {
+        const duration = await readAudioDurationFromUrl(nextAudioUrl);
+        if (isCurrentRequest(requestId)) setSourceAudioDurationSeconds(normalizeAudioDurationSeconds(duration));
+      } catch (error) {
+        if (isCurrentRequest(requestId)) message.warning(error.message || '无法读取配音时长，暂不能匹配音频');
+      }
       message.success('已按当前配音预设生成原文配音');
       dispatchPetState('success', { title: '原文配音已生成', detail: '音频已经可以在剧本生成页面播放。' });
     } catch (error) {
@@ -820,6 +835,9 @@ export function ScriptPage() {
   async function generateOutput() {
     const values = form.getFieldsValue();
     if (!extractInfo.characters.length && !extractInfo.scenes.length) return message.warning('请先提取人物与场景');
+    if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
+      return message.warning('请先生成当前原文配音；匹配音频需要读取实际音频时长');
+    }
     const requestId = beginRequest('workflow');
     setGenerating(true);
     setGenerationStage('generating');
@@ -834,7 +852,9 @@ export function ScriptPage() {
         duration: values.duration,
         novelText: values.novelText,
         ...entities,
-        constraints: requestConstraints
+        constraints: requestConstraints,
+        matchAudio: quickDirectorOptions.matchAudio,
+        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null
       });
       const nextOutput = aiText(scriptResponse);
       if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回剧本内容');
@@ -1242,7 +1262,7 @@ export function ScriptPage() {
                   setInstructionModalOpen(true);
                 }} disabled={extractionUnavailable}><Plus size={17} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" aria-label="配音原文" title="按当前配音预设生成原文配音" onClick={narrateSource} disabled={narrating}><AudioLines size={17} strokeWidth={1.8} aria-hidden="true" /></button>
-                <button type="button" aria-label="快速导演分镜" title="按小说面板导演逻辑生成完整视频分镜" onClick={openQuickDirectorStoryboard} disabled={quickDirecting}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
+                <button type="button" aria-label="匹配音频" title="设置生成剧本时是否匹配当前配音时长" onClick={openAudioMatchSettings} disabled={generating}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
               </div>
               <Button className="script-chat-submit" type="primary" htmlType="submit" loading={extracting} disabled={generating || extractionUnavailable} aria-label="提取人物与场景" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />}>
                 <span>{generationStage === 'extracting' ? '提取中...' : '提取'}</span>
@@ -1386,33 +1406,29 @@ export function ScriptPage() {
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
       </Modal>
       <Modal
-        title="快速导演分镜"
+        title="匹配音频设置"
         open={quickDirectorOpen}
-        okText="分析并生成"
+        okText="保存设置"
         cancelText="取消"
-        confirmLoading={quickDirecting}
         onCancel={() => setQuickDirectorOpen(false)}
-        onOk={quickDirectorStoryboard}
+        onOk={() => {
+          if (quickDirectorOptions.matchAudio && !sourceAudioDurationSeconds) {
+            message.warning('请先生成当前原文配音；匹配音频需要读取实际音频时长');
+            return;
+          }
+          setQuickDirectorOpen(false);
+        }}
       >
-        <Typography.Paragraph type="secondary">自动读取全文，先生成统一风格、人物与场景，再按所选画面描述模式路由导演规则生成分镜。</Typography.Paragraph>
-        <Typography.Text>画面描述模式</Typography.Text>
-        <Select
-          value={quickDirectorOptions.descriptionMode}
-          style={{ width: '100%', marginTop: 8, marginBottom: 14 }}
-          onChange={descriptionMode => setQuickDirectorOptions(current => ({ ...current, descriptionMode }))}
-          options={[
-            { value: 'strict', label: '导演级完整成品版（推荐）' },
-            { value: 'concise', label: '通用小说精简版' },
-            { value: 'balanced', label: '通用小说标准版' },
-            { value: 'detailed', label: '通用小说较细版' },
-            { value: 'example', label: '案例学习增强版' },
-            { value: 'reference', label: '样例对照转换版' }
-          ]}
-        />
-        <Typography.Text>必须拍出的原文细节（可选）</Typography.Text>
-        <Input.TextArea rows={3} style={{ marginTop: 8, marginBottom: 14 }} value={quickDirectorOptions.mustCoverDetails} placeholder="例如：产检单被拍照、手机语音、女主的反应不能遗漏" onChange={event => setQuickDirectorOptions(current => ({ ...current, mustCoverDetails: event.target.value }))} />
-        <Typography.Text>镜头节奏与推进要求（可选）</Typography.Text>
-        <Input.TextArea rows={3} style={{ marginTop: 8 }} value={quickDirectorOptions.shotRhythmRequirements} placeholder="例如：先铺场再切反应，关键动作单独拆镜，同场景避免重复" onChange={event => setQuickDirectorOptions(current => ({ ...current, shotRhythmRequirements: event.target.value }))} />
+        <Typography.Paragraph type="secondary">这里只控制下一次“生成剧本”是否加入匹配音频规则，不会单独调用 AI。开启后，后台会把实际配音秒数与当前 10s / 15s 单分镜上限一起加入本次生成提示词。</Typography.Paragraph>
+        <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
+          <div>
+            <Typography.Text strong>匹配当前配音时长</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ margin: '2px 0 0' }}>
+              {sourceAudioDurationSeconds ? `当前配音：${sourceAudioDurationSeconds} 秒；生成剧本时总分镜时长将严格匹配。` : '请先点击配音按钮生成当前原文配音。'}
+            </Typography.Paragraph>
+          </div>
+          <Switch checked={quickDirectorOptions.matchAudio === true} onChange={matchAudio => setQuickDirectorOptions(current => ({ ...current, matchAudio }))} />
+        </Space>
       </Modal>
       <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
         {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length} 个</Typography.Text></Button>) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}

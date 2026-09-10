@@ -31,7 +31,7 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints }) {
+export function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds }) {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -45,6 +45,8 @@ export function generateScript({ mode, format, duration, novelText, characters, 
       visualStyle,
       protagonists,
       constraints,
+      matchAudio: matchAudio === true,
+      audioTotalSeconds: matchAudio === true ? audioTotalSeconds : null,
       max_tokens: format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false
