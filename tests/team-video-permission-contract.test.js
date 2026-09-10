@@ -14,6 +14,7 @@ const { createTeamCollaborationStore } = require('../lib/team-collaboration-stor
 const { createAuthRouter } = require('../routes/auth');
 const { createMemberCenterRouter } = require('../routes/member-center');
 const { createTeamAdminRouter } = require('../routes/team-admin');
+const { createScriptVideoRouter } = require('../routes/script-video');
 
 function request(app, { method = 'GET', requestPath, body, token } = {}) {
   return new Promise((resolve, reject) => {
@@ -85,6 +86,12 @@ function fixture(t) {
   authRuntime.tokenMap.set('owner-token', { username: 'choushiyiguai' });
   authRuntime.tokenMap.set('manager-token', { username: manager.username });
 
+  let providerCalls = 0;
+  const submitVideo = async () => {
+    providerCalls += 1;
+    return { statusCode: 200, text: JSON.stringify({ task_id: `video-task-${providerCalls}` }) };
+  };
+
   const app = express();
   app.locals.authRuntime = authRuntime;
   app.locals.memberStore = memberStore;
@@ -92,8 +99,13 @@ function fixture(t) {
   app.use('/api/login', createAuthRouter(authRuntime, memberStore));
   app.use('/api/member', createMemberCenterRouter({ memberStore, usageStore, avatarsDir, accountStore }));
   app.use('/api/team-admin', createTeamAdminRouter({ memberStore, usageStore, accountStore, authRuntime }));
+  app.use('/api/script-video', createScriptVideoRouter({
+    memberStore,
+    configReader: () => ({ video: { apiKey: 'test-video-key' } }),
+    submit: submitVideo
+  }));
 
-  return { app, memberStore, collaborationStore, manager, team };
+  return { app, authRuntime, memberStore, collaborationStore, manager, team, providerCalls: () => providerCalls };
 }
 
 test('team invitation accepts video and persists it when the member joins', async t => {
@@ -174,4 +186,54 @@ test('joint team administration accepts and persists video scope', async t => {
   assert.equal(updated.status, 200);
   assert.deepEqual(updated.body.member.apiScopes, ['video']);
   assert.equal(updated.body.changedBy, 'choushiyiguai');
+});
+
+test('video creation rejects a MEMBER without video scope before calling the provider', async t => {
+  const fx = fixture(t);
+  const member = fx.memberStore.createManagedMember(fx.manager.username, {
+    username: 'video_denied',
+    password: 'denied-password'
+  });
+  fx.authRuntime.tokenMap.set('denied-token', { username: member.username });
+
+  const response = await request(fx.app, {
+    method: 'POST',
+    requestPath: '/api/script-video',
+    token: 'denied-token',
+    body: { prompt: '雨夜里的追车镜头' }
+  });
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(response.body, { error: '暂无视频生成权限' });
+  assert.equal(fx.providerCalls(), 0);
+});
+
+test('video creation allows MEMBER accounts with video or wildcard scope', async t => {
+  const fx = fixture(t);
+  const cases = [
+    { username: 'video_allowed', scope: 'video', token: 'video-token' },
+    { username: 'video_wildcard', scope: '*', token: 'wildcard-token' }
+  ];
+
+  for (const item of cases) {
+    const member = fx.memberStore.createManagedMember(fx.manager.username, {
+      username: item.username,
+      password: `${item.username}-password`
+    });
+    fx.memberStore.setApiAccess(fx.manager.username, member.username, true, item.scope);
+    fx.authRuntime.tokenMap.set(item.token, { username: member.username });
+
+    const response = await request(fx.app, {
+      method: 'POST',
+      requestPath: '/api/script-video',
+      token: item.token,
+      body: { prompt: `授权范围 ${item.scope} 的视频镜头` }
+    });
+
+    assert.equal(response.status, 202);
+    assert.equal(response.body.ok, true);
+    assert.match(response.body.taskId, /^video-task-/);
+  }
+
+  assert.equal(fx.providerCalls(), cases.length);
 });
