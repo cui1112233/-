@@ -1,5 +1,5 @@
-import { AutoComplete, Button, Form, Input, InputNumber, Select, Skeleton, Tag, message } from 'antd';
-import { Cable, CheckCircle2, Coins, Image, KeyRound, Save, Server, ShieldCheck, Video } from 'lucide-react';
+import { AutoComplete, Button, Form, Input, InputNumber, Modal, Popconfirm, Select, Skeleton, Switch, Tag, message } from 'antd';
+import { Cable, CheckCircle2, Coins, Image, KeyRound, Pencil, Plus, Save, Server, ShieldCheck, Trash2, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getMemberCenter } from '../../shared/api/member';
@@ -20,6 +20,75 @@ const providerDefaults = {
   qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
   custom: { baseUrl: '', models: [] }
 };
+
+const modelKinds = [
+  { value: 'text', label: '文本模型', icon: Server },
+  { value: 'video', label: '视频模型', icon: Video },
+  { value: 'image', label: '图片模型', icon: Image }
+];
+
+function ModelDirectory({ config, onSaved }) {
+  const [kind, setKind] = useState('text');
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
+  const models = Array.isArray(config?.models) ? config.models : [];
+  const visible = models.filter(item => item.kind === kind);
+
+  function openEditor(model = null) {
+    setEditing(model || { kind, provider: 'custom', format: 'openai_compatible', enabled: true });
+    form.setFieldsValue(model ? { ...model, apiKey: '' } : { kind, provider: 'custom', format: 'openai_compatible', enabled: true });
+  }
+
+  async function submit(values) {
+    setSaving(true);
+    try {
+      const next = editing?.id
+        ? models.map(item => item.id === editing.id ? { ...item, ...values, id: editing.id } : item)
+        : [...models, { ...values, id: `model-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` }];
+      const saved = await saveConfig({ models: next });
+      onSaved(saved);
+      setEditing(null);
+      form.resetFields();
+      message.success(editing?.id ? '模型已更新' : '模型已添加');
+    } catch (error) { message.error(error.message || '模型保存失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function remove(model) {
+    try {
+      const saved = await saveConfig({ models: models.filter(item => item.id !== model.id) });
+      onSaved(saved);
+      message.success('模型已删除');
+    } catch (error) { message.error(error.message || '模型删除失败'); }
+  }
+
+  async function toggle(model, enabled) {
+    try {
+      const saved = await saveConfig({ models: models.map(item => item.id === model.id ? { ...item, enabled } : item) });
+      onSaved(saved);
+    } catch (error) { message.error(error.message || '模型状态保存失败'); }
+  }
+
+  return <section className="ac-model-directory">
+    <div className="ac-directory-heading"><div><h2>模型管理</h2><p>统一配置一次，剧本、小说获取、批量工厂和制作页面按能力自动筛选。</p></div><Button type="primary" icon={<Plus size={16} />} onClick={() => openEditor()}>添加模型</Button></div>
+    <div className="ac-model-kind-tabs">{modelKinds.map(item => { const Icon = item.icon; return <button key={item.value} type="button" className={kind === item.value ? 'active' : ''} onClick={() => setKind(item.value)}><Icon size={16} />{item.label}<span>{models.filter(model => model.kind === item.value).length}</span></button>; })}</div>
+    <div className="ac-model-list">{visible.map(model => <div className="ac-model-row" key={model.id}><div className="ac-model-row-icon">{kind === 'text' ? <Server size={17} /> : kind === 'video' ? <Video size={17} /> : <Image size={17} />}</div><div className="ac-model-row-main"><strong>{model.name}</strong><span>{model.provider || '自定义'} · {model.model || '未填写模型 ID'}</span></div><Tag color={model.hasApiKey ? 'green' : 'default'}>{model.hasApiKey ? 'Key 已保存' : '未配置 Key'}</Tag><Button type="text" aria-label={`编辑${model.name}`} icon={<Pencil size={15} />} onClick={() => openEditor(model)} /><Popconfirm title="删除这个模型？" onConfirm={() => remove(model)}><Button type="text" danger aria-label={`删除${model.name}`} icon={<Trash2 size={15} />} /></Popconfirm><Switch checked={model.enabled !== false} onChange={value => toggle(model, value)} /></div>)}{!visible.length ? <div className="ac-model-empty">暂无{modelKinds.find(item => item.value === kind)?.label}，点击“添加模型”开始配置。</div> : null}</div>
+    <Modal title={editing?.id ? '编辑模型' : '自定义模型'} open={Boolean(editing)} onCancel={() => setEditing(null)} footer={null} destroyOnClose width={560}>
+      <Form form={form} layout="vertical" onFinish={submit} initialValues={{ kind, provider: 'custom', format: 'openai_compatible', enabled: true }}>
+        <Form.Item label="模型类型" name="kind" rules={[{ required: true }]}><Select options={modelKinds.map(item => ({ value: item.value, label: item.label }))} onChange={setKind} /></Form.Item>
+        <Form.Item label="API 格式" name="format" rules={[{ required: true }]}><Select options={[{ value: 'openai_compatible', label: 'OpenAI Chat Completions 格式' }, { value: 'provider', label: '供应商专用格式' }]} /></Form.Item>
+        <Form.Item label="供应商" name="provider" rules={[{ required: true }]}><Input placeholder="例如 OpenAI、Gemini、MiniMax H3" /></Form.Item>
+        <Form.Item label="请求地址" name="endpoint" rules={[{ required: true, message: '请输入请求地址' }]}><Input placeholder="https://api.example.com/v1" /></Form.Item>
+        <Form.Item label="模型 ID" name="model" rules={[{ required: true, message: '请输入模型 ID' }]}><Input placeholder="例如 gpt-5.4" /></Form.Item>
+        <Form.Item label="模型展示名称" name="name" rules={[{ required: true, message: '请输入展示名称' }]}><Input maxLength={80} placeholder="列表中显示的名称" /></Form.Item>
+        <Form.Item label="API 密钥" name="apiKey" extra={editing?.id && editing.hasApiKey ? '已保存密钥；留空表示继续使用原密钥。'}><Input.Password placeholder="请输入 API Key" /></Form.Item>
+        <Form.Item label="启用模型" name="enabled" valuePropName="checked"><Switch /></Form.Item>
+        <div className="ac-model-editor-footer"><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" htmlType="submit" loading={saving}>{editing?.id ? '保存修改' : '添加模型'}</Button></div>
+      </Form>
+    </Modal>
+  </section>;
+}
 
 function connectionMessage(candidate, fallback) {
   if (typeof candidate === 'string') return candidate;
@@ -162,6 +231,8 @@ export default function ApiConfigPage() {
       <div><div><h2>模型服务由团队托管</h2>{member ? <RoleBadge role={member.role} /> : null}</div><p>你的 MEMBER 身份不会显示、读取或保存管理员 API Key。当前调用会自动使用绑定 MANAGER 的模型配置。</p></div>
       <Tag color={config?.managedBy ? 'green' : 'gold'}>{config?.managedBy ? `托管账号 @${config.managedBy}` : '等待绑定 MANAGER'}</Tag>
     </div> : null}
+
+    {canManageApi ? <ModelDirectory config={config} onSaved={setConfig} /> : null}
 
     {canManageApi ? <Form form={form} layout="vertical" onFinish={save}>
       <div className="ac-api-layout">

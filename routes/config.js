@@ -1,6 +1,6 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, DEFAULT_CONFIG } = require('../lib/shared');
+const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, normalizeModelDirectory, DEFAULT_CONFIG } = require('../lib/shared');
 const { syncAccountAIConfig } = require('./shuihuo-production');
 const { normalizeStorageRoot } = require('../lib/storage-root');
 const { normalizePetConfig } = require('../lib/pet-catalog');
@@ -59,6 +59,16 @@ function managedPublicConfig(config, member) {
   };
 }
 
+function normalizeModelsForSave(value, previous) {
+  if (value === undefined) return normalizeModelDirectory(previous?.models, previous);
+  const oldById = new Map(normalizeModelDirectory(previous?.models, previous).map(model => [model.id, model]));
+  const submitted = Array.isArray(value) ? value : [];
+  return normalizeModelDirectory(submitted.map(model => ({
+    ...model,
+    apiKey: model?.apiKey || oldById.get(model?.id)?.apiKey || ''
+  })), previous);
+}
+
 function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
@@ -88,6 +98,7 @@ function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
     if (!canManageApi) {
       const nextConfig = {
         ...oldConfig,
+        models: oldConfig.models,
         storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
         pet: normalizePetConfig(body.pet, oldConfig.pet),
         tts: normalizeTtsConfig(body.tts, oldConfig.tts),
@@ -102,6 +113,7 @@ function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
       baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
       model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
       apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
+      models: normalizeModelsForSave(body.models, oldConfig),
       storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
       image: normalizeImageConfig(body.image, oldConfig.image),
       video: normalizeVideoConfig(body.video, oldConfig.video),
