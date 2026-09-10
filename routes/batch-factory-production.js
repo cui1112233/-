@@ -151,11 +151,12 @@ function persistProductionSuccess(store, username, batchId, result) {
   });
 }
 
-function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(), presetStore, shuihuoGateway } = {}) {
+function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(), presetStore, shuihuoGateway, memberStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
 
   router.post('/batches/:batchId/items/:itemId/generate', async (req, res) => {
+    if (!memberStore?.canUseApi(req.username, 'video')) return res.status(403).json({ error: '暂无视频生成权限' });
     const modelId = Number(req.body?.modelId);
     if (!Number.isInteger(modelId) || modelId < 1) return res.status(400).json({ error: '请选择文生视频模型' });
     const batch = store.getBatch(req.username, req.params.batchId);
@@ -186,6 +187,7 @@ function createBatchFactoryProductionRouter({ store = createBatchFactoryStore(),
   });
 
   router.post('/batches/:batchId/generate', async (req, res) => {
+    if (!memberStore?.canUseApi(req.username, 'video')) return res.status(403).json({ error: '暂无视频生成权限' });
     const modelId = Number(req.body?.modelId);
     if (!Number.isInteger(modelId) || modelId < 1) return res.status(400).json({ error: '请选择文生视频模型' });
     const batch = store.getBatch(req.username, req.params.batchId);

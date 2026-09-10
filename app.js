@@ -72,7 +72,10 @@ function shuihuoAiRequestMeta(req) {
     return { scope: 'text', feature: 'script', tokenEstimate: true };
   }
   if (/\/tasks(?:\/batch)?$/.test(pathname) || /\/tasks\/[^/]+\/retry$/.test(pathname)) {
-    return { scope: 'image', feature: 'image', tokenEstimate: false };
+    const kind = String(req.body?.kind || req.body?.type || '').toLowerCase();
+    return kind === 'video'
+      ? { scope: 'video', feature: 'video', tokenEstimate: false }
+      : { scope: 'image', feature: 'image', tokenEstimate: false };
   }
   return null;
 }
@@ -112,6 +115,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore
+  });
+  const teamVideoConfigReader = createTeamConfigReader({
+    accountStore: authRuntime.accountStore,
+    memberStore: resolvedMemberStore,
+    usageStore: resolvedUsageStore,
+    scope: 'video'
   });
   const resolvedChatRouter = chatRouter.createChatRouter({
     configReader: teamConfigReader,
@@ -325,12 +334,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
-  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
+  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, memberStore: resolvedMemberStore }));
   app.use('/api/config', createConfigRouter({ shuihuoGateway, memberStore: resolvedMemberStore })); // GET/POST /api/config
   app.use('/api/script-video', createScriptVideoRouter({
     shuihuoGateway,
     memberStore: resolvedMemberStore,
-    configReader: teamConfigReader
+    configReader: teamVideoConfigReader
   }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
   app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat

@@ -130,7 +130,7 @@ test('team invitation accepts video and persists it when the member joins', asyn
   assert.equal(fx.memberStore.canUseApi('video_invitee', 'video'), true);
 });
 
-test('member creation keeps video while filtering unsupported scopes', async t => {
+test('member creation rejects unsupported scopes and accepts video', async t => {
   const fx = fixture(t);
   const created = await request(fx.app, {
     method: 'POST',
@@ -144,8 +144,13 @@ test('member creation keeps video while filtering unsupported scopes', async t =
     }
   });
 
-  assert.equal(created.status, 201);
-  assert.deepEqual(created.body.member.apiScopes, ['video']);
+  assert.equal(created.status, 400);
+  const accepted = await request(fx.app, {
+    method: 'POST', requestPath: '/api/member/team/members', token: 'manager-token',
+    body: { username: 'video_member', password: 'video-password', displayName: '视频成员', apiScopes: ['video'] }
+  });
+  assert.equal(accepted.status, 201);
+  assert.deepEqual(accepted.body.member.apiScopes, ['video']);
 });
 
 test('member scope management replaces wildcard access with video', async t => {
