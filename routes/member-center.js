@@ -522,9 +522,10 @@ function createMemberCenterRouter({ memberStore, usageStore, avatarsDir, account
       }
       if (['dev', 'manager'].includes(member.role)) ensureTeamForManager(req, member);
       if (member.role === 'member' && Array.isArray(body.apiScopes)) {
+        if (body.apiScopes.some(item => !MANAGED_API_SCOPES.includes(item))) return res.status(400).json({ error: 'API scopes 不合法' });
         memberStore.setApiAccess(req.username, member.username, false, '*');
         for (const scope of MANAGED_API_SCOPES) memberStore.setApiAccess(req.username, member.username, false, scope);
-        for (const scope of [...new Set(body.apiScopes.filter(item => MANAGED_API_SCOPES.includes(item)))]) memberStore.setApiAccess(req.username, member.username, true, scope);
+        for (const scope of [...new Set(body.apiScopes)]) memberStore.setApiAccess(req.username, member.username, true, scope);
         member = memberStore.getMember(member.username);
       }
       notify(req, member.username, { type: 'account.created', title: '账号已创建', message: `你的 qiantie 账号 @${member.username} 已创建。` });
