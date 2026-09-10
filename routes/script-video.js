@@ -110,10 +110,14 @@ function bridgeDownload(gateway, account, pathname, res) {
   const upstream=transport.request({protocol:target.protocol,hostname:target.hostname,port:target.port||undefined,method:'GET',path:pathname,headers:{'X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature}},response=>{res.status(response.statusCode||502); if(response.headers['content-type'])res.setHeader('Content-Type',response.headers['content-type']); response.pipe(res)}); upstream.on('error',()=>res.status(503).json({error:'视频下载服务暂不可用'})); upstream.end();
 }
 
-function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway } = {}) {
+function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway, memberStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
   router.post('/', async (req, res) => {
+    const resolvedMemberStore = memberStore || req.app?.locals?.memberStore;
+    if (!resolvedMemberStore?.canUseApi(req.auth.username, 'video')) {
+      return res.status(403).json({ error: '暂无视频生成权限' });
+    }
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
