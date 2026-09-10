@@ -4,6 +4,15 @@ export function getConfig() {
   return apiRequest('/api/config');
 }
 
+// All feature pages read the same sanitized directory.  Keep capability
+// filtering here so text/video/image selectors cannot accidentally mix.
+export function listConfiguredModels(kind) {
+  return getConfig().then(config => {
+    const models = Array.isArray(config?.models) ? config.models : [];
+    return models.filter(model => model?.enabled !== false && (!kind || model.kind === kind));
+  });
+}
+
 export function saveConfig(config) {
   return apiRequest('/api/config', {
     method: 'POST',

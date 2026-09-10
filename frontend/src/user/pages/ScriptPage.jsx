@@ -3,7 +3,7 @@ import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Pl
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateQuickDirectorStoryboard, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
-import { getConfig } from '../../shared/api/config';
+import { getConfig, listConfiguredModels } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -101,6 +101,7 @@ export function ScriptPage() {
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [configuredVideoModels, setConfiguredVideoModels] = useState([]);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -531,6 +532,16 @@ export function ScriptPage() {
       active = false;
       window.removeEventListener('qiantie:notifications-updated', handleNotificationsUpdated);
     };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    listConfiguredModels('video').then(models => {
+      if (!active) return;
+      setConfiguredVideoModels(models);
+      if (models.length && !models.some(model => model.id === scriptVideoModelKey)) setScriptVideoModelKey(models[0].id);
+    }).catch(() => {});
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -1244,7 +1255,7 @@ export function ScriptPage() {
             style={{ width: 164 }}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
+            options={(configuredVideoModels.length ? configuredVideoModels.map(model => ({ label: model.name || model.model || model.id, value: model.id })) : [{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }])}
             title="单分镜视频模型"
           />
           <Space>
