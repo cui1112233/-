@@ -7,6 +7,7 @@ import { getConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
+import { getMemberCenter } from '../../shared/api/member';
 import { apiRequest } from '../../shared/api/client';
 import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetState } from '../../shared/pet/stacky';
 import { dispatchCmSelection } from '../../shared/pet/cmBridge';
@@ -100,6 +101,7 @@ export function ScriptPage() {
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [canGenerateVideo, setCanGenerateVideo] = useState(false);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -114,6 +116,16 @@ export function ScriptPage() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
   const [quickDirecting, setQuickDirecting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getMemberCenter().then(result => {
+      if (!active) return;
+      const member = result?.member;
+      setCanGenerateVideo(['dev', 'manager'].includes(member?.role) || member?.apiScopes?.includes('*') || member?.apiScopes?.includes('video'));
+    }).catch(() => { if (active) setCanGenerateVideo(false); });
+    return () => { active = false; };
+  }, []);
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
   const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '' });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
@@ -1253,7 +1265,7 @@ export function ScriptPage() {
               onToggleAll={() => setSelectedShotIndexes(current => current.size === shotCards.length ? new Set() : new Set(shotCards.map((_, index) => index)))}
               onCopy={copyText}
               onCopySelected={() => copyText(joinShotCards(shotCards, selectedShotIndexes))}
-              onGenerateVideo={generateVideoForShot}
+              onGenerateVideo={canGenerateVideo ? generateVideoForShot : null}
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
               onOpenVideo={setPreviewVideoTask}

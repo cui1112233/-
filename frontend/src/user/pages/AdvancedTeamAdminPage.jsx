@@ -17,7 +17,8 @@ import { MemberIdentity, PageHeader, Panel, RoleBadge, formatTokens } from './ac
 const SCOPE_OPTIONS = [
   { label: '文本', value: 'text' },
   { label: '生图', value: 'image' },
-  { label: 'TTS', value: 'tts' }
+  { label: 'TTS', value: 'tts' },
+  { label: '视频生成', value: 'video' }
 ];
 
 function explicitScopes(member) {

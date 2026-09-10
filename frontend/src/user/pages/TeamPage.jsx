@@ -23,7 +23,8 @@ import { MemberIdentity, PageHeader, Panel, RoleBadge, formatDate, formatTokens 
 const SCOPE_OPTIONS = [
   { label: '文本', value: 'text' },
   { label: '生图', value: 'image' },
-  { label: '配音', value: 'tts' }
+  { label: '配音', value: 'tts' },
+  { label: '视频生成', value: 'video' }
 ];
 const CONTENT_FEATURES = new Set(['script', 'novel-panel', 'novel-fetch', 'image', 'shuihuo-production']);
 
