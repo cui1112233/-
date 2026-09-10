@@ -32,6 +32,7 @@ function ModelDirectory({ config, onSaved }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const editingKind = Form.useWatch('kind', form);
   const models = Array.isArray(config?.models) ? config.models : [];
   const visible = models.filter(item => item.kind === kind);
 
@@ -83,6 +84,7 @@ function ModelDirectory({ config, onSaved }) {
         <Form.Item label="模型 ID" name="model" rules={[{ required: true, message: '请输入模型 ID' }]}><Input placeholder="例如 gpt-5.4" /></Form.Item>
         <Form.Item label="模型展示名称" name="name" rules={[{ required: true, message: '请输入展示名称' }]}><Input maxLength={80} placeholder="列表中显示的名称" /></Form.Item>
         <Form.Item label="API 密钥" name="apiKey" extra={editing?.id && editing.hasApiKey ? '已保存密钥；留空表示继续使用原密钥。'}><Input.Password placeholder="请输入 API Key" /></Form.Item>
+        {editingKind === 'video' ? <><Form.Item label="单次最大时长（秒）" name="maxDuration"><InputNumber min={1} max={900} style={{ width: '100%' }} placeholder="例如 H3 填 15" /></Form.Item><Form.Item label="支持图片参考" name="supportsImageInput" valuePropName="checked"><Switch /></Form.Item></> : null}
         <Form.Item label="启用模型" name="enabled" valuePropName="checked"><Switch /></Form.Item>
         <div className="ac-model-editor-footer"><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" htmlType="submit" loading={saving}>{editing?.id ? '保存修改' : '添加模型'}</Button></div>
       </Form>

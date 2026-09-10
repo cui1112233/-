@@ -109,6 +109,7 @@ function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
       return res.json(managedPublicConfig(nextConfig, member));
     }
     const nextConfig = {
+      ...oldConfig,
       provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
       baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
       model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
