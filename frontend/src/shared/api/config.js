@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { filterEnabledModels } from '../modelDirectory.js';
 
 export function getConfig() {
   return apiRequest('/api/config');
@@ -9,7 +10,7 @@ export function getConfig() {
 export function listConfiguredModels(kind) {
   return getConfig().then(config => {
     const models = Array.isArray(config?.models) ? config.models : [];
-    return models.filter(model => model?.enabled !== false && (!kind || model.kind === kind));
+    return filterEnabledModels(models, kind);
   });
 }
 

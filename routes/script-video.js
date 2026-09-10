@@ -10,6 +10,11 @@ const YD_TASKS_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/tasks';
 const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
+const SUPPORTED_SCRIPT_VIDEO_MODEL_KEYS = new Set(['yd2-mini-video', 'local-doubao-executor-video']);
+
+function isSupportedScriptVideoModel(modelKey) {
+  return SUPPORTED_SCRIPT_VIDEO_MODEL_KEYS.has(String(modelKey || '').trim());
+}
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -117,10 +122,12 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
-    if (req.body?.modelKey === 'local-doubao-executor-video') {
+    const modelKey = String(req.body?.modelKey || 'yd2-mini-video').trim();
+    if (modelKey === 'local-doubao-executor-video') {
       try { return res.status(202).json(await bridgeJSON(shuihuoGateway, req.auth.account, 'POST', '/api/script-videos/local', { prompt })); }
       catch (error) { return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' }); }
     }
+    if (!isSupportedScriptVideoModel(modelKey)) return res.status(409).json({ error: '当前视频模型已配置，但尚未接入统一视频提交接口' });
     let imageUrls;
     try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
     const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
@@ -169,4 +176,4 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   return router;
 }
 
-module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL };
+module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL, isSupportedScriptVideoModel };

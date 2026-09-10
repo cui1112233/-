@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateQuickDirectorStoryboard, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
 import { getConfig, listConfiguredModels } from '../../shared/api/config';
+import { filterEnabledModels } from '../../shared/modelDirectory.js';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -100,7 +101,7 @@ export function ScriptPage() {
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
-  const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [scriptVideoModelKey, setScriptVideoModelKey] = useState('');
   const [configuredVideoModels, setConfiguredVideoModels] = useState([]);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -368,6 +369,7 @@ export function ScriptPage() {
   async function generateVideoForShot(card, index) {
     const prompt = String(card || '').trim();
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
+    if (!scriptVideoModelKey) return message.warning('请先在个人中心 API 配置中启用视频模型');
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
       try {
         const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
@@ -540,6 +542,7 @@ export function ScriptPage() {
       if (!active) return;
       setConfiguredVideoModels(models);
       if (models.length && !models.some(model => model.id === scriptVideoModelKey)) setScriptVideoModelKey(models[0].id);
+      if (!models.length) setScriptVideoModelKey('');
     }).catch(() => {});
     return () => { active = false; };
   }, []);
@@ -1255,7 +1258,8 @@ export function ScriptPage() {
             style={{ width: 164 }}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={(configuredVideoModels.length ? configuredVideoModels.map(model => ({ label: model.name || model.model || model.id, value: model.id })) : [{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }])}
+            options={filterEnabledModels(configuredVideoModels, 'video').map(model => ({ label: model.name || model.model || model.id, value: model.id }))}
+            placeholder="请先启用视频模型"
             title="单分镜视频模型"
           />
           <Space>

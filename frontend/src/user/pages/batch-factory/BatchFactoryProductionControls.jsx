@@ -3,6 +3,7 @@ import { Clapperboard, ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { generateBatchFactoryVideos } from '../../../shared/api/batchFactory';
 import { listModels } from '../../../shared/api/shuihuoProduction';
+import { filterCompatibleVideoModels, filterEnabledModels } from '../../../shared/modelDirectory.js';
 import { reportClientError } from '../../../shared/error-reporting';
 
 let modelCatalogPromise = null;
@@ -10,7 +11,7 @@ let modelCatalogPromise = null;
 export function loadBatchFactoryVideoModels() {
   if (!modelCatalogPromise) {
     modelCatalogPromise = listModels()
-      .then(result => (result.models || []).filter(model => model.kind === 'video'))
+      .then(result => filterEnabledModels(result.models, 'video'))
       .catch(error => {
         modelCatalogPromise = null;
         throw error;
@@ -20,13 +21,7 @@ export function loadBatchFactoryVideoModels() {
 }
 
 function batchFactoryCompatibleModels(models, batch) {
-  const requiredDuration = Number(batch?.settings?.maxVideoDuration || 0);
-  return models.filter(model => (
-    model.requiresImageInput !== true
-    && Number.isInteger(Number(model.maxVideoDuration))
-    && Number(model.maxVideoDuration) >= 1
-    && (!requiredDuration || Number(model.maxVideoDuration) >= requiredDuration)
-  ));
+  return filterCompatibleVideoModels(models, batch);
 }
 
 function reportProductionIssue(batch, item, messageText) {
@@ -82,7 +77,7 @@ export function BatchFactoryProductionControls({ batch, item, onRefresh }) {
   }, [boundModelId, batch?.settings?.maxVideoDuration]);
 
   const directModels = useMemo(() => batchFactoryCompatibleModels(models, batch), [models, batch]);
-  const imageModels = useMemo(() => models.filter(model => model.requiresImageInput === true), [models]);
+  const imageModels = useMemo(() => filterEnabledModels(models, 'video').filter(model => model.requiresImageInput === true), [models]);
   const boundModel = useMemo(() => models.find(model => Number(model.id) === boundModelId) || null, [models, boundModelId]);
   const production = item?.production;
   const submissionError = item?.productionSubmissionError;

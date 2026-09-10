@@ -2,18 +2,13 @@ import { Alert, Button, Card, Select, Space, Statistic, Tag, Typography, message
 import { Factory } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { generateBatchFactoryBatch } from '../../../shared/api/batchFactory';
+import { filterCompatibleVideoModels } from '../../../shared/modelDirectory.js';
 import { reportClientError } from '../../../shared/error-reporting';
 import { loadBatchFactoryVideoModels } from './BatchFactoryProductionControls';
 import { BatchFactoryBatchProductionStatus } from './BatchFactoryVideoProductionStatus';
 
 function compatibleLegacyModels(models, batch) {
-  const requiredDuration = Number(batch?.settings?.maxVideoDuration || 0);
-  return models.filter(model => (
-    model.requiresImageInput !== true
-    && Number.isInteger(Number(model.maxVideoDuration))
-    && Number(model.maxVideoDuration) >= 1
-    && (!requiredDuration || Number(model.maxVideoDuration) >= requiredDuration)
-  ));
+  return filterCompatibleVideoModels(models, batch);
 }
 
 function reportBulkIssue(batch, messageText) {
