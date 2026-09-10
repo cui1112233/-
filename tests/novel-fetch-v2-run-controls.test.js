@@ -6,10 +6,11 @@ const path = require('node:path');
 const RUN_SOURCE_PATH = path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2-run-controls.js');
 const PAGE_SOURCE_PATH = path.join(__dirname, '..', 'lib', 'novel-fetch-workshop', 'v2-page.js');
 const WORKFLOW_PATH = path.join(__dirname, '..', '.github', 'workflows', 'novel-fetch-v2-check.yml');
+const AGENT_PATH = path.join(__dirname, '..', 'AGENT.md');
 const AUDIT_PATH = path.join(__dirname, '..', 'docs', 'superpowers', 'audits', '2026-09-02-v78-novel-fetch-v2-completion-audit.md');
 const runSource = fs.existsSync(RUN_SOURCE_PATH) ? fs.readFileSync(RUN_SOURCE_PATH, 'utf8') : '';
 const pageSource = fs.readFileSync(PAGE_SOURCE_PATH, 'utf8');
-const workflowSource = fs.readFileSync(WORKFLOW_PATH, 'utf8');
+const agentSource = fs.readFileSync(AGENT_PATH, 'utf8');
 const auditSource = fs.existsSync(AUDIT_PATH) ? fs.readFileSync(AUDIT_PATH, 'utf8') : '';
 
 test('V78 run controls expose per-slot rewrite methods matching the reference layout', () => {
@@ -60,17 +61,10 @@ test('V78 page injects the run-controls client after the existing V2 clients wit
   assert.ok(pageSource.includes('20260902-run-controls-r2'));
 });
 
-test('novel fetch completion workflow runs full Node regression, 121 Worker tests and frontend build', () => {
-  for (const marker of [
-    'Run full Node regression',
-    'node --test tests/*.test.js lib/*.test.js routes/*.test.js',
-    'Install 121 Browser Worker dependencies',
-    'npm --prefix services/121-browser-worker test',
-    'Install frontend dependencies',
-    'npm run frontend:build'
-  ]) {
-    assert.ok(workflowSource.includes(marker), `missing workflow gate ${marker}`);
-  }
+test('novel fetch completion is not coupled to GitHub Actions', () => {
+  assert.equal(fs.existsSync(WORKFLOW_PATH), false);
+  assert.ok(agentSource.includes('禁止通过 GitHub Actions 编译、打包、构建、发布或部署本项目'));
+  assert.ok(agentSource.includes('测试、构建和镜像制作必须在本地开发环境、受控构建主机或 ECS 上'));
 });
 
 test('completion audit closes the legacy feature inventory instead of only citing raw counts', () => {
