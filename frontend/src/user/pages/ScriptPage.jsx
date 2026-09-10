@@ -21,6 +21,7 @@ import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntit
 import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
+import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
@@ -121,6 +122,8 @@ export function ScriptPage() {
   const [shotVideoTasks, setShotVideoTasks] = useState({});
   const [shotReferenceStates, setShotReferenceStates] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [scriptVideoModels, setScriptVideoModels] = useState([]);
+  const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
   const [canGenerateVideo, setCanGenerateVideo] = useState(false);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -171,6 +174,23 @@ export function ScriptPage() {
   const selectedMode = Form.useWatch('mode', form);
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
+  useEffect(() => {
+    let active = true;
+    setLoadingScriptVideoModels(true);
+    listModels()
+      .then(result => {
+        if (!active) return;
+        const models = (Array.isArray(result?.models) ? result.models : [])
+          .filter(model => model?.kind === 'video' && videoModelKey(model));
+        setScriptVideoModels(models);
+        setScriptVideoModelKey(current => models.some(model => videoModelKey(model) === current)
+          ? current
+          : videoModelKey(models[0]) || current);
+      })
+      .catch(error => { if (active) message.warning(error?.message || '读取视频模型失败'); })
+      .finally(() => { if (active) setLoadingScriptVideoModels(false); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
     const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
@@ -405,13 +425,21 @@ export function ScriptPage() {
         return;
       }
     }
+    const fallbackDuration = selectedDuration === '15s' ? 15 : 10;
+    const resolvedDuration = scriptVideoModelKey === 'minimax-h3-video'
+      ? resolveShotVideoDuration({ shotText: prompt, fallbackDuration })
+      : { ok: true, duration: fallbackDuration };
+    if (!resolvedDuration.ok) {
+      message.error(resolvedDuration.error);
+      return;
+    }
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
       const videoPayload = buildScriptVideoPayload({
         prompt,
         modelKey: scriptVideoModelKey,
-        duration: selectedDuration === '15s' ? 15 : 10,
+        duration: resolvedDuration.duration,
         resolution: '480p竖',
         imageUrls: scriptVideoModelKey === 'minimax-h3-video'
           ? collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
@@ -1275,9 +1303,15 @@ export function ScriptPage() {
           >约束设置</Button>
           <Select
             style={{ width: 164 }}
+            loading={loadingScriptVideoModels}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
+            options={scriptVideoModels.length ? scriptVideoModels.map(model => ({ label: videoModelLabel(model), value: videoModelKey(model) })) : [
+              { label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' },
+              { label: '本地豆包执行器', value: 'local-doubao-executor-video' },
+              { label: 'MiniMax H3', value: 'minimax-h3-video' }
+            ]}
+            notFoundContent="暂无可用的视频模型"
             title="单分镜视频模型"
           />
           <Space>
