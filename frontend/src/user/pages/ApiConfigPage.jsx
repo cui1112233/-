@@ -21,6 +21,16 @@ const providerDefaults = {
   custom: { baseUrl: '', models: [] }
 };
 
+const videoModels = [
+  {
+    label: 'MiniMax H3 多图生视频',
+    value: 'minimax-h3-video',
+    description: '最多 15 秒，支持人物/场景参考图；没有参考图也可以生成。'
+  },
+  { label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video', description: '现有亚迪视频服务。' },
+  { label: '本地豆包执行器', value: 'local-doubao-executor-video', description: '通过本地豆包执行器生成视频。' }
+];
+
 function connectionMessage(candidate, fallback) {
   if (typeof candidate === 'string') return candidate;
   if (typeof candidate?.content === 'string') return candidate.content;
@@ -65,7 +75,7 @@ export default function ApiConfigPage() {
           model: nextConfig.image?.model || '',
           apiKey: ''
         },
-        video: { apiKey: '' }
+        video: { modelKey: nextConfig.video?.modelKey || 'minimax-h3-video', apiKey: '' }
       });
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
       .finally(() => { if (alive) setLoading(false); });
@@ -141,7 +151,8 @@ export default function ApiConfigPage() {
     setSavingVideo(true);
     try {
       const apiKey = form.getFieldValue(['video', 'apiKey']) || '';
-      const saved = await saveConfig({ video: { apiKey } });
+      const modelKey = form.getFieldValue(['video', 'modelKey']) || 'minimax-h3-video';
+      const saved = await saveConfig({ video: { modelKey, apiKey } });
       setConfig(saved);
       form.setFieldValue(['video', 'apiKey'], '');
       message.success('视频生成配置已保存');
@@ -203,6 +214,9 @@ export default function ApiConfigPage() {
           </Panel>
           <Panel title="视频生成服务" eyebrow="VIDEO MODEL" className="ac-form-panel" action={<Tag color={config?.video?.hasApiKey ? 'green' : 'default'}>{config?.video?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
             <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>独立视频生成凭据</strong><small>视频服务按自己的保存入口维护，不会覆盖文本或图片配置。</small></div></div>
+            <Form.Item label="视频模型" name={['video', 'modelKey']} rules={[{ required: true, message: '请选择视频模型' }]}>
+              <Select options={videoModels.map(model => ({ label: model.label, value: model.value }))} optionRender={option => <div><div>{option.label}</div><small>{videoModels.find(model => model.value === option.value)?.description}</small></div>} />
+            </Form.Item>
             <Form.Item label="视频服务 API Key" name={['video', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Save size={16} />} onClick={saveVideo} loading={savingVideo}>保存视频生成</Button></div>
           </Panel>
