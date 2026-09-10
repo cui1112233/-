@@ -9,7 +9,7 @@ const { createPasskeyStore } = require('../lib/passkey-store');
 const { apiAuth } = require('../middleware/auth');
 
 const REMEMBER_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
-const INVITE_SCOPES = ['text', 'image', 'tts'];
+const INVITE_SCOPES = ['text', 'image', 'tts', 'video'];
 
 function browserFromUserAgent(userAgent) {
   const ua = String(userAgent || '');
