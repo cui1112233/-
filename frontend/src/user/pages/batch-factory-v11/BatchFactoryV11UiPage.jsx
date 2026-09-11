@@ -414,13 +414,14 @@ export function BatchFactoryV11UiPage() {
     return true;
   }
 
-  async function saveAssetPrompts(type, items, drafts) {
+  async function saveAssetPrompts(book, type, items, drafts) {
+    if (!book?.id) return false;
     try {
       await Promise.all((items || []).map(item => {
       const name = typeof item === 'string' ? item : (item?.name || item?.label || item?.id || '未命名资产');
       const key = `${type}:${item?.id || name}:${items.indexOf(item)}`;
       const content = drafts[key] ?? (typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || ''));
-      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: batch.id, content });
+      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: `${batch.id}:${book.id}`, content });
       }));
       message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
       return true;

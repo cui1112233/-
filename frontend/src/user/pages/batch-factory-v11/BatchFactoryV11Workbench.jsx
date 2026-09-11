@@ -314,9 +314,9 @@ export function BatchFactoryV11Workbench({
       key: 'assets',
       label: <span className="bf11-fold-label"><strong>人物 / 场景 / 道具</strong><small>Prompt 直接编辑</small></span>,
       children: <div className="bf11-asset-editor-stack">
-        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
-        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
-        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={onSaveAssetPrompts} />
+        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
+        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
+        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
       </div>
     },
     {

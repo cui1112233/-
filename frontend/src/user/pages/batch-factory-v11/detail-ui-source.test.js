@@ -15,6 +15,13 @@ test('current book UI keeps progressive detail and direct prompt editing', () =>
   }
 });
 
+test('asset prompt saves are scoped to the selected novel', () => {
+  const workbench = read('BatchFactoryV11Workbench.jsx');
+  const page = read('BatchFactoryV11UiPage.jsx');
+  assert.match(workbench, /onSaveAssetPrompts\?\.\(selectedBook, type, items, drafts\)/);
+  assert.match(page, /scope: `\$\{batch\.id\}:\$\{book\.id\}`/);
+});
+
 test('batch tools contain production progress and approved merge timing UI', () => {
   const source = read('BatchFactoryV11Workbench.jsx');
   for (const label of ['视频生成进度', '跟随音频时长', 'TTS 只测时', '合并待合并', '上传待上传']) {
