@@ -18,6 +18,11 @@ test('entity image panel defines the double-column image controls', () => {
   assert.match(component, /accept="image\/png,image\/jpeg,image\/webp"/);
   assert.match(component, /entity-editor-image-thumbnail/);
   assert.match(component, /删除图片/);
+  assert.match(component, /loadReferenceAssetImage/);
+  assert.match(component, /URL\.createObjectURL/);
+  assert.match(component, /URL\.revokeObjectURL/);
+  assert.doesNotMatch(component, /<span\s+[^>]*role="button"/);
+  assert.match(component, /entity-editor-image-delete-control/);
   assert.match(styles, /\.entity-editor-layout/);
   assert.match(styles, /\.entity-editor-image-panel/);
 });

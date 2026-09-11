@@ -203,12 +203,22 @@ test('reference assets upload, serve and degrade for generation/clipboard', asyn
   assert.equal(uploaded.status, 200);
   assert.equal(uploaded.body.ok, true);
   assert.equal(uploaded.body.has_source_image, true);
-  assert.match(uploaded.body.url, new RegExp(`/api/novel-panel/reference-assets/file/character/${assetId}/source`));
+  assert.match(uploaded.body.url, new RegExp(`/api/novel-panel/reference-assets/file/character/${assetId}/source_`));
 
-  const file = await requestRaw(app, `/api/novel-panel/reference-assets/file/character/${assetId}/source`, token);
+  const file = await requestRaw(app, uploaded.body.url, token);
   assert.equal(file.status, 200);
   assert.equal(file.headers['content-type'], 'image/png');
   assert.equal(file.body.length, png.length);
+
+  const secondPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYgAAAAQAAABCB0C7AAAAAElFTkSuQmCC', 'base64');
+  const secondUploaded = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/upload', token, body: { asset_type: 'character', asset_id: assetId, variant: 'source', data_url: `data:image/png;base64,${secondPng.toString('base64')}` } });
+  assert.equal(secondUploaded.status, 200);
+  assert.notEqual(secondUploaded.body.url, uploaded.body.url);
+  const oldFile = await requestRaw(app, uploaded.body.url, token);
+  assert.equal(oldFile.status, 200);
+  assert.equal(oldFile.body.length, png.length);
+  const sourceCompatibility = await requestRaw(app, `/api/novel-panel/reference-assets/file/character/${assetId}/source`, token);
+  assert.equal(sourceCompatibility.status, 200);
 
   const main = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/use-source-as-main', token, body: { asset_type: 'character', asset_id: assetId } });
   assert.equal(main.status, 200);
@@ -324,13 +334,13 @@ test('reference asset generation persists the generated image and returns asset 
   assert.equal(generate.status, 200);
   assert.equal(generate.body.ok, true);
   assert.equal(generate.body.main_origin, 'generated');
-  assert.equal(generate.body.has_main_image, true);
-  assert.match(generate.body.url, new RegExp(`/api/novel-panel/reference-assets/file/character/${assetId}/main`));
+  assert.equal(generate.body.has_main_image, false);
+  assert.match(generate.body.url, new RegExp(`/api/novel-panel/reference-assets/file/character/${assetId}/candidate_`));
   // OpenAI-compatible image relays expect /v1/images/generations; a root-domain
   // base_url must be normalized to include the /v1 prefix automatically.
   assert.equal(upstream.paths[0], '/v1/images/generations');
 
-  const file = await requestRaw(app, `/api/novel-panel/reference-assets/file/character/${assetId}/main`, token);
+  const file = await requestRaw(app, generate.body.url, token);
   assert.equal(file.status, 200);
   assert.equal(file.body.length, png.length);
 });

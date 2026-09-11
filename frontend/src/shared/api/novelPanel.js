@@ -13,3 +13,7 @@ export function generateReferenceAsset(payload) {
     body: JSON.stringify(payload)
   });
 }
+
+export function loadReferenceAssetImage(url) {
+  return apiRequest(url, { responseType: 'blob' });
+}

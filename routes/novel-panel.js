@@ -958,15 +958,16 @@ router.post('/reference-assets/upload', (req, res) => {
     const assetId = premiumStore(req).safeAssetId(body.asset_id);
     const variant = premiumStore(req).safeAssetVariant(body.variant || 'source');
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
-    const filePath = premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, variant, payload, mime);
+    const revision = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, variant === 'main' ? 'candidate' : 'source', payload, mime);
     const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
     return res.json({
       ok: true,
       asset_id: assetId,
       asset_type: assetType,
       variant,
-      file_name: path.basename(filePath),
-      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, variant),
+      file_name: path.basename(revision.filePath),
+      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision.variant),
+      revision: revision.variant,
       ...metadata
     });
   } catch (error) {
@@ -1128,10 +1129,10 @@ router.post('/reference-assets/generate', async (req, res) => {
         if (!imageBuffer || !imageBuffer.length) throw new Error('图片AI未返回可用的图像内容。');
         const assetType = premiumStore(req).safeAssetType(text(body.asset_type) || 'character');
         const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
-        premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, 'main', imageBuffer, mime);
+        const revision = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
         const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, 'main'), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision.variant), revision: revision.variant, main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {

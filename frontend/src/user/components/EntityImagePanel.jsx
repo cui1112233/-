@@ -1,7 +1,7 @@
 import { Button, Image, Spin, Typography } from 'antd';
 import { ImagePlus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { generateReferenceAsset, uploadReferenceAsset } from '../../shared/api/novelPanel';
+import { generateReferenceAsset, loadReferenceAssetImage, uploadReferenceAsset } from '../../shared/api/novelPanel';
 import { appendEntityImage, normalizeEntityImages, removeEntityImage, selectEntityImage } from '../pages/scriptEntityImages';
 
 function apiAssetType(assetType) {
@@ -16,12 +16,36 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
   const [draft, setDraft] = useState(() => normalizeEntityImages(images));
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [previewUrls, setPreviewUrls] = useState({});
   const inputRef = useRef(null);
   const normalizedAssetType = apiAssetType(assetType);
 
   useEffect(() => {
     setDraft(normalizeEntityImages(images));
   }, [images]);
+
+  useEffect(() => {
+    let active = true;
+    const objectUrls = [];
+    const imageUrls = draft.imageUrls;
+
+    Promise.all(imageUrls.map(async url => {
+      if (url.startsWith('data:') || url.startsWith('blob:')) return [url, url];
+      const blob = await loadReferenceAssetImage(url);
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrls.push(objectUrl);
+      return [url, objectUrl];
+    })).then(entries => {
+      if (active) setPreviewUrls(Object.fromEntries(entries));
+    }).catch(() => {
+      if (active) setPreviewUrls({});
+    });
+
+    return () => {
+      active = false;
+      objectUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [draft.imageUrls.join('\u0000')]);
 
   function updateDraft(next) {
     const normalized = normalizeEntityImages(next);
@@ -84,6 +108,7 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
   }
 
   const busy = uploading || generating;
+  const mainPreviewUrl = previewUrls[draft.mainImageUrl];
 
   return (
     <div className="entity-editor-image-panel">
@@ -91,9 +116,14 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
         <Typography.Text strong>主图预览</Typography.Text>
         {busy ? <Spin size="small" /> : null}
       </div>
-      {draft.mainImageUrl ? (
+      {draft.mainImageUrl && mainPreviewUrl ? (
         <div className="entity-editor-main-image">
-          <Image src={draft.mainImageUrl} alt="主图预览" preview={{ mask: '点击放大' }} />
+          <Image src={mainPreviewUrl} alt="主图预览" preview={{ mask: '点击放大' }} />
+        </div>
+      ) : draft.mainImageUrl ? (
+        <div className="entity-editor-image-empty" aria-label="主图加载中">
+          <Spin />
+          <span>主图加载中</span>
         </div>
       ) : (
         <div className="entity-editor-image-empty" aria-label="暂无主图">
@@ -110,26 +140,24 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
 
       <div className="entity-editor-image-grid" aria-label="图片缩略图">
         {draft.imageUrls.map(url => (
-          <button
-            className={`entity-editor-image-thumbnail${url === draft.mainImageUrl ? ' is-main' : ''}`}
-            key={url}
-            type="button"
-            onClick={() => selectImage(url)}
-            disabled={disabled || busy}
-            aria-label={`选择图片 ${url}`}
-          >
-            <img src={url} alt="实体图片缩略图" />
-            <span
-              className="entity-editor-image-delete"
-              role="button"
-              tabIndex={disabled || busy ? -1 : 0}
+          <div className={`entity-editor-image-thumbnail${url === draft.mainImageUrl ? ' is-main' : ''}`} key={url}>
+            <button
+              className="entity-editor-image-select"
+              type="button"
+              onClick={() => selectImage(url)}
+              disabled={disabled || busy}
+              aria-label={`选择图片 ${url}`}
+            >
+              {previewUrls[url] ? <img src={previewUrls[url]} alt="实体图片缩略图" /> : <Spin size="small" />}
+            </button>
+            <button
+              className="entity-editor-image-delete-control"
+              type="button"
+              disabled={disabled || busy}
               aria-label="删除图片"
               onClick={event => deleteImage(event, url)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' || event.key === ' ') deleteImage(event, url);
-              }}
-            ><Trash2 size={14} aria-hidden="true" /></span>
-          </button>
+            ><Trash2 size={14} aria-hidden="true" /></button>
+          </div>
         ))}
       </div>
     </div>

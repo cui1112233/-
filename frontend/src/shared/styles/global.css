@@ -564,11 +564,24 @@ select {
   border: 2px solid transparent;
   border-radius: 8px;
   background: var(--legacy-card-hover);
-  cursor: pointer;
 }
 
 .entity-editor-image-thumbnail.is-main {
   border-color: var(--legacy-accent);
+}
+
+.entity-editor-image-select {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
 }
 
 .entity-editor-image-thumbnail img {
@@ -579,7 +592,7 @@ select {
   object-fit: cover;
 }
 
-.entity-editor-image-delete {
+.entity-editor-image-delete-control {
   position: absolute;
   top: -7px;
   right: -7px;
