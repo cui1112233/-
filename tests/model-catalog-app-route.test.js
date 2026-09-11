@@ -36,11 +36,11 @@ function makeRuntime() {
   return { root, app, memberStore };
 }
 
-async function getModels(app) {
+async function getModels(app, kind = 'video') {
   const server = http.createServer(app);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/models?kind=video`, {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/models?kind=${kind}`, {
       headers: { Authorization: 'Bearer member-token' }
     });
     return { status: response.status, body: await response.json() };
@@ -69,4 +69,14 @@ test('real app rejects a member without video scope before returning model choic
 
   assert.equal(response.status, 403);
   assert.match(response.body.error, /尚未获得该类型 API 使用权限/);
+});
+
+test('real app rejects unknown model kinds instead of treating them as empty choices', async t => {
+  const runtime = makeRuntime();
+  t.after(() => fs.rmSync(runtime.root, { recursive: true, force: true }));
+
+  const response = await getModels(runtime.app, 'audio');
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /模型类型不合法/);
 });

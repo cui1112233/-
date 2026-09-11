@@ -21,6 +21,7 @@ const { createScriptConstraintPromptsRouter } = require('./routes/script-constra
 const { createConfigRouter } = require('./routes/config');
 const { createModelReferenceResolver } = require('./lib/model-reference-resolver');
 const { listVisibleModels } = require('./lib/model-catalog-runtime');
+const { MODEL_KINDS } = require('./lib/model-catalog');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
@@ -356,6 +357,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   });
   app.get('/api/models', apiAuth, (req, res) => {
     const kind = String(req.query.kind || '').trim();
+    if (!MODEL_KINDS.includes(kind)) {
+      return res.status(400).json({ error: '模型类型不合法' });
+    }
     const member = resolvedMemberStore.getMember(req.username);
     if (member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
       return res.status(403).json({ error: '尚未获得该类型 API 使用权限' });

@@ -48,7 +48,10 @@ function normalizeAvatar(value, fallback = null) {
 
 function apiManagementState(req, memberStore) {
   const member = memberStore?.getMember?.(req.username);
-  return { member, canManageApi: !member || member.role !== 'member' };
+  return {
+    member,
+    canManageApi: Boolean(member?.active && ['dev', 'manager'].includes(member.role))
+  };
 }
 
 function managedPublicConfig(config, member) {
@@ -72,11 +75,17 @@ function createConfigRouter({
   configReader = readConfig,
   configWriter = writeConfig,
   authenticate = apiAuth,
-  isModelReferenced
+  isModelReferenced,
+  batchFactoryStoreFactory,
+  accountReader
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
-  const resolveModelReference = isModelReferenced || createModelReferenceResolver({ configReader });
+  const resolveModelReference = isModelReferenced || createModelReferenceResolver({
+    configReader,
+    batchFactoryStoreFactory,
+    accountReader
+  });
 
   function requireApiManager(req, res, next) {
     if (!apiManagementState(req, memberStore).canManageApi) return res.status(403).json({ error: '仅管理者可以管理模型' });
