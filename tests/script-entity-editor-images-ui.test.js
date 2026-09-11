@@ -21,12 +21,52 @@ test('entity image panel defines the double-column image controls', () => {
   assert.match(component, /loadReferenceAssetImage/);
   assert.match(component, /URL\.createObjectURL/);
   assert.match(component, /URL\.revokeObjectURL/);
-  assert.match(component, /if \(!active \|\| generation !== previewGeneration\.current\)/);
-  assert.match(component, /URL\.revokeObjectURL\(objectUrl\)/);
+  assert.match(component, /createEntityImagePreviewLoader/);
   assert.doesNotMatch(component, /<span\s+[^>]*role="button"/);
   assert.match(component, /entity-editor-image-delete-control/);
   assert.match(styles, /\.entity-editor-layout/);
   assert.match(styles, /\.entity-editor-image-panel/);
+});
+
+test('preview loader retains late successful previews after an early rejection', async () => {
+  const { createEntityImagePreviewLoader } = await import('../frontend/src/user/components/entityImagePreviewLoader.js');
+  let resolveLate;
+  const revoked = [];
+  const loader = createEntityImagePreviewLoader(['bad', 'late'], {
+    loadImage(url) {
+      if (url === 'bad') return Promise.reject(new Error('expired image'));
+      return new Promise(resolve => { resolveLate = resolve; });
+    },
+    createObjectUrl: () => 'blob:late-preview',
+    revokeObjectUrl: url => revoked.push(url)
+  });
+
+  await Promise.resolve();
+  resolveLate({ type: 'image/png' });
+  assert.deepEqual(await loader.promise, { late: 'blob:late-preview' });
+  assert.deepEqual(revoked, []);
+
+  loader.cancel();
+  assert.deepEqual(revoked, ['blob:late-preview']);
+});
+
+test('preview loader revokes a URL created after cancellation', async () => {
+  const { createEntityImagePreviewLoader } = await import('../frontend/src/user/components/entityImagePreviewLoader.js');
+  let resolveLate;
+  const revoked = [];
+  const loader = createEntityImagePreviewLoader(['bad', 'late'], {
+    loadImage(url) {
+      if (url === 'bad') return Promise.reject(new Error('expired image'));
+      return new Promise(resolve => { resolveLate = resolve; });
+    },
+    createObjectUrl: () => 'blob:late-after-cancel',
+    revokeObjectUrl: url => revoked.push(url)
+  });
+
+  loader.cancel();
+  resolveLate({ type: 'image/png' });
+  assert.deepEqual(await loader.promise, {});
+  assert.deepEqual(revoked, ['blob:late-after-cancel']);
 });
 
 test('entity image panel defines the empty state and image API contracts', () => {

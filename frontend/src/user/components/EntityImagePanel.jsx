@@ -3,6 +3,7 @@ import { ImagePlus, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { generateReferenceAsset, loadReferenceAssetImage, uploadReferenceAsset } from '../../shared/api/novelPanel';
 import { appendEntityImage, normalizeEntityImages, removeEntityImage, selectEntityImage } from '../pages/scriptEntityImages';
+import { createEntityImagePreviewLoader } from './entityImagePreviewLoader';
 
 function apiAssetType(assetType) {
   return assetType === 'characters' ? 'character' : 'scene';
@@ -26,38 +27,20 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
   }, [images]);
 
   useEffect(() => {
-    let active = true;
     const generation = previewGeneration.current + 1;
     previewGeneration.current = generation;
-    const objectUrls = [];
-    const imageUrls = draft.imageUrls;
-
-    Promise.all(imageUrls.map(async url => {
-      if (url.startsWith('data:') || url.startsWith('blob:')) return [url, url];
-      const blob = await loadReferenceAssetImage(url);
-      const objectUrl = URL.createObjectURL(blob);
-      if (!active || generation !== previewGeneration.current) {
-        URL.revokeObjectURL(objectUrl);
-        return null;
-      }
-      objectUrls.push(objectUrl);
-      return [url, objectUrl];
-    })).then(entries => {
-      if (active && generation === previewGeneration.current) {
-        setPreviewUrls(Object.fromEntries(entries.filter(Boolean)));
-      }
-    }).catch(() => {
-      if (active && generation === previewGeneration.current) {
-        setPreviewUrls({});
-        objectUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
-      }
+    const loader = createEntityImagePreviewLoader(draft.imageUrls, {
+      loadImage: loadReferenceAssetImage,
+      createObjectUrl: URL.createObjectURL,
+      revokeObjectUrl: URL.revokeObjectURL
+    });
+    loader.promise.then(previews => {
+      if (generation === previewGeneration.current) setPreviewUrls(previews);
     });
 
     return () => {
-      active = false;
       previewGeneration.current += 1;
-      objectUrls.forEach(url => URL.revokeObjectURL(url));
-      objectUrls.length = 0;
+      loader.cancel();
     };
   }, [draft.imageUrls.join('\u0000')]);
 
