@@ -1,12 +1,56 @@
 import { apiRequest } from './client';
 
-function kindPath(path, kind) {
-  return kind ? `${path}?kind=${encodeURIComponent(kind)}` : path;
+const MODEL_KIND_LABELS = Object.freeze({
+  text: '文本',
+  video: '视频',
+  image: '图片'
+});
+
+export function isModelKind(kind) {
+  return Object.hasOwn(MODEL_KIND_LABELS, kind);
 }
 
-export async function listAvailableModels(kind) {
-  const result = await apiRequest(`/api/models?kind=${encodeURIComponent(kind)}`);
+export function assertModelKind(kind) {
+  if (!isModelKind(kind)) throw new TypeError('无效的模型类型');
+  return kind;
+}
+
+export function modelKindLabel(kind) {
+  return isModelKind(kind) ? MODEL_KIND_LABELS[kind] : '';
+}
+
+export function getTypedModelSelectState(kind, { models = [], error = '' } = {}) {
+  const validKind = isModelKind(kind);
+  const safeModels = Array.isArray(models) ? models : [];
+  if (!validKind) {
+    return { validKind, models: [], placeholder: '模型类型无效' };
+  }
+  const label = modelKindLabel(kind);
+  return {
+    validKind,
+    models: safeModels,
+    placeholder: error || (safeModels.length ? '选择模型' : `尚未添加可用的${label}模型`)
+  };
+}
+
+function kindPath(path, kind) {
+  return kind ? `${path}?kind=${encodeURIComponent(assertModelKind(kind))}` : path;
+}
+
+export async function listAvailableModels(kind, request = apiRequest) {
+  const validKind = assertModelKind(kind);
+  const result = await request(`/api/models?kind=${encodeURIComponent(validKind)}`);
   return Array.isArray(result?.models) ? result.models : [];
+}
+
+export async function refreshAvailableModels(kind, request = apiRequest) {
+  try {
+    return { models: await listAvailableModels(kind, request), error: '' };
+  } catch (error) {
+    const label = modelKindLabel(kind) || '指定';
+    const message = error instanceof Error && error.message ? error.message : '请求失败，请稍后重试';
+    return { models: [], error: `加载${label}模型失败：${message}` };
+  }
 }
 
 export async function listManagedModels() {
@@ -29,4 +73,8 @@ export function updateManagedModel(modelId, patch) {
 
 export function deleteManagedModel(modelId) {
   return apiRequest(`/api/config/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
+}
+
+export function refreshLocalDoubaoPairingStatus() {
+  return apiRequest('/api/config/models/local-doubao-executor-video/pairing-status');
 }

@@ -1,260 +1,215 @@
-import { AutoComplete, Button, Form, Input, InputNumber, Select, Skeleton, Space, Tag, message } from 'antd';
-import { Cable, CheckCircle2, Coins, Image, KeyRound, Save, Server, ShieldCheck, Video } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
+import { Button, Form, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, message } from 'antd';
+import { KeyRound, Plus, ShieldCheck, Trash2, Video } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { canManageModelCatalog, getConfig } from '../../shared/api/config';
+import { createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, updateManagedModel } from '../../shared/api/modelCatalog';
+import { createCustomModelId } from '../../shared/modelCatalog/customModelId';
 import { getMemberCenter } from '../../shared/api/member';
 import { PageHeader, Panel, RoleBadge } from './accountCenterShared';
 
-const providers = [
-  { label: 'OpenAI', value: 'openai' },
-  { label: 'Claude', value: 'claude' },
-  { label: 'DeepSeek', value: 'deepseek' },
-  { label: '通义千问', value: 'qwen' },
-  { label: '自定义', value: 'custom' }
+const MODEL_KINDS = [
+  { key: 'text', title: '文本模型', eyebrow: 'TEXT MODELS' },
+  { key: 'video', title: '视频模型', eyebrow: 'VIDEO MODELS' },
+  { key: 'image', title: '图片模型', eyebrow: 'IMAGE MODELS' }
 ];
 
-const providerDefaults = {
-  openai: { baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'] },
-  claude: { baseUrl: 'https://api.anthropic.com/v1', models: ['claude-3-5-sonnet-20241022', 'claude-3-7-sonnet-latest'] },
-  deepseek: { baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
-  custom: { baseUrl: '', models: [] }
-};
+const PLATFORM_PRESETS = [
+  { id: 'yd2-mini-video', displayName: 'YD2.0 Mini（图生）', description: '平台已维护视频适配器；只需填写 API Key。', credentialMode: 'apiKey' },
+  { id: 'minimax-h3-video', displayName: 'MiniMax H3 多图生视频', description: '支持剧本分镜参考图；只需填写 API Key。', credentialMode: 'apiKey' },
+  { id: 'local-doubao-executor-video', displayName: '本地豆包执行器', description: '无需 API Key，完成本地执行器配对后才能启用。', credentialMode: 'executorPairing' }
+];
 
-function connectionMessage(candidate, fallback) {
-  if (typeof candidate === 'string') return candidate;
-  if (typeof candidate?.content === 'string') return candidate.content;
-  return fallback;
+function customModels(models, kind) {
+  return models.filter(model => model.kind === kind && !PLATFORM_PRESETS.some(preset => preset.id === model.id));
+}
+
+function CatalogTable({ models, onEdit, onDelete, onToggle }) {
+  return <Table size="small" rowKey="id" pagination={false} dataSource={models} locale={{ emptyText: '尚未添加可用模型' }} columns={[
+    { title: '模型', dataIndex: 'displayName', render: (name, model) => <Space direction="vertical" size={0}><b>{name}</b><span className="ac-muted-copy">{model.modelId || model.adapterKind || '平台预设模型'}</span></Space> },
+    { title: '服务商', dataIndex: 'providerType', render: value => value === 'platform_preset' ? '平台预设' : '自定义' },
+    { title: '状态', render: (_, model) => <Switch checked={model.enabled} onChange={checked => onToggle(model, checked)} /> },
+    { title: '操作', render: (_, model) => <Space><Button type="link" onClick={() => onEdit(model)}>编辑</Button><Button danger type="link" icon={<Trash2 size={14} />} onClick={() => onDelete(model)}>删除</Button></Space> }
+  ]} />;
 }
 
 export default function ApiConfigPage() {
-  const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testingText, setTestingText] = useState(false);
-  const [savingText, setSavingText] = useState(false);
-  const [testingImage, setTestingImage] = useState(false);
-  const [savingVideo, setSavingVideo] = useState(false);
-  const [provider, setProvider] = useState('openai');
   const [config, setConfig] = useState(null);
   const [center, setCenter] = useState(null);
-  const imageMode = Form.useWatch(['image', 'mode'], form) || 'openai_compatible';
+  const [models, setModels] = useState([]);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [customForm] = Form.useForm();
+  const [presetKeys, setPresetKeys] = useState({});
+  const [doubaoPaired, setDoubaoPaired] = useState(false);
+  const canManageApi = canManageModelCatalog(config);
+  const member = center?.member;
+
+  const refreshModels = useCallback(async () => {
+    if (!canManageApi) return;
+    const [nextModels, pairing] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus()]);
+    const paired = pairing.executorPaired === true;
+    const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
+    if (doubao) {
+      doubao.executorPaired = paired;
+    }
+    setDoubaoPaired(paired);
+    setModels(nextModels);
+  }, [canManageApi]);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getConfig(), getMemberCenter()]).then(([nextConfig, nextCenter]) => {
+    Promise.all([getConfig(), getMemberCenter()]).then(async ([nextConfig, nextCenter]) => {
       if (!alive) return;
       setConfig(nextConfig);
       setCenter(nextCenter);
-      const nextProvider = nextConfig.provider || 'openai';
-      setProvider(nextProvider);
-      form.setFieldsValue({
-        provider: nextProvider,
-        baseUrl: nextConfig.baseUrl || providerDefaults[nextProvider]?.baseUrl || '',
-        model: nextConfig.model || '',
-        apiKey: '',
-        pricing: {
-          currency: nextConfig.pricing?.currency || 'USD',
-          inputPerMillion: nextConfig.pricing?.inputPerMillion ?? null,
-          outputPerMillion: nextConfig.pricing?.outputPerMillion ?? null
-        },
-        image: {
-          provider: nextConfig.image?.provider || 'openai_compatible',
-          mode: nextConfig.image?.mode || 'openai_compatible',
-          displayName: nextConfig.image?.displayName || '',
-          baseUrl: nextConfig.image?.baseUrl || '',
-          model: nextConfig.image?.model || '',
-          apiKey: ''
-        },
-        video: { ydApiKey: '', h3ApiKey: '' }
-      });
+      if (canManageModelCatalog(nextConfig)) {
+        const [nextModels, pairing] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus()]);
+        const paired = pairing.executorPaired === true;
+        const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
+        if (doubao) {
+          doubao.executorPaired = paired;
+        }
+        setDoubaoPaired(paired);
+        setModels(nextModels);
+      }
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [form]);
+  }, []);
 
-  const canManageApi = config?.canManageApi !== false;
-  const member = center?.member;
-  const modelOptions = (providerDefaults[provider]?.models || []).map(model => ({ label: model, value: model }));
+  const modelById = useMemo(() => new Map(models.map(model => [model.id, model])), [models]);
 
-  function changeProvider(nextProvider) {
-    setProvider(nextProvider);
-    const preset = providerDefaults[nextProvider] || providerDefaults.custom;
-    form.setFieldsValue({ provider: nextProvider, baseUrl: preset.baseUrl, model: preset.models[0] || '' });
+  function openCreate() {
+    setEditing(null);
+    customForm.setFieldsValue({
+      kind: 'text',
+      providerType: 'openai_compatible',
+      enabled: true,
+      displayName: '',
+      baseUrl: '',
+      modelId: '',
+      credential: '',
+      capabilities: { supportsReferenceImages: false, requiresImageInput: false, maxVideoDuration: undefined }
+    });
+    setCustomOpen(true);
   }
 
-  async function save(values) {
-    if (!canManageApi) return;
-    setSaving(true);
-    try {
-      const inputPrice = values.pricing?.inputPerMillion;
-      const outputPrice = values.pricing?.outputPerMillion;
-      await saveConfig({
-        provider: values.provider,
-        baseUrl: values.baseUrl,
-        model: values.model,
-        apiKey: values.apiKey,
-        pricing: inputPrice || outputPrice ? {
-          currency: values.pricing?.currency || 'USD',
-          inputPerMillion: inputPrice || 0,
-          outputPerMillion: outputPrice || 0
-        } : null,
-        image: values.image
-      });
-      form.setFieldValue('apiKey', '');
-      form.setFieldValue(['image', 'apiKey'], '');
-      message.success('API 配置与价格快照已保存');
-    } catch (error) {
-      message.error(error.message || '保存失败');
-    } finally {
-      setSaving(false);
-    }
+  function openEdit(model) {
+    setEditing(model);
+    customForm.setFieldsValue({ ...model, credential: '' });
+    setCustomOpen(true);
   }
 
-  async function testText() {
+  async function submitCustom() {
     try {
-      const values = await form.validateFields(['provider', 'baseUrl', 'model']);
-      setTestingText(true);
-      const result = await testTextConfig({ ...values, apiKey: form.getFieldValue('apiKey') });
-      message.success(connectionMessage(result.message, '文本模型连接成功'));
+      const values = await customForm.validateFields();
+      const payload = {
+        ...values,
+        ...(editing ? {} : { id: createCustomModelId(values, models.map(model => model.id)) }),
+        capabilities: {
+          supportsReferenceImages: values.capabilities?.supportsReferenceImages === true,
+          requiresImageInput: values.capabilities?.requiresImageInput === true,
+          ...(Number.isInteger(values.capabilities?.maxVideoDuration) ? { maxVideoDuration: values.capabilities.maxVideoDuration } : {})
+        }
+      };
+      if (!payload.credential) delete payload.credential;
+      if (payload.enabled && (!payload.baseUrl || !payload.modelId || !payload.credential && !editing?.hasCredential)) {
+        customForm.setFields([{ name: 'credential', errors: ['启用模型前必须填写 API Key'] }]);
+        return;
+      }
+      setSaving(true);
+      if (editing) await updateManagedModel(editing.id, payload);
+      else await createManagedModel(payload);
+      message.success(editing ? '模型已更新' : '模型已添加');
+      setCustomOpen(false);
+      await refreshModels();
     } catch (error) {
-      if (!error?.errorFields) message.error(error.message || '连接测试失败');
-    } finally {
-      setTestingText(false);
-    }
+      if (!error?.errorFields) message.error(error.message || '模型保存失败');
+    } finally { setSaving(false); }
   }
 
-  async function saveText() {
-    if (!canManageApi) return;
-    try {
-      const values = await form.validateFields(['provider', 'baseUrl', 'model']);
-      const { provider, baseUrl, model } = values;
-      setSavingText(true);
-      const saved = await saveConfig({
-        provider,
-        baseUrl,
-        model,
-        apiKey: form.getFieldValue('apiKey') || ''
-      });
-      setConfig(saved);
-      form.setFieldValue('apiKey', '');
-      message.success('文本模型配置已保存');
-    } catch (error) {
-      if (!error?.errorFields) message.error(error.message || '文本模型配置保存失败');
-    } finally {
-      setSavingText(false);
-    }
+  async function deleteModel(model) {
+    try { await deleteManagedModel(model.id); message.success('模型已删除'); await refreshModels(); }
+    catch (error) { message.error(error.message || '模型删除失败'); }
   }
 
-  async function testImage() {
-    try {
-      const image = form.getFieldValue('image');
-      setTestingImage(true);
-      const result = await testImageConfig({ ...image, apiKey: form.getFieldValue(['image', 'apiKey']) });
-      message.success(connectionMessage(result.message, '生图连接成功'));
-    } catch (error) {
-      message.error(error.message || '生图连接测试失败');
-    } finally {
-      setTestingImage(false);
-    }
+  async function toggleModel(model, enabled) {
+    try { await updateManagedModel(model.id, { enabled }); message.success(enabled ? '模型已启用' : '模型已停用'); await refreshModels(); }
+    catch (error) { message.error(error.message || '模型状态更新失败'); }
   }
 
-  async function saveVideo() {
-    if (!canManageApi) return;
-    setSavingVideo(true);
-    try {
-      const ydApiKey = form.getFieldValue(['video', 'ydApiKey']) || '';
-      const h3ApiKey = form.getFieldValue(['video', 'h3ApiKey']) || '';
-      const saved = await saveConfig({ video: { ydApiKey, h3ApiKey } });
-      setConfig(saved);
-      form.setFieldValue(['video', 'ydApiKey'], '');
-      form.setFieldValue(['video', 'h3ApiKey'], '');
-      message.success('视频生成配置已保存');
-    } catch (error) {
-      message.error(error.message || '视频生成配置保存失败');
-    } finally {
-      setSavingVideo(false);
+  function isPresetReady(preset, model) {
+    if (preset.credentialMode === 'executorPairing') return doubaoPaired;
+    return model?.hasCredential === true || Boolean(String(presetKeys[preset.id] || '').trim());
+  }
+
+  async function savePreset(preset, enabled) {
+    const existing = modelById.get(preset.id);
+    const key = String(presetKeys[preset.id] || '').trim();
+    if (preset.credentialMode === 'apiKey' && enabled && !existing?.hasCredential && !key) return message.warning('请先填写 API Key，再启用该模型');
+    if (preset.credentialMode === 'executorPairing' && enabled) {
+      const pairing = await refreshLocalDoubaoPairingStatus();
+      const paired = pairing.executorPaired === true;
+      setDoubaoPaired(paired);
+      if (!paired) return message.warning('请先完成本地豆包执行器配对');
     }
+    const payload = { id: preset.id, kind: 'video', displayName: preset.displayName, enabled };
+    if (key) payload.credential = key;
+    try {
+      if (existing) await updateManagedModel(preset.id, payload);
+      else await createManagedModel(payload);
+      setPresetKeys(current => ({ ...current, [preset.id]: '' }));
+      message.success(enabled ? `${preset.displayName} 已启用` : `${preset.displayName} 已保存为停用`);
+      await refreshModels();
+    } catch (error) { message.error(error.message || '预设模型保存失败'); }
   }
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
 
   return <div className="account-center-page api-config-page">
-    <PageHeader title="API 配置" subtitle="管理云端模型连接与调用价格快照；本地视频执行器请前往设置" />
-
+    <PageHeader title="API 配置" subtitle="模型只在此处配置一次；业务页面按文本、视频、图片类型读取已启用模型。" />
     {!canManageApi ? <div className="ac-managed-api-card">
       <span><ShieldCheck size={28} /></span>
-      <div><div><h2>模型服务由团队托管</h2>{member ? <RoleBadge role={member.role} /> : null}</div><p>你的 MEMBER 身份不会显示、读取或保存管理员 API Key。当前调用会自动使用绑定 MANAGER 的模型配置。</p></div>
+      <div><div><h2>模型服务由团队托管</h2>{member ? <RoleBadge role={member.role} /> : null}</div><p>你可在获授权的业务下拉框中选择管理员已启用的模型；不会显示 API Key。</p></div>
       <Tag color={config?.managedBy ? 'green' : 'gold'}>{config?.managedBy ? `托管账号 @${config.managedBy}` : '等待绑定 MANAGER'}</Tag>
-    </div> : null}
-
-    {canManageApi ? <Form form={form} layout="vertical" onFinish={save}>
-      <div className="ac-api-layout">
-        <div className="ac-api-main">
-          <Panel title="文本模型连接" eyebrow="TEXT MODEL" className="ac-form-panel" action={<Tag color={config?.hasApiKey ? 'green' : 'default'}>{config?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
-            <div className="ac-api-status-line"><span className="ac-security-card-icon"><Server size={20} /></span><div><strong>默认文本模型</strong><small>用于 Agent、剧本与普通对话调用</small></div></div>
-            <div className="ac-form-row two">
-              <Form.Item label="API 提供商" name="provider" rules={[{ required: true }]}><Select options={providers} onChange={changeProvider} /></Form.Item>
-              <Form.Item label="模型名称" name="model" rules={[{ required: true, message: '请选择或填写模型' }]}><AutoComplete options={modelOptions} placeholder="选择或输入模型名称" filterOption /></Form.Item>
-            </div>
-            <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}><Input prefix={<Server size={15} />} placeholder="https://api.openai.com/v1" /></Form.Item>
-            <Form.Item label="API Key" name="apiKey"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <div className="ac-api-actions"><Button htmlType="button" icon={<Cable size={16} />} onClick={testText} loading={testingText}>测试文本连接</Button><Button htmlType="button" type="primary" icon={<Save size={16} />} onClick={saveText} loading={savingText}>保存文本模型</Button></div>
-          </Panel>
-
-          <Panel title="费用估算价格快照" eyebrow="PRICING SNAPSHOT" className="ac-form-panel">
-            <div className="ac-api-status-line"><span className="ac-security-card-icon gold"><Coins size={20} /></span><div><strong>按你实际供应商价格填写</strong><small>每次调用会把当时价格写入用量账本；未来改价不会篡改历史费用。</small></div></div>
-            <div className="ac-form-row three">
-              <Form.Item label="币种" name={['pricing', 'currency']}><Select options={[{ label: 'USD', value: 'USD' }, { label: 'CNY', value: 'CNY' }, { label: 'JPY', value: 'JPY' }]} /></Form.Item>
-              <Form.Item label="输入 / 100万 Tokens" name={['pricing', 'inputPerMillion']}><InputNumber min={0} precision={6} style={{ width: '100%' }} placeholder="留空不估算" /></Form.Item>
-              <Form.Item label="输出 / 100万 Tokens" name={['pricing', 'outputPerMillion']}><InputNumber min={0} precision={6} style={{ width: '100%' }} placeholder="留空不估算" /></Form.Item>
-            </div>
-            <p className="ac-form-tip">这里只做估算，不代表供应商最终账单。建议在供应商价格变化时同步更新。</p>
-          </Panel>
-
-          <Panel title="生图服务" eyebrow="IMAGE MODEL" className="ac-form-panel" action={<Tag color={config?.image?.hasApiKey ? 'green' : 'default'}>{config?.image?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
-            <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Image size={20} /></span><div><strong>独立图片生成连接</strong><small>不会复用文本模型的地址或密钥</small></div></div>
-            <div className="ac-form-row two">
-              <Form.Item label="生图模式" name={['image', 'mode']}><Select options={[
-                { label: 'OpenAI 兼容', value: 'openai_compatible' },
-                { label: '自定义（OpenAI 兼容）', value: 'custom' }
-              ]} /></Form.Item>
-              <Form.Item label="生图模型" name={['image', 'model']}><Input placeholder="例如 gpt-image-1" /></Form.Item>
-            </div>
-            {imageMode === 'custom' ? <Form.Item label="供应商显示名称" name={['image', 'displayName']}><Input maxLength={80} /></Form.Item> : null}
-            <Form.Item label="Base URL" name={['image', 'baseUrl']}><Input prefix={<Server size={15} />} /></Form.Item>
-            <Form.Item label="API Key" name={['image', 'apiKey']}><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testImage} loading={testingImage}>测试生图连接</Button></div>
-          </Panel>
-          <Panel title="视频生成服务" eyebrow="VIDEO MODEL" className="ac-form-panel" action={<Space size={4}><Tag color={config?.video?.ydHasApiKey ? 'green' : 'default'}>{config?.video?.ydHasApiKey ? 'YD 已保存' : 'YD 未保存'}</Tag><Tag color={config?.video?.h3HasApiKey ? 'green' : 'default'}>{config?.video?.h3HasApiKey ? 'H3 已保存' : 'H3 未保存'}</Tag></Space>}>
-            <div className="ac-api-status-line"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>独立视频生成凭据</strong><small>视频服务按自己的保存入口维护，不会覆盖文本或图片配置。</small></div></div>
-            <Form.Item label="YD2.0 Mini API Key" name={['video', 'ydApiKey']} extra="普通 YD2.0 Mini 视频链路使用此 Key。"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <Form.Item label="MiniMax H3 API Key" name={['video', 'h3ApiKey']} extra="剧本页 H3、批量工厂 H3 和 H3 模型状态使用此 Key。"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
-            <div className="ac-api-actions"><Button icon={<Save size={16} />} onClick={saveVideo} loading={savingVideo}>保存视频生成</Button></div>
-          </Panel>
-        </div>
-
-        <aside className="ac-side-stack">
-          <Panel title="连接状态">
-            <div className="ac-api-health">
-              <div><CheckCircle2 size={17} className={config?.hasApiKey ? 'ok' : ''} /><span>文本 API Key</span><b>{config?.hasApiKey ? '已保存' : '未配置'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.baseUrl ? 'ok' : ''} /><span>文本 Base URL</span><b>{config?.baseUrl ? '已配置' : '缺失'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.model ? 'ok' : ''} /><span>默认模型</span><b>{config?.model || '未配置'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.pricing ? 'ok' : ''} /><span>费用价格快照</span><b>{config?.pricing ? `${config.pricing.currency}` : '未配置'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.image?.hasApiKey ? 'ok' : ''} /><span>生图 API Key</span><b>{config?.image?.hasApiKey ? '已保存' : '未配置'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.video?.ydHasApiKey ? 'ok' : ''} /><span>YD2.0 Mini API Key</span><b>{config?.video?.ydHasApiKey ? '已保存' : '未配置'}</b></div>
-              <div><CheckCircle2 size={17} className={config?.video?.h3HasApiKey ? 'ok' : ''} /><span>MiniMax H3 API Key</span><b>{config?.video?.h3HasApiKey ? '已保存' : '未配置'}</b></div>
-            </div>
-          </Panel>
-          <Panel title="安全说明" eyebrow="SECURITY">
-            <p className="ac-muted-copy">保存后的 API Key 只在服务端读取。价格快照用于团队费用估算，不会替代供应商正式账单。</p>
-          </Panel>
-          <Button className="ac-sticky-save" type="primary" icon={<Save size={16} />} loading={saving} onClick={() => form.submit()}>保存 API 配置</Button>
-        </aside>
-      </div>
-    </Form> : <div className="ac-two-column">
-      <Panel title="当前服务状态"><div className="ac-service-list"><div><span className={member?.apiScopes?.includes('*') || member?.apiScopes?.includes('text') ? 'dot-on' : 'dot-off'} />团队文本模型<b>{member?.apiScopes?.includes('*') || member?.apiScopes?.includes('text') ? '可用' : '未授权'}</b></div><div><span className={member?.apiScopes?.includes('*') || member?.apiScopes?.includes('image') ? 'dot-on' : 'dot-off'} />团队生图能力<b>{member?.apiScopes?.includes('*') || member?.apiScopes?.includes('image') ? '可用' : '未授权'}</b></div><div><span className={member?.apiScopes?.includes('*') || member?.apiScopes?.includes('tts') ? 'dot-on' : 'dot-off'} />团队 TTS<b>{member?.apiScopes?.includes('*') || member?.apiScopes?.includes('tts') ? '可用' : '未授权'}</b></div></div></Panel>
-      <Panel title="为什么看不到 Key"><p className="ac-muted-copy">MEMBER 的调用由服务端根据 boundTo 解析到 MANAGER 配置。密钥和价格配置不会下发到成员浏览器。</p></Panel>
-    </div>}
+    </div> : <>
+      <Panel title="平台预设模型" eyebrow="PLATFORM PRESETS" className="ac-form-panel">
+        <p className="ac-muted-copy">只有完成所需配置并启用后，才会出现在业务的视频模型下拉框。</p>
+        {PLATFORM_PRESETS.map(preset => {
+          const model = modelById.get(preset.id);
+          return <div className="ac-api-status-line" key={preset.id}>
+            <span className="ac-security-card-icon violet"><Video size={20} /></span>
+            <div style={{ flex: 1 }}><strong>{preset.displayName}</strong><small>{preset.description}</small>{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}</div>
+            <Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} />
+          </div>;
+        })}
+      </Panel>
+      {MODEL_KINDS.map(group => <Panel key={group.key} title={group.title} eyebrow={group.eyebrow} className="ac-form-panel" action={<Button icon={<Plus size={15} />} onClick={openCreate}>添加自定义模型</Button>}>
+        <CatalogTable models={customModels(models, group.key)} onEdit={openEdit} onDelete={deleteModel} onToggle={toggleModel} />
+      </Panel>)}
+    </>}
+    <Modal title={editing ? '编辑自定义模型' : '添加自定义模型'} open={customOpen} onCancel={() => setCustomOpen(false)} onOk={submitCustom} okText={editing ? '保存修改' : '添加模型'} confirmLoading={saving}>
+      <Form form={customForm} layout="vertical">
+        <Form.Item name="kind" label="模型类型" rules={[{ required: true }]}><Select disabled={Boolean(editing)} options={MODEL_KINDS.map(group => ({ label: group.title, value: group.key }))} /></Form.Item>
+        <Form.Item name="providerType" label="API 格式" rules={[{ required: true }]}><Select options={[{ label: 'OpenAI Chat Completions 格式', value: 'openai_compatible' }, { label: '自定义 API 格式', value: 'custom' }]} /></Form.Item>
+        <Form.Item name="baseUrl" label="自定义请求地址" rules={[{ required: true, message: '请输入 Base URL' }]}><Input placeholder="例如 https://api.openai.com/v1" /></Form.Item>
+        <Form.Item name="modelId" label="模型 ID" rules={[{ required: true, message: '请输入模型 ID' }]}><Input placeholder="例如 gpt-5.4" /></Form.Item>
+        <Form.Item name="displayName" label="模型显示名称" rules={[{ required: true, message: '请输入显示名称' }]}><Input maxLength={80} /></Form.Item>
+        <Form.Item name="credential" label="API 密钥" rules={[({ getFieldValue }) => ({ validator(_, value) {
+          if (!getFieldValue('enabled') || String(value || '').trim() || editing?.hasCredential) return Promise.resolve();
+          return Promise.reject(new Error('启用模型前必须填写 API Key'));
+        } })]}><Input.Password prefix={<KeyRound size={15} />} placeholder={editing?.hasCredential ? '留空表示不修改已保存的 Key' : '请输入 API Key'} /></Form.Item>
+        <Form.Item label="适用能力" extra="仅保存模型运行时可识别的能力；留空的时长不限制。">
+          <Space direction="vertical">
+            <Form.Item name={['capabilities', 'supportsReferenceImages']} valuePropName="checked" noStyle><Switch checkedChildren="支持参考图" unCheckedChildren="不支持参考图" /></Form.Item>
+            <Form.Item name={['capabilities', 'requiresImageInput']} valuePropName="checked" noStyle><Switch checkedChildren="需要图片输入" unCheckedChildren="不需要图片输入" /></Form.Item>
+            <Form.Item name={['capabilities', 'maxVideoDuration']} noStyle><InputNumber min={1} max={60} precision={0} placeholder="最大视频时长（1–60 秒）" /></Form.Item>
+          </Space>
+        </Form.Item>
+        <Form.Item name="enabled" label="立即启用" valuePropName="checked"><Switch /></Form.Item>
+      </Form>
+    </Modal>
   </div>;
 }
