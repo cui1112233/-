@@ -34,6 +34,14 @@ test('workbench follows the five-part novel production flow', () => {
   assert.doesNotMatch(source, /label="道具 Prompt"/);
 });
 
+test('book constraints persist a 10 or 15 second Director split target', () => {
+  const scoped = read('BatchFactoryV11ScopedSettings.jsx');
+  assert.match(scoped, /目标切分时长/);
+  assert.match(scoped, /maxVideoDuration/);
+  assert.match(scoped, /value: 10, label: '10 秒'/);
+  assert.match(scoped, /value: 15, label: '15 秒'/);
+});
+
 test('batch tools contain production progress and approved merge timing UI', () => {
   const source = read('BatchFactoryV11Workbench.jsx');
   for (const label of ['视频生成进度', '跟随音频时长', 'TTS 只测时', '合并待合并', '上传待上传']) {
