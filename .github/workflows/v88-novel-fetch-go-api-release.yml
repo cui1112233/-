@@ -31,12 +31,28 @@ jobs:
           V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
         run: |
           set -Eeuo pipefail
-          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          if [ -z "${V88_ECS_SSH_PRIVATE_KEY:-}" ]; then
+            echo 'V88 ECS deployment key is unavailable to this workflow.' >&2
+            exit 1
+          fi
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
-          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
+          for attempt in 1 2 3; do
+            if timeout 15 ssh-keyscan -T 10 -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null && test -s "$HOME/.ssh/known_hosts"; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo 'ECS SSH host key is unreachable from the GitHub Actions runner.' >&2
+              exit 1
+            fi
+            sleep 3
+          done
           chmod 600 "$HOME/.ssh/known_hosts"
+          if ! timeout 25 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o UserKnownHostsFile="$HOME/.ssh/known_hosts" "$ECS_USER@$ECS_HOST" 'docker version >/dev/null && docker compose version >/dev/null'; then
+            echo 'ECS rejected the deployment key or Docker is unavailable to the deployment user.' >&2
+            exit 1
+          fi
 
       - name: Deploy only the V88 Go API with rollback
         shell: bash
