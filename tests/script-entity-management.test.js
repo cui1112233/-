@@ -1,5 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const scriptPageSource = fs.readFileSync(path.resolve(__dirname, '..', 'frontend/src/user/pages/ScriptPage.jsx'), 'utf8');
 
 async function loadEntities() {
   return import('../frontend/src/user/pages/scriptEntities.js');
@@ -63,4 +67,31 @@ test('automatically selects explicitly labeled leads, otherwise the most-mention
     characters: [{ id: 'a', data: { name: '林默' } }, { id: 'b', data: { name: '苏晚' } }],
     scenes: []
   }, '苏晚看见林默。苏晚转身。苏晚离开。'), ['b']);
+});
+
+test('entity editor renders the image panel and completes with normalized image fields', () => {
+  assert.match(scriptPageSource, /import EntityImagePanel from ['"]\.\.\/components\/EntityImagePanel['"]/);
+  assert.match(scriptPageSource, /import \{ normalizeEntityImages \} from ['"]\.\/scriptEntityImages['"]/);
+  assert.match(scriptPageSource, /const \[images, setImages\] = useState\([^\n]*normalizeEntityImages/);
+  assert.match(scriptPageSource, /setImages\(normalizeEntityImages\(entity \|\| \{\}\)\)/);
+  assert.match(scriptPageSource, /className="entity-editor-layout"[\s\S]*<EntityImagePanel/);
+  assert.match(scriptPageSource, /images=\{images\}/);
+  assert.match(scriptPageSource, /onChange=\{setImages\}/);
+  assert.match(scriptPageSource, /onChange\(\{ \.\.\.fields, \.\.\.images \}\)/);
+});
+
+test('new entity drafts keep one stable asset ID through completion', async () => {
+  const { createEntity } = await loadEntities();
+  assert.equal(createEntity({ name: '沈清' }, 'draft-character').id, 'draft-character');
+  assert.match(scriptPageSource, /const draftEntity = createEntity\(data\)/);
+  assert.match(scriptPageSource, /items\.push\(createEntity\(fields, activeEntity\.id\)\)/);
+  assert.match(scriptPageSource, /assetId=\{activeEntity\?\.id \|\| ''\}/);
+  assert.match(scriptPageSource, /assetId=\{assetId\}/);
+  assert.match(scriptPageSource, /disabled=\{!assetId\}/);
+});
+
+test('legacy string entities keep their description field and empty image defaults', () => {
+  assert.match(scriptPageSource, /typeof value === 'string'\) return \[\{ key: '描述', label: '设定 \/ 描述', value \}\]/);
+  assert.match(scriptPageSource, /normalizeEntityImages\(entity \|\| \{\}\)/);
+  assert.match(scriptPageSource, /!\['imageUrls', 'mainImageUrl'\]\.includes\(key\)/);
 });

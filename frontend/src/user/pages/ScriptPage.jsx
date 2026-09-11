@@ -21,7 +21,9 @@ import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } fr
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { collectShotReferenceImages } from './scriptVideoReferences';
+import { normalizeEntityImages } from './scriptEntityImages';
 import { ShotOutputCards } from '../components/ShotOutputCards';
+import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 
 function extractJSON(value) {
@@ -81,7 +83,9 @@ function visualFields(item) {
   const value = entityData(item);
   if (typeof value === 'string') return [{ key: '描述', label: '设定 / 描述', value }];
   const labels = { name: '名称', 名称: '名称', 人物: '名称', 场景: '名称', scene: '名称', 角色名称: '名称', 场景名称: '名称', identity: '身份', 身份: '身份', appearance: '外形', 外形: '外形', 外观描述: '外形', personality: '性格', 性格: '性格', relation: '关系', 关系: '关系', time: '时段', 时段: '时段', atmosphere: '氛围', 氛围: '氛围', 氛围概述: '氛围', description: '设定 / 描述', 描述: '设定 / 描述', 场景描述: '设定 / 描述' };
-  return Object.entries(value || {}).map(([key, fieldValue]) => ({ key, label: labels[key] || key, value: typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue) }));
+  return Object.entries(value || {})
+    .filter(([key]) => !['imageUrls', 'mainImageUrl'].includes(key))
+    .map(([key, fieldValue]) => ({ key, label: labels[key] || key, value: typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue) }));
 }
 
 export function ScriptPage() {
@@ -900,7 +904,8 @@ export function ScriptPage() {
     const data = type === 'characters'
       ? { 名称: '', 身份: '', 外形: '', 性格: '' }
       : { 名称: '', 时段: '', 氛围: '', 描述: '' };
-    setActiveEntity({ type, id: '', isNew: true, data });
+    const draftEntity = createEntity(data);
+    setActiveEntity({ type, id: draftEntity.id, isNew: true, data: draftEntity.data });
     setFullscreenEditor(false);
   }
 
@@ -910,7 +915,7 @@ export function ScriptPage() {
       const normalized = normalizeExtractInfo(current);
       const items = [...normalized[activeEntity.type]];
       const currentIndex = items.findIndex(item => item.id === activeEntity.id);
-      if (activeEntity.isNew) items.push(createEntity(fields));
+      if (activeEntity.isNew) items.push(createEntity(fields, activeEntity.id));
       else if (currentIndex !== -1) items[currentIndex] = { ...items[currentIndex], data: fields };
       const next = { ...normalized, [activeEntity.type]: items };
       invalidateEntityOutput(next);
@@ -1064,7 +1069,7 @@ export function ScriptPage() {
 
   const activeItem = activeEntity?.isNew
     ? activeEntity.data
-    : activeEntity ? extractInfo[activeEntity.type].find(item => item.id === activeEntity.id) : null;
+    : activeEntity ? entityData(extractInfo[activeEntity.type].find(item => item.id === activeEntity.id)) : null;
   const canGenerateScript = generationStage === 'extracted' || generationStage === 'complete';
   const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
   const selectedExtractionPreset = extractionPresets.find(item => item.id === extractionPreset);
@@ -1503,6 +1508,7 @@ export function ScriptPage() {
       </Modal>
       <EntityEditor
         entity={activeItem}
+        assetId={activeEntity?.id || ''}
         type={activeEntity?.type}
         isNew={Boolean(activeEntity?.isNew)}
         open={Boolean(activeEntity)}
@@ -1670,8 +1676,9 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, assetId, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
+  const [images, setImages] = useState(() => normalizeEntityImages(entity || {}));
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentError, setEnrichmentError] = useState('');
@@ -1679,6 +1686,7 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
   useEffect(() => {
     if (!open) return;
     setFields(Object.fromEntries(visualFields(entity).map(field => [field.key, field.value])));
+    setImages(normalizeEntityImages(entity || {}));
     setEnrichment(null);
     setEnrichmentError('');
   }, [entity, open]);
@@ -1715,28 +1723,41 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
       open={open}
       rootClassName="entity-editor-modal"
       title={title}
-      width={fullscreen ? '100vw' : 760}
+      width={fullscreen ? '100vw' : 900}
       style={fullscreen ? { top: 0, paddingBottom: 0 } : undefined}
       onCancel={onClose}
-      footer={<Space><Button onClick={onToggleFullscreen}>{fullscreen ? '退出全屏' : '全屏编辑'}</Button>{!isNew && <Popconfirm title={`确认${deleteLabel}？`} onConfirm={onDelete}><Button danger className="entity-editor-danger">{deleteLabel}</Button></Popconfirm>}<Button type="primary" onClick={() => { onChange(fields); onClose(); }}>完成</Button></Space>}
+      footer={<Space><Button onClick={onToggleFullscreen}>{fullscreen ? '退出全屏' : '全屏编辑'}</Button>{!isNew && <Popconfirm title={`确认${deleteLabel}？`} onConfirm={onDelete}><Button danger className="entity-editor-danger">{deleteLabel}</Button></Popconfirm>}<Button type="primary" onClick={() => { onChange({ ...fields, ...images }); onClose(); }}>完成</Button></Space>}
     >
-      <div className="entity-editor-fields">
-        {fieldsToRender.map(field => (
-          <Form.Item key={field.key} label={field.label}>
-            <Input.TextArea value={fields[field.key] || ''} autoSize={{ minRows: 1, maxRows: 6 }} onChange={event => setFields(current => ({ ...current, [field.key]: event.target.value }))} />
-          </Form.Item>
-        ))}
+      <div className="entity-editor-layout">
+        <div>
+          <div className="entity-editor-fields">
+            {fieldsToRender.map(field => (
+              <Form.Item key={field.key} label={field.label}>
+                <Input.TextArea value={fields[field.key] || ''} autoSize={{ minRows: 1, maxRows: 6 }} onChange={event => setFields(current => ({ ...current, [field.key]: event.target.value }))} />
+              </Form.Item>
+            ))}
+          </div>
+          <Space wrap style={{ marginTop: 8 }}>
+            <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
+            {!String(novelText || '').trim() ? <Typography.Text type="secondary">请先输入小说原文</Typography.Text> : null}
+          </Space>
+          {enrichmentError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{enrichmentError}</Typography.Paragraph> : null}
+          {enrichment ? <div className="entity-enrichment-result">
+            {enrichment.evidence.length ? <EnrichmentList title="原文依据" items={enrichment.evidence} /> : null}
+            {enrichment.suggestions.length ? <EnrichmentList title="AI 建议" items={enrichment.suggestions} /> : null}
+            {enrichment.uncertainties.length ? <EnrichmentList title="不确定项" items={enrichment.uncertainties} /> : null}
+          </div> : null}
+        </div>
+        <EntityImagePanel
+          assetType={type}
+          assetId={assetId}
+          fields={fields}
+          novelText={novelText}
+          images={images}
+          onChange={setImages}
+          disabled={!assetId}
+        />
       </div>
-      <Space wrap style={{ marginTop: 8 }}>
-        <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
-        {!String(novelText || '').trim() ? <Typography.Text type="secondary">请先输入小说原文</Typography.Text> : null}
-      </Space>
-      {enrichmentError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{enrichmentError}</Typography.Paragraph> : null}
-      {enrichment ? <div className="entity-enrichment-result">
-        {enrichment.evidence.length ? <EnrichmentList title="原文依据" items={enrichment.evidence} /> : null}
-        {enrichment.suggestions.length ? <EnrichmentList title="AI 建议" items={enrichment.suggestions} /> : null}
-        {enrichment.uncertainties.length ? <EnrichmentList title="不确定项" items={enrichment.uncertainties} /> : null}
-      </div> : null}
     </Modal>
   );
 }
