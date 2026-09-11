@@ -10,7 +10,7 @@ const read = name => fs.readFileSync(path.join(here, name), 'utf8');
 test('current book UI keeps progressive detail and direct prompt editing', () => {
   const source = read('BatchFactoryV11Workbench.jsx');
   assert.match(source, /Collapse/);
-  for (const label of ['人物 Prompt', '场景 Prompt', '道具 Prompt', '画面提示词', '本次提交预览']) {
+  for (const label of ['人物 Prompt', '场景 Prompt', '画面提示词', '本次提交预览']) {
     assert.match(source, new RegExp(label));
   }
 });
@@ -20,6 +20,18 @@ test('asset prompt saves are scoped to the selected novel', () => {
   const page = read('BatchFactoryV11UiPage.jsx');
   assert.match(workbench, /onSaveAssetPrompts\?\.\(selectedBook, type, items, drafts\)/);
   assert.match(page, /scope: `\$\{batch\.id\}:\$\{book\.id\}`/);
+});
+
+test('workbench follows the five-part novel production flow', () => {
+  const source = read('BatchFactoryV11Workbench.jsx');
+  const labels = ['原文与 Hook', '管理资产', '生成约束', '画面提示词', 'VIDEO 卡片'];
+  let previous = -1;
+  for (const label of labels) {
+    const current = source.indexOf(label);
+    assert.ok(current > previous, `missing or out-of-order module: ${label}`);
+    previous = current;
+  }
+  assert.doesNotMatch(source, /label="道具 Prompt"/);
 });
 
 test('batch tools contain production progress and approved merge timing UI', () => {

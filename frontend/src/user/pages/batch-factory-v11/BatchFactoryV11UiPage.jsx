@@ -333,7 +333,7 @@ export function BatchFactoryV11UiPage() {
     return `${prefix}-${random || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   }
 
-  async function runProduction(targetBatch) {
+  async function runProduction(targetBatch, targetBook = null) {
     if (!targetBatch?.id || productionBusy) return false;
     const provider = batchSettingsState.patch.videoProvider || 'personal_api';
     if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
@@ -350,12 +350,17 @@ export function BatchFactoryV11UiPage() {
     }
     setProductionBusy(true);
     try {
-      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
+      const result = await runtime.runProduction({
+        batchId: targetBatch.id,
+        bookId: targetBook?.id || '',
+        requestId: newRequestId('bf11-production'),
+        provider
+      });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
       if (next.phase !== 'ready') { message.warning('视频任务已提交，但刷新状态失败，请稍后重试。'); return true; }
-      message.success('待生成 VIDEO 已提交，状态会自动写回工作台。');
+      message.success(targetBook ? '当前小说待生成 VIDEO 已提交，状态会自动写回工作台。' : '待生成 VIDEO 已提交，状态会自动写回工作台。');
       return true;
     } finally {
       setProductionBusy(false);

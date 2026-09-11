@@ -294,7 +294,7 @@ export function BatchFactoryV11Workbench({
   const bookCollapseItems = selectedBook ? [
     {
       key: 'source',
-      label: <span className="bf11-fold-label"><strong>原文</strong><small>来源内容</small></span>,
+      label: <span className="bf11-fold-label"><strong>原文与 Hook</strong><small>先确认来源，再决定开头策略</small></span>,
       children: <NovelSourceModule
         book={selectedBook}
         onSave={onSaveSource}
@@ -302,26 +302,80 @@ export function BatchFactoryV11Workbench({
       />
     },
     {
-      key: 'director',
-      label: <span className="bf11-fold-label"><strong>Director</strong><small>{selectedBook?.directorRevision?.id || selectedBook?.director?.id ? '已有 revision' : '等待导演'}</small></span>,
-      children: <DirectorPanel
-        book={selectedBook}
-        capabilities={capabilities}
-        onRunDirector={onRunDirector}
-      />
-    },
-    {
       key: 'assets',
-      label: <span className="bf11-fold-label"><strong>人物 / 场景 / 道具</strong><small>Prompt 直接编辑</small></span>,
+      label: <span className="bf11-fold-label"><strong>管理资产</strong><small>人物与场景仅属于当前小说</small></span>,
       children: <div className="bf11-asset-editor-stack">
         <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
         <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
-        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
       </div>
     },
     {
-      key: 'videos',
-      label: <span className="bf11-fold-label"><strong>VIDEO 方案</strong><small>{selectedVideos.length} 个 VIDEO · 画面提示词</small></span>,
+      key: 'constraints',
+      label: <span className="bf11-fold-label"><strong>生成约束</strong><small>当前小说的继承与覆盖</small></span>,
+      children: <div className="bf11-inline-editor">
+        <div className="bf11-inline-editor-title"><Typography.Text strong>生成约束</Typography.Text><Tag>{selectedBook.overrideCount || 0} 项当前小说覆盖</Tag></div>
+        <Typography.Paragraph type="secondary">
+          画幅、固定单 VIDEO、画质、限制词与负面提示词按“系统 → 批次 → 当前小说 → 单 VIDEO”解析；这里只编辑当前小说层，不会改动其他小说。
+        </Typography.Paragraph>
+        <Space wrap>
+          <Button
+            icon={<SlidersHorizontal size={14} />}
+            disabled={overrideAction.disabled || !onOpenBookSettings}
+            title={overrideAction.disabled ? overrideAction.reason : ''}
+            onClick={() => onOpenBookSettings?.(selectedBook)}
+          >编辑当前小说约束</Button>
+          <Typography.Text type="secondary">实际生效值与兼容性由 Go 在提交前校验。</Typography.Text>
+        </Space>
+      </div>
+    },
+    {
+      key: 'visual-prompts',
+      label: <span className="bf11-fold-label"><strong>画面提示词</strong><small>{selectedVideos.length} 个 VIDEO · 可逐条覆盖</small></span>,
+      children: <div className="bf11-video-plan">
+        <DirectorPanel
+          book={selectedBook}
+          capabilities={capabilities}
+          onRunDirector={onRunDirector}
+        />
+        {selectedVideo ? <div className="bf11-video-detail">
+          <div className="bf11-video-detail-head">
+            <Space wrap>
+              <strong>{selectedVideo.label || '当前 VIDEO'}</strong>
+              {selectedVideo.duration ? <Tag>{selectedVideo.duration}s</Tag> : null}
+              <Tag color={statusTone[selectedVideo.status]}>{selectedVideo.status || '未返回状态'}</Tag>
+            </Space>
+            <Button
+              size="small"
+              icon={<SlidersHorizontal size={14} />}
+              disabled={overrideAction.disabled || !onOpenVideoSettings}
+              title={overrideAction.disabled ? overrideAction.reason : ''}
+              onClick={() => onOpenVideoSettings?.(selectedBook, selectedVideo)}
+            >VIDEO 约束</Button>
+          </div>
+          <div className="bf11-inline-editor">
+            <div className="bf11-inline-editor-title"><Typography.Text strong>画面提示词</Typography.Text><Tag>visualPrompt</Tag></div>
+            <TextArea
+              rows={6}
+              value={videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? ''}
+              placeholder="当前服务端未返回 visualPrompt"
+              onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedVideo.id]: event.target.value }))}
+            />
+            <Space wrap>
+              <Button disabled={!onSaveVideoPrompt} onClick={() => onSaveVideoPrompt?.(selectedBook, selectedVideo, videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? '')}>保存画面提示词</Button>
+              <Button
+                disabled={compilerAction.disabled || !onPreviewFinalPrompt}
+                title={compilerAction.disabled ? compilerAction.reason : ''}
+                onClick={() => onPreviewFinalPrompt?.(selectedBook, selectedVideo)}
+              >本次提交预览</Button>
+              <Typography.Text type="secondary">保存后只覆盖当前 VIDEO；预览展示 Go 编译后的最终提示词。</Typography.Text>
+            </Space>
+          </div>
+        </div> : <Typography.Text type="secondary">先运行 Director，才能生成可编辑的 VIDEO 画面提示词。</Typography.Text>}
+      </div>
+    },
+    {
+      key: 'video-cards',
+      label: <span className="bf11-fold-label"><strong>VIDEO 卡片</strong><small>{selectedVideos.length} 条分镜生产卡</small></span>,
       children: <div className="bf11-video-plan">
         <div className="bf11-video-list">
           {selectedVideos.map((video, index) => <button
@@ -347,31 +401,20 @@ export function BatchFactoryV11Workbench({
               disabled={overrideAction.disabled || !onOpenVideoSettings}
               title={overrideAction.disabled ? overrideAction.reason : ''}
               onClick={() => onOpenVideoSettings?.(selectedBook, selectedVideo)}
-            >VIDEO 设置</Button>
-          </div>
-          <div className="bf11-inline-editor">
-            <div className="bf11-inline-editor-title"><Typography.Text strong>画面提示词</Typography.Text><Tag>visualPrompt</Tag></div>
-            <TextArea
-              rows={6}
-              value={videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? ''}
-              placeholder="当前服务端未返回 visualPrompt"
-              onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedVideo.id]: event.target.value }))}
-            />
-            <Space wrap>
-              <Button disabled={!onSaveVideoPrompt} onClick={() => onSaveVideoPrompt?.(selectedBook, selectedVideo, videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? '')}>保存画面提示词</Button>
-              <Button
-                disabled={compilerAction.disabled || !onPreviewFinalPrompt}
-                title={compilerAction.disabled ? compilerAction.reason : ''}
-                onClick={() => onPreviewFinalPrompt?.(selectedBook, selectedVideo)}
-              >本次提交预览</Button>
-              <Typography.Text type="secondary">Go 会展示每项设置来源、Director revision 和最终 compiledPrompt。</Typography.Text>
-            </Space>
+            >编辑 VIDEO</Button>
           </div>
           <div className="bf11-assets compact">
             <div><b>人物</b>{(selectedVideo.characters || []).map(item => <Tag key={assetName(item)}>{assetName(item)}</Tag>)}</div>
             <div><b>场景</b>{(selectedVideo.scenes || []).map(item => <Tag key={assetName(item)}>{assetName(item)}</Tag>)}</div>
-            <div><b>道具</b>{(selectedVideo.props || []).map(item => <Tag key={assetName(item)}>{assetName(item)}</Tag>)}</div>
           </div>
+          <Space wrap>
+            <Button
+              disabled={productionAction.disabled || !onRunProduction}
+              title={productionAction.disabled ? productionAction.reason : ''}
+              onClick={() => onRunProduction?.(batch, selectedBook)}
+            >生成当前小说</Button>
+            <Typography.Text type="secondary">提交只会生产当前小说尚未完成的 VIDEO；媒体统一到右侧播放器预览。</Typography.Text>
+          </Space>
         </div> : <Typography.Text type="secondary">当前小说没有 VIDEO 数据。</Typography.Text>}
       </div>
     }
