@@ -24,11 +24,11 @@ function customModels(models, kind) {
 }
 
 function CatalogTable({ models, onEdit, onDelete, onToggle }) {
-  return <Table size="small" rowKey="id" pagination={false} dataSource={models} locale={{ emptyText: '尚未添加可用模型' }} columns={[
-    { title: '模型', dataIndex: 'displayName', render: (name, model) => <Space direction="vertical" size={0}><b>{name}</b><span className="ac-muted-copy">{model.modelId || model.adapterKind || '平台预设模型'}</span></Space> },
-    { title: '服务商', dataIndex: 'providerType', render: value => value === 'platform_preset' ? '平台预设' : '自定义' },
-    { title: '状态', render: (_, model) => <Switch checked={model.enabled} onChange={checked => onToggle(model, checked)} /> },
-    { title: '操作', render: (_, model) => <Space><Button type="link" onClick={() => onEdit(model)}>编辑</Button><Button danger type="link" icon={<Trash2 size={14} />} onClick={() => onDelete(model)}>删除</Button></Space> }
+  return <Table className="ac-model-catalog-table" size="small" rowKey="id" pagination={false} tableLayout="fixed" scroll={{ x: 720 }} dataSource={models} locale={{ emptyText: '尚未添加可用模型' }} columns={[
+    { title: '模型', dataIndex: 'displayName', width: '42%', render: (name, model) => <Space direction="vertical" size={0}><b>{name}</b><span className="ac-muted-copy">{model.modelId || model.adapterKind || '平台预设模型'}</span></Space> },
+    { title: '服务商', dataIndex: 'providerType', width: '18%', render: value => value === 'platform_preset' ? '平台预设' : '自定义' },
+    { title: '状态', width: '14%', align: 'center', render: (_, model) => <Switch checked={model.enabled} onChange={checked => onToggle(model, checked)} /> },
+    { title: '操作', width: '26%', render: (_, model) => <Space><Button type="link" onClick={() => onEdit(model)}>编辑</Button><Button danger type="link" icon={<Trash2 size={14} />} onClick={() => onDelete(model)}>删除</Button></Space> }
   ]} />;
 }
 
@@ -179,10 +179,10 @@ export default function ApiConfigPage() {
         <p className="ac-muted-copy">只有完成所需配置并启用后，才会出现在业务的视频模型下拉框。</p>
         {PLATFORM_PRESETS.map(preset => {
           const model = modelById.get(preset.id);
-          return <div className="ac-api-status-line" key={preset.id}>
-            <span className="ac-security-card-icon violet"><Video size={20} /></span>
-            <div style={{ flex: 1 }}><strong>{preset.displayName}</strong><small>{preset.description}</small>{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}</div>
-            <Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} />
+          return <div className="ac-platform-preset-grid" key={preset.id}>
+            <div className="ac-platform-preset-info"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>{preset.displayName}</strong><small>{preset.description}</small></div></div>
+            <div className="ac-platform-preset-credential">{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}</div>
+            <div className="ac-platform-preset-state"><Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} /><small>{model?.enabled ? '已启用' : '未启用'}</small></div>
           </div>;
         })}
       </Panel>

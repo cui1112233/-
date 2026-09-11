@@ -1,4 +1,4 @@
-import{y as o,j as s}from"./createLucideIcon-iHGaBFUz.js";import{P as u}from"./progress-CM_0AeBt.js";import{I as h,J as x,L as j}from"./user-xQi8aeC_.js";/**
+import{y as o,j as s}from"./createLucideIcon-iHGaBFUz.js";import{P as u}from"./progress-CM_0AeBt.js";import{I as h,J as x,L as j}from"./user-Cu56x-Nt.js";/**
  * @license lucide-react v1.31.0 - ISC
  *
  * This source code is licensed under the ISC license.

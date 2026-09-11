@@ -554,6 +554,26 @@
   font-size: 11px;
   line-height: 1.5;
 }
+.api-config-page .ac-platform-preset-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 42%) minmax(260px, 1fr) 96px;
+  gap: 14px;
+  align-items: center;
+  min-height: 84px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ac-line);
+}
+.api-config-page .ac-platform-preset-grid:last-child { border-bottom: 0; padding-bottom: 0; }
+.api-config-page .ac-platform-preset-info { display: flex; min-width: 0; gap: 11px; align-items: center; }
+.api-config-page .ac-platform-preset-info > div { display: grid; min-width: 0; gap: 3px; }
+.api-config-page .ac-platform-preset-info strong { color: #eef4fb; font-size: 13px; }
+.api-config-page .ac-platform-preset-info small,
+.api-config-page .ac-platform-preset-credential small,
+.api-config-page .ac-platform-preset-state small { color: #a7b5c6; font-size: 11px; line-height: 1.5; }
+.api-config-page .ac-platform-preset-credential { min-width: 0; }
+.api-config-page .ac-platform-preset-state { display: grid; justify-items: end; gap: 5px; }
+.api-config-page .ac-model-catalog-table .ant-table { table-layout: fixed; }
+.api-config-page .ac-model-catalog-table .ant-table-cell { overflow-wrap: anywhere; }
 .api-config-page .ac-form-row {
   display: grid;
   gap: 14px;
@@ -951,6 +971,10 @@
 [data-theme='light'] .api-config-page .ac-api-health > div,
 [data-theme='light'] .api-config-page .ac-managed-api-card p,
 [data-theme='light'] .api-config-page .ac-form-tip { color: #5e7085; }
+[data-theme='light'] .api-config-page .ac-platform-preset-info strong { color: #1d2b3d; }
+[data-theme='light'] .api-config-page .ac-platform-preset-info small,
+[data-theme='light'] .api-config-page .ac-platform-preset-credential small,
+[data-theme='light'] .api-config-page .ac-platform-preset-state small { color: #5e7085; }
 [data-theme='light'] .api-config-page .ant-tag { color: #42556c; border-color: #c9d3df; background: #f0f4f8; }
 [data-theme='light'] .api-config-page .ant-tag-green { color: #16734f; border-color: #9dd9c0; background: #e8f8f1; }
 [data-theme='light'] .api-config-page .ant-tag-gold { color: #89600c; border-color: #e7c77b; background: #fff7df; }
