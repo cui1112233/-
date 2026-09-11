@@ -6,7 +6,7 @@ DONE
 
 ## Commit
 
-Pending commit.
+`fbc5dfba75d2ee2aeaf90b7555a8d9161a2bffe5` — `feat: expose permission-filtered model catalog`
 
 ## Files Changed
 
