@@ -401,6 +401,19 @@ export function BatchFactoryV11UiPage() {
     return true;
   }
 
+  async function saveBookSource(book, sourceText) {
+    const result = await runtime.updateBookSource({
+      batchId: batch.id,
+      bookId: book.id,
+      sourceText,
+      revision: book.revision
+    });
+    if (!result.ok) { message.error(result.message); return false; }
+    await reload({ announce: false });
+    message.success('原文已保存；已有下游结果已标记为需更新');
+    return true;
+  }
+
   async function saveAssetPrompts(type, items, drafts) {
     try {
       await Promise.all((items || []).map(item => {
@@ -494,6 +507,7 @@ export function BatchFactoryV11UiPage() {
         onRunProduction={runProduction}
         onRunMerge={runMerge}
         onRunUpload={() => setExternalPublishOpen(true)}
+        onSaveSource={saveBookSource}
         onSaveVideoPrompt={saveVideoPrompt}
         onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}

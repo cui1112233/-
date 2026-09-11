@@ -3,6 +3,7 @@ package batchfactoryv11
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -124,7 +125,6 @@ func TestSliceOneChangeImpactDoesNotClaimDirectorInvalidation(t *testing.T) {
 	}
 }
 
-
 func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()
@@ -142,7 +142,6 @@ func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
 		t.Fatalf("book=%+v", batch.Books)
 	}
 }
-
 
 func TestNovelFetchBatchKeepsSourceLineageFields(t *testing.T) {
 	ctx := context.Background()
@@ -177,5 +176,32 @@ func TestNovelFetchBatchKeepsSourceLineageFields(t *testing.T) {
 	}
 	if book.SourceMetadata["platformId"] != "fanqie" {
 		t.Fatalf("source metadata=%v", book.SourceMetadata)
+	}
+}
+
+func TestUpdateBookSourceIsOwnerScopedRevisionedAndMarksDownstreamStale(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	batch, err := store.CreateBatch(ctx, "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: "before"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	if _, err := store.PersistDirectorRevision(ctx, "alice", book, DirectorSnapshot{Mode: "original", MaxVideoDuration: 15, AspectRatio: "9:16"}, sourceDigest("before"), "", DirectorResult{}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.UpdateBookSource(ctx, "alice", batch.ID, book.ID, SourceUpdate{SourceText: "after", ExpectedRevision: book.Revision + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SourceText != "after" || !updated.DownstreamStale {
+		t.Fatalf("updated=%+v", updated)
+	}
+	if _, err := store.UpdateBookSource(ctx, "alice", batch.ID, book.ID, SourceUpdate{SourceText: "again", ExpectedRevision: book.Revision + 1}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale update err=%v, want conflict", err)
+	}
+	if _, err := store.UpdateBookSource(ctx, "bob", batch.ID, book.ID, SourceUpdate{SourceText: "intrusion", ExpectedRevision: updated.Revision}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-owner err=%v, want not found", err)
 	}
 }

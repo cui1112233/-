@@ -121,6 +121,30 @@ func TestSaveSettingsReturnsConflictForStaleRevisionAndPreservesFalsyValues(t *t
 	}
 }
 
+func TestUpdateBookSourceRequiresCurrentRevisionAndNeverLeaksAcrossOwners(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "book", SourceText: "before"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: store})
+	path := "/api/batch-factory/v11/batches/" + batch.ID + "/books/" + book.ID + "/source"
+	updated := signedJSONRequest(t, api, now, "alice", http.MethodPut, path, map[string]any{"sourceText": "after", "expectedRevision": book.Revision})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update=%d body=%s", updated.Code, updated.Body.String())
+	}
+	stale := signedJSONRequest(t, api, now, "alice", http.MethodPut, path, map[string]any{"sourceText": "again", "expectedRevision": book.Revision})
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale=%d body=%s", stale.Code, stale.Body.String())
+	}
+	foreign := signedJSONRequest(t, api, now, "bob", http.MethodPut, path, map[string]any{"sourceText": "intrusion", "expectedRevision": book.Revision + 1})
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+}
+
 func TestCreateBatchFromOtherOwnersIntakeReturnsNotFound(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()

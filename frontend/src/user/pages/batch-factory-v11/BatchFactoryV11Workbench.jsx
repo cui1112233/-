@@ -29,6 +29,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DirectorPanel } from './DirectorPanel';
 import { HookReviewPanel } from './HookReviewPanel';
+import { NovelSourceModule } from './NovelSourceModule.jsx';
 import { WorkbenchCard } from './WorkbenchCard';
 import { actionState } from './batchFactoryV11State.js';
 import {
@@ -126,6 +127,7 @@ export function BatchFactoryV11Workbench({
   onRunBatchDirector,
   onPreviewFinalPrompt,
   onRunProduction,
+  onSaveSource,
   onSaveVideoPrompt,
   onRefreshAssets,
   onSaveAssetPrompts,
@@ -142,7 +144,7 @@ export function BatchFactoryV11Workbench({
   const [assetDrafts, setAssetDrafts] = useState({});
   const [videoPromptDrafts, setVideoPromptDrafts] = useState({});
   const [mergeTimingMode, setMergeTimingMode] = useState('speed');
-  const [mergeSpeed, setMergeSpeed] = useState('1.5');
+  const [mergeSpeed, setMergeSpeed] = useState('1.0');
   const [ttsSpeed, setTtsSpeed] = useState(1.7);
   const gridRef = useRef(null);
   const [gridWidth, setGridWidth] = useState(1200);
@@ -293,16 +295,10 @@ export function BatchFactoryV11Workbench({
     {
       key: 'source',
       label: <span className="bf11-fold-label"><strong>原文</strong><small>来源内容</small></span>,
-      children: <Typography.Paragraph className="bf11-source-copy">{selectedBook.sourceText || '当前服务端未返回正文。'}</Typography.Paragraph>
-    },
-    {
-      key: 'hook',
-      label: <span className="bf11-fold-label"><strong>爆款 Hook</strong><small>{selectedHook?.status === 'approved' ? '已批准' : selectedHook ? '待审核' : '当前未生成'}</small></span>,
-      children: <HookReviewPanel
+      children: <NovelSourceModule
         book={selectedBook}
-        capabilities={capabilities}
-        onRunHook={onRunHook}
-        onApproveHook={onApproveHook}
+        onSave={onSaveSource}
+        hookContent={<HookReviewPanel book={selectedBook} capabilities={capabilities} onRunHook={onRunHook} onApproveHook={onApproveHook} />}
       />
     },
     {
