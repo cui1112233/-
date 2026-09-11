@@ -26,11 +26,9 @@ test('script page calls the authenticated novel-panel reference image endpoint',
   const pageSource = sourceOrEmpty(scriptPagePath);
   assert.match(apiSource, /\/api\/novel-panel\/reference-assets\/generate/);
   assert.match(apiSource, /\/api\/novel-panel\/reference-assets\/upload/);
-  assert.match(pageSource, /generateReferenceAssetImage/);
-  assert.match(pageSource, /uploadReferenceAssetImage/);
+  assert.match(apiSource, /loadReferenceAssetImage/);
+  assert.match(pageSource, /EntityImagePanel/);
   assert.match(pageSource, /buildReferenceAssetGenerationPayload/);
-  assert.match(pageSource, /accept="image\/\*"/);
-  assert.match(pageSource, /上传图片/);
-  assert.match(pageSource, /appendImageCandidateAndSelectSingle/);
+  assert.doesNotMatch(pageSource, /粘贴 HTTPS 图片地址/);
   assert.doesNotMatch(pageSource, /候选图不会自动成为主图/);
 });

@@ -5,6 +5,7 @@ const https = require('https');
 const { apiAuth } = require('../middleware/auth');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { H3_MODEL_KEY } = require('../lib/video-model-catalog');
+const { h3ReferenceUrl } = require('../lib/reference-asset-public-url');
 const {
   H3_API_BASE_URL,
   buildH3Request,
@@ -224,7 +225,10 @@ function createScriptVideoRouter({
       let duration;
       let resolution;
       try {
-        referenceImages = validH3ReferenceImageURLs(req.body?.referenceImages ?? req.body?.imageUrls);
+        const requestedImages = req.body?.referenceImages ?? req.body?.imageUrls;
+        referenceImages = validH3ReferenceImageURLs(Array.isArray(requestedImages)
+          ? requestedImages.map(imageURL => h3ReferenceUrl(imageURL, req.username))
+          : requestedImages);
         duration = h3Duration(req.body?.duration);
         resolution = h3Resolution(req.body?.resolution);
       } catch (error) {
