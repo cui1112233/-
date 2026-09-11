@@ -20,6 +20,7 @@ import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntit
 import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
+import { collectShotReferenceImages } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 
@@ -362,7 +363,7 @@ export function ScriptPage() {
     }
   }
 
-  async function generateVideoForShot(card, index) {
+  async function generateVideoForShot(card, index, { allowWithoutReferences = false } = {}) {
     const prompt = String(card || '').trim();
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
@@ -386,13 +387,31 @@ export function ScriptPage() {
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
       const historyId = await ensureCurrentHistory();
-      const result = await createScriptVideo({ prompt, modelKey: scriptVideoModelKey });
+      const referenceImages = collectShotReferenceImages({ shotText: prompt, extractInfo });
+      const result = await createScriptVideo({
+        prompt,
+        modelKey: scriptVideoModelKey,
+        duration: selectedDuration === '15s' ? 15 : 10,
+        resolution: '480p竖',
+        imageUrls: allowWithoutReferences ? [] : referenceImages,
+        ...(allowWithoutReferences ? { allowWithoutReferences: true } : {})
+      });
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
       watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
+      if (!allowWithoutReferences && error?.status === 409) {
+        Modal.confirm({
+          title: '参考图不可用',
+          content: '当前视频模型不支持参考图，是否允许无参考图生成',
+          okText: '允许无参考图生成',
+          cancelText: '取消生成',
+          onOk: () => generateVideoForShot(card, index, { allowWithoutReferences: true })
+        });
+        return;
+      }
       message.error(error.message || '视频任务提交失败');
     } finally {
       setGeneratingShotIndexes(current => {
@@ -1229,7 +1248,7 @@ export function ScriptPage() {
             style={{ width: 164 }}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
+            options={[{ label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' }, { label: 'MiniMax H3 多图生视频', value: 'minimax-h3-video' }, { label: '本地豆包执行器', value: 'local-doubao-executor-video' }]}
             title="单分镜视频模型"
           />
           <Space>
@@ -1268,6 +1287,7 @@ export function ScriptPage() {
               onGenerateVideo={canGenerateVideo ? generateVideoForShot : null}
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
+              extractInfo={extractInfo}
               onOpenVideo={setPreviewVideoTask}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}

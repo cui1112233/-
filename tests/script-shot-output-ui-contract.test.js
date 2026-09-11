@@ -21,7 +21,8 @@ test('shot card component provides individual copy and video-generation controls
   assert.match(page, /generateVideoForShot/);
   assert.match(page, /watchShotVideoTask/);
   assert.match(page, /ensureCurrentHistory/);
-  assert.match(page, /createScriptVideo\(\{ prompt, modelKey: scriptVideoModelKey \}\)/);
+  assert.match(page, /createScriptVideo\(\{[\s\S]*imageUrls/);
+  assert.match(page, /collectShotReferenceImages/);
   assert.doesNotMatch(page, /createTask\(projectId/);
   assert.doesNotMatch(page, /getProductionConfig\(\)/);
 });
@@ -42,6 +43,11 @@ test('script page uses card output for every non-shortdrama result', () => {
   assert.match(cards, /分镜 \{index \+ 1\} · \{cardDuration\}/);
   assert.match(page, /duration=\{form\.getFieldValue\('duration'\)\}/);
   assert.match(page, /onCopy=\{copyText\}/);
+  assert.match(cards, /collectShotReferenceDescriptors/);
+  assert.match(cards, /reference\.label/);
+  assert.doesNotMatch(cards, /\bStar\b/);
+  assert.doesNotMatch(cards, /onToggleReferenceImages/);
+  assert.doesNotMatch(cards, /referenceState\.enabled/);
 });
 
 test('constraint category switches remain independent from the future-output switch', () => {

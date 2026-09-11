@@ -4,12 +4,32 @@ const http = require('http');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
 const { readConfig } = require('../lib/shared');
+const { H3_MODEL_KEY } = require('../lib/video-model-catalog');
+const { H3_API_BASE_URL, buildH3Request, defaultH3Request, defaultH3Submit, h3ResultURL, h3TaskState, readH3TaskID } = require('../lib/h3-video-adapter');
 
 const YD_CREATE_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/create';
 const YD_TASKS_URL = 'https://ydapi.yadiai.cn/openapi/v1/video/tasks';
 const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png';
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
+const UNSUPPORTED_REFERENCE_IMAGES_MESSAGE = '当前视频模型不支持参考图，是否允许无参考图生成';
+const H3_TASK_PREFIX = 'h3:';
+
+function modelSupportsReferenceImages(modelKey) {
+  return ['yd2-mini-video', 'minimax-h3-video'].includes(String(modelKey || '').trim());
+}
+
+function validH3ReferenceImageURLs(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 9) throw new Error('H3 最多支持 9 张参考图片');
+  return value.map(item => {
+    const imageURL = String(item || '').trim();
+    if (!imageURL) throw new Error('H3 参考图片地址不能为空');
+    const parsed = new URL(imageURL);
+    if (parsed.protocol !== 'https:') throw new Error('H3 参考图片必须使用 HTTPS 地址');
+    return parsed.toString();
+  });
+}
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -110,7 +130,7 @@ function bridgeDownload(gateway, account, pathname, res) {
   const upstream=transport.request({protocol:target.protocol,hostname:target.hostname,port:target.port||undefined,method:'GET',path:pathname,headers:{'X-Qiantie-Username':account.username,'X-Qiantie-Is-Owner':String(account.isOwner===true),'X-Qiantie-Issued-At':issuedAt,'X-Qiantie-Signature':signature}},response=>{res.status(response.statusCode||502); if(response.headers['content-type'])res.setHeader('Content-Type',response.headers['content-type']); response.pipe(res)}); upstream.on('error',()=>res.status(503).json({error:'视频下载服务暂不可用'})); upstream.end();
 }
 
-function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, shuihuoGateway, memberStore } = {}) {
+function createScriptVideoRouter({ configReader = readConfig, submit = defaultSubmit, request = upstreamRequest, h3Submit = defaultH3Submit, h3Request = defaultH3Request, h3ApiKeyReader = () => '', shuihuoGateway, memberStore } = {}) {
   const router = express.Router();
   router.use(apiAuth);
   router.post('/', async (req, res) => {
@@ -121,12 +141,33 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
+    let imageUrls = [];
+    if (req.body?.modelKey !== H3_MODEL_KEY) {
+      try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
+    }
+    if (imageUrls.length && !modelSupportsReferenceImages(req.body?.modelKey) && req.body?.allowWithoutReferences !== true) {
+      return res.status(409).json({ ok: false, status: 'unsupported_reference_images', code: 'UNSUPPORTED_REFERENCE_IMAGES', error: UNSUPPORTED_REFERENCE_IMAGES_MESSAGE });
+    }
     if (req.body?.modelKey === 'local-doubao-executor-video') {
       try { return res.status(202).json(await bridgeJSON(shuihuoGateway, req.auth.account, 'POST', '/api/script-videos/local', { prompt })); }
       catch (error) { return res.status(error.status || 503).json({ error: error.message || '本地执行器任务提交失败' }); }
     }
-    let imageUrls;
-    try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
+    if (req.body?.modelKey === H3_MODEL_KEY) {
+      let referenceImages;
+      try { referenceImages = validH3ReferenceImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message }); }
+      const apiKey = String(configReader(req.username)?.video?.apiKey || h3ApiKeyReader(req) || process.env.QIANTIE_H3_API_KEY || '').trim();
+      if (!apiKey) return res.status(400).json({ error: 'MiniMax H3 尚未配置服务端 Token，请先在设置中保存视频生成 API Key' });
+      let h3;
+      try { h3 = buildH3Request({ prompt: prompt.slice(0, 10000), duration: req.body?.duration, resolution: req.body?.resolution, referenceImages }); } catch (error) { return res.status(400).json({ error: error.message || 'H3 参数不正确' }); }
+      try {
+        const upstream = await h3Submit({ apiKey, workflow: h3.workflow, payload: h3.body, baseUrl: process.env.QIANTIE_H3_BASE_URL || H3_API_BASE_URL });
+        if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `MiniMax H3 请求失败（HTTP ${upstream.statusCode}）` });
+        const body = JSON.parse(upstream.text);
+        const taskId = readH3TaskID(body);
+        if (!taskId) return res.status(502).json({ error: 'MiniMax H3 未返回任务 ID' });
+        return res.status(202).json({ ok: true, taskId: `${H3_TASK_PREFIX}${taskId}`, provider: 'autodl_comfyui' });
+      } catch (error) { return res.status(502).json({ error: error?.message === 'H3 视频服务响应超时' ? error.message : 'MiniMax H3 服务暂不可用，请稍后重试' }); }
+    }
     const apiKey = String(configReader(req.username)?.video?.apiKey || '').trim();
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {
@@ -144,6 +185,23 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   router.get('/:taskId', async (req, res) => {
     const taskId = String(req.params.taskId || '').trim();
     if (!taskId) return res.status(400).json({ error: '视频任务 ID 不能为空' });
+    if (taskId.startsWith(H3_TASK_PREFIX)) {
+      const rawTaskId = taskId.slice(H3_TASK_PREFIX.length).trim();
+      const apiKey = String(configReader(req.username)?.video?.apiKey || h3ApiKeyReader(req) || process.env.QIANTIE_H3_API_KEY || '').trim();
+      if (!apiKey) return res.status(400).json({ error: 'MiniMax H3 尚未配置服务端 Token，请先在设置中保存视频生成 API Key' });
+      try {
+        const reply = await h3Request({ apiKey, taskId: rawTaskId, baseUrl: process.env.QIANTIE_H3_BASE_URL || H3_API_BASE_URL });
+        if (reply.statusCode < 200 || reply.statusCode >= 300) return res.status(502).json({ error: 'MiniMax H3 任务状态查询失败' });
+        const body = JSON.parse(reply.text);
+        const state = h3TaskState(body);
+        if (['QUEUED', 'SUBMITTED', 'RUNNING', 'PENDING', 'PROCESSING', 'GENERATING'].includes(state)) return res.json({ ok: true, taskId, status: 'processing' });
+        if (['FAILED', 'ERROR', 'CANCELLED', 'CANCELED'].includes(state)) return res.json({ ok: true, taskId, status: 'failed', error: taskError(body) });
+        if (!['SUCCESS', 'SUCCEEDED', 'COMPLETED', 'DONE'].includes(state)) return res.status(502).json({ error: 'MiniMax H3 返回了无法识别的任务状态' });
+        const videoUrl = h3ResultURL(body);
+        if (!videoUrl) return res.status(502).json({ error: 'MiniMax H3 已完成，但没有返回可播放地址' });
+        return res.json({ ok: true, taskId, status: 'succeeded', videoUrl, provider: 'autodl_comfyui' });
+      } catch (error) { return res.status(502).json({ error: error?.message === 'H3 视频服务响应超时' ? error.message : 'MiniMax H3 任务状态暂不可用，请稍后重试' }); }
+    }
     try {
       const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/script-videos/${encodeURIComponent(taskId)}`);
       return res.json(local);
@@ -173,4 +231,4 @@ function createScriptVideoRouter({ configReader = readConfig, submit = defaultSu
   return router;
 }
 
-module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL };
+module.exports = { createScriptVideoRouter, DEFAULT_FIRST_FRAME_URL, validOptionalImageURLs, readTaskID, taskState, resultURL, modelSupportsReferenceImages, UNSUPPORTED_REFERENCE_IMAGES_MESSAGE };
