@@ -16,27 +16,27 @@ function cardAssemblyBlock() {
   return page.slice(start, end);
 }
 
-test('visible storyboard cards preserve the constraints used for the current output', () => {
+test('visible storyboard cards follow the currently saved constraints', () => {
   const block = cardAssemblyBlock();
 
   assert.match(
     block,
-    /constraintsForFormat\(outputConstraints,\s*selectedFormat,\s*extractInfo\)/,
-    'the current output snapshot must feed visible card assembly'
+    /constraintsForFormat\(constraints,\s*selectedFormat,\s*extractInfo\)/,
+    'the current saved base setup must feed visible card assembly'
   );
   assert.doesNotMatch(
     block,
-    /constraintsForFormat\(constraints,/,
-    'next-generation state must not hide the constraints used by the current output'
+    /constraintsForFormat\(outputConstraints,/,
+    'a generation-time snapshot must not hide a newly saved base setup'
   );
   assert.match(
     block,
-    /\[rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration\]/,
-    'the visible card memo must follow the current output snapshot'
+    /\[rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration\]/,
+    'the visible card memo must follow the current saved constraints'
   );
 });
 
-test('saving constraints refreshes the current output snapshot for an already visible result', () => {
+test('saving constraints still records the output snapshot for draft and history recovery', () => {
   assert.match(
     page,
     /function saveConstraints\(\)[\s\S]*?setConstraints\(next\);[\s\S]*?setOutputConstraints\(next\);/,

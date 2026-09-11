@@ -40,6 +40,13 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
               {videoTask?.status === 'succeeded' ? <><Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} onClick={() => onOpenVideo?.(videoTask)}>生成成功</Button><Button size="small" icon={<Download size={15} aria-hidden="true" />} href={videoTask.videoUrl} download target="_blank" rel="noreferrer">下载</Button></> : <Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} loading={generatingIndexes.has(index) || videoTask?.status === 'processing'} disabled={!onGenerateVideo || generatingIndexes.has(index) || videoTask?.status === 'processing'} onClick={() => onGenerateVideo(card, index)}>{videoTask?.status === 'processing' ? '视频生成中' : '生成视频'}</Button>}
             </Space>
           </div>
+          {references.length ? <div className="shot-output-card-references" aria-label={`分镜 ${index + 1} 参考图`}>
+            <span className="shot-output-card-references-label">参考图</span>
+            {references.map(reference => <span className="shot-output-card-reference-item" key={`${reference.type}-${reference.url}`}>
+              <img className="shot-output-card-reference-thumbnail" src={reference.url} alt={`${reference.label}参考图`} loading="lazy" />
+              <span>{reference.label}</span>
+            </span>)}
+          </div> : null}
           <pre className="shot-output-card-content">{highlight ? <>{highlight.before}<mark className="shot-output-card-match" ref={activeMatchRef}>{highlight.highlight}</mark>{highlight.after}</> : card}</pre>
         </div>;
       })}

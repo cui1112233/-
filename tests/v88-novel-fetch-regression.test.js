@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const store = require('../lib/novel-fetch-workshop/mysql-store');
-const appSource = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'dist', 'batch-rewrite', 'app.js'), 'utf8');
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
 const v2Source = fs.readFileSync(path.join(__dirname, '..', 'public', 'batch-rewrite', 'v78-novel-fetch-v2.js'), 'utf8');
 
 test('processed original is locally limited while the full raw original remains available', () => {

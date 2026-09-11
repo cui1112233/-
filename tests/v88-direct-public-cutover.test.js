@@ -2,70 +2,22 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-function read(file) {
-  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-}
+function read(file) { return fs.readFileSync(file, 'utf8'); }
 
-test('legacy Docker public release is manual-only and cannot build or publish images', () => {
-  const source = read('.github/workflows/v88-linux-amd64-image-release.yml');
-  assert.ok(source, 'legacy Docker workflow must remain as an explicit manual tombstone');
-  assert.match(source, /workflow_dispatch/);
-  assert.doesNotMatch(source, /\n\s*push:\s*\n/);
-  assert.doesNotMatch(source, /docker\s+(build|push|pull)|docker\/login-action/);
+test('retired host cutover cannot publish V88 traffic through a parallel Node port', () => {
+  const stage = read('deploy/v88-direct/stage-node-host.sh');
+  const cutover = read('deploy/v88-direct/cutover-node-host.sh');
+  const stageWorkflow = read('.github/workflows/v88-direct-deploy-node-stage.yml');
+  const cutoverWorkflow = read('.github/workflows/v88-direct-deploy-node-cutover.yml');
+  for (const source of [stage, cutover, stageWorkflow, cutoverWorkflow]) {
+    assert.match(source, /retired/i);
+    assert.doesNotMatch(source, /18081|NetworkSettings\.Networks|nginx\s+-s\s+reload/);
+  }
 });
 
-test('production staging is marker-gated on v88 and deploys exact Git SHA without Docker images', () => {
-  const source = read('.github/workflows/v88-direct-deploy-node-stage.yml');
-  assert.ok(source, 'production Node staging workflow must exist');
-  assert.match(source, /branches:\s*\n\s*- v88/);
-  assert.match(source, /deploy\/v88-direct\/STAGE-REQUEST/);
-  assert.match(source, /GITHUB_SHA/);
-  assert.doesNotMatch(source, /docker build|docker push|docker pull/);
-});
-
-test('public cutover discovers the live Docker Node endpoint instead of hard-coding a compose container name', () => {
-  const source = read('deploy/v88-direct/cutover-node-host.sh');
-  assert.ok(source, 'cutover-node-host.sh must exist');
-  assert.match(source, /docker ps --filter ['"]name=v88-public-v88-node['"]/);
-  assert.match(source, /NetworkSettings\.Networks/);
-  assert.match(source, /Aliases/);
-  assert.match(source, /IPAddress/);
-  assert.doesNotMatch(source, /OLD_UPSTREAM=v88-public-v88-node-1:3000/);
-});
-
-test('public cutover only rewires the mounted Nginx Node upstream and has automatic rollback', () => {
-  const source = read('deploy/v88-direct/cutover-node-host.sh');
-  assert.ok(source, 'cutover-node-host.sh must exist');
-  assert.match(source, /\/etc\/nginx\/conf\.d\/default\.conf/);
-  assert.match(source, /18081/);
-  assert.match(source, /api\/build-info/);
-  assert.match(source, /git_sha/);
-  assert.match(source, /nginx -t/);
-  assert.match(source, /nginx -s reload/);
-  assert.match(source, /backup/);
-  assert.match(source, /rollback/);
-  assert.match(source, /current_node_endpoints/);
-  assert.match(source, /matching_node_endpoints/);
-  assert.doesNotMatch(source, /docker\s+(stop|rm)|docker\s+compose\s+down/);
-  assert.doesNotMatch(source, /go-api:4000/);
-});
-
-test('public cutover is marker-gated on v88 and target SHA comes from the request marker', () => {
-  const source = read('.github/workflows/v88-direct-deploy-node-cutover.yml');
-  assert.ok(source, 'production Node cutover workflow must exist');
-  assert.match(source, /branches:\s*\n\s*- v88/);
-  assert.match(source, /deploy\/v88-direct\/CUTOVER-REQUEST/);
-  assert.match(source, /CUTOVER-REQUEST/);
-  assert.match(source, /\[0-9a-f\]\{40\}/);
-  assert.match(source, /cutover-node-host\.sh/);
-  assert.doesNotMatch(source, /docker build|docker push|docker pull/);
-});
-
-test('public cutover proves the deployed 121 login hotfix uses the v88 65 second timeout', () => {
-  const source = read('.github/workflows/v88-direct-deploy-node-cutover.yml');
-  assert.ok(source, 'production Node cutover workflow must exist');
-  assert.match(source, /batch-rewrite\/121-login-hotfix\.js/);
-  assert.match(source, /REQUEST_TIMEOUT_MS\[\[:space:\]\]\*=/);
-  assert.match(source, /65_000/);
-  assert.match(source, /PUBLIC_121_LOGIN_TIMEOUT_VERIFIED=65000/);
+test('canonical Compose keeps Nginx, Node and Go on one named Docker network', () => {
+  const compose = read('deploy/v88-public/docker-compose.yml');
+  assert.match(compose, /name: v88-public_qiantie_internal/);
+  assert.match(compose, /QIANTIE_GO_BASE_URL: http:\/\/go-api:4000/);
+  assert.match(compose, /QIANTIE_121_BROWSER_WORKER_URL: http:\/\/browser-worker:8787/);
 });

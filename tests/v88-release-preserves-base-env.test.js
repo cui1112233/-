@@ -4,21 +4,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+const compose = fs.readFileSync('deploy/v88-public/docker-compose.yml', 'utf8');
 const stage = fs.readFileSync('deploy/v88-direct/stage-node-host.sh', 'utf8');
 
-test('V88 Git-direct staging inherits the running production Node environment instead of inventing a new base env', () => {
-  assert.match(stage, /docker inspect -f '\{\{range \.Config\.Env\}\}\{\{println \.\}\}\{\{end\}\}' "\$node_id"/);
-  assert.match(stage, /install -m 0600 "\$tmp_env" "\$STAGE_ENV"/);
-  assert.match(stage, /v88-public-v88-node/);
+test('unified V88 public Compose retains MySQL configuration while pinning the release through environment references', () => {
+  assert.match(compose, /QIANTIE_MYSQL_DSN: \$\{MYSQL_USER\}:\$\{MYSQL_PASSWORD\}@tcp\(mysql:3306\)\/\$\{MYSQL_DATABASE\}/);
+  assert.match(compose, /QIANTIE_GO_IMAGE:\?set an immutable Go image reference/);
+  assert.match(compose, /QIANTIE_NODE_IMAGE:\?set an immutable Node image reference/);
+  assert.match(compose, /QIANTIE_RELEASE_SHA/);
+  assert.match(compose, /QIANTIE_GO_BASE_URL: http:\/\/go-api:4000/);
+  assert.match(compose, /QIANTIE_121_BROWSER_WORKER_URL: http:\/\/browser-worker:8787/);
 });
 
-test('V88 Git-direct staging preserves MySQL runtime configuration while overriding only release and upstream fields', () => {
-  const filter = stage.match(/grep -vE '([^']+)'/);
-  assert.ok(filter, 'staging must explicitly filter only container/runtime-specific environment fields');
-  assert.doesNotMatch(filter[1], /MYSQL_USER|MYSQL_PASSWORD|MYSQL_DATABASE|MYSQL_HOST|MYSQL_PORT/,
-    'MySQL runtime configuration must flow through from the running production Node');
-  assert.match(stage, /QIANTIE_GO_BASE_URL/);
-  assert.match(stage, /QIANTIE_121_BROWSER_WORKER_URL/);
-  assert.match(stage, /QIANTIE_RELEASE_SHA/);
-  assert.match(stage, /QIANTIE_DEPLOY_MODE=git-direct-stage/);
+test('retired Git-direct host staging cannot become a second V88 environment source', () => {
+  assert.match(stage, /Retired: V88 public releases must use the unified Docker Compose runner/);
+  assert.match(stage, /exit 64/);
+  assert.doesNotMatch(stage, /docker inspect|18081|QIANTIE_DEPLOY_MODE=git-direct-stage/);
 });
