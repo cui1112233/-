@@ -1,0 +1,53 @@
+name: V88 Unified Public Image Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify release contracts
+        run: node --test tests/v88-public-unified-topology.test.js tests/v88-public-release-identity.test.js
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and publish paired V88 images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/qiantie-v88-node:${{ github.sha }}
+          build-args: |
+            QIANTIE_RELEASE_SHA=${{ github.sha }}
+
+      - name: Build and publish paired Go image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/qiantie-go-api:${{ github.sha }}
+          build-args: |
+            QIANTIE_RELEASE_SHA=${{ github.sha }}
+
+      - name: Report immutable release identity
+        run: |
+          echo "release_sha=${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "node=ghcr.io/${{ github.repository_owner }}/qiantie-v88-node:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "go=ghcr.io/${{ github.repository_owner }}/qiantie-go-api:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"

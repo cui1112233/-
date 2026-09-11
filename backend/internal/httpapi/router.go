@@ -12,19 +12,20 @@ import (
 )
 
 type RouterOptions struct {
-	BridgeSecret string
-	Now          func() time.Time
-	Users        BridgeUserResolver
-	Slice        int
-	RegisterV11  func(*http.ServeMux)
-	Store        batchfactoryv11.Store
-	Director     *batchfactoryv11.DirectorService
-	Compiler     *batchfactoryv11.PromptCompilerService
-	Production   *batchfactoryv11.ProductionService
-	Merge        *batchfactoryv11.MergeService
-	External        *external.Service
-	LocalExecutors  *localexecutor.Service
-	LocalArtifacts  *localartifact.Store
+	BridgeSecret   string
+	ReleaseSHA     string
+	Now            func() time.Time
+	Users          BridgeUserResolver
+	Slice          int
+	RegisterV11    func(*http.ServeMux)
+	Store          batchfactoryv11.Store
+	Director       *batchfactoryv11.DirectorService
+	Compiler       *batchfactoryv11.PromptCompilerService
+	Production     *batchfactoryv11.ProductionService
+	Merge          *batchfactoryv11.MergeService
+	External       *external.Service
+	LocalExecutors *localexecutor.Service
+	LocalArtifacts *localartifact.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -53,6 +54,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	}
 
 	root := http.NewServeMux()
+	root.HandleFunc("GET /api/runtime-build-info", func(w http.ResponseWriter, req *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"service": "go-api", "git_sha": options.ReleaseSHA})
+	})
 	auth := BridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}
 	root.Handle("/api/batch-factory/v11/", auth.Middleware(v11))
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)

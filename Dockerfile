@@ -1,7 +1,11 @@
 FROM node:24.19.0-alpine
 
 WORKDIR /app
+ARG QIANTIE_RELEASE_SHA
+LABEL org.opencontainers.image.revision=$QIANTIE_RELEASE_SHA \
+      org.opencontainers.image.source="https://github.com/cui1112233/-"
 ENV NODE_ENV=production
+ENV QIANTIE_RELEASE_SHA=$QIANTIE_RELEASE_SHA
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev

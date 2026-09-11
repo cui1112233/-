@@ -22,6 +22,7 @@ const { createScriptSmartUnifiedStyleHandler } = require('./lib/script-smart-uni
 const { createScriptDirectorPipelineHandler } = require('./lib/script-director-pipeline-route');
 const { migrateLegacyScriptPromptPresets } = require('./lib/script-prompt-preset-migration');
 const { readReleaseInfo } = require('./lib/release-info');
+const { createRuntimeBuildInfoHandler } = require('./lib/runtime-build-info');
 
 // ============================================================
 // 启动服务器
@@ -77,6 +78,8 @@ app.get('/api/build-info', (req, res) => {
     ...readReleaseInfo()
   });
 });
+
+app.get('/api/runtime-build-info', createRuntimeBuildInfoHandler({ service: 'v88-node' }));
 
 // V78.3.0.20/21 final semantics: full outline generation uses one authoritative
 // backend semantic-contract/audit chain. It compiles the user's director rules,
