@@ -6,6 +6,22 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
+function loadCustomModelIdForTest() {
+  const source = read('frontend/src/shared/modelCatalog/customModelId.js')
+    .replace(/\bexport\s+/g, '');
+  return new Function(`${source}\nreturn { createCustomModelId };`)();
+}
+
+test('custom model IDs are stable and collision-safe before catalog submission', () => {
+  const { createCustomModelId } = loadCustomModelIdForTest();
+
+  assert.equal(createCustomModelId({ displayName: 'GPT 5.4', modelId: 'gpt-5.4' }), 'custom-gpt-5-4');
+  assert.equal(
+    createCustomModelId({ displayName: 'GPT 5.4', modelId: 'gpt-5.4' }, ['custom-gpt-5-4']),
+    'custom-gpt-5-4-2'
+  );
+});
+
 test('API configuration gives managers typed presets and custom model CRUD', () => {
   const source = read('frontend/src/user/pages/ApiConfigPage.jsx');
 

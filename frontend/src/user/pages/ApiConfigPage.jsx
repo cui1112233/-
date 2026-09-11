@@ -2,7 +2,8 @@ import { Button, Form, Input, InputNumber, Modal, Select, Skeleton, Space, Switc
 import { KeyRound, Plus, ShieldCheck, Trash2, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { canManageModelCatalog, getConfig } from '../../shared/api/config';
-import { createCustomModelId, createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, updateManagedModel } from '../../shared/api/modelCatalog';
+import { createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, updateManagedModel } from '../../shared/api/modelCatalog';
+import { createCustomModelId } from '../../shared/modelCatalog/customModelId';
 import { getMemberCenter } from '../../shared/api/member';
 import { PageHeader, Panel, RoleBadge } from './accountCenterShared';
 
@@ -41,17 +42,19 @@ export default function ApiConfigPage() {
   const [saving, setSaving] = useState(false);
   const [customForm] = Form.useForm();
   const [presetKeys, setPresetKeys] = useState({});
+  const [doubaoPaired, setDoubaoPaired] = useState(false);
   const canManageApi = canManageModelCatalog(config);
   const member = center?.member;
 
   const refreshModels = useCallback(async () => {
     if (!canManageApi) return;
-    const nextModels = await listManagedModels();
+    const [nextModels, pairing] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus()]);
+    const paired = pairing.executorPaired === true;
     const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
     if (doubao) {
-      const pairing = await refreshLocalDoubaoPairingStatus();
-      doubao.executorPaired = pairing.executorPaired === true;
+      doubao.executorPaired = paired;
     }
+    setDoubaoPaired(paired);
     setModels(nextModels);
   }, [canManageApi]);
 
@@ -62,12 +65,13 @@ export default function ApiConfigPage() {
       setConfig(nextConfig);
       setCenter(nextCenter);
       if (canManageModelCatalog(nextConfig)) {
-        const nextModels = await listManagedModels();
+        const [nextModels, pairing] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus()]);
+        const paired = pairing.executorPaired === true;
         const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
         if (doubao) {
-          const pairing = await refreshLocalDoubaoPairingStatus();
-          doubao.executorPaired = pairing.executorPaired === true;
+          doubao.executorPaired = paired;
         }
+        setDoubaoPaired(paired);
         setModels(nextModels);
       }
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
@@ -137,7 +141,7 @@ export default function ApiConfigPage() {
   }
 
   function isPresetReady(preset, model) {
-    if (preset.credentialMode === 'executorPairing') return model?.executorPaired === true;
+    if (preset.credentialMode === 'executorPairing') return doubaoPaired;
     return model?.hasCredential === true || Boolean(String(presetKeys[preset.id] || '').trim());
   }
 
@@ -145,7 +149,12 @@ export default function ApiConfigPage() {
     const existing = modelById.get(preset.id);
     const key = String(presetKeys[preset.id] || '').trim();
     if (preset.credentialMode === 'apiKey' && enabled && !existing?.hasCredential && !key) return message.warning('请先填写 API Key，再启用该模型');
-    if (preset.credentialMode === 'executorPairing' && enabled && !existing?.executorPaired) return message.warning('请先完成本地豆包执行器配对');
+    if (preset.credentialMode === 'executorPairing' && enabled) {
+      const pairing = await refreshLocalDoubaoPairingStatus();
+      const paired = pairing.executorPaired === true;
+      setDoubaoPaired(paired);
+      if (!paired) return message.warning('请先完成本地豆包执行器配对');
+    }
     const payload = { id: preset.id, kind: 'video', displayName: preset.displayName, enabled };
     if (key) payload.credential = key;
     try {
@@ -172,7 +181,7 @@ export default function ApiConfigPage() {
           const model = modelById.get(preset.id);
           return <div className="ac-api-status-line" key={preset.id}>
             <span className="ac-security-card-icon violet"><Video size={20} /></span>
-            <div style={{ flex: 1 }}><strong>{preset.displayName}</strong><small>{preset.description}</small>{preset.credentialMode === 'executorPairing' ? <small>{model?.executorPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}</div>
+            <div style={{ flex: 1 }}><strong>{preset.displayName}</strong><small>{preset.description}</small>{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}</div>
             <Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} />
           </div>;
         })}
