@@ -235,8 +235,10 @@ test('reference assets upload, serve and degrade for generation/clipboard', asyn
   assert.equal(file.headers['content-type'], 'image/png');
   assert.equal(file.body.length, png.length);
 
-  const secondPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYgAAAAQAAABCB0C7AAAAAElFTkSuQmCC', 'base64');
-  const secondUploaded = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/upload', token, body: { asset_type: 'character', asset_id: assetId, variant: 'source', data_url: `data:image/png;base64,${secondPng.toString('base64')}` } });
+  const legacySource = Buffer.from('legacy-source-png');
+  fs.writeFileSync(path.join(assetsDir, `${assetId}_source.png`), legacySource);
+  const secondJpg = Buffer.from('new-source-jpg');
+  const secondUploaded = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/upload', token, body: { asset_type: 'character', asset_id: assetId, variant: 'source', data_url: `data:image/jpeg;base64,${secondJpg.toString('base64')}` } });
   assert.equal(secondUploaded.status, 200);
   assert.notEqual(secondUploaded.body.url, uploaded.body.url);
   const oldFile = await requestRaw(app, uploaded.body.url, token);
@@ -244,11 +246,19 @@ test('reference assets upload, serve and degrade for generation/clipboard', asyn
   assert.equal(oldFile.body.length, png.length);
   const sourceCompatibility = await requestRaw(app, `/api/novel-panel/reference-assets/file/character/${assetId}/source`, token);
   assert.equal(sourceCompatibility.status, 200);
+  assert.equal(sourceCompatibility.body, secondJpg.toString());
 
   const main = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/use-source-as-main', token, body: { asset_type: 'character', asset_id: assetId } });
   assert.equal(main.status, 200);
   assert.equal(main.body.has_main_image, true);
   assert.equal(main.body.main_origin, 'uploaded');
+  const mainFile = await requestRaw(app, `/api/novel-panel/reference-assets/file/character/${assetId}/main`, token);
+  assert.equal(mainFile.status, 200);
+  assert.equal(mainFile.body, secondJpg.toString());
+
+  const invalidVariant = await request(app, { method: 'POST', requestPath: '/api/novel-panel/reference-assets/upload', token, body: { asset_type: 'character', asset_id: assetId, variant: 'main', data_url: dataUrl } });
+  assert.equal(invalidVariant.status, 400);
+  assert.equal(invalidVariant.body.code, 'REFERENCE_ASSET_UPLOAD_VARIANT_INVALID');
 
   const missing = await requestRaw(app, '/api/novel-panel/reference-assets/file/character/nope/source', token);
   assert.equal(missing.status, 404);

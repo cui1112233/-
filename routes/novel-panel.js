@@ -954,11 +954,14 @@ router.post('/image-settings/test', async (req, res) => {
 router.post('/reference-assets/upload', (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
+    if (body.variant !== undefined && body.variant !== 'source') {
+      return res.status(400).json({ error: '上传参考图只支持 source 版本。', code: 'REFERENCE_ASSET_UPLOAD_VARIANT_INVALID' });
+    }
     const assetType = premiumStore(req).safeAssetType(body.asset_type);
     const assetId = premiumStore(req).safeAssetId(body.asset_id);
-    const variant = premiumStore(req).safeAssetVariant(body.variant || 'source');
+    const variant = 'source';
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
-    const revision = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, variant === 'main' ? 'candidate' : 'source', payload, mime);
+    const revision = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
     const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
     return res.json({
       ok: true,
