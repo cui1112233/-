@@ -41,5 +41,6 @@ test('paired image build workflow uses the checked-out SHA and immutable tags', 
   assert.match(workflow, /QIANTIE_RELEASE_SHA=\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /qiantie-v88-node:\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /qiantie-go-api:\$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /context: backend\s+file: backend\/Dockerfile/);
   assert.doesNotMatch(workflow, /latest/);
 });
