@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { generateReferenceAsset, loadReferenceAssetImage, uploadReferenceAsset } from '../../shared/api/novelPanel';
 import { appendEntityImage, normalizeEntityImages, removeEntityImage, selectEntityImage } from '../pages/scriptEntityImages';
 import { createEntityImagePreviewLoader } from './entityImagePreviewLoader';
+import { createEntityImageRequestGuard } from './entityImageRequestGuard';
 
 function apiAssetType(assetType) {
   return assetType === 'characters' ? 'character' : 'scene';
@@ -13,18 +14,28 @@ function responseUrl(response) {
   return response?.url || response?.data?.url || response?.result?.url || '';
 }
 
-export default function EntityImagePanel({ assetType, assetId, fields, novelText, images, onChange, disabled = false }) {
+export default function EntityImagePanel({ assetType, assetId, fields, novelText, images, onChange, requestKey = assetId, disabled = false }) {
   const [draft, setDraft] = useState(() => normalizeEntityImages(images));
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [previewUrls, setPreviewUrls] = useState({});
   const inputRef = useRef(null);
   const previewGeneration = useRef(0);
+  const requestGuard = useRef(null);
+  if (!requestGuard.current) requestGuard.current = createEntityImageRequestGuard(requestKey);
+  requestGuard.current.activate(requestKey);
   const normalizedAssetType = apiAssetType(assetType);
 
   useEffect(() => {
     setDraft(normalizeEntityImages(images));
-  }, [images]);
+  }, [images, requestKey]);
+
+  useEffect(() => {
+    setUploading(false);
+    setGenerating(false);
+  }, [requestKey]);
+
+  useEffect(() => () => requestGuard.current.invalidate(), []);
 
   useEffect(() => {
     const generation = previewGeneration.current + 1;
@@ -44,10 +55,12 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
     };
   }, [draft.imageUrls.join('\u0000')]);
 
-  function updateDraft(next) {
+  function updateDraft(next, request = requestGuard.current.begin()) {
     const normalized = normalizeEntityImages(next);
-    setDraft(normalized);
-    onChange?.(normalized);
+    requestGuard.current.commit(request, () => {
+      setDraft(normalized);
+      onChange?.(normalized, request.key);
+    });
   }
 
   function selectImage(url) {
@@ -64,7 +77,8 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
     event.target.value = '';
     if (!file || disabled) return;
 
-    setUploading(true);
+    const request = requestGuard.current.begin();
+    requestGuard.current.commit(request, () => setUploading(true));
     try {
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -72,23 +86,26 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
         reader.addEventListener('error', () => reject(new Error('图片读取失败')));
         reader.readAsDataURL(file);
       });
+      if (!requestGuard.current.isCurrent(request)) return;
       const response = await uploadReferenceAsset({
         asset_type: normalizedAssetType,
         asset_id: assetId,
         variant: 'source',
         data_url: dataUrl
       });
+      if (!requestGuard.current.isCurrent(request)) return;
       const url = responseUrl(response);
       if (!url) throw new Error('上传未返回图片地址');
-      updateDraft(appendEntityImage(draft, url));
+      updateDraft(appendEntityImage(draft, url), request);
     } finally {
-      setUploading(false);
+      requestGuard.current.commit(request, () => setUploading(false));
     }
   }
 
   async function generateImage() {
     if (disabled) return;
-    setGenerating(true);
+    const request = requestGuard.current.begin();
+    requestGuard.current.commit(request, () => setGenerating(true));
     try {
       const response = await generateReferenceAsset({
         asset_type: normalizedAssetType,
@@ -96,11 +113,12 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
         description: Object.values(fields || {}).join('\n'),
         novel_text: novelText
       });
+      if (!requestGuard.current.isCurrent(request)) return;
       const url = responseUrl(response);
       if (!url) throw new Error('生成未返回图片地址');
-      updateDraft(appendEntityImage(draft, url));
+      updateDraft(appendEntityImage(draft, url), request);
     } finally {
-      setGenerating(false);
+      requestGuard.current.commit(request, () => setGenerating(false));
     }
   }
 

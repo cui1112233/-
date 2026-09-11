@@ -76,8 +76,17 @@ test('entity editor renders the image panel and completes with normalized image 
   assert.match(scriptPageSource, /setImages\(normalizeEntityImages\(entity \|\| \{\}\)\)/);
   assert.match(scriptPageSource, /className="entity-editor-layout"[\s\S]*<EntityImagePanel/);
   assert.match(scriptPageSource, /images=\{images\}/);
-  assert.match(scriptPageSource, /onChange=\{setImages\}/);
+  assert.match(scriptPageSource, /onChange=\{updateImages\}/);
   assert.match(scriptPageSource, /onChange\(\{ \.\.\.fields, \.\.\.images \}\)/);
+});
+
+test('entity editor rejects image completions from a stale editor session', () => {
+  assert.match(scriptPageSource, /editorSessionId: nextEntityEditorSessionId\(\)/);
+  assert.match(scriptPageSource, /<EntityEditor\s+key=\{activeEntity\?\.editorSessionId \|\| 'closed'\}/);
+  assert.match(scriptPageSource, /key=\{imageRequestKey\}/);
+  assert.match(scriptPageSource, /requestKey=\{imageRequestKey\}/);
+  assert.match(scriptPageSource, /sourceRequestKey !== activeImageRequestKey\.current/);
+  assert.match(scriptPageSource, /setImages\(nextImages\)/);
 });
 
 test('new entity drafts keep one stable asset ID through completion', async () => {

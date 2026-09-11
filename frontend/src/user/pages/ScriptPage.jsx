@@ -117,6 +117,7 @@ export function ScriptPage() {
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [activeEntity, setActiveEntity] = useState(null);
+  const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
@@ -895,8 +896,13 @@ export function ScriptPage() {
     setGenerationStage(nextInfo.characters.length || nextInfo.scenes.length ? 'extracted' : 'idle');
   }
 
+  function nextEntityEditorSessionId() {
+    entityEditorSessionRef.current += 1;
+    return entityEditorSessionRef.current;
+  }
+
   function openEntityEditor(type, id) {
-    setActiveEntity({ type, id, isNew: false });
+    setActiveEntity({ type, id, isNew: false, editorSessionId: nextEntityEditorSessionId() });
     setFullscreenEditor(false);
   }
 
@@ -905,7 +911,7 @@ export function ScriptPage() {
       ? { 名称: '', 身份: '', 外形: '', 性格: '' }
       : { 名称: '', 时段: '', 氛围: '', 描述: '' };
     const draftEntity = createEntity(data);
-    setActiveEntity({ type, id: draftEntity.id, isNew: true, data: draftEntity.data });
+    setActiveEntity({ type, id: draftEntity.id, isNew: true, data: draftEntity.data, editorSessionId: nextEntityEditorSessionId() });
     setFullscreenEditor(false);
   }
 
@@ -1507,8 +1513,10 @@ export function ScriptPage() {
         </Typography.Paragraph>
       </Modal>
       <EntityEditor
+        key={activeEntity?.editorSessionId || 'closed'}
         entity={activeItem}
         assetId={activeEntity?.id || ''}
+        editorSessionId={activeEntity?.editorSessionId || 0}
         type={activeEntity?.type}
         isNew={Boolean(activeEntity?.isNew)}
         open={Boolean(activeEntity)}
@@ -1676,9 +1684,12 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function EntityEditor({ entity, assetId, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, assetId, editorSessionId, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [images, setImages] = useState(() => normalizeEntityImages(entity || {}));
+  const imageRequestKey = open && assetId ? `${editorSessionId}:${assetId}` : '';
+  const activeImageRequestKey = useRef(imageRequestKey);
+  activeImageRequestKey.current = imageRequestKey;
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentError, setEnrichmentError] = useState('');
@@ -1695,6 +1706,11 @@ function EntityEditor({ entity, assetId, type, isNew, open, fullscreen, novelTex
   const title = `${isNew ? '添加' : '编辑'}${type === 'characters' ? '人物' : '场景'}`;
   const deleteLabel = type === 'characters' ? '删除人物' : '删除场景';
   const canEnrich = Boolean(String(novelText || '').trim() && entityName(fields));
+
+  function updateImages(nextImages, sourceRequestKey) {
+    if (!imageRequestKey || sourceRequestKey !== activeImageRequestKey.current) return;
+    setImages(nextImages);
+  }
 
   async function enrich() {
     if (!canEnrich) return;
@@ -1749,12 +1765,14 @@ function EntityEditor({ entity, assetId, type, isNew, open, fullscreen, novelTex
           </div> : null}
         </div>
         <EntityImagePanel
+          key={imageRequestKey}
           assetType={type}
           assetId={assetId}
           fields={fields}
           novelText={novelText}
           images={images}
-          onChange={setImages}
+          requestKey={imageRequestKey}
+          onChange={updateImages}
           disabled={!assetId}
         />
       </div>

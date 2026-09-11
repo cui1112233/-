@@ -69,6 +69,28 @@ test('preview loader revokes a URL created after cancellation', async () => {
   assert.deepEqual(revoked, ['blob:late-after-cancel']);
 });
 
+test('request guard ignores stale entity completion after switch or cancel', async () => {
+  const { createEntityImageRequestGuard } = await import('../frontend/src/user/components/entityImageRequestGuard.js');
+  const applied = [];
+  const guard = createEntityImageRequestGuard('session-a:asset-a');
+  const entityARequest = guard.begin();
+  let resolveEntityA;
+  const lateEntityACompletion = new Promise(resolve => { resolveEntityA = resolve; })
+    .then(value => guard.commit(entityARequest, () => applied.push(value)));
+
+  guard.activate('session-b:asset-b');
+  const entityBRequest = guard.begin();
+
+  assert.equal(guard.commit(entityBRequest, () => applied.push('entity-b')), true);
+  resolveEntityA('entity-a');
+  assert.equal(await lateEntityACompletion, false);
+
+  const cancelledRequest = guard.begin();
+  guard.invalidate();
+  assert.equal(guard.commit(cancelledRequest, () => applied.push('cancelled')), false);
+  assert.deepEqual(applied, ['entity-b']);
+});
+
 test('entity image panel defines the empty state and image API contracts', () => {
   const component = read('frontend/src/user/components/EntityImagePanel.jsx');
 
@@ -80,4 +102,6 @@ test('entity image panel defines the empty state and image API contracts', () =>
   assert.match(component, /removeEntityImage/);
   assert.match(component, /data_url/);
   assert.match(component, /novel_text/);
+  assert.match(component, /createEntityImageRequestGuard/);
+  assert.match(component, /requestGuard\.current\.commit/);
 });
