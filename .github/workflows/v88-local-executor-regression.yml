@@ -1,0 +1,53 @@
+name: V88 Local Executor Regression
+
+on:
+  push:
+    branches:
+      - v88
+      - fix/v88-doubao-video-tab
+      - feat/v88-local-executor-auto-update
+      - integrate/v88-local-executor-auto-update
+      - 'fix/v88-local-executor-*'
+    paths:
+      - 'local-executor/**'
+      - 'routes/local-executor-downloads.js'
+      - 'routes/shuihuo-production.js'
+      - 'routes/script-video.js'
+      - 'test/local-executor-updates.test.js'
+      - 'test/batch-factory-v11-shuihuo-bridge.test.js'
+      - 'test/script-video-local-executor.test.js'
+      - 'backend/internal/httpapi/**'
+      - 'backend/internal/localexecutor/**'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'branding/**'
+      - 'frontend/index.html'
+      - 'frontend/public/yizhan-icon.png'
+      - '.github/workflows/v88-local-executor-regression.yml'
+  workflow_dispatch:
+
+jobs:
+  local-executor-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install Node route dependencies
+        run: npm install --ignore-scripts
+      - name: Run gateway and executor route tests
+        run: node --test test/local-executor-updates.test.js test/batch-factory-v11-shuihuo-bridge.test.js test/script-video-local-executor.test.js
+      - name: Run full local executor tests
+        working-directory: local-executor
+        run: npm test
+      - name: Check local executor JavaScript syntax
+        working-directory: local-executor
+        run: npm run check
+      - name: Run Go local executor and HTTP API tests
+        working-directory: backend
+        run: go test ./...

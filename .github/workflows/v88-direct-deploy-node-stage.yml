@@ -1,0 +1,17 @@
+name: V88 Host Node Stage (Retired)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retired:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Explain replacement release path
+        run: |
+          echo 'Retired: host-stage V88 release is not a public deployment path.'
+          echo 'Build paired immutable images with V88 Unified Public Image Release.'
+          exit 64

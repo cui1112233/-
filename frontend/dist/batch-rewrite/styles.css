@@ -1121,6 +1121,7 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   display: grid;
   gap: 10px;
 }
+.version-config-prompt-stack textarea { min-height: 96px; resize: vertical; }
 .version-selection-grid {
   grid-template-columns: repeat(2, minmax(220px, 1fr));
   margin-top: 0;

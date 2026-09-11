@@ -19,6 +19,9 @@ const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const { createConfigRouter } = require('./routes/config');
+const { createModelReferenceResolver } = require('./lib/model-reference-resolver');
+const { listVisibleModels } = require('./lib/model-catalog-runtime');
+const { MODEL_KINDS } = require('./lib/model-catalog');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
@@ -35,6 +38,7 @@ const { createBatchRewriteRouter } = require('./routes/batch-rewrite');
 const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
+const { createBatchFactoryV11Router } = require('./routes/batch-factory-v11');
 const { createMySQLBatchFactoryStoreFactory } = require('./lib/batch-factory/mysql-store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
@@ -48,6 +52,8 @@ const { createNovelPanelPremiumStore } = require('./lib/novel-panel/premium-stor
 const { createNovelFetchStore } = require('./lib/novel-fetch-store');
 const { createScriptVideoRouter } = require('./routes/script-video');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
+const { createLocalExecutorDeviceRouter } = require('./routes/local-executor-device');
+const { createLocalExecutorArtifactRouter } = require('./routes/local-executor-artifact');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
 const { createPasskeyStore } = require('./lib/passkey-store');
@@ -81,7 +87,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -233,8 +239,15 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     next();
   });
 
+  // Only the MP4 artifact endpoint is mounted before express.json. Other
+  // executor calls carry JSON and must be parsed normally.
+  app.use('/api/local-executor/v1/jobs/:id/artifact', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
+
   // JSON body 解析（解除上限）
   app.use(express.json({ limit: '50mb' }));
+
+  // Forward pairing, heartbeat, claim and lease JSON after parsing.
+  app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
 
   // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {
@@ -334,16 +347,46 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/presets', createPresetsRouter(resolvedPresetStore));
   app.use('/api/script-constraint-prompts', createScriptConstraintPromptsRouter({ promptStore: resolvedScriptConstraintPromptStore }));
   app.use('/api/novel-panel/settings', apiAuth, restrictMemberNovelPanelSettings);
-  app.use('/api/novel-panel', apiAuth, trackNovelPanelUsage, novelPanelApiRouter);
+  app.use('/api/novel-panel', trackNovelPanelUsage, novelPanelApiRouter);
   app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopGateway: shuihuoGateway }));
   const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
+  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router());
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
-  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, memberStore: resolvedMemberStore }));
-  app.use('/api/config', createConfigRouter({ shuihuoGateway, memberStore: resolvedMemberStore })); // GET/POST /api/config
+  app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
+  const resolvedConfigReader = configReader || readConfig;
+  const resolvedConfigWriter = configWriter || require('./lib/shared').writeConfig;
+  const isModelReferenced = createModelReferenceResolver({
+    configReader: resolvedConfigReader,
+    batchFactoryStoreFactory: resolvedBatchFactoryStore,
+    accountReader: username => authRuntime.accountStore.getInternalAccount(username)
+  });
+  app.get('/api/models', apiAuth, (req, res) => {
+    const kind = String(req.query.kind || '').trim();
+    if (!MODEL_KINDS.includes(kind)) {
+      return res.status(400).json({ error: '模型类型不合法' });
+    }
+    const member = resolvedMemberStore.getMember(req.username);
+    if (member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
+      return res.status(403).json({ error: '尚未获得该类型 API 使用权限' });
+    }
+    return res.json({ models: listVisibleModels({
+      username: req.username,
+      kind,
+      memberStore: resolvedMemberStore,
+      configReader: resolvedConfigReader
+    }) });
+  });
+  app.use('/api/config', createConfigRouter({
+    shuihuoGateway,
+    memberStore: resolvedMemberStore,
+    configReader: resolvedConfigReader,
+    configWriter: resolvedConfigWriter,
+    isModelReferenced
+  })); // GET/POST /api/config
   app.use('/api/script-video', createScriptVideoRouter({
     shuihuoGateway,
     memberStore: resolvedMemberStore,
@@ -357,6 +400,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/platform-projects', createPlatformProjectsRouter({ shuihuoGateway }));
   app.use('/api/agent/skills', createAgentSkillsRouter(resolvedAgentSkillStore));
   app.use('/api/agent', createAgentRouter({ agentStore, skillStore: resolvedAgentSkillStore, respond: resolvedAgentResponder }));
+  // Local executor artifacts are user-owned media, so they are bridged to Go
+  // with the normal signed user identity but do not consume AI quota.
+  app.use('/api/shuihuo-production/local-executor-artifacts', apiAuth, createLocalExecutorArtifactRouter({
+    goBaseUrl: process.env.QIANTIE_GO_BASE_URL,
+    bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET
+  }));
   app.use('/api/shuihuo-production', apiAuth, requireShuihuoAiAccess, createShuihuoProductionRouter({ ...shuihuoGateway, presetStore: resolvedPresetStore }));
   // 本地存储文件夹：createStorageRouter 返回的子应用内部自带 /api/storage 前缀，
   // 此处无前缀挂载，避免前缀叠加（见 routes/storage.js）。

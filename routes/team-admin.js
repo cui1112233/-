@@ -7,7 +7,7 @@ const { governanceStoreForMemberStore, quotaState } = require('../lib/team-gover
 const { devGrantActor } = require('../lib/dev-permissions');
 const { revokePersistentSessionsForUser } = require('../lib/session-store');
 
-const API_SCOPES = ['text', 'image', 'tts', 'video'];
+const API_SCOPES = ['text', 'image', 'video', 'tts'];
 
 function createTeamAdminRouter({ memberStore, usageStore, accountStore, authRuntime } = {}) {
   if (!memberStore || !usageStore || !accountStore || !authRuntime) throw new Error('team admin dependencies are required');

@@ -1,0 +1,53 @@
+name: V88 Build Info Auth Fix Once
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - '.github/workflows/v88-build-info-auth-fix-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout v88
+        uses: actions/checkout@v4
+        with:
+          ref: v88
+          fetch-depth: 1
+
+      - name: Patch novel-panel auth boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app.js')
+          text = path.read_text()
+          old = "app.use('/api/novel-panel', apiAuth, trackNovelPanelUsage, novelPanelApiRouter);"
+          new = "app.use('/api/novel-panel', trackNovelPanelUsage, novelPanelApiRouter);"
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one novel-panel outer apiAuth mount, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Verify auth boundary regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --test tests/novel-panel-build-info-auth-boundary.test.js
+
+      - name: Commit app fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js
+          git commit -m 'fix(v88): keep novel panel build info public'
+          git push origin HEAD:v88

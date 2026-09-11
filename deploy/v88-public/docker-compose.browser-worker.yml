@@ -1,0 +1,56 @@
+# release-trigger: local-executor-public-regression-20260907
+services:
+  v88-node:
+    env_file:
+      - ./novel-fetch-121.env
+    environment:
+      QIANTIE_BASE_ENV_FILE: /run/qiantie/base.env
+      QIANTIE_121_BROWSER_WORKER_URL: http://novel-fetch-121-worker:8787
+      QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
+      QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
+      QIANTIE_121_STORAGE_STATE_SECRET: ${QIANTIE_121_STORAGE_STATE_SECRET}
+      QIANTIE_121_CLIENT_TIMEOUT_MS: "40000"
+      QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS: "55000"
+    volumes:
+      - /opt/qiantie/v88/deploy/v88-public/.env:/run/qiantie/base.env:ro
+      - /opt/qiantie/v88/data/downloads:/app/data/downloads:ro
+    depends_on:
+      novel-fetch-121-worker:
+        condition: service_healthy
+    networks:
+      default: {}
+
+  novel-fetch-121-worker:
+    image: v88-public-novel-fetch-121-worker:v88-latest
+    env_file:
+      - ./novel-fetch-121.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      QIANTIE_121_HEADED_ENABLED: "1"
+      QIANTIE_121_SESSION_DIR: /data/sessions
+      QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
+      QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
+      QIANTIE_121_STORAGE_STATE_SECRET: ${QIANTIE_121_STORAGE_STATE_SECRET}
+      QIANTIE_121_VERIFY_TIMEOUT_MS: "30000"
+      QIANTIE_121_LOGIN_TIMEOUT_MS: "45000"
+    expose:
+      - "8787"
+    volumes:
+      - novel-fetch-121-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get({host:'127.0.0.1',port:8787,path:'/healthz',headers:{'x-qiantie-internal-secret':process.env.QIANTIE_121_WORKER_SECRET}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      default: {}
+
+volumes:
+  novel-fetch-121-data:

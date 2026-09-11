@@ -1,0 +1,30 @@
+name: V88 Local Executor Public Regression
+
+on:
+  push:
+    branches:
+      - fix/v88-local-executor-public-regression-20260907
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'frontend/src/user/pages/ScriptPage.jsx'
+      - 'frontend/src/user/pages/SettingsPage.jsx'
+      - 'routes/local-executor-downloads.js'
+      - 'deploy/v88-public/docker-compose.browser-worker.yml'
+      - '.github/workflows/v88-linux-amd64-image-release.yml'
+      - '.github/workflows/v88-local-executor-windows.yml'
+      - 'tests/v88-local-executor-public-regression.test.js'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/v88-local-executor-public-regression.test.js

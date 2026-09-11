@@ -1,0 +1,17 @@
+name: V88 Linux AMD64 Public Image Release (Retired)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retired:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Explain current V88 release path
+        shell: bash
+        run: |
+          echo "The automatic Docker/GHCR V88 public release path is retired."
+          echo "Use V88 Direct Deploy Node Stage and V88 Direct Deploy Node Cutover."

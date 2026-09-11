@@ -1,0 +1,85 @@
+name: V88 Novel Fetch 121 Live Repair
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - '.github/workflows/v88-novel-fetch-121-live-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+  EXPECTED_PUBLIC_SHA: 7390234d52031e63b1f6d169b86f90f510e3c9e2
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact V88 repair source
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+
+      - name: Preflight exact current public Node SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15)
+          current_sha="$(timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "curl -fsS --max-time 5 http://127.0.0.1:18081/api/build-info | python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"git_sha\", \"\"))'")"
+          echo "current_public_node_sha=$current_sha"
+          test "$current_sha" = "$EXPECTED_PUBLIC_SHA"
+
+      - name: Repair only Node to Browser Worker internal auth
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15)
+          timeout 180 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" 'bash -s' < deploy/v88-direct/repair-121-worker-secret-host.sh
+
+      - name: Verify repaired internal path and unchanged application SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15)
+          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$EXPECTED_PUBLIC_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          expected_sha="$1"
+          ENV_FILE=/opt/qiantie/v88/shared/env/v88-stage.env
+          NETWORK=v88-public_qiantie_internal
+          worker_id="$(docker ps --filter 'name=v88-public-browser-worker' --format '{{.ID}}' | head -n1)"
+          test -n "$worker_id"
+          worker_ip="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$worker_id")"
+          node_secret="$(grep '^QIANTIE_121_WORKER_SECRET=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+          test -n "$node_secret"
+          health="$(curl -fsS --connect-timeout 2 --max-time 5 -H "x-qiantie-internal-secret: $node_secret" "http://$worker_ip:8787/healthz")"
+          echo "worker_health=$health"
+          current_sha="$(curl -fsS --max-time 5 http://127.0.0.1:18081/api/build-info | python3 -c 'import json,sys; print(json.load(sys.stdin).get("git_sha", ""))')"
+          echo "after_public_node_sha=$current_sha"
+          test "$current_sha" = "$expected_sha"
+          systemctl is-active --quiet qiantie-v88-node-stage.service
+          REMOTE
+
+      - name: Verify public route still serves exact application SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          public_info="$(curl -fsS --max-time 15 "http://$ECS_HOST/api/build-info")"
+          public_sha="$(printf '%s' "$public_info" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("git_sha", ""))')"
+          echo "external_public_sha=$public_sha"
+          test "$public_sha" = "$EXPECTED_PUBLIC_SHA"
+          curl -fsS --max-time 15 "http://$ECS_HOST/" >/dev/null

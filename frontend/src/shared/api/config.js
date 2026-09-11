@@ -4,6 +4,10 @@ export function getConfig() {
   return apiRequest('/api/config');
 }
 
+export function canManageModelCatalog(config) {
+  return config?.canManageApi === true;
+}
+
 export function saveConfig(config) {
   return apiRequest('/api/config', {
     method: 'POST',

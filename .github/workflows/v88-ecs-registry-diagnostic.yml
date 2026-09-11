@@ -1,0 +1,134 @@
+name: V88 ECS Registry Diagnostic
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - '.github/workflows/v88-ecs-registry-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+  PROBE_IMAGE: ghcr.io/cui1112233/qiantie-v88:node-emergency-f5e67f6fc7f7
+
+jobs:
+  registry-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Inspect current 121 deployment safely
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/qiantie/v88/deploy/v88-public
+          test -s novel-fetch-121.env
+          test -s docker-compose.browser-worker.yml
+          compose=(docker compose --env-file "$PWD/novel-fetch-121.env" -f docker-compose.yml -f docker-compose.browser-worker.yml)
+          "${compose[@]}" config >/dev/null
+          "${compose[@]}" ps v88-node novel-fetch-121-worker || true
+
+          node_id="$(${compose[@]} ps -q v88-node || true)"
+          worker_id="$(${compose[@]} ps -q novel-fetch-121-worker || true)"
+          echo "node_present=$([ -n "$node_id" ] && echo true || echo false)"
+          echo "worker_present=$([ -n "$worker_id" ] && echo true || echo false)"
+          if [ -n "$worker_id" ]; then
+            echo "worker_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$worker_id")"
+          fi
+
+          file_secret="$(awk -F= '$1=="QIANTIE_121_WORKER_SECRET" {value=substr($0,index($0,"=")+1)} END {print value}' novel-fetch-121.env)"
+          test -n "$file_secret"
+          if [ -n "$node_id" ]; then
+            node_secret="$(docker exec "$node_id" node -e 'process.stdout.write(String(process.env.QIANTIE_121_WORKER_SECRET || ""))')"
+            echo "node_secret_matches_env=$([ "$node_secret" = "$file_secret" ] && echo true || echo false)"
+            echo "node_image=$(docker inspect "$node_id" --format '{{.Config.Image}}')"
+          fi
+          if [ -n "$worker_id" ]; then
+            worker_secret="$(docker exec "$worker_id" node -e 'process.stdout.write(String(process.env.QIANTIE_121_WORKER_SECRET || ""))')"
+            echo "worker_secret_matches_env=$([ "$worker_secret" = "$file_secret" ] && echo true || echo false)"
+            echo "worker_image=$(docker inspect "$worker_id" --format '{{.Config.Image}}')"
+          fi
+          REMOTE
+
+      - name: Compare 121 secret sources without revealing values
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/qiantie/v88/deploy/v88-public
+          test -s novel-fetch-121.env
+          node_id="$(docker compose -f docker-compose.yml ps -q v88-node)"
+          test -n "$node_id"
+
+          file_secret="$(awk -F= '$1=="QIANTIE_121_WORKER_SECRET" {value=substr($0,index($0,"=")+1)} END {print value}' novel-fetch-121.env)"
+          node_secret="$(docker exec "$node_id" node -e 'process.stdout.write(String(process.env.QIANTIE_121_WORKER_SECRET || ""))')"
+          test -n "$file_secret"
+
+          if [ -n "$node_secret" ]; then
+            echo 'node_worker_secret_present=true'
+          else
+            echo 'node_worker_secret_present=false'
+          fi
+          if [ "$node_secret" = "$file_secret" ]; then
+            echo 'node_worker_secret_matches_env_file=true'
+          else
+            echo 'node_worker_secret_matches_env_file=false'
+          fi
+
+          if grep -q 'QIANTIE_121_WORKER_SECRET' docker-compose.yml; then
+            echo 'base_compose_defines_worker_secret=true'
+          else
+            echo 'base_compose_defines_worker_secret=false'
+          fi
+          if grep -q 'QIANTIE_121_CREDENTIAL_SECRET' docker-compose.yml; then
+            echo 'base_compose_defines_credential_secret=true'
+          else
+            echo 'base_compose_defines_credential_secret=false'
+          fi
+          if grep -q 'QIANTIE_121_STORAGE_STATE_SECRET' docker-compose.yml; then
+            echo 'base_compose_defines_storage_state_secret=true'
+          else
+            echo 'base_compose_defines_storage_state_secret=false'
+          fi
+          REMOTE
+
+      - name: Probe ECS to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          ssh_cmd=(ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST")
+          "${ssh_cmd[@]}" 'set -e; echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; getent ahostsv4 ghcr.io | head -n 2; code=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 20 https://ghcr.io/v2/ || true); echo "ghcr_v2_http=$code"; test "$code" = 401 || test "$code" = 200'
+          printf '%s' "$GHCR_TOKEN" | timeout 45 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
+          set +e
+          timeout 45 "${ssh_cmd[@]}" "timeout 30 docker manifest inspect '$PROBE_IMAGE' >/dev/null"
+          status=$?
+          set -e
+          "${ssh_cmd[@]}" 'docker logout ghcr.io >/dev/null 2>&1 || true'
+          echo "manifest_probe_exit=$status"
+          test "$status" -eq 0

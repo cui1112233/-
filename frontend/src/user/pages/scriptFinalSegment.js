@@ -1,7 +1,8 @@
 // 剧本生成“最终分段”：模型只管输出提示词（画面内容），
 // 程序把「已提取的人物/场景生成的基础设定 + 用户约束设置」注入每个分段卡片，
 // 与小说面板“按秒数分段并合并”的最终组装逻辑一致。
-import { getShotCardsWithinDuration, splitContinuousTimeline, splitTimelineBlocks } from './scriptShotOutput.js';
+import { getShotCards } from './scriptShotOutput.js';
+import { shouldInjectSmartUnifiedStyle } from './scriptGenerationRules.js';
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -61,19 +62,22 @@ function enabledBody(layer) {
 }
 
 function buildConstraintParts(constraints, visualStyle = '') {
-  // 后续沿用开关不影响本次卡片；是否展示文字约束只由各子开关决定。
-  // 与服务端生成请求保持一致：开启画面前缀时，小说提取阶段得到的统一风格
-  // 也属于本次前缀。否则 AI 实际收到了风格，最终卡片却看不到它。
-  const prefix = [
-    constraints?.prefix?.enabled === true ? text(visualStyle) : '',
-    enabledBody(constraints?.prefix)
-  ].filter(Boolean).join('\n');
+  // 智能统一的“系统元提示词”只负责产出十一项全片视觉基线，绝不能进入最终视频 prompt。
+  // 新生成结果优先使用本次独立分析得到的 smartUnifiedStyle；旧历史没有该字段时才回退
+  // 到人物/场景提取阶段已有的 visualStyle。只有两者都没有时才保留旧版 preset body 兼容。
+  const smartUnified = shouldInjectSmartUnifiedStyle(constraints);
+  const resolvedSmartStyle = smartUnified
+    ? (text(constraints?.prefix?.smartUnifiedStyle) || text(visualStyle))
+    : '';
+  const prefix = smartUnified
+    ? (resolvedSmartStyle || enabledBody(constraints?.prefix))
+    : enabledBody(constraints?.prefix);
   const quality = enabledBody(constraints?.quality);
   const restriction = enabledBody(constraints?.restriction);
   const negative = enabledBody(constraints?.negative);
   return {
     leading: [
-    prefix && `【画面前缀】\n${prefix}`,
+      prefix && `【画面前缀】\n${prefix}`,
       (quality || restriction) && `【画质约束】\n${[quality, restriction].filter(Boolean).join('\n')}`
     ].filter(Boolean).join('\n\n'),
     negative: negative ? `负面提示词：\n${negative}` : ''
@@ -104,7 +108,7 @@ export function stripBaseSetupSection(text) {
         || /^[（(]?\d+\s*[-—~]\s*\d+\s*(?:s|秒)[)）]/.test(trimmed)
         || trimmed === '';
       if (boundary) inSetup = false;
-      else continue; // 跳过基础设定段内的人物/场景行
+      else continue;
     }
     out.push(line);
   }
@@ -211,10 +215,8 @@ export function unitTotalSeconds(text) {
 
 // 把一张模型输出卡组装为最终分段卡：程序统一命名 + 基础设定 + 约束 + 画面内容
 export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 0, duration }) {
-  // 历史草稿没有总开关字段时，基础设定沿用原本默认开启的行为；只有明确关闭才隐藏。
   const baseOn = constraints?.baseSetup?.enabled === true;
   const { leading: leadingConstraints, negative: negativeConstraint } = buildConstraintParts(constraints, extractInfo?.visualStyle);
-  // 模块标题统一由程序命名：剥离基础设定与模块标题后重新生成“### 分镜一（总时长：Xs）”
   const target = targetSeconds(duration);
   let body = stripLegacySharedSetupSections(card);
   body = stripBaseSetupSection(body);
@@ -222,9 +224,6 @@ export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 
   const rawTotal = unitTotalSeconds(card) ?? unitTotalSeconds(body);
   const total = rawTotal ? Math.min(rawTotal, target) : null;
   body = stripUnitHeading(body);
-  // 无论用户是否启用文字约束，都先清理模型擅自输出的约束标题。
-  // 这样 Q 版等格式不能通过返回“【画面前缀】”绕过前缀开关；
-  // 最终只由下方按当前开关重新注入的约束决定是否展示。
   body = stripConstraintLines(body);
   body = clampTimelineToTarget(body, target);
   const parts = [`### 分镜${chineseOrdinal(index)}${total ? `（总时长：${total}s）` : ''}`];
@@ -239,39 +238,9 @@ export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 
 export function buildFinalSegments({ output, extractInfo, constraints, format, duration, mode }) {
   const textOutput = String(output || '').trim();
   if (!textOutput) return [];
-  const target = targetSeconds(duration);
-  let cards = [];
-  if (mode === 'segmented' || mode === undefined) {
-    // 分段开头（或未指定 mode）：优先保留 AI 的剧情单元边界（### 分镜N 标题），兜底按目标秒数切段
-    // 剧情模式的 [时间]镜头N 是单元内部镜头，先按模块/目标时长归并，避免一段剧情被拆成多张卡。
-    if (format === 'screenplay') {
-      const blocks = splitTimelineBlocks(textOutput, target);
-      if (blocks.length >= 2) cards = blocks;
-    }
-    if (!cards.length) cards = getShotCardsWithinDuration(format, textOutput, duration);
-    else cards = cards.flatMap(card => {
-      const pieces = splitContinuousTimeline(card, target);
-      return pieces.length > 1 ? pieces : [card];
-    });
-    if (!cards.length && format !== 'shortdrama') {
-      const segments = splitContinuousTimeline(textOutput, target);
-      if (segments.length >= 2) cards = segments;
-    }
-    if (!cards.length && format !== 'shortdrama') {
-      const blocks = splitTimelineBlocks(textOutput, target);
-      if (blocks.length >= 2) cards = blocks;
-    }
-  } else if (format !== 'shortdrama') {
-    // 非分段模式：AI 按小说面板规则输出连续总时间轴，系统按 10s/15s 切分为独立分镜卡。
-    // 即使 AI 误输出 ### 分镜N 标题，也统一按目标秒数切卡，保证单卡不超过模型生成能力。
-    const segments = splitContinuousTimeline(textOutput, target);
-    if (segments.length >= 2) cards = segments;
-    else {
-      const blocks = splitTimelineBlocks(textOutput, target);
-      if (blocks.length >= 2) cards = blocks;
-    }
-  }
-  if (!cards.length) cards = [textOutput];
+  // 外层卡片只由统一的 ### 分镜N 标题决定；format、mode 和 duration
+  // 不再触发任何兼容解析或生成后的二次切段。
+  const cards = getShotCards(format, textOutput);
   return cards
     .map((card, index) => buildFinalSegmentCard(card, { extractInfo, constraints, index, duration }))
     .filter(Boolean);

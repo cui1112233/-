@@ -127,6 +127,7 @@ test('preview and submit keep version/profile semantics but upload and verify on
   const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
   assert.equal(result.success_groups, 1);
   assert.equal(result.groups[0].items[0].remote_receipt.remote_record.status, '完成');
+  assert.equal(result.groups[0].items[0].remote_receipt.confirmation_status, 'confirmed');
   const actions = f.calls.filter(([kind]) => kind === 'action').map(([, input]) => input.action);
   assert.equal(actions.includes('upload'), true);
   assert.equal(actions.includes('book_list'), true);
@@ -147,7 +148,26 @@ test('an upload response without a verifiable receipt stays accepted_pending ins
   assert.equal(f.docs.get('10001').meta.siteSubmitStatus, 'accepted_pending');
 });
 
-test('remote record verification reports parameter mismatch rather than claiming a complete match', async () => {
+test('a verified upload receipt still stays accepted_pending until book_list confirms the exact record', async () => {
+  const f = fixture();
+  f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
+  await f.service.syncConfigs('alice');
+  const original = f.browserClient.action.bind(f.browserClient);
+  f.browserClient.action = async input => input.action === 'book_list'
+    ? { ok: true, body: JSON.stringify({ success: true, data: [] }) }
+    : original(input);
+  const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
+  const item = result.groups[0].items[0];
+  const meta = f.docs.get('10001').meta;
+  assert.equal(item.status, 'accepted_pending');
+  assert.equal(item.remote_receipt.confirmation_status, 'pending');
+  assert.equal(result.accepted_groups, 1);
+  assert.equal(meta.siteSubmitStatus, 'accepted_pending');
+  assert.deepEqual(meta.siteSubmitAcceptedVersions, ['ai1']);
+  assert.deepEqual(meta.siteSubmitDoneVersions || [], []);
+});
+
+test('remote record verification reports parameter mismatch and keeps final state accepted_pending', async () => {
   const f = fixture();
   f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
   await f.service.syncConfigs('alice');
@@ -156,8 +176,45 @@ test('remote record verification reports parameter mismatch rather than claiming
     ? { ok: true, body: JSON.stringify({ success: true, data: [{ id: 91, bookid: '10001', book_platform: 7, gender: 1, style: 303, jian_data: JSON.stringify({ jieya: { jieya_num: 1 }, gunping: { gunping_num: 7 } }) }] }) }
     : original(input);
   const result = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
-  const remote = result.groups[0].items[0].remote_receipt.remote_record;
+  const item = result.groups[0].items[0];
+  const remote = item.remote_receipt.remote_record;
   assert.equal(remote.status, '待确认');
   assert.equal(remote.found, true);
   assert.ok(remote.mismatches.length >= 1);
+  assert.equal(item.status, 'accepted_pending');
+  assert.equal(item.remote_receipt.confirmation_status, 'pending');
+  assert.equal(f.docs.get('10001').meta.siteSubmitStatus, 'accepted_pending');
+});
+
+test('accepted_pending is later confirmed and promoted to submitted without uploading the file again', async () => {
+  const f = fixture();
+  f.sessionStore.browser = { mode: 'browser_worker', sessionKey: 'opaque-session', targetUsername: 'site-user', baseUrl: 'http://two.121w.com/tttadmin', status: 'ready' };
+  await f.service.syncConfigs('alice');
+  const original = f.browserClient.action.bind(f.browserClient);
+  let confirmReady = false;
+  f.browserClient.action = async input => {
+    if (input.action === 'book_list' && !confirmReady) {
+      return { ok: true, body: JSON.stringify({ success: true, data: [] }) };
+    }
+    return original(input);
+  };
+
+  const first = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
+  assert.equal(first.groups[0].items[0].status, 'accepted_pending');
+  const uploadsAfterFirst = f.calls.filter(([kind, input]) => kind === 'action' && input?.action === 'upload').length;
+  assert.equal(uploadsAfterFirst, 1);
+
+  confirmReady = true;
+  const second = await f.service.submit('alice', { mode: 'selected', ids: ['10001'], versions: ['ai1'] });
+  const item = second.groups[0].items[0];
+  const uploadsAfterSecond = f.calls.filter(([kind, input]) => kind === 'action' && input?.action === 'upload').length;
+  const meta = f.docs.get('10001').meta;
+  assert.equal(uploadsAfterSecond, uploadsAfterFirst);
+  assert.equal(item.confirmation_only, true);
+  assert.equal(item.remote_receipt.confirmation_status, 'confirmed');
+  assert.equal(item.status, 'submitted');
+  assert.equal(meta.siteSubmitStatus, 'submitted');
+  assert.deepEqual(meta.siteSubmitAcceptedVersions, []);
+  assert.deepEqual(meta.siteSubmitDoneVersions, ['ai1']);
+  assert.equal(meta.siteSubmitPendingConfirmations?.ai1, undefined);
 });

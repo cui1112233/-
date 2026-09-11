@@ -1,0 +1,117 @@
+name: BF11 Merge Public Stage
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - 'deploy/v88-public/MERGE-STAGE-REQUEST'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bf11-merge-public-stage
+  cancel-in-progress: false
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+  V88_ROOT: /opt/qiantie/v88
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          for attempt in 1 2 3 4 5; do
+            if timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null && [ -s "$HOME/.ssh/known_hosts" ]; then
+              break
+            fi
+            [ "$attempt" -eq 5 ] && { echo 'STATUS=BLOCKED unable to obtain ECS SSH host key'; exit 1; }
+            sleep 2
+          done
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Guard production merge.env before any mutation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+          timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$V88_ROOT" <<'REMOTE'
+          set -Eeuo pipefail
+          root="$1"
+          dir="$root/deploy/v88-public"
+          envf="$dir/merge.env"
+          base="$dir/docker-compose.yml"
+          test -s "$base"
+          test -s "$envf" || { echo 'STATUS=BLOCKED missing deploy/v88-public/merge.env'; exit 42; }
+          required='QIANTIE_MERGE_WORKER_SECRET QIANTIE_MERGE_REDIS_PASSWORD QIANTIE_MERGE_REDIS_URL QIANTIE_MERGE_TOS_ENDPOINT QIANTIE_MERGE_TOS_REGION QIANTIE_MERGE_TOS_BUCKET QIANTIE_MERGE_TOS_ACCESS_KEY QIANTIE_MERGE_TOS_SECRET_KEY QIANTIE_MERGE_TOS_PUBLIC_BASE_URL'
+          for key in $required; do
+            value="$(sed -n "s/^${key}=//p" "$envf" | tail -n1 | tr -d '\r')"
+            test -n "$value" || { echo "STATUS=BLOCKED missing key:$key"; exit 42; }
+          done
+          echo 'STATUS=READY merge.env required keys present (values not printed)'
+          REMOTE
+
+      - name: Build linux amd64 Merge Worker image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          short="${GITHUB_SHA:0:12}"
+          image="qiantie-merge-worker:public-v88-${short}-amd64"
+          docker build --platform linux/amd64 -f backend/Dockerfile.merge-worker -t "$image" backend
+          docker save "$image" | gzip -1 > /tmp/merge-worker-image.tar.gz
+          printf '%s' "$image" > /tmp/merge-worker-image.txt
+
+      - name: Upload worker image and overlay
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+          scp_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+          timeout 240 scp "${scp_opts[@]}" /tmp/merge-worker-image.tar.gz "$ECS_USER@$ECS_HOST:/tmp/v88-merge-worker-image.tar.gz"
+          timeout 60 scp "${scp_opts[@]}" deploy/v88-public/docker-compose.merge.yml "$ECS_USER@$ECS_HOST:/tmp/docker-compose.merge.yml"
+          image="$(cat /tmp/merge-worker-image.txt)"
+          timeout 180 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$V88_ROOT" "$image" <<'REMOTE'
+          set -Eeuo pipefail
+          root="$1"
+          image="$2"
+          dir="$root/deploy/v88-public"
+          install -m 0644 /tmp/docker-compose.merge.yml "$dir/docker-compose.merge.yml"
+          gzip -dc /tmp/v88-merge-worker-image.tar.gz | docker load >/dev/null
+          export QIANTIE_MERGE_WORKER_IMAGE="$image"
+          cd "$dir"
+          docker compose -f docker-compose.yml -f docker-compose.merge.yml config >/tmp/v88-merge-stage.config.yml
+          docker compose -f docker-compose.yml -f docker-compose.merge.yml up -d --no-deps merge-redis
+          for i in $(seq 1 30); do
+            state="$(docker inspect -f '{{.State.Health.Status}}' v88-public-merge-redis-1 2>/dev/null || true)"
+            [ "$state" = healthy ] && break
+            [ "$i" -eq 30 ] && { echo 'STATUS=FAILED merge-redis unhealthy'; exit 1; }
+            sleep 2
+          done
+          docker compose -f docker-compose.yml -f docker-compose.merge.yml up -d --no-deps merge-worker
+          sleep 3
+          running="$(docker inspect -f '{{.State.Running}}' v88-public-merge-worker-1 2>/dev/null || true)"
+          [ "$running" = true ] || { echo 'STATUS=FAILED merge-worker not running'; exit 1; }
+          echo "STATUS=STAGED merge-worker-image=$image slice-unchanged=true"
+          rm -f /tmp/v88-merge-worker-image.tar.gz /tmp/docker-compose.merge.yml
+          REMOTE

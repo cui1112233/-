@@ -1,0 +1,102 @@
+name: BF11 Merge Public Preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v88]
+    paths:
+      - '.github/workflows/bf11-merge-public-preflight.yml'
+      - 'deploy/v88-public/MERGE-PREFLIGHT-REQUEST'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bf11-merge-public-preflight
+  cancel-in-progress: true
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+  V88_ROOT: /opt/qiantie/v88
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Read-only bounded ECS merge preflight
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
+          timeout 55 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$V88_ROOT" <<'REMOTE'
+          set -Eeuo pipefail
+          root="$1"
+          public_dir="$root/deploy/v88-public"
+          base_env="$public_dir/.env"
+
+          echo '=== MERGE_PUBLIC_PREFLIGHT_V2_BEGIN ==='
+
+          # Non-secret runtime setting only.
+          if [ -f "$base_env" ]; then
+            slice="$(sed -n 's/^QIANTIE_BATCH_FACTORY_V11_SLICE=//p' "$base_env" | tail -n1 | tr -d '\r' || true)"
+            case "$slice" in
+              ''|*[!0-9]*) echo 'SLICE_VALUE=UNKNOWN' ;;
+              *) echo "SLICE_VALUE=$slice" ;;
+            esac
+          else
+            echo 'SLICE_VALUE=UNKNOWN'
+          fi
+
+          echo '--- merge/redis/tos env key names only ---'
+          for f in "$base_env" "$public_dir/merge.env"; do
+            if [ -f "$f" ]; then
+              echo "ENV_FILE_PRESENT:${f#$root/}"
+              timeout 3 sed -n 's/=.*$//p' "$f" \
+                | grep -Ei '(^|_)(MERGE|REDIS|TOS)(_|$)' \
+                | sort -u || true
+            fi
+          done
+
+          echo '--- redis container presence ---'
+          containers="$(timeout 8 docker ps --format '{{.Names}}|{{.Image}}' 2>/dev/null || true)"
+          if printf '%s\n' "$containers" | grep -qi redis; then
+            echo 'REDIS_CONTAINER_PRESENT=true'
+            printf '%s\n' "$containers" | grep -i redis | sed -E 's/\|.*$/|IMAGE_REDACTED/'
+          else
+            echo 'REDIS_CONTAINER_PRESENT=false'
+          fi
+
+          echo '--- merge worker presence ---'
+          if printf '%s\n' "$containers" | grep -qi 'merge-worker'; then
+            echo 'MERGE_WORKER_PRESENT=true'
+          else
+            echo 'MERGE_WORKER_PRESENT=false'
+          fi
+
+          echo '--- go-api identity ---'
+          printf '%s\n' "$containers" | grep '^v88-public-go-api-1|' || echo 'V88_GO_API_NOT_LISTED'
+
+          echo '=== MERGE_PUBLIC_PREFLIGHT_V2_END ==='
+          REMOTE

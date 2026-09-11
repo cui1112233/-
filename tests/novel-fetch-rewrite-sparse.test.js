@@ -24,16 +24,21 @@ function loadRewriteWithLocalStubs() {
 }
 
 test('稀疏选择只生成 AI1 和 AI5，并使用各自方案及两类公共提示词', async () => {
-  const { generateAiVersions } = loadRewriteWithLocalStubs();
+  const { generateAiVersion } = loadRewriteWithLocalStubs();
+  const { createTargetAwareAiGenerator } = require('../lib/novel-fetch-workshop/target-rewrite');
+  const generateAiVersions = createTargetAwareAiGenerator({ generateAiVersion });
   const saved = [];
   const prompts = [];
   const logs = [];
   const meta = {
-    bookId: 'book-1', originalStatus: 'done', selectedVersions: ['original', 'ai1', 'ai5'],
-    aiSlotMethods: { ai1: 'instruction', ai5: 'high_imitation' }, aiGeneratedVersions: []
+    bookId: 'book-1', originalStatus: 'done', targetVersions: ['original', 'ai1', 'ai5'],
+    aiSlotMethodsSnapshot: { ai1: 'instruction', ai5: 'high_imitation' }, aiGeneratedVersions: []
   };
   const tasks = {
     async readOriginal() { return '第一行\n第二行'; },
+    async readVersionText(_owner, _id, version) {
+      return saved.find(item => item[0] === version)?.[1] || '';
+    },
     async saveVersionText(_owner, _id, version, text) { saved.push([version, text]); },
     async getTask() { return { meta }; },
     async updateTaskMeta(_owner, _id, patch) { Object.assign(meta, patch); },
@@ -48,7 +53,7 @@ test('稀疏选择只生成 AI1 和 AI5，并使用各自方案及两类公共�
     async chatCompletion(_settings, messages) { prompts.push(messages.map(item => item.content).join('\n')); return { text: '改写后的第一行' }; }
   };
 
-  const result = await generateAiVersions({ configStore, tasks, username: 'alice', task: meta, versions: meta.selectedVersions, slotMethods: meta.aiSlotMethods, ai });
+  const result = await generateAiVersions({ configStore, tasks, username: 'alice', task: meta, ai });
 
   assert.equal(result.status, 'done');
   assert.deepEqual(saved.map(item => item[0]), ['ai1', 'ai5']);

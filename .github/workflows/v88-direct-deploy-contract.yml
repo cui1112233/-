@@ -1,0 +1,39 @@
+name: V88 Unified Public Release Contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - v88
+  push:
+    branches:
+      - v88
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v88-unified-public-release-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Verify V88 unified public release contracts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --test \
+            tests/v88-build-info-release.test.js \
+            tests/v88-public-unified-topology.test.js \
+            tests/v88-public-release-identity.test.js \
+            tests/v88-public-host-stage-retirement.test.js

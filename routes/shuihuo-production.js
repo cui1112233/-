@@ -3,9 +3,10 @@ const http = require('node:http');
 const https = require('node:https');
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig } = require('../lib/shared');
-const { getDefaultVideoModels } = require('../lib/video-model-catalog');
+const { getVideoApiKey, readConfig } = require('../lib/shared');
+const { bridgePayload } = require('../lib/batch-factory-v11/go-proxy');
 const { listPublishedForSlot, resolveSystemPresetBody, slotDefinition } = require('../lib/system-preset-catalog');
+const { getDefaultVideoModels } = require('../lib/video-model-catalog');
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -13,7 +14,7 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 function signBridgeRequest(secret, { username, isOwner, issuedAt, method, pathname }) {
-  const payload = [username, issuedAt, String(isOwner), method, pathname].join('\n');
+  const payload = bridgePayload({ username, issuedAt, isOwner: String(isOwner), method, pathname });
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
 }
 
@@ -42,7 +43,7 @@ function accountAIConfigPayload(config) {
   const imageBaseURL = String(config?.image?.baseUrl || '').trim();
   const imageModel = String(config?.image?.model || '').trim();
   const imageAPIKey = String(config?.image?.apiKey || '').trim();
-  const videoAPIKey = String(config?.video?.apiKey || '').trim();
+  const videoAPIKey = getVideoApiKey(config, 'yd');
   const text = baseUrl && model && apiKey
     ? { provider: provider || 'custom', baseUrl, model, apiKey }
     : null;
@@ -236,10 +237,14 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStor
   router.use(authenticate);
   router.get('/models', (req, res) => {
     const accountConfig = configReader(req.auth.account.username);
-    const h3Configured = Boolean(String(accountConfig?.video?.apiKey || process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim());
-    const models = getDefaultVideoModels({ h3Configured }).map(model => model.key === 'yd2-mini-video'
-      ? { ...model, configured: Boolean(String(accountConfig?.video?.apiKey || '').trim()) }
-      : model);
+    const models = getDefaultVideoModels({
+      h3Configured: Boolean(getVideoApiKey(accountConfig, 'h3') || process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY)
+    }).map(model => {
+      if (model.key === 'yd2-mini-video') {
+        return { ...model, configured: Boolean(getVideoApiKey(accountConfig, 'yd')) };
+      }
+      return model;
+    });
     return res.json({ models });
   });
   router.get('/preset-slots', (req, res) => {

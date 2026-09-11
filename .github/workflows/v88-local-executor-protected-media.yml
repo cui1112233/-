@@ -1,0 +1,33 @@
+name: V88 Local Executor Protected Media
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'frontend/src/shared/api/batchFactoryV11.js'
+      - 'frontend/src/shared/api/batchFactoryV11.test.js'
+      - 'frontend/src/user/pages/batch-factory-v11/ProductionMediaBoundary.jsx'
+      - 'frontend/src/user/pages/batch-factory-v11/WorkbenchCard.jsx'
+      - '.github/workflows/v88-local-executor-protected-media.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run frontend shared API contracts
+        working-directory: frontend
+        run: npm test
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm run build

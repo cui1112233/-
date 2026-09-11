@@ -1,0 +1,27 @@
+name: V88 Local Executor Available Account
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'backend/internal/app/local_executor_video_client.go'
+      - 'backend/internal/app/local_executor_video_client_readiness_test.go'
+      - '.github/workflows/v88-local-executor-available-account.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Run local video readiness contract
+        working-directory: backend
+        run: go test ./internal/app

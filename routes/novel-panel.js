@@ -17,6 +17,7 @@ const { isPlainObject, isValidProjectId } = require('../lib/novel-panel/contract
 const { createNovelPanelRuntime } = require('../lib/novel-panel/runtime');
 const { createNovelPanelHistoryStore } = require('../lib/novel-panel/history-store');
 const { createNovelPanelPremiumStore, imageSettingsFromAccountConfig, normalizeImageBaseUrl } = require('../lib/novel-panel/premium-store');
+const { verifyReferenceAssetSignature } = require('../lib/reference-asset-public-url');
 const {
   validateOutlineApplyGate,
   validateOutlineShotApplyGate,
@@ -90,6 +91,31 @@ const V78_BUILD_INFO = {
 
 router.get('/build-info', (req, res) => {
   res.json(V78_BUILD_INFO);
+});
+
+// H3 workers cannot send the user's browser authorization header. This endpoint
+// exposes one immutable asset revision only when its short-lived HMAC signature
+// is valid; it deliberately sits before apiAuth for provider-side image fetches.
+router.get('/reference-assets/public/:username/:assetType/:assetId/:variant', (req, res) => {
+  try {
+    const username = String(req.params.username || '').trim();
+    const assetStore = premiumStore(req);
+    const assetType = assetStore.safeAssetType(req.params.assetType);
+    const assetId = assetStore.safeAssetId(req.params.assetId);
+    const variant = assetStore.safeAssetVariant(req.params.variant);
+    const expiresAt = Number(req.query.expires);
+    if (!verifyReferenceAssetSignature({ username, assetType, assetId, variant, expiresAt }, req.query.sig)) return res.status(403).json({ error: '参考图链接已失效' });
+    const filePath = assetStore.assetFilePath(username, assetType, assetId, variant);
+    if (!filePath) return res.status(404).json({ error: '参考图片不存在。' });
+    const extension = path.extname(filePath).toLowerCase();
+    const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg';
+    res.set('Cache-Control', 'private, max-age=300');
+    res.set('Content-Type', mime);
+    res.set('X-Content-Type-Options', 'nosniff');
+    return res.sendFile(filePath);
+  } catch (error) {
+    return res.status(400).json({ error: '参考图链接无效' });
+  }
 });
 
 router.use(apiAuth);
@@ -956,17 +982,18 @@ router.post('/reference-assets/upload', (req, res) => {
     const body = isPlainObject(req.body) ? req.body : {};
     const assetType = premiumStore(req).safeAssetType(body.asset_type);
     const assetId = premiumStore(req).safeAssetId(body.asset_id);
-    const variant = premiumStore(req).safeAssetVariant(body.variant || 'source');
+    if (body.variant && body.variant !== 'source') throw new Error('上传图片仅支持 source 类型');
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
-    const filePath = premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, variant, payload, mime);
+    const { revision, filePath } = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
     const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
     return res.json({
       ok: true,
       asset_id: assetId,
       asset_type: assetType,
-      variant,
+      variant: revision,
+      revision,
       file_name: path.basename(filePath),
-      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, variant),
+      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision),
       ...metadata
     });
   } catch (error) {
@@ -1128,10 +1155,10 @@ router.post('/reference-assets/generate', async (req, res) => {
         if (!imageBuffer || !imageBuffer.length) throw new Error('图片AI未返回可用的图像内容。');
         const assetType = premiumStore(req).safeAssetType(text(body.asset_type) || 'character');
         const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
-        premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, 'main', imageBuffer, mime);
+        const { revision } = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
         const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, 'main'), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision), main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {

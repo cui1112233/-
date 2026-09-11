@@ -1,0 +1,29 @@
+name: V88 Version Config Authority
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'frontend/public/batch-rewrite/**'
+      - 'tests/novel-fetch-version-config-authority-v88.test.js'
+      - '.github/workflows/v88-version-config-authority.yml'
+  push:
+    branches:
+      - v88
+    paths:
+      - 'frontend/public/batch-rewrite/**'
+      - 'tests/novel-fetch-version-config-authority-v88.test.js'
+      - '.github/workflows/v88-version-config-authority.yml'
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run version config authority regression
+        run: node --test tests/novel-fetch-version-config-authority-v88.test.js

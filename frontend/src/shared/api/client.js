@@ -1,4 +1,5 @@
 import { reportClientError } from '../error-reporting.js';
+import { normalizeLocalExecutorsResponse } from './localExecutors.js';
 
 export function getToken() {
   return localStorage.getItem('auth_token') || '';
@@ -7,6 +8,10 @@ export function getToken() {
 export function setToken(token) {
   if (token) localStorage.setItem('auth_token', token);
   else localStorage.removeItem('auth_token');
+}
+
+export function isSessionAuthFailure(response) {
+  return response?.headers?.get?.('X-Qiantie-Auth-Failure') === 'session';
 }
 
 function readableErrorMessage(text, status) {
@@ -57,7 +62,7 @@ export async function apiRequest(path, options = {}) {
     if (!options.silent && !options.suppressGlobalError) notifyApiFailure({ ...failure, path });
     throw attachApiError(error, { path, method: options.method });
   }
-  if (response.status === 401 && path !== '/api/login') {
+  if (response.status === 401 && path !== '/api/login' && isSessionAuthFailure(response)) {
     const failure = { kind: 'api-response', message: '登录已失效，请重新登录', source: path, method: options.method || 'GET', status: response.status };
     // The request may complete after logout or after a newer account has
     // replaced its token. Preserve the diagnostic, but never surface a stale
@@ -79,8 +84,6 @@ export async function apiRequest(path, options = {}) {
   if (!response.ok && !allowedStatuses.includes(response.status)) {
     const text = await response.text();
     const error = new Error(readableErrorMessage(text, response.status));
-    // Keep transport details available to existing error reporting without
-    // making raw JSON the user-facing message.
     error.status = response.status;
     error.responseText = text;
     const failure = { kind: 'api-response', message: error.message, stack: error.stack, source: path, method: options.method || 'GET', status: response.status };
@@ -90,7 +93,13 @@ export async function apiRequest(path, options = {}) {
   }
   if (options.responseType === 'blob') return response.blob();
   const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) return response.json();
+  if (contentType.includes('application/json')) {
+    const payload = await response.json();
+    if (path === '/api/shuihuo-production/local-executors') {
+      return normalizeLocalExecutorsResponse(payload);
+    }
+    return payload;
+  }
   return response.text();
 }
 export function listMyErrorLogs(limit = 100) {

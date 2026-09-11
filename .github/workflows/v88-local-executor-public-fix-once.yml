@@ -1,0 +1,59 @@
+name: V88 Local Executor Public Fix Once
+
+on:
+  push:
+    branches:
+      - fix/v88-local-executor-public-regression-20260907
+    paths:
+      - '.github/workflows/v88-local-executor-public-fix-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v88-local-executor-public-regression-20260907
+      - name: Patch ScriptPage and SettingsPage
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function replaceOnce(file, before, after) {
+            let source = fs.readFileSync(file, 'utf8');
+            const count = source.split(before).length - 1;
+            if (count !== 1) throw new Error(`${file}: expected exactly one match, got ${count}`);
+            source = source.replace(before, after);
+            fs.writeFileSync(file, source);
+          }
+
+          replaceOnce(
+            'frontend/src/user/pages/ScriptPage.jsx',
+            'const executors = Array.isArray(result?.items) ? result.items : [];',
+            'const executors = Array.isArray(result?.executors) ? result.executors : Array.isArray(result?.items) ? result.items : [];'
+          );
+
+          replaceOnce(
+            'frontend/src/user/pages/SettingsPage.jsx',
+            '<Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-mac-arm64.dmg">下载 Mac 版</Button>',
+            '<Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} disabled>Mac 版暂未发布</Button>'
+          );
+
+          replaceOnce(
+            'frontend/src/user/pages/SettingsPage.jsx',
+            '<Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-0.1.14-win-x64.exe">下载 Windows 版</Button>',
+            '<Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-v88-1.0.3-win-x64.exe">下载 Windows 版 1.0.3</Button>'
+          );
+          NODE
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/user/pages/ScriptPage.jsx frontend/src/user/pages/SettingsPage.jsx
+          git diff --cached --check
+          git commit -m 'fix(v88): restore local executor UI contract'
+          git push origin HEAD:fix/v88-local-executor-public-regression-20260907

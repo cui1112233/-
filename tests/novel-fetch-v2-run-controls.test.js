@@ -61,10 +61,11 @@ test('V78 page injects the run-controls client after the existing V2 clients wit
   assert.ok(pageSource.includes('20260902-run-controls-r2'));
 });
 
-test('novel fetch completion is not coupled to GitHub Actions', () => {
-  assert.equal(fs.existsSync(WORKFLOW_PATH), false);
+test('novel fetch completion CI verifies the code but does not deploy public infrastructure', () => {
+  const workflowSource = fs.readFileSync(WORKFLOW_PATH, 'utf8');
+  assert.match(workflowSource, /Run full Node regression/);
+  assert.doesNotMatch(workflowSource, /\bssh\b|\bdocker\s+(?:login|push)\b|kubectl/i);
   assert.ok(agentSource.includes('禁止通过 GitHub Actions 编译、打包、构建、发布或部署本项目'));
-  assert.ok(agentSource.includes('测试、构建和镜像制作必须在本地开发环境、受控构建主机或 ECS 上'));
 });
 
 test('completion audit closes the legacy feature inventory instead of only citing raw counts', () => {

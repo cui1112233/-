@@ -1,7 +1,7 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Segmented, Space, Switch, Typography, message } from 'antd';
 import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Plus, RefreshCw, Settings2, Star, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateQuickDirectorStoryboard, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
+import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
 import { getConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
@@ -13,21 +13,21 @@ import { PET_APPLY_EVENT, PET_PREVIEW_EVENT, dispatchPetContext, dispatchPetStat
 import { dispatchCmSelection } from '../../shared/pet/cmBridge';
 import { getScriptDraftTabId, loadScriptDraft, saveScriptDraft } from './scriptDraftStorage';
 import { DEFAULT_SCRIPT_CONSTRAINTS, constraintsForFormat, constraintsForNextGeneration, normalizeScriptConstraints } from './scriptConstraints';
+import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 import { filterExtractionPresets, selectAvailableExtractionPreset } from './scriptExtractionPresets';
-import { createEntity, entityData, normalizeExtractInfo, selectDefaultProtagonistIds, toGenerationEntities } from './scriptEntities';
-import { appendImageCandidateAndSelectSingle, buildReferenceAssetGenerationPayload } from './scriptEntityImages';
+import { createEntity, entityData, normalizeExtractInfo, toGenerationEntities } from './scriptEntities';
+import { buildReferenceAssetGenerationPayload } from './scriptEntityImages';
 import { removeEntityConstraintReferences, scriptEntitySelection, useScriptCmBridge } from './scriptCmBridge';
 import { applyEntityEnrichment, compactEntitySummary, entityName, normalizeEntityEnrichment } from './scriptEntityEnrichment';
-import { getShotCardsWithinDuration, joinShotCards, splitContinuousTimeline } from './scriptShotOutput';
+import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
-import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
+import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
+import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
-import { generateReferenceAssetImage, uploadReferenceAssetImage } from '../../shared/api/novelPanel';
-import { normalizeAudioDurationSeconds, readAudioDurationFromUrl } from './scriptGenerationRules';
 
 function videoModelKey(model) {
   return String(model?.key || model?.modelKey || '').trim();
@@ -125,7 +125,6 @@ export function ScriptPage() {
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
   const [scriptVideoModels, setScriptVideoModels] = useState([]);
   const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
-  const [canGenerateVideo, setCanGenerateVideo] = useState(false);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -136,22 +135,12 @@ export function ScriptPage() {
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [activeEntity, setActiveEntity] = useState(null);
+  const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
-  const [quickDirecting, setQuickDirecting] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    getMemberCenter().then(result => {
-      if (!active) return;
-      const member = result?.member;
-      setCanGenerateVideo(['dev', 'manager'].includes(member?.role) || member?.apiScopes?.includes('*') || member?.apiScopes?.includes('video'));
-    }).catch(() => { if (active) setCanGenerateVideo(false); });
-    return () => { active = false; };
-  }, []);
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
-  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ descriptionMode: 'strict', mustCoverDetails: '', shotRhythmRequirements: '' });
+  const [quickDirectorOptions, setQuickDirectorOptions] = useState({ matchAudio: false });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [sourceAudioDurationSeconds, setSourceAudioDurationSeconds] = useState(null);
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
@@ -197,22 +186,17 @@ export function ScriptPage() {
   const rawShotCards = useMemo(() => {
     const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
     if (parsed.length) return parsed;
-    // 分段开头：模型输出的是连续时间轴（无 ### 分镜标题），按所选秒数自动切段显示为卡片
-    if (selectedMode === 'segmented' && selectedFormat !== 'shortdrama' && output) {
-      const seconds = selectedDuration === '15s' ? 15 : 10;
-      const segments = splitContinuousTimeline(output, seconds);
-      if (segments.length >= 2) return segments;
-    }
-    // 单条分镜或模型标题未被识别时，以前会退回原始文本框，导致程序组装的
-    // 基础设定、画面前缀和其他已开启约束完全不可见。非剧本模式也要走卡片组装。
-    return selectedFormat !== 'shortdrama' && output ? [output] : [];
-  }, [selectedMode, selectedFormat, selectedDuration, output]);
+    // 统一 ### 分镜N 协议仍是首选边界；但模型偶发未按协议输出标题时，
+    // 仍需把现有输出作为一张展示卡送入最终组装，否则基础设定和已开启约束会全部不可见。
+    return output ? [output] : [];
+  }, [selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(outputConstraints, selectedFormat, extractInfo),
+    // 卡片必须跟随当前已保存的基础设定和约束开关即时重组，不必再次请求模型。
+    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
     index,
     duration: selectedDuration
-  })), [rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration]);
+  })), [rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
@@ -255,83 +239,10 @@ export function ScriptPage() {
     persistDraft({ ...form.getFieldsValue(), novelText: '' });
   }
 
-  function openQuickDirectorStoryboard() {
-    const source = String(form.getFieldValue('novelText') || '').trim();
-    if (!source) return message.warning('请先粘贴小说原文');
-    setQuickDirectorOpen(true);
-  }
-
   function openAudioMatchSettings() {
     const source = String(form.getFieldValue('novelText') || '').trim();
     if (!source) return message.warning('请先粘贴小说原文');
     setQuickDirectorOpen(true);
-  }
-
-  async function quickDirectorStoryboard() {
-    const source = String(form.getFieldValue('novelText') || '').trim();
-    if (!source) return;
-    const request = beginRequest('workflow');
-    setQuickDirecting(true);
-    setQuickDirectorOpen(false);
-    setGenerationStage('extracting');
-    dispatchPetState('working', { title: '快速导演分镜正在生成' });
-    try {
-      const extraction = await extractEntities(source);
-      if (!isCurrentRequest(request)) return;
-      setExtractInfo(extraction);
-      setGenerationStage('generating');
-      const result = await generateQuickDirectorStoryboard({
-        novelText: source,
-        duration: form.getFieldValue('duration') || '10s',
-        ...toGenerationEntities(extraction),
-        descriptionMode: quickDirectorOptions.descriptionMode,
-        mustCoverDetails: quickDirectorOptions.mustCoverDetails,
-        shotRhythmRequirements: quickDirectorOptions.shotRhythmRequirements
-      });
-      if (!isCurrentRequest(request)) return;
-      const nextOutput = aiText(result);
-      if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回分镜内容');
-      const historyId = 'react-' + Date.now().toString(36);
-      setPreviousOutput(output);
-      updateOutputDraft(nextOutput);
-      setGenerationStage('complete');
-      setCurrentHistoryId('');
-      let historySaved = false;
-      try {
-        await saveHistory({
-          id: historyId,
-          mode: form.getFieldValue('mode') || 'continuous',
-          format: form.getFieldValue('format') || 'storyboard',
-          duration: form.getFieldValue('duration') || '10s',
-          output: nextOutput,
-          novelText: source,
-          extractInfo: extraction,
-          constraints: requestConstraints,
-          shotReferenceStates: {}
-        });
-        if (!isCurrentRequest(request)) return;
-        setCurrentHistoryId(historyId);
-        historySaved = true;
-      } catch {
-        if (!isCurrentRequest(request)) return;
-        message.warning('分镜已生成，但保存历史失败');
-      }
-      message.success('快速导演分镜已生成，可直接查看、复制或生成视频');
-      playTaskSound('success', soundEnabled, soundVolume);
-      dispatchPetState('success', {
-        title: '快速导演分镜已生成',
-        detail: historySaved ? '完整分镜已写入当前剧本和生成历史。' : '完整分镜已写入当前剧本，但生成历史保存失败。'
-      });
-    } catch (error) {
-      if (isCurrentRequest(request)) {
-        setGenerationStage('error');
-        message.error(error.message || '快速导演分镜生成失败');
-        playTaskSound('warning', soundEnabled, soundVolume);
-        dispatchPetState('error', { title: '快速导演分镜生成失败', detail: error.message || '请检查模型配置后重试。' });
-      }
-    } finally {
-      if (isCurrentRequest(request)) setQuickDirecting(false);
-    }
   }
 
   function replaceSourceAudio(nextUrl) {
@@ -350,6 +261,7 @@ export function ScriptPage() {
         novelText: values.novelText || '',
         extractionPreset: values.extractionPreset || 'standard'
       },
+      quickDirectorOptions,
       constraints: constraintsForNextGeneration(constraints),
       outputConstraints: normalizeScriptConstraints(outputConstraints),
       extractInfo,
@@ -413,13 +325,13 @@ export function ScriptPage() {
     }
   }
 
-  async function generateVideoForShot(card, index) {
+  async function generateVideoForShot(card, index, { withoutReferences = false } = {}) {
     const prompt = String(card || '').trim();
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
       try {
-        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true });
-        const executors = Array.isArray(result?.items) ? result.items : [];
+        const result = await apiRequest('/api/shuihuo-production/local-executors', { suppressGlobalError: true, suppressAuthExpiry: true });
+        const executors = Array.isArray(result?.executors) ? result.executors : Array.isArray(result?.items) ? result.items : [];
         if (!executors.some(item => item.online)) {
           Modal.info({
             title: '本地执行器未连接',
@@ -450,9 +362,7 @@ export function ScriptPage() {
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
         resolution: '480p竖',
-        imageUrls: scriptVideoModelKey === 'minimax-h3-video'
-          ? collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
-          : []
+        imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index })
       });
       const result = await createScriptVideo(videoPayload);
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
@@ -461,7 +371,17 @@ export function ScriptPage() {
       watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
-      message.error(error.message || '视频任务提交失败');
+      if (error.status === 409 && error.message === '当前视频模型不支持参考图，是否允许无参考图生成' && !withoutReferences) {
+        Modal.confirm({
+          title: '参考图不可用',
+          content: '当前视频模型不支持参考图，是否允许无参考图生成',
+          okText: '允许无参考图生成',
+          cancelText: '取消生成',
+          onOk: () => generateVideoForShot(card, index, { withoutReferences: true })
+        });
+      } else {
+        message.error(error.message || '视频任务提交失败');
+      }
     } finally {
       setGeneratingShotIndexes(current => {
         const next = new Set(current);
@@ -545,6 +465,9 @@ export function ScriptPage() {
       setOutput(typeof restoredDraft.output === 'string' ? restoredDraft.output : '');
       setEditingOutput(Boolean(restoredDraft.editingOutput));
       setGenerationStage(restoredDraft.generationStage || 'idle');
+      if (restoredDraft.quickDirectorOptions && typeof restoredDraft.quickDirectorOptions === 'object') {
+        setQuickDirectorOptions(current => ({ ...current, ...restoredDraft.quickDirectorOptions }));
+      }
       setConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
@@ -573,7 +496,7 @@ export function ScriptPage() {
 
   useEffect(() => {
     if (!draftReadyRef.current) return;
-  persistDraft();
+    persistDraft();
   }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks, shotReferenceStates]);
 
   useEffect(() => {
@@ -723,12 +646,15 @@ export function ScriptPage() {
       replaceSourceAudio(nextAudioUrl);
       try {
         const duration = await readAudioDurationFromUrl(nextAudioUrl);
-        if (isCurrentRequest(requestId)) setSourceAudioDurationSeconds(normalizeAudioDurationSeconds(duration));
+        if (!isCurrentRequest(requestId)) return;
+        setSourceAudioDurationSeconds(normalizeAudioDurationSeconds(duration));
+        message.success(`已生成原文配音，已读取 ${duration} 秒`);
+        dispatchPetState('success', { title: '原文配音已生成', detail: `当前配音时长 ${duration} 秒，可用于匹配音频。` });
       } catch (error) {
-        if (isCurrentRequest(requestId)) message.warning(error.message || '无法读取配音时长，暂不能匹配音频');
+        if (!isCurrentRequest(requestId)) return;
+        message.warning(error.message || '配音已生成，但未能读取音频时长；匹配音频需要重新生成配音。');
+        dispatchPetState('success', { title: '原文配音已生成', detail: '音频可以播放，但暂未读取到时长。' });
       }
-      message.success('已按当前配音预设生成原文配音');
-      dispatchPetState('success', { title: '原文配音已生成', detail: '音频已经可以在剧本生成页面播放。' });
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       message.error(error.message || '原文配音失败');
@@ -775,7 +701,7 @@ export function ScriptPage() {
     if (!extraction.characters.length && !extraction.scenes.length) {
       throw new Error('模型未返回人物或场景，请检查提取模板或重试');
     }
-    return { ...extraction, protagonistIds: selectDefaultProtagonistIds(extraction, novelText) };
+    return extraction;
   }
 
   async function handleExtract(values) {
@@ -958,7 +884,8 @@ export function ScriptPage() {
   }
 
   function openEntityEditor(type, id) {
-    setActiveEntity({ type, id, isNew: false });
+    entityEditorSessionRef.current += 1;
+    setActiveEntity({ type, id, isNew: false, editorSessionId: entityEditorSessionRef.current });
     setFullscreenEditor(false);
   }
 
@@ -966,7 +893,9 @@ export function ScriptPage() {
     const data = type === 'characters'
       ? { 名称: '', 身份: '', 外形: '', 性格: '' }
       : { 名称: '', 时段: '', 氛围: '', 描述: '' };
-    setActiveEntity({ type, id: '', isNew: true, data });
+    const draft = createEntity(data);
+    entityEditorSessionRef.current += 1;
+    setActiveEntity({ type, id: draft.id, isNew: true, data: draft.data, editorSessionId: entityEditorSessionRef.current });
     setFullscreenEditor(false);
   }
 
@@ -977,7 +906,7 @@ export function ScriptPage() {
       const items = [...normalized[activeEntity.type]];
       const currentIndex = items.findIndex(item => item.id === activeEntity.id);
       let dataChanged = activeEntity.isNew;
-      if (activeEntity.isNew) items.push({ ...createEntity(fields), ...media });
+      if (activeEntity.isNew) items.push({ ...createEntity(fields, activeEntity.id), ...media });
       else if (currentIndex !== -1) {
         dataChanged = JSON.stringify(items[currentIndex].data || {}) !== JSON.stringify(fields || {});
         items[currentIndex] = {
@@ -1132,6 +1061,7 @@ export function ScriptPage() {
   function saveConstraints() {
     const next = normalizeScriptConstraints(draftConstraints);
     setConstraints(next);
+    setOutputConstraints(next);
     setConstraintModalOpen(false);
     persistDraft(undefined, { constraints: constraintsForNextGeneration(next) });
   }
@@ -1212,6 +1142,7 @@ export function ScriptPage() {
         persistDraft(allValues);
         if (Object.hasOwn(changed, 'novelText')) {
           invalidateRequests();
+          replaceSourceAudio('');
           setExtractInfo(normalizeExtractInfo());
           setOutput('');
           setShotVideoTasks({});
@@ -1262,7 +1193,7 @@ export function ScriptPage() {
                   setInstructionModalOpen(true);
                 }} disabled={extractionUnavailable}><Plus size={17} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" aria-label="配音原文" title="按当前配音预设生成原文配音" onClick={narrateSource} disabled={narrating}><AudioLines size={17} strokeWidth={1.8} aria-hidden="true" /></button>
-                <button type="button" aria-label="匹配音频" title="设置生成剧本时是否匹配当前配音时长" onClick={openAudioMatchSettings} disabled={generating}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
+                <button type="button" aria-label="匹配音频" title="设置生成剧本时是否匹配当前配音时长" onClick={openAudioMatchSettings}><Clapperboard size={17} strokeWidth={1.8} aria-hidden="true" /></button>
               </div>
               <Button className="script-chat-submit" type="primary" htmlType="submit" loading={extracting} disabled={generating || extractionUnavailable} aria-label="提取人物与场景" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />}>
                 <span>{generationStage === 'extracting' ? '提取中...' : '提取'}</span>
@@ -1326,11 +1257,10 @@ export function ScriptPage() {
             loading={loadingScriptVideoModels}
             value={scriptVideoModelKey}
             onChange={setScriptVideoModelKey}
-            options={scriptVideoModels.length ? scriptVideoModels.map(model => ({ label: videoModelLabel(model), value: videoModelKey(model) })) : [
-              { label: 'YD2.0 Mini（图生）', value: 'yd2-mini-video' },
-              { label: '本地豆包执行器', value: 'local-doubao-executor-video' },
-              { label: 'MiniMax H3', value: 'minimax-h3-video' }
-            ]}
+            options={scriptVideoModels.map(model => ({
+              label: videoModelLabel(model),
+              value: videoModelKey(model)
+            }))}
             notFoundContent="暂无可用的视频模型"
             title="单分镜视频模型"
           />
@@ -1371,15 +1301,6 @@ export function ScriptPage() {
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
               extractInfo={extractInfo}
-              shotReferenceStates={shotReferenceStates}
-              onToggleReferenceImages={(index, enabled) => setShotReferenceStates(current => toggleShotReferenceState(current, index, { enabled }))}
-              onToggleReferenceImage={(index, imageUrl) => setShotReferenceStates(current => {
-                const state = current[index] || {};
-                const disabledImageUrls = new Set(Array.isArray(state.disabledImageUrls) ? state.disabledImageUrls : []);
-                if (disabledImageUrls.has(imageUrl)) disabledImageUrls.delete(imageUrl);
-                else disabledImageUrls.add(imageUrl);
-                return toggleShotReferenceState(current, index, { disabledImageUrls: [...disabledImageUrls] });
-              })}
               onOpenVideo={setPreviewVideoTask}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
@@ -1419,15 +1340,20 @@ export function ScriptPage() {
           setQuickDirectorOpen(false);
         }}
       >
-        <Typography.Paragraph type="secondary">这里只控制下一次“生成剧本”是否加入匹配音频规则，不会单独调用 AI。开启后，后台会把实际配音秒数与当前 10s / 15s 单分镜上限一起加入本次生成提示词。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">
+          这里只控制下一次“生成剧本”是否加入匹配音频规则，不会单独调用 AI。开启后，后台会把实际配音秒数与当前 10s / 15s 单分镜上限一起加入本次生成提示词。
+        </Typography.Paragraph>
         <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
           <div>
             <Typography.Text strong>匹配当前配音时长</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ margin: '2px 0 0' }}>
-              {sourceAudioDurationSeconds ? `当前配音：${sourceAudioDurationSeconds} 秒；生成剧本时总分镜时长将严格匹配。` : '请先点击配音按钮生成当前原文配音。'}
+              {sourceAudioDurationSeconds ? '当前配音：' + sourceAudioDurationSeconds + ' 秒；生成剧本时总分镜时长将严格匹配。' : '请先点击配音按钮生成当前原文配音。'}
             </Typography.Paragraph>
           </div>
-          <Switch checked={quickDirectorOptions.matchAudio === true} onChange={matchAudio => setQuickDirectorOptions(current => ({ ...current, matchAudio }))} />
+          <Switch
+            checked={quickDirectorOptions.matchAudio}
+            onChange={matchAudio => setQuickDirectorOptions(current => ({ ...current, matchAudio }))}
+          />
         </Space>
       </Modal>
       <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
@@ -1588,8 +1514,11 @@ export function ScriptPage() {
         </Typography.Paragraph>
       </Modal>
       <EntityEditor
+        key={activeEntity?.editorSessionId || 'closed'}
         entity={activeItem}
         type={activeEntity?.type}
+        assetId={activeEntity?.id || ''}
+        editorSessionId={activeEntity?.editorSessionId || 0}
         isNew={Boolean(activeEntity?.isNew)}
         open={Boolean(activeEntity)}
         fullscreen={fullscreenEditor}
@@ -1761,27 +1690,14 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function readImageFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('读取图片失败'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
   const [mainImageUrl, setMainImageUrl] = useState('');
-  const [newImageUrl, setNewImageUrl] = useState('');
   const [enriching, setEnriching] = useState(false);
   const [enrichment, setEnrichment] = useState(null);
   const [enrichmentError, setEnrichmentError] = useState('');
-  const [generatingImage, setGeneratingImage] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [imageGenerationError, setImageGenerationError] = useState('');
-  const imageFileInputRef = useRef(null);
+  const activeImageRequestKey = useRef('');
 
   useEffect(() => {
     if (!open) return;
@@ -1789,7 +1705,6 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
     const media = getEntityMedia(entity);
     setImageUrls(media.imageUrls);
     setMainImageUrl(media.mainImageUrl || (media.imageUrls.length === 1 ? media.imageUrls[0] : ''));
-    setNewImageUrl('');
     setEnrichment(null);
     setEnrichmentError('');
     setGeneratingImage(false);
@@ -1801,27 +1716,13 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
   const title = `${isNew ? '添加' : '编辑'}${type === 'characters' ? '人物' : '场景'}`;
   const deleteLabel = type === 'characters' ? '删除人物' : '删除场景';
   const canEnrich = Boolean(String(novelText || '').trim() && entityName(fields));
-  const canGenerateImage = Boolean(entityName(fields));
+  const imageRequestKey = open && assetId ? `${editorSessionId}:${assetId}` : '';
+  activeImageRequestKey.current = imageRequestKey;
 
-  function appendAndSelectImage(url) {
-    const next = appendImageCandidateAndSelectSingle(imageUrls, mainImageUrl, url);
-    setImageUrls(next.imageUrls);
-    setMainImageUrl(next.mainImageUrl);
-    return next;
-  }
-
-  function addImageCandidate() {
-    const url = String(newImageUrl || '').trim();
-    if (!url) return;
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== 'https:') throw new Error('参考图必须使用 HTTPS 地址');
-      const normalized = parsed.toString();
-      appendAndSelectImage(normalized);
-      setNewImageUrl('');
-    } catch (error) {
-      message.warning(error.message || '请输入有效的 HTTPS 图片地址');
-    }
+  function updateImages(media, sourceKey) {
+    if (!imageRequestKey || sourceKey !== activeImageRequestKey.current) return;
+    setImageUrls(Array.isArray(media?.imageUrls) ? media.imageUrls : []);
+    setMainImageUrl(typeof media?.mainImageUrl === 'string' ? media.mainImageUrl : '');
   }
 
   async function enrich() {
@@ -1905,70 +1806,43 @@ function EntityEditor({ entity, type, isNew, open, fullscreen, novelText, extrac
       open={open}
       rootClassName="entity-editor-modal"
       title={title}
-      width={fullscreen ? '100vw' : 760}
+      width={fullscreen ? '100vw' : 920}
       style={fullscreen ? { top: 0, paddingBottom: 0 } : undefined}
       onCancel={onClose}
       footer={<Space><Button onClick={onToggleFullscreen}>{fullscreen ? '退出全屏' : '全屏编辑'}</Button>{!isNew && <Popconfirm title={`确认${deleteLabel}？`} onConfirm={onDelete}><Button danger className="entity-editor-danger">{deleteLabel}</Button></Popconfirm>}<Button type="primary" onClick={() => { onChange(fields, { imageUrls, mainImageUrl }); onClose(); }}>完成</Button></Space>}
     >
-      <div className="entity-editor-fields">
-        {fieldsToRender.map(field => (
-          <Form.Item key={field.key} label={field.label}>
-            <Input.TextArea value={fields[field.key] || ''} autoSize={{ minRows: 1, maxRows: 6 }} onChange={event => setFields(current => ({ ...current, [field.key]: event.target.value }))} />
-          </Form.Item>
-        ))}
-      </div>
-      <div className="entity-media-editor">
-        <Typography.Text strong>图片</Typography.Text>
-        <Typography.Paragraph type="secondary" style={{ margin: '4px 0 8px' }}>只有一张图片时自动设为主图；有多张图片时，点击图片选择主图。</Typography.Paragraph>
-        <Space.Compact block>
-          <Input value={newImageUrl} placeholder="粘贴 HTTPS 图片地址" onChange={event => setNewImageUrl(event.target.value)} onPressEnter={addImageCandidate} />
-          <Button onClick={addImageCandidate}>添加图片</Button>
-        </Space.Compact>
-        <Space wrap style={{ marginTop: 10 }}>
-          <Button onClick={() => imageFileInputRef.current?.click()} loading={uploadingImage}>上传图片</Button>
-          <input ref={imageFileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadImage} />
-          <Typography.Text type="secondary">支持上传本地人物图或场景图。</Typography.Text>
-        </Space>
-        <div className="entity-media-candidates">
-          {imageUrls.length ? imageUrls.map(url => (
-            <div className={`entity-media-candidate${mainImageUrl === url ? ' is-main' : ''}`} key={url}>
-              <button
-                className="entity-media-image-button"
-                type="button"
-                title={mainImageUrl === url ? '当前主图' : '点击设为主图'}
-                aria-label={mainImageUrl === url ? '当前主图' : '点击设为主图'}
-                onClick={() => setMainImageUrl(url)}
-              >
-                <img src={url} alt={`${type === 'characters' ? '人物' : '场景'}图片`} />
-              </button>
-              <Input
-                value={url}
-                onChange={event => {
-                  const nextUrl = event.target.value;
-                  setImageUrls(current => current.map(item => item === url ? nextUrl : item));
-                  setMainImageUrl(current => current === url ? nextUrl : current);
-                }}
-              />
-              <Button type={mainImageUrl === url ? 'primary' : 'default'} onClick={() => setMainImageUrl(url)}>{mainImageUrl === url ? '当前主图' : '设为主图'}</Button>
-            </div>
-          )) : <Typography.Text type="secondary">暂无图片，可上传、粘贴地址或点击生成图片。</Typography.Text>}
+      <div className="entity-editor-layout">
+        <div>
+          <div className="entity-editor-fields">
+            {fieldsToRender.map(field => (
+              <Form.Item key={field.key} label={field.label}>
+                <Input.TextArea value={fields[field.key] || ''} autoSize={{ minRows: 1, maxRows: 6 }} onChange={event => setFields(current => ({ ...current, [field.key]: event.target.value }))} />
+              </Form.Item>
+            ))}
+          </div>
+          <Space wrap style={{ marginTop: 8 }}>
+            <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
+            {!String(novelText || '').trim() ? <Typography.Text type="secondary">请先输入小说原文</Typography.Text> : null}
+          </Space>
+          {enrichmentError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{enrichmentError}</Typography.Paragraph> : null}
+          {enrichment ? <div className="entity-enrichment-result">
+            {enrichment.evidence.length ? <EnrichmentList title="原文依据" items={enrichment.evidence} /> : null}
+            {enrichment.suggestions.length ? <EnrichmentList title="AI 建议" items={enrichment.suggestions} /> : null}
+            {enrichment.uncertainties.length ? <EnrichmentList title="不确定项" items={enrichment.uncertainties} /> : null}
+          </div> : null}
         </div>
-        <Space wrap style={{ marginTop: 10 }}>
-          <Button onClick={generateImage} loading={generatingImage} disabled={!canGenerateImage}>根据当前设定生成图片</Button>
-          <Typography.Text type="secondary">生成结果会加入图片列表。</Typography.Text>
-        </Space>
+        <EntityImagePanel
+          key={imageRequestKey}
+          assetType={type === 'characters' ? 'character' : 'scene'}
+          assetId={assetId}
+          generationPayload={{ ...buildReferenceAssetGenerationPayload({ type, entity, fields, novelText, extractionPreset }), asset_id: assetId }}
+          imageUrls={imageUrls}
+          mainImageUrl={mainImageUrl}
+          requestKey={imageRequestKey}
+          onChange={updateImages}
+          disabled={!assetId}
+        />
       </div>
-      <Space wrap style={{ marginTop: 8 }}>
-        <Button onClick={enrich} loading={enriching} disabled={!canEnrich}>根据小说智能补全</Button>
-        {!String(novelText || '').trim() ? <Typography.Text type="secondary">请先输入小说原文</Typography.Text> : null}
-      </Space>
-      {imageGenerationError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{imageGenerationError}</Typography.Paragraph> : null}
-      {enrichmentError ? <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>{enrichmentError}</Typography.Paragraph> : null}
-      {enrichment ? <div className="entity-enrichment-result">
-        {enrichment.evidence.length ? <EnrichmentList title="原文依据" items={enrichment.evidence} /> : null}
-        {enrichment.suggestions.length ? <EnrichmentList title="AI 建议" items={enrichment.suggestions} /> : null}
-        {enrichment.uncertainties.length ? <EnrichmentList title="不确定项" items={enrichment.uncertainties} /> : null}
-      </div> : null}
     </Modal>
   );
 }

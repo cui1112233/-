@@ -1,5 +1,50 @@
 import { apiRequest } from './client';
 
+const SMART_UNIFIED_PREFIX_PRESET_ID = 'script-constraint-prefix-smart-unified';
+
+function usesSmartUnifiedPrefix(constraints) {
+  return constraints?.prefix?.enabled === true
+    && constraints?.prefix?.source === 'system'
+    && constraints?.prefix?.presetId === SMART_UNIFIED_PREFIX_PRESET_ID;
+}
+
+function smartUnifiedPrompt(result) {
+  const prompt = String(result?.smartUnifiedStyle?.prompt || '').trim();
+  if (!prompt) throw new Error('智能统一视觉分析未返回可用的统一风格。');
+  return prompt;
+}
+
+export function generateSmartUnifiedStyle({ novelText, characters, scenes }) {
+  return apiRequest('/api/script/smart-unified-style', {
+    method: 'POST',
+    body: JSON.stringify({ novelText, characters, scenes })
+  });
+}
+
+async function resolveSmartUnifiedGenerationInput(input) {
+  if (!usesSmartUnifiedPrefix(input?.constraints)) return input;
+  const result = await generateSmartUnifiedStyle({
+    novelText: input.novelText,
+    characters: input.characters,
+    scenes: input.scenes
+  });
+  const prompt = smartUnifiedPrompt(result);
+
+  // constraintsForFormat() 返回的是本次生成专用对象。这里把权威风格写回该对象，
+  // ScriptPage 后续 setOutputConstraints(requestConstraints) 与历史保存会直接持久化它。
+  if (input.constraints?.prefix && typeof input.constraints.prefix === 'object') {
+    input.constraints.prefix.smartUnifiedStyle = prompt;
+  }
+  return { ...input, visualStyle: prompt };
+}
+
+function requestDirectorPipeline(payload) {
+  return apiRequest('/api/script/director-pipeline', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
 export function extractCharactersAndScenes(novelText, extractionPreset = 'standard') {
   return apiRequest('/api/chat', {
     method: 'POST',
@@ -31,46 +76,66 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds }) {
+export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds }) {
+  const resolved = await resolveSmartUnifiedGenerationInput({
+    mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds
+  });
+
+  // 普通“生成剧本/分镜”始终只发起一次 script AI 请求：
+  // 开头 + 通用规则 + 输出模式 + 人物场景 + 星标聚焦变量 + 10s/15s 上限 + 可选匹配音频规则
+  // 都由服务端后台预设在同一次 messages 中组合后直接生成最终结果。
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
       promptType: 'script',
-      mode,
-      format,
-      duration,
-      novelText,
-      characters,
-      scenes,
-      visualStyle,
-      protagonists,
-      constraints,
-      matchAudio: matchAudio === true,
-      audioTotalSeconds: matchAudio === true ? audioTotalSeconds : null,
-      max_tokens: format === 'shotlist' ? 16000 : 8192,
+      mode: resolved.mode,
+      format: resolved.format,
+      duration: resolved.duration,
+      novelText: resolved.novelText,
+      characters: resolved.characters,
+      scenes: resolved.scenes,
+      visualStyle: resolved.visualStyle,
+      protagonists: resolved.protagonists,
+      constraints: resolved.constraints,
+      matchAudio: resolved.matchAudio === true,
+      audioTotalSeconds: resolved.matchAudio === true ? resolved.audioTotalSeconds : null,
+      max_tokens: resolved.format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false
     })
   });
 }
 
-export function generateQuickDirectorStoryboard({ novelText, duration, characters, scenes, visualStyle, descriptionMode, mustCoverDetails, shotRhythmRequirements }) {
-  return apiRequest('/api/chat', {
-    method: 'POST',
-    body: JSON.stringify({
-      promptType: 'quick_director',
-      novelText,
-      duration,
-      characters,
-      scenes,
-      visualStyle,
-      descriptionMode,
-      mustCoverDetails,
-      shotRhythmRequirements,
-      max_tokens: 8192,
-      temperature: 0.55,
-      stream: false
-    })
+export async function generateQuickDirectorStoryboard({ novelText, duration, characters, scenes, visualStyle, descriptionMode, mustCoverDetails, shotRhythmRequirements, matchAudio, audioTotalSeconds, constraints }) {
+  const resolved = await resolveSmartUnifiedGenerationInput({
+    novelText,
+    duration,
+    characters,
+    scenes,
+    visualStyle,
+    descriptionMode,
+    mustCoverDetails,
+    shotRhythmRequirements,
+    matchAudio,
+    audioTotalSeconds,
+    constraints
+  });
+
+  // “匹配音频/快速导演”保留独立事务；它不是普通分镜模式的生成路径。
+  return requestDirectorPipeline({
+    mode: 'quick_director',
+    format: 'shotlist',
+    duration: resolved.duration,
+    novelText: resolved.novelText,
+    characters: resolved.characters,
+    scenes: resolved.scenes,
+    visualStyle: resolved.visualStyle,
+    descriptionMode: resolved.descriptionMode,
+    mustCoverDetails: resolved.mustCoverDetails,
+    shotRhythmRequirements: resolved.shotRhythmRequirements,
+    matchAudio: resolved.matchAudio,
+    audioTotalSeconds: resolved.audioTotalSeconds,
+    constraints: resolved.constraints
   });
 }
 

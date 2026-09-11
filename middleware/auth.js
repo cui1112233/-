@@ -58,7 +58,10 @@ function applyAuthentication(req, auth) {
 
 function apiAuth(req, res, next) {
   const auth = authenticateRequest(req);
-  if (!auth) return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+  if (!auth) {
+    res.set('X-Qiantie-Auth-Failure', 'session');
+    return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
+  }
   applyAuthentication(req, auth);
   next();
 }

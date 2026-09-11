@@ -38,32 +38,36 @@ async function runWithConcurrency(items, limit, worker) {
 }
 
 function snakeTask(task = {}) {
-  const selectedVersions = versionSelection.taskSelectedVersions(task);
-  const aiFiles = versionSelection.generatedVersions(task);
+  const bookId = task.bookId || task.book_id || task.id || '';
+  const bookName = task.bookName || task.book_name || '';
+  const platformId = task.platformId || task.platform_id || '';
+  const platformName = task.platformName || task.platform_name || '';
+  const aiCount = Number(task.aiCount ?? task.ai_count) || 1;
+  const existingAiFiles = Array.isArray(task.ai_files) ? task.ai_files : [];
+  const aiGenerated = Number(task.aiGeneratedCount ?? task.ai_generated_count ?? existingAiFiles.length) || 0;
   return {
     ...task,
-    id: task.bookId || task.id || '',
-    book_id: task.bookId || task.id || '',
-    book_name: task.bookName || '',
-    platform_id: task.platformId || '',
-    platform_name: task.platformName || '',
-    parse_mode: task.parseMode || '',
-    original_status: task.originalStatus || '',
-    original_chars: task.originalChars || 0,
-    original_raw_chars: task.originalRawChars || 0,
-    ai_status: task.aiStatus || '',
-    selected_versions: selectedVersions,
-    ai_slot_methods: versionSelection.normalizeAiSlotMethods(task.aiSlotMethods || task.ai_slot_methods),
-    ai_files: aiFiles,
-    classify_status: task.classifyStatus || '',
-    classifier_model: task.classifierModel || '',
-    sensitive_hit_count: task.sensitiveHitCount || 0,
-    sensitive_fixed_count: task.sensitiveFixedCount || 0,
-    sensitive_failed_count: task.sensitiveFailedCount || 0,
-    site_submit_status: task.siteSubmitStatus || '',
-    site_submit_done_versions: task.siteSubmitDoneVersions || [],
-    site_submit_accepted_versions: task.siteSubmitAcceptedVersions || [],
-    site_submit_failed_versions: task.siteSubmitFailedVersions || []
+    id: bookId,
+    book_id: bookId,
+    book_name: bookName,
+    platform_id: platformId,
+    platform_name: platformName,
+    parse_mode: task.parseMode || task.parse_mode || '',
+    original_status: task.originalStatus || task.original_status || '',
+    original_chars: Number(task.originalChars ?? task.original_chars) || 0,
+    original_raw_chars: Number(task.originalRawChars ?? task.original_raw_chars) || 0,
+    ai_status: task.aiStatus || task.ai_status || '',
+    ai_count: aiCount,
+    ai_files: existingAiFiles.length ? existingAiFiles : Array.from({ length: aiGenerated }, (_, index) => `ai${index + 1}`),
+    classify_status: task.classifyStatus || task.classify_status || '',
+    classifier_model: task.classifierModel || task.classifier_model || '',
+    sensitive_hit_count: Number(task.sensitiveHitCount ?? task.sensitive_hit_count) || 0,
+    sensitive_fixed_count: Number(task.sensitiveFixedCount ?? task.sensitive_fixed_count) || 0,
+    sensitive_failed_count: Number(task.sensitiveFailedCount ?? task.sensitive_failed_count) || 0,
+    site_submit_status: task.siteSubmitStatus || task.site_submit_status || '',
+    site_submit_done_versions: Array.isArray(task.siteSubmitDoneVersions) ? task.siteSubmitDoneVersions : (Array.isArray(task.site_submit_done_versions) ? task.site_submit_done_versions : []),
+    site_submit_accepted_versions: Array.isArray(task.siteSubmitAcceptedVersions) ? task.siteSubmitAcceptedVersions : (Array.isArray(task.site_submit_accepted_versions) ? task.site_submit_accepted_versions : []),
+    site_submit_failed_versions: Array.isArray(task.siteSubmitFailedVersions) ? task.siteSubmitFailedVersions : (Array.isArray(task.site_submit_failed_versions) ? task.site_submit_failed_versions : [])
   };
 }
 

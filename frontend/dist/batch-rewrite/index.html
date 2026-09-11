@@ -40,7 +40,7 @@
             <div class="version-config-launcher">
               <div>
                 <h3>版本对应配置档</h3>
-                <span class="form-hint">点击打开卡片，同步 121 配置档并选择本次处理版本。</span>
+                <span class="form-hint">点击打开卡片，同步 121 配置档并设置各版本绑定。</span>
               </div>
               <button id="versionConfigBtn" type="button">打开版本配置</button>
               <span id="versionConfigSummary" class="form-hint">原文、AI1</span>
@@ -55,18 +55,6 @@
                   <button id="versionConfigCloseBtn" type="button" aria-label="关闭版本配置">×</button>
                 </div>
                 <div class="version-config-card-body">
-                  <div class="version-config-card-block">
-                    <div class="field-title">本次处理版本</div>
-                    <p class="form-hint">勾选后才会生成或提交对应版本；原文默认选中。</p>
-                    <div class="version-profile-bindings version-selection-grid">
-                      <label><input class="process-version" value="original" type="checkbox" checked /> 原文</label>
-                      <label><input class="process-version" value="ai1" type="checkbox" checked /> AI1 <select id="processAiMethod1"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
-                      <label><input class="process-version" value="ai2" type="checkbox" /> AI2 <select id="processAiMethod2"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
-                      <label><input class="process-version" value="ai3" type="checkbox" /> AI3 <select id="processAiMethod3"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
-                      <label><input class="process-version" value="ai4" type="checkbox" /> AI4 <select id="processAiMethod4"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
-                      <label><input class="process-version" value="ai5" type="checkbox" /> AI5 <select id="processAiMethod5"><option value="">自动轮换</option><option value="high_imitation">高仿文章库</option><option value="opening_instruction">爆款开头词库</option><option value="instruction">批量改文指令库</option></select></label>
-                    </div>
-                  </div>
                   <div class="version-config-card-block">
                     <div class="field-title">121 配置档同步</div>
                     <div class="control-grid two">
@@ -83,6 +71,22 @@
                     </div>
                     <textarea id="webProfilesJson" class="hidden" aria-hidden="true"></textarea>
                     <textarea id="webProfileBindingsJson" class="hidden" aria-hidden="true"></textarea>
+                  </div>
+                  <div class="version-config-card-block version-config-prompt-stack">
+                    <div class="field-title">本次处理提示词</div>
+                    <p class="form-hint">以下提示词会同步保存，并应用到本次勾选的原文、AI1～AI5版本。</p>
+                    <label>
+                      改文提示词
+                      <textarea id="versionConfigRewritePrompt" class="small-area" spellcheck="false"></textarea>
+                    </label>
+                    <label>
+                      处理规则提示词
+                      <textarea id="versionConfigProcessingRulePrompt" class="small-area" spellcheck="false" placeholder="整次小说处理共同遵守的剧情、人物、结构规则"></textarea>
+                    </label>
+                    <label>
+                      知识库使用提示词
+                      <textarea id="versionConfigKnowledgeUsagePrompt" class="small-area" spellcheck="false" placeholder="告诉 AI 如何参考知识库，且不得照搬示例内容"></textarea>
+                    </label>
                   </div>
                 </div>
                 <div class="actions version-config-card-actions">
@@ -579,6 +583,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260826-login-layout2"></script>
+    <script src="./app.js?v=20260910-one-click-flow1"></script>
   </body>
 </html>

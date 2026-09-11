@@ -1,0 +1,53 @@
+name: V88 Release Auth-Safe Patch Once
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - '.github/workflows/v88-exact-release-image-patch-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout v88
+        uses: actions/checkout@v4
+        with:
+          ref: v88
+          fetch-depth: 1
+
+      - name: Patch auth-safe exact-image release verification
+        run: python scripts/patch-v88-release-authsafe.py
+
+      - name: Verify release regressions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          node --test tests/v88-public-browser-worker-deploy.test.js tests/novel-panel-v783031-ecs-deploy.test.js tests/v88-release-registry-resilience.test.js
+          if grep -n '/api/novel-panel/build-info' .github/workflows/v88-linux-amd64-image-release.yml; then
+            echo 'Protected Novel Panel build-info is still referenced by the release workflow.' >&2
+            exit 1
+          fi
+
+      - name: Commit durable release fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/v88-linux-amd64-image-release.yml \
+            tests/v88-public-browser-worker-deploy.test.js \
+            tests/novel-panel-v783031-ecs-deploy.test.js \
+            tests/v88-release-registry-resilience.test.js
+          if git diff --cached --quiet; then
+            echo 'No auth-safe release patch required.'
+            exit 0
+          fi
+          git commit -m 'fix(v88): unblock auth-safe public release verification'
+          git push origin HEAD:v88
+
+# run: authsafe-publish-20260907

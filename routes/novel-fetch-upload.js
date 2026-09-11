@@ -9,13 +9,45 @@ function isValidBookId(value) {
 }
 
 function targetBaseUrl() { return `http://${target.TARGET_HOST}/tttadmin`; }
+const BROWSER_WORKER_ERROR_CODES = new Set([
+  'BROWSER_WORKER_UNAUTHORIZED',
+  'BROWSER_WORKER_UNAVAILABLE',
+  'BROWSER_WORKER_TIMEOUT'
+]);
+
+function isBrowserWorkerUnauthorizedError(error) {
+  return error?.code === 'unauthorized'
+    || error?.workerResponse?.error === 'unauthorized'
+    || error?.workerResponse?.code === 'unauthorized';
+}
+
+function isBrowserWorkerActionFailure(error) {
+  return error?.code === 'action_failed'
+    || error?.workerResponse?.error === 'action_failed'
+    || error?.workerResponse?.code === 'action_failed';
+}
+
 function isExpiredSessionError(error) {
+  if (isBrowserWorkerUnauthorizedError(error) || BROWSER_WORKER_ERROR_CODES.has(error?.code)) return false;
   return error?.status === 401 || error?.code === 'session_expired' || error?.workerResponse?.status === 'expired';
 }
 function browserErrorStatus(error) {
+  if (isBrowserWorkerUnauthorizedError(error)) return 503;
   if (isExpiredSessionError(error)) return 401;
-  if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT'].includes(error?.code)) return 503;
+  if (BROWSER_WORKER_ERROR_CODES.has(error?.code)) return 503;
   return Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 400;
+}
+
+function safeErrorMessage(error, fallback) {
+  const message = String(error?.message || fallback);
+  return /password|cookie|session|secret|token|authorization/i.test(message) ? fallback : message;
+}
+
+function errorResponse(error, fallback) {
+  const response = { ok: false, error: safeErrorMessage(error, fallback) };
+  if (isBrowserWorkerUnauthorizedError(error)) response.code = 'BROWSER_WORKER_UNAUTHORIZED';
+  else if (BROWSER_WORKER_ERROR_CODES.has(error?.code)) response.code = error.code;
+  return response;
 }
 
 function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway = {}, browserClient = create121BrowserClient() } = {}) {
@@ -40,7 +72,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
       });
       return res.json({ ok: true, username: targetUsername, status: String(result?.status || 'ready') });
     } catch (error) {
-      return res.status(browserErrorStatus(error)).json({ ok: false, error: error?.message || '登录失败', ...(error?.code ? { code: error.code } : {}) });
+      return res.status(browserErrorStatus(error)).json(errorResponse(error, '登录失败'));
     }
   });
 
@@ -59,7 +91,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
       }
       return res.json({ ok: true, loggedIn: result?.ok === true, status: String(result?.status || 'ready'), lastVerifiedAt: new Date().toISOString() });
     } catch (error) {
-      if (isExpiredSessionError(error)) return res.json({ ok: true, loggedIn: false, status: 'expired', lastVerifiedAt: null });
+      if (isExpiredSessionError(error)) return res.status(401).json({ ok: false, loggedIn: false, notLoggedIn: true, status: 'expired', lastVerifiedAt: null, error: '目标站登录已失效，请重新登录' });
       return res.status(browserErrorStatus(error)).json({ ok: false, loggedIn: false, error: error?.message || '浏览器会话验证失败', ...(error?.code ? { code: error.code } : {}) });
     }
   });
@@ -125,7 +157,7 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
             }
           });
         } catch (error) {
-          results.push({ bookId, status: 'error', error: error.message });
+          results.push({ bookId, status: 'error', error: safeErrorMessage(error, '上传失败') });
           continue;
         }
         const { boundary, body } = target.buildMultipart(fields, { filename: target.buildTargetUploadFilename(bookId), content });
@@ -143,15 +175,22 @@ function createNovelFetchUploadRouter({ auth = apiAuth, store, workshopGateway =
           let data = {};
           try { data = JSON.parse(String(response?.body || '')); } catch (_) {}
           if (data.success === true) results.push({ bookId, status: 'ok', error: null });
-          else results.push({ bookId, status: 'error', error: data.message || data.msg || '上传失败' });
+          else results.push({ bookId, status: 'error', error: safeErrorMessage({ message: data.message || data.msg }, '上传失败') });
         } catch (error) {
-          if (isExpiredSessionError(error)) return res.json({ ok: false, notLoggedIn: true, error: '目标站登录已失效，请重新登录' });
-          results.push({ bookId, status: 'error', error: error?.message || '上传失败' });
+          if (isExpiredSessionError(error)) return res.status(401).json({ ok: false, notLoggedIn: true, error: '目标站登录已失效，请重新登录' });
+          if (isBrowserWorkerActionFailure(error)) {
+            results.push({ bookId, status: 'error', error: safeErrorMessage(error, '上传失败') });
+            continue;
+          }
+          if (isBrowserWorkerUnauthorizedError(error) || BROWSER_WORKER_ERROR_CODES.has(error?.code) || (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599)) {
+            return res.status(browserErrorStatus(error)).json(errorResponse(error, '上传失败'));
+          }
+          results.push({ bookId, status: 'error', error: safeErrorMessage(error, '上传失败') });
         }
       }
       return res.json({ ok: true, results });
     } catch (error) {
-      return res.status(browserErrorStatus(error)).json({ ok: false, error: error?.message || '上传失败', ...(error?.code ? { code: error.code } : {}) });
+      return res.status(browserErrorStatus(error)).json(errorResponse(error, '上传失败'));
     }
   });
 

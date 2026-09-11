@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { UserLayout } from '../shared/layouts/UserLayout';
-import { HomePage } from './pages/HomePage';
+import { HomeRoute } from './pages/HomeRoute';
 
 const ScriptPage = lazy(() => import('./pages/ScriptPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
@@ -17,7 +17,7 @@ const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage'));
-const AccountGovernancePage = lazy(() => import('../admin/pages/AccountGovernancePage').then(module => ({ default: module.AccountGovernancePage })));
+const AccountRolePage = lazy(() => import('./pages/AccountRolePage'));
 const TeamPage = lazy(() => import('./pages/TeamPage'));
 const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
 const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
@@ -57,14 +57,14 @@ function getPage(pathname) {
     '/profile': ProfilePage,
     '/security': SecurityPage,
     '/advanced-team-admin': AdvancedTeamAdminPage,
-    '/accounts': AccountGovernancePage,
+    '/accounts': AccountRolePage,
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
   if (Page) {
     return <Suspense fallback={<div className="route-loading" role="status">正在加载工作台</div>}><Page /></Suspense>;
   }
-  return <HomePage />;
+  return <HomeRoute />;
 }
 
 export function UserApp() {

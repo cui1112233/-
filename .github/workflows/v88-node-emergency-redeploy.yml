@@ -1,0 +1,220 @@
+name: V88 Node Emergency Redeploy
+# trigger: novel-fetch-121-current-v88-release-20260909
+
+on:
+  push:
+    branches:
+      - v88
+    paths:
+      - '.github/workflows/v88-node-emergency-redeploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+concurrency:
+  group: v88-public-release
+  cancel-in-progress: true
+
+jobs:
+  redeploy-node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout V88
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          npm run build
+
+      - name: Build and push V88 Node image
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          short_sha="${GITHUB_SHA::12}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/qiantie-v88:node-emergency-${short_sha}"
+          docker build --platform linux/amd64 -t "$image" .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = 'linux/amd64'
+          docker run --rm --entrypoint sh "$image" -c '
+            test -s /app/frontend/dist/batch-rewrite/121-login-hotfix.js &&
+            grep -q "REQUEST_TIMEOUT_MS = 65_000" /app/frontend/dist/batch-rewrite/121-login-hotfix.js &&
+            grep -q "121-login-hotfix.js" /app/frontend/dist/batch-rewrite/index.html &&
+            test -s /app/frontend/dist/batch-rewrite/interaction-feedback.js &&
+            test -s /app/frontend/dist/batch-rewrite/task-visibility-hotfix.js &&
+            grep -q "interaction-feedback.js" /app/frontend/dist/batch-rewrite/index.html &&
+            grep -q "task-visibility-hotfix.js" /app/frontend/dist/batch-rewrite/index.html
+          '
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$owner" --password-stdin
+          docker push "$image"
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          echo "DEPLOY_IMAGE=$image" >> "$GITHUB_ENV"
+
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          timeout 30 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" 'test -f /opt/qiantie/v88/deploy/v88-public/docker-compose.yml && docker version >/dev/null && docker compose version >/dev/null'
+
+      - name: Deploy V88 Node from GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "$GHCR_TOKEN" | timeout 60 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
+          timeout 900 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$DEPLOY_IMAGE" "$GITHUB_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          deploy_image="$1"
+          expected_sha="$2"
+          compose_file='/opt/qiantie/v88/deploy/v88-public/docker-compose.yml'
+          compose_dir="$(dirname "$compose_file")"
+          cd "$compose_dir"
+          compose=(docker compose -f "$compose_file")
+
+          node_id="$(${compose[@]} ps -q v88-node)"
+          go_id="$(${compose[@]} ps -q go-api)"
+          test -n "$node_id"
+          test -n "$go_id"
+          service_image="$(docker inspect "$node_id" --format '{{.Config.Image}}')"
+          test -n "$service_image"
+          rollback_image="v88-public-v88-node:emergency-rollback-${expected_sha:0:12}-$(date +%Y%m%d%H%M%S)"
+          docker tag "$service_image" "$rollback_image"
+
+          rollback() {
+            echo 'Emergency V88 Node verification failed; rolling back previous Node image.' >&2
+            docker tag "$rollback_image" "$service_image"
+            "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node || true
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then rollback; fi; docker logout ghcr.io >/dev/null 2>&1 || true; exit "$status"' EXIT
+
+          pull_with_retry() {
+            image="$1"
+            max_attempts="${2:-4}"
+            attempt=1
+            delay=5
+            while [ "$attempt" -le "$max_attempts" ]; do
+              if timeout 120 docker pull "$image"; then
+                return 0
+              fi
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "Unable to pull V88 Node image after ${max_attempts} attempts." >&2
+                return 1
+              fi
+              echo "V88 Node image pull failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s..." >&2
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              if [ "$delay" -lt 30 ]; then
+                delay=$((delay * 2))
+                if [ "$delay" -gt 30 ]; then delay=30; fi
+              fi
+            done
+          }
+
+          pull_with_retry "$deploy_image" 4
+          docker image inspect "$deploy_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          docker tag "$deploy_image" "$service_image"
+          "${compose[@]}" up -d --no-deps --force-recreate --pull never v88-node
+
+          node_id="$(${compose[@]} ps -q v88-node)"
+          go_id="$(${compose[@]} ps -q go-api)"
+          test -n "$node_id"
+          test -n "$go_id"
+
+          # Readiness must use a public asset. /api/novel-panel/build-info can
+          # legitimately return 401 under the current auth middleware.
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/batch-rewrite/121-login-hotfix.js | grep -q 'REQUEST_TIMEOUT_MS = 65_000'; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              echo 'V88 Node public Novel Fetch 121 login guard did not become reachable after redeploy.' >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          feedback_html="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/)"
+          login_hotfix_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/121-login-hotfix.js)"
+          feedback_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/interaction-feedback.js)"
+          task_visibility_js="$(curl -fsS http://127.0.0.1:3000/batch-rewrite/task-visibility-hotfix.js)"
+          printf '%s' "$feedback_html" | grep -q '121-login-hotfix.js'
+          printf '%s' "$login_hotfix_js" | grep -q 'REQUEST_TIMEOUT_MS = 65_000'
+          printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js'
+          printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js'
+          printf '%s' "$feedback_js" | grep -q 'processBtn'
+          printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'
+          printf '%s' "$task_visibility_js" | grep -q '自动切换到最新任务'
+
+          docker exec "$node_id" grep -q "bridgePayload" /app/routes/shuihuo-production.js
+          docker exec "$node_id" grep -q "lib/batch-factory-v11/go-proxy" /app/routes/shuihuo-production.js
+
+          node_bridge_secret="$(docker inspect "$node_id" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^QIANTIE_BRIDGE_SECRET=//p' | head -n1)"
+          go_bridge_secret="$(docker inspect "$go_id" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^QIANTIE_BRIDGE_SECRET=//p' | head -n1)"
+          test -n "$node_bridge_secret"
+          test -n "$go_bridge_secret"
+          if [ "$node_bridge_secret" != "$go_bridge_secret" ]; then
+            echo 'QIANTIE_BRIDGE_SECRET mismatch between v88-node and go-api.' >&2
+            exit 1
+          fi
+          unset node_bridge_secret go_bridge_secret
+
+          state="$(docker inspect "$node_id" --format '{{.State.Status}}')"
+          test "$state" = running
+          restart_count="$(docker inspect "$node_id" --format '{{.RestartCount}}')"
+          test "${restart_count:-0}" -eq 0
+
+          echo "V88 Node emergency deploy verified for commit ${expected_sha}."
+          trap - EXIT
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          REMOTE
+
+      - name: Verify public V88 endpoint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 20); do
+            feedback_html="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/" || true)"
+            login_hotfix_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/121-login-hotfix.js" || true)"
+            feedback_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/interaction-feedback.js" || true)"
+            task_visibility_js="$(curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/batch-rewrite/task-visibility-hotfix.js" || true)"
+            if printf '%s' "$feedback_html" | grep -q '121-login-hotfix.js' && printf '%s' "$login_hotfix_js" | grep -q 'REQUEST_TIMEOUT_MS = 65_000' && printf '%s' "$feedback_html" | grep -q 'task-visibility-hotfix.js' && printf '%s' "$feedback_html" | grep -q 'interaction-feedback.js' && printf '%s' "$feedback_js" | grep -q 'processBtn' && printf '%s' "$task_visibility_js" | grep -q 'latestTaskDate'; then
+              echo 'Public V88 Novel Fetch 121 login guard, task visibility and interaction feedback are reachable after Node redeploy.'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Public V88 Novel Fetch 121 login guard verification failed.' >&2
+          exit 1

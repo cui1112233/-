@@ -1,0 +1,154 @@
+name: V88 ECS Deploy Status Once
+# trigger: public-recovery-20260907-e
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - '.github/workflows/v88-ecs-deploy-status-once.yml'
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+
+      - name: Recover last verified Git-direct host Node
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
+          timeout 210 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo "RECOVERY_START $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          systemctl daemon-reload
+          test -f /etc/systemd/system/qiantie-v88-node-stage.service
+          test -f /opt/qiantie/v88/shared/env/v88-stage.env
+
+          timeout 15 systemctl enable qiantie-v88-node-stage.service >/dev/null 2>&1 || true
+          timeout 25 systemctl restart qiantie-v88-node-stage.service
+
+          host_ok=0
+          for _ in $(seq 1 20); do
+            if curl -fsS --connect-timeout 1 --max-time 2 http://127.0.0.1:18081/api/build-info >/tmp/host-build.json 2>/dev/null; then
+              host_ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$host_ok" != 1 ]; then
+            systemctl status qiantie-v88-node-stage.service --no-pager || true
+            journalctl -u qiantie-v88-node-stage.service -n 40 --no-pager || true
+            exit 21
+          fi
+          echo 'HOST_18081_OK'
+          cat /tmp/host-build.json
+
+          if curl -fsS --connect-timeout 1 --max-time 3 http://127.0.0.1:3000/api/build-info >/tmp/public-build.json 2>/dev/null; then
+            echo 'PUBLIC_3000_ALREADY_OK'
+            cat /tmp/public-build.json
+            exit 0
+          fi
+
+          # Try to restore the existing ingress if Docker is healthy, but never block recovery on Docker.
+          if systemctl is-active --quiet docker; then
+            nginx_id="$(timeout 8 docker ps -a --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1 || true)"
+            if [ -n "$nginx_id" ]; then
+              timeout 15 docker start "$nginx_id" >/dev/null 2>&1 || true
+              timeout 8 docker exec "$nginx_id" nginx -t >/dev/null 2>&1 || true
+              timeout 8 docker exec "$nginx_id" nginx -s reload >/dev/null 2>&1 || true
+            fi
+          fi
+
+          for _ in $(seq 1 8); do
+            if curl -fsS --connect-timeout 1 --max-time 2 http://127.0.0.1:3000/api/build-info >/tmp/public-build.json 2>/dev/null; then
+              echo 'PUBLIC_3000_NGINX_OK'
+              cat /tmp/public-build.json
+              exit 0
+            fi
+            sleep 1
+          done
+
+          # Emergency fallback: expose the same verified host release directly on :3000.
+          release_dir="$(systemctl show qiantie-v88-node-stage.service -p WorkingDirectory --value)"
+          node_exec="$(systemctl show qiantie-v88-node-stage.service -p ExecStart --value | sed -E 's/^\{ path=([^ ;]+).*/\1/' || true)"
+          if [ -z "$node_exec" ] || [ ! -x "$node_exec" ]; then
+            node_exec=/opt/qiantie/runtime/node-v24.19.0-linux-x64/bin/node
+          fi
+          test -n "$release_dir"
+          test -x "$node_exec"
+          test -f "$release_dir/server.js"
+
+          cat >/etc/systemd/system/qiantie-v88-node-emergency.service <<UNIT
+          [Unit]
+          Description=Qiantie V88 Emergency Public Node
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=$release_dir
+          EnvironmentFile=/opt/qiantie/v88/shared/env/v88-stage.env
+          Environment=QIANTIE_NODE_PORT=3000
+          ExecStart=$node_exec $release_dir/server.js
+          Restart=on-failure
+          RestartSec=3
+          TimeoutStopSec=20
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          systemctl daemon-reload
+          systemctl enable qiantie-v88-node-emergency.service >/dev/null 2>&1 || true
+          timeout 25 systemctl restart qiantie-v88-node-emergency.service
+
+          public_ok=0
+          for _ in $(seq 1 20); do
+            if curl -fsS --connect-timeout 1 --max-time 2 http://127.0.0.1:3000/api/build-info >/tmp/public-build.json 2>/dev/null; then
+              public_ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$public_ok" != 1 ]; then
+            systemctl status qiantie-v88-node-emergency.service --no-pager || true
+            journalctl -u qiantie-v88-node-emergency.service -n 40 --no-pager || true
+            exit 22
+          fi
+          echo 'PUBLIC_3000_DIRECT_HOST_OK'
+          cat /tmp/public-build.json
+          REMOTE
+
+      - name: Verify public endpoint externally
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for _ in $(seq 1 10); do
+            if curl -fsS --connect-timeout 2 --max-time 5 "http://${ECS_HOST}:3000/api/build-info" >/tmp/public-build.json 2>/dev/null; then
+              cat /tmp/public-build.json
+              curl -fsS --connect-timeout 2 --max-time 5 "http://${ECS_HOST}:3000/" >/dev/null
+              echo 'V88_PUBLIC_RECOVERY_OK'
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 31

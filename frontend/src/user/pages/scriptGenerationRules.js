@@ -1,3 +1,10 @@
+export const SMART_UNIFIED_PREFIX_PRESET_ID = 'script-constraint-prefix-smart-unified';
+
+export function shouldInjectSmartUnifiedStyle(constraints) {
+  return constraints?.prefix?.enabled === true
+    && constraints?.prefix?.presetId === SMART_UNIFIED_PREFIX_PRESET_ID;
+}
+
 export function normalizeAudioDurationSeconds(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 600) return null;
@@ -19,10 +26,14 @@ export function readAudioDurationFromUrl(url, { AudioCtor = globalThis.Audio } =
       audio.onerror = null;
       handler(value);
     };
+
     audio.preload = 'metadata';
     audio.onloadedmetadata = () => {
       const duration = normalizeAudioDurationSeconds(audio.duration);
-      if (duration === null) return finish(reject, new Error('无法读取有效的音频时长'));
+      if (duration === null) {
+        finish(reject, new Error('无法读取有效的音频时长'));
+        return;
+      }
       finish(resolve, duration);
     };
     audio.onerror = () => finish(reject, new Error('音频时长读取失败'));

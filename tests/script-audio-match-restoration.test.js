@@ -15,5 +15,5 @@ test('script generation exposes audio match on the fourth source tool', () => {
 test('script generation sends the measured audio duration when audio matching is enabled', () => {
   assert.match(generation, /matchAudio/);
   assert.match(generation, /audioTotalSeconds/);
-  assert.match(generation, /audioTotalSeconds: matchAudio === true \? audioTotalSeconds : null/);
+  assert.match(generation, /audioTotalSeconds: resolved\.matchAudio === true \? resolved\.audioTotalSeconds : null/);
 });

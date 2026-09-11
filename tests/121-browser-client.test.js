@@ -31,6 +31,45 @@ test('browser client sends only internal worker request with secret', async () =
   assert.equal(JSON.parse(calls[0].options.body).password, 'pw');
 });
 
+test('browser client preserves worker secret exactly on the wire', async () => {
+  const calls = [];
+  const secret = '  internal-secret-with-padding  ';
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, status: 'ready' }) };
+    }
+  });
+
+  await client.test(identity);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.headers['x-qiantie-internal-secret'], secret);
+});
+
+test('browser login gets a longer wall-clock budget than normal worker calls', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787',
+    secret: 'internal-secret',
+    timeoutMs: 20,
+    loginTimeoutMs: 2500,
+    fetchImpl: async (_url, options) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, status: 'ready', sessionKey: 'opaque' })
+      }), 1250);
+      options.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      });
+    })
+  });
+
+  const result = await client.login({ ...identity, password: 'pw' });
+  assert.equal(result.status, 'ready');
+});
+
 test('browser client authenticated action stays inside worker contract', async () => {
   const calls = [];
   const client = create121BrowserClient({
@@ -60,6 +99,34 @@ test('worker failure never falls back to guessed 121 login API', async () => {
   assert.equal(urls.some(url => url.includes('tttadmin/api/login.php')), false);
 });
 
+test('browser client classifies raw worker 401 unauthorized as infrastructure failure', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret',
+    fetchImpl: async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: 'unauthorized' }) })
+  });
+
+  await assert.rejects(client.test(identity), error => {
+    assert.equal(error.code, 'BROWSER_WORKER_UNAUTHORIZED');
+    assert.equal(error.status, 503);
+    assert.equal(error.recoverable, false);
+    assert.equal(error.workerResponse.error, 'unauthorized');
+    return true;
+  });
+});
+
+test('browser client classifies worker timeout responses as infrastructure 503', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret',
+    fetchImpl: async () => ({ ok: false, status: 504, text: async () => JSON.stringify({ error: 'browser_timeout', status: 'unknown' }) })
+  });
+
+  await assert.rejects(client.test(identity), error => {
+    assert.equal(error.code, 'BROWSER_WORKER_TIMEOUT');
+    assert.equal(error.status, 503);
+    return true;
+  });
+});
+
 test('browser client wall-clock timeout settles request', async () => {
   const client = create121BrowserClient({
     baseUrl: 'http://worker:8787', secret: 'internal-secret', timeoutMs: 20,
@@ -69,4 +136,22 @@ test('browser client wall-clock timeout settles request', async () => {
     assert.equal(error.code, 'BROWSER_WORKER_TIMEOUT');
     return true;
   });
+});
+
+test('browser client gives login requests a longer deadline than session checks', async () => {
+  const client = create121BrowserClient({
+    baseUrl: 'http://worker:8787', secret: 'internal-secret', timeoutMs: 1000, loginTimeoutMs: 1100,
+    fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+    })
+  });
+  const startedAt = Date.now();
+  const settled = {};
+  await Promise.all([
+    client.test(identity).catch(error => { settled.test = { elapsed: Date.now() - startedAt, error }; }),
+    client.login({ ...identity, password: 'pw' }).catch(error => { settled.login = { elapsed: Date.now() - startedAt, error }; })
+  ]);
+  assert.equal(settled.test.error.code, 'BROWSER_WORKER_TIMEOUT');
+  assert.equal(settled.login.error.code, 'BROWSER_WORKER_TIMEOUT');
+  assert.ok(settled.login.elapsed >= settled.test.elapsed + 50, JSON.stringify(settled));
 });

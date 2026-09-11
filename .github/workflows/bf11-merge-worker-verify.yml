@@ -1,0 +1,136 @@
+name: BF11 Merge Worker Verify
+
+on:
+  push:
+    branches: [v88]
+    paths:
+      - 'backend/internal/mergeworker/**'
+      - 'backend/cmd/merge-worker/**'
+      - 'backend/Dockerfile.merge-worker'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+      - 'docker-compose.v88-review.yml'
+      - '.env.v88-review.example'
+      - 'deploy/v88-public/docker-compose.merge.yml'
+      - 'deploy/v88-public/docker-compose.merge-enable.yml'
+      - 'deploy/v88-public/merge.env.example'
+      - '.github/workflows/bf11-merge-worker-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: backend/go.sum
+
+      - name: Verify Go module lock
+        working-directory: backend
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Run merge worker tests
+        working-directory: backend
+        run: go test ./internal/mergeworker ./cmd/merge-worker -count=1
+
+      - name: Build merge worker binary
+        working-directory: backend
+        run: go build ./cmd/merge-worker
+
+      - name: Build isolated FFmpeg worker image
+        run: docker build -f backend/Dockerfile.merge-worker -t qiantie-merge-worker:verify backend
+
+      - name: Validate review compose merge profile
+        env:
+          QIANTIE_V88_MYSQL_PASSWORD: review-only
+          QIANTIE_V88_MYSQL_ROOT_PASSWORD: review-only-root
+          QIANTIE_V88_BRIDGE_SECRET: review-only-bridge
+          QIANTIE_V88_TEXT_ENDPOINT: https://example.invalid/v1
+          QIANTIE_V88_TEXT_API_KEY: review-only-text
+          QIANTIE_V88_TEXT_MODEL: review-model
+          QIANTIE_V88_PUBLIC_BASE_URL: http://127.0.0.1:13188
+          QIANTIE_V88_DATA_DIR: /tmp/qiantie-v88-review/platform-data
+          QIANTIE_V88_MYSQL_DATA_DIR: /tmp/qiantie-v88-review/mysql-data
+          QIANTIE_V88_WORKER_DATA_DIR: /tmp/qiantie-v88-review/worker-data
+          QIANTIE_V88_ARTIFACT_DATA_DIR: /tmp/qiantie-v88-review/artifact-data
+          QIANTIE_V88_REDIS_DATA_DIR: /tmp/qiantie-v88-review/redis-data
+          QIANTIE_V88_121_WORKER_SECRET: review-only-121-worker
+          QIANTIE_V88_CREDENTIAL_SECRET: review-only-credential
+          QIANTIE_V88_121_STORAGE_STATE_SECRET: review-only-state
+          QIANTIE_V88_MERGE_WORKER_SECRET: review-only-merge
+          QIANTIE_V88_MERGE_API_KEY: review-only-merge
+          QIANTIE_V88_REDIS_PASSWORD: review-only-redis
+          QIANTIE_V88_MERGE_TOS_ENDPOINT: https://tos.example.invalid
+          QIANTIE_V88_MERGE_TOS_REGION: cn-test
+          QIANTIE_V88_MERGE_TOS_BUCKET: review-bucket
+          QIANTIE_V88_MERGE_TOS_ACCESS_KEY: review-only-ak
+          QIANTIE_V88_MERGE_TOS_SECRET_KEY: review-only-sk
+          QIANTIE_V88_MERGE_TOS_PUBLIC_BASE_URL: https://cdn.example.invalid
+        run: docker compose -f docker-compose.v88-review.yml --profile merge config >/tmp/v88-review-compose.yml
+
+      - name: Validate public merge stage and activation overlays
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > deploy/v88-public/.merge-base.test.yml <<'EOF'
+          name: v88-public
+          services:
+            go-api:
+              image: qiantie-go-api:existing
+              environment:
+                QIANTIE_BATCH_FACTORY_V11_SLICE: "3"
+              networks: [qiantie_internal]
+          networks:
+            qiantie_internal:
+              driver: bridge
+          EOF
+          cat > deploy/v88-public/merge.env <<'EOF'
+          QIANTIE_MERGE_WORKER_SECRET=test-merge-secret
+          QIANTIE_MERGE_REDIS_PASSWORD=test-redis-password
+          QIANTIE_MERGE_REDIS_URL=redis://:test-redis-password@merge-redis:6379/0
+          QIANTIE_MERGE_TOS_ENDPOINT=https://tos.example.invalid
+          QIANTIE_MERGE_TOS_REGION=cn-test
+          QIANTIE_MERGE_TOS_BUCKET=test-bucket
+          QIANTIE_MERGE_TOS_ACCESS_KEY=test-ak
+          QIANTIE_MERGE_TOS_SECRET_KEY=test-sk
+          QIANTIE_MERGE_TOS_PUBLIC_BASE_URL=https://cdn.example.invalid
+          EOF
+
+          QIANTIE_MERGE_WORKER_IMAGE=qiantie-merge-worker:test \
+            docker compose \
+              -f deploy/v88-public/.merge-base.test.yml \
+              -f deploy/v88-public/docker-compose.merge.yml \
+              config > /tmp/v88-public-merge-stage.yml
+          grep -q 'merge-redis:' /tmp/v88-public-merge-stage.yml
+          grep -q 'merge-worker:' /tmp/v88-public-merge-stage.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_SLICE: "3"' /tmp/v88-public-merge-stage.yml
+          if grep -A40 '^  merge-worker:' /tmp/v88-public-merge-stage.yml | grep -q 'published:'; then
+            echo 'merge-worker must not publish a host port' >&2
+            exit 1
+          fi
+
+          set -a
+          . deploy/v88-public/merge.env
+          set +a
+          QIANTIE_GO_API_IMAGE=qiantie-go-api:test \
+          QIANTIE_MERGE_WORKER_IMAGE=qiantie-merge-worker:test \
+            docker compose \
+              -f deploy/v88-public/.merge-base.test.yml \
+              -f deploy/v88-public/docker-compose.merge.yml \
+              -f deploy/v88-public/docker-compose.merge-enable.yml \
+              config > /tmp/v88-public-merge-enabled.yml
+          grep -q 'image: qiantie-go-api:test' /tmp/v88-public-merge-enabled.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_SLICE: "5"' /tmp/v88-public-merge-enabled.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED: "1"' /tmp/v88-public-merge-enabled.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_MERGE_ENDPOINT: http://merge-worker:8790/v1/merge' /tmp/v88-public-merge-enabled.yml
+          grep -q 'QIANTIE_BATCH_FACTORY_V11_MERGE_POLL_ENDPOINT: http://merge-worker:8790/v1/merge/{id}' /tmp/v88-public-merge-enabled.yml
+
+          rm -f deploy/v88-public/.merge-base.test.yml deploy/v88-public/merge.env
