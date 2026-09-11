@@ -18,6 +18,7 @@ import {
   updateTeamGovernance,
   updateTeamMember
 } from '../../shared/api/member';
+import { listGlobalAccounts } from '../../shared/api/accountAdmin';
 import { MemberIdentity, PageHeader, Panel, RoleBadge, formatDate, formatTokens } from './accountCenterShared';
 
 const SCOPE_OPTIONS = [
@@ -52,6 +53,7 @@ export default function TeamPage() {
   const [managerUsername, setManagerUsername] = useState('');
   const [invites, setInvites] = useState([]);
   const [governance, setGovernance] = useState([]);
+  const [managerGrantCandidates, setManagerGrantCandidates] = useState([]);
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [memberOpen, setMemberOpen] = useState(false);
   const [memberManageOpen, setMemberManageOpen] = useState(false);
@@ -96,6 +98,9 @@ export default function TeamPage() {
     if (!silent) setLoading(true);
     try {
       const [nextCenter, nextTeam, nextMeta, nextGovernance] = await Promise.all([getMemberCenter(), getTeamMembers(), getTeamMeta(), getTeamGovernance().catch(() => ({ teams: [] }))]);
+      const candidateResult = nextCenter.member?.role === 'dev'
+        ? await listGlobalAccounts({ role: 'member', active: true })
+        : { accounts: [] };
       const nextManager = nextCenter.member?.role === 'dev'
         ? (managerUsername || nextMeta.teams?.[0]?.manager?.username || '')
         : (nextCenter.member?.username || '');
@@ -104,6 +109,7 @@ export default function TeamPage() {
       setTeamResult(nextTeam);
       setMeta(nextMeta);
       setGovernance(nextGovernance.teams || []);
+      setManagerGrantCandidates(candidateResult.accounts || []);
       setManagerUsername(nextManager);
       setInvites(inviteResult.invites || []);
     } catch (error) { message.error(error.message || '团队管理加载失败'); }
@@ -339,10 +345,10 @@ export default function TeamPage() {
     <Modal title={selectedMember ? `重置 ${selectedMember.displayName} 的密码` : '重置密码'} open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => passwordForm.submit()} okText="确认重置" confirmLoading={saving}><Form form={passwordForm} layout="vertical" onFinish={savePassword}><Form.Item name="password" label="新密码" rules={[{ required: true, min: 8 }]}><Input.Password /></Form.Item><Form.Item name="confirm" label="确认新密码" dependencies={['password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator(_, value) { return value === getFieldValue('password') ? Promise.resolve() : Promise.reject(new Error('两次密码不一致')); } })]}><Input.Password /></Form.Item></Form></Modal>
     <Modal title="团队月度总额度" open={quotaOpen} onCancel={() => setQuotaOpen(false)} onOk={() => quotaForm.submit()} okText="保存额度" confirmLoading={saving}><Form form={quotaForm} layout="vertical" onFinish={saveQuota}><Form.Item name="monthlyTokenLimit" label="自然月总额度"><InputNumber min={0} style={{ width: '100%' }} addonAfter="Tokens" placeholder="不限额" /></Form.Item><p className="ac-muted-copy">额度为 0 时团队调用会被立即拦截；留空表示不限额。</p></Form></Modal>
     <Modal title="授权管理者" open={managerGrantOpen} onCancel={() => setManagerGrantOpen(false)} onOk={() => managerGrantForm.submit()} okText="确认授权" confirmLoading={saving}>
-      <p className="ac-muted-copy">将现有 MEMBER 提升为 MANAGER 后，他可以创建和管理自己的团队、成员与 API 权限。只有 DEV 可以执行此操作。</p>
+      <p className="ac-muted-copy">开发者可以从全站已启用的 MEMBER 账号中选择目标，提升为 MANAGER 后，他可以创建和管理自己的团队、成员与 API 权限。新账号加入系统后，刷新本页即可出现在列表中。只有 DEV 可以执行此操作。</p>
       <Form form={managerGrantForm} layout="vertical" onFinish={grantManager}>
         <Form.Item name="username" label="目标账号" rules={[{ required: true, message: '请选择要授权的账号' }]}>
-          <Select showSearch optionFilterProp="label" placeholder="选择现有 MEMBER 账号" options={(teamResult?.members || []).filter(member => member.role === 'member' && member.active).map(member => ({ value: member.username, label: `${member.displayName} · @${member.username}` }))} />
+          <Select showSearch optionFilterProp="label" placeholder="搜索并选择任意已启用 MEMBER 账号" options={managerGrantCandidates.map(member => ({ value: member.username, label: `${member.displayName} · @${member.username}` }))} />
         </Form.Item>
       </Form>
     </Modal>
