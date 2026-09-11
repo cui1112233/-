@@ -1,83 +1,17 @@
-name: V88 Direct Deploy Node Cutover
+name: V88 Host Node Cutover (Retired)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - v88
-    paths:
-      - 'deploy/v88-direct/CUTOVER-REQUEST'
 
 permissions:
   contents: read
 
-env:
-  ECS_HOST: 115.190.156.223
-  ECS_USER: root
-
-concurrency:
-  group: v88-node-public-cutover
-  cancel-in-progress: false
-
 jobs:
-  cutover-node:
+  retired:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
     steps:
-      - name: Checkout exact request commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Read and validate requested staged SHA
-        id: target
-        shell: bash
+      - name: Explain replacement release path
         run: |
-          set -Eeuo pipefail
-          test -f deploy/v88-direct/CUTOVER-REQUEST
-          target_sha="$(tr -d '\r\n ' < deploy/v88-direct/CUTOVER-REQUEST)"
-          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "CUTOVER-REQUEST must contain exactly one 40-character lowercase Git SHA" >&2
-            exit 2
-          fi
-          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare ECS SSH
-        shell: bash
-        env:
-          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
-          chmod 600 "$HOME/.ssh/v88_ecs"
-          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
-
-      - name: Cut public Node route to verified host release
-        shell: bash
-        env:
-          TARGET_SHA: ${{ steps.target.outputs.sha }}
-        run: |
-          set -Eeuo pipefail
-          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
-          timeout 180 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$TARGET_SHA" < deploy/v88-direct/cutover-node-host.sh
-
-      - name: Verify public exact SHA and 121 login artifact externally
-        shell: bash
-        env:
-          TARGET_SHA: ${{ steps.target.outputs.sha }}
-        run: |
-          set -Eeuo pipefail
-          curl -fsS --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/api/build-info" \
-            | python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha")==expected, (data.get("git_sha"), expected); assert data.get("deploy_mode")=="git-direct", data.get("deploy_mode")' "$TARGET_SHA"
-
-          hotfix="$(curl -fsS --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/batch-rewrite/121-login-hotfix.js")"
-          printf '%s\n' "$hotfix" | grep -Eq 'REQUEST_TIMEOUT_MS[[:space:]]*=[[:space:]]*65_000'
-
-          curl -fsS --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/" >/dev/null
-          echo "PUBLIC_CUTOVER_VERIFIED_SHA=$TARGET_SHA"
-          echo "PUBLIC_121_LOGIN_TIMEOUT_VERIFIED=65000"
+          echo 'Retired: host-stage V88 cutover is not a public deployment path.'
+          echo 'Deploy only paired immutable images through the unified Docker runner.'
+          exit 64

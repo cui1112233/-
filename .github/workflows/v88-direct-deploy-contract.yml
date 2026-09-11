@@ -1,4 +1,4 @@
-name: V88 Direct Deploy Contract
+name: V88 Unified Public Release Contract
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v88-direct-deploy-contract-${{ github.ref }}
+  group: v88-unified-public-release-contract-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,16 +28,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
-      - name: Verify V88 Git-direct release contracts
+      - name: Verify V88 unified public release contracts
         shell: bash
         run: |
           set -Eeuo pipefail
           node --test \
-            tests/v88-node-release-package.test.js \
             tests/v88-build-info-release.test.js \
-            tests/v88-node-stage-contract.test.js \
-            tests/v88-direct-public-cutover.test.js \
-            tests/v88-release-preserves-base-env.test.js \
-            tests/v88-release-registry-resilience.test.js \
-            tests/novel-panel-v783031-ecs-deploy.test.js \
-            tests/v88-public-browser-worker-deploy.test.js
+            tests/v88-public-unified-topology.test.js \
+            tests/v88-public-release-identity.test.js \
+            tests/v88-public-host-stage-retirement.test.js
