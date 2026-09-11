@@ -42,6 +42,14 @@ test('book constraints persist a 10 or 15 second Director split target', () => {
   assert.match(scoped, /value: 15, label: '15 秒'/);
 });
 
+test('book list exposes server status as a color indicator instead of a status tag', () => {
+  const source = read('BatchFactoryV11Workbench.jsx');
+  const bookList = source.slice(source.indexOf("id: 'book-list'"), source.indexOf("id: 'book-workbench'"));
+  assert.match(bookList, /className="bf11-book-status"/);
+  assert.match(bookList, /aria-label=\{`状态：\$\{book\.status/);
+  assert.doesNotMatch(bookList, /<Tag color=\{statusTone\[book\.status\]\}>\{book\.status/);
+});
+
 test('batch tools contain production progress and approved merge timing UI', () => {
   const source = read('BatchFactoryV11Workbench.jsx');
   for (const label of ['视频生成进度', '跟随音频时长', 'TTS 只测时', '合并待合并', '上传待上传']) {

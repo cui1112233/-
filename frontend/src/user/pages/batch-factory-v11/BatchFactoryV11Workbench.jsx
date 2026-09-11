@@ -65,6 +65,21 @@ const statusTone = {
   已完成: 'green'
 };
 
+const statusColor = {
+  待开始: '#94a3b8',
+  待审核: '#d4a72c',
+  AI处理中: '#7c6cff',
+  待生成: '#8b5cf6',
+  排队中: '#3b82f6',
+  生成中: '#2f9ee8',
+  异常: '#ee7777',
+  待合并: '#22b8cf',
+  已合并: '#37c98b',
+  待上传: '#4f7cff',
+  已发布: '#37c98b',
+  已完成: '#37c98b'
+};
+
 function loadStoredLayout() {
   try {
     return normalizeLayout(JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY) || 'null'));
@@ -445,8 +460,12 @@ export function BatchFactoryV11Workbench({
               <small>{book.platform || '未知来源'} · {book.bookId || book.id}</small>
             </span>
             <span className="bf11-book-meta">
-              {book.overrideCount ? <Tag color="purple">已调整 {book.overrideCount}</Tag> : null}
-              <Tag color={statusTone[book.status]}>{book.status || '未返回状态'}</Tag>
+              <span
+                className="bf11-book-status"
+                style={{ backgroundColor: statusColor[book.status] || '#94a3b8' }}
+                aria-label={`状态：${book.status || '未返回状态'}`}
+                title={book.status || '未返回状态'}
+              />
             </span>
           </button>)}
           {!filteredBooks.length ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的小说" /> : null}
