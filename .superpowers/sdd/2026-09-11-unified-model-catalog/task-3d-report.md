@@ -34,3 +34,9 @@ passed (existing unresolved brand-logo runtime warnings only)
 ## Caveat
 
 The pairing status is based on the Go service's persisted local executor list for the current account. A temporary Go-service outage does not fabricate a paired executor; enabling will be rejected until the server can confirm it.
+
+## Final follow-up
+
+- The client now allocates the next unused stable `custom-*` ID before submission; the server remains the collision authority for concurrent saves.
+- Pairing status is fetched even before a Local Doubao catalog record exists, so an already paired executor can be enabled on its first model-directory save.
+- Added `frontend/src/shared/modelCatalog/customModelId.test.js`; the focused model-catalog suite and production frontend build pass without staging generated `dist` output.
