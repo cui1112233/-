@@ -30,6 +30,36 @@ test('enabled models resolve only within their declared model kind', () => {
   assert.equal(resolveCatalogModel(catalog, 'video-disabled', 'video'), null);
 });
 
+test('enabled models without their required configuration are not selectable', () => {
+  const catalog = normalizeModelCatalog([
+    { id: 'text-missing-key', kind: 'text', enabled: true },
+    { id: 'yd2-mini-video', kind: 'video', enabled: true },
+    { id: 'minimax-h3-video', kind: 'video', credential: 'h3-secret', enabled: true },
+    { id: 'local-doubao-executor-video', kind: 'video', enabled: true }
+  ], {});
+
+  assert.equal(resolveCatalogModel(catalog, 'text-missing-key', 'text'), null);
+  assert.equal(resolveCatalogModel(catalog, 'yd2-mini-video', 'video'), null);
+  assert.equal(resolveCatalogModel(catalog, 'minimax-h3-video', 'video').id, 'minimax-h3-video');
+  assert.equal(resolveCatalogModel(catalog, 'local-doubao-executor-video', 'video'), null);
+});
+
+test('local executor preset is selectable only after executor pairing', () => {
+  const catalog = normalizeModelCatalog([
+    { id: 'local-doubao-executor-video', kind: 'video', executorPaired: true, enabled: true }
+  ], {});
+
+  assert.equal(resolveCatalogModel(catalog, 'local-doubao-executor-video', 'video').id, 'local-doubao-executor-video');
+});
+
+test('custom records cannot claim a reserved platform preset id', () => {
+  const catalog = normalizeModelCatalog([
+    { id: 'minimax-h3-video', kind: 'text', credential: 'custom-secret', enabled: true }
+  ], {});
+
+  assert.deepEqual(catalog, []);
+});
+
 test('platform video presets retain their fixed adapter metadata', () => {
   assert.deepEqual(PLATFORM_PRESETS['yd2-mini-video'], {
     kind: 'video',

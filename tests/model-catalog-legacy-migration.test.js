@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { normalizeModelCatalog, resolveCatalogModel } = require('../lib/model-catalog');
+const { getVideoApiKey } = require('../lib/shared');
 
 test('legacy credentials migrate into their matching catalog kinds without creating defaults', () => {
   const catalog = normalizeModelCatalog([], {
@@ -33,6 +34,13 @@ test('legacy credentials migrate into their matching catalog kinds without creat
   assert.equal(resolveCatalogModel(catalog, 'minimax-h3-video', 'video').credential, 'legacy-h3-secret');
 });
 
+test('generic legacy video key migrates to YD only and never creates an H3 model', () => {
+  const catalog = normalizeModelCatalog([], { video: { apiKey: 'generic-video-secret' } });
+
+  assert.equal(resolveCatalogModel(catalog, 'yd2-mini-video', 'video').credential, 'generic-video-secret');
+  assert.equal(resolveCatalogModel(catalog, 'minimax-h3-video', 'video'), null);
+});
+
 test('legacy config without credentials does not create a catalog model', () => {
   const catalog = normalizeModelCatalog([], {
     baseUrl: 'https://text.example/v1',
@@ -52,4 +60,15 @@ test('a versioned catalog never reimports credentials from retained legacy field
   });
 
   assert.deepEqual(catalog, []);
+});
+
+test('versioned catalog never falls back to retained legacy video keys at runtime', () => {
+  const config = {
+    modelCatalogVersion: 1,
+    modelCatalog: [],
+    video: { ydApiKey: 'retained-yd-secret', h3ApiKey: 'retained-h3-secret', apiKey: 'retained-generic-secret' }
+  };
+
+  assert.equal(getVideoApiKey(config, 'yd'), '');
+  assert.equal(getVideoApiKey(config, 'h3'), '');
 });
