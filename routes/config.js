@@ -10,6 +10,7 @@ const {
   updateManagerModel,
   removeManagerModel
 } = require('../lib/model-catalog-runtime');
+const { createModelReferenceResolver } = require('../lib/model-reference-resolver');
 
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')
@@ -75,6 +76,7 @@ function createConfigRouter({
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
+  const resolveModelReference = isModelReferenced || createModelReferenceResolver({ configReader });
 
   function requireApiManager(req, res, next) {
     if (!apiManagementState(req, memberStore).canManageApi) return res.status(403).json({ error: '仅管理者可以管理模型' });
@@ -112,9 +114,9 @@ function createConfigRouter({
     }
   });
 
-  router.delete('/models/:modelId', requireApiManager, (req, res) => {
+  router.delete('/models/:modelId', requireApiManager, async (req, res) => {
     try {
-      removeManagerModel(req.username, req.params.modelId, { configReader, configWriter, isModelReferenced });
+      await removeManagerModel(req.username, req.params.modelId, { configReader, configWriter, isModelReferenced: resolveModelReference });
       return res.status(204).end();
     } catch (error) {
       return sendModelError(res, error);

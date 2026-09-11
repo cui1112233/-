@@ -19,6 +19,7 @@ const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const { createConfigRouter } = require('./routes/config');
+const { createModelReferenceResolver } = require('./lib/model-reference-resolver');
 const { listVisibleModels } = require('./lib/model-catalog-runtime');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -348,6 +349,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
   const resolvedConfigReader = configReader || readConfig;
   const resolvedConfigWriter = configWriter || require('./lib/shared').writeConfig;
+  const isModelReferenced = createModelReferenceResolver({
+    configReader: resolvedConfigReader,
+    batchFactoryStoreFactory: resolvedBatchFactoryStore,
+    accountReader: username => authRuntime.accountStore.getInternalAccount(username)
+  });
   app.get('/api/models', apiAuth, (req, res) => {
     const kind = String(req.query.kind || '').trim();
     const member = resolvedMemberStore.getMember(req.username);
@@ -365,7 +371,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     shuihuoGateway,
     memberStore: resolvedMemberStore,
     configReader: resolvedConfigReader,
-    configWriter: resolvedConfigWriter
+    configWriter: resolvedConfigWriter,
+    isModelReferenced
   })); // GET/POST /api/config
   app.use('/api/script-video', createScriptVideoRouter({ shuihuoGateway }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
