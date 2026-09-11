@@ -19,6 +19,12 @@ test('API configuration gives managers typed presets and custom model CRUD', () 
   assert.match(source, /updateManagedModel/);
   assert.match(source, /deleteManagedModel/);
   assert.match(source, /capabilities/);
+  assert.match(source, /supportsReferenceImages/);
+  assert.match(source, /requiresImageInput/);
+  assert.match(source, /maxVideoDuration/);
+  assert.doesNotMatch(source, /mode="tags"/);
+  assert.match(source, /createCustomModelId/);
+  assert.match(source, /refreshLocalDoubaoPairingStatus/);
   assert.match(source, /isPresetReady/);
   assert.match(source, /disabled=\{!model\?\.enabled && !isPresetReady/);
 });

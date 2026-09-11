@@ -1,8 +1,8 @@
-import { Button, Form, Input, Modal, Select, Skeleton, Space, Switch, Table, Tag, message } from 'antd';
+import { Button, Form, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, message } from 'antd';
 import { KeyRound, Plus, ShieldCheck, Trash2, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { canManageModelCatalog, getConfig } from '../../shared/api/config';
-import { createManagedModel, deleteManagedModel, listManagedModels, updateManagedModel } from '../../shared/api/modelCatalog';
+import { createCustomModelId, createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, updateManagedModel } from '../../shared/api/modelCatalog';
 import { getMemberCenter } from '../../shared/api/member';
 import { PageHeader, Panel, RoleBadge } from './accountCenterShared';
 
@@ -45,7 +45,14 @@ export default function ApiConfigPage() {
   const member = center?.member;
 
   const refreshModels = useCallback(async () => {
-    if (canManageApi) setModels(await listManagedModels());
+    if (!canManageApi) return;
+    const nextModels = await listManagedModels();
+    const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
+    if (doubao) {
+      const pairing = await refreshLocalDoubaoPairingStatus();
+      doubao.executorPaired = pairing.executorPaired === true;
+    }
+    setModels(nextModels);
   }, [canManageApi]);
 
   useEffect(() => {
@@ -54,7 +61,15 @@ export default function ApiConfigPage() {
       if (!alive) return;
       setConfig(nextConfig);
       setCenter(nextCenter);
-      if (canManageModelCatalog(nextConfig)) setModels(await listManagedModels());
+      if (canManageModelCatalog(nextConfig)) {
+        const nextModels = await listManagedModels();
+        const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
+        if (doubao) {
+          const pairing = await refreshLocalDoubaoPairingStatus();
+          doubao.executorPaired = pairing.executorPaired === true;
+        }
+        setModels(nextModels);
+      }
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -72,7 +87,7 @@ export default function ApiConfigPage() {
       baseUrl: '',
       modelId: '',
       credential: '',
-      capabilities: []
+      capabilities: { supportsReferenceImages: false, requiresImageInput: false, maxVideoDuration: undefined }
     });
     setCustomOpen(true);
   }
@@ -86,8 +101,20 @@ export default function ApiConfigPage() {
   async function submitCustom() {
     try {
       const values = await customForm.validateFields();
-      const payload = { ...values };
+      const payload = {
+        ...values,
+        ...(editing ? {} : { id: createCustomModelId(values, models.map(model => model.id)) }),
+        capabilities: {
+          supportsReferenceImages: values.capabilities?.supportsReferenceImages === true,
+          requiresImageInput: values.capabilities?.requiresImageInput === true,
+          ...(Number.isInteger(values.capabilities?.maxVideoDuration) ? { maxVideoDuration: values.capabilities.maxVideoDuration } : {})
+        }
+      };
       if (!payload.credential) delete payload.credential;
+      if (payload.enabled && (!payload.baseUrl || !payload.modelId || !payload.credential && !editing?.hasCredential)) {
+        customForm.setFields([{ name: 'credential', errors: ['启用模型前必须填写 API Key'] }]);
+        return;
+      }
       setSaving(true);
       if (editing) await updateManagedModel(editing.id, payload);
       else await createManagedModel(payload);
@@ -161,8 +188,17 @@ export default function ApiConfigPage() {
         <Form.Item name="baseUrl" label="自定义请求地址" rules={[{ required: true, message: '请输入 Base URL' }]}><Input placeholder="例如 https://api.openai.com/v1" /></Form.Item>
         <Form.Item name="modelId" label="模型 ID" rules={[{ required: true, message: '请输入模型 ID' }]}><Input placeholder="例如 gpt-5.4" /></Form.Item>
         <Form.Item name="displayName" label="模型显示名称" rules={[{ required: true, message: '请输入显示名称' }]}><Input maxLength={80} /></Form.Item>
-        <Form.Item name="credential" label="API 密钥"><Input.Password prefix={<KeyRound size={15} />} placeholder={editing?.hasCredential ? '留空表示不修改已保存的 Key' : '请输入 API Key'} /></Form.Item>
-        <Form.Item name="capabilities" label="适用能力" extra="可选，例如：图生视频、参考图、长文本。输入后按回车添加。"><Select mode="tags" tokenSeparators={[',', '，']} placeholder="输入模型适用能力" /></Form.Item>
+        <Form.Item name="credential" label="API 密钥" rules={[({ getFieldValue }) => ({ validator(_, value) {
+          if (!getFieldValue('enabled') || String(value || '').trim() || editing?.hasCredential) return Promise.resolve();
+          return Promise.reject(new Error('启用模型前必须填写 API Key'));
+        } })]}><Input.Password prefix={<KeyRound size={15} />} placeholder={editing?.hasCredential ? '留空表示不修改已保存的 Key' : '请输入 API Key'} /></Form.Item>
+        <Form.Item label="适用能力" extra="仅保存模型运行时可识别的能力；留空的时长不限制。">
+          <Space direction="vertical">
+            <Form.Item name={['capabilities', 'supportsReferenceImages']} valuePropName="checked" noStyle><Switch checkedChildren="支持参考图" unCheckedChildren="不支持参考图" /></Form.Item>
+            <Form.Item name={['capabilities', 'requiresImageInput']} valuePropName="checked" noStyle><Switch checkedChildren="需要图片输入" unCheckedChildren="不需要图片输入" /></Form.Item>
+            <Form.Item name={['capabilities', 'maxVideoDuration']} noStyle><InputNumber min={1} max={60} precision={0} placeholder="最大视频时长（1–60 秒）" /></Form.Item>
+          </Space>
+        </Form.Item>
         <Form.Item name="enabled" label="立即启用" valuePropName="checked"><Switch /></Form.Item>
       </Form>
     </Modal>

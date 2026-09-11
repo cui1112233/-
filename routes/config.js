@@ -11,6 +11,33 @@ const {
   removeManagerModel
 } = require('../lib/model-catalog-runtime');
 const { createModelReferenceResolver } = require('../lib/model-reference-resolver');
+const { createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
+
+const LOCAL_DOUBAO_MODEL_ID = 'local-doubao-executor-video';
+
+async function defaultExecutorPairingStatus({ username, account, shuihuoGateway, fetchImpl = globalThis.fetch }) {
+  if (!fetchImpl) return false;
+  const base = String(shuihuoGateway?.targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
+  const secret = shuihuoGateway?.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
+  const pathname = '/api/shuihuo-production/local-executors';
+  try {
+    const response = await fetchImpl(`${base}${pathname}`, {
+      headers: createSignedBridgeHeaders({
+        username,
+        isOwner: account?.isOwner === true,
+        method: 'GET',
+        pathname,
+        secret
+      })
+    });
+    if (!response.ok) return false;
+    const payload = await response.json();
+    return Array.isArray(payload?.executors)
+      && payload.executors.some(executor => executor?.platform === 'doubao');
+  } catch {
+    return false;
+  }
+}
 
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')
@@ -77,7 +104,8 @@ function createConfigRouter({
   authenticate = apiAuth,
   isModelReferenced,
   batchFactoryStoreFactory,
-  accountReader
+  accountReader,
+  getExecutorPairingStatus = defaultExecutorPairingStatus
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
@@ -96,6 +124,22 @@ function createConfigRouter({
     return res.status(error?.status || 400).json({ error: error?.message || '模型配置处理失败' });
   }
 
+  async function readAndPersistExecutorPairing(req) {
+    const paired = await getExecutorPairingStatus({
+      username: req.username,
+      account: req.auth?.account,
+      shuihuoGateway
+    });
+    const config = configReader(req.username) || {};
+    const rawCatalog = Array.isArray(config.modelCatalog) ? config.modelCatalog : [];
+    const index = rawCatalog.findIndex(model => model?.id === LOCAL_DOUBAO_MODEL_ID);
+    if (index < 0) return paired;
+    if (rawCatalog[index]?.executorPaired === paired) return paired;
+    const nextCatalog = rawCatalog.map((model, position) => position === index ? { ...model, executorPaired: paired } : model);
+    configWriter(req.username, { ...config, modelCatalog: nextCatalog, modelCatalogVersion: 1 });
+    return paired;
+  }
+
   router.get('/models', (req, res) => {
     res.json({ models: listVisibleModels({
       username: req.username,
@@ -105,18 +149,33 @@ function createConfigRouter({
     }) });
   });
 
-  router.post('/models', requireApiManager, (req, res) => {
+  router.get('/models/local-doubao-executor-video/pairing-status', requireApiManager, async (req, res) => {
+    const executorPaired = await readAndPersistExecutorPairing(req);
+    return res.json({ executorPaired });
+  });
+
+  router.post('/models', requireApiManager, async (req, res) => {
     try {
-      const model = saveManagerModel(req.username, req.body, { configReader, configWriter });
+      const body = { ...(req.body || {}) };
+      if (body.id === LOCAL_DOUBAO_MODEL_ID) {
+        body.executorPaired = await readAndPersistExecutorPairing(req);
+        if (body.enabled && !body.executorPaired) throw Object.assign(new Error('请先完成本地豆包执行器配对'), { status: 422 });
+      }
+      const model = saveManagerModel(req.username, body, { configReader, configWriter });
       return res.status(201).json({ model });
     } catch (error) {
       return sendModelError(res, error);
     }
   });
 
-  router.patch('/models/:modelId', requireApiManager, (req, res) => {
+  router.patch('/models/:modelId', requireApiManager, async (req, res) => {
     try {
-      const model = updateManagerModel(req.username, req.params.modelId, req.body, { configReader, configWriter });
+      const body = { ...(req.body || {}) };
+      if (req.params.modelId === LOCAL_DOUBAO_MODEL_ID) {
+        body.executorPaired = await readAndPersistExecutorPairing(req);
+        if (body.enabled && !body.executorPaired) throw Object.assign(new Error('请先完成本地豆包执行器配对'), { status: 422 });
+      }
+      const model = updateManagerModel(req.username, req.params.modelId, body, { configReader, configWriter });
       return res.json({ model });
     } catch (error) {
       return sendModelError(res, error);
@@ -198,4 +257,4 @@ function createConfigRouter({
   return router;
 }
 
-module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar, managedPublicConfig };
+module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar, managedPublicConfig, defaultExecutorPairingStatus };

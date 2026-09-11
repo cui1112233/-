@@ -18,6 +18,8 @@ test('catalog CRUD persists only allowed custom capabilities and returns their s
   const created = saveManagerModel('manager', {
     id: 'custom-video',
     kind: 'video',
+    baseUrl: 'https://api.example.test/v1',
+    modelId: 'video-model',
     credential: 'secret',
     enabled: true,
     capabilities: {

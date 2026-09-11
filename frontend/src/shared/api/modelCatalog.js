@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { createCustomModelId } from '../modelCatalog/customModelId.js';
 
 const MODEL_KIND_LABELS = Object.freeze({
   text: '文本',
@@ -67,10 +68,16 @@ export function createManagedModel(model) {
   return apiRequest('/api/config/models', { method: 'POST', body: JSON.stringify(model) });
 }
 
+export { createCustomModelId };
+
 export function updateManagedModel(modelId, patch) {
   return apiRequest(`/api/config/models/${encodeURIComponent(modelId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
 export function deleteManagedModel(modelId) {
   return apiRequest(`/api/config/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
+}
+
+export function refreshLocalDoubaoPairingStatus() {
+  return apiRequest('/api/config/models/local-doubao-executor-video/pairing-status');
 }
