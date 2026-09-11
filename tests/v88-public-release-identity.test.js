@@ -35,6 +35,9 @@ test('paired image build workflow uses the checked-out SHA and immutable tags', 
   assert.match(nodeDockerfile, /org\.opencontainers\.image\.revision/);
   assert.match(goDockerfile, /org\.opencontainers\.image\.revision/);
   assert.match(workflow, /platforms:\s*linux\/amd64/);
+  assert.match(workflow, /npm ci --omit=dev/);
+  assert.match(workflow, /npm --prefix frontend ci/);
+  assert.match(workflow, /npm --prefix frontend run build/);
   assert.match(workflow, /QIANTIE_RELEASE_SHA=\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /qiantie-v88-node:\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /qiantie-go-api:\$\{\{ github\.sha \}\}/);
