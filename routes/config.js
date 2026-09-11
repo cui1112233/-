@@ -6,6 +6,7 @@ const { normalizeStorageRoot } = require('../lib/storage-root');
 const { normalizePetConfig } = require('../lib/pet-catalog');
 const {
   listVisibleModels,
+  listManagerModels,
   saveManagerModel,
   updateManagerModel,
   removeManagerModel
@@ -141,6 +142,13 @@ function createConfigRouter({
   }
 
   router.get('/models', (req, res) => {
+    if (apiManagementState(req, memberStore).canManageApi) {
+      return res.json({ models: listManagerModels({
+        username: req.username,
+        kind: req.query.kind,
+        configReader
+      }) });
+    }
     res.json({ models: listVisibleModels({
       username: req.username,
       kind: req.query.kind,

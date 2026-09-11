@@ -140,6 +140,35 @@ test('custom model cannot be saved enabled without endpoint model id and API key
   assert.match(rejected.body.error, /API Key/);
 });
 
+test('manager keeps disabled custom models in its catalog for later editing and enabling', async () => {
+  const app = makeApp();
+  const created = await request(app, {
+    method: 'POST', path: '/api/config/models', token: 'manager-token', body: {
+      kind: 'image', displayName: '暂存图片模型', providerType: 'openai_compatible',
+      baseUrl: 'https://api.example.test/v1', modelId: 'image-draft', credential: 'secret', enabled: false
+    }
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.model.enabled, false);
+
+  const reloaded = await request(app, { path: '/api/config/models?kind=image', token: 'manager-token' });
+  assert.equal(reloaded.status, 200);
+  assert.deepEqual(reloaded.body.models.map(model => model.id), [created.body.model.id]);
+  assert.equal(reloaded.body.models[0].enabled, false);
+});
+
+test('server rejects an enabled H3 preset without an API key', async () => {
+  const app = makeApp();
+  const rejected = await request(app, {
+    method: 'POST', path: '/api/config/models', token: 'manager-token', body: {
+      id: 'minimax-h3-video', enabled: true
+    }
+  });
+
+  assert.equal(rejected.status, 422);
+  assert.match(rejected.body.error, /API Key/);
+});
+
 test('local Doubao preset persists only pairing observed by the server', async () => {
   const unpaired = makeApp({ executorPairingStatus: async () => false });
   const rejected = await request(unpaired, {
