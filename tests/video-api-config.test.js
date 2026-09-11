@@ -25,10 +25,11 @@ test('legacy video apiKey remains readable as both providers during migration', 
   assert.equal(getVideoApiKey({ video }, 'h3'), 'legacy-video-token');
 });
 
-test('API config exposes separate YD and H3 credential fields', () => {
+test('API config presents YD and H3 as catalog presets instead of legacy form fields', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'frontend/src/user/pages/ApiConfigPage.jsx'), 'utf8');
-  assert.match(source, /label="YD2\.0 Mini API Key"/);
-  assert.match(source, /label="MiniMax H3 API Key"/);
-  assert.match(source, /name=\{\['video', 'ydApiKey'\]\}/);
-  assert.match(source, /name=\{\['video', 'h3ApiKey'\]\}/);
+  assert.match(source, /id: 'yd2-mini-video'/);
+  assert.match(source, /id: 'minimax-h3-video'/);
+  assert.match(source, /savePreset/);
+  assert.doesNotMatch(source, /name=\{\['video', 'ydApiKey'\]\}/);
+  assert.doesNotMatch(source, /name=\{\['video', 'h3ApiKey'\]\}/);
 });
