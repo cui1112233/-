@@ -168,10 +168,11 @@ export function ScriptPage() {
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
+    // 卡片展示的是当前输出实际采用的约束；constraints 可能在生成后被重置为“下次生成”状态。
+    constraints: constraintsForFormat(outputConstraints, selectedFormat, extractInfo),
     index,
     duration: selectedDuration
-  })), [rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration]);
+  })), [rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
@@ -1056,6 +1057,7 @@ export function ScriptPage() {
   function saveConstraints() {
     const next = normalizeScriptConstraints(draftConstraints);
     setConstraints(next);
+    setOutputConstraints(next);
     setConstraintModalOpen(false);
     persistDraft(undefined, { constraints: constraintsForNextGeneration(next) });
   }
