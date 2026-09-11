@@ -18,6 +18,7 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
   const [generating, setGenerating] = useState(false);
   const [previewUrls, setPreviewUrls] = useState({});
   const inputRef = useRef(null);
+  const previewGeneration = useRef(0);
   const normalizedAssetType = apiAssetType(assetType);
 
   useEffect(() => {
@@ -26,6 +27,8 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
 
   useEffect(() => {
     let active = true;
+    const generation = previewGeneration.current + 1;
+    previewGeneration.current = generation;
     const objectUrls = [];
     const imageUrls = draft.imageUrls;
 
@@ -33,17 +36,28 @@ export default function EntityImagePanel({ assetType, assetId, fields, novelText
       if (url.startsWith('data:') || url.startsWith('blob:')) return [url, url];
       const blob = await loadReferenceAssetImage(url);
       const objectUrl = URL.createObjectURL(blob);
+      if (!active || generation !== previewGeneration.current) {
+        URL.revokeObjectURL(objectUrl);
+        return null;
+      }
       objectUrls.push(objectUrl);
       return [url, objectUrl];
     })).then(entries => {
-      if (active) setPreviewUrls(Object.fromEntries(entries));
+      if (active && generation === previewGeneration.current) {
+        setPreviewUrls(Object.fromEntries(entries.filter(Boolean)));
+      }
     }).catch(() => {
-      if (active) setPreviewUrls({});
+      if (active && generation === previewGeneration.current) {
+        setPreviewUrls({});
+        objectUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
+      }
     });
 
     return () => {
       active = false;
+      previewGeneration.current += 1;
       objectUrls.forEach(url => URL.revokeObjectURL(url));
+      objectUrls.length = 0;
     };
   }, [draft.imageUrls.join('\u0000')]);
 

@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const { createApp } = require('../app');
 const { createAccountStore } = require('../lib/account-store');
+const { createNovelPanelPremiumStore } = require('../lib/novel-panel/premium-store');
 
 function createServerContext(t) {
   const systemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-novel-panel-v78-routes-'));
@@ -85,6 +86,30 @@ function workspace() {
     outline_shots: [{ id: 'shot_1', duration: 2 }]
   };
 }
+
+test('reference asset path prefers the newest main and thumb extension without deleting older files', async t => {
+  const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-premium-store-extension-'));
+  t.after(() => fs.rmSync(usersDir, { recursive: true, force: true }));
+  const store = createNovelPanelPremiumStore({ usersDir });
+  const first = Buffer.from('old-png');
+  const second = Buffer.from('new-jpg');
+
+  const mainPng = store.writeReferenceAssetBytes('choushiyiguai', 'character', 'extension_test', 'main', first, 'image/png');
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const mainJpg = store.writeReferenceAssetBytes('choushiyiguai', 'character', 'extension_test', 'main', second, 'image/jpeg');
+  assert.equal(path.extname(store.assetFilePath('choushiyiguai', 'character', 'extension_test', 'main')), '.jpg');
+  assert.deepEqual(fs.readFileSync(store.assetFilePath('choushiyiguai', 'character', 'extension_test', 'main')), second);
+  assert.equal(fs.existsSync(mainPng), true);
+  assert.equal(fs.existsSync(mainJpg), true);
+
+  const thumbPng = store.writeReferenceAssetBytes('choushiyiguai', 'character', 'extension_test', 'thumb', first, 'image/png');
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const thumbWebp = store.writeReferenceAssetBytes('choushiyiguai', 'character', 'extension_test', 'thumb', second, 'image/webp');
+  assert.equal(path.extname(store.assetFilePath('choushiyiguai', 'character', 'extension_test', 'thumb')), '.webp');
+  assert.deepEqual(fs.readFileSync(store.assetFilePath('choushiyiguai', 'character', 'extension_test', 'thumb')), second);
+  assert.equal(fs.existsSync(thumbPng), true);
+  assert.equal(fs.existsSync(thumbWebp), true);
+});
 
 async function login(app) {
   const response = await request(app, { method: 'POST', requestPath: '/api/login', body: { username: 'choushiyiguai', password: '123456' } });

@@ -21,6 +21,8 @@ test('entity image panel defines the double-column image controls', () => {
   assert.match(component, /loadReferenceAssetImage/);
   assert.match(component, /URL\.createObjectURL/);
   assert.match(component, /URL\.revokeObjectURL/);
+  assert.match(component, /if \(!active \|\| generation !== previewGeneration\.current\)/);
+  assert.match(component, /URL\.revokeObjectURL\(objectUrl\)/);
   assert.doesNotMatch(component, /<span\s+[^>]*role="button"/);
   assert.match(component, /entity-editor-image-delete-control/);
   assert.match(styles, /\.entity-editor-layout/);
