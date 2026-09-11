@@ -14,7 +14,7 @@ const {
   persistentSessionIdForToken
 } = require('../lib/session-store');
 
-const MANAGED_API_SCOPES = ['text', 'image', 'tts'];
+const MANAGED_API_SCOPES = ['text', 'image', 'video', 'tts'];
 
 function sendMemberError(res, error) {
   if (error?.code === 'NOT_FOUND') return res.status(404).json({ error: error.message });

@@ -19,6 +19,7 @@ const { createAdminRouter } = require('./routes/admin');
 const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const { createConfigRouter } = require('./routes/config');
+const { listVisibleModels } = require('./lib/model-catalog-runtime');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
 const promptRouter = require('./routes/prompt');
@@ -81,7 +82,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -345,7 +346,27 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
-  app.use('/api/config', createConfigRouter({ shuihuoGateway, memberStore: resolvedMemberStore })); // GET/POST /api/config
+  const resolvedConfigReader = configReader || readConfig;
+  const resolvedConfigWriter = configWriter || require('./lib/shared').writeConfig;
+  app.get('/api/models', apiAuth, (req, res) => {
+    const kind = String(req.query.kind || '').trim();
+    const member = resolvedMemberStore.getMember(req.username);
+    if (member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
+      return res.status(403).json({ error: '尚未获得该类型 API 使用权限' });
+    }
+    return res.json({ models: listVisibleModels({
+      username: req.username,
+      kind,
+      memberStore: resolvedMemberStore,
+      configReader: resolvedConfigReader
+    }) });
+  });
+  app.use('/api/config', createConfigRouter({
+    shuihuoGateway,
+    memberStore: resolvedMemberStore,
+    configReader: resolvedConfigReader,
+    configWriter: resolvedConfigWriter
+  })); // GET/POST /api/config
   app.use('/api/script-video', createScriptVideoRouter({ shuihuoGateway }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
   app.use('/api', resolvedChatRouter); // POST /api/test, POST /api/chat
