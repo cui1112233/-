@@ -1,0 +1,124 @@
+name: V88 Novel Fetch Go API Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      go_image_tag:
+        description: Immutable GHCR Go API image tag to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+concurrency:
+  group: v88-novel-fetch-go-api-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Deploy only the V88 Go API with rollback
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GO_IMAGE_TAG: ${{ inputs.go_image_tag }}
+        run: |
+          set -Eeuo pipefail
+          test "$GO_IMAGE_TAG" != ""
+          printf '%s' "$GHCR_TOKEN" | timeout 60 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
+          timeout 900 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$GO_IMAGE_TAG" <<'REMOTE'
+          set -Eeuo pipefail
+          tag="$1"
+          case "$tag" in
+            *[!0-9a-f]* | "") echo 'Go image tag must be an immutable lowercase SHA.' >&2; exit 2 ;;
+          esac
+
+          compose_file='/opt/qiantie/v88/deploy/v88-public/docker-compose.yml'
+          compose_dir="$(dirname "$compose_file")"
+          env_file="$compose_dir/.env"
+          image="ghcr.io/cui1112233/qiantie-go-api:$tag"
+          cd "$compose_dir"
+          compose=(docker compose -f "$compose_file")
+          test -s "$compose_file"
+          test -s "$env_file"
+          test "$(grep -c '^QIANTIE_GO_IMAGE=' "$env_file")" -eq 1
+
+          go_id="$(${compose[@]} ps -q go-api)"
+          test -n "$go_id"
+          old_service_image="$(docker inspect "$go_id" --format '{{.Config.Image}}')"
+          test -n "$old_service_image"
+          backup_env="$compose_dir/.env.go-api-release-$tag.bak"
+          rollback_image="v88-public-go-api:rollback-${tag:0:12}-$(date +%Y%m%d%H%M%S)"
+          cp "$env_file" "$backup_env"
+          docker tag "$old_service_image" "$rollback_image"
+
+          rollback() {
+            status="$?"
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              echo 'Go API verification failed; restoring the previous Go API configuration.' >&2
+              cp "$backup_env" "$env_file"
+              docker tag "$rollback_image" "$old_service_image" || true
+              "${compose[@]}" up -d --no-deps --force-recreate --pull never go-api || true
+            fi
+            docker logout ghcr.io >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap rollback EXIT
+
+          docker pull "$image"
+          docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          sed -i "s|^QIANTIE_GO_IMAGE=.*|QIANTIE_GO_IMAGE=$image|" "$env_file"
+          "${compose[@]}" config >/dev/null
+          "${compose[@]}" up -d --no-deps --force-recreate --pull never go-api
+
+          for attempt in $(seq 1 40); do
+            go_id="$(${compose[@]} ps -q go-api)"
+            state="$(docker inspect "$go_id" --format '{{.State.Status}}' 2>/dev/null || true)"
+            route_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/api/novel-fetch-workshop/config || true)"
+            if [ "$state" = 'running' ] && [ "$route_status" != '404' ] && [ "$route_status" != '000' ] && [ "${route_status:0:1}" != '5' ]; then
+              break
+            fi
+            if [ "$attempt" -eq 40 ]; then
+              echo "Go API did not become route-ready; state=$state route_status=$route_status" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          printf 'V88_GO_API_NOVEL_FETCH_ROUTE_READY image_tag=%s route_status=%s\n' "$tag" "$route_status"
+          trap - EXIT
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          REMOTE
+
+      - name: Verify public Novel Fetch route exists
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "http://${ECS_HOST}:3000/api/novel-fetch-workshop/config" || true)"
+          case "$status" in
+            404|000|5*) echo "Unexpected public novel-fetch config status: $status" >&2; exit 1 ;;
+          esac
+          curl -fsS --connect-timeout 5 --max-time 15 "http://${ECS_HOST}:3000/api/build-info" >/dev/null
+          echo "PUBLIC_V88_NOVEL_FETCH_ROUTE_READY status=$status"
