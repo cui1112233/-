@@ -9,23 +9,25 @@ import (
 	"qiantie/backend/internal/batchfactoryv11/external"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
+	"qiantie/backend/internal/novelfetchworkshop"
 )
 
 type RouterOptions struct {
-	BridgeSecret   string
-	ReleaseSHA     string
-	Now            func() time.Time
-	Users          BridgeUserResolver
-	Slice          int
-	RegisterV11    func(*http.ServeMux)
-	Store          batchfactoryv11.Store
-	Director       *batchfactoryv11.DirectorService
-	Compiler       *batchfactoryv11.PromptCompilerService
-	Production     *batchfactoryv11.ProductionService
-	Merge          *batchfactoryv11.MergeService
-	External       *external.Service
-	LocalExecutors *localexecutor.Service
-	LocalArtifacts *localartifact.Store
+	BridgeSecret    string
+	ReleaseSHA      string
+	Now             func() time.Time
+	Users           BridgeUserResolver
+	Slice           int
+	RegisterV11     func(*http.ServeMux)
+	Store           batchfactoryv11.Store
+	Director        *batchfactoryv11.DirectorService
+	Compiler        *batchfactoryv11.PromptCompilerService
+	Production      *batchfactoryv11.ProductionService
+	Merge           *batchfactoryv11.MergeService
+	External        *external.Service
+	NovelFetchStore novelfetchworkshop.LifecycleStore
+	LocalExecutors  *localexecutor.Service
+	LocalArtifacts  *localartifact.Store
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -62,6 +64,12 @@ func NewRouter(options RouterOptions) http.Handler {
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
+	if options.NovelFetchStore != nil {
+		novelFetch := http.NewServeMux()
+		registerNovelFetchWorkshopRoutes(novelFetch, options.NovelFetchStore)
+		registerNovelFetchCleanupRoutes(novelFetch, options.NovelFetchStore, options.Now)
+		root.Handle("/api/novel-fetch-workshop/", NovelFetchBridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}.Middleware(novelFetch))
+	}
 	root.HandleFunc("GET /health", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
