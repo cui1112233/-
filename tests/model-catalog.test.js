@@ -64,18 +64,20 @@ test('platform video presets retain their fixed adapter metadata', () => {
   assert.deepEqual(PLATFORM_PRESETS['yd2-mini-video'], {
     kind: 'video',
     credentialMode: 'apiKey',
-    adapterKind: 'yd_video'
+    adapterKind: 'yd_video',
+    capabilities: { supportsReferenceImages: false, requiresImageInput: true, maxVideoDuration: 1 }
   });
   assert.deepEqual(PLATFORM_PRESETS['minimax-h3-video'], {
     kind: 'video',
     credentialMode: 'apiKey',
     adapterKind: 'autodl_comfyui_video',
-    supportsReferenceImages: true
+    capabilities: { supportsReferenceImages: true, requiresImageInput: false, maxVideoDuration: 15 }
   });
   assert.deepEqual(PLATFORM_PRESETS['local-doubao-executor-video'], {
     kind: 'video',
     credentialMode: 'executorPairing',
-    adapterKind: 'local_executor_video'
+    adapterKind: 'local_executor_video',
+    capabilities: { supportsReferenceImages: false, requiresImageInput: false, maxVideoDuration: 10 }
   });
 });
 
@@ -88,4 +90,43 @@ test('public model never exposes credential', () => {
   assert.equal(JSON.stringify(safe).includes('secret'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(safe, 'credential'), false);
   assert.equal(safe.displayName, 'GPT-5.4');
+});
+
+test('custom model capabilities are persisted as a bounded safe catalog field', () => {
+  const model = normalizeModelCatalog([{
+    id: 'custom-video',
+    kind: 'video',
+    credential: 'secret',
+    enabled: true,
+    capabilities: {
+      supportsReferenceImages: true,
+      requiresImageInput: false,
+      maxVideoDuration: 12,
+      credential: 'must-not-persist',
+      arbitraryProviderFlag: 'must-not-persist'
+    }
+  }], { modelCatalogVersion: 1 })[0];
+
+  assert.deepEqual(model.capabilities, {
+    supportsReferenceImages: true,
+    requiresImageInput: false,
+    maxVideoDuration: 12
+  });
+  assert.deepEqual(publicModel(model).capabilities, model.capabilities);
+  assert.equal(JSON.stringify(publicModel(model)).includes('must-not-persist'), false);
+});
+
+test('platform preset capabilities stay fixed instead of accepting client overrides', () => {
+  const h3 = normalizeModelCatalog([{
+    id: 'minimax-h3-video',
+    credential: 'secret',
+    enabled: true,
+    capabilities: { supportsReferenceImages: false, requiresImageInput: true, maxVideoDuration: 1 }
+  }], { modelCatalogVersion: 1 })[0];
+
+  assert.deepEqual(h3.capabilities, {
+    supportsReferenceImages: true,
+    requiresImageInput: false,
+    maxVideoDuration: 15
+  });
 });
