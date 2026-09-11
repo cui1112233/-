@@ -16,6 +16,17 @@ test('final shot cards inject extracted characters and the first scene while bas
   assert.match(card, /场景环境：雨夜车站。霓虹映在积水上/);
 });
 
+test('final shot cards preserve the enabled custom base setup text', async () => {
+  const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
+  const card = buildFinalSegmentCard('画面：女孩走进车站', {
+    index: 0,
+    constraints: { baseSetup: { enabled: true, body: '人物服装与场景陈设必须全程保持一致' } },
+    extractInfo: {}
+  });
+
+  assert.match(card, /【基础设定】[\s\S]*人物服装与场景陈设必须全程保持一致/);
+});
+
 test('final shot cards show each independently enabled textual constraint', async () => {
   const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
   const constraints = {

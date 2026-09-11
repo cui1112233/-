@@ -228,7 +228,12 @@ export function buildFinalSegmentCard(card, { extractInfo, constraints, index = 
   body = stripConstraintLines(body);
   body = clampTimelineToTarget(body, target);
   const parts = [`### 分镜${chineseOrdinal(index)}${total ? `（总时长：${total}s）` : ''}`];
-  if (baseOn) parts.push(buildBaseSetupText(extractInfo));
+  if (baseOn) {
+    parts.push([
+      buildBaseSetupText(extractInfo),
+      enabledBody(constraints?.baseSetup)
+    ].filter(Boolean).join('\n'));
+  }
   if (leadingConstraints) parts.push(leadingConstraints);
   if (body) parts.push(body);
   if (negativeConstraint) parts.push(negativeConstraint);
