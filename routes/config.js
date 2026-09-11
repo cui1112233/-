@@ -4,6 +4,12 @@ const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVi
 const { syncAccountAIConfig } = require('./shuihuo-production');
 const { normalizeStorageRoot } = require('../lib/storage-root');
 const { normalizePetConfig } = require('../lib/pet-catalog');
+const {
+  listVisibleModels,
+  saveManagerModel,
+  updateManagerModel,
+  removeManagerModel
+} = require('../lib/model-catalog-runtime');
 
 function normalizeTtsConfig(value, fallback = {}) {
   const voice = typeof value?.voice === 'string' && value.voice.startsWith('zh-CN-')
@@ -59,13 +65,65 @@ function managedPublicConfig(config, member) {
   };
 }
 
-function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
+function createConfigRouter({
+  shuihuoGateway,
+  memberStore,
+  configReader = readConfig,
+  configWriter = writeConfig,
+  authenticate = apiAuth,
+  isModelReferenced
+} = {}) {
   const router = express.Router();
-  router.use(apiAuth);
+  router.use(authenticate);
+
+  function requireApiManager(req, res, next) {
+    if (!apiManagementState(req, memberStore).canManageApi) return res.status(403).json({ error: '仅管理者可以管理模型' });
+    next();
+  }
+
+  function sendModelError(res, error) {
+    return res.status(error?.status || 400).json({ error: error?.message || '模型配置处理失败' });
+  }
+
+  router.get('/models', (req, res) => {
+    res.json({ models: listVisibleModels({
+      username: req.username,
+      kind: req.query.kind,
+      memberStore,
+      configReader
+    }) });
+  });
+
+  router.post('/models', requireApiManager, (req, res) => {
+    try {
+      const model = saveManagerModel(req.username, req.body, { configReader, configWriter });
+      return res.status(201).json({ model });
+    } catch (error) {
+      return sendModelError(res, error);
+    }
+  });
+
+  router.patch('/models/:modelId', requireApiManager, (req, res) => {
+    try {
+      const model = updateManagerModel(req.username, req.params.modelId, req.body, { configReader, configWriter });
+      return res.json({ model });
+    } catch (error) {
+      return sendModelError(res, error);
+    }
+  });
+
+  router.delete('/models/:modelId', requireApiManager, (req, res) => {
+    try {
+      removeManagerModel(req.username, req.params.modelId, { configReader, configWriter, isModelReferenced });
+      return res.status(204).end();
+    } catch (error) {
+      return sendModelError(res, error);
+    }
+  });
 
   // GET /api/config — 获取配置（不含 apiKey）
   router.get('/', (req, res) => {
-    const config = readConfig(req.username);
+    const config = configReader(req.username);
     config.pet = normalizePetConfig(config.pet);
     config.tts = normalizeTtsConfig(config.tts);
     config.notifications = normalizeNotifications(config.notifications);
@@ -83,7 +141,7 @@ function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
       if (storageRoot.error) return res.status(400).json({ error: storageRoot.error });
       body.storageRoot = storageRoot.value;
     }
-    const oldConfig = readConfig(req.username);
+    const oldConfig = configReader(req.username);
     const { member, canManageApi } = apiManagementState(req, memberStore);
     if (!canManageApi) {
       const nextConfig = {
@@ -94,7 +152,7 @@ function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
         notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
         avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
       };
-      writeConfig(req.username, nextConfig);
+      configWriter(req.username, nextConfig);
       return res.json(managedPublicConfig(nextConfig, member));
     }
     const nextConfig = {
@@ -122,7 +180,7 @@ function createConfigRouter({ shuihuoGateway, memberStore } = {}) {
         return res.status(error.status || 503).json({ error: error.message || '水货生产的 AI 配置同步失败' });
       }
     }
-    writeConfig(req.username, nextConfig);
+    configWriter(req.username, nextConfig);
     res.json({ ...publicConfig(nextConfig), canManageApi: true, managedBy: null });
   });
 
