@@ -8,3 +8,17 @@ export function listGlobalAccounts(filters = {}) {
   const suffix = query.size ? `?${query.toString()}` : '';
   return apiRequest(`/api/account-admin/accounts${suffix}`);
 }
+
+export function createAccount(input) {
+  return apiRequest('/api/account-admin/accounts', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateAccount(username, input) {
+  return apiRequest(`/api/account-admin/accounts/${encodeURIComponent(username)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  });
+}

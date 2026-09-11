@@ -17,7 +17,7 @@ const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage'));
-const AccountGovernancePage = lazy(() => import('../admin/pages/AccountGovernancePage').then(module => ({ default: module.AccountGovernancePage })));
+const AccountRolePage = lazy(() => import('./pages/AccountRolePage'));
 const TeamPage = lazy(() => import('./pages/TeamPage'));
 const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
 const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
@@ -57,7 +57,7 @@ function getPage(pathname) {
     '/profile': ProfilePage,
     '/security': SecurityPage,
     '/advanced-team-admin': AdvancedTeamAdminPage,
-    '/accounts': AccountGovernancePage,
+    '/accounts': AccountRolePage,
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
