@@ -47,6 +47,7 @@ test('keeps existing entity IDs and returns only selected protagonists', async (
   assert.deepEqual(toGenerationEntities(extractInfo), {
     characters: [{ name: '沈清' }, { name: '顾言' }],
     scenes: [{ name: '书房' }],
+    visualStyle: '',
     protagonists: [{ name: '沈清' }]
   });
 });

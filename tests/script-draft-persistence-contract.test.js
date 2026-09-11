@@ -38,7 +38,7 @@ test('script workbench restores and synchronously persists tab-isolated drafts',
   const historyCall = page.match(/await saveHistory\(\{([\s\S]*?)\}\);/);
   assert.ok(historyCall);
   const historyKeys = [...historyCall[1].matchAll(/^\s*(\w+):/gm)].map(match => match[1]);
-  assert.deepEqual(historyKeys, ['id', 'mode', 'format', 'formatName', 'duration', 'output']);
+  assert.deepEqual(historyKeys, ['id', 'mode', 'format', 'duration', 'output', 'novelText', 'extractInfo']);
   assert.equal(historyKeys.includes('tabId'), false);
   assert.equal(historyKeys.includes('draftTabId'), false);
 });

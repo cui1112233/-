@@ -16,7 +16,7 @@ test('final shot cards inject extracted characters and the first scene while bas
   assert.match(card, /场景环境：雨夜车站。霓虹映在积水上/);
 });
 
-test('final shot cards show each enabled textual constraint and hide all of them when the main switch is off', async () => {
+test('final shot cards show each independently enabled textual constraint', async () => {
   const { buildFinalSegmentCard } = await import('../frontend/src/user/pages/scriptFinalSegment.js');
   const constraints = {
     enabled: true,
@@ -34,7 +34,14 @@ test('final shot cards show each enabled textual constraint and hide all of them
   assert.ok(card.indexOf('画面：女孩走进车站') < card.indexOf('负面提示词：'));
 
   const hidden = buildFinalSegmentCard('画面：女孩走进车站', {
-    constraints: { ...constraints, enabled: false },
+    constraints: {
+      enabled: false,
+      baseSetup: { enabled: false },
+      prefix: { enabled: false, body: constraints.prefix.body },
+      quality: { enabled: false, body: constraints.quality.body },
+      restriction: { enabled: false, body: constraints.restriction.body },
+      negative: { enabled: false, body: constraints.negative.body }
+    },
     extractInfo: {},
     index: 0
   });

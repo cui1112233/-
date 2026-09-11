@@ -71,10 +71,12 @@ test('normalizes version 3 drafts when loading tab-scoped storage', async () => 
   assert.deepEqual(draft.extractInfo, {
     characters: [{ id: 'character-1', data: { name: '主角' } }],
     scenes: [{ id: draft.extractInfo.scenes[0].id, data: { name: '庭院' } }],
+    visualStyle: '',
     protagonistIds: ['character-1']
   });
   assert.deepEqual(draft.constraints, {
     enabled: true,
+    entityReferences: [],
     prefix: { enabled: true, source: 'draft', presetId: '', personalPromptId: '', body: '前缀' },
     quality: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },
     restriction: { enabled: false, source: 'system', presetId: '', personalPromptId: '', body: '' },

@@ -44,9 +44,10 @@ test('script page uses card output for every non-shortdrama result', () => {
   assert.match(page, /onCopy=\{copyText\}/);
 });
 
-test('enabling a constraint category also enables the master constraint switch', () => {
+test('constraint category switches remain independent from the future-output switch', () => {
   const page = read('frontend/src/user/pages/ScriptPage.jsx');
-  assert.match(page, /function updateDraftConstraint\(category, patch\)[\s\S]*?patch\?\.enabled === true \? \{ enabled: true \} : \{\}/);
+  assert.match(page, /function updateDraftConstraint\(category, patch\)[\s\S]*?\[category\]: \{ \.\.\.current\[category\], \.\.\.patch \}/);
+  assert.doesNotMatch(page, /patch\?\.enabled === true \? \{ enabled: true \} : \{\}/);
 });
 
 test('shot card starts use parsed JSON and card ranges consistently', async () => {

@@ -167,10 +167,10 @@ export function ScriptPage() {
   }, [selectedMode, selectedFormat, selectedDuration, output]);
   const shotCards = useMemo(() => rawShotCards.map((card, index) => buildFinalSegmentCard(card, {
     extractInfo,
-    constraints: constraintsForFormat(outputConstraints, selectedFormat, extractInfo),
+    constraints: constraintsForFormat(constraints, selectedFormat, extractInfo),
     index,
     duration: selectedDuration
-  })), [rawShotCards, extractInfo, outputConstraints, selectedFormat, selectedDuration]);
+  })), [rawShotCards, extractInfo, constraints, selectedFormat, selectedDuration]);
   const shotCardStarts = useMemo(() => getShotCardStarts(output, rawShotCards), [output, rawShotCards]);
   const selectedShotMatches = useMemo(
     () => getSelectedShotMatches(output, rawShotCards, selectedShotIndexes, shotFindText),
