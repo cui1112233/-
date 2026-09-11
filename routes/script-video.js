@@ -178,6 +178,17 @@ function createScriptVideoRouter({
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: '分镜视频提示词不能为空' });
     if (prompt.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: `分镜视频提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符` });
+    const requestedReferenceImages = Array.isArray(req.body?.imageUrls)
+      ? req.body.imageUrls.filter(item => String(item || '').trim())
+      : [];
+    if (requestedReferenceImages.length && req.body?.modelKey !== H3_MODEL_KEY) {
+      return res.status(409).json({
+        ok: false,
+        status: 'unsupported_reference_images',
+        code: 'UNSUPPORTED_REFERENCE_IMAGES',
+        error: '当前视频模型不支持参考图，是否允许无参考图生成'
+      });
+    }
     if (req.body?.modelKey === 'local-doubao-executor-video') {
       const sourceTaskId = `script-video:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`;
       const localPayload = {

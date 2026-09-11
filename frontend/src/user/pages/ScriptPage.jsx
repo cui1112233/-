@@ -22,7 +22,7 @@ import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
-import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
+import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
@@ -323,7 +323,7 @@ export function ScriptPage() {
     }
   }
 
-  async function generateVideoForShot(card, index) {
+  async function generateVideoForShot(card, index, { withoutReferences = false } = {}) {
     const prompt = String(card || '').trim();
     if (!prompt) return message.warning('该分镜没有可生成的视频提示词');
     if (scriptVideoModelKey === 'local-doubao-executor-video') {
@@ -360,9 +360,7 @@ export function ScriptPage() {
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
         resolution: '480p竖',
-        imageUrls: scriptVideoModelKey === 'minimax-h3-video'
-          ? collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
-          : []
+        imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index })
       });
       const result = await createScriptVideo(videoPayload);
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
@@ -371,7 +369,17 @@ export function ScriptPage() {
       watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
-      message.error(error.message || '视频任务提交失败');
+      if (error.status === 409 && error.message === '当前视频模型不支持参考图，是否允许无参考图生成' && !withoutReferences) {
+        Modal.confirm({
+          title: '参考图不可用',
+          content: '当前视频模型不支持参考图，是否允许无参考图生成',
+          okText: '允许无参考图生成',
+          cancelText: '取消生成',
+          onOk: () => generateVideoForShot(card, index, { withoutReferences: true })
+        });
+      } else {
+        message.error(error.message || '视频任务提交失败');
+      }
     } finally {
       setGeneratingShotIndexes(current => {
         const next = new Set(current);
@@ -1288,15 +1296,6 @@ export function ScriptPage() {
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
               extractInfo={extractInfo}
-              shotReferenceStates={shotReferenceStates}
-              onToggleReferenceImages={(index, enabled) => setShotReferenceStates(current => toggleShotReferenceState(current, index, { enabled }))}
-              onToggleReferenceImage={(index, imageUrl) => setShotReferenceStates(current => {
-                const state = current[index] || {};
-                const disabledImageUrls = new Set(Array.isArray(state.disabledImageUrls) ? state.disabledImageUrls : []);
-                if (disabledImageUrls.has(imageUrl)) disabledImageUrls.delete(imageUrl);
-                else disabledImageUrls.add(imageUrl);
-                return toggleShotReferenceState(current, index, { disabledImageUrls: [...disabledImageUrls] });
-              })}
               onOpenVideo={setPreviewVideoTask}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}

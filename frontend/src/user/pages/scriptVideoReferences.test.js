@@ -97,7 +97,7 @@ test('disabled individual references are excluded without changing other shots',
   assert.deepEqual(collectShotReferenceImages({ shotText: '林溪和卫铭', extractInfo: info([lin, wei]), shotIndex: 1, shotReferenceStates: states }), ['https://img.example/lin.png', 'https://img.example/wei.png']);
 });
 
-test('H3 script payload carries at most nine references while other models keep their existing payload', () => {
+test('all video payloads carry selected references while capping at nine', () => {
   const imageUrls = Array.from({ length: 12 }, (_, index) => `https://img.example/${index}.png`);
 
   assert.deepEqual(buildScriptVideoPayload({
@@ -115,7 +115,8 @@ test('H3 script payload carries at most nine references while other models keep 
   });
   assert.deepEqual(buildScriptVideoPayload({ prompt: '林溪转身', modelKey: 'yd2-mini-video', imageUrls }), {
     prompt: '林溪转身',
-    modelKey: 'yd2-mini-video'
+    modelKey: 'yd2-mini-video',
+    imageUrls: imageUrls.slice(0, 9)
   });
 =======
 
