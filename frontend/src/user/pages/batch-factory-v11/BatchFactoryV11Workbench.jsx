@@ -495,7 +495,7 @@ export function BatchFactoryV11Workbench({
           </div>
           <Collapse
             className="bf11-book-collapse"
-            defaultActiveKey={['source', 'videos']}
+            defaultActiveKey={['source', 'assets', 'constraints', 'visual-prompts', 'video-cards']}
             items={bookCollapseItems}
           />
         </> : <Empty description="请选择小说" />}

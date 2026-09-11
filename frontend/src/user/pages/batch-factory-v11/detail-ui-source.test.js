@@ -32,6 +32,7 @@ test('workbench follows the five-part novel production flow', () => {
     previous = current;
   }
   assert.doesNotMatch(source, /label="道具 Prompt"/);
+  assert.match(source, /defaultActiveKey=\{\['source', 'assets', 'constraints', 'visual-prompts', 'video-cards'\]\}/);
 });
 
 test('book constraints persist a 10 or 15 second Director split target', () => {
