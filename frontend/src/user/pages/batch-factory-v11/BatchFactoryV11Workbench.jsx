@@ -563,9 +563,11 @@ export function BatchFactoryV11Workbench({
             const latestMerge = (mergeStatus?.jobs || []).slice(-1)[0];
             const selectedPreviewVideo = selectedVideos.find(video => video.id === previewTarget);
             const previewTask = selectedPreviewVideo ? productionTaskByVideoId.get(selectedPreviewVideo.id) : null;
+            const activeShotTask = selectedShot ? productionTaskByShotId.get(selectedShot.id) : null;
             const mediaURL = previewTarget === 'merged'
               ? (selectedBook?.mergedUrl || latestMerge?.outputUrl || '')
-              : (selectedPreviewVideo?.url || selectedPreviewVideo?.mediaUrl || previewTask?.mediaUrl || '');
+              : (selectedShot?.videoUrl || selectedShot?.mediaUrl || activeShotTask?.mediaUrl
+                || selectedPreviewVideo?.url || selectedPreviewVideo?.mediaUrl || previewTask?.mediaUrl || '');
             return mediaURL ? <video controls preload="metadata" src={mediaURL} style={{ width: '100%', maxHeight: 360 }} /> : <Film size={42} />;
           })()}
           <strong>{previewTarget === 'merged'
