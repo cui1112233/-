@@ -276,6 +276,16 @@ export function BatchFactoryV11Workbench({
     return map;
   }, [productionStatus]);
 
+  const productionTaskByShotId = useMemo(() => {
+    const map = new Map();
+    for (const job of productionStatus?.jobs || []) {
+      for (const task of job.tasks || []) {
+        if (task?.shotId) map.set(task.shotId, task);
+      }
+    }
+    return map;
+  }, [productionStatus]);
+
   const metrics = useMemo(() => ({
     columnWidth: Math.max(20, (gridWidth - ((GRID_COLUMNS - 1) * layout.gap)) / GRID_COLUMNS),
     rowHeight: layout.rowHeight,
@@ -373,6 +383,22 @@ export function BatchFactoryV11Workbench({
           <Tag color="blue">Shot {currentShotIndex + 1} / {selectedShots.length}</Tag>
           <Typography.Text strong>{selectedShot?.label || selectedShot?.id || '当前分镜'}</Typography.Text>
           <Button size="small" disabled={currentShotIndex >= selectedShots.length - 1} onClick={() => setCurrentShotIndex(index => Math.min(selectedShots.length - 1, index + 1))}>下一分镜</Button>
+        </div> : null}
+        {selectedShot ? <div className="bf11-shot-context" data-bf-region="active-shot">
+          <Space wrap size={[6, 6]}>
+            <Tag>当前 Shot：{selectedShot.label || selectedShot.id}</Tag>
+            {selectedShot.startSeconds !== undefined && selectedShot.endSeconds !== undefined
+              ? <Tag>时间轴 {selectedShot.startSeconds}s – {selectedShot.endSeconds}s</Tag>
+              : null}
+            <Tag color={statusTone[productionTaskByShotId.get(selectedShot.id)?.status || selectedShot.status]}>
+              {productionTaskByShotId.get(selectedShot.id)?.status || selectedShot.status || '待生成'}
+            </Tag>
+          </Space>
+          <Typography.Paragraph type="secondary">
+            人物：{(selectedShot.characterRefs || []).join('、') || '沿用当前小说资产'}
+            {' · '}场景：{(selectedShot.sceneRefs || []).join('、') || '沿用当前小说资产'}
+            {' · '}道具：{(selectedShot.propRefs || []).join('、') || '无'}
+          </Typography.Paragraph>
         </div> : null}
         {selectedVideo ? <div className="bf11-video-detail">
           <div className="bf11-video-detail-head">
