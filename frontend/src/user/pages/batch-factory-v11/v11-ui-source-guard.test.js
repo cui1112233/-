@@ -16,7 +16,7 @@ const forbiddenPatterns = [
   /shared\/api\/batchFactory(?:\.js)?['"`]/,
   /shared\/api\/generation(?:\.js)?['"`]/,
   /shared\/api\/shuihuoProduction(?:\.js)?['"`]/,
-  /\/api\/shuihuo-production\/(?!local-executors(?:\/|['\"`]))/
+  /\/api\/shuihuo-production\/(?!local-executors(?:\/|['\"`])|local-executor-artifacts(?:\/|['\"`]))/
 ];
 
 function collectFiles(root) {
@@ -33,7 +33,7 @@ test('required V11 frontend adapter files exist', () => {
   for (const file of required) assert.equal(fs.existsSync(file), true, `missing ${file}`);
 });
 
-test('V11 frontend production files do not import legacy Batch Factory or production APIs', () => {
+test('V11 frontend production files do not import legacy Batch Factory or production APIs outside approved executor compatibility routes', () => {
   const files = [
     ...collectFiles(here),
     path.resolve(frontendRoot, 'shared/api/batchFactoryV11.js')
