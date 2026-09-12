@@ -59,6 +59,10 @@ jobs:
           echo "network_gateway=$gateway"
           echo "nginx_name=$nginx_name"
           docker inspect -f 'nginx_image={{.Config.Image}} nginx_ports={{json .NetworkSettings.Ports}}' "$nginx_id"
+          docker network inspect "$NETWORK" --format '{{range $id, $c := .Containers}}network_container={{$c.Name}} network_ipv4={{$c.IPv4Address}}{{println}}{{end}}'
+          for container_id in $(docker ps -aq --filter "network=$NETWORK"); do
+            docker inspect -f "{{.Name}} image={{.Config.Image}} status={{.State.Status}} aliases={{with index .NetworkSettings.Networks \"$NETWORK\"}}{{json .Aliases}}{{end}} ip={{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$container_id"
+          done
           docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{range .Aliases}}{{println .}}{{end}}{{end}}" "$node_id" \
             | sed '/^$/d;s/^/node_alias=/'
 
@@ -67,6 +71,8 @@ jobs:
           test -f "$config_source"
           echo "nginx_config_source=$config_source"
           grep -E '^[[:space:]]*(upstream|proxy_pass)' "$config_source" | sed 's/^/nginx_route=/'
+          docker exec "$nginx_id" getent hosts v88-node | sed 's/^/nginx_dns_v88_node=/' || true
+          grep -E '^QIANTIE_(NODE_IMAGE|GO_IMAGE|RELEASE_SHA)=' /opt/qiantie/v88/deploy/v88-public/.env | sed 's/^/compose_release=/' || true
 
           ss -ltnp '( sport = :3000 )' 2>/dev/null | sed 's/^/host_listen_3000=/' || true
 
