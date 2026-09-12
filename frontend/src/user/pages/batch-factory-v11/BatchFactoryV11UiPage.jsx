@@ -398,11 +398,18 @@ export function BatchFactoryV11UiPage() {
     }
   }
 
-  async function saveVideoPrompt(book, video, visualPrompt) {
-    const result = await runtime.saveVideoPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, visualPrompt, revision: video.settingsState?.revision || 0 });
+  async function saveVideoPrompt(book, video, visualPrompt, shot = null) {
+    const result = shot
+      ? await runtime.saveDraft({
+        key: `shot:${shot.id}`,
+        kind: 'visual-prompt',
+        scope: `${batch.id}:${book.id}`,
+        content: visualPrompt
+      })
+      : await runtime.saveVideoPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, visualPrompt, revision: video.settingsState?.revision || 0 });
     if (!result.ok) { message.error(result.message); return false; }
     await reload({ announce: false });
-    message.success('画面提示词已保存');
+    message.success(shot ? '当前 Shot 画面提示词已保存' : '画面提示词已保存');
     return true;
   }
 
