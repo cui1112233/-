@@ -354,7 +354,8 @@ export function BatchFactoryV11UiPage() {
         batchId: targetBatch.id,
         bookId: targetBook?.id || '',
         requestId: newRequestId('bf11-production'),
-        provider
+        provider,
+        videoModelId: batchSettingsState.patch.videoModelId || ''
       });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
