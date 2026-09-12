@@ -312,10 +312,15 @@ function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStor
       headers,
       timeout: upstreamTimeoutForRequest(req.method, requestURL.pathname)
     }, upstreamResponse => {
+      const upstreamStatus = upstreamResponse.statusCode || 502;
+      if (upstreamStatus === 401 || upstreamStatus === 403) {
+        upstreamResponse.resume();
+        return res.status(503).json({ error: '水货生产服务鉴权失败，请联系管理员检查服务连接' });
+      }
       for (const [name, value] of Object.entries(upstreamResponse.headers)) {
         if (value !== undefined && !HOP_BY_HOP_HEADERS.has(name.toLowerCase())) res.setHeader(name, value);
       }
-      res.status(upstreamResponse.statusCode || 502);
+      res.status(upstreamStatus);
       upstreamResponse.pipe(res);
     });
 

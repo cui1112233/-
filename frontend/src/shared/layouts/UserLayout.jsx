@@ -11,7 +11,7 @@ import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
 import { GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
 import { createAntTheme } from '../styles/theme';
-import { getRouteAccessState } from './routeAccess.js';
+import { getRouteAccessState, shouldPromptLoginForApiFailure } from './routeAccess.js';
 
 // 动态 Logo 包含 WebGL shader，不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
 const SuperOpcLiquidMetalLogo = lazy(() => import('../components/SuperOpcLiquidMetalLogo'));
@@ -184,8 +184,8 @@ export function UserLayout({ children }) {
     function showApiFailure(event) {
       if (dialogOpen) return;
       dialogOpen = true;
-      const { source, method, status, message: detail } = event.detail || {};
-      if (status === 401) {
+      const { source, method, status, message: detail, sessionAuthFailure } = event.detail || {};
+      if (shouldPromptLoginForApiFailure({ status, sessionAuthFailure })) {
         setUsername('');
         setAccount(null);
         setLoginDialogOpen(true);

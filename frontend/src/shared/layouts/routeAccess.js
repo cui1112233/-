@@ -5,3 +5,7 @@ export function getRouteAccessState({ pathname, isLoggedIn }) {
     shouldPromptLogin: !isLoggedIn && isProtectedRoute
   };
 }
+
+export function shouldPromptLoginForApiFailure({ status, sessionAuthFailure } = {}) {
+  return status === 401 && sessionAuthFailure === true;
+}
