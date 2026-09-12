@@ -212,9 +212,9 @@ export function createBf11UiAdapter(api) {
       return api.approveHook(batchId, bookId, hookId);
     },
 
-    async runDirector({ batchId, bookId } = {}) {
+    async runDirector({ batchId, bookId, textModelId = '' } = {}) {
       if (!batchId || !bookId) throw new Error('V11 Batch and Book ids are required');
-      return api.runDirector(batchId, bookId);
+      return api.runDirector(batchId, bookId, textModelId);
     },
 
     async runBatchDirector({ batchId } = {}) {
