@@ -36,8 +36,16 @@ test('unified V88 deploy installs the Git-managed Nginx route and restores it on
   assert.match(workflow, /trap rollback EXIT/);
   assert.match(workflow, /trap - EXIT ERR/);
   assert.doesNotMatch(workflow, /trap rollback ERR/);
+  assert.match(workflow, /docker compose[^\n]*up -d[^\n]*--force-recreate[^\n]*nginx/);
+  assert.match(workflow, /ECS_PUBLIC_HOST/);
   assert.match(workflow, /docker compose[^\n]*exec -T nginx nginx -t/);
-  assert.match(workflow, /docker compose[^\n]*exec -T nginx nginx -s reload/);
+  assert.match(workflow, /nginx\.conf\.pre-unified-20260912T103106Z/);
+});
+
+test('unified V88 deploy rolls back if the runner external verification rejects a release', () => {
+  assert.match(workflow, /id: deploy_public/);
+  assert.match(workflow, /name: Roll back ECS after external rejection/);
+  assert.match(workflow, /if: failure\(\) && steps\.deploy_public\.outcome == 'success'/);
 });
 
 test('unified V88 deploy accepts the public runtime only when exact release identity and Batch Factory routes are reachable', () => {

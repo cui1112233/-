@@ -116,6 +116,7 @@ jobs:
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/nginx.conf "$ECS_USER@$ECS_HOST:/tmp/v88-public-nginx-${GITHUB_SHA}.conf"
 
       - name: Deploy paired immutable images with rollback
+        id: deploy_public
         shell: bash
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -127,11 +128,13 @@ jobs:
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 
           printf '%s' "$GHCR_TOKEN" | timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '$owner' --password-stdin"
-          timeout 1200 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$node_image" "$go_image" "$GITHUB_SHA" <<'REMOTE'
+          timeout 1200 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$node_image" "$go_image" "$GITHUB_SHA" "$ECS_HOST" "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" <<'REMOTE'
           set -Eeuo pipefail
           node_image="$1"
           go_image="$2"
           expected_sha="$3"
+          ECS_PUBLIC_HOST="$4"
+          backup_id="$5"
           deploy_dir='/opt/qiantie/v88/deploy/v88-public'
           cd "$deploy_dir"
           test -s docker-compose.yml
@@ -145,22 +148,32 @@ jobs:
 
           PREVIOUS_PUBLIC_BUILD="$(curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info || true)"
           printf 'PREVIOUS_PUBLIC_BUILD=%s\n' "$PREVIOUS_PUBLIC_BUILD"
-          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          backup_env=".env.pre-unified-${stamp}"
-          backup_nginx="nginx.conf.pre-unified-${stamp}"
+          previous_public_sha="$(printf '%s' "$PREVIOUS_PUBLIC_BUILD" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("git_sha", ""))' 2>/dev/null || true)"
+          backup_env=".env.pre-unified-${backup_id}"
+          backup_nginx="nginx.conf.pre-unified-${backup_id}"
           cp -a .env "$backup_env"
-          cp -a nginx.conf "$backup_nginx"
+          if [ "$previous_public_sha" = '4d22f685c99b7e56e8c3f3511b319f82db4a05b2' ]; then
+            if [ ! -s nginx.conf.pre-unified-20260912T103106Z ]; then
+              echo 'STATUS=BLOCKED missing captured Git-direct Nginx rollback configuration'
+              exit 42
+            fi
+            cp -a nginx.conf.pre-unified-20260912T103106Z "$backup_nginx"
+            echo 'ROLLBACK_NGINX_BASELINE=nginx.conf.pre-unified-20260912T103106Z'
+          else
+            cp -a nginx.conf "$backup_nginx"
+          fi
 
           rollback() {
             status=$?
             trap - EXIT ERR
             if [ "$status" -ne 0 ]; then
               echo "STATUS=ROLLBACK restoring $backup_env"
-              cp -a "$backup_env" .env
-              cp -a "$backup_nginx" nginx.conf
+              cp -a "$backup_env" .env || echo 'STATUS=ROLLBACK_WARNING unable to restore .env'
+              cp -a "$backup_nginx" nginx.conf || echo 'STATUS=ROLLBACK_WARNING unable to restore nginx.conf'
               docker compose -f docker-compose.yml config -q || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node || true
-              docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 && docker compose -f docker-compose.yml exec -T nginx nginx -s reload >/dev/null 2>&1 || true
+              docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx || true
+              docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 || true
             fi
             rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
             docker logout ghcr.io >/dev/null 2>&1 || true
@@ -190,7 +203,8 @@ jobs:
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
           docker compose -f docker-compose.yml exec -T nginx nginx -t
-          docker compose -f docker-compose.yml exec -T nginx nginx -s reload
+          docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx
+          docker compose -f docker-compose.yml exec -T nginx nginx -t
 
           public_ok=0
           for attempt in $(seq 1 30); do
@@ -205,6 +219,21 @@ jobs:
           if [ "$public_ok" != 1 ]; then
             echo 'STATUS=FAILED public build identity did not converge'
             exit 51
+          fi
+
+          public_ip_ok=0
+          for attempt in $(seq 1 10); do
+            if curl -fsS --max-time 5 "http://${ECS_PUBLIC_HOST}:3000/api/build-info" >/tmp/v88-public-ip-build.json 2>/dev/null; then
+              if python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); raise SystemExit(0 if data.get("git_sha") == expected else 1)' "$expected_sha" </tmp/v88-public-ip-build.json; then
+                public_ip_ok=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [ "$public_ip_ok" != 1 ]; then
+            echo 'STATUS=FAILED ECS public-IP build identity did not converge'
+            exit 53
           fi
 
           curl -fsS --max-time 10 http://127.0.0.1:3000/batch-factory >/dev/null
@@ -247,7 +276,7 @@ jobs:
           });
           NODE
 
-          echo "STATUS=DEPLOYED release_sha=$expected_sha public_v11_status=$public_cap_status"
+          echo "STATUS=DEPLOYED release_sha=$expected_sha public_ip_verified=true public_v11_status=$public_cap_status"
           rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
           trap - EXIT ERR
           docker logout ghcr.io >/dev/null 2>&1 || true
@@ -267,3 +296,24 @@ jobs:
             *) echo "unexpected public V11 status=$status"; exit 1 ;;
           esac
           echo "V88_PUBLIC_UNIFIED_DEPLOY_OK release_sha=$expected_sha v11_status=$status"
+
+      - name: Roll back ECS after external rejection
+        if: failure() && steps.deploy_public.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          backup_id="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          timeout 120 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$backup_id" <<'ROLLBACK'
+          set -Eeuo pipefail
+          backup_id="$1"
+          [[ "$backup_id" =~ ^[0-9a-f]{40}-[0-9]+-[0-9]+$ ]]
+          cd /opt/qiantie/v88/deploy/v88-public
+          cp -a ".env.pre-unified-${backup_id}" .env
+          cp -a "nginx.conf.pre-unified-${backup_id}" nginx.conf
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
+          docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx
+          docker compose -f docker-compose.yml exec -T nginx nginx -t
+          echo "STATUS=ROLLBACK_AFTER_EXTERNAL_REJECTION backup_id=$backup_id"
+          ROLLBACK
