@@ -39,6 +39,9 @@ const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createBatchFactoryV11Router } = require('./routes/batch-factory-v11');
+const { createBatchFactoryV11ScheduleRouter } = require('./routes/batch-factory-v11-schedules');
+const { createBatchFactoryV11Scheduler } = require('./lib/batch-factory-v11-scheduler');
+const { createSignedBridgeHeaders } = require('./lib/batch-factory-v11/go-proxy');
 const { createMySQLBatchFactoryStoreFactory } = require('./lib/batch-factory/mysql-store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
@@ -113,6 +116,33 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   });
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
   const usersDir = path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users');
+  const resolvedBatchFactoryV11Scheduler = createBatchFactoryV11Scheduler({
+    usersDir,
+    submit: async item => {
+      const base = String(process.env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+      const productionPath = item.bookId
+        ? '/api/batch-factory/v11/batches/' + encodeURIComponent(item.batchId) + '/books/' + encodeURIComponent(item.bookId) + '/production'
+        : '/api/batch-factory/v11/batches/' + encodeURIComponent(item.batchId) + '/production';
+      const account = authRuntime.accountStore.getInternalAccount(item.username);
+      const response = await fetch(base + productionPath, {
+        method: 'POST',
+        headers: {
+          ...createSignedBridgeHeaders({
+            username: item.username,
+            isOwner: account?.isOwner === true,
+            method: 'POST',
+            pathname: productionPath,
+            secret: process.env.QIANTIE_BRIDGE_SECRET || '',
+            now: Date.now
+          }),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requestId: item.requestId, provider: item.provider })
+      });
+      if (!response.ok) throw new Error('定时生产提交失败（HTTP ' + response.status + '）');
+    }
+  });
+  resolvedBatchFactoryV11Scheduler.start();
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
@@ -354,6 +384,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ memberStore: resolvedMemberStore, presetStore: resolvedPresetStore, configReader: readConfig }));
+  app.use('/api/batch-factory/v11', createBatchFactoryV11ScheduleRouter(resolvedBatchFactoryV11Scheduler));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
