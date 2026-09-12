@@ -180,13 +180,7 @@ jobs:
           public_ok=0
           for attempt in $(seq 1 30); do
             if curl -fsS --max-time 5 http://127.0.0.1:3000/api/build-info >/tmp/v88-public-build.json 2>/dev/null; then
-              if python3 - "$expected_sha" </tmp/v88-public-build.json <<'PY'
-          import json, sys
-          expected = sys.argv[1]
-          data = json.load(sys.stdin)
-          raise SystemExit(0 if data.get('git_sha') == expected else 1)
-          PY
-              then
+              if python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); raise SystemExit(0 if data.get("git_sha") == expected else 1)' "$expected_sha" </tmp/v88-public-build.json; then
                 public_ok=1
                 break
               fi
@@ -207,7 +201,7 @@ jobs:
 
           node_id="$(docker compose -f docker-compose.yml ps -q v88-node)"
           test -n "$node_id"
-          docker exec "$node_id" node - <<'NODE'
+          docker exec -i "$node_id" node - <<'NODE'
           const crypto = require('node:crypto');
           const pathname = '/api/batch-factory/v11/capabilities';
           const username = 'release-smoke';
@@ -249,13 +243,7 @@ jobs:
           set -Eeuo pipefail
           expected_sha="$GITHUB_SHA"
           curl -fsS --retry 3 --retry-delay 2 --max-time 10 "http://${ECS_HOST}:3000/api/build-info" >/tmp/public-build.json
-          python3 - "$expected_sha" </tmp/public-build.json <<'PY'
-          import json, sys
-          expected = sys.argv[1]
-          data = json.load(sys.stdin)
-          assert data.get('git_sha') == expected, (data, expected)
-          print(json.dumps(data, ensure_ascii=False))
-          PY
+          python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha") == expected, (data, expected); print(json.dumps(data, ensure_ascii=False))' "$expected_sha" </tmp/public-build.json
           curl -fsS --retry 3 --retry-delay 2 --max-time 10 "http://${ECS_HOST}:3000/batch-factory" >/dev/null
           status="$(curl -sS -o /dev/null -w '%{http_code}' --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/api/batch-factory/v11/capabilities")"
           case "$status" in
