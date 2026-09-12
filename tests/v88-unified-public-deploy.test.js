@@ -39,7 +39,8 @@ test('unified V88 deploy installs the Git-managed Nginx route and restores it on
   assert.doesNotMatch(workflow, /trap rollback ERR/);
   assert.match(workflow, /docker compose[^\n]*up -d[^\n]*--force-recreate[^\n]*nginx/);
   assert.match(workflow, /ECS_PUBLIC_HOST/);
-  assert.match(workflow, /docker compose[^\n]*exec -T nginx nginx -t/);
+  assert.doesNotMatch(workflow, /docker compose[^\n]*exec/);
+  assert.match(workflow, /docker exec "\$nginx_id_after" nginx -t/);
   assert.match(workflow, /nginx\.conf\.pre-unified-20260912T103106Z/);
 });
 
@@ -49,6 +50,13 @@ test('unified V88 deploy verifies the recreated Nginx container is serving the G
   assert.match(workflow, /if \[ "\$nginx_id_before" = "\$nginx_id_after" \]/);
   assert.match(workflow, /nginx -T[^\n]*proxy_pass http:\/\/v88-node:3000/);
   assert.match(workflow, /STATUS=FAILED running Nginx route did not converge/);
+});
+
+test('SSH heredoc deploy scripts do not attach their remaining stdin to Nginx exec checks', () => {
+  assert.doesNotMatch(workflow, /docker compose[^\n]*exec/);
+  assert.match(workflow, /docker exec "\$nginx_id_before" nginx -t/);
+  assert.match(workflow, /docker exec "\$nginx_id_after" nginx -t/);
+  assert.match(workflow, /docker exec "\$rollback_nginx_id" nginx -t/);
 });
 
 test('unified V88 deploy rolls back if the runner external verification rejects a release', () => {
