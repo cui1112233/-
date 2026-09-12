@@ -91,6 +91,9 @@ jobs:
             printf '%s\n' "$report"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do
+            echo "::notice title=ECS runtime pressure::$line"
+          done <<< "$report"
 
       - name: Verify public endpoint remains reachable
         shell: bash
