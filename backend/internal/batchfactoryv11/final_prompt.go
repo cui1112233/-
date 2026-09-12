@@ -198,8 +198,6 @@ func (s *PromptCompilerService) namedPromptMapWithDrafts(ctx context.Context, ow
 				}
 				return nil, err
 			}
-			// A found draft is authoritative even when intentionally blank: the
-			// user can clear an inherited asset prompt instead of silently restoring it.
 			out[value.Name] = strings.TrimSpace(draft.Content)
 			break
 		}
@@ -265,7 +263,13 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 		return FinalPrompt{}, err
 	}
 	components := []PromptComponent{}
-	addComponent(&components, "visual", "画面主体", rawString(values, "visualPrompt", video.VisualPrompt))
+	// visualPrompt is deliberately absent here. It belongs exclusively to the
+	// still-image generation path and must never leak into the video model.
+	videoPrompt := rawString(values, "videoPrompt", strings.TrimSpace(video.VideoPrompt))
+	if videoPrompt == "" {
+		videoPrompt = strings.TrimSpace(draft.VideoDesc)
+	}
+	addComponent(&components, "videoPrompt", "视频提示词", videoPrompt)
 	if rawBool(values, "injectBaseSettings", true) {
 		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, characterPrompts))
 		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, scenePrompts))
