@@ -399,6 +399,20 @@ export function BatchFactoryV11Workbench({
             {' · '}场景：{(selectedShot.sceneRefs || []).join('、') || '沿用当前小说资产'}
             {' · '}道具：{(selectedShot.propRefs || []).join('、') || '无'}
           </Typography.Paragraph>
+          <div className="bf11-shot-media-grid">
+            <div className="bf11-shot-media-slot">
+              <Typography.Text strong>画面图</Typography.Text>
+              {selectedShot.visualImageUrl
+                ? <img src={selectedShot.visualImageUrl} alt={`Shot ${selectedShot.id} 画面图`} />
+                : <Typography.Text type="secondary">尚未生成画面图</Typography.Text>}
+            </div>
+            <div className="bf11-shot-media-slot">
+              <Typography.Text strong>视频结果</Typography.Text>
+              {selectedShot.videoUrl || productionTaskByShotId.get(selectedShot.id)?.mediaUrl
+                ? <video controls preload="metadata" src={selectedShot.videoUrl || productionTaskByShotId.get(selectedShot.id)?.mediaUrl} />
+                : <Typography.Text type="secondary">尚未生成视频</Typography.Text>}
+            </div>
+          </div>
         </div> : null}
         {selectedVideo ? <div className="bf11-video-detail">
           <div className="bf11-video-detail-head">
