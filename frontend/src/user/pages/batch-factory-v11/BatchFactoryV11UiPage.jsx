@@ -298,7 +298,7 @@ export function BatchFactoryV11UiPage() {
   async function runDirector(book) {
     if (!book?.id || directorAction.type) return false;
     setDirectorAction({ type: 'director', bookId: book.id });
-    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id }), 'Director 已完成并生成新的 VIDEO identity'); }
+    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id, textModelId: batchSettingsState.patch.textModelId || '' }), 'Director 已完成并生成新的 VIDEO identity'); }
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
