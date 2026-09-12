@@ -64,6 +64,41 @@ func hydrateVideosFromDirector(videos []Video, output DirectorResult) []Video {
 	return out
 }
 
+
+func (s *MemoryStore) UpdateShotVisualImage(_ context.Context, owner, batchID, bookID, videoID, shotID, imageURL string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner { return ErrNotFound }
+	batch := owned.Value
+	bookIndex := -1
+	for index := range batch.Books {
+		if batch.Books[index].ID == bookID { bookIndex = index; break }
+	}
+	if bookIndex < 0 { return ErrNotFound }
+	videoIndex := -1
+	for index := range batch.Books[bookIndex].Videos {
+		if batch.Books[bookIndex].Videos[index].ID == videoID { videoIndex = index; break }
+	}
+	if videoIndex < 0 { return ErrNotFound }
+	shotIndex := -1
+	for index := range batch.Books[bookIndex].Videos[videoIndex].Shots {
+		if batch.Books[bookIndex].Videos[videoIndex].Shots[index].ID == shotID { shotIndex = index; break }
+	}
+	if shotIndex < 0 { return ErrNotFound }
+	batch.Books[bookIndex].Videos[videoIndex].Shots[shotIndex].VisualImageURL = imageURL
+	s.batches[batchID] = memoryOwned[Batch]{Owner: owner, Value: batch}
+	key := memoryBookKey(batchID, bookID)
+	if revisions := s.directors[key]; len(revisions) > 0 {
+		latest := revisions[len(revisions)-1]
+		if videoIndex < len(latest.Output.Storyboard) && shotIndex < len(latest.Output.Storyboard[videoIndex].Shots) {
+			latest.Output.Storyboard[videoIndex].Shots[shotIndex].VisualImageURL = imageURL
+			s.directors[key][len(revisions)-1] = latest
+		}
+	}
+	return nil
+}
+
 type directorShotReadbackStore interface {
 	SaveDirectorShotReadback(context.Context, string, string, string, DirectorRevision) error
 }
