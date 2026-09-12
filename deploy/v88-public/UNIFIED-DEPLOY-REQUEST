@@ -1,3 +1,3 @@
-release_sha=d26975771b3571ebf1bd99f08b8c0c2009fba4e6
-scope=Shuihuo route retention: preserve the requested page during session re-login
-requested_at=2026-09-12T21:59:35+08:00
+release_sha=fcff141f36f06ff7dccd68f84e233ac62f9aba76
+scope=Shuihuo: preserve user sessions on upstream auth failure and expose compatibility service failure
+requested_at=2026-09-13T02:31:00+08:00
