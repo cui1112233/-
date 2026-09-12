@@ -551,6 +551,7 @@ export function BatchFactoryV11UiPage() {
         batch={viewBatch}
         configVersions={runtimeState.configVersions || []}
         configVersionsError={runtimeState.configVersionsError || null}
+        apiModels={runtimeState.apiModels || {}}
         personalPrompts={runtimeState.personalPrompts || {}}
         personalPromptsError={runtimeState.personalPromptsError || null}
         videoProviders={runtimeState.videoProviders || {}}
