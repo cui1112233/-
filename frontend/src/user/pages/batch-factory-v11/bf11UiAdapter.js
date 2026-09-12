@@ -264,8 +264,17 @@ export function createBf11UiAdapter(api) {
       return api.createLocalExecutorPairing(platform);
     },
 
-    async runMerge({ batchId, requestId, timingMode = 'speed', speed = 1, ttsSpeed = 1.7 } = {}) {
+    async runMerge({ batchId, bookId = '', requestId, timingMode = 'speed', speed = 1, ttsSpeed = 1.7, audioDurationSeconds = 0 } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
+      if (bookId) {
+        if (typeof api.submitBookMerge !== 'function') throw new Error('单本小说合并接口未接入');
+        return api.submitBookMerge(batchId, bookId, requestId, {
+          timingMode,
+          speed: Number(speed),
+          ttsSpeed: Number(ttsSpeed),
+          audioDurationSeconds: Number(audioDurationSeconds || 0)
+        });
+      }
       if (typeof api.submitBatchMerge !== 'function') throw new Error('批量合并接口未接入');
       return api.submitBatchMerge(batchId, { requestId, timingMode, speed: Number(speed), ttsSpeed: Number(ttsSpeed) });
     },
