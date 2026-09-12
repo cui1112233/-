@@ -130,11 +130,15 @@ jobs:
           ${compose[@]} up -d --no-deps --pull never shuihuo-compat
           compat_id="$(${compose[@]} ps -q shuihuo-compat)"
           test -n "$compat_id"
-          for attempt in $(seq 1 30); do
+          # The retained service creates its isolated legacy schema on first
+          # start. The ECS is a small host, so give first migrations three
+          # minutes before treating the service as unavailable.
+          for attempt in $(seq 1 90); do
             if docker exec "$node_id" node -e 'fetch("http://shuihuo-compat:4100/healthz").then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))'; then
               break
             fi
-            if [ "$attempt" = 30 ]; then
+            if [ "$attempt" = 90 ]; then
+              docker logs --tail 160 "$compat_id" >&2 || true
               echo 'Legacy Shuihuo compatibility health check did not become ready.' >&2
               exit 1
             fi
