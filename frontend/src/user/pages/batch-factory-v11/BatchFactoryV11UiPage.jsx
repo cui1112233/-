@@ -408,9 +408,10 @@ export function BatchFactoryV11UiPage() {
       const raw = await batchFactoryV11.generateConfiguredImage({ imageModelId: modelId, prompt: shot.visualPrompt });
       const imageUrl = raw?.imageUrl || raw?.url || '';
       if (!imageUrl) throw new Error('图片模型未返回图片地址');
+      await runtime.saveShotVisualImage({ batchId: batch.id, bookId: book.id, videoId: video.id, shotId: shot.id, imageUrl });
       setGeneratedShotImages(current => ({ ...current, [shot.id]: imageUrl }));
       await runtime.saveDraft({ key: `shot:${shot.id}:visual-image`, kind: 'visual-image', scope: `${batch.id}:${book.id}`, content: imageUrl });
-      message.success('当前 Shot 画面图已生成');
+      message.success('当前 Shot 画面图已生成并保存');
       return true;
     } catch (error) {
       message.error(error?.message || '图片生成失败');
