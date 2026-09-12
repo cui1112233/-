@@ -108,6 +108,11 @@ export function createBf11UiAdapter(api) {
       return api.createBatch(payload);
     },
 
+    async generateConfiguredImage(payload = {}) {
+      if (typeof api.generateConfiguredImage !== 'function') throw new Error('图片生成接口未接入');
+      return api.generateConfiguredImage(payload);
+    },
+
     async saveDraft(payload = {}) {
       return api.saveDraft(payload);
     },
