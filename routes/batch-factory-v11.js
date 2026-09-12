@@ -147,6 +147,15 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
 }
 
 async function prepareProviderRequest(req, options, pathname) {
+  if (/\\/batches\\/[^/]+(?:\\/books\\/[^/]+)?\\/(?:hook|director)$/.test(pathname) && req.body?.textModelId) {
+    req.v11TextRuntimeModel = resolveRuntimeModel({
+      username: req.username,
+      kind: 'text',
+      modelId: req.body.textModelId,
+      memberStore: options.memberStore,
+      configReader: options.configReader || readConfig
+    });
+  }
   if (isProductionPath(pathname) && req.body?.videoModelId) {
     const runtimeModel = resolveRuntimeModel({
       username: req.username,
