@@ -1,5 +1,5 @@
-import { AutoComplete, Button, Form, Input, Select, Skeleton, Tag, message } from 'antd';
-import { Cable, CheckCircle2, Image, KeyRound, Save, Server, ShieldCheck } from 'lucide-react';
+import { AutoComplete, Button, Form, Input, InputNumber, Select, Skeleton, Tag, message } from 'antd';
+import { Cable, CheckCircle2, Coins, Image, KeyRound, Save, Server, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig, testImageConfig, testTextConfig } from '../../shared/api/config';
 import { getMemberCenter } from '../../shared/api/member';
@@ -51,6 +51,11 @@ export default function ApiConfigPage() {
         baseUrl: nextConfig.baseUrl || providerDefaults[nextProvider]?.baseUrl || '',
         model: nextConfig.model || '',
         apiKey: '',
+        pricing: {
+          currency: nextConfig.pricing?.currency || 'USD',
+          inputPerMillion: nextConfig.pricing?.inputPerMillion ?? null,
+          outputPerMillion: nextConfig.pricing?.outputPerMillion ?? null
+        },
         image: {
           provider: nextConfig.image?.provider || 'openai_compatible',
           mode: nextConfig.image?.mode || 'openai_compatible',
@@ -79,16 +84,23 @@ export default function ApiConfigPage() {
     if (!canManageApi) return;
     setSaving(true);
     try {
+      const inputPrice = values.pricing?.inputPerMillion;
+      const outputPrice = values.pricing?.outputPerMillion;
       await saveConfig({
         provider: values.provider,
         baseUrl: values.baseUrl,
         model: values.model,
         apiKey: values.apiKey,
+        pricing: inputPrice || outputPrice ? {
+          currency: values.pricing?.currency || 'USD',
+          inputPerMillion: inputPrice || 0,
+          outputPerMillion: outputPrice || 0
+        } : null,
         image: values.image
       });
       form.setFieldValue('apiKey', '');
       form.setFieldValue(['image', 'apiKey'], '');
-      message.success('API 配置已保存');
+      message.success('API 配置与价格快照已保存');
     } catch (error) {
       message.error(error.message || '保存失败');
     } finally {
@@ -125,7 +137,7 @@ export default function ApiConfigPage() {
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
 
   return <div className="account-center-page api-config-page">
-    <PageHeader title="API 配置" subtitle="管理文本模型与生图服务连接" />
+    <PageHeader title="API 配置" subtitle="管理模型连接与调用价格快照" />
 
     {!canManageApi ? <div className="ac-managed-api-card">
       <span><ShieldCheck size={28} /></span>
@@ -145,6 +157,16 @@ export default function ApiConfigPage() {
             <Form.Item label="Base URL" name="baseUrl" rules={[{ required: true, message: '请输入 Base URL' }]}><Input prefix={<Server size={15} />} placeholder="https://api.openai.com/v1" /></Form.Item>
             <Form.Item label="API Key" name="apiKey"><Input.Password prefix={<KeyRound size={15} />} placeholder="留空表示不修改已保存的 Key" /></Form.Item>
             <div className="ac-api-actions"><Button icon={<Cable size={16} />} onClick={testText} loading={testingText}>测试文本连接</Button></div>
+          </Panel>
+
+          <Panel title="费用估算价格快照" eyebrow="PRICING SNAPSHOT" className="ac-form-panel">
+            <div className="ac-api-status-line"><span className="ac-security-card-icon gold"><Coins size={20} /></span><div><strong>按你实际供应商价格填写</strong><small>每次调用会把当时价格写入用量账本；未来改价不会篡改历史费用。</small></div></div>
+            <div className="ac-form-row three">
+              <Form.Item label="币种" name={['pricing', 'currency']}><Select options={[{ label: 'USD', value: 'USD' }, { label: 'CNY', value: 'CNY' }, { label: 'JPY', value: 'JPY' }]} /></Form.Item>
+              <Form.Item label="输入 / 100万 Tokens" name={['pricing', 'inputPerMillion']}><InputNumber min={0} precision={6} style={{ width: '100%' }} placeholder="留空不估算" /></Form.Item>
+              <Form.Item label="输出 / 100万 Tokens" name={['pricing', 'outputPerMillion']}><InputNumber min={0} precision={6} style={{ width: '100%' }} placeholder="留空不估算" /></Form.Item>
+            </div>
+            <p className="ac-form-tip">这里只做估算，不代表供应商最终账单。建议在供应商价格变化时同步更新。</p>
           </Panel>
 
           <Panel title="生图服务" eyebrow="IMAGE MODEL" className="ac-form-panel" action={<Tag color={config?.image?.hasApiKey ? 'green' : 'default'}>{config?.image?.hasApiKey ? 'Key 已保存' : '未保存 Key'}</Tag>}>
@@ -169,18 +191,19 @@ export default function ApiConfigPage() {
               <div><CheckCircle2 size={17} className={config?.hasApiKey ? 'ok' : ''} /><span>文本 API Key</span><b>{config?.hasApiKey ? '已保存' : '未配置'}</b></div>
               <div><CheckCircle2 size={17} className={config?.baseUrl ? 'ok' : ''} /><span>文本 Base URL</span><b>{config?.baseUrl ? '已配置' : '缺失'}</b></div>
               <div><CheckCircle2 size={17} className={config?.model ? 'ok' : ''} /><span>默认模型</span><b>{config?.model || '未配置'}</b></div>
+              <div><CheckCircle2 size={17} className={config?.pricing ? 'ok' : ''} /><span>费用价格快照</span><b>{config?.pricing ? `${config.pricing.currency}` : '未配置'}</b></div>
               <div><CheckCircle2 size={17} className={config?.image?.hasApiKey ? 'ok' : ''} /><span>生图 API Key</span><b>{config?.image?.hasApiKey ? '已保存' : '未配置'}</b></div>
             </div>
           </Panel>
           <Panel title="安全说明" eyebrow="SECURITY">
-            <p className="ac-muted-copy">保存后的 API Key 只在服务端读取。前端获取配置时只返回是否存在 Key，不返回明文密钥。</p>
+            <p className="ac-muted-copy">保存后的 API Key 只在服务端读取。价格快照用于团队费用估算，不会替代供应商正式账单。</p>
           </Panel>
           <Button className="ac-sticky-save" type="primary" icon={<Save size={16} />} loading={saving} onClick={() => form.submit()}>保存 API 配置</Button>
         </aside>
       </div>
     </Form> : <div className="ac-two-column">
-      <Panel title="当前服务状态"><div className="ac-service-list"><div><span className={member?.apiEnabled ? 'dot-on' : 'dot-off'} />团队文本模型<b>{member?.apiEnabled ? '可用' : '未授权'}</b></div><div><span className={member?.apiEnabled ? 'dot-on' : 'dot-off'} />团队生图能力<b>{member?.apiEnabled ? '按团队策略' : '未授权'}</b></div></div></Panel>
-      <Panel title="为什么看不到 Key"><p className="ac-muted-copy">MEMBER 的调用由服务端根据 boundTo 解析到 MANAGER 配置。密钥不会下发到浏览器，也不会出现在成员设置页面。</p></Panel>
+      <Panel title="当前服务状态"><div className="ac-service-list"><div><span className={member?.apiScopes?.includes('*') || member?.apiScopes?.includes('text') ? 'dot-on' : 'dot-off'} />团队文本模型<b>{member?.apiScopes?.includes('*') || member?.apiScopes?.includes('text') ? '可用' : '未授权'}</b></div><div><span className={member?.apiScopes?.includes('*') || member?.apiScopes?.includes('image') ? 'dot-on' : 'dot-off'} />团队生图能力<b>{member?.apiScopes?.includes('*') || member?.apiScopes?.includes('image') ? '可用' : '未授权'}</b></div><div><span className={member?.apiScopes?.includes('*') || member?.apiScopes?.includes('tts') ? 'dot-on' : 'dot-off'} />团队 TTS<b>{member?.apiScopes?.includes('*') || member?.apiScopes?.includes('tts') ? '可用' : '未授权'}</b></div></div></Panel>
+      <Panel title="为什么看不到 Key"><p className="ac-muted-copy">MEMBER 的调用由服务端根据 boundTo 解析到 MANAGER 配置。密钥和价格配置不会下发到成员浏览器。</p></Panel>
     </div>}
   </div>;
 }

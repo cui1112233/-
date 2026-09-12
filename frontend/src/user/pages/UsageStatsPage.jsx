@@ -1,5 +1,5 @@
 import { Progress, Skeleton, Tag, message } from 'antd';
-import { Activity, Gauge, Layers3, Sparkles, Zap } from 'lucide-react';
+import { Activity, Coins, Layers3, Sparkles, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getMemberCenter, getTeamMembers } from '../../shared/api/member';
 import {
@@ -11,6 +11,11 @@ import {
   formatDate,
   formatTokens
 } from './accountCenterShared';
+
+function formatCost(summary) {
+  if (!summary?.costCurrency || summary.estimatedCost === null || summary.estimatedCost === undefined) return '未计价';
+  return `${summary.costCurrency} ${Number(summary.estimatedCost).toFixed(4)}`;
+}
 
 export default function UsageStatsPage() {
   const [loading, setLoading] = useState(true);
@@ -38,6 +43,8 @@ export default function UsageStatsPage() {
   const isAdmin = ['dev', 'manager'].includes(self?.role);
   const teamMonth = useMemo(() => members.reduce((sum, item) => sum + Number(item.usage?.month?.totalTokens || 0), 0), [members]);
   const teamCalls = useMemo(() => members.reduce((sum, item) => sum + Number(item.usage?.month?.calls || 0), 0), [members]);
+  const teamCost = useMemo(() => members.reduce((sum, item) => sum + Number(item.usage?.month?.estimatedCost || 0), 0), [members]);
+  const teamCurrency = members.find(item => item.usage?.month?.costCurrency)?.usage?.month?.costCurrency || null;
   const ranking = useMemo(() => [...members].sort((a, b) => (b.usage?.month?.totalTokens || 0) - (a.usage?.month?.totalTokens || 0)).slice(0, 6), [members]);
   const maxRecent = Math.max(1, ...recent.slice(0, 12).map(item => Number(item.totalTokens || 0)));
 
@@ -45,15 +52,22 @@ export default function UsageStatsPage() {
   if (!self) return <div className="account-center-page"><div className="ac-empty">无法读取用量</div></div>;
 
   return <div className="account-center-page usage-page">
-    <PageHeader title="用量统计" subtitle="查看调用次数、Token 消耗、功能构成与团队排名" />
+    <PageHeader title="用量统计" subtitle="查看 Token、调用次数、费用估算、功能构成与团队排名" />
 
     <div className="ac-metrics-grid five">
       <MetricCard label="今日消耗" value={formatTokens(day.totalTokens)} suffix="Tokens" icon={Zap} accent="coral" hint={`${day.calls || 0} 次调用`} />
       <MetricCard label="本月消耗" value={formatTokens(month.totalTokens)} suffix="Tokens" icon={Sparkles} accent="blue" hint={`${month.calls || 0} 次调用`} />
       <MetricCard label="输入 Tokens" value={formatTokens(month.inputTokens)} suffix="Tokens" icon={Layers3} accent="violet" hint="本月输入" />
       <MetricCard label="输出 Tokens" value={formatTokens(month.outputTokens)} suffix="Tokens" icon={Activity} accent="green" hint="本月输出" />
-      <MetricCard label="可确认 Usage" value={month.knownUsageCalls || 0} suffix="次" icon={Gauge} accent="gold" hint={`总调用 ${month.calls || 0} 次`} />
+      <MetricCard label="估算费用" value={month.costCurrency ? Number(month.estimatedCost || 0).toFixed(4) : '—'} suffix={month.costCurrency || ''} icon={Coins} accent="gold" hint={`${month.pricedCalls || 0}/${month.billableCalls || 0} 次调用有价格快照`} />
     </div>
+
+    {center?.memberQuota?.level && center.memberQuota.level !== 'unlimited' ? <div className={`ac-quota-alert is-${center.memberQuota.level}`}>
+      <strong>个人月额度：{center.memberQuota.percent}%</strong><span>{formatTokens(center.memberQuota.used)} / {formatTokens(center.memberQuota.limit)} Tokens</span>
+    </div> : null}
+    {center?.teamGovernance?.quota?.level && center.teamGovernance.quota.level !== 'unlimited' ? <div className={`ac-quota-alert is-${center.teamGovernance.quota.level}`}>
+      <strong>团队月额度：{center.teamGovernance.quota.percent}%</strong><span>{formatTokens(center.teamGovernance.quota.used)} / {formatTokens(center.teamGovernance.quota.limit)} Tokens · 70/90/100% 分级预警</span>
+    </div> : null}
 
     <div className="ac-usage-layout">
       <Panel title="最近调用强度" eyebrow="RECENT CALLS" className="ac-usage-chart-panel">
@@ -67,7 +81,7 @@ export default function UsageStatsPage() {
           })}
           {!recent.length ? <div className="ac-empty">暂无最近调用</div> : null}
         </div>
-        <div className="ac-chart-legend"><span><i className="tone-0" /> 单次总 Tokens</span><small>按最近调用顺序展示，不伪造缺失的小时级历史数据。</small></div>
+        <div className="ac-chart-legend"><span><i className="tone-0" /> 单次总 Tokens</span><small>真实 usage 优先；缺失时明确标记估算。</small></div>
       </Panel>
 
       <Panel title="功能消耗构成" eyebrow="BREAKDOWN">
@@ -83,18 +97,18 @@ export default function UsageStatsPage() {
               <span className={`rank rank-${index + 1}`}>{index + 1}</span>
               <MemberIdentity member={member} size={34} />
               <Progress percent={percent} showInfo={false} />
-              <div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>{percent}%</small></div>
+              <div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>{member.usage?.month?.costCurrency ? `${member.usage.month.costCurrency} ${Number(member.usage.month.estimatedCost || 0).toFixed(4)}` : `${percent}%`}</small></div>
             </div>;
           })}
           {!ranking.length ? <div className="ac-empty">暂无团队用量</div> : null}
         </div>
-        <div className="ac-side-summary"><span>团队本月合计</span><strong>{formatTokens(teamMonth)} Tokens · {teamCalls} 次调用</strong></div>
+        <div className="ac-side-summary"><span>团队本月合计</span><strong>{formatTokens(teamMonth)} Tokens · {teamCalls} 次调用{teamCurrency ? ` · 估算 ${teamCurrency} ${teamCost.toFixed(4)}` : ''}</strong></div>
       </Panel> : null}
     </div>
 
     <Panel title="最近用量明细" eyebrow="USAGE LEDGER">
       <div className="ac-usage-table">
-        <div className="ac-usage-table-head"><span>时间</span><span>功能</span><span>模型</span><span>输入</span><span>输出</span><span>总 Tokens</span><span>口径</span></div>
+        <div className="ac-usage-table-head"><span>时间</span><span>功能</span><span>模型</span><span>输入</span><span>输出</span><span>总 Tokens</span><span>口径 / 费用</span></div>
         {recent.slice(0, 20).map(item => <div className="ac-usage-table-row" key={item.id}>
           <span>{formatDate(item.at)}</span>
           <strong>{item.feature || 'unknown'}</strong>
@@ -102,7 +116,7 @@ export default function UsageStatsPage() {
           <span>{formatTokens(item.inputTokens)}</span>
           <span>{formatTokens(item.outputTokens)}</span>
           <b>{formatTokens(item.totalTokens)}</b>
-          <Tag color={item.metadata?.usageEstimated ? 'gold' : item.usageKnown ? 'green' : 'default'}>{item.metadata?.usageEstimated ? '估算' : item.usageKnown ? '真实 usage' : '调用记录'}</Tag>
+          <span className="ac-usage-cost-cell"><Tag color={item.metadata?.usageEstimated ? 'gold' : item.usageKnown ? 'green' : 'default'}>{item.metadata?.usageEstimated ? '估算 usage' : item.usageKnown ? '真实 usage' : '调用记录'}</Tag><small>{item.costKnown ? `${item.costCurrency} ${Number(item.estimatedCost).toFixed(6)}` : '未配置价格'}</small></span>
         </div>)}
         {!recent.length ? <div className="ac-empty">暂无用量明细</div> : null}
       </div>

@@ -1,0 +1,141 @@
+.ac-governance-panel {
+  margin: 18px 0;
+}
+
+.ac-governance-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ac-governance-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(240px, 1.35fr) minmax(190px, .9fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 14px;
+  background: rgba(8, 15, 29, .48);
+}
+
+.ac-governance-progress {
+  min-width: 0;
+}
+
+.ac-governance-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 7px;
+  color: rgba(226, 232, 240, .78);
+  font-size: 12px;
+}
+
+.ac-account-api-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ac-team-table-row.is-disabled {
+  opacity: .62;
+}
+
+.ac-team-table-row.is-disabled:hover {
+  opacity: .82;
+}
+
+.ac-governance-actions {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 14px;
+  background: rgba(8, 15, 29, .42);
+}
+
+.ac-form-row.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ac-security-card-icon.gold {
+  color: #f2c969;
+  background: rgba(242, 201, 105, .1);
+  border-color: rgba(242, 201, 105, .22);
+}
+
+.ac-quota-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 14px 0;
+  padding: 12px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(59, 130, 246, .22);
+  background: rgba(37, 99, 235, .08);
+  color: rgba(226, 232, 240, .86);
+}
+
+.ac-quota-alert.is-warning {
+  border-color: rgba(234, 179, 8, .3);
+  background: rgba(234, 179, 8, .08);
+}
+
+.ac-quota-alert.is-critical {
+  border-color: rgba(249, 115, 22, .34);
+  background: rgba(249, 115, 22, .09);
+}
+
+.ac-quota-alert.is-exhausted {
+  border-color: rgba(239, 68, 68, .38);
+  background: rgba(239, 68, 68, .1);
+}
+
+.ac-usage-cost-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ac-usage-cost-cell small {
+  color: rgba(226, 232, 240, .58);
+  white-space: nowrap;
+}
+
+.ac-team-used small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(226, 232, 240, .48);
+  font-size: 11px;
+}
+
+@media (max-width: 1050px) {
+  .ac-governance-row {
+    grid-template-columns: 1fr 1.3fr;
+  }
+
+  .ac-form-row.three {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ac-governance-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ac-quota-alert {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .ac-governance-actions {
+    flex-direction: column;
+  }
+}

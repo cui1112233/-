@@ -36,6 +36,7 @@ router.get('/usage', serveReactEntry('index.html', 'index.html'));
 router.get('/profile', serveReactEntry('index.html', 'index.html'));
 router.get('/security', serveReactEntry('index.html', 'index.html'));
 router.get('/issues', serveReactEntry('index.html', 'index.html'));
+router.get(/^\/invite\/[^/]+$/, serveReactEntry('index.html', 'index.html'));
 router.get(/^\/admin(?:\/.*)?$/, serveReactEntry('admin.html', 'index.html'));
 
 module.exports = router;

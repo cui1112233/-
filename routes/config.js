@@ -32,6 +32,25 @@ function normalizeTtsConfig(value, fallback = {}) {
   };
 }
 
+function normalizePricing(value, fallback = null) {
+  const previous = fallback && typeof fallback === 'object' ? fallback : {};
+  if (value === undefined) return previous.currency ? { ...previous } : null;
+  if (value === null) return null;
+  if (!value || typeof value !== 'object') return previous.currency ? { ...previous } : null;
+  const parsePrice = (candidate, oldValue = 0) => {
+    if (candidate === undefined || candidate === '') return Number(oldValue) || 0;
+    const number = Number(candidate);
+    return Number.isFinite(number) && number >= 0 && number <= 1_000_000 ? number : Number(oldValue) || 0;
+  };
+  const inputPerMillion = parsePrice(value.inputPerMillion, previous.inputPerMillion);
+  const outputPerMillion = parsePrice(value.outputPerMillion, previous.outputPerMillion);
+  const currency = typeof value.currency === 'string' && /^[A-Za-z]{3}$/.test(value.currency.trim())
+    ? value.currency.trim().toUpperCase()
+    : previous.currency || 'USD';
+  if (inputPerMillion === 0 && outputPerMillion === 0) return null;
+  return { currency, inputPerMillion, outputPerMillion };
+}
+
 function createConfigRouter({
   configReader = readConfig,
   configWriter = writeConfig,
@@ -55,6 +74,7 @@ function createConfigRouter({
       provider: 'managed',
       baseUrl: '',
       model: '',
+      pricing: null,
       hasApiKey: false,
       image: {
         ...safe.image,
@@ -68,17 +88,16 @@ function createConfigRouter({
     };
   }
 
-  // GET /api/config — 获取配置（不含 apiKey）
   router.get('/', (req, res) => {
     const config = configReader(req.username);
     config.pet = normalizePetConfig(config.pet);
     config.tts = normalizeTtsConfig(config.tts);
+    config.pricing = normalizePricing(config.pricing);
     const { member, canManageApi } = apiManagementState(req);
     if (!canManageApi) return res.json(managedPublicConfig(config, member));
     return res.json({ ...publicConfigMapper(config), canManageApi: true, managedBy: null });
   });
 
-  // POST /api/config — 保存配置。MEMBER 仅可保存个人偏好，不可写入模型连接。
   router.post('/', (req, res) => {
     const body = req.body || {};
     const oldConfig = configReader(req.username);
@@ -99,6 +118,7 @@ function createConfigRouter({
       baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
       model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
       apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
+      pricing: normalizePricing(body.pricing, oldConfig.pricing),
       image: body.image ? {
         ...(oldConfig.image || DEFAULT_CONFIG.image),
         ...body.image,
@@ -116,5 +136,6 @@ function createConfigRouter({
 
 const router = createConfigRouter();
 router.createConfigRouter = createConfigRouter;
+router.normalizePricing = normalizePricing;
 
 module.exports = router;
