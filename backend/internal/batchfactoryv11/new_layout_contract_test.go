@@ -36,10 +36,10 @@ func TestNewLayoutDirectorPersistsFirstClassShots(t *testing.T) {
 		t.Fatalf("shot order must follow Director order: %#v", video.Shots)
 	}
 	if first.StartSeconds != 0 || first.EndSeconds != 3 || second.StartSeconds != 3 || second.EndSeconds != 9 {
-		t.Fatalf("shot timeline must be preserved: %#v", video.Shots)
+		t.Fatalf("shot timeline must be preserved for story rhythm: %#v", video.Shots)
 	}
-	if first.TargetDurationSeconds != 3 || second.TargetDurationSeconds != 6 {
-		t.Fatalf("shot target durations must come from their own timeline: %#v", video.Shots)
+	if first.TargetDurationSeconds != 6 || second.TargetDurationSeconds != 6 {
+		t.Fatalf("every shot must default to a 6-second generation target: %#v", video.Shots)
 	}
 	if first.Status == "" || second.Status == "" {
 		t.Fatalf("each shot must have an independent production status: %#v", video.Shots)
