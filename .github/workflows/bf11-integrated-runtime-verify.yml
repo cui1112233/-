@@ -7,6 +7,9 @@ on:
       - feat/batch-factory-v11-integrated-runtime
       - feat/batch-factory-v11-legacy-port-runtime
       - fix/bf11-personal-prompt-bridge-20260902
+  pull_request:
+    branches:
+      - v88
   workflow_dispatch:
 
 jobs:
