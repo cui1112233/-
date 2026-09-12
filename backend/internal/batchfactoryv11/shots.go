@@ -5,7 +5,10 @@ import (
 	"fmt"
 )
 
-const ShotStatusPending = "pending"
+const (
+	ShotStatusPending          = "pending"
+	DefaultShotTargetDuration = 6.0
+)
 
 func productionShotsFromDirectorVideo(batchID, bookID, videoID string, draft DirectorVideo) []Shot {
 	shots := make([]Shot, 0, len(draft.Shots))
@@ -20,7 +23,7 @@ func productionShotsFromDirectorVideo(batchID, bookID, videoID string, draft Dir
 			Order:                 index + 1,
 			StartSeconds:          start,
 			EndSeconds:            end,
-			TargetDurationSeconds: end - start,
+			TargetDurationSeconds: DefaultShotTargetDuration,
 			ShotType:              source.ShotType,
 			Camera:                source.Camera,
 			Description:           source.Description,
@@ -60,9 +63,6 @@ func hydrateVideosFromDirector(videos []Video, output DirectorResult) []Video {
 	return out
 }
 
-// directorShotReadbackStore is intentionally optional. Director JSON remains
-// the source of storyboard timing; stores can materialize the derived Shot
-// hierarchy on read without creating a second conflicting source of truth.
 type directorShotReadbackStore interface {
 	SaveDirectorShotReadback(context.Context, string, string, string, DirectorRevision) error
 }
