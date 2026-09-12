@@ -8,6 +8,8 @@ import (
 	"qiantie/backend/internal/batchfactoryv11"
 )
 
+type shotVisualImageInput struct { ImageURL string `json:"imageUrl"` }
+
 type productionSubmitInput struct {
 	RequestID string `json:"requestId"`
 	Provider  string `json:"provider,omitempty"`
@@ -50,6 +52,18 @@ func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.Produ
 			view = batchfactoryv11.VideoProviderConfigView{Provider: provider, Configured: false}
 		}
 		writeJSON(w, http.StatusOK, view)
+	})
+
+	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/videos/{videoId}/shots/{shotId}/visual-image", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error":"unauthorized"}); return }
+		if service == nil || service.Store == nil { writeStoreError(w, batchfactoryv11.ErrUnavailable); return }
+		var input shotVisualImageInput
+		if !decodeJSON(w, r, &input) { return }
+		if strings.TrimSpace(input.ImageURL) == "" { writeStoreError(w, batchfactoryv11.ErrInvalid); return }
+		err := service.Store.UpdateShotVisualImage(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), r.PathValue("videoId"), r.PathValue("shotId"), strings.TrimSpace(input.ImageURL))
+		if err != nil { writeStoreError(w, err); return }
+		writeJSON(w, http.StatusOK, map[string]any{"shotId": r.PathValue("shotId"), "imageUrl": strings.TrimSpace(input.ImageURL), "persisted": true})
 	})
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/books/{bookId}/production", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
