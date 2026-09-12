@@ -588,7 +588,7 @@ export function BatchFactoryV11Workbench({
             disabled={mergeAction.disabled || !onRunMerge}
             title={mergeAction.disabled ? mergeAction.reason : ''}
             onClick={() => onRunMerge?.(batch, { bookId: selectedBook?.id || '', timingMode: mergeTimingMode, speed: mergeSpeed, ttsSpeed })}
-          >合并当前小说</Button>
+          >合并待合并（当前小说）</Button>
         </section>
 
         <section className="bf11-tool-section">
