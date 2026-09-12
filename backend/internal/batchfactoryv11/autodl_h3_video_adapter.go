@@ -21,9 +21,6 @@ const (
 	MaxAutoDLH3ReferenceImages = 9
 )
 
-// AutoDLH3VideoAdapter implements the two-step ComfyUI workflow API. The
-// provider token stays server-side and is deliberately sent as the raw
-// Authorization value, matching AutoDL.Art's API contract.
 type AutoDLH3VideoAdapter struct {
 	CreateURL   string
 	TasksURL    string
@@ -100,10 +97,7 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 duration exceeds model maximum")
 	}
 	resolution := rawString(values, "resolution", "480p竖")
-	images := rawStrings(values, "imageUrls")
-	if len(images) == 0 {
-		images = rawStrings(values, "referenceImages")
-	}
+	images := append([]string(nil), prompt.ReferenceImages...)
 	if len(images) > MaxAutoDLH3ReferenceImages {
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 supports at most %d reference images", MaxAutoDLH3ReferenceImages)
 	}
