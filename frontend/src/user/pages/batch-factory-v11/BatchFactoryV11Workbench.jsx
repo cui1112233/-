@@ -476,7 +476,13 @@ export function BatchFactoryV11Workbench({
               title={productionAction.disabled ? productionAction.reason : ''}
               onClick={() => onRunProduction?.(batch, selectedBook)}
             >生成当前小说</Button>
-            <Typography.Text type="secondary">提交只会生产当前小说尚未完成的 VIDEO；媒体统一到右侧播放器预览。</Typography.Text>
+            {selectedShot && productionTaskByShotId.get(selectedShot.id)?.status === 'failed' ? <Button
+              danger
+              disabled={productionAction.disabled || !onRunProduction}
+              title={productionAction.disabled ? productionAction.reason : ''}
+              onClick={() => onRunProduction?.(batch, selectedBook)}
+            >重试失败 Shot</Button> : null}
+            <Typography.Text type="secondary">提交只会生产当前小说尚未完成的 Shot；成功 Shot 不会重复生成。</Typography.Text>
           </Space>
         </div> : <Typography.Text type="secondary">当前小说没有 VIDEO 数据。</Typography.Text>}
       </div>
