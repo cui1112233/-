@@ -1,0 +1,79 @@
+name: V88 Shuihuo Legacy Compatibility Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+concurrency:
+  group: v88-shuihuo-legacy-compat-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -T 10 -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          test -s "$HOME/.ssh/known_hosts"
+
+      - name: Inspect retained Shuihuo compatibility assets only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo "=== RETAINED_CONTAINERS ==="
+          docker ps -a --format 'name={{.Names}} state={{.State}} image={{.Image}}' | grep -Ei 'v78|production|shuihuo|waterfall' || true
+          echo "=== RETAINED_IMAGES ==="
+          docker image ls --format 'repository={{.Repository}} tag={{.Tag}} id={{.ID}} created={{.CreatedSince}}' | grep -Ei 'v78|production|shuihuo|waterfall|qiantie-go-api' || true
+          echo "=== V88_COMPOSE_SERVICE_NAMES ==="
+          cd /opt/qiantie/v88/deploy/v88-public
+          docker compose -f docker-compose.yml config --services
+          echo "=== RETAINED_CONTAINER_METADATA ==="
+          docker ps -aq --filter 'name=v78' --filter 'name=production' --filter 'name=shuihuo' | while read -r id; do
+            test -n "$id" || continue
+            docker inspect "$id" --format 'name={{.Name}} image={{.Config.Image}} state={{.State.Status}} command={{json .Config.Cmd}} entrypoint={{json .Config.Entrypoint}} networks={{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}'
+          done
+          echo "=== NOTES ==="
+          echo 'This diagnostic intentionally does not print environment variables, credentials, mounts, database contents, or service logs.'
+          REMOTE
+
+      - name: Publish compatibility summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          report="$(timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo "retained_container_count=$(docker ps -aq --filter 'name=v78' --filter 'name=production' --filter 'name=shuihuo' | sed '/^$/d' | wc -l)"
+          echo "retained_image_count=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Eic 'v78|production|shuihuo|waterfall|qiantie-go-api' || true)"
+          echo "v88_go_api=$(docker ps --filter 'name=v88-public-go-api-1' --format '{{.Status}}' | head -n 1)"
+          REMOTE
+          )"
+          {
+            echo '## Shuihuo legacy compatibility diagnostic'
+            echo
+            echo '```text'
+            printf '%s\n' "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do
+            echo "::notice title=Shuihuo compatibility::$line"
+          done <<< "$report"
