@@ -146,6 +146,8 @@ export function BatchFactoryV11Workbench({
   onSaveVideoPrompt,
   onRefreshAssets,
   onSaveAssetPrompts,
+  onGenerateShotImage,
+  generatedShotImages = {},
   onRunMerge,
   onRunUpload
 }) {
@@ -408,9 +410,10 @@ export function BatchFactoryV11Workbench({
           <div className="bf11-shot-media-grid">
             <div className="bf11-shot-media-slot">
               <Typography.Text strong>画面图</Typography.Text>
-              {selectedShot.visualImageUrl
-                ? <img src={selectedShot.visualImageUrl} alt={`Shot ${selectedShot.id} 画面图`} />
+              {(generatedShotImages[selectedShot.id] || selectedShot.visualImageUrl)
+                ? <img src={generatedShotImages[selectedShot.id] || selectedShot.visualImageUrl} alt={`Shot ${selectedShot.id} 画面图`} />
                 : <Typography.Text type="secondary">尚未生成画面图</Typography.Text>}
+              <Button size="small" disabled={!onGenerateShotImage || !selectedShot.visualPrompt} onClick={() => onGenerateShotImage?.(selectedBook, selectedVideo, selectedShot)}>使用 API 图片模型生成</Button>
             </div>
             <div className="bf11-shot-media-slot">
               <Typography.Text strong>视频结果</Typography.Text>
