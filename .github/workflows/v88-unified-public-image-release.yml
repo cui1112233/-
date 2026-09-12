@@ -75,7 +75,7 @@ jobs:
           echo "go=ghcr.io/${{ github.repository_owner }}/qiantie-go-api:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: release
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -173,7 +173,8 @@ jobs:
               docker compose -f docker-compose.yml config -q || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx || true
-              docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 || true
+              rollback_nginx_id="$(docker compose -f docker-compose.yml ps -q nginx || true)"
+              docker exec "$rollback_nginx_id" nginx -t >/dev/null 2>&1 || true
             fi
             rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
             docker logout ghcr.io >/dev/null 2>&1 || true
@@ -202,9 +203,25 @@ jobs:
 
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
-          docker compose -f docker-compose.yml exec -T nginx nginx -t
+          nginx_id_before="$(docker compose -f docker-compose.yml ps -q nginx)"
+          test -n "$nginx_id_before"
+          docker exec "$nginx_id_before" nginx -t
+          echo "NGINX_CONTAINER_BEFORE_RECREATE=$nginx_id_before"
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx
-          docker compose -f docker-compose.yml exec -T nginx nginx -t
+          nginx_id_after="$(docker compose -f docker-compose.yml ps -q nginx)"
+          test -n "$nginx_id_after"
+          echo "NGINX_CONTAINER_AFTER_RECREATE=$nginx_id_after"
+          if [ "$nginx_id_before" = "$nginx_id_after" ]; then
+            echo 'STATUS=FAILED Nginx container did not recreate'
+            exit 54
+          fi
+          docker exec "$nginx_id_after" nginx -t
+          active_nginx_route="$(docker exec "$nginx_id_after" sh -c 'nginx -T 2>&1 | grep -F "proxy_pass http://v88-node:3000;"' || true)"
+          printf 'ACTIVE_NGINX_ROUTE=%s\n' "$active_nginx_route"
+          if [ -z "$active_nginx_route" ]; then
+            echo 'STATUS=FAILED running Nginx route did not converge'
+            exit 55
+          fi
 
           public_ok=0
           for attempt in $(seq 1 30); do
@@ -314,6 +331,8 @@ jobs:
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx
-          docker compose -f docker-compose.yml exec -T nginx nginx -t
+          rollback_nginx_id="$(docker compose -f docker-compose.yml ps -q nginx)"
+          test -n "$rollback_nginx_id"
+          docker exec "$rollback_nginx_id" nginx -t
           echo "STATUS=ROLLBACK_AFTER_EXTERNAL_REJECTION backup_id=$backup_id"
           ROLLBACK
