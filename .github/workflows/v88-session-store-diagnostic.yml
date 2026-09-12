@@ -66,7 +66,7 @@ jobs:
           console.log("session_expired_count=" + expired);
           console.log("session_file_mtime=" + stat.mtime.toISOString());
           '
-REMOTE
+          REMOTE
 
       - name: Upload non-sensitive session diagnostic
         uses: actions/upload-artifact@v4
