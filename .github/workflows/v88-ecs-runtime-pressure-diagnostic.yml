@@ -1,0 +1,70 @@
+name: V88 ECS Runtime Pressure Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+concurrency:
+  group: v88-ecs-runtime-pressure-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          timeout 15 ssh-keyscan -T 10 -H "$ECS_HOST" > "$HOME/.ssh/known_hosts" 2>/dev/null
+          test -s "$HOME/.ssh/known_hosts"
+
+      - name: Inspect pressure without changing services
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          echo "=== HOST_TIME ==="
+          date -Is
+          echo "=== UPTIME ==="
+          uptime
+          echo "=== MEMORY ==="
+          free -h
+          echo "=== VMSTAT ==="
+          vmstat 1 5
+          echo "=== TOP_CPU_PROCESSES ==="
+          ps -eo pid,ppid,comm,%cpu,%mem,rss --sort=-%cpu | head -n 25
+          echo "=== TOP_MEMORY_PROCESSES ==="
+          ps -eo pid,ppid,comm,%cpu,%mem,rss --sort=-rss | head -n 25
+          echo "=== DOCKER_STATS ==="
+          docker stats --no-stream --format 'name={{.Name}} cpu={{.CPUPerc}} mem={{.MemUsage}} pids={{.PIDs}}' || true
+          echo "=== DOCKER_CONTAINERS ==="
+          docker ps --format 'name={{.Names}} status={{.Status}} image={{.Image}}' || true
+          echo "=== DISK ==="
+          df -h / /var/lib/docker 2>/dev/null || df -h /
+          echo "=== KERNEL_MEMORY_EVENTS ==="
+          journalctl -k -n 200 --no-pager 2>/dev/null | grep -iE 'oom|out of memory|killed process' || true
+          REMOTE
+
+      - name: Verify public endpoint remains reachable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "http://${ECS_HOST}:3000/api/build-info" || true)"
+          echo "public_build_info_status=$status"
+          test "$status" = 200
