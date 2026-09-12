@@ -11,9 +11,6 @@ import (
 	"strings"
 )
 
-// CompatibilityNotice reports a setting that cannot be applied to the
-// current Director/video identity. Notices are read-only: the compiler never
-// silently rewrites a user's sparse patch.
 type CompatibilityNotice struct {
 	Field  string `json:"field"`
 	State  string `json:"state"`
@@ -39,10 +36,12 @@ type FinalPrompt struct {
 	BatchID            string            `json:"batchId"`
 	BookID             string            `json:"bookId"`
 	VideoID            string            `json:"videoId"`
+	ShotID             string            `json:"shotId,omitempty"`
 	DirectorRevisionID string            `json:"directorRevisionId"`
 	SnapshotHash       string            `json:"snapshotHash"`
 	CompiledPrompt     string            `json:"compiledPrompt"`
 	Components         []PromptComponent `json:"components"`
+	ReferenceImages    []string          `json:"referenceImages,omitempty"`
 	EffectiveSettings  EffectiveSettings `json:"effectiveSettings"`
 	DurationSeconds    int               `json:"durationSeconds"`
 }
@@ -105,6 +104,15 @@ func videoFromBook(book Book, videoID string) (Video, int, error) {
 		}
 	}
 	return Video{}, -1, ErrNotFound
+}
+
+func shotFromVideo(video Video, shotID string) (Shot, error) {
+	for _, shot := range video.Shots {
+		if shot.ID == shotID {
+			return shot, nil
+		}
+	}
+	return Shot{}, ErrNotFound
 }
 
 func snapshotHash(values SettingsPatch, directorRevisionID string) string {
@@ -205,6 +213,20 @@ func (s *PromptCompilerService) namedPromptMapWithDrafts(ctx context.Context, ow
 	return out, nil
 }
 
+func (s *PromptCompilerService) draftContent(ctx context.Context, owner, batchID, bookID, key, kind string) (string, error) {
+	for _, scope := range []string{batchID + ":" + bookID, batchID} {
+		draft, err := s.Store.GetDraft(ctx, owner, key, kind, scope)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return "", err
+		}
+		return strings.TrimSpace(draft.Content), nil
+	}
+	return "", nil
+}
+
 func selectPrompts(names []string, library map[string]string) string {
 	parts := []string{}
 	for _, name := range names {
@@ -222,7 +244,47 @@ func addComponent(out *[]PromptComponent, key, label, content string) {
 	}
 }
 
+func appendUniqueImage(out *[]string, seen map[string]bool, raw string) {
+	value := strings.TrimSpace(raw)
+	if value == "" || seen[value] {
+		return
+	}
+	seen[value] = true
+	*out = append(*out, value)
+}
+
+func (s *PromptCompilerService) assetInputs(ctx context.Context, owner, batchID, bookID, category string, names []string, library map[string]string, allowText bool) ([]string, string, error) {
+	images := []string{}
+	seen := map[string]bool{}
+	textNames := []string{}
+	for _, name := range names {
+		imageURL, err := s.draftContent(ctx, owner, batchID, bookID, "asset:"+category+":"+name, "asset-image")
+		if err != nil {
+			return nil, "", err
+		}
+		if imageURL != "" {
+			appendUniqueImage(&images, seen, imageURL)
+			continue
+		}
+		if allowText {
+			textNames = append(textNames, name)
+		}
+	}
+	return images, selectPrompts(textNames, library), nil
+}
+
 func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, bookID, videoID string) (FinalPrompt, error) {
+	return s.compile(ctx, owner, batchID, bookID, videoID, "")
+}
+
+func (s *PromptCompilerService) CompileShot(ctx context.Context, owner, batchID, bookID, videoID, shotID string) (FinalPrompt, error) {
+	if strings.TrimSpace(shotID) == "" {
+		return FinalPrompt{}, fmt.Errorf("%w: shot id is required", ErrInvalid)
+	}
+	return s.compile(ctx, owner, batchID, bookID, videoID, shotID)
+}
+
+func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, bookID, videoID, shotID string) (FinalPrompt, error) {
 	effective, book, video, ordinal, err := s.ResolveEffective(ctx, owner, batchID, bookID, videoID)
 	if err != nil {
 		return FinalPrompt{}, err
@@ -250,6 +312,37 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 		propRefs = draft.Props
 	}
 
+	videoPrompt := rawString(values, "videoPrompt", strings.TrimSpace(video.VideoPrompt))
+	duration := rawInt(values, "duration", int(video.DurationSeconds))
+	if shotID != "" {
+		shot, shotErr := shotFromVideo(video, shotID)
+		if shotErr != nil {
+			return FinalPrompt{}, shotErr
+		}
+		if len(shot.CharacterRefs) > 0 {
+			characterRefs = append([]string(nil), shot.CharacterRefs...)
+		}
+		if len(shot.SceneRefs) > 0 {
+			sceneRefs = append([]string(nil), shot.SceneRefs...)
+		}
+		if len(shot.PropRefs) > 0 {
+			propRefs = append([]string(nil), shot.PropRefs...)
+		}
+		videoPrompt = strings.TrimSpace(shot.VideoPrompt)
+		if saved, savedErr := s.draftContent(ctx, owner, batchID, bookID, "shot:"+shotID, "video-prompt"); savedErr != nil {
+			return FinalPrompt{}, savedErr
+		} else if saved != "" {
+			videoPrompt = saved
+		}
+		duration = int(shot.TargetDurationSeconds)
+		if duration <= 0 {
+			duration = int(DefaultShotTargetDuration)
+		}
+	}
+	if videoPrompt == "" {
+		videoPrompt = strings.TrimSpace(draft.VideoDesc)
+	}
+
 	characterPrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, book.ID, "character", book.Assets.Characters)
 	if err != nil {
 		return FinalPrompt{}, err
@@ -262,27 +355,44 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 	if err != nil {
 		return FinalPrompt{}, err
 	}
+
 	components := []PromptComponent{}
-	// visualPrompt is deliberately absent here. It belongs exclusively to the
-	// still-image generation path and must never leak into the video model.
-	videoPrompt := rawString(values, "videoPrompt", strings.TrimSpace(video.VideoPrompt))
-	if videoPrompt == "" {
-		videoPrompt = strings.TrimSpace(draft.VideoDesc)
+	referenceImages := []string{}
+	seenImages := map[string]bool{}
+	if shotID != "" {
+		visualImage, visualErr := s.draftContent(ctx, owner, batchID, bookID, "shot:"+shotID, "visual-image")
+		if visualErr != nil {
+			return FinalPrompt{}, visualErr
+		}
+		appendUniqueImage(&referenceImages, seenImages, visualImage)
 	}
+
+	characterImages, characterText, err := s.assetInputs(ctx, owner, batchID, bookID, "character", characterRefs, characterPrompts, rawBool(values, "injectCharacterPrompt", true))
+	if err != nil {
+		return FinalPrompt{}, err
+	}
+	sceneImages, sceneText, err := s.assetInputs(ctx, owner, batchID, bookID, "scene", sceneRefs, scenePrompts, rawBool(values, "injectScenePrompt", true))
+	if err != nil {
+		return FinalPrompt{}, err
+	}
+	propImages, propText, err := s.assetInputs(ctx, owner, batchID, bookID, "prop", propRefs, propPrompts, rawBool(values, "injectPropPrompt", true))
+	if err != nil {
+		return FinalPrompt{}, err
+	}
+	for _, image := range characterImages {
+		appendUniqueImage(&referenceImages, seenImages, image)
+	}
+	for _, image := range sceneImages {
+		appendUniqueImage(&referenceImages, seenImages, image)
+	}
+	for _, image := range propImages {
+		appendUniqueImage(&referenceImages, seenImages, image)
+	}
+
 	addComponent(&components, "videoPrompt", "视频提示词", videoPrompt)
-	if rawBool(values, "injectBaseSettings", true) {
-		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, characterPrompts))
-		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, scenePrompts))
-	}
-	if rawBool(values, "injectCharacterPrompt", true) {
-		addComponent(&components, "characterPrompt", "人物 Prompt", selectPrompts(characterRefs, characterPrompts))
-	}
-	if rawBool(values, "injectScenePrompt", true) {
-		addComponent(&components, "scenePrompt", "场景 Prompt", selectPrompts(sceneRefs, scenePrompts))
-	}
-	if rawBool(values, "injectPropPrompt", true) {
-		addComponent(&components, "propPrompt", "道具 Prompt", selectPrompts(propRefs, propPrompts))
-	}
+	addComponent(&components, "characterPrompt", "人物 Prompt", characterText)
+	addComponent(&components, "scenePrompt", "场景 Prompt", sceneText)
+	addComponent(&components, "propPrompt", "道具 Prompt", propText)
 	prefix := draft.PrefixKey
 	if rawBool(values, "prefixEnabled", false) {
 		prefix = strings.TrimSpace(strings.Join([]string{prefix, rawString(values, "prefix", "")}, "；"))
@@ -298,12 +408,16 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 		addComponent(&components, "negative", "负面提示词", rawString(values, "negative", ""))
 	}
 	addComponent(&components, "subtitle", "字幕策略", rawString(values, "subtitlePolicy", "forbid-auto-dialogue-subtitle"))
-	duration := rawInt(values, "duration", int(video.DurationSeconds))
 	addComponent(&components, "spec", "视频规格", fmt.Sprintf("画幅 %s；时长 %d 秒", rawString(values, "aspectRatio", "9:16"), duration))
 
 	lines := make([]string, 0, len(components))
 	for _, component := range components {
 		lines = append(lines, component.Label+"："+component.Content)
 	}
-	return FinalPrompt{BatchID: batchID, BookID: bookID, VideoID: videoID, DirectorRevisionID: effective.DirectorRevisionID, SnapshotHash: effective.SnapshotHash, CompiledPrompt: strings.Join(lines, "\n"), Components: components, EffectiveSettings: effective, DurationSeconds: duration}, nil
+	return FinalPrompt{
+		BatchID: batchID, BookID: bookID, VideoID: videoID, ShotID: shotID,
+		DirectorRevisionID: effective.DirectorRevisionID, SnapshotHash: effective.SnapshotHash,
+		CompiledPrompt: strings.Join(lines, "\n"), Components: components, ReferenceImages: referenceImages,
+		EffectiveSettings: effective, DurationSeconds: duration,
+	}, nil
 }
