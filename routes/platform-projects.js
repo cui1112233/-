@@ -5,7 +5,7 @@ const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { USERS_DIR, readHistoryIndex } = require('../lib/shared');
 const { createNovelPanelStore } = require('../lib/novel-panel/project-store');
-const { signBridgeRequest } = require('./shuihuo-production');
+const { signBridgeRequest, resolveShuihuoBaseUrl } = require('./shuihuo-production');
 
 const DEFAULT_LIMIT = 100;
 
@@ -54,7 +54,7 @@ function listNovelPanelProjects(store, username) {
 }
 
 function listShuihuoProjects({ targetBaseUrl, bridgeSecret }, account) {
-  const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
+  const target = new URL(resolveShuihuoBaseUrl(targetBaseUrl));
   const transport = target.protocol === 'https:' ? https : http;
   const pathname = '/api/shuihuo-production/projects';
   const issuedAt = String(Math.floor(Date.now() / 1000));

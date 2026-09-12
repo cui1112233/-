@@ -1,0 +1,168 @@
+name: V88 Shuihuo Legacy Compatibility Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+concurrency:
+  group: v88-public-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify isolated Shuihuo routing
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          node --test test/shuihuo-compat-routing.test.js
+          QIANTIE_RELEASE_SHA="${GITHUB_SHA}" \
+          QIANTIE_NODE_IMAGE=test/node \
+          QIANTIE_GO_IMAGE=test/go \
+          QIANTIE_BROWSER_WORKER_IMAGE=test/worker \
+          QIANTIE_SHUIHUO_COMPAT_IMAGE=qiantie-go-api:public-v78 \
+          MYSQL_DATABASE=qiantie_v88 MYSQL_USER=test MYSQL_PASSWORD=test \
+          QIANTIE_BRIDGE_SECRET=test \
+          QIANTIE_121_WORKER_SECRET=test \
+          QIANTIE_121_CREDENTIAL_SECRET=test \
+          docker compose -f deploy/v88-public/docker-compose.yml config -q
+
+      - name: Build and publish the exact V88 Node image
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          short_sha="${GITHUB_SHA::12}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/qiantie-v88:shuihuo-compat-${short_sha}"
+          docker build --platform linux/amd64 --build-arg QIANTIE_RELEASE_SHA="$GITHUB_SHA" -t "$image" .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = 'linux/amd64'
+          docker run --rm --entrypoint node "$image" --check /app/routes/shuihuo-production.js
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$owner" --password-stdin
+          docker push "$image"
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          echo "DEPLOY_IMAGE=$image" >> "$GITHUB_ENV"
+
+      - name: Prepare ECS SSH
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          timeout 30 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 "$ECS_USER@$ECS_HOST" 'test -f /opt/qiantie/v88/deploy/v88-public/docker-compose.yml && docker version >/dev/null && docker compose version >/dev/null'
+
+      - name: Copy the audited V88 compose contract
+        run: |
+          set -Eeuo pipefail
+          scp -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 deploy/v88-public/docker-compose.yml "$ECS_USER@$ECS_HOST:/tmp/v88-public-shuihuo-compose.yml"
+
+      - name: Deploy isolated legacy Shuihuo compatibility service
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "$GHCR_TOKEN" | timeout 60 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
+          timeout 900 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$DEPLOY_IMAGE" "$GITHUB_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          deploy_image="$1"
+          expected_sha="$2"
+          compose_file='/opt/qiantie/v88/deploy/v88-public/docker-compose.yml'
+          compose_dir="$(dirname "$compose_file")"
+          cd "$compose_dir"
+          compose=(docker compose -f "$compose_file")
+          stamp="$(date +%Y%m%d%H%M%S)"
+          backup_compose="${compose_file}.shuihuo-compat-${stamp}.bak"
+          backup_env="${compose_dir}/.env.shuihuo-compat-${stamp}.bak"
+          cp -a "$compose_file" "$backup_compose"
+          cp -a .env "$backup_env"
+          node_id="$(${compose[@]} ps -q v88-node)"
+          test -n "$node_id"
+          service_image="$(docker inspect "$node_id" --format '{{.Config.Image}}')"
+          rollback_image="v88-public-v88-node:shuihuo-compat-rollback-${expected_sha:0:12}-${stamp}"
+          docker tag "$service_image" "$rollback_image"
+
+          rollback() {
+            echo 'Shuihuo compatibility verification failed; restoring the previous V88 Node and compose contract.' >&2
+            cp -a "$backup_compose" "$compose_file"
+            cp -a "$backup_env" .env
+            docker tag "$rollback_image" "$service_image" || true
+            docker compose -f "$compose_file" up -d --no-deps --force-recreate --pull never v88-node || true
+            docker stop v88-public-shuihuo-compat-1 >/dev/null 2>&1 || true
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then rollback; fi; docker logout ghcr.io >/dev/null 2>&1 || true; exit "$status"' EXIT
+
+          test -n "$(docker image inspect qiantie-go-api:public-v78 --format '{{.Id}}')"
+          docker volume create v88-public_shuihuo_objects >/dev/null
+          docker exec qiantie-unified-mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS qiantie_shuihuo CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"'
+          cp -a /tmp/v88-public-shuihuo-compose.yml "$compose_file"
+
+          set_env() {
+            key="$1"; value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              printf '\n%s=%s\n' "$key" "$value" >> .env
+            fi
+          }
+          set_env QIANTIE_SHUIHUO_COMPAT_IMAGE qiantie-go-api:public-v78
+          set_env QIANTIE_RELEASE_SHA "$expected_sha"
+          ${compose[@]} config -q
+          ${compose[@]} up -d --no-deps --pull never shuihuo-compat
+          compat_id="$(${compose[@]} ps -q shuihuo-compat)"
+          test -n "$compat_id"
+          for attempt in $(seq 1 30); do
+            if docker exec "$node_id" node -e 'fetch("http://shuihuo-compat:4100/healthz").then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))'; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              echo 'Legacy Shuihuo compatibility health check did not become ready.' >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          docker pull "$deploy_image"
+          docker image inspect "$deploy_image" --format '{{.Os}}/{{.Architecture}}' | grep -qx 'linux/amd64'
+          docker tag "$deploy_image" "$service_image"
+          ${compose[@]} up -d --no-deps --force-recreate --pull never v88-node
+          node_id="$(${compose[@]} ps -q v88-node)"
+          test -n "$node_id"
+          docker exec "$node_id" grep -q 'resolveShuihuoBaseUrl' /app/routes/shuihuo-production.js
+          docker exec "$node_id" node -e 'if(process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL!=="http://shuihuo-compat:4100") process.exit(1); fetch(process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL+"/healthz").then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))'
+          test "$(docker inspect "$node_id" --format '{{.State.Status}}')" = running
+          test "$(docker inspect "$compat_id" --format '{{.State.Status}}')" = running
+          curl -fsS --max-time 15 http://127.0.0.1:3000/shuihuo-production >/dev/null
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X POST http://127.0.0.1:3000/api/shuihuo-production/projects)"
+          test "$status" != 404
+          echo "Shuihuo compatibility deployed with V88 Node commit ${expected_sha}; unauthenticated project endpoint status=${status}."
+          trap - EXIT
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          REMOTE
+
+      - name: Verify the public route no longer returns a Go 404
+        run: |
+          set -Eeuo pipefail
+          curl -fsS --connect-timeout 5 "http://${ECS_HOST}:3000/shuihuo-production" >/dev/null
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 -X POST "http://${ECS_HOST}:3000/api/shuihuo-production/projects")"
+          test "$status" != 404
+          echo "Public Shuihuo project route is reachable; unauthenticated status=${status}."
