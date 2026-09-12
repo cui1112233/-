@@ -1,5 +1,5 @@
 import { Avatar, Button, Progress, Skeleton, Tag, message } from 'antd';
-import { Activity, ArrowUpRight, Bell, CheckCheck, Gauge, KeyRound, Sparkles, UsersRound } from 'lucide-react';
+import { Activity, ArrowUpRight, Bell, CheckCheck, Gauge, KeyRound, ShieldCheck, Sparkles, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { getMemberCenter, getTeamMembers, markAllNotificationsRead } from '../../shared/api/member';
 import { Link } from '../../shared/components/Link';
@@ -78,7 +78,7 @@ export default function MemberCenterPage() {
 
         {canManageTeam ? <Panel title="成员消耗 TOP5" action={<Link href="/team" className="ac-text-link">查看全部</Link>}><div className="ac-ranking-list">{ranking.map((member, index) => <div className="ac-ranking-row" key={member.username}><span className={`rank rank-${index + 1}`}>{index + 1}</span><MemberIdentity member={member} size={34} /><div className="ac-ranking-value"><strong>{formatTokens(member.usage?.month?.totalTokens)}</strong><small>Tokens</small></div></div>)}{!ranking.length ? <div className="ac-empty">还没有成员用量</div> : null}</div></Panel> : null}
 
-        <Panel title="快捷入口"><div className="ac-quick-grid"><Link href="/profile"><span><Sparkles size={18} /></span><b>个人资料</b></Link><Link href="/usage"><span><Gauge size={18} /></span><b>用量统计</b></Link><Link href="/api-config"><span><KeyRound size={18} /></span><b>API 配置</b></Link>{canManageTeam ? <Link href="/team"><span><UsersRound size={18} /></span><b>团队管理</b></Link> : <Link href="/security"><span><Activity size={18} /></span><b>账号安全</b></Link>}</div></Panel>
+        <Panel title="快捷入口"><div className="ac-quick-grid"><Link href="/profile"><span><Sparkles size={18} /></span><b>个人资料</b></Link><Link href="/usage"><span><Gauge size={18} /></span><b>用量统计</b></Link><Link href="/api-config"><span><KeyRound size={18} /></span><b>API 配置</b></Link>{canManageTeam ? <><Link href="/team"><span><UsersRound size={18} /></span><b>团队管理</b></Link><Link href="/advanced-team-admin"><span><ShieldCheck size={18} /></span><b>联合治理</b></Link></> : <Link href="/security"><span><Activity size={18} /></span><b>账号安全</b></Link>}</div></Panel>
       </aside>
     </div>
   </div>;

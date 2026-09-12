@@ -1,4 +1,11 @@
 import { apiRequest, setToken } from './client';
+import { getPasskeyAssertion } from '../webauthn';
+
+function persistSession(data) {
+  setToken(data.token);
+  localStorage.setItem('auth_username', data.username);
+  return data;
+}
 
 export async function login(username, password, remember = true, mfaCode = '') {
   const data = await apiRequest('/api/login', {
@@ -6,9 +13,22 @@ export async function login(username, password, remember = true, mfaCode = '') {
     body: JSON.stringify({ username, password, remember, mfaCode }),
     suppressGlobalError: true
   });
-  setToken(data.token);
-  localStorage.setItem('auth_username', data.username);
-  return data;
+  return persistSession(data);
+}
+
+export async function loginWithPasskey(username, remember = true) {
+  const options = await apiRequest('/api/login/passkey/options', {
+    method: 'POST',
+    body: JSON.stringify({ username }),
+    suppressGlobalError: true
+  });
+  const credential = await getPasskeyAssertion(options);
+  const data = await apiRequest('/api/login/passkey/verify', {
+    method: 'POST',
+    body: JSON.stringify({ username, remember, challenge: options.challenge, credential }),
+    suppressGlobalError: true
+  });
+  return persistSession(data);
 }
 
 export function getCurrentAccount() {

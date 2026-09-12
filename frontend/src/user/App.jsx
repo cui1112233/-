@@ -11,11 +11,13 @@ const TtsPage = lazy(() => import('./pages/TtsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const TeamManagementPage = lazy(() => import('./pages/TeamManagementPage'));
+const AdvancedTeamAdminPage = lazy(() => import('./pages/AdvancedTeamAdminPage'));
 const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'));
+const RecoveryPage = lazy(() => import('./pages/RecoveryPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
@@ -39,6 +41,7 @@ function getPage(pathname) {
     '/settings': SettingsPage,
     '/member': MemberCenterPage,
     '/team': TeamManagementPage,
+    '/advanced-team-admin': AdvancedTeamAdminPage,
     '/usage': UsageStatsPage,
     '/profile': ProfilePage,
     '/security': SecurityPage,
@@ -54,6 +57,9 @@ export function UserApp() {
   const pathname = usePathname();
   if (/^\/invite\/[^/]+$/.test(pathname)) {
     return <Suspense fallback={<div className="route-loading" role="status">正在加载团队邀请</div>}><InviteAcceptPage /></Suspense>;
+  }
+  if (pathname === '/recover') {
+    return <Suspense fallback={<div className="route-loading" role="status">正在加载账号恢复</div>}><RecoveryPage /></Suspense>;
   }
   return <UserLayout>{getPage(pathname)}</UserLayout>;
 }
