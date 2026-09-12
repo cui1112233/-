@@ -321,3 +321,10 @@
   .bf11-video-detail-head { align-items: stretch; flex-direction: column; }
   .bf11-tool-buttons { grid-template-columns: 1fr; }
 }
+
+.bf11-shot-context { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--bf11-line); border-radius: 10px; background: color-mix(in srgb, var(--bf11-panel) 92%, var(--bf11-accent)); }
+.bf11-shot-context .ant-typography { margin-bottom: 0; }
+.bf11-shot-media-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.bf11-shot-media-slot { display: flex; min-height: 130px; flex-direction: column; justify-content: center; gap: 8px; padding: 8px; border: 1px dashed var(--bf11-line); border-radius: 8px; overflow: hidden; }
+.bf11-shot-media-slot img, .bf11-shot-media-slot video { display: block; width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px; background: #0b1020; }
+@media (max-width: 620px) { .bf11-shot-media-grid { grid-template-columns: 1fr; } }
