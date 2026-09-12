@@ -46,6 +46,16 @@ jobs:
           echo "=== V88_COMPOSE_SERVICE_NAMES ==="
           cd /opt/qiantie/v88/deploy/v88-public
           docker compose -f docker-compose.yml config --services
+          echo "=== SHUIHUO_SCHEMA_METADATA_ONLY ==="
+          docker exec qiantie-unified-mysql sh -lc '
+            mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N -e "
+              SELECT CONCAT(\"table=\", table_name)
+              FROM information_schema.tables
+              WHERE table_schema = DATABASE() AND table_name LIKE \"shuihuo\\_%\"
+              ORDER BY table_name;
+              SELECT CONCAT(\"migration=\", version)
+              FROM schema_migrations
+              ORDER BY version DESC LIMIT 8;"' 2>/dev/null || echo 'schema_metadata_unavailable'
           echo "=== RETAINED_CONTAINER_METADATA ==="
           docker ps -aq --filter 'name=v78' --filter 'name=production' --filter 'name=shuihuo' | while read -r id; do
             test -n "$id" || continue
@@ -65,6 +75,7 @@ jobs:
           echo "retained_container_count=$(docker ps -aq --filter 'name=v78' --filter 'name=production' --filter 'name=shuihuo' | sed '/^$/d' | wc -l)"
           echo "retained_image_count=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Eic 'v78|production|shuihuo|waterfall|qiantie-go-api' || true)"
           echo "v88_go_api=$(docker ps --filter 'name=v88-public-go-api-1' --format '{{.Status}}' | head -n 1)"
+          docker exec qiantie-unified-mysql sh -lc 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N -e "SELECT CONCAT(\"shuihuo_table_count=\", COUNT(*)) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE \"shuihuo\\_%\";"' 2>/dev/null || echo 'shuihuo_table_count=unavailable'
           docker ps -a --format 'retained_container name={{.Names}} image={{.Image}} state={{.State}}' | grep -Ei 'v78|production|shuihuo|waterfall' | head -n 12 || true
           docker image ls --format 'retained_image repository={{.Repository}} tag={{.Tag}} id={{.ID}}' | grep -Ei 'v78|production|shuihuo|waterfall|qiantie-go-api' | head -n 20 || true
           REMOTE
