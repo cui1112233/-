@@ -354,7 +354,6 @@ export function BatchFactoryV11Workbench({
       children: <div className="bf11-asset-editor-stack">
         <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} generatedImages={generatedAssetImages.character || {}} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} onGenerateImage={(item, prompt) => onGenerateAssetImage?.(selectedBook, "character", item, prompt)} />
         <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} generatedImages={generatedAssetImages.scene || {}} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} onGenerateImage={(item, prompt) => onGenerateAssetImage?.(selectedBook, "scene", item, prompt)} />
-        <AssetPromptGroup label="道具 Prompt" type="prop" items={bookAssets.props || []} drafts={assetDrafts} generatedImages={generatedAssetImages.prop || {}} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} onGenerateImage={(item, prompt) => onGenerateAssetImage?.(selectedBook, "prop", item, prompt)} />
       </div>
     },
     {
