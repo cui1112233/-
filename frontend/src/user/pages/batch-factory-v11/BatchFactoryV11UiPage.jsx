@@ -59,6 +59,7 @@ export function BatchFactoryV11UiPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newBatchTitle, setNewBatchTitle] = useState('');
   const [historyBatches, setHistoryBatches] = useState([]);
+  const [generatedShotImages, setGeneratedShotImages] = useState({});
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -399,6 +400,24 @@ export function BatchFactoryV11UiPage() {
     }
   }
 
+  async function generateShotImage(book, video, shot) {
+    if (!book?.id || !video?.id || !shot?.id || !shot.visualPrompt) return false;
+    const modelId = batchSettingsState.patch.imageModelId || '';
+    if (!modelId) { message.error('请先在生产统一设置中选择图片模型'); return false; }
+    try {
+      const raw = await batchFactoryV11.generateConfiguredImage({ imageModelId: modelId, prompt: shot.visualPrompt });
+      const imageUrl = raw?.imageUrl || raw?.url || '';
+      if (!imageUrl) throw new Error('图片模型未返回图片地址');
+      setGeneratedShotImages(current => ({ ...current, [shot.id]: imageUrl }));
+      await runtime.saveDraft({ key: `shot:${shot.id}:visual-image`, kind: 'visual-image', scope: `${batch.id}:${book.id}`, content: imageUrl });
+      message.success('当前 Shot 画面图已生成');
+      return true;
+    } catch (error) {
+      message.error(error?.message || '图片生成失败');
+      return false;
+    }
+  }
+
   async function saveVideoPrompt(book, video, visualPrompt, shot = null) {
     const result = shot
       ? await runtime.saveDraft({
@@ -525,6 +544,8 @@ export function BatchFactoryV11UiPage() {
         onSaveVideoPrompt={saveVideoPrompt}
         onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}
+        onGenerateShotImage={generateShotImage}
+        generatedShotImages={generatedShotImages}
       />
 
       <Modal title="新建批次" open={batchManagerOpen} onCancel={() => setBatchManagerOpen(false)} onOk={createNewBatch} okText="创建">
