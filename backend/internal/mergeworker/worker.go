@@ -18,6 +18,11 @@ type MediaMerger interface {
 	Merge(context.Context, []string, string, float64) error
 }
 
+type DurationAwareMediaMerger interface {
+	MediaMerger
+	TotalDuration(context.Context, []string) (float64, error)
+}
+
 type Worker struct {
 	Store      Store
 	Queue      Queue
@@ -71,9 +76,20 @@ func (w *Worker) ProcessOne(ctx context.Context, wait time.Duration) error {
 		return w.fail(ctx, job, err)
 	}
 	outputPath := filepath.Join(dir, "merged.mp4")
-	speed := job.Speed
-	if speed == 0 {
-		speed = 1
+	sourceDuration := 0.0
+	if normalizeTimingMode(job.TimingMode) == "audio" && job.Speed == 0 {
+		durationMerger, ok := w.Merger.(DurationAwareMediaMerger)
+		if !ok {
+			return w.fail(ctx, job, fmt.Errorf("audio timing requires duration-aware merger"))
+		}
+		sourceDuration, err = durationMerger.TotalDuration(ctx, inputs)
+		if err != nil {
+			return w.fail(ctx, job, err)
+		}
+	}
+	speed, err := ResolveMergeSpeed(job.TimingMode, job.Speed, sourceDuration, job.AudioDurationSeconds)
+	if err != nil {
+		return w.fail(ctx, job, err)
 	}
 	if err := w.Merger.Merge(ctx, inputs, outputPath, speed); err != nil {
 		return w.fail(ctx, job, err)
