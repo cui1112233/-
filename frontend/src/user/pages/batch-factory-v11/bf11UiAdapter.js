@@ -250,8 +250,12 @@ export function createBf11UiAdapter(api) {
     async runProduction({ batchId, bookId = '', requestId, provider = 'personal_api', videoModelId = '' } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
       return bookId
-        ? api.submitBookProduction(batchId, bookId, requestId, provider, videoModelId)
-        : api.submitBatchProduction(batchId, requestId, provider, videoModelId);
+        ? (videoModelId
+          ? api.submitBookProduction(batchId, bookId, requestId, provider, videoModelId)
+          : api.submitBookProduction(batchId, bookId, requestId, provider))
+        : (videoModelId
+          ? api.submitBatchProduction(batchId, requestId, provider, videoModelId)
+          : api.submitBatchProduction(batchId, requestId, provider));
     },
 
     async saveVideoProviderConfig(payload = {}) {
