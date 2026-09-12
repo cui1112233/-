@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
     environment:
       QIANTIE_ADDR: :4100
-      QIANTIE_MYSQL_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/qiantie_shuihuo?parseTime=true&charset=utf8mb4&collation=utf8mb4_0900_ai_ci
+      QIANTIE_MYSQL_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/qiantie_shuihuo_compat?parseTime=true&charset=utf8mb4&collation=utf8mb4_0900_ai_ci
       QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
       QIANTIE_STORAGE_DRIVER: local
       QIANTIE_STORAGE_LOCAL_DIR: /var/lib/qiantie/objects

@@ -155,10 +155,12 @@ jobs:
 
           docker pull "$compat_image"
           docker volume create v88-public_shuihuo_objects >/dev/null
-          # The retained legacy service has its own schema.  The normal V88
-          # application account needs access to that schema only; it must not
-          # receive any extra privilege on qiantie_v88.
-          docker exec qiantie-unified-mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS qiantie_shuihuo CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT ALL PRIVILEGES ON qiantie_shuihuo.* TO '\''qiantie_v88_app'\''@'\''%'\''; FLUSH PRIVILEGES;"'
+          # Use a fresh, service-specific schema. The earlier qiantie_shuihuo
+          # schema contains a checksum-based V88 migration ledger, which the
+          # retained implementation cannot write to. Preserve it untouched.
+          # The normal V88 account receives access only to this compatibility
+          # schema, never to the qiantie_v88 application schema.
+          docker exec qiantie-unified-mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS qiantie_shuihuo_compat CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT ALL PRIVILEGES ON qiantie_shuihuo_compat.* TO '\''qiantie_v88_app'\''@'\''%'\''; FLUSH PRIVILEGES;"'
           cp -a /tmp/v88-public-shuihuo-compose.yml "$compose_file"
 
           set_env() {
