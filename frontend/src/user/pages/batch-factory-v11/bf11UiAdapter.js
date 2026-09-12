@@ -143,6 +143,13 @@ export function createBf11UiAdapter(api) {
         loadVideoProviderState(api)
       ]);
       const personalPromptState = await loadPersonalPrompts(api);
+      const modelKinds = ['text', 'image', 'video'];
+      const modelResults = await Promise.all(modelKinds.map(kind => (
+        typeof api.listConfiguredModels === 'function'
+          ? api.listConfiguredModels(kind).catch(() => [])
+          : Promise.resolve([])
+      )));
+      const apiModels = Object.fromEntries(modelKinds.map((kind, index) => [kind, Array.isArray(modelResults[index]) ? modelResults[index] : []]));
       const batches = batchesFrom(batchResult);
       const { configVersions, configVersionsError } = configVersionState;
       const selectedBatchId = batchId || batches[0]?.id || '';
@@ -165,6 +172,7 @@ export function createBf11UiAdapter(api) {
         intake: intakeResult?.intake || intakeResult || null,
         configVersions,
         configVersionsError,
+        apiModels,
         personalPrompts: personalPromptState.personalPrompts,
         personalPromptsError: personalPromptState.personalPromptsError,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
