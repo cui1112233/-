@@ -44,7 +44,7 @@ function listBatchFactoryPrompts(presetStore, query = {}) {
   const requestedType = String(query.type || '').trim();
   const module = String(query.module || 'batch-factory').trim();
   return presetStore.listAll(module)
-    .filter(preset => preset.status === 'published')
+    .filter(preset => preset.module === module && preset.status === 'published')
     .map(preset => ({
       id: preset.id,
       name: preset.name,
