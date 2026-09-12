@@ -1,3 +1,3 @@
-release=v88-shuihuo-compat-nginx-recreate
-requested_at=2026-09-12
-scope=paired-node-go-unified-public
+release_sha=f9713e15d9f1a7db2c696fd3572ad939a76ea18c
+scope=Batch Factory V11 automation and preset prompt selection
+requested_at=2026-09-12T20:00:00+08:00
