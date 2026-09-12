@@ -153,6 +153,9 @@ export function createBf11UiAdapter(api) {
         loadVideoProviderState(api)
       ]);
       const personalPromptState = await loadPersonalPrompts(api);
+      const promptCatalog = typeof api.listPrompts === 'function'
+        ? await api.listPrompts({ scope: 'batch_factory', limit: 200 }).then(result => Array.isArray(result?.prompts) ? result.prompts : []).catch(() => [])
+        : [];
       const modelKinds = ['text', 'image', 'video'];
       const modelResults = await Promise.all(modelKinds.map(kind => (
         typeof api.listConfiguredModels === 'function'
@@ -183,6 +186,7 @@ export function createBf11UiAdapter(api) {
         configVersions,
         configVersionsError,
         apiModels,
+        promptCatalog,
         personalPrompts: personalPromptState.personalPrompts,
         personalPromptsError: personalPromptState.personalPromptsError,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
