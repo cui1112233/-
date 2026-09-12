@@ -15,6 +15,11 @@ test('scope paths address batch, book and VIDEO overrides without legacy routes'
   assert.equal(bf11ScopePath({ scope: 'video', batchId: 'b1', bookId: 'k1', videoId: 'v?1' }), '/api/batch-factory/v11/batches/b1/books/k1/videos/v%3F1/override');
 });
 
+test('source updates use the book-owned V11 route', () => {
+  assert.equal(typeof batchFactoryV11.updateBookSource, 'function');
+  assert.match(String(batchFactoryV11.updateBookSource), /books\/\$\{id\(bookId\)\}\/source/);
+});
+
 test('unsupported scope fails instead of falling back to a legacy API', () => {
   assert.throws(() => bf11ScopePath({ scope: 'project', batchId: 'b1' }), /Unsupported V11 scope/);
 });

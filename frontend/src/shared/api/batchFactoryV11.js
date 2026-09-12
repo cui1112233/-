@@ -96,6 +96,10 @@ export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
 
+export function updateBookSource(batchId, bookId, input) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/source`), { method: 'PUT', body: body(input) });
+}
+
 export function saveBatchSettings(batchId, input) {
   return apiRequest(bf11ScopePath({ scope: 'batch', batchId }), { method: 'PUT', body: body(input) });
 }
@@ -248,6 +252,7 @@ export default {
   listBatches,
   createBatch,
   getBatch,
+  updateBookSource,
   saveBatchSettings,
   saveBookOverride,
   saveVideoOverride,

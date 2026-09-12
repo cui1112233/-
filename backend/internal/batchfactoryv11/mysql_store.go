@@ -238,6 +238,44 @@ func (s *MySQLStore) GetBatch(ctx context.Context, owner, id string) (Batch, err
 	return loadBatch(ctx, s.db, owner, id)
 }
 
+func (s *MySQLStore) UpdateBookSource(ctx context.Context, owner, batchID, bookID string, input SourceUpdate) (Book, error) {
+	text := strings.TrimSpace(input.SourceText)
+	if text == "" || len(text) > 2_000_000 {
+		return Book{}, ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Book{}, err
+	}
+	defer tx.Rollback()
+	current, err := lockScopeRevision(ctx, tx, owner, ScopeRef{Kind: ScopeBook, BatchID: batchID, BookID: bookID})
+	if err != nil {
+		return Book{}, err
+	}
+	if current != input.ExpectedRevision {
+		return Book{}, ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET source_text=? WHERE book_id=?`, text, bookID); err != nil {
+		return Book{}, err
+	}
+	if err := updateScopeRevision(ctx, tx, owner, ScopeRef{Kind: ScopeBook, BatchID: batchID, BookID: bookID}, current+1); err != nil {
+		return Book{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Book{}, err
+	}
+	batch, err := s.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return Book{}, err
+	}
+	for _, book := range batch.Books {
+		if book.ID == bookID {
+			return book, nil
+		}
+	}
+	return Book{}, ErrNotFound
+}
+
 type batchQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
