@@ -26,14 +26,16 @@ const VIDEO_PROVIDERS = [
   { value: 'autodl_comfyui', label: 'AutoDL · MiniMax H3（自动文生/图生）' }
 ];
 
-const VIDEO_MODELS = [
-  { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
-  { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
-  { value: 'minimax-h3-video', label: 'AutoDL · MiniMax H3 · 最大 15s' },
-  { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
-  { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
-  { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
-];
+function configuredModelOptions(models = []) {
+  return (Array.isArray(models) ? models : [])
+    .filter(model => model?.enabled !== false)
+    .map(model => ({
+      value: model.id || model.modelId,
+      label: model.displayName || model.name || model.modelId || model.id
+    }))
+    .filter(option => option.value);
+}
+
 
 function SettingField({ label, description, children }) {
   return <div className="bf11-setting-field">
@@ -60,6 +62,7 @@ export function ProductionSettingsDrawer({
   onSaveDraft,
   onSavePersonalPrompt,
   videoProviders = {},
+  apiModels = {},
   localExecutors = [],
   onCreateLocalExecutorPairing
 }) {
@@ -73,6 +76,7 @@ export function ProductionSettingsDrawer({
   const impactRequestRef = useRef(0);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingSecret, setPairingSecret] = useState(null);
+  const configuredVideoModels = useMemo(() => configuredModelOptions(apiModels.video), [apiModels.video]);
 
   useEffect(() => {
     if (impactTimerRef.current) {
@@ -324,7 +328,7 @@ export function ProductionSettingsDrawer({
             placeholder="继承系统模型"
             value={form.videoModelId}
             onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS.filter(option => {
+            options={configuredVideoModels.filter(option => {
               const provider = form.videoProvider || 'personal_api';
               if (provider === 'doubao_local_executor') return option.value === 'doubao-seedance';
               if (provider === 'autodl_comfyui') return option.value === 'minimax-h3-video';
