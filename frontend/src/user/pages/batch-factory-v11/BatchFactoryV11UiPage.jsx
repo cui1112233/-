@@ -316,10 +316,10 @@ export function BatchFactoryV11UiPage() {
     });
   }
 
-  async function previewFinalPrompt(book, video) {
+  async function previewFinalPrompt(book, video, shot = null) {
     if (!book?.id || !video?.id) return false;
     setPromptPreview({ open: true, loading: true, data: null, error: '' });
-    const result = await runtime.previewFinalPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id });
+    const result = await runtime.previewFinalPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, shotId: shot?.id || '' });
     if (!result.ok) {
       setPromptPreview({ open: true, loading: false, data: null, error: result.message });
       return false;
