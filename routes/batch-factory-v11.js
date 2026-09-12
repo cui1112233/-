@@ -1,5 +1,6 @@
 const express = require('express');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
+const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 
 const PERSONAL_PROVIDER = 'personal_api';
@@ -18,6 +19,10 @@ function normalizedProvider(value) {
   if (['doubao', 'doubao_local', 'doubao_local_executor'].includes(provider)) return LOCAL_PROVIDER;
   if (['h3', 'minimax_h3', 'minimax-h3-video', 'autodl', 'autodl_comfyui', 'autodl_comfyui_video'].includes(provider)) return H3_PROVIDER;
   return provider;
+}
+
+function isProductionPath(pathname) {
+  return /\\/batches\\/[^/]+(?:\\/books\\/[^/]+)?\\/production$/.test(pathname);
 }
 
 function providerFromRequest(req) {
@@ -50,7 +55,7 @@ function needsH3ConfigSync(req, pathname) {
 
 function personalApiKeyForUser(req) {
   const config = readConfig(req.username);
-  return getVideoApiKey(config, 'yd');
+  return req.v11RuntimeModel?.credential || getVideoApiKey(config, 'yd');
 }
 
 async function syncPersonalProviderConfig(req, options, { allowMissing = false } = {}) {
@@ -82,8 +87,9 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
     headers,
     body: JSON.stringify({
       provider: PERSONAL_PROVIDER,
-      model: PERSONAL_MODEL,
-      apiKey
+      model: options.runtimeModel?.modelId || PERSONAL_MODEL,
+      apiKey,
+      ...(options.runtimeModel?.baseUrl ? { createUrl: options.runtimeModel.baseUrl } : {})
     }),
     redirect: 'manual'
   });
@@ -97,7 +103,7 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
 }
 
 function h3ApiKeyForRequest(req, configReader = readConfig) {
-  const personalKey = getVideoApiKey(configReader(req.username), 'h3');
+  const personalKey = req.v11RuntimeModel?.credential || getVideoApiKey(configReader(req.username), 'h3');
   return personalKey || String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
 }
 
@@ -128,7 +134,7 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
   const response = await fetchImpl(base + CONFIG_PATH, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ provider: H3_PROVIDER, model: H3_MODEL, apiKey, createUrl: H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
+    body: JSON.stringify({ provider: H3_PROVIDER, model: options.runtimeModel?.modelId || H3_MODEL, apiKey, createUrl: options.runtimeModel?.baseUrl || H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
     redirect: 'manual'
   });
   if (!response || response.status < 200 || response.status >= 300) {
@@ -141,6 +147,22 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
 }
 
 async function prepareProviderRequest(req, options, pathname) {
+  if (isProductionPath(pathname) && req.body?.videoModelId) {
+    const runtimeModel = resolveRuntimeModel({
+      username: req.username,
+      kind: 'video',
+      modelId: req.body.videoModelId,
+      memberStore: options.memberStore,
+      configReader: options.configReader || readConfig
+    });
+    req.v11RuntimeModel = runtimeModel;
+    const adapterProvider = runtimeModel.adapterKind === 'local_executor_video'
+      ? LOCAL_PROVIDER
+      : runtimeModel.adapterKind === 'autodl_comfyui_video'
+        ? H3_PROVIDER
+        : PERSONAL_PROVIDER;
+    req.body = { ...req.body, provider: adapterProvider, model: runtimeModel.modelId || runtimeModel.id };
+  }
   const provider = providerFromRequest(req);
   if (provider === LOCAL_PROVIDER) return;
   if (provider === H3_PROVIDER) {
@@ -164,7 +186,7 @@ async function prepareProviderRequest(req, options, pathname) {
       };
       return;
     }
-    await syncH3ProviderConfig(req, options, { allowMissing });
+    await syncH3ProviderConfig(req, { ...options, runtimeModel: req.v11RuntimeModel }, { allowMissing });
     return;
   }
   if (!needsPersonalConfigSync(req, pathname)) return;
@@ -186,7 +208,7 @@ async function prepareProviderRequest(req, options, pathname) {
     }
     return;
   }
-  await syncPersonalProviderConfig(req, options, { allowMissing });
+  await syncPersonalProviderConfig(req, { ...options, runtimeModel: req.v11RuntimeModel }, { allowMissing });
 }
 
 function createBatchFactoryV11Router(options = {}) {
