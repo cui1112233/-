@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>批量工厂 V11 · HTML 预览</title>
+<style>
+:root{font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;color:#e8edf7;background:#0b1020}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#0b1020,#121b31);min-height:100vh}
+button,select{font:inherit}button{border:1px solid #34425f;background:#17233d;color:#dfe8fb;border-radius:8px;padding:9px 14px;cursor:pointer}button:hover{background:#223457}.primary{background:#4f6df5;border-color:#7189ff}.danger{color:#ffbfca}.app{max-width:1440px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-size:22px;font-weight:800}.sub{color:#94a4c3;font-size:13px;margin-top:5px}.actions{display:flex;gap:9px}.layout{display:grid;grid-template-columns:250px 1fr 340px;gap:16px}.card{background:#121b30;border:1px solid #263552;border-radius:14px;box-shadow:0 12px 30px #05091480}.card h3{margin:0;padding:16px 18px;border-bottom:1px solid #263552;font-size:15px}.books{padding:10px}.book{padding:13px 12px;border-radius:10px;margin-bottom:7px;cursor:pointer;display:flex;justify-content:space-between}.book.active{background:#263b72;border:1px solid #5d79ed}.book small{color:#9faccc}.main{padding:18px}.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}.tags{display:flex;gap:7px;flex-wrap:wrap}.tag{font-size:12px;padding:5px 9px;border-radius:999px;background:#20365b;color:#a9c8ff}.tag.ok{background:#173f39;color:#71e2bb}.video-tabs{display:flex;gap:8px;margin-bottom:15px}.video-tab{padding:8px 13px;border-radius:8px;background:#192640;color:#9eafd0;cursor:pointer}.video-tab.active{background:#4f6df5;color:#fff}.shot{display:grid;grid-template-columns:1fr 1.05fr;gap:18px}.preview{height:390px;border-radius:12px;background:radial-gradient(circle at 50% 35%,#58668b,#222c47 45%,#10172a 80%);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.preview:after{content:"VIDEO 预览";font-size:22px;letter-spacing:2px;color:#ffffffaa}.shotnum{position:absolute;top:13px;left:13px;background:#0008;padding:7px 10px;border-radius:7px;font-size:12px}.shotinfo h2{margin:3px 0 8px}.muted{color:#91a0bd;line-height:1.7}.field{margin-top:16px}.field label{display:block;color:#a5b3ce;font-size:12px;margin-bottom:7px}.textarea{background:#0d1527;border:1px solid #2b3a59;padding:11px;border-radius:9px;line-height:1.6;color:#dce5f7;min-height:86px}.arrows{display:flex;gap:8px;margin-top:14px}.right{padding-bottom:16px}.section{padding:15px 17px;border-bottom:1px solid #263552}.section:last-child{border:0}.section h4{margin:0 0 10px}.row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;color:#a6b4ce;font-size:13px}.row strong{color:#e7edfa;font-weight:500}.select{width:100%;background:#0d1527;color:#e5ecfa;border:1px solid #334465;border-radius:8px;padding:9px}.progress{height:8px;background:#263653;border-radius:9px;overflow:hidden}.progress i{display:block;width:58%;height:100%;background:#5f7eff}.footer{margin-top:16px;color:#8292b2;font-size:12px;text-align:center}@media(max-width:1050px){.layout{grid-template-columns:220px 1fr}.right{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr)}}@media(max-width:720px){.app{padding:12px}.layout{display:block}.card{margin-bottom:12px}.shot{grid-template-columns:1fr}.right{display:block}.actions{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div><div class="brand">批量工厂 V11</div><div class="sub">水货生产式固定工作台 · 小说 → VIDEO → Shot</div></div>
+    <div class="actions"><button>生产统一设置</button><button>发布统一设置</button><button class="primary">批量操作</button></div>
+  </div>
+  <div class="layout">
+    <aside class="card"><h3>小说列表 <span style="float:right;color:#8292b2">3 本</span></h3><div class="books" id="books"></div></aside>
+    <main class="card main">
+      <div class="bar"><div><div style="color:#93a4c4;font-size:12px">当前小说</div><h2 id="bookTitle" style="margin:5px 0">七夕前夕</h2></div><div class="tags"><span class="tag ok">Director 已完成</span><span class="tag">3 个 VIDEO</span></div></div>
+      <div class="video-tabs" id="videos"></div>
+      <div class="shot">
+        <div class="preview"><div class="shotnum" id="shotNum">Shot 01 / 03 · 6s</div></div>
+        <div class="shotinfo">
+          <div style="color:#8fa1c4;font-size:12px">当前分镜</div><h2 id="shotTitle">Shot 01 · 冲突开场</h2>
+          <div class="muted" id="shotDesc">女主在客厅看到朋友圈照片，情绪瞬间失控，镜头快速推近。</div>
+          <div class="field"><label>画面提示词（只用于图片模型）</label><div class="textarea" id="visual">夜晚客厅，手机屏幕冷光照亮女主震惊又愤怒的脸，电影级近景。</div></div>
+          <div class="field"><label>视频提示词（只用于视频模型）</label><div class="textarea" id="video">女主拿起手机快速查看，呼吸急促，镜头从中景推进到面部特写。</div></div>
+          <div class="arrows"><button id="prev">← 上一个 Shot</button><button id="next">下一个 Shot →</button><button class="primary" id="image">使用 API 图片模型生成</button></div>
+          <div id="notice" class="muted" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </main>
+    <aside class="card right">
+      <div class="section"><h4>生产统一设置</h4><div class="row"><span>文本模型</span><strong>API · text-model-01</strong></div><div class="row"><span>图片模型</span><strong>API · image-model-01</strong></div><div class="row"><span>视频模型</span><strong>API · video-model-01</strong></div><div class="row"><span>目标时长</span><strong>6s（不支持则保留10s）</strong></div></div>
+      <div class="section"><h4>当前生产状态</h4><div class="row"><span>Shot 任务</span><strong id="taskState">已完成 1 / 3</strong></div><div class="progress"><i></i></div><div class="row"><span>合成策略</span><strong>跟随音频 · 可调倍率</strong></div></div>
+      <div class="section"><h4>批量操作</h4><button class="primary" style="width:100%;margin-bottom:9px">生成当前小说 VIDEO</button><button style="width:100%">合成小说成片</button></div>
+      <div class="section"><h4>资产预览</h4><div class="row"><span>人物</span><strong>已配置图片</strong></div><div class="row"><span>场景</span><strong>已配置图片</strong></div><div class="row"><span>道具</span><strong>有图优先，不重复注入文字</strong></div></div>
+    </aside>
+  </div>
+  <div class="footer">这是 HTML 交互预览，不连接真实 API；左右按钮可切换 Shot，点击图片按钮可模拟生成。</div>
+</div>
+<script>
+const shots=[
+ {t:'Shot 01 · 冲突开场',d:'女主在客厅看到朋友圈照片，情绪瞬间失控，镜头快速推近。',v:'夜晚客厅，手机屏幕冷光照亮女主震惊又愤怒的脸，电影级近景。',p:'女主拿起手机快速查看，呼吸急促，镜头从中景推进到面部特写。'},
+ {t:'Shot 02 · 手机特写',d:'手机屏幕显示大雁塔夜景，女主手指停在屏幕上，房间陷入短暂安静。',v:'手机屏幕冷光，朋友圈大雁塔夜景倒映在女主眼中，浅景深特写。',p:'镜头切到手机屏幕，再缓慢移向女主紧握手机的手。'},
+ {t:'Shot 03 · 情绪爆发',d:'女主放下手机，转身面对男友，压抑的情绪终于爆发。',v:'客厅中女主猛然转身，眼神坚定，暖冷光线形成强烈对比。',p:'女主放下手机转身，镜头环绕半圈，停在双方对峙的中景。'}
+];
+let si=0;const $=id=>document.getElementById(id);
+function render(){const s=shots[si];$('shotNum').textContent='Shot '+String(si+1).padStart(2,'0')+' / 03 · 6s';$('shotTitle').textContent=s.t;$('shotDesc').textContent=s.d;$('visual').textContent=s.v;$('video').textContent=s.p;$('taskState').textContent='已完成 '+(si+1)+' / 3'}
+$('books').innerHTML=['七夕前夕','矿井秘密','退婚之后'].map((x,i)=>'<div class="book '+(i?'':'active')+'"><span>'+x+'</span><small>'+[3,5,2][i]+' VIDEO</small></div>').join('');
+$('videos').innerHTML=['VIDEO 01','VIDEO 02','VIDEO 03'].map((x,i)=>'<div class="video-tab '+(i?'':'active')+'">'+x+'</div>').join('');
+$('prev').onclick=()=>{si=(si+shots.length-1)%shots.length;render()};$('next').onclick=()=>{si=(si+1)%shots.length;render()};
+$('image').onclick=()=>{$('notice').textContent='已调用 API 图片模型生成当前 Shot 画面图，并保存到当前 Shot。';setTimeout(()=>{$('notice').textContent=''},2600)};render();
+</script>
+</body>
+</html>
