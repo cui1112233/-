@@ -59,6 +59,9 @@ export function BatchFactoryV11UiPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newBatchTitle, setNewBatchTitle] = useState('');
   const [historyBatches, setHistoryBatches] = useState([]);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [schedules, setSchedules] = useState([]);
   const [generatedShotImages, setGeneratedShotImages] = useState({});
   const [generatedAssetImages, setGeneratedAssetImages] = useState({ character: {}, scene: {}, prop: {} });
 
@@ -529,6 +532,44 @@ export function BatchFactoryV11UiPage() {
     if (next.phase === 'ready') message.success('新批次已创建');
   }
 
+  async function openSchedules() {
+    try {
+      const result = await batchFactoryV11.listSchedules();
+      setSchedules(result?.schedules || []);
+      setScheduleOpen(true);
+    } catch (error) { message.error(error?.message || '读取定时任务失败'); }
+  }
+
+  async function createProductionSchedule() {
+    if (!scheduleAt || !batch?.id) return;
+    try {
+      const runAt = new Date(scheduleAt);
+      if (!Number.isFinite(runAt.getTime()) || runAt.getTime() <= Date.now()) {
+        message.error('请选择未来的执行时间');
+        return;
+      }
+      const result = await batchFactoryV11.createSchedule({
+        batchId: batch.id,
+        requestId: newRequestId('bf11-scheduled-production'),
+        bookId: '',
+        provider: batchSettingsState.patch.videoProvider || 'personal_api',
+        runAt: runAt.toISOString(),
+        inputSnapshot: { settings: batchSettingsState.patch, promptSelections: batchSettingsState.patch.promptSelections || {} }
+      });
+      setSchedules(current => [...current, result.schedule]);
+      setScheduleAt('');
+      message.success('定时生产任务已创建');
+    } catch (error) { message.error(error?.message || '创建定时任务失败'); }
+  }
+
+  async function cancelSchedule(schedule) {
+    try {
+      await batchFactoryV11.deleteSchedule(schedule.id);
+      setSchedules(current => current.filter(item => item.id !== schedule.id));
+      message.success('定时任务已删除');
+    } catch (error) { message.error(error?.message || '删除定时任务失败'); }
+  }
+
   function getPublishCredential(provider) { return runtime.getPublishCredential(provider); }
   function savePublishCredential(provider, payload) { return runtime.savePublishCredential(provider, payload); }
   function createPublishIntent(provider, payload) { return runtime.createPublishIntent(provider, payload); }
@@ -537,7 +578,12 @@ export function BatchFactoryV11UiPage() {
 
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
-      <BatchFactoryV11Workbench
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space wrap>
+          <Button onClick={openSchedules}>自动化 / 定时生产</Button>
+          <Typography.Text type="secondary">一次性日期时间执行；提示词选择和 API 模型配置会随任务快照保存。</Typography.Text>
+        </Space>
+        <BatchFactoryV11Workbench
         batch={viewBatch}
         books={books}
         productionStatus={runtimeState.productionStatus}
@@ -566,6 +612,21 @@ export function BatchFactoryV11UiPage() {
         onGenerateAssetImage={generateAssetImage}
         generatedAssetImages={generatedAssetImages}
       />
+      </Space>
+
+      <Modal title="自动化 / 定时生产" open={scheduleOpen} onCancel={() => setScheduleOpen(false)} footer={null}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Text strong>执行时间</Typography.Text>
+          <Input type="datetime-local" value={scheduleAt} onChange={event => setScheduleAt(event.target.value)} />
+          <Button type="primary" disabled={!scheduleAt} onClick={createProductionSchedule}>创建一次性定时任务</Button>
+          <Typography.Text strong>定时任务</Typography.Text>
+          {(schedules || []).map(schedule => <Space key={schedule.id} style={{ width: '100%', justifyContent: 'space-between' }}>
+            <Typography.Text>{new Date(schedule.runAt).toLocaleString()} · {schedule.status}</Typography.Text>
+            {schedule.status === 'scheduled' ? <Button danger size="small" onClick={() => cancelSchedule(schedule)}>删除</Button> : null}
+          </Space>)}
+          {!schedules.length ? <Typography.Text type="secondary">暂无定时任务</Typography.Text> : null}
+        </Space>
+      </Modal>
 
       <Modal title="新建批次" open={batchManagerOpen} onCancel={() => setBatchManagerOpen(false)} onOk={createNewBatch} okText="创建">
         <Input placeholder="批次名称" value={newBatchTitle} onChange={event => setNewBatchTitle(event.target.value)} />
