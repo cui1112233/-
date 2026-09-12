@@ -28,7 +28,8 @@ type DirectorShot struct {
 	EndSec      int    `json:"end_sec"`
 	ShotType    string `json:"shot_type"`
 	Camera      string `json:"camera"`
-	Description string `json:"description"`
+	Description     string `json:"description"`
+	VisualImageURL string `json:"visual_image_url,omitempty"`
 }
 
 type DirectorVideo struct {
