@@ -268,4 +268,5 @@ type Store interface {
 	ApproveHookRevision(context.Context, string, string, string, string) (HookRevision, error)
 	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)
 	PersistDirectorRevision(context.Context, string, Book, DirectorSnapshot, string, string, DirectorResult) (DirectorRevision, error)
+	UpdateShotVisualImage(context.Context, string, string, string, string) error
 }
