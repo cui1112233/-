@@ -99,6 +99,21 @@ func (s *DirectorService) RunHook(ctx context.Context, owner, batchID, bookID st
 	return s.Store.CreateHookRevision(ctx, owner, batchID, bookID, strings.TrimSpace(text), sourceDigest(book.SourceText))
 }
 
+// RunHookWithProvider keeps the shared Director service safe for concurrent requests
+// while allowing the trusted V11 bridge to select a model from the API catalog.
+func (s *DirectorService) RunHookWithProvider(ctx context.Context, owner, batchID, bookID string, provider DirectorProvider) (HookRevision, error) {
+	copy := *s
+	copy.Provider = provider
+	return copy.RunHook(ctx, owner, batchID, bookID)
+}
+
+// RunDirectorWithProvider is the per-request counterpart used by the trusted V11 bridge.
+func (s *DirectorService) RunDirectorWithProvider(ctx context.Context, owner, batchID, bookID string, provider DirectorProvider) (DirectorRevision, error) {
+	copy := *s
+	copy.Provider = provider
+	return copy.RunDirector(ctx, owner, batchID, bookID)
+}
+
 func (s *DirectorService) ApproveHook(ctx context.Context, owner, batchID, bookID, hookID string) (HookRevision, error) {
 	if err := s.validate(); err != nil { return HookRevision{}, err }
 	return s.Store.ApproveHookRevision(ctx, owner, batchID, bookID, hookID)
