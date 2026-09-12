@@ -61,6 +61,37 @@ jobs:
           journalctl -k -n 200 --no-pager 2>/dev/null | grep -iE 'oom|out of memory|killed process' || true
           REMOTE
 
+      - name: Publish concise runtime summary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          report="$(timeout 45 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          read -r one five fifteen _ < /proc/loadavg
+          mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+          mem_available=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+          swap_total=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
+          swap_free=$(awk '/SwapFree/ {print $2}' /proc/meminfo)
+          printf 'load_1m=%s load_5m=%s load_15m=%s\n' "$one" "$five" "$fifteen"
+          printf 'mem_available_mib=%s mem_total_mib=%s swap_used_mib=%s swap_total_mib=%s\n' "$((mem_available / 1024))" "$((mem_total / 1024))" "$(((swap_total - swap_free) / 1024))" "$((swap_total / 1024))"
+          printf 'top_cpu='
+          ps -eo comm=,%cpu= --sort=-%cpu | head -n 3 | tr '\n' ';'
+          printf '\ntop_memory='
+          ps -eo comm=,rss= --sort=-rss | head -n 3 | awk '{printf "%s:%sMiB;", $1, int($2/1024)}'
+          printf '\ndocker='
+          docker stats --no-stream --format '{{.Name}} cpu={{.CPUPerc}} mem={{.MemUsage}}' | head -n 8 | tr '\n' ';' || true
+          printf '\n'
+          REMOTE
+          )"
+          {
+            echo '## ECS runtime pressure summary'
+            echo
+            echo '```text'
+            printf '%s\n' "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Verify public endpoint remains reachable
         shell: bash
         run: |
