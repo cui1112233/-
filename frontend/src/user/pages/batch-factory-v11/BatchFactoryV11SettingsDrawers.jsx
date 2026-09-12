@@ -330,9 +330,9 @@ export function ProductionSettingsDrawer({
             onChange={videoModelId => patch({ videoModelId })}
             options={configuredVideoModels.filter(option => {
               const provider = form.videoProvider || 'personal_api';
-              if (provider === 'doubao_local_executor') return option.value === 'doubao-seedance';
+              if (provider === 'doubao_local_executor') return option.value === 'local-doubao-executor-video' || option.value === 'doubao-seedance';
               if (provider === 'autodl_comfyui') return option.value === 'minimax-h3-video';
-              return option.value === 'yd2.0-mini';
+              return option.value !== 'local-doubao-executor-video' && option.value !== 'doubao-seedance' && option.value !== 'minimax-h3-video';
             })}
           />
         </SettingField>
