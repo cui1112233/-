@@ -77,6 +77,9 @@ jobs:
           ss -ltnp '( sport = :3000 )' 2>/dev/null | sed 's/^/host_listen_3000=/' || true
 
           docker exec "$node_id" node -e 'fetch("http://127.0.0.1:3000/api/build-info",{signal:AbortSignal.timeout(3000)}).then(r=>r.text()).then(t=>console.log("node_container_build="+t)).catch(e=>console.log("node_container_build_error="+e.message))'
+          docker exec "$node_id" node -e 'fetch("http://v88-node:3000/api/build-info",{signal:AbortSignal.timeout(3000)}).then(r=>r.text()).then(t=>console.log("node_service_build="+t)).catch(e=>console.log("node_service_build_error="+e.message))'
+          docker exec "$nginx_id" sh -c 'nginx -T 2>&1 | grep -E "^[[:space:]]*(listen|server_name|proxy_pass|upstream|resolver)" | sed "s/^/nginx_runtime_route=/"'
+          docker exec "$nginx_id" sh -c 'wget -qO- -T 3 http://v88-node:3000/api/build-info' | sed 's/^/nginx_direct_node_build=/' || true
           docker exec "$node_id" node -e 'fetch("http://nginx:80/api/build-info",{signal:AbortSignal.timeout(3000)}).then(r=>r.text()).then(t=>console.log("nginx_service_build="+t)).catch(e=>console.log("nginx_service_build_error="+e.message))'
 
           python3 - "$config_source" <<'PY'
