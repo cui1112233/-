@@ -11,7 +11,8 @@ test('Shuihuo compatibility release creates and grants only its isolated databas
   assert.match(workflow, /CREATE DATABASE IF NOT EXISTS qiantie_shuihuo/);
   assert.match(workflow, /GRANT ALL PRIVILEGES ON qiantie_shuihuo\.\* TO/);
   assert.doesNotMatch(workflow, /GRANT ALL PRIVILEGES ON qiantie_v88\.\*/);
-  assert.match(workflow, /ref: b1117372/);
+  assert.match(workflow, /ref: integration\/remote-workbench-20260819/);
+  assert.match(workflow, /checkout --detach b111737265d9352df9e54cecde7e2df5d2710da4/);
   assert.match(workflow, /shuihuo-legacy-b1117372/);
   assert.doesNotMatch(workflow, /docker image inspect qiantie-go-api:public-v78/);
 });

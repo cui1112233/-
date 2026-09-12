@@ -31,12 +31,17 @@ jobs:
       - name: Check out the retained Shuihuo implementation
         uses: actions/checkout@v4
         with:
-          ref: b1117372
+          # This retained branch contains the exact known-good commit below.
+          ref: integration/remote-workbench-20260819
           path: legacy-shuihuo
-          # This historical commit is reachable through retained branches but
-          # is not in a one-commit checkout from the V88 tip.
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Pin the retained Shuihuo implementation
+        run: |
+          set -Eeuo pipefail
+          git -C legacy-shuihuo checkout --detach b111737265d9352df9e54cecde7e2df5d2710da4
+          test "$(git -C legacy-shuihuo rev-parse HEAD)" = b111737265d9352df9e54cecde7e2df5d2710da4
 
       - name: Set up Go for the retained Shuihuo implementation
         uses: actions/setup-go@v5
