@@ -21,9 +21,9 @@ const full = { width: '100%' };
 const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
 const VIDEO_PROVIDERS = [
-  { value: 'personal_api', label: '个人中心 API · yd2.0-mini' },
-  { value: 'doubao_local_executor', label: '豆包本地执行器' },
-  { value: 'autodl_comfyui', label: 'AutoDL · MiniMax H3（自动文生/图生）' }
+  { value: 'personal_api', label: 'API 配置模型' },
+  { value: 'doubao_local_executor', label: '本地执行器模型' },
+  { value: 'autodl_comfyui', label: 'API 配置模型' }
 ];
 
 function configuredModelOptions(models = []) {
@@ -327,13 +327,14 @@ export function ProductionSettingsDrawer({
             allowClear
             placeholder="继承系统模型"
             value={form.videoModelId}
-            onChange={videoModelId => patch({ videoModelId })}
-            options={configuredVideoModels.filter(option => {
-              const provider = form.videoProvider || 'personal_api';
-              if (provider === 'doubao_local_executor') return option.value === 'local-doubao-executor-video' || option.value === 'doubao-seedance';
-              if (provider === 'autodl_comfyui') return option.value === 'minimax-h3-video';
-              return option.value !== 'local-doubao-executor-video' && option.value !== 'doubao-seedance' && option.value !== 'minimax-h3-video';
-            })}
+            onChange={videoModelId => {
+              const selected = (apiModels.video || []).find(model => (model.id || model.modelId) === videoModelId);
+              const videoProvider = selected?.adapterKind === 'local_executor_video'
+                ? 'doubao_local_executor'
+                : selected?.adapterKind === 'autodl_comfyui_video' ? 'autodl_comfyui' : 'personal_api';
+              patch({ videoModelId, videoProvider });
+            }}
+            options={configuredVideoModels}
           />
         </SettingField>
 
