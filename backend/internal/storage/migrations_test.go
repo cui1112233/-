@@ -46,6 +46,7 @@ func TestAppMigrationsIncludesV11Migrations(t *testing.T) {
 	migrations := AppMigrations()
 	want := append([]Migration(nil), V11Migrations()...)
 	want = append(want, V11ShotProductionMigrations()...)
+	want = append(want, V11MergeHierarchyMigrations()...)
 	want = append(want, LocalExecutorMigrations()...)
 	if len(migrations) != len(want) {
 		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(want))
