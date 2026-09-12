@@ -1,0 +1,188 @@
+.new-batch-factory-preview {
+  min-height: 100vh;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.new-batch-factory-preview .shuihuo-project-library {
+  min-height: 100vh;
+  padding: 30px clamp(20px, 4vw, 56px) 72px;
+}
+
+.new-batch-factory-preview .shuihuo-project-library-title h1 {
+  font-size: 27px;
+  letter-spacing: .01em;
+}
+
+.new-batch-factory-preview .shuihuo-project-library-title p {
+  font-size: 13px;
+}
+
+.new-batch-factory-preview .shuihuo-create-batch {
+  height: 36px;
+  padding: 0 16px;
+}
+
+.batch-factory-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  margin: 24px 0 4px;
+}
+
+.batch-factory-preview-summary > div {
+  display: grid;
+  min-width: 118px;
+  gap: 7px;
+  padding: 12px 16px;
+  border: 1px solid var(--sh-line);
+  background: var(--sh-panel);
+}
+
+.batch-factory-preview-summary span {
+  color: var(--sh-muted);
+  font-size: 12px;
+}
+
+.batch-factory-preview-summary strong {
+  color: var(--sh-text);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.batch-factory-preview-summary .ant-tag {
+  align-self: center;
+  margin-inline-start: auto;
+  padding: 6px 10px;
+  color: var(--sh-muted);
+  background: var(--sh-panel-strong);
+}
+
+.batch-factory-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 15px;
+  align-items: start;
+}
+
+.batch-factory-preview-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #304158;
+  border-radius: 3px;
+  background: #1b293d;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.batch-factory-preview-card:hover,
+.batch-factory-preview-card.is-selected {
+  border-color: #63dfc0;
+  box-shadow: 0 0 0 1px rgba(99, 223, 192, .12);
+}
+
+.batch-factory-preview-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(151, 168, 190, .12);
+}
+
+.batch-factory-preview-card-top .ant-checkbox-wrapper {
+  color: #dce8f7;
+}
+
+.batch-factory-preview-status {
+  margin: 0;
+  color: #9eb0c6;
+  border: 0;
+  background: #27364c;
+}
+
+.batch-factory-preview-status.status-制作中 {
+  color: #8ecbff;
+  background: #18364d;
+}
+
+.batch-factory-preview-status.status-待审核 {
+  color: #f3d28a;
+  background: #463b25;
+}
+
+.batch-factory-preview-card-open {
+  display: grid;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.batch-factory-preview-cover {
+  display: flex;
+  align-items: flex-end;
+  min-height: 124px;
+  padding: 14px;
+  background: linear-gradient(145deg, #304760, #26344b 58%, #1d3041);
+}
+
+.batch-factory-preview-card:nth-child(2) .batch-factory-preview-cover {
+  background: linear-gradient(145deg, #4a4050, #354052 58%, #203546);
+}
+
+.batch-factory-preview-card:nth-child(3) .batch-factory-preview-cover {
+  background: linear-gradient(145deg, #4c493d, #3d4150 58%, #243848);
+}
+
+.batch-factory-preview-cover span {
+  padding: 5px 8px;
+  color: #e4eef9;
+  border: 1px solid rgba(221, 235, 250, .18);
+  background: rgba(10, 18, 29, .38);
+  font-size: 11px;
+}
+
+.batch-factory-preview-card-meta {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  background: #1d2b40;
+}
+
+.batch-factory-preview-card-meta strong {
+  overflow: hidden;
+  color: #f3f6fb;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-factory-preview-card-meta > span {
+  color: #8295ad;
+  font-size: 11px;
+}
+
+.batch-factory-preview-card-meta .ant-progress-inner {
+  background: #34435a;
+}
+
+.batch-factory-preview-card-meta .ant-progress-bg {
+  background: #55d2b1;
+}
+
+.batch-factory-preview-card-meta .batch-factory-preview-progress-label {
+  color: #b8c7d9;
+}
+
+@media (max-width: 760px) {
+  .new-batch-factory-preview .shuihuo-project-library-heading {
+    flex-direction: column;
+  }
+
+  .batch-factory-preview-summary .ant-tag {
+    margin-inline-start: 0;
+  }
+}
