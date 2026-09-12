@@ -165,8 +165,8 @@ export function approveHook(batchId, bookId, hookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/hooks/${id(hookId)}/approve`), { method: 'POST', body: body({}) });
 }
 
-export function runDirector(batchId, bookId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body({}) });
+export function runDirector(batchId, bookId, textModelId = '') {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body(textModelId ? { textModelId } : {}) });
 }
 
 export function runBatchDirector(batchId) {
