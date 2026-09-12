@@ -137,20 +137,24 @@ func (s *MySQLStore) UpdateShotVisualImage(ctx context.Context, owner, batchID, 
 	err = tx.QueryRowContext(ctx, `SELECT id, output_json FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=? ORDER BY revision DESC LIMIT 1 FOR UPDATE`, owner, batchID, bookID).Scan(&revisionID, &raw)
 	if errors.Is(err, sql.ErrNoRows) { return ErrNotFound }
 	if err != nil { return err }
+	var videoIndex int
+	if err := tx.QueryRowContext(ctx, `SELECT ordinal FROM batch_factory_v11_videos WHERE id=? AND owner_username=? AND batch_id=? AND book_id=?`, videoID, owner, batchID, bookID).Scan(&videoIndex); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil { return err }
 	var output DirectorResult
 	if err := json.Unmarshal(raw, &output); err != nil { return err }
-	found := false
-	for videoIndex := range output.Storyboard {
-		if videoIndex >= len(output.Storyboard) || !strings.HasPrefix(shotID, videoID+":shot:") { continue }
-		for shotIndex := range output.Storyboard[videoIndex].Shots {
-			if fmt.Sprintf("%s:shot:%02d", videoID, shotIndex+1) == shotID {
-				output.Storyboard[videoIndex].Shots[shotIndex].VisualImageURL = imageURL
-				found = true
-				break
-			}
-		}
-		if found { break }
+	if videoIndex < 0 || videoIndex >= len(output.Storyboard) || !strings.HasPrefix(shotID, videoID+":shot:") {
+		return ErrNotFound
 	}
+	found := false
+	for shotIndex := range output.Storyboard[videoIndex].Shots {
+		if fmt.Sprintf("%s:shot:%02d", videoID, shotIndex+1) == shotID {
+			output.Storyboard[videoIndex].Shots[shotIndex].VisualImageURL = imageURL
+			found = true
+			break
+		}
+	}
+	if !found { return ErrNotFound }
 	if !found { return ErrNotFound }
 	encoded, err := json.Marshal(output)
 	if err != nil { return err }
