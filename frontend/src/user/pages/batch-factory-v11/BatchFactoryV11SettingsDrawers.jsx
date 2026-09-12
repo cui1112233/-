@@ -76,6 +76,8 @@ export function ProductionSettingsDrawer({
   const impactRequestRef = useRef(0);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingSecret, setPairingSecret] = useState(null);
+  const configuredTextModels = useMemo(() => configuredModelOptions(apiModels.text), [apiModels.text]);
+  const configuredImageModels = useMemo(() => configuredModelOptions(apiModels.image), [apiModels.image]);
   const configuredVideoModels = useMemo(() => configuredModelOptions(apiModels.video), [apiModels.video]);
 
   useEffect(() => {
@@ -286,6 +288,28 @@ export function ProductionSettingsDrawer({
             value={form.assetPromptPresetId}
             onChange={assetPromptPresetId => patch({ assetPromptPresetId })}
             options={[{ value: 'standard-asset-extraction', label: '标准资产提取' }]}
+          />
+        </SettingField>
+
+        <SettingField label="文本模型" description="Director / Hook 只使用 API 配置中已启用的文本模型。">
+          <Select
+            allowClear
+            placeholder="继承系统文本模型"
+            value={form.textModelId}
+            onChange={textModelId => patch({ textModelId })}
+            options={configuredTextModels}
+            style={full}
+          />
+        </SettingField>
+
+        <SettingField label="图片模型" description="人物、场景、道具和画面图生成使用 API 配置中已启用的图片模型。">
+          <Select
+            allowClear
+            placeholder="继承系统图片模型"
+            value={form.imageModelId}
+            onChange={imageModelId => patch({ imageModelId })}
+            options={configuredImageModels}
+            style={full}
           />
         </SettingField>
 
