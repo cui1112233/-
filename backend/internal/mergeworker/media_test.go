@@ -2,6 +2,7 @@ package mergeworker
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,5 +81,44 @@ func TestBuildFFmpegArgsUsesArgvAndFaststart(t *testing.T) {
 	}
 	if strings.Contains(joined, "sh -c") || strings.Contains(joined, "bash -c") {
 		t.Fatalf("shell invocation leaked into args: %q", joined)
+	}
+}
+
+func TestBuildFFmpegArgsAllowsQuarterSpeedSlowMotion(t *testing.T) {
+	args, err := BuildFFmpegArgs("/work/inputs.txt", "/work/out.mp4", 0.25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "setpts=PTS/0.25") || !strings.Contains(joined, "atempo=0.5,atempo=0.5") {
+		t.Fatalf("quarter speed filters missing: %s", joined)
+	}
+}
+
+func TestResolveMergeSpeedUsesRealDurationForAudioMatch(t *testing.T) {
+	fast, err := ResolveMergeSpeed("audio", 0, 10, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(fast-(10.0/6.0)) > 0.0001 {
+		t.Fatalf("fast speed=%f", fast)
+	}
+
+	slow, err := ResolveMergeSpeed("audio", 0, 6, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(slow-0.6) > 0.0001 {
+		t.Fatalf("slow speed=%f", slow)
+	}
+}
+
+func TestResolveMergeSpeedManualOverrideWinsOverAudioMatch(t *testing.T) {
+	speed, err := ResolveMergeSpeed("audio", 1.25, 10, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if speed != 1.25 {
+		t.Fatalf("speed=%f", speed)
 	}
 }
