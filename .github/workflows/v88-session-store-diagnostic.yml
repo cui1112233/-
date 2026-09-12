@@ -37,7 +37,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15 -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
-          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE' | tee session-diagnostic.txt
           set -Eeuo pipefail
           cd /opt/qiantie/v88/deploy/v88-public
           node_id="$(docker compose -f docker-compose.yml ps -q v88-node)"
@@ -73,6 +73,14 @@ jobs:
           NODE
           REMOTE
 
+      - name: Upload non-sensitive session diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: v88-session-diagnostic
+          path: session-diagnostic.txt
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Verify public authentication endpoint is reachable
         shell: bash
         run: |
@@ -80,3 +88,4 @@ jobs:
           status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "http://${ECS_HOST}:3000/api/login" || true)"
           echo "public_login_get_status=$status"
           test "$status" = 401
+
