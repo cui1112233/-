@@ -1,3 +1,4 @@
+import { listAvailableModels } from './modelCatalog.js';
 import { apiRequest } from './client.js';
 
 const BASE = '/api/batch-factory/v11';
@@ -70,6 +71,10 @@ export function bf11ScopePath({ scope, batchId, bookId = '', videoId = '' }) {
 
 export function getCapabilities() {
   return apiRequest(bf11Path('capabilities'));
+}
+
+export function listConfiguredModels(kind) {
+  return listAvailableModels(kind);
 }
 
 export function createNovelFetchIntake(payload) {
@@ -258,6 +263,7 @@ export function getPublishAudits(provider, intentId) {
 
 export default {
   getCapabilities,
+  listConfiguredModels,
   createNovelFetchIntake,
   getIntake,
   createBatchFromIntake,
