@@ -69,7 +69,7 @@ function normalizedProvider(value) {
 }
 
 function isProductionPath(pathname) {
-  return /\/batches\/[^/]+(?:\\/books\\/[^/]+)?\\/production$/.test(pathname);
+  return /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname);
 }
 
 function providerFromRequest(req) {
