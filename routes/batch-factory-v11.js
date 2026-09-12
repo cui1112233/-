@@ -69,7 +69,7 @@ function normalizedProvider(value) {
 }
 
 function isProductionPath(pathname) {
-  return /\\/batches\\/[^/]+(?:\\/books\\/[^/]+)?\\/production$/.test(pathname);
+  return /\/batches\/[^/]+(?:\\/books\\/[^/]+)?\\/production$/.test(pathname);
 }
 
 function providerFromRequest(req) {
@@ -194,7 +194,7 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
 }
 
 async function prepareProviderRequest(req, options, pathname) {
-  if (/\\/batches\\/[^/]+(?:\\/books\\/[^/]+)?\\/(?:hook|director)$/.test(pathname) && req.body?.textModelId) {
+  if (/\/batches\/[^/]+(?:\/books\/[^/]+)?\/(?:hook|director)$/.test(pathname) && req.body?.textModelId) {
     req.v11TextRuntimeModel = resolveRuntimeModel({
       username: req.username,
       kind: 'text',
