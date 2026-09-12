@@ -113,7 +113,10 @@ jobs:
 
           test -n "$(docker image inspect qiantie-go-api:public-v78 --format '{{.Id}}')"
           docker volume create v88-public_shuihuo_objects >/dev/null
-          docker exec qiantie-unified-mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS qiantie_shuihuo CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"'
+          # The retained legacy service has its own schema.  The normal V88
+          # application account needs access to that schema only; it must not
+          # receive any extra privilege on qiantie_v88.
+          docker exec qiantie-unified-mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS qiantie_shuihuo CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT ALL PRIVILEGES ON qiantie_shuihuo.* TO '\''qiantie_v88_app'\''@'\''%'\''; FLUSH PRIVILEGES;"'
           cp -a /tmp/v88-public-shuihuo-compose.yml "$compose_file"
 
           set_env() {
