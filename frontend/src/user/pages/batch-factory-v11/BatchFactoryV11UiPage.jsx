@@ -593,6 +593,7 @@ export function BatchFactoryV11UiPage() {
         configVersions={runtimeState.configVersions || []}
         configVersionsError={runtimeState.configVersionsError || null}
         apiModels={runtimeState.apiModels || {}}
+        promptCatalog={runtimeState.promptCatalog || []}
         personalPrompts={runtimeState.personalPrompts || {}}
         personalPromptsError={runtimeState.personalPromptsError || null}
         videoProviders={runtimeState.videoProviders || {}}
