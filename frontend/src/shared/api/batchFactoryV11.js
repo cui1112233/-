@@ -168,8 +168,9 @@ export function getEffectiveSettings(batchId, bookId, videoId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/effective-settings`));
 }
 
-export function getFinalPrompt(batchId, bookId, videoId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
+export function getFinalPrompt(batchId, bookId, videoId, shotId = '') {
+  const path = bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`);
+  return apiRequest(`${path}${query({ shotId })}`);
 }
 
 export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api') {
