@@ -353,7 +353,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
-  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ memberStore: resolvedMemberStore, configReader: readConfig }));
+  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ memberStore: resolvedMemberStore, presetStore: resolvedPresetStore, configReader: readConfig }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
