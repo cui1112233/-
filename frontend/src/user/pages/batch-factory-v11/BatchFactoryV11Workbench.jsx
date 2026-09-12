@@ -402,7 +402,7 @@ export function BatchFactoryV11Workbench({
               <Button
                 disabled={compilerAction.disabled || !onPreviewFinalPrompt}
                 title={compilerAction.disabled ? compilerAction.reason : ''}
-                onClick={() => onPreviewFinalPrompt?.(selectedBook, selectedVideo)}
+                onClick={() => onPreviewFinalPrompt?.(selectedBook, selectedVideo, selectedShot)}
               >本次提交预览</Button>
               <Typography.Text type="secondary">保存后只覆盖当前 VIDEO；预览展示 Go 编译后的最终提示词。</Typography.Text>
             </Space>
