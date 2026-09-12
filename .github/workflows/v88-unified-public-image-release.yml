@@ -2,10 +2,22 @@ name: V88 Unified Public Image Release
 
 on:
   workflow_dispatch:
+  push:
+    branches: [v88]
+    paths:
+      - 'deploy/v88-public/UNIFIED-DEPLOY-REQUEST'
 
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: v88-public-release
+  cancel-in-progress: false
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
 
 jobs:
   release:
@@ -14,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify release contracts
-        run: node --test tests/v88-public-unified-topology.test.js tests/v88-public-release-identity.test.js
+        run: node --test tests/v88-public-unified-topology.test.js tests/v88-public-release-identity.test.js tests/v88-unified-public-deploy.test.js
 
       - uses: actions/setup-node@v4
         with:
@@ -61,3 +73,193 @@ jobs:
           echo "release_sha=${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "node=ghcr.io/${{ github.repository_owner }}/qiantie-v88-node:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "go=ghcr.io/${{ github.repository_owner }}/qiantie-go-api:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    if: github.event_name == 'push'
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare ECS SSH
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          chmod 600 "$HOME/.ssh/v88_ecs"
+          : > "$HOME/.ssh/known_hosts"
+          for attempt in 1 2 3 4 5; do
+            if timeout 15 ssh-keyscan -H "$ECS_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null && test -s "$HOME/.ssh/known_hosts"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo 'STATUS=BLOCKED unable to obtain ECS SSH host key'
+              exit 1
+            fi
+            sleep 2
+          done
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Deploy paired immutable images with rollback
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          node_image="ghcr.io/${owner}/qiantie-v88-node:${GITHUB_SHA}"
+          go_image="ghcr.io/${owner}/qiantie-go-api:${GITHUB_SHA}"
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+
+          printf '%s' "$GHCR_TOKEN" | timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '$owner' --password-stdin"
+          timeout 1200 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$node_image" "$go_image" "$GITHUB_SHA" <<'REMOTE'
+          set -Eeuo pipefail
+          node_image="$1"
+          go_image="$2"
+          expected_sha="$3"
+          deploy_dir='/opt/qiantie/v88/deploy/v88-public'
+          cd "$deploy_dir"
+          test -s docker-compose.yml
+          test -s .env
+          grep -q 'v88-node:' docker-compose.yml
+          grep -q 'go-api:' docker-compose.yml
+          if grep -Eq '18081|host\.docker\.internal' docker-compose.yml; then
+            echo 'STATUS=BLOCKED retired host-stage topology detected'
+            exit 41
+          fi
+
+          PREVIOUS_PUBLIC_BUILD="$(curl -fsS --max-time 10 http://127.0.0.1:3000/api/build-info || true)"
+          printf 'PREVIOUS_PUBLIC_BUILD=%s\n' "$PREVIOUS_PUBLIC_BUILD"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup_env=".env.pre-unified-${stamp}"
+          cp -a .env "$backup_env"
+
+          rollback() {
+            status=$?
+            trap - ERR
+            if [ "$status" -ne 0 ]; then
+              echo "STATUS=ROLLBACK restoring $backup_env"
+              cp -a "$backup_env" .env
+              docker compose -f docker-compose.yml config -q || true
+              docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node || true
+            fi
+            docker logout ghcr.io >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap rollback ERR
+
+          docker pull "$go_image"
+          docker pull "$node_image"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = 'linux/amd64'
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = 'linux/amd64'
+
+          set_env() {
+            key="$1"
+            value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              printf '\n%s=%s\n' "$key" "$value" >> .env
+            fi
+          }
+          set_env QIANTIE_NODE_IMAGE "$node_image"
+          set_env QIANTIE_GO_IMAGE "$go_image"
+          set_env QIANTIE_RELEASE_SHA "$expected_sha"
+
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
+
+          public_ok=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:3000/api/build-info >/tmp/v88-public-build.json 2>/dev/null; then
+              if python3 - "$expected_sha" </tmp/v88-public-build.json <<'PY'
+          import json, sys
+          expected = sys.argv[1]
+          data = json.load(sys.stdin)
+          raise SystemExit(0 if data.get('git_sha') == expected else 1)
+          PY
+              then
+                public_ok=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [ "$public_ok" != 1 ]; then
+            echo 'STATUS=FAILED public build identity did not converge'
+            exit 51
+          fi
+
+          curl -fsS --max-time 10 http://127.0.0.1:3000/batch-factory >/dev/null
+          public_cap_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:3000/api/batch-factory/v11/capabilities)"
+          case "$public_cap_status" in
+            200|401|403) ;;
+            *) echo "STATUS=FAILED public V11 route status=$public_cap_status"; exit 52 ;;
+          esac
+
+          node_id="$(docker compose -f docker-compose.yml ps -q v88-node)"
+          test -n "$node_id"
+          docker exec "$node_id" node - <<'NODE'
+          const crypto = require('node:crypto');
+          const pathname = '/api/batch-factory/v11/capabilities';
+          const username = 'release-smoke';
+          const issuedAt = String(Math.floor(Date.now() / 1000));
+          const isOwner = 'true';
+          const method = 'GET';
+          const secret = process.env.QIANTIE_BRIDGE_SECRET;
+          if (!secret) process.exit(21);
+          const signature = crypto.createHmac('sha256', secret)
+            .update(`${username}${issuedAt}${isOwner}${method}${pathname}`)
+            .digest('hex');
+          fetch(`http://go-api:4000${pathname}`, { headers: {
+            'X-Qiantie-Username': username,
+            'X-Qiantie-Is-Owner': isOwner,
+            'X-Qiantie-Issued-At': issuedAt,
+            'X-Qiantie-Signature': signature,
+            Accept: 'application/json'
+          }}).then(async response => {
+            if (response.status !== 200) {
+              console.error(`V11 internal capability status=${response.status}`);
+              process.exit(22);
+            }
+            const body = await response.json();
+            if (!body || typeof body !== 'object') process.exit(23);
+          }).catch(error => {
+            console.error(error);
+            process.exit(24);
+          });
+          NODE
+
+          echo "STATUS=DEPLOYED release_sha=$expected_sha public_v11_status=$public_cap_status"
+          trap - ERR
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          REMOTE
+
+      - name: Verify public V88 externally
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected_sha="$GITHUB_SHA"
+          curl -fsS --retry 3 --retry-delay 2 --max-time 10 "http://${ECS_HOST}:3000/api/build-info" >/tmp/public-build.json
+          python3 - "$expected_sha" </tmp/public-build.json <<'PY'
+          import json, sys
+          expected = sys.argv[1]
+          data = json.load(sys.stdin)
+          assert data.get('git_sha') == expected, (data, expected)
+          print(json.dumps(data, ensure_ascii=False))
+          PY
+          curl -fsS --retry 3 --retry-delay 2 --max-time 10 "http://${ECS_HOST}:3000/batch-factory" >/dev/null
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/api/batch-factory/v11/capabilities")"
+          case "$status" in
+            200|401|403) ;;
+            *) echo "unexpected public V11 status=$status"; exit 1 ;;
+          esac
+          echo "V88_PUBLIC_UNIFIED_DEPLOY_OK release_sha=$expected_sha v11_status=$status"
