@@ -13,6 +13,16 @@ const HOP_BY_HOP_HEADERS = new Set([
   'te', 'trailer', 'transfer-encoding', 'upgrade'
 ]);
 
+// Shuihuo production keeps its historical Go implementation in an isolated
+// compatibility service. Do not reuse QIANTIE_GO_BASE_URL here: that URL also
+// serves the current V88 novel-fetch, V11 and local-executor contracts.
+function resolveShuihuoBaseUrl(targetBaseUrl) {
+  return targetBaseUrl
+    || process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL
+    || process.env.QIANTIE_GO_BASE_URL
+    || 'http://127.0.0.1:4000';
+}
+
 function signBridgeRequest(secret, { username, isOwner, issuedAt, method, pathname }) {
   const payload = bridgePayload({ username, issuedAt, isOwner: String(isOwner), method, pathname });
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
@@ -64,7 +74,7 @@ function syncAccountAIConfig({ targetBaseUrl, bridgeSecret, username, isOwner, c
   if (!payload) {
     return Promise.resolve();
   }
-  const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
+  const target = new URL(resolveShuihuoBaseUrl(targetBaseUrl));
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
   const transport = target.protocol === 'https:' ? https : http;
   const pathname = '/api/shuihuo-production/account-ai-config';
@@ -229,7 +239,7 @@ function upstreamTimeoutForRequest(method, pathname) {
 }
 
 function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStore, configReader = readConfig, authenticate = apiAuth } = {}) {
-  const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
+  const target = new URL(resolveShuihuoBaseUrl(targetBaseUrl));
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
   const transport = target.protocol === 'https:' ? https : http;
   const router = express.Router();
@@ -331,6 +341,7 @@ module.exports = {
   createAssetImageGenerationBody,
   requirePublishedSlot,
   signBridgeRequest,
+  resolveShuihuoBaseUrl,
   syncAccountAIConfig,
   isTextInferenceRequest,
   systemPromptBodyForRequest,

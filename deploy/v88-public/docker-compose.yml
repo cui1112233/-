@@ -36,6 +36,26 @@ services:
     networks:
       - qiantie_internal
 
+  # The retained legacy implementation runs with its own database and object
+  # volume. It must never apply legacy migrations to qiantie_v88.
+  shuihuo-compat:
+    image: ${QIANTIE_SHUIHUO_COMPAT_IMAGE:?set the retained legacy Shuihuo image reference}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      QIANTIE_ADDR: :4100
+      QIANTIE_MYSQL_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/qiantie_shuihuo?parseTime=true&charset=utf8mb4&collation=utf8mb4_0900_ai_ci
+      QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
+      QIANTIE_STORAGE_DRIVER: local
+      QIANTIE_STORAGE_LOCAL_DIR: /var/lib/qiantie/objects
+      QIANTIE_STORAGE_PUBLIC_BASE_URL: ${QIANTIE_SHUIHUO_STORAGE_PUBLIC_BASE_URL:-http://127.0.0.1:3000}
+    volumes:
+      - shuihuo_objects:/var/lib/qiantie/objects
+    expose:
+      - "4100"
+    networks:
+      - qiantie_internal
+
   v88-node:
     image: ${QIANTIE_NODE_IMAGE:?set an immutable Node image reference}
     restart: unless-stopped
@@ -43,6 +63,7 @@ services:
       NODE_ENV: production
       QIANTIE_NODE_PORT: 3000
       QIANTIE_GO_BASE_URL: http://go-api:4000
+      QIANTIE_SHUIHUO_COMPAT_BASE_URL: http://shuihuo-compat:4100
       QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
       QIANTIE_121_BROWSER_WORKER_URL: http://browser-worker:8787
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
@@ -54,6 +75,7 @@ services:
     depends_on:
       - go-api
       - browser-worker
+      - shuihuo-compat
     expose:
       - "3000"
     networks:
@@ -86,3 +108,6 @@ volumes:
   v88_outputs:
     external: true
     name: v88-public_v88_outputs
+  shuihuo_objects:
+    external: true
+    name: v88-public_shuihuo_objects
