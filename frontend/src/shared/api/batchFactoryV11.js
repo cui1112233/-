@@ -81,6 +81,12 @@ export function listConfiguredModels(kind) {
     .then(result => Array.isArray(result?.models) ? result.models : []);
 }
 
+export function saveShotVisualImage(batchId, bookId, videoId, shotId, imageUrl) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/shots/${id(shotId)}/visual-image`), {
+    method: 'PUT', body: body({ imageUrl })
+  });
+}
+
 export function generateConfiguredImage(payload = {}) {
   return apiRequest(bf11Path('image-generation'), { method: 'POST', body: body(payload) });
 }
@@ -273,6 +279,7 @@ export default {
   getCapabilities,
   listConfiguredModels,
   generateConfiguredImage,
+  saveShotVisualImage,
   createNovelFetchIntake,
   getIntake,
   createBatchFromIntake,
