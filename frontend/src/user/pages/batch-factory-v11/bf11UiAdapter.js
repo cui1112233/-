@@ -113,6 +113,11 @@ export function createBf11UiAdapter(api) {
       return api.generateConfiguredImage(payload);
     },
 
+    async saveShotVisualImage({ batchId, bookId, videoId, shotId, imageUrl } = {}) {
+      if (typeof api.saveShotVisualImage !== 'function') throw new Error('Shot 图片保存接口未接入');
+      return api.saveShotVisualImage(batchId, bookId, videoId, shotId, imageUrl);
+    },
+
     async saveDraft(payload = {}) {
       return api.saveDraft(payload);
     },
