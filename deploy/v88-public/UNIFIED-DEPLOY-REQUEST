@@ -1,3 +1,3 @@
-release_sha=fcff141f36f06ff7dccd68f84e233ac62f9aba76
-scope=Shuihuo: preserve user sessions on upstream auth failure and expose compatibility service failure
-requested_at=2026-09-13T02:31:00+08:00
+release_sha=778d22af650e5d0eac976029efb4cf296346d1e3
+scope=Shuihuo: serve the public app icon without storage authentication while preserving storage API authentication
+requested_at=2026-09-13T02:48:15+08:00
