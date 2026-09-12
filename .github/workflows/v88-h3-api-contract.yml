@@ -1,0 +1,27 @@
+name: V88 H3 API Contract
+
+on:
+  pull_request:
+    branches:
+      - v88
+    paths:
+      - 'lib/h3-video-adapter.js'
+      - 'lib/video-model-catalog.js'
+      - 'routes/script-video.js'
+      - 'test/h3-api-contract-v88.test.js'
+      - '.github/workflows/v88-h3-api-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run H3 API contract
+        run: node --test test/h3-api-contract-v88.test.js
