@@ -44,34 +44,28 @@ jobs:
           test -n "$node_id"
           echo "node_state=$(docker inspect -f '{{.State.Status}}' "$node_id")"
           docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}data_mount_type={{.Type}} data_mount_name={{.Name}}{{end}}{{end}}' "$node_id"
-          docker exec "$node_id" sh -s <<'NODE'
-          set -eu
-          test -d /app/data
-          test -w /app/data
-          echo 'data_directory=present_writable'
-          node - <<'JS'
-          const fs = require('node:fs');
-          const file = '/app/data/sessions.json';
+          docker exec "$node_id" node -e '
+          const fs = require("node:fs");
+          const file = "/app/data/sessions.json";
           if (!fs.existsSync(file)) {
-            console.log('session_file=absent');
+            console.log("session_file=absent");
             process.exit(0);
           }
           const stat = fs.statSync(file);
           let records;
-          try { records = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { console.log('session_file=invalid_json'); process.exit(0); }
-          if (!records || typeof records !== 'object' || Array.isArray(records)) { console.log('session_file=invalid_shape'); process.exit(0); }
+          try { records = JSON.parse(fs.readFileSync(file, "utf8")); } catch { console.log("session_file=invalid_json"); process.exit(0); }
+          if (!records || typeof records !== "object" || Array.isArray(records)) { console.log("session_file=invalid_shape"); process.exit(0); }
           const now = Date.now();
           const values = Object.values(records);
-          const valid = values.filter(value => value && typeof value === 'object' && Number.isSafeInteger(value.expiresAt) && value.expiresAt > now).length;
-          const expired = values.filter(value => value && typeof value === 'object' && Number.isSafeInteger(value.expiresAt) && value.expiresAt <= now).length;
-          console.log('session_file=valid_json');
-          console.log(`session_record_count=${values.length}`);
-          console.log(`session_valid_count=${valid}`);
-          console.log(`session_expired_count=${expired}`);
-          console.log(`session_file_mtime=${stat.mtime.toISOString()}`);
-          JS
-          NODE
-          REMOTE
+          const valid = values.filter(value => value && typeof value === "object" && Number.isSafeInteger(value.expiresAt) && value.expiresAt > now).length;
+          const expired = values.filter(value => value && typeof value === "object" && Number.isSafeInteger(value.expiresAt) && value.expiresAt <= now).length;
+          console.log("session_file=valid_json");
+          console.log("session_record_count=" + values.length);
+          console.log("session_valid_count=" + valid);
+          console.log("session_expired_count=" + expired);
+          console.log("session_file_mtime=" + stat.mtime.toISOString());
+          '
+REMOTE
 
       - name: Upload non-sensitive session diagnostic
         uses: actions/upload-artifact@v4
@@ -88,4 +82,3 @@ jobs:
           status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "http://${ECS_HOST}:3000/api/login" || true)"
           echo "public_login_get_status=$status"
           test "$status" = 401
-
