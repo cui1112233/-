@@ -189,10 +189,10 @@ export function submitBookProduction(batchId, bookId, requestId, provider = 'per
   });
 }
 
-export function submitBatchProduction(batchId, requestId, provider = 'personal_api') {
+export function submitBatchProduction(batchId, requestId, provider = 'personal_api', videoModelId = '') {
   return apiRequest(bf11Path(`batches/${id(batchId)}/production`), {
     method: 'POST',
-    body: body({ requestId, provider })
+    body: body({ requestId, provider, ...(videoModelId ? { videoModelId } : {}) })
   });
 }
 
