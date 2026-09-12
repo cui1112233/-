@@ -11,6 +11,7 @@ import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
 import { GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
 import { createAntTheme } from '../styles/theme';
+import { getRouteAccessState } from './routeAccess.js';
 
 // 动态 Logo 包含 WebGL shader，不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
 const SuperOpcLiquidMetalLogo = lazy(() => import('../components/SuperOpcLiquidMetalLogo'));
@@ -78,6 +79,7 @@ export function UserLayout({ children }) {
   const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
+  const routeAccess = getRouteAccessState({ pathname, isLoggedIn });
   const displayAvatar = avatarDisplay(avatar, username);
   const accountSessionKey = username || 'anonymous';
   const visibleNavItems = navItems;
@@ -190,7 +192,7 @@ export function UserLayout({ children }) {
         Modal.warning({
           className: 'auth-expired-modal',
           title: '登录已失效',
-          content: '当前登录状态已过期，已切换到登录页面。请重新登录后继续使用。',
+          content: '当前登录状态已失效，请重新登录后继续使用。登录后将返回当前页面。',
           okText: '重新登录',
           onOk: () => { setLoginDialogOpen(true); dialogOpen = false; },
           afterClose: () => { dialogOpen = false; }
@@ -274,10 +276,8 @@ export function UserLayout({ children }) {
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn || pathname === '/') return;
-    window.history.replaceState({}, '', '/');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, [isLoggedIn, pathname]);
+    if (routeAccess.shouldPromptLogin) setLoginDialogOpen(true);
+  }, [routeAccess.shouldPromptLogin]);
 
   async function handleLogin(values) {
     accountSessionGenerationRef.current += 1;
@@ -353,6 +353,7 @@ export function UserLayout({ children }) {
   }
 
   const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen);
+  const pageContent = routeAccess.canRenderPage ? content : null;
   const loginOverlay = showLoginCard ? (
     <div className="legacy-login-overlay nebula-login-overlay">
       <div className="login-modal nebula-login-modal" ref={loginCardRef} onPointerMove={updateLoginCardParallax} onPointerLeave={resetLoginCardParallax}>
@@ -484,7 +485,7 @@ export function UserLayout({ children }) {
             <span className="legacy-page-title">{pageTitle(pathname)}</span>
             <div className="legacy-userbar" aria-hidden="true" />
           </header>
-          <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{content}</section>
+          <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{pageContent}</section>
         </main>
         {isLoggedIn && pathname !== '/' && petVisible ? <CmPenguinCompanion username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>
