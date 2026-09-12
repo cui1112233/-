@@ -35,3 +35,9 @@ test('unified V88 deploy accepts the public runtime only when exact release iden
   assert.match(workflow, /api\/batch-factory\/v11\/capabilities/);
   assert.match(workflow, /expected_sha/);
 });
+
+test('unified V88 deploy feeds smoke scripts and JSON through unambiguous stdin channels', () => {
+  assert.match(workflow, /docker exec -i "\$node_id" node -/);
+  assert.doesNotMatch(workflow, /python3 - "\$expected_sha" <[^\n]+ <<['"]?PY/);
+  assert.match(workflow, /python3 -c ['"][^\n]*json\.load\(sys\.stdin\)[^\n]*['"] "\$expected_sha" <\/tmp\/v88-public-build\.json/);
+});
