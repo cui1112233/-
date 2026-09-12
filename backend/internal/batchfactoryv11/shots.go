@@ -31,6 +31,7 @@ func productionShotsFromDirectorVideo(batchID, bookID, videoID string, draft Dir
 			SceneRefs:             singletonString(draft.Scene),
 			PropRefs:              append([]string(nil), draft.Props...),
 			VideoPrompt:           source.Description,
+			VisualImageURL:        source.VisualImageURL,
 			Status:                ShotStatusPending,
 		})
 	}
