@@ -151,6 +151,7 @@ export function BatchFactoryV11Workbench({
 }) {
   const [selectedBookId, setSelectedBookId] = useState(books[0]?.id || '');
   const [selectedVideoId, setSelectedVideoId] = useState(books[0]?.videos?.[0]?.id || '');
+  const [currentShotIndex, setCurrentShotIndex] = useState(0);
   const [statusFilter, setStatusFilter] = useState('全部');
   const [bookSearch, setBookSearch] = useState('');
   const [previewTarget, setPreviewTarget] = useState('merged');
@@ -182,15 +183,20 @@ export function BatchFactoryV11Workbench({
     return videos.find(video => video.id === selectedVideoId) || videos[0] || null;
   }, [selectedBook, selectedVideoId]);
 
+  const selectedShots = selectedVideo?.shots || [];
+  const selectedShot = selectedShots[currentShotIndex] || selectedShots[0] || null;
+
   useEffect(() => {
     if (!books.length) {
       setSelectedBookId('');
       setSelectedVideoId('');
+      setCurrentShotIndex(0);
       return;
     }
     if (!books.some(book => book.id === selectedBookId)) {
       setSelectedBookId(books[0].id);
       setSelectedVideoId(books[0]?.videos?.[0]?.id || '');
+      setCurrentShotIndex(0);
       setPreviewTarget('merged');
     }
   }, [books, selectedBookId]);
@@ -199,9 +205,18 @@ export function BatchFactoryV11Workbench({
     if (!selectedBook) return;
     if (!(selectedBook.videos || []).some(video => video.id === selectedVideoId)) {
       setSelectedVideoId(selectedBook.videos?.[0]?.id || '');
+      setCurrentShotIndex(0);
       setPreviewTarget('merged');
     }
   }, [selectedBook?.id, selectedVideoId]);
+
+  useEffect(() => {
+    if (!selectedShots.length) {
+      setCurrentShotIndex(0);
+      return;
+    }
+    if (currentShotIndex >= selectedShots.length) setCurrentShotIndex(selectedShots.length - 1);
+  }, [selectedVideo?.id, selectedShots.length, currentShotIndex]);
 
   useEffect(() => {
     const node = gridRef.current;
@@ -270,6 +285,7 @@ export function BatchFactoryV11Workbench({
   function selectBook(book) {
     setSelectedBookId(book.id);
     setSelectedVideoId(book.videos?.[0]?.id || '');
+    setCurrentShotIndex(0);
     setPreviewTarget('merged');
   }
 
@@ -352,6 +368,12 @@ export function BatchFactoryV11Workbench({
           capabilities={capabilities}
           onRunDirector={onRunDirector}
         />
+        {selectedVideo && selectedShots.length ? <div className="bf11-shot-switcher" data-bf-control="shot-switcher">
+          <Button size="small" disabled={currentShotIndex <= 0} onClick={() => setCurrentShotIndex(index => Math.max(0, index - 1))}>上一分镜</Button>
+          <Tag color="blue">Shot {currentShotIndex + 1} / {selectedShots.length}</Tag>
+          <Typography.Text strong>{selectedShot?.label || selectedShot?.id || '当前分镜'}</Typography.Text>
+          <Button size="small" disabled={currentShotIndex >= selectedShots.length - 1} onClick={() => setCurrentShotIndex(index => Math.min(selectedShots.length - 1, index + 1))}>下一分镜</Button>
+        </div> : null}
         {selectedVideo ? <div className="bf11-video-detail">
           <div className="bf11-video-detail-head">
             <Space wrap>
