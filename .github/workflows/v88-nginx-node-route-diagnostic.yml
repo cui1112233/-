@@ -71,6 +71,16 @@ jobs:
           test -f "$config_source"
           echo "nginx_config_source=$config_source"
           grep -E '^[[:space:]]*(upstream|proxy_pass)' "$config_source" | sed 's/^/nginx_route=/'
+          for backup in /opt/qiantie/v88/deploy/v88-public/nginx.conf.pre-unified-*; do
+            [ -f "$backup" ] || continue
+            echo "nginx_backup=$(basename "$backup")"
+            grep -E '^[[:space:]]*(upstream|proxy_pass)' "$backup" | sed 's/^/nginx_backup_route=/' || true
+          done
+          for backup in /opt/qiantie/v88/deploy/v88-public/.env.pre-unified-*; do
+            [ -f "$backup" ] || continue
+            echo "env_backup=$(basename "$backup")"
+            grep -E '^QIANTIE_(NODE_IMAGE|GO_IMAGE|RELEASE_SHA)=' "$backup" | sed 's/^/env_backup_release=/' || true
+          done
           docker exec "$nginx_id" getent hosts v88-node | sed 's/^/nginx_dns_v88_node=/' || true
           grep -E '^QIANTIE_(NODE_IMAGE|GO_IMAGE|RELEASE_SHA)=' /opt/qiantie/v88/deploy/v88-public/.env | sed 's/^/compose_release=/' || true
 
