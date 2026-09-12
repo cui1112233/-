@@ -1,4 +1,5 @@
 name: V88 Session Store Diagnostic
+# Runs only when this diagnostic definition changes; it never modifies session data.
 
 on:
   workflow_dispatch:
