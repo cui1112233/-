@@ -40,9 +40,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=15)
-          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$NETWORK" <<'REMOTE'
+          timeout 90 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$NETWORK" "$ECS_HOST" <<'REMOTE'
           set -Eeuo pipefail
           NETWORK="$1"
+          ECS_PUBLIC_HOST="$2"
 
           node_id="$(docker ps --filter 'name=v88-public-v88-node' --format '{{.ID}}' | head -n1)"
           nginx_id="$(docker ps --filter 'name=v88-public-nginx' --format '{{.ID}}' | head -n1)"
@@ -52,15 +53,25 @@ jobs:
           node_name="$(docker inspect -f '{{.Name}}' "$node_id" | sed 's#^/##')"
           node_ip="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$node_id")"
           gateway="$(docker network inspect "$NETWORK" --format '{{(index .IPAM.Config 0).Gateway}}')"
+          nginx_name="$(docker inspect -f '{{.Name}}' "$nginx_id" | sed 's#^/##')"
           echo "node_name=$node_name"
           echo "node_ip=$node_ip"
           echo "network_gateway=$gateway"
+          echo "nginx_name=$nginx_name"
+          docker inspect -f 'nginx_image={{.Config.Image}} nginx_ports={{json .NetworkSettings.Ports}}' "$nginx_id"
           docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{range .Aliases}}{{println .}}{{end}}{{end}}" "$node_id" \
             | sed '/^$/d;s/^/node_alias=/'
 
           config_source="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/nginx/conf.d/default.conf"}}{{.Source}}{{end}}{{end}}' "$nginx_id")"
           test -n "$config_source"
           test -f "$config_source"
+          echo "nginx_config_source=$config_source"
+          grep -E '^[[:space:]]*(upstream|proxy_pass)' "$config_source" | sed 's/^/nginx_route=/'
+
+          ss -ltnp '( sport = :3000 )' 2>/dev/null | sed 's/^/host_listen_3000=/' || true
+
+          docker exec "$node_id" node -e 'fetch("http://127.0.0.1:3000/api/build-info",{signal:AbortSignal.timeout(3000)}).then(r=>r.text()).then(t=>console.log("node_container_build="+t)).catch(e=>console.log("node_container_build_error="+e.message))'
+          docker exec "$node_id" node -e 'fetch("http://nginx:80/api/build-info",{signal:AbortSignal.timeout(3000)}).then(r=>r.text()).then(t=>console.log("nginx_service_build="+t)).catch(e=>console.log("nginx_service_build_error="+e.message))'
 
           python3 - "$config_source" <<'PY'
           import re, sys
@@ -73,4 +84,7 @@ jobs:
 
           curl -fsS --connect-timeout 2 --max-time 5 http://127.0.0.1:3000/api/build-info \
             | python3 -c 'import json,sys; d=json.load(sys.stdin); print("public_git_sha="+str(d.get("git_sha") or "")); print("public_deploy_mode="+str(d.get("deploy_mode") or ""))'
+          curl -fsS --connect-timeout 2 --max-time 5 "http://${ECS_PUBLIC_HOST}:3000/api/build-info" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("ecs_public_ip_git_sha="+str(d.get("git_sha") or "")); print("ecs_public_ip_deploy_mode="+str(d.get("deploy_mode") or ""))' \
+            || echo 'ecs_public_ip_build_probe=unavailable'
           REMOTE
