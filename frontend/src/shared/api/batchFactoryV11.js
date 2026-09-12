@@ -1,4 +1,3 @@
-import { listAvailableModels } from './modelCatalog.js';
 import { apiRequest } from './client.js';
 
 const BASE = '/api/batch-factory/v11';
@@ -74,7 +73,12 @@ export function getCapabilities() {
 }
 
 export function listConfiguredModels(kind) {
-  return listAvailableModels(kind);
+  const safeKind = String(kind || '').trim();
+  if (!['text', 'image', 'video'].includes(safeKind)) {
+    return Promise.reject(new Error('模型类型无效'));
+  }
+  return apiRequest(`/api/models?kind=${encodeURIComponent(safeKind)}`)
+    .then(result => Array.isArray(result?.models) ? result.models : []);
 }
 
 export function createNovelFetchIntake(payload) {
