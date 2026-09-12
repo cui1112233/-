@@ -209,6 +209,17 @@ export function getProductionStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/status`));
 }
 
+export function submitBookMerge(batchId, bookId, requestId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge`), {
+    method: 'POST',
+    body: body({ ...payload, requestId })
+  });
+}
+
+export function getBookMergeStatus(batchId, bookId, requestId) {
+  return apiRequest(`${bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge-status`)}${query({ requestId })}`);
+}
+
 export function submitBatchMerge(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/merge`), {
     method: 'POST',
@@ -279,6 +290,8 @@ export default {
   getProductionStatus,
   getProductionMediaBlob,
   isProtectedProductionMediaURL,
+  submitBookMerge,
+  getBookMergeStatus,
   submitBatchMerge,
   getMergeStatus,
   getPublishCredential,
