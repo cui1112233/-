@@ -81,6 +81,10 @@ export function listConfiguredModels(kind) {
     .then(result => Array.isArray(result?.models) ? result.models : []);
 }
 
+export function generateConfiguredImage(payload = {}) {
+  return apiRequest(bf11Path('image-generation'), { method: 'POST', body: body(payload) });
+}
+
 export function createNovelFetchIntake(payload) {
   return apiRequest(bf11Path('intakes/novel-fetch'), { method: 'POST', body: body(payload) });
 }
@@ -268,6 +272,7 @@ export function getPublishAudits(provider, intentId) {
 export default {
   getCapabilities,
   listConfiguredModels,
+  generateConfiguredImage,
   createNovelFetchIntake,
   getIntake,
   createBatchFromIntake,
