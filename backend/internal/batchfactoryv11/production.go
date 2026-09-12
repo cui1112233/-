@@ -31,6 +31,7 @@ type ProviderTaskRef struct {
 type ProductionTask struct {
 	ID              string          `json:"id"`
 	VideoID         string          `json:"videoId"`
+	ShotID          string          `json:"shotId"`
 	Provider        string          `json:"provider,omitempty"`
 	Status          ProductionState `json:"status"`
 	Attempt         int             `json:"attempt"`
@@ -65,12 +66,14 @@ type PromptResolver interface {
 	Compile(context.Context, string, string, string, string) (FinalPrompt, error)
 }
 
+type ShotPromptResolver interface {
+	CompileShot(context.Context, string, string, string, string, string) (FinalPrompt, error)
+}
+
 type ProductionAdapter interface {
 	Submit(context.Context, FrozenVideoModel, FinalPrompt) (ProviderTaskRef, error)
 }
 
-// ProductionRepository is separate from the general Store so that previous V11
-// slices do not accidentally gain mutable production authority.
 type ProductionRepository interface {
 	FindProductionJob(context.Context, string, string, string, string) (ProductionJob, error)
 	CreateProductionJob(context.Context, ProductionJob) (ProductionJob, error)
@@ -102,8 +105,6 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 			return nil, FrozenVideoModel{}, err
 		}
 		model := s.Model
-		// The local executor has its own Doubao model identity; never inherit
-		// the personal Yadi model from static server configuration.
 		model.ID = "doubao-seedance"
 		if model.MaxDuration <= 0 {
 			model.MaxDuration = 15
@@ -193,12 +194,19 @@ func normalizeProductionState(value ProductionState) ProductionState {
 	}
 }
 
+func (s *ProductionService) compileShot(ctx context.Context, owner, batchID, bookID, videoID, shotID string) (FinalPrompt, error) {
+	resolver, ok := s.Compiler.(ShotPromptResolver)
+	if !ok {
+		return FinalPrompt{}, fmt.Errorf("%w: shot-scoped prompt compiler is required", ErrUnavailable)
+	}
+	return resolver.CompileShot(ctx, owner, batchID, bookID, videoID, shotID)
+}
+
 func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, batchID, bookID, requestID string) (ProductionJob, error) {
 	return s.SubmitBookProductionWithProvider(ctx, owner, batchID, bookID, requestID, VideoProviderPersonalAPI)
 }
 
 func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context, owner, batchID, bookID, requestID, provider string) (ProductionJob, error) {
-	// The gate deliberately comes before repository/compiler/provider work.
 	if s == nil || !s.Enabled {
 		return ProductionJob{}, fmt.Errorf("%w: production is not enabled", ErrUnavailable)
 	}
@@ -244,36 +252,56 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 	if len(book.Videos) == 0 {
 		return ProductionJob{}, fmt.Errorf("%w: no active VIDEOs to produce", ErrConflict)
 	}
+
 	priorJobs, err := repository.ListProductionJobs(ctx, owner, batchID)
 	if err != nil {
 		return ProductionJob{}, err
 	}
-	blockedVideos := map[string]bool{}
+	blockedShots := map[string]bool{}
+	legacyBlockedVideos := map[string]bool{}
 	for _, prior := range priorJobs {
 		if prior.BookID != bookID || prior.DirectorRevisionID != book.DirectorRevision.ID {
 			continue
 		}
 		for _, task := range prior.Tasks {
-			if task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded {
-				blockedVideos[task.VideoID] = true
+			if task.Status != ProductionQueued && task.Status != ProductionRunning && task.Status != ProductionSucceeded {
+				continue
+			}
+			if strings.TrimSpace(task.ShotID) != "" {
+				blockedShots[task.ShotID] = true
+			} else {
+				legacyBlockedVideos[task.VideoID] = true
 			}
 		}
 	}
-	pendingVideos := make([]Video, 0, len(book.Videos))
+
+	type shotWork struct {
+		Video Video
+		Shot  Shot
+	}
+	pending := []shotWork{}
 	for _, video := range book.Videos {
-		if !blockedVideos[video.ID] {
-			pendingVideos = append(pendingVideos, video)
+		if legacyBlockedVideos[video.ID] {
+			continue
+		}
+		if len(video.Shots) == 0 {
+			return ProductionJob{}, fmt.Errorf("%w: VIDEO %s has no production shots", ErrConflict, video.ID)
+		}
+		for _, shot := range video.Shots {
+			if !blockedShots[shot.ID] {
+				pending = append(pending, shotWork{Video: video, Shot: shot})
+			}
 		}
 	}
-	if len(pendingVideos) == 0 {
-		return ProductionJob{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict)
+	if len(pending) == 0 {
+		return ProductionJob{}, fmt.Errorf("%w: no pending Shots to produce", ErrConflict)
 	}
 
 	now := time.Now().UTC()
 	job := ProductionJob{ID: "", Owner: owner, BatchID: batchID, BookID: bookID, RequestID: requestID, DirectorRevisionID: book.DirectorRevision.ID, Status: ProductionQueued, Tasks: []ProductionTask{}, CreatedAt: now, UpdatedAt: now}
-	prompts := make(map[string]FinalPrompt, len(pendingVideos))
-	for _, video := range pendingVideos {
-		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
+	prompts := make(map[string]FinalPrompt, len(pending))
+	for _, work := range pending {
+		prompt, compileErr := s.compileShot(ctx, owner, batchID, bookID, work.Video.ID, work.Shot.ID)
 		if compileErr != nil {
 			return ProductionJob{}, compileErr
 		}
@@ -281,8 +309,12 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 		if selectedModel != "" && selectedModel != model.ID {
 			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
 		}
-		prompts[video.ID] = prompt
-		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, CreatedAt: now, UpdatedAt: now})
+		prompts[work.Shot.ID] = prompt
+		job.Tasks = append(job.Tasks, ProductionTask{
+			VideoID: work.Video.ID, ShotID: work.Shot.ID, Provider: provider,
+			Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash,
+			CompiledPrompt: prompt.CompiledPrompt, CreatedAt: now, UpdatedAt: now,
+		})
 	}
 	job, err = repository.CreateProductionJob(ctx, job)
 	if err != nil {
@@ -290,20 +322,20 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 	}
 
 	for _, task := range job.Tasks {
-		prompt, ok := prompts[task.VideoID]
+		prompt, ok := prompts[task.ShotID]
 		if !ok {
-			return ProductionJob{}, fmt.Errorf("%w: persisted task prompt is missing", ErrConflict)
+			return ProductionJob{}, fmt.Errorf("%w: persisted shot prompt is missing", ErrConflict)
 		}
 		var ref ProviderTaskRef
 		var submitErr error
 		if provider == VideoProviderDoubaoLocal {
 			ref, submitErr = s.LocalExecutor.Submit(ctx, owner, LocalVideoJobInput{
-				SourceTaskID: "bf11:" + batchID + ":" + bookID + ":" + task.VideoID,
-				BatchID:      batchID, BookID: bookID, VideoID: task.VideoID,
-				Model: model.ID, Prompt: prompt.CompiledPrompt,
-				Duration:    prompt.DurationSeconds,
+				SourceTaskID: "bf11:" + batchID + ":" + bookID + ":" + task.VideoID + ":" + task.ShotID,
+				BatchID: batchID, BookID: bookID, VideoID: task.VideoID, ShotID: task.ShotID,
+				Model: model.ID, Prompt: prompt.CompiledPrompt, ReferenceImages: append([]string(nil), prompt.ReferenceImages...),
+				Duration: prompt.DurationSeconds,
 				AspectRatio: rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
-				Resolution:  rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
+				Resolution: rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
 			})
 		} else {
 			ref, submitErr = adapter.Submit(ctx, model, prompt)
@@ -312,7 +344,9 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 		if submitErr != nil {
 			task.Status, task.ErrorMessage = ProductionFailed, productionError(submitErr)
 		} else {
-			task.Status, task.ProviderTaskID, task.MediaURL = normalizeProductionState(ref.State), strings.TrimSpace(ref.ProviderTaskID), strings.TrimSpace(ref.MediaURL)
+			task.Status = normalizeProductionState(ref.State)
+			task.ProviderTaskID = strings.TrimSpace(ref.ProviderTaskID)
+			task.MediaURL = strings.TrimSpace(ref.MediaURL)
 		}
 		updated, updateErr := repository.UpdateProductionTask(ctx, owner, job.ID, task.ID, task)
 		if updateErr != nil {
@@ -323,9 +357,6 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 	return job, nil
 }
 
-// SubmitBatchProduction is the "generate pending" operation. It submits only
-// current Director VIDEO identities that have no queued, running, or succeeded
-// task, so a repeated batch-button click cannot duplicate successful work.
 func (s *ProductionService) SubmitBatchProduction(ctx context.Context, owner, batchID, requestID string) (BatchStatus, error) {
 	return s.SubmitBatchProductionWithProvider(ctx, owner, batchID, requestID, VideoProviderPersonalAPI)
 }
@@ -364,7 +395,7 @@ func (s *ProductionService) SubmitBatchProductionWithProvider(ctx context.Contex
 		return BatchStatus{}, err
 	}
 	if !submitted && len(status.Jobs) == 0 {
-		return BatchStatus{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict)
+		return BatchStatus{}, fmt.Errorf("%w: no pending Shots to produce", ErrConflict)
 	}
 	return status, nil
 }
@@ -414,9 +445,7 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 				}
 			} else if s.ProviderRegistry != nil {
 				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
-				if resolveErr != nil && s.Poller != nil {
-					ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
-				} else if resolveErr != nil {
+				if resolveErr != nil {
 					pollErr = resolveErr
 				} else if poller, ok := adapter.(ProductionPoller); !ok {
 					pollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
@@ -430,8 +459,6 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 			}
 			updated := task
 			if pollErr != nil {
-				// A transport failure is retryable; persist a bounded diagnostic while
-				// keeping the task running so a later status read can recover it.
 				updated.ErrorMessage = productionError(pollErr)
 			} else {
 				updated.Status = normalizeProductionState(ref.State)

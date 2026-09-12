@@ -72,6 +72,25 @@ export function getCapabilities() {
   return apiRequest(bf11Path('capabilities'));
 }
 
+export function listConfiguredModels(kind) {
+  const safeKind = String(kind || '').trim();
+  if (!['text', 'image', 'video'].includes(safeKind)) {
+    return Promise.reject(new Error('模型类型无效'));
+  }
+  return apiRequest(`/api/models?kind=${encodeURIComponent(safeKind)}`)
+    .then(result => Array.isArray(result?.models) ? result.models : []);
+}
+
+export function saveShotVisualImage(batchId, bookId, videoId, shotId, imageUrl) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/shots/${id(shotId)}/visual-image`), {
+    method: 'PUT', body: body({ imageUrl })
+  });
+}
+
+export function generateConfiguredImage(payload = {}) {
+  return apiRequest(bf11Path('image-generation'), { method: 'POST', body: body(payload) });
+}
+
 export function createNovelFetchIntake(payload) {
   return apiRequest(bf11Path('intakes/novel-fetch'), { method: 'POST', body: body(payload) });
 }
@@ -156,8 +175,8 @@ export function approveHook(batchId, bookId, hookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/hooks/${id(hookId)}/approve`), { method: 'POST', body: body({}) });
 }
 
-export function runDirector(batchId, bookId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body({}) });
+export function runDirector(batchId, bookId, textModelId = '') {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body(textModelId ? { textModelId } : {}) });
 }
 
 export function runBatchDirector(batchId) {
@@ -168,21 +187,22 @@ export function getEffectiveSettings(batchId, bookId, videoId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/effective-settings`));
 }
 
-export function getFinalPrompt(batchId, bookId, videoId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
+export function getFinalPrompt(batchId, bookId, videoId, shotId = '') {
+  const path = bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`);
+  return apiRequest(`${path}${query({ shotId })}`);
 }
 
-export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api') {
+export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api', videoModelId = '') {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/production`), {
     method: 'POST',
-    body: body({ requestId, provider })
+    body: body({ requestId, provider, ...(videoModelId ? { videoModelId } : {}) })
   });
 }
 
-export function submitBatchProduction(batchId, requestId, provider = 'personal_api') {
+export function submitBatchProduction(batchId, requestId, provider = 'personal_api', videoModelId = '') {
   return apiRequest(bf11Path(`batches/${id(batchId)}/production`), {
     method: 'POST',
-    body: body({ requestId, provider })
+    body: body({ requestId, provider, ...(videoModelId ? { videoModelId } : {}) })
   });
 }
 
@@ -207,6 +227,17 @@ export function createLocalExecutorPairing(platform = 'doubao') {
 
 export function getProductionStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/status`));
+}
+
+export function submitBookMerge(batchId, bookId, requestId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge`), {
+    method: 'POST',
+    body: body({ ...payload, requestId })
+  });
+}
+
+export function getBookMergeStatus(batchId, bookId, requestId) {
+  return apiRequest(`${bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge-status`)}${query({ requestId })}`);
 }
 
 export function submitBatchMerge(batchId, payload = {}) {
@@ -246,6 +277,9 @@ export function getPublishAudits(provider, intentId) {
 
 export default {
   getCapabilities,
+  listConfiguredModels,
+  generateConfiguredImage,
+  saveShotVisualImage,
   createNovelFetchIntake,
   getIntake,
   createBatchFromIntake,
@@ -279,6 +313,8 @@ export default {
   getProductionStatus,
   getProductionMediaBlob,
   isProtectedProductionMediaURL,
+  submitBookMerge,
+  getBookMergeStatus,
   submitBatchMerge,
   getMergeStatus,
   getPublishCredential,

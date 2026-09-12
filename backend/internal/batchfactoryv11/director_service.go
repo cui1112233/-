@@ -99,6 +99,21 @@ func (s *DirectorService) RunHook(ctx context.Context, owner, batchID, bookID st
 	return s.Store.CreateHookRevision(ctx, owner, batchID, bookID, strings.TrimSpace(text), sourceDigest(book.SourceText))
 }
 
+// RunHookWithProvider keeps the shared Director service safe for concurrent requests
+// while allowing the trusted V11 bridge to select a model from the API catalog.
+func (s *DirectorService) RunHookWithProvider(ctx context.Context, owner, batchID, bookID string, provider DirectorProvider) (HookRevision, error) {
+	copy := *s
+	copy.Provider = provider
+	return copy.RunHook(ctx, owner, batchID, bookID)
+}
+
+// RunDirectorWithProvider is the per-request counterpart used by the trusted V11 bridge.
+func (s *DirectorService) RunDirectorWithProvider(ctx context.Context, owner, batchID, bookID string, provider DirectorProvider) (DirectorRevision, error) {
+	copy := *s
+	copy.Provider = provider
+	return copy.RunDirector(ctx, owner, batchID, bookID)
+}
+
 func (s *DirectorService) ApproveHook(ctx context.Context, owner, batchID, bookID, hookID string) (HookRevision, error) {
 	if err := s.validate(); err != nil { return HookRevision{}, err }
 	return s.Store.ApproveHookRevision(ctx, owner, batchID, bookID, hookID)
@@ -127,6 +142,13 @@ func (s *DirectorService) RunDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil { return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err) }
 	result, err := NormalizeDirectorOutput(raw, contract.Normalization)
 	if err != nil { return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err) }
-	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, sourceDigest(book.SourceText), hook.ID, result)
+	revision, err := s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, sourceDigest(book.SourceText), hook.ID, result)
+	if err != nil { return DirectorRevision{}, err }
+	revision.Videos = hydrateVideosFromDirector(revision.Videos, revision.Output)
+	if readback, ok := s.Store.(directorShotReadbackStore); ok {
+		if err := readback.SaveDirectorShotReadback(ctx, owner, batchID, bookID, revision); err != nil {
+			return DirectorRevision{}, err
+		}
+	}
+	return revision, nil
 }
-

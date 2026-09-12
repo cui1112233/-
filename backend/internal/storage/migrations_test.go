@@ -44,13 +44,22 @@ func TestChecksumStableAcrossWhitespace(t *testing.T) {
 
 func TestAppMigrationsIncludesV11Migrations(t *testing.T) {
 	migrations := AppMigrations()
-	want := append(append([]Migration(nil), V11Migrations()...), LocalExecutorMigrations()...)
+	want := append([]Migration(nil), V11Migrations()...)
+	want = append(want, V11ShotProductionMigrations()...)
+	want = append(want, V11MergeHierarchyMigrations()...)
+	want = append(want, LocalExecutorMigrations()...)
 	if len(migrations) != len(want) {
 		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(want))
 	}
-	for i, migration := range migrations {
-		if migration.Version != want[i].Version {
-			t.Fatalf("migration[%d]=%d, want %d", i, migration.Version, want[i].Version)
+	// RunMigrations sorts by version before execution. AppMigrations itself is
+	// checked as the registered set, not as a hand-sorted migration plan.
+	seen := map[int]bool{}
+	for _, migration := range migrations {
+		seen[migration.Version] = true
+	}
+	for _, expected := range want {
+		if !seen[expected.Version] {
+			t.Fatalf("missing migration version %d", expected.Version)
 		}
 	}
 }

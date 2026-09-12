@@ -19,23 +19,25 @@ type Source struct {
 }
 
 type SubmitRequest struct {
-	BatchID    string   `json:"batchId"`
-	Sources    []Source `json:"sources"`
-	TimingMode string   `json:"timingMode,omitempty"`
-	Speed      float64  `json:"speed,omitempty"`
-	TTSSpeed   float64  `json:"ttsSpeed,omitempty"`
+	BatchID              string   `json:"batchId"`
+	Sources              []Source `json:"sources"`
+	TimingMode           string   `json:"timingMode,omitempty"`
+	Speed                float64  `json:"speed,omitempty"`
+	TTSSpeed             float64  `json:"ttsSpeed,omitempty"`
+	AudioDurationSeconds float64  `json:"audioDurationSeconds,omitempty"`
 }
 
 type Job struct {
-	ID           string   `json:"taskId"`
-	BatchID      string   `json:"batchId"`
-	Status       State    `json:"status"`
-	Sources      []Source `json:"sources,omitempty"`
-	TimingMode   string   `json:"timingMode,omitempty"`
-	Speed        float64  `json:"speed,omitempty"`
-	TTSSpeed     float64  `json:"ttsSpeed,omitempty"`
-	OutputURL    string   `json:"outputUrl,omitempty"`
-	ErrorMessage string   `json:"errorMessage,omitempty"`
-	CreatedAt    time.Time `json:"createdAt,omitempty"`
-	UpdatedAt    time.Time `json:"updatedAt,omitempty"`
+	ID                   string    `json:"taskId"`
+	BatchID              string    `json:"batchId"`
+	Status               State     `json:"status"`
+	Sources              []Source  `json:"sources,omitempty"`
+	TimingMode           string    `json:"timingMode,omitempty"`
+	Speed                float64   `json:"speed,omitempty"`
+	TTSSpeed             float64   `json:"ttsSpeed,omitempty"`
+	AudioDurationSeconds float64   `json:"audioDurationSeconds,omitempty"`
+	OutputURL            string    `json:"outputUrl,omitempty"`
+	ErrorMessage         string    `json:"errorMessage,omitempty"`
+	CreatedAt            time.Time `json:"createdAt,omitempty"`
+	UpdatedAt            time.Time `json:"updatedAt,omitempty"`
 }

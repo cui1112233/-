@@ -47,13 +47,41 @@ type SettingsResult struct {
 	Snapshot *ConfigSnapshot `json:"snapshot,omitempty"`
 }
 
+// Shot is the smallest independently generated video unit in Batch Factory V11.
+// A VIDEO may contain one or more Shots. Shot media is kept independently so a
+// failed Shot can be retried without regenerating successful sibling Shots.
+type Shot struct {
+	ID                    string   `json:"id"`
+	BatchID               string   `json:"batchId"`
+	BookID                string   `json:"bookId"`
+	VideoID               string   `json:"videoId"`
+	Order                 int      `json:"order"`
+	StartSeconds          float64  `json:"startSeconds"`
+	EndSeconds            float64  `json:"endSeconds"`
+	TargetDurationSeconds float64  `json:"targetDurationSeconds"`
+	ActualDurationSeconds float64  `json:"actualDurationSeconds,omitempty"`
+	ShotType              string   `json:"shotType,omitempty"`
+	Camera                string   `json:"camera,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	CharacterRefs         []string `json:"characterRefs,omitempty"`
+	SceneRefs             []string `json:"sceneRefs,omitempty"`
+	PropRefs              []string `json:"propRefs,omitempty"`
+	VisualPrompt          string   `json:"visualPrompt,omitempty"`
+	VideoPrompt           string   `json:"videoPrompt,omitempty"`
+	VisualImageURL        string   `json:"visualImageUrl,omitempty"`
+	VideoURL              string   `json:"videoUrl,omitempty"`
+	Status                string   `json:"status"`
+}
+
 type Video struct {
 	ID                 string        `json:"id"`
 	BatchID            string        `json:"batchId"`
 	BookID             string        `json:"bookId"`
 	Label              string        `json:"label,omitempty"`
 	VisualPrompt       string        `json:"visualPrompt,omitempty"`
+	VideoPrompt        string        `json:"videoPrompt,omitempty"`
 	DurationSeconds    float64       `json:"durationSeconds,omitempty"`
+	Shots              []Shot        `json:"shots"`
 	CompatibilityState string        `json:"compatibilityState"`
 	Revision           int64         `json:"revision"`
 	SettingsState      SettingsState `json:"settingsState"`
@@ -240,4 +268,5 @@ type Store interface {
 	ApproveHookRevision(context.Context, string, string, string, string) (HookRevision, error)
 	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)
 	PersistDirectorRevision(context.Context, string, Book, DirectorSnapshot, string, string, DirectorResult) (DirectorRevision, error)
+	UpdateShotVisualImage(context.Context, string, string, string, string, string, string) error
 }

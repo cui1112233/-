@@ -48,6 +48,7 @@ func (s *ReadbackMySQLStore) hydrateSettingsState(ctx context.Context, owner str
 			return Batch{}, err
 		}
 		if revision, err := loadLatestDirectorRevision(ctx, s.db, owner, batch.ID, book.ID); err == nil {
+			book.Videos = hydrateVideosFromDirector(book.Videos, revision.Output)
 			revision.Videos = append([]Video(nil), book.Videos...)
 			book.DirectorRevision = &revision
 			book.Assets = DirectorAssets{Characters: revision.Output.Characters, Scenes: revision.Output.Scenes, Props: revision.Output.Props}

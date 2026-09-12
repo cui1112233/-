@@ -20,6 +20,14 @@ test('source updates use the book-owned V11 route', () => {
   assert.match(String(batchFactoryV11.updateBookSource), /books\/\$\{id\(bookId\)\}\/source/);
 });
 
+test('per-book merge client never falls back to legacy batch merge routes', () => {
+  assert.equal(typeof batchFactoryV11.submitBookMerge, 'function');
+  assert.equal(typeof batchFactoryV11.getBookMergeStatus, 'function');
+  assert.match(String(batchFactoryV11.submitBookMerge), /books\/\$\{id\(bookId\)\}\/merge/);
+  assert.match(String(batchFactoryV11.getBookMergeStatus), /books\/\$\{id\(bookId\)\}\/merge-status/);
+  assert.match(String(batchFactoryV11.getBookMergeStatus), /requestId/);
+});
+
 test('unsupported scope fails instead of falling back to a legacy API', () => {
   assert.throws(() => bf11ScopePath({ scope: 'project', batchId: 'b1' }), /Unsupported V11 scope/);
 });

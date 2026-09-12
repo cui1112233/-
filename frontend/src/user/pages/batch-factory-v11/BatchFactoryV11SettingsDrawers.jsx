@@ -21,19 +21,21 @@ const full = { width: '100%' };
 const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
 const VIDEO_PROVIDERS = [
-  { value: 'personal_api', label: '个人中心 API · yd2.0-mini' },
-  { value: 'doubao_local_executor', label: '豆包本地执行器' },
-  { value: 'autodl_comfyui', label: 'AutoDL · MiniMax H3（自动文生/图生）' }
+  { value: 'personal_api', label: 'API 配置模型' },
+  { value: 'doubao_local_executor', label: '本地执行器模型' },
+  { value: 'autodl_comfyui', label: 'API 配置模型' }
 ];
 
-const VIDEO_MODELS = [
-  { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
-  { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
-  { value: 'minimax-h3-video', label: 'AutoDL · MiniMax H3 · 最大 15s' },
-  { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
-  { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
-  { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
-];
+function configuredModelOptions(models = []) {
+  return (Array.isArray(models) ? models : [])
+    .filter(model => model?.enabled !== false)
+    .map(model => ({
+      value: model.id || model.modelId,
+      label: model.displayName || model.name || model.modelId || model.id
+    }))
+    .filter(option => option.value);
+}
+
 
 function SettingField({ label, description, children }) {
   return <div className="bf11-setting-field">
@@ -60,6 +62,7 @@ export function ProductionSettingsDrawer({
   onSaveDraft,
   onSavePersonalPrompt,
   videoProviders = {},
+  apiModels = {},
   localExecutors = [],
   onCreateLocalExecutorPairing
 }) {
@@ -73,6 +76,9 @@ export function ProductionSettingsDrawer({
   const impactRequestRef = useRef(0);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingSecret, setPairingSecret] = useState(null);
+  const configuredTextModels = useMemo(() => configuredModelOptions(apiModels.text), [apiModels.text]);
+  const configuredImageModels = useMemo(() => configuredModelOptions(apiModels.image), [apiModels.image]);
+  const configuredVideoModels = useMemo(() => configuredModelOptions(apiModels.video), [apiModels.video]);
 
   useEffect(() => {
     if (impactTimerRef.current) {
@@ -285,6 +291,28 @@ export function ProductionSettingsDrawer({
           />
         </SettingField>
 
+        <SettingField label="文本模型" description="Director / Hook 只使用 API 配置中已启用的文本模型。">
+          <Select
+            allowClear
+            placeholder="继承系统文本模型"
+            value={form.textModelId}
+            onChange={textModelId => patch({ textModelId })}
+            options={configuredTextModels}
+            style={full}
+          />
+        </SettingField>
+
+        <SettingField label="图片模型" description="人物、场景、道具和画面图生成使用 API 配置中已启用的图片模型。">
+          <Select
+            allowClear
+            placeholder="继承系统图片模型"
+            value={form.imageModelId}
+            onChange={imageModelId => patch({ imageModelId })}
+            options={configuredImageModels}
+            style={full}
+          />
+        </SettingField>
+
         <SettingField label="视频生成通道" description="默认使用个人中心 API；选择豆包本地执行器后，任务会交给你已配对且在线的本地电脑执行。">
           <Space direction="vertical" style={full} size={8}>
             <Select
@@ -323,13 +351,14 @@ export function ProductionSettingsDrawer({
             allowClear
             placeholder="继承系统模型"
             value={form.videoModelId}
-            onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS.filter(option => {
-              const provider = form.videoProvider || 'personal_api';
-              if (provider === 'doubao_local_executor') return option.value === 'doubao-seedance';
-              if (provider === 'autodl_comfyui') return option.value === 'minimax-h3-video';
-              return option.value === 'yd2.0-mini';
-            })}
+            onChange={videoModelId => {
+              const selected = (apiModels.video || []).find(model => (model.id || model.modelId) === videoModelId);
+              const videoProvider = selected?.adapterKind === 'local_executor_video'
+                ? 'doubao_local_executor'
+                : selected?.adapterKind === 'autodl_comfyui_video' ? 'autodl_comfyui' : 'personal_api';
+              patch({ videoModelId, videoProvider });
+            }}
+            options={configuredVideoModels}
           />
         </SettingField>
 

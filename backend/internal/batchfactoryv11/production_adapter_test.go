@@ -12,7 +12,7 @@ import (
 
 func testAdapterURL(raw string) (*url.URL, error) { return url.Parse(raw) }
 
-func TestHTTPVideoAdapterSubmitsFrozenPromptAndReadsTaskID(t *testing.T) {
+func TestHTTPVideoAdapterSubmitsFrozenPromptAndReferenceImages(t *testing.T) {
 	var received map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer secret" {
@@ -23,14 +23,21 @@ func TestHTTPVideoAdapterSubmitsFrozenPromptAndReadsTaskID(t *testing.T) {
 	}))
 	defer server.Close()
 	adapter := &HTTPVideoAdapter{Endpoint: server.URL, APIKey: "secret", Model: "video-v1", Client: server.Client(), ValidateURL: testAdapterURL}
-	prompt := FinalPrompt{CompiledPrompt: "人物：林晚\n画幅 9:16；时长 8 秒", EffectiveSettings: EffectiveSettings{Values: SettingsPatch{
-		"duration": json.RawMessage(`8`), "aspectRatio": json.RawMessage(`"9:16"`),
-	}}}
+	prompt := FinalPrompt{
+		CompiledPrompt: "人物：林晚\n画幅 9:16；时长 6 秒",
+		DurationSeconds: 6,
+		ReferenceImages: []string{"https://assets.example/shot.png", "https://assets.example/character.png"},
+		EffectiveSettings: EffectiveSettings{Values: SettingsPatch{"aspectRatio": json.RawMessage(`"9:16"`)}},
+	}
 	ref, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: "video-v1", MaxDuration: 15}, prompt)
 	if err != nil { t.Fatal(err) }
 	if ref.ProviderTaskID != "task-1" || ref.State != ProductionQueued { t.Fatalf("ref=%+v", ref) }
-	if received["model"] != "video-v1" || received["prompt"] != prompt.CompiledPrompt || received["duration"] != float64(8) || received["aspectRatio"] != "9:16" {
+	if received["model"] != "video-v1" || received["prompt"] != prompt.CompiledPrompt || received["duration"] != float64(6) || received["aspectRatio"] != "9:16" {
 		t.Fatalf("payload=%+v", received)
+	}
+	refs, ok := received["referenceImages"].([]any)
+	if !ok || len(refs) != 2 || refs[0] != "https://assets.example/shot.png" || refs[1] != "https://assets.example/character.png" {
+		t.Fatalf("referenceImages=%#v payload=%+v", received["referenceImages"], received)
 	}
 }
 

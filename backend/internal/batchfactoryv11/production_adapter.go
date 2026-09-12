@@ -12,9 +12,6 @@ import (
 	"time"
 )
 
-// HTTPVideoAdapter is the one server-side video provider adapter used by V11.
-// Its wire format is intentionally small and provider-neutral; a provider can
-// expose a compatible endpoint without reintroducing the legacy Node route.
 type HTTPVideoAdapter struct {
 	Endpoint     string
 	PollEndpoint string
@@ -91,6 +88,21 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 	}
 	if resolution := rawString(values, "resolution", ""); resolution != "" {
 		payload["resolution"] = resolution
+	}
+	if len(prompt.ReferenceImages) > 0 {
+		referenceImages := make([]string, 0, len(prompt.ReferenceImages))
+		for _, image := range prompt.ReferenceImages {
+			image = strings.TrimSpace(image)
+			if image == "" {
+				return ProviderTaskRef{}, fmt.Errorf("video provider reference image URL is empty")
+			}
+			parsed, err := a.validatedURL(image)
+			if err != nil {
+				return ProviderTaskRef{}, fmt.Errorf("invalid video provider reference image URL: %w", err)
+			}
+			referenceImages = append(referenceImages, parsed.String())
+		}
+		payload["referenceImages"] = referenceImages
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

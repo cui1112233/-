@@ -55,6 +55,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
       - name: Run V11 frontend tests
-        run: node --test src/user/pages/batch-factory-v11/*.test.js
+        run: node --test src/user/pages/batch-factory-v11/*.test.js src/shared/api/batchFactoryV11.test.js
       - name: Build frontend
         run: npm run build

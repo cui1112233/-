@@ -10,41 +10,57 @@ import (
 
 type MergeState string
 
+type MergeStage string
+
 const (
 	MergeQueued    MergeState = "queued"
 	MergeRunning   MergeState = "running"
 	MergeSucceeded MergeState = "succeeded"
 	MergeFailed    MergeState = "failed"
+
+	MergeStageVideo MergeStage = "video"
+	MergeStageBook  MergeStage = "book"
 )
 
 type MergeMedia struct {
 	ProductionJobID string `json:"productionJobId"`
+	BookID          string `json:"bookId,omitempty"`
 	VideoID         string `json:"videoId"`
+	ShotID          string `json:"shotId,omitempty"`
 	MediaURL        string `json:"mediaUrl"`
 	// URL is an internal compatibility alias for older V11 consumers. It is
 	// deliberately excluded from the provider JSON contract.
-	URL             string `json:"-"`
-	Order           int    `json:"order"`
+	URL   string `json:"-"`
+	Order int    `json:"order"`
 }
 
 type MergeOptions struct {
-	TimingMode string  `json:"timingMode,omitempty"`
-	Speed      float64 `json:"speed,omitempty"`
-	TTSSpeed   float64 `json:"ttsSpeed,omitempty"`
+	TimingMode           string  `json:"timingMode,omitempty"`
+	Speed                float64 `json:"speed,omitempty"`
+	TTSSpeed             float64 `json:"ttsSpeed,omitempty"`
+	AudioDurationSeconds float64 `json:"audioDurationSeconds,omitempty"`
 }
 
 type MergeJob struct {
-	ID             string       `json:"id"`
-	Owner          string       `json:"-"`
-	BatchID        string       `json:"batchId"`
-	RequestID      string       `json:"requestId"`
-	ProviderTaskID string       `json:"providerTaskId,omitempty"`
-	Status         MergeState   `json:"status"`
-	Sources        []MergeMedia `json:"sources"`
-	OutputURL      string       `json:"outputUrl,omitempty"`
-	ErrorMessage   string       `json:"errorMessage,omitempty"`
-	CreatedAt      time.Time    `json:"createdAt"`
-	UpdatedAt      time.Time    `json:"updatedAt"`
+	ID                   string       `json:"id"`
+	Owner                string       `json:"-"`
+	BatchID              string       `json:"batchId"`
+	RootRequestID        string       `json:"rootRequestId,omitempty"`
+	RequestID            string       `json:"requestId"`
+	BookID               string       `json:"bookId,omitempty"`
+	VideoID              string       `json:"videoId,omitempty"`
+	Stage                MergeStage   `json:"stage,omitempty"`
+	TimingMode           string       `json:"timingMode,omitempty"`
+	Speed                float64      `json:"speed,omitempty"`
+	TTSSpeed             float64      `json:"ttsSpeed,omitempty"`
+	AudioDurationSeconds float64      `json:"audioDurationSeconds,omitempty"`
+	ProviderTaskID       string       `json:"providerTaskId,omitempty"`
+	Status               MergeState   `json:"status"`
+	Sources              []MergeMedia `json:"sources"`
+	OutputURL            string       `json:"outputUrl,omitempty"`
+	ErrorMessage         string       `json:"errorMessage,omitempty"`
+	CreatedAt            time.Time    `json:"createdAt"`
+	UpdatedAt            time.Time    `json:"updatedAt"`
 }
 
 type MergeAdapter interface {
@@ -169,6 +185,7 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 			mediaURL := strings.TrimSpace(selection.Task.MediaURL)
 			sources = append(sources, MergeMedia{
 				ProductionJobID: selection.JobID,
+				BookID:          book.ID,
 				VideoID:         video.ID,
 				MediaURL:        mediaURL,
 				URL:             mediaURL,

@@ -14,14 +14,15 @@ import (
 )
 
 const defaultYadiFirstFrameURL = "https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png"
+const maxYadiReferenceImages = 3
 
 type YadiVideoAdapter struct {
-	CreateURL  string
-	TasksURL   string
-	ResultURL  string
-	APIKey     string
-	Model      string
-	Client     *http.Client
+	CreateURL   string
+	TasksURL    string
+	ResultURL   string
+	APIKey      string
+	Model       string
+	Client      *http.Client
 	ValidateURL func(string) (*url.URL, error)
 }
 
@@ -85,25 +86,20 @@ func (a *YadiVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 	}
 	aspectRatio := rawString(values, "aspectRatio", "9:16")
 	resolution := rawString(values, "resolution", "720p")
+	if len(prompt.ReferenceImages) > maxYadiReferenceImages {
+		return ProviderTaskRef{}, fmt.Errorf("personal video supports at most %d reference images", maxYadiReferenceImages)
+	}
 	imageURLs := []string{defaultYadiFirstFrameURL}
-	if raw := values["imageUrls"]; len(raw) > 0 {
-		var extra []string
-		if json.Unmarshal(raw, &extra) == nil {
-			if len(extra) > 3 {
-				return ProviderTaskRef{}, fmt.Errorf("personal video supports at most 3 reference images")
-			}
-			for _, item := range extra {
-				item = strings.TrimSpace(item)
-				if item == "" {
-					return ProviderTaskRef{}, fmt.Errorf("personal video reference image URL is empty")
-				}
-				parsed, err := a.validatedURL(item)
-				if err != nil {
-					return ProviderTaskRef{}, fmt.Errorf("invalid personal video reference image URL: %w", err)
-				}
-				imageURLs = append(imageURLs, parsed.String())
-			}
+	for _, item := range prompt.ReferenceImages {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return ProviderTaskRef{}, fmt.Errorf("personal video reference image URL is empty")
 		}
+		parsed, err := a.validatedURL(item)
+		if err != nil {
+			return ProviderTaskRef{}, fmt.Errorf("invalid personal video reference image URL: %w", err)
+		}
+		imageURLs = append(imageURLs, parsed.String())
 	}
 	payload := map[string]any{
 		"model":        a.Model,

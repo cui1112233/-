@@ -108,6 +108,16 @@ export function createBf11UiAdapter(api) {
       return api.createBatch(payload);
     },
 
+    async generateConfiguredImage(payload = {}) {
+      if (typeof api.generateConfiguredImage !== 'function') throw new Error('图片生成接口未接入');
+      return api.generateConfiguredImage(payload);
+    },
+
+    async saveShotVisualImage({ batchId, bookId, videoId, shotId, imageUrl } = {}) {
+      if (typeof api.saveShotVisualImage !== 'function') throw new Error('Shot 图片保存接口未接入');
+      return api.saveShotVisualImage(batchId, bookId, videoId, shotId, imageUrl);
+    },
+
     async saveDraft(payload = {}) {
       return api.saveDraft(payload);
     },
@@ -143,6 +153,13 @@ export function createBf11UiAdapter(api) {
         loadVideoProviderState(api)
       ]);
       const personalPromptState = await loadPersonalPrompts(api);
+      const modelKinds = ['text', 'image', 'video'];
+      const modelResults = await Promise.all(modelKinds.map(kind => (
+        typeof api.listConfiguredModels === 'function'
+          ? api.listConfiguredModels(kind).catch(() => [])
+          : Promise.resolve([])
+      )));
+      const apiModels = Object.fromEntries(modelKinds.map((kind, index) => [kind, Array.isArray(modelResults[index]) ? modelResults[index] : []]));
       const batches = batchesFrom(batchResult);
       const { configVersions, configVersionsError } = configVersionState;
       const selectedBatchId = batchId || batches[0]?.id || '';
@@ -165,6 +182,7 @@ export function createBf11UiAdapter(api) {
         intake: intakeResult?.intake || intakeResult || null,
         configVersions,
         configVersionsError,
+        apiModels,
         personalPrompts: personalPromptState.personalPrompts,
         personalPromptsError: personalPromptState.personalPromptsError,
         productionStatus: productionStatus?.batchId ? productionStatus : null,
@@ -204,9 +222,9 @@ export function createBf11UiAdapter(api) {
       return api.approveHook(batchId, bookId, hookId);
     },
 
-    async runDirector({ batchId, bookId } = {}) {
+    async runDirector({ batchId, bookId, textModelId = '' } = {}) {
       if (!batchId || !bookId) throw new Error('V11 Batch and Book ids are required');
-      return api.runDirector(batchId, bookId);
+      return textModelId ? api.runDirector(batchId, bookId, textModelId) : api.runDirector(batchId, bookId);
     },
 
     async runBatchDirector({ batchId } = {}) {
@@ -225,11 +243,13 @@ export function createBf11UiAdapter(api) {
       return api.updateBookSource(batchId, bookId, { sourceText, expectedRevision: revision });
     },
 
-    async previewFinalPrompt({ batchId, bookId, videoId } = {}) {
+    async previewFinalPrompt({ batchId, bookId, videoId, shotId = '' } = {}) {
       if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
       const [effectiveResult, promptResult] = await Promise.all([
         api.getEffectiveSettings(batchId, bookId, videoId),
-        api.getFinalPrompt(batchId, bookId, videoId)
+        shotId
+          ? api.getFinalPrompt(batchId, bookId, videoId, shotId)
+          : api.getFinalPrompt(batchId, bookId, videoId)
       ]);
       return {
         effectiveSettings: effectiveResult?.effectiveSettings || effectiveResult,
@@ -237,11 +257,15 @@ export function createBf11UiAdapter(api) {
       };
     },
 
-    async runProduction({ batchId, bookId = '', requestId, provider = 'personal_api' } = {}) {
+    async runProduction({ batchId, bookId = '', requestId, provider = 'personal_api', videoModelId = '' } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
       return bookId
-        ? api.submitBookProduction(batchId, bookId, requestId, provider)
-        : api.submitBatchProduction(batchId, requestId, provider);
+        ? (videoModelId
+          ? api.submitBookProduction(batchId, bookId, requestId, provider, videoModelId)
+          : api.submitBookProduction(batchId, bookId, requestId, provider))
+        : (videoModelId
+          ? api.submitBatchProduction(batchId, requestId, provider, videoModelId)
+          : api.submitBatchProduction(batchId, requestId, provider));
     },
 
     async saveVideoProviderConfig(payload = {}) {
@@ -264,8 +288,17 @@ export function createBf11UiAdapter(api) {
       return api.createLocalExecutorPairing(platform);
     },
 
-    async runMerge({ batchId, requestId, timingMode = 'speed', speed = 1, ttsSpeed = 1.7 } = {}) {
+    async runMerge({ batchId, bookId = '', requestId, timingMode = 'speed', speed = 1, ttsSpeed = 1.7, audioDurationSeconds = 0 } = {}) {
       if (!batchId || !requestId) throw new Error('V11 batch and request ids are required');
+      if (bookId) {
+        if (typeof api.submitBookMerge !== 'function') throw new Error('单本小说合并接口未接入');
+        return api.submitBookMerge(batchId, bookId, requestId, {
+          timingMode,
+          speed: Number(speed),
+          ttsSpeed: Number(ttsSpeed),
+          audioDurationSeconds: Number(audioDurationSeconds || 0)
+        });
+      }
       if (typeof api.submitBatchMerge !== 'function') throw new Error('批量合并接口未接入');
       return api.submitBatchMerge(batchId, { requestId, timingMode, speed: Number(speed), ttsSpeed: Number(ttsSpeed) });
     },

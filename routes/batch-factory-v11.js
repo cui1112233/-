@@ -1,5 +1,6 @@
 const express = require('express');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
+const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 
 const PERSONAL_PROVIDER = 'personal_api';
@@ -18,6 +19,10 @@ function normalizedProvider(value) {
   if (['doubao', 'doubao_local', 'doubao_local_executor'].includes(provider)) return LOCAL_PROVIDER;
   if (['h3', 'minimax_h3', 'minimax-h3-video', 'autodl', 'autodl_comfyui', 'autodl_comfyui_video'].includes(provider)) return H3_PROVIDER;
   return provider;
+}
+
+function isProductionPath(pathname) {
+  return /\\/batches\\/[^/]+(?:\\/books\\/[^/]+)?\\/production$/.test(pathname);
 }
 
 function providerFromRequest(req) {
@@ -50,7 +55,7 @@ function needsH3ConfigSync(req, pathname) {
 
 function personalApiKeyForUser(req) {
   const config = readConfig(req.username);
-  return getVideoApiKey(config, 'yd');
+  return req.v11RuntimeModel?.credential || getVideoApiKey(config, 'yd');
 }
 
 async function syncPersonalProviderConfig(req, options, { allowMissing = false } = {}) {
@@ -82,8 +87,9 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
     headers,
     body: JSON.stringify({
       provider: PERSONAL_PROVIDER,
-      model: PERSONAL_MODEL,
-      apiKey
+      model: options.runtimeModel?.modelId || PERSONAL_MODEL,
+      apiKey,
+      ...(options.runtimeModel?.baseUrl ? { createUrl: options.runtimeModel.baseUrl } : {})
     }),
     redirect: 'manual'
   });
@@ -97,7 +103,7 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
 }
 
 function h3ApiKeyForRequest(req, configReader = readConfig) {
-  const personalKey = getVideoApiKey(configReader(req.username), 'h3');
+  const personalKey = req.v11RuntimeModel?.credential || getVideoApiKey(configReader(req.username), 'h3');
   return personalKey || String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
 }
 
@@ -128,7 +134,7 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
   const response = await fetchImpl(base + CONFIG_PATH, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ provider: H3_PROVIDER, model: H3_MODEL, apiKey, createUrl: H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
+    body: JSON.stringify({ provider: H3_PROVIDER, model: options.runtimeModel?.modelId || H3_MODEL, apiKey, createUrl: options.runtimeModel?.baseUrl || H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
     redirect: 'manual'
   });
   if (!response || response.status < 200 || response.status >= 300) {
@@ -141,6 +147,31 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
 }
 
 async function prepareProviderRequest(req, options, pathname) {
+  if (/\\/batches\\/[^/]+(?:\\/books\\/[^/]+)?\\/(?:hook|director)$/.test(pathname) && req.body?.textModelId) {
+    req.v11TextRuntimeModel = resolveRuntimeModel({
+      username: req.username,
+      kind: 'text',
+      modelId: req.body.textModelId,
+      memberStore: options.memberStore,
+      configReader: options.configReader || readConfig
+    });
+  }
+  if (isProductionPath(pathname) && req.body?.videoModelId) {
+    const runtimeModel = resolveRuntimeModel({
+      username: req.username,
+      kind: 'video',
+      modelId: req.body.videoModelId,
+      memberStore: options.memberStore,
+      configReader: options.configReader || readConfig
+    });
+    req.v11RuntimeModel = runtimeModel;
+    const adapterProvider = runtimeModel.adapterKind === 'local_executor_video'
+      ? LOCAL_PROVIDER
+      : runtimeModel.adapterKind === 'autodl_comfyui_video'
+        ? H3_PROVIDER
+        : PERSONAL_PROVIDER;
+    req.body = { ...req.body, provider: adapterProvider, model: runtimeModel.modelId || runtimeModel.id };
+  }
   const provider = providerFromRequest(req);
   if (provider === LOCAL_PROVIDER) return;
   if (provider === H3_PROVIDER) {
@@ -164,7 +195,7 @@ async function prepareProviderRequest(req, options, pathname) {
       };
       return;
     }
-    await syncH3ProviderConfig(req, options, { allowMissing });
+    await syncH3ProviderConfig(req, { ...options, runtimeModel: req.v11RuntimeModel }, { allowMissing });
     return;
   }
   if (!needsPersonalConfigSync(req, pathname)) return;
@@ -186,11 +217,49 @@ async function prepareProviderRequest(req, options, pathname) {
     }
     return;
   }
-  await syncPersonalProviderConfig(req, options, { allowMissing });
+  await syncPersonalProviderConfig(req, { ...options, runtimeModel: req.v11RuntimeModel }, { allowMissing });
+}
+
+async function generateConfiguredImage(req, options) {
+  const prompt = String(req.body?.prompt || '').trim();
+  if (!prompt) { const error = new Error('图片生成提示词不能为空'); error.status = 400; throw error; }
+  const model = resolveRuntimeModel({
+    username: req.username,
+    kind: 'image',
+    modelId: req.body?.imageModelId,
+    memberStore: options.memberStore,
+    configReader: options.configReader || readConfig
+  });
+  const endpoint = String(model.baseUrl || '').trim();
+  if (!endpoint) { const error = new Error('图片模型未配置生成接口'); error.status = 422; throw error; }
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (!fetchImpl) throw new Error('fetch implementation is required');
+  const response = await fetchImpl(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + model.credential },
+    body: JSON.stringify({ model: model.modelId || model.id, prompt, ...(req.body?.size ? { size: req.body.size } : {}) })
+  });
+  const raw = await response.text();
+  if (!response.ok) { const error = new Error('图片模型请求失败（HTTP ' + response.status + '）'); error.status = 502; throw error; }
+  let payload;
+  try { payload = JSON.parse(raw); } catch { const error = new Error('图片模型返回了无法识别的响应'); error.status = 502; throw error; }
+  const item = Array.isArray(payload?.data) ? payload.data[0] : payload?.data;
+  const imageUrl = String(item?.url || item?.image_url || '').trim();
+  const base64 = String(item?.b64_json || '').trim();
+  if (!imageUrl && !base64) { const error = new Error('图片模型未返回图片结果'); error.status = 502; throw error; }
+  return { modelId: model.id, imageUrl: imageUrl || 'data:image/png;base64,' + base64 };
 }
 
 function createBatchFactoryV11Router(options = {}) {
   const router = express.Router();
+  router.post('/image-generation', async (req, res) => {
+    try {
+      const result = await generateConfiguredImage(req, options);
+      return res.status(200).json({ ok: true, ...result });
+    } catch (error) {
+      return res.status(Number.isInteger(error?.status) ? error.status : 502).json({ error: error?.message || '图片生成失败', code: error?.code || 'BFV11_IMAGE_GENERATION_FAILED' });
+    }
+  });
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
@@ -215,5 +284,6 @@ module.exports = {
   normalizedProvider,
   needsH3ConfigSync,
   needsPersonalConfigSync,
-  createBatchFactoryV11Router
+  createBatchFactoryV11Router,
+  generateConfiguredImage
 };

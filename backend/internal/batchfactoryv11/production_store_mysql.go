@@ -10,8 +10,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// Keep the production repository explicit: callers may use the normal Store
-// interface for read-only V11 work, but submission needs durable state.
 var _ ProductionRepository = (*MySQLStore)(nil)
 
 type productionQueryer interface {
@@ -50,7 +48,7 @@ func loadProductionJob(ctx context.Context, q productionQueryer, owner, id strin
 	value.Owner = owner
 	value.Status = ProductionState(state)
 	value.Tasks = []ProductionTask{}
-	rows, err := q.QueryContext(ctx, `SELECT id,video_id,provider,status,attempt,final_prompt_hash,compiled_prompt,COALESCE(provider_task_id,''),COALESCE(media_url,''),COALESCE(error_message,''),created_at,updated_at FROM batch_factory_v11_production_tasks WHERE job_id=? AND owner_username=? ORDER BY created_at,id`, id, owner)
+	rows, err := q.QueryContext(ctx, `SELECT id,video_id,COALESCE(shot_id,''),provider,status,attempt,final_prompt_hash,compiled_prompt,COALESCE(provider_task_id,''),COALESCE(media_url,''),COALESCE(error_message,''),created_at,updated_at FROM batch_factory_v11_production_tasks WHERE job_id=? AND owner_username=? ORDER BY created_at,id`, id, owner)
 	if err != nil {
 		return ProductionJob{}, err
 	}
@@ -58,7 +56,7 @@ func loadProductionJob(ctx context.Context, q productionQueryer, owner, id strin
 	for rows.Next() {
 		var task ProductionTask
 		var taskState string
-		if err := rows.Scan(&task.ID, &task.VideoID, &task.Provider, &taskState, &task.Attempt, &task.FinalPromptHash, &task.CompiledPrompt, &task.ProviderTaskID, &task.MediaURL, &task.ErrorMessage, &task.CreatedAt, &task.UpdatedAt); err != nil {
+		if err := rows.Scan(&task.ID, &task.VideoID, &task.ShotID, &task.Provider, &taskState, &task.Attempt, &task.FinalPromptHash, &task.CompiledPrompt, &task.ProviderTaskID, &task.MediaURL, &task.ErrorMessage, &task.CreatedAt, &task.UpdatedAt); err != nil {
 			return ProductionJob{}, err
 		}
 		task.Status = ProductionState(taskState)
@@ -111,7 +109,7 @@ func (s *MySQLStore) CreateProductionJob(ctx context.Context, value ProductionJo
 		task.ID = taskID
 		task.Status = normalizeProductionState(task.Status)
 		task.CreatedAt, task.UpdatedAt = now, now
-		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_production_tasks(id,job_id,owner_username,video_id,provider,attempt,final_prompt_hash,compiled_prompt,provider_task_id,media_url,status,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, task.ID, value.ID, value.Owner, task.VideoID, nullableString(task.Provider), task.Attempt, task.FinalPromptHash, task.CompiledPrompt, nullableString(task.ProviderTaskID), nullableString(task.MediaURL), task.Status, nullableString(task.ErrorMessage), now, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_production_tasks(id,job_id,owner_username,video_id,shot_id,provider,attempt,final_prompt_hash,compiled_prompt,provider_task_id,media_url,status,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, task.ID, value.ID, value.Owner, task.VideoID, nullableString(task.ShotID), nullableString(task.Provider), task.Attempt, task.FinalPromptHash, task.CompiledPrompt, nullableString(task.ProviderTaskID), nullableString(task.MediaURL), task.Status, nullableString(task.ErrorMessage), now, now); err != nil {
 			return ProductionJob{}, err
 		}
 		if err := insertProductionEvent(ctx, tx, value.ID, task.ID, value.Owner, "created", "", string(task.Status), ""); err != nil {

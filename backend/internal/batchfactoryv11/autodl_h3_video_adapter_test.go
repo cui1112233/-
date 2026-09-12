@@ -95,10 +95,10 @@ func TestAutoDLH3VideoAdapterUsesReferenceWorkflowAndPollsResult(t *testing.T) {
 		},
 	}
 	prompt := FinalPrompt{
-		CompiledPrompt:  "人物转身，镜头推进",
-		DurationSeconds: 10,
+		CompiledPrompt:   "人物转身，镜头推进",
+		DurationSeconds:  10,
+		ReferenceImages:  []string{"https://assets.example/ref.png"},
 		EffectiveSettings: EffectiveSettings{Values: SettingsPatch{
-			"imageUrls":  json.RawMessage(`["https://assets.example/ref.png"]`),
 			"resolution": json.RawMessage(`"768p横"`),
 		}},
 	}
@@ -116,6 +116,25 @@ func TestAutoDLH3VideoAdapterUsesReferenceWorkflowAndPollsResult(t *testing.T) {
 	}
 	if len(requests) != 2 || !strings.Contains(requests[0], "minimax_h3_lightx2v_v5_15s") {
 		t.Fatalf("requests=%v", requests)
+	}
+}
+
+func TestAutoDLH3RejectsReferenceImagesBeyondProviderCapacity(t *testing.T) {
+	adapter := &AutoDLH3VideoAdapter{
+		CreateURL: "https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:  "https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:    "autodl-secret",
+		Model:     AutoDLH3Model,
+	}
+	images := make([]string, MaxAutoDLH3ReferenceImages+1)
+	for i := range images {
+		images[i] = "https://assets.example/ref.png"
+	}
+	_, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: AutoDLH3Model, MaxDuration: 15}, FinalPrompt{
+		CompiledPrompt: "test", DurationSeconds: 6, ReferenceImages: images,
+	})
+	if err == nil || !strings.Contains(err.Error(), "at most") {
+		t.Fatalf("expected explicit provider capacity error, got %v", err)
 	}
 }
 

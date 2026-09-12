@@ -11,15 +11,17 @@ import (
 )
 
 type LocalVideoJobInput struct {
-	SourceTaskID string
-	BatchID      string
-	BookID       string
-	VideoID      string
-	Model        string
-	Prompt       string
-	Duration     int
-	AspectRatio  string
-	Resolution   string
+	SourceTaskID    string
+	BatchID         string
+	BookID          string
+	VideoID         string
+	ShotID          string
+	Model           string
+	Prompt          string
+	ReferenceImages []string
+	Duration        int
+	AspectRatio     string
+	Resolution      string
 }
 
 type LocalVideoJob struct {
@@ -39,10 +41,8 @@ type LocalVideoExecutorAvailability interface {
 }
 
 type LocalExecutorVideoAdapter struct {
-	Client       LocalVideoJobClient
+	Client        LocalVideoJobClient
 	PublicBaseURL string
-	// ArtifactSecret enables short-lived owner-bound URLs that remote merge
-	// providers can fetch without a user cookie.
 	ArtifactSecret   string
 	ArtifactTokenTTL time.Duration
 	Now              func() time.Time
@@ -100,10 +100,15 @@ func derivedLocalSourceTaskID(input LocalVideoJobInput) (string, bool) {
 	batchID := strings.TrimSpace(input.BatchID)
 	bookID := strings.TrimSpace(input.BookID)
 	videoID := strings.TrimSpace(input.VideoID)
+	shotID := strings.TrimSpace(input.ShotID)
 	if batchID == "" || bookID == "" || videoID == "" {
 		return "", false
 	}
-	return "bf11:" + batchID + ":" + bookID + ":" + videoID, true
+	value := "bf11:" + batchID + ":" + bookID + ":" + videoID
+	if shotID != "" {
+		value += ":" + shotID
+	}
+	return value, true
 }
 
 func (a *LocalExecutorVideoAdapter) Poll(ctx context.Context, owner, jobID string) (ProviderTaskRef, error) {

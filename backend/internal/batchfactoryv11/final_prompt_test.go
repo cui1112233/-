@@ -72,10 +72,13 @@ func TestFinalPromptUsesDirectorAssetsAndEffectiveConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"画面主体：林晚进入客厅并握紧玻璃杯。", "林晚：18岁中国女性", "林家客厅：现代中式客厅", "玻璃杯：透明厚底玻璃杯", "画面前缀：modern_conflict；电影感运镜", "画质约束：高质量商业成片", "负面提示词：不要水印和畸形手指", "画幅 16:9；时长 8 秒"} {
+	for _, expected := range []string{"视频提示词：林晚进入客厅并握紧玻璃杯。", "林晚：18岁中国女性", "林家客厅：现代中式客厅", "玻璃杯：透明厚底玻璃杯", "画面前缀：modern_conflict；电影感运镜", "画质约束：高质量商业成片", "负面提示词：不要水印和畸形手指", "画幅 16:9；时长 8 秒"} {
 		if !strings.Contains(value.CompiledPrompt, expected) {
 			t.Fatalf("missing %q in\n%s", expected, value.CompiledPrompt)
 		}
+	}
+	if strings.Contains(value.CompiledPrompt, "画面主体：") {
+		t.Fatalf("visual prompt semantics leaked into video prompt:\n%s", value.CompiledPrompt)
 	}
 	if value.DirectorRevisionID != book.DirectorRevision.ID || value.SnapshotHash != value.EffectiveSettings.SnapshotHash {
 		t.Fatalf("prompt identity=%+v", value)
@@ -144,8 +147,9 @@ func TestFinalPromptAllowsClearingSavedAssetPromptDraft(t *testing.T) {
 func TestFinalPromptUsesSavedVideoPromptOverride(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	override := "镜头提示词已由用户确认，保持人物连续性。"
+	visualOnly := "仅用于画面图，禁止进入视频模型。"
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{
-		Patch: SettingsPatch{"visualPrompt": rawSetting(t, override)}, ExpectedRevision: video.Revision,
+		Patch: SettingsPatch{"videoPrompt": rawSetting(t, override), "visualPrompt": rawSetting(t, visualOnly)}, ExpectedRevision: video.Revision,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +161,11 @@ func TestFinalPromptUsesSavedVideoPromptOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt.CompiledPrompt, "画面主体："+override) {
+	if !strings.Contains(prompt.CompiledPrompt, "视频提示词："+override) {
 		t.Fatalf("compiled prompt=%s", prompt.CompiledPrompt)
+	}
+	if strings.Contains(prompt.CompiledPrompt, visualOnly) {
+		t.Fatalf("visualPrompt leaked into compiled video prompt: %s", prompt.CompiledPrompt)
 	}
 }
 

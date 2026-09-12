@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -82,14 +83,20 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create merge task"})
 		return
 	}
+	mode := normalizeTimingMode(request.TimingMode)
+	speed := request.Speed
+	if mode == "speed" && speed == 0 {
+		speed = 1
+	}
 	job := Job{
-		ID:         id,
-		BatchID:    strings.TrimSpace(request.BatchID),
-		Status:     StateQueued,
-		Sources:    append([]Source(nil), request.Sources...),
-		TimingMode: normalizeTimingMode(request.TimingMode),
-		Speed:      normalizeSpeed(request.Speed, 1),
-		TTSSpeed:   normalizeSpeed(request.TTSSpeed, 1.7),
+		ID:                   id,
+		BatchID:              strings.TrimSpace(request.BatchID),
+		Status:               StateQueued,
+		Sources:              append([]Source(nil), request.Sources...),
+		TimingMode:           mode,
+		Speed:                speed,
+		TTSSpeed:             normalizeSpeed(request.TTSSpeed, 1.7),
+		AudioDurationSeconds: request.AudioDurationSeconds,
 	}
 	job, err = h.store.Create(r.Context(), job)
 	if err != nil {
@@ -151,8 +158,14 @@ func validateSubmitRequest(request SubmitRequest) error {
 	if mode != "speed" && mode != "audio" {
 		return fmt.Errorf("unsupported timingMode")
 	}
-	if speed := normalizeSpeed(request.Speed, 1); speed < 0.5 || speed > 4 {
-		return fmt.Errorf("speed must be between 0.5 and 4")
+	if request.Speed != 0 && (math.IsNaN(request.Speed) || math.IsInf(request.Speed, 0) || request.Speed < 0.25 || request.Speed > 4) {
+		return fmt.Errorf("speed must be between 0.25 and 4")
+	}
+	if mode == "audio" && request.AudioDurationSeconds <= 0 {
+		return fmt.Errorf("audioDurationSeconds must be positive for audio timing")
+	}
+	if math.IsNaN(request.AudioDurationSeconds) || math.IsInf(request.AudioDurationSeconds, 0) || request.AudioDurationSeconds < 0 {
+		return fmt.Errorf("audioDurationSeconds is invalid")
 	}
 	if speed := normalizeSpeed(request.TTSSpeed, 1.7); speed < 0.5 || speed > 4 {
 		return fmt.Errorf("ttsSpeed must be between 0.5 and 4")

@@ -96,6 +96,8 @@ func LocalExecutorMigrations() []Migration {
 
 func AppMigrations() []Migration {
 	out := append([]Migration(nil), V11Migrations()...)
+	out = append(out, V11ShotProductionMigrations()...)
+	out = append(out, V11MergeHierarchyMigrations()...)
 	out = append(out, LocalExecutorMigrations()...)
 	return out
 }
