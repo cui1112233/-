@@ -63,6 +63,7 @@ export function ProductionSettingsDrawer({
   onSavePersonalPrompt,
   videoProviders = {},
   apiModels = {},
+  promptCatalog = [],
   localExecutors = [],
   onCreateLocalExecutorPairing
 }) {
@@ -253,6 +254,27 @@ export function ProductionSettingsDrawer({
       </section>
 
       <ChangeImpactNotice result={impactResult} loading={impactLoading} />
+
+      <Divider orientation="left">提示词配置</Divider>
+      <section className="bf11-setting-section">
+        <Typography.Text type="secondary">提示词来自管理后台“系统预设词 → 批量工厂”。下拉框只显示已发布提示词名称和版本。</Typography.Text>
+        {[
+          ['hook', 'Hook 提示词'],
+          ['director', 'Director 提示词'],
+          ['visual', '画面提示词'],
+          ['video', '视频提示词'],
+          ['audio_match', '音频匹配提示词'],
+          ['shot_merge', 'Shot 合成提示词'],
+          ['book_merge', '成片合成提示词']
+        ].map(([type, label]) => {
+          const options = promptCatalog.filter(item => item?.type === type && item?.enabled !== false)
+            .map(item => ({ value: item.id, label: item.version ? label + ' · ' + item.name + ' · v' + item.version : label + ' · ' + item.name }));
+          return <SettingField key={type} label={label} description="由后台预设词库动态提供。">
+            <Select allowClear placeholder="继承系统默认提示词" value={form.promptSelections?.[type]} options={options}
+              onChange={value => patch({ promptSelections: { ...(form.promptSelections || {}), [type]: value || '' } })} />
+          </SettingField>;
+        })}
+      </section>
 
       <Divider orientation="left">基础生产设置</Divider>
       <section className="bf11-setting-section">
