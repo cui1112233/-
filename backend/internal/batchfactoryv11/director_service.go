@@ -127,6 +127,13 @@ func (s *DirectorService) RunDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil { return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err) }
 	result, err := NormalizeDirectorOutput(raw, contract.Normalization)
 	if err != nil { return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err) }
-	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, sourceDigest(book.SourceText), hook.ID, result)
+	revision, err := s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, sourceDigest(book.SourceText), hook.ID, result)
+	if err != nil { return DirectorRevision{}, err }
+	revision.Videos = hydrateVideosFromDirector(revision.Videos, revision.Output)
+	if readback, ok := s.Store.(directorShotReadbackStore); ok {
+		if err := readback.SaveDirectorShotReadback(ctx, owner, batchID, bookID, revision); err != nil {
+			return DirectorRevision{}, err
+		}
+	}
+	return revision, nil
 }
-
