@@ -220,8 +220,46 @@ async function prepareProviderRequest(req, options, pathname) {
   await syncPersonalProviderConfig(req, { ...options, runtimeModel: req.v11RuntimeModel }, { allowMissing });
 }
 
+async function generateConfiguredImage(req, options) {
+  const prompt = String(req.body?.prompt || '').trim();
+  if (!prompt) { const error = new Error('图片生成提示词不能为空'); error.status = 400; throw error; }
+  const model = resolveRuntimeModel({
+    username: req.username,
+    kind: 'image',
+    modelId: req.body?.imageModelId,
+    memberStore: options.memberStore,
+    configReader: options.configReader || readConfig
+  });
+  const endpoint = String(model.baseUrl || '').trim();
+  if (!endpoint) { const error = new Error('图片模型未配置生成接口'); error.status = 422; throw error; }
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (!fetchImpl) throw new Error('fetch implementation is required');
+  const response = await fetchImpl(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + model.credential },
+    body: JSON.stringify({ model: model.modelId || model.id, prompt, ...(req.body?.size ? { size: req.body.size } : {}) })
+  });
+  const raw = await response.text();
+  if (!response.ok) { const error = new Error('图片模型请求失败（HTTP ' + response.status + '）'); error.status = 502; throw error; }
+  let payload;
+  try { payload = JSON.parse(raw); } catch { const error = new Error('图片模型返回了无法识别的响应'); error.status = 502; throw error; }
+  const item = Array.isArray(payload?.data) ? payload.data[0] : payload?.data;
+  const imageUrl = String(item?.url || item?.image_url || '').trim();
+  const base64 = String(item?.b64_json || '').trim();
+  if (!imageUrl && !base64) { const error = new Error('图片模型未返回图片结果'); error.status = 502; throw error; }
+  return { modelId: model.id, imageUrl: imageUrl || 'data:image/png;base64,' + base64 };
+}
+
 function createBatchFactoryV11Router(options = {}) {
   const router = express.Router();
+  router.post('/image-generation', async (req, res) => {
+    try {
+      const result = await generateConfiguredImage(req, options);
+      return res.status(200).json({ ok: true, ...result });
+    } catch (error) {
+      return res.status(Number.isInteger(error?.status) ? error.status : 502).json({ error: error?.message || '图片生成失败', code: error?.code || 'BFV11_IMAGE_GENERATION_FAILED' });
+    }
+  });
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
@@ -246,5 +284,6 @@ module.exports = {
   normalizedProvider,
   needsH3ConfigSync,
   needsPersonalConfigSync,
-  createBatchFactoryV11Router
+  createBatchFactoryV11Router,
+  generateConfiguredImage
 };
