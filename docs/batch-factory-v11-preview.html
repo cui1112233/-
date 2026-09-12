@@ -14,8 +14,9 @@ button,select{font:inherit}button{border:1px solid #34425f;background:#17233d;co
 <div class="app">
   <div class="top">
     <div><div class="brand">批量工厂 V11</div><div class="sub">水货生产式固定工作台 · 小说 → VIDEO → Shot</div></div>
-    <div class="actions"><button>生产统一设置</button><button>发布统一设置</button><button class="primary">批量操作</button></div>
+    <div class="actions"><button id="automationBtn">自动化设置</button><button>生产统一设置</button><button>发布统一设置</button><button class="primary">批量操作</button></div>
   </div>
+  <div id="automationPanel" class="card" style="display:none;margin-bottom:16px;padding:18px"><div class="bar" style="margin:0 0 14px"><div><h3 style="padding:0;border:0">批量工厂自动化</h3><div class="sub">跟小说获取一样，按设定时间自动执行生产任务</div></div><button id="closeAutomation">关闭</button></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px"><label class="row" style="display:block">自动执行<select id="autoEnabled" class="select"><option value="on">开启</option><option value="off">关闭</option></select></label><label class="row" style="display:block">执行时间<input id="autoTime" class="select" type="time" value="09:00"></label><label class="row" style="display:block">执行频率<select id="autoFreq" class="select"><option>每天</option><option>每周一</option><option>每月1日</option></select></label></div><div class="row" style="margin-top:12px"><span>下次执行</span><strong id="nextRun">每天 09:00</strong></div><button class="primary" id="saveAutomation">保存自动化设置</button></div>
   <div class="layout">
     <aside class="card"><h3>小说列表 <span style="float:right;color:#8292b2">3 本</span></h3><div class="books" id="books"></div></aside>
     <main class="card main">
@@ -49,6 +50,11 @@ const shots=[
  {t:'Shot 03 · 情绪爆发',d:'女主放下手机，转身面对男友，压抑的情绪终于爆发。',v:'客厅中女主猛然转身，眼神坚定，暖冷光线形成强烈对比。',p:'女主放下手机转身，镜头环绕半圈，停在双方对峙的中景。'}
 ];
 let si=0;const $=id=>document.getElementById(id);
+$('automationBtn').onclick=()=>{$('automationPanel').style.display='block'};
+$('closeAutomation').onclick=()=>{$('automationPanel').style.display='none'};
+$('autoTime').onchange=()=>{$('nextRun').textContent=($('autoFreq').value+' '+$('autoTime').value)};
+$('autoFreq').onchange=()=>{$('nextRun').textContent=($('autoFreq').value+' '+$('autoTime').value)};
+$('saveAutomation').onclick=()=>{localStorage.setItem('bf11-preview-automation',JSON.stringify({enabled:$('autoEnabled').value,time:$('autoTime').value,freq:$('autoFreq').value}));$('nextRun').textContent='已保存 · '+$('autoFreq').value+' '+$('autoTime').value};
 function render(){const s=shots[si];$('shotNum').textContent='Shot '+String(si+1).padStart(2,'0')+' / 03 · 6s';$('shotTitle').textContent=s.t;$('shotDesc').textContent=s.d;$('visual').textContent=s.v;$('video').textContent=s.p;$('taskState').textContent='已完成 '+(si+1)+' / 3'}
 $('books').innerHTML=['七夕前夕','矿井秘密','退婚之后'].map((x,i)=>'<div class="book '+(i?'':'active')+'"><span>'+x+'</span><small>'+[3,5,2][i]+' VIDEO</small></div>').join('');
 $('videos').innerHTML=['VIDEO 01','VIDEO 02','VIDEO 03'].map((x,i)=>'<div class="video-tab '+(i?'':'active')+'">'+x+'</div>').join('');
