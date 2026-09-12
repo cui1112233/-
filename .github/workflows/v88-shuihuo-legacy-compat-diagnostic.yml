@@ -65,6 +65,8 @@ jobs:
           echo "retained_container_count=$(docker ps -aq --filter 'name=v78' --filter 'name=production' --filter 'name=shuihuo' | sed '/^$/d' | wc -l)"
           echo "retained_image_count=$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -Eic 'v78|production|shuihuo|waterfall|qiantie-go-api' || true)"
           echo "v88_go_api=$(docker ps --filter 'name=v88-public-go-api-1' --format '{{.Status}}' | head -n 1)"
+          docker ps -a --format 'retained_container name={{.Names}} image={{.Image}} state={{.State}}' | grep -Ei 'v78|production|shuihuo|waterfall' | head -n 12 || true
+          docker image ls --format 'retained_image repository={{.Repository}} tag={{.Tag}} id={{.ID}}' | grep -Ei 'v78|production|shuihuo|waterfall|qiantie-go-api' | head -n 20 || true
           REMOTE
           )"
           {
