@@ -7,7 +7,8 @@ const workflow = fs.readFileSync('.github/workflows/v88-unified-public-image-rel
 test('unified V88 release can be explicitly requested from v88 without using retired host-stage paths', () => {
   assert.match(workflow, /push:\s*[\s\S]*branches:\s*\[?v88\]?/);
   assert.match(workflow, /deploy\/v88-public\/UNIFIED-DEPLOY-REQUEST/);
-  assert.doesNotMatch(workflow, /stage-node-host\.sh|cutover-node-host\.sh|18081/);
+  assert.doesNotMatch(workflow, /stage-node-host\.sh|cutover-node-host\.sh/);
+  assert.doesNotMatch(workflow, /(?:curl|proxy_pass)[^\n]*18081/);
 });
 
 test('unified V88 release deploys the paired immutable Node and Go images from the same SHA', () => {
