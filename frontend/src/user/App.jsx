@@ -15,17 +15,16 @@ const UsageStatsPage = lazy(() => import('./pages/UsageStatsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SecurityPage = lazy(() => import('./pages/SecurityPage'));
 const ApiConfigPage = lazy(() => import('./pages/ApiConfigPage'));
+const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'));
 const IssueLogPage = lazy(() => import('./pages/IssueLogPage').then(module => ({ default: module.IssueLogPage })));
 
 function usePathname() {
   const [pathname, setPathname] = useState(window.location.pathname);
-
   useEffect(() => {
     const handlePopState = () => setPathname(window.location.pathname);
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-
   return pathname;
 }
 
@@ -47,12 +46,14 @@ function getPage(pathname) {
     '/issues': IssueLogPage
   };
   const Page = routes[pathname];
-  if (Page) {
-    return <Suspense fallback={<div className="route-loading" role="status">正在加载工作台</div>}><Page /></Suspense>;
-  }
+  if (Page) return <Suspense fallback={<div className="route-loading" role="status">正在加载工作台</div>}><Page /></Suspense>;
   return <HomePage />;
 }
 
 export function UserApp() {
-  return <UserLayout>{getPage(usePathname())}</UserLayout>;
+  const pathname = usePathname();
+  if (/^\/invite\/[^/]+$/.test(pathname)) {
+    return <Suspense fallback={<div className="route-loading" role="status">正在加载团队邀请</div>}><InviteAcceptPage /></Suspense>;
+  }
+  return <UserLayout>{getPage(pathname)}</UserLayout>;
 }

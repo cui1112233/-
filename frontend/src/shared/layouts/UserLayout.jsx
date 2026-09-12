@@ -241,18 +241,19 @@ export function UserLayout({ children }) {
     setLoginSucceeded(false);
     setLoading(true);
     try {
-      const data = await login(values.username, values.password, values.remember);
+      const data = await login(values.username, values.password, values.remember, values.mfaCode || '');
       setUsername(data.username);
       setAccount(data);
       setLoginSucceeded(true);
       resetLoginParallax();
-      message.success('登录成功');
+      message.success(data.mfaRecoveryUsed ? '登录成功，已使用一个恢复码' : '登录成功');
       await wait(LOGIN_SUCCESS_ANIMATION_MS);
       setLoginDialogOpen(false);
       setLoginSucceeded(false);
     } catch (error) {
       setLoginSucceeded(false);
-      message.error(error.message || '登录失败');
+      if (error.status === 428) message.warning('此账号已开启 MFA，请填写动态验证码或恢复码');
+      else message.error(error.message || '登录失败');
     } finally {
       setLoading(false);
     }
@@ -312,12 +313,15 @@ export function UserLayout({ children }) {
             <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
               <Input.Password placeholder="请输入密码" autoComplete="current-password" />
             </Form.Item>
+            <Form.Item label="MFA 动态码 / 恢复码" name="mfaCode">
+              <Input placeholder="未开启 MFA 可留空" inputMode="numeric" autoComplete="one-time-code" />
+            </Form.Item>
             <Form.Item name="remember" valuePropName="checked">
               <Checkbox>30 天保持登录</Checkbox>
             </Form.Item>
             <Button block type="primary" htmlType="submit" loading={loading}>登 录</Button>
           </Form>
-          <p className="login-hint">提示：请联系管理员获取账号</p>
+          <p className="login-hint">提示：已开启 MFA 的账号需要动态验证码或一次性恢复码</p>
         </div>
         <div className="login-success-state" aria-hidden={!loginSucceeded}>
           <span className="login-success-icon"><Check size={38} strokeWidth={2.2} /></span>

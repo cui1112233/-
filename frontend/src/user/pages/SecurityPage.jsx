@@ -1,7 +1,15 @@
 import { Button, Form, Input, Modal, Progress, Skeleton, Tag, message } from 'antd';
-import { KeyRound, Laptop, LockKeyhole, LogOut, ShieldCheck, Smartphone, TimerReset } from 'lucide-react';
+import { Copy, KeyRound, Laptop, LockKeyhole, LogOut, RotateCcwKey, ShieldCheck, Smartphone, TimerReset } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { changeOwnPassword, getSecurityOverview, revokeOtherSessions } from '../../shared/api/member';
+import {
+  beginMfaSetup,
+  changeOwnPassword,
+  disableMfa,
+  enableMfa,
+  getSecurityOverview,
+  revokeOtherSessions,
+  rotateMfaRecoveryCodes
+} from '../../shared/api/member';
 import { formatDate, PageHeader, Panel } from './accountCenterShared';
 
 function deviceLabel(session) {
@@ -13,18 +21,18 @@ export default function SecurityPage() {
   const [loading, setLoading] = useState(true);
   const [security, setSecurity] = useState(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [mfaOpen, setMfaOpen] = useState(false);
+  const [mfaSetup, setMfaSetup] = useState(null);
+  const [recoveryCodes, setRecoveryCodes] = useState([]);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const [mfaForm] = Form.useForm();
 
   async function load() {
     setLoading(true);
-    try {
-      setSecurity(await getSecurityOverview());
-    } catch (error) {
-      message.error(error.message || '安全信息加载失败');
-    } finally {
-      setLoading(false);
-    }
+    try { setSecurity(await getSecurityOverview()); }
+    catch (error) { message.error(error.message || '安全信息加载失败'); }
+    finally { setLoading(false); }
   }
 
   useEffect(() => { load(); }, []);
@@ -37,11 +45,8 @@ export default function SecurityPage() {
       setPasswordOpen(false);
       form.resetFields();
       await load();
-    } catch (error) {
-      message.error(error.message || '密码修改失败');
-    } finally {
-      setSaving(false);
-    }
+    } catch (error) { message.error(error.message || '密码修改失败'); }
+    finally { setSaving(false); }
   }
 
   async function revokeOthers() {
@@ -50,81 +55,115 @@ export default function SecurityPage() {
       await revokeOtherSessions();
       message.success('其他登录会话已退出');
       await load();
-    } catch (error) {
-      message.error(error.message || '退出其他会话失败');
-    } finally {
-      setSaving(false);
-    }
+    } catch (error) { message.error(error.message || '退出其他会话失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function startMfa() {
+    const currentPassword = mfaForm.getFieldValue('currentPassword');
+    if (!currentPassword) return message.warning('先输入当前密码');
+    setSaving(true);
+    try {
+      const setup = await beginMfaSetup(currentPassword);
+      setMfaSetup(setup);
+      message.success('MFA 密钥已生成，请添加到验证器');
+    } catch (error) { message.error(error.message || 'MFA 设置失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function confirmMfa() {
+    const code = mfaForm.getFieldValue('code');
+    if (!code) return message.warning('请输入验证器中的 6 位动态码');
+    setSaving(true);
+    try {
+      const result = await enableMfa(code);
+      setRecoveryCodes(result.recoveryCodes || []);
+      setMfaOpen(false);
+      setMfaSetup(null);
+      mfaForm.resetFields();
+      message.success('MFA 已启用');
+      await load();
+    } catch (error) { message.error(error.message || '动态码验证失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function disableMfaNow() {
+    const values = await mfaForm.validateFields(['currentPassword', 'code']).catch(() => null);
+    if (!values) return;
+    setSaving(true);
+    try {
+      await disableMfa(values.currentPassword, values.code);
+      setMfaOpen(false);
+      mfaForm.resetFields();
+      message.success('MFA 已关闭');
+      await load();
+    } catch (error) { message.error(error.message || '关闭 MFA 失败'); }
+    finally { setSaving(false); }
+  }
+
+  async function rotateRecovery() {
+    const values = await mfaForm.validateFields(['currentPassword', 'code']).catch(() => null);
+    if (!values) return;
+    setSaving(true);
+    try {
+      const result = await rotateMfaRecoveryCodes(values.currentPassword, values.code);
+      setRecoveryCodes(result.recoveryCodes || []);
+      setMfaOpen(false);
+      mfaForm.resetFields();
+      message.success('恢复码已重新生成，旧恢复码全部失效');
+      await load();
+    } catch (error) { message.error(error.message || '恢复码刷新失败'); }
+    finally { setSaving(false); }
   }
 
   const sessionCount = useMemo(() => (security?.sessions?.length || 0) + (security?.persistentSessions?.length || 0), [security]);
-  const score = security ? Math.min(95, 72 + (security.otherSessionCount === 0 ? 18 : 4)) : 0;
+  const mfaEnabled = Boolean(security?.mfa?.enabled);
+  const score = security ? Math.min(100, 72 + (security.otherSessionCount === 0 ? 12 : 4) + (mfaEnabled ? 16 : 0)) : 0;
 
   if (loading) return <div className="account-center-page"><Skeleton active paragraph={{ rows: 9 }} /></div>;
 
   return <div className="account-center-page security-page">
-    <PageHeader title="账号安全" subtitle="管理密码与登录设备，保护你的 qiantie 账号" />
+    <PageHeader title="账号安全" subtitle="密码、MFA 与登录设备安全" />
 
     <div className="ac-security-grid">
       <Panel title="安全总览" className="ac-security-overview">
         <div className="ac-security-score">
           <Progress type="circle" percent={score} size={150} strokeWidth={6} format={value => <><strong>{value}</strong><small>安全评分</small></>} />
-          <div>
-            <Tag color="green">安全状态良好</Tag>
-            <p>当前账号状态正常，建议定期更新密码并检查登录会话。</p>
-          </div>
+          <div><Tag color={mfaEnabled ? 'green' : 'gold'}>{mfaEnabled ? 'MFA 防护已开启' : '建议开启 MFA'}</Tag><p>动态验证码与恢复码都只在服务端验证，恢复码每个只能使用一次。</p></div>
         </div>
         <div className="ac-check-list security-checks">
           <div><ShieldCheck size={16} className="done" /><span>账号状态</span><b>正常</b></div>
           <div><KeyRound size={16} className="done" /><span>登录密码</span><b>已设置</b></div>
           <div><Smartphone size={16} className="done" /><span>当前会话</span><b>{sessionCount || 1} 个</b></div>
-          <div><LockKeyhole size={16} /><span>二步验证 / MFA</span><b>尚未接入</b></div>
+          <div><LockKeyhole size={16} className={mfaEnabled ? 'done' : ''} /><span>二步验证 / MFA</span><b>{mfaEnabled ? '已启用' : '未启用'}</b></div>
         </div>
       </Panel>
 
       <Panel title="登录密码">
-        <div className="ac-security-card-icon"><KeyRound size={22} /></div>
-        <h3>定期更新登录密码</h3>
-        <p className="ac-muted-copy">新密码至少 8 位。修改后系统会保留当前会话，并退出同账号的其他会话。</p>
+        <div className="ac-security-card-icon"><KeyRound size={22} /></div><h3>定期更新登录密码</h3>
+        <p className="ac-muted-copy">修改后保留当前会话，并退出同账号的其他会话。</p>
         <Button block onClick={() => setPasswordOpen(true)}>修改密码</Button>
       </Panel>
 
-      <Panel title="会话状态">
-        <div className="ac-security-card-icon violet"><Laptop size={22} /></div>
-        <h3>{security?.otherSessionCount || 0} 个其他会话</h3>
-        <p className="ac-muted-copy">记录浏览器、系统与模糊网络提示，不展示精确定位。</p>
-        <Button block danger disabled={!security?.otherSessionCount} loading={saving} onClick={revokeOthers}>退出其他会话</Button>
+      <Panel title="二步验证 / MFA">
+        <div className="ac-security-card-icon violet"><LockKeyhole size={22} /></div>
+        <h3>{mfaEnabled ? '动态验证码已启用' : '增加第二层登录保护'}</h3>
+        <p className="ac-muted-copy">兼容常见 TOTP 验证器。当前剩余 {security?.mfa?.recoveryCodesRemaining || 0} 个恢复码。</p>
+        <Button block type={mfaEnabled ? 'default' : 'primary'} onClick={() => { setMfaSetup(null); mfaForm.resetFields(); setMfaOpen(true); }}>{mfaEnabled ? '管理 MFA' : '开启 MFA'}</Button>
       </Panel>
     </div>
 
     <div className="ac-two-column security-session-grid">
       <Panel title="当前与活动设备" eyebrow="ACTIVE DEVICES">
         <div className="ac-session-list">
-          {(security?.sessions || []).map(session => <div key={`runtime-${session.id}`}>
-            <span className="ac-session-icon"><Laptop size={17} /></span>
-            <div>
-              <strong>{session.current ? `当前设备 · ${deviceLabel(session)}` : deviceLabel(session)}</strong>
-              <small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)}` : '活动登录会话'}{session.ipHint ? ` · ${session.ipHint}` : ''}</small>
-            </div>
-            <Tag color={session.current ? 'green' : 'blue'}>{session.current ? '当前设备' : '活动'}</Tag>
-          </div>)}
-          {(security?.persistentSessions || []).map(session => <div key={`persist-${session.id}`}>
-            <span className="ac-session-icon"><TimerReset size={17} /></span>
-            <div>
-              <strong>{deviceLabel(session)}</strong>
-              <small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)} · ` : ''}有效期至 {formatDate(session.expiresAt)}{session.ipHint ? ` · ${session.ipHint}` : ''}</small>
-            </div>
-            <Tag>{session.current ? '当前' : '已记住'}</Tag>
-          </div>)}
+          {(security?.sessions || []).map(session => <div key={`runtime-${session.id}`}><span className="ac-session-icon"><Laptop size={17} /></span><div><strong>{session.current ? `当前设备 · ${deviceLabel(session)}` : deviceLabel(session)}</strong><small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)}` : '活动登录会话'}{session.ipHint ? ` · ${session.ipHint}` : ''}</small></div><Tag color={session.current ? 'green' : 'blue'}>{session.current ? '当前设备' : '活动'}</Tag></div>)}
+          {(security?.persistentSessions || []).map(session => <div key={`persist-${session.id}`}><span className="ac-session-icon"><TimerReset size={17} /></span><div><strong>{deviceLabel(session)}</strong><small>{session.issuedAt ? `登录于 ${formatDate(session.issuedAt)} · ` : ''}有效期至 {formatDate(session.expiresAt)}{session.ipHint ? ` · ${session.ipHint}` : ''}</small></div><Tag>{session.current ? '当前' : '已记住'}</Tag></div>)}
           {!sessionCount ? <div className="ac-empty">当前仅有本次登录会话</div> : null}
         </div>
       </Panel>
 
       <Panel title="会话管理" eyebrow="SESSION CONTROL">
-        <div className="ac-session-control">
-          <span><LogOut size={22} /></span>
-          <div><h3>退出其他设备</h3><p>撤销同一账号的其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div>
-        </div>
+        <div className="ac-session-control"><span><LogOut size={22} /></span><div><h3>退出其他设备</h3><p>撤销其他运行时 Token 与持久化登录凭据，不影响当前页面。</p></div></div>
         <Button danger loading={saving} disabled={!security?.otherSessionCount} onClick={revokeOthers}>退出其他设备</Button>
         <p className="ac-security-note">网络信息只保留类似 192.168.*.* 的模糊提示，不做精确位置跟踪。</p>
       </Panel>
@@ -132,13 +171,37 @@ export default function SecurityPage() {
 
     <Modal title="修改登录密码" open={passwordOpen} onCancel={() => setPasswordOpen(false)} onOk={() => form.submit()} okText="确认修改" confirmLoading={saving}>
       <Form form={form} layout="vertical" onFinish={changePassword}>
-        <Form.Item label="当前密码" name="currentPassword" rules={[{ required: true, message: '请输入当前密码' }]}><Input.Password autoComplete="current-password" /></Form.Item>
+        <Form.Item label="当前密码" name="currentPassword" rules={[{ required: true }]}><Input.Password autoComplete="current-password" /></Form.Item>
         <Form.Item label="新密码" name="newPassword" rules={[{ required: true, min: 8, message: '新密码至少 8 位' }]}><Input.Password autoComplete="new-password" /></Form.Item>
-        <Form.Item label="确认新密码" name="confirmPassword" dependencies={['newPassword']} rules={[
-          { required: true, message: '请再次输入新密码' },
-          ({ getFieldValue }) => ({ validator(_, value) { return !value || getFieldValue('newPassword') === value ? Promise.resolve() : Promise.reject(new Error('两次输入的新密码不一致')); } })
-        ]}><Input.Password autoComplete="new-password" /></Form.Item>
+        <Form.Item label="确认新密码" name="confirmPassword" dependencies={['newPassword']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator(_, value) { return !value || getFieldValue('newPassword') === value ? Promise.resolve() : Promise.reject(new Error('两次输入的新密码不一致')); } })]}><Input.Password autoComplete="new-password" /></Form.Item>
       </Form>
+    </Modal>
+
+    <Modal title={mfaEnabled ? '管理 MFA' : '开启 MFA'} open={mfaOpen} onCancel={() => { setMfaOpen(false); setMfaSetup(null); }} footer={null}>
+      <Form form={mfaForm} layout="vertical">
+        <Form.Item label="当前密码" name="currentPassword" rules={[{ required: true }]}><Input.Password autoComplete="current-password" /></Form.Item>
+        {!mfaEnabled ? <>
+          {!mfaSetup ? <Button block type="primary" loading={saving} onClick={startMfa}>生成验证器密钥</Button> : <>
+            <p className="ac-muted-copy">在验证器中添加以下密钥，或复制 otpauth URI 到支持导入的验证器。</p>
+            <div className="ac-mfa-secret">{mfaSetup.secret}</div>
+            <Button type="text" icon={<Copy size={15} />} onClick={() => navigator.clipboard?.writeText(mfaSetup.otpauthUri).then(() => message.success('otpauth URI 已复制'))}>复制 otpauth URI</Button>
+            <Form.Item label="6 位动态验证码" name="code" rules={[{ required: true, pattern: /^\d{6}$/, message: '请输入 6 位动态码' }]}><Input inputMode="numeric" maxLength={6} /></Form.Item>
+            <Button block type="primary" loading={saving} onClick={confirmMfa}>验证并启用 MFA</Button>
+          </>}
+        </> : <>
+          <Form.Item label="动态码或恢复码" name="code" rules={[{ required: true }]}><Input autoComplete="one-time-code" /></Form.Item>
+          <div className="ac-member-actions">
+            <Button icon={<RotateCcwKey size={15} />} loading={saving} onClick={rotateRecovery}>重新生成恢复码</Button>
+            <Button danger loading={saving} onClick={disableMfaNow}>关闭 MFA</Button>
+          </div>
+        </>}
+      </Form>
+    </Modal>
+
+    <Modal title="请保存一次性恢复码" open={recoveryCodes.length > 0} onCancel={() => setRecoveryCodes([])} footer={<Button type="primary" onClick={() => setRecoveryCodes([])}>我已安全保存</Button>}>
+      <p className="ac-muted-copy">每个恢复码只能使用一次。关闭窗口后不会再次显示这些明文恢复码。</p>
+      <div className="ac-recovery-grid">{recoveryCodes.map(code => <div className="ac-recovery-code" key={code}>{code}</div>)}</div>
+      <Button icon={<Copy size={15} />} onClick={() => navigator.clipboard?.writeText(recoveryCodes.join('\n')).then(() => message.success('恢复码已复制'))}>复制全部</Button>
     </Modal>
   </div>;
 }
