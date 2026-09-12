@@ -12,6 +12,53 @@ const H3_CREATE_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/{workf
 const H3_TASKS_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}';
 const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
+const BATCH_PROMPT_TYPES = Object.freeze({
+  'hook-adaptation': 'hook',
+  'original-director': 'director',
+  'viral-director': 'director',
+  'character-meta': 'character',
+  'scene-meta': 'scene',
+  'video-meta': 'video',
+  'video-prefix': 'video',
+  'image-prompt': 'visual',
+  'visual-prompt': 'visual',
+  'audio-match': 'audio_match',
+  'shot-merge': 'shot_merge',
+  'book-merge': 'book_merge'
+});
+
+function promptType(preset) {
+  const operation = String(preset?.protocolLock?.operation || preset?.protocolLock?.key || '').trim();
+  if (BATCH_PROMPT_TYPES[operation]) return BATCH_PROMPT_TYPES[operation];
+  const slot = String(preset?.protocolLock?.slot || '');
+  if (slot === 'batch.hook-adaptation') return 'hook';
+  if (slot === 'batch.original-director' || slot === 'batch.viral-director') return 'director';
+  if (slot === 'batch.video-meta' || slot === 'batch.prefix') return 'video';
+  if (slot === 'shuihuo.prompt.image') return 'visual';
+  if (slot === 'script.audio-match' || slot === 'script.quick-director') return 'audio_match';
+  return '';
+}
+
+function listBatchFactoryPrompts(presetStore, query = {}) {
+  if (!presetStore || typeof presetStore.listAll !== 'function') return [];
+  const requestedType = String(query.type || '').trim();
+  const module = String(query.module || 'batch-factory').trim();
+  return presetStore.listAll(module)
+    .filter(preset => preset.status === 'published')
+    .map(preset => ({
+      id: preset.id,
+      name: preset.name,
+      description: preset.description || '',
+      module: preset.module,
+      version: preset.version,
+      type: promptType(preset),
+      enabled: true,
+      updatedAt: preset.publishedAt || preset.createdAt || null
+    }))
+    .filter(prompt => prompt.type && (!requestedType || prompt.type === requestedType))
+    .sort((left, right) => left.type.localeCompare(right.type) || left.name.localeCompare(right.name));
+}
+
 
 function normalizedProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
@@ -252,6 +299,10 @@ async function generateConfiguredImage(req, options) {
 
 function createBatchFactoryV11Router(options = {}) {
   const router = express.Router();
+  router.get('/prompts', (req, res) => {
+    try { return res.json({ prompts: listBatchFactoryPrompts(options.presetStore, req.query) }); }
+    catch (error) { return res.status(500).json({ error: error?.message || '读取批量工厂预设提示词失败', code: 'BFV11_PROMPT_CATALOG_FAILED' }); }
+  });
   router.post('/image-generation', async (req, res) => {
     try {
       const result = await generateConfiguredImage(req, options);
@@ -285,5 +336,6 @@ module.exports = {
   needsH3ConfigSync,
   needsPersonalConfigSync,
   createBatchFactoryV11Router,
+  listBatchFactoryPrompts,
   generateConfiguredImage
 };
