@@ -26,6 +26,7 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 		provider, hasProvider, providerErr := requestTextProvider(r)
 		if providerErr != nil { writeStoreError(w, providerErr); return }
 		var value batchfactoryv11.HookRevision
+		var err error
 		if hasProvider { value, err = service.RunHookWithProvider(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), provider) } else { value, err = service.RunHook(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId")) }
 		if err != nil { writeStoreError(w, err); return }
 		writeJSON(w, http.StatusCreated, map[string]any{"hook": value})
@@ -41,6 +42,7 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 		provider, hasProvider, providerErr := requestTextProvider(r)
 		if providerErr != nil { writeStoreError(w, providerErr); return }
 		var value batchfactoryv11.DirectorRevision
+		var err error
 		if hasProvider { value, err = service.RunDirectorWithProvider(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), provider) } else { value, err = service.RunDirector(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId")) }
 		if err != nil { writeStoreError(w, err); return }
 		writeJSON(w, http.StatusCreated, map[string]any{"directorRevision": value})
