@@ -6,11 +6,20 @@ import (
 	"strings"
 )
 
+type ShotMergeMedia struct {
+	ProductionJobID string `json:"productionJobId"`
+	BookID          string `json:"bookId"`
+	VideoID         string `json:"videoId"`
+	ShotID          string `json:"shotId"`
+	MediaURL        string `json:"mediaUrl"`
+	Order           int    `json:"order"`
+}
+
 type VideoMergePlan struct {
-	BookID  string       `json:"bookId"`
-	VideoID string       `json:"videoId"`
-	Order   int          `json:"order"`
-	Sources []MergeMedia `json:"sources"`
+	BookID  string           `json:"bookId"`
+	VideoID string           `json:"videoId"`
+	Order   int              `json:"order"`
+	Sources []ShotMergeMedia `json:"sources"`
 }
 
 type BookMergePlan struct {
@@ -56,20 +65,19 @@ func BuildBookMergePlan(book Book, directorRevisionID string, jobs []ProductionJ
 		if len(video.Shots) == 0 {
 			return BookMergePlan{}, fmt.Errorf("%w: VIDEO %s has no Shots", ErrConflict, video.ID)
 		}
-		videoPlan := VideoMergePlan{BookID: book.ID, VideoID: video.ID, Order: videoIndex, Sources: make([]MergeMedia, 0, len(video.Shots))}
+		videoPlan := VideoMergePlan{BookID: book.ID, VideoID: video.ID, Order: videoIndex, Sources: make([]ShotMergeMedia, 0, len(video.Shots))}
 		for shotIndex, shot := range video.Shots {
 			selection, ok := selections[shot.ID]
 			if !ok || selection.Task.VideoID != video.ID || selection.Task.Status != ProductionSucceeded || strings.TrimSpace(selection.Task.MediaURL) == "" {
 				return BookMergePlan{}, fmt.Errorf("%w: VIDEO %s Shot %s has no completed media", ErrConflict, video.ID, shot.ID)
 			}
 			mediaURL := strings.TrimSpace(selection.Task.MediaURL)
-			videoPlan.Sources = append(videoPlan.Sources, MergeMedia{
+			videoPlan.Sources = append(videoPlan.Sources, ShotMergeMedia{
 				ProductionJobID: selection.JobID,
 				BookID:          book.ID,
 				VideoID:         video.ID,
 				ShotID:          shot.ID,
 				MediaURL:        mediaURL,
-				URL:             mediaURL,
 				Order:           shotIndex,
 			})
 		}
