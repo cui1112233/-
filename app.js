@@ -296,6 +296,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     }));
   }
 
+  app.get('/yizhan-icon.png', (req, res, next) => {
+    const iconPath = path.join(frontendDist, 'yizhan-icon.png');
+    if (!fs.existsSync(iconPath)) return next();
+    return res.sendFile(iconPath);
+  });
+
   app.use('/pets', express.static(petsDir, {
     setHeaders(res) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

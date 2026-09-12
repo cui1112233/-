@@ -15,7 +15,9 @@ const CATEGORY_DIR = { image: '图片', video: '视频', audio: '配音' };
 function createStorageRouter({ auth = apiAuth, getStorageRootFn = getStorageRoot, historyHasFn = historyHasId, historyAddFn = historyAppend } = {}) {
   const app = express();
   app.use(express.json());
-  app.use(auth);
+  // This sub-app is mounted at the site root. Scope authentication to its own
+  // API namespace so it cannot intercept unrelated pages or public assets.
+  app.use('/api/storage', auth);
   const router = express.Router();
   router.post('/save-media', (req, res) => {
     const { projectName, category, filename, dataUrl } = req.body || {};
