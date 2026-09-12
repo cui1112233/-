@@ -182,10 +182,10 @@ export function getFinalPrompt(batchId, bookId, videoId, shotId = '') {
   return apiRequest(`${path}${query({ shotId })}`);
 }
 
-export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api') {
+export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api', videoModelId = '') {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/production`), {
     method: 'POST',
-    body: body({ requestId, provider })
+    body: body({ requestId, provider, ...(videoModelId ? { videoModelId } : {}) })
   });
 }
 
