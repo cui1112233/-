@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
 const { listBatchFactoryPrompts } = require('../routes/batch-factory-v11');
 
 test('V11 prompt catalog exposes only published batch-factory presets with stable dropdown types', () => {
