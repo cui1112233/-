@@ -108,6 +108,13 @@ jobs:
           done
           chmod 600 "$HOME/.ssh/known_hosts"
 
+      - name: Copy the Git-managed public Nginx route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/nginx.conf "$ECS_USER@$ECS_HOST:/tmp/v88-public-nginx-${GITHUB_SHA}.conf"
+
       - name: Deploy paired immutable images with rollback
         shell: bash
         env:
@@ -140,21 +147,26 @@ jobs:
           printf 'PREVIOUS_PUBLIC_BUILD=%s\n' "$PREVIOUS_PUBLIC_BUILD"
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           backup_env=".env.pre-unified-${stamp}"
+          backup_nginx="nginx.conf.pre-unified-${stamp}"
           cp -a .env "$backup_env"
+          cp -a nginx.conf "$backup_nginx"
 
           rollback() {
             status=$?
-            trap - ERR
+            trap - EXIT ERR
             if [ "$status" -ne 0 ]; then
               echo "STATUS=ROLLBACK restoring $backup_env"
               cp -a "$backup_env" .env
+              cp -a "$backup_nginx" nginx.conf
               docker compose -f docker-compose.yml config -q || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node || true
+              docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 && docker compose -f docker-compose.yml exec -T nginx nginx -s reload >/dev/null 2>&1 || true
             fi
+            rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
             docker logout ghcr.io >/dev/null 2>&1 || true
             exit "$status"
           }
-          trap rollback ERR
+          trap rollback EXIT
 
           docker pull "$go_image"
           docker pull "$node_image"
@@ -173,9 +185,12 @@ jobs:
           set_env QIANTIE_NODE_IMAGE "$node_image"
           set_env QIANTIE_GO_IMAGE "$go_image"
           set_env QIANTIE_RELEASE_SHA "$expected_sha"
+          cp "/tmp/v88-public-nginx-${expected_sha}.conf" nginx.conf
 
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
+          docker compose -f docker-compose.yml exec -T nginx nginx -t
+          docker compose -f docker-compose.yml exec -T nginx nginx -s reload
 
           public_ok=0
           for attempt in $(seq 1 30); do
@@ -233,7 +248,8 @@ jobs:
           NODE
 
           echo "STATUS=DEPLOYED release_sha=$expected_sha public_v11_status=$public_cap_status"
-          trap - ERR
+          rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
+          trap - EXIT ERR
           docker logout ghcr.io >/dev/null 2>&1 || true
           REMOTE
 

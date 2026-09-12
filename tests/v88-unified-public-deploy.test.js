@@ -29,6 +29,17 @@ test('unified V88 deploy records rollback state and restores it on failed accept
   assert.match(workflow, /cp -a "\$backup_env" \.env/);
 });
 
+test('unified V88 deploy installs the Git-managed Nginx route and restores it on failed acceptance', () => {
+  assert.match(workflow, /scp[\s\S]*deploy\/v88-public\/nginx\.conf/);
+  assert.match(workflow, /backup_nginx/);
+  assert.match(workflow, /cp -a "\$backup_nginx" nginx\.conf/);
+  assert.match(workflow, /trap rollback EXIT/);
+  assert.match(workflow, /trap - EXIT ERR/);
+  assert.doesNotMatch(workflow, /trap rollback ERR/);
+  assert.match(workflow, /docker compose[^\n]*exec -T nginx nginx -t/);
+  assert.match(workflow, /docker compose[^\n]*exec -T nginx nginx -s reload/);
+});
+
 test('unified V88 deploy accepts the public runtime only when exact release identity and Batch Factory routes are reachable', () => {
   assert.match(workflow, /api\/build-info/);
   assert.match(workflow, /batch-factory/);
