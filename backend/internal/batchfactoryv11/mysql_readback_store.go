@@ -36,16 +36,28 @@ func (s *ReadbackMySQLStore) hydrateSettingsState(ctx context.Context, owner str
 		book.SettingsState = SettingsState{Patch: clonePatch(patch), Revision: book.Revision}
 		effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
 		book.Mode = rawString(effective, "productionMode", rawString(effective, "mode", "original"))
-		if book.Mode == "original_direct" { book.Mode = "original" }
-		if book.Mode == "viral_hook" { book.Mode = "viral" }
+		if book.Mode == "original_direct" {
+			book.Mode = "original"
+		}
+		if book.Mode == "viral_hook" {
+			book.Mode = "viral"
+		}
 		if hook, err := s.LatestHookRevision(ctx, owner, batch.ID, book.ID); err == nil {
 			book.Hook = &hook
-		} else if !errors.Is(err, ErrNotFound) { return Batch{}, err }
+		} else if !errors.Is(err, ErrNotFound) {
+			return Batch{}, err
+		}
 		if revision, err := loadLatestDirectorRevision(ctx, s.db, owner, batch.ID, book.ID); err == nil {
 			revision.Videos = append([]Video(nil), book.Videos...)
 			book.DirectorRevision = &revision
 			book.Assets = DirectorAssets{Characters: revision.Output.Characters, Scenes: revision.Output.Scenes, Props: revision.Output.Props}
-		} else if !errors.Is(err, ErrNotFound) { return Batch{}, err }
+			book.DownstreamStale = revision.SourceDigest != sourceDigest(book.SourceText)
+		} else if !errors.Is(err, ErrNotFound) {
+			return Batch{}, err
+		}
+		if book.Hook != nil && book.Hook.SourceDigest != sourceDigest(book.SourceText) {
+			book.DownstreamStale = true
+		}
 
 		for videoIndex := range book.Videos {
 			video := &book.Videos[videoIndex]
@@ -81,4 +93,20 @@ func (s *ReadbackMySQLStore) ListBatches(ctx context.Context, owner string) ([]B
 		out = append(out, hydrated)
 	}
 	return out, nil
+}
+
+func (s *ReadbackMySQLStore) UpdateBookSource(ctx context.Context, owner, batchID, bookID string, input SourceUpdate) (Book, error) {
+	if _, err := s.MySQLStore.UpdateBookSource(ctx, owner, batchID, bookID, input); err != nil {
+		return Book{}, err
+	}
+	batch, err := s.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return Book{}, err
+	}
+	for _, book := range batch.Books {
+		if book.ID == bookID {
+			return book, nil
+		}
+	}
+	return Book{}, ErrNotFound
 }

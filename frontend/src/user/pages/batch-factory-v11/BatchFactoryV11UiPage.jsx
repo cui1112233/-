@@ -333,7 +333,7 @@ export function BatchFactoryV11UiPage() {
     return `${prefix}-${random || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   }
 
-  async function runProduction(targetBatch) {
+  async function runProduction(targetBatch, targetBook = null) {
     if (!targetBatch?.id || productionBusy) return false;
     const provider = batchSettingsState.patch.videoProvider || 'personal_api';
     if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
@@ -350,12 +350,17 @@ export function BatchFactoryV11UiPage() {
     }
     setProductionBusy(true);
     try {
-      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
+      const result = await runtime.runProduction({
+        batchId: targetBatch.id,
+        bookId: targetBook?.id || '',
+        requestId: newRequestId('bf11-production'),
+        provider
+      });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
       if (next.phase !== 'ready') { message.warning('视频任务已提交，但刷新状态失败，请稍后重试。'); return true; }
-      message.success('待生成 VIDEO 已提交，状态会自动写回工作台。');
+      message.success(targetBook ? '当前小说待生成 VIDEO 已提交，状态会自动写回工作台。' : '待生成 VIDEO 已提交，状态会自动写回工作台。');
       return true;
     } finally {
       setProductionBusy(false);
@@ -401,13 +406,27 @@ export function BatchFactoryV11UiPage() {
     return true;
   }
 
-  async function saveAssetPrompts(type, items, drafts) {
+  async function saveBookSource(book, sourceText) {
+    const result = await runtime.updateBookSource({
+      batchId: batch.id,
+      bookId: book.id,
+      sourceText,
+      revision: book.revision
+    });
+    if (!result.ok) { message.error(result.message); return false; }
+    await reload({ announce: false });
+    message.success('原文已保存；已有下游结果已标记为需更新');
+    return true;
+  }
+
+  async function saveAssetPrompts(book, type, items, drafts) {
+    if (!book?.id) return false;
     try {
       await Promise.all((items || []).map(item => {
       const name = typeof item === 'string' ? item : (item?.name || item?.label || item?.id || '未命名资产');
       const key = `${type}:${item?.id || name}:${items.indexOf(item)}`;
       const content = drafts[key] ?? (typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || ''));
-      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: batch.id, content });
+      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: `${batch.id}:${book.id}`, content });
       }));
       message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
       return true;
@@ -494,6 +513,7 @@ export function BatchFactoryV11UiPage() {
         onRunProduction={runProduction}
         onRunMerge={runMerge}
         onRunUpload={() => setExternalPublishOpen(true)}
+        onSaveSource={saveBookSource}
         onSaveVideoPrompt={saveVideoPrompt}
         onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}

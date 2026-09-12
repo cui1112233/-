@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("revision conflict")
-	ErrInvalid  = errors.New("invalid input")
+	ErrNotFound    = errors.New("not found")
+	ErrConflict    = errors.New("revision conflict")
+	ErrInvalid     = errors.New("invalid input")
 	ErrUnavailable = errors.New("capability unavailable")
 )
 
@@ -59,23 +59,28 @@ type Video struct {
 	SettingsState      SettingsState `json:"settingsState"`
 }
 type Book struct {
-	ID             string         `json:"id"`
-	BatchID        string         `json:"batchId"`
-	BookID         string         `json:"bookId"`
-	Title          string         `json:"title"`
-	SourceText     string         `json:"sourceText,omitempty"`
-	SourceTaskID   string         `json:"sourceTaskId,omitempty"`
-	Platform       string         `json:"platform,omitempty"`
-	TxtText        string         `json:"txtText,omitempty"`
-	TxtFileName    string         `json:"txtFileName,omitempty"`
-	SourceMetadata map[string]any `json:"sourceMetadata,omitempty"`
-	Revision       int64          `json:"revision"`
-	SettingsState SettingsState `json:"settingsState"`
-	Mode          string        `json:"mode,omitempty"`
-	Hook          *HookRevision `json:"hook,omitempty"`
+	ID               string            `json:"id"`
+	BatchID          string            `json:"batchId"`
+	BookID           string            `json:"bookId"`
+	Title            string            `json:"title"`
+	SourceText       string            `json:"sourceText,omitempty"`
+	SourceTaskID     string            `json:"sourceTaskId,omitempty"`
+	Platform         string            `json:"platform,omitempty"`
+	TxtText          string            `json:"txtText,omitempty"`
+	TxtFileName      string            `json:"txtFileName,omitempty"`
+	SourceMetadata   map[string]any    `json:"sourceMetadata,omitempty"`
+	Revision         int64             `json:"revision"`
+	SettingsState    SettingsState     `json:"settingsState"`
+	Mode             string            `json:"mode,omitempty"`
+	Hook             *HookRevision     `json:"hook,omitempty"`
 	DirectorRevision *DirectorRevision `json:"directorRevision,omitempty"`
-	Assets        DirectorAssets `json:"assets,omitempty"`
-	Videos        []Video       `json:"videos"`
+	Assets           DirectorAssets    `json:"assets,omitempty"`
+	Videos           []Video           `json:"videos"`
+	DownstreamStale  bool              `json:"downstreamStale"`
+}
+type SourceUpdate struct {
+	SourceText       string `json:"sourceText"`
+	ExpectedRevision int64  `json:"expectedRevision"`
 }
 type Batch struct {
 	ID             string        `json:"id"`
@@ -159,15 +164,15 @@ type Draft struct {
 }
 
 type HookRevision struct {
-	ID         string    `json:"id"`
-	BatchID    string    `json:"batchId"`
-	BookID     string    `json:"bookId"`
-	Revision   int64     `json:"revision"`
-	Status     string    `json:"status"`
-	Text       string    `json:"text"`
-	SourceDigest string  `json:"sourceDigest"`
-	CreatedAt  time.Time `json:"createdAt"`
-	ApprovedAt *time.Time `json:"approvedAt,omitempty"`
+	ID           string     `json:"id"`
+	BatchID      string     `json:"batchId"`
+	BookID       string     `json:"bookId"`
+	Revision     int64      `json:"revision"`
+	Status       string     `json:"status"`
+	Text         string     `json:"text"`
+	SourceDigest string     `json:"sourceDigest"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	ApprovedAt   *time.Time `json:"approvedAt,omitempty"`
 }
 
 type DirectorAssets struct {
@@ -223,6 +228,7 @@ type Store interface {
 	CreateBatch(context.Context, string, CreateBatchInput) (Batch, error)
 	ListBatches(context.Context, string) ([]Batch, error)
 	GetBatch(context.Context, string, string) (Batch, error)
+	UpdateBookSource(context.Context, string, string, string, SourceUpdate) (Book, error)
 	SaveSettings(context.Context, string, ScopeRef, SettingsUpdate) (SettingsResult, error)
 	ConfigVersions(context.Context, string) ([]ConfigVersion, error)
 	ChangeImpact(context.Context, string, string, SettingsUpdate) (ChangeImpact, error)

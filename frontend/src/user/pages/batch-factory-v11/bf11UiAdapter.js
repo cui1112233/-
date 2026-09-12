@@ -220,6 +220,11 @@ export function createBf11UiAdapter(api) {
       return api.saveVideoOverride(batchId, bookId, videoId, { patch: { visualPrompt }, expectedRevision: revision });
     },
 
+    async updateBookSource({ batchId, bookId, sourceText, revision = 0 } = {}) {
+      if (!batchId || !bookId) throw new Error('V11 Batch and Book ids are required');
+      return api.updateBookSource(batchId, bookId, { sourceText, expectedRevision: revision });
+    },
+
     async previewFinalPrompt({ batchId, bookId, videoId } = {}) {
       if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
       const [effectiveResult, promptResult] = await Promise.all([
