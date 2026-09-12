@@ -399,6 +399,12 @@ export function BatchFactoryV11Workbench({
             {' · '}场景：{(selectedShot.sceneRefs || []).join('、') || '沿用当前小说资产'}
             {' · '}道具：{(selectedShot.propRefs || []).join('、') || '无'}
           </Typography.Paragraph>
+          {productionTaskByShotId.get(selectedShot.id) ? <Typography.Text type="secondary">
+            任务：第 {productionTaskByShotId.get(selectedShot.id).attempt || 1} 次尝试
+            {productionTaskByShotId.get(selectedShot.id).provider ? ` · ${productionTaskByShotId.get(selectedShot.id).provider}` : ''}
+            {productionTaskByShotId.get(selectedShot.id).providerTaskId ? ` · ${productionTaskByShotId.get(selectedShot.id).providerTaskId}` : ''}
+            {productionTaskByShotId.get(selectedShot.id).errorMessage ? ` · ${productionTaskByShotId.get(selectedShot.id).errorMessage}` : ''}
+          </Typography.Text> : null}
           <div className="bf11-shot-media-grid">
             <div className="bf11-shot-media-slot">
               <Typography.Text strong>画面图</Typography.Text>
