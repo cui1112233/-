@@ -225,11 +225,11 @@ export function createBf11UiAdapter(api) {
       return api.updateBookSource(batchId, bookId, { sourceText, expectedRevision: revision });
     },
 
-    async previewFinalPrompt({ batchId, bookId, videoId } = {}) {
+    async previewFinalPrompt({ batchId, bookId, videoId, shotId = '' } = {}) {
       if (!batchId || !bookId || !videoId) throw new Error('V11 Batch, Book and VIDEO ids are required');
       const [effectiveResult, promptResult] = await Promise.all([
         api.getEffectiveSettings(batchId, bookId, videoId),
-        api.getFinalPrompt(batchId, bookId, videoId)
+        api.getFinalPrompt(batchId, bookId, videoId, shotId)
       ]);
       return {
         effectiveSettings: effectiveResult?.effectiveSettings || effectiveResult,
