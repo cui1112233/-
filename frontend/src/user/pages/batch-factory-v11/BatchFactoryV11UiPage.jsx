@@ -60,6 +60,7 @@ export function BatchFactoryV11UiPage() {
   const [newBatchTitle, setNewBatchTitle] = useState('');
   const [historyBatches, setHistoryBatches] = useState([]);
   const [generatedShotImages, setGeneratedShotImages] = useState({});
+  const [generatedAssetImages, setGeneratedAssetImages] = useState({ character: {}, scene: {}, prop: {} });
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -400,6 +401,21 @@ export function BatchFactoryV11UiPage() {
     }
   }
 
+  async function generateAssetImage(book, type, item, prompt) {
+    const modelId = batchSettingsState.patch.imageModelId || '';
+    if (!modelId || !book?.id || !prompt) { message.error('请先选择图片模型并确认资产 Prompt'); return false; }
+    const assetId = item?.id || item?.name || item?.label || prompt.slice(0, 40);
+    try {
+      const raw = await batchFactoryV11.generateConfiguredImage({ imageModelId: modelId, prompt });
+      const imageUrl = raw?.imageUrl || raw?.url || '';
+      if (!imageUrl) throw new Error('图片模型未返回图片地址');
+      setGeneratedAssetImages(current => ({ ...current, [type]: { ...current[type], [assetId]: imageUrl } }));
+      await runtime.saveDraft({ key: `asset:${type}:${assetId}:image`, kind: 'asset-image', scope: `${batch.id}:${book.id}`, content: imageUrl });
+      message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'}图片已生成并保存`);
+      return true;
+    } catch (error) { message.error(error?.message || '资产图片生成失败'); return false; }
+  }
+
   async function generateShotImage(book, video, shot) {
     if (!book?.id || !video?.id || !shot?.id || !shot.visualPrompt) return false;
     const modelId = batchSettingsState.patch.imageModelId || '';
@@ -547,6 +563,8 @@ export function BatchFactoryV11UiPage() {
         onSaveAssetPrompts={saveAssetPrompts}
         onGenerateShotImage={generateShotImage}
         generatedShotImages={generatedShotImages}
+        onGenerateAssetImage={generateAssetImage}
+        generatedAssetImages={generatedAssetImages}
       />
 
       <Modal title="新建批次" open={batchManagerOpen} onCancel={() => setBatchManagerOpen(false)} onOk={createNewBatch} okText="创建">
