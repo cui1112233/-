@@ -393,12 +393,12 @@ export function BatchFactoryV11Workbench({
             <div className="bf11-inline-editor-title"><Typography.Text strong>画面提示词</Typography.Text><Tag>visualPrompt</Tag></div>
             <TextArea
               rows={6}
-              value={videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? ''}
-              placeholder="当前服务端未返回 visualPrompt"
-              onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedVideo.id]: event.target.value }))}
+              value={videoPromptDrafts[selectedShot?.id || selectedVideo.id] ?? selectedShot?.visualPrompt ?? selectedVideo.visualPrompt ?? ''}
+              placeholder="当前服务端未返回当前 Shot 画面提示词"
+              onChange={event => setVideoPromptDrafts(current => ({ ...current, [selectedShot?.id || selectedVideo.id]: event.target.value }))}
             />
             <Space wrap>
-              <Button disabled={!onSaveVideoPrompt} onClick={() => onSaveVideoPrompt?.(selectedBook, selectedVideo, videoPromptDrafts[selectedVideo.id] ?? selectedVideo.visualPrompt ?? '')}>保存画面提示词</Button>
+              <Button disabled={!onSaveVideoPrompt} onClick={() => onSaveVideoPrompt?.(selectedBook, selectedVideo, videoPromptDrafts[selectedShot?.id || selectedVideo.id] ?? selectedShot?.visualPrompt ?? selectedVideo.visualPrompt ?? '', selectedShot)}>保存画面提示词</Button>
               <Button
                 disabled={compilerAction.disabled || !onPreviewFinalPrompt}
                 title={compilerAction.disabled ? compilerAction.reason : ''}
