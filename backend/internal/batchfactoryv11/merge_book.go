@@ -51,6 +51,17 @@ func bookMergeRequestID(rootRequestID string) string {
 	return rootRequestID + ":book"
 }
 
+func aggregateBookMergeState(job MergeJob) MergeState {
+	switch job.Status {
+	case MergeSucceeded:
+		return MergeSucceeded
+	case MergeFailed:
+		return MergeFailed
+	default:
+		return MergeRunning
+	}
+}
+
 func (s *MergeService) submitStructuredMergeJob(ctx context.Context, repository MergeRepository, owner string, job MergeJob, options MergeOptions) (MergeJob, error) {
 	if existing, err := repository.FindMergeJob(ctx, owner, job.BatchID, job.RequestID); err == nil {
 		return existing, nil
@@ -73,6 +84,24 @@ func (s *MergeService) submitStructuredMergeJob(ctx context.Context, repository 
 		updated.ErrorMessage = productionError(submitErr)
 	}
 	return repository.UpdateMergeJob(ctx, owner, created.ID, updated)
+}
+
+func (s *MergeService) pollStructuredMergeJob(ctx context.Context, repository MergeRepository, owner, batchID string, job MergeJob) (MergeJob, error) {
+	if s.Poller == nil || strings.TrimSpace(job.ProviderTaskID) == "" || (job.Status != MergeQueued && job.Status != MergeRunning) {
+		return job, nil
+	}
+	result, err := s.Poller.Poll(ctx, batchID, job)
+	if err != nil {
+		return job, nil
+	}
+	updated := job
+	updated.Status = normalizeMergeState(result.Status)
+	if value := strings.TrimSpace(result.ProviderTaskID); value != "" {
+		updated.ProviderTaskID = value
+	}
+	updated.OutputURL = strings.TrimSpace(result.OutputURL)
+	updated.ErrorMessage = strings.TrimSpace(result.ErrorMessage)
+	return repository.UpdateMergeJob(ctx, owner, job.ID, updated)
 }
 
 func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, bookID, requestID string, options MergeOptions) (BookMergeStatus, error) {
@@ -136,20 +165,25 @@ func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, book
 		videoOptions := MergeOptions{TimingMode: "speed", Speed: 1, TTSSpeed: options.TTSSpeed}
 		now := time.Now().UTC()
 		job, submitErr := s.submitStructuredMergeJob(ctx, repository, owner, MergeJob{
-			Owner:         owner,
-			BatchID:       batchID,
-			RootRequestID: requestID,
-			RequestID:     videoMergeRequestID(requestID, videoPlan.VideoID),
-			BookID:       bookID,
-			VideoID:      videoPlan.VideoID,
-			Stage:        MergeStageVideo,
-			TimingMode:   videoOptions.TimingMode,
-			Speed:        videoOptions.Speed,
-			TTSSpeed:     videoOptions.TTSSpeed,
-			Status:       MergeQueued,
-			Sources:      sources,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			Owner:                owner,
+			BatchID:              batchID,
+			RootRequestID:        requestID,
+			RequestID:            videoMergeRequestID(requestID, videoPlan.VideoID),
+			BookID:               bookID,
+			VideoID:              videoPlan.VideoID,
+			Stage:                MergeStageVideo,
+			// Persist the root Book timing envelope on every VIDEO child so a
+			// fresh service process can reconstruct the final Book job without
+			// relying on in-memory orchestration state. The provider still gets
+			// videoOptions below, so Shot→VIDEO itself always stays at 1x.
+			TimingMode:           options.TimingMode,
+			Speed:                options.Speed,
+			TTSSpeed:             options.TTSSpeed,
+			AudioDurationSeconds: options.AudioDurationSeconds,
+			Status:               MergeQueued,
+			Sources:              sources,
+			CreatedAt:            now,
+			UpdatedAt:            now,
 		}, videoOptions)
 		if submitErr != nil {
 			return BookMergeStatus{}, submitErr
@@ -198,6 +232,137 @@ func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, book
 		return BookMergeStatus{}, err
 	}
 	status.FinalJob = &finalJob
-	status.Status = finalJob.Status
+	status.Status = aggregateBookMergeState(finalJob)
+	return status, nil
+}
+
+// GetBookMergeStatus reconstructs hierarchical merge progress entirely from
+// durable repository state. This is intentionally safe across process restarts:
+// deterministic child request IDs prevent duplicate VIDEO or Book submissions.
+func (s *MergeService) GetBookMergeStatus(ctx context.Context, owner, batchID, bookID, requestID string) (BookMergeStatus, error) {
+	if s == nil || !s.Enabled {
+		return BookMergeStatus{}, fmt.Errorf("%w: merge is not enabled", ErrUnavailable)
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return BookMergeStatus{}, fmt.Errorf("%w: request id is required", ErrInvalid)
+	}
+	repository, err := s.repository()
+	if err != nil {
+		return BookMergeStatus{}, err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return BookMergeStatus{}, err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return BookMergeStatus{}, err
+	}
+	if len(book.Videos) == 0 {
+		return BookMergeStatus{}, fmt.Errorf("%w: book has no VIDEO units", ErrConflict)
+	}
+
+	status := BookMergeStatus{
+		BatchID:   batchID,
+		BookID:    bookID,
+		RequestID: requestID,
+		Status:    MergeRunning,
+		VideoJobs: make([]MergeJob, 0, len(book.Videos)),
+	}
+	allVideosSucceeded := true
+	var recoveredOptions MergeOptions
+	for index, video := range book.Videos {
+		job, findErr := repository.FindMergeJob(ctx, owner, batchID, videoMergeRequestID(requestID, video.ID))
+		if findErr != nil {
+			if errors.Is(findErr, ErrNotFound) {
+				return BookMergeStatus{}, fmt.Errorf("%w: VIDEO merge job %s is missing", ErrConflict, video.ID)
+			}
+			return BookMergeStatus{}, findErr
+		}
+		if job.Stage != MergeStageVideo || job.BookID != bookID || job.VideoID != video.ID || job.RootRequestID != requestID {
+			return BookMergeStatus{}, fmt.Errorf("%w: VIDEO merge identity mismatch", ErrConflict)
+		}
+		job, err = s.pollStructuredMergeJob(ctx, repository, owner, batchID, job)
+		if err != nil {
+			return BookMergeStatus{}, err
+		}
+		status.VideoJobs = append(status.VideoJobs, job)
+		options := MergeOptions{
+			TimingMode:           job.TimingMode,
+			Speed:                job.Speed,
+			TTSSpeed:             job.TTSSpeed,
+			AudioDurationSeconds: job.AudioDurationSeconds,
+		}
+		if index == 0 {
+			recoveredOptions = options
+		} else if options != recoveredOptions {
+			return BookMergeStatus{}, fmt.Errorf("%w: VIDEO merge timing metadata mismatch", ErrConflict)
+		}
+		if job.Status == MergeFailed {
+			status.Status = MergeFailed
+			allVideosSucceeded = false
+		} else if job.Status != MergeSucceeded || strings.TrimSpace(job.OutputURL) == "" {
+			allVideosSucceeded = false
+		}
+	}
+	if status.Status == MergeFailed || !allVideosSucceeded {
+		return status, nil
+	}
+
+	recoveredOptions, err = normalizeBookMergeOptions(recoveredOptions)
+	if err != nil {
+		return BookMergeStatus{}, fmt.Errorf("%w: persisted Book merge timing is invalid", ErrConflict)
+	}
+	finalRequestID := bookMergeRequestID(requestID)
+	finalJob, findErr := repository.FindMergeJob(ctx, owner, batchID, finalRequestID)
+	if errors.Is(findErr, ErrNotFound) {
+		if s.Adapter == nil {
+			return BookMergeStatus{}, ErrUnavailable
+		}
+		finalSources := make([]MergeMedia, 0, len(status.VideoJobs))
+		for index, videoJob := range status.VideoJobs {
+			finalSources = append(finalSources, MergeMedia{
+				ProductionJobID: videoJob.ID,
+				BookID:          bookID,
+				VideoID:         videoJob.VideoID,
+				MediaURL:        videoJob.OutputURL,
+				URL:             videoJob.OutputURL,
+				Order:           index,
+			})
+		}
+		now := time.Now().UTC()
+		finalJob, err = s.submitStructuredMergeJob(ctx, repository, owner, MergeJob{
+			Owner:                owner,
+			BatchID:              batchID,
+			RootRequestID:        requestID,
+			RequestID:            finalRequestID,
+			BookID:               bookID,
+			Stage:                MergeStageBook,
+			TimingMode:           recoveredOptions.TimingMode,
+			Speed:                recoveredOptions.Speed,
+			TTSSpeed:             recoveredOptions.TTSSpeed,
+			AudioDurationSeconds: recoveredOptions.AudioDurationSeconds,
+			Status:               MergeQueued,
+			Sources:              finalSources,
+			CreatedAt:            now,
+			UpdatedAt:            now,
+		}, recoveredOptions)
+		if err != nil {
+			return BookMergeStatus{}, err
+		}
+	} else if findErr != nil {
+		return BookMergeStatus{}, findErr
+	} else {
+		if finalJob.Stage != MergeStageBook || finalJob.BookID != bookID || finalJob.RootRequestID != requestID {
+			return BookMergeStatus{}, fmt.Errorf("%w: Book merge identity mismatch", ErrConflict)
+		}
+		finalJob, err = s.pollStructuredMergeJob(ctx, repository, owner, batchID, finalJob)
+		if err != nil {
+			return BookMergeStatus{}, err
+		}
+	}
+	status.FinalJob = &finalJob
+	status.Status = aggregateBookMergeState(finalJob)
 	return status, nil
 }
