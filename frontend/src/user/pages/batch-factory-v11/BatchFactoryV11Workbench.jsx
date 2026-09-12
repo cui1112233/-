@@ -96,7 +96,7 @@ function assetPrompt(item) {
   return typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || '');
 }
 
-function AssetPromptGroup({ label, type, items, drafts, onChange, onRefresh, onSave }) {
+function AssetPromptGroup({ label, type, items, drafts, onChange, onRefresh, onSave, onGenerateImage, generatedImages = {} }) {
   return <div className="bf11-asset-prompt-group">
     <div className="bf11-asset-prompt-title">
       <Typography.Text strong>{label}</Typography.Text>
@@ -117,6 +117,8 @@ function AssetPromptGroup({ label, type, items, drafts, onChange, onRefresh, onS
             placeholder="等待 V11 资产 Prompt 数据"
             onChange={event => onChange(key, event.target.value)}
           />
+          {generatedImages[item?.id || name] ? <img className="bf11-asset-preview" src={generatedImages[item?.id || name]} alt={name} /> : null}
+          <Button size="small" disabled={!onGenerateImage || !assetPrompt(item) && !drafts[key]} onClick={() => onGenerateImage(item, drafts[key] ?? assetPrompt(item))}>生成图片</Button>
         </div>;
       })}
       {!(items || []).length ? <Typography.Text type="secondary">当前没有服务端资产数据。</Typography.Text> : null}
@@ -148,6 +150,8 @@ export function BatchFactoryV11Workbench({
   onSaveAssetPrompts,
   onGenerateShotImage,
   generatedShotImages = {},
+  onGenerateAssetImage,
+  generatedAssetImages = {},
   onRunMerge,
   onRunUpload
 }) {
@@ -348,8 +352,8 @@ export function BatchFactoryV11Workbench({
       key: 'assets',
       label: <span className="bf11-fold-label"><strong>管理资产</strong><small>人物与场景仅属于当前小说</small></span>,
       children: <div className="bf11-asset-editor-stack">
-        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
-        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} />
+        <AssetPromptGroup label="人物 Prompt" type="character" items={bookAssets.characters || []} drafts={assetDrafts} generatedImages={generatedAssetImages.character || {}} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} onGenerateImage={(item, prompt) => onGenerateAssetImage?.(selectedBook, "character", item, prompt)} />
+        <AssetPromptGroup label="场景 Prompt" type="scene" items={bookAssets.scenes || []} drafts={assetDrafts} generatedImages={generatedAssetImages.scene || {}} onChange={setAssetDraft} onRefresh={() => onRefreshAssets?.(selectedBook)} onSave={(type, items, drafts) => onSaveAssetPrompts?.(selectedBook, type, items, drafts)} onGenerateImage={(item, prompt) => onGenerateAssetImage?.(selectedBook, "scene", item, prompt)} />
       </div>
     },
     {
