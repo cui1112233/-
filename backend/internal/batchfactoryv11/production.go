@@ -445,9 +445,7 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 				}
 			} else if s.ProviderRegistry != nil {
 				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
-				if resolveErr != nil && s.Poller != nil {
-					ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
-				} else if resolveErr != nil {
+				if resolveErr != nil {
 					pollErr = resolveErr
 				} else if poller, ok := adapter.(ProductionPoller); !ok {
 					pollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
