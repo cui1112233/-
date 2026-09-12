@@ -251,6 +251,23 @@ export function getMergeStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
 }
 
+
+export function listSchedules() {
+  return apiRequest(bf11Path('schedules'));
+}
+
+export function createSchedule(payload = {}) {
+  return apiRequest(bf11Path('schedules'), { method: 'POST', body: body(payload) });
+}
+
+export function updateSchedule(scheduleId, payload = {}) {
+  return apiRequest(bf11Path('schedules/' + id(scheduleId)), { method: 'PATCH', body: body(payload) });
+}
+
+export function deleteSchedule(scheduleId) {
+  return apiRequest(bf11Path('schedules/' + id(scheduleId)), { method: 'DELETE' });
+}
+
 export function getPublishCredential(provider) {
   return apiRequest(bf11Path(`publish/${id(provider)}/credential`));
 }
@@ -317,6 +334,10 @@ export default {
   getBookMergeStatus,
   submitBatchMerge,
   getMergeStatus,
+  listSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
   getPublishCredential,
   savePublishCredential,
   createPublishIntent,
