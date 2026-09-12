@@ -11,7 +11,7 @@ const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPage'));
-const BatchFactoryPreviewPage = lazy(() => import('./pages/BatchFactoryPreviewPage'));
+const NewBatchFactoryPreviewPage = lazy(() => import('./pages/新·批量工厂/Preview'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
@@ -42,8 +42,8 @@ function getPage(pathname) {
     '/script': ScriptPage,
     '/novel-fetch': NovelFetchPage,
     '/novel-fetch-workshop': NovelFetchWorkshopPage,
-    '/batch-factory': BatchFactoryPage,
-    '/batch-factory-preview': BatchFactoryPreviewPage,
+    '/batch-factory': NewBatchFactoryPreviewPage,
+    '/batch-factory-preview': BatchFactoryPage,
     '/history': HistoryPage,
     '/novel-panel': NovelPanelPage,
     '/agent': AgentPage,
