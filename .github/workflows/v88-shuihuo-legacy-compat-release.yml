@@ -25,6 +25,22 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      # `public-v78` is a mutable ECS tag and was later overwritten by a V11
+      # image.  Build the retained implementation from its known-good commit
+      # instead, so the compatibility service is reproducible.
+      - name: Check out the retained Shuihuo implementation
+        uses: actions/checkout@v4
+        with:
+          ref: b1117372
+          path: legacy-shuihuo
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Go for the retained Shuihuo implementation
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
       - name: Verify isolated Shuihuo routing
         run: |
           set -Eeuo pipefail
@@ -57,6 +73,24 @@ jobs:
           docker logout ghcr.io >/dev/null 2>&1 || true
           echo "DEPLOY_IMAGE=$image" >> "$GITHUB_ENV"
 
+      - name: Build and publish the exact retained Shuihuo image
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/qiantie-v88:shuihuo-legacy-b1117372"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -C legacy-shuihuo/backend -trimpath -o ../qiantie ./cmd/qiantie
+          docker build --platform linux/amd64 \
+            --build-arg BACKEND_BINARY=qiantie \
+            -f legacy-shuihuo/deploy/Dockerfile.backend \
+            -t "$image" legacy-shuihuo
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = 'linux/amd64'
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$owner" --password-stdin
+          docker push "$image"
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          echo "COMPAT_IMAGE=$image" >> "$GITHUB_ENV"
+
       - name: Prepare ECS SSH
         env:
           V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
@@ -82,10 +116,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           printf '%s' "$GHCR_TOKEN" | timeout 60 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '${GITHUB_REPOSITORY_OWNER,,}' --password-stdin"
-          timeout 900 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$DEPLOY_IMAGE" "$GITHUB_SHA" <<'REMOTE'
+          timeout 900 ssh -i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$ECS_USER@$ECS_HOST" bash -s -- "$DEPLOY_IMAGE" "$GITHUB_SHA" "$COMPAT_IMAGE" <<'REMOTE'
           set -Eeuo pipefail
           deploy_image="$1"
           expected_sha="$2"
+          compat_image="$3"
           compose_file='/opt/qiantie/v88/deploy/v88-public/docker-compose.yml'
           compose_dir="$(dirname "$compose_file")"
           cd "$compose_dir"
@@ -111,7 +146,7 @@ jobs:
           }
           trap 'status=$?; if [ "$status" -ne 0 ]; then rollback; fi; docker logout ghcr.io >/dev/null 2>&1 || true; exit "$status"' EXIT
 
-          test -n "$(docker image inspect qiantie-go-api:public-v78 --format '{{.Id}}')"
+          docker pull "$compat_image"
           docker volume create v88-public_shuihuo_objects >/dev/null
           # The retained legacy service has its own schema.  The normal V88
           # application account needs access to that schema only; it must not
@@ -127,10 +162,10 @@ jobs:
               printf '\n%s=%s\n' "$key" "$value" >> .env
             fi
           }
-          set_env QIANTIE_SHUIHUO_COMPAT_IMAGE qiantie-go-api:public-v78
+          set_env QIANTIE_SHUIHUO_COMPAT_IMAGE "$compat_image"
           set_env QIANTIE_RELEASE_SHA "$expected_sha"
           ${compose[@]} config -q
-          ${compose[@]} up -d --no-deps --pull never shuihuo-compat
+          ${compose[@]} up -d --no-deps --force-recreate --pull never shuihuo-compat
           compat_id="$(${compose[@]} ps -q shuihuo-compat)"
           test -n "$compat_id"
           # The retained service creates its isolated legacy schema on first
