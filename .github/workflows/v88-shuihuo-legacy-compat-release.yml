@@ -33,7 +33,9 @@ jobs:
         with:
           ref: b1117372
           path: legacy-shuihuo
-          fetch-depth: 1
+          # This historical commit is reachable through retained branches but
+          # is not in a one-commit checkout from the V88 tip.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Go for the retained Shuihuo implementation
