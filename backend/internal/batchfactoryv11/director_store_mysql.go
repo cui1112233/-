@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strings"
 )
 
 func (s *MySQLStore) CreateHookRevision(ctx context.Context, owner, batchID, bookID, text, digest string) (HookRevision, error) {
@@ -124,6 +125,39 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 	if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=?,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, currentBookRevision+1, now, book.ID, book.BatchID, owner); err != nil { return DirectorRevision{}, err }
 	if err := tx.Commit(); err != nil { return DirectorRevision{}, err }
 	return DirectorRevision{ID: revisionID, BatchID: book.BatchID, BookID: book.ID, Revision: currentRevision+1, Mode: snapshot.Mode, SnapshotID: snapshotID, SourceDigest: digest, HookRevisionID: hookID, Output: output, Videos: videos, OrphanedOverrides: orphaned, CreatedAt: now}, nil
+}
+
+
+func (s *MySQLStore) UpdateShotVisualImage(ctx context.Context, owner, batchID, bookID, videoID, shotID, imageURL string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil { return err }
+	defer tx.Rollback()
+	var revisionID string
+	var raw []byte
+	err = tx.QueryRowContext(ctx, `SELECT id, output_json FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=? ORDER BY revision DESC LIMIT 1 FOR UPDATE`, owner, batchID, bookID).Scan(&revisionID, &raw)
+	if errors.Is(err, sql.ErrNoRows) { return ErrNotFound }
+	if err != nil { return err }
+	var output DirectorResult
+	if err := json.Unmarshal(raw, &output); err != nil { return err }
+	found := false
+	for videoIndex := range output.Storyboard {
+		if videoIndex >= len(output.Storyboard) || !strings.HasPrefix(shotID, videoID+":shot:") { continue }
+		for shotIndex := range output.Storyboard[videoIndex].Shots {
+			if fmt.Sprintf("%s:shot:%02d", videoID, shotIndex+1) == shotID {
+				output.Storyboard[videoIndex].Shots[shotIndex].VisualImageURL = imageURL
+				found = true
+				break
+			}
+		}
+		if found { break }
+	}
+	if !found { return ErrNotFound }
+	encoded, err := json.Marshal(output)
+	if err != nil { return err }
+	result, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_director_revisions SET output_json=? WHERE id=? AND owner_username=? AND batch_id=? AND book_id=?`, encoded, revisionID, owner, batchID, bookID)
+	if err != nil { return err }
+	if count, _ := result.RowsAffected(); count != 1 { return ErrNotFound }
+	return tx.Commit()
 }
 
 func loadLatestDirectorRevision(ctx context.Context, q batchQueryer, owner, batchID, bookID string) (DirectorRevision, error) {
