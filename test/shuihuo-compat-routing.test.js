@@ -11,7 +11,7 @@ test('Shuihuo chooses its isolated compatibility target before the shared Go API
   process.env.QIANTIE_GO_BASE_URL = 'http://go-api:4000';
   try {
     assert.equal(resolveShuihuoBaseUrl(), 'http://shuihuo-compat:4100');
-    assert.equal(resolveShuihuoBaseUrl('http://explicit-gateway:4000'), 'http://explicit-gateway:4000');
+    assert.equal(resolveShuihuoBaseUrl('http://explicit-gateway:4000'), 'http://shuihuo-compat:4100');
   } finally {
     if (previousCompat === undefined) delete process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL;
     else process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL = previousCompat;

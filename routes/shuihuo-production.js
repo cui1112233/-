@@ -17,8 +17,8 @@ const HOP_BY_HOP_HEADERS = new Set([
 // compatibility service. Do not reuse QIANTIE_GO_BASE_URL here: that URL also
 // serves the current V88 novel-fetch, V11 and local-executor contracts.
 function resolveShuihuoBaseUrl(targetBaseUrl) {
-  return targetBaseUrl
-    || process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL
+  return process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL
+    || targetBaseUrl
     || process.env.QIANTIE_GO_BASE_URL
     || 'http://127.0.0.1:4000';
 }
