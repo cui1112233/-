@@ -67,9 +67,13 @@ func TestV11SliceOneKeepsFoundationChecksumStable(t *testing.T) {
 }
 
 
-func TestV11MigrationsIncludeNovelFetchSourceLineageMigration(t *testing.T) {
+func TestV11MigrationsSeparateVideoAndVisualPrompts(t *testing.T) {
 	migrations := V11Migrations()
-	if len(migrations) == 0 || migrations[len(migrations)-1].Version != 1100010 {
+	if len(migrations) == 0 || migrations[len(migrations)-1].Version != 1100011 {
 		t.Fatalf("last migration=%+v", migrations)
+	}
+	statements := V11SeparateVideoPromptStatements()
+	if len(statements) != 3 || !strings.Contains(statements[0], "video_prompt") {
+		t.Fatalf("prompt separation migration=%+v", statements)
 	}
 }

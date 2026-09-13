@@ -48,10 +48,14 @@ type SettingsResult struct {
 }
 
 type Video struct {
-	ID                 string        `json:"id"`
-	BatchID            string        `json:"batchId"`
-	BookID             string        `json:"bookId"`
-	Label              string        `json:"label,omitempty"`
+	ID      string `json:"id"`
+	BatchID string `json:"batchId"`
+	BookID  string `json:"bookId"`
+	Label   string `json:"label,omitempty"`
+	// VideoPrompt is the Director/video-motion instruction compiled for the
+	// video model. VisualPrompt is deliberately separate and only drives the
+	// optional still-image generation chain.
+	VideoPrompt        string        `json:"videoPrompt,omitempty"`
 	VisualPrompt       string        `json:"visualPrompt,omitempty"`
 	DurationSeconds    float64       `json:"durationSeconds,omitempty"`
 	CompatibilityState string        `json:"compatibilityState"`
@@ -90,6 +94,7 @@ type Batch struct {
 }
 type CreateVideoInput struct {
 	Label           string  `json:"label"`
+	VideoPrompt     string  `json:"videoPrompt,omitempty"`
 	VisualPrompt    string  `json:"visualPrompt,omitempty"`
 	DurationSeconds float64 `json:"durationSeconds,omitempty"`
 }

@@ -52,7 +52,7 @@ func TestFinalPromptUsesDirectorAssetsAndEffectiveConstraints(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	value, err := (&PromptCompilerService{Store:store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
 	if err != nil { t.Fatal(err) }
-	for _, expected := range []string{"林晚：18岁中国女性", "林家客厅：现代中式客厅", "玻璃杯：透明厚底玻璃杯", "画面前缀：modern_conflict；电影感运镜", "画质约束：高质量商业成片", "负面提示词：不要水印和畸形手指", "画幅 16:9；时长 8 秒"} {
+	for _, expected := range []string{"视频提示词：林晚进入客厅并握紧玻璃杯。", "林晚：18岁中国女性", "林家客厅：现代中式客厅", "玻璃杯：透明厚底玻璃杯", "画面前缀：modern_conflict；电影感运镜", "画质约束：高质量商业成片", "负面提示词：不要水印和畸形手指", "画幅 16:9；时长 8 秒"} {
 		if !strings.Contains(value.CompiledPrompt, expected) { t.Fatalf("missing %q in\n%s", expected, value.CompiledPrompt) }
 	}
 	if strings.Contains(value.CompiledPrompt, "画面主体：") { t.Fatalf("visual prompt leaked into final video prompt:\n%s", value.CompiledPrompt) }
@@ -81,17 +81,18 @@ func TestFinalPromptAllowsClearingSavedAssetPromptDraft(t *testing.T) {
 	if strings.Contains(prompt.CompiledPrompt, "林晚：18岁中国女性") { t.Fatalf("cleared asset prompt was restored: %s", prompt.CompiledPrompt) }
 }
 
-func TestFinalPromptDoesNotInjectSavedVisualPromptOverride(t *testing.T) {
+func TestFinalPromptUsesSavedVideoPromptOverrideWithoutVisualPrompt(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	override := "镜头提示词已由用户确认，保持人物连续性。"
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{
-		Patch: SettingsPatch{"visualPrompt": rawSetting(t, override)}, ExpectedRevision: video.Revision,
+		Patch: SettingsPatch{"videoPrompt": rawSetting(t, override)}, ExpectedRevision: video.Revision,
 	}); err != nil { t.Fatal(err) }
 	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
 	if err != nil { t.Fatal(err) }
 	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, latest.Books[0].ID, latest.Books[0].Videos[0].ID)
 	if err != nil { t.Fatal(err) }
-	if strings.Contains(prompt.CompiledPrompt, override) || strings.Contains(prompt.CompiledPrompt, "画面主体：") { t.Fatalf("visual prompt leaked into video prompt=%s", prompt.CompiledPrompt) }
+	if !strings.Contains(prompt.CompiledPrompt, "视频提示词："+override) { t.Fatalf("video prompt override missing=%s", prompt.CompiledPrompt) }
+	if strings.Contains(prompt.CompiledPrompt, "画面主体：") { t.Fatalf("visual prompt leaked into video prompt=%s", prompt.CompiledPrompt) }
 }
 
 func TestFinalPromptRejectsOrphanedVideoIdentity(t *testing.T) {

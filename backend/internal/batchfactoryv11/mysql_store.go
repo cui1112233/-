@@ -172,10 +172,10 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 			if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_videos(id,batch_id,book_id,owner_username,ordinal,compatibility_state,revision,created_at,updated_at) VALUES(?,?,?,?,?,'active',1,?,?)`, videoID, batchID, bookID, owner, videoOrdinal, now, now); err != nil {
 				return Batch{}, err
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_video_records(video_id,label,visual_prompt,duration_seconds) VALUES(?,?,?,?)`, videoID, vi.Label, nullableString(vi.VisualPrompt), nullableFloat(vi.DurationSeconds)); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_video_records(video_id,label,video_prompt,visual_prompt,duration_seconds) VALUES(?,?,?,?,?)`, videoID, vi.Label, nullableString(vi.VideoPrompt), nullableString(vi.VisualPrompt), nullableFloat(vi.DurationSeconds)); err != nil {
 				return Batch{}, err
 			}
-			book.Videos = append(book.Videos, Video{ID: videoID, BatchID: batchID, BookID: bookID, Label: vi.Label, VisualPrompt: vi.VisualPrompt, DurationSeconds: vi.DurationSeconds, CompatibilityState: "active", Revision: 1})
+			book.Videos = append(book.Videos, Video{ID: videoID, BatchID: batchID, BookID: bookID, Label: vi.Label, VideoPrompt: vi.VideoPrompt, VisualPrompt: vi.VisualPrompt, DurationSeconds: vi.DurationSeconds, CompatibilityState: "active", Revision: 1})
 		}
 		batch.Books = append(batch.Books, book)
 	}
@@ -287,13 +287,13 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 	}
 	rows.Close()
 	for i := range b.Books {
-		vrows, err := q.QueryContext(ctx, `SELECT v.id,r.label,COALESCE(r.visual_prompt,''),COALESCE(r.duration_seconds,0),v.compatibility_state,v.revision FROM batch_factory_v11_videos v JOIN batch_factory_v11_video_records r ON r.video_id=v.id WHERE v.batch_id=? AND v.book_id=? AND v.owner_username=? AND v.compatibility_state='active' ORDER BY v.ordinal,v.id`, b.ID, b.Books[i].ID, owner)
+		vrows, err := q.QueryContext(ctx, `SELECT v.id,r.label,COALESCE(r.video_prompt,''),COALESCE(r.visual_prompt,''),COALESCE(r.duration_seconds,0),v.compatibility_state,v.revision FROM batch_factory_v11_videos v JOIN batch_factory_v11_video_records r ON r.video_id=v.id WHERE v.batch_id=? AND v.book_id=? AND v.owner_username=? AND v.compatibility_state='active' ORDER BY v.ordinal,v.id`, b.ID, b.Books[i].ID, owner)
 		if err != nil {
 			return Batch{}, err
 		}
 		for vrows.Next() {
 			var v Video
-			if err := vrows.Scan(&v.ID, &v.Label, &v.VisualPrompt, &v.DurationSeconds, &v.CompatibilityState, &v.Revision); err != nil {
+			if err := vrows.Scan(&v.ID, &v.Label, &v.VideoPrompt, &v.VisualPrompt, &v.DurationSeconds, &v.CompatibilityState, &v.Revision); err != nil {
 				vrows.Close()
 				return Batch{}, err
 			}

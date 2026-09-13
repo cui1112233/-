@@ -39,6 +39,7 @@ import {
   runDirector,
   saveBatchSettings,
   saveDraft,
+	  saveVideoOverride,
   submitBatchMerge,
   submitBatchProduction,
   submitBookProduction
@@ -145,18 +146,42 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generate
   </section>;
 }
 
-function PromptPanel({ book, batchId }) {
+function PromptPanel({ book, batchId, onSaved }) {
   const [selectedVideoId, setSelectedVideoId] = useState(book?.videos?.[0]?.id || '');
   const [loading, setLoading] = useState(false);
+	  const [saving, setSaving] = useState(false);
   const [prompt, setPrompt] = useState(null);
+	  const [videoPrompt, setVideoPrompt] = useState('');
+	  const [visualPrompt, setVisualPrompt] = useState('');
   const videos = book?.videos || [];
-  useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); setPrompt(null); }, [book?.id]);
+	  const selectedVideo = videos.find(video => video.id === selectedVideoId) || null;
+	  useEffect(() => {
+		  const first = book?.videos?.[0] || null;
+		  setSelectedVideoId(first?.id || '');
+		  setVideoPrompt(first?.videoPrompt || '');
+		  setVisualPrompt(first?.visualPrompt || '');
+		  setPrompt(null);
+	  }, [book?.id]);
+	  useEffect(() => {
+		  setVideoPrompt(selectedVideo?.videoPrompt || '');
+		  setVisualPrompt(selectedVideo?.visualPrompt || '');
+		  setPrompt(null);
+	  }, [selectedVideoId]);
   async function loadPrompt() {
     if (!selectedVideoId) return;
     setLoading(true);
     try { setPrompt(resultData(await getFinalPrompt(batchId, book.id, selectedVideoId), 'prompt')); } catch (error) { message.error(error?.message || '读取最终提示词失败'); } finally { setLoading(false); }
   }
-  return <><Space wrap><Select value={selectedVideoId || undefined} onChange={setSelectedVideoId} style={{ minWidth: 210 }} placeholder="选择分镜 / VIDEO" options={videos.map(video => ({ value: video.id, label: video.label || video.id }))} /><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId}>读取最终提示词</Button></Space>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终提示词由 V11 编译器实时生成。</p>}</>;
+	  async function savePrompts() {
+		  if (!selectedVideo) return;
+		  setSaving(true);
+		  try {
+			  await saveVideoOverride(batchId, book.id, selectedVideo.id, { patch: { videoPrompt, visualPrompt }, expectedRevision: Number(selectedVideo.revision || 0) });
+			  await onSaved?.();
+			  message.success('当前 VIDEO 的视频提示词和画面提示词已分别保存。');
+		  } catch (error) { message.error(error?.message || '保存 VIDEO 提示词失败'); } finally { setSaving(false); }
+	  }
+	  return <Space direction="vertical" size={12} style={{ width: '100%' }}><Space wrap><Select value={selectedVideoId || undefined} onChange={setSelectedVideoId} style={{ minWidth: 210 }} placeholder="选择分镜 / VIDEO" options={videos.map(video => ({ value: video.id, label: video.label || video.id }))} /><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId}>读取最终视频提示词</Button></Space><label className="shuihuo-form-label">视频提示词<Input.TextArea rows={5} value={videoPrompt} onChange={event => setVideoPrompt(event.target.value)} placeholder="这段文字会进入 VIDEO 的最终编译" /></label><label className="shuihuo-form-label">画面提示词<Input.TextArea rows={5} value={visualPrompt} onChange={event => setVisualPrompt(event.target.value)} placeholder="仅用于生成当前 VIDEO 的画面图片，不会进入视频提示词" /></label><Button type="primary" loading={saving} disabled={!selectedVideo} onClick={savePrompts}>保存当前 VIDEO 提示词</Button>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiledPrompt || prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终视频提示词由 V11 编译器实时生成；画面提示词仅服务画面图。</p>}</Space>;
 }
 
 function BatchLogs({ productionStatus, mergeStatus, error }) {
@@ -399,7 +424,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><strong>{index + 1}</strong></div>
           <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{book.platform || '—'} · 展示前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p><Button type="link" size="small" onClick={() => openContentEditor(book)} disabled={!String(book.sourceText || '').trim()}>编辑生产内容</Button></div>
           <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><div className="shuihuo-tag-list">{[...(book.assets?.characters || []), ...(book.assets?.scenes || []), ...(book.assets?.props || [])].slice(0, 6).map(asset => <Tag key={asset.id || assetName(asset)}>{assetName(asset)}</Tag>)}</div><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加角色</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加场景</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加道具</button></div>
-          <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div><b>画面提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.visualPrompt || 'AI 推理完成后可读取当前小说的画面提示词。'}</span><FullscreenOutlined /></button></div><div><b>视频提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos.length ? `${videos.length} 个 VIDEO 的最终提示词可在弹窗中逐个读取。` : 'AI 推理完成后生成视频提示词。'}</span><FullscreenOutlined /></button></div></div>
+		  <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div><b>画面提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.visualPrompt || '当前没有画面提示词；生成画面图前可在弹窗中填写。'}</span><FullscreenOutlined /></button></div><div><b>视频提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.videoPrompt || (videos.length ? `${videos.length} 个 VIDEO 的最终提示词可在弹窗中逐个读取。` : 'AI 推理完成后生成视频提示词。')}</span><FullscreenOutlined /></button></div></div>
           <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><Tooltip title="打开当前小说的人物场景预设。V11 图片接口未接入时不会伪造上传结果。"><button className="shuihuo-primary-media" type="button" onClick={() => setAssetBook(book)}><CloudUploadOutlined /><span>管理主图</span></button></Tooltip><div className="shuihuo-media-grid" aria-label="当前小说的片段候选库">{Array.from({ length: 4 }).map((_, itemIndex) => <Tooltip key={`asset-slot-${itemIndex}`} title="当前书的图片候选由 V11 资产图片接口返回；点击打开人物场景预设。"><button className="shuihuo-media-tile is-empty" type="button" onClick={() => setAssetBook(book)} aria-label={`打开当前小说的候选槽 ${itemIndex + 1}`}><PictureOutlined /></button></Tooltip>)}</div>{videos.length ? <Button type="text" size="small" onClick={() => setPromptBook(book)}>查看 {videos.length} 个 VIDEO</Button> : <span className="batch-factory-library-note">AI 推理后显示该书的分镜 / VIDEO</span>}</div>
           <div className="shuihuo-workbench-cell batch-factory-actions"><Tag color={state.tone}>{state.label}</Tag><span>{state.detail}</span><Button type="link" size="small" onClick={() => setViewingBook(book)}>查看资料</Button></div>
         </article>;
@@ -411,7 +436,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal"><Descriptions bordered size="small" column={1}>{viewingBook ? <><Descriptions.Item label="Book ID">{viewingBook.bookId || '—'}</Descriptions.Item><Descriptions.Item label="书城">{viewingBook.platform || '—'}</Descriptions.Item><Descriptions.Item label="男女频">{value(viewingBook.sourceMetadata, 'gender')}</Descriptions.Item><Descriptions.Item label="类型">{value(viewingBook.sourceMetadata, 'style')}</Descriptions.Item><Descriptions.Item label="来源">{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</Descriptions.Item><Descriptions.Item label="正文保存">{String(viewingBook.sourceText || '').length} 字</Descriptions.Item><Descriptions.Item label="原文状态">{batchFactoryBookState(viewingBook).detail}</Descriptions.Item></> : null}</Descriptions></Modal>
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" /><Tooltip title={workingFrontCapability.available ? '基于当前输入生成候选；生成不会覆盖工作文本' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim()}>生成爆款候选</Button></Tooltip>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Button type="primary" onClick={() => setEditingContentValue(viralCandidate)}>替换为当前生产内容</Button></Space>} /> : null}</Space></Modal>
     <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={() => runAi(assetBook)} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'director'} engineSettings={batch?.settingsState?.patch} /> : null}</Modal>
-    <Modal title={promptBook ? `最终提示词 · ${promptBook.title}` : '最终提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} /> : null}</Modal>
+	<Modal title={promptBook ? `提示词 · ${promptBook.title}` : '提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} onSaved={refreshBatch} /> : null}</Modal>
     <Modal title="AI 推理" open={aiOpen} onCancel={() => setAiOpen(false)} footer={null} width={620}><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="AI 推理只生成资产、画面与视频 Prompt" description="它不会自动提交视频、合并或121。完成后，结果会回写到每本小说这一行。" /><Button type="primary" loading={actionBusy === 'director'} onClick={() => runAi('all')}>对全部 {books.length} 本小说执行 AI 推理</Button><Select placeholder="选择单本小说" options={books.filter(book => String(book.sourceText || '').trim()).map(book => ({ value: book.id, label: `${book.title || '未命名'} · ${book.bookId || '—'}` }))} onChange={id => runAi(books.find(book => book.id === id))} disabled={actionBusy === 'director'} /></Space></Modal>
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
     <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} capabilities={capabilities} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} />

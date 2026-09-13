@@ -399,5 +399,19 @@ func V11Migrations() []Migration {
 		{Version: 1100008, SQL: V11ExternalStatements(), CallbackChecksum: "batch-factory-v11-external-publish-v1"},
 		{Version: 1100009, SQL: V11VideoProviderStatements(), CallbackChecksum: "batch-factory-v11-video-provider-v1"},
 		{Version: 1100010, SQL: V11SourceLineageStatements(), CallbackChecksum: "batch-factory-v11-source-lineage-v1"},
+		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1"},
+	}
+}
+
+// V11SeparateVideoPromptStatements separates the legacy overloaded
+// visual_prompt column. Existing Director output was historically stored in
+// visual_prompt even though it is a video instruction. Preserve it as
+// video_prompt once, leaving visual_prompt free for the independent still
+// image chain required by V11.
+func V11SeparateVideoPromptStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_video_records ADD COLUMN video_prompt MEDIUMTEXT NULL AFTER label`,
+		`UPDATE batch_factory_v11_video_records SET video_prompt=visual_prompt WHERE (video_prompt IS NULL OR video_prompt='') AND visual_prompt IS NOT NULL AND visual_prompt<>''`,
+		`UPDATE batch_factory_v11_video_records SET visual_prompt=NULL WHERE video_prompt IS NOT NULL AND video_prompt<>''`,
 	}
 }

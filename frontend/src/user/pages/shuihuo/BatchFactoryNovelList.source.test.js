@@ -44,3 +44,11 @@ test('renders every novel row with Shuihuo preset, prompt and clip-library cells
   assert.match(source, /画面提示词/);
   assert.match(source, /管理主图/);
 });
+
+test('keeps visual and video prompts as separate per-video saved fields', () => {
+  assert.match(source, /saveVideoOverride/);
+  assert.match(source, /visualPrompt/);
+  assert.match(source, /videoPrompt/);
+  assert.match(source, /画面提示词/);
+  assert.match(source, /视频提示词/);
+});
