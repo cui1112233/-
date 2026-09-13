@@ -4,13 +4,13 @@
 
 **Goal:** 在水货生产的个人作品页创建并打开批量工厂作品：复用小说获取的多行书单解析协议，顶部小说列表展示上传元数据，制作区外层一行对应一本小说。
 
-**Architecture:** 以 V11 已有的 `batchfactoryv11` 批次、书、分镜、VIDEO、合并和发布模型作为唯一的批量工厂生产身份，不复制一套新生产链。新增手动书单 intake 与定时记录，把它映射到共享作品库中的 `productionMode=batch_factory` 项目；前端沿用水货页面的外壳，创作漫剧保持原实现，批量工厂使用小说获取的输入协议和 V11 批次读模型。
+**Architecture:** 以 V11 已有的 `batchfactoryv11` 批次、书、分镜、VIDEO、合并和发布模型作为唯一的批量工厂生产身份，不复制一套新生产链。水货生产保留当前后端和数据库；V11 运行在专用的本地后端与数据库中，避免两套迁移账本相互覆盖。Node 平台保持同一登录态，把水货项目与 V11 批次合并成同一个“个人作品”列表，并用 `水货生产` / `批量工厂` 标记区分；前端沿用水货页面的外壳，创作漫剧保持原实现，批量工厂使用小说获取的输入协议和 V11 批次读模型。
 
 **Tech Stack:** Go、MySQL、Redis 定时队列、React、Ant Design、Vite、Go `httptest`、Node test。
 
 ## Global Constraints
 
-- 维护源码是 V88；运行中的 13190 后端镜像必须从同一提交的后端源构建，不能继续使用 `/Users/ming/Downloads/qiantie` 的孤立分支产物。
+- 维护源码是 V88；运行中的水货后端继续保持当前服务，批量工厂 V11 只由当前 V88 提交构建的独立 sidecar 提供。不得用 V11 后端替换水货后端。
 - 手动批量只接收书单元数据，不接收粘贴或上传的小说正文；开始生产时才按书城和 bookId 获取原文。
 - 新建批量默认只创建一个作品和全部小说；只有开启自动并填写未来时间，才创建 `scheduled_waiting` 记录。
 - 小说获取导入保存已选完整版本，不重新抓取原文；之后和手动入口共用 V11 生产、合并和上传链。
@@ -20,47 +20,42 @@
 
 ---
 
-### Task 1: 统一本地运行后端与 V88 源码
+### Task 1: 保留水货运行时并接入 V11 sidecar
 
 **Files:**
-- Modify: `/Users/ming/qiantie-v88/docker-compose.v88-review.yml` 或其本地预览 override（只修改 backend build/image 来源）
-- Modify: `backend/Dockerfile`（仅在需要指定 V88 构建上下文时）
-- Test: `backend/internal/httpapi/batch_factory_v11_slice1_test.go`
+- Create: `deploy/local/docker-compose.batch-factory-v11.preview.yml`
+- Modify: `routes/batch-factory-v11.js`
+- Test: `test/batch-factory-v11-proxy.test.js`
 
 **Interfaces:**
-- Consumes: V88 `backend/` 与 Vite 对 `http://127.0.0.1:13190` 的代理。
-- Produces: 13190 后端的 `/api/batch-factory/v11/capabilities` 与当前 Git V88 提交可追溯对应。
+- Consumes: V88 `backend/`、现有水货 Node 平台、Vite 对 `http://127.0.0.1:13190` 的代理。
+- Produces: 13190 仅将 `/api/batch-factory/v11/*` 转发到 V11 sidecar；`/api/shuihuo-production/*` 继续转发到原水货后端。
 
-- [ ] **Step 1: Write a failing V11 runtime contract test**
+- [ ] **Step 1: Write a failing V11 proxy-target contract test**
 
-```go
-func TestManualIntakeCapabilityIsDisabledUntilItsRouteIsRegistered(t *testing.T) {
-  api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return time.Unix(1700000000, 0) }})
-  rec := signedJSONRequest(t, api, time.Unix(1700000000, 0), "alice", http.MethodPost,
-    "/api/batch-factory/v11/intakes/manual", map[string]any{"platformId":"15", "inputText":"1234567890\t书名"})
-  if rec.Code != http.StatusNotFound { t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String()) }
-}
+```js
+assert.equal(resolveV11GoBaseUrl({ QIANTIE_BATCH_FACTORY_V11_BASE_URL: 'http://batch-factory-v11:4000', QIANTIE_GO_BASE_URL: 'http://backend:4000' }), 'http://batch-factory-v11:4000');
 ```
 
-- [ ] **Step 2: Run it against the V88 backend source**
+- [ ] **Step 2: Run it against the V88 Node source**
 
-Run: `go test ./backend/internal/httpapi -run TestManualIntakeCapabilityIsDisabledUntilItsRouteIsRegistered`
+Run: `node --test test/batch-factory-v11-proxy.test.js`
 
-Expected: PASS while the route is absent; this proves the later RED test has a stable source baseline.
+Expected: FAIL before the V11-only environment target is implemented.
 
-- [ ] **Step 3: Make the local Compose backend build from V88 `backend/`**
+- [ ] **Step 3: Add an isolated V11 backend and MySQL sidecar**
 
-Replace the stale `qiantie-backend:local-shuihuo-source-20260913` image reference with a build whose context is `/Users/ming/Documents/ChatGPT/一战晟铭/backend` and whose image tag contains the current short V88 SHA. Preserve existing MySQL, Redis, 121 worker and bind volumes; do not recreate them.
+Add a local override that builds only `batch-factory-v11` from `/Users/ming/Documents/ChatGPT/一战晟铭/backend` plus its own MySQL volume. Keep the existing `backend` and `mysql-shuihuo` services untouched. Set `QIANTIE_BATCH_FACTORY_V11_BASE_URL=http://batch-factory-v11:4000` only on the Node platform.
 
-- [ ] **Step 4: Rebuild only the local backend and prove source identity**
+- [ ] **Step 4: Rebuild only the Node platform and V11 sidecar, then prove route separation**
 
-Run the local Compose backend service only, then verify the container image tag and `GET /api/batch-factory/v11/capabilities` through 13190. Record the exact Git SHA in the local image label or build metadata.
+Verify the V11 capability endpoint through 13190 and confirm a water health request still reaches the original backend. Record the current V88 SHA in the sidecar image label or build metadata.
 
 - [ ] **Step 5: Commit the local runtime source contract**
 
 ```bash
-git add backend/Dockerfile deploy docs/superpowers/plans
-git commit -m "chore: build local V88 backend from workspace source"
+git add routes/batch-factory-v11.js test/batch-factory-v11-proxy.test.js deploy/local docs/superpowers/plans
+git commit -m "chore: isolate batch factory V11 local runtime"
 ```
 
 ### Task 2: Add the Novel Fetch-compatible manual intake contract
@@ -144,7 +139,7 @@ git commit -m "feat: add batch factory manual novel intake"
 - Test: `frontend/src/user/pages/shuihuo/ProjectsView.test.jsx`
 
 **Interfaces:**
-- Produces a shared project record carrying immutable `productionMode: 'batch_factory'` and `batchId`.
+- Produces a unified personal-work view carrying immutable `productionMode: 'batch_factory'` and `batchId`.
 - `GET /api/batch-factory/v11/batches/{batchId}` returns the metadata needed by the 小说列表 panel.
 - `BatchFactoryNovelList({ batch, onClose, onSelectBook })` renders metadata only; `onClose` restores the production workspace.
 
@@ -166,9 +161,9 @@ Run: `npm --prefix frontend test -- ProjectsView.test.jsx`
 
 Expected: FAIL because the current dialog has only a simplified custom-column field.
 
-- [ ] **Step 3: Implement shared project mapping and read APIs**
+- [ ] **Step 3: Implement unified personal-work projection and read APIs**
 
-When manual intake creates a V11 batch, create or link exactly one shared `shuihuo_projects` record with `production_mode=batch_factory` and the V11 `batchId`; add the owner-scoped read mapping. Existing water projects keep `shuihuo_production`. Reject opening a batch mapping owned by another user.
+Map each V11 batch to a virtual personal-work item in the frontend read model. Fetch water projects and V11 batches with the same logged-in account, merge only in the client display, and retain the immutable `batchId`. Existing water projects keep `shuihuo_production`; no V11 migration or write may alter `shuihuo_projects`. Reject opening a V11 batch owned by another user.
 
 - [ ] **Step 4: Implement the confirmed page interactions**
 

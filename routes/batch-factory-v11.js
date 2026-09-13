@@ -12,6 +12,10 @@ const H3_TASKS_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/result/
 const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 
+function resolveV11GoBaseUrl(env = process.env) {
+  return String(env.QIANTIE_BATCH_FACTORY_V11_BASE_URL || env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+}
+
 function normalizedProvider(value) {
   const provider = String(value || '').trim().toLowerCase();
   if (!provider || ['personal', 'personal_api', 'yd_video', 'yadi'].includes(provider)) return PERSONAL_PROVIDER;
@@ -56,7 +60,7 @@ function personalApiKeyForUser(req) {
 async function syncPersonalProviderConfig(req, options, { allowMissing = false } = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!fetchImpl) throw new Error('fetch implementation is required');
-  const base = String(options.goBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+  const base = String(options.goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
   const apiKey = personalApiKeyForUser(req);
   if (!apiKey) {
@@ -112,7 +116,7 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
     error.code = 'H3_API_KEY_REQUIRED';
     throw error;
   }
-  const base = String(options.goBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+  const base = String(options.goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
   const headers = {
     ...createSignedBridgeHeaders({
@@ -190,12 +194,13 @@ async function prepareProviderRequest(req, options, pathname) {
 }
 
 function createBatchFactoryV11Router(options = {}) {
+  const upstreamOptions = { ...options, goBaseUrl: options.goBaseUrl || resolveV11GoBaseUrl() };
   const router = express.Router();
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
-      await prepareProviderRequest(req, options, parsed.pathname);
-      return await proxyV11Request(req, res, options);
+      await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
+      return await proxyV11Request(req, res, upstreamOptions);
     } catch (error) {
       if (res.headersSent) return next(error);
       const status = Number.isInteger(error?.status) ? error.status : 502;
@@ -215,5 +220,6 @@ module.exports = {
   normalizedProvider,
   needsH3ConfigSync,
   needsPersonalConfigSync,
+  resolveV11GoBaseUrl,
   createBatchFactoryV11Router
 };
