@@ -3018,6 +3018,19 @@ async function reprocessSensitive(ids, restoreFromBackup) {
   if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
 }
 
+async function updateSelectedAiCount() {
+  const ids = selectedTaskIds();
+  const count = Number($("batchAiCount")?.value || 1);
+  if (!ids.length) return setBatchStatus("先选择任务");
+  if (!Number.isInteger(count) || count < 1 || count > 20) return setBatchStatus("AI数量需为 1 到 20");
+  setBatchStatus("正在调整 AI 数量...");
+  try {
+    const result = await api("/api/tasks/batch-ai-count", { method: "POST", body: JSON.stringify({ ids, ai_count: count }) });
+    setBatchStatus(`已调整 ${result.updated || 0} 个任务的 AI 数量为 ${count}`);
+    await refreshTasksAndSubmitHistory();
+  } catch (error) { setBatchStatus(error.message); }
+}
+
 async function startSensitiveProcessing() {
   const ids = state.tasks.map(task => String(task.id || '')).filter(Boolean);
   if (!ids.length) {
@@ -3407,6 +3420,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskPrevDayBtn").onclick = async () => { const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() - 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskNextDayBtn").onclick = async () => { const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() + 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskDefaultViewBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
   $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;
   $("clearSelectedBtn").onclick = clearSelectedTasks;
@@ -3416,6 +3432,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
   $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;
+  $("submitTaskAllBtn").onclick = () => void submitWebSubmit("all");
+  $("updateAiCountSelectedBtn").onclick = updateSelectedAiCount;
   $("deleteSelectedBtn").onclick = () => batchDelete("selected");
   $("deleteFailedBtn").onclick = () => batchDelete("failed");
   $("deleteAllBtn").onclick = () => batchDelete("all");
