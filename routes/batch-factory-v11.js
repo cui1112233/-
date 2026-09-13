@@ -1,6 +1,7 @@
 const express = require('express');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
+const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
@@ -11,6 +12,7 @@ const H3_CREATE_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/{workf
 const H3_TASKS_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}';
 const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
+const AI_PROMPT_MODULES = ['assets', 'constraints', 'video', 'visual'];
 
 function resolveV11GoBaseUrl(env = process.env) {
   return String(env.QIANTIE_BATCH_FACTORY_V11_BASE_URL || env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
@@ -50,6 +52,74 @@ function needsH3ConfigSync(req, pathname) {
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
   if (req.method === 'GET' && /\/batches\/[^/]+\/status$/.test(pathname)) return true;
   return false;
+}
+
+function isBatchSettingsPath(req, pathname) {
+  return req.method === 'PUT' && /^\/api\/batch-factory\/v11\/batches\/[^/]+\/settings$/.test(pathname);
+}
+
+function promptConfigError(message) {
+  const error = new Error(message);
+  error.status = 422;
+  error.code = 'BATCH_FACTORY_SYSTEM_PRESET_INVALID';
+  return error;
+}
+
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function enrichBatchFactorySystemPresetConfig(input, presetStore, resolveBody = resolveSystemPresetBody) {
+  if (!plainObject(input) || !plainObject(input.patch) || !plainObject(input.patch.aiPromptConfig)) return input;
+  if (!presetStore || typeof presetStore.getPublished !== 'function') {
+    throw promptConfigError('批量工厂系统预设词服务暂不可用');
+  }
+  const next = JSON.parse(JSON.stringify(input));
+  const config = next.patch.aiPromptConfig;
+  for (const key of AI_PROMPT_MODULES) {
+    if (!plainObject(config[key])) continue;
+    const module = config[key];
+    const presetId = String(module.presetId || '').trim();
+    if (!presetId) {
+      delete module.prompt;
+      delete module.presetName;
+      delete module.presetSlot;
+      delete module.presetVersion;
+      continue;
+    }
+    const preset = presetStore.getPublished(presetId);
+    if (!preset || preset.module !== 'batch-factory') {
+      throw promptConfigError('请选择个人中心已发布的批量工厂系统预设词');
+    }
+    const prompt = String(resolveBody(presetStore, presetId) || '').trim();
+    if (!prompt) throw promptConfigError(`批量工厂系统预设词“${preset.name || presetId}”没有可用正文`);
+    module.presetId = preset.id;
+    module.presetName = preset.name;
+    module.presetSlot = preset.protocolLock?.slot || null;
+    module.presetVersion = preset.version;
+    // Go uses the snapshot during director execution. It is stripped again
+    // before any V11 response reaches the browser.
+    module.prompt = prompt;
+  }
+  return next;
+}
+
+function redactBatchFactorySystemPromptBodies(value) {
+  if (Array.isArray(value)) return value.map(redactBatchFactorySystemPromptBodies);
+  if (!plainObject(value)) return value;
+  const next = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'aiPromptConfig' && plainObject(item)) {
+      next[key] = Object.fromEntries(Object.entries(item).map(([moduleKey, module]) => {
+        if (!plainObject(module)) return [moduleKey, module];
+        const { prompt, ...publicModule } = module;
+        return [moduleKey, redactBatchFactorySystemPromptBodies(publicModule)];
+      }));
+      continue;
+    }
+    next[key] = redactBatchFactorySystemPromptBodies(item);
+  }
+  return next;
 }
 
 function personalApiKeyForUser(req) {
@@ -200,12 +270,18 @@ function createBatchFactoryV11Router(options = {}) {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
       await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
-      return await proxyV11Request(req, res, upstreamOptions);
+      if (isBatchSettingsPath(req, parsed.pathname)) {
+        req.body = enrichBatchFactorySystemPresetConfig(req.body, upstreamOptions.presetStore);
+      }
+      return await proxyV11Request(req, res, {
+        ...upstreamOptions,
+        transformJSONResponse: redactBatchFactorySystemPromptBodies
+      });
     } catch (error) {
       if (res.headersSent) return next(error);
       const status = Number.isInteger(error?.status) ? error.status : 502;
       const code = error?.code || 'BFV11_UPSTREAM_UNAVAILABLE';
-      const message = status === 400 ? error.message : 'Batch Factory V11 Go service unavailable';
+      const message = status >= 400 && status < 500 ? error.message : 'Batch Factory V11 Go service unavailable';
       return res.status(status).json({ error: message, code });
     }
   });
@@ -221,5 +297,7 @@ module.exports = {
   needsH3ConfigSync,
   needsPersonalConfigSync,
   resolveV11GoBaseUrl,
+  enrichBatchFactorySystemPresetConfig,
+  redactBatchFactorySystemPromptBodies,
   createBatchFactoryV11Router
 };

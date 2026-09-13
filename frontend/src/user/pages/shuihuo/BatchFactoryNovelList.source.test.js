@@ -8,6 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, 'BatchFactoryNovelList.jsx'), 'utf8');
 const engineSource = fs.readFileSync(path.join(here, 'BatchFactoryEngineSettingsDrawer.jsx'), 'utf8');
 const reasoningSource = fs.readFileSync(path.join(here, 'BatchFactoryAiReasoningModal.jsx'), 'utf8');
+const presetLibrarySource = fs.readFileSync(path.join(here, '../../../admin/pages/PresetLibraryPage.jsx'), 'utf8');
 
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
@@ -88,9 +89,15 @@ test('keeps AI reasoning open for configuration even when the runtime is unavail
   assert.doesNotMatch(toolbar, /disabled=\{!runCapability\.available\}/);
 });
 
-test('selects AI rules from authenticated personal-center prompt presets instead of editing text in the batch modal', () => {
-  assert.match(reasoningSource, /listPersonalConstraintPrompts/);
-  assert.match(reasoningSource, /个人中心预设提示词/);
+test('selects AI rules from Personal Center system presets for Batch Factory without exposing their bodies', () => {
+  assert.match(reasoningSource, /listBatchFactorySystemPresets/);
+  assert.match(reasoningSource, /个人中心系统预设词（批量工厂）/);
+  assert.match(reasoningSource, /presetVersion/);
   assert.match(reasoningSource, /presetId/);
+  assert.doesNotMatch(reasoningSource, /listPersonalConstraintPrompts/);
   assert.doesNotMatch(reasoningSource, /Input\.TextArea/);
+});
+
+test('makes Batch Factory available in the Personal Center system-preset categories', () => {
+  assert.match(presetLibrarySource, /label: '批量工厂', value: 'batch-factory'/);
 });

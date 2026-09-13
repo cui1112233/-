@@ -128,10 +128,14 @@ export function createPrompt(payload) {
   return apiRequest(bf11Path('prompts'), { method: 'POST', body: body(payload) });
 }
 
-// Personal-center constraint prompts are intentionally exposed through the V11
-// client module so the V11 page has one approved API boundary. The records are
-// still owned by the authenticated personal-center store, not copied into the
-// V11 prompt library.
+// System preset metadata is safe for the browser. The protected body is
+// resolved only in the Node-to-Go bridge when a Batch Factory setting is saved.
+export function listBatchFactorySystemPresets() {
+  return apiRequest('/api/presets?module=batch-factory');
+}
+
+// Legacy V11 workbench compatibility. The Shuihuo-integrated Batch Factory
+// modal above must use listBatchFactorySystemPresets instead.
 export function listPersonalConstraintPrompts(category) {
   return apiRequest(`/api/script-constraint-prompts?category=${encodeURIComponent(String(category || ''))}`);
 }
