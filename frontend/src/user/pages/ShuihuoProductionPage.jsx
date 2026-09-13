@@ -155,7 +155,7 @@ export function ShuihuoProductionPage() {
     {view !== 'projects' && healthError ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><span className="missing">状态读取失败：{healthError}</span></div> : null}
     {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
     {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} /> : null}
-    {view === 'batch-novels' && activeBatchProject ? <BatchFactoryNovelList batch={activeBatchProject} onBack={() => { setActiveBatchProject(null); setView('projects'); refreshProjects(); }} /> : null}
+    {view === 'batch-novels' && activeBatchProject ? <BatchFactoryNovelList batch={activeBatchProject} onBack={() => { setActiveBatchProject(null); setView('projects'); refreshProjects(); }} onBatchChanged={async () => { const current = batchFactoryBatchFromResponse(await getBatch(activeBatchProject.id)); setActiveBatchProject(current); await refreshProjects(); }} /> : null}
     {view === 'studio' && activeProject ? <CommentaryWorkbench data={activeProject} readiness={health} importNotice={importNotice} onBackToProjects={() => { setImportNotice(null); setView('projects'); refreshProjects(); }} onOpenAssets={() => setAssetsOpen(true)} onDataChange={applyReadModel} /> : null}
     <Modal title="人物场景预设" open={assetsOpen} onCancel={() => setAssetsOpen(false)} footer={null} width="min(1360px, calc(100vw - 48px))" className="shuihuo-assets-modal" destroyOnClose={false}>
       {activeProject ? <AssetsView data={activeProject} onRefresh={refreshActive} embedded /> : null}

@@ -8,7 +8,7 @@ export function contentCaptureCharactersForBook(book) {
   return Number.isInteger(value) && value >= 100 && value <= 100000 ? value : 4000;
 }
 
-export function batchFactoryWorkText(sourceText, book) {
+export function batchFactoryPreviewText(sourceText, book) {
   return String(sourceText || '')
     .split(/\r?\n/)
     .map(line => line.trim())
