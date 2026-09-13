@@ -20,6 +20,17 @@ function mergeConfig(current, patch) {
   return merged;
 }
 
+function visibleWorkshopPlatforms(configStore) {
+  const platforms = typeof configStore?.getPlatforms === 'function' ? configStore.getPlatforms() : [];
+  if (!Array.isArray(platforms)) return [];
+  return platforms.flatMap(platform => {
+    if (!platform || platform.visible === false) return [];
+    const id = String(platform.id ?? '').trim();
+    const name = String(platform.name ?? '').trim();
+    return id && name ? [{ id, name }] : [];
+  });
+}
+
 // 并发限制执行器：把 items 按 limit 并发执行 worker，单任务异常不影响整体（结果按原序返回）
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
@@ -342,6 +353,15 @@ function createNovelFetchWorkshopRouter({
   });
 
   // GET /config：读取工作台配置（主配置 / 平台表 / 风格表 / AI 配置）
+  router.get('/platforms', async (req, res) => {
+    try {
+      const { configStore } = await resources(req);
+      return res.json({ platforms: visibleWorkshopPlatforms(configStore) });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || '读取平台表失败' });
+    }
+  });
+
   router.get('/config', async (req, res) => {
     try {
       const { tasks, configStore } = await resources(req);
@@ -484,4 +504,4 @@ function createNovelFetchWorkshopRouter({
   return router;
 }
 
-module.exports = { createNovelFetchWorkshopRouter };
+module.exports = { createNovelFetchWorkshopRouter, visibleWorkshopPlatforms };
