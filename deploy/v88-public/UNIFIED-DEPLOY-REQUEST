@@ -1,3 +1,3 @@
 release_sha=NEXT_COMMIT
-scope=Script: show extraction errors once with readable dark-theme Chinese text
-requested_at=2026-09-13T19:05:00+08:00
+scope=Script: require tested text models and prevent character editor black screen
+requested_at=2026-09-13T19:36:00+08:00
