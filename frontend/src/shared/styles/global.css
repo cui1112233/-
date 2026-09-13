@@ -3566,3 +3566,16 @@ select {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 深色主题下的全局错误弹层必须保持可读，避免文字与深色背景混在一起。 */
+[data-theme='dark'] .ant-modal-confirm-error .ant-modal-content,
+[data-theme='dark'] .ant-message-error .ant-message-notice-content {
+  color: #f8fbff;
+  background: #182235;
+  border: 1px solid #ff7875;
+}
+
+[data-theme='dark'] .ant-modal-confirm-error .ant-modal-confirm-title,
+[data-theme='dark'] .ant-modal-confirm-error .ant-modal-confirm-content,
+[data-theme='dark'] .ant-message-error .ant-message-notice-content {
+  color: #f8fbff;
+}

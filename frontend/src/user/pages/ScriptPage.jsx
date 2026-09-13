@@ -767,7 +767,6 @@ export function ScriptPage() {
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
-      message.error(error.message || '人物与场景提取失败');
       playTaskSound('warning', soundEnabled, soundVolume);
       dispatchPetState('error', { title: '人物与场景提取失败', detail: error.message || '请检查文本或提取模型后重试。' });
     } finally {
@@ -792,7 +791,6 @@ export function ScriptPage() {
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
-      message.error(error.message || '人物与场景重生失败');
       dispatchPetState('error', { title: '人物与场景重新提取失败', detail: error.message || '请检查模型配置后重试。' });
     } finally {
       if (isCurrentRequest(requestId)) setRegeneratingEntities(false);

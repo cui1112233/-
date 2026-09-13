@@ -48,6 +48,7 @@ function requestDirectorPipeline(payload) {
 export function extractCharactersAndScenes(novelText, extractionPreset = 'standard', textModelId = '') {
   return apiRequest('/api/chat', {
     method: 'POST',
+    suppressGlobalError: true,
     body: JSON.stringify({
       promptType: 'extract',
       novelText,
