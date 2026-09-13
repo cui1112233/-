@@ -66,6 +66,12 @@ test('shows each book\'s storyboard to VIDEO one-to-one mapping and derives stat
   assert.match(source, /productionStatus=\{productionStatus\} mergeStatus=\{mergeStatus\}/);
 });
 
+test('moves through the same storyboard and VIDEO with visible previous and next controls', () => {
+  assert.match(source, /上一分镜/);
+  assert.match(source, /下一分镜/);
+  assert.match(source, /function StoryboardVideoNavigator/);
+});
+
 test('keeps visual and video prompts as separate per-video saved fields', () => {
   assert.match(source, /saveVideoOverride/);
   assert.match(source, /visualPrompt/);

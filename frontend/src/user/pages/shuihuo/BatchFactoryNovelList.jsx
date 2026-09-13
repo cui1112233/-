@@ -4,7 +4,9 @@ import {
   CloudUploadOutlined,
   FileTextOutlined,
   FullscreenOutlined,
+	LeftOutlined,
   PictureOutlined,
+	RightOutlined,
   SettingOutlined,
   UploadOutlined
 } from '@ant-design/icons';
@@ -247,6 +249,15 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generate
   </section>;
 }
 
+function storyboardVideoLabel(video, index) {
+	return `${video?.label || `分镜${String(index + 1).padStart(2, '0')}`} → VIDEO${String(index + 1).padStart(2, '0')}`;
+}
+function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
+	const index = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
+	const hasVideos = videos.length > 0;
+	return <Space wrap className="batch-factory-storyboard-navigator"><Tooltip title="上一分镜"><Button aria-label="上一分镜" icon={<LeftOutlined />} disabled={!hasVideos || index === 0} onClick={() => onSelect(videos[index - 1]?.id)} /></Tooltip><Select value={selectedVideoId || undefined} onChange={onSelect} style={{ minWidth: 260 }} placeholder="选择分镜 / VIDEO" options={videos.map((video, videoIndex) => ({ value: video.id, label: storyboardVideoLabel(video, videoIndex) }))} /><Tooltip title="下一分镜"><Button aria-label="下一分镜" icon={<RightOutlined />} disabled={!hasVideos || index >= videos.length - 1} onClick={() => onSelect(videos[index + 1]?.id)} /></Tooltip></Space>;
+}
+
 function PromptPanel({ book, batchId, onSaved }) {
   const [selectedVideoId, setSelectedVideoId] = useState(book?.videos?.[0]?.id || '');
   const [loading, setLoading] = useState(false);
@@ -282,7 +293,7 @@ function PromptPanel({ book, batchId, onSaved }) {
 			  message.success('当前 VIDEO 的视频提示词和画面提示词已分别保存。');
 		  } catch (error) { message.error(error?.message || '保存 VIDEO 提示词失败'); } finally { setSaving(false); }
 	  }
-	  return <Space direction="vertical" size={12} style={{ width: '100%' }}><Space wrap><Select value={selectedVideoId || undefined} onChange={setSelectedVideoId} style={{ minWidth: 210 }} placeholder="选择分镜 / VIDEO" options={videos.map(video => ({ value: video.id, label: video.label || video.id }))} /><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId}>读取最终视频提示词</Button></Space><label className="shuihuo-form-label">视频提示词<Input.TextArea rows={5} value={videoPrompt} onChange={event => setVideoPrompt(event.target.value)} placeholder="这段文字会进入 VIDEO 的最终编译" /></label><label className="shuihuo-form-label">画面提示词<Input.TextArea rows={5} value={visualPrompt} onChange={event => setVisualPrompt(event.target.value)} placeholder="仅用于生成当前 VIDEO 的画面图片，不会进入视频提示词" /></label><Button type="primary" loading={saving} disabled={!selectedVideo} onClick={savePrompts}>保存当前 VIDEO 提示词</Button>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiledPrompt || prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终视频提示词由 V11 编译器实时生成；画面提示词仅服务画面图。</p>}</Space>;
+	  return <Space direction="vertical" size={12} style={{ width: '100%' }}><Space wrap><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} /><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId}>读取最终视频提示词</Button></Space><label className="shuihuo-form-label">视频提示词<Input.TextArea rows={5} value={videoPrompt} onChange={event => setVideoPrompt(event.target.value)} placeholder="这段文字会进入 VIDEO 的最终编译" /></label><label className="shuihuo-form-label">画面提示词<Input.TextArea rows={5} value={visualPrompt} onChange={event => setVisualPrompt(event.target.value)} placeholder="仅用于生成当前 VIDEO 的画面图片，不会进入视频提示词" /></label><Button type="primary" loading={saving} disabled={!selectedVideo} onClick={savePrompts}>保存当前 VIDEO 提示词</Button>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiledPrompt || prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终视频提示词由 V11 编译器实时生成；画面提示词仅服务画面图。</p>}</Space>;
 }
 
 function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved }) {
@@ -303,7 +314,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved }) {
 			message.success('已切换当前分镜的主版本；下一次合并会读取它。');
 		} catch (error) { message.error(error?.message || '切换主版本失败'); } finally { setSavingTaskId(''); }
 	}
-	return <Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="当前分镜的主版本与候选版本" description="主版本是下一次合并唯一读取的 VIDEO；候选仅用于回退。重新生成成功后会出现新的版本。" /><Select value={selectedVideoId || undefined} onChange={setSelectedVideoId} placeholder="选择分镜 / VIDEO" options={videos.map(video => ({ value: video.id, label: video.label || video.id }))} style={{ width: 280 }} />{primary ? <section className="batch-factory-media-primary"><b>主版本</b><span>{primary.id} · {primary.updatedAt || primary.createdAt || '已完成'}</span><a href={primary.mediaUrl} target="_blank" rel="noreferrer">打开视频</a></section> : <p className="shuihuo-modal-note">当前 VIDEO 还没有真实成功的视频版本。</p>}<div className="batch-factory-media-candidates">{Array.from({ length: 4 }).map((_, index) => { const version = candidates[index]; return version ? <article key={version.id}><b>候选 {index + 1}</b><span>{version.id}</span><a href={version.mediaUrl} target="_blank" rel="noreferrer">打开视频</a><Button size="small" loading={savingTaskId === version.id} onClick={() => choosePrimary(version)}>切换为主版本</Button></article> : <article className="is-empty" key={`empty-${index}`}><PictureOutlined /><span>候选槽 {index + 1}</span></article>; })}</div></Space>;
+	return <Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="当前分镜的主版本与候选版本" description="主版本是下一次合并唯一读取的 VIDEO；候选仅用于回退。重新生成成功后会出现新的版本。" /><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} />{primary ? <section className="batch-factory-media-primary"><b>主版本</b><span>{primary.id} · {primary.updatedAt || primary.createdAt || '已完成'}</span><a href={primary.mediaUrl} target="_blank" rel="noreferrer">打开视频</a></section> : <p className="shuihuo-modal-note">当前 VIDEO 还没有真实成功的视频版本。</p>}<div className="batch-factory-media-candidates">{Array.from({ length: 4 }).map((_, index) => { const version = candidates[index]; return version ? <article key={version.id}><b>候选 {index + 1}</b><span>{version.id}</span><a href={version.mediaUrl} target="_blank" rel="noreferrer">打开视频</a><Button size="small" loading={savingTaskId === version.id} onClick={() => choosePrimary(version)}>切换为主版本</Button></article> : <article className="is-empty" key={`empty-${index}`}><PictureOutlined /><span>候选槽 {index + 1}</span></article>; })}</div></Space>;
 }
 
 function BatchLogs({ productionStatus, mergeStatus, error }) {
