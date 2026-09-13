@@ -76,6 +76,10 @@ export function createNovelFetchIntake(payload) {
   return apiRequest(bf11Path('intakes/novel-fetch'), { method: 'POST', body: body(payload) });
 }
 
+export function createManualIntake(payload) {
+  return apiRequest(bf11Path('intakes/manual'), { method: 'POST', body: body(payload) });
+}
+
 export function getIntake(intakeId) {
   return apiRequest(bf11Path(`intakes/${id(intakeId)}`));
 }

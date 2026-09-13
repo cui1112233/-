@@ -141,6 +141,7 @@ func TestSliceOneRequiredHTTPRoutesAreRegistered(t *testing.T) {
 		body   any
 	}{
 		{http.MethodGet, "/api/batch-factory/v11/capabilities", nil},
+		{http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{"platformId": "15", "inputText": "100000000001\t书A"}},
 		{http.MethodPost, "/api/batch-factory/v11/intakes/novel-fetch", map[string]any{"books": []any{}}},
 		{http.MethodGet, "/api/batch-factory/v11/intakes/missing", nil},
 		{http.MethodPost, "/api/batch-factory/v11/intakes/missing/batches", map[string]any{}},
@@ -164,5 +165,28 @@ func TestSliceOneRequiredHTTPRoutesAreRegistered(t *testing.T) {
 				t.Fatalf("route not registered or wrong surface: status=%d content-type=%q body=%s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	if books, err := batchfactoryv11.ParseManualBookList(batchfactoryv11.ManualIntakeInput{PlatformID: "15", ParseMode: "smart", ColumnPresetID: "sample_input", InputText: "100000000001\t书A\t精彩理由\t女频\t都市爽文\tS"}); err != nil || len(books) != 1 {
+		t.Fatalf("manual parser books=%+v err=%v", books, err)
+	}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+		"title": "晚间批量", "platformId": "15", "parseMode": "smart", "columnPresetId": "sample_input",
+		"inputText":         "100000000001\t书A\t精彩理由\t女频\t都市爽文\tS\n100000000002\t书B\t精彩理由\t男频\t都市爽文\tA",
+		"contentRangeLines": 5, "scheduledAt": "2026-09-14T02:00:00Z",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := decodeBody[map[string]batchfactoryv11.Batch](t, rec)["batch"]
+	if got.Title != "晚间批量" || len(got.Books) != 2 {
+		t.Fatalf("batch=%+v", got)
+	}
+	if got.Books[0].SourceMetadata["sourceMode"] != "manual_original" || got.Books[0].SourceMetadata["queueStatus"] != "scheduled_waiting" {
+		t.Fatalf("metadata=%#v", got.Books[0].SourceMetadata)
 	}
 }

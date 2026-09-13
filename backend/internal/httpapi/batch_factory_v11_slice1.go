@@ -5,11 +5,69 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
 )
 
 func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
+	mux.HandleFunc("POST /api/batch-factory/v11/intakes/manual", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input batchfactoryv11.ManualIntakeInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if input.ContentRangeLines <= 0 {
+			input.ContentRangeLines = 5
+		}
+		if input.ContentRangeLines > 500 {
+			writeStoreError(w, batchfactoryv11.ErrInvalid)
+			return
+		}
+		queueStatus := "manual_pending"
+		if strings.TrimSpace(input.ScheduledAt) != "" {
+			if _, err := time.Parse(time.RFC3339, input.ScheduledAt); err != nil {
+				writeStoreError(w, batchfactoryv11.ErrInvalid)
+				return
+			}
+			queueStatus = "scheduled_waiting"
+		}
+		books, err := batchfactoryv11.ParseManualBookList(input)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		for index := range books {
+			if books[index].SourceMetadata == nil {
+				books[index].SourceMetadata = map[string]any{}
+			}
+			books[index].SourceMetadata["contentRangeLines"] = input.ContentRangeLines
+			books[index].SourceMetadata["scheduledAt"] = strings.TrimSpace(input.ScheduledAt)
+			books[index].SourceMetadata["queueStatus"] = queueStatus
+		}
+		intake, err := store.CreateIntake(r.Context(), owner, batchfactoryv11.NovelFetchIntakeInput{
+			Books: books,
+			Metadata: map[string]any{
+				"sourceMode": "manual_original", "platformId": input.PlatformID, "parseMode": input.ParseMode,
+				"columnPresetId": input.ColumnPresetID, "columnOrder": input.ColumnOrder, "inputText": input.InputText,
+				"contentRangeLines": input.ContentRangeLines, "scheduledAt": strings.TrimSpace(input.ScheduledAt), "queueStatus": queueStatus,
+			},
+		})
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		batch, err := store.CreateBatchFromIntake(r.Context(), owner, intake.ID, batchfactoryv11.CreateBatchInput{Title: input.Title})
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"batch": batch, "intake": intake})
+	})
 	mux.HandleFunc("POST /api/batch-factory/v11/intakes/novel-fetch", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {
