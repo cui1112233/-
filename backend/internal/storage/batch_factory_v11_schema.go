@@ -410,6 +410,26 @@ func V11BookAssetsStatements() []string {
 	}
 }
 
+func V11BookAssetImagesStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_book_asset_images (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  asset_id VARCHAR(64) NOT NULL,
+  url MEDIUMTEXT NOT NULL,
+  storage_ref VARCHAR(255) NULL,
+  media_type VARCHAR(96) NOT NULL,
+  source VARCHAR(32) NOT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  revision BIGINT NOT NULL DEFAULT 1,
+  created_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_asset_images_owner_asset (owner_username, asset_id, created_at),
+  KEY idx_bfv11_asset_images_primary (asset_id, is_primary),
+  CONSTRAINT fk_bfv11_asset_images_asset FOREIGN KEY (asset_id) REFERENCES batch_factory_v11_book_assets(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -424,6 +444,7 @@ func V11Migrations() []Migration {
 		{Version: 1100010, SQL: V11SourceLineageStatements(), CallbackChecksum: "batch-factory-v11-source-lineage-v1"},
 		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1"},
 		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1"},
+		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 	}
 }
 

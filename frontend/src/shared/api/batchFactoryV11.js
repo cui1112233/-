@@ -117,6 +117,11 @@ function bookAssetsPath(batchId, bookId, assetId = '') {
   return assetId ? `${base}/${id(assetId)}` : base;
 }
 
+function bookAssetImagesPath(batchId, bookId, assetId, imageId = '') {
+  const base = `${bookAssetsPath(batchId, bookId, assetId)}/images`;
+  return imageId ? `${base}/${id(imageId)}` : base;
+}
+
 export function listBookAssets(batchId, bookId) {
   return apiRequest(bookAssetsPath(batchId, bookId));
 }
@@ -127,6 +132,24 @@ export function createBookAsset(batchId, bookId, payload) {
 
 export function updateBookAsset(batchId, bookId, assetId, payload) {
   return apiRequest(bookAssetsPath(batchId, bookId, assetId), { method: 'PATCH', body: body(payload) });
+}
+
+export function listBookAssetImages(batchId, bookId, assetId) {
+  return apiRequest(bookAssetImagesPath(batchId, bookId, assetId));
+}
+
+// Provider-result registration is intentionally separate from browser upload.
+// The UI never invents a provider URL; it only uses uploadBookAssetImage.
+export function createBookAssetImage(batchId, bookId, assetId, payload) {
+  return apiRequest(bookAssetImagesPath(batchId, bookId, assetId), { method: 'POST', body: body(payload) });
+}
+
+export function uploadBookAssetImage(batchId, bookId, assetId, dataUrl) {
+  return apiRequest(`${bookAssetImagesPath(batchId, bookId, assetId)}/upload`, { method: 'POST', body: body({ dataUrl }) });
+}
+
+export function setPrimaryBookAssetImage(batchId, bookId, assetId, imageId) {
+  return apiRequest(`${bookAssetImagesPath(batchId, bookId, assetId, imageId)}/primary`, { method: 'PUT', body: body({}) });
 }
 
 export function getConfigVersions() {
@@ -293,6 +316,13 @@ export default {
   saveBatchSettings,
   saveBookOverride,
   saveVideoOverride,
+  listBookAssets,
+  createBookAsset,
+  updateBookAsset,
+  listBookAssetImages,
+  createBookAssetImage,
+  uploadBookAssetImage,
+  setPrimaryBookAssetImage,
   getConfigVersions,
   getChangeImpact,
   listPrompts,

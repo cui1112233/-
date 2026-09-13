@@ -213,6 +213,25 @@ type UpdateBookAssetInput struct {
 	ExpectedRevision int64  `json:"expectedRevision"`
 }
 
+type BookAssetImage struct {
+	ID         string    `json:"id"`
+	AssetID    string    `json:"assetId"`
+	URL        string    `json:"url"`
+	StorageRef string    `json:"-"`
+	MediaType  string    `json:"mediaType"`
+	Source     string    `json:"source"`
+	IsPrimary  bool      `json:"isPrimary"`
+	Revision   int64     `json:"revision"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+type CreateBookAssetImageInput struct {
+	URL        string `json:"url"`
+	StorageRef string `json:"-"`
+	MediaType  string `json:"mediaType,omitempty"`
+	Source     string `json:"source"`
+}
+
 type OrphanedOverride struct {
 	VideoID string        `json:"videoId"`
 	Patch   SettingsPatch `json:"patch"`
@@ -270,6 +289,9 @@ type Store interface {
 	ListBookAssets(context.Context, string, string, string) ([]BookAsset, error)
 	CreateBookAsset(context.Context, string, string, string, CreateBookAssetInput) (BookAsset, error)
 	UpdateBookAsset(context.Context, string, string, string, string, UpdateBookAssetInput) (BookAsset, error)
+	ListBookAssetImages(context.Context, string, string, string, string) ([]BookAssetImage, error)
+	CreateBookAssetImage(context.Context, string, string, string, string, CreateBookAssetImageInput) (BookAssetImage, error)
+	SetPrimaryBookAssetImage(context.Context, string, string, string, string, string) (BookAssetImage, error)
 	CreateHookRevision(context.Context, string, string, string, string, string) (HookRevision, error)
 	ApproveHookRevision(context.Context, string, string, string, string) (HookRevision, error)
 	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)

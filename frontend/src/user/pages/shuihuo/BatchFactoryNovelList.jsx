@@ -29,6 +29,7 @@ import {
 	  cancelBatchProduction,
   getCapabilities,
   listBookAssets,
+  listBookAssetImages,
   getConfigVersions,
   getFinalPrompt,
   getDraft,
@@ -41,6 +42,8 @@ import {
   runDirector,
   saveBatchSettings,
   updateBookAsset,
+  uploadBookAssetImage,
+  setPrimaryBookAssetImage,
   saveDraft,
 	  saveVideoOverride,
   submitBatchMerge,
@@ -95,6 +98,66 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
       </div>;
     })}
   </div>;
+}
+
+function readImageAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读取图片失败'));
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  });
+}
+
+function AssetImageVersions({ asset, batchId, bookId, onChanged }) {
+  const [images, setImages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState('');
+  const loadImages = async ({ quiet = false } = {}) => {
+    if (!batchId || !bookId || !asset?.id) return;
+    setLoading(true);
+    try {
+      const response = await listBookAssetImages(batchId, bookId, asset.id);
+      const next = resultData(response, 'images');
+      setImages(Array.isArray(next) ? next : []);
+    } catch (error) {
+      if (!quiet) message.error(error?.message || '读取资产图片版本失败');
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { loadImages({ quiet: true }); }, [batchId, bookId, asset?.id]);
+  async function upload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      message.error('仅支持 PNG、JPG、WEBP 图片。');
+      return;
+    }
+    setSaving('upload');
+    try {
+      await uploadBookAssetImage(batchId, bookId, asset.id, await readImageAsDataURL(file));
+      await loadImages({ quiet: true });
+      await onChanged?.();
+      message.success('图片版本已保存到当前小说资产。');
+    } catch (error) { message.error(error?.message || '上传资产图片失败'); } finally { setSaving(''); }
+  }
+  async function choosePrimary(image) {
+    if (image.isPrimary) return;
+    setSaving(image.id);
+    try {
+      await setPrimaryBookAssetImage(batchId, bookId, asset.id, image.id);
+      await loadImages({ quiet: true });
+      await onChanged?.();
+      message.success('已切换为主图。');
+    } catch (error) { message.error(error?.message || '切换主图失败'); } finally { setSaving(''); }
+  }
+  const primary = images.find(image => image.isPrimary) || null;
+  const candidates = images.filter(image => image.id !== primary?.id);
+  return <section className="batch-factory-asset-images">
+    <div className="batch-factory-asset-images-head"><b>图片版本（{images.length}）</b><Space size={8} wrap><label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={upload} disabled={saving !== ''} />{saving === 'upload' ? '正在上传…' : '上传图片版本'}</label><Tooltip title="V11 尚未提供该书的资产图片接口用于图片模型生成；只有真实模型服务回执接入后才会开放。"><Button size="small" disabled>AI 生成暂不可用</Button></Tooltip><Button size="small" loading={loading} onClick={() => loadImages()} disabled={saving !== ''}>刷新</Button></Space></div>
+    {primary ? <div className="batch-factory-asset-primary"><img src={primary.url} alt={`${asset.name} 主图`} /><span>主图 · 版本 {primary.revision}</span></div> : <p className="shuihuo-modal-note">还没有图片版本。上传后会保存为这个资产的首个主图。</p>}
+    {candidates.length ? <div className="batch-factory-asset-candidates">{candidates.map(image => <article key={image.id}><img src={image.url} alt={`${asset.name} 候选图`} /><span>候选版本 {image.revision}</span><Button size="small" loading={saving === image.id} disabled={saving !== '' && saving !== image.id} onClick={() => choosePrimary(image)}>切换为主图</Button></article>)}</div> : null}
+  </section>;
 }
 
 function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generateReason, generating, engineSettings }) {
@@ -162,7 +225,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generate
       <Tooltip title="当前批量或当前书的有效引擎配置"><Select disabled value={engineSettings?.textModelId || undefined} placeholder="未设置文本模型" options={engineSettings?.textModelId ? [{ value: engineSettings.textModelId, label: engineSettings.textModelId }] : []} /></Tooltip>
       <Tooltip title={canGenerate ? '按当前书的提示词配置执行真实 AI 推理，并写回人物、场景、道具。' : generateReason}><Button type="primary" loading={generating} disabled={!canGenerate || generating} onClick={runPreset}>智能预设</Button></Tooltip>
       <Button loading={loading} onClick={() => loadAssets()}>刷新资产</Button>
-      <Tooltip title="V11 尚未提供该书的资产图片接口；图片生成、上传和版本管理接入前不会显示占位图片。"><Button disabled>资产图片</Button></Tooltip>
+      <Tooltip title="每个资产在下方独立维护上传后的图片版本；图片模型生成尚未接入。"><Button disabled>图片模型生成未接入</Button></Tooltip>
     </div>
     <div className="shuihuo-preset-layout batch-factory-preset-layout">
       <aside className="shuihuo-preset-list">
@@ -170,7 +233,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generate
         <div className="shuihuo-prompt-list">
           {visibleAssets.map(asset => {
             const edit = edits[asset.id] || asset;
-            return <article className="shuihuo-prompt-row" key={asset.id}><div className="shuihuo-prompt-row-head"><Tag>{kindOptions.find(option => option.value === asset.kind)?.label}</Tag><Tag color={asset.source === 'manual' ? 'cyan' : 'blue'}>{asset.source === 'manual' ? '手动' : '导演提取'}</Tag></div><Input value={edit.name} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, name: event.target.value } }))} placeholder="资产名称" /><Input.TextArea rows={4} value={edit.prompt} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, prompt: event.target.value } }))} placeholder="输入可用于画面与视频编译的资产提示词" /><Button size="small" type="primary" loading={savingId === asset.id} disabled={savingId !== '' && savingId !== asset.id} onClick={() => saveAsset(asset)}>保存该资产</Button></article>;
+            return <article className="shuihuo-prompt-row" key={asset.id}><div className="shuihuo-prompt-row-head"><Tag>{kindOptions.find(option => option.value === asset.kind)?.label}</Tag><Tag color={asset.source === 'manual' ? 'cyan' : 'blue'}>{asset.source === 'manual' ? '手动' : '导演提取'}</Tag></div><Input value={edit.name} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, name: event.target.value } }))} placeholder="资产名称" /><Input.TextArea rows={4} value={edit.prompt} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, prompt: event.target.value } }))} placeholder="输入可用于画面与视频编译的资产提示词" /><Button size="small" type="primary" loading={savingId === asset.id} disabled={savingId !== '' && savingId !== asset.id} onClick={() => saveAsset(asset)}>保存该资产</Button><AssetImageVersions asset={asset} batchId={batchId} bookId={book.id} onChanged={onSaved} /></article>;
           })}
           {!loading && !visibleAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>当前分类还没有资产。可手动添加，或点击“智能预设”从当前小说提取。</p></div> : null}
         </div>
@@ -178,7 +241,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generate
       <main className="shuihuo-preset-library">
         <h3>新增{kindOptions.find(option => option.value === kind)?.label}</h3>
         <Space direction="vertical" size={12} style={{ width: '100%' }}><Input value={newName} onChange={event => setNewName(event.target.value)} placeholder="名称" /><Input.TextArea rows={7} value={newPrompt} onChange={event => setNewPrompt(event.target.value)} placeholder="提示词：描述这个人物、场景或道具的可见特征" /><Button type="primary" loading={savingId === 'new'} disabled={savingId !== '' || !newName.trim() || !newPrompt.trim()} onClick={addAsset}>保存到当前小说</Button></Space>
-        <p className="shuihuo-modal-note">这里保存的是当前小说的生产资产，批量中其他小说不会读取或覆盖它。资产图片还未接入时，页面不会把文本伪装成已生成图片。</p>
+        <p className="shuihuo-modal-note">这里保存的是当前小说的生产资产，批量中其他小说不会读取或覆盖它。图片上传后的版本也归属当前资产；图片模型生成仍需真实服务回执，不会把文字伪装成图片。</p>
       </main>
     </div>
   </section>;

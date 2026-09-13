@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +26,7 @@ type MemoryStore struct {
 	prompts            map[string][]Prompt
 	drafts             map[string]Draft
 	bookAssets         map[string]memoryOwned[BookAsset]
+	bookAssetImages    map[string]memoryOwned[BookAssetImage]
 	hooks              map[string][]HookRevision
 	directors          map[string][]DirectorRevision
 	productionJobs     map[string]memoryOwned[ProductionJob]
@@ -42,6 +45,7 @@ func NewMemoryStore() *MemoryStore {
 		prompts:            map[string][]Prompt{},
 		drafts:             map[string]Draft{},
 		bookAssets:         map[string]memoryOwned[BookAsset]{},
+		bookAssetImages:    map[string]memoryOwned[BookAssetImage]{},
 		hooks:              map[string][]HookRevision{},
 		directors:          map[string][]DirectorRevision{},
 		productionJobs:     map[string]memoryOwned[ProductionJob]{},
@@ -666,6 +670,106 @@ func (s *MemoryStore) UpdateBookAsset(_ context.Context, owner, batchID, bookID,
 	asset.Name, asset.Prompt, asset.Source, asset.Revision, asset.UpdatedAt = input.Name, input.Prompt, "manual", asset.Revision+1, time.Now().UTC()
 	s.bookAssets[assetID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
 	return asset, nil
+}
+
+func validBookAssetImageInput(input CreateBookAssetImageInput) (CreateBookAssetImageInput, error) {
+	input.URL, input.StorageRef, input.MediaType, input.Source = strings.TrimSpace(input.URL), strings.TrimSpace(input.StorageRef), strings.TrimSpace(input.MediaType), strings.TrimSpace(input.Source)
+	if input.Source == "" {
+		input.Source = "provider"
+	}
+	if input.MediaType == "" {
+		input.MediaType = "image/png"
+	}
+	if input.Source != "provider" && input.Source != "upload" {
+		return CreateBookAssetImageInput{}, ErrInvalid
+	}
+	if input.MediaType == "" || (input.URL == "" && input.StorageRef == "") || (input.URL != "" && input.StorageRef != "") {
+		return CreateBookAssetImageInput{}, ErrInvalid
+	}
+	if input.URL != "" {
+		parsed, err := url.Parse(input.URL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https" && !strings.HasPrefix(input.URL, "/api/")) {
+			return CreateBookAssetImageInput{}, ErrInvalid
+		}
+	}
+	if input.StorageRef != "" && (filepath.Base(input.StorageRef) != input.StorageRef || strings.Contains(input.StorageRef, "..")) {
+		return CreateBookAssetImageInput{}, ErrInvalid
+	}
+	if !strings.HasPrefix(input.MediaType, "image/") {
+		return CreateBookAssetImageInput{}, ErrInvalid
+	}
+	return input, nil
+}
+
+func (s *MemoryStore) hasAssetLocked(owner, batchID, bookID, assetID string) bool {
+	owned, ok := s.bookAssets[assetID]
+	return ok && owned.Owner == owner && owned.Value.BatchID == batchID && owned.Value.BookID == bookID
+}
+
+func (s *MemoryStore) ListBookAssetImages(_ context.Context, owner, batchID, bookID, assetID string) ([]BookAssetImage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBookLocked(owner, batchID, bookID) || !s.hasAssetLocked(owner, batchID, bookID, assetID) {
+		return nil, ErrNotFound
+	}
+	images := []BookAssetImage{}
+	for _, owned := range s.bookAssetImages {
+		if owned.Owner == owner && owned.Value.AssetID == assetID {
+			images = append(images, owned.Value)
+		}
+	}
+	sort.Slice(images, func(i, j int) bool { return images[i].CreatedAt.Before(images[j].CreatedAt) })
+	return images, nil
+}
+
+func (s *MemoryStore) CreateBookAssetImage(_ context.Context, owner, batchID, bookID, assetID string, input CreateBookAssetImageInput) (BookAssetImage, error) {
+	input, err := validBookAssetImageInput(input)
+	if err != nil {
+		return BookAssetImage{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBookLocked(owner, batchID, bookID) || !s.hasAssetLocked(owner, batchID, bookID, assetID) {
+		return BookAssetImage{}, ErrNotFound
+	}
+	hasPrimary := false
+	for _, owned := range s.bookAssetImages {
+		if owned.Owner == owner && owned.Value.AssetID == assetID && owned.Value.IsPrimary {
+			hasPrimary = true
+			break
+		}
+	}
+	image := BookAssetImage{ID: s.id("asset-image"), AssetID: assetID, URL: input.URL, StorageRef: input.StorageRef, MediaType: input.MediaType, Source: input.Source, IsPrimary: !hasPrimary, Revision: 1, CreatedAt: time.Now().UTC()}
+	s.bookAssetImages[image.ID] = memoryOwned[BookAssetImage]{Owner: owner, Value: image}
+	return image, nil
+}
+
+func (s *MemoryStore) SetPrimaryBookAssetImage(_ context.Context, owner, batchID, bookID, assetID, imageID string) (BookAssetImage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBookLocked(owner, batchID, bookID) || !s.hasAssetLocked(owner, batchID, bookID, assetID) {
+		return BookAssetImage{}, ErrNotFound
+	}
+	target, ok := s.bookAssetImages[imageID]
+	if !ok || target.Owner != owner || target.Value.AssetID != assetID {
+		return BookAssetImage{}, ErrNotFound
+	}
+	for id, owned := range s.bookAssetImages {
+		if owned.Owner != owner || owned.Value.AssetID != assetID || !owned.Value.IsPrimary {
+			continue
+		}
+		image := owned.Value
+		image.IsPrimary = false
+		image.Revision++
+		s.bookAssetImages[id] = memoryOwned[BookAssetImage]{Owner: owner, Value: image}
+	}
+	image := target.Value
+	if !image.IsPrimary {
+		image.IsPrimary = true
+		image.Revision++
+	}
+	s.bookAssetImages[imageID] = memoryOwned[BookAssetImage]{Owner: owner, Value: image}
+	return image, nil
 }
 
 func memoryBookKey(batchID, bookID string) string { return batchID + ":" + bookID }
