@@ -146,3 +146,41 @@ func TestProductionStatusReconcilesRunningProviderTask(t *testing.T) {
 		t.Fatalf("poller=%+v status=%+v", poller, status)
 	}
 }
+
+func TestCancelBatchCancelsOnlyOwnedLocalExecutorTasks(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	job, err := store.CreateProductionJob(context.Background(), ProductionJob{
+		Owner: "alice", BatchID: batch.ID, BookID: book.ID, RequestID: "cancel-local", DirectorRevisionID: book.DirectorRevision.ID,
+		Tasks: []ProductionTask{{VideoID: video.ID, Provider: VideoProviderDoubaoLocal, ProviderTaskID: "lej_cancel", Status: ProductionRunning, Attempt: 1, FinalPromptHash: "snapshot", CompiledPrompt: "prompt"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.CreateProductionJob(context.Background(), ProductionJob{
+		Owner:              "alice",
+		BatchID:            batch.ID,
+		BookID:             book.ID,
+		RequestID:          "another-operation",
+		DirectorRevisionID: book.DirectorRevision.ID,
+		Tasks:              []ProductionTask{{VideoID: video.ID, Provider: VideoProviderDoubaoLocal, ProviderTaskID: "lej_other", Status: ProductionRunning, Attempt: 2, FinalPromptHash: "snapshot-2", CompiledPrompt: "prompt"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeLocalVideoClient{createdOwner: "alice", job: LocalVideoJob{ID: "lej_cancel", State: "running"}}
+	service := &ProductionService{Store: store, LocalExecutor: NewLocalExecutorVideoAdapter(client, "https://platform.example")}
+	result, err := service.CancelBatch(context.Background(), "alice", batch.ID, "cancel-local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.CancelledTaskIDs) != 1 || result.CancelledTaskIDs[0] != job.Tasks[0].ID || client.cancelledID != "lej_cancel" || len(client.cancelAttempts) != 1 {
+		t.Fatalf("result=%+v client=%+v", result, client)
+	}
+	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Jobs[0].Tasks[0].Status != ProductionCancelled || status.Jobs[0].Status != ProductionCancelled || status.Jobs[1].ID != other.ID || status.Jobs[1].Tasks[0].Status != ProductionRunning {
+		t.Fatalf("status=%+v", status)
+	}
+}

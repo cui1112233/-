@@ -34,12 +34,16 @@ type LocalVideoJobClient interface {
 	GetVideoJob(context.Context, string, string) (LocalVideoJob, error)
 }
 
+type LocalVideoJobCanceler interface {
+	CancelVideoJob(context.Context, string, string) (LocalVideoJob, error)
+}
+
 type LocalVideoExecutorAvailability interface {
 	HasOnlineVideoExecutor(context.Context, string) (bool, error)
 }
 
 type LocalExecutorVideoAdapter struct {
-	Client       LocalVideoJobClient
+	Client        LocalVideoJobClient
 	PublicBaseURL string
 	// ArtifactSecret enables short-lived owner-bound URLs that remote merge
 	// providers can fetch without a user cookie.
@@ -94,6 +98,27 @@ func (a *LocalExecutorVideoAdapter) Submit(ctx context.Context, owner string, in
 		return ProviderTaskRef{}, fmt.Errorf("local executor did not return a job id")
 	}
 	return ProviderTaskRef{ProviderTaskID: job.ID, State: mapLocalVideoState(job.State)}, nil
+}
+
+// Cancel forwards only to the owned local-executor job. It never changes a V11
+// task state before the executor accepts the cancellation request.
+func (a *LocalExecutorVideoAdapter) Cancel(ctx context.Context, owner, id string) (ProviderTaskRef, error) {
+	if a == nil || a.Client == nil {
+		return ProviderTaskRef{}, fmt.Errorf("%w: local executor is unavailable", ErrUnavailable)
+	}
+	canceler, ok := a.Client.(LocalVideoJobCanceler)
+	if !ok {
+		return ProviderTaskRef{}, fmt.Errorf("%w: local executor cancellation is unavailable", ErrUnavailable)
+	}
+	owner, id = strings.TrimSpace(owner), strings.TrimSpace(id)
+	if owner == "" || id == "" {
+		return ProviderTaskRef{}, fmt.Errorf("%w: local executor task identity is required", ErrInvalid)
+	}
+	job, err := canceler.CancelVideoJob(ctx, owner, id)
+	if err != nil {
+		return ProviderTaskRef{}, err
+	}
+	return ProviderTaskRef{ProviderTaskID: strings.TrimSpace(job.ID), State: mapLocalVideoState(job.State)}, nil
 }
 
 func derivedLocalSourceTaskID(input LocalVideoJobInput) (string, bool) {
@@ -164,7 +189,10 @@ func mapLocalVideoState(state string) ProductionState {
 	case "succeeded", "success", "completed":
 		return ProductionSucceeded
 	case "failed", "cancelled", "canceled":
-		return ProductionFailed
+		if strings.EqualFold(strings.TrimSpace(state), "failed") {
+			return ProductionFailed
+		}
+		return ProductionCancelled
 	default:
 		return ProductionRunning
 	}

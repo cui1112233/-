@@ -1,18 +1,13 @@
 import { Alert, Button, Divider, Input, Modal, Segmented, Select, Space, Switch, Tabs } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getCapabilities, getPublishCredential } from '../../../shared/api/batchFactoryV11';
+import { listAvailableModels } from '../../../shared/api/modelCatalog';
 
 const providerOptions = [
   { value: 'personal_api', label: '个人中心 API' },
   { value: 'doubao_local_executor', label: '豆包本地执行器' },
   { value: 'autodl_comfyui', label: 'AutoDL ComfyUI' }
 ];
-const videoModelOptions = [
-  { value: 'yd2.0-mini', label: 'YD 2.0 Mini' },
-  { value: 'doubao-seedance', label: '豆包 Seedance' },
-  { value: 'minimax-h3-video', label: 'MiniMax H3' }
-];
-
 function Field({ label, children, note }) {
   return <label className="batch-factory-engine-field"><span><b>{label}</b>{note ? <small>{note}</small> : null}</span>{children}</label>;
 }
@@ -22,7 +17,38 @@ export function BatchFactoryEngineSettingsDrawer({ open, batch, onClose, onSave 
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [environment, setEnvironment] = useState(null);
+  const [models, setModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState('');
   useEffect(() => { if (open) setForm(batch?.settingsState?.patch || {}); }, [open, batch?.id, batch?.settingsState?.revision]);
+  useEffect(() => {
+    if (!open) return undefined;
+    let active = true;
+    setModelsLoading(true);
+    setModelsError('');
+    Promise.all([
+      listAvailableModels('image'),
+      listAvailableModels('text'),
+      listAvailableModels('video')
+    ]).then(([imageModels, textModels, videoModels]) => {
+      if (active) setModels([...imageModels, ...textModels, ...videoModels]);
+    }).catch(error => {
+      if (active) {
+        setModels([]);
+        setModelsError(error?.message || '未能读取个人中心已启用模型');
+      }
+    }).finally(() => { if (active) setModelsLoading(false); });
+    return () => { active = false; };
+  }, [open]);
+  const modelOptions = useMemo(() => ({
+    image: models.filter(model => model.kind === 'image').map(model => ({ value: model.id, label: model.name || model.id })),
+    text: models.filter(model => model.kind === 'text').map(model => ({ value: model.id, label: model.name || model.id })),
+    video: models.filter(model => model.kind === 'video').map(model => ({ value: model.id, label: model.name || model.id }))
+  }), [models]);
+  function modelPlaceholder(kind, label) {
+    if (modelsLoading) return '正在读取个人中心模型…';
+    return modelOptions[kind].length ? `选择已启用${label}模型` : `个人中心没有已启用${label}模型`;
+  }
   function patch(next) { setForm(current => ({ ...current, ...next })); }
   async function save() {
     setSaving(true);
@@ -47,13 +73,15 @@ export function BatchFactoryEngineSettingsDrawer({ open, batch, onClose, onSave 
       { key: 'models', label: '模型配置', children: <div className="batch-factory-engine-drawer"><Alert type="info" showIcon message="配置只写入当前批量作品" description="账号、API Key 和供应商地址由个人中心或管理端保存；这里仅选择已授权的模型和生产策略。" />
         <Divider orientation="left">视频</Divider>
         <Field label="视频引擎"><Select value={form.videoProvider || 'personal_api'} options={providerOptions} onChange={videoProvider => patch({ videoProvider })} /></Field>
-        <Field label="视频模型"><Select value={form.videoModelId || 'yd2.0-mini'} options={videoModelOptions} onChange={videoModelId => patch({ videoModelId })} /></Field>
+        <Field label="视频模型" note="从个人中心已启用的视频模型选择"><Select allowClear loading={modelsLoading} value={form.videoModelId || undefined} options={modelOptions.video} placeholder={modelPlaceholder('video', '视频')} onChange={videoModelId => patch({ videoModelId: videoModelId || '' })} /></Field>
         <Field label="VIDEO 时长策略"><Segmented value={form.durationMode || 'auto'} options={[{ value: 'auto', label: 'AI 自动' }, { value: 'model-max', label: '按模型上限' }]} onChange={durationMode => patch({ durationMode })} /></Field>
         <Field label="画幅"><Segmented value={form.aspectRatio || '9:16'} options={['9:16', '16:9', '1:1']} onChange={aspectRatio => patch({ aspectRatio })} /></Field>
         <Field label="固定开头"><Segmented value={form.fixedSingleVideo === true ? 'single' : 'multiple'} options={[{ value: 'single', label: '单个 VIDEO' }, { value: 'multiple', label: '多个 VIDEO' }]} onChange={value => patch({ fixedSingleVideo: value === 'single' })} /></Field>
         <Divider orientation="left">图片与文本</Divider>
-        <Field label="图片模型" note="可留空以继承账号默认设置"><Input value={form.imageModelId || ''} onChange={event => patch({ imageModelId: event.target.value })} placeholder="选择或输入已授权图片模型" /></Field>
-        <Field label="文本模型" note="用于 AI 推理"><Input value={form.textModelId || ''} onChange={event => patch({ textModelId: event.target.value })} placeholder="选择或输入已授权文本模型" /></Field>
+        <Field label="图片模型" note="可留空以继承账号默认设置"><Select allowClear loading={modelsLoading} value={form.imageModelId || undefined} options={modelOptions.image} placeholder={modelPlaceholder('image', '图片')} onChange={imageModelId => patch({ imageModelId: imageModelId || '' })} /></Field>
+        <Field label="文本模型" note="用于 AI 推理"><Select allowClear loading={modelsLoading} value={form.textModelId || undefined} options={modelOptions.text} placeholder={modelPlaceholder('text', '文本')} onChange={textModelId => patch({ textModelId: textModelId || '' })} /></Field>
+        {modelsError ? <Alert type="warning" showIcon message="模型目录暂不可用" description={modelsError} /> : null}
+        {!modelsLoading && !modelsError && !models.length ? <Alert type="warning" showIcon message="个人中心没有已启用模型" description={<Space direction="vertical"><span>请先在个人中心按文本、图片、视频类型新增并启用模型，再返回当前批量作品选择。</span><Button type="link" href="/api-config">前往个人中心配置模型</Button></Space>} /> : null}
       </div> },
       { key: 'publish', label: '发布统一', children: <div className="batch-factory-engine-drawer"><Alert type="info" showIcon message="维护网站提交配置，不会直接提交小说" description="真正外部提交只从顶部“上传网络 → 提交选中 / 提交全部”发起。" />
         <Divider orientation="left">版本对应配置档</Divider>

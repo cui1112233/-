@@ -15,6 +15,7 @@ const (
 	ProductionRunning   ProductionState = "running"
 	ProductionSucceeded ProductionState = "succeeded"
 	ProductionFailed    ProductionState = "failed"
+	ProductionCancelled ProductionState = "cancelled"
 )
 
 type FrozenVideoModel struct {
@@ -59,6 +60,21 @@ type ProductionJob struct {
 type BatchStatus struct {
 	BatchID string          `json:"batchId"`
 	Jobs    []ProductionJob `json:"jobs"`
+}
+
+type ProductionCancelSkip struct {
+	TaskID string `json:"taskId"`
+	Reason string `json:"reason"`
+}
+
+// BatchCancellation is an honest cancellation receipt. Only tasks whose
+// provider accepted an actual cancellation move to cancelled; other active
+// tasks remain unchanged and are returned with their reason.
+type BatchCancellation struct {
+	BatchID          string                 `json:"batchId"`
+	RequestID        string                 `json:"requestId"`
+	CancelledTaskIDs []string               `json:"cancelledTaskIds"`
+	Skipped          []ProductionCancelSkip `json:"skipped,omitempty"`
 }
 
 type PromptResolver interface {
@@ -186,7 +202,7 @@ func productionError(err error) string {
 
 func normalizeProductionState(value ProductionState) ProductionState {
 	switch value {
-	case ProductionQueued, ProductionRunning, ProductionSucceeded, ProductionFailed:
+	case ProductionQueued, ProductionRunning, ProductionSucceeded, ProductionFailed, ProductionCancelled:
 		return value
 	default:
 		return ProductionRunning
@@ -396,6 +412,70 @@ func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID s
 		return BatchStatus{}, err
 	}
 	return BatchStatus{BatchID: batchID, Jobs: jobs}, nil
+}
+
+func isOperationRequest(jobRequestID, operationRequestID string) bool {
+	jobRequestID = strings.TrimSpace(jobRequestID)
+	operationRequestID = strings.TrimSpace(operationRequestID)
+	return operationRequestID != "" && (jobRequestID == operationRequestID || strings.HasPrefix(jobRequestID, operationRequestID+":"))
+}
+
+func (s *ProductionService) CancelBatch(ctx context.Context, owner, batchID, operationRequestID string) (BatchCancellation, error) {
+	if s == nil || s.Store == nil {
+		return BatchCancellation{}, ErrUnavailable
+	}
+	operationRequestID = strings.TrimSpace(operationRequestID)
+	if operationRequestID == "" {
+		return BatchCancellation{}, fmt.Errorf("%w: production operation request id is required", ErrInvalid)
+	}
+	repository, err := s.repository()
+	if err != nil {
+		return BatchCancellation{}, err
+	}
+	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil {
+		return BatchCancellation{}, err
+	}
+	result := BatchCancellation{BatchID: batchID, RequestID: operationRequestID, CancelledTaskIDs: []string{}, Skipped: []ProductionCancelSkip{}}
+	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
+	if err != nil {
+		return BatchCancellation{}, err
+	}
+	for _, job := range jobs {
+		if !isOperationRequest(job.RequestID, operationRequestID) {
+			continue
+		}
+		for _, task := range job.Tasks {
+			if task.Status != ProductionQueued && task.Status != ProductionRunning {
+				continue
+			}
+			if normalizeVideoProvider(task.Provider) != VideoProviderDoubaoLocal {
+				result.Skipped = append(result.Skipped, ProductionCancelSkip{TaskID: task.ID, Reason: "当前视频供应商未提供真实取消接口"})
+				continue
+			}
+			if s.LocalExecutor == nil || strings.TrimSpace(task.ProviderTaskID) == "" {
+				result.Skipped = append(result.Skipped, ProductionCancelSkip{TaskID: task.ID, Reason: "本地执行器任务不可取消"})
+				continue
+			}
+			ref, cancelErr := s.LocalExecutor.Cancel(ctx, owner, task.ProviderTaskID)
+			if cancelErr != nil {
+				result.Skipped = append(result.Skipped, ProductionCancelSkip{TaskID: task.ID, Reason: productionError(cancelErr)})
+				continue
+			}
+			if ref.State != ProductionCancelled {
+				result.Skipped = append(result.Skipped, ProductionCancelSkip{TaskID: task.ID, Reason: "本地执行器未确认取消"})
+				continue
+			}
+			updated := task
+			updated.Status = ProductionCancelled
+			updated.ErrorMessage = "已由用户取消"
+			updated.UpdatedAt = time.Now().UTC()
+			if _, err := repository.UpdateProductionTask(ctx, owner, job.ID, task.ID, updated); err != nil {
+				return BatchCancellation{}, err
+			}
+			result.CancelledTaskIDs = append(result.CancelledTaskIDs, task.ID)
+		}
+	}
+	return result, nil
 }
 
 func (s *ProductionService) reconcileBatch(ctx context.Context, repository ProductionRepository, owner, batchID string) error {

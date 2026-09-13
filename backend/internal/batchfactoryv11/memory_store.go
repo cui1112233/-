@@ -61,21 +61,21 @@ func productionJobState(tasks []ProductionTask) ProductionState {
 	if len(tasks) == 0 {
 		return ProductionQueued
 	}
-	allQueued, allSucceeded, hasPending, hasFailed := true, true, false, false
+	allQueued, allSucceeded, allCancelled, hasPending, hasFailed, hasCancelled := true, true, true, false, false, false
 	for _, task := range tasks {
 		switch task.Status {
 		case ProductionQueued:
-			hasPending = true
-			allSucceeded = false
+			hasPending, allSucceeded, allCancelled = true, false, false
 		case ProductionRunning:
-			hasPending = true
-			allQueued, allSucceeded = false, false
+			hasPending, allQueued, allSucceeded, allCancelled = true, false, false, false
 		case ProductionSucceeded:
-			allQueued = false
+			allQueued, allCancelled = false, false
 		case ProductionFailed:
-			allQueued, allSucceeded, hasFailed = false, false, true
+			allQueued, allSucceeded, allCancelled, hasFailed = false, false, false, true
+		case ProductionCancelled:
+			allQueued, allSucceeded, hasCancelled = false, false, true
 		default:
-			allQueued, allSucceeded, hasPending = false, false, true
+			allQueued, allSucceeded, allCancelled, hasPending = false, false, false, true
 		}
 	}
 	if allQueued {
@@ -87,8 +87,14 @@ func productionJobState(tasks []ProductionTask) ProductionState {
 	if allSucceeded {
 		return ProductionSucceeded
 	}
+	if allCancelled {
+		return ProductionCancelled
+	}
 	if hasFailed {
 		return ProductionFailed
+	}
+	if hasCancelled {
+		return ProductionCancelled
 	}
 	return ProductionRunning
 }

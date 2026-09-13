@@ -23,6 +23,7 @@ func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable 
 		"working-front.viral": {Reason: "Director slice not released"},
 		"compiler.preview":    {Reason: "Final prompt compiler slice not released"},
 		"production.submit":   {Reason: "Production slice not released"},
+		"production.cancel":   {Reason: "Production slice not released"},
 		"merge.run":           {Reason: "Merge slice not released"},
 		"publish.121":         {Reason: "121 is not enabled"},
 		"publish.yadi":        {Reason: "Yadi is not enabled"},
@@ -42,6 +43,7 @@ func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable 
 	}
 	if slice >= 4 && productionAvailable {
 		caps["production.submit"] = Capability{Available: true}
+		caps["production.cancel"] = Capability{Available: true}
 	}
 	if slice >= 5 && mergeAvailable {
 		caps["merge.run"] = Capability{Available: true}

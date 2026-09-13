@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createPrompt,
   createPublishIntent,
+	  cancelBatchProduction,
   getCapabilities,
   getConfigVersions,
   getFinalPrompt,
@@ -296,6 +297,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState('');
   const [productionStatus, setProductionStatus] = useState(null);
+	const [activeProductionRequestID, setActiveProductionRequestID] = useState('');
   const [mergeStatus, setMergeStatus] = useState(null);
   const [capabilities, setCapabilities] = useState({});
   const [configVersions, setConfigVersions] = useState([]);
@@ -312,6 +314,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const runCapability = capability(capabilities, 'director.run');
   const workingFrontCapability = capability(capabilities, 'working-front.viral');
   const productionCapability = capability(capabilities, 'production.submit');
+	const cancelCapability = capability(capabilities, 'production.cancel');
   const mergeCapability = capability(capabilities, 'merge.run');
 
   async function refreshBatch() {
@@ -415,9 +418,11 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!batch?.id || actionBusy) return;
     setActionBusy('production');
     try {
+		const operationRequestID = requestID(book ? 'bf11-book-production' : 'bf11-batch-production');
       const provider = batch?.settingsState?.patch?.videoProvider || 'personal_api';
-      if (book) await submitBookProduction(batch.id, book.id, requestID('bf11-book-production'), provider);
-      else await submitBatchProduction(batch.id, requestID('bf11-batch-production'), provider);
+		if (book) await submitBookProduction(batch.id, book.id, operationRequestID, provider);
+		else await submitBatchProduction(batch.id, operationRequestID, provider);
+		setActiveProductionRequestID(operationRequestID);
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       message.success(book ? '当前小说的视频任务已提交。' : '批量视频任务已提交。');
     } catch (error) { message.error(error?.message || '提交视频任务失败'); } finally { setActionBusy(''); }
@@ -431,6 +436,23 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       message.success('批量合并任务已提交。');
     } catch (error) { message.error(error?.message || '提交批量合并失败'); } finally { setActionBusy(''); }
   }
+	async function cancelProduction() {
+		if (!batch?.id || actionBusy || !cancelCapability.available) return;
+		if (!activeProductionRequestID) {
+			message.info('请在本次页面中先发起一个批量视频操作；取消只会作用于该次操作。');
+			return;
+		}
+		setActionBusy('cancel');
+		try {
+			const result = await cancelBatchProduction(batch.id, activeProductionRequestID);
+			await loadRuntimeStatus({ quiet: true });
+			const cancelled = resultData(result, 'cancelledTaskIds') || [];
+			const skipped = resultData(result, 'skipped') || [];
+			if (cancelled.length) message.success(`已取消 ${cancelled.length} 个本地执行器任务。`);
+			else if (skipped.length) message.warning(`没有可取消的本地任务：${skipped.map(item => item.reason).filter(Boolean).join('；')}`);
+			else message.info('当前没有运行中的视频任务。');
+		} catch (error) { message.error(error?.message || '取消视频任务失败'); } finally { setActionBusy(''); }
+	}
   async function saveSettings(patch) {
     try {
       await saveBatchSettings(batch.id, { patch, expectedRevision: Number(batch?.settingsState?.revision || 0) });
@@ -456,7 +478,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         <Button type="text" icon={<SettingOutlined />} onClick={() => setEngineOpen(true)}>引擎配置</Button>
         <Tooltip title={runCapability.available ? '配置并生成资产、画面和视频提示词' : '可先配置并保存提示词；执行生成前需要可用的文本模型。'}><Button type="text" icon={<FileTextOutlined />} onClick={() => setAiOpen(true)}>AI 推理</Button></Tooltip>
         <Dropdown menu={{ items: batchMenuItems, onClick: ({ key }) => key === 'production' ? runProduction() : runMerge() }}><Button className="shuihuo-batch-button" type="text" icon={<PictureOutlined />} loading={actionBusy === 'production' || actionBusy === 'merge'}>批量操作</Button></Dropdown>
-        <Tooltip title="V11 当前生产服务没有取消接口；不会把尚未停止的供应商任务误标记为已取消。"><Button className="shuihuo-cancel-button" type="text" disabled>取消操作</Button></Tooltip>
+		<Tooltip title={cancelCapability.available ? '取消可取消的本地执行器任务；其它供应商保持在途状态。' : cancelCapability.reason}><Button className="shuihuo-cancel-button" type="text" loading={actionBusy === 'cancel'} disabled={!cancelCapability.available || Boolean(actionBusy)} onClick={cancelProduction}>取消操作</Button></Tooltip>
       </div>
       <div className="shuihuo-workbench-export"><Button type="text" icon={<BarsOutlined />} onClick={() => { setLogsOpen(true); loadRuntimeStatus(); }} loading={logsLoading}>任务/日志</Button><Dropdown menu={{ items: uploadMenuItems, onClick: ({ key }) => setUploadMode(key) }}><Button icon={<UploadOutlined />}>上传网络</Button></Dropdown></div>
       <div className="shuihuo-project-stats"><span><b>{books.length}</b> 本小说</span><span><b>{readyBooks}</b> 原文就绪</span><span><b>{totalVideos}</b> VIDEO</span></div>

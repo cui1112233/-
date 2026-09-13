@@ -31,6 +31,18 @@ test('opens engine configuration as a centered Shuihuo-style modal', () => {
   assert.doesNotMatch(engineSource, /<Drawer/);
 });
 
+test('selects Batch Factory image, text and video models from enabled Personal Center models', () => {
+  assert.match(engineSource, /import \{ listAvailableModels \} from '\.\.\/\.\.\/\.\.\/shared\/api\/modelCatalog'/);
+  assert.match(engineSource, /listAvailableModels\('image'\)/);
+  assert.match(engineSource, /listAvailableModels\('text'\)/);
+  assert.match(engineSource, /listAvailableModels\('video'\)/);
+  assert.match(engineSource, /href="\/api-config"/);
+  assert.match(engineSource, /前往个人中心配置模型/);
+  assert.doesNotMatch(engineSource, /<Input value=\{form\.imageModelId/);
+  assert.doesNotMatch(engineSource, /<Input value=\{form\.textModelId/);
+  assert.doesNotMatch(engineSource, /const videoModelOptions/);
+});
+
 test('uses the Shuihuo preset modal layout for each book without pretending images exist', () => {
   assert.match(source, /shuihuo-preset-toolbar/);
   assert.match(source, /shuihuo-preset-layout/);
@@ -100,4 +112,18 @@ test('selects AI rules from Personal Center system presets for Batch Factory wit
 
 test('makes Batch Factory available in the Personal Center system-preset categories', () => {
   assert.match(presetLibrarySource, /label: '批量工厂', value: 'batch-factory'/);
+});
+
+test('cancels only provider-confirmed local production tasks and shows the runtime capability reason otherwise', () => {
+  assert.match(source, /cancelBatchProduction/);
+  assert.match(source, /setActionBusy\('cancel'\)/);
+  assert.match(source, /cancelCapability = capability\(capabilities, 'production\.cancel'\)/);
+  assert.match(source, /取消可取消的本地执行器任务/);
+  assert.doesNotMatch(source, /V11 当前生产服务没有取消接口/);
+});
+
+test('scopes cancellation to the production operation created in this page, rather than every batch task', () => {
+  assert.match(source, /activeProductionRequestID/);
+  assert.match(source, /cancelBatchProduction\(batch\.id, activeProductionRequestID\)/);
+  assert.match(source, /取消只会作用于该次操作/);
 });

@@ -194,6 +194,15 @@ export function submitBatchProduction(batchId, requestId, provider = 'personal_a
   });
 }
 
+// The server only marks an active task cancelled after its local executor has
+// accepted the cancellation. Unsupported providers are returned as skipped.
+export function cancelBatchProduction(batchId, requestId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/production/cancel`), {
+    method: 'POST',
+    body: body({ requestId })
+  });
+}
+
 export function saveVideoProviderConfig(payload = {}) {
   return apiRequest(bf11Path('video-provider/config'), { method: 'PUT', body: body(payload) });
 }
