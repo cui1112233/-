@@ -125,6 +125,13 @@ func (s *MemoryStore) CreateProductionJob(_ context.Context, value ProductionJob
 		return cloneProductionJob(s.productionJobs[id].Value), nil
 	}
 	value.ID = s.id("production")
+	now := time.Now().UTC()
+	if value.CreatedAt.IsZero() {
+		value.CreatedAt = now
+	}
+	if value.UpdatedAt.IsZero() {
+		value.UpdatedAt = now
+	}
 	for index := range value.Tasks {
 		value.Tasks[index].ID = s.id("production-task")
 	}

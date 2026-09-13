@@ -171,10 +171,14 @@ func TestRewriteWorkingFrontPersistsCandidateWithoutChangingCapturedSource(t *te
 func TestDirectorAppliesSavedAIPromptRulesAndKeepsVisualOutputOutOfVideoPrompt(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	config := map[string]any{
-		"assets":      map[string]any{"enabled": true, "prompt": "资产统一为国风写实，人物服装必须连续。", "scope": "all"},
-		"constraints": map[string]any{"enabled": true, "prompt": "镜头不得跳轴，不要文字和水印。"},
-		"video":       map[string]any{"enabled": true, "prompt": "视频动作必须连续，运镜克制。", "scope": "all"},
-		"visual":      map[string]any{"enabled": true, "prompt": "画面采用冷色电影光，主体清晰。", "scope": "all"},
+		"assets": map[string]any{
+			"enabled":    true,
+			"scope":      "all",
+			"extraction": map[string]any{"body": "资产统一为国风写实，人物服装必须连续。"},
+		},
+		"constraints": map[string]any{"enabled": true, "selections": []any{map[string]any{"body": "镜头不得跳轴，不要文字和水印。"}}},
+		"video":       map[string]any{"enabled": true, "body": "视频动作必须连续，运镜克制。", "scope": "all"},
+		"visual":      map[string]any{"enabled": true, "body": "画面采用冷色电影光，主体清晰。", "scope": "all"},
 	}
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
 		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}, ExpectedRevision: batch.Revision,
@@ -210,5 +214,33 @@ func TestDirectorAppliesSavedAIPromptRulesAndKeepsVisualOutputOutOfVideoPrompt(t
 	}
 	if strings.Contains(final.CompiledPrompt, video.VisualPrompt) {
 		t.Fatalf("visual prompt leaked into final video prompt:\n%s", final.CompiledPrompt)
+	}
+}
+
+func TestBuildDirectorContractUsesScriptExtractionAndTypedAssetRules(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
+	config := map[string]any{
+		"assets": map[string]any{
+			"enabled":    true,
+			"extraction": map[string]any{"body": "SCRIPT EXTRACTION"},
+			"character":  map[string]any{"body": "CHARACTER ONLY"},
+			"scene":      map[string]any{"body": "SCENE ONLY"},
+			"prop":       map[string]any{"body": "PROP ONLY"},
+		},
+		"constraints": map[string]any{"enabled": true, "selections": []any{map[string]any{"body": "CONSTRAINT ONLY"}}},
+		"video":       map[string]any{"enabled": true, "body": "VIDEO ONLY"},
+		"visual":      map[string]any{"enabled": true, "body": "VISUAL ONLY"},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 15, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"SCRIPT EXTRACTION", "CHARACTER ONLY", "SCENE ONLY", "PROP ONLY", "CONSTRAINT ONLY", "VIDEO ONLY", "VISUAL ONLY"} {
+		if !strings.Contains(contract.SystemPrompt, expected) {
+			t.Fatalf("director contract missing %q:\n%s", expected, contract.SystemPrompt)
+		}
 	}
 }

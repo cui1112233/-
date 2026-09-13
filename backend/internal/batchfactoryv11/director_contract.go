@@ -34,18 +34,49 @@ type PromptContract struct {
 // in the V11 settings patch so batch, book and VIDEO overrides still resolve
 // through the same settings chain. Prompt text is generation guidance only;
 // it never bypasses the director output validation.
-type AIReasoningPromptModule struct {
+// PresetSnapshot is resolved by the trusted Node bridge. The browser may only
+// choose its ID; the current published body is frozen here with its identity so
+// a director revision can always be traced to the actual rule it used.
+type PresetSnapshot struct {
+	ID      string `json:"presetId"`
+	Name    string `json:"presetName"`
+	Slot    string `json:"presetSlot"`
+	Version int    `json:"presetVersion"`
+	Body    string `json:"body"`
+}
+
+type AIReasoningScope struct {
 	Enabled bool     `json:"enabled"`
-	Prompt  string   `json:"prompt"`
 	Scope   string   `json:"scope"`
 	BookIDs []string `json:"bookIds"`
 }
 
+type AIReasoningAssetModule struct {
+	AIReasoningScope
+	Extraction PresetSnapshot `json:"extraction"`
+	Character  PresetSnapshot `json:"character"`
+	Scene      PresetSnapshot `json:"scene"`
+	Prop       PresetSnapshot `json:"prop"`
+}
+
+type AIReasoningConstraintModule struct {
+	AIReasoningScope
+	Selections []PresetSnapshot `json:"selections"`
+}
+
+type AIReasoningPromptModule struct {
+	AIReasoningScope
+	PresetSnapshot
+	// Prompt only reads legacy settings saved before typed selection support.
+	// The Node bridge no longer accepts or creates it.
+	Prompt string `json:"prompt"`
+}
+
 type AIReasoningPromptConfig struct {
-	Assets      AIReasoningPromptModule `json:"assets"`
-	Constraints AIReasoningPromptModule `json:"constraints"`
-	Video       AIReasoningPromptModule `json:"video"`
-	Visual      AIReasoningPromptModule `json:"visual"`
+	Assets      AIReasoningAssetModule      `json:"assets"`
+	Constraints AIReasoningConstraintModule `json:"constraints"`
+	Video       AIReasoningPromptModule     `json:"video"`
+	Visual      AIReasoningPromptModule     `json:"visual"`
 }
 
 func aiReasoningPromptConfig(patch SettingsPatch) AIReasoningPromptConfig {
@@ -60,8 +91,8 @@ func aiReasoningPromptConfig(patch SettingsPatch) AIReasoningPromptConfig {
 	return config
 }
 
-func (m AIReasoningPromptModule) appliesTo(book Book) bool {
-	if !m.Enabled || strings.TrimSpace(m.Prompt) == "" {
+func (m AIReasoningScope) appliesTo(book Book) bool {
+	if !m.Enabled {
 		return false
 	}
 	if m.Scope != "custom" {
@@ -73,6 +104,25 @@ func (m AIReasoningPromptModule) appliesTo(book Book) bool {
 		}
 	}
 	return false
+}
+
+func (m AIReasoningPromptModule) body() string {
+	if body := strings.TrimSpace(m.Body); body != "" {
+		return body
+	}
+	return strings.TrimSpace(m.Prompt)
+}
+
+func (m AIReasoningPromptModule) appliesTo(book Book) bool {
+	return m.AIReasoningScope.appliesTo(book) && m.body() != ""
+}
+
+func (m AIReasoningAssetModule) appliesTo(book Book, selection PresetSnapshot) bool {
+	return m.AIReasoningScope.appliesTo(book) && strings.TrimSpace(selection.Body) != ""
+}
+
+func (m AIReasoningConstraintModule) appliesTo(book Book) bool {
+	return m.AIReasoningScope.appliesTo(book)
 }
 
 func BuildHookContract(book Book) PromptContract {
@@ -126,18 +176,31 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 ` + durationRule + "\n画幅：" + snapshot.AspectRatio + "\n允许的 prefix_key：" + strings.Join(DirectorPrefixKeys, ", ")
 	config := aiReasoningPromptConfig(snapshot.Effective)
 	rules := []string{}
-	if config.Assets.appliesTo(book) {
-		rules = append(rules, "资产设置：以下规则只用于 characters、scenes、props 的 prompt。\n"+strings.TrimSpace(config.Assets.Prompt))
+	if config.Assets.appliesTo(book, config.Assets.Extraction) {
+		rules = append(rules, "人物/场景提取方案：只提取原文实际出现的人物与场景。\n"+strings.TrimSpace(config.Assets.Extraction.Body))
+	}
+	if config.Assets.appliesTo(book, config.Assets.Character) {
+		rules = append(rules, "人物资产规则：以下规则只约束 characters 的 prompt。\n"+strings.TrimSpace(config.Assets.Character.Body))
+	}
+	if config.Assets.appliesTo(book, config.Assets.Scene) {
+		rules = append(rules, "场景资产规则：以下规则只约束 scenes 的 prompt。\n"+strings.TrimSpace(config.Assets.Scene.Body))
+	}
+	if config.Assets.appliesTo(book, config.Assets.Prop) {
+		rules = append(rules, "道具资产规则：以下规则只约束 props 的 prompt。\n"+strings.TrimSpace(config.Assets.Prop.Body))
 	}
 	if config.Constraints.appliesTo(book) {
-		rules = append(rules, "约束设置：以下规则约束本次所有输出，且必须保持可拍、可见。\n"+strings.TrimSpace(config.Constraints.Prompt))
+		for _, selection := range config.Constraints.Selections {
+			if body := strings.TrimSpace(selection.Body); body != "" {
+				rules = append(rules, "约束设置：以下规则约束本次所有输出，且必须保持可拍、可见。\n"+body)
+			}
+		}
 	}
 	if config.Video.appliesTo(book) {
-		rules = append(rules, "视频设置：以下规则只用于 storyboard.video_desc 和镜头动作/运镜。\n"+strings.TrimSpace(config.Video.Prompt))
+		rules = append(rules, "视频设置：以下规则只用于 storyboard.video_desc 和镜头动作/运镜。\n"+config.Video.body())
 	}
 	visualEnabled := config.Visual.appliesTo(book)
 	if visualEnabled {
-		rules = append(rules, "画面设置：以下规则只用于 storyboard.visual_prompt。每个 storyboard 必须输出非空 visual_prompt，它只服务画面图片生成，绝不写入 video_desc。\n"+strings.TrimSpace(config.Visual.Prompt))
+		rules = append(rules, "画面设置：以下规则只用于 storyboard.visual_prompt。每个 storyboard 必须输出非空 visual_prompt，它只服务画面图片生成，绝不写入 video_desc。\n"+config.Visual.body())
 	}
 	if len(rules) > 0 {
 		system += "\n\n当前批量已启用的 AI 推理规则：\n" + strings.Join(rules, "\n\n")
