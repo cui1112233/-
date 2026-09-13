@@ -56,11 +56,12 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			books[index].SourceMetadata["contentCaptureCharacters"] = input.ContentCaptureCharacters
 			books[index].SourceMetadata["scheduledAt"] = strings.TrimSpace(input.ScheduledAt)
 			books[index].SourceMetadata["queueStatus"] = queueStatus
+			books[index].SourceMetadata["platformName"] = strings.TrimSpace(input.PlatformName)
 		}
 		intake, err := store.CreateIntake(r.Context(), owner, batchfactoryv11.NovelFetchIntakeInput{
 			Books: books,
 			Metadata: map[string]any{
-				"sourceMode": "manual_original", "platformId": input.PlatformID, "parseMode": input.ParseMode,
+				"sourceMode": "manual_original", "platformId": input.PlatformID, "platformName": strings.TrimSpace(input.PlatformName), "parseMode": input.ParseMode,
 				"columnPresetId": input.ColumnPresetID, "columnOrder": input.ColumnOrder, "inputText": input.InputText,
 				"contentRangeLines": input.ContentRangeLines, "contentCaptureCharacters": input.ContentCaptureCharacters, "scheduledAt": strings.TrimSpace(input.ScheduledAt), "queueStatus": queueStatus,
 			},

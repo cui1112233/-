@@ -103,7 +103,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     if (automatic && Number.isNaN(scheduled.getTime())) return message.warning('定时执行时间无效');
     setBusy(true);
     try {
-      await onCreated({ title: title.trim(), platformId, parseMode, columnPresetId, columnOrder, inputText, sourceTextByBookId, contentRangeLines, contentCaptureCharacters, scheduledAt: scheduled ? scheduled.toISOString() : '' });
+      const platformName = platformOptions.find(option => option.value === platformId)?.label || '';
+      await onCreated({ title: title.trim(), platformId, platformName, parseMode, columnPresetId, columnOrder, inputText, sourceTextByBookId, contentRangeLines, contentCaptureCharacters, scheduledAt: scheduled ? scheduled.toISOString() : '' });
       reset();
     } catch (error) { message.error(error.message || '新建批量失败'); } finally { setBusy(false); }
   }

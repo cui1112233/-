@@ -175,7 +175,7 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 	}
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
 	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
-		"title": "晚间批量", "platformId": "15", "parseMode": "smart", "columnPresetId": "sample_input",
+		"title": "晚间批量", "platformId": "15", "platformName": "番茄小说", "parseMode": "smart", "columnPresetId": "sample_input",
 		"inputText":                "100000000001\t书A\t精彩理由\t女频\t都市爽文\tS\n100000000002\t书B\t精彩理由\t男频\t都市爽文\tA",
 		"sourceTextByBookId":       map[string]string{"100000000001": "第一本完整原文", "100000000002": "第二本完整原文"},
 		"contentCaptureCharacters": 4000,
@@ -188,7 +188,7 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 	if got.Title != "晚间批量" || len(got.Books) != 2 {
 		t.Fatalf("batch=%+v", got)
 	}
-	if got.Books[0].SourceMetadata["sourceMode"] != "manual_original" || got.Books[0].SourceMetadata["queueStatus"] != "scheduled_waiting" {
+	if got.Books[0].SourceMetadata["sourceMode"] != "manual_original" || got.Books[0].SourceMetadata["queueStatus"] != "scheduled_waiting" || got.Books[0].SourceMetadata["platformName"] != "番茄小说" || got.Books[0].SourceMetadata["gender"] != "女频" || got.Books[0].SourceMetadata["tags"] != "都市爽文" || got.Books[0].SourceMetadata["reason"] != "精彩理由" || got.Books[0].SourceMetadata["rating"] != "S" {
 		t.Fatalf("metadata=%#v", got.Books[0].SourceMetadata)
 	}
 	if got.Books[0].SourceText != "第一本完整原文" || got.Books[0].TxtText != "第一本完整原文" || got.Books[1].SourceText != "第二本完整原文" {

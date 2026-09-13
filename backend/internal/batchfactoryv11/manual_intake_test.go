@@ -5,6 +5,7 @@ import "testing"
 func TestParseManualBookListUsesPresetAndRetainsNovelFetchMetadata(t *testing.T) {
 	books, err := ParseManualBookList(ManualIntakeInput{
 		PlatformID:     "15",
+		PlatformName:   "番茄小说",
 		ParseMode:      "smart",
 		ColumnPresetID: "sample_input",
 		InputText:      "2080989285751305136\t重生书\t推荐理由\t女频\t重生,爽文\tS",
@@ -16,7 +17,7 @@ func TestParseManualBookListUsesPresetAndRetainsNovelFetchMetadata(t *testing.T)
 		t.Fatalf("books=%+v", books)
 	}
 	metadata := books[0].SourceMetadata
-	if metadata["gender"] != "女频" || metadata["rating"] != "S" || metadata["tags"] != "重生,爽文" {
+	if metadata["platformName"] != "番茄小说" || metadata["gender"] != "女频" || metadata["rating"] != "S" || metadata["tags"] != "重生,爽文" || metadata["reason"] != "推荐理由" {
 		t.Fatalf("metadata=%#v", metadata)
 	}
 	if metadata["sourceMode"] != "manual_original" || metadata["sourceLine"] == "" {

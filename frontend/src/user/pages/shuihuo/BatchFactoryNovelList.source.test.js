@@ -58,3 +58,12 @@ test('uses the selected video media version as the durable primary merge choice'
   assert.match(source, /切换为主版本/);
   assert.match(source, /当前分镜的主版本与候选版本/);
 });
+
+test('renders saved book-city and novel-fetch metadata without exposing internal platform IDs', () => {
+  assert.match(source, /function bookPlatformName\(book\)/);
+  assert.match(source, /metadata\.platformName/);
+  assert.match(source, /<span>标签<\/span>/);
+  assert.match(source, /<span>推荐理由<\/span>/);
+  assert.match(source, /<span>评级<\/span>/);
+  assert.match(source, /label="书城">\{bookPlatformName\(viewingBook\)\}/);
+});

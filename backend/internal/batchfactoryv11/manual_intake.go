@@ -9,8 +9,11 @@ import (
 // ManualIntakeInput uses Novel Fetch's book-list protocol. When the caller has
 // already fetched an original, it is persisted with the matching Book ID.
 type ManualIntakeInput struct {
-	Title                    string            `json:"title"`
-	PlatformID               string            `json:"platformId"`
+	Title      string `json:"title"`
+	PlatformID string `json:"platformId"`
+	// PlatformName is the novel-fetch book-city label shown to people. PlatformID
+	// stays internal so raw-content requests can continue using the configured ID.
+	PlatformName             string            `json:"platformName"`
 	ParseMode                string            `json:"parseMode"`
 	ColumnPresetID           string            `json:"columnPresetId"`
 	ColumnOrder              string            `json:"columnOrder"`
@@ -360,6 +363,7 @@ func parseManualRows(input ManualIntakeInput) []manualRow {
 // book ID while retaining the first raw input line for later audit.
 func ParseManualBookList(input ManualIntakeInput) ([]CreateBookInput, error) {
 	input.PlatformID = strings.TrimSpace(input.PlatformID)
+	input.PlatformName = strings.TrimSpace(input.PlatformName)
 	if input.PlatformID == "" || strings.TrimSpace(input.InputText) == "" {
 		return nil, ErrInvalid
 	}
@@ -410,7 +414,7 @@ func ParseManualBookList(input ManualIntakeInput) ([]CreateBookInput, error) {
 		if title == "" {
 			title = "小说 " + id
 		}
-		meta := map[string]any{"gender": row.gender, "style": row.style, "tags": row.tags, "reason": row.reason, "rating": row.rating, "paidBookId": row.paidID, "freeBookId": row.freeID, "sourceLine": row.sourceLine, "parseMode": row.mode, "parseColumns": row.columns, "sourceMode": "manual_original"}
+		meta := map[string]any{"platformName": input.PlatformName, "gender": row.gender, "style": row.style, "tags": row.tags, "reason": row.reason, "rating": row.rating, "paidBookId": row.paidID, "freeBookId": row.freeID, "sourceLine": row.sourceLine, "parseMode": row.mode, "parseColumns": row.columns, "sourceMode": "manual_original"}
 		sourceText := strings.TrimSpace(input.SourceTextByBookID[id])
 		out = append(out, CreateBookInput{ID: id, BookID: id, Title: title, Platform: input.PlatformID, SourceText: sourceText, TxtText: sourceText, SourceMetadata: meta})
 	}
