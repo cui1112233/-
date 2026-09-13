@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
+import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
+import { createManualIntake, getBatch, listBatches } from '../../shared/api/batchFactoryV11';
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
@@ -16,6 +18,7 @@ function readinessItems(health) {
 export function ShuihuoProductionPage() {
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
+  const [activeBatchProject, setActiveBatchProject] = useState(null);
   const [importNotice, setImportNotice] = useState(null);
   const [view, setView] = useState('projects');
   const [loading, setLoading] = useState(true);
@@ -46,7 +49,11 @@ export function ShuihuoProductionPage() {
 
   const refreshProjects = useCallback(async () => {
     setLoading(true);
-    try { const result = await listProjects(); setProjects(result.projects || []); } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
+    try {
+      const [water, batch] = await Promise.all([listProjects(), listBatches()]);
+      const batchProjects = (batch.batches || []).map(item => ({ id: `batch:${item.id}`, batchId: item.id, name: item.title, productionMode: 'batch_factory', createdAt: item.createdAt, updatedAt: item.updatedAt, batch: item }));
+      setProjects([...(water.projects || []), ...batchProjects]);
+    } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
   }, []);
   useEffect(() => { refreshProjects(); }, [refreshProjects]);
   useEffect(() => {
@@ -56,7 +63,10 @@ export function ShuihuoProductionPage() {
   }, []);
 
   const openProject = useCallback(async project => {
-    try { setActiveProject(await getProject(project.id)); setView('studio'); } catch (error) { message.error(error.message || '读取项目工作台失败'); }
+    try {
+      if (project.productionMode === 'batch_factory') { setActiveBatchProject(await getBatch(project.batchId)); setView('batch-novels'); return; }
+      setActiveProject(await getProject(project.id)); setView('studio');
+    } catch (error) { message.error(error.message || '读取项目工作台失败'); }
   }, []);
 
   async function segmentAndOpenProject(readModel, segmentationMode) {
@@ -84,8 +94,8 @@ export function ShuihuoProductionPage() {
     message.success(`成功导入 ${candidates.length} 条文本`);
   }
 
-  async function handleCreate({ name, sourceText, segmentationMode }) {
-    const created = await createProject({ name });
+  async function handleCreate({ name, sourceText, segmentationMode, productionMode }) {
+    const created = await createProject({ name, productionMode });
     let readModel;
     try {
       readModel = sourceText ? await replaceProjectSource(created.id, { sourceText }) : await getProject(created.id);
@@ -105,6 +115,12 @@ export function ShuihuoProductionPage() {
     } finally {
       await refreshProjects();
     }
+  }
+  async function handleCreateBatch(input) {
+    const created = await createManualIntake(input);
+    setActiveBatchProject(created.batch);
+    setView('batch-novels');
+    await refreshProjects();
   }
   async function handleImported(readModel, segmentationMode) {
     try {
@@ -129,11 +145,12 @@ export function ShuihuoProductionPage() {
     try { setActiveProject(await getProject(activeProject.project.id)); } catch (error) { message.error(error.message || '刷新项目失败'); }
   }
 
-  return <div className={`shuihuo-production ${view === 'studio' ? 'is-workbench' : ''}`}>
+  return <div className={`shuihuo-production ${view === 'studio' || view === 'batch-novels' ? 'is-workbench' : ''}`}>
     {view !== 'projects' && health ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><strong className="shuihuo-readiness-title">运行依赖</strong>{readinessItems(health).map(([name, dependency]) => <span className={dependency?.ready ? 'ready' : 'missing'} key={name} title={dependency?.reason || `${name}已配置`}>{name}：{dependency?.ready ? '已配置' : '未配置'}{dependency?.ready || !dependency?.reason ? '' : `（${dependency.reason}）`}</span>)}</div> : null}
     {view !== 'projects' && healthError ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><span className="missing">状态读取失败：{healthError}</span></div> : null}
     {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
-    {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onOpen={openProject} onDelete={handleDelete} onOpenBatchFactory={() => { window.history.pushState({}, '', '/batch-factory'); window.dispatchEvent(new PopStateEvent('popstate')); }} /> : null}
+    {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} /> : null}
+    {view === 'batch-novels' && activeBatchProject ? <BatchFactoryNovelList batch={activeBatchProject} onBack={() => { setActiveBatchProject(null); setView('projects'); refreshProjects(); }} /> : null}
     {view === 'studio' && activeProject ? <CommentaryWorkbench data={activeProject} readiness={health} importNotice={importNotice} onBackToProjects={() => { setImportNotice(null); setView('projects'); refreshProjects(); }} onOpenAssets={() => setAssetsOpen(true)} onDataChange={applyReadModel} /> : null}
     <Modal title="人物场景预设" open={assetsOpen} onCancel={() => setAssetsOpen(false)} footer={null} width="min(1360px, calc(100vw - 48px))" className="shuihuo-assets-modal" destroyOnClose={false}>
       {activeProject ? <AssetsView data={activeProject} onRefresh={refreshActive} embedded /> : null}

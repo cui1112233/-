@@ -2,6 +2,7 @@ import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, D
 import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
 import { useMemo, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
+import { BatchFactoryCreateModal } from './BatchFactoryCreateModal';
 
 function readAsDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -18,7 +19,7 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '已创建' : date.toLocaleDateString('zh-CN');
 }
 
-export function ProjectsView({ projects, health, onCreate, onImported, onOpen, onDelete, onOpenBatchFactory }) {
+export function ProjectsView({ projects, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [collection, setCollection] = useState('all');
@@ -29,6 +30,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onOpen, o
   const [file, setFile] = useState(null);
   const [segmentationMode, setSegmentationMode] = useState('paragraph');
   const [busy, setBusy] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const hasSource = Boolean(file || sourceText.trim());
   const smartReady = Boolean(health?.database?.ready && health?.enabledModelKinds?.includes('text'));
@@ -93,7 +95,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onOpen, o
   return <section className="shuihuo-project-library">
     <div className="shuihuo-project-library-heading">
       <div className="shuihuo-project-library-title"><h1>漫剧解说</h1><p>管理和创建您的漫剧解说作品</p></div>
-      <div className="shuihuo-create-actions"><Button className="shuihuo-create-project" type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>创作漫剧</Button><Button className="shuihuo-create-batch" icon={<ThunderboltOutlined />} onClick={onOpenBatchFactory}>批量工厂</Button></div>
+      <div className="shuihuo-create-actions"><Button className="shuihuo-create-project" type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>创作漫剧</Button><Button className="shuihuo-create-batch" icon={<ThunderboltOutlined />} onClick={() => setBatchOpen(true)}>批量工厂</Button></div>
     </div>
     <div className="shuihuo-project-library-section-title"><UserOutlined /> <strong>个人作品</strong></div>
     <div className="shuihuo-project-library-toolbar">
@@ -105,12 +107,12 @@ export function ProjectsView({ projects, health, onCreate, onImported, onOpen, o
     <div className="shuihuo-project-grid">
       {visibleProjects.map(project => <article className="shuihuo-project-card" key={project.id}>
         <button type="button" className="shuihuo-project-card-open" onClick={() => onOpen(project)} aria-label={`打开${project.name}`}>
-          <div className="shuihuo-project-card-cover"><span>{projectCount(project)}</span></div>
+          <div className="shuihuo-project-card-cover"><span className={`shuihuo-project-card-mode ${project.productionMode === 'batch_factory' ? 'is-batch-factory' : ''}`}>{project.productionMode === 'batch_factory' ? '批量工厂' : '水货生产'}</span><span>{project.productionMode === 'batch_factory' ? '小说列表' : projectCount(project)}</span></div>
           <div className="shuihuo-project-card-meta"><strong>{project.name}</strong><span>{formatTime(project.updatedAt || project.createdAt)}</span></div>
         </button>
-        <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} /><Popconfirm title="删除项目？此操作不会撤销。" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm></div>
+        <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} />{project.productionMode !== 'batch_factory' ? <Popconfirm title="删除项目？此操作不会撤销。" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm> : null}</div>
       </article>)}
-      {!visibleProjects.length ? <div className="shuihuo-empty"><FileTextOutlined /><p>{projects?.length ? '没有匹配的作品' : '还没有项目'}</p><Button onClick={() => setOpen(true)}>从原文或字幕开始</Button></div> : null}
+      {!visibleProjects.length ? <div className="shuihuo-empty"><FileTextOutlined /><p>{projects?.length ? '没有匹配的作品' : '还没有项目'}</p><Button onClick={() => setOpen(true)}>从原文或字幕开始</Button><Button className="shuihuo-create-batch" onClick={() => setBatchOpen(true)}>批量工厂</Button></div> : null}
     </div>
     <Modal className="shuihuo-create-project-modal" title="新建漫剧" open={open} onCancel={() => { setOpen(false); reset(); }} footer={<><Button onClick={() => { setOpen(false); reset(); }}>取消</Button><Button type="primary" loading={busy} onClick={submit}>确定创建</Button></>} width={500}>
       <div className="shuihuo-create-collection"><strong>创建合集</strong><Switch size="small" checked={createCollection} onChange={setCreateCollection} /><span>开启后可继承新作品的人物/场景设定</span></div>
@@ -125,5 +127,6 @@ export function ProjectsView({ projects, health, onCreate, onImported, onOpen, o
       <p className="shuihuo-modal-note">文件与文本二选一；支持 TXT、SRT、DOCX，文件会保留原始内容并解析正文。</p>
       {hasSource ? <><label className="shuihuo-form-label" htmlFor="shuihuo-segmentation-mode">分段方式</label><Select id="shuihuo-segmentation-mode" value={segmentationMode} onChange={setSegmentationMode} options={[{ value: 'paragraph', label: '自动识别' }, { value: 'smart', label: '智能识别', disabled: !smartReady }]} /></> : null}
     </Modal>
+    <BatchFactoryCreateModal open={batchOpen} onCancel={() => setBatchOpen(false)} onCreated={async payload => { await onCreateBatch(payload); setBatchOpen(false); await onRefresh?.(); }} />
   </section>;
 }
