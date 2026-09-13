@@ -1,0 +1,13 @@
+export function contentRangeLinesForBook(book) {
+  const value = Number(book?.sourceMetadata?.contentRangeLines);
+  return Number.isInteger(value) && value > 0 ? Math.min(value, 500) : 5;
+}
+
+export function batchFactoryWorkText(sourceText, book) {
+  return String(sourceText || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(0, contentRangeLinesForBook(book))
+    .join('\n');
+}
