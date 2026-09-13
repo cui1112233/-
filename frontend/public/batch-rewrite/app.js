@@ -2294,7 +2294,7 @@ function renderDetail(data) {
     <div class="actions">
       <button id="detailPrevBtn" ${adjacentTaskId(-1) ? "" : "disabled"}>上一条</button>
       <button id="detailNextBtn" ${adjacentTaskId(1) ? "" : "disabled"}>下一条</button>
-      <button id="detailCloseBtn">关闭</button>
+      <button id="detailCloseBtn" type="button">关闭</button>
       <button id="detailFetchBtn">重新抓原文</button>
       <button id="detailAiBtn">生成AI文案</button>
       <button id="detailTraceBtn">规则追踪</button>
@@ -2307,7 +2307,7 @@ function renderDetail(data) {
     </div>
     ${aiBlocks}
   `;
-  $("detailCloseBtn").onclick = closeTaskDetail;
+  $("detailCloseBtn").onclick = (event) => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); };
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
