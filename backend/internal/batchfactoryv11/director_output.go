@@ -50,11 +50,11 @@ type SourceCoverage struct {
 }
 
 type DirectorResult struct {
-	Characters     []NamedPrompt  `json:"characters"`
-	Scenes         []NamedPrompt  `json:"scenes"`
-	Props          []NamedPrompt  `json:"props"`
+	Characters     []NamedPrompt   `json:"characters"`
+	Scenes         []NamedPrompt   `json:"scenes"`
+	Props          []NamedPrompt   `json:"props"`
 	Storyboard     []DirectorVideo `json:"storyboard"`
-	SourceCoverage SourceCoverage `json:"source_coverage"`
+	SourceCoverage SourceCoverage  `json:"source_coverage"`
 }
 
 var fencedDirectorJSON = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
@@ -319,10 +319,6 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 	if len(sourceVideos) == 0 {
 		return DirectorResult{}, fmt.Errorf("storyboard 不能为空")
 	}
-	if settings.FixedSingleVideo && len(sourceVideos) != 1 {
-		return DirectorResult{}, fmt.Errorf("固定单镜头模式只能输出一个视频单元")
-	}
-
 	storyboard := make([]DirectorVideo, 0, len(sourceVideos))
 	for videoIndex, item := range sourceVideos {
 		video, ok := directorMap(item)
@@ -340,7 +336,10 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		if durationSec < 1 || durationSec > settings.MaxVideoDuration {
 			return DirectorResult{}, fmt.Errorf("storyboard[%d] 时长必须在 1-%d 秒之间", videoIndex, settings.MaxVideoDuration)
 		}
-		if settings.FixedSingleVideo && durationSec != settings.ExactDuration {
+		// Fixed-single still preserves every storyboard prompt. Only VIDEO01 is
+		// constrained to the requested target duration; the media executor later
+		// selects that first VIDEO and leaves the rest available for review.
+		if settings.FixedSingleVideo && videoIndex == 0 && durationSec != settings.ExactDuration {
 			return DirectorResult{}, fmt.Errorf("固定单镜头模式必须严格输出 %d 秒", settings.ExactDuration)
 		}
 
@@ -405,11 +404,7 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		})
 	}
 
-	coverage := SourceCoverage{
-		SourceComplete:     !settings.FixedSingleVideo,
-		SourceEndMarker:    "",
-		HasRemainingSource: settings.FixedSingleVideo,
-	}
+	coverage := SourceCoverage{SourceComplete: true, SourceEndMarker: "", HasRemainingSource: false}
 	if rawCoverage, ok := directorMap(root["source_coverage"]); ok {
 		coverage = SourceCoverage{
 			SourceComplete:     rawCoverage["source_complete"] == true,
@@ -426,4 +421,3 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		SourceCoverage: coverage,
 	}, nil
 }
-

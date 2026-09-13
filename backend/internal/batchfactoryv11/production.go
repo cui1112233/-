@@ -259,8 +259,16 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 			}
 		}
 	}
-	pendingVideos := make([]Video, 0, len(book.Videos))
-	for _, video := range book.Videos {
+	mediaVideos := book.Videos
+	// “单个视频” does not shrink the Director's storyboard. It only limits the
+	// media operation to VIDEO01, leaving later prompts intact for review.
+	if snapshot, snapshotErr := snapshotForBook(batch, book); snapshotErr != nil {
+		return ProductionJob{}, snapshotErr
+	} else if snapshot.FixedSingleVideo && len(mediaVideos) > 1 {
+		mediaVideos = mediaVideos[:1]
+	}
+	pendingVideos := make([]Video, 0, len(mediaVideos))
+	for _, video := range mediaVideos {
 		if !blockedVideos[video.ID] {
 			pendingVideos = append(pendingVideos, video)
 		}

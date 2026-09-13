@@ -39,43 +39,63 @@ func (r *countingPromptResolver) Compile(ctx context.Context, owner, batchID, bo
 
 func TestProductionGateBlocksBeforeCompilerAndAdapter(t *testing.T) {
 	store, batch, book, _ := seedCompiledVideo(t)
-	adapter := &recordingProductionAdapter{ref:ProviderTaskRef{State:"succeeded", MediaURL:"https://media.example/video.mp4"}}
-	service := &ProductionService{Store:store, Compiler:&PromptCompilerService{Store:store}, Adapter:adapter, Enabled:false, Model:FrozenVideoModel{ID:"video-model-a", MaxDuration:15}}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: "succeeded", MediaURL: "https://media.example/video.mp4"}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: false, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
 	if _, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-1"); err == nil {
 		t.Fatal("expected disabled production gate error")
 	}
-	if adapter.calls != 0 { t.Fatalf("disabled gate called adapter %d times", adapter.calls) }
+	if adapter.calls != 0 {
+		t.Fatalf("disabled gate called adapter %d times", adapter.calls)
+	}
 }
 
 func TestRepeatedProductionRequestReturnsSameDurableJob(t *testing.T) {
 	store, batch, book, _ := seedCompiledVideo(t)
-	adapter := &recordingProductionAdapter{ref:ProviderTaskRef{State:"succeeded", MediaURL:"https://media.example/video.mp4"}}
-	service := &ProductionService{Store:store, Compiler:&PromptCompilerService{Store:store}, Adapter:adapter, Enabled:true, Model:FrozenVideoModel{ID:"video-model-a", MaxDuration:15}}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: "succeeded", MediaURL: "https://media.example/video.mp4"}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
 	first, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-1")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	second, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-1")
-	if err != nil { t.Fatal(err) }
-	if first.ID == "" || first.ID != second.ID { t.Fatalf("jobs differ: first=%+v second=%+v", first, second) }
-	if adapter.calls != 1 { t.Fatalf("duplicate request submitted %d provider tasks", adapter.calls) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == "" || first.ID != second.ID {
+		t.Fatalf("jobs differ: first=%+v second=%+v", first, second)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("duplicate request submitted %d provider tasks", adapter.calls)
+	}
 }
 
 func TestProductionStatusPersistsCompilerHashAndMedia(t *testing.T) {
 	store, batch, book, _ := seedCompiledVideo(t)
-	adapter := &recordingProductionAdapter{ref:ProviderTaskRef{State:"succeeded", ProviderTaskID:"provider-1", MediaURL:"https://media.example/video.mp4"}}
-	service := &ProductionService{Store:store, Compiler:&PromptCompilerService{Store:store}, Adapter:adapter, Enabled:true, Model:FrozenVideoModel{ID:"video-model-a", MaxDuration:15}}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: "succeeded", ProviderTaskID: "provider-1", MediaURL: "https://media.example/video.mp4"}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
 	job, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-1")
-	if err != nil { t.Fatal(err) }
-	if job.Status != ProductionSucceeded || len(job.Tasks) != 1 { t.Fatalf("job=%+v", job) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != ProductionSucceeded || len(job.Tasks) != 1 {
+		t.Fatalf("job=%+v", job)
+	}
 	task := job.Tasks[0]
-	if task.FinalPromptHash == "" || task.MediaURL != "https://media.example/video.mp4" || task.ProviderTaskID != "provider-1" { t.Fatalf("task=%+v", task) }
+	if task.FinalPromptHash == "" || task.MediaURL != "https://media.example/video.mp4" || task.ProviderTaskID != "provider-1" {
+		t.Fatalf("task=%+v", task)
+	}
 	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
-	if err != nil { t.Fatal(err) }
-	if len(status.Jobs) != 1 || status.Jobs[0].ID != job.ID || status.Jobs[0].Status != ProductionSucceeded { t.Fatalf("status=%+v", status) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Jobs) != 1 || status.Jobs[0].ID != job.ID || status.Jobs[0].Status != ProductionSucceeded {
+		t.Fatalf("status=%+v", status)
+	}
 }
 
 func TestProductionSubmitsExactlyThePromptItPersisted(t *testing.T) {
 	store, batch, book, _ := seedCompiledVideo(t)
-	adapter := &recordingProductionAdapter{ref:ProviderTaskRef{State: ProductionSucceeded}}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: ProductionSucceeded}}
 	compiler := &countingPromptResolver{delegate: &PromptCompilerService{Store: store}}
 	service := &ProductionService{Store: store, Compiler: compiler, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
 	job, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-frozen-prompt")
@@ -90,14 +110,38 @@ func TestProductionSubmitsExactlyThePromptItPersisted(t *testing.T) {
 	}
 }
 
+func TestFixedSingleProductionOnlySubmitsVideoOne(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", true)
+	provider := &queuedDirectorProvider{values: []string{twoDirectorVideosJSON(t)}}
+	if _, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil || len(latest.Books[0].Videos) != 2 {
+		t.Fatalf("director videos=%+v err=%v", latest.Books, err)
+	}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: ProductionSucceeded}}
+	job, err := (&ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}).SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "fixed-single")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Tasks) != 1 || job.Tasks[0].VideoID != latest.Books[0].Videos[0].ID || adapter.calls != 1 {
+		t.Fatalf("fixed single submitted %#v adapter=%d", job.Tasks, adapter.calls)
+	}
+}
+
 func TestProductionStatusReconcilesRunningProviderTask(t *testing.T) {
 	store, batch, book, _ := seedCompiledVideo(t)
 	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-running", State: ProductionRunning}}
 	poller := &recordingProductionPoller{ref: ProviderTaskRef{ProviderTaskID: "provider-running", State: ProductionSucceeded, MediaURL: "https://media.example/video.mp4"}}
 	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Poller: poller, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
-	if _, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-running"); err != nil { t.Fatal(err) }
+	if _, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-running"); err != nil {
+		t.Fatal(err)
+	}
 	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if poller.calls != 1 || len(status.Jobs) != 1 || status.Jobs[0].Status != ProductionSucceeded || status.Jobs[0].Tasks[0].MediaURL == "" {
 		t.Fatalf("poller=%+v status=%+v", poller, status)
 	}

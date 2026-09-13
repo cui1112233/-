@@ -40,7 +40,16 @@ func twoDirectorVideosJSON(t *testing.T) string {
 	if !ok || len(storyboard) != 1 {
 		t.Fatalf("unexpected storyboard fixture: %#v", root["storyboard"])
 	}
-	root["storyboard"] = append(storyboard, map[string]any{})
+	first, ok := storyboard[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected first storyboard: %#v", storyboard[0])
+	}
+	second := map[string]any{}
+	for key, value := range first {
+		second[key] = value
+	}
+	second["id"] = 2
+	root["storyboard"] = append(storyboard, second)
 	encoded, err := json.Marshal(root)
 	if err != nil {
 		t.Fatalf("marshal two-video fixture: %v", err)
@@ -92,8 +101,19 @@ func TestDirectorFixedSingleVideoRules(t *testing.T) {
 		AspectRatio:       "9:16",
 		AllowedPrefixKeys: []string{"modern_conflict"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "只能输出一个视频单元") {
-		t.Fatalf("expected fixed-single count error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "严格输出 15 秒") {
+		t.Fatalf("expected fixed-single first-video duration error, got %v", err)
+	}
+
+	value, err := NormalizeDirectorOutput(json.RawMessage(twoDirectorVideosJSON(t)), DirectorSettings{
+		MaxVideoDuration:  15,
+		FixedSingleVideo:  true,
+		ExactDuration:     9,
+		AspectRatio:       "9:16",
+		AllowedPrefixKeys: []string{"modern_conflict"},
+	})
+	if err != nil || len(value.Storyboard) != 2 {
+		t.Fatalf("fixed single must preserve all storyboard prompts: value=%+v err=%v", value, err)
 	}
 
 	_, err = NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), DirectorSettings{
@@ -167,8 +187,7 @@ func TestDirectorFixedSingleDefaultSourceCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeDirectorOutput returned error: %v", err)
 	}
-	if result.SourceCoverage.SourceComplete || !result.SourceCoverage.HasRemainingSource {
-		t.Fatalf("unexpected fixed-single source coverage: %#v", result.SourceCoverage)
+	if !result.SourceCoverage.SourceComplete || result.SourceCoverage.HasRemainingSource {
+		t.Fatalf("fixed-single must still analyze the full current production text: %#v", result.SourceCoverage)
 	}
 }
-
