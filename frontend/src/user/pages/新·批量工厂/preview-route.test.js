@@ -6,17 +6,22 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-test('the live /batch-factory route uses the isolated Shuihuo-based V11 design preview', () => {
+test('the live /batch-factory route creates and opens V11-owned batch factory works', () => {
   const app = fs.readFileSync(path.resolve(here, '../../App.jsx'), 'utf8');
-  const preview = fs.readFileSync(path.join(here, 'Preview.jsx'), 'utf8');
+  const page = fs.readFileSync(path.join(here, 'ShuihuoProductionPage.jsx'), 'utf8');
+  const projects = fs.readFileSync(path.join(here, 'shuihuo/ProjectsView.jsx'), 'utf8');
+  const vite = fs.readFileSync(path.resolve(here, '../../../../vite.config.js'), 'utf8');
 
-  assert.match(app, /NewBatchFactoryPreviewPage = lazy\(\(\) => import\('\.\/pages\/新·批量工厂\/Preview'\)\)/);
-  assert.match(app, /'\/batch-factory': NewBatchFactoryPreviewPage/);
+  assert.match(app, /BatchFactoryFromShuihuoPage = lazy\(\(\) => import\('\.\/pages\/新·批量工厂\/ShuihuoProductionPage'\)\)/);
+  assert.match(app, /'\/batch-factory': BatchFactoryFromShuihuoPage/);
   assert.match(app, /'\/batch-factory-preview': BatchFactoryPage/);
-  assert.match(preview, /尚未连接真实数据、生成任务或上传服务/);
-  assert.match(preview, /小说列表/);
-  assert.match(preview, /批量操作/);
-  assert.match(preview, /上传网络/);
-  assert.match(preview, /role="row"/);
-  assert.doesNotMatch(preview, /shared\/api\/batchFactory|batchFactoryV11/);
+  assert.match(page, /createBatchFactoryLibrary\(batchFactoryV11\)/);
+  assert.match(page, /BatchFactoryV11UiPage key=\{activeBatchId\} initialBatchId=\{activeBatchId\}/);
+  assert.doesNotMatch(page, /shared\/api\/shuihuoProduction/);
+  assert.doesNotMatch(page, /createProject\(|listProjects\(|importProject\(/);
+  assert.match(projects, /await onCreate\(\{ name: normalizedName, sourceText: importedText, filename:/);
+  assert.match(vite, /'\/api': 'http:\/\/127\.0\.0\.1:13190'/);
+  assert.doesNotMatch(vite, /127\.0\.0\.1:18081/);
+  assert.match(page, /ProjectsView/);
+  assert.doesNotMatch(app, /'\/batch-factory': NewBatchFactoryPreviewPage/);
 });
