@@ -2,8 +2,9 @@ import { Button, Form, Input, InputNumber, Modal, Select, Skeleton, Space, Switc
 import { KeyRound, Plus, ShieldCheck, Trash2, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { canManageModelCatalog, getConfig } from '../../shared/api/config';
-import { createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, updateManagedModel } from '../../shared/api/modelCatalog';
+import { createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, testManagedTextModel, updateManagedModel } from '../../shared/api/modelCatalog';
 import { createCustomModelId } from '../../shared/modelCatalog/customModelId';
+import { isTextModelVerified, textModelVerificationKey } from '../../shared/modelCatalog/textModelVerification';
 import { getMemberCenter } from '../../shared/api/member';
 import { PageHeader, Panel, RoleBadge } from './accountCenterShared';
 
@@ -40,6 +41,8 @@ export default function ApiConfigPage() {
   const [customOpen, setCustomOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [testingTextModel, setTestingTextModel] = useState(false);
+  const [verifiedTextModelKey, setVerifiedTextModelKey] = useState('');
   const [customForm] = Form.useForm();
   const [presetKeys, setPresetKeys] = useState({});
   const [doubaoPaired, setDoubaoPaired] = useState(false);
@@ -83,6 +86,7 @@ export default function ApiConfigPage() {
 
   function openCreate() {
     setEditing(null);
+    setVerifiedTextModelKey('');
     customForm.setFieldsValue({
       kind: 'text',
       providerType: 'openai_compatible',
@@ -98,6 +102,7 @@ export default function ApiConfigPage() {
 
   function openEdit(model) {
     setEditing(model);
+    setVerifiedTextModelKey('');
     customForm.setFieldsValue({ ...model, credential: '' });
     setCustomOpen(true);
   }
@@ -105,6 +110,10 @@ export default function ApiConfigPage() {
   async function submitCustom() {
     try {
       const values = await customForm.validateFields();
+      if (!isTextModelVerified(values, verifiedTextModelKey, editing?.id, editing)) {
+        message.warning('请先测试文本模型连接成功，再保存或启用该模型');
+        return;
+      }
       const payload = {
         ...values,
         ...(editing ? {} : { id: createCustomModelId(values, models.map(model => model.id)) }),
@@ -128,6 +137,20 @@ export default function ApiConfigPage() {
     } catch (error) {
       if (!error?.errorFields) message.error(error.message || '模型保存失败');
     } finally { setSaving(false); }
+  }
+
+  async function testCustomTextModel() {
+    try {
+      const values = await customForm.validateFields(['kind', 'baseUrl', 'modelId']);
+      if (values.kind !== 'text') return message.warning('只有文本模型需要连接测试');
+      setTestingTextModel(true);
+      const candidate = customForm.getFieldsValue(true);
+      await testManagedTextModel(candidate, editing?.id);
+      setVerifiedTextModelKey(textModelVerificationKey(candidate, editing?.id));
+      message.success('文本模型连接成功，现在可以保存并启用。');
+    } catch (error) {
+      if (!error?.errorFields) message.error(error.message || '文本模型连接测试失败');
+    } finally { setTestingTextModel(false); }
   }
 
   async function deleteModel(model) {
@@ -201,6 +224,9 @@ export default function ApiConfigPage() {
           if (!getFieldValue('enabled') || String(value || '').trim() || editing?.hasCredential) return Promise.resolve();
           return Promise.reject(new Error('启用模型前必须填写 API Key'));
         } })]}><Input.Password prefix={<KeyRound size={15} />} placeholder={editing?.hasCredential ? '留空表示不修改已保存的 Key' : '请输入 API Key'} /></Form.Item>
+        <Form.Item noStyle shouldUpdate={(previous, current) => previous.kind !== current.kind || previous.baseUrl !== current.baseUrl || previous.modelId !== current.modelId || previous.credential !== current.credential || previous.enabled !== current.enabled}>
+          {() => customForm.getFieldValue('kind') === 'text' ? <div className="ac-api-actions"><Button onClick={testCustomTextModel} loading={testingTextModel}>测试文本连接</Button><span className="ac-muted-copy">启用保存前必须测试成功；修改地址、模型或密钥后需要重新测试。</span></div> : null}
+        </Form.Item>
         <Form.Item label="适用能力" extra="仅保存模型运行时可识别的能力；留空的时长不限制。">
           <Space direction="vertical">
             <Form.Item name={['capabilities', 'supportsReferenceImages']} valuePropName="checked" noStyle><Switch checkedChildren="支持参考图" unCheckedChildren="不支持参考图" /></Form.Item>

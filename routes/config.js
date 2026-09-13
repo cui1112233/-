@@ -1,6 +1,6 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, DEFAULT_CONFIG } = require('../lib/shared');
+const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, DEFAULT_CONFIG, requestUpstream, collectResponse } = require('../lib/shared');
 const { syncAccountAIConfig } = require('./shuihuo-production');
 const { normalizeStorageRoot } = require('../lib/storage-root');
 const { normalizePetConfig } = require('../lib/pet-catalog');
@@ -13,6 +13,8 @@ const {
 } = require('../lib/model-catalog-runtime');
 const { createModelReferenceResolver } = require('../lib/model-reference-resolver');
 const { createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
+const { normalizeModelCatalog } = require('../lib/model-catalog');
+const { createTextVerificationCache } = require('../lib/model-catalog-verification');
 
 const LOCAL_DOUBAO_MODEL_ID = 'local-doubao-executor-video';
 
@@ -106,7 +108,9 @@ function createConfigRouter({
   isModelReferenced,
   batchFactoryStoreFactory,
   accountReader,
-  getExecutorPairingStatus = defaultExecutorPairingStatus
+  getExecutorPairingStatus = defaultExecutorPairingStatus,
+  textVerification = createTextVerificationCache(),
+  upstreamRequest = requestUpstream
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
@@ -124,6 +128,47 @@ function createConfigRouter({
   function sendModelError(res, error) {
     return res.status(error?.status || 400).json({ error: error?.message || '模型配置处理失败' });
   }
+
+  function resolvedTextModelForSave(req, input, existingModelId = '') {
+    const config = configReader(req.username) || {};
+    const catalog = normalizeModelCatalog(config.modelCatalog, config);
+    const existing = existingModelId ? catalog.find(model => model.id === existingModelId) : null;
+    const patch = { ...(input || {}) };
+    if (!String(patch.credential || '').trim()) delete patch.credential;
+    return { ...(existing || {}), ...patch };
+  }
+
+  function requireTextVerification(req, input, existingModelId = '') {
+    const model = resolvedTextModelForSave(req, input, existingModelId);
+    const changesRuntimeConfig = ['baseUrl', 'modelId', 'credential'].some(key => Object.hasOwn(input || {}, key) && String(input[key] || '').trim());
+    const enablesModel = Object.hasOwn(input || {}, 'enabled') && input.enabled === true;
+    if (model.kind === 'text' && model.enabled === true && (!existingModelId || changesRuntimeConfig || enablesModel)) {
+      textVerification.assertApproved(req.username, model);
+    }
+  }
+
+  router.post('/models/test', requireApiManager, async (req, res) => {
+    try {
+      const model = resolvedTextModelForSave(req, req.body, req.body?.existingModelId);
+      if (model.kind !== 'text' || !model.baseUrl || !model.modelId || !model.credential) {
+        throw Object.assign(new Error('测试文本模型前请填写 Base URL、模型 ID 和 API Key'), { status: 422 });
+      }
+      const upstream = await upstreamRequest({ baseUrl: model.baseUrl, model: model.modelId, apiKey: model.credential }, {
+        model: model.modelId,
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 5
+      }, collectResponse);
+      if (upstream.statusCode < 200 || upstream.statusCode >= 300) {
+        throw Object.assign(new Error(`文本模型连接失败（状态 ${upstream.statusCode}），请检查接口、模型名或密钥`), { status: 502 });
+      }
+      const response = JSON.parse(upstream.text);
+      if (!response?.choices?.[0]?.message) throw Object.assign(new Error('文本模型未返回有效答复，请检查模型兼容性'), { status: 502 });
+      textVerification.approve(req.username, model);
+      return res.json({ ok: true, message: '文本模型连接成功，现在可以保存并启用。' });
+    } catch (error) {
+      return sendModelError(res, error);
+    }
+  });
 
   async function readAndPersistExecutorPairing(req) {
     const paired = await getExecutorPairingStatus({
@@ -169,6 +214,7 @@ function createConfigRouter({
         body.executorPaired = await readAndPersistExecutorPairing(req);
         if (body.enabled && !body.executorPaired) throw Object.assign(new Error('请先完成本地豆包执行器配对'), { status: 422 });
       }
+      requireTextVerification(req, body);
       const model = saveManagerModel(req.username, body, { configReader, configWriter });
       return res.status(201).json({ model });
     } catch (error) {
@@ -183,6 +229,7 @@ function createConfigRouter({
         body.executorPaired = await readAndPersistExecutorPairing(req);
         if (body.enabled && !body.executorPaired) throw Object.assign(new Error('请先完成本地豆包执行器配对'), { status: 422 });
       }
+      requireTextVerification(req, body, req.params.modelId);
       const model = updateManagerModel(req.username, req.params.modelId, body, { configReader, configWriter });
       return res.json({ model });
     } catch (error) {
