@@ -71,6 +71,7 @@ export function UserLayout({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
+  const [globalStatus, setGlobalStatus] = useState({ text: '', tone: 'idle' });
   const [avatar, setAvatar] = useState(null);
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
@@ -123,6 +124,7 @@ export function UserLayout({ children }) {
     if (!isLoggedIn) return undefined;
     const appendTaskNotification = event => {
       const notification = normalizeGlobalTaskNotification(event.detail || {});
+      setGlobalStatus({ text: `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`, tone: notification.status === 'error' ? 'error' : notification.status === 'working' ? 'working' : 'success' });
       if (notification.status === 'working') return;
       const kind = notification.status === 'error' ? 'error' : 'success';
       const targetPath = notification.pagePath && notification.pagePath !== window.location.pathname ? notification.pagePath : '';
@@ -483,6 +485,7 @@ export function UserLayout({ children }) {
         <main className="legacy-main">
           <header className="legacy-topbar">
             <span className="legacy-page-title">{pageTitle(pathname)}</span>
+            <div className={`legacy-global-status legacy-global-status--${globalStatus.tone}`} role="status" aria-live="polite">{globalStatus.text}</div>
             <div className="legacy-userbar" aria-hidden="true" />
           </header>
           <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{pageContent}</section>

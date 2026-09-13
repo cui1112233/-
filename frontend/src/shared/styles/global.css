@@ -3574,6 +3574,12 @@ select {
   border: 1px solid #ff7875;
 }
 
+.legacy-global-status { position: absolute; left: 25%; right: 25%; top: 50%; transform: translateY(-50%); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; pointer-events: none; }
+.legacy-global-status--working { color: #4da3ff; }
+.legacy-global-status--success { color: #48c774; }
+.legacy-global-status--error { color: #ef6a6a; }
+.legacy-global-status--idle { color: transparent; }
+
 [data-theme='dark'] .ant-modal-confirm-error .ant-modal-confirm-title,
 [data-theme='dark'] .ant-modal-confirm-error .ant-modal-confirm-content,
 [data-theme='dark'] .ant-message-error .ant-message-notice-content {
