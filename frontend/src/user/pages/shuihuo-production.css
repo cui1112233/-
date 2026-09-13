@@ -447,7 +447,7 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-book-row .shuihuo-workbench-cell { min-height: 206px; }
 .batch-factory-book-content strong { color: #edf3fc; font-size: 14px; }
 .batch-factory-book-content > span, .batch-factory-placeholder > span, .batch-factory-actions > span { color: #91a2b8; line-height: 1.55; font-size: 12px; }
-.batch-factory-book-content p { display: -webkit-box; overflow: hidden; color: #c6d2e3; font-size: 12px; font-weight: 400; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.batch-factory-book-content p { margin-bottom: 0; color: #c6d2e3; font-size: 12px; font-weight: 400; line-height: 1.65; white-space: pre-wrap; }
 .batch-factory-placeholder { align-content: center; }
 .batch-factory-placeholder strong { color: #dce6f4; font-size: 12px; }
 .batch-factory-actions { align-content: center; }
