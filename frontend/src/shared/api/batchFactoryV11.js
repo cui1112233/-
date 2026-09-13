@@ -130,8 +130,12 @@ export function createPrompt(payload) {
 
 // System preset metadata is safe for the browser. The protected body is
 // resolved only in the Node-to-Go bridge when a Batch Factory setting is saved.
+export function listSystemPresetCatalog(module) {
+  return apiRequest(`/api/presets?module=${encodeURIComponent(String(module || ''))}`);
+}
+
 export function listBatchFactorySystemPresets() {
-  return apiRequest('/api/presets?module=batch-factory');
+  return listSystemPresetCatalog('batch-factory');
 }
 
 // Legacy V11 workbench compatibility. The Shuihuo-integrated Batch Factory

@@ -198,3 +198,41 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 		t.Fatalf("capture metadata=%#v", got.Books[0].SourceMetadata)
 	}
 }
+
+func TestBookOverrideDoesNotChangeBatchSettings(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "book"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", batchfactoryv11.ScopeRef{Kind: batchfactoryv11.ScopeBatch, BatchID: batch.ID}, batchfactoryv11.SettingsUpdate{
+		Patch: batchfactoryv11.SettingsPatch{"textModelId": json.RawMessage(`"text-a"`), "aspectRatio": json.RawMessage(`"9:16"`)}, ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := loaded.Books[0]
+	if _, err := store.SaveSettings(context.Background(), "alice", batchfactoryv11.ScopeRef{Kind: batchfactoryv11.ScopeBook, BatchID: loaded.ID, BookID: book.ID}, batchfactoryv11.SettingsUpdate{
+		Patch: batchfactoryv11.SettingsPatch{"aspectRatio": json.RawMessage(`"16:9"`)}, ExpectedRevision: book.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(loaded.SettingsState.Patch["textModelId"]); got != `"text-a"` {
+		t.Fatalf("batch text model changed: %s", got)
+	}
+	if got := string(loaded.SettingsState.Patch["aspectRatio"]); got != `"9:16"` {
+		t.Fatalf("batch aspect changed: %s", got)
+	}
+	if got := string(loaded.Books[0].SettingsState.Patch["aspectRatio"]); got != `"16:9"` {
+		t.Fatalf("book aspect not saved: %s", got)
+	}
+	_ = now
+}
