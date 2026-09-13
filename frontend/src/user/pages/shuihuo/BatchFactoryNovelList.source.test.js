@@ -87,3 +87,10 @@ test('keeps AI reasoning open for configuration even when the runtime is unavail
   assert.match(toolbar, /setAiOpen\(true\)/);
   assert.doesNotMatch(toolbar, /disabled=\{!runCapability\.available\}/);
 });
+
+test('selects AI rules from authenticated personal-center prompt presets instead of editing text in the batch modal', () => {
+  assert.match(reasoningSource, /listPersonalConstraintPrompts/);
+  assert.match(reasoningSource, /个人中心预设提示词/);
+  assert.match(reasoningSource, /presetId/);
+  assert.doesNotMatch(reasoningSource, /Input\.TextArea/);
+});

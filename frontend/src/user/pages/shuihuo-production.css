@@ -521,3 +521,6 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-ai-module-body { display:grid; gap:14px; }
 .batch-factory-ai-field { display:grid; gap:7px; color:var(--sh-text); font-size:12px; }
 .batch-factory-ai-field > span { font-weight:600; }
+.batch-factory-ai-selected-preset { display:grid; gap:6px; padding:10px 12px; border:1px solid var(--sh-line); border-radius:6px; background:var(--sh-panel-strong); }
+.batch-factory-ai-selected-preset b { color:var(--sh-text); }
+.batch-factory-ai-selected-preset span { color:var(--sh-muted); font-size:12px; line-height:1.6; white-space:pre-wrap; }
