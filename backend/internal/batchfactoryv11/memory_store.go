@@ -61,6 +61,10 @@ func productionRequestKey(owner, batchID, bookID, requestID string) string {
 
 func cloneProductionJob(value ProductionJob) ProductionJob {
 	value.Tasks = append([]ProductionTask(nil), value.Tasks...)
+	for index := range value.Tasks {
+		value.Tasks[index].ReferenceImageURLs = append([]string(nil), value.Tasks[index].ReferenceImageURLs...)
+		value.Tasks[index].DowngradedAssetIDs = append([]string(nil), value.Tasks[index].DowngradedAssetIDs...)
+	}
 	return value
 }
 

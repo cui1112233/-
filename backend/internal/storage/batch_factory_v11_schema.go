@@ -430,6 +430,13 @@ func V11BookAssetImagesStatements() []string {
 	}
 }
 
+func V11ProductionAssetInputStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN reference_image_urls MEDIUMTEXT NULL AFTER compiled_prompt`,
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN downgraded_asset_ids MEDIUMTEXT NULL AFTER reference_image_urls`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -445,6 +452,7 @@ func V11Migrations() []Migration {
 		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1"},
 		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1"},
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
+		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
 	}
 }
 

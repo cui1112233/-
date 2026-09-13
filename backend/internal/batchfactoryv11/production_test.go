@@ -184,3 +184,32 @@ func TestCancelBatchCancelsOnlyOwnedLocalExecutorTasks(t *testing.T) {
 		t.Fatalf("status=%+v", status)
 	}
 }
+
+func TestProductionPersistsAndSubmitsFrozenAssetReferenceImages(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	var character BookAsset
+	for _, asset := range book.AssetRecords {
+		if asset.Kind == "character" && asset.Name == "林晚" {
+			character = asset
+			break
+		}
+	}
+	if character.ID == "" {
+		t.Fatalf("assets=%+v", book.AssetRecords)
+	}
+	if _, err := store.CreateBookAssetImage(context.Background(), "alice", batch.ID, book.ID, character.ID, CreateBookAssetImageInput{URL: "https://images.example/lin.png", MediaType: "image/png", Source: "provider"}); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: ProductionSucceeded}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15, MaxReferenceImages: 1}}
+	job, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "references")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Tasks) != 1 || len(job.Tasks[0].ReferenceImageURLs) != 1 || job.Tasks[0].ReferenceImageURLs[0] != "https://images.example/lin.png" {
+		t.Fatalf("task=%+v", job.Tasks)
+	}
+	if len(adapter.prompts) != 1 || len(adapter.prompts[0].ReferenceImageURLs) != 1 || adapter.prompts[0].ReferenceImageURLs[0] != job.Tasks[0].ReferenceImageURLs[0] {
+		t.Fatalf("adapter=%+v task=%+v", adapter.prompts, job.Tasks[0])
+	}
+}

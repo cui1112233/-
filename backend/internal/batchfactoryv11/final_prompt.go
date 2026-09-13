@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -45,6 +46,8 @@ type FinalPrompt struct {
 	Components         []PromptComponent `json:"components"`
 	EffectiveSettings  EffectiveSettings `json:"effectiveSettings"`
 	DurationSeconds    int               `json:"durationSeconds"`
+	ReferenceImageURLs []string          `json:"referenceImageUrls,omitempty"`
+	DowngradedAssetIDs []string          `json:"downgradedAssetIds,omitempty"`
 }
 
 type PromptCompilerService struct{ Store Store }
@@ -214,6 +217,102 @@ func selectPrompts(names []string, library map[string]string) string {
 	return strings.Join(parts, "；")
 }
 
+type compiledAsset struct {
+	ID       string
+	Kind     string
+	Name     string
+	Prompt   string
+	ImageURL string
+}
+
+func assetKey(kind, name string) string { return kind + "\x00" + name }
+
+func recordsByKindAndName(book Book, fallback map[string][]NamedPrompt) map[string]compiledAsset {
+	records := map[string]compiledAsset{}
+	for _, asset := range book.AssetRecords {
+		if strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.Kind) == "" {
+			continue
+		}
+		records[assetKey(asset.Kind, asset.Name)] = compiledAsset{ID: asset.ID, Kind: asset.Kind, Name: asset.Name, Prompt: strings.TrimSpace(asset.Prompt)}
+	}
+	for kind, values := range fallback {
+		for _, value := range values {
+			key := assetKey(kind, value.Name)
+			if _, exists := records[key]; !exists {
+				records[key] = compiledAsset{Kind: kind, Name: value.Name, Prompt: strings.TrimSpace(value.Prompt)}
+			}
+		}
+	}
+	return records
+}
+
+func providerAccessibleImageURL(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		return ""
+	}
+	return parsed.String()
+}
+
+func (s *PromptCompilerService) primaryAssetImages(ctx context.Context, owner, batchID, bookID string, records map[string]compiledAsset) (map[string]string, error) {
+	images := map[string]string{}
+	for _, asset := range records {
+		if asset.ID == "" {
+			continue
+		}
+		versions, err := s.Store.ListBookAssetImages(ctx, owner, batchID, bookID, asset.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, version := range versions {
+			if version.IsPrimary {
+				if imageURL := providerAccessibleImageURL(version.URL); imageURL != "" {
+					images[asset.ID] = imageURL
+				}
+				break
+			}
+		}
+	}
+	return images, nil
+}
+
+func selectedAssets(kind string, names []string, records map[string]compiledAsset, images map[string]string) []compiledAsset {
+	selected := make([]compiledAsset, 0, len(names))
+	for _, name := range names {
+		asset, ok := records[assetKey(kind, name)]
+		if !ok || strings.TrimSpace(asset.Prompt) == "" {
+			continue
+		}
+		asset.ImageURL = images[asset.ID]
+		selected = append(selected, asset)
+	}
+	return selected
+}
+
+func selectResolvedPrompts(assets []compiledAsset, included map[string]bool) string {
+	parts := []string{}
+	for _, asset := range assets {
+		if asset.ID != "" && included[asset.ID] {
+			continue
+		}
+		if prompt := strings.TrimSpace(asset.Prompt); prompt != "" {
+			parts = append(parts, asset.Name+"："+prompt)
+		}
+	}
+	return strings.Join(parts, "；")
+}
+
+func referenceImageLimit(values SettingsPatch) int {
+	limit := rawInt(values, "referenceImageLimit", 3)
+	if limit < 0 {
+		return 0
+	}
+	if limit > 16 {
+		return 16
+	}
+	return limit
+}
+
 func addComponent(out *[]PromptComponent, key, label, content string) {
 	content = strings.TrimSpace(content)
 	if content != "" {
@@ -222,6 +321,16 @@ func addComponent(out *[]PromptComponent, key, label, content string) {
 }
 
 func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, bookID, videoID string) (FinalPrompt, error) {
+	return s.compile(ctx, owner, batchID, bookID, videoID, -1)
+}
+
+// CompileWithReferenceImageLimit is used by production after the concrete
+// video model is frozen. Preview compilation keeps the saved per-book limit.
+func (s *PromptCompilerService) CompileWithReferenceImageLimit(ctx context.Context, owner, batchID, bookID, videoID string, limit int) (FinalPrompt, error) {
+	return s.compile(ctx, owner, batchID, bookID, videoID, limit)
+}
+
+func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, bookID, videoID string, frozenReferenceLimit int) (FinalPrompt, error) {
 	effective, book, video, ordinal, err := s.ResolveEffective(ctx, owner, batchID, bookID, videoID)
 	if err != nil {
 		return FinalPrompt{}, err
@@ -249,17 +358,40 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 		propRefs = draft.Props
 	}
 
-	characterPrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "character", book.Assets.Characters)
+	records := recordsByKindAndName(book, map[string][]NamedPrompt{
+		"character": book.Assets.Characters,
+		"scene":     book.Assets.Scenes,
+		"prop":      book.Assets.Props,
+	})
+	primaryImages, err := s.primaryAssetImages(ctx, owner, batchID, bookID, records)
 	if err != nil {
 		return FinalPrompt{}, err
 	}
-	scenePrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "scene", book.Assets.Scenes)
-	if err != nil {
-		return FinalPrompt{}, err
+	characters := selectedAssets("character", characterRefs, records, primaryImages)
+	scenes := selectedAssets("scene", sceneRefs, records, primaryImages)
+	props := selectedAssets("prop", propRefs, records, primaryImages)
+	limit := referenceImageLimit(values)
+	if frozenReferenceLimit >= 0 {
+		limit = frozenReferenceLimit
 	}
-	propPrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "prop", book.Assets.Props)
-	if err != nil {
-		return FinalPrompt{}, err
+	referenceImages := []string{}
+	for _, visualImage := range append(rawStrings(values, "imageUrls"), rawStrings(values, "referenceImages")...) {
+		if url := providerAccessibleImageURL(visualImage); url != "" && len(referenceImages) < limit {
+			referenceImages = append(referenceImages, url)
+		}
+	}
+	included := map[string]bool{}
+	downgraded := []string{}
+	for _, asset := range append(append(characters, scenes...), props...) {
+		if asset.ImageURL == "" {
+			continue
+		}
+		if len(referenceImages) < limit {
+			referenceImages = append(referenceImages, asset.ImageURL)
+			included[asset.ID] = true
+		} else if asset.ID != "" {
+			downgraded = append(downgraded, asset.ID)
+		}
 	}
 	components := []PromptComponent{}
 	addComponent(&components, "video", "视频提示词", rawString(values, "videoPrompt", video.VideoPrompt))
@@ -268,17 +400,17 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 	// separate controls, and mixing them makes a regenerated still silently
 	// change the video request.
 	if rawBool(values, "injectBaseSettings", true) {
-		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, characterPrompts))
-		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, scenePrompts))
+		addComponent(&components, "characters", "人物设定", selectResolvedPrompts(characters, included))
+		addComponent(&components, "scene", "场景设定", selectResolvedPrompts(scenes, included))
 	}
 	if rawBool(values, "injectCharacterPrompt", true) {
-		addComponent(&components, "characterPrompt", "人物 Prompt", selectPrompts(characterRefs, characterPrompts))
+		addComponent(&components, "characterPrompt", "人物 Prompt", selectResolvedPrompts(characters, included))
 	}
 	if rawBool(values, "injectScenePrompt", true) {
-		addComponent(&components, "scenePrompt", "场景 Prompt", selectPrompts(sceneRefs, scenePrompts))
+		addComponent(&components, "scenePrompt", "场景 Prompt", selectResolvedPrompts(scenes, included))
 	}
 	if rawBool(values, "injectPropPrompt", true) {
-		addComponent(&components, "propPrompt", "道具 Prompt", selectPrompts(propRefs, propPrompts))
+		addComponent(&components, "propPrompt", "道具 Prompt", selectResolvedPrompts(props, included))
 	}
 	prefix := draft.PrefixKey
 	if rawBool(values, "prefixEnabled", false) {
@@ -302,5 +434,6 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 	for _, component := range components {
 		lines = append(lines, component.Label+"："+component.Content)
 	}
-	return FinalPrompt{BatchID: batchID, BookID: bookID, VideoID: videoID, DirectorRevisionID: effective.DirectorRevisionID, SnapshotHash: effective.SnapshotHash, CompiledPrompt: strings.Join(lines, "\n"), Components: components, EffectiveSettings: effective, DurationSeconds: duration}, nil
+	compiled := strings.Join(lines, "\n")
+	return FinalPrompt{BatchID: batchID, BookID: bookID, VideoID: videoID, DirectorRevisionID: effective.DirectorRevisionID, SnapshotHash: effective.SnapshotHash, CompiledPrompt: compiled, Components: components, EffectiveSettings: effective, DurationSeconds: duration, ReferenceImageURLs: referenceImages, DowngradedAssetIDs: downgraded}, nil
 }

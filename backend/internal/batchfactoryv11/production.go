@@ -19,8 +19,9 @@ const (
 )
 
 type FrozenVideoModel struct {
-	ID          string `json:"id"`
-	MaxDuration int    `json:"maxDuration"`
+	ID                 string `json:"id"`
+	MaxDuration        int    `json:"maxDuration"`
+	MaxReferenceImages int    `json:"maxReferenceImages"`
 }
 
 type ProviderTaskRef struct {
@@ -30,18 +31,20 @@ type ProviderTaskRef struct {
 }
 
 type ProductionTask struct {
-	ID              string          `json:"id"`
-	VideoID         string          `json:"videoId"`
-	Provider        string          `json:"provider,omitempty"`
-	Status          ProductionState `json:"status"`
-	Attempt         int             `json:"attempt"`
-	FinalPromptHash string          `json:"finalPromptHash"`
-	CompiledPrompt  string          `json:"-"`
-	ProviderTaskID  string          `json:"providerTaskId,omitempty"`
-	MediaURL        string          `json:"mediaUrl,omitempty"`
-	ErrorMessage    string          `json:"errorMessage,omitempty"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
+	ID                 string          `json:"id"`
+	VideoID            string          `json:"videoId"`
+	Provider           string          `json:"provider,omitempty"`
+	Status             ProductionState `json:"status"`
+	Attempt            int             `json:"attempt"`
+	FinalPromptHash    string          `json:"finalPromptHash"`
+	CompiledPrompt     string          `json:"-"`
+	ReferenceImageURLs []string        `json:"referenceImageUrls,omitempty"`
+	DowngradedAssetIDs []string        `json:"downgradedAssetIds,omitempty"`
+	ProviderTaskID     string          `json:"providerTaskId,omitempty"`
+	MediaURL           string          `json:"mediaUrl,omitempty"`
+	ErrorMessage       string          `json:"errorMessage,omitempty"`
+	CreatedAt          time.Time       `json:"createdAt"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
 }
 
 type ProductionJob struct {
@@ -79,6 +82,10 @@ type BatchCancellation struct {
 
 type PromptResolver interface {
 	Compile(context.Context, string, string, string, string) (FinalPrompt, error)
+}
+
+type referenceImageLimitPromptResolver interface {
+	CompileWithReferenceImageLimit(context.Context, string, string, string, string, int) (FinalPrompt, error)
 }
 
 type ProductionAdapter interface {
@@ -297,7 +304,17 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 	job := ProductionJob{ID: "", Owner: owner, BatchID: batchID, BookID: bookID, RequestID: requestID, DirectorRevisionID: book.DirectorRevision.ID, Status: ProductionQueued, Tasks: []ProductionTask{}, CreatedAt: now, UpdatedAt: now}
 	prompts := make(map[string]FinalPrompt, len(pendingVideos))
 	for _, video := range pendingVideos {
-		prompt, compileErr := s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
+		limit := model.MaxReferenceImages
+		if limit <= 0 {
+			limit = 3
+		}
+		var prompt FinalPrompt
+		var compileErr error
+		if compiler, ok := s.Compiler.(referenceImageLimitPromptResolver); ok {
+			prompt, compileErr = compiler.CompileWithReferenceImageLimit(ctx, owner, batchID, bookID, video.ID, limit)
+		} else {
+			prompt, compileErr = s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
+		}
 		if compileErr != nil {
 			return ProductionJob{}, compileErr
 		}
@@ -306,7 +323,7 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
 		}
 		prompts[video.ID] = prompt
-		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, CreatedAt: now, UpdatedAt: now})
+		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...), DowngradedAssetIDs: append([]string(nil), prompt.DowngradedAssetIDs...), CreatedAt: now, UpdatedAt: now})
 	}
 	job, err = repository.CreateProductionJob(ctx, job)
 	if err != nil {
@@ -325,9 +342,10 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 				SourceTaskID: "bf11:" + batchID + ":" + bookID + ":" + task.VideoID,
 				BatchID:      batchID, BookID: bookID, VideoID: task.VideoID,
 				Model: model.ID, Prompt: prompt.CompiledPrompt,
-				Duration:    prompt.DurationSeconds,
-				AspectRatio: rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
-				Resolution:  rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
+				Duration:           prompt.DurationSeconds,
+				AspectRatio:        rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
+				Resolution:         rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
+				ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...),
 			})
 		} else {
 			ref, submitErr = adapter.Submit(ctx, model, prompt)

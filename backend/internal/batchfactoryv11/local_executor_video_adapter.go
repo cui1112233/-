@@ -11,15 +11,16 @@ import (
 )
 
 type LocalVideoJobInput struct {
-	SourceTaskID string
-	BatchID      string
-	BookID       string
-	VideoID      string
-	Model        string
-	Prompt       string
-	Duration     int
-	AspectRatio  string
-	Resolution   string
+	SourceTaskID       string
+	BatchID            string
+	BookID             string
+	VideoID            string
+	Model              string
+	Prompt             string
+	Duration           int
+	AspectRatio        string
+	Resolution         string
+	ReferenceImageURLs []string
 }
 
 type LocalVideoJob struct {

@@ -89,6 +89,9 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 		"duration":    duration,
 		"aspectRatio": rawString(values, "aspectRatio", "9:16"),
 	}
+	if len(prompt.ReferenceImageURLs) > 0 {
+		payload["referenceImageUrls"] = prompt.ReferenceImageURLs
+	}
 	if resolution := rawString(values, "resolution", ""); resolution != "" {
 		payload["resolution"] = resolution
 	}
@@ -195,7 +198,9 @@ func firstVideoValue(raw []byte, keys ...string) string {
 			if value, ok := object[key]; ok {
 				switch typed := value.(type) {
 				case string:
-					if strings.TrimSpace(typed) != "" { return strings.TrimSpace(typed) }
+					if strings.TrimSpace(typed) != "" {
+						return strings.TrimSpace(typed)
+					}
 				case float64:
 					return fmt.Sprintf("%.0f", typed)
 				}
