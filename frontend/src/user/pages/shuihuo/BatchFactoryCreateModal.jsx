@@ -118,7 +118,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <Input id="batch-column-order" value={columnOrder} onChange={event => { setColumnOrder(event.target.value); clearFetchedSources(); }} placeholder="书籍ID,书名,标签,推荐理由" />
     <label className="shuihuo-form-label" htmlFor="batch-input-text">小说列表 <em>*</em></label>
     <Input.TextArea id="batch-input-text" value={inputText} onChange={event => { setInputText(event.target.value); clearFetchedSources(); }} rows={9} placeholder={'每行一本小说，可粘贴 ID、书名、男女频、标签、理由、评级。\n示例：2080989285751305136\t重生书\t推荐理由\t女频\t重生,爽文\tS'} />
-    <div className="shuihuo-create-collection"><span className="shuihuo-modal-note">按所选书城抓取每个 Book ID 的完整原文；全部成功后才可创建。</span><Button type="primary" loading={fetching} disabled={platformState !== 'ready' || !hasSelectedPlatform || !bookIds.length} onClick={fetchOriginals}>获取内容</Button></div>
+    <div className="batch-factory-fetch-originals"><span className="shuihuo-modal-note">按所选书城抓取每个 Book ID 的完整原文；全部成功后才可创建。</span><Button type="primary" loading={fetching} disabled={platformState !== 'ready' || !hasSelectedPlatform || !bookIds.length} onClick={fetchOriginals}>获取内容</Button></div>
     {bookIds.length ? <p className="shuihuo-modal-note">待抓取 {bookIds.length} 本；已获取 {Object.keys(sourceTextByBookId).length} 本。</p> : null}
     <div className="shuihuo-create-collection"><strong>自动</strong><Switch size="small" checked={automatic} onChange={setAutomatic} /><span>在设定时间把本批小说标为待执行；新建时不会启动生成。</span></div>
     {automatic ? <><label className="shuihuo-form-label" htmlFor="batch-scheduled-at">定时执行时间 <em>*</em></label><Input id="batch-scheduled-at" type="datetime-local" value={scheduledAt} onChange={event => setScheduledAt(event.target.value)} /></> : null}
