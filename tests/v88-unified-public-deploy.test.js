@@ -6,6 +6,7 @@ const workflow = fs.readFileSync('.github/workflows/v88-unified-public-image-rel
 
 test('unified V88 release can be explicitly requested from v88 without using retired host-stage paths', () => {
   assert.match(workflow, /push:\s*[\s\S]*branches:\s*\[?v88\]?/);
+  assert.match(workflow, /if: github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /deploy\/v88-public\/UNIFIED-DEPLOY-REQUEST/);
   assert.doesNotMatch(workflow, /stage-node-host\.sh|cutover-node-host\.sh/);
   assert.doesNotMatch(workflow, /(?:curl|proxy_pass)[^\n]*18081/);
@@ -38,8 +39,24 @@ test('unified V88 deploy installs the Git-managed Nginx route and restores it on
   assert.doesNotMatch(workflow, /trap rollback ERR/);
   assert.match(workflow, /docker compose[^\n]*up -d[^\n]*--force-recreate[^\n]*nginx/);
   assert.match(workflow, /ECS_PUBLIC_HOST/);
-  assert.match(workflow, /docker compose[^\n]*exec -T nginx nginx -t/);
+  assert.doesNotMatch(workflow, /docker compose[^\n]*exec/);
+  assert.match(workflow, /docker exec "\$nginx_id_after" nginx -t/);
   assert.match(workflow, /nginx\.conf\.pre-unified-20260912T103106Z/);
+});
+
+test('unified V88 deploy verifies the recreated Nginx container is serving the Git-managed Node route', () => {
+  assert.match(workflow, /nginx_id_before=.*docker compose[^\n]*ps -q nginx/);
+  assert.match(workflow, /nginx_id_after=.*docker compose[^\n]*ps -q nginx/);
+  assert.match(workflow, /if \[ "\$nginx_id_before" = "\$nginx_id_after" \]/);
+  assert.match(workflow, /nginx -T[^\n]*proxy_pass http:\/\/v88-node:3000/);
+  assert.match(workflow, /STATUS=FAILED running Nginx route did not converge/);
+});
+
+test('SSH heredoc deploy scripts do not attach their remaining stdin to Nginx exec checks', () => {
+  assert.doesNotMatch(workflow, /docker compose[^\n]*exec/);
+  assert.match(workflow, /docker exec "\$nginx_id_before" nginx -t/);
+  assert.match(workflow, /docker exec "\$nginx_id_after" nginx -t/);
+  assert.match(workflow, /docker exec "\$rollback_nginx_id" nginx -t/);
 });
 
 test('unified V88 deploy rolls back if the runner external verification rejects a release', () => {
