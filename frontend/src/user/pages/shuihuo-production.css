@@ -493,6 +493,13 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 @media (max-width: 900px) { .batch-factory-asset-editor { grid-template-columns:1fr; } }
 
 .batch-factory-engine-drawer { display:grid; gap:16px; }
+.batch-factory-engine-modal .ant-modal-body { max-height:calc(100vh - 250px); overflow:auto; }
+.batch-factory-preset-shell { display:grid; gap:18px; }
+.batch-factory-assets-modal .ant-modal-body { max-height:calc(100vh - 180px); overflow:auto; }
+@media (max-width: 1180px) {
+  .batch-factory-preset-toolbar { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+  .batch-factory-preset-layout { grid-template-columns:minmax(0, 1fr); min-height:0; }
+}
 .batch-factory-engine-field { display:grid; grid-template-columns:190px minmax(0,1fr); gap:16px; align-items:center; }
 .batch-factory-engine-field > span { display:grid; gap:4px; color:var(--sh-text); }
 .batch-factory-engine-field small, .batch-factory-engine-note { color:var(--sh-muted); font-size:12px; line-height:1.55; }

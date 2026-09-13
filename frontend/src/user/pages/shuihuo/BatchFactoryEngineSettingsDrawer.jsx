@@ -1,4 +1,4 @@
-import { Alert, Button, Divider, Drawer, Input, InputNumber, Segmented, Select, Space, Switch, Tabs, Tag } from 'antd';
+import { Alert, Button, Divider, Input, Modal, Segmented, Select, Space, Switch, Tabs } from 'antd';
 import { useEffect, useState } from 'react';
 import { getCapabilities, getPublishCredential } from '../../../shared/api/batchFactoryV11';
 
@@ -42,7 +42,7 @@ export function BatchFactoryEngineSettingsDrawer({ open, batch, onClose, onSave 
     } catch (error) { setEnvironment({ error: error?.message || '环境自检失败' }); } finally { setChecking(false); }
   }
   const publish = form.publishSettings || {};
-  return <Drawer title="引擎配置" open={open} onClose={onClose} width={760} destroyOnClose={false} extra={<Button type="primary" loading={saving} onClick={save}>保存当前作品配置</Button>}>
+  return <Modal title="引擎配置" open={open} onCancel={onClose} width={900} destroyOnClose={false} className="shuihuo-engine-modal batch-factory-engine-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存当前作品配置</Button></Space>}>
     <Tabs items={[
       { key: 'models', label: '模型配置', children: <div className="batch-factory-engine-drawer"><Alert type="info" showIcon message="配置只写入当前批量作品" description="账号、API Key 和供应商地址由个人中心或管理端保存；这里仅选择已授权的模型和生产策略。" />
         <Divider orientation="left">视频</Divider>
@@ -68,5 +68,5 @@ export function BatchFactoryEngineSettingsDrawer({ open, batch, onClose, onSave 
         <p className="batch-factory-engine-note">同步按钮保持关闭，直到 V11 后端接入真实 121 回读接口；不会使用本地假数据伪装同步成功。</p>
       </div> }
     ]} />
-  </Drawer>;
+  </Modal>;
 }

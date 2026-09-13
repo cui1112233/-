@@ -73,18 +73,32 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
   </div>;
 }
 
-function AssetEditor({ book, batchId, onSaved }) {
+function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generateReason, generating, engineSettings }) {
   const [drafts, setDrafts] = useState({});
   const [saving, setSaving] = useState(false);
+  const [filter, setFilter] = useState('all');
+  const [libraryTab, setLibraryTab] = useState('character');
+  const [search, setSearch] = useState('');
   const groups = [
     ['character', '人物', book?.assets?.characters || []],
     ['scene', '场景', book?.assets?.scenes || []],
     ['prop', '道具', book?.assets?.props || []]
   ];
+  const tabs = [
+    ['character', 'AI角色'], ['scene', 'AI场景'], ['prop', 'AI道具'], ['voice', 'AI音色'],
+    ['character-library', '角色库'], ['scene-library', '场景库'], ['voice-library', '音色库']
+  ];
+  const promptAssets = groups.flatMap(([type, label, items]) => items.map(asset => ({ type, label, asset }))).filter(({ type, asset }) => {
+    const matchesType = filter === 'all' || filter === type;
+    const query = search.trim().toLowerCase();
+    return matchesType && (!query || `${assetName(asset)} ${assetPrompt(asset)}`.toLowerCase().includes(query));
+  });
   useEffect(() => {
     const initial = {};
     for (const [type, , items] of groups) for (const item of items) initial[`${type}:${savedDraftKey(type, item)}`] = assetPrompt(item);
     setDrafts(initial);
+    setFilter('all');
+    setSearch('');
   }, [book?.id]);
   async function save() {
     setSaving(true);
@@ -94,13 +108,39 @@ function AssetEditor({ book, batchId, onSaved }) {
       await onSaved?.();
     } catch (error) { message.error(error?.message || '保存预设 Prompt 失败'); } finally { setSaving(false); }
   }
-  return <>
-    <Alert type="info" showIcon message="当前小说预设" description="这里读取 AI 推理回写的人物、场景、道具；编辑后会保存到 V11 Prompt 草稿，供该书的最终提示词编译使用。图片生成和替换将在 V11 资产图片接口接入后开放，当前不会显示虚构图片。" />
-    <div className="batch-factory-asset-editor">
-      {groups.map(([type, label, items]) => <section key={type} className="batch-factory-asset-group"><strong>{label}</strong>{items.length ? items.map(asset => <label key={savedDraftKey(type, asset)}><span>{assetName(asset)}</span><Input.TextArea rows={3} value={drafts[`${type}:${savedDraftKey(type, asset)}`] ?? ''} onChange={event => setDrafts(current => ({ ...current, [`${type}:${savedDraftKey(type, asset)}`]: event.target.value }))} /></label>) : <p>尚未有该书的{label}数据。先从“AI 推理”执行资产设置。</p>}</section>)}
+  const noImageReason = 'V11 尚未提供该书的资产图片接口，不能伪造生成、上传或替换成功。';
+  return <section className="batch-factory-preset-shell">
+    <Alert type="info" showIcon message="当前小说的人物场景预设" description="左侧只编辑该书真实的 AI 资产 Prompt；“智能预设”会执行该书 AI 推理。图片库只展示真实图片，接口接入前不会显示占位假图。" />
+    <div className="shuihuo-preset-toolbar batch-factory-preset-toolbar">
+      <Tooltip title="由当前批量的引擎配置决定"><Select disabled value={engineSettings?.textModelId || undefined} placeholder="未设置文本模型" options={engineSettings?.textModelId ? [{ value: engineSettings.textModelId, label: engineSettings.textModelId }] : []} /></Tooltip>
+      <Select disabled value="人物场景、道具" options={[{ value: '人物场景、道具', label: '人物场景、道具提取提示词' }]} />
+      <Tooltip title={canGenerate ? '执行当前小说的真实 AI 推理并回写资产' : generateReason}><Button type="primary" loading={generating} disabled={!canGenerate || generating} onClick={onGenerate}>智能预设</Button></Tooltip>
+      <Tooltip title="由当前批量的引擎配置决定"><Select disabled value={engineSettings?.imageModelId || undefined} placeholder="未设置图片模型" options={engineSettings?.imageModelId ? [{ value: engineSettings.imageModelId, label: engineSettings.imageModelId }] : []} /></Tooltip>
+      <Select disabled value={engineSettings?.aspectRatio || '9:16'} options={[{ value: engineSettings?.aspectRatio || '9:16', label: engineSettings?.aspectRatio || '9:16' }]} />
+      <Button disabled title="风格设置由当前批量的引擎配置统一管理">选择风格</Button>
+      <Select disabled value="人物设定" options={[{ value: '人物设定', label: '人物设定（仅角色）' }]} />
+      <Tooltip title={noImageReason}><Button disabled>AI生成（已选 0）</Button></Tooltip>
+      <Tooltip title="V11 尚未提供把手动新增资产写入导演资产并绑定分镜的接口。"><Button disabled>手动添加</Button></Tooltip>
+    </div>
+    <div className="shuihuo-preset-layout batch-factory-preset-layout">
+      <aside className="shuihuo-preset-list">
+        <div className="shuihuo-preset-list-head"><strong>预设列表 ({promptAssets.length})</strong><Select size="small" value={filter} onChange={setFilter} options={[{ value: 'all', label: '全部' }, ...groups.map(([type, label]) => ({ value: type, label }))]} /><Button type="text" danger size="small" onClick={() => { setFilter('all'); setSearch(''); }}>清空</Button></div>
+        <div className="shuihuo-prompt-list">
+          {promptAssets.map(({ type, label, asset }) => <article className="shuihuo-prompt-row" key={`${type}:${savedDraftKey(type, asset)}`}>
+            <div className="shuihuo-prompt-row-head"><Tag>{label}</Tag><strong>{assetName(asset)}</strong></div>
+            <Input.TextArea rows={4} value={drafts[`${type}:${savedDraftKey(type, asset)}`] ?? ''} onChange={event => setDrafts(current => ({ ...current, [`${type}:${savedDraftKey(type, asset)}`]: event.target.value }))} placeholder="输入该资产的视觉提示词" />
+          </article>)}
+          {!promptAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>暂无真实预设。先点击“智能预设”生成当前小说的人物、场景与道具。</p></div> : null}
+        </div>
+      </aside>
+      <main className="shuihuo-preset-library">
+        <div className="shuihuo-asset-tabs">{tabs.map(([value, label]) => <button type="button" className={libraryTab === value ? 'active' : ''} onClick={() => setLibraryTab(value)} key={value}>{label}</button>)}</div>
+        <Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索人物、场景或道具提示词..." className="shuihuo-preset-search" allowClear />
+        <div className="shuihuo-image-library-grid"><div className="shuihuo-image-empty"><b>图片库</b><p>V11 尚未提供该书的资产图片接口</p><span>人物、场景、道具 Prompt 可在左侧编辑并保存；接入真实图片接口后，这里才会显示、上传和替换实际图片。</span></div></div>
+      </main>
     </div>
     <div className="batch-factory-modal-actions"><Button type="primary" loading={saving} onClick={save} disabled={!groups.some(([, , items]) => items.length)}>保存预设 Prompt</Button></div>
-  </>;
+  </section>;
 }
 
 function PromptPanel({ book, batchId }) {
@@ -248,6 +288,11 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     return () => { active = false; };
   }, [batch?.id]);
   useEffect(() => { setSelectedBookIds(current => current.filter(id => books.some(book => book.id === id))); }, [batch?.id, books.length]);
+  useEffect(() => {
+    if (!assetBook) return;
+    const refreshed = books.find(book => book.id === assetBook.id);
+    if (refreshed && refreshed !== assetBook) setAssetBook(refreshed);
+  }, [batch?.id, assetBook?.id]);
 
   async function openContentEditor(book) {
     setEditingContentBook(book);
@@ -363,7 +408,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={`小说列表 · ${books.length} 本`} open={novelListOpen} onCancel={() => setNovelListOpen(false)} footer={null} width="min(1480px, calc(100vw - 48px))" className="batch-factory-novel-modal"><NovelMetadata books={books} createdAt={batch?.createdAt} selectedBookIds={selectedBookIds} onSelectionChange={setSelectedBookIds} onViewBook={setViewingBook} /></Modal>
     <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal"><Descriptions bordered size="small" column={1}>{viewingBook ? <><Descriptions.Item label="Book ID">{viewingBook.bookId || '—'}</Descriptions.Item><Descriptions.Item label="书城">{viewingBook.platform || '—'}</Descriptions.Item><Descriptions.Item label="男女频">{value(viewingBook.sourceMetadata, 'gender')}</Descriptions.Item><Descriptions.Item label="类型">{value(viewingBook.sourceMetadata, 'style')}</Descriptions.Item><Descriptions.Item label="来源">{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</Descriptions.Item><Descriptions.Item label="正文保存">{String(viewingBook.sourceText || '').length} 字</Descriptions.Item><Descriptions.Item label="原文状态">{batchFactoryBookState(viewingBook).detail}</Descriptions.Item></> : null}</Descriptions></Modal>
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" /><Tooltip title={workingFrontCapability.available ? '基于当前输入生成候选；生成不会覆盖工作文本' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim()}>生成爆款候选</Button></Tooltip>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Button type="primary" onClick={() => setEditingContentValue(viralCandidate)}>替换为当前生产内容</Button></Space>} /> : null}</Space></Modal>
-    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width={900} className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} /> : null}</Modal>
+    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={() => runAi(assetBook)} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'director'} engineSettings={batch?.settingsState?.patch} /> : null}</Modal>
     <Modal title={promptBook ? `最终提示词 · ${promptBook.title}` : '最终提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} /> : null}</Modal>
     <Modal title="AI 推理" open={aiOpen} onCancel={() => setAiOpen(false)} footer={null} width={620}><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="AI 推理只生成资产、画面与视频 Prompt" description="它不会自动提交视频、合并或121。完成后，结果会回写到每本小说这一行。" /><Button type="primary" loading={actionBusy === 'director'} onClick={() => runAi('all')}>对全部 {books.length} 本小说执行 AI 推理</Button><Select placeholder="选择单本小说" options={books.filter(book => String(book.sourceText || '').trim()).map(book => ({ value: book.id, label: `${book.title || '未命名'} · ${book.bookId || '—'}` }))} onChange={id => runAi(books.find(book => book.id === id))} disabled={actionBusy === 'director'} /></Space></Modal>
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
