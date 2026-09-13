@@ -504,3 +504,11 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-engine-field > span { display:grid; gap:4px; color:var(--sh-text); }
 .batch-factory-engine-field small, .batch-factory-engine-note { color:var(--sh-muted); font-size:12px; line-height:1.55; }
 @media (max-width: 700px) { .batch-factory-engine-field { grid-template-columns:1fr; gap:8px; } }
+
+.batch-factory-book-row .batch-factory-book-preset-cell,
+.batch-factory-book-row .batch-factory-book-prompt-cell,
+.batch-factory-book-row .batch-factory-book-library-cell { min-height: 276px; }
+.batch-factory-book-library-cell .ant-tooltip-open { min-width: 0; }
+.batch-factory-book-library-cell .shuihuo-primary-media { width: 100%; }
+.batch-factory-book-library-cell .shuihuo-media-grid { min-width: 0; }
+.batch-factory-library-note { color: #91a2b8; font-size: 12px; line-height: 1.55; }

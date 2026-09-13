@@ -11,7 +11,7 @@ const engineSource = fs.readFileSync(path.join(here, 'BatchFactoryEngineSettings
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
   assert.equal(toolbar.includes('人物场景预设'), false);
-  assert.match(source, /打开预设/);
+  assert.match(source, /添加角色/);
 });
 
 test('lets a book review a viral candidate before replacing working content', () => {
@@ -34,4 +34,13 @@ test('uses the Shuihuo preset modal layout for each book without pretending imag
   assert.match(source, /shuihuo-preset-layout/);
   assert.match(source, /AI角色/);
   assert.match(source, /V11 尚未提供该书的资产图片接口/);
+});
+
+test('renders every novel row with Shuihuo preset, prompt and clip-library cells', () => {
+  assert.match(source, /shuihuo-preset-cell batch-factory-book-preset-cell/);
+  assert.match(source, /shuihuo-prompt-cell batch-factory-book-prompt-cell/);
+  assert.match(source, /shuihuo-library-cell batch-factory-book-library-cell/);
+  assert.match(source, /添加角色/);
+  assert.match(source, /画面提示词/);
+  assert.match(source, /管理主图/);
 });
