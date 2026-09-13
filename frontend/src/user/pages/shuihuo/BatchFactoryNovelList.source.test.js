@@ -42,7 +42,7 @@ test('renders every novel row with Shuihuo preset, prompt and clip-library cells
   assert.match(source, /shuihuo-library-cell batch-factory-book-library-cell/);
   assert.match(source, /添加角色/);
   assert.match(source, /画面提示词/);
-  assert.match(source, /管理主图/);
+	assert.match(source, /管理主版本/);
 });
 
 test('keeps visual and video prompts as separate per-video saved fields', () => {
@@ -51,4 +51,10 @@ test('keeps visual and video prompts as separate per-video saved fields', () => 
   assert.match(source, /videoPrompt/);
   assert.match(source, /画面提示词/);
   assert.match(source, /视频提示词/);
+});
+
+test('uses the selected video media version as the durable primary merge choice', () => {
+  assert.match(source, /primaryMediaTaskId/);
+  assert.match(source, /切换为主版本/);
+  assert.match(source, /当前分镜的主版本与候选版本/);
 });

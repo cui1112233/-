@@ -23,8 +23,8 @@ type MergeMedia struct {
 	MediaURL        string `json:"mediaUrl"`
 	// URL is an internal compatibility alias for older V11 consumers. It is
 	// deliberately excluded from the provider JSON contract.
-	URL             string `json:"-"`
-	Order           int    `json:"order"`
+	URL   string `json:"-"`
+	Order int    `json:"order"`
 }
 
 type MergeOptions struct {
@@ -160,9 +160,15 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 		if book.DirectorRevision == nil || len(book.Videos) == 0 {
 			return MergeJob{}, fmt.Errorf("%w: book %s is not ready for merge", ErrConflict, book.ID)
 		}
-		tasks := latestProductionTasks(productionJobs, book.ID, book.DirectorRevision.ID)
-		for _, video := range book.Videos {
-			selection, found := tasks[video.ID]
+		tasks := productionTaskSelections(productionJobs, book.ID, book.DirectorRevision.ID)
+		mediaVideos := book.Videos
+		if snapshot, snapshotErr := snapshotForBook(batch, book); snapshotErr != nil {
+			return MergeJob{}, snapshotErr
+		} else if snapshot.FixedSingleVideo && len(mediaVideos) > 1 {
+			mediaVideos = mediaVideos[:1]
+		}
+		for _, video := range mediaVideos {
+			selection, found := selectedProductionTask(video, tasks[video.ID])
 			if !found || selection.Task.Status != ProductionSucceeded || strings.TrimSpace(selection.Task.MediaURL) == "" {
 				return MergeJob{}, fmt.Errorf("%w: book %s has VIDEOs without completed media", ErrConflict, book.ID)
 			}
@@ -255,15 +261,37 @@ type productionTaskSelection struct {
 	Task  ProductionTask
 }
 
-func latestProductionTasks(jobs []ProductionJob, bookID, directorRevisionID string) map[string]productionTaskSelection {
-	out := map[string]productionTaskSelection{}
+func productionTaskSelections(jobs []ProductionJob, bookID, directorRevisionID string) map[string][]productionTaskSelection {
+	out := map[string][]productionTaskSelection{}
 	for _, job := range jobs {
 		if job.BookID != bookID || job.DirectorRevisionID != directorRevisionID {
 			continue
 		}
 		for _, task := range job.Tasks {
-			out[task.VideoID] = productionTaskSelection{JobID: job.ID, Task: task}
+			out[task.VideoID] = append(out[task.VideoID], productionTaskSelection{JobID: job.ID, Task: task})
 		}
 	}
 	return out
+}
+
+// selectedProductionTask resolves the user-confirmed main media version. A
+// saved primaryMediaTaskId wins; without an explicit choice, the latest
+// successful task is the initial main version. Failed/running tasks are never
+// eligible for merge, even when an old preference points at one.
+func selectedProductionTask(video Video, candidates []productionTaskSelection) (productionTaskSelection, bool) {
+	primaryID := rawString(video.SettingsState.Patch, "primaryMediaTaskId", "")
+	if primaryID != "" {
+		for _, candidate := range candidates {
+			if candidate.Task.ID == primaryID && candidate.Task.Status == ProductionSucceeded && strings.TrimSpace(candidate.Task.MediaURL) != "" {
+				return candidate, true
+			}
+		}
+	}
+	for index := len(candidates) - 1; index >= 0; index-- {
+		candidate := candidates[index]
+		if candidate.Task.Status == ProductionSucceeded && strings.TrimSpace(candidate.Task.MediaURL) != "" {
+			return candidate, true
+		}
+	}
+	return productionTaskSelection{}, false
 }
