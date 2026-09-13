@@ -9,7 +9,7 @@ import { getConfig } from '../api/config';
 import { avatarDisplay } from '../avatars';
 import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
-import { GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
+import { GLOBAL_STATUS_EVENT, GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
 import { createAntTheme } from '../styles/theme';
 import { getRouteAccessState, shouldPromptLoginForApiFailure } from './routeAccess.js';
 
@@ -151,6 +151,15 @@ export function UserLayout({ children }) {
   }, [isLoggedIn, username]);
 
   useEffect(() => {
+    const receive = event => {
+      const detail = event.detail || {};
+      if (detail.text) setGlobalStatus({ text: String(detail.text), tone: detail.tone || 'info' });
+    };
+    window.addEventListener(GLOBAL_STATUS_EVENT, receive);
+    return () => window.removeEventListener(GLOBAL_STATUS_EVENT, receive);
+  }, []);
+
+  useEffect(() => {
     document.body.classList.add('user-theme-active');
     return () => document.body.classList.remove('user-theme-active');
   }, []);
@@ -188,6 +197,7 @@ export function UserLayout({ children }) {
       dialogOpen = true;
       const { source, method, status, message: detail, sessionAuthFailure } = event.detail || {};
       if (shouldPromptLoginForApiFailure({ status, sessionAuthFailure })) {
+        setGlobalStatus({ text: '登录已失效，请重新登录后继续使用', tone: 'error' });
         setUsername('');
         setAccount(null);
         setLoginDialogOpen(true);
@@ -203,13 +213,8 @@ export function UserLayout({ children }) {
       }
       const sourceLabel = source ? `${method || 'GET'} ${source}` : '服务请求';
       const statusLabel = status ? `（${status}）` : '';
-      Modal.error({
-        title: `${sourceLabel} 请求失败${statusLabel}`,
-        content: detail || '请求失败，请稍后重试。',
-        okText: '确定',
-        onOk: () => { dialogOpen = false; },
-        afterClose: () => { dialogOpen = false; }
-      });
+      setGlobalStatus({ text: `${sourceLabel}${statusLabel}：${detail || '请求失败，请稍后重试。'}`, tone: 'error' });
+      dialogOpen = false;
     }
     window.addEventListener('qiantie:api-error', showApiFailure);
     return () => window.removeEventListener('qiantie:api-error', showApiFailure);
