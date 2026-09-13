@@ -109,7 +109,24 @@ export function saveBookOverride(batchId, bookId, input) {
 }
 
 export function saveVideoOverride(batchId, bookId, videoId, input) {
-  return apiRequest(bf11ScopePath({ scope: 'video', batchId, bookId, videoId }), { method: 'PUT', body: body(input) });
+	return apiRequest(bf11ScopePath({ scope: 'video', batchId, bookId, videoId }), { method: 'PUT', body: body(input) });
+}
+
+function bookAssetsPath(batchId, bookId, assetId = '') {
+  const base = bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/assets`);
+  return assetId ? `${base}/${id(assetId)}` : base;
+}
+
+export function listBookAssets(batchId, bookId) {
+  return apiRequest(bookAssetsPath(batchId, bookId));
+}
+
+export function createBookAsset(batchId, bookId, payload) {
+  return apiRequest(bookAssetsPath(batchId, bookId), { method: 'POST', body: body(payload) });
+}
+
+export function updateBookAsset(batchId, bookId, assetId, payload) {
+  return apiRequest(bookAssetsPath(batchId, bookId, assetId), { method: 'PATCH', body: body(payload) });
 }
 
 export function getConfigVersions() {

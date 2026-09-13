@@ -24,10 +24,11 @@ import {
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  createPrompt,
+  createBookAsset,
   createPublishIntent,
 	  cancelBatchProduction,
   getCapabilities,
+  listBookAssets,
   getConfigVersions,
   getFinalPrompt,
   getDraft,
@@ -39,6 +40,7 @@ import {
   runBatchDirector,
   runDirector,
   saveBatchSettings,
+  updateBookAsset,
   saveDraft,
 	  saveVideoOverride,
   submitBatchMerge,
@@ -96,72 +98,89 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
 }
 
 function AssetEditor({ book, batchId, onSaved, onGenerate, canGenerate, generateReason, generating, engineSettings }) {
-  const [drafts, setDrafts] = useState({});
-  const [saving, setSaving] = useState(false);
-  const [filter, setFilter] = useState('all');
-  const [libraryTab, setLibraryTab] = useState('character');
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState('');
+  const [kind, setKind] = useState('character');
+  const [newName, setNewName] = useState('');
+  const [newPrompt, setNewPrompt] = useState('');
+  const [edits, setEdits] = useState({});
   const [search, setSearch] = useState('');
-  const groups = [
-    ['character', '人物', book?.assets?.characters || []],
-    ['scene', '场景', book?.assets?.scenes || []],
-    ['prop', '道具', book?.assets?.props || []]
-  ];
-  const tabs = [
-    ['character', 'AI角色'], ['scene', 'AI场景'], ['prop', 'AI道具'], ['voice', 'AI音色'],
-    ['character-library', '角色库'], ['scene-library', '场景库'], ['voice-library', '音色库']
-  ];
-  const promptAssets = groups.flatMap(([type, label, items]) => items.map(asset => ({ type, label, asset }))).filter(({ type, asset }) => {
-    const matchesType = filter === 'all' || filter === type;
-    const query = search.trim().toLowerCase();
-    return matchesType && (!query || `${assetName(asset)} ${assetPrompt(asset)}`.toLowerCase().includes(query));
-  });
-  useEffect(() => {
-    const initial = {};
-    for (const [type, , items] of groups) for (const item of items) initial[`${type}:${savedDraftKey(type, item)}`] = assetPrompt(item);
-    setDrafts(initial);
-    setFilter('all');
-    setSearch('');
-  }, [book?.id]);
-  async function save() {
-    setSaving(true);
+  const kindOptions = [{ value: 'character', label: 'AI角色' }, { value: 'scene', label: 'AI场景' }, { value: 'prop', label: 'AI道具' }];
+  const loadAssets = async ({ quiet = false } = {}) => {
+    if (!batchId || !book?.id) return;
+    setLoading(true);
     try {
-      await Promise.all(groups.flatMap(([type, , items]) => items.map(asset => saveDraft({ key: savedDraftKey(type, asset), kind: 'asset-prompt', scope: batchId, content: drafts[`${type}:${savedDraftKey(type, asset)}`] ?? '' }))));
-      message.success('当前小说的预设 Prompt 已保存');
+      const response = await listBookAssets(batchId, book.id);
+      const next = resultData(response, 'assets');
+      setAssets(Array.isArray(next) ? next : []);
+    } catch (error) {
+      if (!quiet) message.error(error?.message || '读取当前小说资产失败');
+    } finally { setLoading(false); }
+  };
+  useEffect(() => {
+    setAssets(Array.isArray(book?.assetRecords) ? book.assetRecords : []);
+    setEdits({});
+    setSearch('');
+    loadAssets({ quiet: true });
+  }, [batchId, book?.id]);
+  const visibleAssets = assets.filter(asset => asset.kind === kind).filter(asset => {
+    const query = search.trim().toLowerCase();
+    return !query || `${asset.name} ${asset.prompt}`.toLowerCase().includes(query);
+  });
+  async function addAsset() {
+    setSavingId('new');
+    try {
+      const response = await createBookAsset(batchId, book.id, { kind, name: newName, prompt: newPrompt });
+      setAssets(current => [...current, resultData(response, 'asset')]);
+      setNewName(''); setNewPrompt('');
+      message.success('资产已保存到当前小说。');
       await onSaved?.();
-    } catch (error) { message.error(error?.message || '保存预设 Prompt 失败'); } finally { setSaving(false); }
+    } catch (error) { message.error(error?.message || '新增资产失败'); } finally { setSavingId(''); }
   }
-  const noImageReason = 'V11 尚未提供该书的资产图片接口，不能伪造生成、上传或替换成功。';
+  async function saveAsset(asset) {
+    const edit = edits[asset.id] || asset;
+    setSavingId(asset.id);
+    try {
+      const response = await updateBookAsset(batchId, book.id, asset.id, { name: edit.name, prompt: edit.prompt, expectedRevision: Number(asset.revision || 0) });
+      const updated = resultData(response, 'asset');
+      setAssets(current => current.map(item => item.id === asset.id ? updated : item));
+      setEdits(current => { const next = { ...current }; delete next[asset.id]; return next; });
+      message.success('资产提示词已保存。');
+      await onSaved?.();
+    } catch (error) { message.error(error?.message || '保存资产失败'); } finally { setSavingId(''); }
+  }
+  async function runPreset() {
+    try {
+      await onGenerate?.();
+      await loadAssets({ quiet: true });
+    } catch (_) { /* runAi already reports its business error */ }
+  }
   return <section className="batch-factory-preset-shell">
-    <Alert type="info" showIcon message="当前小说的人物场景预设" description="左侧只编辑该书真实的 AI 资产 Prompt；“智能预设”会执行该书 AI 推理。图片库只展示真实图片，接口接入前不会显示占位假图。" />
+    <Alert type="info" showIcon message="当前小说的人物、场景与道具" description="每一项都归属当前小说并持久化保存。智能预设成功后会写入导演提取的资产；手动修改会保留为该书的人工资产。" />
     <div className="shuihuo-preset-toolbar batch-factory-preset-toolbar">
-      <Tooltip title="由当前批量的引擎配置决定"><Select disabled value={engineSettings?.textModelId || undefined} placeholder="未设置文本模型" options={engineSettings?.textModelId ? [{ value: engineSettings.textModelId, label: engineSettings.textModelId }] : []} /></Tooltip>
-      <Select disabled value="人物场景、道具" options={[{ value: '人物场景、道具', label: '人物场景、道具提取提示词' }]} />
-      <Tooltip title={canGenerate ? '执行当前小说的真实 AI 推理并回写资产' : generateReason}><Button type="primary" loading={generating} disabled={!canGenerate || generating} onClick={onGenerate}>智能预设</Button></Tooltip>
-      <Tooltip title="由当前批量的引擎配置决定"><Select disabled value={engineSettings?.imageModelId || undefined} placeholder="未设置图片模型" options={engineSettings?.imageModelId ? [{ value: engineSettings.imageModelId, label: engineSettings.imageModelId }] : []} /></Tooltip>
-      <Select disabled value={engineSettings?.aspectRatio || '9:16'} options={[{ value: engineSettings?.aspectRatio || '9:16', label: engineSettings?.aspectRatio || '9:16' }]} />
-      <Button disabled title="风格设置由当前批量的引擎配置统一管理">选择风格</Button>
-      <Select disabled value="人物设定" options={[{ value: '人物设定', label: '人物设定（仅角色）' }]} />
-      <Tooltip title={noImageReason}><Button disabled>AI生成（已选 0）</Button></Tooltip>
-      <Tooltip title="V11 尚未提供把手动新增资产写入导演资产并绑定分镜的接口。"><Button disabled>手动添加</Button></Tooltip>
+      <Tooltip title="当前批量或当前书的有效引擎配置"><Select disabled value={engineSettings?.textModelId || undefined} placeholder="未设置文本模型" options={engineSettings?.textModelId ? [{ value: engineSettings.textModelId, label: engineSettings.textModelId }] : []} /></Tooltip>
+      <Tooltip title={canGenerate ? '按当前书的提示词配置执行真实 AI 推理，并写回人物、场景、道具。' : generateReason}><Button type="primary" loading={generating} disabled={!canGenerate || generating} onClick={runPreset}>智能预设</Button></Tooltip>
+      <Button loading={loading} onClick={() => loadAssets()}>刷新资产</Button>
+      <Tooltip title="V11 尚未提供该书的资产图片接口；图片生成、上传和版本管理接入前不会显示占位图片。"><Button disabled>资产图片</Button></Tooltip>
     </div>
     <div className="shuihuo-preset-layout batch-factory-preset-layout">
       <aside className="shuihuo-preset-list">
-        <div className="shuihuo-preset-list-head"><strong>预设列表 ({promptAssets.length})</strong><Select size="small" value={filter} onChange={setFilter} options={[{ value: 'all', label: '全部' }, ...groups.map(([type, label]) => ({ value: type, label }))]} /><Button type="text" danger size="small" onClick={() => { setFilter('all'); setSearch(''); }}>清空</Button></div>
+        <div className="shuihuo-preset-list-head"><strong>资产列表 ({visibleAssets.length})</strong><Select size="small" value={kind} onChange={setKind} options={kindOptions} /><Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索名称或提示词" allowClear /></div>
         <div className="shuihuo-prompt-list">
-          {promptAssets.map(({ type, label, asset }) => <article className="shuihuo-prompt-row" key={`${type}:${savedDraftKey(type, asset)}`}>
-            <div className="shuihuo-prompt-row-head"><Tag>{label}</Tag><strong>{assetName(asset)}</strong></div>
-            <Input.TextArea rows={4} value={drafts[`${type}:${savedDraftKey(type, asset)}`] ?? ''} onChange={event => setDrafts(current => ({ ...current, [`${type}:${savedDraftKey(type, asset)}`]: event.target.value }))} placeholder="输入该资产的视觉提示词" />
-          </article>)}
-          {!promptAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>暂无真实预设。先点击“智能预设”生成当前小说的人物、场景与道具。</p></div> : null}
+          {visibleAssets.map(asset => {
+            const edit = edits[asset.id] || asset;
+            return <article className="shuihuo-prompt-row" key={asset.id}><div className="shuihuo-prompt-row-head"><Tag>{kindOptions.find(option => option.value === asset.kind)?.label}</Tag><Tag color={asset.source === 'manual' ? 'cyan' : 'blue'}>{asset.source === 'manual' ? '手动' : '导演提取'}</Tag></div><Input value={edit.name} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, name: event.target.value } }))} placeholder="资产名称" /><Input.TextArea rows={4} value={edit.prompt} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, prompt: event.target.value } }))} placeholder="输入可用于画面与视频编译的资产提示词" /><Button size="small" type="primary" loading={savingId === asset.id} disabled={savingId !== '' && savingId !== asset.id} onClick={() => saveAsset(asset)}>保存该资产</Button></article>;
+          })}
+          {!loading && !visibleAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>当前分类还没有资产。可手动添加，或点击“智能预设”从当前小说提取。</p></div> : null}
         </div>
       </aside>
       <main className="shuihuo-preset-library">
-        <div className="shuihuo-asset-tabs">{tabs.map(([value, label]) => <button type="button" className={libraryTab === value ? 'active' : ''} onClick={() => setLibraryTab(value)} key={value}>{label}</button>)}</div>
-        <Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索人物、场景或道具提示词..." className="shuihuo-preset-search" allowClear />
-        <div className="shuihuo-image-library-grid"><div className="shuihuo-image-empty"><b>图片库</b><p>V11 尚未提供该书的资产图片接口</p><span>人物、场景、道具 Prompt 可在左侧编辑并保存；接入真实图片接口后，这里才会显示、上传和替换实际图片。</span></div></div>
+        <h3>新增{kindOptions.find(option => option.value === kind)?.label}</h3>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}><Input value={newName} onChange={event => setNewName(event.target.value)} placeholder="名称" /><Input.TextArea rows={7} value={newPrompt} onChange={event => setNewPrompt(event.target.value)} placeholder="提示词：描述这个人物、场景或道具的可见特征" /><Button type="primary" loading={savingId === 'new'} disabled={savingId !== '' || !newName.trim() || !newPrompt.trim()} onClick={addAsset}>保存到当前小说</Button></Space>
+        <p className="shuihuo-modal-note">这里保存的是当前小说的生产资产，批量中其他小说不会读取或覆盖它。资产图片还未接入时，页面不会把文本伪装成已生成图片。</p>
       </main>
     </div>
-    <div className="batch-factory-modal-actions"><Button type="primary" loading={saving} onClick={save} disabled={!groups.some(([, , items]) => items.length)}>保存预设 Prompt</Button></div>
   </section>;
 }
 

@@ -80,6 +80,7 @@ type Book struct {
 	Hook                *HookRevision     `json:"hook,omitempty"`
 	DirectorRevision    *DirectorRevision `json:"directorRevision,omitempty"`
 	Assets              DirectorAssets    `json:"assets,omitempty"`
+	AssetRecords        []BookAsset       `json:"assetRecords,omitempty"`
 	Videos              []Video           `json:"videos"`
 }
 type Batch struct {
@@ -182,6 +183,36 @@ type DirectorAssets struct {
 	Props      []NamedPrompt `json:"props"`
 }
 
+// BookAsset is a durable, book-scoped production asset. Director extraction
+// can seed an asset, but manual edits stay attached to this book and never
+// become a browser-only draft.
+type BookAsset struct {
+	ID                      string    `json:"id"`
+	BatchID                 string    `json:"batchId"`
+	BookID                  string    `json:"bookId"`
+	Kind                    string    `json:"kind"`
+	Name                    string    `json:"name"`
+	Prompt                  string    `json:"prompt"`
+	Source                  string    `json:"source"`
+	ExtractionPresetID      string    `json:"extractionPresetId,omitempty"`
+	ExtractionPresetVersion int64     `json:"extractionPresetVersion,omitempty"`
+	Revision                int64     `json:"revision"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+type CreateBookAssetInput struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Prompt string `json:"prompt"`
+}
+
+type UpdateBookAssetInput struct {
+	Name             string `json:"name"`
+	Prompt           string `json:"prompt"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
 type OrphanedOverride struct {
 	VideoID string        `json:"videoId"`
 	Patch   SettingsPatch `json:"patch"`
@@ -236,6 +267,9 @@ type Store interface {
 	CreatePrompt(context.Context, string, Prompt) (Prompt, error)
 	GetDraft(context.Context, string, string, string, string) (Draft, error)
 	SaveDraft(context.Context, string, Draft) (Draft, error)
+	ListBookAssets(context.Context, string, string, string) ([]BookAsset, error)
+	CreateBookAsset(context.Context, string, string, string, CreateBookAssetInput) (BookAsset, error)
+	UpdateBookAsset(context.Context, string, string, string, string, UpdateBookAssetInput) (BookAsset, error)
 	CreateHookRevision(context.Context, string, string, string, string, string) (HookRevision, error)
 	ApproveHookRevision(context.Context, string, string, string, string) (HookRevision, error)
 	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)

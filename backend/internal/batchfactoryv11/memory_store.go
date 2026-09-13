@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,6 +23,7 @@ type MemoryStore struct {
 	configVersions     map[string]memoryOwned[ConfigVersion]
 	prompts            map[string][]Prompt
 	drafts             map[string]Draft
+	bookAssets         map[string]memoryOwned[BookAsset]
 	hooks              map[string][]HookRevision
 	directors          map[string][]DirectorRevision
 	productionJobs     map[string]memoryOwned[ProductionJob]
@@ -39,6 +41,7 @@ func NewMemoryStore() *MemoryStore {
 		configVersions:     map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
 		prompts:            map[string][]Prompt{},
 		drafts:             map[string]Draft{},
+		bookAssets:         map[string]memoryOwned[BookAsset]{},
 		hooks:              map[string][]HookRevision{},
 		directors:          map[string][]DirectorRevision{},
 		productionJobs:     map[string]memoryOwned[ProductionJob]{},
@@ -255,7 +258,7 @@ func (s *MemoryStore) DebugPatch(r ScopeRef) SettingsPatch {
 	return clonePatch(s.patches[scopeKey(r)])
 }
 
-func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, hooks map[string][]HookRevision, directors map[string][]DirectorRevision) Batch {
+func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, hooks map[string][]HookRevision, directors map[string][]DirectorRevision, bookAssets map[string]memoryOwned[BookAsset]) Batch {
 	b.SettingsState = SettingsState{
 		Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeBatch, BatchID: b.ID})]),
 		Revision: b.Revision,
@@ -285,6 +288,10 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 			book.DirectorRevision = &latest
 			book.Assets = DirectorAssets{Characters: latest.Output.Characters, Scenes: latest.Output.Scenes, Props: latest.Output.Props}
 		}
+		book.AssetRecords = memoryBookAssets(bookAssets, b.ID, book.ID)
+		if len(book.AssetRecords) > 0 {
+			book.Assets = directorAssetsFromRecords(book.AssetRecords)
+		}
 		videos := make([]Video, len(book.Videos))
 		for j := range book.Videos {
 			video := book.Videos[j]
@@ -299,6 +306,39 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 	}
 	b.Books = books
 	return b
+}
+
+func memoryBookAssets(all map[string]memoryOwned[BookAsset], batchID, bookID string) []BookAsset {
+	assets := make([]BookAsset, 0)
+	for _, owned := range all {
+		asset := owned.Value
+		if asset.BatchID == batchID && asset.BookID == bookID {
+			assets = append(assets, asset)
+		}
+	}
+	sort.Slice(assets, func(i, j int) bool {
+		if assets[i].Kind == assets[j].Kind {
+			return assets[i].Name < assets[j].Name
+		}
+		return assets[i].Kind < assets[j].Kind
+	})
+	return assets
+}
+
+func directorAssetsFromRecords(records []BookAsset) DirectorAssets {
+	assets := DirectorAssets{Characters: []NamedPrompt{}, Scenes: []NamedPrompt{}, Props: []NamedPrompt{}}
+	for _, asset := range records {
+		value := NamedPrompt{Name: asset.Name, Prompt: asset.Prompt}
+		switch asset.Kind {
+		case "character":
+			assets.Characters = append(assets.Characters, value)
+		case "scene":
+			assets.Scenes = append(assets.Scenes, value)
+		case "prop":
+			assets.Props = append(assets.Props, value)
+		}
+	}
+	return assets
 }
 
 func (s *MemoryStore) CreateIntake(_ context.Context, owner string, input NovelFetchIntakeInput) (Intake, error) {
@@ -353,7 +393,7 @@ func (s *MemoryStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID
 	bv := b.Value
 	bv.SourceIntakeID = intakeID
 	s.batches[batch.ID] = memoryOwned[Batch]{owner, bv}
-	batch = hydrateMemoryBatchSettingsState(bv, s.patches, s.hooks, s.directors)
+	batch = hydrateMemoryBatchSettingsState(bv, s.patches, s.hooks, s.directors, s.bookAssets)
 	s.mu.Unlock()
 	return batch, nil
 }
@@ -385,7 +425,7 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 		b.Books = append(b.Books, book)
 	}
 	s.batches[b.ID] = memoryOwned[Batch]{owner, b}
-	return hydrateMemoryBatchSettingsState(b, s.patches, s.hooks, s.directors), nil
+	return hydrateMemoryBatchSettingsState(b, s.patches, s.hooks, s.directors, s.bookAssets), nil
 }
 func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, error) {
 	s.mu.Lock()
@@ -393,7 +433,7 @@ func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, err
 	out := []Batch{}
 	for _, v := range s.batches {
 		if v.Owner == owner {
-			out = append(out, hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors))
+			out = append(out, hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors, s.bookAssets))
 		}
 	}
 	return out, nil
@@ -405,7 +445,7 @@ func (s *MemoryStore) GetBatch(_ context.Context, owner, id string) (Batch, erro
 	if !ok || v.Owner != owner {
 		return Batch{}, ErrNotFound
 	}
-	return hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors), nil
+	return hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors, s.bookAssets), nil
 }
 func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef, update SettingsUpdate) (SettingsResult, error) {
 	s.mu.Lock()
@@ -547,6 +587,87 @@ func (s *MemoryStore) SaveDraft(_ context.Context, owner string, d Draft) (Draft
 	return d, nil
 }
 
+func validBookAssetKind(kind string) bool {
+	switch kind {
+	case "character", "scene", "prop":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeBookAssetInput(input CreateBookAssetInput) (CreateBookAssetInput, error) {
+	input.Kind = strings.TrimSpace(input.Kind)
+	input.Name = strings.TrimSpace(input.Name)
+	input.Prompt = strings.TrimSpace(input.Prompt)
+	if !validBookAssetKind(input.Kind) || input.Name == "" || input.Prompt == "" || len(input.Name) > 255 {
+		return CreateBookAssetInput{}, ErrInvalid
+	}
+	return input, nil
+}
+
+func (s *MemoryStore) hasBookLocked(owner, batchID, bookID string) bool {
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner {
+		return false
+	}
+	for _, book := range owned.Value.Books {
+		if book.ID == bookID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *MemoryStore) ListBookAssets(_ context.Context, owner, batchID, bookID string) ([]BookAsset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBookLocked(owner, batchID, bookID) {
+		return nil, ErrNotFound
+	}
+	return memoryBookAssets(s.bookAssets, batchID, bookID), nil
+}
+
+func (s *MemoryStore) CreateBookAsset(_ context.Context, owner, batchID, bookID string, input CreateBookAssetInput) (BookAsset, error) {
+	input, err := normalizeBookAssetInput(input)
+	if err != nil {
+		return BookAsset{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBookLocked(owner, batchID, bookID) {
+		return BookAsset{}, ErrNotFound
+	}
+	now := time.Now().UTC()
+	asset := BookAsset{ID: s.id("asset"), BatchID: batchID, BookID: bookID, Kind: input.Kind, Name: input.Name, Prompt: input.Prompt, Source: "manual", Revision: 1, CreatedAt: now, UpdatedAt: now}
+	s.bookAssets[asset.ID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
+	return asset, nil
+}
+
+func (s *MemoryStore) UpdateBookAsset(_ context.Context, owner, batchID, bookID, assetID string, input UpdateBookAssetInput) (BookAsset, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Prompt = strings.TrimSpace(input.Prompt)
+	if input.Name == "" || input.Prompt == "" || len(input.Name) > 255 {
+		return BookAsset{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasBookLocked(owner, batchID, bookID) {
+		return BookAsset{}, ErrNotFound
+	}
+	owned, ok := s.bookAssets[assetID]
+	if !ok || owned.Owner != owner || owned.Value.BatchID != batchID || owned.Value.BookID != bookID {
+		return BookAsset{}, ErrNotFound
+	}
+	asset := owned.Value
+	if input.ExpectedRevision != asset.Revision {
+		return BookAsset{}, ErrConflict
+	}
+	asset.Name, asset.Prompt, asset.Source, asset.Revision, asset.UpdatedAt = input.Name, input.Prompt, "manual", asset.Revision+1, time.Now().UTC()
+	s.bookAssets[assetID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
+	return asset, nil
+}
+
 func memoryBookKey(batchID, bookID string) string { return batchID + ":" + bookID }
 
 func (s *MemoryStore) CreateHookRevision(_ context.Context, owner, batchID, bookID, text, digest string) (HookRevision, error) {
@@ -648,5 +769,27 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	b.UpdatedAt = now
 	s.batches[b.ID] = memoryOwned[Batch]{Owner: owner, Value: b}
 	s.directors[key] = append(s.directors[key], revision)
+	for _, seed := range directorBookAssets(book, snapshot, output) {
+		found := false
+		for assetID, ownedAsset := range s.bookAssets {
+			asset := ownedAsset.Value
+			if ownedAsset.Owner != owner || asset.BatchID != book.BatchID || asset.BookID != book.ID || asset.Kind != seed.Kind || asset.Name != seed.Name {
+				continue
+			}
+			found = true
+			if asset.Source != "manual" {
+				asset.Prompt, asset.Source, asset.ExtractionPresetID, asset.ExtractionPresetVersion = seed.Prompt, seed.Source, seed.ExtractionPresetID, seed.ExtractionPresetVersion
+				asset.Revision++
+				asset.UpdatedAt = now
+				s.bookAssets[assetID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
+			}
+			break
+		}
+		if found {
+			continue
+		}
+		seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = s.id("asset"), 1, now, now
+		s.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: owner, Value: seed}
+	}
 	return revision, nil
 }

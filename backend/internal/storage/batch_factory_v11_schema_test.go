@@ -69,7 +69,7 @@ func TestV11SliceOneKeepsFoundationChecksumStable(t *testing.T) {
 
 func TestV11MigrationsSeparateVideoAndVisualPrompts(t *testing.T) {
 	migrations := V11Migrations()
-	if len(migrations) == 0 || migrations[len(migrations)-1].Version != 1100011 {
+	if len(migrations) < 11 || migrations[10].Version != 1100011 || migrations[10].CallbackChecksum != "batch-factory-v11-separate-video-prompt-v1" {
 		t.Fatalf("last migration=%+v", migrations)
 	}
 	statements := V11SeparateVideoPromptStatements()

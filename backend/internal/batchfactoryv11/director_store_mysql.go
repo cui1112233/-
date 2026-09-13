@@ -215,6 +215,9 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 		}
 		videos = append(videos, Video{ID: videoID, BatchID: book.BatchID, BookID: book.ID, Label: label, VideoPrompt: draft.VideoDesc, VisualPrompt: draft.VisualPrompt, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1})
 	}
+	if err := persistDirectorBookAssets(ctx, tx, owner, book, snapshot, output, now); err != nil {
+		return DirectorRevision{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=?,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, currentBookRevision+1, now, book.ID, book.BatchID, owner); err != nil {
 		return DirectorRevision{}, err
 	}
