@@ -1,3 +1,3 @@
 release_sha=NEXT_COMMIT
-scope=Script: show invalid text model credentials in clear Chinese
-requested_at=2026-09-13T18:20:00+08:00
+scope=Script: show extraction errors once with readable dark-theme Chinese text
+requested_at=2026-09-13T19:05:00+08:00
