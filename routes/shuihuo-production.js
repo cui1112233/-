@@ -4,7 +4,6 @@ const https = require('node:https');
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
-const { bridgePayload } = require('../lib/batch-factory-v11/go-proxy');
 const { listPublishedForSlot, resolveSystemPresetBody, slotDefinition } = require('../lib/system-preset-catalog');
 const { getDefaultVideoModels } = require('../lib/video-model-catalog');
 
@@ -14,7 +13,10 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 function signBridgeRequest(secret, { username, isOwner, issuedAt, method, pathname }) {
-  const payload = bridgePayload({ username, issuedAt, isOwner: String(isOwner), method, pathname });
+  // Shuihuo remains on the established Go gateway, whose platform identity
+  // protocol uses newline-delimited fields. V11 has its own upstream and a
+  // distinct signature representation, so it must not be reused here.
+  const payload = [username, issuedAt, String(isOwner), method, pathname].join('\n');
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
 }
 
