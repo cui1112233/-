@@ -1,3 +1,3 @@
 release_sha=NEXT_COMMIT
-scope=Script: persist text and image model selection for each screenplay
-requested_at=2026-09-13T16:58:00+08:00
+scope=Script: use the selected text model for extraction and entity enrichment
+requested_at=2026-09-13T17:12:00+08:00
