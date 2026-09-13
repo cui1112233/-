@@ -452,6 +452,9 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-book-content strong { color: #edf3fc; font-size: 14px; }
 .batch-factory-book-content > span, .batch-factory-placeholder > span, .batch-factory-actions > span { color: #91a2b8; line-height: 1.55; font-size: 12px; }
 .batch-factory-book-content p { margin-bottom: 0; color: #c6d2e3; font-size: 12px; font-weight: 400; line-height: 1.65; white-space: pre-wrap; }
+.batch-factory-storyboard-video-map { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; margin-bottom: 8px; }
+.batch-factory-storyboard-video-map .ant-tag { margin: 0; color: #82e4c6; border-color: #3b7167; border-radius: 4px; background: #183a39; }
+.batch-factory-storyboard-video-map > span { color: #91a2b8; font-size: 12px; line-height: 1.55; }
 .batch-factory-placeholder { align-content: center; }
 .batch-factory-placeholder strong { color: #dce6f4; font-size: 12px; }
 .batch-factory-actions { align-content: center; }

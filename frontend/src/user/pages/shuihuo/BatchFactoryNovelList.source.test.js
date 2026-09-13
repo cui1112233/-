@@ -59,6 +59,13 @@ test('renders every novel row with Shuihuo preset, prompt and clip-library cells
 	assert.match(source, /管理主版本/);
 });
 
+test('shows each book\'s storyboard to VIDEO one-to-one mapping and derives state from runtime jobs', () => {
+  assert.match(source, /分镜与 VIDEO 一对一对应/);
+  assert.match(source, /→ VIDEO/);
+  assert.match(source, /batchFactoryBookState\(book, \{ productionStatus, mergeStatus \}\)/);
+  assert.match(source, /productionStatus=\{productionStatus\} mergeStatus=\{mergeStatus\}/);
+});
+
 test('keeps visual and video prompts as separate per-video saved fields', () => {
   assert.match(source, /saveVideoOverride/);
   assert.match(source, /visualPrompt/);
