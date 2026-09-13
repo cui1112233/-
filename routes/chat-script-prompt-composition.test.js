@@ -102,3 +102,11 @@ test('人物场景提取会采用当前剧本选定的文本模型', () => {
     'text-valid-model'
   );
 });
+
+test('上游令牌失效时返回用户可理解的中文提示', () => {
+  const message = chatRouter._private.describeUpstreamFailure({
+    statusCode: 401,
+    text: JSON.stringify({ error: { message: 'Invalid token', request_id: 'req-safe-123' } })
+  });
+  assert.equal(message, '当前文本模型的 API 凭据无效或已过期，请更换模型或联系管理员更新凭据。（请求编号：req-safe-123）');
+});

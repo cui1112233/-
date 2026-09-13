@@ -359,11 +359,17 @@ function buildMessages(body, presetStore, personalPromptStore, username) {
 
 function describeUpstreamFailure(upstream) {
   let details = '';
+  let requestId = '';
   try {
     const parsed = JSON.parse(upstream.text);
     details = parsed?.error?.message || parsed?.message || '';
+    requestId = parsed?.request_id || parsed?.requestId || parsed?.error?.request_id || parsed?.error?.requestId || '';
   } catch (error) {
     details = String(upstream.text || '').trim().slice(0, 300);
+  }
+  if (Number(upstream.statusCode) === 401 && /invalid (?:token|api key)|unauthorized/i.test(details)) {
+    const suffix = String(requestId || '').trim() ? `（请求编号：${String(requestId).trim().slice(0, 120)}）` : '';
+    return `当前文本模型的 API 凭据无效或已过期，请更换模型或联系管理员更新凭据。${suffix}`;
   }
   return ['Upstream API error (status ' + upstream.statusCode + ')', details].filter(Boolean).join(': ');
 }
