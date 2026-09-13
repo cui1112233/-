@@ -28,6 +28,13 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			writeStoreError(w, batchfactoryv11.ErrInvalid)
 			return
 		}
+		if input.ContentCaptureCharacters <= 0 {
+			input.ContentCaptureCharacters = 4000
+		}
+		if input.ContentCaptureCharacters < 100 || input.ContentCaptureCharacters > 100000 {
+			writeStoreError(w, batchfactoryv11.ErrInvalid)
+			return
+		}
 		queueStatus := "manual_pending"
 		if strings.TrimSpace(input.ScheduledAt) != "" {
 			if _, err := time.Parse(time.RFC3339, input.ScheduledAt); err != nil {
@@ -46,6 +53,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 				books[index].SourceMetadata = map[string]any{}
 			}
 			books[index].SourceMetadata["contentRangeLines"] = input.ContentRangeLines
+			books[index].SourceMetadata["contentCaptureCharacters"] = input.ContentCaptureCharacters
 			books[index].SourceMetadata["scheduledAt"] = strings.TrimSpace(input.ScheduledAt)
 			books[index].SourceMetadata["queueStatus"] = queueStatus
 		}
@@ -54,7 +62,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			Metadata: map[string]any{
 				"sourceMode": "manual_original", "platformId": input.PlatformID, "parseMode": input.ParseMode,
 				"columnPresetId": input.ColumnPresetID, "columnOrder": input.ColumnOrder, "inputText": input.InputText,
-				"contentRangeLines": input.ContentRangeLines, "scheduledAt": strings.TrimSpace(input.ScheduledAt), "queueStatus": queueStatus,
+				"contentRangeLines": input.ContentRangeLines, "contentCaptureCharacters": input.ContentCaptureCharacters, "scheduledAt": strings.TrimSpace(input.ScheduledAt), "queueStatus": queueStatus,
 			},
 		})
 		if err != nil {

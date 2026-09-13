@@ -9,15 +9,16 @@ import (
 // ManualIntakeInput uses Novel Fetch's book-list protocol. When the caller has
 // already fetched an original, it is persisted with the matching Book ID.
 type ManualIntakeInput struct {
-	Title              string            `json:"title"`
-	PlatformID         string            `json:"platformId"`
-	ParseMode          string            `json:"parseMode"`
-	ColumnPresetID     string            `json:"columnPresetId"`
-	ColumnOrder        string            `json:"columnOrder"`
-	InputText          string            `json:"inputText"`
-	ContentRangeLines  int               `json:"contentRangeLines,omitempty"`
-	ScheduledAt        string            `json:"scheduledAt,omitempty"`
-	SourceTextByBookID map[string]string `json:"sourceTextByBookId,omitempty"`
+	Title                    string            `json:"title"`
+	PlatformID               string            `json:"platformId"`
+	ParseMode                string            `json:"parseMode"`
+	ColumnPresetID           string            `json:"columnPresetId"`
+	ColumnOrder              string            `json:"columnOrder"`
+	InputText                string            `json:"inputText"`
+	ContentRangeLines        int               `json:"contentRangeLines,omitempty"`
+	ContentCaptureCharacters int               `json:"contentCaptureCharacters,omitempty"`
+	ScheduledAt              string            `json:"scheduledAt,omitempty"`
+	SourceTextByBookID       map[string]string `json:"sourceTextByBookId,omitempty"`
 }
 type manualRow struct {
 	bookID, paidID, freeID, title, gender, style, tags, reason, rating, sourceLine, mode string

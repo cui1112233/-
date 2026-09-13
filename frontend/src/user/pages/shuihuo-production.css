@@ -88,6 +88,10 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-modal-note { margin: 10px 0 0; line-height: 1.6; font-size: 12px; }
 .batch-factory-fetch-originals { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
 .batch-factory-fetch-originals .shuihuo-modal-note { margin: 0; }
+.batch-factory-content-controls { display: flex; align-items: end; gap: 18px; }
+.batch-factory-content-controls .shuihuo-form-label { margin-bottom: 0; }
+.batch-factory-content-controls .ant-input-number { width: 118px; }
+.batch-factory-content-controls .ant-select { width: 120px; }
 .shuihuo-source-composer { overflow: hidden; border: 1px solid var(--sh-line); background: var(--sh-panel-strong); }
 .shuihuo-source-composer:focus-within { border-color: var(--sh-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sh-accent) 16%, transparent); }
 .shuihuo-source-composer .ant-input { display: block; min-height: 104px; resize: vertical; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; }

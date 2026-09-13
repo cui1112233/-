@@ -36,6 +36,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [automatic, setAutomatic] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
   const [contentRangeLines, setContentRangeLines] = useState(5);
+  const [contentCaptureCharacters, setContentCaptureCharacters] = useState(4000);
   const [sourceTextByBookId, setSourceTextByBookId] = useState({});
   const [fetching, setFetching] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -63,7 +64,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
 
   const hasSelectedPlatform = platformOptions.some(option => option.value === platformId);
   function clearFetchedSources() { setSourceTextByBookId({}); }
-  function reset() { setTitle(''); setInputText(''); setAutomatic(false); setScheduledAt(''); setContentRangeLines(5); clearFetchedSources(); }
+  function reset() { setTitle(''); setInputText(''); setAutomatic(false); setScheduledAt(''); setContentRangeLines(5); setContentCaptureCharacters(4000); clearFetchedSources(); }
   const bookIds = manualBookIDsFromInput(inputText);
   const sourceReady = hasFetchedManualSources(bookIds, sourceTextByBookId);
   async function fetchOriginals() {
@@ -71,7 +72,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     if (!bookIds.length) return message.warning('请先在小说列表中输入有效的 Book ID');
     setFetching(true);
     try {
-      const result = await fetchNovelContent({ platform: platformId, bookIds, maxTxt: 100000 });
+      const result = await fetchNovelContent({ platform: platformId, bookIds, maxTxt: contentCaptureCharacters });
       const fetched = {};
       const failed = [];
       for (const item of result?.results || []) {
@@ -85,7 +86,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         message.error(`有 ${failed.length || bookIds.length - Object.keys(fetched).length} 本未抓到原文，请检查 Book ID 后重试`);
         return;
       }
-      message.success(`已抓取 ${bookIds.length} 本小说原文，创建后会保存到本批量作品`);
+      message.success(`已抓取 ${bookIds.length} 本小说，每本保存前 ${contentCaptureCharacters} 字用于后续上传`);
     } catch (error) {
       clearFetchedSources();
       message.error(error.message || '获取内容失败');
@@ -102,7 +103,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     if (automatic && Number.isNaN(scheduled.getTime())) return message.warning('定时执行时间无效');
     setBusy(true);
     try {
-      await onCreated({ title: title.trim(), platformId, parseMode, columnPresetId, columnOrder, inputText, sourceTextByBookId, contentRangeLines, scheduledAt: scheduled ? scheduled.toISOString() : '' });
+      await onCreated({ title: title.trim(), platformId, parseMode, columnPresetId, columnOrder, inputText, sourceTextByBookId, contentRangeLines, contentCaptureCharacters, scheduledAt: scheduled ? scheduled.toISOString() : '' });
       reset();
     } catch (error) { message.error(error.message || '新建批量失败'); } finally { setBusy(false); }
   }
@@ -118,13 +119,15 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <Input id="batch-column-order" value={columnOrder} onChange={event => { setColumnOrder(event.target.value); clearFetchedSources(); }} placeholder="书籍ID,书名,标签,推荐理由" />
     <label className="shuihuo-form-label" htmlFor="batch-input-text">小说列表 <em>*</em></label>
     <Input.TextArea id="batch-input-text" value={inputText} onChange={event => { setInputText(event.target.value); clearFetchedSources(); }} rows={9} placeholder={'每行一本小说，可粘贴 ID、书名、男女频、标签、理由、评级。\n示例：2080989285751305136\t重生书\t推荐理由\t女频\t重生,爽文\tS'} />
-    <div className="batch-factory-fetch-originals"><span className="shuihuo-modal-note">按所选书城抓取每个 Book ID 的完整原文；全部成功后才可创建。</span><Button type="primary" loading={fetching} disabled={platformState !== 'ready' || !hasSelectedPlatform || !bookIds.length} onClick={fetchOriginals}>获取内容</Button></div>
+    <div className="batch-factory-fetch-originals"><span className="shuihuo-modal-note">按所选书城抓取每个 Book ID 的前 {contentCaptureCharacters} 字；全部成功后才可创建。</span><Button type="primary" loading={fetching} disabled={platformState !== 'ready' || !hasSelectedPlatform || !bookIds.length} onClick={fetchOriginals}>获取内容</Button></div>
     {bookIds.length ? <p className="shuihuo-modal-note">待抓取 {bookIds.length} 本；已获取 {Object.keys(sourceTextByBookId).length} 本。</p> : null}
     <div className="shuihuo-create-collection"><strong>自动</strong><Switch size="small" checked={automatic} onChange={setAutomatic} /><span>在设定时间把本批小说标为待执行；新建时不会启动生成。</span></div>
     {automatic ? <><label className="shuihuo-form-label" htmlFor="batch-scheduled-at">定时执行时间 <em>*</em></label><Input id="batch-scheduled-at" type="datetime-local" value={scheduledAt} onChange={event => setScheduledAt(event.target.value)} /></> : null}
-    <label className="shuihuo-form-label">内容范围</label>
-    <InputNumber min={1} max={500} value={contentRangeLines} onChange={value => setContentRangeLines(value || 5)} addonAfter="条有效正文" />
-    <p className="shuihuo-modal-note">内容范围是每本书后续制作使用的前 N 条非空正文；完整原文不会被裁掉。</p>
+    <div className="batch-factory-content-controls">
+      <label className="shuihuo-form-label">内容范围<InputNumber min={1} max={500} value={contentRangeLines} onChange={value => setContentRangeLines(value || 5)} addonAfter="行" /></label>
+      <label className="shuihuo-form-label">内容截取<Select value={contentCaptureCharacters} onChange={value => { setContentCaptureCharacters(value); clearFetchedSources(); }} options={[1000, 2000, 4000, 8000, 12000, 20000, 50000, 100000].map(value => ({ value, label: `${value} 字` }))} /></label>
+    </div>
+    <p className="shuihuo-modal-note">内容范围只控制工作台展示前 N 条有效正文；内容截取决定实际抓取和后续上传的正文长度。</p>
     {platformState === 'error' ? <p className="shuihuo-modal-note">书城读取失败：{platformError}</p> : null}
   </Modal>;
 }

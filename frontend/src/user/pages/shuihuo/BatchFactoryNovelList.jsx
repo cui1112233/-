@@ -48,7 +48,7 @@ export function BatchFactoryNovelList({ batch, onBack }) {
         const workText = batchFactoryWorkText(book.sourceText, book);
         return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row">
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><strong>{index + 1}</strong></div>
-          <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{book.platform || '—'}</span><p>{String(book.sourceText || '').trim() || '原文尚未获取。手动书单会按保存的书城与 bookId 获取原文，获取完成后才开放制作。'}</p></div>
+          <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{book.platform || '—'} · 展示前 {rangeLines} 行</span><p>{workText || '原文尚未获取。手动书单会按保存的书城与 bookId 获取原文，获取完成后才开放制作。'}</p></div>
           <div className="shuihuo-workbench-cell batch-factory-work-text"><strong>前贴工作文本 · 前 {rangeLines} 条有效正文</strong><p>{workText || '原文尚未获取。获取完成后会按内容范围生成前贴工作文本。'}</p></div>
           <div className="shuihuo-workbench-cell batch-factory-placeholder"><strong>人物 / 场景 / 道具</strong><span>等待该书原文就绪。</span></div>
           <div className="shuihuo-workbench-cell batch-factory-placeholder"><strong>画面 / 视频提示词</strong><span>AI 推理后在本行保存。</span></div>

@@ -176,9 +176,10 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
 	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
 		"title": "晚间批量", "platformId": "15", "parseMode": "smart", "columnPresetId": "sample_input",
-		"inputText":          "100000000001\t书A\t精彩理由\t女频\t都市爽文\tS\n100000000002\t书B\t精彩理由\t男频\t都市爽文\tA",
-		"sourceTextByBookId": map[string]string{"100000000001": "第一本完整原文", "100000000002": "第二本完整原文"},
-		"contentRangeLines":  5, "scheduledAt": "2026-09-14T02:00:00Z",
+		"inputText":                "100000000001\t书A\t精彩理由\t女频\t都市爽文\tS\n100000000002\t书B\t精彩理由\t男频\t都市爽文\tA",
+		"sourceTextByBookId":       map[string]string{"100000000001": "第一本完整原文", "100000000002": "第二本完整原文"},
+		"contentCaptureCharacters": 4000,
+		"contentRangeLines":        5, "scheduledAt": "2026-09-14T02:00:00Z",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -192,5 +193,8 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 	}
 	if got.Books[0].SourceText != "第一本完整原文" || got.Books[0].TxtText != "第一本完整原文" || got.Books[1].SourceText != "第二本完整原文" {
 		t.Fatalf("fetched source was not persisted: %#v", got.Books)
+	}
+	if got.Books[0].SourceMetadata["contentCaptureCharacters"] != float64(4000) {
+		t.Fatalf("capture metadata=%#v", got.Books[0].SourceMetadata)
 	}
 }

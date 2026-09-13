@@ -3,6 +3,11 @@ export function contentRangeLinesForBook(book) {
   return Number.isInteger(value) && value > 0 ? Math.min(value, 500) : 5;
 }
 
+export function contentCaptureCharactersForBook(book) {
+  const value = Number(book?.sourceMetadata?.contentCaptureCharacters);
+  return Number.isInteger(value) && value >= 100 && value <= 100000 ? value : 4000;
+}
+
 export function batchFactoryWorkText(sourceText, book) {
   return String(sourceText || '')
     .split(/\r?\n/)
