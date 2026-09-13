@@ -3011,8 +3011,10 @@ async function reprocessSensitive(ids, restoreFromBackup) {
     }
   }
   const summary = `${label}完成：已处理 ${processed} 个${restoreFromBackup ? `，已恢复 ${restored} 个` : ""}，失败 ${failed} 个`;
-  setBatchStatus(firstError ? `${summary}（${firstError}）` : summary);
-  showBatchToast(firstError || failed ? `${summary}${firstError ? `：${firstError}` : ""}` : summary, failed ? "warning" : "success");
+  const detail = firstError ? `${summary}：${firstError}` : summary;
+  setBatchStatus(detail);
+  const processResult = $("processResult");
+  if (processResult) processResult.textContent = detail;
   if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
 }
 
