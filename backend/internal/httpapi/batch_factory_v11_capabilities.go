@@ -13,18 +13,19 @@ func CapabilitiesForSlice(slice int) map[string]Capability {
 
 func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable bool, externalAvailability ...bool) map[string]Capability {
 	caps := map[string]Capability{
-		"batch.read":        {Reason: "V11 settings slice not released"},
-		"batch.create":      {Reason: "V11 settings slice not released"},
-		"settings.edit":     {Reason: "V11 settings slice not released"},
-		"snapshot.read":     {Reason: "V11 settings slice not released"},
-		"override.edit":     {Reason: "V11 settings slice not released"},
-		"director.run":      {Reason: "Director slice not released"},
-		"hook.review":       {Reason: "Director slice not released"},
-		"compiler.preview":  {Reason: "Final prompt compiler slice not released"},
-		"production.submit": {Reason: "Production slice not released"},
-		"merge.run":         {Reason: "Merge slice not released"},
-		"publish.121":       {Reason: "121 is not enabled"},
-		"publish.yadi":      {Reason: "Yadi is not enabled"},
+		"batch.read":          {Reason: "V11 settings slice not released"},
+		"batch.create":        {Reason: "V11 settings slice not released"},
+		"settings.edit":       {Reason: "V11 settings slice not released"},
+		"snapshot.read":       {Reason: "V11 settings slice not released"},
+		"override.edit":       {Reason: "V11 settings slice not released"},
+		"director.run":        {Reason: "Director slice not released"},
+		"hook.review":         {Reason: "Director slice not released"},
+		"working-front.viral": {Reason: "Director slice not released"},
+		"compiler.preview":    {Reason: "Final prompt compiler slice not released"},
+		"production.submit":   {Reason: "Production slice not released"},
+		"merge.run":           {Reason: "Merge slice not released"},
+		"publish.121":         {Reason: "121 is not enabled"},
+		"publish.yadi":        {Reason: "Yadi is not enabled"},
 	}
 	if slice >= 1 {
 		for _, key := range []string{"batch.read", "batch.create", "settings.edit", "snapshot.read", "override.edit"} {
@@ -34,6 +35,7 @@ func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable 
 	if slice >= 2 {
 		caps["director.run"] = Capability{Available: true}
 		caps["hook.review"] = Capability{Available: true}
+		caps["working-front.viral"] = Capability{Available: true}
 	}
 	if slice >= 3 {
 		caps["compiler.preview"] = Capability{Available: true}
@@ -63,8 +65,12 @@ func capabilityHandlerForRuntime(slice int, productionAvailable bool, mergeAvail
 	if len(mergeAvailability) > 0 {
 		mergeAvailable = mergeAvailability[0]
 	}
-	if len(mergeAvailability) > 1 { publish121 = mergeAvailability[1] }
-	if len(mergeAvailability) > 2 { publishYadi = mergeAvailability[2] }
+	if len(mergeAvailability) > 1 {
+		publish121 = mergeAvailability[1]
+	}
+	if len(mergeAvailability) > 2 {
+		publishYadi = mergeAvailability[2]
+	}
 	return func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, capabilitiesForRuntime(slice, productionAvailable, mergeAvailable, publish121, publishYadi))
 	}

@@ -18,7 +18,7 @@ var DirectorPrefixKeys = []string{
 type TextCompletionRequest struct {
 	SystemPrompt string
 	UserPrompt   string
-	Temperature float64
+	Temperature  float64
 	MaxTokens    int
 }
 
@@ -38,6 +38,21 @@ func BuildHookContract(book Book) PromptContract {
 	return PromptContract{
 		SystemPrompt: system,
 		UserPrompt:   "小说标题：" + book.Title + "\n\n原文：\n" + book.SourceText,
+		Temperature:  0.75,
+		MaxTokens:    5000,
+	}
+}
+
+// BuildWorkingFrontRewriteContract creates a reviewable replacement candidate
+// for the current book's working front. It deliberately returns prose rather
+// than a Hook revision: accepting it is a separate, explicit user action.
+func BuildWorkingFrontRewriteContract(book Book) PromptContract {
+	system := strings.TrimSpace(`你是短剧爆款开头改写编辑。把当前前贴文本改写为更有冲突、悬念和可视化行动的短剧开头。
+不得改变人物身份、关键因果、时间关系或安全边界；不得编造后续不存在的重要设定。
+保留与原文后续内容衔接所需的信息。只输出可直接替换的正文，不要标题、说明或 Markdown。`)
+	return PromptContract{
+		SystemPrompt: system,
+		UserPrompt:   "小说标题：" + book.Title + "\n\n当前前贴文本：\n" + book.SourceText,
 		Temperature:  0.75,
 		MaxTokens:    5000,
 	}
@@ -65,9 +80,9 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 不得把普通情绪只换成形容词；冲突升级要通过动作、表情、对白和可见行为呈现。
 ` + durationRule + "\n画幅：" + snapshot.AspectRatio + "\n允许的 prefix_key：" + strings.Join(DirectorPrefixKeys, ", ")
 	payload := map[string]any{
-		"book_id": book.ID,
-		"title": book.Title,
-		"mode": mode,
+		"book_id":     book.ID,
+		"title":       book.Title,
+		"mode":        mode,
 		"source_text": book.SourceText,
 	}
 	if mode == "viral" {
@@ -87,12 +102,11 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 		Temperature:  temperature,
 		MaxTokens:    18000,
 		Normalization: DirectorSettings{
-			MaxVideoDuration: snapshot.MaxVideoDuration,
-			FixedSingleVideo: snapshot.FixedSingleVideo,
-			ExactDuration: snapshot.ExactDuration,
-			AspectRatio: snapshot.AspectRatio,
+			MaxVideoDuration:  snapshot.MaxVideoDuration,
+			FixedSingleVideo:  snapshot.FixedSingleVideo,
+			ExactDuration:     snapshot.ExactDuration,
+			AspectRatio:       snapshot.AspectRatio,
 			AllowedPrefixKeys: append([]string(nil), DirectorPrefixKeys...),
 		},
 	}, nil
 }
-

@@ -1,6 +1,6 @@
 import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, FolderOpenOutlined, PlusOutlined, SearchOutlined, UploadOutlined, UserOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
 import { BatchFactoryCreateModal } from './BatchFactoryCreateModal';
 import { isBatchFactoryV11Project } from './batchFactoryProjects';
@@ -20,7 +20,7 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '已创建' : date.toLocaleDateString('zh-CN');
 }
 
-export function ProjectsView({ projects, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh }) {
+export function ProjectsView({ projects, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh, openCreateOnLoad = false }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [collection, setCollection] = useState('all');
@@ -32,6 +32,10 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
   const [segmentationMode, setSegmentationMode] = useState('paragraph');
   const [busy, setBusy] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+
+  useEffect(() => {
+    if (openCreateOnLoad) setBatchOpen(true);
+  }, [openCreateOnLoad]);
 
   const hasSource = Boolean(file || sourceText.trim());
   const smartReady = Boolean(health?.database?.ready && health?.enabledModelKinds?.includes('text'));

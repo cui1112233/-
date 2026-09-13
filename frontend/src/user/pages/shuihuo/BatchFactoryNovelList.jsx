@@ -1,5 +1,4 @@
 import {
-  AppstoreOutlined,
   ArrowLeftOutlined,
   BarsOutlined,
   FileTextOutlined,
@@ -33,6 +32,7 @@ import {
   getProductionStatus,
   getPublishCredential,
   getChangeImpact,
+  rewriteWorkingFront,
   runBatchDirector,
   runDirector,
   saveBatchSettings,
@@ -180,7 +180,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [assetBook, setAssetBook] = useState(null);
   const [editingContentBook, setEditingContentBook] = useState(null);
   const [editingContentValue, setEditingContentValue] = useState('');
+  const [viralCandidate, setViralCandidate] = useState('');
   const [contentSaving, setContentSaving] = useState(false);
+  const [rewritingFront, setRewritingFront] = useState(false);
   const [promptBook, setPromptBook] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [engineOpen, setEngineOpen] = useState(false);
@@ -201,6 +203,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const mediaByVideoId = useMemo(() => completedMediaMap(productionStatus), [productionStatus]);
   const totalVideos = books.reduce((count, book) => count + (book?.videos?.length || 0), 0);
   const runCapability = capability(capabilities, 'director.run');
+  const workingFrontCapability = capability(capabilities, 'working-front.viral');
   const productionCapability = capability(capabilities, 'production.submit');
   const mergeCapability = capability(capabilities, 'merge.run');
 
@@ -246,9 +249,16 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }, [batch?.id]);
   useEffect(() => { setSelectedBookIds(current => current.filter(id => books.some(book => book.id === id))); }, [batch?.id, books.length]);
 
-  function openContentEditor(book) {
+  async function openContentEditor(book) {
     setEditingContentBook(book);
     setEditingContentValue(book?.workingFrontContent || batchFactoryPreviewText(book?.sourceText, book));
+    setViralCandidate('');
+    try {
+      const result = await getDraft({ key: `working-front-candidate:${book.id}`, kind: 'working-front-viral-candidate', scope: batch.id }, { suppressGlobalError: true });
+      setViralCandidate(String(resultData(result, 'draft')?.content || ''));
+    } catch (error) {
+      if (error?.status && error.status !== 404) message.error(error?.message || '读取爆款候选失败');
+    }
   }
   async function saveWorkingContent() {
     if (!editingContentBook) return;
@@ -259,6 +269,16 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       setEditingContentBook(null);
       message.success('当前小说的生产内容已保存；原文不会被覆盖。');
     } catch (error) { message.error(error?.message || '保存生产内容失败'); } finally { setContentSaving(false); }
+  }
+  async function createViralCandidate() {
+    if (!editingContentBook || rewritingFront) return;
+    setRewritingFront(true);
+    try {
+      const result = await rewriteWorkingFront(batch.id, editingContentBook.id, editingContentValue);
+      const candidate = String(resultData(result, 'candidate') || '').trim();
+      setViralCandidate(candidate);
+      message.success('爆款候选已生成，请确认后再替换当前生产内容。');
+    } catch (error) { message.error(error?.message || '生成爆款候选失败'); } finally { setRewritingFront(false); }
   }
   async function runAi(scope) {
     if (!batch?.id || actionBusy) return;
@@ -313,7 +333,6 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       <div className="shuihuo-workbench-heading"><button className="shuihuo-back-link" type="button" title="返回个人作品" aria-label="返回个人作品" onClick={onBack}><ArrowLeftOutlined /></button><strong>批量工厂 · {batch?.title || '未命名批量'}</strong><div className="shuihuo-workbench-progress" aria-label={`原文就绪 ${progress}%`}><div className="shuihuo-workbench-progress-track"><i style={{ width: `${progress}%` }} /></div><span>{progress}%</span></div></div>
       <div className="shuihuo-workbench-toolbar" role="toolbar" aria-label="批量工厂工具栏">
         <Button type="text" icon={<BarsOutlined />} onClick={() => setNovelListOpen(true)}>小说列表</Button>
-        <Tooltip title="按当前小说保存人物、场景、道具 Prompt；数据来自 AI 推理回写"><Button type="text" icon={<AppstoreOutlined />} onClick={() => setAssetBook(books[0] || null)} disabled={!books.length}>人物场景预设</Button></Tooltip>
         <Button type="text" icon={<SettingOutlined />} onClick={() => setEngineOpen(true)}>引擎配置</Button>
         <Tooltip title={runCapability.available ? '生成资产、画面和视频提示词' : runCapability.reason}><Button type="text" icon={<FileTextOutlined />} disabled={!runCapability.available} onClick={() => setAiOpen(true)}>AI 推理</Button></Tooltip>
         <Dropdown menu={{ items: batchMenuItems, onClick: ({ key }) => key === 'production' ? runProduction() : runMerge() }}><Button className="shuihuo-batch-button" type="text" icon={<PictureOutlined />} loading={actionBusy === 'production' || actionBusy === 'merge'}>批量操作</Button></Dropdown>
@@ -343,7 +362,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 
     <Modal title={`小说列表 · ${books.length} 本`} open={novelListOpen} onCancel={() => setNovelListOpen(false)} footer={null} width="min(1480px, calc(100vw - 48px))" className="batch-factory-novel-modal"><NovelMetadata books={books} createdAt={batch?.createdAt} selectedBookIds={selectedBookIds} onSelectionChange={setSelectedBookIds} onViewBook={setViewingBook} /></Modal>
     <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal"><Descriptions bordered size="small" column={1}>{viewingBook ? <><Descriptions.Item label="Book ID">{viewingBook.bookId || '—'}</Descriptions.Item><Descriptions.Item label="书城">{viewingBook.platform || '—'}</Descriptions.Item><Descriptions.Item label="男女频">{value(viewingBook.sourceMetadata, 'gender')}</Descriptions.Item><Descriptions.Item label="类型">{value(viewingBook.sourceMetadata, 'style')}</Descriptions.Item><Descriptions.Item label="来源">{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</Descriptions.Item><Descriptions.Item label="正文保存">{String(viewingBook.sourceText || '').length} 字</Descriptions.Item><Descriptions.Item label="原文状态">{batchFactoryBookState(viewingBook).detail}</Descriptions.Item></> : null}</Descriptions></Modal>
-    <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" style={{ marginTop: 14 }} /></Modal>
+    <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" /><Tooltip title={workingFrontCapability.available ? '基于当前输入生成候选；生成不会覆盖工作文本' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim()}>生成爆款候选</Button></Tooltip>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Button type="primary" onClick={() => setEditingContentValue(viralCandidate)}>替换为当前生产内容</Button></Space>} /> : null}</Space></Modal>
     <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width={900} className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} /> : null}</Modal>
     <Modal title={promptBook ? `最终提示词 · ${promptBook.title}` : '最终提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} /> : null}</Modal>
     <Modal title="AI 推理" open={aiOpen} onCancel={() => setAiOpen(false)} footer={null} width={620}><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="AI 推理只生成资产、画面与视频 Prompt" description="它不会自动提交视频、合并或121。完成后，结果会回写到每本小说这一行。" /><Button type="primary" loading={actionBusy === 'director'} onClick={() => runAi('all')}>对全部 {books.length} 本小说执行 AI 推理</Button><Select placeholder="选择单本小说" options={books.filter(book => String(book.sourceText || '').trim()).map(book => ({ value: book.id, label: `${book.title || '未命名'} · ${book.bookId || '—'}` }))} onChange={id => runAi(books.find(book => book.id === id))} disabled={actionBusy === 'director'} /></Space></Modal>

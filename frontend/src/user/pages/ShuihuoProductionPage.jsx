@@ -16,7 +16,7 @@ function readinessItems(health) {
   return [['数据库', health?.database], ['Redis', health?.redis], ['存储', health?.storage], ...Object.entries(modelNames).map(([kind, name]) => [name, { ready: enabled.has(kind), reason: enabled.has(kind) ? '' : `缺少已启用的${name}` }])];
 }
 
-export function ShuihuoProductionPage() {
+export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
   const [activeBatchProject, setActiveBatchProject] = useState(null);
@@ -154,7 +154,7 @@ export function ShuihuoProductionPage() {
     {view !== 'projects' && health ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><strong className="shuihuo-readiness-title">运行依赖</strong>{readinessItems(health).map(([name, dependency]) => <span className={dependency?.ready ? 'ready' : 'missing'} key={name} title={dependency?.reason || `${name}已配置`}>{name}：{dependency?.ready ? '已配置' : '未配置'}{dependency?.ready || !dependency?.reason ? '' : `（${dependency.reason}）`}</span>)}</div> : null}
     {view !== 'projects' && healthError ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><span className="missing">状态读取失败：{healthError}</span></div> : null}
     {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
-    {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} /> : null}
+    {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} openCreateOnLoad={openBatchOnLoad} /> : null}
     {view === 'batch-novels' && activeBatchProject ? <BatchFactoryNovelList batch={activeBatchProject} onBack={() => { setActiveBatchProject(null); setView('projects'); refreshProjects(); }} onBatchChanged={async () => { const current = batchFactoryBatchFromResponse(await getBatch(activeBatchProject.id)); setActiveBatchProject(current); await refreshProjects(); }} /> : null}
     {view === 'studio' && activeProject ? <CommentaryWorkbench data={activeProject} readiness={health} importNotice={importNotice} onBackToProjects={() => { setImportNotice(null); setView('projects'); refreshProjects(); }} onOpenAssets={() => setAssetsOpen(true)} onDataChange={applyReadModel} /> : null}
     <Modal title="人物场景预设" open={assetsOpen} onCancel={() => setAssetsOpen(false)} footer={null} width="min(1360px, calc(100vw - 48px))" className="shuihuo-assets-modal" destroyOnClose={false}>

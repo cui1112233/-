@@ -131,3 +131,39 @@ func TestDirectorUsesSavedWorkingFrontWithoutChangingCapturedSource(t *testing.T
 		t.Fatalf("director digest=%q", got)
 	}
 }
+
+func TestRewriteWorkingFrontPersistsCandidateWithoutChangingCapturedSource(t *testing.T) {
+	store := NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: "captured source"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	if _, err := store.SaveDraft(context.Background(), "alice", Draft{Key: "working-front:" + book.ID, Kind: "working-front-content", Scope: batch.ID, Content: "editable front"}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{"viral candidate"}}
+	service := &DirectorService{Store: store, Provider: provider}
+	candidate, err := service.RewriteWorkingFront(context.Background(), "alice", batch.ID, book.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate != "viral candidate" {
+		t.Fatalf("candidate=%q", candidate)
+	}
+	if len(provider.calls) != 1 || !strings.Contains(provider.calls[0].UserPrompt, "editable front") {
+		t.Fatalf("rewrite must use working front: %+v", provider.calls)
+	}
+	draft, err := store.GetDraft(context.Background(), "alice", "working-front-candidate:"+book.ID, "working-front-viral-candidate", batch.ID)
+	if err != nil || draft.Content != "viral candidate" {
+		t.Fatalf("candidate draft=%+v err=%v", draft, err)
+	}
+	loaded, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil || loaded.Books[0].SourceText != "captured source" {
+		t.Fatalf("captured source must remain immutable: book=%+v err=%v", loaded.Books[0], err)
+	}
+	working, err := store.GetDraft(context.Background(), "alice", "working-front:"+book.ID, "working-front-content", batch.ID)
+	if err != nil || working.Content != "editable front" {
+		t.Fatalf("working front mutated before replacement: %+v err=%v", working, err)
+	}
+}

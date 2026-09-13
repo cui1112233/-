@@ -140,12 +140,16 @@ export function savePersonalConstraintPrompt(payload) {
   return apiRequest('/api/script-constraint-prompts', { method: 'POST', body: body(payload) });
 }
 
-export function getDraft(params = {}) {
-  return apiRequest(`${bf11Path('drafts')}${query(params)}`);
+export function getDraft(params = {}, options = {}) {
+  return apiRequest(`${bf11Path('drafts')}${query(params)}`, options);
 }
 
 export function saveDraft(payload) {
   return apiRequest(bf11Path('drafts'), { method: 'PUT', body: body(payload) });
+}
+
+export function rewriteWorkingFront(batchId, bookId, content) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/working-front/viral`), { method: 'POST', body: body({ content: String(content || '') }) });
 }
 
 export function runHook(batchId, bookId) {
@@ -263,6 +267,7 @@ export default {
   savePersonalConstraintPrompt,
   getDraft,
   saveDraft,
+  rewriteWorkingFront,
   runHook,
   approveHook,
   runDirector,

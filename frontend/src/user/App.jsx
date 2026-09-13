@@ -11,7 +11,9 @@ const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPage'));
-const BatchFactoryFromShuihuoPage = lazy(() => import('./pages/新·批量工厂/ShuihuoProductionPage'));
+const BatchFactoryFromShuihuoPage = lazy(() => import('./pages/ShuihuoProductionPage').then(module => ({
+  default: () => <module.ShuihuoProductionPage openBatchOnLoad />
+})));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));

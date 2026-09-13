@@ -116,6 +116,46 @@ func (s *DirectorService) productionBook(ctx context.Context, owner, batchID str
 	return book, nil
 }
 
+// RewriteWorkingFront generates a candidate only. The approved working front
+// remains unchanged until the user explicitly saves it from the workbench.
+func (s *DirectorService) RewriteWorkingFront(ctx context.Context, owner, batchID, bookID, currentText string) (string, error) {
+	if err := s.validate(); err != nil {
+		return "", err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return "", err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(currentText) != "" {
+		book.SourceText = strings.TrimSpace(currentText)
+	} else {
+		book, err = s.productionBook(ctx, owner, batchID, book)
+		if err != nil {
+			return "", err
+		}
+	}
+	if strings.TrimSpace(book.SourceText) == "" {
+		return "", fmt.Errorf("%w: working front text is required", ErrInvalid)
+	}
+	contract := BuildWorkingFrontRewriteContract(book)
+	candidate, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
+	if err != nil {
+		return "", err
+	}
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return "", fmt.Errorf("%w: empty working-front rewrite", ErrInvalid)
+	}
+	if _, err := s.Store.SaveDraft(ctx, owner, Draft{Key: "working-front-candidate:" + book.ID, Kind: "working-front-viral-candidate", Scope: batchID, Content: candidate}); err != nil {
+		return "", err
+	}
+	return candidate, nil
+}
+
 func (s *DirectorService) RunHook(ctx context.Context, owner, batchID, bookID string) (HookRevision, error) {
 	if err := s.validate(); err != nil {
 		return HookRevision{}, err
