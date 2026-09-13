@@ -1,3 +1,3 @@
 release_sha=NEXT_COMMIT
-scope=Shared top status bar across workspaces
-requested_at=2026-09-14T00:20:00+08:00
+scope=All operation feedback and API errors in shared status bar
+requested_at=2026-09-14T00:40:00+08:00
