@@ -200,6 +200,40 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"configVersions": versions})
 	})
+	mux.HandleFunc("POST /api/batch-factory/v11/config-versions", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input batchfactoryv11.ConfigVersion
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		version, err := store.CreateConfigVersion(r.Context(), owner, input)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"configVersion": version})
+	})
+	mux.HandleFunc("PUT /api/batch-factory/v11/config-versions/{versionId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input batchfactoryv11.RenameConfigVersionInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		version, err := store.RenameConfigVersion(r.Context(), owner, r.PathValue("versionId"), input.Name)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"configVersion": version})
+	})
 	mux.HandleFunc("GET /api/batch-factory/v11/prompts", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {

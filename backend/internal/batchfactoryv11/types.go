@@ -132,6 +132,9 @@ type ConfigVersion struct {
 	Config    json.RawMessage `json:"config"`
 	CreatedAt time.Time       `json:"createdAt,omitempty"`
 }
+type RenameConfigVersionInput struct {
+	Name string `json:"name"`
+}
 type ConfigSnapshot struct {
 	ID        string        `json:"id"`
 	BatchID   string        `json:"batchId"`
@@ -281,6 +284,8 @@ type Store interface {
 	GetBatch(context.Context, string, string) (Batch, error)
 	SaveSettings(context.Context, string, ScopeRef, SettingsUpdate) (SettingsResult, error)
 	ConfigVersions(context.Context, string) ([]ConfigVersion, error)
+	CreateConfigVersion(context.Context, string, ConfigVersion) (ConfigVersion, error)
+	RenameConfigVersion(context.Context, string, string, string) (ConfigVersion, error)
 	ChangeImpact(context.Context, string, string, SettingsUpdate) (ChangeImpact, error)
 	ListPrompts(context.Context, string, string) ([]Prompt, error)
 	CreatePrompt(context.Context, string, Prompt) (Prompt, error)

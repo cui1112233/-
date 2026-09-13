@@ -156,6 +156,14 @@ export function getConfigVersions() {
   return apiRequest(bf11Path('config-versions'));
 }
 
+export function createConfigVersion(payload) {
+  return apiRequest(bf11Path('config-versions'), { method: 'POST', body: body(payload) });
+}
+
+export function renameConfigVersion(versionId, name) {
+  return apiRequest(bf11Path(`config-versions/${id(versionId)}`), { method: 'PUT', body: body({ name }) });
+}
+
 export function getChangeImpact(batchId, payload) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/change-impact`), { method: 'POST', body: body(payload) });
 }
@@ -324,6 +332,8 @@ export default {
   uploadBookAssetImage,
   setPrimaryBookAssetImage,
   getConfigVersions,
+  createConfigVersion,
+  renameConfigVersion,
   getChangeImpact,
   listPrompts,
   createPrompt,

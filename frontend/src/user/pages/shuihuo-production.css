@@ -517,6 +517,8 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-library-note { color: #91a2b8; font-size: 12px; line-height: 1.55; }
 
 .batch-factory-ai-modal .ant-modal-body { display:grid; gap:16px; max-height:calc(100vh - 240px); overflow:auto; }
+.batch-factory-ai-title { display:flex; align-items:center; justify-content:space-between; width:100%; }
+.batch-factory-ai-title .ant-btn { margin-inline-end:24px; }
 .batch-factory-ai-module { display:grid; gap:14px; padding:16px; border:1px solid var(--sh-line); border-radius:8px; background:var(--sh-panel); }
 .batch-factory-ai-module-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .batch-factory-ai-module-head b { color:var(--sh-text); }

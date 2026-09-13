@@ -435,7 +435,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     Promise.all([getCapabilities(), getConfigVersions()]).then(async ([nextCapabilities, nextVersions]) => {
       if (!active) return;
       setCapabilities(nextCapabilities || {});
-      setConfigVersions(resultData(nextVersions, 'versions') || []);
+      setConfigVersions(resultData(nextVersions, 'configVersions') || []);
       setConfigVersionsError(null);
       await loadRuntimeStatus({ quiet: true, runtimeCapabilities: nextCapabilities || {} });
     }).catch(error => { if (active) setConfigVersionsError(error); });
@@ -598,7 +598,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={() => runAi(assetBook)} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'director'} engineSettings={batch?.settingsState?.patch} /> : null}</Modal>
 	<Modal title={promptBook ? `提示词 · ${promptBook.title}` : '提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} onSaved={refreshBatch} /> : null}</Modal>
 	<Modal title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'} open={Boolean(mediaBook)} onCancel={() => setMediaBook(null)} footer={null} width={900}>{mediaBook ? <MediaVersionPanel book={mediaBook} batchId={batch?.id} versionsByVideo={mediaVersionsByVideo} onSaved={async () => { await refreshBatch(); await loadRuntimeStatus({ quiet: true }); }} /> : null}</Modal>
-    <BatchFactoryAiReasoningModal open={aiOpen} batch={batch} books={books} onClose={() => setAiOpen(false)} onSaved={refreshBatch} onRun={() => runAi('all')} running={actionBusy === 'director'} runAvailable={runCapability.available} runReason={runCapability.reason} />
+    <BatchFactoryAiReasoningModal open={aiOpen} batch={batch} books={books} presetVersions={configVersions} onClose={() => setAiOpen(false)} onSaved={refreshBatch} onPresetsChanged={async () => { const next = await getConfigVersions(); setConfigVersions(resultData(next, 'configVersions') || []); }} onRun={() => runAi('all')} running={actionBusy === 'director'} runAvailable={runCapability.available} runReason={runCapability.reason} />
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
     <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} capabilities={capabilities} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} />
     <BatchFactoryEngineSettingsDrawer open={engineOpen} batch={batch} onClose={() => setEngineOpen(false)} onSave={saveSettings} />

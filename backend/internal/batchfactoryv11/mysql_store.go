@@ -328,13 +328,16 @@ func (s *MySQLStore) SaveSettings(ctx context.Context, owner string, ref ScopeRe
 		return SettingsResult{}, err
 	}
 	if selectsVersion {
-		var one int
-		err = tx.QueryRowContext(ctx, `SELECT 1 FROM batch_factory_v11_config_versions WHERE id=? AND (owner_username IS NULL OR owner_username=?)`, versionID, owner).Scan(&one)
+		var config json.RawMessage
+		err = tx.QueryRowContext(ctx, `SELECT config_json FROM batch_factory_v11_config_versions WHERE id=? AND (owner_username IS NULL OR owner_username=?)`, versionID, owner).Scan(&config)
 		if errors.Is(err, sql.ErrNoRows) {
 			return SettingsResult{}, ErrNotFound
 		}
 		if err != nil {
 			return SettingsResult{}, err
+		}
+		if isAIReasoningPresetConfig(config) {
+			return SettingsResult{}, ErrInvalid
 		}
 	}
 	patch, err := loadPatch(ctx, tx, owner, ref)
@@ -488,6 +491,56 @@ func (s *MySQLStore) ConfigVersions(ctx context.Context, owner string) ([]Config
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+func validConfigVersionJSON(raw json.RawMessage) bool {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return false
+	}
+	var value map[string]any
+	return json.Unmarshal(raw, &value) == nil
+}
+func isAIReasoningPresetConfig(raw json.RawMessage) bool {
+	var value struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(raw, &value) == nil && value.Type == "ai-reasoning-preset"
+}
+func (s *MySQLStore) CreateConfigVersion(ctx context.Context, owner string, version ConfigVersion) (ConfigVersion, error) {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(version.Name) == "" || !validConfigVersionJSON(version.Config) {
+		return ConfigVersion{}, ErrInvalid
+	}
+	id, err := newID("config")
+	if err != nil {
+		return ConfigVersion{}, err
+	}
+	version.ID, version.Name, version.CreatedAt = id, strings.TrimSpace(version.Name), time.Now().UTC()
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO batch_factory_v11_config_versions(id,owner_username,name,config_json,created_at) VALUES(?,?,?,?,?)`, version.ID, owner, version.Name, version.Config, version.CreatedAt); err != nil {
+		return ConfigVersion{}, err
+	}
+	return version, nil
+}
+func (s *MySQLStore) RenameConfigVersion(ctx context.Context, owner, id, name string) (ConfigVersion, error) {
+	if strings.TrimSpace(name) == "" {
+		return ConfigVersion{}, ErrInvalid
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE batch_factory_v11_config_versions SET name=? WHERE id=? AND owner_username=?`, strings.TrimSpace(name), id, owner)
+	if err != nil {
+		return ConfigVersion{}, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return ConfigVersion{}, err
+	}
+	if count != 1 {
+		return ConfigVersion{}, ErrNotFound
+	}
+	var version ConfigVersion
+	var raw []byte
+	if err := s.db.QueryRowContext(ctx, `SELECT id,name,config_json,created_at FROM batch_factory_v11_config_versions WHERE id=? AND owner_username=?`, id, owner).Scan(&version.ID, &version.Name, &raw, &version.CreatedAt); err != nil {
+		return ConfigVersion{}, err
+	}
+	version.Config = json.RawMessage(raw)
+	return version, nil
 }
 func (s *MySQLStore) ChangeImpact(ctx context.Context, owner, batchID string, update SettingsUpdate) (ChangeImpact, error) {
 	b, err := s.GetBatch(ctx, owner, batchID)

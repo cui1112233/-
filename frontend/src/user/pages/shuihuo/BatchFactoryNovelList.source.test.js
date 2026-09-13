@@ -92,6 +92,16 @@ test('renders saved book-city and novel-fetch metadata without exposing internal
   assert.match(source, /label="书城">\{bookPlatformName\(viewingBook, platformNames\)\}/);
 });
 
+test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
+  assert.match(reasoningSource, /AI 推理预设/);
+  assert.match(reasoningSource, /createConfigVersion/);
+  assert.match(reasoningSource, /renameConfigVersion/);
+  assert.match(reasoningSource, /保存为新预设/);
+  assert.match(reasoningSource, /重命名所选预设/);
+  assert.match(reasoningSource, /载入预设/);
+  assert.match(source, /presetVersions=\{configVersions\}/);
+});
+
 test('uses four persisted V11 prompt modules in one centered AI reasoning modal', () => {
   assert.match(source, /BatchFactoryAiReasoningModal/);
   assert.match(reasoningSource, /资产设置/);

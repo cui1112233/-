@@ -502,6 +502,9 @@ func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef
 		if !exists || (version.Owner != "" && version.Owner != owner) {
 			return SettingsResult{}, ErrNotFound
 		}
+		if isAIReasoningPresetConfig(version.Value.Config) {
+			return SettingsResult{}, ErrInvalid
+		}
 	}
 	(*rev)++
 	patch := ApplySparseUpdate(s.patches[scopeKey(ref)], update)
@@ -536,6 +539,33 @@ func (s *MemoryStore) ConfigVersions(_ context.Context, owner string) ([]ConfigV
 		return out[i].CreatedAt.Before(out[j].CreatedAt)
 	})
 	return out, nil
+}
+func (s *MemoryStore) CreateConfigVersion(_ context.Context, owner string, version ConfigVersion) (ConfigVersion, error) {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(version.Name) == "" || !validConfigVersionJSON(version.Config) {
+		return ConfigVersion{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	version.ID = s.id("config")
+	version.Name = strings.TrimSpace(version.Name)
+	version.Config = append([]byte(nil), version.Config...)
+	version.CreatedAt = time.Now().UTC()
+	s.configVersions[version.ID] = memoryOwned[ConfigVersion]{Owner: owner, Value: version}
+	return version, nil
+}
+func (s *MemoryStore) RenameConfigVersion(_ context.Context, owner, id, name string) (ConfigVersion, error) {
+	if strings.TrimSpace(name) == "" {
+		return ConfigVersion{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.configVersions[id]
+	if !ok || owned.Owner != owner {
+		return ConfigVersion{}, ErrNotFound
+	}
+	owned.Value.Name = strings.TrimSpace(name)
+	s.configVersions[id] = owned
+	return owned.Value, nil
 }
 func (s *MemoryStore) ChangeImpact(_ context.Context, owner, batchID string, u SettingsUpdate) (ChangeImpact, error) {
 	b, err := s.GetBatch(context.Background(), owner, batchID)
