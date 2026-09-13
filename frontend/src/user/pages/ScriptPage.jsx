@@ -28,7 +28,7 @@ import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
-import { reconcileScriptModelSelection } from './scriptModelSelection';
+import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
 
 function videoModelKey(model) {
   return String(model?.key || model?.modelKey || '').trim();
@@ -169,6 +169,15 @@ export function ScriptPage() {
   const selectedMode = Form.useWatch('mode', form);
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
+  useEffect(() => {
+    const saved = loadScriptModelSelection(window.localStorage, draftUsernameRef.current);
+    setScriptModelSelection(current => ({ textModelId: current.textModelId || saved.textModelId, imageModelId: current.imageModelId || saved.imageModelId }));
+    setScriptVideoModelKey(current => current || saved.videoModelKey || 'yd2-mini-video');
+  }, []);
+  useEffect(() => {
+    if (!scriptModelsLoaded) return;
+    saveScriptModelSelection(window.localStorage, draftUsernameRef.current, { ...scriptModelSelection, videoModelKey: scriptVideoModelKey });
+  }, [scriptModelsLoaded, scriptModelSelection, scriptVideoModelKey]);
   useEffect(() => {
     let active = true;
     setLoadingScriptVideoModels(true);

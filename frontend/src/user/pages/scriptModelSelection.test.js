@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reconcileScriptModelSelection } from './scriptModelSelection.js';
+import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection.js';
 
 test('keeps each script selection while its configured model remains available', () => {
   assert.deepEqual(
@@ -26,4 +26,12 @@ test('clears only the selection whose configured model was removed or disabled',
     ),
     { textModelId: 'text-qwen', imageModelId: '', unavailableKinds: ['image'] }
   );
+});
+
+test('persists model selection per user and restores it', () => {
+  const values = new Map();
+  const storage = { setItem: (key, value) => values.set(key, value), getItem: key => values.get(key) || null };
+  saveScriptModelSelection(storage, 'alice', { textModelId: 't1', imageModelId: 'i1', videoModelKey: 'v1' });
+  assert.deepEqual(loadScriptModelSelection(storage, 'alice'), { textModelId: 't1', imageModelId: 'i1', videoModelKey: 'v1' });
+  assert.deepEqual(loadScriptModelSelection(storage, 'bob'), { textModelId: '', imageModelId: '', videoModelKey: '' });
 });
