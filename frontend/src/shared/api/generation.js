@@ -45,13 +45,14 @@ function requestDirectorPipeline(payload) {
   });
 }
 
-export function extractCharactersAndScenes(novelText, extractionPreset = 'standard') {
+export function extractCharactersAndScenes(novelText, extractionPreset = 'standard', textModelId = '') {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
       promptType: 'extract',
       novelText,
       extractionPreset,
+      ...(textModelId ? { textModelId } : {}),
       max_tokens: 4096,
       temperature: 0.3,
       stream: false
@@ -59,7 +60,7 @@ export function extractCharactersAndScenes(novelText, extractionPreset = 'standa
   });
 }
 
-export function enrichScriptEntity({ entityType, novelText, entity, existingEntitySummary, extractionPreset }) {
+export function enrichScriptEntity({ entityType, novelText, entity, existingEntitySummary, extractionPreset, textModelId }) {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -69,6 +70,7 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
       entity,
       existingEntitySummary,
       extractionPreset,
+      ...(textModelId ? { textModelId } : {}),
       max_tokens: 1800,
       temperature: 0.2,
       stream: false

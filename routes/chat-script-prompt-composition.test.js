@@ -95,3 +95,10 @@ test('单星标人物只生成聚焦规则，不生成主角身份指令', () =>
   assert.doesNotMatch(messages[0].content, /林晚为主角/);
   assert.doesNotMatch(messages[1].content, /林晚为主角|为主角展开剧情/);
 });
+
+test('人物场景提取会采用当前剧本选定的文本模型', () => {
+  assert.equal(
+    chatRouter._private.resolveSelectedTextModelId({ promptType: 'extract', textModelId: 'text-valid-model' }),
+    'text-valid-model'
+  );
+});

@@ -737,7 +737,7 @@ export function ScriptPage() {
   async function extractEntities(novelText) {
     const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
     if (!extractionPreset) throw new Error(extractionPresetError || '暂无已发布的提取指令');
-    const extractResponse = await extractCharactersAndScenes(novelText, extractionPreset);
+    const extractResponse = await extractCharactersAndScenes(novelText, extractionPreset, scriptModelSelection.textModelId);
     const extraction = normalizeExtraction(extractJSON(aiText(extractResponse)));
     if (!extraction.characters.length && !extraction.scenes.length) {
       throw new Error('模型未返回人物或场景，请检查提取模板或重试');
@@ -1574,6 +1574,7 @@ export function ScriptPage() {
         novelText={form.getFieldValue('novelText')}
         extractionPreset={extractionPreset}
         existingEntitySummary={compactEntitySummary(extractInfo, activeEntity?.isNew ? '' : activeEntity?.id)}
+        textModelId={scriptModelSelection.textModelId}
         imageModelId={scriptModelSelection.imageModelId}
         onChange={updateActiveEntity}
         onDelete={deleteActiveEntity}
@@ -1738,7 +1739,7 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, imageModelId, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, textModelId, imageModelId, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
   const [mainImageUrl, setMainImageUrl] = useState('');
@@ -1783,7 +1784,8 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
         novelText,
         entity: fields,
         existingEntitySummary,
-        extractionPreset
+        extractionPreset,
+        textModelId
       });
       const result = normalizeEntityEnrichment(response?.enrichment);
       setFields(current => applyEntityEnrichment(current, result));

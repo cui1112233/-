@@ -368,6 +368,12 @@ function describeUpstreamFailure(upstream) {
   return ['Upstream API error (status ' + upstream.statusCode + ')', details].filter(Boolean).join(': ');
 }
 
+function resolveSelectedTextModelId(body) {
+  const promptType = String(body?.promptType || '').trim();
+  if (!['script', 'extract', 'entity_enrich'].includes(promptType)) return '';
+  return String(body?.textModelId || '').trim();
+}
+
 function createChatRouter({
   configReader = readConfig,
   connectionConfigReader = readConfig,
@@ -522,7 +528,7 @@ function createChatRouter({
   try {
     const body = req.body || {};
     const configured = configReader(req.username);
-    const selectedModelId = body?.promptType === 'script' ? String(body?.textModelId || '').trim() : '';
+    const selectedModelId = resolveSelectedTextModelId(body);
     const runtimeModel = selectedModelId && typeof resolveTextModel === 'function'
       ? resolveTextModel(req.username, selectedModelId, configured)
       : null;
@@ -612,6 +618,7 @@ function createChatRouter({
   serializePromptSection,
   sanitizeFocusCharacters,
   describeUpstreamFailure,
+  resolveSelectedTextModelId,
   parseEntityEnrichment,
     validateEntityEnrichmentBody,
     testImageConnection,
