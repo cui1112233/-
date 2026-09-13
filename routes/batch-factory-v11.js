@@ -1,7 +1,7 @@
 const express = require('express');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
-const { resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
@@ -54,8 +54,9 @@ function needsH3ConfigSync(req, pathname) {
   return false;
 }
 
-function isBatchSettingsPath(req, pathname) {
-  return req.method === 'PUT' && /^\/api\/batch-factory\/v11\/batches\/[^/]+\/settings$/.test(pathname);
+function isPromptConfigPath(req, pathname) {
+  if (req.method !== 'PUT') return false;
+  return /^\/api\/batch-factory\/v11\/batches\/[^/]+(?:\/settings|\/books\/[^/]+\/override|\/books\/[^/]+\/videos\/[^/]+\/override)$/.test(pathname);
 }
 
 function promptConfigError(message) {
@@ -69,6 +70,72 @@ function plainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
 }
 
+const PROMPT_SELECTION_FIELDS = ['presetId', 'presetName', 'presetSlot', 'presetVersion', 'body', 'prompt'];
+const ASSET_REQUIREMENTS = [
+  ['extraction', 'assets.extraction', '人物场景提取预设词'],
+  ['character', 'assets.character', '人物提示词预设词'],
+  ['scene', 'assets.scene', '场景提示词预设词'],
+  ['prop', 'assets.prop', '道具提示词预设词']
+];
+
+function removeSelectionFields(target) {
+  for (const field of PROMPT_SELECTION_FIELDS) delete target[field];
+}
+
+function resolvePromptSelection(value, requirementKey, label, presetStore, resolveBody) {
+  const raw = plainObject(value) ? value : {};
+  const presetId = String(raw.presetId || '').trim();
+  if (!presetId) return null;
+  const preset = presetStore.getPublished(presetId);
+  const requirement = BATCH_FACTORY_PRESET_REQUIREMENTS[requirementKey];
+  if (!preset || !isPublishedPresetAllowed(preset, requirement)) {
+    throw promptConfigError(`请选择个人中心已发布且匹配“${label}”的预设词`);
+  }
+  const body = String(resolveBody(presetStore, preset.id) || '').trim();
+  if (!body) throw promptConfigError(`预设词“${preset.name || preset.id}”没有可用正文`);
+  return {
+    presetId: preset.id,
+    presetName: preset.name,
+    presetSlot: preset.protocolLock?.slot || null,
+    presetVersion: preset.version,
+    body
+  };
+}
+
+function resolveAssetSelections(assets, presetStore, resolveBody) {
+  const legacy = { presetId: assets.presetId };
+  removeSelectionFields(assets);
+  for (const [key, requirementKey, label] of ASSET_REQUIREMENTS) {
+    let raw = assets[key];
+    // Transitional support for the former one-select asset form: classify its
+    // server-side preset into exactly one typed asset slot.
+    if (!plainObject(raw) && legacy.presetId) {
+      const legacyPreset = presetStore.getPublished(String(legacy.presetId));
+      if (legacyPreset && isPublishedPresetAllowed(legacyPreset, BATCH_FACTORY_PRESET_REQUIREMENTS[requirementKey])) raw = legacy;
+    }
+    const selection = resolvePromptSelection(raw, requirementKey, label, presetStore, resolveBody);
+    if (selection) assets[key] = selection;
+    else delete assets[key];
+  }
+}
+
+function resolveConstraintSelections(constraints, presetStore, resolveBody) {
+  const legacy = { presetId: constraints.presetId };
+  const values = Array.isArray(constraints.selections)
+    ? constraints.selections
+    : (legacy.presetId ? [legacy] : []);
+  removeSelectionFields(constraints);
+  constraints.selections = values
+    .map(value => resolvePromptSelection(value, 'constraints', '生产约束预设词', presetStore, resolveBody))
+    .filter(Boolean);
+}
+
+function resolveModuleSelection(module, requirementKey, label, presetStore, resolveBody) {
+  const selection = resolvePromptSelection(module, requirementKey, label, presetStore, resolveBody);
+  removeSelectionFields(module);
+  if (selection) Object.assign(module, selection);
+}
+
 function enrichBatchFactorySystemPresetConfig(input, presetStore, resolveBody = resolveSystemPresetBody) {
   if (!plainObject(input) || !plainObject(input.patch) || !plainObject(input.patch.aiPromptConfig)) return input;
   if (!presetStore || typeof presetStore.getPublished !== 'function') {
@@ -76,48 +143,21 @@ function enrichBatchFactorySystemPresetConfig(input, presetStore, resolveBody = 
   }
   const next = JSON.parse(JSON.stringify(input));
   const config = next.patch.aiPromptConfig;
-  for (const key of AI_PROMPT_MODULES) {
-    if (!plainObject(config[key])) continue;
-    const module = config[key];
-    const presetId = String(module.presetId || '').trim();
-    if (!presetId) {
-      delete module.prompt;
-      delete module.presetName;
-      delete module.presetSlot;
-      delete module.presetVersion;
-      continue;
-    }
-    const preset = presetStore.getPublished(presetId);
-    if (!preset || preset.module !== 'batch-factory') {
-      throw promptConfigError('请选择个人中心已发布的批量工厂系统预设词');
-    }
-    const prompt = String(resolveBody(presetStore, presetId) || '').trim();
-    if (!prompt) throw promptConfigError(`批量工厂系统预设词“${preset.name || presetId}”没有可用正文`);
-    module.presetId = preset.id;
-    module.presetName = preset.name;
-    module.presetSlot = preset.protocolLock?.slot || null;
-    module.presetVersion = preset.version;
-    // Go uses the snapshot during director execution. It is stripped again
-    // before any V11 response reaches the browser.
-    module.prompt = prompt;
-  }
+  if (plainObject(config.assets)) resolveAssetSelections(config.assets, presetStore, resolveBody);
+  if (plainObject(config.constraints)) resolveConstraintSelections(config.constraints, presetStore, resolveBody);
+  if (plainObject(config.video)) resolveModuleSelection(config.video, 'video', '视频提示词预设词', presetStore, resolveBody);
+  if (plainObject(config.visual)) resolveModuleSelection(config.visual, 'visual', '画面提示词预设词', presetStore, resolveBody);
   return next;
 }
 
-function redactBatchFactorySystemPromptBodies(value) {
-  if (Array.isArray(value)) return value.map(redactBatchFactorySystemPromptBodies);
+function redactBatchFactorySystemPromptBodies(value, inPromptConfig = false) {
+  if (Array.isArray(value)) return value.map(item => redactBatchFactorySystemPromptBodies(item, inPromptConfig));
   if (!plainObject(value)) return value;
   const next = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key === 'aiPromptConfig' && plainObject(item)) {
-      next[key] = Object.fromEntries(Object.entries(item).map(([moduleKey, module]) => {
-        if (!plainObject(module)) return [moduleKey, module];
-        const { prompt, ...publicModule } = module;
-        return [moduleKey, redactBatchFactorySystemPromptBodies(publicModule)];
-      }));
-      continue;
-    }
-    next[key] = redactBatchFactorySystemPromptBodies(item);
+    const protectedConfig = inPromptConfig || key === 'aiPromptConfig';
+    if (protectedConfig && (key === 'body' || key === 'prompt')) continue;
+    next[key] = redactBatchFactorySystemPromptBodies(item, protectedConfig);
   }
   return next;
 }
@@ -270,7 +310,7 @@ function createBatchFactoryV11Router(options = {}) {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
       await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
-      if (isBatchSettingsPath(req, parsed.pathname)) {
+      if (isPromptConfigPath(req, parsed.pathname)) {
         req.body = enrichBatchFactorySystemPresetConfig(req.body, upstreamOptions.presetStore);
       }
       return await proxyV11Request(req, res, {
@@ -297,6 +337,7 @@ module.exports = {
   needsH3ConfigSync,
   needsPersonalConfigSync,
   resolveV11GoBaseUrl,
+  isPromptConfigPath,
   enrichBatchFactorySystemPresetConfig,
   redactBatchFactorySystemPromptBodies,
   createBatchFactoryV11Router
