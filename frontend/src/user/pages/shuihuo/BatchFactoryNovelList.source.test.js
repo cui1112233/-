@@ -101,9 +101,12 @@ test('keeps AI reasoning open for configuration even when the runtime is unavail
   assert.doesNotMatch(toolbar, /disabled=\{!runCapability\.available\}/);
 });
 
-test('selects AI rules from Personal Center system presets for Batch Factory without exposing their bodies', () => {
-  assert.match(reasoningSource, /listBatchFactorySystemPresets/);
-  assert.match(reasoningSource, /个人中心系统预设词（批量工厂）/);
+test('selects typed AI rules from Personal Center system presets without exposing their bodies', () => {
+  assert.match(reasoningSource, /listSystemPresetCatalog/);
+  assert.match(reasoningSource, /listSystemPresetCatalog\('script'\)/);
+  assert.match(reasoningSource, /listSystemPresetCatalog\('batch-factory'\)/);
+  assert.match(reasoningSource, /人物场景提取/);
+  assert.match(reasoningSource, /batch\.character-meta/);
   assert.match(reasoningSource, /presetVersion/);
   assert.match(reasoningSource, /presetId/);
   assert.doesNotMatch(reasoningSource, /listPersonalConstraintPrompts/);
