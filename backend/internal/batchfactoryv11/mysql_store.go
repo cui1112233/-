@@ -265,6 +265,15 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 			return Batch{}, err
 		}
 		book.SourceMetadata = decodeSourceMetadata(metadata)
+		var working sql.NullString
+		workingErr := q.QueryRowContext(ctx, `SELECT content FROM batch_factory_v11_drafts WHERE owner_username=? AND draft_key=? AND kind='working-front-content' AND scope=?`, owner, "working-front:"+book.ID, b.ID).Scan(&working)
+		if workingErr != nil && !errors.Is(workingErr, sql.ErrNoRows) {
+			rows.Close()
+			return Batch{}, workingErr
+		}
+		if working.Valid {
+			book.WorkingFrontContent = working.String
+		}
 		if book.BookID == "" {
 			book.BookID = book.ID
 		}
