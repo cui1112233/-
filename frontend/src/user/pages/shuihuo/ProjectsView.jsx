@@ -3,6 +3,7 @@ import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } fro
 import { useMemo, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
 import { BatchFactoryCreateModal } from './BatchFactoryCreateModal';
+import { isBatchFactoryV11Project } from './batchFactoryProjects';
 
 function readAsDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -107,10 +108,10 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
     <div className="shuihuo-project-grid">
       {visibleProjects.map(project => <article className="shuihuo-project-card" key={project.id}>
         <button type="button" className="shuihuo-project-card-open" onClick={() => onOpen(project)} aria-label={`打开${project.name}`}>
-          <div className="shuihuo-project-card-cover"><span className={`shuihuo-project-card-mode ${project.productionMode === 'batch_factory' ? 'is-batch-factory' : ''}`}>{project.productionMode === 'batch_factory' ? '批量工厂' : '水货生产'}</span><span>{project.productionMode === 'batch_factory' ? '小说列表' : projectCount(project)}</span></div>
+          <div className="shuihuo-project-card-cover"><span className={`shuihuo-project-card-mode ${isBatchFactoryV11Project(project) ? 'is-batch-factory' : ''}`}>{isBatchFactoryV11Project(project) ? '批量工厂' : '水货生产'}</span><span>{isBatchFactoryV11Project(project) ? '小说列表' : projectCount(project)}</span></div>
           <div className="shuihuo-project-card-meta"><strong>{project.name}</strong><span>{formatTime(project.updatedAt || project.createdAt)}</span></div>
         </button>
-        <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} />{project.productionMode !== 'batch_factory' ? <Popconfirm title="删除项目？此操作不会撤销。" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm> : null}</div>
+        <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} />{!isBatchFactoryV11Project(project) ? <Popconfirm title="删除项目？此操作不会撤销。" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm> : null}</div>
       </article>)}
       {!visibleProjects.length ? <div className="shuihuo-empty"><FileTextOutlined /><p>{projects?.length ? '没有匹配的作品' : '还没有项目'}</p><Button onClick={() => setOpen(true)}>从原文或字幕开始</Button><Button className="shuihuo-create-batch" onClick={() => setBatchOpen(true)}>批量工厂</Button></div> : null}
     </div>

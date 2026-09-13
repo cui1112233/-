@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
+import { batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
@@ -51,7 +52,7 @@ export function ShuihuoProductionPage() {
     setLoading(true);
     try {
       const [water, batch] = await Promise.all([listProjects(), listBatches()]);
-      const batchProjects = (batch.batches || []).map(item => ({ id: `batch:${item.id}`, batchId: item.id, name: item.title, productionMode: 'batch_factory', createdAt: item.createdAt, updatedAt: item.updatedAt, batch: item }));
+      const batchProjects = batchFactoryProjectsFrom(batch.batches);
       setProjects([...(water.projects || []), ...batchProjects]);
     } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
   }, []);
@@ -64,7 +65,7 @@ export function ShuihuoProductionPage() {
 
   const openProject = useCallback(async project => {
     try {
-      if (project.productionMode === 'batch_factory') { setActiveBatchProject(await getBatch(project.batchId)); setView('batch-novels'); return; }
+      if (isBatchFactoryV11Project(project)) { setActiveBatchProject(await getBatch(project.batchId)); setView('batch-novels'); return; }
       setActiveProject(await getProject(project.id)); setView('studio');
     } catch (error) { message.error(error.message || '读取项目工作台失败'); }
   }, []);
