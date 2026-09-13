@@ -1,21 +1,25 @@
 import { AppstoreOutlined, ArrowLeftOutlined, BarsOutlined, FileTextOutlined, PictureOutlined, SettingOutlined, UploadOutlined } from '@ant-design/icons';
-import { Button, Drawer, Tag, Tooltip } from 'antd';
+import { Button, Modal, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
-import { batchFactoryBookState } from './batchFactoryBookState';
+import { batchFactoryBookState, batchFactoryNovelTableRow } from './batchFactoryBookState';
 
 function value(metadata, key) { return String(metadata?.[key] || '').trim() || '—'; }
 
-function NovelMetadata({ books }) {
+function NovelMetadata({ books, createdAt, onViewBook }) {
   return <div className="batch-factory-novel-list" role="table" aria-label="小说列表">
-    <div className="batch-factory-novel-list-head" role="row"><span>序号</span><span>书名</span><span>bookId</span><span>书城</span><span>男女频</span><span>类型</span><span>来源</span></div>
-    {books.map((book, index) => <div className="batch-factory-novel-list-row" key={book.id} role="row">
-      <span>{index + 1}</span><strong>{book.title || `小说 ${index + 1}`}</strong><span>{book.bookId || '—'}</span><span>{book.platform || '—'}</span><span>{value(book.sourceMetadata, 'gender')}</span><span>{value(book.sourceMetadata, 'style')}</span><span>{value(book.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</span>
-    </div>)}
+    <div className="batch-factory-novel-list-head" role="row"><span>ID</span><span>书名</span><span>Book ID</span><span>原文</span><span>AI1</span><span>网站提交</span><span>状态</span><span>字数</span><span>创建时间</span><span>操作</span></div>
+    {books.map((book, index) => {
+      const row = batchFactoryNovelTableRow(book, index, createdAt);
+      return <div className="batch-factory-novel-list-row" key={book.id} role="row">
+        <span>{row.id}</span><strong title={row.title}>{row.title}</strong><span>{row.bookId}</span><span className={row.original === '✓' ? 'is-ready' : ''}>{row.original}</span><span>{row.ai1}</span><span>{row.websiteSubmit}</span><span className={row.status === '定时待执行' ? 'is-scheduled' : ''}>{row.status}</span><span>{row.chars}</span><span>{row.createdAt}</span><span><Button size="small" onClick={() => onViewBook(book)}>查看</Button></span>
+      </div>;
+    })}
   </div>;
 }
 
 export function BatchFactoryNovelList({ batch, onBack }) {
   const [novelListOpen, setNovelListOpen] = useState(false);
+  const [viewingBook, setViewingBook] = useState(null);
   const books = Array.isArray(batch?.books) ? batch.books : [];
   const readyBooks = books.filter(book => String(book?.sourceText || '').trim()).length;
   const progress = books.length ? Math.round((readyBooks / books.length) * 100) : 0;
@@ -49,8 +53,11 @@ export function BatchFactoryNovelList({ batch, onBack }) {
         </article>;
       })}
     </div>
-    <Drawer title={`小说列表 · ${books.length} 本`} placement="top" height="min(520px, 74vh)" open={novelListOpen} onClose={() => setNovelListOpen(false)} className="batch-factory-novel-drawer">
-      <NovelMetadata books={books} />
-    </Drawer>
+    <Modal title={`小说列表 · ${books.length} 本`} open={novelListOpen} onCancel={() => setNovelListOpen(false)} footer={null} width="min(1480px, calc(100vw - 48px))" className="batch-factory-novel-modal">
+      <NovelMetadata books={books} createdAt={batch?.createdAt} onViewBook={setViewingBook} />
+    </Modal>
+    <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal">
+      {viewingBook ? <div className="batch-factory-book-detail"><p><b>Book ID</b>{viewingBook.bookId || '—'}</p><p><b>书城</b>{viewingBook.platform || '—'}</p><p><b>男女频</b>{value(viewingBook.sourceMetadata, 'gender')}</p><p><b>类型</b>{value(viewingBook.sourceMetadata, 'style')}</p><p><b>来源</b>{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</p><p><b>原文状态</b>{batchFactoryBookState(viewingBook).detail}</p></div> : null}
+    </Modal>
   </section>;
 }
