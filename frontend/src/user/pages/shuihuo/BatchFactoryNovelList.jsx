@@ -1,17 +1,18 @@
 import { AppstoreOutlined, ArrowLeftOutlined, BarsOutlined, FileTextOutlined, PictureOutlined, SettingOutlined, UploadOutlined } from '@ant-design/icons';
-import { Button, Modal, Tag, Tooltip } from 'antd';
+import { Button, Checkbox, Modal, Tag, Tooltip } from 'antd';
 import { useState } from 'react';
 import { batchFactoryBookState, batchFactoryNovelTableRow } from './batchFactoryBookState';
 
 function value(metadata, key) { return String(metadata?.[key] || '').trim() || '—'; }
 
 function NovelMetadata({ books, createdAt, onViewBook }) {
-  return <div className="batch-factory-novel-list" role="table" aria-label="小说列表">
-    <div className="batch-factory-novel-list-head" role="row"><span>ID</span><span>书名</span><span>Book ID</span><span>原文</span><span>AI1</span><span>网站提交</span><span>状态</span><span>字数</span><span>创建时间</span><span>操作</span></div>
+  return <div className="batch-factory-novel-list batch-factory-novel-fetch-list" role="table" aria-label="小说列表">
+    <div className="batch-factory-novel-list-head" role="row"><span>推送日期</span><span><Checkbox disabled aria-label="全选小说" /></span><span>ID</span><span>书名</span><span>平台</span><span>风格</span><span>男女频</span><span>AI判断</span><span>原文</span><span>AI文案</span><span>网站提交</span><span>状态</span><span>操作</span></div>
     {books.map((book, index) => {
       const row = batchFactoryNovelTableRow(book, index, createdAt);
+      const metadata = book.sourceMetadata || {};
       return <div className="batch-factory-novel-list-row" key={book.id} role="row">
-        <span>{row.id}</span><strong title={row.title}>{row.title}</strong><span>{row.bookId}</span><span className={row.original === '✓' ? 'is-ready' : ''}>{row.original}</span><span>{row.ai1}</span><span>{row.websiteSubmit}</span><span className={row.status === '定时待执行' ? 'is-scheduled' : ''}>{row.status}</span><span>{row.chars}</span><span>{row.createdAt}</span><span><Button size="small" onClick={() => onViewBook(book)}>查看</Button></span>
+        <span>{row.createdAt}</span><span><Checkbox disabled aria-label={`选择 ${row.title}`} /></span><span className="batch-factory-book-id">{row.bookId}</span><strong title={row.title}>{row.title}</strong><span>{metadata.platformName || book.platform || '—'}</span><span>{value(metadata, 'style')}</span><span>{value(metadata, 'gender')}</span><span>{metadata.classifyStatus || '—'}</span><span className={row.original === '✓' ? 'is-ready' : ''}>{row.original}</span><span>{row.ai1}</span><span>{row.websiteSubmit}</span><span className={row.status === '定时待执行' ? 'is-scheduled' : ''}>{row.status}</span><span><Button size="small" onClick={() => onViewBook(book)}>查看</Button></span>
       </div>;
     })}
   </div>;
