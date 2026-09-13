@@ -67,6 +67,8 @@ function historyAppend(username, record) {
     novelText: typeof record.novelText === 'string' ? record.novelText.slice(0, 200000) : '',
     extractInfo: record.extractInfo && typeof record.extractInfo === 'object' ? record.extractInfo : null,
     constraints: record.constraints && typeof record.constraints === 'object' ? record.constraints : null,
+    textModelId: typeof record.textModelId === 'string' ? record.textModelId.slice(0, 160) : '',
+    imageModelId: typeof record.imageModelId === 'string' ? record.imageModelId.slice(0, 160) : '',
     videoTasks: normalizeVideoTasks(record.videoTasks),
     restoredFrom: record.restoredFrom || 'local',
     createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString()
@@ -91,7 +93,7 @@ router.get('/', (req, res) => {
 // POST /api/history — 保存一条记录
 router.post('/', (req, res) => {
   try {
-    const { id, format, formatName, mode, duration, output, novelText, extractInfo, constraints } = req.body;
+    const { id, format, formatName, mode, duration, output, novelText, extractInfo, constraints, textModelId, imageModelId } = req.body;
     if (isInvalidHistoryId(id) || typeof output !== 'string' || !output.trim()) {
       return res.status(400).json({ error: 'id 和 output 为必填项' });
     }
@@ -121,6 +123,8 @@ router.post('/', (req, res) => {
       novelText: typeof novelText === 'string' ? novelText.slice(0, 200000) : '',
       extractInfo: extractInfo && typeof extractInfo === 'object' ? extractInfo : null,
       constraints: constraints && typeof constraints === 'object' ? constraints : null,
+      textModelId: typeof textModelId === 'string' ? textModelId.slice(0, 160) : '',
+      imageModelId: typeof imageModelId === 'string' ? imageModelId.slice(0, 160) : '',
       videoTasks: normalizeVideoTasks(req.body?.videoTasks),
       createdAt: new Date().toISOString()
     });

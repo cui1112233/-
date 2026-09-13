@@ -20,7 +20,7 @@ const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const { createConfigRouter } = require('./routes/config');
 const { createModelReferenceResolver } = require('./lib/model-reference-resolver');
-const { listVisibleModels } = require('./lib/model-catalog-runtime');
+const { listVisibleModels, resolveRuntimeModel } = require('./lib/model-catalog-runtime');
 const { MODEL_KINDS } = require('./lib/model-catalog');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -162,7 +162,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedChatRouter = chatRouter.createChatRouter({
     configReader: teamConfigReader,
     connectionConfigReader: readConfig,
-    upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' })
+    upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' }),
+    resolveTextModel: (username, modelId) => resolveRuntimeModel({ username, kind: 'text', modelId, memberStore: resolvedMemberStore, configReader: readConfig })
   });
   const resolvedAgentResponder = agentResponder || createTeamAgentResponder({
     accountStore: authRuntime.accountStore,
@@ -260,6 +261,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
   app.locals.novelFetchStore = resolvedNovelFetchStore;
   app.locals.novelPanelConfig = username => teamConfigReader(username);
+  app.locals.resolveRuntimeModel = (username, kind, modelId) => resolveRuntimeModel({ username, kind, modelId, memberStore: resolvedMemberStore, configReader: readConfig });
 
   // 请求日志
   app.use((req, res, next) => {

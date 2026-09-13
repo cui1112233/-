@@ -8,7 +8,7 @@ import { createEntityImageRequestGuard } from './entityImageRequestGuard';
 
 function responseUrl(response) { return String(response?.url || response?.data?.url || response?.result?.url || '').trim(); }
 
-export default function EntityImagePanel({ assetType, assetId, generationPayload, imageUrls = [], mainImageUrl = '', onChange, requestKey = assetId, disabled = false }) {
+export default function EntityImagePanel({ assetType, assetId, generationPayload, imageModelId, imageUrls = [], mainImageUrl = '', onChange, requestKey = assetId, disabled = false }) {
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
@@ -59,7 +59,7 @@ export default function EntityImagePanel({ assetType, assetId, generationPayload
     const token = guard.current.begin();
     guard.current.commit(token, () => { setGenerating(true); setError(''); });
     try {
-      const response = await generateReferenceAssetImage(generationPayload);
+      const response = await generateReferenceAssetImage({ ...generationPayload, ...(imageModelId ? { imageModelId } : {}) });
       const url = responseUrl(response);
       if (!url) throw new Error('图片生成接口未返回图片地址');
       update(appendImageCandidateAndSelectSingle(imageUrls, mainImageUrl, url), token);

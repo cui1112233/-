@@ -76,7 +76,7 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds }) {
+export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds, textModelId }) {
   const resolved = await resolveSmartUnifiedGenerationInput({
     mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds
   });
@@ -99,6 +99,7 @@ export async function generateScript({ mode, format, duration, novelText, charac
       constraints: resolved.constraints,
       matchAudio: resolved.matchAudio === true,
       audioTotalSeconds: resolved.matchAudio === true ? resolved.audioTotalSeconds : null,
+      ...(textModelId ? { textModelId } : {}),
       max_tokens: resolved.format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false
