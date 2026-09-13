@@ -4,6 +4,12 @@ function text(value) {
   return String(value ?? '').trim();
 }
 
+export function batchFactoryBatchFromResponse(response) {
+  const batch = response?.batch;
+  if (!text(batch?.id)) throw new Error('批量工厂作品读取结果无效');
+  return batch;
+}
+
 export function batchFactoryProjectsFrom(batches) {
   if (!Array.isArray(batches)) return [];
   return batches.flatMap(batch => {

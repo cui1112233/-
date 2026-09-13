@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  batchFactoryBatchFromResponse,
   batchFactoryProjectsFrom,
   isBatchFactoryV11Project
 } from './batchFactoryProjects.js';
@@ -27,4 +28,11 @@ test('a legacy Shuihuo project marked batch_factory never calls the V11 batch en
 
 test('malformed V11 list entries are omitted instead of producing a /batches/ request', () => {
   assert.deepEqual(batchFactoryProjectsFrom([{ title: '缺少编号' }, null]), []);
+});
+
+test('a V11 batch detail response is unwrapped before the novel list reads its books', () => {
+  const batch = batchFactoryBatchFromResponse({ batch: { id: 'batch-42', title: '九月批量', books: [{ id: 'book-1' }] } });
+
+  assert.equal(batch.id, 'batch-42');
+  assert.equal(batch.books.length, 1);
 });

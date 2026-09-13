@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
-import { batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryBatchFromResponse, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
@@ -65,7 +65,11 @@ export function ShuihuoProductionPage() {
 
   const openProject = useCallback(async project => {
     try {
-      if (isBatchFactoryV11Project(project)) { setActiveBatchProject(await getBatch(project.batchId)); setView('batch-novels'); return; }
+      if (isBatchFactoryV11Project(project)) {
+        setActiveBatchProject(batchFactoryBatchFromResponse(await getBatch(project.batchId)));
+        setView('batch-novels');
+        return;
+      }
       setActiveProject(await getProject(project.id)); setView('studio');
     } catch (error) { message.error(error.message || '读取项目工作台失败'); }
   }, []);
