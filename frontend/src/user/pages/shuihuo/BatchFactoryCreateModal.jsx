@@ -1,11 +1,8 @@
 import { InputNumber, Modal, Select, Switch, Button, Input, message } from 'antd';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
+import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 
-const platforms = [
-  { value: '番茄', label: '番茄' },
-  { value: '知乎付费', label: '知乎付费 (15)' },
-  { value: '红果', label: '红果' }
-];
 const parseModes = [
   { value: 'smart', label: '智能识别' },
   { value: 'header', label: '单行表头' },
@@ -26,7 +23,10 @@ const presets = [
 
 export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [title, setTitle] = useState('');
-  const [platformId, setPlatformId] = useState('番茄');
+  const [platformId, setPlatformId] = useState('');
+  const [platformOptions, setPlatformOptions] = useState([]);
+  const [platformState, setPlatformState] = useState('idle');
+  const [platformError, setPlatformError] = useState('');
   const [parseMode, setParseMode] = useState('smart');
   const [columnPresetId, setColumnPresetId] = useState('sample_input');
   const [columnOrder, setColumnOrder] = useState('书籍ID,书名,推荐理由,男女频,标签,评级');
@@ -35,8 +35,32 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [scheduledAt, setScheduledAt] = useState('');
   const [contentRangeLines, setContentRangeLines] = useState(5);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let active = true;
+    setPlatformState('loading');
+    setPlatformError('');
+    getWorkshopPlatforms().then(result => {
+      if (!active) return;
+      const options = batchFactoryPlatformOptions(result?.platforms);
+      setPlatformOptions(options);
+      setPlatformId(current => options.some(option => option.value === current) ? current : (options[0]?.value || ''));
+      setPlatformState(options.length ? 'ready' : 'empty');
+    }).catch(error => {
+      if (!active) return;
+      setPlatformOptions([]);
+      setPlatformId('');
+      setPlatformState('error');
+      setPlatformError(error.message || '无法读取小说获取书城');
+    });
+    return () => { active = false; };
+  }, [open]);
+
+  const hasSelectedPlatform = platformOptions.some(option => option.value === platformId);
   function reset() { setTitle(''); setInputText(''); setAutomatic(false); setScheduledAt(''); setContentRangeLines(5); }
   async function submit() {
+    if (!hasSelectedPlatform) return message.warning(platformError || '请先选择小说获取书城');
     if (!title.trim()) return message.warning('请填写作品名称');
     if (!inputText.trim()) return message.warning('请粘贴小说列表');
     if (automatic && !scheduledAt) return message.warning('请选择定时执行时间');
@@ -48,11 +72,11 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       reset();
     } catch (error) { message.error(error.message || '新建批量失败'); } finally { setBusy(false); }
   }
-  return <Modal className="shuihuo-create-project-modal" title="新建批量" open={open} onCancel={() => { onCancel(); reset(); }} width={760} footer={<><Button onClick={() => { onCancel(); reset(); }}>取消</Button><Button type="primary" loading={busy} onClick={submit}>确定创建</Button></>}>
+  return <Modal className="shuihuo-create-project-modal" title="新建批量" open={open} onCancel={() => { onCancel(); reset(); }} width={760} footer={<><Button onClick={() => { onCancel(); reset(); }}>取消</Button><Button type="primary" loading={busy} disabled={platformState !== 'ready' || !hasSelectedPlatform} onClick={submit}>确定创建</Button></>}>
     <label className="shuihuo-form-label" htmlFor="batch-title">作品名称 <em>*</em></label>
     <Input id="batch-title" value={title} onChange={event => setTitle(event.target.value)} placeholder="请输入作品名称" maxLength={255} />
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 16 }}>
-      <label className="shuihuo-form-label">书城<Select value={platformId} onChange={setPlatformId} options={platforms} /></label>
+      <label className="shuihuo-form-label">书城<Select value={platformId || undefined} onChange={setPlatformId} options={platformOptions} loading={platformState === 'loading'} disabled={platformState !== 'ready'} placeholder={platformState === 'loading' ? '正在读取小说获取书城' : '请选择书城'} notFoundContent={platformState === 'empty' ? '小说获取没有启用书城' : undefined} /></label>
       <label className="shuihuo-form-label">输入格式<Select value={parseMode} onChange={setParseMode} options={parseModes} /></label>
       <label className="shuihuo-form-label">列顺序预设<Select value={columnPresetId} onChange={setColumnPresetId} options={presets} /></label>
     </div>
@@ -66,5 +90,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <label className="shuihuo-form-label">内容范围</label>
     <InputNumber min={1} max={500} value={contentRangeLines} onChange={value => setContentRangeLines(value || 5)} addonAfter="条有效正文" />
     <p className="shuihuo-modal-note">内容范围是每本书后续制作使用的前 N 条非空正文；完整原文不会被裁掉。</p>
+    {platformState === 'error' ? <p className="shuihuo-modal-note">书城读取失败：{platformError}</p> : null}
   </Modal>;
 }

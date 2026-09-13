@@ -1,4 +1,12 @@
-import { apiRequest } from './client';
+import { apiRequest } from './client.js';
+
+export function workshopPlatformsPath() {
+  return '/api/novel-fetch-workshop/platforms';
+}
+
+export function getWorkshopPlatforms() {
+  return apiRequest(workshopPlatformsPath());
+}
 
 // 改文工作台：后端接口封装（apiRequest 统一处理鉴权与错误上报）
 
