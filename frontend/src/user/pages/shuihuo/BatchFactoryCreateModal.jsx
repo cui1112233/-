@@ -1,7 +1,9 @@
 import { InputNumber, Modal, Select, Switch, Button, Input, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
+import { fetchNovelContent } from '../../../shared/api/novelFetch';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
+import { hasFetchedManualSources, manualBookIDsFromInput } from './batchFactoryManualFetch';
 
 const parseModes = [
   { value: 'smart', label: '智能识别' },
@@ -34,6 +36,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [automatic, setAutomatic] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
   const [contentRangeLines, setContentRangeLines] = useState(5);
+  const [sourceTextByBookId, setSourceTextByBookId] = useState({});
+  const [fetching, setFetching] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -58,17 +62,47 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   }, [open]);
 
   const hasSelectedPlatform = platformOptions.some(option => option.value === platformId);
-  function reset() { setTitle(''); setInputText(''); setAutomatic(false); setScheduledAt(''); setContentRangeLines(5); }
+  function clearFetchedSources() { setSourceTextByBookId({}); }
+  function reset() { setTitle(''); setInputText(''); setAutomatic(false); setScheduledAt(''); setContentRangeLines(5); clearFetchedSources(); }
+  const bookIds = manualBookIDsFromInput(inputText);
+  const sourceReady = hasFetchedManualSources(bookIds, sourceTextByBookId);
+  async function fetchOriginals() {
+    if (!hasSelectedPlatform) return message.warning(platformError || '请先选择小说获取书城');
+    if (!bookIds.length) return message.warning('请先在小说列表中输入有效的 Book ID');
+    setFetching(true);
+    try {
+      const result = await fetchNovelContent({ platform: platformId, bookIds, maxTxt: 100000 });
+      const fetched = {};
+      const failed = [];
+      for (const item of result?.results || []) {
+        const bookId = String(item?.bookId || '').trim();
+        const sourceText = String(item?.data || '').trim();
+        if (item?.status === 'ok' && bookId && sourceText) fetched[bookId] = sourceText;
+        else failed.push(bookId || '未知 Book ID');
+      }
+      setSourceTextByBookId(fetched);
+      if (failed.length || !hasFetchedManualSources(bookIds, fetched)) {
+        message.error(`有 ${failed.length || bookIds.length - Object.keys(fetched).length} 本未抓到原文，请检查 Book ID 后重试`);
+        return;
+      }
+      message.success(`已抓取 ${bookIds.length} 本小说原文，创建后会保存到本批量作品`);
+    } catch (error) {
+      clearFetchedSources();
+      message.error(error.message || '获取内容失败');
+    } finally { setFetching(false); }
+  }
   async function submit() {
     if (!hasSelectedPlatform) return message.warning(platformError || '请先选择小说获取书城');
     if (!title.trim()) return message.warning('请填写作品名称');
     if (!inputText.trim()) return message.warning('请粘贴小说列表');
+    if (!bookIds.length) return message.warning('小说列表中没有有效的 Book ID');
+    if (!sourceReady) return message.warning('请先点击“获取内容”，并确保每本小说都已抓取原文');
     if (automatic && !scheduledAt) return message.warning('请选择定时执行时间');
     const scheduled = automatic ? new Date(scheduledAt) : null;
     if (automatic && Number.isNaN(scheduled.getTime())) return message.warning('定时执行时间无效');
     setBusy(true);
     try {
-      await onCreated({ title: title.trim(), platformId, parseMode, columnPresetId, columnOrder, inputText, contentRangeLines, scheduledAt: scheduled ? scheduled.toISOString() : '' });
+      await onCreated({ title: title.trim(), platformId, parseMode, columnPresetId, columnOrder, inputText, sourceTextByBookId, contentRangeLines, scheduledAt: scheduled ? scheduled.toISOString() : '' });
       reset();
     } catch (error) { message.error(error.message || '新建批量失败'); } finally { setBusy(false); }
   }
@@ -76,15 +110,16 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <label className="shuihuo-form-label" htmlFor="batch-title">作品名称 <em>*</em></label>
     <Input id="batch-title" value={title} onChange={event => setTitle(event.target.value)} placeholder="请输入作品名称" maxLength={255} />
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 16 }}>
-      <label className="shuihuo-form-label">书城<Select value={platformId || undefined} onChange={setPlatformId} options={platformOptions} loading={platformState === 'loading'} disabled={platformState !== 'ready'} placeholder={platformState === 'loading' ? '正在读取小说获取书城' : '请选择书城'} notFoundContent={platformState === 'empty' ? '小说获取没有启用书城' : undefined} /></label>
-      <label className="shuihuo-form-label">输入格式<Select value={parseMode} onChange={setParseMode} options={parseModes} /></label>
-      <label className="shuihuo-form-label">列顺序预设<Select value={columnPresetId} onChange={setColumnPresetId} options={presets} /></label>
+      <label className="shuihuo-form-label">书城<Select value={platformId || undefined} onChange={value => { setPlatformId(value); clearFetchedSources(); }} options={platformOptions} loading={platformState === 'loading'} disabled={platformState !== 'ready'} placeholder={platformState === 'loading' ? '正在读取小说获取书城' : '请选择书城'} notFoundContent={platformState === 'empty' ? '小说获取没有启用书城' : undefined} /></label>
+      <label className="shuihuo-form-label">输入格式<Select value={parseMode} onChange={value => { setParseMode(value); clearFetchedSources(); }} options={parseModes} /></label>
+      <label className="shuihuo-form-label">列顺序预设<Select value={columnPresetId} onChange={value => { setColumnPresetId(value); clearFetchedSources(); }} options={presets} /></label>
     </div>
     <label className="shuihuo-form-label" htmlFor="batch-column-order">自定义列顺序</label>
-    <Input id="batch-column-order" value={columnOrder} onChange={event => setColumnOrder(event.target.value)} placeholder="书籍ID,书名,标签,推荐理由" />
+    <Input id="batch-column-order" value={columnOrder} onChange={event => { setColumnOrder(event.target.value); clearFetchedSources(); }} placeholder="书籍ID,书名,标签,推荐理由" />
     <label className="shuihuo-form-label" htmlFor="batch-input-text">小说列表 <em>*</em></label>
-    <Input.TextArea id="batch-input-text" value={inputText} onChange={event => setInputText(event.target.value)} rows={9} placeholder={'每行一本小说，可粘贴 ID、书名、男女频、标签、理由、评级。\n示例：2080989285751305136\t重生书\t推荐理由\t女频\t重生,爽文\tS'} />
-    <p className="shuihuo-modal-note">手动入口只保存小说列表和元数据；开始制作时才按书城与 bookId 获取完整原文。</p>
+    <Input.TextArea id="batch-input-text" value={inputText} onChange={event => { setInputText(event.target.value); clearFetchedSources(); }} rows={9} placeholder={'每行一本小说，可粘贴 ID、书名、男女频、标签、理由、评级。\n示例：2080989285751305136\t重生书\t推荐理由\t女频\t重生,爽文\tS'} />
+    <div className="shuihuo-create-collection"><span className="shuihuo-modal-note">按所选书城抓取每个 Book ID 的完整原文；全部成功后才可创建。</span><Button type="primary" loading={fetching} disabled={platformState !== 'ready' || !hasSelectedPlatform || !bookIds.length} onClick={fetchOriginals}>获取内容</Button></div>
+    {bookIds.length ? <p className="shuihuo-modal-note">待抓取 {bookIds.length} 本；已获取 {Object.keys(sourceTextByBookId).length} 本。</p> : null}
     <div className="shuihuo-create-collection"><strong>自动</strong><Switch size="small" checked={automatic} onChange={setAutomatic} /><span>在设定时间把本批小说标为待执行；新建时不会启动生成。</span></div>
     {automatic ? <><label className="shuihuo-form-label" htmlFor="batch-scheduled-at">定时执行时间 <em>*</em></label><Input id="batch-scheduled-at" type="datetime-local" value={scheduledAt} onChange={event => setScheduledAt(event.target.value)} /></> : null}
     <label className="shuihuo-form-label">内容范围</label>
