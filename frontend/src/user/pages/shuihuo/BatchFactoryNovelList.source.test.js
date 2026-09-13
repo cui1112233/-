@@ -108,6 +108,15 @@ test('persists named AI reasoning presets through the V11 backend and lets users
   assert.match(source, /presetVersions=\{configVersions\}/);
 });
 
+test('uses the script-generation constraint layers instead of one generic multi-select', () => {
+  assert.match(reasoningSource, /基础设定（人物 \/ 场景）/);
+  assert.match(reasoningSource, /画面前缀词/);
+  assert.match(reasoningSource, /画质约束/);
+  assert.match(reasoningSource, /画面限制/);
+  assert.match(reasoningSource, /负面提示词/);
+  assert.match(reasoningSource, /ConstraintLayers/);
+});
+
 test('uses four persisted V11 prompt modules in one centered AI reasoning modal', () => {
   assert.match(source, /BatchFactoryAiReasoningModal/);
   assert.match(reasoningSource, /资产设置/);
