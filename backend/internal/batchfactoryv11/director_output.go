@@ -11,11 +11,12 @@ import (
 )
 
 type DirectorSettings struct {
-	MaxVideoDuration  int      `json:"maxVideoDuration"`
-	FixedSingleVideo  bool     `json:"fixedSingleVideo"`
-	ExactDuration     int      `json:"exactDuration"`
-	AspectRatio       string   `json:"aspectRatio"`
-	AllowedPrefixKeys []string `json:"allowedPrefixKeys"`
+	MaxVideoDuration    int      `json:"maxVideoDuration"`
+	FixedSingleVideo    bool     `json:"fixedSingleVideo"`
+	ExactDuration       int      `json:"exactDuration"`
+	AspectRatio         string   `json:"aspectRatio"`
+	AllowedPrefixKeys   []string `json:"allowedPrefixKeys"`
+	RequireVisualPrompt bool     `json:"requireVisualPrompt"`
 }
 
 type NamedPrompt struct {
@@ -32,15 +33,16 @@ type DirectorShot struct {
 }
 
 type DirectorVideo struct {
-	ID          any            `json:"id"`
-	SceneID     any            `json:"scene_id"`
-	DurationSec int            `json:"duration_sec"`
-	Characters  []string       `json:"characters"`
-	Props       []string       `json:"props"`
-	Scene       string         `json:"scene"`
-	PrefixKey   string         `json:"prefix_key"`
-	Shots       []DirectorShot `json:"shots"`
-	VideoDesc   string         `json:"video_desc"`
+	ID           any            `json:"id"`
+	SceneID      any            `json:"scene_id"`
+	DurationSec  int            `json:"duration_sec"`
+	Characters   []string       `json:"characters"`
+	Props        []string       `json:"props"`
+	Scene        string         `json:"scene"`
+	PrefixKey    string         `json:"prefix_key"`
+	Shots        []DirectorShot `json:"shots"`
+	VideoDesc    string         `json:"video_desc"`
+	VisualPrompt string         `json:"visual_prompt,omitempty"`
 }
 
 type SourceCoverage struct {
@@ -375,6 +377,13 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		if videoDesc == "" {
 			return DirectorResult{}, fmt.Errorf("storyboard[%d] 缺少 video_desc", videoIndex)
 		}
+		visualPrompt := firstDirectorText(video, "visual_prompt", "visualPrompt", "image_prompt", "imagePrompt")
+		if settings.RequireVisualPrompt && visualPrompt == "" {
+			return DirectorResult{}, fmt.Errorf("storyboard[%d] 缺少 visual_prompt", videoIndex)
+		}
+		if !settings.RequireVisualPrompt {
+			visualPrompt = ""
+		}
 		shots, err := normalizeDirectorShots(video["shots"], durationSec, videoIndex)
 		if err != nil {
 			return DirectorResult{}, err
@@ -392,15 +401,16 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 			sceneID = videoIndex + 1
 		}
 		storyboard = append(storyboard, DirectorVideo{
-			ID:          id,
-			SceneID:     sceneID,
-			DurationSec: durationSec,
-			Characters:  characterRefs,
-			Props:       propRefs,
-			Scene:       scene,
-			PrefixKey:   prefixKey,
-			Shots:       shots,
-			VideoDesc:   videoDesc,
+			ID:           id,
+			SceneID:      sceneID,
+			DurationSec:  durationSec,
+			Characters:   characterRefs,
+			Props:        propRefs,
+			Scene:        scene,
+			VisualPrompt: visualPrompt,
+			PrefixKey:    prefixKey,
+			Shots:        shots,
+			VideoDesc:    videoDesc,
 		})
 	}
 

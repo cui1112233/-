@@ -30,6 +30,51 @@ type PromptContract struct {
 	Normalization DirectorSettings
 }
 
+// AIReasoningPromptConfig is saved with the batch. It is intentionally kept
+// in the V11 settings patch so batch, book and VIDEO overrides still resolve
+// through the same settings chain. Prompt text is generation guidance only;
+// it never bypasses the director output validation.
+type AIReasoningPromptModule struct {
+	Enabled bool     `json:"enabled"`
+	Prompt  string   `json:"prompt"`
+	Scope   string   `json:"scope"`
+	BookIDs []string `json:"bookIds"`
+}
+
+type AIReasoningPromptConfig struct {
+	Assets      AIReasoningPromptModule `json:"assets"`
+	Constraints AIReasoningPromptModule `json:"constraints"`
+	Video       AIReasoningPromptModule `json:"video"`
+	Visual      AIReasoningPromptModule `json:"visual"`
+}
+
+func aiReasoningPromptConfig(patch SettingsPatch) AIReasoningPromptConfig {
+	raw, ok := patch["aiPromptConfig"]
+	if !ok {
+		return AIReasoningPromptConfig{}
+	}
+	var config AIReasoningPromptConfig
+	if json.Unmarshal(raw, &config) != nil {
+		return AIReasoningPromptConfig{}
+	}
+	return config
+}
+
+func (m AIReasoningPromptModule) appliesTo(book Book) bool {
+	if !m.Enabled || strings.TrimSpace(m.Prompt) == "" {
+		return false
+	}
+	if m.Scope != "custom" {
+		return true
+	}
+	for _, id := range m.BookIDs {
+		if id == book.ID {
+			return true
+		}
+	}
+	return false
+}
+
 func BuildHookContract(book Book) PromptContract {
 	system := strings.TrimSpace(`你是短剧爆款开头改写导演。生成一段可人工审核的 Hook。
 必须在不改变人物身份、因果关系和安全边界的前提下，把原文中的核心冲突提前并放大。
@@ -79,6 +124,24 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 原文模式按原文顺序完整覆盖；爆款模式以已批准 Hook 开场，并继续覆盖原文。
 不得把普通情绪只换成形容词；冲突升级要通过动作、表情、对白和可见行为呈现。
 ` + durationRule + "\n画幅：" + snapshot.AspectRatio + "\n允许的 prefix_key：" + strings.Join(DirectorPrefixKeys, ", ")
+	config := aiReasoningPromptConfig(snapshot.Effective)
+	rules := []string{}
+	if config.Assets.appliesTo(book) {
+		rules = append(rules, "资产设置：以下规则只用于 characters、scenes、props 的 prompt。\n"+strings.TrimSpace(config.Assets.Prompt))
+	}
+	if config.Constraints.appliesTo(book) {
+		rules = append(rules, "约束设置：以下规则约束本次所有输出，且必须保持可拍、可见。\n"+strings.TrimSpace(config.Constraints.Prompt))
+	}
+	if config.Video.appliesTo(book) {
+		rules = append(rules, "视频设置：以下规则只用于 storyboard.video_desc 和镜头动作/运镜。\n"+strings.TrimSpace(config.Video.Prompt))
+	}
+	visualEnabled := config.Visual.appliesTo(book)
+	if visualEnabled {
+		rules = append(rules, "画面设置：以下规则只用于 storyboard.visual_prompt。每个 storyboard 必须输出非空 visual_prompt，它只服务画面图片生成，绝不写入 video_desc。\n"+strings.TrimSpace(config.Visual.Prompt))
+	}
+	if len(rules) > 0 {
+		system += "\n\n当前批量已启用的 AI 推理规则：\n" + strings.Join(rules, "\n\n")
+	}
 	payload := map[string]any{
 		"book_id":     book.ID,
 		"title":       book.Title,
@@ -102,11 +165,12 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 		Temperature:  temperature,
 		MaxTokens:    18000,
 		Normalization: DirectorSettings{
-			MaxVideoDuration:  snapshot.MaxVideoDuration,
-			FixedSingleVideo:  snapshot.FixedSingleVideo,
-			ExactDuration:     snapshot.ExactDuration,
-			AspectRatio:       snapshot.AspectRatio,
-			AllowedPrefixKeys: append([]string(nil), DirectorPrefixKeys...),
+			MaxVideoDuration:    snapshot.MaxVideoDuration,
+			FixedSingleVideo:    snapshot.FixedSingleVideo,
+			ExactDuration:       snapshot.ExactDuration,
+			AspectRatio:         snapshot.AspectRatio,
+			AllowedPrefixKeys:   append([]string(nil), DirectorPrefixKeys...),
+			RequireVisualPrompt: visualEnabled,
 		},
 	}, nil
 }

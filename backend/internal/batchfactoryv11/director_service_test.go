@@ -167,3 +167,48 @@ func TestRewriteWorkingFrontPersistsCandidateWithoutChangingCapturedSource(t *te
 		t.Fatalf("working front mutated before replacement: %+v err=%v", working, err)
 	}
 }
+
+func TestDirectorAppliesSavedAIPromptRulesAndKeepsVisualOutputOutOfVideoPrompt(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	config := map[string]any{
+		"assets":      map[string]any{"enabled": true, "prompt": "资产统一为国风写实，人物服装必须连续。", "scope": "all"},
+		"constraints": map[string]any{"enabled": true, "prompt": "镜头不得跳轴，不要文字和水印。"},
+		"video":       map[string]any{"enabled": true, "prompt": "视频动作必须连续，运镜克制。", "scope": "all"},
+		"visual":      map[string]any{"enabled": true, "prompt": "画面采用冷色电影光，主体清晰。", "scope": "all"},
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}, ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+	output := strings.Replace(validDirectorJSON(), `"video_desc": "林晚进入客厅并握紧玻璃杯。"`, `"video_desc": "林晚进入客厅并握紧玻璃杯。", "visual_prompt": "冷色客厅中林晚紧握玻璃杯，人物清晰。"`, 1)
+	provider := &queuedDirectorProvider{values: []string{output}}
+	if _, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.calls) != 1 {
+		t.Fatalf("director calls=%d", len(provider.calls))
+	}
+	for _, expected := range []string{"资产统一为国风写实", "镜头不得跳轴", "视频动作必须连续", "画面采用冷色电影光", "visual_prompt"} {
+		if !strings.Contains(provider.calls[0].SystemPrompt, expected) {
+			t.Fatalf("director contract missing %q:\n%s", expected, provider.calls[0].SystemPrompt)
+		}
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	video := latest.Books[0].Videos[0]
+	if video.VisualPrompt != "冷色客厅中林晚紧握玻璃杯，人物清晰。" {
+		t.Fatalf("visual prompt=%q", video.VisualPrompt)
+	}
+	final, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", latest.ID, latest.Books[0].ID, video.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(final.CompiledPrompt, video.VisualPrompt) {
+		t.Fatalf("visual prompt leaked into final video prompt:\n%s", final.CompiledPrompt)
+	}
+}

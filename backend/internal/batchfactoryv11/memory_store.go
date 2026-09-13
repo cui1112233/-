@@ -626,7 +626,7 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	revision := DirectorRevision{ID: s.id("director"), BatchID: b.ID, BookID: book.ID, Revision: int64(len(s.directors[key]) + 1), Mode: snapshot.Mode, SnapshotID: s.id("snapshot"), SourceDigest: digest, HookRevisionID: hookID, Output: output, OrphanedOverrides: orphaned, CreatedAt: now}
 	newVideos := make([]Video, 0, len(output.Storyboard))
 	for i, draft := range output.Storyboard {
-		video := Video{ID: s.id("video"), BatchID: b.ID, BookID: book.ID, Label: fmt.Sprintf("VIDEO %02d", i+1), VideoPrompt: draft.VideoDesc, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1}
+		video := Video{ID: s.id("video"), BatchID: b.ID, BookID: book.ID, Label: fmt.Sprintf("VIDEO %02d", i+1), VideoPrompt: draft.VideoDesc, VisualPrompt: draft.VisualPrompt, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1}
 		newVideos = append(newVideos, video)
 	}
 	revision.Videos = append([]Video(nil), newVideos...)

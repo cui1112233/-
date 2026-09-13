@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, 'BatchFactoryNovelList.jsx'), 'utf8');
 const engineSource = fs.readFileSync(path.join(here, 'BatchFactoryEngineSettingsDrawer.jsx'), 'utf8');
+const reasoningSource = fs.readFileSync(path.join(here, 'BatchFactoryAiReasoningModal.jsx'), 'utf8');
 
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
@@ -69,4 +70,20 @@ test('renders saved book-city and novel-fetch metadata without exposing internal
   assert.match(source, /<span>推荐理由<\/span>/);
   assert.match(source, /<span>评级<\/span>/);
   assert.match(source, /label="书城">\{bookPlatformName\(viewingBook, platformNames\)\}/);
+});
+
+test('uses four persisted V11 prompt modules in one centered AI reasoning modal', () => {
+  assert.match(source, /BatchFactoryAiReasoningModal/);
+  assert.match(reasoningSource, /资产设置/);
+  assert.match(reasoningSource, /约束设置/);
+  assert.match(reasoningSource, /视频设置/);
+  assert.match(reasoningSource, /画面设置/);
+  assert.match(reasoningSource, /aiPromptConfig/);
+  assert.match(reasoningSource, /fixedSingleVideo/);
+});
+
+test('keeps AI reasoning open for configuration even when the runtime is unavailable', () => {
+  const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
+  assert.match(toolbar, /setAiOpen\(true\)/);
+  assert.doesNotMatch(toolbar, /disabled=\{!runCapability\.available\}/);
 });
