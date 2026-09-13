@@ -47,11 +47,13 @@ import {
 import { BatchFactoryEngineSettingsDrawer } from './BatchFactoryEngineSettingsDrawer';
 import { batchFactoryBookState, batchFactoryNovelTableRow } from './batchFactoryBookState';
 import { batchFactoryPreviewText, contentRangeLinesForBook, publishContentWithWorkingFront } from './batchFactoryContentRange';
+import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
+import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 
 function value(metadata, key) { return String(metadata?.[key] || '').trim() || '—'; }
-function bookPlatformName(book) {
+function bookPlatformName(book, platformNames = {}) {
   const metadata = book?.sourceMetadata || {};
-  return String(metadata.platformName || metadata.platformLabel || '').trim() || '未命名书城';
+  return String(metadata.platformName || metadata.platformLabel || platformNames[String(book?.platform || '')] || '').trim() || '未命名书城';
 }
 function resultData(result, key) { return result?.[key] || result || {}; }
 function requestID(prefix) { return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`; }
@@ -75,7 +77,7 @@ function primaryMediaVersion(video, versions) {
 	return versions.find(item => item.id === primaryID) || versions.at(-1) || null;
 }
 
-function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, onViewBook }) {
+function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, onViewBook, platformNames }) {
   const selected = new Set(selectedBookIds);
   const allSelected = books.length > 0 && books.every(book => selected.has(book.id));
   return <div className="batch-factory-novel-list batch-factory-novel-fetch-list" role="table" aria-label="小说列表">
@@ -84,7 +86,7 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
       const row = batchFactoryNovelTableRow(book, index, createdAt);
       const metadata = book.sourceMetadata || {};
       return <div className="batch-factory-novel-list-row" key={book.id} role="row">
-        <span>{row.createdAt}</span><span><Checkbox checked={selected.has(book.id)} onChange={event => onSelectionChange(event.target.checked ? [...selected, book.id] : [...selected].filter(id => id !== book.id))} aria-label={`选择 ${row.title}`} /></span><span className="batch-factory-book-id">{row.bookId}</span><strong title={row.title}>{row.title}</strong><span>{bookPlatformName(book)}</span><span>{value(metadata, 'style')}</span><span>{value(metadata, 'gender')}</span><span>{value(metadata, 'tags')}</span><span>{value(metadata, 'reason')}</span><span>{value(metadata, 'rating')}</span><span>{metadata.classifyStatus || '—'}</span><span className={row.original === '✓' ? 'is-ready' : ''}>{row.original}</span><span>{row.ai1}</span><span>{row.websiteSubmit}</span><span className={row.status === '定时待执行' ? 'is-scheduled' : ''}>{row.status}</span><span><Button size="small" onClick={() => onViewBook(book)}>查看</Button></span>
+        <span>{row.createdAt}</span><span><Checkbox checked={selected.has(book.id)} onChange={event => onSelectionChange(event.target.checked ? [...selected, book.id] : [...selected].filter(id => id !== book.id))} aria-label={`选择 ${row.title}`} /></span><span className="batch-factory-book-id">{row.bookId}</span><strong title={row.title}>{row.title}</strong><span>{bookPlatformName(book, platformNames)}</span><span>{value(metadata, 'style')}</span><span>{value(metadata, 'gender')}</span><span>{value(metadata, 'tags')}</span><span>{value(metadata, 'reason')}</span><span>{value(metadata, 'rating')}</span><span>{metadata.classifyStatus || '—'}</span><span className={row.original === '✓' ? 'is-ready' : ''}>{row.original}</span><span>{row.ai1}</span><span>{row.websiteSubmit}</span><span className={row.status === '定时待执行' ? 'is-scheduled' : ''}>{row.status}</span><span><Button size="small" onClick={() => onViewBook(book)}>查看</Button></span>
       </div>;
     })}
   </div>;
@@ -300,6 +302,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [actionBusy, setActionBusy] = useState('');
   const [uploadMode, setUploadMode] = useState('');
   const [selectedBookIds, setSelectedBookIds] = useState([]);
+  const [platformNames, setPlatformNames] = useState({});
   const books = Array.isArray(batch?.books) ? batch.books : [];
   const readyBooks = books.filter(book => String(book?.sourceText || '').trim()).length;
   const progress = books.length ? Math.round((readyBooks / books.length) * 100) : 0;
@@ -350,6 +353,14 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     }).catch(error => { if (active) setConfigVersionsError(error); });
     return () => { active = false; };
   }, [batch?.id]);
+  useEffect(() => {
+    let active = true;
+    getWorkshopPlatforms().then(result => {
+      if (!active) return;
+      setPlatformNames(Object.fromEntries(batchFactoryPlatformOptions(result?.platforms).map(option => [String(option.value), option.label])));
+    }).catch(() => { if (active) setPlatformNames({}); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => { setSelectedBookIds(current => current.filter(id => books.some(book => book.id === id))); }, [batch?.id, books.length]);
   useEffect(() => {
     if (!assetBook) return;
@@ -458,7 +469,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         const videos = book.videos || [];
         return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row">
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><strong>{index + 1}</strong></div>
-          <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book)} · 展示前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p><Button type="link" size="small" onClick={() => openContentEditor(book)} disabled={!String(book.sourceText || '').trim()}>编辑生产内容</Button></div>
+          <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 展示前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p><Button type="link" size="small" onClick={() => openContentEditor(book)} disabled={!String(book.sourceText || '').trim()}>编辑生产内容</Button></div>
           <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><div className="shuihuo-tag-list">{[...(book.assets?.characters || []), ...(book.assets?.scenes || []), ...(book.assets?.props || [])].slice(0, 6).map(asset => <Tag key={asset.id || assetName(asset)}>{assetName(asset)}</Tag>)}</div><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加角色</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加场景</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加道具</button></div>
 		  <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div><b>画面提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.visualPrompt || '当前没有画面提示词；生成画面图前可在弹窗中填写。'}</span><FullscreenOutlined /></button></div><div><b>视频提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.videoPrompt || (videos.length ? `${videos.length} 个 VIDEO 的最终提示词可在弹窗中逐个读取。` : 'AI 推理完成后生成视频提示词。')}</span><FullscreenOutlined /></button></div></div>
 		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><Tooltip title="打开当前小说的分镜主版本与候选版本。"><button className="shuihuo-primary-media" type="button" onClick={() => setMediaBook(book)}><CloudUploadOutlined /><span>管理主版本</span></button></Tooltip><div className="shuihuo-media-grid" aria-label="当前小说的片段候选库">{Array.from({ length: 4 }).map((_, itemIndex) => <Tooltip key={`asset-slot-${itemIndex}`} title="打开当前小说的分镜候选版本。"><button className="shuihuo-media-tile is-empty" type="button" onClick={() => setMediaBook(book)} aria-label={`打开当前小说的候选槽 ${itemIndex + 1}`}><PictureOutlined /></button></Tooltip>)}</div>{videos.length ? <Button type="text" size="small" onClick={() => setMediaBook(book)}>管理 {videos.length} 个 VIDEO</Button> : <span className="batch-factory-library-note">AI 推理后显示该书的分镜 / VIDEO</span>}</div>
@@ -468,8 +479,8 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       {!books.length ? <div className="shuihuo-workbench-empty">当前批量还没有小说。返回个人作品后，从“批量工厂”新建书单。</div> : null}
     </div>
 
-    <Modal title={`小说列表 · ${books.length} 本`} open={novelListOpen} onCancel={() => setNovelListOpen(false)} footer={null} width="min(1480px, calc(100vw - 48px))" className="batch-factory-novel-modal"><NovelMetadata books={books} createdAt={batch?.createdAt} selectedBookIds={selectedBookIds} onSelectionChange={setSelectedBookIds} onViewBook={setViewingBook} /></Modal>
-    <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal"><Descriptions bordered size="small" column={1}>{viewingBook ? <><Descriptions.Item label="Book ID">{viewingBook.bookId || '—'}</Descriptions.Item><Descriptions.Item label="书城">{bookPlatformName(viewingBook)}</Descriptions.Item><Descriptions.Item label="风格">{value(viewingBook.sourceMetadata, 'style')}</Descriptions.Item><Descriptions.Item label="男女频">{value(viewingBook.sourceMetadata, 'gender')}</Descriptions.Item><Descriptions.Item label="标签">{value(viewingBook.sourceMetadata, 'tags')}</Descriptions.Item><Descriptions.Item label="推荐理由">{value(viewingBook.sourceMetadata, 'reason')}</Descriptions.Item><Descriptions.Item label="评级">{value(viewingBook.sourceMetadata, 'rating')}</Descriptions.Item><Descriptions.Item label="来源">{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</Descriptions.Item><Descriptions.Item label="正文保存">{String(viewingBook.sourceText || '').length} 字</Descriptions.Item><Descriptions.Item label="原文状态">{batchFactoryBookState(viewingBook).detail}</Descriptions.Item></> : null}</Descriptions></Modal>
+    <Modal title={`小说列表 · ${books.length} 本`} open={novelListOpen} onCancel={() => setNovelListOpen(false)} footer={null} width="min(1480px, calc(100vw - 48px))" className="batch-factory-novel-modal"><NovelMetadata books={books} createdAt={batch?.createdAt} selectedBookIds={selectedBookIds} onSelectionChange={setSelectedBookIds} onViewBook={setViewingBook} platformNames={platformNames} /></Modal>
+    <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal"><Descriptions bordered size="small" column={1}>{viewingBook ? <><Descriptions.Item label="Book ID">{viewingBook.bookId || '—'}</Descriptions.Item><Descriptions.Item label="书城">{bookPlatformName(viewingBook, platformNames)}</Descriptions.Item><Descriptions.Item label="风格">{value(viewingBook.sourceMetadata, 'style')}</Descriptions.Item><Descriptions.Item label="男女频">{value(viewingBook.sourceMetadata, 'gender')}</Descriptions.Item><Descriptions.Item label="标签">{value(viewingBook.sourceMetadata, 'tags')}</Descriptions.Item><Descriptions.Item label="推荐理由">{value(viewingBook.sourceMetadata, 'reason')}</Descriptions.Item><Descriptions.Item label="评级">{value(viewingBook.sourceMetadata, 'rating')}</Descriptions.Item><Descriptions.Item label="来源">{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</Descriptions.Item><Descriptions.Item label="正文保存">{String(viewingBook.sourceText || '').length} 字</Descriptions.Item><Descriptions.Item label="原文状态">{batchFactoryBookState(viewingBook).detail}</Descriptions.Item></> : null}</Descriptions></Modal>
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" /><Tooltip title={workingFrontCapability.available ? '基于当前输入生成候选；生成不会覆盖工作文本' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim()}>生成爆款候选</Button></Tooltip>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Button type="primary" onClick={() => setEditingContentValue(viralCandidate)}>替换为当前生产内容</Button></Space>} /> : null}</Space></Modal>
     <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={() => runAi(assetBook)} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'director'} engineSettings={batch?.settingsState?.patch} /> : null}</Modal>
 	<Modal title={promptBook ? `提示词 · ${promptBook.title}` : '提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} onSaved={refreshBatch} /> : null}</Modal>

@@ -60,10 +60,13 @@ test('uses the selected video media version as the durable primary merge choice'
 });
 
 test('renders saved book-city and novel-fetch metadata without exposing internal platform IDs', () => {
-  assert.match(source, /function bookPlatformName\(book\)/);
+  assert.match(source, /function bookPlatformName\(book/);
   assert.match(source, /metadata\.platformName/);
+	assert.match(source, /getWorkshopPlatforms/);
+	assert.match(source, /batchFactoryPlatformOptions/);
+  assert.match(source, /platformNames\[String\(book\?\.platform \|\| ''\)\]/);
   assert.match(source, /<span>标签<\/span>/);
   assert.match(source, /<span>推荐理由<\/span>/);
   assert.match(source, /<span>评级<\/span>/);
-  assert.match(source, /label="书城">\{bookPlatformName\(viewingBook\)\}/);
+  assert.match(source, /label="书城">\{bookPlatformName\(viewingBook, platformNames\)\}/);
 });
