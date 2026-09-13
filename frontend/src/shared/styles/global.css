@@ -3574,6 +3574,15 @@ select {
   border: 1px solid #ff7875;
 }
 
+.novel-panel-loading-visual { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #dbe7ff; }
+.novel-panel-loading-visual span { color: #8493ad; font-size: 13px; }
+.novel-panel-loader-svg { width: min(520px, 72vw); height: auto; }
+.novel-panel-chip-body { fill: #151e35; stroke: #52658d; stroke-width: 2; }
+.novel-panel-chip-text { fill: #dbe7ff; font-size: 18px; font-weight: 700; letter-spacing: 2px; }
+.novel-panel-trace-bg { fill: none; stroke: #29334a; stroke-width: 2; }
+.novel-panel-trace-flow { fill: none; stroke: #00ccff; stroke-width: 2; stroke-dasharray: 40 400; stroke-dashoffset: 438; filter: drop-shadow(0 0 6px #00ccff); animation: novelPanelFlow 3s cubic-bezier(.5,0,.9,1) infinite; }
+@keyframes novelPanelFlow { to { stroke-dashoffset: 0; } }
+
 .legacy-global-status { position: absolute; left: 25%; right: 25%; top: 50%; transform: translateY(-50%); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; pointer-events: none; }
 .legacy-global-status--working { color: #4da3ff; }
 .legacy-global-status--success { color: #48c774; }

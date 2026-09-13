@@ -1,4 +1,4 @@
-import { Alert, Spin } from 'antd';
+import { Alert } from 'antd';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getToken } from '../../shared/api/client';
 import { dispatchPetContext } from '../../shared/pet/stacky';
@@ -304,9 +304,21 @@ export function NovelPanelPage({ theme }) {
     channelLoadAcknowledgedRef.current = false;
   }
 
+  function PanelLoadingVisual() {
+    return <div className="novel-panel-loading-visual" aria-label="正在连接小说面板" role="status">
+      <svg viewBox="0 0 520 260" className="novel-panel-loader-svg" aria-hidden="true">
+        <rect x="170" y="92" width="180" height="76" rx="20" className="novel-panel-chip-body" />
+        <text x="260" y="135" textAnchor="middle" className="novel-panel-chip-text">小说面板</text>
+        <path d="M20 55 H155 Q170 55 185 92 M500 55 H365 Q350 55 335 92 M20 205 H155 Q170 205 185 168 M500 205 H365 Q350 205 335 168" className="novel-panel-trace-bg" />
+        <path d="M20 55 H155 Q170 55 185 92 M500 55 H365 Q350 55 335 92 M20 205 H155 Q170 205 185 168 M500 205 H365 Q350 205 335 168" className="novel-panel-trace-flow" />
+      </svg>
+      <strong>正在连接小说面板</strong><span>工作台加载完成后会显示在这里</span>
+    </div>;
+  }
+
   return (
     <div className="novel-panel-page">
-      {loading && !error ? <div className="novel-panel-status"><Spin tip="正在加载小说面板" /></div> : null}
+      {loading && !error ? <div className="novel-panel-status"><PanelLoadingVisual /></div> : null}
       {error ? <Alert className="novel-panel-error" type="error" showIcon message="小说面板加载失败" /> : null}
       <iframe
         ref={frameRef}
