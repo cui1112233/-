@@ -208,7 +208,10 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 	propPrompts, err := s.namedPromptMapWithDrafts(ctx, owner, batchID, "prop", book.Assets.Props)
 	if err != nil { return FinalPrompt{}, err }
 	components := []PromptComponent{}
-	addComponent(&components, "visual", "画面主体", rawString(values, "visualPrompt", video.VisualPrompt))
+	// visualPrompt is an image-generation input. It intentionally never enters
+	// the final video prompt: image composition and motion/video direction are
+	// separate controls, and mixing them makes a regenerated still silently
+	// change the video request.
 	if rawBool(values, "injectBaseSettings", true) {
 		addComponent(&components, "characters", "人物设定", selectPrompts(characterRefs, characterPrompts))
 		addComponent(&components, "scene", "场景设定", selectPrompts(sceneRefs, scenePrompts))
