@@ -25,6 +25,23 @@ func TestParseManualBookListUsesPresetAndRetainsNovelFetchMetadata(t *testing.T)
 	}
 }
 
+func TestParseManualBookListRetainsFullMetadataPreset(t *testing.T) {
+	books, err := ParseManualBookList(ManualIntakeInput{
+		PlatformID:     "15",
+		PlatformName:   "知乎付费",
+		ParseMode:      "smart",
+		ColumnPresetID: "full_metadata",
+		InputText:      "2080989285751305136\t重生书\t女频\t现代虐文\t重生,爽文\t女主逆袭\tS+",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := books[0].SourceMetadata
+	if metadata["gender"] != "女频" || metadata["style"] != "现代虐文" || metadata["tags"] != "重生,爽文" || metadata["reason"] != "女主逆袭" || metadata["rating"] != "S+" {
+		t.Fatalf("metadata=%#v", metadata)
+	}
+}
+
 func TestParseManualBookListUnderstandsHeaderAndDeduplicatesBookID(t *testing.T) {
 	books, err := ParseManualBookList(ManualIntakeInput{
 		PlatformID: "zhihu-paid",

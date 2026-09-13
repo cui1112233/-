@@ -48,6 +48,7 @@ var manualPresets = map[string][]string{
 	"paid_name_gender_reason":      {"paid_book_id", "book_name", "gender", "reason"},
 	"free_paid_name_gender_reason": {"free_book_id", "paid_book_id", "book_name", "gender", "reason"},
 	"sample_input":                 {"book_id", "book_name", "reason", "gender", "tags", "rating"},
+	"full_metadata":                {"book_id", "book_name", "gender", "style", "tags", "reason", "rating"},
 	"full_11":                      {"ignore", "free_book_id", "paid_book_id", "book_name", "rating", "ignore", "ignore", "ignore", "ignore", "gender", "reason"},
 }
 var manualModes = map[string][]string{

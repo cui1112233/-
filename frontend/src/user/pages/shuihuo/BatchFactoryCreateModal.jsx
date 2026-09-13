@@ -20,6 +20,7 @@ const presets = [
   { value: 'paid_name_gender_reason', label: '付费 ID / 书名 / 男女频 / 推荐理由' },
   { value: 'free_paid_name_gender_reason', label: '免费 ID / 付费 ID / 书名 / 男女频 / 推荐理由' },
   { value: 'sample_input', label: '书籍 ID / 书名 / 推荐理由 / 男女频 / 标签 / 评级' },
+	{ value: 'full_metadata', label: '书籍 ID / 书名 / 男女频 / 风格 / 标签 / 推荐理由 / 评级' },
   { value: 'full_11', label: '完整 11 列' }
 ];
 
@@ -30,8 +31,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [platformState, setPlatformState] = useState('idle');
   const [platformError, setPlatformError] = useState('');
   const [parseMode, setParseMode] = useState('smart');
-  const [columnPresetId, setColumnPresetId] = useState('sample_input');
-  const [columnOrder, setColumnOrder] = useState('书籍ID,书名,推荐理由,男女频,标签,评级');
+  const [columnPresetId, setColumnPresetId] = useState('full_metadata');
+  const [columnOrder, setColumnOrder] = useState('书籍ID,书名,男女频,风格,标签,推荐理由,评级');
   const [inputText, setInputText] = useState('');
   const [automatic, setAutomatic] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
@@ -119,7 +120,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <label className="shuihuo-form-label" htmlFor="batch-column-order">自定义列顺序</label>
     <Input id="batch-column-order" value={columnOrder} onChange={event => { setColumnOrder(event.target.value); clearFetchedSources(); }} placeholder="书籍ID,书名,标签,推荐理由" />
     <label className="shuihuo-form-label" htmlFor="batch-input-text">小说列表 <em>*</em></label>
-    <Input.TextArea id="batch-input-text" value={inputText} onChange={event => { setInputText(event.target.value); clearFetchedSources(); }} rows={9} placeholder={'每行一本小说，可粘贴 ID、书名、男女频、标签、理由、评级。\n示例：2080989285751305136\t重生书\t推荐理由\t女频\t重生,爽文\tS'} />
+    <Input.TextArea id="batch-input-text" value={inputText} onChange={event => { setInputText(event.target.value); clearFetchedSources(); }} rows={9} placeholder={'每行一本小说，可粘贴 ID、书名、男女频、风格、标签、推荐理由、评级。\n示例：2080989285751305136\t重生书\t女频\t现代爽文\t重生,逆袭\t女主逆袭\tS'} />
     <div className="batch-factory-fetch-originals"><span className="shuihuo-modal-note">按所选书城抓取每个 Book ID 的前 {contentCaptureCharacters} 字；全部成功后才可创建。</span><Button type="primary" loading={fetching} disabled={platformState !== 'ready' || !hasSelectedPlatform || !bookIds.length} onClick={fetchOriginals}>获取内容</Button></div>
     {bookIds.length ? <p className="shuihuo-modal-note">待抓取 {bookIds.length} 本；已获取 {Object.keys(sourceTextByBookId).length} 本。</p> : null}
     <div className="shuihuo-create-collection"><strong>自动</strong><Switch size="small" checked={automatic} onChange={setAutomatic} /><span>在设定时间把本批小说标为待执行；新建时不会启动生成。</span></div>
