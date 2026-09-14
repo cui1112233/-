@@ -446,7 +446,7 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-theme-active .shuihuo-image-empty p { color: var(--sh-muted); }
 
 .batch-factory-workbench .shuihuo-workbench-header { grid-template-columns: minmax(285px, .9fr) minmax(630px, 1.9fr) auto; }
-.batch-factory-workbench-table .shuihuo-workbench-head, .batch-factory-book-row { min-width: 1840px; grid-template-columns: 56px minmax(355px, 1.45fr) minmax(176px, .68fr) minmax(205px, .82fr) minmax(240px, .95fr) minmax(220px, .9fr) 150px; }
+.batch-factory-workbench-table .shuihuo-workbench-head, .batch-factory-book-row { min-width: 1920px; grid-template-columns: 56px minmax(355px, 1.45fr) minmax(176px, .68fr) minmax(205px, .82fr) minmax(240px, .95fr) minmax(220px, .9fr) 230px; }
 .batch-factory-book-row { display: grid; }
 .batch-factory-book-row .shuihuo-workbench-cell { min-height: 206px; }
 .batch-factory-book-content strong { color: #edf3fc; font-size: 14px; }
@@ -466,8 +466,18 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-storyboard-video-map > span { color: #91a2b8; font-size: 12px; line-height: 1.55; }
 .batch-factory-placeholder { align-content: center; }
 .batch-factory-placeholder strong { color: #dce6f4; font-size: 12px; }
-.batch-factory-actions { align-content: center; }
-.batch-factory-actions .ant-tag { justify-self: start; margin: 0; }
+.batch-factory-actions { display: grid; align-content: center; gap: 9px; padding: 12px !important; }
+.batch-factory-action-status { display: grid; gap: 5px; padding-bottom: 8px; border-bottom: 1px solid #263a50; }
+.batch-factory-action-status > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.batch-factory-action-status .ant-tag { margin: 0; }
+.batch-factory-action-status > span { color: #91a2b8; font-size: 12px; line-height: 1.45; }
+.batch-factory-action-group { display: grid; gap: 5px; }
+.batch-factory-action-group > span { color: #8094ad; font-size: 11px; line-height: 1; }
+.batch-factory-action-button-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.batch-factory-action-button-grid .ant-btn { width: 100%; padding-inline: 4px; font-size: 12px; }
+.batch-factory-action-group.is-production { padding: 8px; border: 1px solid #29485b; border-radius: 7px; background: #0e1b2a; }
+.batch-factory-action-group.is-production .batch-factory-action-video { grid-column: 1 / -1; color: #79e5cf; border-color: #3c887a; background: #143831; }
+.batch-factory-action-group.is-recovery { padding-top: 8px; border-top: 1px dashed #34465a; }
 .batch-factory-novel-list { overflow-x: auto; border: 1px solid var(--sh-line); }
 .batch-factory-novel-fetch-list .batch-factory-novel-list-head, .batch-factory-novel-fetch-list .batch-factory-novel-list-row { display: grid; grid-template-columns: 148px 44px minmax(168px, 1.15fr) minmax(190px, 1.35fr) 96px 96px 78px 112px minmax(150px, 1.2fr) 72px 128px 76px 92px 106px 92px 72px; min-width: 2020px; }
 .batch-factory-novel-list-head { min-height: 42px; align-items: center; color: var(--sh-text); background: var(--sh-panel-strong); font-size: 12px; font-weight: 700; }

@@ -185,7 +185,19 @@ test('runs and retries stages per book through the durable V11 stage routes', ()
   assert.match(source, />生成文案</);
   assert.match(source, />生成图片</);
   assert.match(source, />生成视频</);
-  assert.match(source, />重试</);
+  assert.match(source, />重试失败步骤</);
+});
+
+test('groups per-book operations into status, production, and recovery controls', () => {
+  const actions = source.match(/<div className="shuihuo-workbench-cell batch-factory-actions">[\s\S]*?<\/div>\n        <\/article>/)?.[0] || '';
+  assert.match(actions, /batch-factory-action-status/);
+  assert.match(actions, /batch-factory-action-group is-production/);
+  assert.match(actions, /batch-factory-action-group is-recovery/);
+  assert.match(actions, /batch-factory-action-button-grid/);
+  assert.match(actions, /生成文案/);
+  assert.match(actions, /生成图片/);
+  assert.match(actions, /生成视频/);
+  assert.match(actions, /重试/);
 });
 
 test('offers explicit regenerate and retry controls in assets, prompts and video versions', () => {
