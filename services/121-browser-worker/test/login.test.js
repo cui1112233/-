@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { performPageLogin, loginWithPlaywright } = require('../src/login');
+const { performPageLogin, loginWithPlaywright, loginViaHttp } = require('../src/login');
 
 function fakeBrowser({ needsLogin = false, loginSucceeds = true } = {}) {
   const calls = { goto: [], fills: [], clicks: [], storage: 0 };
@@ -73,6 +73,7 @@ test('first login uses the target JSON endpoint without launching Chromium', asy
     username: 'alice',
     password: 'secret',
     fetchImpl: async (_url, options) => {
+      if (_url.endsWith('/login.php') && !_url.endsWith('/api/login.php')) return { ok: true, status: 200, text: async () => '', headers: { getSetCookie: () => ['PHPSESSID=primed; Path=/'] } };
       assert.equal(options.method, 'POST');
       assert.deepEqual(JSON.parse(options.body), { username: 'alice', password: 'secret' });
       return {
@@ -88,6 +89,25 @@ test('first login uses the target JSON endpoint without launching Chromium', asy
   assert.equal(result.reusedSession, false);
   assert.equal(result.storageState.cookies[0].name, 'PHPSESSID');
   assert.equal(launches, 0);
+});
+
+test('direct login primes the target PHP session before posting credentials', async () => {
+  const calls = [];
+  const result = await loginViaHttp({
+    baseUrl: 'http://two.121w.com/tttadmin',
+    username: 'alice',
+    password: 'secret',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith('/login.php') && !url.endsWith('/api/login.php')) return { ok: true, status: 200, text: async () => '', headers: { getSetCookie: () => ['PHPSESSID=primed; Path=/'] } };
+      assert.equal(options.headers.cookie, 'PHPSESSID=primed');
+      return { ok: true, status: 200, json: async () => ({ success: true }), headers: { getSetCookie: () => ['PHPSESSID=authenticated; Path=/'] } };
+    }
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].url.endsWith('/login.php'));
+  assert.ok(calls[1].url.endsWith('/api/login.php'));
+  assert.equal(result.storageState.cookies[0].value, 'authenticated');
 });
 
 test('login fills real page form and saves new storage state', async () => {

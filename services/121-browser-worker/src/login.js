@@ -41,14 +41,27 @@ function cookieFromSetCookie(value, baseUrl) {
   };
 }
 
+function responseSetCookies(response) {
+  return typeof response?.headers?.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response?.headers?.get?.('set-cookie')].filter(Boolean);
+}
+
 async function loginViaHttp({ baseUrl, username, password, fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
   if (!String(username || '').trim() || !String(password || '') || typeof fetchImpl !== 'function') return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 15000));
   try {
-    const response = await fetchImpl(`${String(baseUrl || '').replace(/\/+$/, '')}/api/login.php`, {
+    const root = String(baseUrl || '').replace(/\/+$/, '');
+    const loginPage = await fetchImpl(`${root}/login.php`, { method: 'GET', headers: {}, signal: controller.signal });
+    if (!loginPage?.ok) return null;
+    const primedCookies = responseSetCookies(loginPage).map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean);
+    const response = await fetchImpl(`${root}/api/login.php`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(primedCookies.length ? { cookie: primedCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') } : {})
+      },
       body: JSON.stringify({ username: String(username), password: String(password) }),
       signal: controller.signal
     });
@@ -59,9 +72,7 @@ async function loginViaHttp({ baseUrl, username, password, fetchImpl = globalThi
       error.code = 'LOGIN_REJECTED';
       throw error;
     }
-    const rawCookies = typeof response.headers?.getSetCookie === 'function'
-      ? response.headers.getSetCookie()
-      : [response.headers?.get?.('set-cookie')].filter(Boolean);
+    const rawCookies = responseSetCookies(response);
     const cookies = rawCookies.map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean);
     if (!cookies.length) throw new Error('121 登录成功但未返回会话 Cookie');
     return { authenticated: true, reusedSession: false, storageState: { cookies, origins: [] }, landingUrl: landingUrl(baseUrl) };
