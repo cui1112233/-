@@ -40,6 +40,7 @@
         pointer-events: none;
       }
       .novel-fetch-feedback-toast {
+        display: none !important;
         box-sizing: border-box;
         border-radius: 10px;
         padding: 12px 14px;

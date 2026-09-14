@@ -235,6 +235,7 @@ main {
 }
 
 .batch-toast {
+  display: none !important;
   position: fixed;
   z-index: 1000;
   right: 24px;
