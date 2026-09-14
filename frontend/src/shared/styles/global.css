@@ -3551,6 +3551,8 @@ select {
 }
 
 .script-shot-preset-tag {
+  appearance: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -3565,6 +3567,12 @@ select {
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.script-shot-preset-tag.is-disabled {
+  color: var(--legacy-muted);
+  border-color: var(--legacy-border);
+  background: var(--legacy-card);
+  text-decoration: line-through;
 }
 /* 深色主题下的全局错误弹层必须保持可读，避免文字与深色背景混在一起。 */
 [data-theme='dark'] .ant-modal-confirm-error .ant-modal-content,

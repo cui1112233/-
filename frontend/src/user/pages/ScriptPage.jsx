@@ -23,7 +23,7 @@ import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
-import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia } from './scriptVideoReferences';
+import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
@@ -419,7 +419,7 @@ export function ScriptPage() {
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
         resolution: '480p竖',
-        imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index })
+        imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
       const result = await createScriptVideo(videoPayload);
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
@@ -1378,6 +1378,16 @@ export function ScriptPage() {
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
               extractInfo={extractInfo}
+              shotReferenceStates={shotReferenceStates}
+              onToggleReference={(index, imageUrl) => {
+                const current = shotReferenceStates?.[index] || {};
+                const disabledImageUrls = new Set(current.disabledImageUrls || []);
+                if (disabledImageUrls.has(imageUrl)) disabledImageUrls.delete(imageUrl);
+                else disabledImageUrls.add(imageUrl);
+                const next = toggleShotReferenceState(shotReferenceStates, index, { disabledImageUrls: [...disabledImageUrls] });
+                setShotReferenceStates(next);
+                persistDraft(undefined, { shotReferenceStates: next });
+              }}
               onOpenVideo={setPreviewVideoTask}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
