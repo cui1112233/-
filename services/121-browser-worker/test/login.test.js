@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { performPageLogin } = require('../src/login');
+const { performPageLogin, loginWithPlaywright } = require('../src/login');
 
 function fakeBrowser({ needsLogin = false, loginSucceeds = true } = {}) {
   const calls = { goto: [], fills: [], clicks: [], storage: 0 };
@@ -36,6 +36,34 @@ test('existing authenticated storage state is reused without credential submissi
   assert.equal(calls.clicks.length, 0);
   assert.equal(result.authenticated, true);
   assert.equal(calls.storage, 1);
+});
+
+test('valid stored session is verified directly without launching a browser', async () => {
+  let browserContexts = 0;
+  const result = await performPageLogin({
+    browser: { newContext: async () => { browserContexts += 1; throw new Error('browser should not launch'); } },
+    baseUrl: 'http://two.121w.com/tttadmin',
+    storageState: { cookies: [{ name: 'PHPSESSID', value: 'opaque', domain: 'two.121w.com', path: '/' }] },
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.headers.cookie, 'PHPSESSID=opaque');
+      return { status: 200, ok: true, text: async () => '<html><body>admin index</body></html>' };
+    }
+  });
+  assert.equal(result.authenticated, true);
+  assert.equal(result.reusedSession, true);
+  assert.equal(browserContexts, 0);
+});
+
+test('playwright login does not launch Chromium when stored session is valid', async () => {
+  let launches = 0;
+  const result = await loginWithPlaywright({
+    baseUrl: 'http://two.121w.com/tttadmin',
+    storageState: { cookies: [{ name: 'PHPSESSID', value: 'opaque', domain: 'two.121w.com', path: '/' }] },
+    fetchImpl: async () => ({ status: 200, ok: true, text: async () => '<html>admin index</html>' }),
+    playwright: { chromium: { launch: async () => { launches += 1; throw new Error('Chromium should not launch'); } } }
+  });
+  assert.equal(result.reusedSession, true);
+  assert.equal(launches, 0);
 });
 
 test('login fills real page form and saves new storage state', async () => {

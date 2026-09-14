@@ -37,3 +37,7 @@ test('browser worker remains on the shared Docker DNS network without host IP di
   assert.match(compose, /name: v88-public_qiantie_internal/);
   assert.doesNotMatch(compose, /NetworkSettings|container_ip|172\.19\./);
 });
+
+test('unified public compose uses the aligned 121 login timeout budget', () => {
+  assert.match(compose, /QIANTIE_121_LOGIN_TIMEOUT_MS: \$\{QIANTIE_121_LOGIN_TIMEOUT_MS:-55000\}/);
+});
