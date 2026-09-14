@@ -275,6 +275,34 @@
     return 'v78-cell-muted';
   }
 
+  const STATUS_LABELS = {
+    original_done: '原文已完成',
+    original_processing: '原文处理中',
+    original_failed: '原文处理失败',
+    ai_done: 'AI文案已完成',
+    ai_processing: 'AI文案处理中',
+    ai_failed: 'AI文案生成失败',
+    site_submitted: '网站已提交',
+    accepted_pending: '等待网站确认',
+    queued: '排队中',
+    running: '正在执行中…',
+    processing: '处理中…',
+    pending: '等待处理',
+    waiting_retry: '等待重试',
+    done: '已完成',
+    completed: '已完成',
+    failed: '处理失败',
+    error: '处理失败',
+    cancelled: '已取消',
+    stopped: '已停止'
+  };
+
+  function statusLabel(value, fallback = '处理中') {
+    const raw = text(value).trim();
+    if (!raw) return fallback;
+    return STATUS_LABELS[raw.toLowerCase()] || (/^[a-z0-9_:-]+$/i.test(raw) ? fallback : raw);
+  }
+
   function statusMark(status, ready = false) {
     const value = text(status);
     if (ready || /done|complete|submitted|confirmed|已完成|成功/i.test(value)) return '<span class="v78-cell-ok">✓</span>';
@@ -368,7 +396,8 @@
       const targetReadyCount = targets.filter(version => version === 'original' ? /done|complete|成功|已完成/i.test(text(originalStatus)) : generated.has(version)).length;
       const submitReady = targets.length > 0 && (confirmed.size ? targets.every(version => confirmed.has(version)) : /submitted|confirmed|done|success|成功|已提交/i.test(text(siteStatus)));
       const submitCell = statusMark(siteStatus, submitReady);
-      return `<tr data-v78-current-id="${safe(id)}"><td>${index + 1}</td><td>${safe(task.book_name || task.bookName || '-')}</td><td>${safe(id)}</td>${versionCells}<td>${submitCell}</td><td class="${statusClass(status || siteStatus || aiStatus || originalStatus)}">${safe(status || (targetReadyCount === targets.length && targets.length ? '已完成' : '处理中'))}</td><td>${wordLabel(task, targets)}</td><td>${dateLabel(task.created_at || task.createdAt || batch.createdAt)}</td><td><button type="button" class="v78-table-view" data-v78-open-task="${safe(id)}">查看</button></td></tr>`;
+      const displayStatus = statusLabel(status || siteStatus || aiStatus || originalStatus, targetReadyCount === targets.length && targets.length ? '已完成' : '处理中');
+      return `<tr data-v78-current-id="${safe(id)}"><td>${index + 1}</td><td>${safe(task.book_name || task.bookName || '-')}</td><td>${safe(id)}</td>${versionCells}<td>${submitCell}</td><td class="${statusClass(status || siteStatus || aiStatus || originalStatus)}">${safe(displayStatus)}</td><td>${wordLabel(task, targets)}</td><td>${dateLabel(task.created_at || task.createdAt || batch.createdAt)}</td><td><button type="button" class="v78-table-view" data-v78-open-task="${safe(id)}">查看</button></td></tr>`;
     }).join('');
     wrap.innerHTML = `<table><thead><tr><th>ID</th><th>书名</th><th>Book ID</th>${versionHeads}<th>网站提交</th><th>状态</th><th>字数</th><th>创建时间</th><th>操作</th></tr></thead><tbody>${rows || `<tr><td colspan="${8 + aiTargets.length + (showOriginal ? 1 : 0)}" class="v78-cell-muted">本批次任务尚未生成</td></tr>`}</tbody></table>`;
     wrap.onclick = event => {

@@ -85,9 +85,29 @@
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 600);
   }
 
+  function headerMessage(value) {
+    const lines = String(value || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const latest = lines[lines.length - 1] || '';
+    return normalizeMessage(latest.replace(/^\[[^\]]+\]\s*/, '')).slice(0, 140);
+  }
+
+  function publishParentStatus(message, type = 'info') {
+    const text = headerMessage(message);
+    if (!text || !window.parent || window.parent === window) return;
+    const allowed = new Set(['info', 'working', 'success', 'warning', 'error']);
+    window.parent.postMessage({
+      type: 'qiantie:novel-fetch-status',
+      text,
+      tone: allowed.has(type) ? type : 'info'
+    }, window.location.origin);
+  }
+
+  window.qiantiePublishNovelFetchStatus = publishParentStatus;
+
   function showToast(message, type = 'info', durationMs) {
     const text = normalizeMessage(message);
     if (!text) return;
+    publishParentStatus(text, type);
 
     const now = Date.now();
     const key = `${type}:${text}`;
@@ -147,6 +167,7 @@
     const text = normalizeMessage(element.textContent);
     if (!text || text === '-' || text === '—') return;
     const type = classifyStatus(text);
+    publishParentStatus(text, type);
     if (!type) return;
     if (type === 'error') {
       clearBusy();

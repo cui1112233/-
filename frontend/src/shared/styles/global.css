@@ -623,6 +623,7 @@ select {
 }
 
 .legacy-topbar {
+  position: relative;
   height: var(--legacy-topbar);
   flex: 0 0 var(--legacy-topbar);
   border-bottom: 1px solid var(--legacy-border);

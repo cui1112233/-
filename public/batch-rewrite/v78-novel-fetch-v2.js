@@ -22,7 +22,19 @@
     if (!response.ok) throw new Error(data.error || data.message || data.raw || `HTTP ${response.status}`);
     return data;
   }
-  function setText(id, text) { const node = byId(id); if (node) node.textContent = String(text || ''); }
+  function publishStatus(message, tone = 'info') {
+    if (typeof window.qiantiePublishNovelFetchStatus === 'function') {
+      window.qiantiePublishNovelFetchStatus(message, tone);
+      return;
+    }
+    const text = String(message || '').trim();
+    if (text && window.parent && window.parent !== window) window.parent.postMessage({ type: 'qiantie:novel-fetch-status', text, tone }, window.location.origin);
+  }
+  function setText(id, text) {
+    const node = byId(id);
+    if (node) node.textContent = String(text || '');
+    if (id === 'v78PreviewStatus' && text) publishStatus(text, /失败|错误|异常|超时/.test(String(text)) ? 'error' : /正在|处理中|解析|排队/.test(String(text)) ? 'working' : 'info');
+  }
   function resetProcessLog() {
     processLogState.lines = [];
     setText('processResult', '');
@@ -38,6 +50,7 @@
       node.textContent = processLogState.lines.join('\n');
       node.scrollTop = node.scrollHeight;
     }
+    publishStatus(text, /失败|错误|异常|超时/.test(text) ? 'error' : /完成|成功|已创建/.test(text) ? 'success' : 'working');
   }
   function queueStateLabel(value) {
     return ({ queued: '任务已进入队列', running: '批次正在处理', waiting_retry: '处理失败，正在等待重试', done: '处理完成', failed: '处理失败', stopped: '处理已停止' })[String(value || '')] || `任务状态：${value || '处理中'}`;
@@ -108,12 +121,27 @@
     return query ? `?${query}` : '';
   }
   const TASK_STATUS_LABELS = {
+    original_done: '原文已完成',
+    original_processing: '原文处理中',
+    original_failed: '原文处理失败',
+    ai_done: 'AI文案已完成',
+    ai_processing: 'AI文案处理中',
+    ai_failed: 'AI文案生成失败',
+    site_submitted: '网站已提交',
+    accepted_pending: '等待网站确认',
     input_ready: '分类信息已就绪',
     queued: '排队中',
     running: '正在执行中…',
     processing: '正在执行中…',
     classifying: 'AI判断中…',
-    generating: '正在生成AI文案…'
+    generating: '正在生成AI文案…',
+    done: '已完成',
+    completed: '已完成',
+    failed: '处理失败',
+    error: '处理失败',
+    cancelled: '已取消',
+    stopped: '已停止',
+    pending: '等待处理'
   };
   function taskStatusLabel(value, fallback = '') {
     const text = String(value || '').trim();
@@ -415,12 +443,12 @@
     }
     const settings = batch.settingsSnapshot || {};
     const targets = asArray(settings.target_versions || settings.targetVersions).map(item => item === 'original' ? '原文' : String(item).toUpperCase());
-    meta.textContent = `${localDateText(batch.createdAt)} · ${batch.status || '处理中'} · ${batch.id}`;
+    meta.textContent = `${localDateText(batch.createdAt)} · ${taskStatusLabel(batch.status, '处理中')} · ${batch.id}`;
     summary.innerHTML = `<span>小说 ${asArray(batch.taskIds).length} 本</span><span>本次版本 ${targets.join('、') || '-'}</span><span>完成 ${batch.resultSummary?.fetched || 0}</span><span>AI文案 ${batch.resultSummary?.generated_ai_files || 0}</span>`;
     books.innerHTML = '';
     for (const task of asArray(batch.taskStates).slice(0, 30)) {
       const row = document.createElement('div'); row.className = 'v78-batch-row';
-      row.innerHTML = `<span class="grow"><b>${task.bookId || ''}</b>${task.bookName ? ` · ${task.bookName}` : ''}</span><span>${task.status || ''}</span>`;
+      row.innerHTML = `<span class="grow"><b>${task.bookId || ''}</b>${task.bookName ? ` · ${task.bookName}` : ''}</span><span>${taskStatusLabel(task.status, '处理中')}</span>`;
       books.appendChild(row);
     }
     if (!books.childNodes.length && asArray(batch.taskIds).length) books.textContent = `本批次共 ${batch.taskIds.length} 本，处理完成后会显示每本状态。`;
@@ -513,7 +541,7 @@
         const abnormal = asArray(batch.taskStates).filter(task => /(failed|error|timeout|interrupted|incomplete|partial|失败|错误|超时|中断|未完成|121异常)/i.test([task.status, task.originalStatus, task.aiStatus, task.siteSubmitStatus, task.error].filter(Boolean).join(' ')) && !/(cancelled|已取消)/i.test(String(task.status || ''))).length;
         const targets = asArray(batch.settingsSnapshot?.target_versions || batch.settingsSnapshot?.targetVersions).map(item => item === 'original' ? '原文' : String(item).toUpperCase()).join('、');
         const row = document.createElement('div'); row.className = 'v78-batch-row';
-        row.innerHTML = `<span class="grow"><b>${localDateText(batch.createdAt)}</b><br><span class="v78-muted">${batch.taskIds?.length || 0} 本 · ${targets || '-'} · ${batch.status || ''}</span></span><button data-v78-rerun="all" data-batch-id="${batch.id}">全部重跑</button><button data-v78-rerun="abnormal" data-batch-id="${batch.id}" ${abnormal ? '' : 'disabled'}>重跑异常${abnormal ? ` ${abnormal}` : ''}</button>`;
+        row.innerHTML = `<span class="grow"><b>${localDateText(batch.createdAt)}</b><br><span class="v78-muted">${batch.taskIds?.length || 0} 本 · ${targets || '-'} · ${taskStatusLabel(batch.status, '处理中')}</span></span><button data-v78-rerun="all" data-batch-id="${batch.id}">全部重跑</button><button data-v78-rerun="abnormal" data-batch-id="${batch.id}" ${abnormal ? '' : 'disabled'}>重跑异常${abnormal ? ` ${abnormal}` : ''}</button>`;
         box.appendChild(row);
       }
       if (!box.childNodes.length) box.textContent = '暂无历史批次';

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = relative => fs.readFileSync(path.join(here, relative), 'utf8');
+const readRepoPublic = relative => fs.readFileSync(path.resolve(here, '../../../../../', relative), 'utf8');
 
 test('Novel Fetch transfer targets the V11 intake and preserves source fields', () => {
   const source = read('../../../../public/batch-rewrite/app.js');
@@ -45,4 +46,30 @@ test('novel fetch gates the initial render until saved choices and login status 
   assert.match(app, /finally \{\s*document\.documentElement\.classList\.remove\("qiantie-novel-fetch-hydrating"\)/);
   assert.match(styles, /html\.qiantie-novel-fetch-hydrating body > \*\s*\{\s*visibility: hidden/);
   assert.match(styles, /正在读取当前配置/);
+});
+
+test('novel fetch status messages are bridged to the centered parent header', () => {
+  const layout = read('../../../../src/shared/layouts/UserLayout.jsx');
+  const feedback = read('../../../../public/batch-rewrite/interaction-feedback.js');
+  assert.match(layout, /qiantie:novel-fetch-status/);
+  assert.match(layout, /event\.origin !== window\.location\.origin/);
+  assert.match(layout, /legacy-global-status/);
+  assert.match(feedback, /qiantie:novel-fetch-status/);
+  assert.match(feedback, /postMessage/);
+});
+
+test('novel fetch scheduling uses Chinese progress states and supports deleting records', () => {
+  const controls = readRepoPublic('public/batch-rewrite/v78-novel-fetch-v2-run-controls.js');
+  assert.match(controls, /button\.textContent = '开始定时'/);
+  assert.match(controls, /正在定时中/);
+  assert.match(controls, /定时完成/);
+  assert.match(controls, /method: 'DELETE'/);
+  assert.match(controls, /删除记录/);
+});
+
+test('novel fetch table translates backend task states to Chinese', () => {
+  const layout = readRepoPublic('public/batch-rewrite/v78-novel-fetch-v2-layout.js');
+  assert.match(layout, /original_done/);
+  assert.match(layout, /已完成/);
+  assert.match(layout, /statusLabel/);
 });

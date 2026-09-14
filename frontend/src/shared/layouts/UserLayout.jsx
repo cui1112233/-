@@ -160,6 +160,22 @@ export function UserLayout({ children }) {
   }, []);
 
   useEffect(() => {
+    const receiveNovelFetchStatus = event => {
+      if (pathname !== '/novel-fetch') return;
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'qiantie:novel-fetch-status') return;
+      const frame = document.querySelector('iframe.novel-fetch-original-workbench');
+      if (!frame || event.source !== frame.contentWindow) return;
+      const text = String(event.data.text || '').trim();
+      if (!text) return;
+      const allowedTones = new Set(['info', 'working', 'success', 'warning', 'error']);
+      setGlobalStatus({ text: text.slice(0, 140), tone: allowedTones.has(event.data.tone) ? event.data.tone : 'info' });
+    };
+    window.addEventListener('message', receiveNovelFetchStatus);
+    return () => window.removeEventListener('message', receiveNovelFetchStatus);
+  }, [pathname]);
+
+  useEffect(() => {
     document.body.classList.add('user-theme-active');
     return () => document.body.classList.remove('user-theme-active');
   }, []);
