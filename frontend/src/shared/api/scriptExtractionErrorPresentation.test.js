@@ -30,3 +30,8 @@ test('dark theme error dialogs and messages use readable high contrast colors', 
   assert.match(globalStyles, /\[data-theme='dark'\] \.ant-modal-confirm-error \.ant-modal-confirm-content[\s\S]*?color:\s*#f8fbff/);
   assert.match(globalStyles, /\[data-theme='dark'\] \.ant-message-error \.ant-message-notice-content[\s\S]*?color:\s*#f8fbff/);
 });
+
+test('script page defines the video permission guard used by shot cards', () => {
+  assert.match(scriptPageSource, /const \[canGenerateVideo, setCanGenerateVideo\] = useState\(false\);/);
+  assert.match(scriptPageSource, /onGenerateVideo=\{canGenerateVideo \? generateVideoForShot : null\}/);
+});

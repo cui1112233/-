@@ -124,6 +124,7 @@ export function ScriptPage() {
   const [shotVideoTasks, setShotVideoTasks] = useState({});
   const [shotReferenceStates, setShotReferenceStates] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [canGenerateVideo, setCanGenerateVideo] = useState(false);
   const [scriptVideoModels, setScriptVideoModels] = useState([]);
   const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
   const [scriptModels, setScriptModels] = useState({ text: [], image: [] });
@@ -143,6 +144,23 @@ export function ScriptPage() {
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getMemberCenter().then(result => {
+      if (!active) return;
+      const member = result?.member;
+      setCanGenerateVideo(
+        ['dev', 'manager'].includes(member?.role)
+          || member?.apiScopes?.includes('*')
+          || member?.apiScopes?.includes('video')
+      );
+    }).catch(() => {
+      if (active) setCanGenerateVideo(false);
+    });
+    return () => { active = false; };
+  }, []);
+
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
   const [quickDirectorOptions, setQuickDirectorOptions] = useState({ matchAudio: false });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
