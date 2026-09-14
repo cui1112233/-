@@ -1,3 +1,3 @@
-release_sha=c0612de1
-scope=Reuse stored 121 sessions and align unified login timeout budgets
-requested_at=2026-09-14T16:48:55+08:00
+release_sha=ba3fb589
+scope=Use direct 121 JSON login endpoint before browser fallback
+requested_at=2026-09-14T16:57:29+08:00
