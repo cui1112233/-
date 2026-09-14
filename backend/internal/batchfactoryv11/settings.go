@@ -1,6 +1,9 @@
 package batchfactoryv11
 
-import "sort"
+import (
+	"encoding/json"
+	"sort"
+)
 
 func clonePatch(input SettingsPatch) SettingsPatch {
 	out := SettingsPatch{}
@@ -21,10 +24,36 @@ func ApplySparseUpdate(current SettingsPatch, update SettingsUpdate) SettingsPat
 	return out
 }
 
+func mergeAIPromptConfig(base, next json.RawMessage) json.RawMessage {
+	if len(base) == 0 {
+		return append([]byte(nil), next...)
+	}
+	merged := map[string]json.RawMessage{}
+	if err := json.Unmarshal(base, &merged); err != nil {
+		return append([]byte(nil), next...)
+	}
+	patch := map[string]json.RawMessage{}
+	if err := json.Unmarshal(next, &patch); err != nil {
+		return append([]byte(nil), next...)
+	}
+	for key, value := range patch {
+		merged[key] = append([]byte(nil), value...)
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return append([]byte(nil), next...)
+	}
+	return encoded
+}
+
 func ResolveSettings(layers ...SettingsPatch) SettingsPatch {
 	out := SettingsPatch{}
 	for _, layer := range layers {
 		for key, value := range layer {
+			if key == "aiPromptConfig" {
+				out[key] = mergeAIPromptConfig(out[key], value)
+				continue
+			}
 			out[key] = append([]byte(nil), value...)
 		}
 	}

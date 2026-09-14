@@ -39,3 +39,44 @@ func TestResolveSettingsUsesPresenceNotTruthiness(t *testing.T) {
 		t.Fatalf("effective=%v", effective)
 	}
 }
+
+func TestResolveSettingsDeepMergesAIPromptConfigModules(t *testing.T) {
+	batch := SettingsPatch{"aiPromptConfig": raw(map[string]any{
+		"assets": map[string]any{"enabled": true, "presetId": "batch-assets"},
+		"visual": map[string]any{"enabled": false},
+	})}
+	book := SettingsPatch{"aiPromptConfig": raw(map[string]any{
+		"constraints": map[string]any{"enabled": true, "presetId": "book-constraints"},
+	})}
+
+	effective := ResolveSettings(batch, book)
+	var prompt map[string]json.RawMessage
+	if err := json.Unmarshal(effective["aiPromptConfig"], &prompt); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"assets", "constraints", "visual"} {
+		if _, ok := prompt[key]; !ok {
+			t.Fatalf("missing %s in %#v", key, prompt)
+		}
+	}
+}
+
+func TestResolveSettingsKeepsLegacyFullBookPromptPayload(t *testing.T) {
+	batch := SettingsPatch{"aiPromptConfig": raw(map[string]any{
+		"assets": map[string]any{"presetId": "batch-assets"},
+		"video":  map[string]any{"presetId": "batch-video"},
+	})}
+	book := SettingsPatch{"aiPromptConfig": raw(map[string]any{
+		"assets": map[string]any{"presetId": "book-assets"},
+		"video":  map[string]any{"presetId": "book-video"},
+	})}
+
+	effective := ResolveSettings(batch, book)
+	var prompt map[string]map[string]string
+	if err := json.Unmarshal(effective["aiPromptConfig"], &prompt); err != nil {
+		t.Fatal(err)
+	}
+	if prompt["assets"]["presetId"] != "book-assets" || prompt["video"]["presetId"] != "book-video" {
+		t.Fatalf("legacy book prompt payload changed: %#v", prompt)
+	}
+}
