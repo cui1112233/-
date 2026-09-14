@@ -447,16 +447,14 @@ function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
   }
   if (!video) return <div className="batch-factory-inline-media is-empty">AI 推理后显示该书的分镜 / VIDEO</div>;
   return <div className={`batch-factory-inline-media is-${mediaFrameLayout}${candidates.length ? ' has-candidates' : ''}`}>
-    <div className="batch-factory-inline-media-stage">
-      <button type="button" className="batch-factory-inline-media-primary" aria-label="打开当前分镜主版本" onClick={() => onManage?.(video.id)}>
-        {primary?.mediaUrl ? <video src={primary.mediaUrl} muted preload="metadata" onLoadedMetadata={event => setMediaLayout(event.currentTarget.videoWidth >= event.currentTarget.videoHeight ? 'landscape' : 'portrait')} /> : <><CloudUploadOutlined /><span>当前分镜暂无视频</span></>}
-        <small>主版本 · 分镜 {selectedIndex + 1}</small>
-      </button>
-      <div className="batch-factory-inline-media-nav">
-        <button type="button" aria-label="上一分镜视频" disabled={selectedIndex === 0} onClick={() => move(-1)}><LeftOutlined /></button>
-        <span>{selectedIndex + 1}/{videos.length}</span>
-        <button type="button" aria-label="下一分镜视频" disabled={selectedIndex >= videos.length - 1} onClick={() => move(1)}><RightOutlined /></button>
-      </div>
+    <button type="button" className="batch-factory-inline-media-primary" aria-label="打开当前分镜主版本" onClick={() => onManage?.(video.id)}>
+      {primary?.mediaUrl ? <video src={primary.mediaUrl} muted preload="metadata" onLoadedMetadata={event => setMediaLayout(event.currentTarget.videoWidth >= event.currentTarget.videoHeight ? 'landscape' : 'portrait')} /> : <><CloudUploadOutlined /><span>当前分镜暂无视频</span></>}
+      <small>主版本 · 分镜 {selectedIndex + 1}</small>
+    </button>
+    <div className="batch-factory-inline-media-nav">
+      <button type="button" aria-label="上一分镜视频" disabled={selectedIndex === 0} onClick={() => move(-1)}><LeftOutlined /></button>
+      <span>{selectedIndex + 1}/{videos.length}</span>
+      <button type="button" aria-label="下一分镜视频" disabled={selectedIndex >= videos.length - 1} onClick={() => move(1)}><RightOutlined /></button>
     </div>
     <div className="batch-factory-inline-media-rail" aria-label={candidates.length ? '当前分镜候选版本，悬停展开' : '当前分镜没有候选版本'}>
       <i aria-hidden="true" />

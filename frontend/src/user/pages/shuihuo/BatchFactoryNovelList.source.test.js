@@ -352,10 +352,10 @@ test('shows one selected storyboard VIDEO and only expands real per-video candid
   assert.match(source, /useState\('landscape'\)/);
   assert.match(source, /primary\?\.mediaUrl \? mediaLayout : 'landscape'/);
   assert.match(source, /onLoadedMetadata=.*videoWidth.*videoHeight/);
-  assert.match(source, /batch-factory-inline-media-stage/);
+  assert.doesNotMatch(source, /batch-factory-inline-media-stage/);
   assert.match(stylesheet, /batch-factory-inline-media\.has-candidates:hover/);
   assert.match(stylesheet, /batch-factory-inline-media-rail/);
   assert.match(stylesheet, /batch-factory-inline-media\.is-landscape/);
   assert.match(stylesheet, /aspect-ratio:16 \/ 9/);
-  assert.match(stylesheet, /is-landscape \.batch-factory-inline-media-stage \{ width:100%/);
+  assert.match(stylesheet, /grid-template-rows:minmax\(0,1fr\) 30px/);
 });
