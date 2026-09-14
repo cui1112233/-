@@ -213,6 +213,8 @@ test('lets every production-table column after the serial number resize from its
   assert.match(source, /onDrag=\{moveColumnResize\}/);
   assert.match(source, /onDragEnd=\{finishColumnResize\}/);
   assert.match(source, /setPointerCapture\?\./);
+  assert.match(source, /map\(Number\.parseFloat\)/);
+  assert.match(source, /columnWidths\.every\(Number\.isFinite\)/);
   assert.match(source, /gridTemplateColumns: columnWidths/);
   assert.match(source, /<i aria-hidden="true" \/>/);
   assert.match(stylesheet, /\.batch-factory-workbench-table \.shuihuo-workbench-head > div \{[^}]*position: relative/);

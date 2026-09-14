@@ -607,7 +607,8 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   function moveColumnResize(event) {
     const resize = resizeStateRef.current;
     if (!resize || !Number.isFinite(event.clientX)) return;
-    setColumnWidths(resize.startingWidths.map((width, columnIndex) => columnIndex === resize.index ? Math.max(BATCH_FACTORY_TABLE_COLUMNS[resize.index].minWidth, Math.min(780, resize.startWidth + event.clientX - resize.startX)) : width));
+    const nextWidths = resize.startingWidths.map((width, columnIndex) => columnIndex === resize.index ? Math.max(BATCH_FACTORY_TABLE_COLUMNS[resize.index].minWidth, Math.min(780, resize.startWidth + event.clientX - resize.startX)) : width);
+    setColumnWidths(nextWidths);
   }
 
   function finishColumnResize() {
@@ -624,9 +625,10 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   function startColumnResize(event, index, preventDefault = true) {
     if (resizeActiveRef.current) return;
     const header = event.currentTarget.closest('.shuihuo-workbench-head');
-    const measured = header ? (getComputedStyle(header).gridTemplateColumns.match(/[\d.]+px/g)?.map(Number) || []) : [];
-    const startingWidths = columnWidths || measured;
-    if (startingWidths.length !== BATCH_FACTORY_TABLE_COLUMNS.length) return;
+    const measured = header ? (getComputedStyle(header).gridTemplateColumns.match(/[\d.]+px/g)?.map(Number.parseFloat) || []) : [];
+    const savedWidths = Array.isArray(columnWidths) && columnWidths.length === BATCH_FACTORY_TABLE_COLUMNS.length && columnWidths.every(Number.isFinite) ? columnWidths : null;
+    const startingWidths = savedWidths || measured;
+    if (startingWidths.length !== BATCH_FACTORY_TABLE_COLUMNS.length || !startingWidths.every(Number.isFinite)) return;
     if (preventDefault) {
       event.preventDefault();
       event.stopPropagation();
