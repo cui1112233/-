@@ -100,7 +100,7 @@ git commit -m "feat: merge book AI prompt regions independently"
 - Modify: `frontend/src/user/pages/shuihuo/BatchFactoryBookSettingsModal.source.test.js`
 
 **Interfaces:**
-- Consumes: `BatchFactoryBookSettingsModal({ open, batch, book, activeRegion, onClose, onSaved })`, where `activeRegion` is one of `engine`, `assets`, `constraints`, `video`, or `visual`.
+- Consumes: `BatchFactoryBookSettingsModal({ open, batch, book, activeRegion, onClose, onSaved, onOpenBookAssets })`, where `activeRegion` is one of `engine`, `assets`, `constraints`, `video`, or `visual`.
 - Produces: `buildBookRegionUpdate(inherited, bookPatch, region, edited)` returning `{ patch, restoreKeys }` suitable for `saveBookOverride`.
 
 - [ ] **Step 1: Add failing source tests for regional input and sparse writes**
@@ -141,7 +141,7 @@ const AI_REGION_KEYS = new Map([
 - [ ] **Step 4: Keep each region’s existing functional control**
 
 - `engine`: model selectors, duration, fixed video, and aspect ratio.
-- `assets`: extraction/character/scene/prop published-preset selectors.
+- `assets`: extraction/character/scene/prop published-preset selectors and a `维护当前书人物场景预设` action that calls `onOpenBookAssets(book)`.
 - `constraints`: the five script-generation constraint layers.
 - `video`: video-prompt selector and fixed single/multiple VIDEO setting.
 - `visual`: visual-prompt selector, off by default, separate from the video prompt.
@@ -209,7 +209,7 @@ Use raw `book.settingsState.patch` to determine an override. For AI regions use 
 
 - [ ] **Step 4: Render and route the five buttons**
 
-Replace the generic `setConfigBook(book)` card with five compact buttons inside the existing `单书配置` cell. Store `{ book, region }` in one `configTarget` state object, pass `configTarget.region` into `BatchFactoryBookSettingsModal`, and clear the target on close. Preserve the existing dedicated 人物场景预设 modal in the `预设` cell; the region’s asset prompt choices stay in the single-book region modal.
+Replace the generic `setConfigBook(book)` card with five compact buttons inside the existing `单书配置` cell. Store `{ book, region }` in one `configTarget` state object, pass `configTarget.region` and `onOpenBookAssets={setAssetBook}` into `BatchFactoryBookSettingsModal`, and clear the target on close. The asset region therefore contains both the book-scoped asset prompt selections and a direct action into the existing dedicated 人物场景预设 modal, which keeps the real Prompt/image editor in one durable surface.
 
 - [ ] **Step 5: Apply the workbench styling**
 
@@ -266,9 +266,10 @@ At `http://127.0.0.1:5173/shuihuo-production`, verify on one imported batch:
 
 1. The single-book cell shows five distinct buttons between 小说正文 and 预设.
 2. Each button opens its matching centered configuration region for that exact book.
-3. Save a constraints override for book 1; book 2 still reports inheritance.
-4. Reopen book 1 to confirm readback, then restore the same constraint region and confirm the status returns to inheritance.
-5. Confirm the actual 人物场景预设 dialog remains reachable from the `预设` cell and shows only that book’s assets.
+3. In 资产设置, use `维护当前书人物场景预设` and confirm the real Prompt/image editor contains only the selected book’s assets.
+4. Save a constraints override for book 1; book 2 still reports inheritance.
+5. Reopen book 1 to confirm readback, then restore the same constraint region and confirm the status returns to inheritance.
+6. Confirm the `预设` cell still opens the same actual book-asset editor.
 
 - [ ] **Step 5: Commit docs and verification-facing tests**
 
