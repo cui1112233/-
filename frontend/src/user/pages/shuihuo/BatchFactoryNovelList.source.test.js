@@ -162,3 +162,11 @@ test('scopes cancellation to the production operation created in this page, rath
   assert.match(source, /cancelBatchProduction\(batch\.id, activeProductionRequestID\)/);
   assert.match(source, /取消只会作用于该次操作/);
 });
+
+test('places each single-book configuration card between novel content and presets', () => {
+  assert.match(source, /\['序号', '小说正文', '单书配置', '预设', '提示词', '片段库', '操作'\]/);
+  assert.match(source, /batch-factory-book-config-card/);
+  assert.match(source, /<div className="shuihuo-workbench-cell batch-factory-book-config-cell">[\s\S]*?setConfigBook\(book\)[\s\S]*?<div className="shuihuo-workbench-cell shuihuo-preset-cell/);
+  const actions = source.match(/<div className="shuihuo-workbench-cell batch-factory-actions">[\s\S]*?<\/div>/)?.[0] || '';
+  assert.doesNotMatch(actions, /setConfigBook\(book\)/);
+});

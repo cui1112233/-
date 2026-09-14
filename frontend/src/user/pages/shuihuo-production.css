@@ -446,12 +446,19 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-theme-active .shuihuo-image-empty p { color: var(--sh-muted); }
 
 .batch-factory-workbench .shuihuo-workbench-header { grid-template-columns: minmax(285px, .9fr) minmax(630px, 1.9fr) auto; }
-.batch-factory-workbench-table .shuihuo-workbench-head, .batch-factory-book-row { min-width: 1640px; grid-template-columns: 56px minmax(355px, 1.45fr) minmax(205px, .82fr) minmax(240px, .95fr) minmax(220px, .9fr) 150px; }
+.batch-factory-workbench-table .shuihuo-workbench-head, .batch-factory-book-row { min-width: 1840px; grid-template-columns: 56px minmax(355px, 1.45fr) minmax(176px, .68fr) minmax(205px, .82fr) minmax(240px, .95fr) minmax(220px, .9fr) 150px; }
 .batch-factory-book-row { display: grid; }
 .batch-factory-book-row .shuihuo-workbench-cell { min-height: 206px; }
 .batch-factory-book-content strong { color: #edf3fc; font-size: 14px; }
 .batch-factory-book-content > span, .batch-factory-placeholder > span, .batch-factory-actions > span { color: #91a2b8; line-height: 1.55; font-size: 12px; }
 .batch-factory-book-content p { margin-bottom: 0; color: #c6d2e3; font-size: 12px; font-weight: 400; line-height: 1.65; white-space: pre-wrap; }
+.batch-factory-book-config-cell { align-content: center; gap: 10px; }
+.batch-factory-book-config-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; color: #dce8f7; text-align: left; background: #101b2a; border: 1px solid #2b4058; border-radius: 8px; cursor: pointer; }
+.batch-factory-book-config-card:hover { border-color: #62d9c2; background: #14253a; }
+.batch-factory-book-config-card > svg { color: #6ee3c9; font-size: 18px; }
+.batch-factory-book-config-card span { display: grid; gap: 3px; }
+.batch-factory-book-config-card small, .batch-factory-book-config-cell > p { color: #91a2b8; font-size: 12px; line-height: 1.45; }
+.batch-factory-book-config-cell > p { margin: 0; }
 .batch-factory-storyboard-video-map { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; margin-bottom: 8px; }
 .batch-factory-storyboard-video-map .ant-tag { margin: 0; color: #82e4c6; border-color: #3b7167; border-radius: 4px; background: #183a39; }
 .batch-factory-storyboard-video-map > span { color: #91a2b8; font-size: 12px; line-height: 1.55; }
