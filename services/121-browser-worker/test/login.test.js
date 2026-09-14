@@ -66,6 +66,30 @@ test('playwright login does not launch Chromium when stored session is valid', a
   assert.equal(launches, 0);
 });
 
+test('first login uses the target JSON endpoint without launching Chromium', async () => {
+  let launches = 0;
+  const result = await loginWithPlaywright({
+    baseUrl: 'http://two.121w.com/tttadmin',
+    username: 'alice',
+    password: 'secret',
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body), { username: 'alice', password: 'secret' });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+        headers: { getSetCookie: () => ['PHPSESSID=opaque; Path=/; HttpOnly'] }
+      };
+    },
+    playwright: { chromium: { launch: async () => { launches += 1; throw new Error('Chromium should not launch'); } } }
+  });
+  assert.equal(result.authenticated, true);
+  assert.equal(result.reusedSession, false);
+  assert.equal(result.storageState.cookies[0].name, 'PHPSESSID');
+  assert.equal(launches, 0);
+});
+
 test('login fills real page form and saves new storage state', async () => {
   const { browser, calls } = fakeBrowser({ needsLogin: true, loginSucceeds: true });
   const result = await performPageLogin({ browser, baseUrl: 'http://two.121w.com/tttadmin/', username: 'alice', password: 'secret' });

@@ -29,6 +29,50 @@ function storageCookieHeader(storageState) {
     .join('; ');
 }
 
+function cookieFromSetCookie(value, baseUrl) {
+  const [pair] = String(value || '').split(';', 1);
+  const separator = pair.indexOf('=');
+  if (separator <= 0) return null;
+  return {
+    name: pair.slice(0, separator).trim(),
+    value: pair.slice(separator + 1).trim(),
+    domain: new URL(baseUrl).hostname,
+    path: '/'
+  };
+}
+
+async function loginViaHttp({ baseUrl, username, password, fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
+  if (!String(username || '').trim() || !String(password || '') || typeof fetchImpl !== 'function') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 15000));
+  try {
+    const response = await fetchImpl(`${String(baseUrl || '').replace(/\/+$/, '')}/api/login.php`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: String(username), password: String(password) }),
+      signal: controller.signal
+    });
+    let data = {};
+    try { data = await response.json(); } catch (_) {}
+    if (!response.ok || data.success !== true) {
+      const error = new Error(`121 登录失败：${data.message || `HTTP ${response.status}`}`);
+      error.code = 'LOGIN_REJECTED';
+      throw error;
+    }
+    const rawCookies = typeof response.headers?.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [response.headers?.get?.('set-cookie')].filter(Boolean);
+    const cookies = rawCookies.map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean);
+    if (!cookies.length) throw new Error('121 登录成功但未返回会话 Cookie');
+    return { authenticated: true, reusedSession: false, storageState: { cookies, origins: [] }, landingUrl: landingUrl(baseUrl) };
+  } catch (error) {
+    if (error?.code === 'LOGIN_REJECTED') throw error;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function probeStoredSession({ baseUrl, storageState, fetchImpl = globalThis.fetch, landingPath = 'index.php', timeoutMs = 8000 } = {}) {
   const cookie = storageCookieHeader(storageState);
   if (!cookie || typeof fetchImpl !== 'function') return false;
@@ -97,10 +141,14 @@ async function loginWithPlaywright(options = {}) {
   if (options.storageState && await probeStoredSession(options)) {
     return { authenticated: true, reusedSession: true, storageState: options.storageState, landingUrl: landingUrl(options.baseUrl, options.landingPath) };
   }
+  if (!options.storageState) {
+    const direct = await loginViaHttp(options);
+    if (direct) return direct;
+  }
   const playwright = options.playwright || require('playwright');
   const browser = await playwright.chromium.launch({ headless: options.headed !== true });
   try { return await performPageLogin({ ...options, browser, skipSessionProbe: true }); }
   finally { await browser.close(); }
 }
 
-module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, storageCookieHeader, probeStoredSession, performPageLogin, loginWithPlaywright };
+module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, storageCookieHeader, cookieFromSetCookie, probeStoredSession, loginViaHttp, performPageLogin, loginWithPlaywright };
