@@ -609,3 +609,18 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-prompt-entry-content { padding:10px 14px; }
 .batch-factory-prompt-entry-content p { -webkit-line-clamp:9; }
 .batch-factory-prompt-entry-content span { display:none; }
+
+/* The active prompt label covers the other one; hover fans both labels out. */
+.batch-factory-prompt-entry-tabs { width:94px; min-width:94px; overflow:visible; }
+.batch-factory-prompt-entry-tabs button { position:absolute; left:0; margin:0; transition:left .18s ease,transform .18s ease,box-shadow .18s ease; }
+.batch-factory-prompt-entry-tabs.is-video .is-visual { z-index:1; left:0; }
+.batch-factory-prompt-entry-tabs.is-video .is-video { z-index:2; left:13px; }
+.batch-factory-prompt-entry-tabs.is-visual .is-video { z-index:1; left:0; }
+.batch-factory-prompt-entry-tabs.is-visual .is-visual { z-index:2; left:13px; }
+.batch-factory-prompt-entry-tabs:hover { width:176px; min-width:176px; }
+.batch-factory-prompt-entry-tabs:hover .is-visual { left:0; z-index:2; }
+.batch-factory-prompt-entry-tabs:hover .is-video { left:84px; z-index:1; }
+.batch-factory-prompt-entry-tabs:hover button.is-active { z-index:3; }
+.batch-factory-prompt-entry-nav { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; justify-self:stretch; width:100%; gap:8px; }
+.batch-factory-prompt-entry-nav button:first-child { justify-self:start; }
+.batch-factory-prompt-entry-nav button:last-child { justify-self:end; }

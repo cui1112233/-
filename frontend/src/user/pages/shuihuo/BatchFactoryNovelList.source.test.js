@@ -333,6 +333,6 @@ test('uses the whole prompt cell as a stacked-card entry and opens its editor on
   assert.match(source, /onClick=\{\(\) => onManage\?\.\(video.id\)\}/);
   assert.match(source, /className="batch-factory-prompt-modal-stack"/);
   assert.match(source, /className="batch-factory-prompt-entry-nav"/);
-  assert.match(source, /className="batch-factory-prompt-entry-tabs"/);
+  assert.match(source, /className=\{`batch-factory-prompt-entry-tabs is-\$\{promptKind\}`\}/);
   assert.doesNotMatch(source, /batch-factory-prompt-expanded/);
 });
