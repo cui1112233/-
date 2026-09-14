@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = relative => fs.readFileSync(path.join(here, relative), 'utf8');
+const readRepo = relative => fs.readFileSync(path.resolve(here, '../../../../../', relative), 'utf8');
 const readRepoPublic = relative => fs.readFileSync(path.resolve(here, '../../../../../', relative), 'utf8');
 
 test('Novel Fetch transfer targets the V11 intake and preserves source fields', () => {
@@ -56,6 +57,9 @@ test('novel fetch status messages are bridged to the centered parent header', ()
   assert.match(layout, /legacy-global-status/);
   assert.match(feedback, /qiantie:novel-fetch-status/);
   assert.match(feedback, /postMessage/);
+  const middleware = readRepo('lib/novel-fetch-workshop/v2-page.js');
+  assert.match(middleware, /INTERACTION_FEEDBACK_PATH/);
+  assert.match(middleware, /qiantie-novel-fetch-interaction-feedback/);
 });
 
 test('novel fetch scheduling uses Chinese progress states and supports deleting records', () => {
