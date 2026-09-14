@@ -38,7 +38,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:13190'
+      // Batch Factory V11 can be served by its dedicated local preview while
+      // Shuihuo keeps using the selected review platform.
+      '/api/batch-factory/v11': process.env.QIANTIE_DEV_BATCH_FACTORY_API_ORIGIN || 'http://127.0.0.1:13190',
+      '/api': process.env.QIANTIE_DEV_API_ORIGIN || 'http://127.0.0.1:13190'
     }
   }
 });
