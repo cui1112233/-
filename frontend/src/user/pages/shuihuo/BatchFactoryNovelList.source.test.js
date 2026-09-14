@@ -336,3 +336,9 @@ test('uses the whole prompt cell as a stacked-card entry and opens its editor on
   assert.match(source, /className=\{`batch-factory-prompt-entry-tabs is-\$\{promptKind\}`\}/);
   assert.doesNotMatch(source, /batch-factory-prompt-expanded/);
 });
+
+
+test('keeps the novel-content workbench cell read-only without an inline edit action', () => {
+  const contentCell = source.match(/batch-factory-book-content[\s\S]*?\<\/div\>/)?.[0] || '';
+  assert.doesNotMatch(contentCell, /编辑生产内容/);
+});
