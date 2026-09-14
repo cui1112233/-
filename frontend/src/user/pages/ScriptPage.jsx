@@ -1120,7 +1120,12 @@ export function ScriptPage() {
   const activeItem = activeEntity?.isNew
     ? activeEntity.data
     : activeEntity ? extractInfo[activeEntity.type].find(item => item.id === activeEntity.id) : null;
-  const canGenerateScript = generationStage === 'extracted' || generationStage === 'complete';
+  // 草稿恢复或页面切换后阶段标记可能回到 idle，但已提取/手动添加的实体仍然有效。
+  // 只要存在人物或场景，就允许继续生成剧本；请求层仍会校验实际输入。
+  const canGenerateScript = generationStage === 'extracted'
+    || generationStage === 'complete'
+    || extractInfo.characters.length > 0
+    || extractInfo.scenes.length > 0;
   const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
   const selectedExtractionPreset = extractionPresets.find(item => item.id === extractionPreset);
   const extractionPresetName = selectedExtractionPreset?.name || extractionPresetError || '正在加载提取指令';
