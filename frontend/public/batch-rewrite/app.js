@@ -1,3 +1,5 @@
+document.documentElement.classList.add("qiantie-novel-fetch-hydrating");
+
 const state = {
   config: null,
   tasks: [],
@@ -3494,11 +3496,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
-  await loadConfig();
-  void (async () => {
-    try { await window.qiantieEnsureWebLoginEnvironment(); }
-    catch (_) { /* the shared helper already rendered the failure state */ }
-  })();
+  try {
+    await loadConfig();
+    await window.qiantieEnsureWebLoginEnvironment();
+  } catch (_) {
+    // Individual loaders render their own actionable error. The hydration
+    // gate must still close so a failed request cannot leave a blank iframe.
+  } finally {
+    document.documentElement.classList.remove("qiantie-novel-fetch-hydrating");
+  }
   await loadTasks();
   await restoreLatestProcessJob();
 });

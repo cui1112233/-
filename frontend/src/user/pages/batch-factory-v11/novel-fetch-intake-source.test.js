@@ -37,3 +37,12 @@ test('novel fetch shares one 121 environment probe across the legacy client and 
   assert.doesNotMatch(app.slice(app.indexOf('await loadConfig()')), /api\("\/api\/web-submit\/environment"\)/);
   assert.match(hotfix, /window\.qiantieEnsureWebLoginEnvironment/);
 });
+
+test('novel fetch gates the initial render until saved choices and login status hydrate', () => {
+  const app = read('../../../../public/batch-rewrite/app.js');
+  const styles = read('../../../../public/batch-rewrite/styles.css');
+  assert.match(app, /document\.documentElement\.classList\.add\("qiantie-novel-fetch-hydrating"\)/);
+  assert.match(app, /finally \{\s*document\.documentElement\.classList\.remove\("qiantie-novel-fetch-hydrating"\)/);
+  assert.match(styles, /html\.qiantie-novel-fetch-hydrating body > \*\s*\{\s*visibility: hidden/);
+  assert.match(styles, /正在读取当前配置/);
+});
