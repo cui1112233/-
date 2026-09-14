@@ -8,6 +8,12 @@ const {
   buildStoryboardUnitDurationRules
 } = require('../lib/script-generation-rules');
 
+// 防止文本模型上游无响应时剧本生成页面永久停留在黑色加载状态。
+const SCRIPT_UPSTREAM_TIMEOUT_MS = Math.max(
+  30_000,
+  Math.min(600_000, Number(process.env.QIANTIE_SCRIPT_UPSTREAM_TIMEOUT_MS) || 180_000)
+);
+
 const MODE_PRESET_ID_MAP = {
   continuous: 'script-continuous',
   hook: 'script-hook',
@@ -576,12 +582,12 @@ function createChatRouter({
           res.end();
           reject(error);
         });
-      }));
+      }), { timeoutMs: SCRIPT_UPSTREAM_TIMEOUT_MS });
       return;
     }
 
     payload.stream = false;
-    const upstream = await upstreamRequest(config, payload, responseCollector);
+    const upstream = await upstreamRequest(config, payload, responseCollector, { timeoutMs: SCRIPT_UPSTREAM_TIMEOUT_MS });
     if (upstream.statusCode >= 400) {
       res.status(502).json({ error: describeUpstreamFailure(upstream), type: 'upstream_error' });
       return;
@@ -601,6 +607,18 @@ function createChatRouter({
     res.writeHead(upstream.statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(upstream.text);
   } catch (error) {
+    if (error?.code === 'UPSTREAM_TIMEOUT') {
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      res.status(504).json({
+        error: `文本模型响应超时（超过 ${Math.round(SCRIPT_UPSTREAM_TIMEOUT_MS / 1000)} 秒），请检查模型配置或网络后重试。`,
+        type: 'upstream_timeout',
+        code: 'SCRIPT_UPSTREAM_TIMEOUT'
+      });
+      return;
+    }
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
   });

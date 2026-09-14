@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const chatRouter = require('./chat');
 
@@ -109,4 +110,11 @@ test('上游令牌失效时返回用户可理解的中文提示', () => {
     text: JSON.stringify({ error: { message: 'Invalid token', request_id: 'req-safe-123' } })
   });
   assert.equal(message, '当前文本模型的 API 凭据无效或已过期，请更换模型或联系管理员更新凭据。（请求编号：req-safe-123）');
+});
+
+test('剧本生成的上游请求必须有超时并返回中文超时错误', () => {
+  const source = fs.readFileSync(require.resolve('./chat'), 'utf8');
+  assert.match(source, /SCRIPT_UPSTREAM_TIMEOUT_MS/);
+  assert.match(source, /upstreamRequest\(config, payload, responseCollector, \{ timeoutMs: SCRIPT_UPSTREAM_TIMEOUT_MS \}\)/);
+  assert.match(source, /文本模型响应超时/);
 });
