@@ -415,6 +415,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [platformNames, setPlatformNames] = useState({});
   const [columnWidths, setColumnWidths] = useState(null);
   const resizeActiveRef = useRef(false);
+  const resizeStateRef = useRef(null);
   const books = Array.isArray(batch?.books) ? batch.books : [];
   const readyBooks = books.filter(book => String(book?.sourceText || '').trim()).length;
   const progress = books.length ? Math.round((readyBooks / books.length) * 100) : 0;
@@ -603,31 +604,41 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   ];
   const uploadMenuItems = [{ key: 'selected', label: `提交选中（${selectedBookIds.length}）`, disabled: !selectedBookIds.length }, { key: 'all', label: '提交全部' }];
 
-  function startColumnResize(event, index) {
+  function moveColumnResize(event) {
+    const resize = resizeStateRef.current;
+    if (!resize || !Number.isFinite(event.clientX)) return;
+    setColumnWidths(resize.startingWidths.map((width, columnIndex) => columnIndex === resize.index ? Math.max(BATCH_FACTORY_TABLE_COLUMNS[resize.index].minWidth, Math.min(780, resize.startWidth + event.clientX - resize.startX)) : width));
+  }
+
+  function finishColumnResize() {
+    if (!resizeActiveRef.current && !resizeStateRef.current) return;
+    resizeActiveRef.current = false;
+    resizeStateRef.current = null;
+    document.body.classList.remove('batch-factory-column-resizing');
+    document.removeEventListener('mousemove', moveColumnResize);
+    document.removeEventListener('mouseup', finishColumnResize);
+    document.removeEventListener('pointermove', moveColumnResize);
+    document.removeEventListener('pointerup', finishColumnResize);
+  }
+
+  function startColumnResize(event, index, preventDefault = true) {
     if (resizeActiveRef.current) return;
-    event.preventDefault();
-    resizeActiveRef.current = true;
-    if (Number.isInteger(event.pointerId)) event.currentTarget.setPointerCapture?.(event.pointerId);
     const header = event.currentTarget.closest('.shuihuo-workbench-head');
-    const measured = getComputedStyle(header).gridTemplateColumns.match(/[\d.]+px/g)?.map(Number) || [];
+    const measured = header ? (getComputedStyle(header).gridTemplateColumns.match(/[\d.]+px/g)?.map(Number) || []) : [];
     const startingWidths = columnWidths || measured;
     if (startingWidths.length !== BATCH_FACTORY_TABLE_COLUMNS.length) return;
-    const startX = event.clientX;
-    const startWidth = startingWidths[index];
-    const onMove = moveEvent => setColumnWidths(startingWidths.map((width, columnIndex) => columnIndex === index ? Math.max(BATCH_FACTORY_TABLE_COLUMNS[index].minWidth, Math.min(780, startWidth + moveEvent.clientX - startX)) : width));
-    const onEnd = () => {
-      resizeActiveRef.current = false;
-      document.body.classList.remove('batch-factory-column-resizing');
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onEnd);
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onEnd);
-    };
+    if (preventDefault) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    resizeActiveRef.current = true;
+    resizeStateRef.current = { index, startX: event.clientX, startWidth: startingWidths[index], startingWidths };
+    if (Number.isInteger(event.pointerId)) event.currentTarget.setPointerCapture?.(event.pointerId);
     document.body.classList.add('batch-factory-column-resizing');
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd, { once: true });
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onEnd, { once: true });
+    document.addEventListener('mousemove', moveColumnResize);
+    document.addEventListener('mouseup', finishColumnResize, { once: true });
+    document.addEventListener('pointermove', moveColumnResize);
+    document.addEventListener('pointerup', finishColumnResize, { once: true });
   }
 
   return <section className="shuihuo-workbench batch-factory-workbench">
@@ -644,7 +655,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       <div className="shuihuo-project-stats"><span><b>{books.length}</b> 本小说</span><span><b>{readyBooks}</b> 原文就绪</span><span><b>{totalVideos}</b> VIDEO</span></div>
     </header>
     <div className="shuihuo-workbench-table batch-factory-workbench-table" role="table" aria-label="批量工厂小说生产表">
-      <div className="shuihuo-workbench-head" role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>{BATCH_FACTORY_TABLE_COLUMNS.map((column, index) => <div role="columnheader" key={column.label}>{column.label}{index > 0 ? <button type="button" className="batch-factory-column-resize-handle" onPointerDown={event => startColumnResize(event, index)} onMouseDown={event => startColumnResize(event, index)} aria-label={`调整${column.label}列宽`} title="左右拖动调整列宽"><i aria-hidden="true" /></button> : null}</div>)}</div>
+      <div className="shuihuo-workbench-head" role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>{BATCH_FACTORY_TABLE_COLUMNS.map((column, index) => <div role="columnheader" key={column.label}><span>{column.label}</span>{index > 0 ? <button type="button" draggable className="batch-factory-column-resize-handle" onPointerDown={event => startColumnResize(event, index)} onMouseDown={event => startColumnResize(event, index)} onDragStart={event => startColumnResize(event, index, false)} onDrag={moveColumnResize} onDragEnd={finishColumnResize} aria-label={`调整${column.label}列宽`} title="拖动 ↔ 调整列宽">↔</button> : null}</div>)}</div>
       {books.map((book, index) => {
         const state = batchFactoryBookState(book, { productionStatus, mergeStatus });
         const rangeLines = contentRangeLinesForBook(book);

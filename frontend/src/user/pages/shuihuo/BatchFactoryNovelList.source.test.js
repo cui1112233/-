@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, 'BatchFactoryNovelList.jsx'), 'utf8');
+const stylesheet = fs.readFileSync(path.join(here, '../shuihuo-production.css'), 'utf8');
 const engineSource = fs.readFileSync(path.join(here, 'BatchFactoryEngineSettingsDrawer.jsx'), 'utf8');
 const reasoningSource = fs.readFileSync(path.join(here, 'BatchFactoryAiReasoningModal.jsx'), 'utf8');
 const presetLibrarySource = fs.readFileSync(path.join(here, '../../../admin/pages/PresetLibraryPage.jsx'), 'utf8');
@@ -204,12 +205,17 @@ test('groups per-book operations into status, production, and recovery controls'
 
 test('lets every production-table column after the serial number resize from its header edge', () => {
   assert.match(source, /const \[columnWidths, setColumnWidths\] = useState\(null\)/);
-  assert.match(source, /function startColumnResize\(event, index\)/);
+  assert.match(source, /function startColumnResize\(event, index, preventDefault = true\)/);
   assert.match(source, /调整\$\{column\.label\}列宽/);
   assert.match(source, /onMouseDown=\{event => startColumnResize\(event, index\)\}/);
   assert.match(source, /onPointerDown=\{event => startColumnResize\(event, index\)\}/);
+  assert.match(source, /onDragStart=\{event => startColumnResize\(event, index, false\)\}/);
+  assert.match(source, /onDrag=\{moveColumnResize\}/);
+  assert.match(source, /onDragEnd=\{finishColumnResize\}/);
   assert.match(source, /setPointerCapture\?\./);
   assert.match(source, /gridTemplateColumns: columnWidths/);
+  assert.match(source, />↔<\/button>/);
+  assert.match(stylesheet, /\.batch-factory-column-resize-handle \{[^}]*position: static/);
 });
 
 test('offers explicit regenerate and retry controls in assets, prompts and video versions', () => {
