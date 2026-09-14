@@ -189,6 +189,8 @@ function saveWorkFormState() {
 }
 
 async function saveWorkFormStateNow() {
+  clearTimeout(workFormSaveTimer);
+  workFormSaveTimer = null;
   const formState = collectWorkFormState();
   try {
     localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState));
@@ -199,6 +201,10 @@ async function saveWorkFormStateNow() {
     method: "POST",
     body: JSON.stringify({ state: formState }),
   }).catch(() => {});
+}
+
+function persistWorkFormChoiceNow() {
+  void saveWorkFormStateNow();
 }
 
 function newerWorkFormState(localState, serverState) {
@@ -275,17 +281,17 @@ function restoreWorkFormState() {
 function bindWorkFormPersistence() {
   for (const id of ["platformSelect"]) {
     const element = $(id);
-    if (element) element.addEventListener("change", saveWorkFormState);
+    if (element) element.addEventListener("change", persistWorkFormChoiceNow);
   }
   for (const id of ["inputText"]) {
     const element = $(id);
     if (element) element.addEventListener("input", saveWorkFormState);
   }
   const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
-  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
+  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", persistWorkFormChoiceNow);
   const persistVersionSelection = event => {
     if (!event.target.matches('.process-version, [id^="processAiMethod"], #v78TargetVersions input, [id^="v78RunAiMethod"]')) return;
-    saveWorkFormState();
+    persistWorkFormChoiceNow();
     updateVersionConfigSummary();
   };
   document.addEventListener('change', persistVersionSelection);

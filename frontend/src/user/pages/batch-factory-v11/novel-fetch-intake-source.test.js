@@ -16,3 +16,15 @@ test('Novel Fetch transfer targets the V11 intake and preserves source fields', 
   assert.doesNotMatch(source, /platformApi\(["']\/api\/batch-factory\/intakes\/novel-fetch/);
   assert.match(source, /redirectTo.*batch-factory\?intake/);
 });
+
+test('novel fetch persists every processing choice immediately when changed', () => {
+  const source = read('../../../../public/batch-rewrite/app.js');
+  assert.match(source, /platform_id:\s*\$\("platformSelect"\)\?\.value/);
+  assert.match(source, /selected_versions:\s*selectedProcessVersions\(\)/);
+  assert.match(source, /ai_slot_methods:\s*processAiMethods\(\)/);
+  assert.match(source, /sensitive_ai_enabled:\s*sensitiveAiProcessEnabled\(\)/);
+  const toggleStart = source.indexOf('const sensitiveAiToggle = $("sensitiveAiProcessEnabled");');
+  const toggleEnd = source.indexOf('const persistVersionSelection', toggleStart);
+  assert.ok(toggleStart >= 0 && toggleEnd > toggleStart, 'sensitive-word toggle persistence handler must remain present');
+  assert.match(source.slice(toggleStart, toggleEnd), /persistWorkFormChoiceNow/);
+});
