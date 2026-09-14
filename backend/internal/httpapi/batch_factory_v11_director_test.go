@@ -76,3 +76,24 @@ func TestSliceOneDoesNotRegisterDirectorMutation(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestSliceTwoBookStageRouteRecordsDirectorAndImageAvailability(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, _ := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "林晚推门进入客厅。"}}})
+	provider := &directorHTTPProvider{output: directorHTTPJSON}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 2, Store: store, Director: &batchfactoryv11.DirectorService{Store: store, Provider: provider}})
+	base := "/api/batch-factory/v11/batches/" + batch.ID + "/books/" + batch.Books[0].ID + "/stages"
+	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, base+"/director", map[string]any{"mode": "missing", "requestId": "director-1"})
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"stage":"director"`) {
+		t.Fatalf("director status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = signedJSONRequest(t, api, now, "alice", http.MethodPost, base+"/image", map[string]any{"mode": "missing", "requestId": "image-1"})
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "图片模型或图片生成服务未配置") {
+		t.Fatalf("image status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = signedJSONRequest(t, api, now, "alice", http.MethodGet, base, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"lastFailed"`) || !strings.Contains(rec.Body.String(), `"stage":"image"`) {
+		t.Fatalf("summary status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

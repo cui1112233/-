@@ -220,6 +220,18 @@ export function runDirector(batchId, bookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body({}) });
 }
 
+export function getBookStageSummary(batchId, bookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages`));
+}
+
+export function runBookStage(batchId, bookId, stage, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages/${id(stage)}`), { method: 'POST', body: body(payload) });
+}
+
+export function retryBookStage(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages/retry`), { method: 'POST', body: body(payload) });
+}
+
 export function runBatchDirector(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body({}) });
 }

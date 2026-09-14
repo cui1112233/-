@@ -24,12 +24,12 @@
 ## File Structure
 
 - `backend/internal/batchfactoryv11/stage_runs.go`: stage types, request modes, run summary and retry selection.
-- `backend/internal/batchfactoryv11/stage_runs_service.go`: book-scoped eligibility, normal/force execution and retry orchestration.
+- `backend/internal/batchfactoryv11/stage_service.go`: book-scoped eligibility, normal/force execution and retry orchestration.
 - `backend/internal/batchfactoryv11/stage_runs_mysql.go`: durable MySQL ledger implementation.
 - `backend/internal/batchfactoryv11/memory_store.go`: in-memory ledger implementation for unit and HTTP tests.
-- `backend/internal/storage/batch_factory_v11_schema.go`: additive migration `1100014` for stage runs.
-- `backend/internal/httpapi/batch_factory_v11_stage_runs.go`: scoped status, action, retry handlers.
-- `backend/internal/httpapi/router.go`: wire stage-run routes and dependencies at Slice 4+.
+- `backend/internal/storage/batch_factory_v11_schema.go`: additive migration `1100015` for stage runs.
+- `backend/internal/httpapi/batch_factory_v11_stages.go`: scoped status, action, retry handlers.
+- `backend/internal/httpapi/router.go`: wire stage-run routes when the Director service is available (Slice 2+).
 - `backend/internal/batchfactoryv11/production.go`: accept `force` and optional `videoId` without replacing primary media.
 - `backend/internal/httpapi/batch_factory_v11_production.go`: decode force/video scope.
 - `frontend/src/shared/api/batchFactoryV11.js`: stage APIs and explicit force inputs.
@@ -96,9 +96,9 @@ retryBookStage(batchId, bookId)
 
 **Consumes:** Existing `ProductionState`, `Store`, `MySQLStore`, `MemoryStore`, ownership rules, and migration callback model.
 
-**Produces:** `BookStageRunRepository` with create/update/list-by-book operations, `BookStageSummary`, and migration `1100014`.
+**Produces:** `BookStageRunRepository` with create/update/list-by-book operations, `BookStageSummary`, and migration `1100015`.
 
-- [ ] **Step 1: Write failing stage-ledger tests**
+- [x] **Step 1: Write stage-ledger tests**
 
 ```go
 func TestBookStageSummaryReturnsOnlyLatestFailureForItsBook(t *testing.T) {
@@ -110,7 +110,7 @@ func TestBookStageSummaryReturnsOnlyLatestFailureForItsBook(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test to verify failure**
+- [x] **Step 2: Run the focused test**
 
 Run: `go test ./internal/batchfactoryv11 -run TestBookStageSummaryReturnsOnlyLatestFailureForItsBook -count=1`
 
@@ -144,7 +144,7 @@ git commit -m "feat: persist batch book stage runs"
 ### Task 2: Server-owned missing/force/retry execution rules
 
 **Files:**
-- Create: `backend/internal/batchfactoryv11/stage_runs_service.go`
+- Create: `backend/internal/batchfactoryv11/stage_service.go`
 - Create: `backend/internal/batchfactoryv11/stage_runs_service_test.go`
 - Modify: `backend/internal/batchfactoryv11/director_service.go`
 - Modify: `backend/internal/batchfactoryv11/production.go`
@@ -207,14 +207,14 @@ Expected: PASS.
 - [ ] **Step 6: Commit execution behavior**
 
 ```bash
-git add backend/internal/batchfactoryv11/stage_runs_service.go backend/internal/batchfactoryv11/stage_runs_service_test.go backend/internal/batchfactoryv11/director_service.go backend/internal/batchfactoryv11/production.go backend/internal/batchfactoryv11/production_test.go
+git add backend/internal/batchfactoryv11/stage_service.go backend/internal/batchfactoryv11/stage_runs_service_test.go backend/internal/batchfactoryv11/director_service.go backend/internal/batchfactoryv11/production.go backend/internal/batchfactoryv11/production_test.go
 git commit -m "feat: run and retry batch book stages"
 ```
 
 ### Task 3: Scoped HTTP contract and runtime capability response
 
 **Files:**
-- Create: `backend/internal/httpapi/batch_factory_v11_stage_runs.go`
+- Create: `backend/internal/httpapi/batch_factory_v11_stages.go`
 - Create: `backend/internal/httpapi/batch_factory_v11_stage_runs_test.go`
 - Modify: `backend/internal/httpapi/batch_factory_v11_director.go`
 - Modify: `backend/internal/httpapi/batch_factory_v11_production.go`
@@ -260,7 +260,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit the HTTP surface**
 
 ```bash
-git add backend/internal/httpapi/batch_factory_v11_stage_runs.go backend/internal/httpapi/batch_factory_v11_stage_runs_test.go backend/internal/httpapi/batch_factory_v11_director.go backend/internal/httpapi/batch_factory_v11_production.go backend/internal/httpapi/router.go
+git add backend/internal/httpapi/batch_factory_v11_stages.go backend/internal/httpapi/batch_factory_v11_stage_runs_test.go backend/internal/httpapi/batch_factory_v11_director.go backend/internal/httpapi/batch_factory_v11_production.go backend/internal/httpapi/router.go
 git commit -m "feat: expose batch book stage actions"
 ```
 

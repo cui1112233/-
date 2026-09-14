@@ -178,3 +178,22 @@ test('places five regional single-book configuration buttons between novel conte
   const actions = source.match(/<div className="shuihuo-workbench-cell batch-factory-actions">[\s\S]*?<\/div>/)?.[0] || '';
   assert.doesNotMatch(actions, /setConfigTarget/);
 });
+
+test('runs and retries stages per book through the durable V11 stage routes', () => {
+  assert.match(source, /runBookStage\(batch\.id, book\.id, stage/);
+  assert.match(source, /retryBookStage\(batch\.id, book\.id/);
+  assert.match(source, />生成文案</);
+  assert.match(source, />生成图片</);
+  assert.match(source, />生成视频</);
+  assert.match(source, />重试</);
+});
+
+test('offers explicit regenerate and retry controls in assets, prompts and video versions', () => {
+  assert.match(source, /重新生成资产/);
+  assert.match(source, /重试资产/);
+  assert.match(source, /重新生成文案/);
+  assert.match(source, /重试文案/);
+  assert.match(source, /重新生成视频/);
+  assert.match(source, /重试视频/);
+  assert.match(source, /不改变当前主版本/);
+});

@@ -43,7 +43,7 @@ func (s *MySQLStore) UpdateBookStageRun(ctx context.Context, owner, id string, v
 	}
 	var existing BookStageRun
 	var stage, status string
-	err := s.db.QueryRowContext(ctx, `SELECT batch_id,book_id,stage,status,attempt,COALESCE(request_id,''),COALESCE(input_revision,''),created_at FROM batch_factory_v11_book_stage_runs WHERE id=? AND owner_username=?`, id, owner).Scan(&existing.BatchID, &existing.BookID, &stage, &status, &existing.Attempt, &existing.RequestID, &existing.InputRevision, &existing.CreatedAt)
+	err := s.db.QueryRowContext(ctx, `SELECT batch_id,book_id,stage,status,attempt,COALESCE(request_id,''),COALESCE(input_revision,''),COALESCE(error_message,''),created_at FROM batch_factory_v11_book_stage_runs WHERE id=? AND owner_username=?`, id, owner).Scan(&existing.BatchID, &existing.BookID, &stage, &status, &existing.Attempt, &existing.RequestID, &existing.InputRevision, &existing.ErrorMessage, &existing.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return BookStageRun{}, ErrNotFound
 	}

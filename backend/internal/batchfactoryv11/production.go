@@ -101,6 +101,11 @@ type ProductionRepository interface {
 	ListProductionJobs(context.Context, string, string) ([]ProductionJob, error)
 }
 
+type ProductionOptions struct {
+	Force   bool
+	VideoID string
+}
+
 type ProductionService struct {
 	Store            Store
 	Compiler         PromptResolver
@@ -217,10 +222,16 @@ func normalizeProductionState(value ProductionState) ProductionState {
 }
 
 func (s *ProductionService) SubmitBookProduction(ctx context.Context, owner, batchID, bookID, requestID string) (ProductionJob, error) {
-	return s.SubmitBookProductionWithProvider(ctx, owner, batchID, bookID, requestID, VideoProviderPersonalAPI)
+	return s.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, VideoProviderPersonalAPI, ProductionOptions{})
 }
 
 func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context, owner, batchID, bookID, requestID, provider string) (ProductionJob, error) {
+	return s.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{})
+}
+
+// SubmitBookProductionWithOptions keeps normal generation idempotent while an
+// explicit retry may target one failed VIDEO without changing its primary media.
+func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context, owner, batchID, bookID, requestID, provider string, options ProductionOptions) (ProductionJob, error) {
 	// The gate deliberately comes before repository/compiler/provider work.
 	if s == nil || !s.Enabled {
 		return ProductionJob{}, fmt.Errorf("%w: production is not enabled", ErrUnavailable)
@@ -277,7 +288,7 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 			continue
 		}
 		for _, task := range prior.Tasks {
-			if task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded {
+			if !options.Force && (task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded) {
 				blockedVideos[task.VideoID] = true
 			}
 		}
@@ -292,6 +303,9 @@ func (s *ProductionService) SubmitBookProductionWithProvider(ctx context.Context
 	}
 	pendingVideos := make([]Video, 0, len(mediaVideos))
 	for _, video := range mediaVideos {
+		if options.VideoID != "" && video.ID != options.VideoID {
+			continue
+		}
 		if !blockedVideos[video.ID] {
 			pendingVideos = append(pendingVideos, video)
 		}

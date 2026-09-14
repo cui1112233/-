@@ -39,6 +39,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	}
 	if options.Store != nil && options.Director != nil && options.Slice >= 2 {
 		registerDirectorRoutes(v11, options.Director, options.Store)
+		registerBookStageRoutes(v11, &batchfactoryv11.BookStageService{Store: options.Store, Director: options.Director, Production: options.Production})
 	}
 	if options.Compiler != nil && options.Slice >= 3 {
 		registerCompilerRoutes(v11, options.Compiler)
