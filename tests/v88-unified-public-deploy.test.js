@@ -19,7 +19,7 @@ test('unified V88 release deploys the paired immutable Node and Go images from t
   assert.match(workflow, /QIANTIE_GO_IMAGE/);
   assert.match(workflow, /QIANTIE_RELEASE_SHA/);
   assert.match(workflow, /docker compose[^\n]*config -q/);
-  assert.match(workflow, /up -d[^\n]*go-api v88-node/);
+  assert.match(workflow, /up -d[^\n]*go-api browser-worker v88-node/);
 });
 
 test('unified V88 deploy records rollback state and restores it on failed acceptance', () => {

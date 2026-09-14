@@ -175,7 +175,7 @@ jobs:
               cp -a "$backup_env" .env || echo 'STATUS=ROLLBACK_WARNING unable to restore .env'
               cp -a "$backup_nginx" nginx.conf || echo 'STATUS=ROLLBACK_WARNING unable to restore nginx.conf'
               docker compose -f docker-compose.yml config -q || true
-              docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node || true
+              docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api browser-worker v88-node || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx || true
               docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 || true
             fi
@@ -205,7 +205,7 @@ jobs:
           cp "/tmp/v88-public-nginx-${expected_sha}.conf" nginx.conf
 
           docker compose -f docker-compose.yml config -q
-          docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
+          docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api browser-worker v88-node
           docker compose -f docker-compose.yml exec -T nginx nginx -t
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx
           docker compose -f docker-compose.yml exec -T nginx nginx -t
