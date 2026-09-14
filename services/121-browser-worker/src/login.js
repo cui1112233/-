@@ -152,7 +152,7 @@ async function loginWithPlaywright(options = {}) {
   if (options.storageState && await probeStoredSession(options)) {
     return { authenticated: true, reusedSession: true, storageState: options.storageState, landingUrl: landingUrl(options.baseUrl, options.landingPath) };
   }
-  if (!options.storageState) {
+  if (options.username && options.password) {
     const direct = await loginViaHttp(options);
     if (direct) return direct;
   }

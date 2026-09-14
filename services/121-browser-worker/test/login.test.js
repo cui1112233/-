@@ -110,6 +110,24 @@ test('direct login primes the target PHP session before posting credentials', as
   assert.equal(result.storageState.cookies[0].value, 'authenticated');
 });
 
+test('expired stored session still attempts direct credential login before Chromium fallback', async () => {
+  let launches = 0;
+  const result = await loginWithPlaywright({
+    baseUrl: 'http://two.121w.com/tttadmin',
+    username: 'alice',
+    password: 'secret',
+    storageState: { cookies: [{ name: 'PHPSESSID', value: 'expired', domain: 'two.121w.com', path: '/' }] },
+    fetchImpl: async (url) => {
+      if (url.endsWith('/login.php') && !url.endsWith('/api/login.php')) return { ok: true, status: 200, text: async () => '', headers: { getSetCookie: () => ['PHPSESSID=primed; Path=/'] } };
+      if (url.endsWith('/api/login.php')) return { ok: true, status: 200, json: async () => ({ success: true }), headers: { getSetCookie: () => ['PHPSESSID=renewed; Path=/'] } };
+      return { ok: false, status: 302, headers: { get: () => 'login.php' }, text: async () => '' };
+    },
+    playwright: { chromium: { launch: async () => { launches += 1; throw new Error('Chromium should not launch'); } } }
+  });
+  assert.equal(result.storageState.cookies[0].value, 'renewed');
+  assert.equal(launches, 0);
+});
+
 test('login fills real page form and saves new storage state', async () => {
   const { browser, calls } = fakeBrowser({ needsLogin: true, loginSucceeds: true });
   const result = await performPageLogin({ browser, baseUrl: 'http://two.121w.com/tttadmin/', username: 'alice', password: 'secret' });
