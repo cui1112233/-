@@ -165,7 +165,9 @@ test('scopes cancellation to the production operation created in this page, rath
 });
 
 test('places five regional single-book configuration buttons between novel content and presets', () => {
-  assert.match(source, /\['序号', '小说正文', '单书配置', '预设', '提示词', '片段库', '操作'\]/);
+  assert.match(source, /BATCH_FACTORY_TABLE_COLUMNS/);
+  assert.match(source, /label: '单书配置'/);
+  assert.match(source, /label: '预设'/);
   assert.match(source, /BOOK_CONFIG_REGIONS\.map/);
   assert.match(source, /setConfigTarget\(\{ book, region: region\.key \}\)/);
   assert.match(source, /onOpenBookAssets=\{book => setAssetBook\(book\)\}/);
@@ -198,6 +200,14 @@ test('groups per-book operations into status, production, and recovery controls'
   assert.match(actions, /生成图片/);
   assert.match(actions, /生成视频/);
   assert.match(actions, /重试/);
+});
+
+test('lets every production-table column after the serial number resize from its header edge', () => {
+  assert.match(source, /const \[columnWidths, setColumnWidths\] = useState\(null\)/);
+  assert.match(source, /function startColumnResize\(event, index\)/);
+  assert.match(source, /调整\$\{column\.label\}列宽/);
+  assert.match(source, /onMouseDown=\{event => startColumnResize\(event, index\)\}/);
+  assert.match(source, /gridTemplateColumns: columnWidths/);
 });
 
 test('offers explicit regenerate and retry controls in assets, prompts and video versions', () => {

@@ -72,6 +72,15 @@ function capability(caps, key) { return caps?.[key] || { available: false, reaso
 function assetName(asset) { return String(asset?.name || asset?.label || asset?.id || '未命名预设'); }
 function assetPrompt(asset) { return String(asset?.prompt || asset?.visualPrompt || asset?.description || ''); }
 function savedDraftKey(type, asset) { return `asset:${type}:${asset?.id || assetName(asset)}`; }
+const BATCH_FACTORY_TABLE_COLUMNS = [
+  { label: '序号', minWidth: 56 },
+  { label: '小说正文', minWidth: 300 },
+  { label: '单书配置', minWidth: 176 },
+  { label: '预设', minWidth: 190 },
+  { label: '提示词', minWidth: 220 },
+  { label: '片段库', minWidth: 200 },
+  { label: '操作', minWidth: 210 }
+];
 function completedMediaVersions(status) {
 	const entries = new Map();
 	for (const job of status?.jobs || []) for (const task of job?.tasks || []) {
@@ -404,6 +413,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [uploadMode, setUploadMode] = useState('');
   const [selectedBookIds, setSelectedBookIds] = useState([]);
   const [platformNames, setPlatformNames] = useState({});
+  const [columnWidths, setColumnWidths] = useState(null);
   const books = Array.isArray(batch?.books) ? batch.books : [];
   const readyBooks = books.filter(book => String(book?.sourceText || '').trim()).length;
   const progress = books.length ? Math.round((readyBooks / books.length) * 100) : 0;
@@ -592,6 +602,25 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   ];
   const uploadMenuItems = [{ key: 'selected', label: `提交选中（${selectedBookIds.length}）`, disabled: !selectedBookIds.length }, { key: 'all', label: '提交全部' }];
 
+  function startColumnResize(event, index) {
+    event.preventDefault();
+    const header = event.currentTarget.closest('.shuihuo-workbench-head');
+    const measured = getComputedStyle(header).gridTemplateColumns.match(/[\d.]+px/g)?.map(Number) || [];
+    const startingWidths = columnWidths || measured;
+    if (startingWidths.length !== BATCH_FACTORY_TABLE_COLUMNS.length) return;
+    const startX = event.clientX;
+    const startWidth = startingWidths[index];
+    const onMove = moveEvent => setColumnWidths(startingWidths.map((width, columnIndex) => columnIndex === index ? Math.max(BATCH_FACTORY_TABLE_COLUMNS[index].minWidth, Math.min(780, startWidth + moveEvent.clientX - startX)) : width));
+    const onEnd = () => {
+      document.body.classList.remove('batch-factory-column-resizing');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onEnd);
+    };
+    document.body.classList.add('batch-factory-column-resizing');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd, { once: true });
+  }
+
   return <section className="shuihuo-workbench batch-factory-workbench">
     <header className="shuihuo-workbench-header">
       <div className="shuihuo-workbench-heading"><button className="shuihuo-back-link" type="button" title="返回个人作品" aria-label="返回个人作品" onClick={onBack}><ArrowLeftOutlined /></button><strong>批量工厂 · {batch?.title || '未命名批量'}</strong><div className="shuihuo-workbench-progress" aria-label={`原文就绪 ${progress}%`}><div className="shuihuo-workbench-progress-track"><i style={{ width: `${progress}%` }} /></div><span>{progress}%</span></div></div>
@@ -606,13 +635,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       <div className="shuihuo-project-stats"><span><b>{books.length}</b> 本小说</span><span><b>{readyBooks}</b> 原文就绪</span><span><b>{totalVideos}</b> VIDEO</span></div>
     </header>
     <div className="shuihuo-workbench-table batch-factory-workbench-table" role="table" aria-label="批量工厂小说生产表">
-      <div className="shuihuo-workbench-head" role="row">{['序号', '小说正文', '单书配置', '预设', '提示词', '片段库', '操作'].map(item => <div role="columnheader" key={item}>{item}</div>)}</div>
+      <div className="shuihuo-workbench-head" role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>{BATCH_FACTORY_TABLE_COLUMNS.map((column, index) => <div role="columnheader" key={column.label}>{column.label}{index > 0 ? <button type="button" className="batch-factory-column-resize-handle" onMouseDown={event => startColumnResize(event, index)} aria-label={`调整${column.label}列宽`} title="左右拖动调整列宽" /> : null}</div>)}</div>
       {books.map((book, index) => {
         const state = batchFactoryBookState(book, { productionStatus, mergeStatus });
         const rangeLines = contentRangeLinesForBook(book);
         const previewText = batchFactoryPreviewText(book.sourceText, book);
         const videos = book.videos || [];
-        return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row">
+        return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><strong>{index + 1}</strong></div>
           <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 展示前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p><Button type="link" size="small" onClick={() => openContentEditor(book)} disabled={!String(book.sourceText || '').trim()}>编辑生产内容</Button></div>
           <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{BOOK_CONFIG_REGIONS.map(region => { const status = bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>

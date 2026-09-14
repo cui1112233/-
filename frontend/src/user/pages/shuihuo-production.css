@@ -448,6 +448,11 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .batch-factory-workbench .shuihuo-workbench-header { grid-template-columns: minmax(285px, .9fr) minmax(630px, 1.9fr) auto; }
 .batch-factory-workbench-table .shuihuo-workbench-head, .batch-factory-book-row { min-width: 1920px; grid-template-columns: 56px minmax(355px, 1.45fr) minmax(176px, .68fr) minmax(205px, .82fr) minmax(240px, .95fr) minmax(220px, .9fr) 230px; }
 .batch-factory-book-row { display: grid; }
+.batch-factory-workbench-head > div { position: relative; }
+.batch-factory-column-resize-handle { position: absolute; z-index: 2; top: 0; right: -6px; bottom: 0; width: 12px; padding: 0; cursor: col-resize; background: transparent; border: 0; }
+.batch-factory-column-resize-handle::after { position: absolute; top: 11px; bottom: 11px; left: 5px; width: 2px; content: ''; background: transparent; border-radius: 2px; }
+.batch-factory-column-resize-handle:hover::after, body.batch-factory-column-resizing .batch-factory-column-resize-handle::after { background: #67d9c3; }
+body.batch-factory-column-resizing, body.batch-factory-column-resizing * { cursor: col-resize !important; user-select: none !important; }
 .batch-factory-book-row .shuihuo-workbench-cell { min-height: 206px; }
 .batch-factory-book-content strong { color: #edf3fc; font-size: 14px; }
 .batch-factory-book-content > span, .batch-factory-placeholder > span, .batch-factory-actions > span { color: #91a2b8; line-height: 1.55; font-size: 12px; }
