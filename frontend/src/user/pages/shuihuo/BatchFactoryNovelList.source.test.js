@@ -214,8 +214,9 @@ test('lets every production-table column after the serial number resize from its
   assert.match(source, /onDragEnd=\{finishColumnResize\}/);
   assert.match(source, /setPointerCapture\?\./);
   assert.match(source, /gridTemplateColumns: columnWidths/);
-  assert.match(source, />↔<\/button>/);
-  assert.match(stylesheet, /\.batch-factory-column-resize-handle \{[^}]*position: static/);
+  assert.match(source, /<i aria-hidden="true" \/>/);
+  assert.match(stylesheet, /\.batch-factory-workbench-table \.shuihuo-workbench-head > div \{[^}]*position: relative/);
+  assert.match(stylesheet, /\.batch-factory-column-resize-handle \{[^}]*position: absolute/);
 });
 
 test('offers explicit regenerate and retry controls in assets, prompts and video versions', () => {
