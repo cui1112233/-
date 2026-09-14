@@ -540,6 +540,31 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-book-library-cell .shuihuo-primary-media { width: 100%; }
 .batch-factory-book-library-cell .shuihuo-media-grid { min-width: 0; }
 .batch-factory-library-note { color: #91a2b8; font-size: 12px; line-height: 1.55; }
+.batch-factory-book-prompt-cell { display: block; padding: 10px; }
+.batch-factory-inline-prompts { display: grid; gap: 9px; min-width: 0; }
+.batch-factory-prompt-stack { display: flex; align-items: center; justify-content: space-between; min-height: 36px; gap: 8px; }
+.batch-factory-prompt-navigation { display: flex; gap: 4px; }
+.batch-factory-prompt-navigation .ant-btn { color: var(--sh-muted); border-color: var(--sh-line); background: var(--sh-panel-strong); }
+.batch-factory-prompt-cards { position: relative; width: 152px; height: 34px; flex: 0 0 152px; }
+.batch-factory-prompt-card { position: absolute; top: 5px; right: 0; min-width: 106px; height: 29px; padding: 0 12px; border: 1px solid rgba(112, 177, 226, .55); border-radius: 11px 11px 7px 7px; box-shadow: 0 4px 12px rgba(2, 13, 28, .22); font-size: 12px; line-height: 27px; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease; }
+.batch-factory-prompt-card.is-video { background: #d8efff; color: #245d83; }
+.batch-factory-prompt-card.is-visual { right: 22px; top: 0; border-color: rgba(97, 185, 141, .55); background: #dcf6e8; color: #256e4d; }
+.batch-factory-prompt-card.is-active { z-index: 2; transform: translateY(-2px); box-shadow: 0 7px 16px rgba(2, 13, 28, .32); }
+.batch-factory-prompt-card:not(.is-active) { z-index: 1; }
+.batch-factory-prompt-card.is-unavailable { opacity: .56; cursor: not-allowed; }
+.batch-factory-prompt-card:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: 2px; }
+.batch-factory-prompt-expanded { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--sh-line); border-radius: 12px; background: linear-gradient(145deg, color-mix(in srgb, var(--sh-panel-strong) 92%, #26496c), var(--sh-panel-strong)); }
+.batch-factory-inline-prompts.is-visual .batch-factory-prompt-expanded { border-color: color-mix(in srgb, #62c894 44%, var(--sh-line)); }
+.batch-factory-inline-prompts.is-video .batch-factory-prompt-expanded { border-color: color-mix(in srgb, #67bbed 44%, var(--sh-line)); }
+.batch-factory-inline-prompt-field { display: grid; min-width: 0; cursor: text; }
+.batch-factory-inline-prompts .ant-input { min-height: 0; color: var(--sh-text); border-color: var(--sh-line); background: var(--sh-panel-strong); font-size: 12px; line-height: 1.55; resize: vertical; }
+.batch-factory-inline-prompts .ant-input:focus { border-color: var(--sh-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--sh-accent) 16%, transparent); }
+.batch-factory-inline-prompts.is-empty { align-content: center; min-height: 180px; color: var(--sh-muted); font-size: 12px; line-height: 1.6; }
+.batch-factory-inline-prompt-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.batch-factory-inline-prompt-action-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.batch-factory-prompt-missing { display: flex; align-items: center; justify-content: space-between; min-height: 102px; padding: 12px; color: var(--sh-muted); border: 1px dashed var(--sh-line); border-radius: 9px; background: color-mix(in srgb, var(--sh-panel-strong) 86%, transparent); font-size: 12px; }
+@media (max-width: 700px) { .batch-factory-prompt-stack { align-items: flex-start; } .batch-factory-prompt-cards { transform: scale(.92); transform-origin: right top; } .batch-factory-inline-prompt-actions { align-items: flex-start; flex-direction: column; } .batch-factory-inline-prompt-action-group { justify-content: flex-start; } }
+
 
 .batch-factory-ai-modal .ant-modal-body { display:grid; gap:16px; max-height:calc(100vh - 240px); overflow:auto; }
 .batch-factory-ai-title { display:flex; align-items:center; justify-content:space-between; width:100%; }

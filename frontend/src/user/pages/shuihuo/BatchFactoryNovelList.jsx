@@ -3,7 +3,7 @@ import {
   BarsOutlined,
   CloudUploadOutlined,
   FileTextOutlined,
-  FullscreenOutlined,
+  ReloadOutlined,
 	LeftOutlined,
   PictureOutlined,
 	RightOutlined,
@@ -30,6 +30,7 @@ import {
   createPublishIntent,
 	  cancelBatchProduction,
   getCapabilities,
+  generateBookAssetImages,
   listBookAssets,
   listBookAssetImages,
   getConfigVersions,
@@ -44,6 +45,7 @@ import {
   runBookStage,
   retryBookStage,
   saveBatchSettings,
+  saveBookOverride,
   updateBookAsset,
   uploadBookAssetImage,
   setPrimaryBookAssetImage,
@@ -52,6 +54,7 @@ import {
   submitBatchMerge,
   submitBatchProduction
 } from '../../../shared/api/batchFactoryV11';
+import { listAvailableModels } from '../../../shared/api/modelCatalog';
 import { BatchFactoryEngineSettingsDrawer } from './BatchFactoryEngineSettingsDrawer';
 import { BatchFactoryAiReasoningModal } from './BatchFactoryAiReasoningModal';
 import { BatchFactoryBookSettingsModal } from './BatchFactoryBookSettingsModal';
@@ -72,6 +75,9 @@ function capability(caps, key) { return caps?.[key] || { available: false, reaso
 function assetName(asset) { return String(asset?.name || asset?.label || asset?.id || '未命名预设'); }
 function assetPrompt(asset) { return String(asset?.prompt || asset?.visualPrompt || asset?.description || ''); }
 function savedDraftKey(type, asset) { return `asset:${type}:${asset?.id || assetName(asset)}`; }
+function effectiveBookSettings(batch, book) {
+  return { ...(batch?.settingsState?.patch || {}), ...(book?.settingsState?.patch || {}) };
+}
 const BATCH_FACTORY_TABLE_COLUMNS = [
   { label: '序号', minWidth: 56 },
   { label: '小说正文', minWidth: 300 },
@@ -121,157 +127,273 @@ function readImageAsDataURL(file) {
   });
 }
 
-function AssetImageVersions({ asset, batchId, bookId, onChanged }) {
-  const [images, setImages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState('');
-  const loadImages = async ({ quiet = false } = {}) => {
-    if (!batchId || !bookId || !asset?.id) return;
-    setLoading(true);
-    try {
-      const response = await listBookAssetImages(batchId, bookId, asset.id);
-      const next = resultData(response, 'images');
-      setImages(Array.isArray(next) ? next : []);
-    } catch (error) {
-      if (!quiet) message.error(error?.message || '读取资产图片版本失败');
-    } finally { setLoading(false); }
-  };
-  useEffect(() => { loadImages({ quiet: true }); }, [batchId, bookId, asset?.id]);
-  async function upload(event) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      message.error('仅支持 PNG、JPG、WEBP 图片。');
-      return;
-    }
-    setSaving('upload');
-    try {
-      await uploadBookAssetImage(batchId, bookId, asset.id, await readImageAsDataURL(file));
-      await loadImages({ quiet: true });
-      await onChanged?.();
-      message.success('图片版本已保存到当前小说资产。');
-    } catch (error) { message.error(error?.message || '上传资产图片失败'); } finally { setSaving(''); }
-  }
-  async function choosePrimary(image) {
-    if (image.isPrimary) return;
-    setSaving(image.id);
-    try {
-      await setPrimaryBookAssetImage(batchId, bookId, asset.id, image.id);
-      await loadImages({ quiet: true });
-      await onChanged?.();
-      message.success('已切换为主图。');
-    } catch (error) { message.error(error?.message || '切换主图失败'); } finally { setSaving(''); }
-  }
-  const primary = images.find(image => image.isPrimary) || null;
-  const candidates = images.filter(image => image.id !== primary?.id);
-  return <section className="batch-factory-asset-images">
-    <div className="batch-factory-asset-images-head"><b>图片版本（{images.length}）</b><Space size={8} wrap><label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={upload} disabled={saving !== ''} />{saving === 'upload' ? '正在上传…' : '上传图片版本'}</label><Tooltip title="V11 尚未提供该书的资产图片接口用于图片模型生成；只有真实模型服务回执接入后才会开放。"><Button size="small" disabled>AI 生成暂不可用</Button></Tooltip><Button size="small" loading={loading} onClick={() => loadImages()} disabled={saving !== ''}>刷新</Button></Space></div>
-    {primary ? <div className="batch-factory-asset-primary"><img src={primary.url} alt={`${asset.name} 主图`} /><span>主图 · 版本 {primary.revision}</span></div> : <p className="shuihuo-modal-note">还没有图片版本。上传后会保存为这个资产的首个主图。</p>}
-    {candidates.length ? <div className="batch-factory-asset-candidates">{candidates.map(image => <article key={image.id}><img src={image.url} alt={`${asset.name} 候选图`} /><span>候选版本 {image.revision}</span><Button size="small" loading={saving === image.id} disabled={saving !== '' && saving !== image.id} onClick={() => choosePrimary(image)}>切换为主图</Button></article>)}</div> : null}
-  </section>;
-}
-
-function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry, canGenerate, generateReason, generating, engineSettings }) {
+function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry, onTextModelChange, onImageModelChange, onAspectRatioChange, canGenerate, generateReason, generating, engineSettings }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [kind, setKind] = useState('character');
-  const [newName, setNewName] = useState('');
-  const [newPrompt, setNewPrompt] = useState('');
-  const [edits, setEdits] = useState({});
+  const [libraryKind, setLibraryKind] = useState('character');
   const [search, setSearch] = useState('');
-  const kindOptions = [{ value: 'character', label: 'AI角色' }, { value: 'scene', label: 'AI场景' }, { value: 'prop', label: 'AI道具' }];
+  const [textModels, setTextModels] = useState([]);
+  const [imageModels, setImageModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [textModelId, setTextModelId] = useState('');
+  const [imageModelId, setImageModelId] = useState('');
+  const [aspectRatio, setAspectRatio] = useState('9:16');
+  const [selectedAssetIds, setSelectedAssetIds] = useState([]);
+  const [imageGenerating, setImageGenerating] = useState(false);
+  const [assetImages, setAssetImages] = useState({});
+  const [editing, setEditing] = useState(null);
+  const kindOptions = [{ value: 'character', label: '人物' }, { value: 'scene', label: '场景' }, { value: 'prop', label: '道具' }];
+  const categoryLabel = value => kindOptions.find(item => item.value === value)?.label || '资产';
+  async function loadImages(nextAssets, { quiet = false } = {}) {
+    const entries = await Promise.all((nextAssets || []).map(async asset => {
+      try { return [asset.id, resultData(await listBookAssetImages(batchId, book.id, asset.id), 'images')]; }
+      catch (error) { if (!quiet) message.error(error?.message || '读取资产图片版本失败'); return [asset.id, []]; }
+    }));
+    setAssetImages(Object.fromEntries(entries.map(([assetId, images]) => [assetId, Array.isArray(images) ? images : []])));
+  }
   const loadAssets = async ({ quiet = false } = {}) => {
     if (!batchId || !book?.id) return;
     setLoading(true);
     try {
       const response = await listBookAssets(batchId, book.id);
       const next = resultData(response, 'assets');
-      setAssets(Array.isArray(next) ? next : []);
+      const saved = Array.isArray(next) ? next : [];
+      setAssets(saved);
+      await loadImages(saved, { quiet: true });
     } catch (error) {
       if (!quiet) message.error(error?.message || '读取当前小说资产失败');
     } finally { setLoading(false); }
   };
   useEffect(() => {
     setAssets(Array.isArray(book?.assetRecords) ? book.assetRecords : []);
-    setEdits({});
     setSearch('');
+    setSelectedAssetIds([]);
     loadAssets({ quiet: true });
   }, [batchId, book?.id]);
+  useEffect(() => {
+    let active = true;
+    setModelsLoading(true);
+    Promise.all([listAvailableModels('text'), listAvailableModels('image')]).then(([nextTextModels, nextImageModels]) => {
+      if (!active) return;
+      setTextModels(nextTextModels);
+      setImageModels(nextImageModels);
+      const configuredText = String(engineSettings?.textModelId || '').trim();
+      const configuredImage = String(engineSettings?.imageModelId || '').trim();
+      setTextModelId(current => current || configuredText || String(nextTextModels?.[0]?.id || ''));
+      setImageModelId(current => current || configuredImage || String(nextImageModels?.[0]?.id || ''));
+    }).catch(error => {
+      if (active) message.error(error?.message || '读取个人中心模型失败');
+    }).finally(() => { if (active) setModelsLoading(false); });
+    return () => { active = false; };
+  }, [book?.id]);
+  useEffect(() => {
+    const configured = String(engineSettings?.textModelId || '').trim();
+    if (configured) setTextModelId(configured);
+  }, [engineSettings?.textModelId]);
+  useEffect(() => {
+    const configured = String(engineSettings?.imageModelId || '').trim();
+    if (configured) setImageModelId(configured);
+  }, [engineSettings?.imageModelId]);
+  useEffect(() => {
+    setAspectRatio(String(engineSettings?.aspectRatio || '9:16'));
+  }, [engineSettings?.aspectRatio]);
   const visibleAssets = assets.filter(asset => asset.kind === kind).filter(asset => {
     const query = search.trim().toLowerCase();
     return !query || `${asset.name} ${asset.prompt}`.toLowerCase().includes(query);
   });
-  async function addAsset() {
-    setSavingId('new');
+  const libraryImages = assets.filter(asset => asset.kind === libraryKind).flatMap(asset => (assetImages[asset.id] || []).map(image => ({ image, asset }))).filter(({ asset }) => {
+    const query = search.trim().toLowerCase();
+    return !query || `${asset.name} ${asset.prompt}`.toLowerCase().includes(query);
+  });
+  async function saveAsset() {
+    if (!editing?.name?.trim() || !editing?.prompt?.trim()) { message.warning('请填写资产名称和提示词。'); return; }
+    const existing = assets.find(asset => asset.id === editing.id);
+    setSavingId(existing?.id || 'new');
     try {
-      const response = await createBookAsset(batchId, book.id, { kind, name: newName, prompt: newPrompt });
-      setAssets(current => [...current, resultData(response, 'asset')]);
-      setNewName(''); setNewPrompt('');
-      message.success('资产已保存到当前小说。');
+      if (existing) await updateBookAsset(batchId, book.id, existing.id, { name: editing.name, prompt: editing.prompt, expectedRevision: Number(existing.revision || 0) });
+      else await createBookAsset(batchId, book.id, { kind: editing.kind, name: editing.name, prompt: editing.prompt });
+      setEditing(null);
+      await loadAssets({ quiet: true });
       await onSaved?.();
-    } catch (error) { message.error(error?.message || '新增资产失败'); } finally { setSavingId(''); }
-  }
-  async function saveAsset(asset) {
-    const edit = edits[asset.id] || asset;
-    setSavingId(asset.id);
-    try {
-      const response = await updateBookAsset(batchId, book.id, asset.id, { name: edit.name, prompt: edit.prompt, expectedRevision: Number(asset.revision || 0) });
-      const updated = resultData(response, 'asset');
-      setAssets(current => current.map(item => item.id === asset.id ? updated : item));
-      setEdits(current => { const next = { ...current }; delete next[asset.id]; return next; });
-      message.success('资产提示词已保存。');
-      await onSaved?.();
+      message.success('当前小说资产已保存。');
     } catch (error) { message.error(error?.message || '保存资产失败'); } finally { setSavingId(''); }
   }
   async function runPreset() {
     try {
-      await onGenerate?.();
+      if (!textModelId) { message.warning('请先选择个人中心已启用的文本模型。'); return; }
+      await onGenerate?.(textModelId);
       await loadAssets({ quiet: true });
     } catch (_) { /* runAi already reports its business error */ }
+  }
+  async function chooseImageModel(nextModelId) {
+    const previous = imageModelId;
+    setImageModelId(nextModelId);
+    try {
+      await onImageModelChange?.(nextModelId);
+    } catch (error) {
+      setImageModelId(previous);
+      message.error(error?.message || '保存当前书图片模型失败');
+    }
+  }
+  async function chooseTextModel(nextModelId) {
+    const previous = textModelId;
+    setTextModelId(nextModelId);
+    try {
+      await onTextModelChange?.(nextModelId);
+    } catch (error) {
+      setTextModelId(previous);
+      message.error(error?.message || '保存当前书文本模型失败');
+    }
+  }
+  async function chooseAspectRatio(nextAspectRatio) {
+    const previous = aspectRatio;
+    setAspectRatio(nextAspectRatio);
+    try {
+      await onAspectRatioChange?.(nextAspectRatio);
+    } catch (error) {
+      setAspectRatio(previous);
+      message.error(error?.message || '保存当前书画幅失败');
+    }
+  }
+  function toggleAssetSelection(assetId, checked) {
+    setSelectedAssetIds(current => checked ? [...new Set([...current, assetId])] : current.filter(id => id !== assetId));
+  }
+  async function generateImages(assetIds = selectedAssetIds) {
+    if (!assetIds.length) { message.warning('请先选择要生成图片的资产。'); return; }
+    if (!imageModelId) { message.warning('请先选择个人中心已启用的图片模型。'); return; }
+    setImageGenerating(true);
+    try {
+      const result = await generateBookAssetImages(batchId, book.id, {
+        assetIds,
+        modelId: imageModelId,
+        aspectRatio: aspectRatio || '9:16'
+      });
+      await loadImages(assets, { quiet: true });
+      await onSaved?.();
+      message.success(`已保存 ${resultData(result, 'images')?.length || assetIds.length} 个当前书资产图片版本。`);
+    } catch (error) { message.error(error?.message || '图片生成失败'); } finally { setImageGenerating(false); }
+  }
+  async function uploadImage(asset, event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { message.error('仅支持 PNG、JPG、WEBP 图片。'); return; }
+    setSavingId(`upload-${asset.id}`);
+    try {
+      await uploadBookAssetImage(batchId, book.id, asset.id, await readImageAsDataURL(file));
+      await loadImages(assets, { quiet: true });
+      await onSaved?.();
+      message.success('图片版本已保存到当前小说资产。');
+    } catch (error) { message.error(error?.message || '上传资产图片失败'); } finally { setSavingId(''); }
+  }
+  async function makePrimary(asset, image) {
+    if (image.isPrimary) return;
+    setSavingId(`primary-${image.id}`);
+    try {
+      await setPrimaryBookAssetImage(batchId, book.id, asset.id, image.id);
+      await loadImages(assets, { quiet: true });
+      await onSaved?.();
+      message.success('已切换为当前资产主图。');
+    } catch (error) { message.error(error?.message || '切换主图失败'); } finally { setSavingId(''); }
   }
   return <section className="batch-factory-preset-shell">
     <Alert type="info" showIcon message="当前小说的人物、场景与道具" description="每一项都归属当前小说并持久化保存。智能预设成功后会写入导演提取的资产；手动修改会保留为该书的人工资产。" />
     <div className="shuihuo-preset-toolbar batch-factory-preset-toolbar">
-      <Tooltip title="当前批量或当前书的有效引擎配置"><Select disabled value={engineSettings?.textModelId || undefined} placeholder="未设置文本模型" options={engineSettings?.textModelId ? [{ value: engineSettings.textModelId, label: engineSettings.textModelId }] : []} /></Tooltip>
+      <Tooltip title="选择后立即保存到当前小说；智能预设、重新生成资产和 AI 推理都会使用此模型。"><Select value={textModelId || undefined} loading={modelsLoading} placeholder="选择文本模型" style={{ minWidth: 190 }} options={textModels.map(model => ({ value: model.id, label: model.displayName || model.modelId || model.id }))} onChange={chooseTextModel} /></Tooltip>
       <Tooltip title={canGenerate ? '仅在当前书没有文案时提取人物、场景、道具；已有手动资产不会被覆盖。' : generateReason}><Button type="primary" loading={generating} disabled={!canGenerate || generating} onClick={runPreset}>智能预设</Button></Tooltip>
-      <Tooltip title="基于当前书内容重新生成 AI 文案和自动资产；手动编辑的资产提示词保留。"><Button loading={generating} disabled={!canGenerate || generating} onClick={onRegenerate}>重新生成资产</Button></Tooltip>
-      <Tooltip title="只重跑当前小说最后失败的阶段。"><Button disabled={!canGenerate || generating} onClick={onRetry}>重试资产</Button></Tooltip>
+      <Tooltip title="基于当前书内容重新生成 AI 文案和自动资产；手动编辑的资产提示词保留。"><Button loading={generating} disabled={!canGenerate || generating || !textModelId} onClick={() => onRegenerate?.(textModelId)}>重新生成资产</Button></Tooltip>
+      <Tooltip title="只重跑当前小说最后失败的阶段。"><Button disabled={!canGenerate || generating || !textModelId} onClick={() => onRetry?.(textModelId)}>重试资产</Button></Tooltip>
       <Button loading={loading} onClick={() => loadAssets()}>刷新资产</Button>
-      <Tooltip title="每个资产在下方独立维护上传后的图片版本；图片模型生成尚未接入。"><Button disabled>图片模型生成未接入</Button></Tooltip>
+      <Select value={imageModelId || undefined} loading={modelsLoading} placeholder="选择图片模型" style={{ minWidth: 180 }} options={imageModels.map(model => ({ value: model.id, label: model.displayName || model.modelId || model.id }))} onChange={chooseImageModel} />
+      <Select value={aspectRatio} aria-label="当前书画幅" options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }, { value: '1:1', label: '1:1' }]} onChange={chooseAspectRatio} />
+      <Tooltip title="使用个人中心中已启用的图片模型，为选中的当前书资产生成新版本；不会覆盖已有主图。"><Button type="primary" loading={imageGenerating} disabled={imageGenerating || !selectedAssetIds.length || !imageModelId} onClick={() => generateImages()}>AI生成（已选 {selectedAssetIds.length}）</Button></Tooltip>
+      <Button onClick={() => setEditing({ kind, name: '', prompt: '' })}>手动添加</Button>
     </div>
+    {!modelsLoading && !imageModels.length ? <Alert type="warning" showIcon message="个人中心尚未启用图片模型" description={<Space wrap><span>图片模型生成只会使用个人中心已启用的模型，避免把水货历史默认配置误当成当前书可用凭据。</span><Button type="link" href="/api-config">前往个人中心配置图片模型</Button></Space>} /> : null}
     <div className="shuihuo-preset-layout batch-factory-preset-layout">
       <aside className="shuihuo-preset-list">
         <div className="shuihuo-preset-list-head"><strong>资产列表 ({visibleAssets.length})</strong><Select size="small" value={kind} onChange={setKind} options={kindOptions} /><Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索名称或提示词" allowClear /></div>
         <div className="shuihuo-prompt-list">
-          {visibleAssets.map(asset => {
-            const edit = edits[asset.id] || asset;
-            return <article className="shuihuo-prompt-row" key={asset.id}><div className="shuihuo-prompt-row-head"><Tag>{kindOptions.find(option => option.value === asset.kind)?.label}</Tag><Tag color={asset.source === 'manual' ? 'cyan' : 'blue'}>{asset.source === 'manual' ? '手动' : '导演提取'}</Tag></div><Input value={edit.name} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, name: event.target.value } }))} placeholder="资产名称" /><Input.TextArea rows={4} value={edit.prompt} onChange={event => setEdits(current => ({ ...current, [asset.id]: { ...edit, prompt: event.target.value } }))} placeholder="输入可用于画面与视频编译的资产提示词" /><Button size="small" type="primary" loading={savingId === asset.id} disabled={savingId !== '' && savingId !== asset.id} onClick={() => saveAsset(asset)}>保存该资产</Button><AssetImageVersions asset={asset} batchId={batchId} bookId={book.id} onChanged={onSaved} /></article>;
-          })}
-          {!loading && !visibleAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>当前分类还没有资产。可手动添加，或点击“智能预设”从当前小说提取。</p></div> : null}
+          {visibleAssets.map(asset => <article className={`shuihuo-prompt-row${selectedAssetIds.includes(asset.id) ? ' is-selected' : ''}`} key={asset.id}><div className="shuihuo-prompt-row-head"><Checkbox checked={selectedAssetIds.includes(asset.id)} onChange={event => toggleAssetSelection(asset.id, event.target.checked)}>生成</Checkbox><Tag>{categoryLabel(asset.kind)}</Tag><strong>{assetName(asset)}</strong><Button type="text" size="small" onClick={() => setEditing({ ...asset })}>编辑</Button></div><p>{assetPrompt(asset) || '尚未填写可视化提示词'}</p></article>)}
+          {!loading && !visibleAssets.length ? <div className="shuihuo-prompt-empty"><b>＋</b><p>暂无提示词，请点击“智能预设”或手动添加。</p><Button onClick={() => setEditing({ kind, name: '', prompt: '' })}>添加提示词</Button></div> : null}
         </div>
       </aside>
       <main className="shuihuo-preset-library">
-        <h3>新增{kindOptions.find(option => option.value === kind)?.label}</h3>
-        <Space direction="vertical" size={12} style={{ width: '100%' }}><Input value={newName} onChange={event => setNewName(event.target.value)} placeholder="名称" /><Input.TextArea rows={7} value={newPrompt} onChange={event => setNewPrompt(event.target.value)} placeholder="提示词：描述这个人物、场景或道具的可见特征" /><Button type="primary" loading={savingId === 'new'} disabled={savingId !== '' || !newName.trim() || !newPrompt.trim()} onClick={addAsset}>保存到当前小说</Button></Space>
-        <p className="shuihuo-modal-note">这里保存的是当前小说的生产资产，批量中其他小说不会读取或覆盖它。图片上传后的版本也归属当前资产；图片模型生成仍需真实服务回执，不会把文字伪装成图片。</p>
+        <div className="shuihuo-asset-tabs">{kindOptions.map(option => <button type="button" className={libraryKind === option.value ? 'active' : ''} onClick={() => setLibraryKind(option.value)} key={option.value}>{option.label}</button>)}</div>
+        <Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder={`搜索${categoryLabel(libraryKind)}图片...`} className="shuihuo-preset-search" allowClear />
+        <div className="shuihuo-image-library-grid">{libraryImages.map(({ image, asset }) => <article className="shuihuo-image-card" key={image.id}><div className="shuihuo-image-card-visual"><img src={image.url} alt={`${assetName(asset)} 图片版本`} /></div><div className="shuihuo-image-card-title"><strong>{assetName(asset)}</strong><Tag>{image.isPrimary ? '主图' : `版本 ${image.revision || ''}`}</Tag></div><p>{assetPrompt(asset) || '生成时未保存提示词快照'}</p><div className="shuihuo-image-card-actions">{!image.isPrimary ? <Button type="text" size="small" loading={savingId === `primary-${image.id}`} onClick={() => makePrimary(asset, image)}>设主图</Button> : <span>当前主图</span>}<label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(asset, event)} disabled={savingId !== ''} />上传版本</label></div></article>)}{!libraryImages.length ? <div className="shuihuo-image-empty"><b>图片库</b><p>暂无已生成图片</p><span>在左侧勾选人物、场景或道具后，点击顶部“AI生成”。</span></div> : null}</div>
       </main>
     </div>
+    <Modal title={editing?.id ? `编辑资产 · ${assetName(editing)}` : `添加${categoryLabel(editing?.kind || kind)}`} open={Boolean(editing)} onCancel={() => setEditing(null)} onOk={saveAsset} confirmLoading={savingId !== ''} okText="保存" width={760} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><label className="shuihuo-form-label">资产分类<Select value={editing?.kind} options={kindOptions} onChange={value => setEditing(current => ({ ...current, kind: value }))} /></label><label className="shuihuo-form-label">名称<Input value={editing?.name || ''} onChange={event => setEditing(current => ({ ...current, name: event.target.value }))} /></label><label className="shuihuo-form-label">外观描述 / AI 生图提示词<Input.TextArea rows={9} value={editing?.prompt || ''} onChange={event => setEditing(current => ({ ...current, prompt: event.target.value }))} placeholder="输入人物、场景或道具的可视化提示词" /></label></Space></Modal>
   </section>;
 }
 
-function storyboardVideoLabel(video, index) {
-	return `${video?.label || `分镜${String(index + 1).padStart(2, '0')}`} → VIDEO${String(index + 1).padStart(2, '0')}`;
+function InlineBookPrompts({ book, batchId, onSaved, onManage, onRegenerateVideo, onGenerateVideo, onViewVideoCandidates, onRegenerateVisual, onGenerateVisual, onViewVisualCandidates, videoAvailable = false, videoReason = '', visualAvailable = false, visualReason = '' }) {
+	const videos = book?.videos || [];
+	const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
+	const [promptKind, setPromptKind] = useState('video');
+	const [opened, setOpened] = useState(false);
+	const videoIndex = Math.max(0, videos.findIndex(item => item.id === selectedVideoId));
+	const video = videos[videoIndex] || null;
+	const [videoPrompt, setVideoPrompt] = useState(video?.videoPrompt || '');
+	const [visualPrompt, setVisualPrompt] = useState(video?.visualPrompt || '');
+	const [saving, setSaving] = useState(false);
+	const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
+	const hasVideoPrompt = Boolean(String(videoPrompt || '').trim());
+	const activePrompt = promptKind === 'visual' ? visualPrompt : videoPrompt;
+	const canOpenActivePrompt = promptKind === 'visual' ? hasVisualPrompt : hasVideoPrompt;
+	useEffect(() => {
+		setSelectedVideoId(book?.videos?.[0]?.id || '');
+		setPromptKind('video');
+		setOpened(false);
+	}, [book?.id]);
+	useEffect(() => {
+		setVideoPrompt(video?.videoPrompt || '');
+		setVisualPrompt(video?.visualPrompt || '');
+		setOpened(false);
+	}, [video?.id, video?.revision]);
+	async function save() {
+		if (!video || saving || !canOpenActivePrompt) return;
+		setSaving(true);
+		try {
+			const patch = promptKind === 'visual' ? { visualPrompt } : { videoPrompt };
+			await saveVideoOverride(batchId, book.id, video.id, { patch, expectedRevision: Number(video.revision || 0) });
+			await onSaved?.();
+			message.success(promptKind === 'visual' ? '画面提示词已保存到当前分镜。' : '视频提示词已保存到当前分镜。');
+		} catch (error) { message.error(error?.message || '保存提示词失败'); } finally { setSaving(false); }
+	}
+	function selectVideo(nextID) {
+		if (!nextID || nextID === selectedVideoId) return;
+		setSelectedVideoId(nextID);
+	}
+	function selectPromptKind(nextKind) {
+		if (nextKind === 'visual' && !hasVisualPrompt) return;
+		setPromptKind(nextKind);
+		setOpened(true);
+	}
+	if (!video) return <div className="batch-factory-inline-prompts is-empty">AI 推理后会在这里显示当前书的分镜提示词卡。</div>;
+	const activeCard = promptKind === 'visual' ? 'visual' : 'video';
+	const cardOrder = activeCard === 'video' ? ['visual', 'video'] : ['video', 'visual'];
+	return <div className={`batch-factory-inline-prompts is-${activeCard}${opened ? ' is-opened' : ''}`}>
+		<div className="batch-factory-prompt-stack">
+			<div className="batch-factory-prompt-navigation"><Tooltip title="上一分镜"><Button size="small" aria-label="上一分镜" icon={<LeftOutlined />} disabled={videoIndex === 0} onClick={() => selectVideo(videos[videoIndex - 1]?.id)} /></Tooltip><Tooltip title="下一分镜"><Button size="small" aria-label="下一分镜" icon={<RightOutlined />} disabled={videoIndex >= videos.length - 1} onClick={() => selectVideo(videos[videoIndex + 1]?.id)} /></Tooltip></div>
+			<div className="batch-factory-prompt-cards" aria-label="提示词类型切换">{cardOrder.map(kind => <button type="button" key={kind} className={`batch-factory-prompt-card is-${kind}${activeCard === kind ? ' is-active' : ''}${kind === 'visual' && !hasVisualPrompt ? ' is-unavailable' : ''}`} disabled={kind === 'visual' && !hasVisualPrompt} onClick={() => selectPromptKind(kind)}>{kind === 'visual' ? '画面提示词' : '视频提示词'}</button>)}</div>
+		</div>
+		{opened ? <div className="batch-factory-prompt-expanded">{canOpenActivePrompt ? <><label className="batch-factory-inline-prompt-field"><Input.TextArea aria-label={promptKind === 'visual' ? '编辑画面提示词' : '编辑视频提示词'} rows={7} value={activePrompt} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前 VIDEO 的画面图片' : '这段文字会进入当前 VIDEO 的最终编译'} /></label><div className="batch-factory-inline-prompt-actions"><Button size="small" type="primary" loading={saving} onClick={save}>保存{promptKind === 'visual' ? '画面' : '视频'}提示词</Button><div className="batch-factory-inline-prompt-action-group">{promptKind === 'video' ? <><Tooltip title="重新生成当前小说的视频提示词"><Button size="small" type="text" aria-label="重新生成视频提示词" icon={<ReloadOutlined />} onClick={() => onRegenerateVideo?.(video.id)} /></Tooltip><Button size="small" onClick={() => onManage?.(video.id)}>编辑</Button><Tooltip title={videoAvailable ? '生成当前分镜的视频' : videoReason}><Button size="small" disabled={!videoAvailable} onClick={() => onGenerateVideo?.(video.id)}>生成视频</Button></Tooltip><Button size="small" onClick={() => onViewVideoCandidates?.(video.id)}>查看候选版本</Button></> : <><Tooltip title="重新生成当前小说的画面提示词"><Button size="small" type="text" aria-label="重新生成画面提示词" icon={<ReloadOutlined />} onClick={() => onRegenerateVisual?.(video.id)} /></Tooltip><Button size="small" onClick={() => onManage?.(video.id)}>编辑</Button><Tooltip title={visualAvailable ? '生成当前分镜的画面图片' : visualReason}><Button size="small" disabled={!visualAvailable} onClick={() => onGenerateVisual?.(video.id)}>生成图片</Button></Tooltip><Button size="small" onClick={() => onViewVisualCandidates?.(video.id)}>查看候选版本</Button></>}</div></div></> : <div className="batch-factory-prompt-missing"><span>请生成视频提示词再查看</span><Tooltip title="重新生成当前小说的视频提示词"><Button size="small" type="text" aria-label="重新生成视频提示词" icon={<ReloadOutlined />} onClick={() => onRegenerateVideo?.(video.id)} /></Tooltip></div>}</div> : null}
+	</div>;
 }
+
 function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
 	const index = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
 	const hasVideos = videos.length > 0;
 	return <Space wrap className="batch-factory-storyboard-navigator"><Tooltip title="上一分镜"><Button aria-label="上一分镜" icon={<LeftOutlined />} disabled={!hasVideos || index === 0} onClick={() => onSelect(videos[index - 1]?.id)} /></Tooltip><Select value={selectedVideoId || undefined} onChange={onSelect} style={{ minWidth: 260 }} placeholder="选择分镜 / VIDEO" options={videos.map((video, videoIndex) => ({ value: video.id, label: storyboardVideoLabel(video, videoIndex) }))} /><Tooltip title="下一分镜"><Button aria-label="下一分镜" icon={<RightOutlined />} disabled={!hasVideos || index >= videos.length - 1} onClick={() => onSelect(videos[index + 1]?.id)} /></Tooltip></Space>;
 }
 
-function PromptPanel({ book, batchId, onSaved, onRegenerate, onRetry, regenerating }) {
-  const [selectedVideoId, setSelectedVideoId] = useState(book?.videos?.[0]?.id || '');
+function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate, onRetry, regenerating, compilerAvailable = false, compilerReason = '' }) {
+	const [selectedVideoId, setSelectedVideoId] = useState(initialVideoId || book?.videos?.[0]?.id || '');
+	const [promptKind, setPromptKind] = useState('visual');
   const [loading, setLoading] = useState(false);
 	  const [saving, setSaving] = useState(false);
   const [prompt, setPrompt] = useState(null);
@@ -281,11 +403,11 @@ function PromptPanel({ book, batchId, onSaved, onRegenerate, onRetry, regenerati
 	  const selectedVideo = videos.find(video => video.id === selectedVideoId) || null;
 	  useEffect(() => {
 		  const first = book?.videos?.[0] || null;
-		  setSelectedVideoId(first?.id || '');
+		  setSelectedVideoId(initialVideoId || first?.id || '');
 		  setVideoPrompt(first?.videoPrompt || '');
 		  setVisualPrompt(first?.visualPrompt || '');
 		  setPrompt(null);
-	  }, [book?.id]);
+	}, [book?.id, initialVideoId]);
 	  useEffect(() => {
 		  setVideoPrompt(selectedVideo?.videoPrompt || '');
 		  setVisualPrompt(selectedVideo?.visualPrompt || '');
@@ -305,10 +427,10 @@ function PromptPanel({ book, batchId, onSaved, onRegenerate, onRetry, regenerati
 			  message.success('当前 VIDEO 的视频提示词和画面提示词已分别保存。');
 		  } catch (error) { message.error(error?.message || '保存 VIDEO 提示词失败'); } finally { setSaving(false); }
 	  }
-	  return <Space direction="vertical" size={12} style={{ width: '100%' }}><Space wrap><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} /><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId}>读取最终视频提示词</Button></Space><label className="shuihuo-form-label">视频提示词<Input.TextArea rows={5} value={videoPrompt} onChange={event => setVideoPrompt(event.target.value)} placeholder="这段文字会进入 VIDEO 的最终编译" /></label><label className="shuihuo-form-label">画面提示词<Input.TextArea rows={5} value={visualPrompt} onChange={event => setVisualPrompt(event.target.value)} placeholder="仅用于生成当前 VIDEO 的画面图片，不会进入视频提示词" /></label><Space wrap><Button type="primary" loading={saving} disabled={!selectedVideo} onClick={savePrompts}>保存当前 VIDEO 提示词</Button><Tooltip title="按当前小说原文重新执行 AI 文案；已手动保存的 VIDEO 提示词会保留。"><Button loading={regenerating} disabled={regenerating} onClick={onRegenerate}>重新生成文案</Button></Tooltip><Button disabled={regenerating} onClick={onRetry}>重试文案</Button></Space>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiledPrompt || prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终视频提示词由 V11 编译器实时生成；画面提示词仅服务画面图。</p>}</Space>;
+	  return <Space direction="vertical" size={12} style={{ width: '100%' }}><Space wrap><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} /><div className="batch-factory-inline-prompt-tabs"><Button size="small" type={promptKind === 'visual' ? 'primary' : 'default'} onClick={() => setPromptKind('visual')}>图片提示词</Button><Button size="small" type={promptKind === 'video' ? 'primary' : 'default'} onClick={() => setPromptKind('video')}>视频提示词</Button></div><Tooltip title={compilerAvailable ? '读取当前 VIDEO 的最终编译提示词。' : compilerReason}><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId || !compilerAvailable}>读取最终视频提示词</Button></Tooltip></Space><label className="shuihuo-form-label">{promptKind === 'visual' ? '图片提示词' : '视频提示词'}<Input.TextArea rows={12} value={promptKind === 'visual' ? visualPrompt : videoPrompt} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前 VIDEO 的画面图片，不会进入视频提示词' : '这段文字会进入 VIDEO 的最终编译'} /></label><Space wrap><Button type="primary" loading={saving} disabled={!selectedVideo} onClick={savePrompts}>保存当前 VIDEO 提示词</Button><Tooltip title="按当前小说原文重新执行 AI 文案；已手动保存的 VIDEO 提示词会保留。"><Button loading={regenerating} disabled={regenerating} onClick={onRegenerate}>重新生成文案</Button></Tooltip><Button disabled={regenerating} onClick={onRetry}>重试文案</Button></Space>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiledPrompt || prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终视频提示词由 V11 编译器实时生成；画面提示词仅服务画面图。</p>}</Space>;
 }
 
-function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved, onRegenerate, onRetry, regenerating }) {
+function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved, onRegenerate, onRetry, regenerating, productionAvailable = false, productionReason = '' }) {
 	const videos = book?.videos || [];
 	const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
 	const [savingTaskId, setSavingTaskId] = useState('');
@@ -326,7 +448,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved, onRegenera
 			message.success('已切换当前分镜的主版本；下一次合并会读取它。');
 		} catch (error) { message.error(error?.message || '切换主版本失败'); } finally { setSavingTaskId(''); }
 	}
-	return <Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="当前分镜的主版本与候选版本" description="主版本是下一次合并唯一读取的 VIDEO；候选仅用于回退。重新生成成功后会出现新的版本。" /><Space wrap><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} /><Tooltip title="为当前 VIDEO 创建新的候选视频版本，不改变当前主版本。"><Button loading={regenerating} disabled={!selectedVideo || regenerating} onClick={() => onRegenerate?.(selectedVideo?.id)}>重新生成视频</Button></Tooltip><Button disabled={!selectedVideo || regenerating} onClick={() => onRetry?.(selectedVideo?.id)}>重试视频</Button></Space>{primary ? <section className="batch-factory-media-primary"><b>主版本</b><span>{primary.id} · {primary.updatedAt || primary.createdAt || '已完成'}</span><a href={primary.mediaUrl} target="_blank" rel="noreferrer">打开视频</a></section> : <p className="shuihuo-modal-note">当前 VIDEO 还没有真实成功的视频版本。</p>}<div className="batch-factory-media-candidates">{Array.from({ length: 4 }).map((_, index) => { const version = candidates[index]; return version ? <article key={version.id}><b>候选 {index + 1}</b><span>{version.id}</span><a href={version.mediaUrl} target="_blank" rel="noreferrer">打开视频</a><Button size="small" loading={savingTaskId === version.id} onClick={() => choosePrimary(version)}>切换为主版本</Button></article> : <article className="is-empty" key={`empty-${index}`}><PictureOutlined /><span>候选槽 {index + 1}</span></article>; })}</div></Space>;
+	return <Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="当前分镜的主版本与候选版本" description="主版本是下一次合并唯一读取的 VIDEO；候选仅用于回退。重新生成成功后会出现新的版本。" /><Space wrap><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} /><Tooltip title={productionAvailable ? '为当前 VIDEO 创建新的候选视频版本，不改变当前主版本。' : productionReason}><Button loading={regenerating} disabled={!selectedVideo || regenerating || !productionAvailable} onClick={() => onRegenerate?.(selectedVideo?.id)}>重新生成视频</Button></Tooltip><Tooltip title={productionAvailable ? '只重试当前 VIDEO 的最后失败视频任务。' : productionReason}><Button disabled={!selectedVideo || regenerating || !productionAvailable} onClick={() => onRetry?.(selectedVideo?.id)}>重试视频</Button></Tooltip></Space>{primary ? <section className="batch-factory-media-primary"><b>主版本</b><span>{primary.id} · {primary.updatedAt || primary.createdAt || '已完成'}</span><a href={primary.mediaUrl} target="_blank" rel="noreferrer">打开视频</a></section> : <p className="shuihuo-modal-note">当前 VIDEO 还没有真实成功的视频版本。</p>}<div className="batch-factory-media-candidates">{Array.from({ length: 4 }).map((_, index) => { const version = candidates[index]; return version ? <article key={version.id}><b>候选 {index + 1}</b><span>{version.id}</span><a href={version.mediaUrl} target="_blank" rel="noreferrer">打开视频</a><Button size="small" loading={savingTaskId === version.id} onClick={() => choosePrimary(version)}>切换为主版本</Button></article> : <article className="is-empty" key={`empty-${index}`}><PictureOutlined /><span>候选槽 {index + 1}</span></article>; })}</div></Space>;
 }
 
 function BatchLogs({ productionStatus, mergeStatus, error }) {
@@ -397,6 +519,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [contentSaving, setContentSaving] = useState(false);
   const [rewritingFront, setRewritingFront] = useState(false);
 	const [promptBook, setPromptBook] = useState(null);
+	const [promptVideoId, setPromptVideoId] = useState('');
 	const [mediaBook, setMediaBook] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [engineOpen, setEngineOpen] = useState(false);
@@ -423,6 +546,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const totalVideos = books.reduce((count, book) => count + (book?.videos?.length || 0), 0);
   const runCapability = capability(capabilities, 'director.run');
   const workingFrontCapability = capability(capabilities, 'working-front.viral');
+  const compilerCapability = capability(capabilities, 'compiler.preview');
   const productionCapability = capability(capabilities, 'production.submit');
 	const cancelCapability = capability(capabilities, 'production.cancel');
   const mergeCapability = capability(capabilities, 'merge.run');
@@ -480,12 +604,12 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!assetBook) return;
     const refreshed = books.find(book => book.id === assetBook.id);
     if (refreshed && refreshed !== assetBook) setAssetBook(refreshed);
-  }, [batch?.id, assetBook?.id]);
+  }, [batch?.id, assetBook?.id, books]);
   useEffect(() => {
     if (!configTarget?.book) return;
     const refreshed = books.find(book => book.id === configTarget.book.id);
     if (refreshed && refreshed !== configTarget.book) setConfigTarget(current => current ? { ...current, book: refreshed } : current);
-  }, [batch?.id, configTarget?.book?.id]);
+  }, [batch?.id, configTarget?.book?.id, books]);
 
   async function openContentEditor(book) {
     setEditingContentBook(book);
@@ -512,37 +636,48 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!editingContentBook || rewritingFront) return;
     setRewritingFront(true);
     try {
-      const result = await rewriteWorkingFront(batch.id, editingContentBook.id, editingContentValue);
+      const result = await rewriteWorkingFront(batch.id, editingContentBook.id, editingContentValue, {
+        textModelId: effectiveBookSettings(batch, editingContentBook).textModelId
+      });
       const candidate = String(resultData(result, 'candidate') || '').trim();
       setViralCandidate(candidate);
       message.success('爆款候选已生成，请确认后再替换当前生产内容。');
     } catch (error) { message.error(error?.message || '生成爆款候选失败'); } finally { setRewritingFront(false); }
   }
-  async function runBookStageAction(book, stage, mode = 'missing', videoId = '') {
+  async function runBookStageAction(book, stage, mode = 'missing', videoId = '', textModelId = '') {
     if (!batch?.id || !book?.id || actionBusy) return;
     setActionBusy(`stage-${stage}`);
     try {
-      await runBookStage(batch.id, book.id, stage, { mode, videoId, requestId: requestID(`bf11-${stage}-${mode}`) });
+      await runBookStage(batch.id, book.id, stage, {
+        mode,
+        videoId,
+        textModelId: textModelId || effectiveBookSettings(batch, book).textModelId,
+        requestId: requestID(`bf11-${stage}-${mode}`)
+      });
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
-      const labels = { director: mode === 'force' ? '已重新生成文案' : '已生成文案', image: mode === 'force' ? '已重新生成图片' : '已生成图片', video: mode === 'force' ? '已创建新的视频候选版本' : '已提交视频生成' };
+      const labels = { assets: mode === 'force' ? '已重新生成资产；分镜和 VIDEO 未改动' : '已生成资产', director: mode === 'force' ? '已重新生成文案' : '已生成文案', image: mode === 'force' ? '已重新生成图片' : '已生成图片', video: mode === 'force' ? '已创建新的视频候选版本' : '已提交视频生成' };
       message.success(labels[stage] || '当前小说阶段已提交。');
     } catch (error) { message.error(error?.message || '当前小说阶段执行失败'); } finally { setActionBusy(''); }
   }
-  async function retryLastFailedStage(book, videoId = '') {
+  async function retryLastFailedStage(book, videoId = '', textModelId = '') {
     if (!batch?.id || !book?.id || actionBusy) return;
     setActionBusy('stage-retry');
     try {
-      await retryBookStage(batch.id, book.id, { videoId, requestId: requestID('bf11-book-retry') });
+      await retryBookStage(batch.id, book.id, {
+        videoId,
+        textModelId: textModelId || effectiveBookSettings(batch, book).textModelId,
+        requestId: requestID('bf11-book-retry')
+      });
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       message.success('已识别并重跑该书最后失败的步骤。');
     } catch (error) { message.error(error?.message || '当前小说没有可重试的失败步骤'); } finally { setActionBusy(''); }
   }
-  async function runAi(scope) {
+  async function runAi(scope, textModelId = '') {
     if (!batch?.id || actionBusy) return;
-    if (scope?.id) { await runBookStageAction(scope, 'director'); return; }
+    if (scope?.id) { await runBookStageAction(scope, 'director', 'missing', '', textModelId); return; }
     setActionBusy('director');
     try {
-      await runBatchDirector(batch.id);
+      await runBatchDirector(batch.id, { textModelId: textModelId || batch?.settingsState?.patch?.textModelId });
       await refreshBatch();
       message.success('批量 AI 推理已提交并回读当前作品。');
       setAiOpen(false);
@@ -668,12 +803,12 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
           <div className="shuihuo-workbench-cell batch-factory-book-content"><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 展示前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p><Button type="link" size="small" onClick={() => openContentEditor(book)} disabled={!String(book.sourceText || '').trim()}>编辑生产内容</Button></div>
           <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{BOOK_CONFIG_REGIONS.map(region => { const status = bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
           <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><div className="shuihuo-tag-list">{[...(book.assets?.characters || []), ...(book.assets?.scenes || []), ...(book.assets?.props || [])].slice(0, 6).map(asset => <Tag key={asset.id || assetName(asset)}>{assetName(asset)}</Tag>)}</div><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加角色</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加场景</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加道具</button></div>
-		  <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div className="batch-factory-storyboard-video-map" aria-label="分镜与 VIDEO 一对一对应">{videos.map((video, videoIndex) => <Tag key={video.id || `${book.id}-video-${videoIndex}`}>{`分镜${String(videoIndex + 1).padStart(2, '0')} → VIDEO${String(videoIndex + 1).padStart(2, '0')}`}</Tag>)}{!videos.length ? <span>AI 推理后生成 1:1 分镜 / VIDEO</span> : null}</div><div><b>画面提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.visualPrompt || '当前没有画面提示词；生成画面图前可在弹窗中填写。'}</span><FullscreenOutlined /></button></div><div><b>视频提示词</b><button className="shuihuo-prompt-box" type="button" onClick={() => setPromptBook(book)}><span>{videos[0]?.videoPrompt || (videos.length ? `${videos.length} 个 VIDEO 的最终提示词可在弹窗中逐个读取。` : 'AI 推理完成后生成视频提示词。')}</span><FullscreenOutlined /></button></div></div>
+		  <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><InlineBookPrompts book={book} batchId={batch?.id} onSaved={refreshBatch} onManage={videoId => { setPromptVideoId(videoId || ''); setPromptBook(book); }} onRegenerateVideo={() => runBookStageAction(book, 'director', 'force')} onGenerateVideo={videoId => runBookStageAction(book, 'video', 'missing', videoId)} onViewVideoCandidates={videoId => { setPromptVideoId(videoId || ''); setMediaBook(book); }} onRegenerateVisual={() => runBookStageAction(book, 'director', 'force')} onGenerateVisual={() => setAssetBook(book)} onViewVisualCandidates={() => setAssetBook(book)} videoAvailable={productionCapability.available} videoReason={productionCapability.reason} visualAvailable={false} visualReason="当前账户没有可用的图片生成服务，请在人物场景预设中配置图片模型。" /></div>
 		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><Tooltip title="打开当前小说的分镜主版本与候选版本。"><button className="shuihuo-primary-media" type="button" onClick={() => setMediaBook(book)}><CloudUploadOutlined /><span>管理主版本</span></button></Tooltip><div className="shuihuo-media-grid" aria-label="当前小说的片段候选库">{Array.from({ length: 4 }).map((_, itemIndex) => <Tooltip key={`asset-slot-${itemIndex}`} title="打开当前小说的分镜候选版本。"><button className="shuihuo-media-tile is-empty" type="button" onClick={() => setMediaBook(book)} aria-label={`打开当前小说的候选槽 ${itemIndex + 1}`}><PictureOutlined /></button></Tooltip>)}</div>{videos.length ? <Button type="text" size="small" onClick={() => setMediaBook(book)}>管理 {videos.length} 个 VIDEO</Button> : <span className="batch-factory-library-note">AI 推理后显示该书的分镜 / VIDEO</span>}</div>
           <div className="shuihuo-workbench-cell batch-factory-actions">
             <div className="batch-factory-action-status"><div><Tag color={state.tone}>{state.label}</Tag>{state.manual ? <Tag color="purple">已手调</Tag> : null}</div><span>{state.detail}</span></div>
             <div className="batch-factory-action-group is-utility"><span>资料</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新</Button><Button size="small" onClick={() => setViewingBook(book)}>查看资料</Button></div></div>
-            <div className="batch-factory-action-group is-production"><span>制作流程</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => runBookStageAction(book, 'director')} loading={actionBusy === 'stage-director'} disabled={Boolean(actionBusy) && actionBusy !== 'stage-director'}>生成文案</Button><Button size="small" onClick={() => runBookStageAction(book, 'image')} loading={actionBusy === 'stage-image'} disabled={Boolean(actionBusy) && actionBusy !== 'stage-image'}>生成图片</Button><Button size="small" className="batch-factory-action-video" onClick={() => runBookStageAction(book, 'video')} loading={actionBusy === 'stage-video'} disabled={Boolean(actionBusy) && actionBusy !== 'stage-video'}>生成视频</Button></div></div>
+            <div className="batch-factory-action-group is-production"><span>制作流程</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '按当前书生效的文本模型和 AI 推理规则生成文案。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'director')} loading={actionBusy === 'stage-director'} disabled={!runCapability.available || (Boolean(actionBusy) && actionBusy !== 'stage-director')}>生成文案</Button></Tooltip><Button size="small" onClick={() => setAssetBook(book)} disabled={Boolean(actionBusy)}>生成图片</Button><Tooltip title={productionCapability.available ? '按当前书的主图、VIDEO 配置和生产规则创建视频任务。' : productionCapability.reason}><Button size="small" className="batch-factory-action-video" onClick={() => runBookStageAction(book, 'video')} loading={actionBusy === 'stage-video'} disabled={!productionCapability.available || (Boolean(actionBusy) && actionBusy !== 'stage-video')}>生成视频</Button></Tooltip></div></div>
             <div className="batch-factory-action-group is-recovery"><span>异常处理</span><Button size="small" danger block onClick={() => retryLastFailedStage(book)} loading={actionBusy === 'stage-retry'} disabled={Boolean(actionBusy) && actionBusy !== 'stage-retry'}>重试失败步骤</Button></div>
           </div>
         </article>;
@@ -685,9 +820,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={viewingBook?.title || '小说详情'} open={Boolean(viewingBook)} onCancel={() => setViewingBook(null)} footer={null} width={720} className="batch-factory-book-detail-modal"><Descriptions bordered size="small" column={1}>{viewingBook ? <><Descriptions.Item label="Book ID">{viewingBook.bookId || '—'}</Descriptions.Item><Descriptions.Item label="书城">{bookPlatformName(viewingBook, platformNames)}</Descriptions.Item><Descriptions.Item label="风格">{value(viewingBook.sourceMetadata, 'style')}</Descriptions.Item><Descriptions.Item label="男女频">{value(viewingBook.sourceMetadata, 'gender')}</Descriptions.Item><Descriptions.Item label="标签">{value(viewingBook.sourceMetadata, 'tags')}</Descriptions.Item><Descriptions.Item label="推荐理由">{value(viewingBook.sourceMetadata, 'reason')}</Descriptions.Item><Descriptions.Item label="评级">{value(viewingBook.sourceMetadata, 'rating')}</Descriptions.Item><Descriptions.Item label="来源">{value(viewingBook.sourceMetadata, 'sourceMode') === 'manual_original' ? '手动书单' : '小说获取'}</Descriptions.Item><Descriptions.Item label="正文保存">{String(viewingBook.sourceText || '').length} 字</Descriptions.Item><Descriptions.Item label="生产状态">{batchFactoryBookState(viewingBook, { productionStatus, mergeStatus }).label} · {batchFactoryBookState(viewingBook, { productionStatus, mergeStatus }).detail}</Descriptions.Item></> : null}</Descriptions></Modal>
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" /><Tooltip title={workingFrontCapability.available ? '基于当前输入生成候选；生成不会覆盖工作文本' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim()}>生成爆款候选</Button></Tooltip>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Button type="primary" onClick={() => setEditingContentValue(viralCandidate)}>替换为当前生产内容</Button></Space>} /> : null}</Space></Modal>
     <BatchFactoryBookSettingsModal open={Boolean(configTarget)} batch={batch} book={configTarget?.book} activeRegion={configTarget?.region} onClose={() => setConfigTarget(null)} onSaved={refreshBatch} onOpenBookAssets={book => setAssetBook(book)} />
-    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={() => runAi(assetBook)} onRegenerate={() => runBookStageAction(assetBook, 'director', 'force')} onRetry={() => retryLastFailedStage(assetBook)} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'director' || actionBusy === 'stage-director'} engineSettings={batch?.settingsState?.patch} /> : null}</Modal>
-	<Modal title={promptBook ? `提示词 · ${promptBook.title}` : '提示词'} open={Boolean(promptBook)} onCancel={() => setPromptBook(null)} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} onSaved={refreshBatch} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRetry={() => retryLastFailedStage(promptBook)} regenerating={actionBusy === 'stage-director' || actionBusy === 'stage-retry'} /> : null}</Modal>
-	<Modal title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'} open={Boolean(mediaBook)} onCancel={() => setMediaBook(null)} footer={null} width={900}>{mediaBook ? <MediaVersionPanel book={mediaBook} batchId={batch?.id} versionsByVideo={mediaVersionsByVideo} onSaved={async () => { await refreshBatch(); await loadRuntimeStatus({ quiet: true }); }} onRegenerate={videoId => runBookStageAction(mediaBook, 'video', 'force', videoId)} onRetry={videoId => retryLastFailedStage(mediaBook, videoId)} regenerating={actionBusy === 'stage-video' || actionBusy === 'stage-retry'} /> : null}</Modal>
+    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={textModelId => runBookStageAction(assetBook, 'assets', 'missing', '', textModelId)} onRegenerate={textModelId => runBookStageAction(assetBook, 'assets', 'force', '', textModelId)} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} onTextModelChange={async textModelId => { await saveBookOverride(batch.id, assetBook.id, { patch: { textModelId }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} onImageModelChange={async imageModelId => { await saveBookOverride(batch.id, assetBook.id, { patch: { imageModelId }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} onAspectRatioChange={async aspectRatio => { await saveBookOverride(batch.id, assetBook.id, { patch: { aspectRatio }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'stage-assets'} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
+	<Modal title={promptBook ? `提示词 · ${promptBook.title}` : '提示词'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} initialVideoId={promptVideoId} onSaved={refreshBatch} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRetry={() => retryLastFailedStage(promptBook)} regenerating={actionBusy === 'stage-director' || actionBusy === 'stage-retry'} compilerAvailable={compilerCapability.available} compilerReason={compilerCapability.reason} /> : null}</Modal>
+	<Modal title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'} open={Boolean(mediaBook)} onCancel={() => setMediaBook(null)} footer={null} width={900}>{mediaBook ? <MediaVersionPanel book={mediaBook} batchId={batch?.id} versionsByVideo={mediaVersionsByVideo} onSaved={async () => { await refreshBatch(); await loadRuntimeStatus({ quiet: true }); }} onRegenerate={videoId => runBookStageAction(mediaBook, 'video', 'force', videoId)} onRetry={videoId => retryLastFailedStage(mediaBook, videoId)} regenerating={actionBusy === 'stage-video' || actionBusy === 'stage-retry'} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
     <BatchFactoryAiReasoningModal open={aiOpen} batch={batch} books={books} presetVersions={configVersions} onClose={() => setAiOpen(false)} onSaved={refreshBatch} onPresetsChanged={async () => { const next = await getConfigVersions(); setConfigVersions(resultData(next, 'configVersions') || []); }} onRun={() => runAi('all')} running={actionBusy === 'director'} runAvailable={runCapability.available} runReason={runCapability.reason} />
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
     <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} capabilities={capabilities} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} />

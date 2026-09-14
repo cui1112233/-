@@ -45,11 +45,56 @@ test('selects Batch Factory image, text and video models from enabled Personal C
   assert.doesNotMatch(engineSource, /const videoModelOptions/);
 });
 
-test('uses the Shuihuo preset modal layout for each book without pretending images exist', () => {
+test('uses the Shuihuo preset modal layout with an account model backed image generation chain', () => {
   assert.match(source, /shuihuo-preset-toolbar/);
   assert.match(source, /shuihuo-preset-layout/);
-  assert.match(source, /AI角色/);
-  assert.match(source, /V11 尚未提供该书的资产图片接口/);
+  assert.match(source, /label: '人物'/);
+  assert.match(source, /label: '场景'/);
+  assert.match(source, /label: '道具'/);
+  assert.doesNotMatch(source, /label: 'AI角色'/);
+  assert.match(source, /listAvailableModels\('image'\)/);
+  assert.match(source, /generateBookAssetImages/);
+  assert.match(source, /AI生成（已选/);
+  assert.match(source, /shuihuo-asset-tabs/);
+  assert.match(source, /shuihuo-image-library-grid/);
+  assert.doesNotMatch(source, /图片模型生成未接入/);
+  assert.doesNotMatch(source, /AI 生成暂不可用/);
+});
+
+test('lets each book choose its real text and image models in the asset modal and uses the chosen text model for smart presets', () => {
+  assert.match(source, /listAvailableModels\('text'\)/);
+  assert.match(source, /onTextModelChange/);
+  assert.match(source, /patch: \{ textModelId \}/);
+  assert.match(source, /onGenerate=\{textModelId => runBookStageAction\(assetBook, 'assets', 'missing', '', textModelId\)\}/);
+  assert.doesNotMatch(source, /<Select disabled value=\{engineSettings\?\.textModelId/);
+});
+
+test('regenerates assets through the asset-only stage instead of rebuilding storyboard and VIDEO output', () => {
+  assert.match(source, /onRegenerate=\{textModelId => runBookStageAction\(assetBook, 'assets', 'force', '', textModelId\)\}/);
+  assert.doesNotMatch(source, /onRegenerate=\{textModelId => runBookStageAction\(assetBook, 'director', 'force', '', textModelId\)\}/);
+});
+
+test('makes a missing asset image model actionable instead of presenting an empty fake selector', () => {
+  assert.match(source, /个人中心尚未启用图片模型/);
+  assert.match(source, /href="\/api-config"/);
+  assert.match(source, /图片模型生成只会使用个人中心已启用的模型/);
+});
+
+test('refreshes the open book asset modal after an override save so consecutive model selections use the latest revision', () => {
+  assert.match(source, /const refreshed = books\.find\(book => book\.id === assetBook\.id\)/);
+  assert.match(source, /\[batch\?\.id, assetBook\?\.id, books\]/);
+});
+
+test('lets the book asset modal save its own usable image aspect ratio instead of displaying a disabled value', () => {
+  assert.match(source, /onAspectRatioChange/);
+  assert.match(source, /patch: \{ aspectRatio \}/);
+  assert.match(source, /aspectRatio: aspectRatio \|\| '9:16'/);
+  assert.doesNotMatch(source, /<Select value=\{engineSettings\?\.aspectRatio \|\| '9:16'\} disabled/);
+});
+
+test('keeps AI reasoning constraints as one batch-wide selection instead of a per-book range', () => {
+  assert.match(reasoningSource, /scope:\s*'all',bookIds:\[\]/);
+  assert.match(reasoningSource, /showRange=\{false\}/);
 });
 
 test('renders every novel row with Shuihuo preset, prompt and clip-library cells', () => {
@@ -61,9 +106,10 @@ test('renders every novel row with Shuihuo preset, prompt and clip-library cells
 	assert.match(source, /管理主版本/);
 });
 
-test('shows each book\'s storyboard to VIDEO one-to-one mapping and derives state from runtime jobs', () => {
-  assert.match(source, /分镜与 VIDEO 一对一对应/);
-  assert.match(source, /→ VIDEO/);
+test('keeps storyboard state inside the prompt card without an extra map above the editor', () => {
+  assert.doesNotMatch(source, /batch-factory-storyboard-video-map/);
+  assert.match(source, /function InlineBookPrompts/);
+  assert.match(source, /batch-factory-prompt-stack/);
   assert.match(source, /batchFactoryBookState\(book, \{ productionStatus, mergeStatus \}\)/);
   assert.match(source, /productionStatus=\{productionStatus\} mergeStatus=\{mergeStatus\}/);
 });
@@ -80,6 +126,16 @@ test('keeps visual and video prompts as separate per-video saved fields', () => 
   assert.match(source, /videoPrompt/);
   assert.match(source, /画面提示词/);
   assert.match(source, /视频提示词/);
+});
+
+test('uses a stacked storyboard prompt preview with horizontal navigation and a scoped editor', () => {
+  assert.match(source, /className=\{`batch-factory-prompt-card is-\$\{kind\}/);
+  assert.match(source, /画面提示词/);
+  assert.match(source, /视频提示词/);
+  assert.match(source, /aria-label="上一分镜"/);
+  assert.match(source, /aria-label="下一分镜"/);
+  assert.match(source, /onManage\?\.\(video.id\)/);
+  assert.match(source, /initialVideoId=\{promptVideoId\}/);
 });
 
 test('uses the selected video media version as the durable primary merge choice', () => {
@@ -139,8 +195,10 @@ test('selects typed AI rules from Personal Center system presets without exposin
   assert.match(reasoningSource, /listSystemPresetCatalog/);
   assert.match(reasoningSource, /listSystemPresetCatalog\('script'\)/);
   assert.match(reasoningSource, /listSystemPresetCatalog\('batch-factory'\)/);
-  assert.match(reasoningSource, /人物场景提取/);
-  assert.match(reasoningSource, /batch\.character-meta/);
+  assert.match(reasoningSource, /人物场景道具提示词/);
+  assert.doesNotMatch(reasoningSource, /\['character','人物提示词'/);
+  assert.doesNotMatch(reasoningSource, /\['scene','场景提示词'/);
+  assert.doesNotMatch(reasoningSource, /\['prop','道具提示词'/);
   assert.match(reasoningSource, /presetVersion/);
   assert.match(reasoningSource, /presetId/);
   assert.doesNotMatch(reasoningSource, /listPersonalConstraintPrompts/);
@@ -191,6 +249,23 @@ test('runs and retries stages per book through the durable V11 stage routes', ()
   assert.match(source, />重试失败步骤</);
 });
 
+test('does not present unavailable director or video production stages as clickable actions', () => {
+  const actions = source.match(/<div className="shuihuo-workbench-cell batch-factory-actions">[\s\S]*?<\/div>\n        <\/article>/)?.[0] || '';
+  assert.match(actions, /runCapability\.available/);
+  assert.match(actions, /productionCapability\.available/);
+  assert.match(actions, /productionCapability\.reason/);
+});
+
+test('does not present compiler or video-version actions as runnable when their runtime capability is closed', () => {
+  assert.match(source, /const compilerCapability = capability\(capabilities, 'compiler\.preview'\)/);
+  assert.match(source, /compilerAvailable=\{compilerCapability\.available\}/);
+  assert.match(source, /compilerReason=\{compilerCapability\.reason\}/);
+  assert.match(source, /productionAvailable=\{productionCapability\.available\}/);
+  assert.match(source, /productionReason=\{productionCapability\.reason\}/);
+  assert.match(source, /disabled=\{!selectedVideoId \|\| !compilerAvailable\}/);
+  assert.match(source, /disabled=\{!selectedVideo \|\| regenerating \|\| !productionAvailable\}/);
+});
+
 test('groups per-book operations into status, production, and recovery controls', () => {
   const actions = source.match(/<div className="shuihuo-workbench-cell batch-factory-actions">[\s\S]*?<\/div>\n        <\/article>/)?.[0] || '';
   assert.match(actions, /batch-factory-action-status/);
@@ -229,4 +304,19 @@ test('offers explicit regenerate and retry controls in assets, prompts and video
   assert.match(source, /重新生成视频/);
   assert.match(source, /重试视频/);
   assert.match(source, /不改变当前主版本/);
+});
+
+test('keeps one book-level prompt mode through horizontal storyboard navigation', () => {
+  assert.match(source, /const \[promptKind, setPromptKind\] = useState\('video'\)/);
+  assert.match(source, /const \[opened, setOpened\] = useState\(false\)/);
+  assert.match(source, /const hasVisualPrompt = Boolean\(String\(visualPrompt \|\| ''\)\.trim\(\)\)/);
+  assert.match(source, /请生成视频提示词再查看/);
+});
+
+test('renders stacked visual and video prompt cards with icon regeneration controls', () => {
+  assert.match(source, /batch-factory-prompt-stack/);
+  assert.match(source, /batch-factory-prompt-card is-\$\{kind\}/);
+  assert.match(source, /kind === 'visual' && !hasVisualPrompt/);
+  assert.match(source, /aria-label="重新生成视频提示词"/);
+  assert.match(source, /aria-label="重新生成画面提示词"/);
 });
