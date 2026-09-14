@@ -1,9 +1,21 @@
-import { Alert, Button, Divider, Modal, Select, Space, Switch } from 'antd';
+import { Alert, Button, Divider, InputNumber, Modal, Select, Space, Switch } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { listAvailableModels } from '../../../shared/api/modelCatalog';
 import { listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
 
 const BOOK_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration', 'aiPromptConfig'];
+const VIDEO_PROVIDER_OPTIONS = [
+  { value: 'personal_api', label: '个人中心 API' },
+  { value: 'doubao_local_executor', label: '豆包本地执行器' },
+  { value: 'autodl_comfyui', label: 'AutoDL ComfyUI' }
+];
+const CONSTRAINT_LAYERS = [
+  ['baseSetup', '基础设定（人物 / 场景）'],
+  ['prefix', '画面前缀词'],
+  ['quality', '画质约束'],
+  ['restriction', '画面限制'],
+  ['negative', '负面提示词']
+];
 const ASSET_SLOTS = [
   ['extraction', '人物场景提取', 'script.extract'],
   ['character', '人物提示词', 'batch.character-meta'],
@@ -24,7 +36,7 @@ function effectiveValues(batchPatch, bookPatch) {
 }
 function selectedMeta(catalog, id) {
   const preset = catalog.find(item => item.id === id);
-  return preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version } : { presetId: '' };
+  return preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version, constraintCategory: preset.constraintCategory || '' } : { presetId: '' };
 }
 function optionFor(preset) { return { value: preset.id, label: `${preset.name || preset.id} · v${preset.version || 1}` }; }
 
@@ -43,6 +55,16 @@ function InheritedField({ label, field, value, inherited, options, onChange, loa
   return <label className="batch-factory-engine-field"><span><b>{label}</b><small>{overridden ? '覆盖当前书' : '继承当前批量作品配置'}</small></span><Select allowClear loading={loading} value={value || undefined} options={options} placeholder="未配置" onChange={next => onChange(next || '')} /></label>;
 }
 
+function InheritedNumberField({ label, value, inherited, min, max, onChange }) {
+  const overridden = !equal(value, inherited);
+  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>{overridden ? '覆盖当前书' : '继承当前批量作品配置'}</small></span><InputNumber min={min} max={max} value={value ?? inherited ?? undefined} placeholder="未配置" onChange={next => onChange(next ?? '')} /></label>;
+}
+
+function InheritedSwitchField({ label, value, inherited, onChange }) {
+  const overridden = !equal(value, inherited);
+  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>{overridden ? '覆盖当前书' : '继承当前批量作品配置'}</small></span><Switch checked={value ?? inherited ?? false} onChange={onChange} /></label>;
+}
+
 function PromptSelect({ label, value, options, onChange, disabled }) {
   return <label className="batch-factory-engine-field"><span><b>{label}</b><small>从个人中心已发布预设词选择</small></span><Select allowClear disabled={disabled} value={value?.presetId || undefined} options={options} placeholder="未选择" onChange={id => onChange(selectedMeta(options.catalog || [], id))} /></label>;
 }
@@ -53,6 +75,34 @@ function RuleModule({ title, value, onChange, children }) {
     <div className="batch-factory-ai-module-head"><div><b>{title}</b><p>保存后只覆盖当前小说；预设正文由服务端冻结，不回传浏览器。</p></div><Switch checked={module.enabled === true} onChange={enabled => onChange({ ...module, enabled })} /></div>
     {module.enabled ? <div className="batch-factory-ai-module-body">{children}</div> : null}
   </section>;
+}
+
+function ConstraintLayers({ value, records, loading, onChange }) {
+  const rules = value || { selections: [], enabledCategories: [] };
+  const selections = Array.isArray(rules.selections) ? rules.selections : [];
+  const enabledCategories = Array.isArray(rules.enabledCategories) ? rules.enabledCategories : [];
+  const selected = category => selections.find(item => item.constraintCategory === category) || { presetId: '' };
+  const enabled = category => enabledCategories.includes(category);
+  function toggle(category, on) {
+    onChange({
+      ...rules,
+      enabledCategories: on ? [...new Set([...enabledCategories, category])] : enabledCategories.filter(item => item !== category),
+      selections: on ? selections : selections.filter(item => item.constraintCategory !== category)
+    });
+  }
+  function update(category, presetId) {
+    const current = selected(category);
+    const next = { ...current, ...selectedMeta(records, presetId), constraintCategory: category };
+    onChange({
+      ...rules,
+      enabledCategories: [...new Set([...enabledCategories, category])],
+      selections: next.presetId ? [...selections.filter(item => item.constraintCategory !== category), next] : selections.filter(item => item.constraintCategory !== category)
+    });
+  }
+  return <div className="batch-factory-constraint-layers">{CONSTRAINT_LAYERS.map(([category, label]) => {
+    const options = records.filter(item => item.constraintCategory === category);
+    return <div className="batch-factory-constraint-layer" key={category}><Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}><b>{label}</b><Switch checked={enabled(category)} onChange={on => toggle(category, on)} /></Space>{enabled(category) ? <Select allowClear showSearch loading={loading} value={selected(category).presetId || undefined} options={options.map(optionFor)} placeholder="选择系统预设" onChange={presetId => update(category, presetId)} style={{ width: '100%', marginTop: 8 }} /> : null}</div>;
+  })}</div>;
 }
 
 export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSaved }) {
@@ -97,6 +147,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSa
   const sourceByField = useMemo(() => Object.fromEntries(BOOK_OVERRIDE_FIELDS.map(field => [field, Object.hasOwn(bookPatch, field) ? 'book' : 'batch'])), [book?.id, book?.settingsState?.revision, batch?.settingsState?.revision]);
   const ai = form.aiPromptConfig || {};
   const assetRules = ai.assets || {};
+  const constraintRules = ai.constraints || { selections: [], enabledCategories: [] };
 
   function patch(next) { setForm(current => ({ ...current, ...next })); }
   function patchAI(key, next) { patch({ aiPromptConfig: { ...ai, [key]: next } }); }
@@ -120,18 +171,23 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSa
     {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
     <Divider orientation="left">模型与生产</Divider>
     <div className="batch-factory-engine-drawer">
-      <InheritedField label="文本模型" field="textModelId" value={form.textModelId} inherited={inherited.textModelId} options={modelOptions.text} loading={loading} onChange={textModelId => patch({ textModelId })} />
-      <InheritedField label="图片模型" field="imageModelId" value={form.imageModelId} inherited={inherited.imageModelId} options={modelOptions.image} loading={loading} onChange={imageModelId => patch({ imageModelId })} />
+      <InheritedField label="视频引擎" field="videoProvider" value={form.videoProvider || 'personal_api'} inherited={inherited.videoProvider || 'personal_api'} options={VIDEO_PROVIDER_OPTIONS} loading={false} onChange={videoProvider => patch({ videoProvider })} />
       <InheritedField label="视频模型" field="videoModelId" value={form.videoModelId} inherited={inherited.videoModelId} options={modelOptions.video} loading={loading} onChange={videoModelId => patch({ videoModelId })} />
+      <InheritedNumberField label="VIDEO 时长上限" value={form.maxVideoDuration ?? 15} inherited={inherited.maxVideoDuration ?? 15} min={1} max={60} onChange={maxVideoDuration => patch({ maxVideoDuration })} />
+      <InheritedSwitchField label="固定开头" value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
+      {(form.fixedSingleVideo ?? inherited.fixedSingleVideo) === true ? <InheritedNumberField label="固定 VIDEO 时长" value={form.fixedVideoDuration ?? form.maxVideoDuration ?? 15} inherited={inherited.fixedVideoDuration ?? inherited.maxVideoDuration ?? 15} min={1} max={Number(form.maxVideoDuration ?? inherited.maxVideoDuration ?? 60)} onChange={fixedVideoDuration => patch({ fixedVideoDuration })} /> : null}
       <InheritedField label="画幅" field="aspectRatio" value={form.aspectRatio || '9:16'} inherited={inherited.aspectRatio || '9:16'} options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }]} loading={false} onChange={aspectRatio => patch({ aspectRatio })} />
+      <InheritedField label="图片模型" field="imageModelId" value={form.imageModelId} inherited={inherited.imageModelId} options={modelOptions.image} loading={loading} onChange={imageModelId => patch({ imageModelId })} />
+      <InheritedField label="文本模型" field="textModelId" value={form.textModelId} inherited={inherited.textModelId} options={modelOptions.text} loading={loading} onChange={textModelId => patch({ textModelId })} />
     </div>
+    <Alert type="info" showIcon message="当前书的人物场景预设" description="人物、场景、道具的实际 Prompt 与图片在本书这一行的“添加角色 / 添加场景 / 添加道具”中维护；这里配置的是这本书调用的模型与 AI 推理规则。" />
     <Divider orientation="left">AI 推理规则</Divider>
     <RuleModule title="资产设置" value={assetRules} onChange={next => patchAI('assets', scoped(next))}>
       <PromptSelect label="人物场景提取" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
       {ASSET_SLOTS.slice(1).map(([key, label]) => <PromptSelect key={key} label={label} value={assetRules[key]} options={Object.assign((batchSlots[key] || []).map(optionFor), { catalog: batchSlots[key] || [] })} disabled={loading} onChange={selection => updateAssetSelection(key, selection)} />)}
     </RuleModule>
-    <RuleModule title="约束设置" value={ai.constraints} onChange={next => patchAI('constraints', scoped(next))}>
-      <label className="batch-factory-engine-field"><span><b>剧本生成约束</b><small>可多选个人中心已发布的剧本约束预设</small></span><Select mode="multiple" value={(ai.constraints?.selections || []).map(item => item.presetId).filter(Boolean)} options={scriptConstraints.map(optionFor)} loading={loading} onChange={ids => patchAI('constraints', scoped({ ...ai.constraints, selections: ids.map(id => selectedMeta(scriptConstraints, id)) }))} placeholder="选择约束预设" /></label>
+    <RuleModule title="约束设置" value={constraintRules} onChange={next => patchAI('constraints', scoped(next))}>
+      <ConstraintLayers value={constraintRules} records={scriptConstraints} loading={loading} onChange={next => patchAI('constraints', scoped(next))} />
     </RuleModule>
     <RuleModule title="视频设置" value={ai.video} onChange={next => patchAI('video', scoped(next))}><PromptSelect label="视频提示词" value={ai.video} options={Object.assign(videoRules.map(optionFor), { catalog: videoRules })} disabled={loading} onChange={selection => patchAI('video', scoped({ ...ai.video, ...selection }))} /></RuleModule>
     <RuleModule title="画面设置" value={ai.visual} onChange={next => patchAI('visual', scoped(next))}><PromptSelect label="画面提示词" value={ai.visual} options={Object.assign(visualRules.map(optionFor), { catalog: visualRules })} disabled={loading} onChange={selection => patchAI('visual', scoped({ ...ai.visual, ...selection }))} /></RuleModule>
