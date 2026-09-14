@@ -207,6 +207,8 @@ test('lets every production-table column after the serial number resize from its
   assert.match(source, /function startColumnResize\(event, index\)/);
   assert.match(source, /调整\$\{column\.label\}列宽/);
   assert.match(source, /onMouseDown=\{event => startColumnResize\(event, index\)\}/);
+  assert.match(source, /onPointerDown=\{event => startColumnResize\(event, index\)\}/);
+  assert.match(source, /setPointerCapture\?\./);
   assert.match(source, /gridTemplateColumns: columnWidths/);
 });
 
