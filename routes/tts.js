@@ -2,10 +2,16 @@ const express = require('express');
 const http = require('http');
 const { apiAuth } = require('../middleware/auth');
 
+const TTS_UPSTREAM = Object.freeze({
+  origin: 'http://tts3.121w.com',
+  hostname: 'tts3.121w.com',
+  path: '/v1/audio/speech'
+});
+
 const router = express.Router();
 router.use(apiAuth);
 
-// POST /api/tts — 文本转语音代理（转发到 tts2.121w.com）
+// POST /api/tts — 文本转语音代理（转发到 tts3.121w.com）
 router.post('/', async (req, res) => {
   try {
     const { input, voice, speed, pitch, style } = req.body;
@@ -21,16 +27,16 @@ router.post('/', async (req, res) => {
       style: style || 'general'
     });
 
-    const ttsReq = http.request('http://tts2.121w.com/v1/audio/speech', {
+    const ttsReq = http.request(`${TTS_UPSTREAM.origin}${TTS_UPSTREAM.path}`, {
       method: 'POST',
       headers: {
-        'Host': 'tts2.121w.com',
+        'Host': TTS_UPSTREAM.hostname,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Accept-Encoding': 'identity',
-        'Referer': 'http://tts2.121w.com/',
-        'Origin': 'http://tts2.121w.com',
+        'Referer': `${TTS_UPSTREAM.origin}/`,
+        'Origin': TTS_UPSTREAM.origin,
         'Connection': 'keep-alive',
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload)
@@ -86,3 +92,4 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.TTS_UPSTREAM = TTS_UPSTREAM;
