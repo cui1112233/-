@@ -73,7 +73,8 @@ async function loginViaHttp({ baseUrl, username, password, fetchImpl = globalThi
       throw error;
     }
     const rawCookies = responseSetCookies(response);
-    const cookies = rawCookies.map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean);
+    const cookies = [...primedCookies, ...rawCookies.map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean)]
+      .reduce((all, cookie) => [...all.filter(item => item.name !== cookie.name), cookie], []);
     if (!cookies.length) throw new Error('121 登录成功但未返回会话 Cookie');
     return { authenticated: true, reusedSession: false, storageState: { cookies, origins: [] }, landingUrl: landingUrl(baseUrl) };
   } catch (error) {

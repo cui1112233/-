@@ -110,6 +110,20 @@ test('direct login primes the target PHP session before posting credentials', as
   assert.equal(result.storageState.cookies[0].value, 'authenticated');
 });
 
+test('direct login keeps the primed PHP session when POST returns no Set-Cookie', async () => {
+  const result = await loginViaHttp({
+    baseUrl: 'http://two.121w.com/tttadmin',
+    username: 'alice',
+    password: 'secret',
+    fetchImpl: async (url) => {
+      if (url.endsWith('/login.php') && !url.endsWith('/api/login.php')) return { ok: true, status: 200, text: async () => '', headers: { getSetCookie: () => ['PHPSESSID=primed; Path=/'] } };
+      return { ok: true, status: 200, json: async () => ({ success: true }), headers: { getSetCookie: () => [] } };
+    }
+  });
+  assert.equal(result.storageState.cookies[0].name, 'PHPSESSID');
+  assert.equal(result.storageState.cookies[0].value, 'primed');
+});
+
 test('expired stored session still attempts direct credential login before Chromium fallback', async () => {
   let launches = 0;
   const result = await loginWithPlaywright({
