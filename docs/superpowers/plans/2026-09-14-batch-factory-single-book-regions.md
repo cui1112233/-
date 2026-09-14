@@ -29,7 +29,7 @@
 - Consumes: `SettingsPatch`, where `aiPromptConfig` is a JSON object with optional `assets`, `constraints`, `video`, and `visual` members.
 - Produces: `ResolveSettings(layers ...SettingsPatch) SettingsPatch` whose final `aiPromptConfig` preserves batch modules that the book did not override.
 
-- [ ] **Step 1: Write failing Go tests for module-level inheritance**
+- [x] **Step 1: Write failing Go tests for module-level inheritance**
 
 ```go
 func TestResolveSettingsDeepMergesAIPromptConfigModules(t *testing.T) {
@@ -57,13 +57,13 @@ func TestResolveSettingsKeepsLegacyFullBookPromptPayload(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the focused test before implementation**
+- [x] **Step 2: Run the focused test before implementation**
 
 Run: `go test ./internal/batchfactoryv11 -run 'TestResolveSettings(DeepMergesAIPromptConfigModules|KeepsLegacyFullBookPromptPayload)$' -count=1`
 
 Expected: the deep-merge test fails because the current last-write-wins implementation removes `assets` and `visual`.
 
-- [ ] **Step 3: Add explicit prompt-module merging in `ResolveSettings`**
+- [x] **Step 3: Add explicit prompt-module merging in `ResolveSettings`**
 
 ```go
 func mergePromptConfig(base, next json.RawMessage) json.RawMessage {
@@ -80,13 +80,13 @@ func mergePromptConfig(base, next json.RawMessage) json.RawMessage {
 
 In `ResolveSettings`, treat `aiPromptConfig` as the sole deep-merged key: merge it with the prior resolved value, while retaining the current last-write-wins behavior for every other key.
 
-- [ ] **Step 4: Run focused and package tests**
+- [x] **Step 4: Run focused and package tests**
 
 Run: `go test ./internal/batchfactoryv11 -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the independent backend behavior**
+- [x] **Step 5: Commit the independent backend behavior**
 
 ```bash
 git add backend/internal/batchfactoryv11/settings.go backend/internal/batchfactoryv11/settings_test.go
@@ -103,7 +103,7 @@ git commit -m "feat: merge book AI prompt regions independently"
 - Consumes: `BatchFactoryBookSettingsModal({ open, batch, book, activeRegion, onClose, onSaved, onOpenBookAssets })`, where `activeRegion` is one of `engine`, `assets`, `constraints`, `video`, or `visual`.
 - Produces: `buildBookRegionUpdate(inherited, bookPatch, region, edited)` returning `{ patch, restoreKeys }` suitable for `saveBookOverride`.
 
-- [ ] **Step 1: Add failing source tests for regional input and sparse writes**
+- [x] **Step 1: Add failing source tests for regional input and sparse writes**
 
 ```js
 assert.match(source, /activeRegion/);
@@ -114,13 +114,13 @@ assert.match(source, /restoreKeys/);
 
 Add a fixture-level assertion that saving `constraints` does not put `assets`, `video`, or `visual` into a newly created book `aiPromptConfig` patch.
 
-- [ ] **Step 2: Run the source test before implementation**
+- [x] **Step 2: Run the source test before implementation**
 
 Run: `node --test src/user/pages/shuihuo/BatchFactoryBookSettingsModal.source.test.js`
 
 Expected: FAIL because the modal currently has no `activeRegion` input or region-level update builder.
 
-- [ ] **Step 3: Make the save builder region-aware**
+- [x] **Step 3: Make the save builder region-aware**
 
 Implement the following behavior:
 
@@ -138,7 +138,7 @@ const AI_REGION_KEYS = new Map([
 - Keep legacy raw book `aiPromptConfig` modules intact unless the user explicitly restores that same region.
 - Render only the requested region in the centered modal, with its own `保存当前书覆盖` footer. An absent `activeRegion` opens `engine` for compatibility.
 
-- [ ] **Step 4: Keep each region’s existing functional control**
+- [x] **Step 4: Keep each region’s existing functional control**
 
 - `engine`: model selectors, duration, fixed video, and aspect ratio.
 - `assets`: extraction/character/scene/prop published-preset selectors and a `维护当前书人物场景预设` action that calls `onOpenBookAssets(book)`.
@@ -148,13 +148,13 @@ const AI_REGION_KEYS = new Map([
 
 Keep loading/error behavior from the existing modal, scoped to the controls visible in the active region.
 
-- [ ] **Step 5: Run source tests**
+- [x] **Step 5: Run source tests**
 
 Run: `node --test src/user/pages/shuihuo/BatchFactoryBookSettingsModal.source.test.js src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the book-region configuration surface**
+- [x] **Step 6: Commit the book-region configuration surface**
 
 ```bash
 git add frontend/src/user/pages/shuihuo/BatchFactoryBookSettingsModal.jsx frontend/src/user/pages/shuihuo/BatchFactoryBookSettingsModal.source.test.js
@@ -174,7 +174,7 @@ git commit -m "feat: save batch book settings by region"
 - Produces `bookConfigRegionStatus(batch, book, region)` with `{ label, tone }`, where label is one of `继承作品配置`, `已单书覆盖`, or `未启用`.
 - Consumes `onOpenRegion(book, region)` from the row renderer.
 
-- [ ] **Step 1: Write failing source tests for the visible card contract**
+- [x] **Step 1: Write failing source tests for the visible card contract**
 
 ```js
 assert.match(source, /BOOK_CONFIG_REGIONS/);
@@ -187,13 +187,13 @@ assert.match(source, /setConfigTarget\(\{ book, region \}\)/);
 assert.doesNotMatch(actions, /单书配置/);
 ```
 
-- [ ] **Step 2: Run the source test before implementation**
+- [x] **Step 2: Run the source test before implementation**
 
 Run: `node --test src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js`
 
 Expected: FAIL because the current card has only one generic click target.
 
-- [ ] **Step 3: Implement the region status helper**
+- [x] **Step 3: Implement the region status helper**
 
 ```js
 export const BOOK_CONFIG_REGIONS = [
@@ -207,21 +207,21 @@ export const BOOK_CONFIG_REGIONS = [
 
 Use raw `book.settingsState.patch` to determine an override. For AI regions use the raw module presence under `book.settingsState.patch.aiPromptConfig`; for a module with `enabled: false`, return `未启用`; otherwise return `已单书覆盖`. For assets, append the real saved character/scene/prop count to the card’s secondary text without calling generated assets “ready”.
 
-- [ ] **Step 4: Render and route the five buttons**
+- [x] **Step 4: Render and route the five buttons**
 
 Replace the generic `setConfigBook(book)` card with five compact buttons inside the existing `单书配置` cell. Store `{ book, region }` in one `configTarget` state object, pass `configTarget.region` and `onOpenBookAssets={setAssetBook}` into `BatchFactoryBookSettingsModal`, and clear the target on close. The asset region therefore contains both the book-scoped asset prompt selections and a direct action into the existing dedicated 人物场景预设 modal, which keeps the real Prompt/image editor in one durable surface.
 
-- [ ] **Step 5: Apply the workbench styling**
+- [x] **Step 5: Apply the workbench styling**
 
 Make the five buttons vertically stacked with visible labels and status text, keyboard focus outlines, and no horizontal overflow beyond the table’s existing scroll behavior. Keep the row height aligned with the larger `预设` / `提示词` / `片段库` cells.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run: `node --test src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js src/user/pages/shuihuo/BatchFactoryBookSettingsModal.source.test.js`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the row interaction**
+- [x] **Step 7: Commit the row interaction**
 
 ```bash
 git add frontend/src/user/pages/shuihuo/batchFactoryBookConfigRegions.js frontend/src/user/pages/shuihuo/BatchFactoryNovelList.jsx frontend/src/user/pages/shuihuo-production.css frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js
@@ -239,17 +239,17 @@ git commit -m "feat: add batch book configuration regions"
 **Interfaces:**
 - No new public endpoint or database migration. Existing `PUT /api/batch-factory/v11/batches/:batchId/books/:bookId/settings` remains the write interface.
 
-- [ ] **Step 1: Update the V11 design document’s single-book section**
+- [x] **Step 1: Update the V11 design document’s single-book section**
 
 Record that the row card exposes five region buttons, raw module-level `aiPromptConfig` overrides deep-merge with the batch configuration, and the pre-existing `预设` cell remains the real-asset maintenance surface.
 
-- [ ] **Step 2: Run backend regression tests**
+- [x] **Step 2: Run backend regression tests**
 
 Run: `go test ./internal/batchfactoryv11 -count=1`
 
 Expected: PASS, including effective settings and readback tests.
 
-- [ ] **Step 3: Run frontend regression tests and build**
+- [x] **Step 3: Run frontend regression tests and build**
 
 Run:
 
@@ -260,7 +260,7 @@ npm run build
 
 Expected: all source tests pass and Vite completes. The existing unresolved brand-logo warnings and chunk-size warning may appear, but no new error is acceptable.
 
-- [ ] **Step 4: Perform authenticated browser acceptance**
+- [x] **Step 4: Perform authenticated browser acceptance**
 
 At `http://127.0.0.1:5173/shuihuo-production`, verify on one imported batch:
 
@@ -271,7 +271,7 @@ At `http://127.0.0.1:5173/shuihuo-production`, verify on one imported batch:
 5. Reopen book 1 to confirm readback, then restore the same constraint region and confirm the status returns to inheritance.
 6. Confirm the `预设` cell still opens the same actual book-asset editor.
 
-- [ ] **Step 5: Commit docs and verification-facing tests**
+- [x] **Step 5: Commit docs and verification-facing tests**
 
 ```bash
 git add docs/批量工厂V11-新版布局与生产逻辑-完整.md backend/internal/batchfactoryv11/settings_test.go frontend/src/user/pages/shuihuo/BatchFactoryBookSettingsModal.source.test.js frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js
