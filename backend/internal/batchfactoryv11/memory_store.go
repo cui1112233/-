@@ -31,6 +31,7 @@ type MemoryStore struct {
 	directors          map[string][]DirectorRevision
 	productionJobs     map[string]memoryOwned[ProductionJob]
 	productionRequests map[string]string
+	bookStageRuns      map[string]memoryOwned[BookStageRun]
 	mergeJobs          map[string]memoryOwned[MergeJob]
 	mergeRequests      map[string]string
 }
@@ -50,6 +51,7 @@ func NewMemoryStore() *MemoryStore {
 		directors:          map[string][]DirectorRevision{},
 		productionJobs:     map[string]memoryOwned[ProductionJob]{},
 		productionRequests: map[string]string{},
+		bookStageRuns:      map[string]memoryOwned[BookStageRun]{},
 		mergeJobs:          map[string]memoryOwned[MergeJob]{},
 		mergeRequests:      map[string]string{},
 	}
@@ -186,6 +188,85 @@ func (s *MemoryStore) ListProductionJobs(_ context.Context, owner, batchID strin
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+func (s *MemoryStore) CreateBookStageRun(_ context.Context, value BookStageRun) (BookStageRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, err := normalizeBookStageRun(value)
+	if err != nil {
+		return BookStageRun{}, err
+	}
+	batch, ok := s.batches[value.BatchID]
+	if !ok || batch.Owner != value.Owner {
+		return BookStageRun{}, ErrNotFound
+	}
+	found := false
+	for _, book := range batch.Value.Books {
+		if book.ID == value.BookID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return BookStageRun{}, ErrNotFound
+	}
+	value.ID = s.id("book-stage")
+	now := time.Now().UTC()
+	if value.CreatedAt.IsZero() {
+		value.CreatedAt = now
+	}
+	if value.UpdatedAt.IsZero() {
+		value.UpdatedAt = value.CreatedAt
+	}
+	s.bookStageRuns[value.ID] = memoryOwned[BookStageRun]{Owner: value.Owner, Value: value}
+	return value, nil
+}
+
+func (s *MemoryStore) UpdateBookStageRun(_ context.Context, owner, id string, value BookStageRun) (BookStageRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.bookStageRuns[id]
+	if !ok || owned.Owner != owner {
+		return BookStageRun{}, ErrNotFound
+	}
+	next := owned.Value
+	if value.Status != "" {
+		next.Status = normalizeProductionState(value.Status)
+	}
+	if value.ErrorMessage != "" || next.Status == ProductionSucceeded {
+		next.ErrorMessage = productionError(errText(value.ErrorMessage))
+	}
+	next.UpdatedAt = time.Now().UTC()
+	s.bookStageRuns[id] = memoryOwned[BookStageRun]{Owner: owner, Value: next}
+	return next, nil
+}
+
+func (s *MemoryStore) ListBookStageRuns(_ context.Context, owner, batchID, bookID string) ([]BookStageRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	batch, ok := s.batches[batchID]
+	if !ok || batch.Owner != owner {
+		return nil, ErrNotFound
+	}
+	found := false
+	for _, book := range batch.Value.Books {
+		if book.ID == bookID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrNotFound
+	}
+	out := []BookStageRun{}
+	for _, owned := range s.bookStageRuns {
+		if owned.Owner == owner && owned.Value.BatchID == batchID && owned.Value.BookID == bookID {
+			out = append(out, owned.Value)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Before(out[j].UpdatedAt) })
 	return out, nil
 }
 

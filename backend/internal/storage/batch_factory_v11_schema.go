@@ -430,6 +430,28 @@ func V11BookAssetImagesStatements() []string {
 	}
 }
 
+func V11BookStageRunsStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_book_stage_runs (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NOT NULL,
+  stage VARCHAR(16) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  attempt INT NOT NULL,
+  request_id VARCHAR(128) NULL,
+  input_revision VARCHAR(128) NULL,
+  error_message VARCHAR(255) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_stage_owner_book_updated (owner_username, batch_id, book_id, updated_at),
+  FOREIGN KEY (batch_id) REFERENCES batch_factory_v11_batches(id) ON DELETE RESTRICT,
+  FOREIGN KEY (book_id) REFERENCES batch_factory_v11_books(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11ProductionAssetInputStatements() []string {
 	return []string{
 		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN reference_image_urls MEDIUMTEXT NULL AFTER compiled_prompt`,
@@ -453,6 +475,7 @@ func V11Migrations() []Migration {
 		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1"},
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
+		{Version: 1100015, SQL: V11BookStageRunsStatements(), CallbackChecksum: "batch-factory-v11-book-stage-runs-v1"},
 	}
 }
 

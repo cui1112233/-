@@ -1,0 +1,98 @@
+package batchfactoryv11
+
+import (
+	"context"
+	"sort"
+	"strings"
+	"time"
+)
+
+type BookStage string
+
+const (
+	BookStageDirector BookStage = "director"
+	BookStageImage    BookStage = "image"
+	BookStageVideo    BookStage = "video"
+)
+
+type StageMode string
+
+const (
+	StageModeMissing StageMode = "missing"
+	StageModeForce   StageMode = "force"
+)
+
+type BookStageRun struct {
+	ID            string          `json:"id"`
+	Owner         string          `json:"-"`
+	BatchID       string          `json:"batchId"`
+	BookID        string          `json:"bookId"`
+	Stage         BookStage       `json:"stage"`
+	Status        ProductionState `json:"status"`
+	Attempt       int             `json:"attempt"`
+	RequestID     string          `json:"requestId,omitempty"`
+	InputRevision string          `json:"inputRevision,omitempty"`
+	ErrorMessage  string          `json:"errorMessage,omitempty"`
+	CreatedAt     time.Time       `json:"createdAt"`
+	UpdatedAt     time.Time       `json:"updatedAt"`
+}
+
+type BookStageRunRepository interface {
+	CreateBookStageRun(context.Context, BookStageRun) (BookStageRun, error)
+	UpdateBookStageRun(context.Context, string, string, BookStageRun) (BookStageRun, error)
+	ListBookStageRuns(context.Context, string, string, string) ([]BookStageRun, error)
+}
+
+func validBookStage(value BookStage) bool {
+	switch value {
+	case BookStageDirector, BookStageImage, BookStageVideo:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeBookStageRun(value BookStageRun) (BookStageRun, error) {
+	value.BatchID = strings.TrimSpace(value.BatchID)
+	value.BookID = strings.TrimSpace(value.BookID)
+	value.Owner = strings.TrimSpace(value.Owner)
+	value.RequestID = strings.TrimSpace(value.RequestID)
+	value.InputRevision = strings.TrimSpace(value.InputRevision)
+	value.ErrorMessage = productionError(errText(value.ErrorMessage))
+	if value.Owner == "" || value.BatchID == "" || value.BookID == "" || !validBookStage(value.Stage) || value.Attempt < 1 {
+		return BookStageRun{}, ErrInvalid
+	}
+	value.Status = normalizeProductionState(value.Status)
+	return value, nil
+}
+
+func errText(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return stageRunError(value)
+}
+
+type stageRunError string
+
+func (e stageRunError) Error() string { return string(e) }
+
+func LatestFailedBookStageRun(values []BookStageRun) *BookStageRun {
+	failed := make([]BookStageRun, 0, len(values))
+	for _, value := range values {
+		if value.Status == ProductionFailed {
+			failed = append(failed, value)
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	sort.SliceStable(failed, func(i, j int) bool {
+		if failed[i].UpdatedAt.Equal(failed[j].UpdatedAt) {
+			return failed[i].ID > failed[j].ID
+		}
+		return failed[i].UpdatedAt.After(failed[j].UpdatedAt)
+	})
+	value := failed[0]
+	return &value
+}
