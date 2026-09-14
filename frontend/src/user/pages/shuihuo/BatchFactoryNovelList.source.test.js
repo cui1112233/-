@@ -356,4 +356,5 @@ test('shows one selected storyboard VIDEO and only expands real per-video candid
   assert.match(stylesheet, /batch-factory-inline-media-rail/);
   assert.match(stylesheet, /batch-factory-inline-media\.is-landscape/);
   assert.match(stylesheet, /aspect-ratio:16 \/ 9/);
+  assert.match(stylesheet, /is-landscape \.batch-factory-inline-media-stage \{ width:100%/);
 });
