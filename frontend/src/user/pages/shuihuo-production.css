@@ -591,3 +591,13 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-prompt-editor-label .ant-input[readonly] { cursor: default; color: #d9e6f8; }
 .batch-factory-prompt-modal-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 720px) { .batch-factory-prompt-modal-head { align-items: flex-start; flex-direction: column; } .batch-factory-prompt-modal-tabs { align-self: stretch; justify-content: flex-end; } }
+
+/* Prompt type is a compact stacked label in the upper-left corner. */
+.batch-factory-prompt-entry-head { min-height:42px; padding:8px 9px 0; }
+.batch-factory-prompt-entry-nav { margin-left:auto; }
+.batch-factory-prompt-entry-tabs { position:absolute; top:0; left:0; min-width:132px; height:31px; justify-content:flex-start; }
+.batch-factory-prompt-entry-tabs button { min-width:78px; height:27px; padding:0 8px; border-radius:0 0 9px 9px; font-size:11px; }
+.batch-factory-prompt-entry-tabs .is-visual { margin-right:-18px; transform:translateY(2px); }
+.batch-factory-prompt-entry-tabs .is-video { box-shadow:-2px 3px 7px rgba(12,54,185,.22); }
+.batch-factory-prompt-entry-tabs button.is-active { transform:translateY(-1px); }
+.batch-factory-prompt-entry-tabs .is-visual.is-active { transform:translateY(1px); }
