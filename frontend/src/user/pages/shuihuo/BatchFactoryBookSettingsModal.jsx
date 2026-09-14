@@ -4,6 +4,21 @@ import { listAvailableModels } from '../../../shared/api/modelCatalog';
 import { listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
 
 const BOOK_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration', 'aiPromptConfig'];
+const ENGINE_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode'];
+const VIDEO_SETTING_FIELDS = ['maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration'];
+export const AI_REGION_KEYS = new Map([
+  ['assets', 'assets'],
+  ['constraints', 'constraints'],
+  ['video', 'video'],
+  ['visual', 'visual']
+]);
+const REGION_LABELS = {
+  engine: '引擎配置',
+  assets: '资产设置',
+  constraints: '约束设置',
+  video: '视频设置',
+  visual: '画面设置'
+};
 const VIDEO_PROVIDER_OPTIONS = [
   { value: 'personal_api', label: '个人中心 API' },
   { value: 'doubao_local_executor', label: '豆包本地执行器' },
@@ -48,6 +63,34 @@ export function buildBookOverridePatch(inherited, edited) {
 
 function buildRestoreKeys(inherited, edited, currentPatch) {
   return BOOK_OVERRIDE_FIELDS.filter(key => Object.hasOwn(currentPatch || {}, key) && equal(inherited?.[key], edited?.[key]));
+}
+
+export function buildBookRegionUpdate(inherited, bookPatch, region, edited) {
+  const patch = {};
+  const restoreKeys = [];
+  if (region === 'engine') {
+    for (const key of ENGINE_OVERRIDE_FIELDS) {
+      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
+      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
+    }
+    return { patch, restoreKeys };
+  }
+  const moduleKey = AI_REGION_KEYS.get(region);
+  if (!moduleKey) return { patch, restoreKeys };
+  if (region === 'video') {
+    for (const key of VIDEO_SETTING_FIELDS) {
+      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
+      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
+    }
+  }
+  const rawBookAI = bookPatch?.aiPromptConfig && typeof bookPatch.aiPromptConfig === 'object' ? { ...bookPatch.aiPromptConfig } : {};
+  const inheritedModule = inherited?.aiPromptConfig?.[moduleKey] || {};
+  const editedModule = edited?.aiPromptConfig?.[moduleKey] || {};
+  if (equal(inheritedModule, editedModule)) delete rawBookAI[moduleKey];
+  else rawBookAI[moduleKey] = editedModule;
+  if (Object.keys(rawBookAI).length) patch.aiPromptConfig = rawBookAI;
+  else if (Object.hasOwn(bookPatch || {}, 'aiPromptConfig')) restoreKeys.push('aiPromptConfig');
+  return { patch, restoreKeys };
 }
 
 function InheritedField({ label, field, value, inherited, options, onChange, loading }) {
@@ -105,9 +148,10 @@ function ConstraintLayers({ value, records, loading, onChange }) {
   })}</div>;
 }
 
-export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSaved }) {
+export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion = 'engine', onClose, onSaved, onOpenBookAssets }) {
   const batchPatch = batch?.settingsState?.patch || {};
   const bookPatch = book?.settingsState?.patch || {};
+  const region = REGION_LABELS[activeRegion] ? activeRegion : 'engine';
   const inherited = useMemo(() => ({ ...batchPatch, aiPromptConfig: mergePromptConfig(batchPatch.aiPromptConfig, {}) }), [batch?.id, batch?.settingsState?.revision]);
   const [form, setForm] = useState(() => effectiveValues(batchPatch, bookPatch));
   const [models, setModels] = useState([]);
@@ -118,7 +162,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSa
 
   useEffect(() => {
     if (open) setForm(effectiveValues(batchPatch, bookPatch));
-  }, [open, batch?.id, batch?.settingsState?.revision, book?.id, book?.settingsState?.revision]);
+  }, [open, region, batch?.id, batch?.settingsState?.revision, book?.id, book?.settingsState?.revision]);
   useEffect(() => {
     if (!open) return undefined;
     let active = true;
@@ -144,33 +188,37 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSa
   const batchSlots = useMemo(() => Object.fromEntries(ASSET_SLOTS.slice(1).map(([key, , slot]) => [key, catalog.batch.filter(item => item.slot === slot)])), [catalog.batch]);
   const videoRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.video-meta'), [catalog.batch]);
   const visualRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.visual-meta'), [catalog.batch]);
-  const sourceByField = useMemo(() => Object.fromEntries(BOOK_OVERRIDE_FIELDS.map(field => [field, Object.hasOwn(bookPatch, field) ? 'book' : 'batch'])), [book?.id, book?.settingsState?.revision, batch?.settingsState?.revision]);
   const ai = form.aiPromptConfig || {};
   const assetRules = ai.assets || {};
   const constraintRules = ai.constraints || { selections: [], enabledCategories: [] };
+  const moduleKey = AI_REGION_KEYS.get(region);
+  const hasBookOverride = region === 'engine'
+    ? ENGINE_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
+    : region === 'video'
+      ? VIDEO_SETTING_FIELDS.some(key => Object.hasOwn(bookPatch, key)) || Boolean(moduleKey && Object.hasOwn(bookPatch.aiPromptConfig || {}, moduleKey))
+      : Boolean(moduleKey && Object.hasOwn(bookPatch.aiPromptConfig || {}, moduleKey));
 
   function patch(next) { setForm(current => ({ ...current, ...next })); }
   function patchAI(key, next) { patch({ aiPromptConfig: { ...ai, [key]: next } }); }
   function scoped(module) { return { ...module, scope: 'custom', bookIds: book?.id ? [book.id] : [] }; }
   function updateAssetSelection(key, selection) { patchAI('assets', scoped({ ...assetRules, [key]: selection })); }
-  async function save() {
+  async function persist(edited, closeWhenSaved = true) {
     if (!batch?.id || !book?.id) return;
-    const patch = buildBookOverridePatch(inherited, form);
-    const restoreKeys = buildRestoreKeys(inherited, form, bookPatch);
-    if (!Object.keys(patch).length && !restoreKeys.length) { onClose?.(); return; }
+    const { patch: patchValue, restoreKeys } = buildBookRegionUpdate(inherited, bookPatch, region, edited);
+    if (!Object.keys(patchValue).length && !restoreKeys.length) { if (closeWhenSaved) onClose?.(); return; }
     setSaving(true);
     try {
-      await saveBookOverride(batch.id, book.id, { patch, restoreKeys, expectedRevision: Number(book?.revision || 0) });
+      await saveBookOverride(batch.id, book.id, { patch: patchValue, restoreKeys, expectedRevision: Number(book?.revision || 0) });
       await onSaved?.();
-      onClose?.();
+      if (closeWhenSaved) onClose?.();
     } finally { setSaving(false); }
   }
+  function save() { return persist(form); }
+  function restoreCurrentRegion() { return persist(inherited); }
 
-  return <Modal title={book?.title ? `单书配置 · ${book.title}` : '单书配置'} open={open} onCancel={onClose} width={980} className="shuihuo-engine-modal batch-factory-engine-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存当前书覆盖</Button></Space>}>
-    <Alert type="info" showIcon message="继承状态" description={`未改动的字段继续使用当前批量作品配置；当前模型来源：${sourceByField.textModelId === 'book' ? '当前书覆盖' : '批量作品'}。这里保存的值只影响当前小说，不会改动同批次其它书。`} />
-    {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
-    <Divider orientation="left">模型与生产</Divider>
-    <div className="batch-factory-engine-drawer">
+  let body = null;
+  if (region === 'engine') {
+    body = <div className="batch-factory-engine-drawer">
       <InheritedField label="视频引擎" field="videoProvider" value={form.videoProvider || 'personal_api'} inherited={inherited.videoProvider || 'personal_api'} options={VIDEO_PROVIDER_OPTIONS} loading={false} onChange={videoProvider => patch({ videoProvider })} />
       <InheritedField label="视频模型" field="videoModelId" value={form.videoModelId} inherited={inherited.videoModelId} options={modelOptions.video} loading={loading} onChange={videoModelId => patch({ videoModelId })} />
       <InheritedNumberField label="VIDEO 时长上限" value={form.maxVideoDuration ?? 15} inherited={inherited.maxVideoDuration ?? 15} min={1} max={60} onChange={maxVideoDuration => patch({ maxVideoDuration })} />
@@ -179,17 +227,37 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, onClose, onSa
       <InheritedField label="画幅" field="aspectRatio" value={form.aspectRatio || '9:16'} inherited={inherited.aspectRatio || '9:16'} options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }]} loading={false} onChange={aspectRatio => patch({ aspectRatio })} />
       <InheritedField label="图片模型" field="imageModelId" value={form.imageModelId} inherited={inherited.imageModelId} options={modelOptions.image} loading={loading} onChange={imageModelId => patch({ imageModelId })} />
       <InheritedField label="文本模型" field="textModelId" value={form.textModelId} inherited={inherited.textModelId} options={modelOptions.text} loading={loading} onChange={textModelId => patch({ textModelId })} />
-    </div>
-    <Alert type="info" showIcon message="当前书的人物场景预设" description="人物、场景、道具的实际 Prompt 与图片在本书这一行的“添加角色 / 添加场景 / 添加道具”中维护；这里配置的是这本书调用的模型与 AI 推理规则。" />
-    <Divider orientation="left">AI 推理规则</Divider>
-    <RuleModule title="资产设置" value={assetRules} onChange={next => patchAI('assets', scoped(next))}>
-      <PromptSelect label="人物场景提取" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
-      {ASSET_SLOTS.slice(1).map(([key, label]) => <PromptSelect key={key} label={label} value={assetRules[key]} options={Object.assign((batchSlots[key] || []).map(optionFor), { catalog: batchSlots[key] || [] })} disabled={loading} onChange={selection => updateAssetSelection(key, selection)} />)}
-    </RuleModule>
-    <RuleModule title="约束设置" value={constraintRules} onChange={next => patchAI('constraints', scoped(next))}>
+    </div>;
+  } else if (region === 'assets') {
+    body = <><Alert type="info" showIcon message="当前书的人物场景预设" description="人物、场景、道具的实际 Prompt 与图片在本书这一行的“添加角色 / 添加场景 / 添加道具”中维护；这里选择这本书调用的提取与推理预设。" />
+      <RuleModule title="资产设置" value={assetRules} onChange={next => patchAI('assets', scoped(next))}>
+        <PromptSelect label="人物场景提取" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
+        {ASSET_SLOTS.slice(1).map(([key, label]) => <PromptSelect key={key} label={label} value={assetRules[key]} options={Object.assign((batchSlots[key] || []).map(optionFor), { catalog: batchSlots[key] || [] })} disabled={loading} onChange={selection => updateAssetSelection(key, selection)} />)}
+        <Button onClick={() => { onClose?.(); onOpenBookAssets?.(book); }}>维护当前书人物场景预设</Button>
+      </RuleModule>
+    </>;
+  } else if (region === 'constraints') {
+    body = <RuleModule title="约束设置" value={constraintRules} onChange={next => patchAI('constraints', scoped(next))}>
       <ConstraintLayers value={constraintRules} records={scriptConstraints} loading={loading} onChange={next => patchAI('constraints', scoped(next))} />
-    </RuleModule>
-    <RuleModule title="视频设置" value={ai.video} onChange={next => patchAI('video', scoped(next))}><PromptSelect label="视频提示词" value={ai.video} options={Object.assign(videoRules.map(optionFor), { catalog: videoRules })} disabled={loading} onChange={selection => patchAI('video', scoped({ ...ai.video, ...selection }))} /></RuleModule>
-    <RuleModule title="画面设置" value={ai.visual} onChange={next => patchAI('visual', scoped(next))}><PromptSelect label="画面提示词" value={ai.visual} options={Object.assign(visualRules.map(optionFor), { catalog: visualRules })} disabled={loading} onChange={selection => patchAI('visual', scoped({ ...ai.visual, ...selection }))} /></RuleModule>
+    </RuleModule>;
+  } else if (region === 'video') {
+    body = <><div className="batch-factory-engine-drawer">
+      <InheritedNumberField label="VIDEO 时长上限" value={form.maxVideoDuration ?? 15} inherited={inherited.maxVideoDuration ?? 15} min={1} max={60} onChange={maxVideoDuration => patch({ maxVideoDuration })} />
+      <InheritedSwitchField label="固定开头" value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
+      {(form.fixedSingleVideo ?? inherited.fixedSingleVideo) === true ? <InheritedNumberField label="固定 VIDEO 时长" value={form.fixedVideoDuration ?? form.maxVideoDuration ?? 15} inherited={inherited.fixedVideoDuration ?? inherited.maxVideoDuration ?? 15} min={1} max={Number(form.maxVideoDuration ?? inherited.maxVideoDuration ?? 60)} onChange={fixedVideoDuration => patch({ fixedVideoDuration })} /> : null}
+    </div><RuleModule title="视频提示词" value={ai.video} onChange={next => patchAI('video', scoped(next))}>
+      <PromptSelect label="视频提示词" value={ai.video} options={Object.assign(videoRules.map(optionFor), { catalog: videoRules })} disabled={loading} onChange={selection => patchAI('video', scoped({ ...ai.video, ...selection }))} />
+    </RuleModule></>;
+  } else {
+    body = <RuleModule title="画面设置" value={ai.visual} onChange={next => patchAI('visual', scoped(next))}>
+      <PromptSelect label="画面提示词" value={ai.visual} options={Object.assign(visualRules.map(optionFor), { catalog: visualRules })} disabled={loading} onChange={selection => patchAI('visual', scoped({ ...ai.visual, ...selection }))} />
+    </RuleModule>;
+  }
+
+  return <Modal title={book?.title ? `单书配置 · ${book.title} · ${REGION_LABELS[region]}` : `单书配置 · ${REGION_LABELS[region]}`} open={open} onCancel={onClose} width={980} className="shuihuo-engine-modal batch-factory-engine-modal" footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复作品配置</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存当前书覆盖</Button></Space>}>
+    <Alert type="info" showIcon message="继承状态" description="本分区未改动时继续使用当前批量作品配置；保存或恢复只影响当前小说，不会改动同批次其它书。" />
+    {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
+    <Divider orientation="left">{REGION_LABELS[region]}</Divider>
+    {body}
   </Modal>;
 }

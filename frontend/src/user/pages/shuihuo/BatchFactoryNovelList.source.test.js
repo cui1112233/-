@@ -9,6 +9,7 @@ const source = fs.readFileSync(path.join(here, 'BatchFactoryNovelList.jsx'), 'ut
 const engineSource = fs.readFileSync(path.join(here, 'BatchFactoryEngineSettingsDrawer.jsx'), 'utf8');
 const reasoningSource = fs.readFileSync(path.join(here, 'BatchFactoryAiReasoningModal.jsx'), 'utf8');
 const presetLibrarySource = fs.readFileSync(path.join(here, '../../../admin/pages/PresetLibraryPage.jsx'), 'utf8');
+const configRegionSource = fs.readFileSync(path.join(here, 'batchFactoryBookConfigRegions.js'), 'utf8');
 
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
@@ -163,10 +164,17 @@ test('scopes cancellation to the production operation created in this page, rath
   assert.match(source, /取消只会作用于该次操作/);
 });
 
-test('places each single-book configuration card between novel content and presets', () => {
+test('places five regional single-book configuration buttons between novel content and presets', () => {
   assert.match(source, /\['序号', '小说正文', '单书配置', '预设', '提示词', '片段库', '操作'\]/);
-  assert.match(source, /batch-factory-book-config-card/);
-  assert.match(source, /<div className="shuihuo-workbench-cell batch-factory-book-config-cell">[\s\S]*?setConfigBook\(book\)[\s\S]*?<div className="shuihuo-workbench-cell shuihuo-preset-cell/);
+  assert.match(source, /BOOK_CONFIG_REGIONS\.map/);
+  assert.match(source, /setConfigTarget\(\{ book, region: region\.key \}\)/);
+  assert.match(source, /onOpenBookAssets=\{book => setAssetBook\(book\)\}/);
+  assert.match(configRegionSource, /引擎配置/);
+  assert.match(configRegionSource, /资产设置/);
+  assert.match(configRegionSource, /约束设置/);
+  assert.match(configRegionSource, /视频设置/);
+  assert.match(configRegionSource, /画面设置/);
+  assert.match(configRegionSource, /bookAssetSummary/);
   const actions = source.match(/<div className="shuihuo-workbench-cell batch-factory-actions">[\s\S]*?<\/div>/)?.[0] || '';
-  assert.doesNotMatch(actions, /setConfigBook\(book\)/);
+  assert.doesNotMatch(actions, /setConfigTarget/);
 });

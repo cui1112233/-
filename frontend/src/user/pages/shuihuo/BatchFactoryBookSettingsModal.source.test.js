@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(here, 'BatchFactoryBookSettingsModal.js
 
 test('single-book configuration compares inherited settings and only saves changed fields', () => {
   assert.match(source, /export function buildBookOverridePatch/);
-  assert.match(source, /sourceByField/);
+  assert.match(source, /buildBookRegionUpdate/);
   assert.match(source, /saveBookOverride/);
   assert.match(source, /expectedRevision/);
   assert.match(source, /覆盖当前书/);
@@ -35,4 +35,13 @@ test('single-book configuration has the same layered script constraints and vide
   assert.match(source, /VIDEO 时长上限/);
   assert.match(source, /固定开头/);
   assert.match(source, /视频引擎/);
+});
+
+test('single-book configuration opens and saves one explicit region at a time', () => {
+  assert.match(source, /activeRegion/);
+  assert.match(source, /buildBookRegionUpdate/);
+  assert.match(source, /AI_REGION_KEYS/);
+  assert.match(source, /onOpenBookAssets/);
+  assert.match(source, /维护当前书人物场景预设/);
+  assert.match(source, /恢复作品配置/);
 });
