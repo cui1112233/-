@@ -2,14 +2,6 @@
 # Apply together with /Users/ming/qiantie-v88/docker-compose.v88-review.yml.
 # It deliberately leaves the existing Shuihuo backend and mysql-shuihuo services unchanged.
 services:
-  # The base review compose is anchored in /Users/ming/qiantie-v88.  Keep this
-  # local preview's Shuihuo API on the V88 worktree under review, otherwise a
-  # container rebuild silently swaps it back to that stale checkout.
-  backend:
-    build:
-      context: /Users/ming/Documents/ChatGPT/一战晟铭/backend
-      dockerfile: Dockerfile
-
   batch-factory-v11-mysql:
     image: mysql:8.4
     environment:
