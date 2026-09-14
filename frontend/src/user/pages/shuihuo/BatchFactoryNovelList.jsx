@@ -331,15 +331,32 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
 }
 
 function InlineBookPrompts({ book, onManage }) {
-	const videos = book?.videos || [];
-	const video = videos[0] || null;
-	if (!video) return <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div className="batch-factory-inline-prompts is-empty">AI 推理后会在这里显示当前书的分镜提示词卡。</div></div>;
-	const hasVisualPrompt = Boolean(String(video.visualPrompt || '').trim());
-	return <button type="button" className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell batch-factory-prompt-entry-card" aria-label="打开分镜提示词" onClick={() => onManage?.(video.id)}>
-		<span className="batch-factory-prompt-entry-tabs" aria-hidden="true"><i className={`is-visual${hasVisualPrompt ? '' : ' is-unavailable'}`}>画面提示词</i><b>视频提示词</b></span>
-	</button>;
+  const videos = book?.videos || [];
+  const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
+  const [promptKind, setPromptKind] = useState('video');
+  const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
+  const video = videos[selectedIndex] || null;
+  const videoPrompt = String(video?.videoPrompt || '');
+  const visualPrompt = String(video?.visualPrompt || '');
+  const hasVisualPrompt = Boolean(visualPrompt.trim());
+  const activePrompt = promptKind === 'visual' ? visualPrompt : videoPrompt;
+  useEffect(() => {
+    setSelectedVideoId(book?.videos?.[0]?.id || '');
+    setPromptKind('video');
+  }, [book?.id]);
+  function move(direction) {
+    const next = videos[selectedIndex + direction];
+    if (next) setSelectedVideoId(next.id);
+  }
+  if (!video) return <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div className="batch-factory-inline-prompts is-empty">AI 推理后会在这里显示当前书的分镜提示词卡。</div></div>;
+  return <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell batch-factory-prompt-entry-card">
+    <div className="batch-factory-prompt-entry-head">
+      <div className="batch-factory-prompt-entry-nav"><button type="button" aria-label="上一分镜" disabled={selectedIndex === 0} onClick={() => move(-1)}><LeftOutlined /></button><span>{selectedIndex + 1}/{videos.length}</span><button type="button" aria-label="下一分镜" disabled={selectedIndex >= videos.length - 1} onClick={() => move(1)}><RightOutlined /></button></div>
+      <div className="batch-factory-prompt-entry-tabs" aria-label="提示词类型"><button type="button" className={`is-visual${promptKind === 'visual' ? ' is-active' : ''}`} disabled={!hasVisualPrompt} onClick={() => setPromptKind('visual')}>画面提示词</button><button type="button" className={`is-video${promptKind === 'video' ? ' is-active' : ''}`} onClick={() => setPromptKind('video')}>视频提示词</button></div>
+    </div>
+    <button type="button" className="batch-factory-prompt-entry-content" aria-label="打开分镜提示词编辑" onClick={() => onManage?.(video.id)}><p>{activePrompt || (promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看')}</p><span>点击卡片编辑、重生、生成与查看候选版本</span></button>
+  </div>;
 }
-
 function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
 	const index = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
 	const hasVideos = videos.length > 0;
