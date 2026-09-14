@@ -601,3 +601,11 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-prompt-entry-tabs .is-video { box-shadow:-2px 3px 7px rgba(12,54,185,.22); }
 .batch-factory-prompt-entry-tabs button.is-active { transform:translateY(-1px); }
 .batch-factory-prompt-entry-tabs .is-visual.is-active { transform:translateY(1px); }
+
+/* Storyboard navigation belongs below the visible prompt, centered in the cell. */
+.batch-factory-prompt-entry-card { grid-template-rows:42px minmax(0,1fr) 36px; }
+.batch-factory-prompt-entry-head { min-height:42px; padding:8px 9px 0; }
+.batch-factory-prompt-entry-nav { justify-self:center; align-self:center; margin:0; }
+.batch-factory-prompt-entry-content { padding:10px 14px; }
+.batch-factory-prompt-entry-content p { -webkit-line-clamp:9; }
+.batch-factory-prompt-entry-content span { display:none; }
