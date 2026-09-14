@@ -122,8 +122,8 @@ function bookAssetImagesPath(batchId, bookId, assetId, imageId = '') {
   return imageId ? `${base}/${id(imageId)}` : base;
 }
 
-export function listBookAssets(batchId, bookId) {
-  return apiRequest(bookAssetsPath(batchId, bookId));
+export function listBookAssets(batchId, bookId, options = {}) {
+  return apiRequest(bookAssetsPath(batchId, bookId), options);
 }
 
 export function createBookAsset(batchId, bookId, payload) {
@@ -134,8 +134,8 @@ export function updateBookAsset(batchId, bookId, assetId, payload) {
   return apiRequest(bookAssetsPath(batchId, bookId, assetId), { method: 'PATCH', body: body(payload) });
 }
 
-export function listBookAssetImages(batchId, bookId, assetId) {
-  return apiRequest(bookAssetImagesPath(batchId, bookId, assetId));
+export function listBookAssetImages(batchId, bookId, assetId, options = {}) {
+  return apiRequest(bookAssetImagesPath(batchId, bookId, assetId), options);
 }
 
 // Provider-result registration is intentionally separate from browser upload.
@@ -150,6 +150,13 @@ export function uploadBookAssetImage(batchId, bookId, assetId, dataUrl) {
 
 export function setPrimaryBookAssetImage(batchId, bookId, assetId, imageId) {
   return apiRequest(`${bookAssetImagesPath(batchId, bookId, assetId, imageId)}/primary`, { method: 'PUT', body: body({}) });
+}
+
+// The browser sends only selected asset IDs and the configured model ID. The
+// authenticated Node gateway resolves the account credential, calls the model,
+// and persists each returned image as a version owned by this book asset.
+export function generateBookAssetImages(batchId, bookId, payload) {
+  return apiRequest(`${bookAssetsPath(batchId, bookId)}/images/generate`, { method: 'POST', body: body(payload) });
 }
 
 export function getConfigVersions() {
@@ -204,12 +211,12 @@ export function saveDraft(payload) {
   return apiRequest(bf11Path('drafts'), { method: 'PUT', body: body(payload) });
 }
 
-export function rewriteWorkingFront(batchId, bookId, content) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/working-front/viral`), { method: 'POST', body: body({ content: String(content || '') }) });
+export function rewriteWorkingFront(batchId, bookId, content, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/working-front/viral`), { method: 'POST', body: body({ ...payload, content: String(content || '') }) });
 }
 
-export function runHook(batchId, bookId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/hook`), { method: 'POST', body: body({}) });
+export function runHook(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/hook`), { method: 'POST', body: body(payload) });
 }
 
 export function approveHook(batchId, bookId, hookId) {
@@ -232,8 +239,8 @@ export function retryBookStage(batchId, bookId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages/retry`), { method: 'POST', body: body(payload) });
 }
 
-export function runBatchDirector(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body({}) });
+export function runBatchDirector(batchId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body(payload) });
 }
 
 export function getEffectiveSettings(batchId, bookId, videoId) {
@@ -286,8 +293,8 @@ export function createLocalExecutorPairing(platform = 'doubao') {
   });
 }
 
-export function getProductionStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/status`));
+export function getProductionStatus(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/status`), options);
 }
 
 export function submitBatchMerge(batchId, payload = {}) {

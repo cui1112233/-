@@ -57,12 +57,12 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       const coveredProjects = await Promise.all(batchProjects.map(async project => {
         const firstBook = project.batch?.books?.[0];
         const [productionStatus, imageURL] = await Promise.all([
-          getProductionStatus(project.batchId).catch(() => null),
+          getProductionStatus(project.batchId, { silent: true }).catch(() => null),
           (async () => {
             if (!firstBook?.id) return '';
-            const assetResult = await listBookAssets(project.batchId, firstBook.id).catch(() => null);
+            const assetResult = await listBookAssets(project.batchId, firstBook.id, { silent: true }).catch(() => null);
             for (const asset of assetResult?.assets || []) {
-              const imageResult = await listBookAssetImages(project.batchId, firstBook.id, asset.id).catch(() => null);
+              const imageResult = await listBookAssetImages(project.batchId, firstBook.id, asset.id, { silent: true }).catch(() => null);
               const image = (imageResult?.images || []).find(item => item?.isPrimary && item?.url) || (imageResult?.images || []).find(item => item?.url);
               if (image?.url) return image.url;
             }
