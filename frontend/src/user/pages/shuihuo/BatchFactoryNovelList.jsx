@@ -438,6 +438,7 @@ function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
   const video = videos[selectedIndex] || null;
   const versions = video ? (versionsByVideo.get(video.id) || []) : [];
   const primary = primaryMediaVersion(video, versions);
+  const mediaFrameLayout = primary?.mediaUrl ? mediaLayout : 'landscape';
   const candidates = versions.filter(version => version.id !== primary?.id).slice(-4).reverse();
   useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); setMediaLayout('landscape'); }, [book?.id]);
   function move(direction) {
@@ -445,7 +446,7 @@ function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
     if (next) setSelectedVideoId(next.id);
   }
   if (!video) return <div className="batch-factory-inline-media is-empty">AI 推理后显示该书的分镜 / VIDEO</div>;
-  return <div className={`batch-factory-inline-media is-${mediaLayout}${candidates.length ? ' has-candidates' : ''}`}>
+  return <div className={`batch-factory-inline-media is-${mediaFrameLayout}${candidates.length ? ' has-candidates' : ''}`}>
     <div className="batch-factory-inline-media-stage">
       <button type="button" className="batch-factory-inline-media-primary" aria-label="打开当前分镜主版本" onClick={() => onManage?.(video.id)}>
         {primary?.mediaUrl ? <video src={primary.mediaUrl} muted preload="metadata" onLoadedMetadata={event => setMediaLayout(event.currentTarget.videoWidth >= event.currentTarget.videoHeight ? 'landscape' : 'portrait')} /> : <><CloudUploadOutlined /><span>当前分镜暂无视频</span></>}
