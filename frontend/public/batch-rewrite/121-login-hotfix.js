@@ -138,12 +138,11 @@
           web_submit: saved?.settings || { ...currentWebSubmit, username, password: '', password_masked: true }
         };
 
-        if (result) result.textContent = '正在验证 121 登录会话...';
-        const check = await api('/api/web-submit/test-visible', {
-          method: 'POST',
-          body: JSON.stringify({ mode: 'all', ids: [], force: true })
-        });
-        state.webLoginSession = check?.ok === true;
+        // /api/web-submit/config already performs the direct 121 login when a
+        // password is supplied. Do not immediately launch a second headed
+        // browser verification; that duplicate check is the source of the
+        // long timeout users see after a successful direct login.
+        state.webLoginSession = saved?.ok === true;
         state.config = {
           ...(state.config || {}),
           web_submit: {
@@ -155,7 +154,7 @@
         };
         renderWebLoginStatus(state.config?.web_submit || {});
 
-        if (!state.webLoginSession) throw new Error('121 登录会话验证失败');
+        if (!state.webLoginSession) throw new Error('121 登录失败：服务器未确认登录会话');
         if (result) result.textContent = '登录验证成功';
         window.setTimeout(() => dialog.close(), 500);
       } catch (error) {

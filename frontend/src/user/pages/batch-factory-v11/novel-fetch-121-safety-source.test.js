@@ -62,3 +62,16 @@ test('novel status center survives frontend rebuild and unified image packaging'
   assert.match(workflow, /npm --prefix frontend run build/);
   assert.match(dockerfile, /COPY frontend\/dist\/ \.\/frontend\/dist\//);
 });
+
+test('saving 121 credentials does not launch a second headed verification automatically', () => {
+  const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
+  const submitStart = source.indexOf("dialog.addEventListener('submit'");
+  const submitEnd = source.indexOf("}, true);", submitStart);
+  assert.ok(submitStart >= 0 && submitEnd > submitStart, 'login submit handler must remain present');
+  const submitHandler = source.slice(submitStart, submitEnd);
+  assert.match(submitHandler, /api\('\/api\/web-submit\/config'/);
+  assert.doesNotMatch(submitHandler, /test-visible/);
+  const appSource = readRequired('public/batch-rewrite/app.js');
+  assert.match(appSource, /testVisibleWebFlow/);
+  assert.match(appSource, /\/api\/batch-rewrite\/web-submit\/test-visible/);
+});
