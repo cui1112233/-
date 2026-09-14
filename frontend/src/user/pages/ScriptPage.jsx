@@ -1465,17 +1465,53 @@ export function ScriptPage() {
         </div>
       </Modal>
       <Modal
-        title="切换人物与场景提取指令"
+        title="选择基础设定（人物 / 场景）提示词"
         open={instructionModalOpen}
         onCancel={() => setInstructionModalOpen(false)}
         onOk={() => {
           form.setFieldValue('extractionPreset', pendingExtractionPreset);
+          setConstraints(current => ({
+            ...current,
+            enabled: true,
+            baseSetup: {
+              ...current.baseSetup,
+              enabled: true,
+              source: 'system',
+              presetId: pendingExtractionPreset,
+              personalPromptId: ''
+            }
+          }));
+          setDraftConstraints(current => ({
+            ...current,
+            enabled: true,
+            baseSetup: {
+              ...current.baseSetup,
+              enabled: true,
+              source: 'system',
+              presetId: pendingExtractionPreset,
+              personalPromptId: ''
+            }
+          }));
           setInstructionModalOpen(false);
-          persistDraft({ ...form.getFieldsValue(), extractionPreset: pendingExtractionPreset });
+          persistDraft({
+            ...form.getFieldsValue(),
+            extractionPreset: pendingExtractionPreset,
+            constraints: {
+              ...constraintsForNextGeneration(constraints),
+              enabled: true,
+              baseSetup: {
+                ...constraints.baseSetup,
+                enabled: true,
+                source: 'system',
+                presetId: pendingExtractionPreset,
+                personalPromptId: ''
+              }
+            }
+          });
         }}
         okText="保存"
       >
-        <Form.Item label="提取方案">
+        <Form.Item label="基础设定提示词">
           <Select
             value={pendingExtractionPreset}
             onChange={setPendingExtractionPreset}
