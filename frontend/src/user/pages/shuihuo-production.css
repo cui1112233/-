@@ -540,12 +540,12 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-book-library-cell .shuihuo-primary-media { width: 100%; }
 .batch-factory-book-library-cell .shuihuo-media-grid { min-width: 0; }
 .batch-factory-library-note { color: #91a2b8; font-size: 12px; line-height: 1.55; }
-.batch-factory-book-prompt-cell { display: block; padding: 10px; }
+.batch-factory-book-prompt-cell { display:block; padding:10px; }
 .batch-factory-inline-prompts.is-empty { display:grid; align-content:center; min-height:180px; color:var(--sh-muted); font-size:12px; line-height:1.6; }
-.batch-factory-prompt-entry-card { position:relative; display:block; width:100%; min-height:220px; overflow:hidden; border:2px solid #b7d7ff; border-radius:28px 28px 20px 20px; background:#fff; box-shadow:inset 0 0 0 2px rgba(111,170,255,.28),0 8px 18px rgba(24,78,157,.18); cursor:pointer; transition:transform .18s ease,box-shadow .18s ease; }
-.batch-factory-prompt-entry-card:hover { transform:translateY(-2px); box-shadow:inset 0 0 0 2px rgba(111,170,255,.35),0 12px 24px rgba(24,78,157,.25); }
-.batch-factory-prompt-entry-card:focus-visible { outline:3px solid var(--sh-accent); outline-offset:3px; }
-.batch-factory-prompt-entry-note { position:absolute; inset:0; display:grid; place-items:center; color:transparent; }
+/* The workbench cell itself is the prompt entry; no nested white card. */
+button.batch-factory-prompt-entry-card { position:relative; display:block; width:100%; min-height:276px; margin:0; padding:0; overflow:hidden; appearance:none; border:2px solid #b7d7ff; border-radius:28px 28px 20px 20px; background:#fff; box-shadow:inset 0 0 0 2px rgba(111,170,255,.28),0 8px 18px rgba(24,78,157,.18); cursor:pointer; text-align:left; transition:transform .18s ease,box-shadow .18s ease; }
+button.batch-factory-prompt-entry-card:hover { transform:translateY(-2px); box-shadow:inset 0 0 0 2px rgba(111,170,255,.35),0 12px 24px rgba(24,78,157,.25); }
+button.batch-factory-prompt-entry-card:focus-visible { outline:3px solid var(--sh-accent); outline-offset:3px; }
 .batch-factory-prompt-entry-tabs { position:absolute; top:0; left:0; right:0; height:63px; pointer-events:none; }
 .batch-factory-prompt-entry-tabs b,.batch-factory-prompt-entry-tabs i { position:absolute; top:0; display:flex; align-items:center; justify-content:center; height:44px; min-width:112px; padding:0 15px; border-radius:0 0 16px 16px; font-style:normal; font-size:12px; font-weight:700; }
 .batch-factory-prompt-entry-tabs b { right:0; z-index:2; color:#fff; background:linear-gradient(135deg,#1f4bff,#163fd3); box-shadow:-3px 4px 9px rgba(12,54,185,.38); }

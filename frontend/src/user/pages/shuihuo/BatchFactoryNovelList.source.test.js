@@ -129,7 +129,7 @@ test('keeps visual and video prompts as separate per-video saved fields', () => 
 });
 
 test('opens a modal from the whole stacked-card prompt entry and edits only the selected storyboard', () => {
-  assert.match(source, /className="batch-factory-prompt-entry-card"/);
+  assert.match(source, /className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell batch-factory-prompt-entry-card"/);
   assert.match(source, /className="batch-factory-prompt-modal-stack"/);
   assert.match(source, /aria-label="上一分镜"/);
   assert.match(source, /aria-label="下一分镜"/);
@@ -325,9 +325,9 @@ test('refreshes the open prompt modal after a save so another edit uses its late
 });
 
 test('uses the whole prompt cell as a stacked-card entry and opens its editor only in a modal', () => {
-  assert.match(source, /className="batch-factory-prompt-entry-card"/);
+  assert.match(source, /className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell batch-factory-prompt-entry-card"/);
   assert.match(source, /onClick=\{\(\) => onManage\?\.\(video.id\)\}/);
   assert.match(source, /className="batch-factory-prompt-modal-stack"/);
-  assert.match(source, /白色主入口卡/);
+  assert.doesNotMatch(source, /白色主入口卡/);
   assert.doesNotMatch(source, /batch-factory-prompt-expanded/);
 });
