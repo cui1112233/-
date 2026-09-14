@@ -103,7 +103,7 @@ test('renders every novel row with Shuihuo preset, prompt and clip-library cells
   assert.match(source, /shuihuo-library-cell batch-factory-book-library-cell/);
   assert.match(source, /添加角色/);
   assert.match(source, /画面提示词/);
-	assert.match(source, /管理主版本/);
+	assert.match(source, /function InlineMediaLibrary/);
 });
 
 test('uses the prompt cell as one book-level entry without an extra storyboard map', () => {
@@ -341,4 +341,14 @@ test('uses the whole prompt cell as a stacked-card entry and opens its editor on
 test('keeps the novel-content workbench cell read-only without an inline edit action', () => {
   const contentCell = source.match(/batch-factory-book-content[\s\S]*?\<\/div\>/)?.[0] || '';
   assert.doesNotMatch(contentCell, /编辑生产内容/);
+});
+
+
+test('shows one selected storyboard VIDEO and only expands real per-video candidates from a right rail', () => {
+  assert.match(source, /function InlineMediaLibrary/);
+  assert.match(source, /const candidates = versions\.filter/);
+  assert.match(source, /className=\{`batch-factory-inline-media/);
+  assert.match(source, /当前分镜候选版本，悬停展开/);
+  assert.match(stylesheet, /batch-factory-inline-media\.has-candidates:hover/);
+  assert.match(stylesheet, /batch-factory-inline-media-rail/);
 });

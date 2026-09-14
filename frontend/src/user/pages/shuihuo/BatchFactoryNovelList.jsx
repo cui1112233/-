@@ -430,6 +430,41 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
     <p className="shuihuo-modal-note">{promptKind === 'visual' ? '画面版本从当前书的人物场景预设中管理和生成。' : '视频版本只在当前分镜内生成和切换，不会覆盖其他分镜。'}</p>
   </div>;
 }
+function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
+  const videos = book?.videos || [];
+  const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
+  const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
+  const video = videos[selectedIndex] || null;
+  const versions = video ? (versionsByVideo.get(video.id) || []) : [];
+  const primary = primaryMediaVersion(video, versions);
+  const candidates = versions.filter(version => version.id !== primary?.id).slice(-4).reverse();
+  useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); }, [book?.id]);
+  function move(direction) {
+    const next = videos[selectedIndex + direction];
+    if (next) setSelectedVideoId(next.id);
+  }
+  if (!video) return <div className="batch-factory-inline-media is-empty">AI 推理后显示该书的分镜 / VIDEO</div>;
+  return <div className={`batch-factory-inline-media${candidates.length ? ' has-candidates' : ''}`}>
+    <button type="button" className="batch-factory-inline-media-primary" aria-label="打开当前分镜主版本" onClick={() => onManage?.(video.id)}>
+      {primary?.mediaUrl ? <video src={primary.mediaUrl} muted preload="metadata" /> : <><CloudUploadOutlined /><span>当前分镜暂无视频</span></>}
+      <small>主版本 · 分镜 {selectedIndex + 1}</small>
+    </button>
+    <div className="batch-factory-inline-media-nav">
+      <button type="button" aria-label="上一分镜视频" disabled={selectedIndex === 0} onClick={() => move(-1)}><LeftOutlined /></button>
+      <span>{selectedIndex + 1}/{videos.length}</span>
+      <button type="button" aria-label="下一分镜视频" disabled={selectedIndex >= videos.length - 1} onClick={() => move(1)}><RightOutlined /></button>
+    </div>
+    <div className="batch-factory-inline-media-rail" aria-label={candidates.length ? '当前分镜候选版本，悬停展开' : '当前分镜没有候选版本'}>
+      <i aria-hidden="true" />
+      {candidates.length ? <div className="batch-factory-inline-media-candidates">
+        {candidates.map((candidate, index) => <button type="button" key={candidate.id} aria-label={`打开候选版本 ${index + 1}`} onClick={() => onManage?.(video.id)}>
+          {candidate.mediaUrl ? <video src={candidate.mediaUrl} muted preload="metadata" /> : <PictureOutlined />}
+        </button>)}
+      </div> : null}
+    </div>
+  </div>;
+}
+
 function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved, onRegenerate, onRetry, regenerating, productionAvailable = false, productionReason = '' }) {
 	const videos = book?.videos || [];
 	const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
@@ -809,7 +844,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
           <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{BOOK_CONFIG_REGIONS.map(region => { const status = bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
           <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><div className="shuihuo-tag-list">{[...(book.assets?.characters || []), ...(book.assets?.scenes || []), ...(book.assets?.props || [])].slice(0, 6).map(asset => <Tag key={asset.id || assetName(asset)}>{assetName(asset)}</Tag>)}</div><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加角色</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加场景</button><button className="shuihuo-preset-picker" type="button" onClick={() => setAssetBook(book)}>添加道具</button></div>
 		  <InlineBookPrompts book={book} onManage={videoId => { setPromptVideoId(videoId || ''); setPromptBook(book); }} />
-		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><Tooltip title="打开当前小说的分镜主版本与候选版本。"><button className="shuihuo-primary-media" type="button" onClick={() => setMediaBook(book)}><CloudUploadOutlined /><span>管理主版本</span></button></Tooltip><div className="shuihuo-media-grid" aria-label="当前小说的片段候选库">{Array.from({ length: 4 }).map((_, itemIndex) => <Tooltip key={`asset-slot-${itemIndex}`} title="打开当前小说的分镜候选版本。"><button className="shuihuo-media-tile is-empty" type="button" onClick={() => setMediaBook(book)} aria-label={`打开当前小说的候选槽 ${itemIndex + 1}`}><PictureOutlined /></button></Tooltip>)}</div>{videos.length ? <Button type="text" size="small" onClick={() => setMediaBook(book)}>管理 {videos.length} 个 VIDEO</Button> : <span className="batch-factory-library-note">AI 推理后显示该书的分镜 / VIDEO</span>}</div>
+		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><InlineMediaLibrary book={book} versionsByVideo={mediaVersionsByVideo} onManage={videoId => { setPromptVideoId(videoId || ''); setMediaBook(book); }} /></div>
           <div className="shuihuo-workbench-cell batch-factory-actions">
             <div className="batch-factory-action-status"><div><Tag color={state.tone}>{state.label}</Tag>{state.manual ? <Tag color="purple">已手调</Tag> : null}</div><span>{state.detail}</span></div>
             <div className="batch-factory-action-group is-utility"><span>资料</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新</Button><Button size="small" onClick={() => setViewingBook(book)}>查看资料</Button></div></div>
