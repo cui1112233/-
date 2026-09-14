@@ -118,13 +118,16 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
       <Button className="shuihuo-project-view-toggle" type="text" icon={<AppstoreOutlined />} aria-label="网格视图" title="网格视图" />
     </div>
     <div className="shuihuo-project-grid">
-      {visibleProjects.map(project => <article className="shuihuo-project-card" key={project.id}>
+      {visibleProjects.map(project => {
+        const cover = projectCover(project);
+        return <article className={`shuihuo-project-card${cover ? ' has-cover' : ''}`} key={project.id}>
         <button type="button" className="shuihuo-project-card-open" onClick={() => onOpen(project)} aria-label={`打开${project.name}`}>
-          <div className="shuihuo-project-card-cover">{projectCover(project)}<span className={`shuihuo-project-card-mode ${isBatchFactoryV11Project(project) ? 'is-batch-factory' : ''}`}>{isBatchFactoryV11Project(project) ? '批量工厂' : '水货生产'}</span><span>{isBatchFactoryV11Project(project) ? '小说列表' : projectCount(project)}</span></div>
+          <div className="shuihuo-project-card-cover">{cover || <><span className={`shuihuo-project-card-mode ${isBatchFactoryV11Project(project) ? 'is-batch-factory' : ''}`}>{isBatchFactoryV11Project(project) ? '批量工厂' : '水货生产'}</span><span>{isBatchFactoryV11Project(project) ? '小说列表' : projectCount(project)}</span></>}</div>
           <div className="shuihuo-project-card-meta"><strong>{project.name}</strong><span>{formatTime(project.updatedAt || project.createdAt)}</span></div>
         </button>
         <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} />{!isBatchFactoryV11Project(project) ? <Popconfirm title="删除项目？此操作不会撤销。" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm> : null}</div>
-      </article>)}
+      </article>;
+      })}
       {!visibleProjects.length ? <div className="shuihuo-empty"><FileTextOutlined /><p>{projects?.length ? '没有匹配的作品' : '还没有项目'}</p><Button onClick={() => setOpen(true)}>从原文或字幕开始</Button><Button className="shuihuo-create-batch" onClick={() => setBatchOpen(true)}>批量工厂</Button></div> : null}
     </div>
     <Modal className="shuihuo-create-project-modal" title="新建漫剧" open={open} onCancel={() => { setOpen(false); reset(); }} footer={<><Button onClick={() => { setOpen(false); reset(); }}>取消</Button><Button type="primary" loading={busy} onClick={submit}>确定创建</Button></>} width={500}>

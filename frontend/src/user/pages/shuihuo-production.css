@@ -68,22 +68,21 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-project-filter .anticon:last-child { color: var(--sh-muted); font-size: 10px; }
 .shuihuo-project-filter .anticon:first-child { color: var(--sh-muted); }
 .shuihuo-project-view-toggle { color: var(--sh-muted); font-size: 19px; }
-.shuihuo-project-grid { display: grid; grid-template-columns: repeat(auto-fill, 200px); gap: 14px 16px; align-items: start; }
-.shuihuo-project-card { position: relative; display: grid; width: 200px; min-height: 200px; overflow: hidden; border: 1px solid #304158; border-radius: 2px; background: #1b293d; }
-.shuihuo-project-card:hover { border-color: #5b7596; }
-.shuihuo-project-card-open { display: grid; grid-template-rows: 128px 1fr; gap: 0; width: 100%; padding: 0; color: inherit; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.shuihuo-project-card-cover { display: flex; align-items: flex-start; justify-content: space-between; padding: 19px 16px; color: #d6e1f0; background: #35465e; font-size: 12px; }
+.shuihuo-project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 266px)); gap: 24px 18px; align-items: start; }
+.shuihuo-project-card { position: relative; display: grid; width: 100%; overflow: visible; border: 0; border-radius: 0; background: transparent; }
+.shuihuo-project-card-open { display: grid; grid-template-rows:auto auto; gap: 9px; width: 100%; padding: 0; color: inherit; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.shuihuo-project-card-cover { position:relative; display: flex; aspect-ratio:16 / 9; align-items: flex-start; justify-content: space-between; overflow:hidden; padding: 19px 16px; color: #d6e1f0; border:1px solid var(--sh-line); border-radius:10px; background: var(--sh-panel-strong); font-size: 12px; transition:border-color .16s ease, transform .16s ease; }
+.shuihuo-project-card:hover .shuihuo-project-card-cover, .shuihuo-project-card:focus-within .shuihuo-project-card-cover { border-color:var(--sh-accent); transform:translateY(-2px); }
 .shuihuo-project-card-cover-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #35465e; }
-.shuihuo-project-card-cover:has(.shuihuo-project-card-cover-media)::after { position: absolute; inset: 0; content: ''; background: linear-gradient(180deg, rgba(7,13,23,.12), rgba(7,13,23,.58)); }
-.shuihuo-project-card-cover > span { position: relative; z-index: 1; }
+.shuihuo-project-card-cover:has(.shuihuo-project-card-cover-media)::after { position: absolute; inset: 0; content: ''; background: linear-gradient(180deg, rgba(7,13,23,.04), rgba(7,13,23,.18)); pointer-events:none; }
 .shuihuo-project-card-mode { padding: 3px 7px; color: #d9edff; border: 1px solid #5d7796; border-radius: 3px; background: rgba(12, 23, 39, .42); font-size: 11px; line-height: 1.2; }
 .shuihuo-project-card-mode.is-batch-factory { color: #d7ffef; border-color: #4f9d84; background: rgba(30, 113, 91, .35); }
-.shuihuo-project-card-meta { display: grid; align-content: center; gap: 6px; padding: 12px; background: #1d2b40; }
-.shuihuo-project-card-meta strong { overflow: hidden; color: #f3f6fb; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.shuihuo-project-card-meta span { color: #7189a7; font-size: 11px; }
-.shuihuo-project-card-actions { position: absolute; right: 8px; bottom: 6px; display: flex; gap: 1px; opacity: 0; transition: opacity .16s ease; }
+.shuihuo-project-card-meta { display: grid; align-content: center; gap: 4px; min-height:45px; padding: 0 7px; background: transparent; }
+.shuihuo-project-card-meta strong { overflow: hidden; color: var(--sh-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.shuihuo-project-card-meta span { color: var(--sh-muted); font-size: 12px; }
+.shuihuo-project-card-actions { position: absolute; right: 4px; bottom: 20px; display: flex; gap: 1px; opacity: 0; transition: opacity .16s ease; background:color-mix(in srgb, var(--sh-panel) 78%, transparent); border-radius:6px; }
 .shuihuo-project-card:hover .shuihuo-project-card-actions, .shuihuo-project-card:focus-within .shuihuo-project-card-actions { opacity: 1; }
-.shuihuo-project-card-actions .ant-btn { width: 25px; height: 25px; padding: 0; color: #a8bad2; }
+.shuihuo-project-card-actions .ant-btn { width: 25px; height: 25px; padding: 0; color: var(--sh-text); }
 .shuihuo-project-card-actions .ant-btn:hover { color: var(--sh-accent); background: rgba(255,255,255,.08); }
 .shuihuo-empty, .shuihuo-workbench-empty { min-height: 180px; display: grid; place-items: center; align-content: center; gap: 10px; grid-column: 1 / -1; color: var(--sh-muted); border: 1px dashed var(--sh-line); text-align: center; }
 .shuihuo-empty .anticon { color: var(--sh-accent); font-size: 26px; }
