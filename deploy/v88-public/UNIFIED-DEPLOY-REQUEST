@@ -1,3 +1,3 @@
-release_sha=a00628fa
-scope=Prime 121 PHP session before direct JSON login
-requested_at=2026-09-14T17:11:45+08:00
+release_sha=b10cc67b
+scope=Retry direct 121 login when stored session is stale
+requested_at=2026-09-14T17:17:48+08:00
