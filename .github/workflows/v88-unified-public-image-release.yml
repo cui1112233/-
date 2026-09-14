@@ -56,6 +56,8 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/qiantie-v88-node:${{ github.sha }}
           build-args: |
             QIANTIE_RELEASE_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=v88-node
+          cache-to: type=gha,mode=max,scope=v88-node
 
       - name: Build and publish paired Go image
         uses: docker/build-push-action@v6
@@ -67,6 +69,8 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/qiantie-go-api:${{ github.sha }}
           build-args: |
             QIANTIE_RELEASE_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=v88-go
+          cache-to: type=gha,mode=max,scope=v88-go
 
       - name: Report immutable release identity
         run: |
