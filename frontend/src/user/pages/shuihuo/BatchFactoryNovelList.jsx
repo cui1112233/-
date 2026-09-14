@@ -371,7 +371,7 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
     setVideoPrompt(selectedVideo?.videoPrompt || '');
     setVisualPrompt(selectedVideo?.visualPrompt || '');
     setEditing(false);
-  }, [selectedVideoId]);
+  }, [selectedVideoId, selectedVideo?.revision]);
   async function savePrompt() {
     if (!selectedVideo) return;
     setSaving(true);
@@ -591,6 +591,11 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     const refreshed = books.find(book => book.id === assetBook.id);
     if (refreshed && refreshed !== assetBook) setAssetBook(refreshed);
   }, [batch?.id, assetBook?.id, books]);
+  useEffect(() => {
+    if (!promptBook) return;
+    const refreshed = books.find(book => book.id === promptBook.id);
+    if (refreshed && refreshed !== promptBook) setPromptBook(refreshed);
+  }, [batch?.id, promptBook?.id, books]);
   useEffect(() => {
     if (!configTarget?.book) return;
     const refreshed = books.find(book => book.id === configTarget.book.id);

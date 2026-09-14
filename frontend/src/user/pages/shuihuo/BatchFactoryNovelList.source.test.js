@@ -318,6 +318,12 @@ test('renders stacked visual and video prompt controls in the modal with icon re
   assert.match(source, /生成视频/);
 });
 
+test('refreshes the open prompt modal after a save so another edit uses its latest revision', () => {
+  assert.match(source, /if \(!promptBook\) return;/);
+  assert.match(source, /setPromptBook\(refreshed\)/);
+  assert.match(source, /\[selectedVideoId, selectedVideo\?\.revision\]/);
+});
+
 test('uses the whole prompt cell as a stacked-card entry and opens its editor only in a modal', () => {
   assert.match(source, /className="batch-factory-prompt-entry-card"/);
   assert.match(source, /onClick=\{\(\) => onManage\?\.\(video.id\)\}/);
