@@ -28,6 +28,16 @@ export function batchFactoryProjectsFrom(batches) {
   });
 }
 
+export function batchFactoryCoverFrom(batch, productionStatus, imageURL = '') {
+  const tasks = (productionStatus?.jobs || []).flatMap(job => job?.tasks || []);
+  for (const book of batch?.books || []) for (const video of book?.videos || []) {
+    const task = tasks.find(item => item?.videoId === video.id && item?.status === 'succeeded' && text(item?.mediaUrl));
+    if (task) return { kind: 'video', url: text(task.mediaUrl) };
+  }
+  const image = text(imageURL);
+  return image ? { kind: 'image', url: image } : null;
+}
+
 export function isBatchFactoryV11Project(project) {
   return project?.source === BATCH_FACTORY_V11_SOURCE && Boolean(text(project.batchId));
 }

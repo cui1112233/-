@@ -97,6 +97,14 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
     return project.segmentationStatus === 'confirmed' ? '已确认分镜' : '待生成分镜';
   }
 
+  function projectCover(project) {
+    const media = project?.coverMedia;
+    if (!media?.url) return null;
+    return media.kind === 'video'
+      ? <video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="metadata" aria-label={`${project.name} 封面视频`} />
+      : <img className="shuihuo-project-card-cover-media" src={media.url} alt={`${project.name} 封面`} loading="lazy" />;
+  }
+
   return <section className="shuihuo-project-library">
     <div className="shuihuo-project-library-heading">
       <div className="shuihuo-project-library-title"><h1>漫剧解说</h1><p>管理和创建您的漫剧解说作品</p></div>
@@ -112,7 +120,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
     <div className="shuihuo-project-grid">
       {visibleProjects.map(project => <article className="shuihuo-project-card" key={project.id}>
         <button type="button" className="shuihuo-project-card-open" onClick={() => onOpen(project)} aria-label={`打开${project.name}`}>
-          <div className="shuihuo-project-card-cover"><span className={`shuihuo-project-card-mode ${isBatchFactoryV11Project(project) ? 'is-batch-factory' : ''}`}>{isBatchFactoryV11Project(project) ? '批量工厂' : '水货生产'}</span><span>{isBatchFactoryV11Project(project) ? '小说列表' : projectCount(project)}</span></div>
+          <div className="shuihuo-project-card-cover">{projectCover(project)}<span className={`shuihuo-project-card-mode ${isBatchFactoryV11Project(project) ? 'is-batch-factory' : ''}`}>{isBatchFactoryV11Project(project) ? '批量工厂' : '水货生产'}</span><span>{isBatchFactoryV11Project(project) ? '小说列表' : projectCount(project)}</span></div>
           <div className="shuihuo-project-card-meta"><strong>{project.name}</strong><span>{formatTime(project.updatedAt || project.createdAt)}</span></div>
         </button>
         <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} />{!isBatchFactoryV11Project(project) ? <Popconfirm title="删除项目？此操作不会撤销。" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm> : null}</div>

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   batchFactoryBatchFromResponse,
+  batchFactoryCoverFrom,
   batchFactoryProjectsFrom,
   isBatchFactoryV11Project
 } from './batchFactoryProjects.js';
@@ -35,4 +36,12 @@ test('a V11 batch detail response is unwrapped before the novel list reads its b
 
   assert.equal(batch.id, 'batch-42');
   assert.equal(batch.books.length, 1);
+});
+
+
+test('uses the first book and storyboard with a successful video before falling back to its image cover', () => {
+  const batch = { books: [{ id: 'book-1', videos: [{ id: 'video-1' }, { id: 'video-2' }] }, { id: 'book-2', videos: [{ id: 'video-3' }] }] };
+  assert.deepEqual(batchFactoryCoverFrom(batch, { jobs: [{ tasks: [{ videoId: 'video-3', status: 'succeeded', mediaUrl: '/third.mp4' }, { videoId: 'video-1', status: 'succeeded', mediaUrl: '/first.mp4' }] }] }, '/fallback.png'), { kind: 'video', url: '/first.mp4' });
+  assert.deepEqual(batchFactoryCoverFrom(batch, { jobs: [] }, '/fallback.png'), { kind: 'image', url: '/fallback.png' });
+  assert.equal(batchFactoryCoverFrom(batch, { jobs: [] }), null);
 });

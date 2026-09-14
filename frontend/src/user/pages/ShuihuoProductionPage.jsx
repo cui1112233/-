@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
-import { batchFactoryBatchFromResponse, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { createManualIntake, getBatch, listBatches } from '../../shared/api/batchFactoryV11';
+import { createManualIntake, getBatch, getProductionStatus, listBatches, listBookAssetImages, listBookAssets } from '../../shared/api/batchFactoryV11';
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
@@ -54,6 +54,24 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       const [water, batch] = await Promise.all([listProjects(), listBatches()]);
       const batchProjects = batchFactoryProjectsFrom(batch.batches);
       setProjects([...(water.projects || []), ...batchProjects]);
+      const coveredProjects = await Promise.all(batchProjects.map(async project => {
+        const firstBook = project.batch?.books?.[0];
+        const [productionStatus, imageURL] = await Promise.all([
+          getProductionStatus(project.batchId).catch(() => null),
+          (async () => {
+            if (!firstBook?.id) return '';
+            const assetResult = await listBookAssets(project.batchId, firstBook.id).catch(() => null);
+            for (const asset of assetResult?.assets || []) {
+              const imageResult = await listBookAssetImages(project.batchId, firstBook.id, asset.id).catch(() => null);
+              const image = (imageResult?.images || []).find(item => item?.isPrimary && item?.url) || (imageResult?.images || []).find(item => item?.url);
+              if (image?.url) return image.url;
+            }
+            return '';
+          })()
+        ]);
+        return { ...project, coverMedia: batchFactoryCoverFrom(project.batch, productionStatus, imageURL) };
+      }));
+      if (mountedRef.current) setProjects([...(water.projects || []), ...coveredProjects]);
     } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
   }, []);
   useEffect(() => { refreshProjects(); }, [refreshProjects]);

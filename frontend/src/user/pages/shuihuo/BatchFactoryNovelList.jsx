@@ -433,26 +433,29 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
 function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
   const videos = book?.videos || [];
   const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
+  const [mediaLayout, setMediaLayout] = useState('portrait');
   const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
   const video = videos[selectedIndex] || null;
   const versions = video ? (versionsByVideo.get(video.id) || []) : [];
   const primary = primaryMediaVersion(video, versions);
   const candidates = versions.filter(version => version.id !== primary?.id).slice(-4).reverse();
-  useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); }, [book?.id]);
+  useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); setMediaLayout('portrait'); }, [book?.id]);
   function move(direction) {
     const next = videos[selectedIndex + direction];
     if (next) setSelectedVideoId(next.id);
   }
   if (!video) return <div className="batch-factory-inline-media is-empty">AI 推理后显示该书的分镜 / VIDEO</div>;
-  return <div className={`batch-factory-inline-media${candidates.length ? ' has-candidates' : ''}`}>
-    <button type="button" className="batch-factory-inline-media-primary" aria-label="打开当前分镜主版本" onClick={() => onManage?.(video.id)}>
-      {primary?.mediaUrl ? <video src={primary.mediaUrl} muted preload="metadata" /> : <><CloudUploadOutlined /><span>当前分镜暂无视频</span></>}
-      <small>主版本 · 分镜 {selectedIndex + 1}</small>
-    </button>
-    <div className="batch-factory-inline-media-nav">
-      <button type="button" aria-label="上一分镜视频" disabled={selectedIndex === 0} onClick={() => move(-1)}><LeftOutlined /></button>
-      <span>{selectedIndex + 1}/{videos.length}</span>
-      <button type="button" aria-label="下一分镜视频" disabled={selectedIndex >= videos.length - 1} onClick={() => move(1)}><RightOutlined /></button>
+  return <div className={`batch-factory-inline-media is-${mediaLayout}${candidates.length ? ' has-candidates' : ''}`}>
+    <div className="batch-factory-inline-media-stage">
+      <button type="button" className="batch-factory-inline-media-primary" aria-label="打开当前分镜主版本" onClick={() => onManage?.(video.id)}>
+        {primary?.mediaUrl ? <video src={primary.mediaUrl} muted preload="metadata" onLoadedMetadata={event => setMediaLayout(event.currentTarget.videoWidth >= event.currentTarget.videoHeight ? 'landscape' : 'portrait')} /> : <><CloudUploadOutlined /><span>当前分镜暂无视频</span></>}
+        <small>主版本 · 分镜 {selectedIndex + 1}</small>
+      </button>
+      <div className="batch-factory-inline-media-nav">
+        <button type="button" aria-label="上一分镜视频" disabled={selectedIndex === 0} onClick={() => move(-1)}><LeftOutlined /></button>
+        <span>{selectedIndex + 1}/{videos.length}</span>
+        <button type="button" aria-label="下一分镜视频" disabled={selectedIndex >= videos.length - 1} onClick={() => move(1)}><RightOutlined /></button>
+      </div>
     </div>
     <div className="batch-factory-inline-media-rail" aria-label={candidates.length ? '当前分镜候选版本，悬停展开' : '当前分镜没有候选版本'}>
       <i aria-hidden="true" />
