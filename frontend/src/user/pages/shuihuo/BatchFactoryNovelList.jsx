@@ -433,13 +433,13 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
 function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
   const videos = book?.videos || [];
   const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
-  const [mediaLayout, setMediaLayout] = useState('portrait');
+  const [mediaLayout, setMediaLayout] = useState('landscape');
   const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
   const video = videos[selectedIndex] || null;
   const versions = video ? (versionsByVideo.get(video.id) || []) : [];
   const primary = primaryMediaVersion(video, versions);
   const candidates = versions.filter(version => version.id !== primary?.id).slice(-4).reverse();
-  useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); setMediaLayout('portrait'); }, [book?.id]);
+  useEffect(() => { setSelectedVideoId(book?.videos?.[0]?.id || ''); setMediaLayout('landscape'); }, [book?.id]);
   function move(direction) {
     const next = videos[selectedIndex + direction];
     if (next) setSelectedVideoId(next.id);

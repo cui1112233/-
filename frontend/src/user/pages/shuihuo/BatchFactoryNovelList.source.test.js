@@ -349,6 +349,7 @@ test('shows one selected storyboard VIDEO and only expands real per-video candid
   assert.match(source, /const candidates = versions\.filter/);
   assert.match(source, /className=\{`batch-factory-inline-media/);
   assert.match(source, /当前分镜候选版本，悬停展开/);
+  assert.match(source, /useState\('landscape'\)/);
   assert.match(source, /onLoadedMetadata=.*videoWidth.*videoHeight/);
   assert.match(source, /batch-factory-inline-media-stage/);
   assert.match(stylesheet, /batch-factory-inline-media\.has-candidates:hover/);
