@@ -28,3 +28,12 @@ test('novel fetch persists every processing choice immediately when changed', ()
   assert.ok(toggleStart >= 0 && toggleEnd > toggleStart, 'sensitive-word toggle persistence handler must remain present');
   assert.match(source.slice(toggleStart, toggleEnd), /persistWorkFormChoiceNow/);
 });
+
+test('novel fetch shares one 121 environment probe across the legacy client and login hotfix', () => {
+  const app = read('../../../../public/batch-rewrite/app.js');
+  const hotfix = read('../../../../public/batch-rewrite/121-login-hotfix.js');
+  assert.match(app, /__qiantieWebLoginEnvironmentPromise/);
+  assert.match(app, /qiantieEnsureWebLoginEnvironment/);
+  assert.doesNotMatch(app.slice(app.indexOf('await loadConfig()')), /api\("\/api\/web-submit\/environment"\)/);
+  assert.match(hotfix, /window\.qiantieEnsureWebLoginEnvironment/);
+});

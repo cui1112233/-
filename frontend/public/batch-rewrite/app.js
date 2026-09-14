@@ -3024,6 +3024,26 @@ async function reprocessSensitive(ids, restoreFromBackup) {
   if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
 }
 
+// The V2 login hotfix is loaded after this legacy client. Both layers need the
+// same environment result, but must never probe the Browser Worker twice in
+// parallel during a page switch (the second result used to overwrite a good
+// session with a transient timeout).
+window.qiantieEnsureWebLoginEnvironment = function qiantieEnsureWebLoginEnvironment() {
+  if (window.__qiantieWebLoginEnvironmentPromise) return window.__qiantieWebLoginEnvironmentPromise;
+  window.__qiantieWebLoginEnvironmentPromise = api("/api/web-submit/environment")
+    .then(environment => {
+      state.webLoginSession = environment?.ok === true;
+      renderWebLoginStatus(state.config?.web_submit || {});
+      return environment;
+    })
+    .catch(error => {
+      state.webLoginSession = false;
+      renderWebLoginStatus(state.config?.web_submit || {});
+      throw error;
+    });
+  return window.__qiantieWebLoginEnvironmentPromise;
+};
+
 async function updateSelectedAiCount() {
   const ids = selectedTaskIds();
   const count = Number($("batchAiCount")?.value || 1);
@@ -3476,11 +3496,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("platformSelect").onchange = updatePlatformHint;
   await loadConfig();
   void (async () => {
-    try {
-      const environment = await api("/api/web-submit/environment");
-      state.webLoginSession = environment.ok === true;
-      renderWebLoginStatus(state.config?.web_submit || {});
-    } catch (_) { state.webLoginSession = false; renderWebLoginStatus(state.config?.web_submit || {}); }
+    try { await window.qiantieEnsureWebLoginEnvironment(); }
+    catch (_) { /* the shared helper already rendered the failure state */ }
   })();
   await loadTasks();
   await restoreLatestProcessJob();

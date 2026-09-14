@@ -206,12 +206,14 @@
     if (!restored) return;
 
     try {
-      const environment = await api('/api/web-submit/environment');
-      state.webLoginSession = environment?.ok === true;
-      renderWebLoginStatus(state.config?.web_submit || {});
+      if (typeof window.qiantieEnsureWebLoginEnvironment === 'function') {
+        await window.qiantieEnsureWebLoginEnvironment();
+      } else {
+        const environment = await api('/api/web-submit/environment');
+        state.webLoginSession = environment?.ok === true;
+        renderWebLoginStatus(state.config?.web_submit || {});
+      }
     } catch (error) {
-      state.webLoginSession = false;
-      renderWebLoginStatus(state.config?.web_submit || {});
       if (typeof setSiteSubmitStatus === 'function') setSiteSubmitStatus(error?.message || '121 登录状态读取失败');
     }
 
