@@ -157,6 +157,7 @@
 
   function classifyStatus(text) {
     if (!text) return null;
+    if (/处理完成/.test(text) && !/(失败|错误|异常|超时)\s*[：:]?\s*[1-9]\d*/.test(text)) return 'success';
     if (errorPattern.test(text)) return 'error';
     if (successPattern.test(text)) return 'success';
     return 'info';

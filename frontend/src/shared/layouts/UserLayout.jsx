@@ -59,6 +59,17 @@ function normalizeAccountCenterReturnPath(value) {
   }
 }
 
+function compactHeaderStatus(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+}
+
+function headerStatusTone(value, suggested = 'info') {
+  const text = String(value || '');
+  if (/处理完成/.test(text) && !/(失败|错误|异常|超时)\s*[：:]?\s*[1-9]\d*/.test(text)) return 'success';
+  if (/(失败|错误|异常|超时)/.test(text)) return 'error';
+  return suggested;
+}
+
 export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
@@ -124,7 +135,8 @@ export function UserLayout({ children }) {
     if (!isLoggedIn) return undefined;
     const appendTaskNotification = event => {
       const notification = normalizeGlobalTaskNotification(event.detail || {});
-      setGlobalStatus({ text: `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`, tone: notification.status === 'error' ? 'error' : notification.status === 'working' ? 'working' : 'success' });
+      const notificationText = `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`;
+      setGlobalStatus({ text: compactHeaderStatus(notificationText), tone: headerStatusTone(notificationText, notification.status === 'error' ? 'error' : notification.status === 'working' ? 'working' : 'success') });
       if (notification.status === 'working') return;
       const kind = notification.status === 'error' ? 'error' : 'success';
       const targetPath = notification.pagePath && notification.pagePath !== window.location.pathname ? notification.pagePath : '';
@@ -169,7 +181,7 @@ export function UserLayout({ children }) {
       const text = String(event.data.text || '').trim();
       if (!text) return;
       const allowedTones = new Set(['info', 'working', 'success', 'warning', 'error']);
-      setGlobalStatus({ text: text.slice(0, 140), tone: allowedTones.has(event.data.tone) ? event.data.tone : 'info' });
+      setGlobalStatus({ text: compactHeaderStatus(text), tone: headerStatusTone(text, allowedTones.has(event.data.tone) ? event.data.tone : 'info') });
     };
     window.addEventListener('message', receiveNovelFetchStatus);
     return () => window.removeEventListener('message', receiveNovelFetchStatus);
