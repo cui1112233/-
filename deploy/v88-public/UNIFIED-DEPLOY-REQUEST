@@ -1,3 +1,3 @@
-release_sha=73f529db
-scope=Deploy script generation upstream timeout fix
-requested_at=2026-09-14T18:35:00+08:00
+release_sha=a390f5d2
+scope=Fix script page crash from missing video permission guard
+requested_at=2026-09-14T23:20:00+08:00
