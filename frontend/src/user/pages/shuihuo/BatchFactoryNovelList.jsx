@@ -330,59 +330,15 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
   </section>;
 }
 
-function InlineBookPrompts({ book, batchId, onSaved, onManage, onRegenerateVideo, onGenerateVideo, onViewVideoCandidates, onRegenerateVisual, onGenerateVisual, onViewVisualCandidates, videoAvailable = false, videoReason = '', visualAvailable = false, visualReason = '' }) {
+function InlineBookPrompts({ book, onManage }) {
 	const videos = book?.videos || [];
-	const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
-	const [promptKind, setPromptKind] = useState('video');
-	const [opened, setOpened] = useState(false);
-	const videoIndex = Math.max(0, videos.findIndex(item => item.id === selectedVideoId));
-	const video = videos[videoIndex] || null;
-	const [videoPrompt, setVideoPrompt] = useState(video?.videoPrompt || '');
-	const [visualPrompt, setVisualPrompt] = useState(video?.visualPrompt || '');
-	const [saving, setSaving] = useState(false);
-	const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
-	const hasVideoPrompt = Boolean(String(videoPrompt || '').trim());
-	const activePrompt = promptKind === 'visual' ? visualPrompt : videoPrompt;
-	const canOpenActivePrompt = promptKind === 'visual' ? hasVisualPrompt : hasVideoPrompt;
-	useEffect(() => {
-		setSelectedVideoId(book?.videos?.[0]?.id || '');
-		setPromptKind('video');
-		setOpened(false);
-	}, [book?.id]);
-	useEffect(() => {
-		setVideoPrompt(video?.videoPrompt || '');
-		setVisualPrompt(video?.visualPrompt || '');
-		setOpened(false);
-	}, [video?.id, video?.revision]);
-	async function save() {
-		if (!video || saving || !canOpenActivePrompt) return;
-		setSaving(true);
-		try {
-			const patch = promptKind === 'visual' ? { visualPrompt } : { videoPrompt };
-			await saveVideoOverride(batchId, book.id, video.id, { patch, expectedRevision: Number(video.revision || 0) });
-			await onSaved?.();
-			message.success(promptKind === 'visual' ? '画面提示词已保存到当前分镜。' : '视频提示词已保存到当前分镜。');
-		} catch (error) { message.error(error?.message || '保存提示词失败'); } finally { setSaving(false); }
-	}
-	function selectVideo(nextID) {
-		if (!nextID || nextID === selectedVideoId) return;
-		setSelectedVideoId(nextID);
-	}
-	function selectPromptKind(nextKind) {
-		if (nextKind === 'visual' && !hasVisualPrompt) return;
-		setPromptKind(nextKind);
-		setOpened(true);
-	}
+	const video = videos[0] || null;
 	if (!video) return <div className="batch-factory-inline-prompts is-empty">AI 推理后会在这里显示当前书的分镜提示词卡。</div>;
-	const activeCard = promptKind === 'visual' ? 'visual' : 'video';
-	const cardOrder = activeCard === 'video' ? ['visual', 'video'] : ['video', 'visual'];
-	return <div className={`batch-factory-inline-prompts is-${activeCard}${opened ? ' is-opened' : ''}`}>
-		<div className="batch-factory-prompt-stack">
-			<div className="batch-factory-prompt-navigation"><Tooltip title="上一分镜"><Button size="small" aria-label="上一分镜" icon={<LeftOutlined />} disabled={videoIndex === 0} onClick={() => selectVideo(videos[videoIndex - 1]?.id)} /></Tooltip><Tooltip title="下一分镜"><Button size="small" aria-label="下一分镜" icon={<RightOutlined />} disabled={videoIndex >= videos.length - 1} onClick={() => selectVideo(videos[videoIndex + 1]?.id)} /></Tooltip></div>
-			<div className="batch-factory-prompt-cards" aria-label="提示词类型切换">{cardOrder.map(kind => <button type="button" key={kind} className={`batch-factory-prompt-card is-${kind}${activeCard === kind ? ' is-active' : ''}${kind === 'visual' && !hasVisualPrompt ? ' is-unavailable' : ''}`} disabled={kind === 'visual' && !hasVisualPrompt} onClick={() => selectPromptKind(kind)}>{kind === 'visual' ? '画面提示词' : '视频提示词'}</button>)}</div>
-		</div>
-		{opened ? <div className="batch-factory-prompt-expanded">{canOpenActivePrompt ? <><label className="batch-factory-inline-prompt-field"><Input.TextArea aria-label={promptKind === 'visual' ? '编辑画面提示词' : '编辑视频提示词'} rows={7} value={activePrompt} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前 VIDEO 的画面图片' : '这段文字会进入当前 VIDEO 的最终编译'} /></label><div className="batch-factory-inline-prompt-actions"><Button size="small" type="primary" loading={saving} onClick={save}>保存{promptKind === 'visual' ? '画面' : '视频'}提示词</Button><div className="batch-factory-inline-prompt-action-group">{promptKind === 'video' ? <><Tooltip title="重新生成当前小说的视频提示词"><Button size="small" type="text" aria-label="重新生成视频提示词" icon={<ReloadOutlined />} onClick={() => onRegenerateVideo?.(video.id)} /></Tooltip><Button size="small" onClick={() => onManage?.(video.id)}>编辑</Button><Tooltip title={videoAvailable ? '生成当前分镜的视频' : videoReason}><Button size="small" disabled={!videoAvailable} onClick={() => onGenerateVideo?.(video.id)}>生成视频</Button></Tooltip><Button size="small" onClick={() => onViewVideoCandidates?.(video.id)}>查看候选版本</Button></> : <><Tooltip title="重新生成当前小说的画面提示词"><Button size="small" type="text" aria-label="重新生成画面提示词" icon={<ReloadOutlined />} onClick={() => onRegenerateVisual?.(video.id)} /></Tooltip><Button size="small" onClick={() => onManage?.(video.id)}>编辑</Button><Tooltip title={visualAvailable ? '生成当前分镜的画面图片' : visualReason}><Button size="small" disabled={!visualAvailable} onClick={() => onGenerateVisual?.(video.id)}>生成图片</Button></Tooltip><Button size="small" onClick={() => onViewVisualCandidates?.(video.id)}>查看候选版本</Button></>}</div></div></> : <div className="batch-factory-prompt-missing"><span>请生成视频提示词再查看</span><Tooltip title="重新生成当前小说的视频提示词"><Button size="small" type="text" aria-label="重新生成视频提示词" icon={<ReloadOutlined />} onClick={() => onRegenerateVideo?.(video.id)} /></Tooltip></div>}</div> : null}
-	</div>;
+	const hasVisualPrompt = Boolean(String(video.visualPrompt || '').trim());
+	return <button type="button" className="batch-factory-prompt-entry-card" aria-label="打开分镜提示词" onClick={() => onManage?.(video.id)}>
+		<span className="batch-factory-prompt-entry-note">白色主入口卡</span>
+		<span className="batch-factory-prompt-entry-tabs" aria-hidden="true"><i className={`is-visual${hasVisualPrompt ? '' : ' is-unavailable'}`}>画面提示词</i><b>视频提示词</b></span>
+	</button>;
 }
 
 function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
@@ -391,45 +347,75 @@ function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
 	return <Space wrap className="batch-factory-storyboard-navigator"><Tooltip title="上一分镜"><Button aria-label="上一分镜" icon={<LeftOutlined />} disabled={!hasVideos || index === 0} onClick={() => onSelect(videos[index - 1]?.id)} /></Tooltip><Select value={selectedVideoId || undefined} onChange={onSelect} style={{ minWidth: 260 }} placeholder="选择分镜 / VIDEO" options={videos.map((video, videoIndex) => ({ value: video.id, label: storyboardVideoLabel(video, videoIndex) }))} /><Tooltip title="下一分镜"><Button aria-label="下一分镜" icon={<RightOutlined />} disabled={!hasVideos || index >= videos.length - 1} onClick={() => onSelect(videos[index + 1]?.id)} /></Tooltip></Space>;
 }
 
-function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate, onRetry, regenerating, compilerAvailable = false, compilerReason = '' }) {
-	const [selectedVideoId, setSelectedVideoId] = useState(initialVideoId || book?.videos?.[0]?.id || '');
-	const [promptKind, setPromptKind] = useState('visual');
-  const [loading, setLoading] = useState(false);
-	  const [saving, setSaving] = useState(false);
-  const [prompt, setPrompt] = useState(null);
-	  const [videoPrompt, setVideoPrompt] = useState('');
-	  const [visualPrompt, setVisualPrompt] = useState('');
+function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate, onRetry, onGenerateVideo, onViewVideoCandidates, onGenerateVisual, onViewVisualCandidates, regenerating, productionAvailable = false, productionReason = '' }) {
   const videos = book?.videos || [];
-	  const selectedVideo = videos.find(video => video.id === selectedVideoId) || null;
-	  useEffect(() => {
-		  const first = book?.videos?.[0] || null;
-		  setSelectedVideoId(initialVideoId || first?.id || '');
-		  setVideoPrompt(first?.videoPrompt || '');
-		  setVisualPrompt(first?.visualPrompt || '');
-		  setPrompt(null);
-	}, [book?.id, initialVideoId]);
-	  useEffect(() => {
-		  setVideoPrompt(selectedVideo?.videoPrompt || '');
-		  setVisualPrompt(selectedVideo?.visualPrompt || '');
-		  setPrompt(null);
-	  }, [selectedVideoId]);
-  async function loadPrompt() {
-    if (!selectedVideoId) return;
-    setLoading(true);
-    try { setPrompt(resultData(await getFinalPrompt(batchId, book.id, selectedVideoId), 'prompt')); } catch (error) { message.error(error?.message || '读取最终提示词失败'); } finally { setLoading(false); }
+  const [selectedVideoId, setSelectedVideoId] = useState(initialVideoId || videos[0]?.id || '');
+  const [promptKind, setPromptKind] = useState('video');
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [videoPrompt, setVideoPrompt] = useState('');
+  const [visualPrompt, setVisualPrompt] = useState('');
+  const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
+  const selectedVideo = videos[selectedIndex] || null;
+  const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
+  const hasVideoPrompt = Boolean(String(videoPrompt || '').trim());
+  useEffect(() => {
+    const first = book?.videos?.find(video => video.id === initialVideoId) || book?.videos?.[0] || null;
+    setSelectedVideoId(first?.id || '');
+    setVideoPrompt(first?.videoPrompt || '');
+    setVisualPrompt(first?.visualPrompt || '');
+    setPromptKind('video');
+    setEditing(false);
+  }, [book?.id, initialVideoId]);
+  useEffect(() => {
+    setVideoPrompt(selectedVideo?.videoPrompt || '');
+    setVisualPrompt(selectedVideo?.visualPrompt || '');
+    setEditing(false);
+  }, [selectedVideoId]);
+  async function savePrompt() {
+    if (!selectedVideo) return;
+    setSaving(true);
+    try {
+      const patch = promptKind === 'visual' ? { visualPrompt } : { videoPrompt };
+      await saveVideoOverride(batchId, book.id, selectedVideo.id, { patch, expectedRevision: Number(selectedVideo.revision || 0) });
+      await onSaved?.();
+      setEditing(false);
+      message.success(promptKind === 'visual' ? '当前分镜画面提示词已保存。' : '当前分镜视频提示词已保存。');
+    } catch (error) { message.error(error?.message || '保存分镜提示词失败'); } finally { setSaving(false); }
   }
-	  async function savePrompts() {
-		  if (!selectedVideo) return;
-		  setSaving(true);
-		  try {
-			  await saveVideoOverride(batchId, book.id, selectedVideo.id, { patch: { videoPrompt, visualPrompt }, expectedRevision: Number(selectedVideo.revision || 0) });
-			  await onSaved?.();
-			  message.success('当前 VIDEO 的视频提示词和画面提示词已分别保存。');
-		  } catch (error) { message.error(error?.message || '保存 VIDEO 提示词失败'); } finally { setSaving(false); }
-	  }
-	  return <Space direction="vertical" size={12} style={{ width: '100%' }}><Space wrap><StoryboardVideoNavigator videos={videos} selectedVideoId={selectedVideoId} onSelect={setSelectedVideoId} /><div className="batch-factory-inline-prompt-tabs"><Button size="small" type={promptKind === 'visual' ? 'primary' : 'default'} onClick={() => setPromptKind('visual')}>图片提示词</Button><Button size="small" type={promptKind === 'video' ? 'primary' : 'default'} onClick={() => setPromptKind('video')}>视频提示词</Button></div><Tooltip title={compilerAvailable ? '读取当前 VIDEO 的最终编译提示词。' : compilerReason}><Button onClick={loadPrompt} loading={loading} disabled={!selectedVideoId || !compilerAvailable}>读取最终视频提示词</Button></Tooltip></Space><label className="shuihuo-form-label">{promptKind === 'visual' ? '图片提示词' : '视频提示词'}<Input.TextArea rows={12} value={promptKind === 'visual' ? visualPrompt : videoPrompt} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前 VIDEO 的画面图片，不会进入视频提示词' : '这段文字会进入 VIDEO 的最终编译'} /></label><Space wrap><Button type="primary" loading={saving} disabled={!selectedVideo} onClick={savePrompts}>保存当前 VIDEO 提示词</Button><Tooltip title="按当前小说原文重新执行 AI 文案；已手动保存的 VIDEO 提示词会保留。"><Button loading={regenerating} disabled={regenerating} onClick={onRegenerate}>重新生成文案</Button></Tooltip><Button disabled={regenerating} onClick={onRetry}>重试文案</Button></Space>{prompt ? <pre className="batch-factory-final-prompt">{prompt?.compiledPrompt || prompt?.compiled || prompt?.content || JSON.stringify(prompt, null, 2)}</pre> : <p className="shuihuo-modal-note">AI 推理完成后，每个 VIDEO 的最终视频提示词由 V11 编译器实时生成；画面提示词仅服务画面图。</p>}</Space>;
+  function move(direction) {
+    const next = videos[selectedIndex + direction];
+    if (next) setSelectedVideoId(next.id);
+  }
+  const activeLabel = promptKind === 'visual' ? '画面提示词' : '视频提示词';
+  const activeValue = promptKind === 'visual' ? visualPrompt : videoPrompt;
+  const activeReady = promptKind === 'visual' ? hasVisualPrompt : hasVideoPrompt;
+  return <div className="batch-factory-prompt-modal-stack">
+    <div className="batch-factory-prompt-modal-head">
+      <Space>
+        <Tooltip title="上一分镜"><Button aria-label="上一分镜" icon={<LeftOutlined />} disabled={selectedIndex === 0} onClick={() => move(-1)} /></Tooltip>
+        <span className="batch-factory-prompt-modal-index">{videos.length ? `${selectedIndex + 1}/${videos.length}` : '0/0'}</span>
+        <Tooltip title="下一分镜"><Button aria-label="下一分镜" icon={<RightOutlined />} disabled={!videos.length || selectedIndex >= videos.length - 1} onClick={() => move(1)} /></Tooltip>
+      </Space>
+      <div className="batch-factory-prompt-modal-tabs" aria-label="提示词类型">
+        <button type="button" className={promptKind === 'visual' ? 'is-visual active' : 'is-visual'} disabled={!hasVisualPrompt} onClick={() => setPromptKind('visual')}>画面提示词</button>
+        <button type="button" className={promptKind === 'video' ? 'is-video active' : 'is-video'} disabled={!hasVideoPrompt} onClick={() => setPromptKind('video')}>视频提示词</button>
+      </div>
+    </div>
+    {!activeReady ? <Alert type="info" showIcon message={promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看'} description="当前分镜尚未有这一类提示词；切换分镜时会保持当前查看类型。" /> : <>
+      <label className="shuihuo-form-label batch-factory-prompt-editor-label">{activeLabel}<Input.TextArea rows={14} readOnly={!editing} value={activeValue} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前分镜的画面图片' : '会进入当前分镜的最终视频编译'} /></label>
+      <div className="batch-factory-prompt-modal-actions">
+        <Button type="primary" loading={saving} disabled={!editing || !selectedVideo} onClick={savePrompt}>保存</Button>
+        <Tooltip title={promptKind === 'visual' ? '按当前小说原文重新生成画面提示词。' : '按当前小说原文重新生成视频提示词。'}><Button aria-label={promptKind === 'visual' ? '重新生成画面提示词' : '重新生成视频提示词'} icon={<ReloadOutlined />} loading={regenerating} disabled={regenerating} onClick={onRegenerate} /></Tooltip>
+        <Button onClick={() => setEditing(value => !value)}>{editing ? '完成编辑' : '编辑'}</Button>
+        {promptKind === 'visual' ? <Button onClick={() => onGenerateVisual?.(selectedVideo?.id)}>生成图片</Button> : <Tooltip title={productionAvailable ? '为当前分镜生成视频候选版本。' : productionReason}><Button disabled={!productionAvailable || regenerating} loading={regenerating} onClick={() => onGenerateVideo?.(selectedVideo?.id)}>生成视频</Button></Tooltip>}
+        <Button onClick={() => promptKind === 'visual' ? onViewVisualCandidates?.(selectedVideo?.id) : onViewVideoCandidates?.(selectedVideo?.id)}>查看候选版本</Button>
+        <Button type="text" disabled={regenerating} onClick={() => onRetry?.(selectedVideo?.id)}>重试</Button>
+      </div>
+    </>}
+    <p className="shuihuo-modal-note">{promptKind === 'visual' ? '画面版本从当前书的人物场景预设中管理和生成。' : '视频版本只在当前分镜内生成和切换，不会覆盖其他分镜。'}</p>
+  </div>;
 }
-
 function MediaVersionPanel({ book, batchId, versionsByVideo, onSaved, onRegenerate, onRetry, regenerating, productionAvailable = false, productionReason = '' }) {
 	const videos = book?.videos || [];
 	const [selectedVideoId, setSelectedVideoId] = useState(videos[0]?.id || '');
@@ -821,7 +807,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => setEditingContentValue(event.target.value)} placeholder="输入当前小说的生产内容" /><Tooltip title={workingFrontCapability.available ? '基于当前输入生成候选；生成不会覆盖工作文本' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim()}>生成爆款候选</Button></Tooltip>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Button type="primary" onClick={() => setEditingContentValue(viralCandidate)}>替换为当前生产内容</Button></Space>} /> : null}</Space></Modal>
     <BatchFactoryBookSettingsModal open={Boolean(configTarget)} batch={batch} book={configTarget?.book} activeRegion={configTarget?.region} onClose={() => setConfigTarget(null)} onSaved={refreshBatch} onOpenBookAssets={book => setAssetBook(book)} />
     <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={textModelId => runBookStageAction(assetBook, 'assets', 'missing', '', textModelId)} onRegenerate={textModelId => runBookStageAction(assetBook, 'assets', 'force', '', textModelId)} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} onTextModelChange={async textModelId => { await saveBookOverride(batch.id, assetBook.id, { patch: { textModelId }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} onImageModelChange={async imageModelId => { await saveBookOverride(batch.id, assetBook.id, { patch: { imageModelId }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} onAspectRatioChange={async aspectRatio => { await saveBookOverride(batch.id, assetBook.id, { patch: { aspectRatio }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === 'stage-assets'} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
-	<Modal title={promptBook ? `提示词 · ${promptBook.title}` : '提示词'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900}>{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} initialVideoId={promptVideoId} onSaved={refreshBatch} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRetry={() => retryLastFailedStage(promptBook)} regenerating={actionBusy === 'stage-director' || actionBusy === 'stage-retry'} compilerAvailable={compilerCapability.available} compilerReason={compilerCapability.reason} /> : null}</Modal>
+	<Modal title={promptBook ? `分镜提示词 · ${promptBook.title}` : '分镜提示词'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900} className="batch-factory-prompt-modal">{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} initialVideoId={promptVideoId} onSaved={refreshBatch} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRetry={videoId => retryLastFailedStage(promptBook, videoId)} onGenerateVideo={videoId => runBookStageAction(promptBook, 'video', 'missing', videoId)} onViewVideoCandidates={videoId => { setPromptVideoId(videoId || ''); setMediaBook(promptBook); }} onGenerateVisual={() => setAssetBook(promptBook)} onViewVisualCandidates={() => setAssetBook(promptBook)} regenerating={actionBusy === 'stage-director' || actionBusy === 'stage-video' || actionBusy === 'stage-retry'} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
 	<Modal title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'} open={Boolean(mediaBook)} onCancel={() => setMediaBook(null)} footer={null} width={900}>{mediaBook ? <MediaVersionPanel book={mediaBook} batchId={batch?.id} versionsByVideo={mediaVersionsByVideo} onSaved={async () => { await refreshBatch(); await loadRuntimeStatus({ quiet: true }); }} onRegenerate={videoId => runBookStageAction(mediaBook, 'video', 'force', videoId)} onRetry={videoId => retryLastFailedStage(mediaBook, videoId)} regenerating={actionBusy === 'stage-video' || actionBusy === 'stage-retry'} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
     <BatchFactoryAiReasoningModal open={aiOpen} batch={batch} books={books} presetVersions={configVersions} onClose={() => setAiOpen(false)} onSaved={refreshBatch} onPresetsChanged={async () => { const next = await getConfigVersions(); setConfigVersions(resultData(next, 'configVersions') || []); }} onRun={() => runAi('all')} running={actionBusy === 'director'} runAvailable={runCapability.available} runReason={runCapability.reason} />
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>

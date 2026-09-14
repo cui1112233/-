@@ -106,10 +106,10 @@ test('renders every novel row with Shuihuo preset, prompt and clip-library cells
 	assert.match(source, /管理主版本/);
 });
 
-test('keeps storyboard state inside the prompt card without an extra map above the editor', () => {
+test('uses the prompt cell as one book-level entry without an extra storyboard map', () => {
   assert.doesNotMatch(source, /batch-factory-storyboard-video-map/);
   assert.match(source, /function InlineBookPrompts/);
-  assert.match(source, /batch-factory-prompt-stack/);
+  assert.match(source, /batch-factory-prompt-entry-card/);
   assert.match(source, /batchFactoryBookState\(book, \{ productionStatus, mergeStatus \}\)/);
   assert.match(source, /productionStatus=\{productionStatus\} mergeStatus=\{mergeStatus\}/);
 });
@@ -128,10 +128,9 @@ test('keeps visual and video prompts as separate per-video saved fields', () => 
   assert.match(source, /视频提示词/);
 });
 
-test('uses a stacked storyboard prompt preview with horizontal navigation and a scoped editor', () => {
-  assert.match(source, /className=\{`batch-factory-prompt-card is-\$\{kind\}/);
-  assert.match(source, /画面提示词/);
-  assert.match(source, /视频提示词/);
+test('opens a modal from the whole stacked-card prompt entry and edits only the selected storyboard', () => {
+  assert.match(source, /className="batch-factory-prompt-entry-card"/);
+  assert.match(source, /className="batch-factory-prompt-modal-stack"/);
   assert.match(source, /aria-label="上一分镜"/);
   assert.match(source, /aria-label="下一分镜"/);
   assert.match(source, /onManage\?\.\(video.id\)/);
@@ -256,14 +255,11 @@ test('does not present unavailable director or video production stages as clicka
   assert.match(actions, /productionCapability\.reason/);
 });
 
-test('does not present compiler or video-version actions as runnable when their runtime capability is closed', () => {
-  assert.match(source, /const compilerCapability = capability\(capabilities, 'compiler\.preview'\)/);
-  assert.match(source, /compilerAvailable=\{compilerCapability\.available\}/);
-  assert.match(source, /compilerReason=\{compilerCapability\.reason\}/);
+test('does not present unavailable video generation as runnable from the prompt modal', () => {
   assert.match(source, /productionAvailable=\{productionCapability\.available\}/);
   assert.match(source, /productionReason=\{productionCapability\.reason\}/);
-  assert.match(source, /disabled=\{!selectedVideoId \|\| !compilerAvailable\}/);
-  assert.match(source, /disabled=\{!selectedVideo \|\| regenerating \|\| !productionAvailable\}/);
+  assert.match(source, /disabled=\{!productionAvailable \|\| regenerating\}/);
+  assert.match(source, /onGenerateVideo=\{videoId => runBookStageAction\(promptBook, 'video', 'missing', videoId\)\}/);
 });
 
 test('groups per-book operations into status, production, and recovery controls', () => {
@@ -299,24 +295,33 @@ test('lets every production-table column after the serial number resize from its
 test('offers explicit regenerate and retry controls in assets, prompts and video versions', () => {
   assert.match(source, /重新生成资产/);
   assert.match(source, /重试资产/);
-  assert.match(source, /重新生成文案/);
-  assert.match(source, /重试文案/);
+  assert.match(source, /重新生成视频提示词/);
+  assert.match(source, /重新生成画面提示词/);
+  assert.match(source, />重试</);
   assert.match(source, /重新生成视频/);
   assert.match(source, /重试视频/);
   assert.match(source, /不改变当前主版本/);
 });
 
-test('keeps one book-level prompt mode through horizontal storyboard navigation', () => {
+test('keeps one modal prompt mode through horizontal storyboard navigation', () => {
   assert.match(source, /const \[promptKind, setPromptKind\] = useState\('video'\)/);
-  assert.match(source, /const \[opened, setOpened\] = useState\(false\)/);
   assert.match(source, /const hasVisualPrompt = Boolean\(String\(visualPrompt \|\| ''\)\.trim\(\)\)/);
   assert.match(source, /请生成视频提示词再查看/);
+  assert.match(source, /切换分镜时会保持当前查看类型/);
 });
 
-test('renders stacked visual and video prompt cards with icon regeneration controls', () => {
-  assert.match(source, /batch-factory-prompt-stack/);
-  assert.match(source, /batch-factory-prompt-card is-\$\{kind\}/);
-  assert.match(source, /kind === 'visual' && !hasVisualPrompt/);
-  assert.match(source, /aria-label="重新生成视频提示词"/);
-  assert.match(source, /aria-label="重新生成画面提示词"/);
+test('renders stacked visual and video prompt controls in the modal with icon regeneration', () => {
+  assert.match(source, /batch-factory-prompt-modal-tabs/);
+  assert.match(source, /promptKind === 'visual' \? '重新生成画面提示词' : '重新生成视频提示词'/);
+  assert.match(source, /aria-label=\{promptKind === 'visual' \? '重新生成画面提示词' : '重新生成视频提示词'\}/);
+  assert.match(source, /生成图片/);
+  assert.match(source, /生成视频/);
+});
+
+test('uses the whole prompt cell as a stacked-card entry and opens its editor only in a modal', () => {
+  assert.match(source, /className="batch-factory-prompt-entry-card"/);
+  assert.match(source, /onClick=\{\(\) => onManage\?\.\(video.id\)\}/);
+  assert.match(source, /className="batch-factory-prompt-modal-stack"/);
+  assert.match(source, /白色主入口卡/);
+  assert.doesNotMatch(source, /batch-factory-prompt-expanded/);
 });
