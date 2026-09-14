@@ -244,3 +244,23 @@ func TestBuildDirectorContractUsesScriptExtractionAndTypedAssetRules(t *testing.
 		}
 	}
 }
+
+func TestBuildDirectorContractAddsBaseSetupRuleForEveryStoryboard(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
+	config := map[string]any{
+		"constraints": map[string]any{
+			"enabled": true,
+			"baseSetup": map[string]any{"enabled": true},
+		},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 15, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(contract.SystemPrompt, "基础设定：每个 storyboard 必须带入当前情节出现的人物与场景") {
+		t.Fatalf("base setup constraint is missing from director contract:\n%s", contract.SystemPrompt)
+	}
+}

@@ -1,7 +1,8 @@
-import { Alert, Button, Divider, InputNumber, Modal, Select, Space, Switch } from 'antd';
+import { Alert, Button, Divider, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Switch, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { listAvailableModels } from '../../../shared/api/modelCatalog';
 import { listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
+import { deleteScriptConstraintPrompt, getConstraintPresetTexts, listScriptConstraintPrompts, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../../shared/api/generation';
 
 const BOOK_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration', 'aiPromptConfig'];
 const ENGINE_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode'];
@@ -31,6 +32,7 @@ const CONSTRAINT_LAYERS = [
   ['restriction', '画面限制'],
   ['negative', '负面提示词']
 ];
+const EDITABLE_CONSTRAINT_LAYERS = CONSTRAINT_LAYERS.filter(([category]) => category !== 'baseSetup');
 const ASSET_SLOTS = [
   ['extraction', '人物场景提取', 'script.extract'],
   ['character', '人物提示词', 'batch.character-meta'],
@@ -54,6 +56,57 @@ function selectedMeta(catalog, id) {
   return preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version, constraintCategory: preset.constraintCategory || '' } : { presetId: '' };
 }
 function optionFor(preset) { return { value: preset.id, label: `${preset.name || preset.id} · v${preset.version || 1}` }; }
+
+function normalizeConstraintLayer(value, fallback = {}) {
+  const source = ['system', 'personal', 'draft'].includes(value?.source) ? value.source : (fallback?.personalPromptId ? 'personal' : 'system');
+  return {
+    enabled: value?.enabled === true,
+    source,
+    presetId: String(value?.presetId || fallback?.presetId || ''),
+    presetName: String(value?.presetName || fallback?.presetName || ''),
+    presetSlot: String(value?.presetSlot || fallback?.presetSlot || ''),
+    presetVersion: Number(value?.presetVersion || fallback?.presetVersion || 0),
+    personalPromptId: String(value?.personalPromptId || fallback?.personalPromptId || ''),
+    body: String(value?.body || fallback?.body || '')
+  };
+}
+
+function normalizeConstraintRules(value) {
+  const raw = value && typeof value === 'object' ? value : {};
+  const selections = Array.isArray(raw.selections) ? raw.selections : [];
+  const enabledCategories = Array.isArray(raw.enabledCategories) ? raw.enabledCategories : [];
+  const layers = Object.fromEntries(EDITABLE_CONSTRAINT_LAYERS.map(([category]) => {
+    const fallback = selections.find(item => item?.constraintCategory === category) || {};
+    const layer = normalizeConstraintLayer(raw[category], fallback);
+    if (enabledCategories.includes(category) && raw[category]?.enabled === undefined) layer.enabled = true;
+    return [category, layer];
+  }));
+  return {
+    ...raw,
+    enabled: raw.enabled === true,
+    baseSetup: { enabled: raw.baseSetup?.enabled === true },
+    ...layers
+  };
+}
+
+function withDirectorConstraintSelections(value) {
+  const rules = normalizeConstraintRules(value);
+  const enabledCategories = EDITABLE_CONSTRAINT_LAYERS.filter(([category]) => rules[category].enabled).map(([category]) => category);
+  const selections = EDITABLE_CONSTRAINT_LAYERS.flatMap(([category]) => {
+    const layer = rules[category];
+    if (!layer.enabled || !layer.body.trim()) return [];
+    return [{
+      presetId: layer.presetId,
+      presetName: layer.presetName,
+      presetSlot: layer.presetSlot,
+      presetVersion: layer.presetVersion,
+      personalPromptId: layer.personalPromptId,
+      body: layer.body.trim(),
+      constraintCategory: category
+    }];
+  });
+  return { ...rules, enabledCategories, selections };
+}
 
 export function buildBookOverridePatch(inherited, edited) {
   return Object.fromEntries(BOOK_OVERRIDE_FIELDS
@@ -115,37 +168,35 @@ function PromptSelect({ label, value, options, onChange, disabled }) {
 function RuleModule({ title, value, onChange, children }) {
   const module = value || {};
   return <section className="batch-factory-ai-module">
-    <div className="batch-factory-ai-module-head"><div><b>{title}</b><p>保存后只覆盖当前小说；预设正文由服务端冻结，不回传浏览器。</p></div><Switch checked={module.enabled === true} onChange={enabled => onChange({ ...module, enabled })} /></div>
+    <div className="batch-factory-ai-module-head"><div><b>{title}</b><p>保存后只覆盖当前小说；所选预设及当前编辑内容会随本书配置保存。</p></div><Switch checked={module.enabled === true} onChange={enabled => onChange({ ...module, enabled })} /></div>
     {module.enabled ? <div className="batch-factory-ai-module-body">{children}</div> : null}
   </section>;
 }
 
-function ConstraintLayers({ value, records, loading, onChange }) {
-  const rules = value || { selections: [], enabledCategories: [] };
-  const selections = Array.isArray(rules.selections) ? rules.selections : [];
-  const enabledCategories = Array.isArray(rules.enabledCategories) ? rules.enabledCategories : [];
-  const selected = category => selections.find(item => item.constraintCategory === category) || { presetId: '' };
-  const enabled = category => enabledCategories.includes(category);
-  function toggle(category, on) {
-    onChange({
-      ...rules,
-      enabledCategories: on ? [...new Set([...enabledCategories, category])] : enabledCategories.filter(item => item !== category),
-      selections: on ? selections : selections.filter(item => item.constraintCategory !== category)
-    });
-  }
-  function update(category, presetId) {
-    const current = selected(category);
-    const next = { ...current, ...selectedMeta(records, presetId), constraintCategory: category };
-    onChange({
-      ...rules,
-      enabledCategories: [...new Set([...enabledCategories, category])],
-      selections: next.presetId ? [...selections.filter(item => item.constraintCategory !== category), next] : selections.filter(item => item.constraintCategory !== category)
-    });
-  }
-  return <div className="batch-factory-constraint-layers">{CONSTRAINT_LAYERS.map(([category, label]) => {
-    const options = records.filter(item => item.constraintCategory === category);
-    return <div className="batch-factory-constraint-layer" key={category}><Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}><b>{label}</b><Switch checked={enabled(category)} onChange={on => toggle(category, on)} /></Space>{enabled(category) ? <Select allowClear showSearch loading={loading} value={selected(category).presetId || undefined} options={options.map(optionFor)} placeholder="选择系统预设" onChange={presetId => update(category, presetId)} style={{ width: '100%', marginTop: 8 }} /> : null}</div>;
-  })}</div>;
+function ConstraintCategoryEditor({ category, label, value, systemOptions, personalPrompts, loading, saving, editingPromptId, onChange, onSelectSystem, onSelectPersonal, onSaveDraft, onSaveNamed, onEditPersonal, onDeletePersonal }) {
+  const isSystem = value.source === 'system';
+  const selectedPersonalPrompt = personalPrompts.find(item => item.id === value.personalPromptId);
+  return <div className="batch-factory-constraint-layer">
+    <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}><b>{label}</b><Switch checked={value.enabled} onChange={enabled => onChange({ enabled })} /></Space>
+    {value.enabled ? <>
+      <Segmented block options={[{ label: '系统预设', value: 'system' }, { label: '我的提示词', value: 'personal' }]} value={isSystem ? 'system' : 'personal'} onChange={source => onChange(source === 'system' ? { source: 'system', personalPromptId: '' } : { source: value.personalPromptId ? 'personal' : 'draft', presetId: '' })} style={{ marginTop: 10 }} />
+      {isSystem ? <Select allowClear showSearch loading={loading} value={value.presetId || undefined} options={systemOptions.map(optionFor)} placeholder="选择系统预设" onChange={onSelectSystem} style={{ width: '100%', marginTop: 8 }} /> : <>
+        <Select allowClear loading={loading} value={value.personalPromptId || undefined} options={personalPrompts.map(item => ({ label: item.name || '未命名个人副本', value: item.id }))} placeholder="选择我的提示词，或直接编辑当前草稿" onChange={onSelectPersonal} style={{ width: '100%', marginTop: 8 }} />
+        {selectedPersonalPrompt ? <Space size={8} wrap style={{ marginTop: 8 }}><Button size="small" onClick={() => onEditPersonal(selectedPersonalPrompt)}>编辑所选提示词</Button><Popconfirm title="确认删除该个人提示词？" onConfirm={() => onDeletePersonal(selectedPersonalPrompt.id)}><Button size="small" danger>删除</Button></Popconfirm></Space> : null}
+      </>}
+      <span className="batch-factory-constraint-label">提示词内容</span>
+      <Input.TextArea rows={5} value={value.body} placeholder="选择预设后可编辑完整提示词；保存不会修改系统预设。" onChange={event => onChange({ source: 'draft', personalPromptId: '', body: event.target.value })} style={{ marginTop: 6 }} />
+      <Space wrap style={{ marginTop: 10 }}><Button loading={saving} onClick={onSaveDraft}>保存当前草稿</Button><Button type="primary" loading={saving} onClick={onSaveNamed}>{editingPromptId ? '保存编辑' : '保存为我的提示词'}</Button></Space>
+    </> : null}
+  </div>;
+}
+
+function ConstraintLayers({ value, records, personalPrompts, loading, saving, editingPromptId, onChange, onSelectSystem, onSelectPersonal, onSaveDraft, onSaveNamed, onEditPersonal, onDeletePersonal }) {
+  const rules = normalizeConstraintRules(value);
+  return <div className="batch-factory-constraint-layers">
+    <div className="batch-factory-constraint-layer"><Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}><div><b>基础设定（人物 / 场景）</b><p>开启后，当前书每个分镜自动带入已提取的人物与场景设定。</p></div><Switch checked={rules.baseSetup.enabled} onChange={enabled => onChange({ ...rules, baseSetup: { enabled } })} /></Space></div>
+    {EDITABLE_CONSTRAINT_LAYERS.map(([category, label]) => <ConstraintCategoryEditor key={category} category={category} label={label} value={rules[category]} systemOptions={records.filter(item => item.constraintCategory === category)} personalPrompts={personalPrompts[category] || []} loading={loading} saving={saving === category} editingPromptId={editingPromptId === category} onChange={patch => onChange({ ...rules, [category]: { ...rules[category], ...patch } })} onSelectSystem={presetId => onSelectSystem(category, presetId)} onSelectPersonal={promptId => onSelectPersonal(category, promptId)} onSaveDraft={() => onSaveDraft(category)} onSaveNamed={() => onSaveNamed(category)} onEditPersonal={prompt => onEditPersonal(category, prompt)} onDeletePersonal={promptId => onDeletePersonal(category, promptId)} />)}
+  </div>;
 }
 
 export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion = 'engine', onClose, onSaved, onOpenBookAssets }) {
@@ -159,6 +210,10 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [personalPrompts, setPersonalPrompts] = useState({});
+  const [savingPersonalCategory, setSavingPersonalCategory] = useState('');
+  const [editingPersonalPrompt, setEditingPersonalPrompt] = useState({ category: '', id: '', name: '' });
+  const [personalPromptNameModal, setPersonalPromptNameModal] = useState({ open: false, category: '', name: '' });
 
   useEffect(() => {
     if (open) setForm(effectiveValues(batchPatch, bookPatch));
@@ -177,6 +232,10 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     }).catch(error => { if (active) setLoadError(error?.message || '读取模型或已发布预设词失败'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [open]);
+  useEffect(() => {
+    if (!open || region !== 'constraints') return;
+    EDITABLE_CONSTRAINT_LAYERS.forEach(([category]) => { loadPersonalConstraintPrompts(category); });
+  }, [open, region]);
 
   const modelOptions = useMemo(() => ({
     text: models.filter(item => item.kind === 'text').map(item => ({ value: item.id, label: item.name || item.id })),
@@ -190,7 +249,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   const visualRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.visual-meta'), [catalog.batch]);
   const ai = form.aiPromptConfig || {};
   const assetRules = ai.assets || {};
-  const constraintRules = ai.constraints || { selections: [], enabledCategories: [] };
+  const constraintRules = normalizeConstraintRules(ai.constraints);
   const moduleKey = AI_REGION_KEYS.get(region);
   const hasBookOverride = region === 'engine'
     ? ENGINE_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
@@ -202,6 +261,74 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   function patchAI(key, next) { patch({ aiPromptConfig: { ...ai, [key]: next } }); }
   function scoped(module) { return { ...module, scope: 'custom', bookIds: book?.id ? [book.id] : [] }; }
   function updateAssetSelection(key, selection) { patchAI('assets', scoped({ ...assetRules, [key]: selection })); }
+  function updateConstraintRules(next) { patchAI('constraints', scoped(withDirectorConstraintSelections(next))); }
+  function updateConstraintLayer(category, patch) { updateConstraintRules({ ...constraintRules, [category]: { ...constraintRules[category], ...patch } }); }
+
+  async function loadPersonalConstraintPrompts(category) {
+    try {
+      const result = await listScriptConstraintPrompts(category);
+      setPersonalPrompts(current => ({ ...current, [category]: Array.isArray(result?.prompts) ? result.prompts : [] }));
+    } catch (error) {
+      message.error(error?.message || '我的提示词加载失败');
+    }
+  }
+
+  async function selectSystemConstraint(category, presetId) {
+    if (!presetId) {
+      updateConstraintLayer(category, { source: 'system', presetId: '', presetName: '', presetSlot: '', presetVersion: 0, body: '' });
+      return;
+    }
+    try {
+      const result = await getConstraintPresetTexts([presetId]);
+      const preset = scriptConstraints.find(item => item.id === presetId);
+      updateConstraintLayer(category, { source: 'system', personalPromptId: '', ...selectedMeta(scriptConstraints, presetId), body: String(result?.texts?.[presetId] || ''), presetName: preset?.name || '' });
+    } catch (error) {
+      message.error(error?.message || '系统预设提示词读取失败');
+    }
+  }
+
+  function selectPersonalConstraint(category, promptId) {
+    const prompt = (personalPrompts[category] || []).find(item => item.id === promptId);
+    if (!prompt) {
+      updateConstraintLayer(category, { source: 'draft', personalPromptId: '', presetId: '' });
+      return;
+    }
+    updateConstraintLayer(category, { source: 'personal', presetId: '', presetName: '', presetSlot: '', presetVersion: 0, personalPromptId: prompt.id, body: prompt.body || '' });
+  }
+
+  async function savePersonalConstraint(category, name) {
+    const body = String(constraintRules[category]?.body || '').trim();
+    if (!body) return message.warning('请先填写提示词内容');
+    if (name !== null && !String(name || '').trim()) return message.warning('请输入提示词名称');
+    setSavingPersonalCategory(category);
+    try {
+      const result = editingPersonalPrompt.category === category && editingPersonalPrompt.id
+        ? await updateScriptConstraintPrompt(editingPersonalPrompt.id, { name, body })
+        : await saveScriptConstraintPrompt({ category, name, body });
+      const saved = result?.prompt;
+      if (!saved) throw new Error('提示词保存失败');
+      await loadPersonalConstraintPrompts(category);
+      updateConstraintLayer(category, { source: 'personal', presetId: '', presetName: '', presetSlot: '', presetVersion: 0, personalPromptId: saved.id, body: saved.body || body });
+      setEditingPersonalPrompt({ category: '', id: '', name: '' });
+      setPersonalPromptNameModal({ open: false, category: '', name: '' });
+      message.success('已保存我的提示词');
+    } catch (error) {
+      message.error(error?.message || '提示词保存失败');
+    } finally {
+      setSavingPersonalCategory('');
+    }
+  }
+
+  async function deletePersonalConstraint(category, promptId) {
+    try {
+      await deleteScriptConstraintPrompt(promptId);
+      await loadPersonalConstraintPrompts(category);
+      if (constraintRules[category]?.personalPromptId === promptId) updateConstraintLayer(category, { source: 'draft', personalPromptId: '', body: '' });
+      message.success('已删除我的提示词');
+    } catch (error) {
+      message.error(error?.message || '删除失败');
+    }
+  }
   async function persist(edited, closeWhenSaved = true) {
     if (!batch?.id || !book?.id) return;
     const { patch: patchValue, restoreKeys } = buildBookRegionUpdate(inherited, bookPatch, region, edited);
@@ -237,8 +364,8 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
       </RuleModule>
     </>;
   } else if (region === 'constraints') {
-    body = <RuleModule title="约束设置" value={constraintRules} onChange={next => patchAI('constraints', scoped(next))}>
-      <ConstraintLayers value={constraintRules} records={scriptConstraints} loading={loading} onChange={next => patchAI('constraints', scoped(next))} />
+    body = <RuleModule title="约束设置" value={constraintRules} onChange={updateConstraintRules}>
+      <ConstraintLayers value={constraintRules} records={scriptConstraints} personalPrompts={personalPrompts} loading={loading} saving={savingPersonalCategory} editingPromptId={editingPersonalPrompt.category} onChange={updateConstraintRules} onSelectSystem={selectSystemConstraint} onSelectPersonal={selectPersonalConstraint} onSaveDraft={category => savePersonalConstraint(category, null)} onSaveNamed={category => setPersonalPromptNameModal({ open: true, category, name: editingPersonalPrompt.category === category ? editingPersonalPrompt.name : '' })} onEditPersonal={(category, prompt) => { setEditingPersonalPrompt({ category, id: prompt.id, name: prompt.name || '' }); updateConstraintLayer(category, { source: 'draft', presetId: '', personalPromptId: '', body: prompt.body || '' }); }} onDeletePersonal={deletePersonalConstraint} />
     </RuleModule>;
   } else if (region === 'video') {
     body = <><div className="batch-factory-engine-drawer">
@@ -254,10 +381,10 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     </RuleModule>;
   }
 
-  return <Modal title={book?.title ? `单书配置 · ${book.title} · ${REGION_LABELS[region]}` : `单书配置 · ${REGION_LABELS[region]}`} open={open} onCancel={onClose} width={980} className="shuihuo-engine-modal batch-factory-engine-modal" footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复作品配置</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存当前书覆盖</Button></Space>}>
+  return <><Modal title={book?.title ? `单书配置 · ${book.title} · ${REGION_LABELS[region]}` : `单书配置 · ${REGION_LABELS[region]}`} open={open} onCancel={onClose} width={980} className="shuihuo-engine-modal batch-factory-engine-modal" footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复作品配置</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存当前书覆盖</Button></Space>}>
     <Alert type="info" showIcon message="继承状态" description="本分区未改动时继续使用当前批量作品配置；保存或恢复只影响当前小说，不会改动同批次其它书。" />
     {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
     <Divider orientation="left">{REGION_LABELS[region]}</Divider>
     {body}
-  </Modal>;
+  </Modal><Modal title={editingPersonalPrompt.id ? '编辑我的提示词' : '保存为我的提示词'} open={personalPromptNameModal.open} onCancel={() => { setPersonalPromptNameModal({ open: false, category: '', name: '' }); setEditingPersonalPrompt({ category: '', id: '', name: '' }); }} onOk={() => savePersonalConstraint(personalPromptNameModal.category, personalPromptNameModal.name.trim())} okText="保存" confirmLoading={savingPersonalCategory === personalPromptNameModal.category}><Input autoFocus value={personalPromptNameModal.name} placeholder="提示词名称" onChange={event => setPersonalPromptNameModal(current => ({ ...current, name: event.target.value }))} /></Modal></>;
 }

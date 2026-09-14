@@ -61,7 +61,12 @@ type AIReasoningAssetModule struct {
 
 type AIReasoningConstraintModule struct {
 	AIReasoningScope
+	BaseSetup  AIReasoningBaseSetup `json:"baseSetup"`
 	Selections []PresetSnapshot `json:"selections"`
+}
+
+type AIReasoningBaseSetup struct {
+	Enabled bool `json:"enabled"`
 }
 
 type AIReasoningPromptModule struct {
@@ -189,6 +194,9 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 		rules = append(rules, "道具资产规则：以下规则只约束 props 的 prompt。\n"+strings.TrimSpace(config.Assets.Prop.Body))
 	}
 	if config.Constraints.appliesTo(book) {
+		if config.Constraints.BaseSetup.Enabled {
+			rules = append(rules, "基础设定：每个 storyboard 必须带入当前情节出现的人物与场景；人物与场景只能引用本次输出的顶层信息库，不能省略场景，也不能凭空新增资产。")
+		}
 		for _, selection := range config.Constraints.Selections {
 			if body := strings.TrimSpace(selection.Body); body != "" {
 				rules = append(rules, "约束设置：以下规则约束本次所有输出，且必须保持可拍、可见。\n"+body)

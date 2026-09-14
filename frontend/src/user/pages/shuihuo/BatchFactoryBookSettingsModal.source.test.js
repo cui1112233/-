@@ -37,6 +37,18 @@ test('single-book configuration has the same layered script constraints and vide
   assert.match(source, /视频引擎/);
 });
 
+test('single-book constraints support the same system, personal and editable prompt sources as script generation', () => {
+  assert.match(source, /getConstraintPresetTexts/);
+  assert.match(source, /listScriptConstraintPrompts/);
+  assert.match(source, /saveScriptConstraintPrompt/);
+  assert.match(source, /updateScriptConstraintPrompt/);
+  assert.match(source, /deleteScriptConstraintPrompt/);
+  assert.match(source, /我的提示词/);
+  assert.match(source, /提示词内容/);
+  assert.match(source, /保存为我的提示词/);
+  assert.match(source, /开启后，当前书每个分镜自动带入已提取的人物与场景设定/);
+});
+
 test('single-book configuration opens and saves one explicit region at a time', () => {
   assert.match(source, /activeRegion/);
   assert.match(source, /buildBookRegionUpdate/);
