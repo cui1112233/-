@@ -1,7 +1,7 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
   const LAYOUT_ID = 'v78ImageAlignedStyles';
-  const POLL_MS = 3000;
+  const POLL_MS = 30000;
   let pollTimer = null;
   let mounted = false;
 

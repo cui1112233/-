@@ -600,7 +600,7 @@
       attempts += 1;
       if (attempts >= 24) window.clearInterval(timer);
     }, 250);
-    if (!currentBatchTimer) currentBatchTimer = window.setInterval(loadCurrentBatch, 3000);
+    if (!currentBatchTimer) currentBatchTimer = window.setInterval(loadCurrentBatch, 30000);
   }
 
   installLegacyTaskListBridge();
