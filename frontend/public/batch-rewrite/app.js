@@ -3,6 +3,7 @@ document.documentElement.classList.add("qiantie-novel-fetch-hydrating");
 const state = {
   config: null,
   tasks: [],
+  allTasks: [],
   selectedId: "",
   selectedIds: new Set(),
   sensitiveProcessingIds: new Set(),
@@ -10,6 +11,9 @@ const state = {
   pendingOpeningItem: null,
   activeProcessJobId: "",
   taskDate: "",
+  currentBatchIds: new Set(),
+  currentBatchDate: "",
+  viewMode: "current",
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -2193,16 +2197,42 @@ function taskDateKey(task) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function dateKeyFromValue(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function todayDateKey() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function setCurrentBatchFromResult(result = {}, timestamp = "") {
+  const ids = Array.isArray(result.current_batch_ids)
+    ? result.current_batch_ids.map(id => String(id || "")).filter(Boolean)
+    : [];
+  const batchDate = dateKeyFromValue(timestamp) || todayDateKey();
+  state.currentBatchDate = batchDate === todayDateKey() ? batchDate : todayDateKey();
+  state.currentBatchIds = batchDate === todayDateKey() ? new Set(ids) : new Set();
+  state.viewMode = "current";
+  state.taskDate = state.currentBatchDate;
+}
+
+function currentTaskList(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const selectedDate = state.taskDate || todayDateKey();
+  if (state.viewMode === "current" && selectedDate === state.currentBatchDate && state.currentBatchIds.size) {
+    return list.filter(task => state.currentBatchIds.has(String(task.id || task.book_id || "")));
+  }
+  return list.filter(task => taskDateKey(task) === selectedDate);
 }
 
 function renderTasks(tasks) {
   const selectedDate = state.taskDate || todayDateKey();
   state.taskDate = selectedDate;
   if ($("taskDateFilter")) $("taskDateFilter").value = selectedDate;
-  state.tasks = (tasks || []).filter((task) => taskDateKey(task) === selectedDate);
+  state.tasks = currentTaskList(tasks);
   const visibleIds = new Set(state.tasks.map((task) => String(task.id || "")));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => visibleIds.has(id)));
   const body = $("tasksBody");
@@ -2529,8 +2559,11 @@ async function loadConfig() {
 
 async function loadTasks() {
   const data = await api("/api/tasks");
-  renderTasks(data.tasks || []);
-  $("summaryText").textContent = `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
+  state.allTasks = data.tasks || [];
+  renderTasks(state.allTasks);
+  $("summaryText").textContent = state.viewMode === "current"
+    ? `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`
+    : `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
 }
 
 async function refreshTasksAndSubmitHistory() {
@@ -2644,10 +2677,17 @@ async function restoreLatestProcessJob() {
       box.textContent = "暂无正在处理的任务。";
       return;
     }
-    // A completed job is already represented by the task list. Replaying its
-    // old summary into the live status area on every page entry makes users
-    // think the original text is being fetched again. Only an active job is
-    // eligible for restoration and polling.
+    if (job.status === "done" && Array.isArray(job.result?.current_batch_ids)) {
+      setCurrentBatchFromResult(job.result, job.completed_at || job.updated_at || job.started_at);
+      renderTasks(state.allTasks);
+      $("summaryText").textContent = `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`;
+    } else if (job.status !== "running") {
+      setCurrentBatchFromResult({}, new Date().toISOString());
+      renderTasks(state.allTasks);
+      $("summaryText").textContent = `${state.taskDate} 当前批次暂无任务；历史任务请切换查看日期`;
+    }
+    // A completed job is represented by the current-batch view above. Do not
+    // replay its old summary into the live status area on every page entry.
     if (job.status !== "running") {
       box.textContent = "暂无正在处理的任务。";
       return;
@@ -2691,6 +2731,7 @@ async function processInput() {
   }
   button.disabled = true;
   try {
+    setCurrentBatchFromResult({}, new Date().toISOString());
     await saveWorkFormStateNow();
     await saveWebSubmitConfig(true);
     $("processResult").textContent = [
@@ -2716,7 +2757,10 @@ async function processInput() {
     $("processResult").textContent = renderProcessJob(job);
     const result = await pollProcessJob(job.id);
     $("processResult").textContent = renderProcessResult(result);
-    renderTasks(result.tasks || []);
+    setCurrentBatchFromResult(result, new Date().toISOString());
+    state.allTasks = result.tasks || state.allTasks;
+    renderTasks(state.allTasks);
+    $("summaryText").textContent = `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`;
   } catch (error) {
     $("processResult").textContent = error.message;
   } finally {
@@ -3396,6 +3440,7 @@ document.addEventListener("change", (event) => {
   if (target.id === "sensitiveGroupSelect" || target.id === "sensitiveRuleSelect") renderSensitiveRuleEditor();
   if (target.id === "ruleItemSelect") renderRuleEditor(Number(target.value || 0));
   if (target.id === "taskDateFilter") {
+    state.viewMode = "date";
     state.taskDate = target.value || todayDateKey();
     void loadTasks();
   }
@@ -3460,10 +3505,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
-  $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
-  $("taskPrevDayBtn").onclick = async () => { const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() - 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
-  $("taskNextDayBtn").onclick = async () => { const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() + 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
-  $("taskDefaultViewBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskTodayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskPrevDayBtn").onclick = async () => { state.viewMode = "date"; const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() - 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskNextDayBtn").onclick = async () => { state.viewMode = "date"; const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() + 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskDefaultViewBtn").onclick = async () => { state.viewMode = "current"; state.taskDate = state.currentBatchDate || todayDateKey(); await refreshTasksAndSubmitHistory(); };
   $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;
   $("clearSelectedBtn").onclick = clearSelectedTasks;

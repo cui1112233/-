@@ -684,6 +684,9 @@ function createBatchRewriteRouter({
       selectedVersions,
       aiSlotMethods
     }));
+    // Keep the complete task store for history, but identify this input batch
+    // explicitly so the workbench can show only the books just submitted.
+    const currentBatchIds = prepared.map(item => String(item.bookId || '')).filter(Boolean);
     report({ type: 'version_config', status: 'done', message: `版本配置已读取：${selectedVersions.map(version => version.toUpperCase()).join('、')}；有效 ${prepared.length} 个任务。` });
     let classified = prepared;
     let classifyErrors = [];
@@ -753,6 +756,7 @@ function createBatchRewriteRouter({
       rewrite_failed: rewriteFailed,
       fetch_failed: fetchFailed,
       generated_ai_files: generated,
+      current_batch_ids: currentBatchIds,
       tasks: await listTasks(req)
     };
   }
