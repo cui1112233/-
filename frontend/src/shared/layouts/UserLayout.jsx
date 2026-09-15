@@ -87,6 +87,7 @@ export function UserLayout({ children }) {
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
   const accountCenterReturnPathRef = useRef(null);
+  const novelFetchStatusTimerRef = useRef(null);
   const pathname = window.location.pathname;
   const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
@@ -181,10 +182,23 @@ export function UserLayout({ children }) {
       const text = String(event.data.text || '').trim();
       if (!text) return;
       const allowedTones = new Set(['info', 'working', 'success', 'warning', 'error']);
-      setGlobalStatus({ text: compactHeaderStatus(text), tone: headerStatusTone(text, allowedTones.has(event.data.tone) ? event.data.tone : 'info') });
+      const statusText = compactHeaderStatus(text);
+      const tone = headerStatusTone(text, allowedTones.has(event.data.tone) ? event.data.tone : 'info');
+      if (novelFetchStatusTimerRef.current) window.clearTimeout(novelFetchStatusTimerRef.current);
+      setGlobalStatus({ text: statusText, tone });
+      if (tone !== 'working') {
+        novelFetchStatusTimerRef.current = window.setTimeout(() => {
+          setGlobalStatus(current => current.text === statusText ? { text: '', tone: 'idle' } : current);
+          novelFetchStatusTimerRef.current = null;
+        }, tone === 'error' ? 8000 : 4500);
+      }
     };
     window.addEventListener('message', receiveNovelFetchStatus);
-    return () => window.removeEventListener('message', receiveNovelFetchStatus);
+    return () => {
+      window.removeEventListener('message', receiveNovelFetchStatus);
+      if (novelFetchStatusTimerRef.current) window.clearTimeout(novelFetchStatusTimerRef.current);
+      novelFetchStatusTimerRef.current = null;
+    };
   }, [pathname]);
 
   useEffect(() => {

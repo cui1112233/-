@@ -76,6 +76,13 @@ test('novel fetch status messages are bridged to the centered parent header', ()
   assert.match(middleware, /qiantie-novel-fetch-interaction-feedback/);
 });
 
+test('novel fetch clears finished header status after a short display window', () => {
+  const layout = read('../../../../src/shared/layouts/UserLayout.jsx');
+  assert.match(layout, /novelFetchStatusTimerRef/);
+  assert.match(layout, /setGlobalStatus\(current => current\.text === statusText/);
+  assert.match(layout, /tone !== 'working'/);
+});
+
 test('novel fetch scheduling uses Chinese progress states and supports deleting records', () => {
   const controls = readRepoPublic('public/batch-rewrite/v78-novel-fetch-v2-run-controls.js');
   assert.match(controls, /button\.textContent = '开始定时'/);
