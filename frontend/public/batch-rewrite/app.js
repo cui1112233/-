@@ -1627,7 +1627,11 @@ async function openWebLoginDialog() {
         result.textContent = "登录批量后台成功";
         if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
       } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
-      finally { $("webLoginSubmit").disabled = false; }
+      finally {
+        const passwordInput = $("webLoginPassword");
+        if (passwordInput) passwordInput.value = "";
+        $("webLoginSubmit").disabled = false;
+      }
     });
   }
   $("webLoginUsername").value = state.config?.web_submit?.username || "";

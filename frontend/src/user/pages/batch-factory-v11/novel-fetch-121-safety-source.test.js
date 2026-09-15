@@ -37,14 +37,14 @@ test('novel fetch keeps a visible loading experience until the iframe is ready',
   assert.match(styleSource, /prefers-reduced-motion/);
 });
 
-test('121 guard fails closed when batch rewrite config is unavailable', () => {
+test('121 guard fails closed when batch rewrite config is unavailable without hijacking login submit', () => {
   const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
   assert.match(source, /state\.config\?\.web_submit/);
   assert.match(source, /ensureServerConfig/);
   assert.match(source, /已阻止发送 121 账号密码/);
   assert.match(source, /配置加载失败/);
-  assert.match(source, /stopImmediatePropagation/);
-  assert.match(source, /qiantieSafeLoginBound/);
+  assert.doesNotMatch(source, /stopImmediatePropagation/);
+  assert.doesNotMatch(source, /qiantieSafeLoginBound/);
 });
 
 test('121 guard keeps a 65 second frontend deadline above active worker budgets', () => {
@@ -66,27 +66,25 @@ test('candidate image injects the guard even when tracked frontend dist is stale
   assert.match(dockerfile, /frontend\/dist\/batch-rewrite\/index\.html/);
 });
 
-test('novel status center survives frontend rebuild and unified image packaging', () => {
+test('novel status center survives frontend rebuild and direct ECS image packaging', () => {
   const source = readRequired('public/batch-rewrite/v88-novel-status-center.js');
   assert.match(source, /V88NovelStatusCenter/);
   assert.match(source, /处理完成/);
   assert.match(source, /视频管理系统提交/);
 
-  const workflow = fs.readFileSync(path.join(repoDir, '.github/workflows/v88-unified-public-image-release.yml'), 'utf8');
   const dockerfile = fs.readFileSync(path.join(repoDir, 'Dockerfile'), 'utf8');
-  assert.match(workflow, /npm --prefix frontend run build/);
   assert.match(dockerfile, /COPY frontend\/dist\/ \.\/frontend\/dist\//);
+  assert.match(dockerfile, /COPY frontend\/public\/batch-rewrite\/121-login-hotfix\.js/);
 });
 
-test('saving 121 credentials does not launch a second headed verification automatically', () => {
+test('121 login delegates to the asynchronous operation flow', () => {
   const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
-  const submitStart = source.indexOf("dialog.addEventListener('submit'");
-  const submitEnd = source.indexOf("}, true);", submitStart);
-  assert.ok(submitStart >= 0 && submitEnd > submitStart, 'login submit handler must remain present');
-  const submitHandler = source.slice(submitStart, submitEnd);
-  assert.match(submitHandler, /api\('\/api\/web-submit\/config'/);
-  assert.doesNotMatch(submitHandler, /test-visible/);
+  assert.doesNotMatch(source, /function bindSafeLoginSubmit/);
+  assert.doesNotMatch(source, /stopImmediatePropagation/);
+  assert.doesNotMatch(source, /api\('\/api\/web-submit\/config'/);
   const appSource = readRequired('public/batch-rewrite/app.js');
-  assert.match(appSource, /testVisibleWebFlow/);
-  assert.match(appSource, /\/api\/batch-rewrite\/web-submit\/test-visible/);
+  assert.match(appSource, /api\("\/api\/web-submit\/operations"/);
+  assert.match(appSource, /waitWebSubmitOperation\(operation\.id\)/);
+  assert.match(appSource, /121 后台操作等待超时/);
+  assert.match(appSource, /passwordInput\.value\s*=\s*""/);
 });

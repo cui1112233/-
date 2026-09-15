@@ -102,73 +102,6 @@
     return originalSaveWebSubmitConfig(silent);
   };
 
-  function bindSafeLoginSubmit(dialog) {
-    if (!dialog || dialog.dataset.qiantieSafeLoginBound === '1') return;
-    dialog.dataset.qiantieSafeLoginBound = '1';
-
-    dialog.addEventListener('submit', async event => {
-      if (event.submitter?.id !== 'webLoginSubmit') return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      const result = document.getElementById('webLoginResult');
-      const submit = document.getElementById('webLoginSubmit');
-      if (submit) submit.disabled = true;
-
-      try {
-        if (!(await ensureServerConfig())) {
-          if (result) result.textContent = `${state.configLoadError || '小说获取配置加载失败'} 未发送 121 账号密码。`;
-          return;
-        }
-
-        const username = String(document.getElementById('webLoginUsername')?.value || '').trim();
-        const password = String(document.getElementById('webLoginPassword')?.value || '');
-        if (!username || !password) throw new Error('请输入 121 账号和密码');
-
-        const currentWebSubmit = state.config?.web_submit || {};
-        const settings = { ...currentWebSubmit, username, password };
-        if (result) result.textContent = '正在保存登录信息...';
-
-        const saved = await api('/api/web-submit/config', {
-          method: 'POST',
-          body: JSON.stringify({ settings })
-        });
-        state.config = {
-          ...(state.config || {}),
-          web_submit: saved?.settings || { ...currentWebSubmit, username, password: '', password_masked: true }
-        };
-
-        // /api/web-submit/config already performs the direct 121 login when a
-        // password is supplied. Do not immediately launch a second headed
-        // browser verification; that duplicate check is the source of the
-        // long timeout users see after a successful direct login.
-        state.webLoginSession = saved?.ok === true;
-        state.config = {
-          ...(state.config || {}),
-          web_submit: {
-            ...(state.config?.web_submit || {}),
-            username,
-            password: '',
-            password_masked: state.webLoginSession || Boolean(state.config?.web_submit?.password_masked)
-          }
-        };
-        renderWebLoginStatus(state.config?.web_submit || {});
-
-        if (!state.webLoginSession) throw new Error('121 登录失败：服务器未确认登录会话');
-        if (result) result.textContent = '登录验证成功';
-        window.setTimeout(() => dialog.close(), 500);
-      } catch (error) {
-        state.webLoginSession = false;
-        renderWebLoginStatus(state.config?.web_submit || {});
-        if (result) result.textContent = error?.message || '登录验证失败';
-      } finally {
-        const passwordInput = document.getElementById('webLoginPassword');
-        if (passwordInput) passwordInput.value = '';
-        if (submit) submit.disabled = false;
-      }
-    }, true);
-  }
-
   openWebLoginDialog = async function safeOpenWebLoginDialog() {
     if (!(await ensureServerConfig())) {
       if (typeof setSiteSubmitStatus === 'function') {
@@ -180,12 +113,9 @@
     let dialog = document.getElementById('webLoginDialog');
     if (!dialog) {
       await originalOpenWebLoginDialog();
-      dialog = document.getElementById('webLoginDialog');
-      bindSafeLoginSubmit(dialog);
       return;
     }
 
-    bindSafeLoginSubmit(dialog);
     const usernameInput = document.getElementById('webLoginUsername');
     const passwordInput = document.getElementById('webLoginPassword');
     if (usernameInput) usernameInput.value = state.config?.web_submit?.username || '';
@@ -193,10 +123,7 @@
     if (!dialog.open) dialog.showModal();
   };
 
-  const staticLoginDialog = document.getElementById('webLoginDialog');
-  if (staticLoginDialog) bindSafeLoginSubmit(staticLoginDialog);
-
   // Startup hydration belongs to app.js. This hotfix only guards config and
-  // login interactions; it must not start a second config/task/job bootstrap
+  // login opening; it must not start a second config/task/job bootstrap
   // when the iframe is opened.
 })();
