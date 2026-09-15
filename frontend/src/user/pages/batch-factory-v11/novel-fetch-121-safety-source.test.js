@@ -22,6 +22,18 @@ test('novel fetch route installs the hardened 121 login guard', () => {
   assert.match(pageSource, /batch-rewrite\/index\.html/);
 });
 
+test('novel fetch keeps a visible loading experience until the iframe is ready', () => {
+  const pageSource = fs.readFileSync(path.join(pagesDir, 'NovelFetchPage.jsx'), 'utf8');
+  const styleSource = fs.readFileSync(path.join(pagesDir, 'novel-fetch.css'), 'utf8');
+  assert.match(pageSource, /novel-fetch-loading-overlay/);
+  assert.match(pageSource, /正在加载小说获取/);
+  assert.match(pageSource, /onError/);
+  assert.match(pageSource, /setFrameError/);
+  assert.match(styleSource, /novel-fetch-loading-overlay/);
+  assert.match(styleSource, /novel-fetch-loader-trace/);
+  assert.match(styleSource, /prefers-reduced-motion/);
+});
+
 test('121 guard fails closed when batch rewrite config is unavailable', () => {
   const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
   assert.match(source, /state\.config\?\.web_submit/);
