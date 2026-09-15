@@ -3504,6 +3504,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     // gate must still close so a failed request cannot leave a blank iframe.
   } finally {
     document.documentElement.classList.remove("qiantie-novel-fetch-hydrating");
+    window.parent?.postMessage({ type: "qiantie:novel-fetch-ready" }, window.location.origin);
   }
   await loadTasks();
   await restoreLatestProcessJob();

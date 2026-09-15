@@ -25,10 +25,13 @@ test('novel fetch route installs the hardened 121 login guard', () => {
 test('novel fetch keeps a visible loading experience until the iframe is ready', () => {
   const pageSource = fs.readFileSync(path.join(pagesDir, 'NovelFetchPage.jsx'), 'utf8');
   const styleSource = fs.readFileSync(path.join(pagesDir, 'novel-fetch.css'), 'utf8');
+  const appSource = fs.readFileSync(path.join(frontendDir, 'public/batch-rewrite/app.js'), 'utf8');
   assert.match(pageSource, /novel-fetch-loading-overlay/);
   assert.match(pageSource, /正在加载小说获取/);
   assert.match(pageSource, /onError/);
   assert.match(pageSource, /setFrameError/);
+  assert.match(pageSource, /qiantie:novel-fetch-ready/);
+  assert.match(appSource, /qiantie:novel-fetch-ready/);
   assert.match(styleSource, /novel-fetch-loading-overlay/);
   assert.match(styleSource, /novel-fetch-loader-trace/);
   assert.match(styleSource, /prefers-reduced-motion/);

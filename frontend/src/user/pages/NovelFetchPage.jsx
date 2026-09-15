@@ -61,7 +61,17 @@ export function NovelFetchPage({ theme }) {
   const [frameError, setFrameError] = useState(false);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
-  const handleFrameLoad = () => { setFrameError(false); syncTheme(); requestAnimationFrame(() => setFrameReady(true)); };
+  useEffect(() => {
+    const handleWorkbenchReady = event => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'qiantie:novel-fetch-ready') return;
+      if (event.source !== frameRef.current?.contentWindow) return;
+      setFrameError(false);
+      setFrameReady(true);
+    };
+    window.addEventListener('message', handleWorkbenchReady);
+    return () => window.removeEventListener('message', handleWorkbenchReady);
+  }, []);
+  const handleFrameLoad = () => { setFrameError(false); syncTheme(); };
   const handleFrameError = () => { setFrameError(true); setFrameReady(false); };
   return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}${frameError ? ' has-error' : ''}`}>
     {!frameReady && <div className="novel-fetch-loading-overlay" role="status" aria-live="polite">
