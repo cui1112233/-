@@ -31,13 +31,14 @@ test('novel fetch persists every processing choice immediately when changed', ()
   assert.match(source.slice(toggleStart, toggleEnd), /persistWorkFormChoiceNow/);
 });
 
-test('novel fetch shares one 121 environment probe across the legacy client and login hotfix', () => {
+test('novel fetch keeps the 121 environment probe in the single startup hydrator', () => {
   const app = read('../../../../public/batch-rewrite/app.js');
   const hotfix = read('../../../../public/batch-rewrite/121-login-hotfix.js');
   assert.match(app, /__qiantieWebLoginEnvironmentPromise/);
   assert.match(app, /qiantieEnsureWebLoginEnvironment/);
   assert.doesNotMatch(app.slice(app.indexOf('await loadConfig()')), /api\("\/api\/web-submit\/environment"\)/);
-  assert.match(hotfix, /window\.qiantieEnsureWebLoginEnvironment/);
+  assert.doesNotMatch(hotfix, /window\.qiantieEnsureWebLoginEnvironment/);
+  assert.doesNotMatch(hotfix, /restoreLatestProcessJob/);
 });
 
 test('novel fetch gates the initial render until saved choices and login status hydrate', () => {
@@ -61,6 +62,19 @@ test('novel fetch reuses a short-lived 121 session validation cache', () => {
 test('novel fetch hydrates configuration and login status in parallel', () => {
   const app = read('../../../../public/batch-rewrite/app.js');
   assert.match(app, /Promise\.allSettled\(\[loadConfig\(\), window\.qiantieEnsureWebLoginEnvironment\(\)\]\)/);
+});
+
+test('novel fetch has one startup hydrator and does not replay finished work', () => {
+  const app = read('../../../../public/batch-rewrite/app.js');
+  const hotfix = read('../../../../public/batch-rewrite/121-login-hotfix.js');
+  assert.doesNotMatch(hotfix, /void \(async \(\) => \{/,
+    'the login hotfix must not start a second page bootstrap');
+  const restoreStart = app.indexOf('async function restoreLatestProcessJob()');
+  const restoreEnd = app.indexOf('\nasync function pollProcessJob', restoreStart);
+  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart, 'latest-job restore helper must remain present');
+  const restoreSource = app.slice(restoreStart, restoreEnd);
+  assert.match(restoreSource, /job\.status !== ["']running["']/,
+    'only an active job may be restored into the processing status area');
 });
 
 test('novel fetch status messages are bridged to the centered parent header', () => {

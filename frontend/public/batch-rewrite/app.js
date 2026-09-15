@@ -2637,7 +2637,15 @@ async function restoreLatestProcessJob() {
     const data = await api("/api/process/jobs/latest");
     const job = data.latest || {};
     if (!job.id) {
-      if (!box.textContent.trim()) box.textContent = "暂无处理记录。";
+      box.textContent = "暂无正在处理的任务。";
+      return;
+    }
+    // A completed job is already represented by the task list. Replaying its
+    // old summary into the live status area on every page entry makes users
+    // think the original text is being fetched again. Only an active job is
+    // eligible for restoration and polling.
+    if (job.status !== "running") {
+      box.textContent = "暂无正在处理的任务。";
       return;
     }
     state.activeProcessJobId = job.id;

@@ -196,33 +196,7 @@
   const staticLoginDialog = document.getElementById('webLoginDialog');
   if (staticLoginDialog) bindSafeLoginSubmit(staticLoginDialog);
 
-  void (async () => {
-    if (state.config) {
-      state.configLoadError = '';
-      return;
-    }
-
-    const restored = await ensureServerConfig();
-    if (!restored) return;
-
-    try {
-      if (typeof window.qiantieEnsureWebLoginEnvironment === 'function') {
-        await window.qiantieEnsureWebLoginEnvironment();
-      } else {
-        const environment = await api('/api/web-submit/environment');
-        state.webLoginSession = environment?.ok === true;
-        renderWebLoginStatus(state.config?.web_submit || {});
-      }
-    } catch (error) {
-      if (typeof setSiteSubmitStatus === 'function') setSiteSubmitStatus(error?.message || '121 登录状态读取失败');
-    }
-
-    await loadTasks().catch(error => {
-      const processResult = document.getElementById('processResult');
-      if (processResult) processResult.textContent = `任务加载失败：${error?.message || '未知错误'}`;
-    });
-    if (typeof restoreLatestProcessJob === 'function') {
-      await restoreLatestProcessJob().catch(() => {});
-    }
-  })();
+  // Startup hydration belongs to app.js. This hotfix only guards config and
+  // login interactions; it must not start a second config/task/job bootstrap
+  // when the iframe is opened.
 })();
