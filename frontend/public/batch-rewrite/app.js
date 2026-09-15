@@ -3505,12 +3505,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
+  // 121 环境验证可能触发 Browser Worker，最慢时会等待超时。它只影响
+  // 提交能力，不应阻塞小说获取工作台首次进入；配置和任务先完成后立即展示。
+  void window.qiantieEnsureWebLoginEnvironment().catch(error => {
+    setBatchStatus(error?.message || "121 登录状态检查失败");
+  });
   try {
-    await Promise.allSettled([loadConfig(), window.qiantieEnsureWebLoginEnvironment()]);
+    await Promise.allSettled([loadConfig(), loadTasks()]);
   } finally {
     document.documentElement.classList.remove("qiantie-novel-fetch-hydrating");
     window.parent?.postMessage({ type: "qiantie:novel-fetch-ready" }, window.location.origin);
   }
-  await loadTasks();
   await restoreLatestProcessJob();
 });

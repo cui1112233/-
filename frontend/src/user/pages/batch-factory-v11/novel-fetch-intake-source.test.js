@@ -59,9 +59,17 @@ test('novel fetch reuses a short-lived 121 session validation cache', () => {
   assert.match(store, /validatedAt/);
 });
 
-test('novel fetch hydrates configuration and login status in parallel', () => {
+test('novel fetch starts login validation in the background', () => {
   const app = read('../../../../public/batch-rewrite/app.js');
-  assert.match(app, /Promise\.allSettled\(\[loadConfig\(\), window\.qiantieEnsureWebLoginEnvironment\(\)\]\)/);
+  assert.match(app, /void window\.qiantieEnsureWebLoginEnvironment\(\)\.catch/);
+});
+
+test('novel fetch does not block first render on slow 121 environment validation', () => {
+  const app = read('../../../../public/batch-rewrite/app.js');
+  assert.match(app, /Promise\.allSettled\(\[loadConfig\(\), loadTasks\(\)\]\)/,
+    'initial render should wait only for local config and task hydration');
+  assert.match(app, /void window\.qiantieEnsureWebLoginEnvironment\(\)\.catch/,
+    '121 environment validation should continue in the background');
 });
 
 test('novel fetch has one startup hydrator and does not replay finished work', () => {
