@@ -269,6 +269,28 @@
           </section>
 
           <section class="section">
+            <div class="section-title"><h2>制作文件保留</h2></div>
+            <div class="notice">
+              只清理超过期限的已完成制作任务记录；头像、人物/场景参考图、用户上传素材和项目配置不会删除。
+            </div>
+            <div class="control-grid two">
+              <label class="checkbox-label">
+                <input id="storageCleanupEnabled" type="checkbox" checked />
+                自动清理过期制作文件
+              </label>
+              <label>
+                保留时长
+                <select id="storageRetentionDays">
+                  <option value="7" selected>7天</option>
+                  <option value="14">14天</option>
+                  <option value="30">30天</option>
+                </select>
+              </label>
+            </div>
+            <p class="form-hint">关闭后不会自动清理；修改保存后对后续批次生效。</p>
+          </section>
+
+          <section class="section">
             <div class="section-title"><h2>AI接口配置</h2></div>
             <div class="control-grid two">
               <label>
