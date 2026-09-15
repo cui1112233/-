@@ -416,13 +416,6 @@ function renderWorkflowConfig(appCfg) {
   $("workflowAutoClassify").checked = workflow.auto_classify_missing !== false;
   $("workflowAutoFetch").checked = workflow.auto_fetch_original !== false;
   $("workflowAutoRewrite").checked = workflow.auto_rewrite_after_fetch !== false;
-  if ($("storageCleanupEnabled")) {
-    $("storageCleanupEnabled").checked = storage.cleanup_enabled !== false;
-  }
-  if ($("storageRetentionDays")) {
-    const retentionDays = Number(storage.retention_days);
-    $("storageRetentionDays").value = [7, 14, 30].includes(retentionDays) ? String(retentionDays) : "7";
-  }
   if ($("sensitiveAiProcessEnabled")) {
     $("sensitiveAiProcessEnabled").checked = appCfg.sensitive_ai?.enabled === true;
   }
@@ -3127,13 +3120,6 @@ function syncFormToAppConfig() {
     high_imitation_mode: $("highImitationMode").value || "auto",
     prompt: $("rewritePrompt").value,
     processing_rule_prompt: $("processingRulePrompt").value,
-  };
-  cfg.storage = {
-    ...(cfg.storage || {}),
-    cleanup_enabled: $("storageCleanupEnabled")?.checked !== false,
-    retention_days: [7, 14, 30].includes(Number($("storageRetentionDays")?.value))
-      ? Number($("storageRetentionDays").value)
-      : 7,
   };
   ensureKnowledgeConfig();
   state.config.knowledge.usage_prompt = $("knowledgeUsagePrompt")?.value || "";

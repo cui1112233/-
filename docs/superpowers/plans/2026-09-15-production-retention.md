@@ -1,14 +1,14 @@
-# 制作文件保留时长设置实施计划
+# 统一制作文件保留策略
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 在小说获取“配置”中提供 7/14/30 天制作任务保留时长，默认启用 7 天清理，并确保头像、参考图和长期用户素材不受影响。
+**Goal:** 在导航栏 `/settings` 提供当前用户统一的制作文件保留时长（7/14/30 天，默认 7 天），覆盖剧本生成、小说获取、小说面板、水货生产、Agent 工作区及后续 TOS 制作产物。只清理已完成且过期的制作产物；头像、人物/场景/道具参考图、用户上传长期素材、项目配置和账号/会话数据永久保留。
 
-**Architecture:** 复用现有 novel-fetch workshop 的 `storage` 策略和批处理清理链路。服务端统一规范化为 `cleanup_enabled` 与 `retention_days`，前端只编辑这两个字段；清理逻辑继续只删除已完成且超过期限的小说获取任务，不触碰头像、人物/场景参考图、用户素材或项目配置。
+**Architecture:** 使用账号配置 `productionRetentionDays` 作为唯一来源；小说获取保留旧 `storage` 字段兼容但不再编辑。服务启动先做一次只读扫描，随后每 24 小时调用本地安全清理器；TOS 通过按用户前缀隔离的可注入适配器接入，不在 Git 保存凭据。
 
 **Tech Stack:** Node.js、现有 Express 路由、原生 legacy batch-rewrite 页面、Node test runner。
 
-**Spec:** 本轮以用户确认的“默认 7 天、可选 14/30 天、只清理制作文件”为需求；TOS 媒体迁移继续作为后续独立阶段，不在本轮写入凭据或切换存储。
+**Spec:** 默认 7 天、可选 14/30 天、清理固定开启；首次正式清理前先执行只读扫描。
 
 ## Global Constraints
 
@@ -19,36 +19,38 @@
 
 ---
 
-### Task 1: 规范化保留策略并补测试
+### Task 1: 全局设置与策略
 
 **Files:**
-- Modify: `lib/novel-fetch-workshop/workflow-policy.js`
-- Create: `lib/novel-fetch-workshop/workflow-policy.test.js`
+- Modify: `lib/shared.js`
+- Modify: `routes/config.js`
+- Modify: `frontend/src/user/pages/SettingsPage.jsx`
+- Create: `routes/config-retention.test.js`
+- Create: `frontend/src/user/pages/settings-retention-source.test.js`
 
-- [ ] 写测试：默认返回 `cleanup_enabled: true` 与 `retention_days: 7`；非法值回退 7；只接受 7、14、30 天。
-- [ ] 运行测试确认当前默认 30/关闭会失败。
-- [ ] 修改规范化逻辑，保留旧配置兼容但把可选范围收敛到 7/14/30。
-- [ ] 运行测试确认通过。
+- [x] `productionRetentionDays` 按用户保存，非法值回退 7，只接受 7/14/30。
+- [x] 设置页增加统一下拉框和中文保护说明。
 
-### Task 2: 在小说获取配置页加入设置
+### Task 2: 本地与 TOS 清理
 
 **Files:**
-- Modify: `frontend/public/batch-rewrite/index.html`
-- Modify: `frontend/public/batch-rewrite/app.js`
-- Create: `frontend/public/batch-rewrite/storage-retention-source.test.js`
+- Modify: `lib/novel-fetch-workshop/v2-batch-executor.js`
+- Modify: `lib/novel-fetch-workshop/v2-compose.js`
+- Modify: `app.js`
+- Modify: `routes/storage.js`
+- Create: `lib/production-retention.js`
+- Create: `lib/production-retention-scheduler.js`
 
-- [ ] 写源码契约测试，要求页面出现“制作文件保留时长”、7/14/30 选项、默认 7 天和只清理制作产物的中文说明。
-- [ ] 运行测试确认当前页面缺少这些控件而失败。
-- [ ] 在“配置”面板加入开关与下拉框，默认选中 7 天，并明确头像、参考图、用户素材不会清理。
-- [ ] 让 `renderWorkflowConfig` 回填 `storage.cleanup_enabled` 和 `storage.retention_days`，让 `syncFormToAppConfig` 保存这两个字段。
-- [ ] 运行源码契约测试。
+- [x] 小说获取移除局部保留控件，批处理优先读取全局配置并兼容旧字段。
+- [x] 本地扫描覆盖制作输出目录，保护长期资产、配置及非终态任务。
+- [x] 启动只读扫描和每日后台清理；提供 `/api/storage/retention-preview`。
+- [x] 提供按用户 TOS 前缀隔离的适配器接口，凭据由 ECS 注入。
 
 ### Task 3: 回归验证
 
 **Files:**
 - No additional files.
 
-- [ ] 运行策略与源码契约测试。
-- [ ] 运行完整 Node 回归测试。
-- [ ] 运行前端构建并检查 `git diff --check`。
-- [ ] 仅汇报已验证的代码范围；不声称已经部署到 ECS 或 TOS。
+- [x] 运行策略、清理、调度器、路由与源码契约测试。
+- [x] 前端构建通过；`git diff --check` 仅受既有 `frontend/dist` 换行/生成文件影响。
+- [ ] ECS/TOS 部署需另行授权和验证，本次不执行。

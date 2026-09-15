@@ -68,6 +68,7 @@ const { createMemberCenterRouter } = require('./routes/member-center');
 const { createAccountRecoveryRouter } = require('./routes/account-recovery');
 const { createTeamAdminRouter } = require('./routes/team-admin');
 const { createAccountAdminRouter } = require('./routes/account-admin');
+const { createProductionRetentionScheduler } = require('./lib/production-retention-scheduler');
 
 const NOVEL_PANEL_MODEL_PATHS = new Set([
   '/analyze', '/optimize-character-copy', '/optimize-character', '/optimize-all-characters',
@@ -90,7 +91,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter, tosCleaner } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -116,6 +117,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   });
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
   const usersDir = path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users');
+  const resolvedProductionRetentionScheduler = createProductionRetentionScheduler({
+    usersDir,
+    configReader: configReader || readConfig,
+    tosCleaner,
+    logger: console
+  });
+  resolvedProductionRetentionScheduler.start();
   const resolvedBatchFactoryV11Scheduler = createBatchFactoryV11Scheduler({
     usersDir,
     submit: async item => {
@@ -260,6 +268,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelHistoryStore = resolvedNovelPanelHistoryStore;
   app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
   app.locals.novelFetchStore = resolvedNovelFetchStore;
+  app.locals.productionRetentionScheduler = resolvedProductionRetentionScheduler;
   app.locals.novelPanelConfig = username => teamConfigReader(username);
   app.locals.resolveRuntimeModel = (username, kind, modelId) => resolveRuntimeModel({ username, kind, modelId, memberStore: resolvedMemberStore, configReader: readConfig });
 

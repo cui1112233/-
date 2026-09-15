@@ -8,18 +8,10 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 
-test('配置页提供制作文件保留设置及中文保护说明', () => {
-  for (const id of ['storageCleanupEnabled', 'storageRetentionDays']) {
-    assert.match(html, new RegExp(`id=["']${id}["']`));
-  }
-  for (const label of ['7天', '14天', '30天', '头像', '参考图']) {
-    assert.match(html, new RegExp(label));
-  }
+test('小说获取不再暴露会互相覆盖的局部保留设置', () => {
+  assert.doesNotMatch(html, /storageCleanupEnabled|storageRetentionDays/);
 });
 
-test('制作文件保留设置会从配置回填并写回 app_config', () => {
-  assert.match(app, /storage\.cleanup_enabled/);
-  assert.match(app, /storage\.retention_days/);
-  assert.match(app, /storageCleanupEnabled/);
-  assert.match(app, /storageRetentionDays/);
+test('小说获取不再读写局部 storage.retention_days', () => {
+  assert.doesNotMatch(app, /storage\.cleanup_enabled|storage\.retention_days|storageCleanupEnabled|storageRetentionDays/);
 });

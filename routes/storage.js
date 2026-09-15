@@ -5,6 +5,7 @@ const path = require('node:path');
 const { apiAuth } = require('../middleware/auth');
 const { getStorageRoot, projectDir, scanStorage, scanDir, FEATURE_SCRIPT, FEATURE_NOVEL_FETCH, FEATURE_NOVEL_ADAPT, FEATURE_PRODUCTION } = require('../lib/storage-root');
 const { historyHasId, historyAppend } = require('./history');
+const { normalizeProductionRetentionDays, planLocalProductionCleanup } = require('../lib/production-retention');
 
 const CATEGORY_DIR = { image: '图片', video: '视频', audio: '配音' };
 
@@ -39,6 +40,14 @@ function createStorageRouter({ auth = apiAuth, getStorageRootFn = getStorageRoot
   router.get('/list', (req, res) => {
     const root = getStorageRootFn(req.username || '');
     res.json(root ? scanStorage(root) : { scriptResults: [], novelFetch: [], novelAdapt: [], projects: [] });
+  });
+
+  // GET /retention-preview — 只读预览当前账号将被清理的制作产物，不执行删除
+  router.get('/retention-preview', (req, res) => {
+    const root = getStorageRootFn(req.username || '');
+    const retentionDays = normalizeProductionRetentionDays(req.query?.days);
+    const plan = planLocalProductionCleanup({ root, retentionDays });
+    res.json({ retentionDays, cutoff: plan.cutoff, candidates: plan.files.map(file => ({ name: file.relativePath, mtimeMs: file.mtimeMs })), skipped: plan.skipped });
   });
 
   // POST /restore — 将本地 <root>/剧本生成/*.md 并入历史索引，并统计小说获取/改编/制作工程文件

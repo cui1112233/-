@@ -1,6 +1,6 @@
 const express = require('express');
 const { apiAuth } = require('../middleware/auth');
-const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, DEFAULT_CONFIG, requestUpstream, collectResponse } = require('../lib/shared');
+const { readConfig, writeConfig, publicConfig, normalizeImageConfig, normalizeVideoConfig, normalizeProductionRetentionDays, DEFAULT_CONFIG, requestUpstream, collectResponse } = require('../lib/shared');
 const { syncAccountAIConfig } = require('./shuihuo-production');
 const { normalizeStorageRoot } = require('../lib/storage-root');
 const { normalizePetConfig } = require('../lib/pet-catalog');
@@ -253,6 +253,7 @@ function createConfigRouter({
     config.tts = normalizeTtsConfig(config.tts);
     config.notifications = normalizeNotifications(config.notifications);
     config.avatar = normalizeAvatar(config.avatar);
+    config.productionRetentionDays = normalizeProductionRetentionDays(config.productionRetentionDays);
     const { member, canManageApi } = apiManagementState(req, memberStore);
     if (!canManageApi) return res.json(managedPublicConfig(config, member));
     return res.json({ ...publicConfig(config), canManageApi: true, managedBy: null });
@@ -261,6 +262,9 @@ function createConfigRouter({
   // POST /api/config — 保存配置
   router.post('/', async (req, res) => {
     const body = req.body;
+    const requestedRetentionDays = Object.prototype.hasOwnProperty.call(body || {}, 'productionRetentionDays')
+      ? normalizeProductionRetentionDays(body.productionRetentionDays)
+      : null;
     if (typeof body?.storageRoot === 'string') {
       const storageRoot = normalizeStorageRoot(body.storageRoot);
       if (storageRoot.error) return res.status(400).json({ error: storageRoot.error });
@@ -272,6 +276,7 @@ function createConfigRouter({
       const nextConfig = {
         ...oldConfig,
         storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
+        productionRetentionDays: requestedRetentionDays ?? normalizeProductionRetentionDays(oldConfig.productionRetentionDays),
         pet: normalizePetConfig(body.pet, oldConfig.pet),
         tts: normalizeTtsConfig(body.tts, oldConfig.tts),
         notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
@@ -286,6 +291,7 @@ function createConfigRouter({
       model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
       apiKey: body.apiKey ? body.apiKey : oldConfig.apiKey,
       storageRoot: typeof body.storageRoot === 'string' ? body.storageRoot : (oldConfig.storageRoot || ''),
+      productionRetentionDays: requestedRetentionDays ?? normalizeProductionRetentionDays(oldConfig.productionRetentionDays),
       image: normalizeImageConfig(body.image, oldConfig.image),
       video: normalizeVideoConfig(body.video, oldConfig.video),
       pet: normalizePetConfig(body.pet, oldConfig.pet),
