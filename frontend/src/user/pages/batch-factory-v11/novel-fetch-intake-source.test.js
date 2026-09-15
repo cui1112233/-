@@ -49,6 +49,20 @@ test('novel fetch gates the initial render until saved choices and login status 
   assert.match(styles, /正在读取当前配置/);
 });
 
+test('novel fetch reuses a short-lived 121 session validation cache', () => {
+  const service = readRepo('lib/novel-fetch-workshop/121-web-submit-service.js');
+  const store = readRepo('lib/novel-fetch-store.js');
+  assert.match(service, /SESSION_VALIDATION_TTL_MS/);
+  assert.match(service, /validatedAt/);
+  assert.match(service, /最近已验证/);
+  assert.match(store, /validatedAt/);
+});
+
+test('novel fetch hydrates configuration and login status in parallel', () => {
+  const app = read('../../../../public/batch-rewrite/app.js');
+  assert.match(app, /Promise\.allSettled\(\[loadConfig\(\), window\.qiantieEnsureWebLoginEnvironment\(\)\]\)/);
+});
+
 test('novel fetch status messages are bridged to the centered parent header', () => {
   const layout = read('../../../../src/shared/layouts/UserLayout.jsx');
   const feedback = read('../../../../public/batch-rewrite/interaction-feedback.js');

@@ -3497,11 +3497,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
   try {
-    await loadConfig();
-    await window.qiantieEnsureWebLoginEnvironment();
-  } catch (_) {
-    // Individual loaders render their own actionable error. The hydration
-    // gate must still close so a failed request cannot leave a blank iframe.
+    await Promise.allSettled([loadConfig(), window.qiantieEnsureWebLoginEnvironment()]);
   } finally {
     document.documentElement.classList.remove("qiantie-novel-fetch-hydrating");
     window.parent?.postMessage({ type: "qiantie:novel-fetch-ready" }, window.location.origin);
