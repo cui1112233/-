@@ -45,6 +45,14 @@ test('startup uses a lightweight bootstrap config and avoids eager full config',
   assert.match(config, /data-tab=\\?\"config/);
 });
 
+test('knowledge tab lazily loads the full config before rendering its libraries', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /async function ensureKnowledgeLoaded\(\)/);
+  assert.match(app, /api\("\/api\/config"\)/);
+  assert.match(app, /knowledge_loaded: true/);
+  assert.match(app, /await ensureKnowledgeLoaded\(\);\s*renderLibraryManager/s);
+});
+
 test('batch rewrite config has user cache and ETag support', () => {
   const routes = read('routes/batch-rewrite.js');
   assert.match(routes, /CONFIG_CACHE_TTL_MS/);

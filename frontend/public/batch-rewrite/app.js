@@ -2606,6 +2606,13 @@ async function loadConfig() {
   renderConfig();
 }
 
+async function ensureKnowledgeLoaded() {
+  if (state.config?.knowledge_loaded) return;
+  const status = $("knowledgeStatus");
+  if (status) status.textContent = "正在读取知识库...";
+  state.config = { ...state.config, ...await api("/api/config"), knowledge_loaded: true };
+}
+
 async function loadTasks() {
   const data = await api("/api/tasks");
   state.allTasks = data.tasks || [];
@@ -3471,7 +3478,15 @@ document.addEventListener("click", async (event) => {
   if (button.classList.contains("tab")) {
     activateTab(button.dataset.tab);
     if (button.dataset.tab === "tasks") await refreshTasksAndSubmitHistory();
-    if (button.dataset.tab === "knowledge") renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
+    if (button.dataset.tab === "knowledge") {
+      try {
+        await ensureKnowledgeLoaded();
+        renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
+      } catch (error) {
+        const status = $("knowledgeStatus");
+        if (status) status.textContent = error.message || "知识库读取失败";
+      }
+    }
     if (button.dataset.tab === "rules") renderRuleEditor();
     if (button.dataset.tab === "logs") await loadRecords();
     return;
