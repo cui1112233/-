@@ -5,6 +5,7 @@ const path = require('node:path');
 const ai = require('../lib/novel-fetch-workshop/ai');
 const classifier = require('../lib/novel-fetch-workshop/classifier');
 const { createConfigStoreSnapshot } = require('../lib/novel-fetch-workshop/v2-batch-executor');
+const { createNovelFetchTaskOps, toV78Task } = require('../lib/novel-fetch-workshop/task-ops');
 
 test('小说获取改文统一解析当前用户选定的中央文本模型', () => {
   const configStore = {
@@ -77,6 +78,34 @@ test('中央文本模型未选择时兼容读取已有旧版文本模型配置',
     apiKey: 'legacy-secret',
     model: 'gemini-3.5-flash-maxthinking'
   });
+});
+
+test('小说获取 AI 判断失败时在任务列表和详情中显示具体中文原因', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
+  assert.match(source, /classify_error/);
+  assert.match(source, /classifyStatusDisplay[\s\S]*classify_error/);
+  assert.match(source, /classifyDetailText[\s\S]*classify_error/);
+  assert.match(source, /分类错误/);
+});
+
+test('小说获取任务接口保留 AI 判断错误原因并在重试时重置为判断中', async () => {
+  assert.equal(toV78Task({ classifyError: 'AI分类配置不可用：文本模型未启用' }).classify_error, 'AI分类配置不可用：文本模型未启用');
+  const updates = [];
+  const taskOps = createNovelFetchTaskOps({
+    accountResolver: (username) => ({ username }),
+    createStore: () => ({
+      getTask: async () => ({ meta: { bookId: 'book-1', bookName: '测试书', platformId: '2', aiCount: 1 } }),
+      updateTaskMeta: async (...args) => updates.push(args),
+    }),
+    tombstones: { has: () => false },
+    parseBooks: () => ({ tasks: [] }),
+    applySavedRules: async () => {},
+    createConfigSnapshot: () => ({})
+  });
+  const payloads = await taskOps.prepareRetryPayloads('tester', ['book-1']);
+  assert.equal(payloads.length, 1);
+  assert.equal(updates[0][2].classifyStatus, 'classifying');
+  assert.equal(updates[0][2].classifyError, '');
 });
 
 test('中央文本模型解析失败时分类器保留任务并返回中文配置原因', async () => {

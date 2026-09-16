@@ -2225,6 +2225,19 @@ function taskStatusText(value, fallback = "") {
   return labels[text] || text || fallback;
 }
 
+function classifyStatusDisplay(task = {}) {
+  const label = taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断");
+  const reason = String(task.classify_error || task.classifyError || "").trim();
+  if (!reason) return escapeHtml(label);
+  return `<span class="task-status-main">${escapeHtml(label)}</span><small class="task-status-reason">分类错误：${escapeHtml(reason)}</small>`;
+}
+
+function classifyDetailText(meta = {}) {
+  const label = taskStatusText(meta.classify_status, "待判断");
+  const reason = String(meta.classify_error || meta.classifyError || "").trim();
+  return reason ? `${label}（分类错误：${reason}）` : label;
+}
+
 function taskDateKey(task) {
   const value = task.updated_at || task.updatedAt || task.created_at || task.createdAt || "";
   const date = new Date(value);
@@ -2303,7 +2316,7 @@ function renderTasks(tasks) {
       <td>${escapeHtml(task.platform_name || "")}</td>
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
-      <td class="${statusClass(task.classify_status)}">${escapeHtml(taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断"))}</td>
+      <td class="${statusClass(task.classify_status)}" title="${escapeHtml(task.classify_error || task.classifyError || "")}">${classifyStatusDisplay(task)}</td>
       <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}</td>
       <td class="${statusClass(task.ai_status)}">${escapeHtml(aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
@@ -2354,7 +2367,7 @@ function renderDetail(data) {
       ${metaItem("平台", `${meta.platform_name || ""} ${meta.platform_id || ""}`)}
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
-      ${metaItem("AI判断", taskStatusText(meta.classify_status))}
+      ${metaItem("AI判断", classifyDetailText(meta))}
       ${metaItem("分类模型", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
       ${metaItem("原文字数", meta.original_chars || 0)}

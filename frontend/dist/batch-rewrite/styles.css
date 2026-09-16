@@ -639,6 +639,29 @@ td.id-cell {
   color: var(--danger);
 }
 
+.task-status-main {
+  display: block;
+}
+
+.task-status-reason {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  max-width: 220px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.status-error .task-status-reason {
+  color: var(--danger);
+}
+
+.status-warn .task-status-reason {
+  color: var(--warn);
+}
+
 .detail-empty,
 .detail-box {
   min-height: 540px;
