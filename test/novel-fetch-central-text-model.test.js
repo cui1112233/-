@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ai = require('../lib/novel-fetch-workshop/ai');
+const classifier = require('../lib/novel-fetch-workshop/classifier');
 const { createConfigStoreSnapshot } = require('../lib/novel-fetch-workshop/v2-batch-executor');
 
 test('小说获取改文统一解析当前用户选定的中央文本模型', () => {
@@ -76,4 +77,43 @@ test('中央文本模型未选择时兼容读取已有旧版文本模型配置',
     apiKey: 'legacy-secret',
     model: 'gemini-3.5-flash-maxthinking'
   });
+});
+
+test('中央文本模型解析失败时分类器保留任务并返回中文配置原因', async () => {
+  const tasks = [{ bookId: '2080000000000000001', bookName: '测试书', style: '', gender: '' }];
+  const configStore = {
+    getAiConfig() {
+      return { text_model_id: 'missing-text-model', ai: {}, ai_assignments: {} };
+    },
+    getStyles() {
+      return ['现代通用'];
+    },
+    resolveRuntimeModel() {
+      throw new Error('文本模型不可用、未配置或尚未启用');
+    }
+  };
+
+  const result = await classifier.classifyMissingRows({ configStore, tasks });
+
+  assert.equal(result.errors.length, 1);
+  assert.equal(tasks[0].classifyStatus, 'waiting_ai_config');
+  assert.equal(tasks[0].classifyError, 'AI分类配置不可用：文本模型不可用、未配置或尚未启用');
+});
+
+test('队列执行器兼容从旧配置的 app_config 节点读取中央文本模型', () => {
+  const calls = [];
+  const configStore = createConfigStoreSnapshot({}, {
+    app_config: { text_model_id: 'custom-gpt-5-4' }
+  }, {
+    resolveRuntimeModel(modelId) {
+      calls.push(modelId);
+      return { modelId: 'gpt-5.4', baseUrl: 'https://api.example/v1', credential: 'secret' };
+    }
+  });
+
+  assert.equal(configStore.getAiConfig().text_model_id, 'custom-gpt-5-4');
+  assert.deepEqual(ai.resolveAiSettings(configStore, 'classifier'), {
+    baseUrl: 'https://api.example/v1', apiKey: 'secret', model: 'gpt-5.4'
+  });
+  assert.deepEqual(calls, ['custom-gpt-5-4']);
 });
