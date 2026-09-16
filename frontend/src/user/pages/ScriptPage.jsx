@@ -165,6 +165,7 @@ export function ScriptPage() {
   const [quickDirectorOptions, setQuickDirectorOptions] = useState({ matchAudio: false });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [sourceAudioDurationSeconds, setSourceAudioDurationSeconds] = useState(null);
+  const [sourceAudioError, setSourceAudioError] = useState('');
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
@@ -306,6 +307,7 @@ export function ScriptPage() {
     sourceAudioUrlRef.current = nextUrl;
     setSourceAudioUrl(nextUrl);
     setSourceAudioDurationSeconds(null);
+    setSourceAudioError('');
   }
 
   function snapshotDraft(values = form.getFieldsValue()) {
@@ -701,6 +703,7 @@ export function ScriptPage() {
     if (!input) return message.warning('请先输入或添加小说原文');
     const requestId = beginRequest('narrate');
     setNarrating(true);
+    setSourceAudioError('');
     dispatchPetState('working', { title: '原文配音正在生成' });
     try {
       const config = await getConfig();
@@ -725,6 +728,7 @@ export function ScriptPage() {
       }
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
+      setSourceAudioError(error.message || '原文配音失败，请检查配音配置后重试');
       message.error(error.message || '原文配音失败');
       dispatchPetState('error', { title: '原文配音生成失败', detail: error.message || '请检查配音模型配置后重试。' });
     } finally {
@@ -1276,6 +1280,17 @@ export function ScriptPage() {
           </div>
 
           <div className="script-instruction-status">当前提取指令：{extractionPresetName}</div>
+          {(sourceAudioUrl || narrating || sourceAudioError) ? (
+            <div className="script-source-audio-card" role="status" aria-live="polite">
+              <div className="script-source-audio-header">
+                <span>当前配音</span>
+                {sourceAudioDurationSeconds ? <span className="script-source-audio-duration">时长 {sourceAudioDurationSeconds} 秒</span> : null}
+              </div>
+              {sourceAudioUrl ? <audio className="script-source-audio" controls src={sourceAudioUrl} /> : null}
+              {narrating ? <div className="script-source-audio-status">正在生成原文配音...</div> : null}
+              {sourceAudioError ? <div className="script-source-audio-error">{sourceAudioError}</div> : null}
+            </div>
+          ) : null}
           {extracting ? <div className="script-generation-stage" role="status">正在提取人物与场景...</div> : null}
           {!extracting && generationStage === 'extracted' ? <div className="script-generation-stage">人物与场景已提取，请检查、编辑或重生后，再点击右侧“生成剧本”。</div> : null}
 
@@ -1359,7 +1374,6 @@ export function ScriptPage() {
           </Space>
         </div>
         <div className="script-output">
-          {sourceAudioUrl && <audio className="script-source-audio" controls src={sourceAudioUrl} />}
           {output ? (
             isShotCardView ? <ShotOutputCards
               cards={shotCards}

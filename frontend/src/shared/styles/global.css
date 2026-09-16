@@ -1358,6 +1358,46 @@ select {
   font-size: 12px;
 }
 
+.script-source-audio-card {
+  display: grid;
+  gap: 7px;
+  margin: -2px 2px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 10px;
+  background: var(--legacy-card);
+  color: var(--legacy-text);
+}
+
+.script-source-audio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.script-source-audio-duration {
+  color: var(--legacy-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.script-source-audio-card .script-source-audio {
+  width: 100%;
+  margin: 0;
+}
+
+.script-source-audio-status,
+.script-source-audio-error {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.script-source-audio-status { color: var(--legacy-muted); }
+.script-source-audio-error { color: #ff6b6b; }
+
 .script-constraint-button {
   flex: 0 0 auto;
 }
