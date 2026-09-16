@@ -70,6 +70,9 @@ function syncGunpingMaterialCount() {
 }
 
 async function api(path, options = {}) {
+  if (window.QiantieNovelFetchRuntime && !options.bypassRuntime) {
+    return window.QiantieNovelFetchRuntime.api(path, options);
+  }
   const legacyPath = String(path || "").replace(/^\/api/, "");
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem("auth_token") || "";
@@ -1774,11 +1777,11 @@ async function saveVersionConfigAuthority() {
     platforms: JSON.parse($("platformsText").value),
     styles: JSON.parse($("stylesText").value),
     sensitive: state.config.sensitive || { groups: [] },
-    knowledge: state.config.knowledge || {},
+    ...(state.config.knowledge_loaded ? { knowledge: state.config.knowledge || {} } : {}),
   };
   const data = await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
   if (!data?.config) throw new Error("版本配置保存失败：服务器没有返回保存结果");
-  state.config = data.config;
+  state.config = { ...data.config, knowledge_loaded: true };
   try { localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState)); } catch (_) {}
   renderConfig();
   return data.config;
@@ -2553,7 +2556,8 @@ function escapeHtml(value) {
 }
 
 async function loadConfig() {
-  state.config = await api("/api/config");
+  state.config = await api("/api/bootstrap");
+  state.config.knowledge_loaded = state.config.knowledge_loaded === true;
   renderConfig();
 }
 
@@ -3202,13 +3206,13 @@ async function saveConfig(throwOnError = false) {
       platforms: JSON.parse($("platformsText").value),
       styles: JSON.parse($("stylesText").value),
       sensitive: state.config.sensitive || { groups: [] },
-      knowledge: state.config.knowledge || {},
+      ...(state.config.knowledge_loaded ? { knowledge: state.config.knowledge || {} } : {}),
     };
     const data = await api("/api/config", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    state.config = data.config;
+    state.config = { ...data.config, knowledge_loaded: true };
     renderConfig();
     if (activePresetId && $("presetSelect")) {
       $("presetSelect").value = activePresetId;

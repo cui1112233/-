@@ -1,8 +1,6 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
   const LAYOUT_ID = 'v78ImageAlignedStyles';
-  const POLL_MS = 30000;
-  let pollTimer = null;
   let mounted = false;
 
   const $ = id => document.getElementById(id);
@@ -21,6 +19,7 @@
   }
 
   async function api(path) {
+    if (window.QiantieNovelFetchRuntime) return window.QiantieNovelFetchRuntime.api(path);
     const response = await fetch(`${API_ROOT}${path}`, { headers: headers() });
     const body = await response.text();
     let data = {};
@@ -510,6 +509,8 @@
   }
 
   function boot() {
+    if (window.__qiantieNovelFetchLayoutBooted) return;
+    window.__qiantieNovelFetchLayoutBooted = true;
     let attempts = 0;
     const waiter = window.setInterval(() => {
       mountImageAlignedLayout();
@@ -517,7 +518,6 @@
       if (mounted || attempts >= 40) {
         window.clearInterval(waiter);
         void refreshImageLayoutData();
-        if (!pollTimer) pollTimer = window.setInterval(refreshImageLayoutData, POLL_MS);
       }
     }, 200);
   }

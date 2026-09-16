@@ -20,6 +20,7 @@ const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
 const PROCESS_JOB_LIMIT = 20;
+const CONFIG_CACHE_TTL_MS = 5000;
 
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
@@ -302,11 +303,31 @@ function createBatchRewriteRouter({
   router.use(auth);
   const knowledge = knowledgeStore || getKnowledgeStore(systemDir);
   const opening = openingStore || createOpeningStore({ systemDir, styles: [] });
+  const configCache = new Map();
+
+  function configCacheKey(req) { return String(req.username || req.auth?.username || 'anonymous'); }
+  function invalidateConfig(req) { configCache.delete(configCacheKey(req)); }
+  async function getCachedConfig(req, tasks) {
+    const key = configCacheKey(req);
+    const now = Date.now();
+    const cached = configCache.get(key);
+    if (cached?.value && cached.expiresAt > now) return cached.value;
+    if (cached?.promise) return cached.promise;
+    const promise = Promise.resolve(tasks.getConfig()).then(value => {
+      configCache.set(key, { value, expiresAt: Date.now() + CONFIG_CACHE_TTL_MS });
+      return value;
+    }).finally(() => {
+      const current = configCache.get(key);
+      if (current?.promise === promise) configCache.delete(key);
+    });
+    configCache.set(key, { promise });
+    return promise;
+  }
 
   async function resources(req) {
     if (tasksFactory) return tasksFactory(req);
     const tasks = createMySQLWorkshopStore({ targetBaseUrl, bridgeSecret, account: req.auth?.account });
-    const savedConfig = await tasks.getConfig();
+    const savedConfig = await getCachedConfig(req, tasks);
     const savedKnowledge = object(savedConfig.knowledge);
     const fallbackKnowledge = {};
     if (!Object.keys(savedKnowledge).length) {
@@ -325,14 +346,14 @@ function createBatchRewriteRouter({
     };
   }
 
-  async function readConfig(req) {
+  async function readConfig(req, { lightweight = false } = {}) {
     const { tasks, config, configStore: store } = await resources(req);
     const current = object(config || store.getConfig());
     const platforms = Array.isArray(current.platforms) ? current.platforms : (store.getPlatforms?.() || PLATFORMS);
     const styles = Array.isArray(current.styles) ? current.styles : (store.getStyles?.() || STYLE_NAMES);
     const savedKnowledge = object(current.knowledge);
-    const knowledgeData = Object.keys(savedKnowledge).length ? savedKnowledge : {};
-    if (!Object.keys(knowledgeData).length) {
+    const knowledgeData = lightweight ? {} : (Object.keys(savedKnowledge).length ? savedKnowledge : {});
+    if (!lightweight && !Object.keys(knowledgeData).length) {
       for (const kind of LEGACY_KINDS) knowledgeData[kind] = knowledge.list(kind);
     }
     const appConfig = {
@@ -357,7 +378,8 @@ function createBatchRewriteRouter({
         sensitive: current.sensitive || { groups: [] },
         web_submit: publicWebSubmit(current.web_submit),
         knowledge: knowledgeData,
-        knowledge_summary: summarizeKnowledge(knowledgeData),
+        knowledge_loaded: !lightweight,
+        knowledge_summary: lightweight ? {} : summarizeKnowledge(knowledgeData),
         parse_modes: parse.PARSE_MODES.map(id => ({ id, name: id })),
         column_presets: parse.COLUMN_PRESETS,
         work_form: current.work_form || {}
@@ -542,6 +564,7 @@ function createBatchRewriteRouter({
       ...(body.knowledge ? { knowledge: body.knowledge } : {})
     };
     await tasks.saveConfig(next);
+    invalidateConfig(req);
     return readConfig(req);
   }
 
@@ -1038,7 +1061,23 @@ function createBatchRewriteRouter({
     return { ...plan, success_groups: successGroups, accepted_groups: acceptedGroups, failed_groups: failedGroups, tasks: await listTasks(req) };
   }
 
-  router.get('/config', async (req, res) => { try { res.json((await readConfig(req)).response); } catch (error) { res.status(500).json({ error: error.message }); } });
+  function sendConfigResponse(req, res, payload) {
+    const body = JSON.stringify(payload);
+    const etag = `"${crypto.createHash('sha1').update(body).digest('hex')}"`;
+    res.setHeader('Cache-Control', 'private, max-age=5, must-revalidate');
+    res.setHeader('ETag', etag);
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
+    return res.type('json').send(body);
+  }
+
+  router.get('/bootstrap', async (req, res) => {
+    try { return sendConfigResponse(req, res, (await readConfig(req, { lightweight: true })).response); }
+    catch (error) { return res.status(500).json({ error: error.message }); }
+  });
+  router.get('/config', async (req, res) => {
+    try { return sendConfigResponse(req, res, (await readConfig(req)).response); }
+    catch (error) { return res.status(500).json({ error: error.message }); }
+  });
   router.post('/config', async (req, res) => { try { res.json({ ok: true, config: (await saveConfig(req, req.body)).response }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/work-form', async (req, res) => { try { const state = object(req.body?.state); const { tasks, current } = await readConfig(req); await tasks.saveConfig({ ...current, work_form: state }); res.json({ ok: true, state }); } catch (error) { res.status(400).json({ error: error.message }); } });
 

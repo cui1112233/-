@@ -15,6 +15,7 @@
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
   }
   async function v2Api(path, options = {}) {
+    if (window.QiantieNovelFetchRuntime) return window.QiantieNovelFetchRuntime.api(path, options);
     const response = await fetch(`${API_ROOT}${path}`, { ...options, headers: tokenHeaders(options.headers || {}) });
     const text = await response.text();
     let data = {};
@@ -458,6 +459,22 @@
     try { const data = await v2Api('/batches/current'); renderCurrentBatch(data.batch || null); }
     catch (error) { setText('v78CurrentBatchMeta', error.message); }
   }
+
+  async function refreshAllData() {
+    const results = await Promise.allSettled([
+      loadCurrentBatch(),
+      typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()
+    ]);
+    const tasks = typeof state === 'object' && Array.isArray(state.tasks) ? state.tasks : [];
+    const batch = byId('v78CurrentBatchMeta')?.textContent || '';
+    const active = tasks.some(task => window.QiantieNovelFetchRuntime?.isActiveTask(task))
+      || /(排队|处理中|执行中|等待|running|processing|queued)/i.test(batch);
+    if (window.QiantieNovelFetchRuntime) {
+      if (active) window.QiantieNovelFetchRuntime.startPolling(refreshAllData);
+      else window.QiantieNovelFetchRuntime.stopPolling();
+    }
+    return results;
+  }
   async function stopCurrentBatch() {
     try {
       await v2Api('/process/queue/stop', { method: 'POST', body: '{}' });
@@ -583,13 +600,15 @@
   }
 
   function boot() {
+    if (window.__qiantieNovelFetchV2Booted) return;
+    window.__qiantieNovelFetchV2Booted = true;
     injectStyles();
     installLegacyTaskListBridge();
     mountProcessingControls();
     mountCurrentBatch();
     mountTaskHistory();
     enforceSourceAlignedUi();
-    void loadCurrentBatch();
+    void refreshAllData();
     let attempts = 0;
     const timer = window.setInterval(() => {
       installLegacyTaskListBridge();
@@ -600,7 +619,7 @@
       attempts += 1;
       if (attempts >= 24) window.clearInterval(timer);
     }, 250);
-    if (!currentBatchTimer) currentBatchTimer = window.setInterval(loadCurrentBatch, 30000);
+    currentBatchTimer = null;
   }
 
   installLegacyTaskListBridge();

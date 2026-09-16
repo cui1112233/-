@@ -42,26 +42,9 @@
   renderTasks = function renderTasksWithVisibleLatest(tasks) {
     const list = Array.isArray(tasks) ? tasks : [];
     const selectedDate = state.taskDate || (typeof todayDateKey === 'function' ? todayDateKey() : '');
-    const hasSelectedDate = selectedDate && list.some((task) => taskDateKey(task) === selectedDate);
-    let autoSwitched = false;
-
-    if (list.length && !hasSelectedDate) {
-      const latestDate = latestTaskDate(list);
-      if (latestDate) {
-        state.taskDate = latestDate;
-        const filter = document.getElementById('taskDateFilter');
-        if (filter) filter.value = latestDate;
-        autoSwitched = true;
-      }
-    }
-
     originalRenderTasks(list);
 
     if (state.tasks?.length) {
-      if (autoSwitched) {
-        const status = document.getElementById('batchStatus');
-        if (status) status.textContent = `已自动切换到最新任务日期 ${state.taskDate}，显示 ${state.tasks.length} 条任务。`;
-      }
       return;
     }
 
@@ -70,6 +53,9 @@
       return;
     }
 
-    appendEmptyState(`当前日期 ${state.taskDate || '-'} 没有任务。已有 ${list.length} 条历史任务，请调整日期筛选。`);
+    const currentBatch = state.viewMode === 'current' && state.currentBatchIds?.size;
+    appendEmptyState(currentBatch
+      ? '当前批次暂无可显示任务。'
+      : `当前日期 ${state.taskDate || '-'} 没有任务。已有 ${list.length} 条历史任务，请调整日期筛选。`);
   };
 })();

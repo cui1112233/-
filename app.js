@@ -301,7 +301,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
       }
     }));
     app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite'), {
-      setHeaders(res) {
+      setHeaders(res, filePath) {
+        if (/\.(?:js|css)$/i.test(String(filePath || ''))) {
+          res.setHeader('Cache-Control', 'public, max-age=300');
+          return;
+        }
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       }
     }));

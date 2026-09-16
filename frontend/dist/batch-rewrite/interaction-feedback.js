@@ -40,6 +40,7 @@
         pointer-events: none;
       }
       .novel-fetch-feedback-toast {
+        display: none !important;
         box-sizing: border-box;
         border-radius: 10px;
         padding: 12px 14px;
@@ -84,9 +85,29 @@
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 600);
   }
 
+  function headerMessage(value) {
+    const lines = String(value || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const latest = lines[lines.length - 1] || '';
+    return normalizeMessage(latest.replace(/^\[[^\]]+\]\s*/, '')).slice(0, 140);
+  }
+
+  function publishParentStatus(message, type = 'info') {
+    const text = headerMessage(message);
+    if (!text || !window.parent || window.parent === window) return;
+    const allowed = new Set(['info', 'working', 'success', 'warning', 'error']);
+    window.parent.postMessage({
+      type: 'qiantie:novel-fetch-status',
+      text,
+      tone: allowed.has(type) ? type : 'info'
+    }, window.location.origin);
+  }
+
+  window.qiantiePublishNovelFetchStatus = publishParentStatus;
+
   function showToast(message, type = 'info', durationMs) {
     const text = normalizeMessage(message);
     if (!text) return;
+    publishParentStatus(text, type);
 
     const now = Date.now();
     const key = `${type}:${text}`;
@@ -136,6 +157,7 @@
 
   function classifyStatus(text) {
     if (!text) return null;
+    if (/处理完成/.test(text) && !/(失败|错误|异常|超时)\s*[：:]?\s*[1-9]\d*/.test(text)) return 'success';
     if (errorPattern.test(text)) return 'error';
     if (successPattern.test(text)) return 'success';
     return 'info';
@@ -146,6 +168,7 @@
     const text = normalizeMessage(element.textContent);
     if (!text || text === '-' || text === '—') return;
     const type = classifyStatus(text);
+    publishParentStatus(text, type);
     if (!type) return;
     if (type === 'error') {
       clearBusy();

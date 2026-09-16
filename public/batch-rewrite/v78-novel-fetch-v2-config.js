@@ -9,6 +9,7 @@
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
   }
   async function v2Api(path, options = {}) {
+    if (window.QiantieNovelFetchRuntime) return window.QiantieNovelFetchRuntime.api(path, options);
     const response = await fetch(`${API_ROOT}${path}`, { ...options, headers: tokenHeaders(options.headers || {}) });
     const text = await response.text();
     let data = {};
@@ -148,6 +149,9 @@
     try {
       setStatus('正在读取...');
       const data = await v2Api('/config');
+      if (typeof state === 'object' && data && data.app_config) {
+        state.config = { ...(state.config || {}), ...data, knowledge_loaded: true };
+      }
       renderAdvancedConfig(object(data.app_config));
       setStatus('已读取服务端配置');
     } catch (error) {
@@ -198,10 +202,15 @@
   }
 
   function boot() {
+    if (window.__qiantieNovelFetchConfigBooted) return;
+    window.__qiantieNovelFetchConfigBooted = true;
     mountAdvancedConfigPanel();
     ensureSensitiveFixSelector();
     installSensitiveFixLegacyGuard();
-    void loadAdvancedConfig();
+    document.addEventListener('click', event => {
+      const tab = event.target.closest?.('.tab[data-tab="config"]');
+      if (tab) void loadAdvancedConfig();
+    }, true);
     let attempts = 0;
     const timer = window.setInterval(() => {
       mountAdvancedConfigPanel();

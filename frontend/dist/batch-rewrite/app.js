@@ -1,6 +1,9 @@
+document.documentElement.classList.add("qiantie-novel-fetch-hydrating");
+
 const state = {
   config: null,
   tasks: [],
+  allTasks: [],
   selectedId: "",
   selectedIds: new Set(),
   sensitiveProcessingIds: new Set(),
@@ -8,6 +11,9 @@ const state = {
   pendingOpeningItem: null,
   activeProcessJobId: "",
   taskDate: "",
+  currentBatchIds: new Set(),
+  currentBatchDate: "",
+  viewMode: "current",
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -64,6 +70,9 @@ function syncGunpingMaterialCount() {
 }
 
 async function api(path, options = {}) {
+  if (window.QiantieNovelFetchRuntime && !options.bypassRuntime) {
+    return window.QiantieNovelFetchRuntime.api(path, options);
+  }
   const legacyPath = String(path || "").replace(/^\/api/, "");
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem("auth_token") || "";
@@ -189,6 +198,8 @@ function saveWorkFormState() {
 }
 
 async function saveWorkFormStateNow() {
+  clearTimeout(workFormSaveTimer);
+  workFormSaveTimer = null;
   const formState = collectWorkFormState();
   try {
     localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState));
@@ -199,6 +210,10 @@ async function saveWorkFormStateNow() {
     method: "POST",
     body: JSON.stringify({ state: formState }),
   }).catch(() => {});
+}
+
+function persistWorkFormChoiceNow() {
+  void saveWorkFormStateNow();
 }
 
 function newerWorkFormState(localState, serverState) {
@@ -275,17 +290,17 @@ function restoreWorkFormState() {
 function bindWorkFormPersistence() {
   for (const id of ["platformSelect"]) {
     const element = $(id);
-    if (element) element.addEventListener("change", saveWorkFormState);
+    if (element) element.addEventListener("change", persistWorkFormChoiceNow);
   }
   for (const id of ["inputText"]) {
     const element = $(id);
     if (element) element.addEventListener("input", saveWorkFormState);
   }
   const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
-  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
+  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", persistWorkFormChoiceNow);
   const persistVersionSelection = event => {
     if (!event.target.matches('.process-version, [id^="processAiMethod"], #v78TargetVersions input, [id^="v78RunAiMethod"]')) return;
-    saveWorkFormState();
+    persistWorkFormChoiceNow();
     updateVersionConfigSummary();
   };
   document.addEventListener('change', persistVersionSelection);
@@ -404,6 +419,7 @@ function renderWorkflowConfig(appCfg) {
   const workflow = appCfg.workflow || {};
   const fetch = appCfg.fetch || {};
   const rewrite = appCfg.rewrite || {};
+  const storage = appCfg.storage || {};
   $("workflowAutoClassify").checked = workflow.auto_classify_missing !== false;
   $("workflowAutoFetch").checked = workflow.auto_fetch_original !== false;
   $("workflowAutoRewrite").checked = workflow.auto_rewrite_after_fetch !== false;
@@ -1618,7 +1634,11 @@ async function openWebLoginDialog() {
         result.textContent = "登录批量后台成功";
         if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
       } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
-      finally { $("webLoginSubmit").disabled = false; }
+      finally {
+        const passwordInput = $("webLoginPassword");
+        if (passwordInput) passwordInput.value = "";
+        $("webLoginSubmit").disabled = false;
+      }
     });
   }
   $("webLoginUsername").value = state.config?.web_submit?.username || "";
@@ -1757,11 +1777,11 @@ async function saveVersionConfigAuthority() {
     platforms: JSON.parse($("platformsText").value),
     styles: JSON.parse($("stylesText").value),
     sensitive: state.config.sensitive || { groups: [] },
-    knowledge: state.config.knowledge || {},
+    ...(state.config.knowledge_loaded ? { knowledge: state.config.knowledge || {} } : {}),
   };
   const data = await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
   if (!data?.config) throw new Error("版本配置保存失败：服务器没有返回保存结果");
-  state.config = data.config;
+  state.config = { ...data.config, knowledge_loaded: true };
   try { localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState)); } catch (_) {}
   renderConfig();
   return data.config;
@@ -2180,16 +2200,42 @@ function taskDateKey(task) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function dateKeyFromValue(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function todayDateKey() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function setCurrentBatchFromResult(result = {}, timestamp = "") {
+  const ids = Array.isArray(result.current_batch_ids)
+    ? result.current_batch_ids.map(id => String(id || "")).filter(Boolean)
+    : [];
+  const batchDate = dateKeyFromValue(timestamp) || todayDateKey();
+  state.currentBatchDate = batchDate === todayDateKey() ? batchDate : todayDateKey();
+  state.currentBatchIds = batchDate === todayDateKey() ? new Set(ids) : new Set();
+  state.viewMode = "current";
+  state.taskDate = state.currentBatchDate;
+}
+
+function currentTaskList(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const selectedDate = state.taskDate || todayDateKey();
+  if (state.viewMode === "current" && selectedDate === state.currentBatchDate && state.currentBatchIds.size) {
+    return list.filter(task => state.currentBatchIds.has(String(task.id || task.book_id || "")));
+  }
+  return list.filter(task => taskDateKey(task) === selectedDate);
 }
 
 function renderTasks(tasks) {
   const selectedDate = state.taskDate || todayDateKey();
   state.taskDate = selectedDate;
   if ($("taskDateFilter")) $("taskDateFilter").value = selectedDate;
-  state.tasks = (tasks || []).filter((task) => taskDateKey(task) === selectedDate);
+  state.tasks = currentTaskList(tasks);
   const visibleIds = new Set(state.tasks.map((task) => String(task.id || "")));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => visibleIds.has(id)));
   const body = $("tasksBody");
@@ -2294,7 +2340,7 @@ function renderDetail(data) {
     <div class="actions">
       <button id="detailPrevBtn" ${adjacentTaskId(-1) ? "" : "disabled"}>上一条</button>
       <button id="detailNextBtn" ${adjacentTaskId(1) ? "" : "disabled"}>下一条</button>
-      <button id="detailCloseBtn">关闭</button>
+      <button id="detailCloseBtn" type="button">关闭</button>
       <button id="detailFetchBtn">重新抓原文</button>
       <button id="detailAiBtn">生成AI文案</button>
       <button id="detailTraceBtn">规则追踪</button>
@@ -2307,7 +2353,7 @@ function renderDetail(data) {
     </div>
     ${aiBlocks}
   `;
-  $("detailCloseBtn").onclick = closeTaskDetail;
+  $("detailCloseBtn").onclick = (event) => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); };
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
@@ -2510,14 +2556,18 @@ function escapeHtml(value) {
 }
 
 async function loadConfig() {
-  state.config = await api("/api/config");
+  state.config = await api("/api/bootstrap");
+  state.config.knowledge_loaded = state.config.knowledge_loaded === true;
   renderConfig();
 }
 
 async function loadTasks() {
   const data = await api("/api/tasks");
-  renderTasks(data.tasks || []);
-  $("summaryText").textContent = `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
+  state.allTasks = data.tasks || [];
+  renderTasks(state.allTasks);
+  $("summaryText").textContent = state.viewMode === "current"
+    ? `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`
+    : `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
 }
 
 async function refreshTasksAndSubmitHistory() {
@@ -2628,7 +2678,22 @@ async function restoreLatestProcessJob() {
     const data = await api("/api/process/jobs/latest");
     const job = data.latest || {};
     if (!job.id) {
-      if (!box.textContent.trim()) box.textContent = "暂无处理记录。";
+      box.textContent = "暂无正在处理的任务。";
+      return;
+    }
+    if (job.status === "done" && Array.isArray(job.result?.current_batch_ids)) {
+      setCurrentBatchFromResult(job.result, job.completed_at || job.updated_at || job.started_at);
+      renderTasks(state.allTasks);
+      $("summaryText").textContent = `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`;
+    } else if (job.status !== "running") {
+      setCurrentBatchFromResult({}, new Date().toISOString());
+      renderTasks(state.allTasks);
+      $("summaryText").textContent = `${state.taskDate} 当前批次暂无任务；历史任务请切换查看日期`;
+    }
+    // A completed job is represented by the current-batch view above. Do not
+    // replay its old summary into the live status area on every page entry.
+    if (job.status !== "running") {
+      box.textContent = "暂无正在处理的任务。";
       return;
     }
     state.activeProcessJobId = job.id;
@@ -2670,6 +2735,7 @@ async function processInput() {
   }
   button.disabled = true;
   try {
+    setCurrentBatchFromResult({}, new Date().toISOString());
     await saveWorkFormStateNow();
     await saveWebSubmitConfig(true);
     $("processResult").textContent = [
@@ -2695,7 +2761,10 @@ async function processInput() {
     $("processResult").textContent = renderProcessJob(job);
     const result = await pollProcessJob(job.id);
     $("processResult").textContent = renderProcessResult(result);
-    renderTasks(result.tasks || []);
+    setCurrentBatchFromResult(result, new Date().toISOString());
+    state.allTasks = result.tasks || state.allTasks;
+    renderTasks(state.allTasks);
+    $("summaryText").textContent = `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`;
   } catch (error) {
     $("processResult").textContent = error.message;
   } finally {
@@ -3011,9 +3080,44 @@ async function reprocessSensitive(ids, restoreFromBackup) {
     }
   }
   const summary = `${label}完成：已处理 ${processed} 个${restoreFromBackup ? `，已恢复 ${restored} 个` : ""}，失败 ${failed} 个`;
-  setBatchStatus(firstError ? `${summary}（${firstError}）` : summary);
-  showBatchToast(firstError || failed ? `${summary}${firstError ? `：${firstError}` : ""}` : summary, failed ? "warning" : "success");
+  const detail = firstError ? `${summary}：${firstError}` : summary;
+  setBatchStatus(detail);
+  const processResult = $("processResult");
+  if (processResult) processResult.textContent = detail;
   if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
+}
+
+// The V2 login hotfix is loaded after this legacy client. Both layers need the
+// same environment result, but must never probe the Browser Worker twice in
+// parallel during a page switch (the second result used to overwrite a good
+// session with a transient timeout).
+window.qiantieEnsureWebLoginEnvironment = function qiantieEnsureWebLoginEnvironment() {
+  if (window.__qiantieWebLoginEnvironmentPromise) return window.__qiantieWebLoginEnvironmentPromise;
+  window.__qiantieWebLoginEnvironmentPromise = api("/api/web-submit/environment")
+    .then(environment => {
+      state.webLoginSession = environment?.ok === true;
+      renderWebLoginStatus(state.config?.web_submit || {});
+      return environment;
+    })
+    .catch(error => {
+      state.webLoginSession = false;
+      renderWebLoginStatus(state.config?.web_submit || {});
+      throw error;
+    });
+  return window.__qiantieWebLoginEnvironmentPromise;
+};
+
+async function updateSelectedAiCount() {
+  const ids = selectedTaskIds();
+  const count = Number($("batchAiCount")?.value || 1);
+  if (!ids.length) return setBatchStatus("先选择任务");
+  if (!Number.isInteger(count) || count < 1 || count > 20) return setBatchStatus("AI数量需为 1 到 20");
+  setBatchStatus("正在调整 AI 数量...");
+  try {
+    const result = await api("/api/tasks/batch-ai-count", { method: "POST", body: JSON.stringify({ ids, ai_count: count }) });
+    setBatchStatus(`已调整 ${result.updated || 0} 个任务的 AI 数量为 ${count}`);
+    await refreshTasksAndSubmitHistory();
+  } catch (error) { setBatchStatus(error.message); }
 }
 
 async function startSensitiveProcessing() {
@@ -3102,13 +3206,13 @@ async function saveConfig(throwOnError = false) {
       platforms: JSON.parse($("platformsText").value),
       styles: JSON.parse($("stylesText").value),
       sensitive: state.config.sensitive || { groups: [] },
-      knowledge: state.config.knowledge || {},
+      ...(state.config.knowledge_loaded ? { knowledge: state.config.knowledge || {} } : {}),
     };
     const data = await api("/api/config", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    state.config = data.config;
+    state.config = { ...data.config, knowledge_loaded: true };
     renderConfig();
     if (activePresetId && $("presetSelect")) {
       $("presetSelect").value = activePresetId;
@@ -3340,6 +3444,7 @@ document.addEventListener("change", (event) => {
   if (target.id === "sensitiveGroupSelect" || target.id === "sensitiveRuleSelect") renderSensitiveRuleEditor();
   if (target.id === "ruleItemSelect") renderRuleEditor(Number(target.value || 0));
   if (target.id === "taskDateFilter") {
+    state.viewMode = "date";
     state.taskDate = target.value || todayDateKey();
     void loadTasks();
   }
@@ -3404,7 +3509,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
-  $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskTodayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskPrevDayBtn").onclick = async () => { state.viewMode = "date"; const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() - 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskNextDayBtn").onclick = async () => { state.viewMode = "date"; const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() + 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskDefaultViewBtn").onclick = async () => { state.viewMode = "current"; state.taskDate = state.currentBatchDate || todayDateKey(); await refreshTasksAndSubmitHistory(); };
   $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;
   $("clearSelectedBtn").onclick = clearSelectedTasks;
@@ -3414,6 +3522,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
   $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;
+  $("submitTaskAllBtn").onclick = () => void submitWebSubmit("all");
+  $("updateAiCountSelectedBtn").onclick = updateSelectedAiCount;
   $("deleteSelectedBtn").onclick = () => batchDelete("selected");
   $("deleteFailedBtn").onclick = () => batchDelete("failed");
   $("deleteAllBtn").onclick = () => batchDelete("all");
@@ -3448,14 +3558,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
-  await loadConfig();
-  void (async () => {
-    try {
-      const environment = await api("/api/web-submit/environment");
-      state.webLoginSession = environment.ok === true;
-      renderWebLoginStatus(state.config?.web_submit || {});
-    } catch (_) { state.webLoginSession = false; renderWebLoginStatus(state.config?.web_submit || {}); }
-  })();
-  await loadTasks();
+  // 121 环境验证可能触发 Browser Worker，最慢时会等待超时。它只影响
+  // 提交能力，不应阻塞小说获取工作台首次进入；配置和任务先完成后立即展示。
+  void window.qiantieEnsureWebLoginEnvironment().catch(error => {
+    setBatchStatus(error?.message || "121 登录状态检查失败");
+  });
+  try {
+    await Promise.allSettled([loadConfig(), loadTasks()]);
+  } finally {
+    document.documentElement.classList.remove("qiantie-novel-fetch-hydrating");
+    window.parent?.postMessage({ type: "qiantie:novel-fetch-ready" }, window.location.origin);
+  }
   await restoreLatestProcessJob();
 });

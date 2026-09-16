@@ -102,74 +102,6 @@
     return originalSaveWebSubmitConfig(silent);
   };
 
-  function bindSafeLoginSubmit(dialog) {
-    if (!dialog || dialog.dataset.qiantieSafeLoginBound === '1') return;
-    dialog.dataset.qiantieSafeLoginBound = '1';
-
-    dialog.addEventListener('submit', async event => {
-      if (event.submitter?.id !== 'webLoginSubmit') return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      const result = document.getElementById('webLoginResult');
-      const submit = document.getElementById('webLoginSubmit');
-      if (submit) submit.disabled = true;
-
-      try {
-        if (!(await ensureServerConfig())) {
-          if (result) result.textContent = `${state.configLoadError || '小说获取配置加载失败'} 未发送 121 账号密码。`;
-          return;
-        }
-
-        const username = String(document.getElementById('webLoginUsername')?.value || '').trim();
-        const password = String(document.getElementById('webLoginPassword')?.value || '');
-        if (!username || !password) throw new Error('请输入 121 账号和密码');
-
-        const currentWebSubmit = state.config?.web_submit || {};
-        const settings = { ...currentWebSubmit, username, password };
-        if (result) result.textContent = '正在保存登录信息...';
-
-        const saved = await api('/api/web-submit/config', {
-          method: 'POST',
-          body: JSON.stringify({ settings })
-        });
-        state.config = {
-          ...(state.config || {}),
-          web_submit: saved?.settings || { ...currentWebSubmit, username, password: '', password_masked: true }
-        };
-
-        if (result) result.textContent = '正在验证 121 登录会话...';
-        const check = await api('/api/web-submit/test-visible', {
-          method: 'POST',
-          body: JSON.stringify({ mode: 'all', ids: [], force: true })
-        });
-        state.webLoginSession = check?.ok === true;
-        state.config = {
-          ...(state.config || {}),
-          web_submit: {
-            ...(state.config?.web_submit || {}),
-            username,
-            password: '',
-            password_masked: state.webLoginSession || Boolean(state.config?.web_submit?.password_masked)
-          }
-        };
-        renderWebLoginStatus(state.config?.web_submit || {});
-
-        if (!state.webLoginSession) throw new Error('121 登录会话验证失败');
-        if (result) result.textContent = '登录验证成功';
-        window.setTimeout(() => dialog.close(), 500);
-      } catch (error) {
-        state.webLoginSession = false;
-        renderWebLoginStatus(state.config?.web_submit || {});
-        if (result) result.textContent = error?.message || '登录验证失败';
-      } finally {
-        const passwordInput = document.getElementById('webLoginPassword');
-        if (passwordInput) passwordInput.value = '';
-        if (submit) submit.disabled = false;
-      }
-    }, true);
-  }
-
   openWebLoginDialog = async function safeOpenWebLoginDialog() {
     if (!(await ensureServerConfig())) {
       if (typeof setSiteSubmitStatus === 'function') {
@@ -181,12 +113,9 @@
     let dialog = document.getElementById('webLoginDialog');
     if (!dialog) {
       await originalOpenWebLoginDialog();
-      dialog = document.getElementById('webLoginDialog');
-      bindSafeLoginSubmit(dialog);
       return;
     }
 
-    bindSafeLoginSubmit(dialog);
     const usernameInput = document.getElementById('webLoginUsername');
     const passwordInput = document.getElementById('webLoginPassword');
     if (usernameInput) usernameInput.value = state.config?.web_submit?.username || '';
@@ -194,34 +123,7 @@
     if (!dialog.open) dialog.showModal();
   };
 
-  const staticLoginDialog = document.getElementById('webLoginDialog');
-  if (staticLoginDialog) bindSafeLoginSubmit(staticLoginDialog);
-
-  void (async () => {
-    if (state.config) {
-      state.configLoadError = '';
-      return;
-    }
-
-    const restored = await ensureServerConfig();
-    if (!restored) return;
-
-    try {
-      const environment = await api('/api/web-submit/environment');
-      state.webLoginSession = environment?.ok === true;
-      renderWebLoginStatus(state.config?.web_submit || {});
-    } catch (error) {
-      state.webLoginSession = false;
-      renderWebLoginStatus(state.config?.web_submit || {});
-      if (typeof setSiteSubmitStatus === 'function') setSiteSubmitStatus(error?.message || '121 登录状态读取失败');
-    }
-
-    await loadTasks().catch(error => {
-      const processResult = document.getElementById('processResult');
-      if (processResult) processResult.textContent = `任务加载失败：${error?.message || '未知错误'}`;
-    });
-    if (typeof restoreLatestProcessJob === 'function') {
-      await restoreLatestProcessJob().catch(() => {});
-    }
-  })();
+  // Startup hydration belongs to app.js. This hotfix only guards config and
+  // login opening; it must not start a second config/task/job bootstrap
+  // when the iframe is opened.
 })();

@@ -19,6 +19,27 @@
   --notice-border: rgba(240, 113, 103, 0.28);
 }
 
+/* Do not flash default form values before the saved work form and 121 status
+   have been restored. The centered message keeps the iframe visibly alive. */
+html.qiantie-novel-fetch-hydrating body > * {
+  visibility: hidden;
+}
+
+html.qiantie-novel-fetch-hydrating body::before {
+  content: "正在读取当前配置…";
+  position: fixed;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  padding: 12px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .24);
+  visibility: visible;
+}
+
 [data-theme="dark"] {
   color-scheme: dark;
   --bg: #0a0a14;
@@ -235,6 +256,7 @@ main {
 }
 
 .batch-toast {
+  display: none !important;
   position: fixed;
   z-index: 1000;
   right: 24px;

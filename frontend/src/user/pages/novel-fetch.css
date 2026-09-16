@@ -136,8 +136,7 @@
 }
 
 .novel-fetch-frame-shell { position: relative; min-height: calc(100vh - 72px); background: var(--legacy-bg); }
-.novel-fetch-frame-shell .novel-fetch-original-workbench { opacity: 0; transition: opacity .12s ease; }
-.novel-fetch-frame-shell.is-ready .novel-fetch-original-workbench { opacity: 1; }
+.novel-fetch-frame-shell .novel-fetch-original-workbench { opacity: 1; transition: opacity .12s ease; }
 
 .novel-fetch-loading-overlay {
   position: absolute;
