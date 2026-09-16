@@ -497,20 +497,22 @@
         </div>
         <button type="button" class="icon-btn" data-close-dialog="settingsDialog" aria-label="关闭">×</button>
       </div>
-      <p class="hint">支持 OpenAI Chat Completions 兼容中转站。API 地址可填 `https://地址/v1`，也可直接填到 `/chat/completions`。</p>
+      <p class="hint">文本模型统一读取后台“API 配置”中已验证并启用的模型。小说面板不再单独保存 API 地址、模型名或 API Key；这里只保存当前账号选择的模型。</p>
       <div class="settings-grid">
-        <label>模式
-          <select id="settingsMode"><option value="remote">中转站模型</option><option value="local">本地规则草稿</option></select>
+        <input id="settingsMode" type="hidden" value="remote" />
+        <label class="full">文本模型
+          <select id="settingsTextModel"><option value="">正在读取后台模型…</option></select>
         </label>
-        <label>模型名称<input id="settingsModel" maxlength="200" placeholder="例如 gpt-4.1-mini" /></label>
-        <label class="full">API 地址<input id="settingsBaseUrl" maxlength="500" placeholder="https://your-relay.example/v1" /></label>
+        <label class="full">配置来源
+          <input value="后台 API 配置（只读）" disabled />
+        </label>
+        <p id="settingsTextModelMessage" class="hint full">下拉框只显示当前账号可使用的文本模型。</p>
         <label>AI 最长等待（秒）
           <input id="settingsAiTimeout" type="number" min="30" max="400" step="10" value="400" inputmode="numeric" />
         </label>
         <label>等待说明
           <input value="30-400 秒；模型返回即结束" disabled />
         </label>
-        <label class="full">API Key<input id="settingsApiKey" type="password" maxlength="1000" autocomplete="new-password" placeholder="留空则保留已保存的 Key" /></label>
       </div>
       <section class="image-ai-settings">
         <div class="field-head"><strong>图片 AI（精品带图模式独立服务）</strong><span class="hint">独立于文本AI；支持 OpenAI Images 风格的文生图 /images/generations 与参考图 /images/edits，也可自定义路径。连接测试不会生成图片、不会消耗生图额度。</span></div>
@@ -533,10 +535,9 @@
         <div class="inline-actions image-ai-test-actions"><button id="testImageSettingsBtn" type="button" class="btn secondary small-btn">测试图片AI连接</button><button id="clearImageKeyBtn" type="button" class="btn danger-outline small-btn">清除图片 Key</button></div>
         <div id="imageSettingsMessage" class="image-ai-diagnostic" hidden></div>
       </section>
-      <div class="modal-note">文本AI与图片AI分别保存。文本密钥写入 <code>data/settings.json</code>；图片密钥写入 <code>data/image_settings.json</code>。人物/场景/道具图片保存在软件根目录 <code>data/reference_assets/</code>，不会因为切换普通/精品模式重新生成。</div>
+      <div class="modal-note">文本模型配置由后台“API 配置”统一管理；小说面板仅保存当前账号选择的模型 ID 和等待上限。图片密钥写入 <code>data/image_settings.json</code>。人物/场景/道具图片保存在软件根目录 <code>data/reference_assets/</code>，不会因为切换普通/精品模式重新生成。</div>
       <p id="settingsMessage" class="settings-message"></p>
       <div class="modal-actions">
-        <button type="button" id="clearKeyBtn" class="btn danger">清除已保存 Key</button>
         <span class="grow"></span>
         <button type="button" id="testSettingsBtn" class="btn secondary">测试连接</button>
         <button type="button" id="saveSettingsBtn" class="btn primary">保存设置</button>

@@ -38,9 +38,10 @@
       const currentUrl = new URL(window.location.href);
       const url = new URL(value, currentUrl);
       if (url.origin !== currentUrl.origin || !url.pathname.startsWith(apiPrefix)) return null;
-      // TTS is a platform service, not a novel-panel business endpoint.
-      // Keep its path intact so the parent can attach the session token.
-      if (url.pathname === '/api/tts') return url.pathname + url.search;
+      // These platform endpoints are intentionally kept intact so the parent
+      // page can attach the authenticated user token. Other API calls are
+      // mounted under the novel-panel router.
+      if (url.pathname === '/api/tts' || url.pathname === '/api/models') return url.pathname + url.search;
       if (!url.pathname.startsWith(mountedApiPrefix)) {
         url.pathname = mountedApiPrefix + url.pathname.slice(apiPrefix.length);
       }

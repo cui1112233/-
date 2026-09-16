@@ -3825,7 +3825,11 @@ const state = {
   mergeWarnings: [],
   sourceDirty: false,
   sourceCompatibilityNotice: "",
-  settings: { ai_mode: "local", base_url: "", model: "", api_key_configured: false, ai_timeout_seconds: 400 },
+  settings: { ai_mode: "remote", base_url: "", model: "", api_key_configured: false, text_model_id: "", ai_timeout_seconds: 400 },
+  textModels: [],
+  textModelsError: "",
+  textModelSelectionNotice: "",
+  textModelId: "",
   compatCamera: DEFAULT_STYLE.camera,
   styleLocks: createEmptyStyleLocks(),
   styleAiSuggestions: createEmptyStyleSuggestions(),
@@ -9868,7 +9872,7 @@ async function requestJSON(url, options = {}) {
 
 async function persistModifiedAiSettingsBeforeRequest(url = "") {
   if (!isRemoteAiProcessingEndpoint(url) || /\/api\/(?:settings|runtime-config)/.test(url)) return;
-  const selectors = ["#settingsMode", "#settingsBaseUrl", "#settingsModel", "#settingsAiTimeout", "#settingsApiKey"];
+  const selectors = ["#settingsTextModel", "#settingsAiTimeout"];
   const modifiedNodes = selectors.map((selector) => document.querySelector(selector)).filter((node) => node?.dataset.liveModified === "true");
   if (!modifiedNodes.length) return;
   const timeoutSeconds = clampAiTimeoutSeconds(readFieldValue("#settingsAiTimeout", currentAiTimeoutSeconds()));
@@ -9890,8 +9894,6 @@ async function persistModifiedAiSettingsBeforeRequest(url = "") {
     ai_timeout_seconds: clampAiTimeoutSeconds(runtimeResponse?.runtime_config?.ai_timeout_seconds ?? timeoutSeconds),
   };
   modifiedNodes.forEach((node) => { delete node.dataset.liveModified; });
-  const keyInput = document.querySelector("#settingsApiKey");
-  if (keyInput && payload.api_key) keyInput.value = "";
   updateAIStatus?.();
 }
 
@@ -9900,6 +9902,13 @@ async function postJSON(url, body) {
   await persistModifiedAiSettingsBeforeRequest(url);
   const safeBody = sanitizeApiRequestBody(body);
   if (safeBody && typeof safeBody === 'object') {
+    if (isRemoteAiProcessingEndpoint(url)) {
+      // `textModelId` is the reconciled, currently visible selection. Do not
+      // fall back to a stale saved ID after the manager disables/removes it;
+      // the selector will show the Chinese invalid-model notice instead.
+      const selectedTextModelId = String(state.textModelId || "").trim();
+      if (selectedTextModelId && !safeBody.textModelId) safeBody.textModelId = selectedTextModelId;
+    }
     if (typeof safeBody.novel_text === 'string' && /analyze|optimize/.test(url)) {
       safeBody.novel_text = trimLongNovelText(compactTransportPromptText(safeBody.novel_text));
     }
@@ -12878,40 +12887,103 @@ async function openHistory() {
 function updateAIStatus() {
   const status = $("#aiStatus");
   if (!status) return;
-  if (state.settings.ai_mode === "remote" && state.settings.base_url && state.settings.model) {
+  const selectedId = String(state.textModelId || state.settings?.text_model_id || "").trim();
+  const selected = (state.textModels || []).find((model) => String(model?.id || "") === selectedId);
+  if (selected) {
     status.className = "status-pill ready";
-    status.textContent = `中转站模型：${state.settings.model}｜等待上限 ${currentAiTimeoutSeconds()} 秒`;
-  } else if (state.settings.ai_mode === "remote") {
+    status.textContent = `文本模型：${selected.displayName || selected.name || selected.id}｜等待上限 ${currentAiTimeoutSeconds()} 秒`;
+  } else if (state.textModelsError) {
     status.className = "status-pill warning";
-    status.textContent = "中转站未配置完整";
+    status.textContent = state.textModelsError;
+  } else if (state.textModelSelectionNotice) {
+    status.className = "status-pill warning";
+    status.textContent = state.textModelSelectionNotice;
+  } else if ((state.textModels || []).length) {
+    status.className = "status-pill warning";
+    status.textContent = "请选择后台已启用的文本模型";
+  } else if (state.settings.ai_mode === "remote" && state.settings.base_url && state.settings.model) {
+    status.className = "status-pill warning";
+    status.textContent = `兼容默认文本模型：${state.settings.model}`;
   } else {
     status.className = "status-pill";
-    status.textContent = "本地规则草稿";
+    status.textContent = "后台尚未配置可用文本模型";
+  }
+}
+
+function renderTextModelOptions() {
+  const select = $("#settingsTextModel");
+  if (!select) return;
+  const savedId = String(state.textModelId || state.settings?.text_model_id || "").trim();
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = state.textModelsError || (state.textModels.length ? "请选择文本模型" : "后台暂无可用文本模型");
+  select.appendChild(placeholder);
+  state.textModels.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = String(model.id || "");
+    option.textContent = model.displayName || model.name || model.id;
+    select.appendChild(option);
+  });
+  const hasSaved = state.textModels.some((model) => String(model?.id || "") === savedId);
+  state.textModelSelectionNotice = savedId && !hasSaved ? "所选文本模型已失效，请重新选择" : "";
+  if (hasSaved) {
+    state.textModelId = savedId;
+    select.value = savedId;
+  } else if (!savedId && state.textModels.length === 1) {
+    state.textModelId = String(state.textModels[0].id || "");
+    select.value = state.textModelId;
+  } else {
+    state.textModelId = "";
+    select.value = "";
+  }
+  writeTextContent("#settingsTextModelMessage", state.textModelsError || state.textModelSelectionNotice || "下拉框只显示当前账号可使用的文本模型；模型地址、名称和密钥由后台 API 配置统一管理。");
+  updateAIStatus();
+}
+
+async function loadTextModels() {
+  try {
+    const result = await requestJSON("/api/models?kind=text", { timeoutMs: 30000 });
+    state.textModels = Array.isArray(result?.models) ? result.models : [];
+    state.textModelsError = "";
+  } catch (error) {
+    state.textModels = [];
+    state.textModelsError = `读取后台文本模型失败：${error.message || "请稍后重试"}`;
+  }
+  renderTextModelOptions();
+}
+
+async function persistTextModelSelection(modelId) {
+  const selectedId = String(modelId || "").trim();
+  state.textModelId = selectedId;
+  state.settings = { ...state.settings, text_model_id: selectedId };
+  updateAIStatus();
+  try {
+    const result = await requestJSON("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({ ai_mode: "remote", text_model_id: selectedId, ai_timeout_seconds: currentAiTimeoutSeconds() }),
+      timeoutMs: 30000
+    });
+    state.settings = { ...state.settings, ...(result?.settings || {}), text_model_id: selectedId };
+    writeTextContent("#settingsTextModelMessage", selectedId ? "文本模型选择已保存，后续文本请求将使用该模型。" : "已清除当前选择，将使用兼容默认配置。 ");
+  } catch (error) {
+    writeTextContent("#settingsTextModelMessage", `文本模型选择保存失败：${error.message || "请稍后重试"}`);
   }
 }
 
 function writeSettingsForm() {
-  writeFieldValue("#settingsMode", state.settings.ai_mode || "local");
-  writeFieldValue("#settingsBaseUrl", state.settings.base_url || "");
-  writeFieldValue("#settingsModel", state.settings.model || "");
+  writeFieldValue("#settingsMode", "remote");
+  renderTextModelOptions();
   writeFieldValue("#settingsAiTimeout", currentAiTimeoutSeconds());
-  writeFieldValue("#settingsApiKey", "");
-  const keyInput = $("#settingsApiKey");
-  if (keyInput) {
-    keyInput.placeholder = state.settings.api_key_configured ? "已保存 Key，留空则不修改" : "粘贴你的 API Key";
-  }
   writeTextContent("#settingsMessage", "");
 }
 
 function readSettingsForm(extra = {}) {
-  const key = readFieldValue("#settingsApiKey");
   const payload = {
-    ai_mode: readFieldValue("#settingsMode", "local"),
-    base_url: text(readFieldValue("#settingsBaseUrl")),
-    model: text(readFieldValue("#settingsModel")),
+    ai_mode: "remote",
+    text_model_id: text(readFieldValue("#settingsTextModel", state.textModelId), 160),
     ...extra,
   };
-  if (key) payload.api_key = key;
   return payload;
 }
 
@@ -12931,6 +13003,8 @@ async function loadSettings() {
     state.settings.ai_timeout_seconds = clampAiTimeoutSeconds(state.settings.ai_timeout_seconds);
     console.warn("Could not load runtime AI timeout", error);
   }
+  state.textModelId = String(state.settings?.text_model_id || "").trim();
+  await loadTextModels();
   updateAIStatus();
 }
 
@@ -12949,7 +13023,6 @@ async function saveSettings() {
       ai_timeout_seconds: clampAiTimeoutSeconds(runtime?.runtime_config?.ai_timeout_seconds ?? timeoutSeconds),
     };
     writeFieldValue("#settingsAiTimeout", state.settings.ai_timeout_seconds);
-    writeFieldValue("#settingsApiKey", "");
     if (message) {
       message.className = "settings-message success";
       message.textContent = `${data.message || "设置已保存。"} AI最长等待：${currentAiTimeoutSeconds()} 秒。`;
@@ -12987,33 +13060,6 @@ async function testSettings() {
     }
   } finally {
     setButtonBusy(button, false);
-  }
-}
-
-async function clearSavedKey() {
-  const message = $("#settingsMessage");
-  if (!window.confirm("确定清除当前电脑已保存的 API Key 吗？")) return;
-  try {
-    const previousTimeout = currentAiTimeoutSeconds();
-    const data = await postJSON("/api/settings", readSettingsForm({ clear_api_key: true }));
-    const runtime = await postJSON("/api/runtime-config", { ai_timeout_seconds: previousTimeout });
-    state.settings = {
-      ...data.settings,
-      ai_timeout_seconds: clampAiTimeoutSeconds(runtime?.runtime_config?.ai_timeout_seconds ?? previousTimeout),
-    };
-    writeFieldValue("#settingsApiKey", "");
-    const keyInput = $("#settingsApiKey");
-    if (keyInput) keyInput.placeholder = "粘贴你的 API Key";
-    if (message) {
-      message.className = "settings-message success";
-      message.textContent = "已清除保存的 API Key。";
-    }
-    updateAIStatus();
-  } catch (error) {
-    if (message) {
-      message.className = "settings-message error";
-      message.textContent = error.message;
-    }
   }
 }
 
@@ -13243,9 +13289,11 @@ function initializeApp() {
     writeSettingsForm();
     $("#settingsDialog")?.showModal?.();
   });
+  bindEvent("#settingsTextModel", "change", event => {
+    void persistTextModelSelection(event.target?.value || "");
+  });
   bindEvent("#saveSettingsBtn", "click", saveSettings);
   bindEvent("#testSettingsBtn", "click", testSettings);
-  bindEvent("#clearKeyBtn", "click", clearSavedKey);
   Object.keys(STYLE_LOCK_SELECTORS).forEach((fieldKey) => {
     bindEvent(`[data-lock-toggle="${fieldKey}"]`, "click", () => toggleStyleLock(fieldKey));
   });
