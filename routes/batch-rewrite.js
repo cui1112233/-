@@ -293,6 +293,7 @@ function createBatchRewriteRouter({
   bridgeSecret,
   systemDir,
   novelFetchStore,
+  resolveRuntimeModel,
   tasksFactory,
   configStore,
   knowledgeStore,
@@ -339,7 +340,16 @@ function createBatchRewriteRouter({
       config,
       configStore: configStore || {
         getConfig: () => config,
-        getAiConfig: () => ({ ai: config.ai || {}, ai_presets: config.ai_presets || [], ai_assignments: config.ai_assignments || {} }),
+        getAiConfig: () => ({
+          ai: config.ai || {},
+          ai_presets: config.ai_presets || [],
+          ai_assignments: config.ai_assignments || {},
+          text_model_id: config.text_model_id || config.textModelId || ''
+        }),
+        resolveRuntimeModel: modelId => {
+          if (typeof resolveRuntimeModel !== 'function') return null;
+          return resolveRuntimeModel(req.username, 'text', modelId);
+        },
         getPlatforms: () => config.platforms || PLATFORMS,
         getStyles: () => config.styles || STYLE_NAMES
       }

@@ -13,6 +13,7 @@ const state = {
   taskDate: "",
   currentBatchIds: new Set(),
   currentBatchDate: "",
+  textModels: [],
   viewMode: "current",
 };
 
@@ -79,7 +80,10 @@ async function api(path, options = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   let response;
   try {
-    response = await fetch(`${API_ROOT}${legacyPath}`, { headers, ...options });
+    const requestUrl = /^\/api\/models(?:\?|$)/.test(String(path || ""))
+      ? String(path)
+      : `${API_ROOT}${legacyPath}`;
+    response = await fetch(requestUrl, { headers, ...options });
   } catch (error) {
     reportBatchIssue("network", path, error.message || "网络请求失败");
     throw error;
@@ -1480,6 +1484,40 @@ function renderKnowledgeSummary(summary) {
 
 function renderAiConfig(appCfg) {
   applyAiSettingsToForm(appCfg.ai || {});
+  const selectedId = appCfg.text_model_id || appCfg.textModelId || "";
+  void loadTextModels(selectedId);
+}
+
+async function loadTextModels(selectedId = "") {
+  const select = $("textModelSelect");
+  const status = $("textModelStatus");
+  if (!select) return;
+  try {
+    const result = await api("/api/models?kind=text");
+    const models = Array.isArray(result.models) ? result.models : [];
+    state.textModels = models;
+    select.innerHTML = "";
+    if (!models.length) {
+      select.innerHTML = '<option value="">暂无可用文本模型，请先在 API 配置中启用</option>';
+      select.value = "";
+      if (status) status.textContent = "暂无已启用的文本模型";
+      return;
+    }
+    for (const model of models) {
+      const option = document.createElement("option");
+      option.value = model.id || model.modelId || "";
+      option.textContent = model.displayName || model.name || model.modelId || model.id;
+      select.appendChild(option);
+    }
+    const value = models.some(model => String(model.id || model.modelId) === String(selectedId))
+      ? String(selectedId)
+      : String(models[0].id || models[0].modelId || "");
+    select.value = value;
+    if (status) status.textContent = "已连接导航栏 API 配置，执行时使用所选模型";
+  } catch (error) {
+    select.innerHTML = `<option value="">读取文本模型失败</option>`;
+    if (status) status.textContent = `读取模型失败：${error.message || "请稍后重试"}`;
+  }
 }
 
 function renderPresetControls(appCfg) {
@@ -1508,9 +1546,6 @@ function renderPresetControls(appCfg) {
 }
 
 function applyAiSettingsToForm(settings) {
-  $("aiBaseUrl").value = settings.base_url || "";
-  $("aiApiKey").value = settings.api_key || "";
-  $("aiModel").value = settings.model || "";
   $("aiTimeout").value = settings.timeout_seconds || 180;
   $("aiConcurrency").value = settings.max_concurrency || 6;
   $("aiRetries").value = settings.retry_times ?? 2;
@@ -1528,9 +1563,6 @@ function applyAiSettingsToForm(settings) {
 
 function readAiSettingsFromForm() {
   return {
-    base_url: $("aiBaseUrl").value.trim(),
-    api_key: $("aiApiKey").value.trim(),
-    model: $("aiModel").value.trim(),
     timeout_seconds: numberValue("aiTimeout", 180),
     max_concurrency: numberValue("aiConcurrency", 6),
     retry_times: numberValue("aiRetries", 2),
@@ -3183,7 +3215,8 @@ function syncFormToAppConfig() {
   };
   ensureKnowledgeConfig();
   state.config.knowledge.usage_prompt = $("knowledgeUsagePrompt")?.value || "";
-  cfg.ai = readAiSettingsFromForm();
+  cfg.ai = { ...(cfg.ai || {}), ...readAiSettingsFromForm() };
+  cfg.text_model_id = $("textModelSelect")?.value || cfg.text_model_id || cfg.textModelId || "";
   cfg.ai_assignments = {
     classifier: $("classifierSelect").value || "__current__",
     rewrite: $("rewriteSelect").value || "__current__",
@@ -3234,7 +3267,7 @@ async function saveCurrentPreset() {
   const cfg = syncFormToAppConfig();
   const presets = cfg.ai_presets || [];
   const selectedId = $("presetSelect").value;
-  const name = $("presetName").value.trim() || $("aiModel").value.trim() || `预设${presets.length + 1}`;
+  const name = $("presetName").value.trim() || $("textModelSelect")?.selectedOptions?.[0]?.textContent?.trim() || `预设${presets.length + 1}`;
   let id = selectedId && selectedId !== "" ? selectedId : `preset_${Date.now()}`;
   if (!presets.some((item) => item.id === id)) {
     id = `preset_${Date.now()}`;
@@ -3279,18 +3312,13 @@ async function deleteSelectedPreset() {
 async function testAi() {
   $("aiTestStatus").textContent = "测试中...";
   try {
-    const settings = readAiSettingsFromForm();
-    // 密钥可能不会回填到密码框。此时不能把空密钥覆盖到测试请求里，
-    // 应改用服务端已保存、且已被“当前预设”选中的改文模型。
-    const completeInForm = Boolean(settings.base_url && settings.api_key && settings.model);
     const result = await api("/api/ai/test", {
       method: "POST",
       body: JSON.stringify({
         purpose: "rewrite",
-        ...(completeInForm ? { settings: { ...settings, baseUrl: settings.base_url, apiKey: settings.api_key } } : {}),
       }),
     });
-    $("aiTestStatus").textContent = `成功：${result.content || "ok"}${completeInForm ? "" : "（已使用已保存的当前预设）"}`;
+    $("aiTestStatus").textContent = `成功：${result.content || "ok"}（已使用所选文本模型）`;
   } catch (error) {
     $("aiTestStatus").textContent = error.message;
   }
