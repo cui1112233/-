@@ -31,6 +31,7 @@ const REWRITE_METHOD_OPTIONS = [
   { id: "instruction", name: "批量改文指令库" },
 ];
 let workFormSaveTimer = null;
+let textModelPersistPromise = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1485,7 +1486,39 @@ function renderKnowledgeSummary(summary) {
 function renderAiConfig(appCfg) {
   applyAiSettingsToForm(appCfg.ai || {});
   const selectedId = appCfg.text_model_id || appCfg.textModelId || "";
+  const select = $("textModelSelect");
+  if (select) {
+    select.onchange = () => {
+      const modelId = String(select.value || "").trim();
+      void persistSelectedTextModel(modelId).catch(error => {
+        if ($("textModelStatus")) $("textModelStatus").textContent = `保存文本模型失败：${error.message || "请稍后重试"}`;
+      });
+    };
+  }
   void loadTextModels(selectedId);
+}
+
+async function persistSelectedTextModel(modelId) {
+  const id = String(modelId || "").trim();
+  if (!id || !state.config?.app_config) return null;
+  if (state.config.app_config.text_model_id === id && state.__persistedTextModelId === id) return textModelPersistPromise || null;
+  state.config.app_config.text_model_id = id;
+  state.__persistedTextModelId = id;
+  if (textModelPersistPromise) await textModelPersistPromise;
+  textModelPersistPromise = api("/api/config", {
+    method: "POST",
+    body: JSON.stringify({ app_config: { text_model_id: id } }),
+  }).then(result => {
+    if (result?.config) state.config = { ...state.config, ...result.config };
+    return result;
+  }).catch(error => {
+    if (state.config?.app_config?.text_model_id === id) state.config.app_config.text_model_id = "";
+    state.__persistedTextModelId = "";
+    throw error;
+  }).finally(() => {
+    textModelPersistPromise = null;
+  });
+  return textModelPersistPromise;
 }
 
 async function loadTextModels(selectedId = "") {
@@ -1513,6 +1546,11 @@ async function loadTextModels(selectedId = "") {
       ? String(selectedId)
       : String(models[0].id || models[0].modelId || "");
     select.value = value;
+    if (value && String(selectedId || "") !== value) {
+      void persistSelectedTextModel(value).catch(error => {
+        if (status) status.textContent = `保存文本模型失败：${error.message || "请稍后重试"}`;
+      });
+    }
     if (status) status.textContent = "已连接导航栏 API 配置，执行时使用所选模型";
   } catch (error) {
     select.innerHTML = `<option value="">读取文本模型失败</option>`;
@@ -2796,6 +2834,9 @@ async function processInput() {
   button.disabled = true;
   try {
     setCurrentBatchFromResult({}, new Date().toISOString());
+    const textModelId = String($("textModelSelect")?.value || "").trim();
+    if (!textModelId) throw new Error("请先在小说获取页面选择文本模型");
+    await persistSelectedTextModel(textModelId);
     await saveWorkFormStateNow();
     await saveWebSubmitConfig(true);
     $("processResult").textContent = [
@@ -2812,6 +2853,7 @@ async function processInput() {
       ai_slot_methods: processAiMethods(),
       profile_bindings: webProfileBindingsFromForm(),
       sensitive_ai_enabled: sensitiveAiProcessEnabled(),
+      text_model_id: textModelId,
     };
     const job = await api("/api/process/start", {
       method: "POST",

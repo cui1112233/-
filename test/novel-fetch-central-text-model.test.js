@@ -38,6 +38,18 @@ test('小说获取配置界面只展示中央文本模型下拉框并调用模�
   assert.match(source, /text_model_id/);
 });
 
+test('小说获取选择文本模型后立即持久化当前用户配置', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
+  assert.match(source, /function persistSelectedTextModel\(/);
+  assert.match(source, /select\.value = value;[\s\S]*persistSelectedTextModel\(value\)/);
+  assert.match(source, /app_config:\s*\{\s*text_model_id:\s*id/);
+});
+
+test('小说获取启动任务携带已选文本模型快照', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
+  assert.match(source, /const payload = \{[\s\S]*text_model_id:\s*textModelId/s);
+});
+
 test('小说获取工作台路由把中央文本模型选择和运行时解析器传入 AI 层', () => {
   const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'novel-fetch-workshop.js'), 'utf8');
   assert.match(route, /text_model_id/);
