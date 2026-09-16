@@ -171,7 +171,14 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     configReader: teamConfigReader,
     connectionConfigReader: readConfig,
     upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' }),
-    resolveTextModel: (username, modelId) => resolveRuntimeModel({ username, kind: 'text', modelId, memberStore: resolvedMemberStore, configReader: readConfig })
+    resolveTextModel: (username, modelId) => resolveRuntimeModel({
+      username,
+      kind: 'text',
+      modelId,
+      memberStore: resolvedMemberStore,
+      accountStore: authRuntime.accountStore,
+      configReader: readConfig
+    })
   });
   const resolvedAgentResponder = agentResponder || createTeamAgentResponder({
     accountStore: authRuntime.accountStore,
@@ -181,7 +188,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   function requireOwnModelConfig(req, res, next) {
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member') {
+    const owner = req.auth?.account?.isOwner === true
+      || authRuntime.accountStore.getInternalAccount(req.username)?.isOwner === true;
+    if (!owner && member?.role === 'member') {
       return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
     }
     return next();
@@ -189,7 +198,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   function restrictMemberNovelPanelSettings(req, res, next) {
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member' && req.method !== 'GET') {
+    const owner = req.auth?.account?.isOwner === true
+      || authRuntime.accountStore.getInternalAccount(req.username)?.isOwner === true;
+    if (!owner && member?.role === 'member' && req.method !== 'GET') {
       return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
     }
     return next();
@@ -234,7 +245,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     if (!meta) return next();
     let authorization;
     try {
-      authorization = resolveTeamAuthorization({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, username: req.username, scope: meta.scope });
+      authorization = resolveTeamAuthorization({
+        accountStore: authRuntime.accountStore,
+        memberStore: resolvedMemberStore,
+        usageStore: resolvedUsageStore,
+        username: req.username,
+        scope: meta.scope
+      });
     } catch (error) {
       return res.status(error?.status || 403).json({ error: error?.message || '当前账号没有 AI 使用权限', ...(error?.code ? { code: error.code } : {}) });
     }
@@ -270,7 +287,14 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelFetchStore = resolvedNovelFetchStore;
   app.locals.productionRetentionScheduler = resolvedProductionRetentionScheduler;
   app.locals.novelPanelConfig = username => teamConfigReader(username);
-  app.locals.resolveRuntimeModel = (username, kind, modelId) => resolveRuntimeModel({ username, kind, modelId, memberStore: resolvedMemberStore, configReader: readConfig });
+  app.locals.resolveRuntimeModel = (username, kind, modelId) => resolveRuntimeModel({
+    username,
+    kind,
+    modelId,
+    memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
+    configReader: readConfig
+  });
 
   // 请求日志
   app.use((req, res, next) => {
@@ -408,7 +432,12 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     novelFetchStore: resolvedNovelFetchStore,
     resolveRuntimeModel: app.locals.resolveRuntimeModel
   }));
-  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ memberStore: resolvedMemberStore, presetStore: resolvedPresetStore, configReader: readConfig }));
+  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({
+    memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
+    presetStore: resolvedPresetStore,
+    configReader: readConfig
+  }));
   app.use('/api/batch-factory/v11', createBatchFactoryV11ScheduleRouter(resolvedBatchFactoryV11Scheduler));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
@@ -426,19 +455,24 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
       return res.status(400).json({ error: '模型类型不合法' });
     }
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
+    const owner = req.auth?.account?.isOwner === true
+      || authRuntime.accountStore.getInternalAccount(req.username)?.isOwner === true;
+    if (!owner && member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
       return res.status(403).json({ error: '尚未获得该类型 API 使用权限' });
     }
     return res.json({ models: listVisibleModels({
       username: req.username,
       kind,
       memberStore: resolvedMemberStore,
+      accountStore: authRuntime.accountStore,
+      account: req.auth?.account,
       configReader: resolvedConfigReader
     }) });
   });
   app.use('/api/config', createConfigRouter({
     shuihuoGateway,
     memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
     configReader: resolvedConfigReader,
     configWriter: resolvedConfigWriter,
     isModelReferenced

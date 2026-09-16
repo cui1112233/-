@@ -76,11 +76,13 @@ function normalizeAvatar(value, fallback = null) {
   return emoji && background ? { emoji, background } : fallback;
 }
 
-function apiManagementState(req, memberStore) {
+function apiManagementState(req, memberStore, accountStore) {
   const member = memberStore?.getMember?.(req.username);
+  const owner = req.auth?.account?.isOwner === true
+    || accountStore?.getInternalAccount?.(req.username)?.isOwner === true;
   return {
     member,
-    canManageApi: Boolean(member?.active && ['dev', 'manager'].includes(member.role))
+    canManageApi: owner || Boolean(member?.active && ['dev', 'manager'].includes(member.role))
   };
 }
 
@@ -102,6 +104,7 @@ function managedPublicConfig(config, member) {
 function createConfigRouter({
   shuihuoGateway,
   memberStore,
+  accountStore,
   configReader = readConfig,
   configWriter = writeConfig,
   authenticate = apiAuth,
@@ -121,7 +124,7 @@ function createConfigRouter({
   });
 
   function requireApiManager(req, res, next) {
-    if (!apiManagementState(req, memberStore).canManageApi) return res.status(403).json({ error: '仅管理者可以管理模型' });
+    if (!apiManagementState(req, memberStore, accountStore).canManageApi) return res.status(403).json({ error: '仅管理者可以管理模型' });
     next();
   }
 
@@ -187,7 +190,7 @@ function createConfigRouter({
   }
 
   router.get('/models', (req, res) => {
-    if (apiManagementState(req, memberStore).canManageApi) {
+    if (apiManagementState(req, memberStore, accountStore).canManageApi) {
       return res.json({ models: listManagerModels({
         username: req.username,
         kind: req.query.kind,
@@ -198,6 +201,8 @@ function createConfigRouter({
       username: req.username,
       kind: req.query.kind,
       memberStore,
+      accountStore,
+      account: req.auth?.account,
       configReader
     }) });
   });
@@ -254,7 +259,7 @@ function createConfigRouter({
     config.notifications = normalizeNotifications(config.notifications);
     config.avatar = normalizeAvatar(config.avatar);
     config.productionRetentionDays = normalizeProductionRetentionDays(config.productionRetentionDays);
-    const { member, canManageApi } = apiManagementState(req, memberStore);
+    const { member, canManageApi } = apiManagementState(req, memberStore, accountStore);
     if (!canManageApi) return res.json(managedPublicConfig(config, member));
     return res.json({ ...publicConfig(config), canManageApi: true, managedBy: null });
   });
@@ -271,7 +276,7 @@ function createConfigRouter({
       body.storageRoot = storageRoot.value;
     }
     const oldConfig = configReader(req.username);
-    const { member, canManageApi } = apiManagementState(req, memberStore);
+    const { member, canManageApi } = apiManagementState(req, memberStore, accountStore);
     if (!canManageApi) {
       const nextConfig = {
         ...oldConfig,

@@ -200,6 +200,7 @@ async function prepareProviderRequest(req, options, pathname) {
       kind: 'text',
       modelId: req.body.textModelId,
       memberStore: options.memberStore,
+      accountStore: options.accountStore,
       configReader: options.configReader || readConfig
     });
   }
@@ -209,6 +210,7 @@ async function prepareProviderRequest(req, options, pathname) {
       kind: 'video',
       modelId: req.body.videoModelId,
       memberStore: options.memberStore,
+      accountStore: options.accountStore,
       configReader: options.configReader || readConfig
     });
     req.v11RuntimeModel = runtimeModel;
@@ -275,6 +277,7 @@ async function generateConfiguredImage(req, options) {
     kind: 'image',
     modelId: req.body?.imageModelId,
     memberStore: options.memberStore,
+    accountStore: options.accountStore,
     configReader: options.configReader || readConfig
   });
   const endpoint = String(model.baseUrl || '').trim();
