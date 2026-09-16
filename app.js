@@ -425,7 +425,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-panel', trackNovelPanelUsage, novelPanelApiRouter);
   app.use('/api/novel-fetch', createNovelFetchRouter({ presetStore: resolvedPresetStore, novelFetchStore: resolvedNovelFetchStore }));
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopGateway: shuihuoGateway }));
-  const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
+  const workshopOptions = {
+    ...shuihuoGateway,
+    systemDir: path.dirname(authRuntime.accountStore.files.audit),
+    resolveRuntimeModel: app.locals.resolveRuntimeModel
+  };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({
     ...workshopOptions,

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ai = require('../lib/novel-fetch-workshop/ai');
 const classifier = require('../lib/novel-fetch-workshop/classifier');
+const rewrite = require('../lib/novel-fetch-workshop/rewrite');
 const { createConfigStoreSnapshot } = require('../lib/novel-fetch-workshop/v2-batch-executor');
 const { createNovelFetchTaskOps, toV78Task } = require('../lib/novel-fetch-workshop/task-ops');
 
@@ -37,6 +38,12 @@ test('小说获取配置界面只展示中央文本模型下拉框并调用模�
   assert.match(source, /text_model_id/);
 });
 
+test('小说获取工作台路由把中央文本模型选择和运行时解析器传入 AI 层', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'novel-fetch-workshop.js'), 'utf8');
+  assert.match(route, /text_model_id/);
+  assert.match(route, /resolveRuntimeModel/);
+});
+
 test('小说获取队列执行器把中央文本模型和运行时解析器传给分类器', () => {
   const calls = [];
   const configStore = createConfigStoreSnapshot({}, {
@@ -58,7 +65,7 @@ test('小说获取队列执行器把中央文本模型和运行时解析器传�
   assert.deepEqual(calls, ['custom-gpt-5-4']);
 });
 
-test('中央文本模型未选择时兼容读取已有旧版文本模型配置', () => {
+test('中央文本模型未选择时拒绝回退到旧版文本模型配置', () => {
   const configStore = {
     getAiConfig() {
       return { ai: {}, ai_assignments: {}, text_model_id: '' };
@@ -73,11 +80,45 @@ test('中央文本模型未选择时兼容读取已有旧版文本模型配置',
     }
   };
 
-  assert.deepEqual(ai.resolveAiSettings(configStore, 'classifier'), {
-    baseUrl: 'https://api.example/v1',
-    apiKey: 'legacy-secret',
-    model: 'gemini-3.5-flash-maxthinking'
-  });
+  const settings = ai.resolveAiSettings(configStore, 'classifier');
+  assert.equal(settings.baseUrl, '');
+  assert.equal(settings.apiKey, '');
+  assert.equal(settings.model, '');
+  assert.equal(settings.runtimeError, '请先在小说获取页面选择文本模型');
+});
+
+test('小说获取分类和改文只使用下拉框选择的中央文本模型', () => {
+  const calls = [];
+  const configStore = {
+    getAiConfig() {
+      return {
+        text_model_id: 'selected-gpt-5-4',
+        ai: { base_url: 'https://legacy.example/v1', api_key: 'legacy-secret', model: 'legacy-model' },
+        ai_presets: [{ id: 'classifier-preset', base_url: 'https://preset.example/v1', api_key: 'preset-secret', model: 'preset-model' }],
+        ai_assignments: { classifier: 'classifier-preset', rewrite: 'classifier-preset', sensitive_fix: 'classifier-preset' }
+      };
+    },
+    resolveRuntimeModel(modelId) {
+      calls.push(modelId);
+      return { kind: 'text', baseUrl: 'https://api.example/v1', modelId: 'gpt-5.4', credential: 'central-secret' };
+    }
+  };
+
+  const settings = ai.resolveAiSettings(configStore, 'classifier');
+  assert.equal(settings.baseUrl, 'https://api.example/v1');
+  assert.equal(settings.apiKey, 'central-secret');
+  assert.equal(settings.model, 'gpt-5.4');
+  assert.deepEqual(calls, ['selected-gpt-5-4']);
+});
+
+test('中央文本模型已选择但运行时解析器缺失时明确返回中文配置错误', () => {
+  const settings = ai.resolveAiSettings({
+    getAiConfig: () => ({ text_model_id: 'selected-gpt-5-4', ai: {} })
+  }, 'classifier');
+  assert.equal(settings.baseUrl, '');
+  assert.equal(settings.apiKey, '');
+  assert.equal(settings.model, '');
+  assert.equal(settings.runtimeError, '统一文本模型服务不可用，请联系管理员');
 });
 
 test('小说获取 AI 判断失败时在任务列表和详情中显示具体中文原因', () => {
@@ -90,6 +131,7 @@ test('小说获取 AI 判断失败时在任务列表和详情中显示具体中�
 
 test('小说获取任务接口保留 AI 判断错误原因并在重试时清理旧错误', async () => {
   assert.equal(toV78Task({ classifyError: 'AI分类配置不可用：文本模型未启用' }).classify_error, 'AI分类配置不可用：文本模型未启用');
+  assert.equal(toV78Task({ aiError: '请先在小说获取页面选择文本模型' }).ai_error, '请先在小说获取页面选择文本模型');
   const updates = [];
   const taskOps = createNovelFetchTaskOps({
     accountResolver: (username) => ({ username }),
@@ -128,6 +170,33 @@ test('中央文本模型解析失败时分类器保留任务并返回中文配�
   assert.equal(result.errors.length, 1);
   assert.equal(tasks[0].classifyStatus, 'waiting_ai_config');
   assert.equal(tasks[0].classifyError, 'AI分类配置不可用：文本模型不可用、未配置或尚未启用');
+});
+
+test('小说获取改文模型配置错误在任务列表中显示中文原因', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
+  assert.match(source, /aiStatusDisplay[\s\S]*ai_error/);
+});
+
+test('小说获取改文在中央模型不可用时保留等待状态和中文原因', async () => {
+  const updates = [];
+  const result = await rewrite.generateAiVersion({
+    configStore: {
+      getConfig: () => ({}),
+      getAiConfig: () => ({ text_model_id: 'selected-gpt-5-4' }),
+      resolveRuntimeModel: () => { throw new Error('文本模型不可用、未配置或尚未启用'); }
+    },
+    tasks: {
+      readOriginal: async () => '原文内容',
+      updateTaskMeta: async (_username, _bookId, patch) => updates.push(patch)
+    },
+    username: 'tester',
+    task: { bookId: 'book-1', originalStatus: 'done' },
+    aiIndex: 1,
+    count: 1
+  });
+  assert.equal(result.status, 'waiting_ai_config');
+  assert.equal(result.error, '文本模型不可用、未配置或尚未启用');
+  assert.deepEqual(updates[0], { aiStatus: 'waiting_ai_config', aiError: '文本模型不可用、未配置或尚未启用' });
 });
 
 test('队列执行器兼容从旧配置的 app_config 节点读取中央文本模型', () => {

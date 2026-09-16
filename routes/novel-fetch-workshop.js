@@ -47,6 +47,7 @@ function createNovelFetchWorkshopRouter({
   configStore: injectedConfigStore,
   targetBaseUrl,
   bridgeSecret,
+  resolveRuntimeModel,
   classifier = require('../lib/novel-fetch-workshop/classifier'),
   rewrite = require('../lib/novel-fetch-workshop/rewrite'),
   parse = require('../lib/novel-fetch-workshop/parse'),
@@ -67,7 +68,16 @@ function createNovelFetchWorkshopRouter({
     const config = await tasks.getConfig();
     const configStore = injectedConfigStore || {
       getConfig: () => config,
-      getAiConfig: () => ({ ai: config.ai || {}, ai_presets: config.ai_presets || [], ai_assignments: config.ai_assignments || {} }),
+      getAiConfig: () => ({
+        ai: config.ai || {},
+        ai_presets: config.ai_presets || [],
+        ai_assignments: config.ai_assignments || {},
+        text_model_id: config.text_model_id || config.textModelId || config.app_config?.text_model_id || config.app_config?.textModelId || ''
+      }),
+      resolveRuntimeModel: modelId => {
+        if (typeof resolveRuntimeModel !== 'function') return null;
+        return resolveRuntimeModel(req.username, 'text', modelId);
+      },
       getPlatforms: tasks.getPlatforms,
       getStyles: tasks.getStyles
     };

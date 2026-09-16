@@ -2238,6 +2238,12 @@ function classifyDetailText(meta = {}) {
   return reason ? `${label}（分类错误：${reason}）` : label;
 }
 
+function aiStatusDisplay(task = {}, aiText = '') {
+  const reason = String(task.ai_error || task.aiError || '').trim();
+  if (!reason) return escapeHtml(aiText);
+  return `<span class="task-status-main">${escapeHtml(aiText)}</span><small class="task-status-reason">AI错误：${escapeHtml(reason)}</small>`;
+}
+
 function taskDateKey(task) {
   const value = task.updated_at || task.updatedAt || task.created_at || task.createdAt || "";
   const date = new Date(value);
@@ -2318,7 +2324,7 @@ function renderTasks(tasks) {
       <td>${escapeHtml(task.gender || "")}</td>
       <td class="${statusClass(task.classify_status)}" title="${escapeHtml(task.classify_error || task.classifyError || "")}">${classifyStatusDisplay(task)}</td>
       <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}</td>
-      <td class="${statusClass(task.ai_status)}">${escapeHtml(aiText)}</td>
+      <td class="${statusClass(task.ai_status)}" title="${escapeHtml(task.ai_error || task.aiError || '')}">${aiStatusDisplay(task, aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
       <td class="${statusClass(task.status)}">${escapeHtml(taskStatusText(task.status, "待处理"))}</td>
       <td class="task-actions">
