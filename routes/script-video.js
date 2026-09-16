@@ -231,9 +231,14 @@ function createScriptVideoRouter({
       let resolution;
       try {
         const requestedImages = req.body?.referenceImages ?? req.body?.imageUrls;
-        referenceImages = validH3ReferenceImageURLs(Array.isArray(requestedImages)
-          ? requestedImages.map(imageURL => h3ReferenceUrl(imageURL, req.username))
-          : requestedImages);
+        const assetStore = req.app?.locals?.novelPanelPremiumStore;
+        const normalizedReferences = Array.isArray(requestedImages)
+          ? await Promise.all(requestedImages.map(async imageURL => {
+            const tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+            return tosUrl || h3ReferenceUrl(imageURL, req.username);
+          }))
+          : requestedImages;
+        referenceImages = validH3ReferenceImageURLs(normalizedReferences);
         duration = h3Duration(req.body?.duration);
         resolution = h3Resolution(req.body?.resolution);
       } catch (error) {

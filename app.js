@@ -403,7 +403,11 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/novel-fetch-upload', createNovelFetchUploadRouter({ store: resolvedNovelFetchStore, workshopGateway: shuihuoGateway }));
   const workshopOptions = { ...shuihuoGateway, systemDir: path.dirname(authRuntime.accountStore.files.audit) };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
-  app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
+  app.use('/api/batch-rewrite', createBatchRewriteRouter({
+    ...workshopOptions,
+    novelFetchStore: resolvedNovelFetchStore,
+    resolveRuntimeModel: app.locals.resolveRuntimeModel
+  }));
   app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ memberStore: resolvedMemberStore, presetStore: resolvedPresetStore, configReader: readConfig }));
   app.use('/api/batch-factory/v11', createBatchFactoryV11ScheduleRouter(resolvedBatchFactoryV11Scheduler));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));

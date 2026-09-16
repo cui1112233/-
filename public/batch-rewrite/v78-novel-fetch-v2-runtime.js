@@ -30,6 +30,11 @@
     return value.startsWith('/api/') ? value.slice(4) : value;
   }
 
+  function requestUrl(normalized) {
+    // 文本模型目录属于统一 API 配置路由，不属于旧工作台资源路由。
+    return /^\/models(?:\?|$)/.test(normalized) ? `/api${normalized}` : `${API_ROOT}${normalized}`;
+  }
+
   function requestKey(path, options = {}) {
     syncAuthScope();
     const method = String(options.method || 'GET').toUpperCase();
@@ -50,7 +55,7 @@
     const promise = (async () => {
       const headers = tokenHeaders(options.headers || {});
       if (method === 'GET' && cached?.etag && !headers['If-None-Match']) headers['If-None-Match'] = cached.etag;
-      const response = await fetch(`${API_ROOT}${normalized}`, { ...options, headers });
+      const response = await fetch(requestUrl(normalized), { ...options, headers });
       if (response.status === 304 && cached) {
         cached.expiresAt = Date.now() + CACHE_MS;
         return cached.value;
