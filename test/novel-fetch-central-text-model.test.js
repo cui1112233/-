@@ -29,6 +29,7 @@ test('小说获取配置界面只展示中央文本模型下拉框并调用模�
   const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
   assert.match(html, /id="textModelSelect"/);
   assert.doesNotMatch(html, /id="aiBaseUrl"|id="aiApiKey"|id="aiModel"/);
+  assert.match(html, /class="section legacy-api-presets"[^>]*aria-hidden="true"/);
   assert.match(source, /\/api\/models\?kind=text/);
   assert.match(source, /text_model_id/);
 });
