@@ -55,3 +55,25 @@ test('小说获取队列执行器把中央文本模型和运行时解析器传�
   });
   assert.deepEqual(calls, ['custom-gpt-5-4']);
 });
+
+test('中央文本模型未选择时兼容读取已有旧版文本模型配置', () => {
+  const configStore = {
+    getAiConfig() {
+      return { ai: {}, ai_assignments: {}, text_model_id: '' };
+    },
+    getConfig() {
+      return {
+        provider: 'openai',
+        baseUrl: 'https://api.example/v1',
+        model: 'gemini-3.5-flash-maxthinking',
+        apiKey: 'legacy-secret'
+      };
+    }
+  };
+
+  assert.deepEqual(ai.resolveAiSettings(configStore, 'classifier'), {
+    baseUrl: 'https://api.example/v1',
+    apiKey: 'legacy-secret',
+    model: 'gemini-3.5-flash-maxthinking'
+  });
+});
