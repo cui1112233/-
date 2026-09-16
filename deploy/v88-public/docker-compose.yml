@@ -69,6 +69,8 @@ services:
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
       QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
       QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS: ${QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS:-60000}
+      QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL: ${QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL:?required}
+      QIANTIE_REFERENCE_ASSET_SIGNING_SECRET: ${QIANTIE_REFERENCE_ASSET_SIGNING_SECRET:?required}
       QIANTIE_RELEASE_SHA: ${QIANTIE_RELEASE_SHA}
     volumes:
       - v88_data:/app/data
@@ -86,9 +88,13 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
+      - "80:80"
+      - "443:443"
       - "3000:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/letsencrypt:ro
+      - ./acme:/var/www/certbot:ro
     depends_on:
       - v88-node
     networks:
