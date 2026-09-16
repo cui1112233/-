@@ -1007,14 +1007,16 @@ router.post('/image-settings/test', async (req, res) => {
   }
 });
 
-router.post('/reference-assets/upload', (req, res) => {
+router.post('/reference-assets/upload', async (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
     const assetType = premiumStore(req).safeAssetType(body.asset_type);
     const assetId = premiumStore(req).safeAssetId(body.asset_id);
     if (body.variant && body.variant !== 'source') throw new Error('上传图片仅支持 source 类型');
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
-    const { revision, filePath } = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
+    const assetStore = premiumStore(req);
+    const { revision, filePath } = assetStore.writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
+    const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
     const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
     return res.json({
       ok: true,
@@ -1023,7 +1025,8 @@ router.post('/reference-assets/upload', (req, res) => {
       variant: revision,
       revision,
       file_name: path.basename(filePath),
-      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision),
+      url: tosAsset?.url || assetStore.referenceAssetPublicUrl(assetType, assetId, revision),
+      ...(tosAsset ? { storage: 'tos' } : {}),
       ...metadata
     });
   } catch (error) {
@@ -1031,7 +1034,7 @@ router.post('/reference-assets/upload', (req, res) => {
   }
 });
 
-router.post('/reference-assets/use-source-as-main', (req, res) => {
+router.post('/reference-assets/use-source-as-main', async (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
     const assetType = premiumStore(req).safeAssetType(body.asset_type);
@@ -1039,9 +1042,11 @@ router.post('/reference-assets/use-source-as-main', (req, res) => {
     const sourcePath = premiumStore(req).assetFilePath(req.username, assetType, assetId, 'source');
     if (!sourcePath) return res.status(400).json({ error: '还没有上传参考图', code: 'REFERENCE_ASSET_SOURCE_MISSING' });
     const mime = `${path.extname(sourcePath) === '.png' ? 'image/png' : path.extname(sourcePath) === '.webp' ? 'image/webp' : 'image/jpeg'}`;
-    premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, 'main', fs.readFileSync(sourcePath), mime);
-    const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
-    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, 'main'), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
+    const assetStore = premiumStore(req);
+    assetStore.writeReferenceAssetBytes(req.username, assetType, assetId, 'main', fs.readFileSync(sourcePath), mime);
+    const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, 'main');
+    const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
+    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: tosAsset?.url || assetStore.referenceAssetPublicUrl(assetType, assetId, 'main'), ...(tosAsset ? { storage: 'tos' } : {}), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_SOURCE_MISSING' });
   }
@@ -1191,10 +1196,12 @@ router.post('/reference-assets/generate', async (req, res) => {
         if (!imageBuffer || !imageBuffer.length) throw new Error('图片AI未返回可用的图像内容。');
         const assetType = premiumStore(req).safeAssetType(text(body.asset_type) || 'character');
         const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
-        const { revision } = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
-        const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
+        const assetStore = premiumStore(req);
+        const { revision } = assetStore.writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
+        const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
+        const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: tosAsset?.url || assetStore.referenceAssetPublicUrl(assetType, assetId, revision), ...(tosAsset ? { storage: 'tos' } : {}), main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {
