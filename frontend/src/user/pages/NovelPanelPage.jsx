@@ -12,6 +12,10 @@ const MAX_ACTIVE_CONTROLLERS = 8;
 const MAX_RESPONSE_BODY_BYTES = 12 * 1024 * 1024;
 const MAX_RESPONSE_HEADER_BYTES = 8 * 1024;
 
+function isAllowedNovelPanelApiPath(pathname) {
+  return pathname === '/api/tts' || pathname === '/api/models' || pathname.startsWith('/api/novel-panel/');
+}
+
 function normalizeTheme(theme) {
   return theme === 'light' ? 'light' : 'dark';
 }
@@ -33,14 +37,14 @@ function normalizeBridgeRequest(data) {
   if (data.body !== undefined && typeof data.body !== 'string') return { error: 400, id: data.id };
   if (typeof data.body === 'string' && utf8ByteLength(data.body) > MAX_REQUEST_BODY_BYTES) return { error: 413, id: data.id };
   const method = String(data.method || 'GET').toUpperCase();
-  if (!ALLOWED_METHODS.has(method) || (data.path !== '/api/tts' && !data.path.startsWith('/api/novel-panel/'))) return { error: 400, id: data.id };
+  if (!ALLOWED_METHODS.has(method)) return { error: 400, id: data.id };
   let url;
   try {
     url = new URL(data.path, window.location.origin);
   } catch (_) {
     return { error: 400, id: data.id };
   }
-  if (url.origin !== window.location.origin || (url.pathname !== '/api/tts' && !url.pathname.startsWith('/api/novel-panel/'))) return { error: 400, id: data.id };
+  if (url.origin !== window.location.origin || !isAllowedNovelPanelApiPath(url.pathname)) return { error: 400, id: data.id };
 
   const headers = {};
   if (data.headers !== undefined && (!data.headers || typeof data.headers !== 'object' || Array.isArray(data.headers))) return { error: 400, id: data.id };
