@@ -2617,6 +2617,7 @@ async function ensureKnowledgeLoaded() {
   const status = $("knowledgeStatus");
   if (status) status.textContent = "正在读取知识库...";
   state.config = { ...state.config, ...await api("/api/config"), knowledge_loaded: true };
+  renderKnowledgeSummary(state.config.knowledge_summary || {});
 }
 
 async function loadTasks() {

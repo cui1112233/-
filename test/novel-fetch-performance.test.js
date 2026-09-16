@@ -50,6 +50,8 @@ test('knowledge tab lazily loads the full config before rendering its libraries'
   assert.match(app, /async function ensureKnowledgeLoaded\(\)/);
   assert.match(app, /api\("\/api\/config"\)/);
   assert.match(app, /knowledge_loaded: true/);
+  const ensureBody = app.match(/async function ensureKnowledgeLoaded\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(ensureBody, /renderKnowledgeSummary\(state\.config\.knowledge_summary \|\| \{\}\)/);
   assert.match(app, /await ensureKnowledgeLoaded\(\);\s*renderLibraryManager/s);
 });
 
