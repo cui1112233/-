@@ -88,13 +88,13 @@ test('小说获取 AI 判断失败时在任务列表和详情中显示具体中�
   assert.match(source, /分类错误/);
 });
 
-test('小说获取任务接口保留 AI 判断错误原因并在重试时重置为判断中', async () => {
+test('小说获取任务接口保留 AI 判断错误原因并在重试时清理旧错误', async () => {
   assert.equal(toV78Task({ classifyError: 'AI分类配置不可用：文本模型未启用' }).classify_error, 'AI分类配置不可用：文本模型未启用');
   const updates = [];
   const taskOps = createNovelFetchTaskOps({
     accountResolver: (username) => ({ username }),
     createStore: () => ({
-      getTask: async () => ({ meta: { bookId: 'book-1', bookName: '测试书', platformId: '2', aiCount: 1 } }),
+      getTask: async () => ({ meta: { bookId: 'book-1', bookName: '测试书', platformId: '2', aiCount: 1, classifyStatus: 'failed', classifyError: '旧错误' } }),
       updateTaskMeta: async (...args) => updates.push(args),
     }),
     tombstones: { has: () => false },
@@ -104,8 +104,9 @@ test('小说获取任务接口保留 AI 判断错误原因并在重试时重置�
   });
   const payloads = await taskOps.prepareRetryPayloads('tester', ['book-1']);
   assert.equal(payloads.length, 1);
-  assert.equal(updates[0][2].classifyStatus, 'classifying');
+  assert.equal(updates[0][2].classifyStatus, '');
   assert.equal(updates[0][2].classifyError, '');
+  assert.equal(payloads[0].retry_stage, 'classify');
 });
 
 test('中央文本模型解析失败时分类器保留任务并返回中文配置原因', async () => {

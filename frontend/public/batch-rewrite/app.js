@@ -3054,7 +3054,14 @@ async function batchRetry(mode) {
       body: JSON.stringify({ mode, ids, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
     });
     renderTasks(result.tasks || []);
-    setBatchStatus(`已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`);
+    const stageLabels = { classify: "AI 判断", original: "原文抓取", sensitive: "敏感词处理", rewrite: "AI 文案生成", submit: "网站提交" };
+    const stageCounts = result.retry_stage_counts || {};
+    const stageSummary = Object.entries(stageCounts)
+      .map(([stage, count]) => `${stageLabels[stage] || stage} ${count} 个`)
+      .join("，");
+    setBatchStatus(stageSummary
+      ? `正在按失败步骤重试：${stageSummary}；已加入队列 ${result.retried || 0} 个`
+      : `已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`);
   } catch (error) {
     setBatchStatus(error.message);
   }
