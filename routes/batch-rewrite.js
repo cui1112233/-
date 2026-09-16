@@ -16,6 +16,7 @@ const rules = require('../lib/novel-fetch-workshop/rules');
 const sensitive = require('../lib/novel-fetch-workshop/sensitive');
 const target = require('../lib/target-upload');
 const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
+const { mergeKnowledgeSources } = require('../lib/novel-fetch-workshop/knowledge-recovery');
 
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
@@ -362,9 +363,12 @@ function createBatchRewriteRouter({
     const platforms = Array.isArray(current.platforms) ? current.platforms : (store.getPlatforms?.() || PLATFORMS);
     const styles = Array.isArray(current.styles) ? current.styles : (store.getStyles?.() || STYLE_NAMES);
     const savedKnowledge = object(current.knowledge);
-    const knowledgeData = lightweight ? {} : (Object.keys(savedKnowledge).length ? savedKnowledge : {});
-    if (!lightweight && !Object.keys(knowledgeData).length) {
-      for (const kind of LEGACY_KINDS) knowledgeData[kind] = knowledge.list(kind);
+    let knowledgeData = lightweight ? {} : savedKnowledge;
+    if (!lightweight) {
+      const legacyKnowledge = {};
+      for (const kind of LEGACY_KINDS) legacyKnowledge[kind] = knowledge.list(kind);
+      knowledgeData = mergeKnowledgeSources(knowledgeData, legacyKnowledge);
+      if (!Object.keys(knowledgeData).length) knowledgeData = legacyKnowledge;
     }
     const appConfig = {
       ...current,

@@ -55,6 +55,13 @@ test('knowledge tab lazily loads the full config before rendering its libraries'
   assert.match(app, /await ensureKnowledgeLoaded\(\);\s*renderLibraryManager/s);
 });
 
+test('knowledge tab retains visible zero counts and clears its loading status after a full load', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  const ensureBody = app.match(/async function ensureKnowledgeLoaded\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(app, /String\(value \?\? ""\)/);
+  assert.match(ensureBody, /status\.textContent = ""/);
+});
+
 test('batch rewrite config has user cache and ETag support', () => {
   const routes = read('routes/batch-rewrite.js');
   assert.match(routes, /CONFIG_CACHE_TTL_MS/);

@@ -2599,7 +2599,7 @@ function metaItem(label, value) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -2617,6 +2617,8 @@ async function ensureKnowledgeLoaded() {
   const status = $("knowledgeStatus");
   if (status) status.textContent = "正在读取知识库...";
   state.config = { ...state.config, ...await api("/api/config"), knowledge_loaded: true };
+  renderKnowledgeSummary(state.config.knowledge_summary || {});
+  if (status) status.textContent = "";
 }
 
 async function loadTasks() {
