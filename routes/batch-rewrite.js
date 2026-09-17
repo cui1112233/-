@@ -17,6 +17,7 @@ const sensitive = require('../lib/novel-fetch-workshop/sensitive');
 const target = require('../lib/target-upload');
 const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
 const { mergeKnowledgeSources } = require('../lib/novel-fetch-workshop/knowledge-recovery');
+const { retryStageForTask } = require('../lib/novel-fetch-workshop/task-ops');
 
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
@@ -77,6 +78,19 @@ function legacyMeta(meta = {}) { return snakeTask(meta); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function idFrom(value) { return String(value || '').trim(); }
 function countEntries(value) { return Array.isArray(value) ? value.length : 0; }
+
+// The legacy workbench still calls this router directly.  Keep its retry
+// semantics aligned with the stage-aware runner: a failed AI stage must not
+// fetch the already-successful original again.
+function retryPlanForTask(meta = {}) {
+  const stage = retryStageForTask(meta);
+  return {
+    stage,
+    fetchOriginal: stage === 'original',
+    applyOriginalRules: stage === 'original' || stage === 'sensitive',
+    generateAi: stage === 'original' || stage === 'rewrite'
+  };
+}
 
 function normalizeUploadProfiles(value) {
   return (Array.isArray(value) ? value : []).map((item, index) => {
@@ -1128,14 +1142,33 @@ function createBatchRewriteRouter({
     const config = object(store.getConfig());
     let retried = 0;
     let failed = 0;
+    let skipped = 0;
+    const retry_stage_counts = {};
     for (const id of ids) {
       try {
         const task = await tasks.getTask(req.username, id);
         if (!task) throw new Error('任务不存在');
-        const result = await tasks.fetchOriginal(req.username, id, task.meta.maxTxt || 4000);
-        if (result?.status !== 'done') throw new Error('原文抓取失败');
-        await applySavedRulesToOriginal(tasks, req.username, id, config);
-        if (config.workflow?.auto_rewrite_after_fetch) {
+        const plan = retryPlanForTask(task.meta || task);
+        if (!plan.stage) {
+          skipped++;
+          retry_stage_counts.skipped = (retry_stage_counts.skipped || 0) + 1;
+          continue;
+        }
+        retry_stage_counts[plan.stage] = (retry_stage_counts[plan.stage] || 0) + 1;
+        if (plan.stage === 'classify') {
+          const result = await classifier.classifyMissingRows({ configStore: store, tasks: [task.meta || task] });
+          const classified = Array.isArray(result?.tasks) ? result.tasks : [];
+          if (!classified.length || result?.errors?.length) throw new Error(result?.errors?.join('；') || 'AI 判断失败');
+          if (typeof tasks.saveTasks !== 'function') throw new Error('当前存储不支持保存 AI 判断结果');
+          await tasks.saveTasks(req.username, classified);
+        } else {
+          if (plan.fetchOriginal) {
+            const result = await tasks.fetchOriginal(req.username, id, task.meta?.maxTxt || task.meta?.max_txt || 4000);
+            if (result?.status !== 'done') throw new Error('原文抓取失败');
+          }
+          if (plan.applyOriginalRules) await applySavedRulesToOriginal(tasks, req.username, id, config, store);
+        }
+        if (plan.generateAi && (plan.stage === 'rewrite' || config.workflow?.auto_rewrite_after_fetch)) {
           const refreshed = await tasks.getTask(req.username, id);
           await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: refreshed.meta, versions: refreshed.meta.selectedVersions, slotMethods: refreshed.meta.aiSlotMethods });
         }
@@ -1145,7 +1178,7 @@ function createBatchRewriteRouter({
         if (typeof tasks.appendLog === 'function') await tasks.appendLog(req.username, id, 'retry_failed', { error: error.message || '重试失败', status: 'failed' });
       }
     }
-    res.json({ retried, failed, tasks: await listTasks(req) });
+    res.json({ retried, failed, skipped, retry_stage_counts, tasks: await listTasks(req) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/apply-rules', async (req, res) => { try {
     const ids = await selectTaskIds(req, req.body);
@@ -1252,4 +1285,4 @@ function createBatchRewriteRouter({
   return router;
 }
 
-module.exports = { createBatchRewriteRouter, snakeTask };
+module.exports = { createBatchRewriteRouter, snakeTask, retryPlanForTask };
