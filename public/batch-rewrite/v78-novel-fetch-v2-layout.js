@@ -223,7 +223,7 @@
       tasksTab?.click();
       // Submit directly through the legacy runtime. The old target can be
       // replaced while switching task panels, so a synthetic click may do nothing.
-      if (targetId === 'openWebSubmitBtn') window.qiantieSubmitSelectedTasks?.();
+      if (targetId === 'openWebSubmitBtn') window.qiantieSubmitSelectedTasks?.(window.qiantieV78SelectedTaskIds?.());
       window.setTimeout(() => {
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target?.focus?.();

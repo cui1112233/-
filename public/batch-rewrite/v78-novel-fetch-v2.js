@@ -97,6 +97,7 @@
     const ids = [...previewState.selected].map(id => String(id || '').trim()).filter(Boolean);
     window.dispatchEvent(new CustomEvent('qiantie-v78-task-selection', { detail: { ids } }));
   }
+  window.qiantieV78SelectedTaskIds = () => [...previewState.selected].map(id => String(id || '').trim()).filter(Boolean);
   function currentWorkSnapshot() {
     const targets = selectedTargetVersions();
     const selected = previewState.active ? selectedParsedTasks() : [];

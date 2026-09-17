@@ -2034,8 +2034,8 @@ async function loadWebSubmitHistory() {
   }
 }
 
-function webSubmitRequestPayload(mode, force = false) {
-  const ids = mode === "selected" ? selectedTaskIds() : [];
+function webSubmitRequestPayload(mode, force = false, explicitIds = null) {
+  const ids = mode === "selected" ? (Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds()) : [];
   return {
     mode,
     ids,
@@ -2076,14 +2076,15 @@ async function previewWebSubmit(mode) {
   }
 }
 
-async function submitWebSubmit(mode) {
-  if (mode === "selected" && !selectedTaskIds().length) {
+async function submitWebSubmit(mode, explicitIds = null) {
+  const selectedIdsForSubmit = mode === "selected" && Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds();
+  if (mode === "selected" && !selectedIdsForSubmit.length) {
     setSiteSubmitStatus("先选择任务");
     setBatchStatus("先选择任务");
     showWebSubmitSelectionRequired();
     return;
   }
-  const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedTaskIds().length} 个选中任务`);
+  const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedIdsForSubmit.length} 个选中任务`);
   if (!confirm(`确认提交${label}到网站？系统会按平台、男女频、风格类型自动分组上传。`)) return;
   setBatchStatus(`排队中：${label}`);
   setSiteSubmitStatus(`正在提交${label}...`);
@@ -2093,7 +2094,7 @@ async function submitWebSubmit(mode) {
     setBatchStatus(`上传中：${label}`);
     const submitPromise = api("/api/web-submit/submit", {
       method: "POST",
-      body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed")),
+      body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed", selectedIdsForSubmit)),
     });
     polling = true;
     const poll = (async () => {
@@ -3266,7 +3267,7 @@ function openWebSubmitFromTasks() {
 
 // V2 action bars use this explicit bridge instead of dispatching a synthetic click
 // against the legacy button, which may be replaced while switching task panels.
-window.qiantieSubmitSelectedTasks = () => void submitWebSubmit("selected");
+window.qiantieSubmitSelectedTasks = ids => void submitWebSubmit("selected", ids);
 
 function selectAllVisibleTasks() {
   for (const task of state.tasks) {

@@ -94,8 +94,8 @@ test('V2 layout script has an explicit cache version for network-submit fixes', 
 test('network-submit shortcut calls the explicit selected-task submit bridge', () => {
   const layout = read('public/batch-rewrite/v78-novel-fetch-v2-layout.js');
   const app = read('frontend/public/batch-rewrite/app.js');
-  assert.match(app, /window\.qiantieSubmitSelectedTasks\s*=\s*\(\)\s*=>\s*void submitWebSubmit\(\"selected\"\)/);
-  assert.match(layout, /window\.qiantieSubmitSelectedTasks\?\.\(\)/);
+  assert.match(app, /window\.qiantieSubmitSelectedTasks\s*=\s*ids\s*=>\s*void submitWebSubmit\(\"selected\", ids\)/);
+  assert.match(layout, /window\.qiantieSubmitSelectedTasks\?\.\(/);
   assert.doesNotMatch(layout, /targetId === 'openWebSubmitBtn'\) target\?\.click\(\)/);
 });
 
@@ -104,8 +104,11 @@ test('V2 parsed-book selections synchronize with the network-submit task selecti
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(client, /qiantie-v78-task-selection/);
   assert.match(client, /detail:\s*\{\s*ids\s*\}/);
+  assert.match(client, /qiantieV78SelectedTaskIds/);
   assert.match(app, /addEventListener\("qiantie-v78-task-selection"/);
   assert.match(app, /state\.selectedIds = new Set/);
+  assert.match(app, /qiantieSubmitSelectedTasks = ids => void submitWebSubmit\("selected", ids\)/);
+  assert.match(app, /webSubmitRequestPayload\(mode, force = false, explicitIds = null/);
 });
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
