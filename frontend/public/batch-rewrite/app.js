@@ -2361,7 +2361,7 @@ function renderTasks(tasks) {
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
       <td class="${statusClass(task.classify_status)}" title="${escapeHtml(task.classify_error || task.classifyError || "")}">${classifyStatusDisplay(task)}</td>
-      <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}</td>
+      <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}${task.original_error ? `<div class="task-error-detail" title="${escapeHtml(task.original_error)}">${escapeHtml(task.original_error)}</div>` : ""}</td>
       <td class="${statusClass(task.ai_status)}" title="${escapeHtml(task.ai_error || task.aiError || '')}">${aiStatusDisplay(task, aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
       <td class="${statusClass(task.status)}">${escapeHtml(taskStatusText(task.status, "待处理"))}</td>
@@ -2414,6 +2414,8 @@ function renderDetail(data) {
       ${metaItem("AI判断", classifyDetailText(meta))}
       ${metaItem("分类模型", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
+      ${metaItem("原文抓取错误", meta.original_error || "")}
+      ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
