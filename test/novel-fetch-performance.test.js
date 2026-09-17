@@ -101,8 +101,14 @@ test('network-submit shortcut calls the explicit selected-task submit bridge', (
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
   const routes = read('routes/batch-rewrite.js');
+  const v2Service = read('lib/novel-fetch-workshop/121-web-submit-service.js');
+  const targetSubmit = read('lib/novel-fetch-workshop/target-web-submit.js');
   assert.match(routes, /body\?\.mode === 'selected' && !ids\.length/);
   assert.match(routes, /没有收到选中的任务/);
+  assert.match(v2Service, /body\?\.mode === 'selected' && !ids\.length/);
+  assert.match(targetSubmit, /const ids = unique\(body\.ids\);\s*if \(!ids\.length\)/s);
+  assert.match(v2Service, /MIN_TARGET_TEXT_BYTES = 3 \* 1024/);
+  assert.match(v2Service, /groupKey = .*candidate\.version/s);
 });
 
 test('novel fetch iframe is visible beneath the loading skeleton', () => {
