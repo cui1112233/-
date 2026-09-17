@@ -2035,13 +2035,20 @@ async function loadWebSubmitHistory() {
 }
 
 function webSubmitRequestPayload(mode, force = false, explicitIds = null) {
-  const ids = mode === "selected" ? (Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds()) : [];
+  const ids = mode === "selected" ? resolveWebSubmitSelectedIds(explicitIds) : [];
   return {
     mode,
     ids,
     force,
     grouped: true,
   };
+}
+
+function resolveWebSubmitSelectedIds(explicitIds = null) {
+  const explicit = Array.isArray(explicitIds)
+    ? explicitIds.map(id => String(id || "").trim()).filter(Boolean)
+    : [];
+  return explicit.length ? explicit : selectedTaskIds();
 }
 
 function showWebSubmitSelectionRequired() {
@@ -2077,7 +2084,7 @@ async function previewWebSubmit(mode) {
 }
 
 async function submitWebSubmit(mode, explicitIds = null) {
-  const selectedIdsForSubmit = mode === "selected" && Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds();
+  const selectedIdsForSubmit = mode === "selected" ? resolveWebSubmitSelectedIds(explicitIds) : selectedTaskIds();
   if (mode === "selected" && !selectedIdsForSubmit.length) {
     setSiteSubmitStatus("先选择任务");
     setBatchStatus("先选择任务");

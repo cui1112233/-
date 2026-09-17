@@ -100,6 +100,13 @@ test('network-submit shortcut calls the explicit selected-task submit bridge', (
   assert.doesNotMatch(layout, /targetId === 'openWebSubmitBtn'\) target\?\.click\(\)/);
 });
 
+test('network-submit bridge preserves a task-list selection when V2 has no parsed-book selection', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /function resolveWebSubmitSelectedIds\(explicitIds = null\)/);
+  assert.match(app, /const explicit = Array\.isArray\(explicitIds\)[\s\S]*?return explicit\.length \? explicit : selectedTaskIds\(\);/);
+  assert.match(app, /const selectedIdsForSubmit = mode === "selected" \? resolveWebSubmitSelectedIds\(explicitIds\) : selectedTaskIds\(\);/);
+});
+
 test('V2 parsed-book selections synchronize with the network-submit task selection', () => {
   const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
   const app = read('frontend/public/batch-rewrite/app.js');
