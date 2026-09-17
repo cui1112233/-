@@ -2972,6 +2972,14 @@ function selectedTaskIds() {
   return [...state.selectedIds];
 }
 
+// The V2 parsed-book picker is rendered by a separate script. Keep its
+// selection authoritative for the legacy task actions that it exposes.
+window.addEventListener("qiantie-v78-task-selection", event => {
+  const ids = Array.isArray(event?.detail?.ids) ? event.detail.ids.map(id => String(id || "").trim()).filter(Boolean) : [];
+  state.selectedIds = new Set(ids);
+  updateSelectedCount();
+});
+
 function setBatchStatus(text) {
   $("batchStatus").textContent = text || "";
 }

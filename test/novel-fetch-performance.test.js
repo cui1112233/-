@@ -99,6 +99,15 @@ test('network-submit shortcut calls the explicit selected-task submit bridge', (
   assert.doesNotMatch(layout, /targetId === 'openWebSubmitBtn'\) target\?\.click\(\)/);
 });
 
+test('V2 parsed-book selections synchronize with the network-submit task selection', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(client, /qiantie-v78-task-selection/);
+  assert.match(client, /detail:\s*\{\s*ids\s*\}/);
+  assert.match(app, /addEventListener\("qiantie-v78-task-selection"/);
+  assert.match(app, /state\.selectedIds = new Set/);
+});
+
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
   const routes = read('routes/batch-rewrite.js');
   const v2Service = read('lib/novel-fetch-workshop/121-web-submit-service.js');

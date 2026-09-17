@@ -92,6 +92,11 @@
   function selectedParsedTasks() {
     return previewState.tasks.filter(task => previewState.selected.has(String(task.bookId || task.book_id || task.id || '')));
   }
+
+  function syncLegacyTaskSelection() {
+    const ids = [...previewState.selected].map(id => String(id || '').trim()).filter(Boolean);
+    window.dispatchEvent(new CustomEvent('qiantie-v78-task-selection', { detail: { ids } }));
+  }
   function currentWorkSnapshot() {
     const targets = selectedTargetVersions();
     const selected = previewState.active ? selectedParsedTasks() : [];
@@ -274,6 +279,7 @@
       if (!input) return;
       const id = String(input.dataset.v78PreviewId || '');
       if (input.checked) previewState.selected.add(id); else previewState.selected.delete(id);
+      syncLegacyTaskSelection();
       setText('v78PreviewStatus', `已解析 ${previewState.tasks.length} 本，已选 ${previewState.selected.size} 本`);
     };
   }
@@ -287,6 +293,7 @@
   }
 
   async function startSelectedProcessing() {
+    syncLegacyTaskSelection();
     const button = byId('processBtn');
     if (button?.disabled) return;
     if (!selectedTargetVersions().length) { setText('v78PreviewStatus', '请至少选择一个文案版本'); return; }
