@@ -11,7 +11,7 @@ test('selected-task submit bridge falls back to the task-list selection when V2 
   const page = read('lib/novel-fetch-workshop/v2-page.js');
 
   assert.match(bridge, /window\.qiantieSubmitSelectedTasks/);
-  assert.match(bridge, /Array\.isArray\(ids\).*ids\.length/s);
-  assert.match(bridge, /original\(\)/);
+  assert.match(bridge, /Array\.isArray\(ids\)/);
+  assert.match(bridge, /explicitIds\.length \? original\(explicitIds\) : original\(\)/);
   assert.match(page, /v78-selected-task-submit-bridge\.js\?v=20260917-task-list-fallback-r1/);
 });
