@@ -85,6 +85,12 @@ test('one refresh coordinator owns activity polling', () => {
   assert.doesNotMatch(layout, /setInterval\(refreshImageLayoutData/);
 });
 
+test('V2 layout script has an explicit cache version for network-submit fixes', () => {
+  const { injectNovelFetchV2Script } = require(path.join(root, 'lib/novel-fetch-workshop/v2-page.js'));
+  const injected = injectNovelFetchV2Script('<html><body></body></html>');
+  assert.match(injected, /v78-novel-fetch-v2-layout\.js\?v=20260917-submit-activation-r1/);
+});
+
 test('network-submit shortcut triggers the guarded legacy submit action', () => {
   const layout = read('public/batch-rewrite/v78-novel-fetch-v2-layout.js');
   const activate = layout.indexOf("if (targetId === 'openWebSubmitBtn') target?.click();");
