@@ -3256,6 +3256,10 @@ function openWebSubmitFromTasks() {
   void submitWebSubmit("selected");
 }
 
+// V2 action bars use this explicit bridge instead of dispatching a synthetic click
+// against the legacy button, which may be replaced while switching task panels.
+window.qiantieSubmitSelectedTasks = () => void submitWebSubmit("selected");
+
 function selectAllVisibleTasks() {
   for (const task of state.tasks) {
     if (task.id) state.selectedIds.add(String(task.id));

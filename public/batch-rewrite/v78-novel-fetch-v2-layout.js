@@ -221,9 +221,9 @@
       const target = $(targetId);
       const tasksTab = document.querySelector('.tab[data-tab="tasks"]');
       tasksTab?.click();
-      // Keep this in the original pointer event. Delaying it loses the browser's
-      // user-activation state, so the legacy confirmation dialog is suppressed.
-      if (targetId === 'openWebSubmitBtn') target?.click();
+      // Submit directly through the legacy runtime. The old target can be
+      // replaced while switching task panels, so a synthetic click may do nothing.
+      if (targetId === 'openWebSubmitBtn') window.qiantieSubmitSelectedTasks?.();
       window.setTimeout(() => {
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target?.focus?.();

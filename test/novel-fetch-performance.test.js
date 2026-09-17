@@ -17,7 +17,7 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const injected = injectNovelFetchV2Script(html);
   assert.ok(injected.indexOf('v78-novel-fetch-v2-runtime.js') < injected.indexOf('app.js?v='));
-  assert.ok(injected.indexOf('app.js?v=') < injected.indexOf('v78-novel-fetch-v2.js'));
+  assert.ok(injected.indexOf('app.js?v=20260917-submit-bridge-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {
@@ -40,7 +40,7 @@ test('startup uses a lightweight bootstrap config and avoids eager full config',
   const config = read('public/batch-rewrite/v78-novel-fetch-v2-config.js');
   assert.match(app, /\/api\/bootstrap/);
   assert.match(app, /knowledge_loaded \? \{ knowledge: state\.config\.knowledge/);
-  assert.match(html, /app\.js\?v=20260916-performance-r1/);
+  assert.match(html, /app\.js\?v=20260917-submit-bridge-r1/);
   assert.match(config, /loadAdvancedConfig/);
   assert.match(config, /data-tab=\\?\"config/);
 });
@@ -88,14 +88,15 @@ test('one refresh coordinator owns activity polling', () => {
 test('V2 layout script has an explicit cache version for network-submit fixes', () => {
   const { injectNovelFetchV2Script } = require(path.join(root, 'lib/novel-fetch-workshop/v2-page.js'));
   const injected = injectNovelFetchV2Script('<html><body></body></html>');
-  assert.match(injected, /v78-novel-fetch-v2-layout\.js\?v=20260917-submit-activation-r1/);
+  assert.match(injected, /v78-novel-fetch-v2-layout\.js\?v=20260917-submit-bridge-r1/);
 });
 
-test('network-submit shortcut triggers the guarded legacy submit action', () => {
+test('network-submit shortcut calls the explicit selected-task submit bridge', () => {
   const layout = read('public/batch-rewrite/v78-novel-fetch-v2-layout.js');
-  const activate = layout.indexOf("if (targetId === 'openWebSubmitBtn') target?.click();");
-  const deferredFocus = layout.indexOf('window.setTimeout(() =>', activate);
-  assert.ok(activate > -1 && deferredFocus > activate);
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /window\.qiantieSubmitSelectedTasks\s*=\s*\(\)\s*=>\s*void submitWebSubmit\(\"selected\"\)/);
+  assert.match(layout, /window\.qiantieSubmitSelectedTasks\?\.\(\)/);
+  assert.doesNotMatch(layout, /targetId === 'openWebSubmitBtn'\) target\?\.click\(\)/);
 });
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
