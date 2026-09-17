@@ -85,6 +85,11 @@ test('one refresh coordinator owns activity polling', () => {
   assert.doesNotMatch(layout, /setInterval\(refreshImageLayoutData/);
 });
 
+test('network-submit shortcut triggers the guarded legacy submit action', () => {
+  const layout = read('public/batch-rewrite/v78-novel-fetch-v2-layout.js');
+  assert.match(layout, /targetId === 'openWebSubmitBtn'[\s\S]*?target\?\.click\(\)/);
+});
+
 test('novel fetch iframe is visible beneath the loading skeleton', () => {
   const css = read('frontend/src/user/pages/novel-fetch.css');
   assert.doesNotMatch(css, /novel-fetch-frame-shell \.novel-fetch-original-workbench \{ opacity: 0;/);
