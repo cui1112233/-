@@ -90,6 +90,12 @@ test('network-submit shortcut triggers the guarded legacy submit action', () => 
   assert.match(layout, /targetId === 'openWebSubmitBtn'[\s\S]*?target\?\.click\(\)/);
 });
 
+test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
+  const routes = read('routes/batch-rewrite.js');
+  assert.match(routes, /body\?\.mode === 'selected' && !ids\.length/);
+  assert.match(routes, /没有收到选中的任务/);
+});
+
 test('novel fetch iframe is visible beneath the loading skeleton', () => {
   const css = read('frontend/src/user/pages/novel-fetch.css');
   assert.doesNotMatch(css, /novel-fetch-frame-shell \.novel-fetch-original-workbench \{ opacity: 0;/);

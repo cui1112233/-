@@ -947,6 +947,7 @@ function createBatchRewriteRouter({
 
   async function planSubmission(req, body) {
     const ids = await selectTaskIds(req, body);
+    if (body?.mode === 'selected' && !ids.length) throw new Error('没有收到选中的任务。请在任务列表勾选复选框后重新提交。');
     const webConfig = await currentWebConfig(req);
     const submitMode = 'version';
     const { tasks } = await resources(req);
@@ -1008,6 +1009,10 @@ function createBatchRewriteRouter({
     const session = novelFetchStore.getSession(req.username);
     if (!session?.cookie) throw new Error('请先在网站提交页保存账号密码并登录目标站');
     const plan = await planSubmission(req, body);
+    if (!plan.groups.length) {
+      const reasons = [...new Set(plan.skipped.map(item => String(item.error || '').trim()).filter(Boolean))];
+      throw new Error(reasons.length ? `没有可提交文案：${reasons.join('；')}` : '没有可提交的任务。请先勾选任务，并确认正文和上传配置档已准备好。');
+    }
     const { tasks } = await resources(req);
     const submissionId = crypto.randomUUID().slice(0, 8);
     let successGroups = 0;
