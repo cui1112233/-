@@ -424,7 +424,7 @@ export function ScriptPage() {
         imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
       const result = await createScriptVideo(videoPayload);
-      const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
+      const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing', prompt } };
       setShotVideoTasks(nextVideoTasks);
       if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
       watchShotVideoTask(index, result.taskId);
@@ -479,12 +479,16 @@ export function ScriptPage() {
       try {
         const task = await getScriptVideoTask(taskId);
         if (task.status === 'succeeded') {
-          setShotVideoTasks(current => ({ ...current, [index]: task }));
+          setShotVideoTasks(current => current[index]?.taskId === taskId
+            ? { ...current, [index]: { ...task, prompt: current[index].prompt } }
+            : current);
           message.success(`第 ${index + 1} 条分镜视频生成成功`);
           return;
         }
         if (task.status === 'failed') {
-          setShotVideoTasks(current => ({ ...current, [index]: task }));
+          setShotVideoTasks(current => current[index]?.taskId === taskId
+            ? { ...current, [index]: { ...task, prompt: current[index].prompt } }
+            : current);
           message.error(task.error || `第 ${index + 1} 条分镜视频生成失败`);
           return;
         }

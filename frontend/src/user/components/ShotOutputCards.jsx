@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { splitShotTextHighlight } from './shotTextHighlight';
 import { getShotMatchDisplayRange } from '../pages/scriptShotReplace';
 import { collectShotReferenceDescriptors } from '../pages/scriptVideoReferences';
+import { isShotVideoTaskCurrent } from '../pages/scriptShotVideoTasks';
 
 export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, onGenerateVideo, generatingIndexes = new Set(), videoTasks = {}, extractInfo, shotReferenceStates, onToggleReference, onOpenVideo, output, activeMatch, cardStarts }) {
   const selectedCount = selectedIndexes.size;
@@ -25,6 +26,7 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
       </div>
       {cards.map((card, index) => {
         const videoTask = videoTasks[index];
+        const videoTaskCurrent = isShotVideoTaskCurrent(videoTask, card);
         const cardDuration = card.match(/总时长[：:]\s*(\d+s)/)?.[1] || duration;
         const displayRange = getShotMatchDisplayRange(output, card, index, cardStarts[index], activeMatch);
         const highlight = splitShotTextHighlight(card, displayRange);
@@ -41,7 +43,7 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
             </div> : null}
             <Space size={8}>
               <Button size="small" icon={<Copy size={15} aria-hidden="true" />} onClick={() => onCopy(card)}>复制本分镜</Button>
-              {videoTask?.status === 'succeeded' ? <><Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} onClick={() => onOpenVideo?.(videoTask)}>生成成功</Button><Button size="small" icon={<Download size={15} aria-hidden="true" />} href={videoTask.videoUrl} download target="_blank" rel="noreferrer">下载</Button></> : <Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} loading={generatingIndexes.has(index) || videoTask?.status === 'processing'} disabled={!onGenerateVideo || generatingIndexes.has(index) || videoTask?.status === 'processing'} title={!onGenerateVideo ? '暂无视频生成权限' : undefined} onClick={() => onGenerateVideo?.(card, index)}>{videoTask?.status === 'processing' ? '视频生成中' : onGenerateVideo ? '生成视频' : '暂无视频权限'}</Button>}
+              {videoTaskCurrent && videoTask?.status === 'succeeded' ? <><Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} onClick={() => onOpenVideo?.(videoTask)}>生成成功</Button><Button size="small" icon={<Download size={15} aria-hidden="true" />} href={videoTask.videoUrl} download target="_blank" rel="noreferrer">下载</Button></> : <Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} loading={generatingIndexes.has(index) || (videoTaskCurrent && videoTask?.status === 'processing')} disabled={!onGenerateVideo || generatingIndexes.has(index) || (videoTaskCurrent && videoTask?.status === 'processing')} title={!onGenerateVideo ? '暂无视频生成权限' : undefined} onClick={() => onGenerateVideo?.(card, index)}>{videoTaskCurrent && videoTask?.status === 'processing' ? '视频生成中' : videoTask ? '重新生成视频' : onGenerateVideo ? '生成视频' : '暂无视频权限'}</Button>}
             </Space>
           </div>
           <pre className="shot-output-card-content">{highlight ? <>{highlight.before}<mark className="shot-output-card-match" ref={activeMatchRef}>{highlight.highlight}</mark>{highlight.after}</> : card}</pre>
