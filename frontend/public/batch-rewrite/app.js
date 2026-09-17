@@ -2447,7 +2447,7 @@ function renderDetail(data) {
     </div>
     ${aiBlocks}
   `;
-  $("detailCloseBtn").onclick = (event) => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); };
+  bindDetailCloseControl();
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
@@ -2518,7 +2518,9 @@ function renderSensitiveLog(data) {
       <h3>相关处理日志</h3>
       <div class="logs-list">${eventRows || `<div class="log-row">暂无相关日志</div>`}</div>
     </div>
+    <div class="actions">${detailCloseControl()}</div>
   `;
+  bindDetailCloseControl();
 }
 
 function renderRulesTrace(data) {
@@ -2634,7 +2636,9 @@ function renderSiteSubmitLog(data) {
       <h3>上传过程日志</h3>
       <div class="logs-list">${eventRows || `<div class="log-row">暂无相关日志</div>`}</div>
     </div>
+    <div class="actions">${detailCloseControl()}</div>
   `;
+  bindDetailCloseControl();
 }
 
 function metaItem(label, value) {
@@ -2889,6 +2893,10 @@ async function showTask(id) {
 }
 
 function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+function detailCloseControl() { return '<button id="detailCloseBtn" type="button">关闭</button>'; }
+function bindDetailCloseControl() {
+  $("detailCloseBtn")?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); });
+}
 
 function adjacentTaskId(direction) {
   const index = state.tasks.findIndex((task) => String(task.id || "") === String(state.selectedId || ""));
@@ -3567,6 +3575,12 @@ document.addEventListener("change", (event) => {
     void loadTasks();
   }
 });
+
+document.addEventListener("pointerdown", event => {
+  if (!document.body.classList.contains("detail-modal-open")) return;
+  if (event.target.closest(".task-detail-section")) return;
+  closeTaskDetail();
+}, true);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeTaskDetail();

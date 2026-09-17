@@ -208,7 +208,7 @@ test('小说获取改文在中央模型不可用时保留等待状态和中文�
   });
   assert.equal(result.status, 'waiting_ai_config');
   assert.equal(result.error, '文本模型不可用、未配置或尚未启用');
-  assert.deepEqual(updates[0], { aiStatus: 'waiting_ai_config', aiError: '文本模型不可用、未配置或尚未启用' });
+  assert.deepEqual(updates[0], { aiStatus: 'waiting_ai_config', aiCurrentVersion: '', aiError: '文本模型不可用、未配置或尚未启用' });
 });
 
 test('队列执行器兼容从旧配置的 app_config 节点读取中央文本模型', () => {

@@ -2206,7 +2206,7 @@ function renderWebSubmitGroups(data = {}) {
 function statusClass(value) {
   const text = String(value || "");
   if (text.includes("failed") || text.includes("失败")) return "status-error";
-  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("dry_run")) return "status-warn";
+  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("generating") || text.includes("dry_run")) return "status-warn";
   if (text.includes("done") || text.includes("完成") || text.includes("classified") || text.includes("submitted") || text.includes("已提交")) return "status-ok";
   return "";
 }
@@ -2278,6 +2278,7 @@ function classifyDetailText(meta = {}) {
 
 function aiStatusDisplay(task = {}, aiText = '') {
   const reason = String(task.ai_error || task.aiError || '').trim();
+  if (task.ai_status === 'generating') return `<span class="task-spinner" aria-hidden="true"></span>${escapeHtml(aiText)}`;
   if (!reason) return escapeHtml(aiText);
   return `<span class="task-status-main">${escapeHtml(aiText)}</span><small class="task-status-reason">AI错误：${escapeHtml(reason)}</small>`;
 }
@@ -2349,7 +2350,9 @@ function renderTasks(tasks) {
     const originalText = originalStatusText(task);
     const selectedAi = asArray(task.selected_versions).filter(version => /^ai[1-5]$/.test(version));
     const generatedAi = asArray(task.ai_files);
-    const aiText = selectedAi.length
+    const aiText = task.ai_status === 'generating'
+      ? `${String(task.ai_current_version || 'ai1').toUpperCase()} 执行中…`
+      : selectedAi.length
       ? `${generatedAi.map(version => version.toUpperCase()).join("、") || "待生成"}（${generatedAi.length}/${selectedAi.length}）`
       : "本次未选择 AI 文案";
     const siteText = siteSubmitText(task);
@@ -2361,7 +2364,7 @@ function renderTasks(tasks) {
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
       <td class="${statusClass(task.classify_status)}" title="${escapeHtml(task.classify_error || task.classifyError || "")}">${classifyStatusDisplay(task)}</td>
-      <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}</td>
+      <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}${task.original_error ? `<div class="task-error-detail" title="${escapeHtml(task.original_error)}">${escapeHtml(task.original_error)}</div>` : ""}</td>
       <td class="${statusClass(task.ai_status)}" title="${escapeHtml(task.ai_error || task.aiError || '')}">${aiStatusDisplay(task, aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
       <td class="${statusClass(task.status)}">${escapeHtml(taskStatusText(task.status, "待处理"))}</td>
@@ -2414,6 +2417,8 @@ function renderDetail(data) {
       ${metaItem("AI判断", classifyDetailText(meta))}
       ${metaItem("分类模型", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
+      ${metaItem("原文抓取错误", meta.original_error || "")}
+      ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
@@ -2442,7 +2447,7 @@ function renderDetail(data) {
     </div>
     ${aiBlocks}
   `;
-  $("detailCloseBtn").onclick = (event) => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); };
+  bindDetailCloseControl();
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
@@ -2513,7 +2518,9 @@ function renderSensitiveLog(data) {
       <h3>相关处理日志</h3>
       <div class="logs-list">${eventRows || `<div class="log-row">暂无相关日志</div>`}</div>
     </div>
+    <div class="actions">${detailCloseControl()}</div>
   `;
+  bindDetailCloseControl();
 }
 
 function renderRulesTrace(data) {
@@ -2629,7 +2636,9 @@ function renderSiteSubmitLog(data) {
       <h3>上传过程日志</h3>
       <div class="logs-list">${eventRows || `<div class="log-row">暂无相关日志</div>`}</div>
     </div>
+    <div class="actions">${detailCloseControl()}</div>
   `;
+  bindDetailCloseControl();
 }
 
 function metaItem(label, value) {
@@ -2884,6 +2893,10 @@ async function showTask(id) {
 }
 
 function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+function detailCloseControl() { return '<button id="detailCloseBtn" type="button">关闭</button>'; }
+function bindDetailCloseControl() {
+  $("detailCloseBtn")?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); });
+}
 
 function adjacentTaskId(direction) {
   const index = state.tasks.findIndex((task) => String(task.id || "") === String(state.selectedId || ""));
@@ -3562,6 +3575,12 @@ document.addEventListener("change", (event) => {
     void loadTasks();
   }
 });
+
+document.addEventListener("pointerdown", event => {
+  if (!document.body.classList.contains("detail-modal-open")) return;
+  if (event.target.closest(".task-detail-section")) return;
+  closeTaskDetail();
+}, true);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeTaskDetail();

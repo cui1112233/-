@@ -80,6 +80,10 @@ function snakeTask(task = {}) {
 
 function legacyMeta(meta = {}) { return snakeTask(meta); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+function withSensitiveAiEnabled(config, enabled) {
+  if (typeof enabled !== 'boolean') return config;
+  return { ...config, sensitive_ai: { ...object(config?.sensitive_ai), enabled } };
+}
 function idFrom(value) { return String(value || '').trim(); }
 function countEntries(value) { return Array.isArray(value) ? value.length : 0; }
 
@@ -713,7 +717,7 @@ function createBatchRewriteRouter({
     const { tasks, configStore: store } = await resources(req);
     const inputText = String(payload?.input_text || '');
     if (!inputText.trim()) throw new Error('请输入书籍信息');
-    const config = object(store.getConfig());
+    const config = withSensitiveAiEnabled(object(store.getConfig()), payload?.sensitive_ai_enabled);
     const parsed = parse.parseBooks({
       inputText,
       parseMode: 'smart',
@@ -759,7 +763,7 @@ function createBatchRewriteRouter({
       const fetchedResults = await runWithConcurrency(classified, config.fetch?.concurrency || 1, async task => {
         const result = await tasks.fetchOriginal(req.username, task.bookId, task.maxTxt);
         if (result?.status !== 'done') return { task, done: false };
-        await applySavedRulesToOriginal(tasks, req.username, task.bookId, config);
+        await applySavedRulesToOriginal(tasks, req.username, task.bookId, config, store);
         return { task, done: true };
       });
       for (const [index, item] of fetchedResults.entries()) {
@@ -1187,11 +1191,11 @@ function createBatchRewriteRouter({
   router.post('/tasks/apply-rules', async (req, res) => { try {
     const ids = await selectTaskIds(req, req.body);
     const { tasks, configStore: store } = await resources(req);
-    const config = object(store.getConfig());
+    const config = withSensitiveAiEnabled(object(store.getConfig()), req.body?.sensitive_ai_enabled);
     const scope = ['original', 'ai', 'both'].includes(req.body?.scope) ? req.body.scope : 'both';
     let applied = 0;
     for (const id of ids) {
-      if (scope === 'original' || scope === 'both') if (await applySavedRulesToVersion(tasks, req.username, id, 'original', config)) applied++;
+      if (scope === 'original' || scope === 'both') if (await applySavedRulesToOriginal(tasks, req.username, id, config, store)) applied++;
       if (scope === 'ai' || scope === 'both') {
         const task = await tasks.getTask(req.username, id);
         for (const version of versionSelection.generatedVersions(task?.meta || {})) {
@@ -1204,7 +1208,7 @@ function createBatchRewriteRouter({
   router.post('/tasks/reprocess-sensitive', async (req, res) => { try {
     const ids = await selectTaskIds(req, req.body);
     const { tasks, configStore: store } = await resources(req);
-    const config = object(store.getConfig());
+    const config = withSensitiveAiEnabled(object(store.getConfig()), req.body?.sensitive_ai_enabled);
     const restoreFromBackup = req.body?.restore_from_backup === true;
     let processed = 0;
     let restored = 0;
@@ -1218,7 +1222,7 @@ function createBatchRewriteRouter({
           await tasks.restoreOriginal(req.username, id);
           restored++;
         }
-        await applySavedRulesToOriginal(tasks, req.username, id, config);
+        await applySavedRulesToOriginal(tasks, req.username, id, config, store);
         if (typeof tasks.appendLog === 'function') {
           await tasks.appendLog(req.username, id, 'sensitive_reprocessed', {
             source: restoreFromBackup ? 'original_backup' : 'current_text',
@@ -1233,12 +1237,13 @@ function createBatchRewriteRouter({
     res.json({ processed, restored, failed, tasks: await listTasks(req) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const aiTexts = []; for (const version of versionSelection.generatedVersions(task.meta)) aiTexts.push({ name: version.toUpperCase(), version, text: await tasks.readVersionText(req.username, req.params.id, version) }); const sensitiveLog = await readSensitiveLog(tasks, req.username, req.params.id); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, ...sensitiveLog, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') { const current = await tasks.getTask(req.username, req.params.id); throw new Error(current?.meta?.originalErrorMessage || current?.meta?.error || '原文抓取失败'); } await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig())); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') { const current = await tasks.getTask(req.username, req.params.id); throw new Error(current?.meta?.originalErrorMessage || current?.meta?.error || '原文抓取失败'); } const config = withSensitiveAiEnabled(object(store.getConfig()), req.body?.sensitive_ai_enabled); await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, store); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try {
     const { tasks, configStore: store } = await resources(req);
     if (typeof tasks.restoreOriginal !== 'function') throw new Error('当前存储不支持恢复原文');
     await tasks.restoreOriginal(req.username, req.params.id);
-    await applySavedRulesToOriginal(tasks, req.username, req.params.id, object(store.getConfig()));
+    const config = withSensitiveAiEnabled(object(store.getConfig()), req.body?.sensitive_ai_enabled);
+    await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, store);
     res.json({ task: await tasks.getTask(req.username, req.params.id) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const hasExplicitVersions = Array.isArray(req.body?.selected_versions); const versions = versionSelection.normalizeSelectedVersions(hasExplicitVersions ? req.body.selected_versions : task.meta.selectedVersions, hasExplicitVersions ? [] : undefined); if (!versions.length) throw new Error('请至少选择一个文案版本'); const slotMethods = versionSelection.normalizeAiSlotMethods(req.body?.ai_slot_methods || task.meta.aiSlotMethods); await tasks.updateTaskMeta(req.username, req.params.id, { selectedVersions: versions, aiSlotMethods: slotMethods }); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: { ...task.meta, selectedVersions: versions, aiSlotMethods: slotMethods }, versions, slotMethods }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
