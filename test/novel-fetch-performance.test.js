@@ -87,7 +87,9 @@ test('one refresh coordinator owns activity polling', () => {
 
 test('network-submit shortcut triggers the guarded legacy submit action', () => {
   const layout = read('public/batch-rewrite/v78-novel-fetch-v2-layout.js');
-  assert.match(layout, /targetId === 'openWebSubmitBtn'[\s\S]*?target\?\.click\(\)/);
+  const activate = layout.indexOf("if (targetId === 'openWebSubmitBtn') target?.click();");
+  const deferredFocus = layout.indexOf('window.setTimeout(() =>', activate);
+  assert.ok(activate > -1 && deferredFocus > activate);
 });
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {

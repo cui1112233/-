@@ -221,12 +221,12 @@
       const target = $(targetId);
       const tasksTab = document.querySelector('.tab[data-tab="tasks"]');
       tasksTab?.click();
+      // Keep this in the original pointer event. Delaying it loses the browser's
+      // user-activation state, so the legacy confirmation dialog is suppressed.
+      if (targetId === 'openWebSubmitBtn') target?.click();
       window.setTimeout(() => {
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target?.focus?.();
-        // “提交网络”是一个实际动作，不能像其它快捷入口一样只定位到任务栏。
-        // 复用原按钮，以保留原有的选中校验、确认框与提交状态提示。
-        if (targetId === 'openWebSubmitBtn') target?.click();
       }, 80);
     });
     return button;
