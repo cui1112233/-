@@ -2206,7 +2206,7 @@ function renderWebSubmitGroups(data = {}) {
 function statusClass(value) {
   const text = String(value || "");
   if (text.includes("failed") || text.includes("失败")) return "status-error";
-  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("dry_run")) return "status-warn";
+  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("generating") || text.includes("dry_run")) return "status-warn";
   if (text.includes("done") || text.includes("完成") || text.includes("classified") || text.includes("submitted") || text.includes("已提交")) return "status-ok";
   return "";
 }
@@ -2278,6 +2278,7 @@ function classifyDetailText(meta = {}) {
 
 function aiStatusDisplay(task = {}, aiText = '') {
   const reason = String(task.ai_error || task.aiError || '').trim();
+  if (task.ai_status === 'generating') return `<span class="task-spinner" aria-hidden="true"></span>${escapeHtml(aiText)}`;
   if (!reason) return escapeHtml(aiText);
   return `<span class="task-status-main">${escapeHtml(aiText)}</span><small class="task-status-reason">AI错误：${escapeHtml(reason)}</small>`;
 }
@@ -2349,7 +2350,9 @@ function renderTasks(tasks) {
     const originalText = originalStatusText(task);
     const selectedAi = asArray(task.selected_versions).filter(version => /^ai[1-5]$/.test(version));
     const generatedAi = asArray(task.ai_files);
-    const aiText = selectedAi.length
+    const aiText = task.ai_status === 'generating'
+      ? `${String(task.ai_current_version || 'ai1').toUpperCase()} 执行中…`
+      : selectedAi.length
       ? `${generatedAi.map(version => version.toUpperCase()).join("、") || "待生成"}（${generatedAi.length}/${selectedAi.length}）`
       : "本次未选择 AI 文案";
     const siteText = siteSubmitText(task);

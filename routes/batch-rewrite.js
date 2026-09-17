@@ -63,6 +63,7 @@ function snakeTask(task = {}) {
     original_error_code: task.originalErrorCode || task.original_error_code || '',
     original_upstream_code: task.originalUpstreamCode ?? task.original_upstream_code ?? null,
     ai_status: task.aiStatus || task.ai_status || '',
+    ai_current_version: task.aiCurrentVersion || task.ai_current_version || '',
     ai_count: aiCount,
     ai_files: existingAiFiles.length ? existingAiFiles : Array.from({ length: aiGenerated }, (_, index) => `ai${index + 1}`),
     classify_status: task.classifyStatus || task.classify_status || '',
