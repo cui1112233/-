@@ -63,6 +63,14 @@ test('knowledge tab retains visible zero counts and clears its loading status af
   assert.match(ensureBody, /status\.textContent = ""/);
 });
 
+test('legacy high-imitation items are visible in the reference library', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  const knowledgeBody = app.match(/function ensureKnowledgeConfig\(\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(knowledgeBody, /high\.references = asArray\(high\.references\)/);
+  assert.match(knowledgeBody, /high\.items/);
+  assert.match(knowledgeBody, /reference_text/);
+});
+
 test('保存普通配置不会把尚未加载的知识库标记为已加载', () => {
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(app, /function mergeConfigResponse\(nextConfig\)/);

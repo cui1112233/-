@@ -477,8 +477,21 @@ function joinLooseList(value) {
 function ensureKnowledgeConfig() {
   state.config.knowledge = state.config.knowledge || {};
   state.config.knowledge.high_imitation = state.config.knowledge.high_imitation || { prompts: [], references: [] };
-  state.config.knowledge.high_imitation.prompts = asArray(state.config.knowledge.high_imitation.prompts);
-  state.config.knowledge.high_imitation.references = asArray(state.config.knowledge.high_imitation.references);
+  const high = state.config.knowledge.high_imitation;
+  high.prompts = asArray(high.prompts);
+  high.references = asArray(high.references);
+  if (!high.references.length && Array.isArray(high.items) && high.items.length) {
+    high.references = high.items.map((item, index) => {
+      const source = item && typeof item === "object" ? item : {};
+      return {
+        ...source,
+        id: source.id || `high_${String(index + 1).padStart(3, "0")}`,
+        name: source.name || source.title || "",
+        reference_text: source.reference_text || source.content || "",
+        enabled: source.enabled !== false,
+      };
+    });
+  }
   state.config.knowledge.opening_phrases = state.config.knowledge.opening_phrases || { items: [] };
   state.config.knowledge.opening_phrases.items = asArray(state.config.knowledge.opening_phrases.items);
   state.config.knowledge.opening_analyzer = state.config.knowledge.opening_analyzer || {};
