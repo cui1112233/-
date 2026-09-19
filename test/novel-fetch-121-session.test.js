@@ -96,6 +96,35 @@ test('121 已有会话校验后把 Cookie 继续传给同步动作', async () =>
   assert.equal(calls[1][1].sessionKey, 'session-1');
 });
 
+test('121 组织归属同步保存可用组织并选择已有默认组织', async () => {
+  const browserSession = new Map([['owner-1', { targetUsername: '121-user', sessionKey: 'session-1', status: 'ready' }]]);
+  const config = { web_submit: {} };
+  const store = {
+    async getConfig() { return config; },
+    async saveConfig(next) { Object.assign(config, next); },
+    async listTasks() { return []; }
+  };
+  const service = create121WebSubmitService({
+    accountResolver: owner => ({ username: owner }),
+    createStore: () => store,
+    browserClient: {
+      configured: true,
+      async test(input) { return { ok: true, status: 'ready', sessionKey: input.sessionKey }; },
+      async action(input) {
+        assert.equal(input.action, 'organization_list');
+        assert.equal(input.sessionKey, 'session-1');
+        return { status: 200, body: JSON.stringify({ success: true, data: [{ id: 1, parent_id: 0, level: 1, name: '博量' }] }) };
+      }
+    },
+    sessionStore: { getBrowserSession: owner => browserSession.get(owner) || null, setBrowserSession: (owner, value) => { browserSession.set(owner, value); return value; } },
+    credentialStore: { get: () => null, set: () => ({ saved: true }) }
+  });
+
+  const result = await service.syncOrganizations('owner-1');
+  assert.equal(result.settings.organization, '1');
+  assert.deepEqual(result.settings.organization_catalog, [{ id: '1', parent_id: '0', level: 1, name: '博量' }]);
+});
+
 test('121 会话过期时自动重新登录，不把旧会话错误暴露给同步流程', async () => {
   let testCount = 0;
   const expired = Object.assign(new Error('target session expired'), { status: 401, code: 'TARGET_SESSION_EXPIRED' });

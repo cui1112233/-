@@ -561,6 +561,8 @@ function ensureWebSubmitConfig() {
     retry_times: Math.max(0, Number(current.retry_times) || 1),
     upload_profiles: asArray(current.upload_profiles),
     profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
+    organization: String(current.organization || '1'),
+    organization_catalog: asArray(current.organization_catalog),
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
       jieyaNum,
@@ -1660,10 +1662,24 @@ function renderWebSubmitConfig(settings = {}) {
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
+  renderWebOrganizationOptions(cfg.organization_catalog || [], cfg.organization || "1");
 
   updateResubmitHint();
   renderWebSubmitMode();
   renderWebLoginStatus(cfg);
+}
+
+function renderWebOrganizationOptions(catalog, selected) {
+  const select = $("webOrganization");
+  if (!select) return;
+  const items = asArray(catalog);
+  const options = items.length ? items.map(item => {
+    const id = String(item?.id || "").trim();
+    const name = String(item?.name || id).trim();
+    return id ? `<option value="${escapeHtml(id)}" ${id === String(selected || "") ? "selected" : ""}>${escapeHtml(name)}（ID ${escapeHtml(id)}）</option>` : "";
+  }).join("") : `<option value="${escapeHtml(String(selected || "1"))}">默认组织（ID ${escapeHtml(String(selected || "1"))}）</option>`;
+  select.innerHTML = options;
+  select.value = String(selected || "1");
 }
 
 function renderWebLoginStatus(settings = {}) {
@@ -1797,6 +1813,7 @@ function syncFormToWebSubmitConfig() {
   cfg.profile_bindings = webProfileBindingsFromForm();
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
+  cfg.organization = $("webOrganization")?.value || cfg.organization || "1";
   cfg.submit_versions = selectedProcessVersions();
   return cfg;
 }
@@ -1896,7 +1913,7 @@ async function waitWebSubmitOperation(id) {
 }
 
 async function syncWebSubmit(kind) {
-  const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
+  const label = kind === "styles" ? "批量风格类型" : kind === "organizations" ? "组织归属" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
   setVersionConfigStatus(`正在同步${label}...`);
   try {
@@ -2034,8 +2051,8 @@ async function loadWebSubmitHistory() {
   }
 }
 
-function webSubmitRequestPayload(mode, force = false) {
-  const ids = mode === "selected" ? selectedTaskIds() : [];
+function webSubmitRequestPayload(mode, force = false, explicitIds = null) {
+  const ids = mode === "selected" ? (Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds()) : [];
   return {
     mode,
     ids,
@@ -2076,14 +2093,15 @@ async function previewWebSubmit(mode) {
   }
 }
 
-async function submitWebSubmit(mode) {
-  if (mode === "selected" && !selectedTaskIds().length) {
+async function submitWebSubmit(mode, explicitIds = null) {
+  const selectedIdsForSubmit = mode === "selected" && Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds();
+  if (mode === "selected" && !selectedIdsForSubmit.length) {
     setSiteSubmitStatus("先选择任务");
     setBatchStatus("先选择任务");
     showWebSubmitSelectionRequired();
     return;
   }
-  const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedTaskIds().length} 个选中任务`);
+  const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedIdsForSubmit.length} 个选中任务`);
   if (!confirm(`确认提交${label}到网站？系统会按平台、男女频、风格类型自动分组上传。`)) return;
   setBatchStatus(`排队中：${label}`);
   setSiteSubmitStatus(`正在提交${label}...`);
@@ -2093,7 +2111,7 @@ async function submitWebSubmit(mode) {
     setBatchStatus(`上传中：${label}`);
     const submitPromise = api("/api/web-submit/submit", {
       method: "POST",
-      body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed")),
+      body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed", selectedIdsForSubmit)),
     });
     polling = true;
     const poll = (async () => {
@@ -2972,6 +2990,14 @@ function selectedTaskIds() {
   return [...state.selectedIds];
 }
 
+// The V2 parsed-book picker is rendered by a separate script. Keep its
+// selection authoritative for the legacy task actions that it exposes.
+window.addEventListener("qiantie-v78-task-selection", event => {
+  const ids = Array.isArray(event?.detail?.ids) ? event.detail.ids.map(id => String(id || "").trim()).filter(Boolean) : [];
+  state.selectedIds = new Set(ids);
+  updateSelectedCount();
+});
+
 function setBatchStatus(text) {
   $("batchStatus").textContent = text || "";
 }
@@ -3255,6 +3281,10 @@ async function startSensitiveProcessing() {
 function openWebSubmitFromTasks() {
   void submitWebSubmit("selected");
 }
+
+// V2 action bars use this explicit bridge instead of dispatching a synthetic click
+// against the legacy button, which may be replaced while switching task panels.
+window.qiantieSubmitSelectedTasks = ids => void submitWebSubmit("selected", ids);
 
 function selectAllVisibleTasks() {
   for (const task of state.tasks) {
@@ -3687,6 +3717,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
+  $("syncWebOrganizationsBtn").onclick = () => syncWebSubmit("organizations");
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;

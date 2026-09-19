@@ -561,6 +561,8 @@ function ensureWebSubmitConfig() {
     retry_times: Math.max(0, Number(current.retry_times) || 1),
     upload_profiles: asArray(current.upload_profiles),
     profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
+    organization: String(current.organization || '1'),
+    organization_catalog: asArray(current.organization_catalog),
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
       jieyaNum,
@@ -1660,10 +1662,24 @@ function renderWebSubmitConfig(settings = {}) {
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
+  renderWebOrganizationOptions(cfg.organization_catalog || [], cfg.organization || "1");
 
   updateResubmitHint();
   renderWebSubmitMode();
   renderWebLoginStatus(cfg);
+}
+
+function renderWebOrganizationOptions(catalog, selected) {
+  const select = $("webOrganization");
+  if (!select) return;
+  const items = asArray(catalog);
+  const options = items.length ? items.map(item => {
+    const id = String(item?.id || "").trim();
+    const name = String(item?.name || id).trim();
+    return id ? `<option value="${escapeHtml(id)}" ${id === String(selected || "") ? "selected" : ""}>${escapeHtml(name)}（ID ${escapeHtml(id)}）</option>` : "";
+  }).join("") : `<option value="${escapeHtml(String(selected || "1"))}">默认组织（ID ${escapeHtml(String(selected || "1"))}）</option>`;
+  select.innerHTML = options;
+  select.value = String(selected || "1");
 }
 
 function renderWebLoginStatus(settings = {}) {
@@ -1797,6 +1813,7 @@ function syncFormToWebSubmitConfig() {
   cfg.profile_bindings = webProfileBindingsFromForm();
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
+  cfg.organization = $("webOrganization")?.value || cfg.organization || "1";
   cfg.submit_versions = selectedProcessVersions();
   return cfg;
 }
@@ -1896,7 +1913,7 @@ async function waitWebSubmitOperation(id) {
 }
 
 async function syncWebSubmit(kind) {
-  const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
+  const label = kind === "styles" ? "批量风格类型" : kind === "organizations" ? "组织归属" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
   setVersionConfigStatus(`正在同步${label}...`);
   try {
@@ -3700,6 +3717,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
+  $("syncWebOrganizationsBtn").onclick = () => syncWebSubmit("organizations");
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;

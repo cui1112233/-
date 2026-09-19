@@ -36,7 +36,7 @@ function registerWebSubmitRoutes(router, webSubmit, { operations = createWebSubm
   router.get('/web-submit/environment', run(async (req, res) => res.json(await webSubmit.environment(req.username))));
   router.post('/web-submit/operations', run(async (req, res) => {
     const kind = String(req.body?.kind || '').trim().toLowerCase();
-    if (!['login', 'configs', 'styles'].includes(kind)) {
+    if (!['login', 'configs', 'styles', 'organizations'].includes(kind)) {
       const error = new Error('不支持的 121 后台操作');
       error.status = 400;
       throw error;
@@ -53,8 +53,8 @@ function registerWebSubmitRoutes(router, webSubmit, { operations = createWebSubm
         report => { report('login', '正在登录批量后台'); return webSubmit.saveConfig(req.username, { username, password }); },
         { queued: '已进入登录后台任务', done: '登录批量后台成功' }));
     }
-    const action = kind === 'styles' ? 'syncStyles' : 'syncConfigs';
-    const label = kind === 'styles' ? '批量风格类型' : '批量后台配置';
+    const action = kind === 'styles' ? 'syncStyles' : kind === 'organizations' ? 'syncOrganizations' : 'syncConfigs';
+    const label = kind === 'styles' ? '批量风格类型' : kind === 'organizations' ? '组织归属' : '批量后台配置';
     return res.status(202).json(operations.create(req.username, kind, async report => {
       report('session', '正在校验登录会话');
       report('remote', `正在读取${label}`);
