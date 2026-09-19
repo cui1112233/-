@@ -29,3 +29,13 @@ test('account entries take precedence over legacy entries during knowledge recov
 
   assert.deepEqual(merged.high_imitation.items, [{ id: 'account_1' }]);
 });
+
+test('partial account knowledge keeps prompts while recovering missing legacy references', () => {
+  const merged = mergeKnowledgeSources(
+    { high_imitation: { prompts: [{ id: 'prompt_1' }], references: [] } },
+    { high_imitation: { items: [{ id: 'legacy_1' }] } }
+  );
+
+  assert.deepEqual(merged.high_imitation.prompts, [{ id: 'prompt_1' }]);
+  assert.deepEqual(merged.high_imitation.items, [{ id: 'legacy_1' }]);
+});
