@@ -83,7 +83,7 @@ export function NovelFetchPage({ theme }) {
       <strong>{frameError ? '小说获取加载失败' : '正在加载小说获取…'}</strong>
       <span>{frameError ? '请刷新页面重试' : '正在准备工作台，请稍候'}</span>
     </div>}
-    <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={handleFrameLoad} onError={handleFrameError} />
+    <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/v2?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={handleFrameLoad} onError={handleFrameError} />
   </div>;
 }
 

@@ -35,6 +35,7 @@ const { createNovelFetchRouter } = require('./routes/novel-fetch');
 const { createNovelFetchUploadRouter } = require('./routes/novel-fetch-upload');
 const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
 const { createBatchRewriteRouter } = require('./routes/batch-rewrite');
+const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
@@ -324,6 +325,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
     }));
+    app.get('/batch-rewrite/v2', createNovelFetchV2PageMiddleware());
     app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite'), {
       setHeaders(res, filePath) {
         if (/\.(?:js|css)$/i.test(String(filePath || ''))) {

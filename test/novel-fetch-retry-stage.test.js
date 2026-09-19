@@ -153,3 +153,21 @@ test('网站提交阶段重试不受自动提交开关影响且只提交失败�
   });
   assert.deepEqual(submitted, [{ mode: 'selected', ids: ['1007'], versions: ['ai2'] }]);
 });
+
+test('定时任务在网站提交已启用且会话可用时默认自动提交', async () => {
+  const submitted = [];
+  const record = { meta: { bookId: '1008', bookName: '定时提交', gender: '女频', style: '现代', originalStatus: 'done' }, document: {} };
+  const tasks = {
+    async saveTasks() {}, async getTask() { return record; }, async readOriginal() { return '原文'; },
+    async fetchOriginal() { return { status: 'done' }; },
+    async updateTaskMeta(_owner, _id, patch) { record.meta = { ...record.meta, ...patch }; }, async listTasks() { return [record.meta]; }
+  };
+  await runNovelFetchBatch({
+    username: 'alice',
+    payload: { input_text: '1008\t定时提交', scheduled: true, target_versions: ['original'] },
+    configStore: { getConfig: () => ({ workflow: { auto_fetch_original: true, auto_rewrite_after_fetch: false, auto_submit_after_rewrite: false, auto_submit_confirmed: false }, web_submit: { enabled: true }, fetch: { concurrency: 1 }, rewrite: {} }), getStyles: () => [], getPlatforms: () => [] },
+    tasks, parseBooks: () => ({ tasks: [{ bookId: '1008', bookName: '定时提交', gender: '女频', style: '现代' }], duplicateCount: 0, emptyIdCount: 0 }),
+    submit: async request => { submitted.push(request); return { success_groups: 1, failed_groups: 0 }; }, listTasks: async () => [record.meta]
+  });
+  assert.deepEqual(submitted, [{ mode: 'selected', ids: ['1008'], versions: ['original'] }]);
+});

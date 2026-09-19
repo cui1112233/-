@@ -129,3 +129,11 @@ test('novel fetch iframe is visible beneath the loading skeleton', () => {
   assert.doesNotMatch(css, /novel-fetch-frame-shell \.novel-fetch-original-workbench \{ opacity: 0;/);
   assert.match(css, /novel-fetch-loading-overlay/);
 });
+
+test('public novel fetch loads the V2-enhanced workbench instead of the bare static file', () => {
+  const page = read('frontend/src/user/pages/NovelFetchPage.jsx');
+  const server = read('app.js');
+  assert.match(page, /src=\{`\/batch-rewrite\/v2\?theme=/);
+  assert.match(server, /createNovelFetchV2PageMiddleware/);
+  assert.match(server, /app\.get\('\/batch-rewrite\/v2'/);
+});
