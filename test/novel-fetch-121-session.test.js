@@ -65,8 +65,35 @@ test('121 会话缺失时使用已加密保存的凭据直连恢复并再次验�
   const result = await service.ensureSession('owner-1');
 
   assert.equal(result.result.ok, true);
+  assert.equal(result.request.sessionKey, 'session-1');
   assert.deepEqual(calls.map(([kind]) => kind), ['login', 'test']);
   assert.equal(browserSession.get('owner-1').targetUsername, '121-user');
+});
+
+test('121 已有会话校验后把 Cookie 继续传给同步动作', async () => {
+  const calls = [];
+  const browserSession = new Map([['owner-1', { targetUsername: '121-user', sessionKey: 'session-1', status: 'ready' }]]);
+  const store = {
+    async getConfig() { return { web_submit: {} }; },
+    async saveConfig() {},
+    async listTasks() { return []; }
+  };
+  const { create121WebSubmitService } = require('../lib/novel-fetch-workshop/121-web-submit-service');
+  const service = create121WebSubmitService({
+    accountResolver: owner => ({ username: owner }),
+    createStore: () => store,
+    browserClient: {
+      configured: true,
+      async test(input) { calls.push(['test', input]); return { ok: true, status: 'ready', sessionKey: input.sessionKey }; },
+      async action(input) { calls.push(['action', input]); return { status: 200, body: JSON.stringify({ success: true, data: [] }) }; }
+    },
+    sessionStore: { getBrowserSession: owner => browserSession.get(owner) || null, setBrowserSession: (owner, value) => { browserSession.set(owner, value); return value; } },
+    credentialStore: { get: () => null, set: () => ({ saved: true }) }
+  });
+
+  await service.syncConfigs('owner-1');
+  assert.equal(calls[1][0], 'action');
+  assert.equal(calls[1][1].sessionKey, 'session-1');
 });
 
 test('121 会话过期时自动重新登录，不把旧会话错误暴露给同步流程', async () => {
