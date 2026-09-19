@@ -171,3 +171,19 @@ test('定时任务在网站提交已启用且会话可用时默认自动提交',
   });
   assert.deepEqual(submitted, [{ mode: 'selected', ids: ['1008'], versions: ['original'] }]);
 });
+
+test('改文完成且未启用自动提交时保留待上传状态', async () => {
+  const record = { meta: { bookId: '1009', bookName: '待上传', gender: '女频', style: '现代', originalStatus: 'done' }, document: {} };
+  const tasks = {
+    async saveTasks() {}, async getTask() { return record; }, async readOriginal() { return '原文'; },
+    async updateTaskMeta(_owner, _id, patch) { record.meta = { ...record.meta, ...patch }; }, async listTasks() { return [record.meta]; }
+  };
+  await runNovelFetchBatch({
+    username: 'alice', payload: { input_text: '1009\t待上传', retry_stage: 'rewrite', target_versions: ['ai1'] },
+    configStore: { getConfig: () => ({ workflow: { auto_fetch_original: false, auto_rewrite_after_fetch: true, auto_submit_after_rewrite: false, auto_submit_confirmed: false }, web_submit: { enabled: true }, rewrite: {} }), getStyles: () => [], getPlatforms: () => [] },
+    tasks, parseBooks: () => ({ tasks: [{ bookId: '1009', bookName: '待上传', gender: '女频', style: '现代' }], duplicateCount: 0, emptyIdCount: 0 }),
+    generateAiVersions: async () => ({ status: 'done', generated: [{ version: 'ai1', status: 'done' }] }), listTasks: async () => [record.meta]
+  });
+  assert.equal(record.meta.siteSubmitStatus, 'pending_upload');
+  assert.deepEqual(record.meta.siteSubmitPendingVersions, ['ai1']);
+});

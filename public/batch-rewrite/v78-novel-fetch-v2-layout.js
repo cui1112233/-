@@ -284,6 +284,8 @@
     ai_done: 'AI文案已完成',
     ai_processing: 'AI文案处理中',
     ai_failed: 'AI文案生成失败',
+    pending_upload: '待上传',
+    uploading: '上传中',
     site_submitted: '网站已提交',
     accepted_pending: '等待网站确认',
     queued: '排队中',

@@ -3,7 +3,7 @@ const path = require('node:path');
 const { normalizeSessionRequest, sanitizeSessionResponse } = require('./contracts');
 const { createSessionStore, deriveSessionKey } = require('./session-store');
 const { loginWithPlaywright } = require('./login');
-const { actionWithPlaywright } = require('./actions');
+const { actionWithPlaywright, createActionRunner } = require('./actions');
 
 function withTimeout(promise, timeoutMs) {
   const ms = Math.max(1000, Math.min(Number(timeoutMs) || 30000, 60000));
@@ -27,13 +27,14 @@ function createWorkerApp({
   secret,
   sessionStore,
   login = loginWithPlaywright,
-  action = actionWithPlaywright,
+  action,
   headedEnabled = process.env.QIANTIE_121_HEADED_ENABLED === '1',
   verifyTimeoutMs = Number(process.env.QIANTIE_121_VERIFY_TIMEOUT_MS) || 30_000,
   loginTimeoutMs = Number(process.env.QIANTIE_121_LOGIN_TIMEOUT_MS) || 45_000
 } = {}) {
   if (!secret) throw new Error('worker internal secret is required');
   const store = sessionStore || createSessionStore({ rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions') });
+  const runAction = action || createActionRunner({ maxConcurrent: Number(process.env.QIANTIE_121_ACTION_CONCURRENCY) || 1 });
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.use((req, res, next) => {
@@ -93,7 +94,7 @@ function createWorkerApp({
     const existing = store.load(input);
     if (!existing) return res.status(404).json({ ok: false, owner: input.owner, status: 'missing', error: 'session_missing' });
     try {
-      const result = await withTimeout(action({
+      const result = await withTimeout(runAction({
         ...input,
         storageState: existing,
         action: String(req.body?.action || ''),
