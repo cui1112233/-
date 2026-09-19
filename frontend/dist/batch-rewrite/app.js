@@ -45,6 +45,13 @@ function pretty(value) {
   return JSON.stringify(value, null, 2);
 }
 
+function mergeConfigResponse(nextConfig) {
+  const knowledgeLoaded = state.config?.knowledge_loaded === true || nextConfig?.knowledge_loaded === true;
+  state.config = { ...(nextConfig || {}), knowledge_loaded: knowledgeLoaded };
+  if (knowledgeLoaded) renderKnowledgeSummary(state.config.knowledge_summary || {});
+  return state.config;
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value || {}));
 }
@@ -470,8 +477,21 @@ function joinLooseList(value) {
 function ensureKnowledgeConfig() {
   state.config.knowledge = state.config.knowledge || {};
   state.config.knowledge.high_imitation = state.config.knowledge.high_imitation || { prompts: [], references: [] };
-  state.config.knowledge.high_imitation.prompts = asArray(state.config.knowledge.high_imitation.prompts);
-  state.config.knowledge.high_imitation.references = asArray(state.config.knowledge.high_imitation.references);
+  const high = state.config.knowledge.high_imitation;
+  high.prompts = asArray(high.prompts);
+  high.references = asArray(high.references);
+  if (!high.references.length && Array.isArray(high.items) && high.items.length) {
+    high.references = high.items.map((item, index) => {
+      const source = item && typeof item === "object" ? item : {};
+      return {
+        ...source,
+        id: source.id || `high_${String(index + 1).padStart(3, "0")}`,
+        name: source.name || source.title || "",
+        reference_text: source.reference_text || source.content || "",
+        enabled: source.enabled !== false,
+      };
+    });
+  }
   state.config.knowledge.opening_phrases = state.config.knowledge.opening_phrases || { items: [] };
   state.config.knowledge.opening_phrases.items = asArray(state.config.knowledge.opening_phrases.items);
   state.config.knowledge.opening_analyzer = state.config.knowledge.opening_analyzer || {};
@@ -606,7 +626,11 @@ function libraryDefinition(type = "") {
   const defs = {
     high_imitation: {
       title: "高仿文章库",
-      getItems: () => state.config.knowledge.high_imitation.references,
+      getItems: () => {
+        const high = state.config.knowledge.high_imitation;
+        const references = asArray(high.references);
+        return references.length ? references : asArray(high.items);
+      },
       setItems: (items) => {
         state.config.knowledge.high_imitation.references = items;
       },
@@ -1511,7 +1535,7 @@ async function persistSelectedTextModel(modelId) {
     method: "POST",
     body: JSON.stringify({ app_config: { text_model_id: id } }),
   }).then(result => {
-    if (result?.config) state.config = { ...state.config, ...result.config };
+    if (result?.config) mergeConfigResponse({ ...state.config, ...result.config });
     return result;
   }).catch(error => {
     if (state.config?.app_config?.text_model_id === id) state.config.app_config.text_model_id = "";
@@ -1868,7 +1892,7 @@ async function saveVersionConfigAuthority() {
   };
   const data = await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
   if (!data?.config) throw new Error("版本配置保存失败：服务器没有返回保存结果");
-  state.config = { ...data.config, knowledge_loaded: true };
+  mergeConfigResponse(data.config);
   try { localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState)); } catch (_) {}
   renderConfig();
   return data.config;
@@ -3365,7 +3389,7 @@ async function saveConfig(throwOnError = false) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    state.config = { ...data.config, knowledge_loaded: true };
+    mergeConfigResponse(data.config);
     renderConfig();
     if (activePresetId && $("presetSelect")) {
       $("presetSelect").value = activePresetId;
