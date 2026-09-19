@@ -69,6 +69,7 @@ test('legacy high-imitation items are visible in the reference library', () => {
   assert.match(knowledgeBody, /high\.references = asArray\(high\.references\)/);
   assert.match(knowledgeBody, /high\.items/);
   assert.match(knowledgeBody, /reference_text/);
+  assert.match(app, /return references\.length \? references : asArray\(high\.items\)/);
 });
 
 test('保存普通配置不会把尚未加载的知识库标记为已加载', () => {

@@ -626,7 +626,11 @@ function libraryDefinition(type = "") {
   const defs = {
     high_imitation: {
       title: "高仿文章库",
-      getItems: () => state.config.knowledge.high_imitation.references,
+      getItems: () => {
+        const high = state.config.knowledge.high_imitation;
+        const references = asArray(high.references);
+        return references.length ? references : asArray(high.items);
+      },
       setItems: (items) => {
         state.config.knowledge.high_imitation.references = items;
       },
