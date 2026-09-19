@@ -187,3 +187,20 @@ test('改文完成且未启用自动提交时保留待上传状态', async () =>
   assert.equal(record.meta.siteSubmitStatus, 'pending_upload');
   assert.deepEqual(record.meta.siteSubmitPendingVersions, ['ai1']);
 });
+
+test('定时自动上传启动前先持久化待上传状态，避免会话失败丢失队列', async () => {
+  const record = { meta: { bookId: '1010', bookName: '会话失败', gender: '女频', style: '现代', originalStatus: 'done' }, document: {} };
+  const tasks = {
+    async saveTasks() {}, async getTask() { return record; }, async readOriginal() { return '原文'; },
+    async updateTaskMeta(_owner, _id, patch) { record.meta = { ...record.meta, ...patch }; }, async listTasks() { return [record.meta]; }
+  };
+  await assert.rejects(runNovelFetchBatch({
+    username: 'alice', payload: { input_text: '1010\t会话失败', scheduled: true, retry_stage: 'rewrite', target_versions: ['ai1'] },
+    configStore: { getConfig: () => ({ workflow: { auto_fetch_original: false, auto_rewrite_after_fetch: true }, web_submit: { enabled: true }, rewrite: {} }), getStyles: () => [], getPlatforms: () => [] },
+    tasks, parseBooks: () => ({ tasks: [{ bookId: '1010', bookName: '会话失败', gender: '女频', style: '现代' }], duplicateCount: 0, emptyIdCount: 0 }),
+    generateAiVersions: async () => ({ status: 'done', generated: [{ version: 'ai1', status: 'done' }] }),
+    submit: async () => { throw new Error('121 会话失效'); }, listTasks: async () => [record.meta]
+  }), /121 会话失效/);
+  assert.equal(record.meta.siteSubmitStatus, 'pending_upload');
+  assert.deepEqual(record.meta.siteSubmitPendingVersions, ['ai1']);
+});
