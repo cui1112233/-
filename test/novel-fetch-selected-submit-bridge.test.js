@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { injectNovelFetchV2Script } = require('../lib/novel-fetch-workshop/v2-page');
 
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
@@ -13,5 +14,7 @@ test('selected-task submit bridge falls back to the task-list selection when V2 
   assert.match(bridge, /window\.qiantieSubmitSelectedTasks/);
   assert.match(bridge, /Array\.isArray\(ids\)/);
   assert.match(bridge, /explicitIds\.length \? original\(explicitIds\) : original\(\)/);
-  assert.match(page, /v78-selected-task-submit-bridge\.js\?v=20260917-task-list-fallback-r1/);
+  const injected = injectNovelFetchV2Script('<html><body><script src="/batch-rewrite/app.js"></script></body></html>');
+  assert.match(page, /SELECTED_TASK_SUBMIT_BRIDGE_TAG/);
+  assert.match(injected, /v78-selected-task-submit-bridge\.js\?v=20260917-task-list-fallback-r1/);
 });
