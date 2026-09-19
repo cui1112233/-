@@ -392,6 +392,25 @@ function createBatchRewriteRouter({
       for (const kind of LEGACY_KINDS) legacyKnowledge[kind] = knowledge.list(kind);
       knowledgeData = mergeKnowledgeSources(knowledgeData, legacyKnowledge);
       if (!Object.keys(knowledgeData).length) knowledgeData = legacyKnowledge;
+      const high = object(knowledgeData.high_imitation);
+      if (!countEntries(high.references) && countEntries(high.items)) {
+        knowledgeData = {
+          ...knowledgeData,
+          high_imitation: {
+            ...high,
+            references: high.items.map((item, index) => {
+              const source = object(item);
+              return {
+                ...source,
+                id: source.id || `high_${String(index + 1).padStart(3, '0')}`,
+                name: source.name || source.title || '',
+                reference_text: source.reference_text || source.content || '',
+                enabled: source.enabled !== false
+              };
+            })
+          }
+        };
+      }
     }
     const appConfig = {
       ...current,
