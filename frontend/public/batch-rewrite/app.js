@@ -49,6 +49,13 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value || {}));
 }
 
+function mergeConfigResponse(nextConfig) {
+  const knowledgeLoaded = state.config?.knowledge_loaded === true || nextConfig?.knowledge_loaded === true;
+  state.config = { ...(nextConfig || {}), knowledge_loaded: knowledgeLoaded };
+  if (knowledgeLoaded) renderKnowledgeSummary(state.config.knowledge_summary || {});
+  return state.config;
+}
+
 function numberValue(id, fallback) {
   const value = Number($(id).value);
   return Number.isFinite(value) ? value : fallback;
@@ -1511,7 +1518,7 @@ async function persistSelectedTextModel(modelId) {
     method: "POST",
     body: JSON.stringify({ app_config: { text_model_id: id } }),
   }).then(result => {
-    if (result?.config) state.config = { ...state.config, ...result.config };
+    if (result?.config) mergeConfigResponse({ ...state.config, ...result.config });
     return result;
   }).catch(error => {
     if (state.config?.app_config?.text_model_id === id) state.config.app_config.text_model_id = "";
@@ -1868,7 +1875,7 @@ async function saveVersionConfigAuthority() {
   };
   const data = await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
   if (!data?.config) throw new Error("版本配置保存失败：服务器没有返回保存结果");
-  state.config = { ...data.config, knowledge_loaded: true };
+  mergeConfigResponse(data.config);
   try { localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState)); } catch (_) {}
   renderConfig();
   return data.config;
@@ -3365,7 +3372,7 @@ async function saveConfig(throwOnError = false) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    state.config = { ...data.config, knowledge_loaded: true };
+    mergeConfigResponse(data.config);
     renderConfig();
     if (activePresetId && $("presetSelect")) {
       $("presetSelect").value = activePresetId;

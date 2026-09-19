@@ -63,6 +63,20 @@ test('knowledge tab retains visible zero counts and clears its loading status af
   assert.match(ensureBody, /status\.textContent = ""/);
 });
 
+test('保存普通配置不会把尚未加载的知识库标记为已加载', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /function mergeConfigResponse\(nextConfig\)/);
+  assert.match(app, /const knowledgeLoaded = state\.config\?\.knowledge_loaded === true \|\| nextConfig\?\.knowledge_loaded === true/);
+  assert.match(app, /knowledge_loaded: knowledgeLoaded/);
+});
+
+test('中央模型保存返回完整配置后同步重绘知识库概览', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  const persistBody = app.match(/async function persistSelectedTextModel\(modelId\) \{([\s\S]*?)\n\}/)?.[1] || '';
+  assert.match(app, /function mergeConfigResponse\(nextConfig\) \{[\s\S]*renderKnowledgeSummary\(state\.config\.knowledge_summary \|\| \{\}\)/);
+  assert.match(persistBody, /mergeConfigResponse\(\{ \.\.\.state\.config, \.\.\.result\.config \}\)/);
+});
+
 test('batch rewrite config has user cache and ETag support', () => {
   const routes = read('routes/batch-rewrite.js');
   assert.match(routes, /CONFIG_CACHE_TTL_MS/);
