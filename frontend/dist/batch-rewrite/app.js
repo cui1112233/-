@@ -2315,7 +2315,7 @@ function setCurrentBatchFromResult(result = {}, timestamp = "") {
 function currentTaskList(tasks) {
   const list = Array.isArray(tasks) ? tasks : [];
   const selectedDate = state.taskDate || todayDateKey();
-  if (state.viewMode === "current" && selectedDate === state.currentBatchDate && state.currentBatchIds.size) {
+  if (state.viewMode === "current" && state.currentBatchIds.size) {
     return list.filter(task => state.currentBatchIds.has(String(task.id || task.book_id || "")));
   }
   return list.filter(task => taskDateKey(task) === selectedDate);
