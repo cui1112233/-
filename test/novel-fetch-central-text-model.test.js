@@ -56,6 +56,12 @@ test('小说获取工作台路由把中央文本模型选择和运行时解析�
   assert.match(route, /resolveRuntimeModel/);
 });
 
+test('批量改文路由从 app_config 节点读取中央文本模型', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'batch-rewrite.js'), 'utf8');
+  assert.match(route, /config\.app_config\?\.text_model_id/);
+  assert.match(route, /config\.app_config\?\.textModelId/);
+});
+
 test('小说获取队列执行器把中央文本模型和运行时解析器传给分类器', () => {
   const calls = [];
   const configStore = createConfigStoreSnapshot({}, {

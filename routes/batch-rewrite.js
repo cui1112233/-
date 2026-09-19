@@ -367,7 +367,8 @@ function createBatchRewriteRouter({
           ai: config.ai || {},
           ai_presets: config.ai_presets || [],
           ai_assignments: config.ai_assignments || {},
-          text_model_id: config.text_model_id || config.textModelId || ''
+          text_model_id: config.text_model_id || config.textModelId
+            || config.app_config?.text_model_id || config.app_config?.textModelId || ''
         }),
         resolveRuntimeModel: modelId => {
           if (typeof resolveRuntimeModel !== 'function') return null;
