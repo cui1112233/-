@@ -11,7 +11,7 @@ const webSubmit = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/121-
 const browserClient = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/121-browser-client.js'), 'utf8');
 const composition = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/v2-compose.js'), 'utf8');
 
-test('V88 keeps Browser Worker infrastructure for compatibility while direct client owns API requests', () => {
+test('V88 routes 121 login and actions through the private Browser Worker when configured', () => {
   assert.match(compose, /^  browser-worker:/m);
   assert.match(compose, /QIANTIE_121_BROWSER_WORKER_URL: http:\/\/browser-worker:8787/);
   assert.match(compose, /^      - browser-worker$/m);
@@ -21,16 +21,16 @@ test('V88 keeps Browser Worker infrastructure for compatibility while direct cli
   assert.equal(fs.existsSync(path.join(root, 'deploy/v88-public/docker-compose.browser-worker.yml')), true);
 });
 
-test('121 status checks describe the direct API instead of Browser Worker', () => {
-  assert.doesNotMatch(webSubmit, /Browser Worker/);
+test('121 status checks preserve the direct API compatibility label', () => {
   assert.match(webSubmit, /视频管理系统接口/);
 });
 
-test('121 client keeps the direct login and upload API endpoints', () => {
+test('121 client remains the local fallback when Browser Worker is not configured', () => {
   assert.match(browserClient, /TARGET_LOGIN_PATH/);
   assert.match(browserClient, /buildLoginRequest/);
   assert.match(browserClient, /TARGET_UPLOAD_PATH/);
   assert.match(browserClient, /httpClient/);
   assert.doesNotMatch(browserClient, /QIANTIE_121_BROWSER_WORKER_URL/);
-  assert.match(composition, /require\('\.\/121-browser-client'\)\.create121BrowserClient/);
+  assert.match(composition, /121-browser-worker-client/);
+  assert.match(composition, /121-browser-client/);
 });
