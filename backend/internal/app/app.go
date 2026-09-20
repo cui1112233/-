@@ -27,11 +27,14 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	novelFetchStore := novelfetchworkshop.NewMySQLStore(db)
 	var director *batchfactoryv11.DirectorService
 	if cfg.Slice >= 2 {
-		provider := &batchfactoryv11.OpenAICompatibleProvider{Endpoint: cfg.DirectorEndpoint, APIKey: cfg.DirectorAPIKey, Model: cfg.DirectorModel}
-		if err := provider.Validate(); err != nil {
-			return nil, err
+		director = &batchfactoryv11.DirectorService{Store: store}
+		if cfg.DirectorEndpoint != "" || cfg.DirectorAPIKey != "" || cfg.DirectorModel != "" {
+			provider := &batchfactoryv11.OpenAICompatibleProvider{Endpoint: cfg.DirectorEndpoint, APIKey: cfg.DirectorAPIKey, Model: cfg.DirectorModel}
+			if err := provider.Validate(); err != nil {
+				return nil, err
+			}
+			director.Provider = provider
 		}
-		director = &batchfactoryv11.DirectorService{Store: store, Provider: provider}
 	}
 	compiler := &batchfactoryv11.PromptCompilerService{Store: store}
 	videoRegistry := batchfactoryv11.NewMemoryVideoProviderRegistry()
@@ -65,11 +68,16 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	}
 	var merge *batchfactoryv11.MergeService
 	if cfg.Slice >= 5 {
-		adapter := &batchfactoryv11.HTTPMergeAdapter{Endpoint: cfg.MergeEndpoint, PollEndpoint: cfg.MergePollEndpoint, APIKey: cfg.MergeAPIKey}
-		if err := adapter.Validate(); err != nil {
-			return nil, err
+		if cfg.LocalMergeEnabled {
+			adapter := batchfactoryv11.NewLocalMergeAdapter(artifactStore)
+			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: true}
+		} else {
+			adapter := &batchfactoryv11.HTTPMergeAdapter{Endpoint: cfg.MergeEndpoint, PollEndpoint: cfg.MergePollEndpoint, APIKey: cfg.MergeAPIKey}
+			if err := adapter.Validate(); err != nil {
+				return nil, err
+			}
+			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: cfg.MergeEnabled}
 		}
-		merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: cfg.MergeEnabled}
 	}
 	var externalPublish *external.Service
 	if cfg.Slice >= 6 {

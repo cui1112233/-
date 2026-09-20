@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -22,6 +24,8 @@ type H3VideoSource struct {
 }
 
 type H3Character struct {
+	AssetID       string   `json:"asset_id,omitempty"`
+	AssetRevision int64    `json:"asset_revision,omitempty"`
 	SlotID        string   `json:"slot_id"`
 	SlotToken     string   `json:"slot_token,omitempty"`
 	CanonicalName string   `json:"canonical_name"`
@@ -42,6 +46,8 @@ type H3Movement struct {
 }
 
 type H3Audio struct {
+	Ambient       string   `json:"ambient,omitempty"`
+	Foley         string   `json:"foley,omitempty"`
 	Mode          string   `json:"mode"`
 	SpeakerSlotID string   `json:"speaker_slot_id"`
 	Dialogue      string   `json:"dialogue"`
@@ -51,46 +57,116 @@ type H3Audio struct {
 }
 
 type H3SceneMemory struct {
-	SceneID        string            `json:"scene_id"`
-	Location       string            `json:"location"`
-	Axis           string            `json:"axis"`
-	LightDirection string            `json:"light_direction"`
-	Positions      map[string]string `json:"positions"`
-	Facings        map[string]string `json:"facings"`
-	Gazes          map[string]string `json:"gazes"`
-	HeldProps      map[string]string `json:"held_props"`
-	ActionEnds     map[string]string `json:"action_ends"`
+	TimeWeather       string            `json:"time_weather,omitempty"`
+	WardrobeStates    map[string]string `json:"wardrobe_states,omitempty"`
+	AppearanceStates  map[string]string `json:"appearance_states,omitempty"`
+	EnvironmentStates map[string]string `json:"environment_states,omitempty"`
+	EmotionStates     map[string]string `json:"emotion_states,omitempty"`
+	SceneID           string            `json:"scene_id"`
+	Location          string            `json:"location"`
+	Axis              string            `json:"axis"`
+	LightDirection    string            `json:"light_direction"`
+	Positions         map[string]string `json:"positions"`
+	Facings           map[string]string `json:"facings"`
+	Gazes             map[string]string `json:"gazes"`
+	HeldProps         map[string]string `json:"held_props"`
+	ActionEnds        map[string]string `json:"action_ends"`
+}
+
+// H3SemanticNumber accepts the two scalar forms commonly emitted by text
+// models while keeping the persisted H3 document numeric and deterministic.
+type H3SemanticNumber float64
+
+func (number *H3SemanticNumber) UnmarshalJSON(raw []byte) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if len(trimmed) >= 2 && trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"' {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return fmt.Errorf("decode numeric string: %w", err)
+		}
+		trimmed = strings.TrimSpace(text)
+	}
+	if trimmed == "" {
+		return fmt.Errorf("must be a finite number, got %q", trimmed)
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("must be a finite number, got %q", trimmed)
+	}
+	*number = H3SemanticNumber(value)
+	return nil
+}
+
+type H3Participant struct {
+	SlotID   string `json:"slot_id"`
+	Position string `json:"position"`
+	Facing   string `json:"facing"`
+	Gaze     string `json:"gaze"`
+	Action   string `json:"action"`
+	Reaction string `json:"reaction"`
+	EndState string `json:"end_state"`
+}
+
+type H3ActionBeats struct {
+	Initial     string `json:"initial"`
+	Onset       string `json:"onset"`
+	Development string `json:"development"`
+	Reaction    string `json:"reaction"`
+	Result      string `json:"result"`
+}
+
+type H3ContextSummary struct {
+	Previous  string `json:"previous"`
+	Current   string `json:"current"`
+	NextSetup string `json:"next_setup"`
 }
 
 type H3MicroShot struct {
-	MicroShotKey     string     `json:"micro_shot_key"`
-	Weight           float64    `json:"weight"`
-	ShotTask         string     `json:"shot_task"`
-	Visual           string     `json:"visual"`
-	Action           string     `json:"action"`
-	CharacterSlotIDs []string   `json:"character_slot_ids"`
-	Camera           H3Camera   `json:"camera"`
-	Movement         H3Movement `json:"movement"`
-	Rhythm           string     `json:"rhythm"`
-	Audio            H3Audio    `json:"audio"`
+	ShotSize         string           `json:"shot_size,omitempty"`
+	CameraAngle      string           `json:"camera_angle,omitempty"`
+	Composition      string           `json:"composition,omitempty"`
+	CameraMovement   string           `json:"camera_movement,omitempty"`
+	Participants     []H3Participant  `json:"participants,omitempty"`
+	ActionBeats      *H3ActionBeats   `json:"action_beats,omitempty"`
+	PropChanges      string           `json:"prop_changes,omitempty"`
+	Lighting         string           `json:"lighting,omitempty"`
+	EndState         string           `json:"end_state,omitempty"`
+	ContinuityIn     *H3SceneMemory   `json:"continuity_in,omitempty"`
+	ContinuityOut    *H3SceneMemory   `json:"continuity_out,omitempty"`
+	MicroShotKey     string           `json:"micro_shot_key"`
+	Weight           H3SemanticNumber `json:"weight"`
+	ShotTask         string           `json:"shot_task"`
+	Visual           string           `json:"visual"`
+	Action           string           `json:"action"`
+	CharacterSlotIDs []string         `json:"character_slot_ids"`
+	Camera           H3Camera         `json:"camera"`
+	Movement         H3Movement       `json:"movement"`
+	Rhythm           string           `json:"rhythm"`
+	Audio            H3Audio          `json:"audio"`
 }
 
 type H3DirectorCard struct {
-	SourceIndex       int           `json:"source_index"`
-	SourceKey         string        `json:"source_key"`
-	SourceText        string        `json:"source_text"`
-	SourceTextHash    string        `json:"source_text_hash"`
-	VisualContext     string        `json:"visual_context"`
-	PreferredDuration float64       `json:"preferred_duration"`
-	DurationWeight    float64       `json:"duration_weight"`
-	CharacterSlotIDs  []string      `json:"character_slot_ids"`
-	Action            string        `json:"action"`
-	Camera            H3Camera      `json:"camera"`
-	Movement          H3Movement    `json:"movement"`
-	Rhythm            string        `json:"rhythm"`
-	Audio             H3Audio       `json:"audio"`
-	Continuity        H3SceneMemory `json:"continuity"`
-	MicroShots        []H3MicroShot `json:"micro_shots"`
+	SceneDescription      string            `json:"scene_description,omitempty"`
+	Duration              H3SemanticNumber  `json:"duration,omitempty"`
+	TemporaryCharacterIDs []string          `json:"temporary_character_ids"`
+	ContextSummary        *H3ContextSummary `json:"context_summary,omitempty"`
+	ContinuityIn          *H3SceneMemory    `json:"continuity_in,omitempty"`
+	ContinuityOut         *H3SceneMemory    `json:"continuity_out,omitempty"`
+	SourceIndex           int               `json:"source_index"`
+	SourceKey             string            `json:"source_key"`
+	SourceText            string            `json:"source_text"`
+	SourceTextHash        string            `json:"source_text_hash"`
+	VisualContext         string            `json:"visual_context"`
+	PreferredDuration     H3SemanticNumber  `json:"preferred_duration"`
+	DurationWeight        H3SemanticNumber  `json:"duration_weight"`
+	CharacterSlotIDs      []string          `json:"character_slot_ids"`
+	Action                string            `json:"action"`
+	Camera                H3Camera          `json:"camera"`
+	Movement              H3Movement        `json:"movement"`
+	Rhythm                string            `json:"rhythm"`
+	Audio                 H3Audio           `json:"audio"`
+	Continuity            H3SceneMemory     `json:"continuity"`
+	MicroShots            []H3MicroShot     `json:"micro_shots"`
 }
 
 type H3DirectorDocument struct {
@@ -101,9 +177,24 @@ type H3DirectorDocument struct {
 	VideoSourceNonEmptyLineCount int              `json:"video_source_non_empty_line_count"`
 	DirectorPresetKey            string           `json:"director_preset_key"`
 	DirectorPresetRevision       int64            `json:"director_preset_revision"`
-	VisualBaseline               string           `json:"visual_baseline"`
+	VisualBaseline               any              `json:"visual_baseline"`
 	CharacterRoster              []H3Character    `json:"character_roster"`
 	DirectorCards                []H3DirectorCard `json:"director_cards"`
+}
+
+func h3VisualBaselineText(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case nil:
+		return ""
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(encoded))
+	}
 }
 
 func ParseH3DirectorDocument(raw json.RawMessage, source H3VideoSource) (H3DirectorDocument, error) {
@@ -145,6 +236,7 @@ func ParseH3DirectorDocument(raw json.RawMessage, source H3VideoSource) (H3Direc
 		if card.SourceText != lines[index] {
 			return document, fmt.Errorf("%w: director_cards[%d].source_text does not match processed video source line %d", ErrInvalid, index, index+1)
 		}
+		document.DirectorCards[index].SourceTextHash = fmt.Sprintf("%x", sha256.Sum256([]byte(lines[index])))
 	}
 	document.VideoSourceNonEmptyLineCount = len(lines)
 	if err := validateH3DirectorDocument(raw, document); err != nil {
@@ -162,6 +254,12 @@ func validateH3DirectorDocument(raw json.RawMessage, document H3DirectorDocument
 		slotID := strings.TrimSpace(character.SlotID)
 		if slotID == "" {
 			return fmt.Errorf("%w: character_roster[%d].slot_id is required", ErrInvalid, index)
+		}
+		if strings.TrimSpace(character.CanonicalName) == "" {
+			return fmt.Errorf("%w: character_roster[%d].canonical_name is required", ErrInvalid, index)
+		}
+		if strings.TrimSpace(character.Appearance) == "" {
+			return fmt.Errorf("%w: character_roster[%d].appearance is required", ErrInvalid, index)
 		}
 		if _, exists := roster[slotID]; exists {
 			return fmt.Errorf("%w: character_roster[%d].slot_id duplicates %s", ErrInvalid, index, slotID)
@@ -189,10 +287,6 @@ func validateH3DirectorDocument(raw json.RawMessage, document H3DirectorDocument
 		}
 		if err := h3ValidateSlots(card.CharacterSlotIDs, roster, path+".character_slot_ids"); err != nil {
 			return err
-		}
-		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(card.SourceText)))
-		if card.SourceTextHash != hash {
-			return fmt.Errorf("%w: %s.source_text_hash does not match source_text", ErrInvalid, path)
 		}
 		if card.PreferredDuration <= 0 {
 			return fmt.Errorf("%w: %s.preferred_duration must be greater than zero", ErrInvalid, path)
@@ -224,6 +318,11 @@ func validateH3DirectorDocument(raw json.RawMessage, document H3DirectorDocument
 			}
 			if err := h3ValidateSlots(shot.CharacterSlotIDs, roster, shotPath+".character_slot_ids"); err != nil {
 				return err
+			}
+			for participantIndex, participant := range shot.Participants {
+				if _, exists := roster[participant.SlotID]; !exists {
+					return fmt.Errorf("%w: %s.participants[%d] unknown slot %s", ErrInvalid, shotPath, participantIndex, participant.SlotID)
+				}
 			}
 			if err := h3ValidateMicroShot(shot, shotPath); err != nil {
 				return err

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,49 +19,51 @@ type memoryOwned[T any] struct {
 	Value T
 }
 type MemoryStore struct {
-	mu                 sync.Mutex
-	seq                int64
-	batches            map[string]memoryOwned[Batch]
-	intakes            map[string]memoryOwned[Intake]
-	patches            map[string]SettingsPatch
-	configVersions     map[string]memoryOwned[ConfigVersion]
-	prompts            map[string][]Prompt
-	drafts             map[string]Draft
-	bookAssets         map[string]memoryOwned[BookAsset]
-	bookAssetImages    map[string]memoryOwned[BookAssetImage]
-	hooks              map[string][]HookRevision
-	directors          map[string][]DirectorRevision
-	productionJobs     map[string]memoryOwned[ProductionJob]
-	productionRequests map[string]string
-	bookStageRuns      map[string]memoryOwned[BookStageRun]
-	mergeJobs          map[string]memoryOwned[MergeJob]
-	mergeRequests      map[string]string
-	h3AudioMeasurements map[string]memoryOwned[H3AudioMeasurementRevision]
-	h3Timelines         map[string]memoryOwned[H3CanonicalTimelineRevision]
-	h3Compilations      map[string]memoryOwned[H3VideoCompilationRevision]
+	mu                    sync.Mutex
+	seq                   int64
+	batches               map[string]memoryOwned[Batch]
+	intakes               map[string]memoryOwned[Intake]
+	patches               map[string]SettingsPatch
+	configVersions        map[string]memoryOwned[ConfigVersion]
+	prompts               map[string][]Prompt
+	drafts                map[string]Draft
+	bookAssets            map[string]memoryOwned[BookAsset]
+	bookAssetImages       map[string]memoryOwned[BookAssetImage]
+	hooks                 map[string][]HookRevision
+	directors             map[string][]DirectorRevision
+	productionJobs        map[string]memoryOwned[ProductionJob]
+	productionRequests    map[string]string
+	hiddenProductionTasks map[string]bool
+	bookStageRuns         map[string]memoryOwned[BookStageRun]
+	mergeJobs             map[string]memoryOwned[MergeJob]
+	mergeRequests         map[string]string
+	h3AudioMeasurements   map[string]memoryOwned[H3AudioMeasurementRevision]
+	h3Timelines           map[string]memoryOwned[H3CanonicalTimelineRevision]
+	h3Compilations        map[string]memoryOwned[H3VideoCompilationRevision]
 }
 
 func NewMemoryStore() *MemoryStore {
 	systemDefault := ConfigVersion{ID: "system-default-v1", Name: "System Default", Config: json.RawMessage(`{"source":"system"}`)}
 	return &MemoryStore{
-		batches:            map[string]memoryOwned[Batch]{},
-		intakes:            map[string]memoryOwned[Intake]{},
-		patches:            map[string]SettingsPatch{},
-		configVersions:     map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
-		prompts:            map[string][]Prompt{},
-		drafts:             map[string]Draft{},
-		bookAssets:         map[string]memoryOwned[BookAsset]{},
-		bookAssetImages:    map[string]memoryOwned[BookAssetImage]{},
-		hooks:              map[string][]HookRevision{},
-		directors:          map[string][]DirectorRevision{},
-		productionJobs:     map[string]memoryOwned[ProductionJob]{},
-		productionRequests: map[string]string{},
-		bookStageRuns:      map[string]memoryOwned[BookStageRun]{},
-		mergeJobs:          map[string]memoryOwned[MergeJob]{},
-		mergeRequests:      map[string]string{},
-		h3AudioMeasurements: map[string]memoryOwned[H3AudioMeasurementRevision]{},
-		h3Timelines:         map[string]memoryOwned[H3CanonicalTimelineRevision]{},
-		h3Compilations:      map[string]memoryOwned[H3VideoCompilationRevision]{},
+		batches:               map[string]memoryOwned[Batch]{},
+		intakes:               map[string]memoryOwned[Intake]{},
+		patches:               map[string]SettingsPatch{},
+		configVersions:        map[string]memoryOwned[ConfigVersion]{systemDefault.ID: {Owner: "", Value: systemDefault}},
+		prompts:               map[string][]Prompt{},
+		drafts:                map[string]Draft{},
+		bookAssets:            map[string]memoryOwned[BookAsset]{},
+		bookAssetImages:       map[string]memoryOwned[BookAssetImage]{},
+		hooks:                 map[string][]HookRevision{},
+		directors:             map[string][]DirectorRevision{},
+		productionJobs:        map[string]memoryOwned[ProductionJob]{},
+		productionRequests:    map[string]string{},
+		hiddenProductionTasks: map[string]bool{},
+		bookStageRuns:         map[string]memoryOwned[BookStageRun]{},
+		mergeJobs:             map[string]memoryOwned[MergeJob]{},
+		mergeRequests:         map[string]string{},
+		h3AudioMeasurements:   map[string]memoryOwned[H3AudioMeasurementRevision]{},
+		h3Timelines:           map[string]memoryOwned[H3CanonicalTimelineRevision]{},
+		h3Compilations:        map[string]memoryOwned[H3VideoCompilationRevision]{},
 	}
 }
 
@@ -186,13 +189,37 @@ func (s *MemoryStore) UpdateProductionTask(_ context.Context, owner, jobID, task
 	return cloneProductionJob(job), nil
 }
 
+func (s *MemoryStore) HideProductionTask(_ context.Context, owner, batchID, bookID, videoID, taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, owned := range s.productionJobs {
+		job := owned.Value
+		if owned.Owner != owner || job.BatchID != batchID || job.BookID != bookID {
+			continue
+		}
+		for _, task := range job.Tasks {
+			if task.ID != taskID || task.VideoID != videoID {
+				continue
+			}
+			if task.Status != ProductionSucceeded || strings.TrimSpace(task.MediaURL) == "" {
+				return ErrConflict
+			}
+			s.hiddenProductionTasks[taskID] = true
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func (s *MemoryStore) ListProductionJobs(_ context.Context, owner, batchID string) ([]ProductionJob, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []ProductionJob{}
 	for _, owned := range s.productionJobs {
 		if owned.Owner == owner && owned.Value.BatchID == batchID {
-			out = append(out, cloneProductionJob(owned.Value))
+			job := cloneProductionJob(owned.Value)
+			job.Tasks = slices.DeleteFunc(job.Tasks, func(task ProductionTask) bool { return s.hiddenProductionTasks[task.ID] })
+			out = append(out, job)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -415,6 +442,10 @@ func hydrateMemoryBatchSettingsState(b Batch, patches map[string]SettingsPatch, 
 				Patch:    clonePatch(patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: video.ID})]),
 				Revision: video.Revision,
 			}
+			applyVideoPromptOverrides(&video)
+			if _, overridden := optionalPromptValue(video.SettingsState.Patch, "videoPrompt"); !overridden && book.DirectorRevision != nil && j < len(book.DirectorRevision.Output.Storyboard) {
+				video.VideoPrompt = storyboardVideoPrompt(book.DirectorRevision.Output.Storyboard[j])
+			}
 			videos[j] = video
 		}
 		book.Videos = videos
@@ -554,6 +585,37 @@ func (s *MemoryStore) ListBatches(_ context.Context, owner string) ([]Batch, err
 	}
 	return out, nil
 }
+func (s *MemoryStore) UpdateBookMetadata(_ context.Context, owner, batchID, bookID string, input UpdateBookMetadataInput) (Book, error) {
+	if input.ExpectedRevision < 1 {
+		return Book{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner {
+		return Book{}, ErrNotFound
+	}
+	batch := owned.Value
+	for index := range batch.Books {
+		book := &batch.Books[index]
+		if book.ID != bookID {
+			continue
+		}
+		if book.Revision != input.ExpectedRevision {
+			return Book{}, ErrConflict
+		}
+		book.SourceMetadata = map[string]any{}
+		for key, value := range input.Metadata {
+			book.SourceMetadata[key] = value
+		}
+		book.Revision++
+		batch.UpdatedAt = time.Now().UTC()
+		s.batches[batchID] = memoryOwned[Batch]{owner, batch}
+		return *book, nil
+	}
+	return Book{}, ErrNotFound
+}
+
 func (s *MemoryStore) GetBatch(_ context.Context, owner, id string) (Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -993,10 +1055,15 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	}
 	b := owned.Value
 	orphaned := []OrphanedOverride{}
+	previousSelections := map[int]VideoAssetSelection{}
+	previousSelectionExists := map[int]bool{}
 	for vi := range b.Books[bookIndex].Videos {
 		old := &b.Books[bookIndex].Videos[vi]
 		old.CompatibilityState = "orphaned"
 		patch := clonePatch(s.patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: old.ID})])
+		if selection, ok := decodeVideoAssetSelection(patch); ok {
+			previousSelections[vi], previousSelectionExists[vi] = selection, true
+		}
 		if len(patch) > 0 {
 			orphaned = append(orphaned, OrphanedOverride{VideoID: old.ID, Patch: patch, State: "orphaned"})
 		}
@@ -1006,7 +1073,7 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	revision := DirectorRevision{ID: s.id("director"), BatchID: b.ID, BookID: book.ID, Revision: int64(len(s.directors[key]) + 1), Mode: snapshot.Mode, SnapshotID: s.id("snapshot"), SourceDigest: digest, HookRevisionID: hookID, Output: output, OrphanedOverrides: orphaned, CreatedAt: now}
 	newVideos := make([]Video, 0, len(output.Storyboard))
 	for i, draft := range output.Storyboard {
-		video := Video{ID: s.id("video"), BatchID: b.ID, BookID: book.ID, Label: fmt.Sprintf("VIDEO %02d", i+1), VideoPrompt: draft.VideoDesc, VisualPrompt: draft.VisualPrompt, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1}
+		video := Video{ID: s.id("video"), BatchID: b.ID, BookID: book.ID, Label: fmt.Sprintf("VIDEO %02d", i+1), VideoPrompt: storyboardVideoPrompt(draft), VisualPrompt: draft.VisualPrompt, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1}
 		newVideos = append(newVideos, video)
 	}
 	revision.Videos = append([]Video(nil), newVideos...)
@@ -1037,5 +1104,56 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 		seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = s.id("asset"), 1, now, now
 		s.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: owner, Value: seed}
 	}
+	assetIDs := map[string]string{}
+	for _, ownedAsset := range s.bookAssets {
+		asset := ownedAsset.Value
+		if ownedAsset.Owner == owner && asset.BatchID == book.BatchID && asset.BookID == book.ID {
+			assetIDs[asset.Kind+"\x00"+asset.Name] = asset.ID
+		}
+	}
+	for ordinal, video := range newVideos {
+		selection := reconcileVideoAssetSelection(previousSelections[ordinal], previousSelectionExists[ordinal], automaticAssetIDsForDirectorVideo(output.Storyboard[ordinal], assetIDs))
+		encoded, err := json.Marshal(selection)
+		if err != nil {
+			return DirectorRevision{}, err
+		}
+		s.patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: video.ID})] = SettingsPatch{videoAssetSelectionKey: encoded}
+	}
 	return revision, nil
+}
+
+func (s *MemoryStore) PersistExtractedBookAssets(_ context.Context, owner string, book Book, snapshot DirectorSnapshot, assets DirectorAssets) ([]BookAsset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[book.BatchID]
+	if !ok || owned.Owner != owner {
+		return nil, ErrNotFound
+	}
+	if _, err := bookFromBatch(owned.Value, book.ID); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	output := DirectorResult{Characters: assets.Characters, Scenes: assets.Scenes, Props: assets.Props}
+	for _, seed := range directorBookAssets(book, snapshot, output) {
+		found := false
+		for assetID, ownedAsset := range s.bookAssets {
+			asset := ownedAsset.Value
+			if ownedAsset.Owner != owner || asset.BatchID != book.BatchID || asset.BookID != book.ID || asset.Kind != seed.Kind || asset.Name != seed.Name {
+				continue
+			}
+			found = true
+			if asset.Source != "manual" {
+				asset.Prompt, asset.Source, asset.ExtractionPresetID, asset.ExtractionPresetVersion = seed.Prompt, seed.Source, seed.ExtractionPresetID, seed.ExtractionPresetVersion
+				asset.Revision++
+				asset.UpdatedAt = now
+				s.bookAssets[assetID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
+			}
+			break
+		}
+		if !found {
+			seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = s.id("asset"), 1, now, now
+			s.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: owner, Value: seed}
+		}
+	}
+	return memoryBookAssets(s.bookAssets, book.BatchID, book.ID), nil
 }

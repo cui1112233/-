@@ -156,7 +156,7 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 	if taskID == "" {
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 response did not contain a task id")
 	}
-	return ProviderTaskRef{ProviderTaskID: taskID, State: autoDLH3State(firstVideoValue(reply, "status", "state"))}, nil
+	return ProviderTaskRef{ProviderTaskID: taskID, State: autoDLH3State(firstVideoValue(reply, "status", "state")), RequestedDurationSeconds: float64(duration)}, nil
 }
 
 func (a *AutoDLH3VideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task ProviderTaskRef) (ProviderTaskRef, error) {
@@ -182,7 +182,7 @@ func (a *AutoDLH3VideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, tas
 		return ProviderTaskRef{}, err
 	}
 	state := autoDLH3State(firstVideoValue(reply, "status", "state"))
-	result := ProviderTaskRef{ProviderTaskID: taskID, State: state}
+	result := ProviderTaskRef{ProviderTaskID: taskID, State: state, ActualDurationSeconds: firstVideoFloat(reply, "actualDurationSeconds", "actual_duration_seconds", "durationSeconds", "duration_seconds")}
 	if state == ProductionSucceeded {
 		mediaURL := autoDLH3MediaURL(reply)
 		if mediaURL == "" {

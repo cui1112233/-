@@ -41,12 +41,19 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 			return
 		}
 		var input struct {
-			Content string `json:"content"`
+			Content        string                         `json:"content"`
+			DerivedOpening batchfactoryv11.PresetSnapshot `json:"derivedOpening"`
+			TextProvider   *textProviderInput             `json:"textProvider"`
 		}
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		candidate, err := service.RewriteWorkingFront(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.Content)
+		runner, err := directorForRequest(service, input.TextProvider)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		candidate, err := runner.RewriteWorkingFront(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.Content, input.DerivedOpening)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -59,7 +66,18 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		value, err := service.RunHook(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"))
+		var input struct {
+			TextProvider *textProviderInput `json:"textProvider"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		runner, err := directorForRequest(service, input.TextProvider)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		value, err := runner.RunHook(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"))
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -85,7 +103,19 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		value, err := service.RunDirector(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"))
+		var input struct {
+			TextProvider      *textProviderInput `json:"textProvider"`
+			SmartUnifiedStyle string             `json:"smartUnifiedStyle"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		runner, err := directorForRequest(service, input.TextProvider)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		value, err := runner.RunDirectorWithSmartUnifiedStyle(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.SmartUnifiedStyle)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -96,6 +126,17 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 		owner, ok := bridgeOwner(r)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input struct {
+			TextProvider *textProviderInput `json:"textProvider"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		runner, err := directorForRequest(service, input.TextProvider)
+		if err != nil {
+			writeStoreError(w, err)
 			return
 		}
 		batchID := r.PathValue("batchId")
@@ -111,7 +152,7 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 		revisions := []batchfactoryv11.DirectorRevision{}
 		failures := []failure{}
 		for _, book := range batch.Books {
-			revision, runErr := service.RunDirector(r.Context(), owner, batchID, book.ID)
+			revision, runErr := runner.RunDirector(r.Context(), owner, batchID, book.ID)
 			if runErr != nil {
 				failures = append(failures, failure{BookID: book.ID, Error: safeDirectorError(runErr)})
 				continue

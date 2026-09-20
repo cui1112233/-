@@ -71,11 +71,12 @@ func (a *HTTPMergeAdapter) Submit(ctx context.Context, batchID string, sources [
 		}
 	}
 	payload := map[string]any{
-		"batchId":    batchID,
-		"sources":    sources,
-		"timingMode": options.TimingMode,
-		"speed":      options.Speed,
-		"ttsSpeed":   options.TTSSpeed,
+		"batchId":              batchID,
+		"sources":              sources,
+		"timingMode":           options.TimingMode,
+		"speed":                options.Speed,
+		"ttsSpeed":             options.TTSSpeed,
+		"audioDurationSeconds": options.AudioDurationSeconds,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

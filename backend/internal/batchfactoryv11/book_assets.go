@@ -17,8 +17,16 @@ func directorBookAssets(book Book, snapshot DirectorSnapshot, output DirectorRes
 			assets = append(assets, BookAsset{BatchID: book.BatchID, BookID: book.ID, Kind: kind, Name: name, Prompt: prompt, Source: "director", ExtractionPresetID: preset.ID, ExtractionPresetVersion: int64(preset.Version)})
 		}
 	}
-	appendAssets("character", output.Characters, config.Character)
-	appendAssets("scene", output.Scenes, config.Scene)
-	appendAssets("prop", output.Props, config.Prop)
+	characterPreset := config.Character
+	if characterPreset.ID == "" {
+		characterPreset = config.Extraction
+	}
+	scenePreset := config.Scene
+	if scenePreset.ID == "" {
+		scenePreset = config.Extraction
+	}
+	appendAssets("character", output.Characters, characterPreset)
+	appendAssets("scene", output.Scenes, scenePreset)
+	appendAssets("prop", output.Props, config.Extraction)
 	return assets
 }

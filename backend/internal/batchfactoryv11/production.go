@@ -2,6 +2,7 @@ package batchfactoryv11
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -96,6 +97,10 @@ type referenceImageLimitPromptResolver interface {
 	CompileWithReferenceImageLimit(context.Context, string, string, string, string, int) (FinalPrompt, error)
 }
 
+type strictPromptResolver interface {
+	CompileForProduction(context.Context, string, string, string, string) (FinalPrompt, error)
+}
+
 type ProductionAdapter interface {
 	Submit(context.Context, FrozenVideoModel, FinalPrompt) (ProviderTaskRef, error)
 }
@@ -106,6 +111,9 @@ type ProductionRepository interface {
 	FindProductionJob(context.Context, string, string, string, string) (ProductionJob, error)
 	CreateProductionJob(context.Context, ProductionJob) (ProductionJob, error)
 	UpdateProductionTask(context.Context, string, string, string, ProductionTask) (ProductionJob, error)
+	// HideProductionTask removes a completed candidate from the book library
+	// without deleting the provider artifact or its durable production audit.
+	HideProductionTask(context.Context, string, string, string, string, string) error
 	ListProductionJobs(context.Context, string, string) ([]ProductionJob, error)
 }
 
@@ -318,8 +326,8 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		}
 	}
 	mediaVideos := book.Videos
-	// “单个视频” does not shrink the Director's storyboard. It only limits the
-	// media operation to VIDEO01, leaving later prompts intact for review.
+	// Fixed opening keeps all Director cards for review, but only sends VIDEO01
+	// into the media-production stage.
 	if snapshot, snapshotErr := snapshotForBook(batch, book); snapshotErr != nil {
 		return ProductionJob{}, snapshotErr
 	} else if snapshot.FixedSingleVideo && len(mediaVideos) > 1 {
@@ -356,6 +364,8 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 			prompt, compileErr = compiler.CompileH3ForProduction(ctx, owner, batchID, bookID, video.ID, options.CompilationID, limit)
 		} else if compiler, ok := s.Compiler.(referenceImageLimitPromptResolver); ok {
 			prompt, compileErr = compiler.CompileWithReferenceImageLimit(ctx, owner, batchID, bookID, video.ID, limit)
+		} else if compiler, ok := s.Compiler.(strictPromptResolver); ok {
+			prompt, compileErr = compiler.CompileForProduction(ctx, owner, batchID, bookID, video.ID)
 		} else {
 			prompt, compileErr = s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
 		}
@@ -363,7 +373,7 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 			return ProductionJob{}, compileErr
 		}
 		selectedModel := rawString(prompt.EffectiveSettings.Values, "videoModelId", "")
-		if selectedModel != "" && selectedModel != model.ID {
+		if !VideoModelMatchesProviderModel(selectedModel, model.ID, provider) {
 			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
 		}
 		prompts[video.ID] = prompt
@@ -456,6 +466,79 @@ func (s *ProductionService) SubmitBatchProductionWithProvider(ctx context.Contex
 		return BatchStatus{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict)
 	}
 	return status, nil
+}
+
+// RemoveBookProductionCandidate hides one completed non-primary candidate from
+// this book's clip library. It intentionally preserves provider media, task
+// events and past merge receipts so production and publishing remain auditable.
+func (s *ProductionService) RemoveBookProductionCandidate(ctx context.Context, owner, batchID, bookID, videoID, taskID string) error {
+	if s == nil || s.Store == nil {
+		return ErrUnavailable
+	}
+	repository, err := s.repository()
+	if err != nil {
+		return err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return err
+	}
+	videoFound := false
+	for _, video := range book.Videos {
+		if video.ID == videoID {
+			videoFound = true
+			break
+		}
+	}
+	if !videoFound {
+		return ErrNotFound
+	}
+	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
+	if err != nil {
+		return err
+	}
+	activeDirectorRevisionID := ""
+	if book.DirectorRevision != nil {
+		activeDirectorRevisionID = book.DirectorRevision.ID
+	}
+	selections := productionTaskSelections(jobs, bookID, activeDirectorRevisionID)[videoID]
+	primary, hasPrimary := selectedProductionTask(Video{ID: videoID, SettingsState: videoSettingsFor(book, videoID)}, selections)
+	if hasPrimary && primary.Task.ID == taskID {
+		return fmt.Errorf("%w: 当前分镜主视频不能删除，请先选择其他候选版本", ErrConflict)
+	}
+	if isSelectedUploadTask(book, videoID, taskID) {
+		return fmt.Errorf("%w: 当前上传主视频不能删除，请先替换上传主视频", ErrConflict)
+	}
+	return repository.HideProductionTask(ctx, owner, batchID, bookID, videoID, taskID)
+}
+
+func videoSettingsFor(book Book, videoID string) SettingsState {
+	for _, video := range book.Videos {
+		if video.ID == videoID {
+			return video.SettingsState
+		}
+	}
+	return SettingsState{}
+}
+
+func isSelectedUploadTask(book Book, videoID, taskID string) bool {
+	raw, ok := book.SettingsState.Patch["primaryUploadSource"]
+	if !ok {
+		return false
+	}
+	var source struct {
+		Kind    string `json:"kind"`
+		VideoID string `json:"videoId"`
+		TaskID  string `json:"taskId"`
+	}
+	if json.Unmarshal(raw, &source) != nil {
+		return false
+	}
+	return source.Kind == "video" && source.VideoID == videoID && source.TaskID == taskID
 }
 
 func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID string) (BatchStatus, error) {

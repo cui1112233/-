@@ -23,6 +23,11 @@ type OpenAICompatibleProvider struct {
 	Client   *http.Client
 }
 
+// Director planning is intentionally granted more time than a short asset or
+// video-provider request. The provider returns one non-streaming JSON result,
+// so it may not send headers until the complete H3 director plan is ready.
+const directorProviderRequestTimeout = 300 * time.Second
+
 func (p *OpenAICompatibleProvider) Validate() error {
 	u, err := url.Parse(strings.TrimSpace(p.Endpoint))
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
@@ -46,6 +51,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, input TextCompl
 		},
 		"temperature": input.Temperature,
 		"max_tokens": input.MaxTokens,
+		"response_format": map[string]string{"type": "json_object"},
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -59,7 +65,7 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, input TextCompl
 	req.Header.Set("Authorization", "Bearer "+p.APIKey)
 	client := p.Client
 	if client == nil {
-		client = &http.Client{Timeout: 120 * time.Second}
+		client = &http.Client{Timeout: directorProviderRequestTimeout}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -91,4 +97,3 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, input TextCompl
 	}
 	return content, nil
 }
-

@@ -98,7 +98,7 @@ func (a *LocalExecutorVideoAdapter) Submit(ctx context.Context, owner string, in
 	if strings.TrimSpace(job.ID) == "" {
 		return ProviderTaskRef{}, fmt.Errorf("local executor did not return a job id")
 	}
-	return ProviderTaskRef{ProviderTaskID: job.ID, State: mapLocalVideoState(job.State)}, nil
+	return ProviderTaskRef{ProviderTaskID: job.ID, State: mapLocalVideoState(job.State), RequestedDurationSeconds: float64(input.Duration)}, nil
 }
 
 // Cancel forwards only to the owned local-executor job. It never changes a V11

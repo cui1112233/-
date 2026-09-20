@@ -141,6 +141,22 @@ func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.Produ
 		}
 		writeJSON(w, http.StatusOK, result)
 	})
+	mux.HandleFunc("DELETE /api/batch-factory/v11/batches/{batchId}/books/{bookId}/videos/{videoId}/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if service == nil {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		if err := service.RemoveBookProductionCandidate(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), r.PathValue("videoId"), r.PathValue("taskId")); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/status", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {

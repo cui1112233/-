@@ -23,28 +23,39 @@ type MergeMedia struct {
 	MediaURL        string `json:"mediaUrl"`
 	// URL is an internal compatibility alias for older V11 consumers. It is
 	// deliberately excluded from the provider JSON contract.
-	URL   string `json:"-"`
-	Order int    `json:"order"`
+	URL                      string  `json:"-"`
+	Order                    int     `json:"order"`
+	TargetDurationSeconds    float64 `json:"targetDurationSeconds,omitempty"`
+	RequestedDurationSeconds float64 `json:"requestedDurationSeconds,omitempty"`
+	ActualDurationSeconds    float64 `json:"actualDurationSeconds,omitempty"`
 }
 
 type MergeOptions struct {
-	TimingMode string  `json:"timingMode,omitempty"`
-	Speed      float64 `json:"speed,omitempty"`
-	TTSSpeed   float64 `json:"ttsSpeed,omitempty"`
+	TimingMode           string  `json:"timingMode,omitempty"`
+	Speed                float64 `json:"speed,omitempty"`
+	TTSSpeed             float64 `json:"ttsSpeed,omitempty"`
+	AudioDurationSeconds float64 `json:"audioDurationSeconds,omitempty"`
+	AspectRatio          string  `json:"-"`
 }
 
 type MergeJob struct {
-	ID             string       `json:"id"`
-	Owner          string       `json:"-"`
-	BatchID        string       `json:"batchId"`
-	RequestID      string       `json:"requestId"`
-	ProviderTaskID string       `json:"providerTaskId,omitempty"`
-	Status         MergeState   `json:"status"`
-	Sources        []MergeMedia `json:"sources"`
-	OutputURL      string       `json:"outputUrl,omitempty"`
-	ErrorMessage   string       `json:"errorMessage,omitempty"`
-	CreatedAt      time.Time    `json:"createdAt"`
-	UpdatedAt      time.Time    `json:"updatedAt"`
+	ID              string       `json:"id"`
+	Owner           string       `json:"-"`
+	BatchID         string       `json:"batchId"`
+	BookID          string       `json:"bookId,omitempty"`
+	RequestID       string       `json:"requestId"`
+	TimingMode      string       `json:"timingMode,omitempty"`
+	Speed           float64      `json:"speed,omitempty"`
+	ProviderTaskID  string       `json:"providerTaskId,omitempty"`
+	Status          MergeState   `json:"status"`
+	ProgressPhase   string       `json:"progressPhase,omitempty"`
+	ProgressCurrent int          `json:"progressCurrent,omitempty"`
+	ProgressTotal   int          `json:"progressTotal,omitempty"`
+	Sources         []MergeMedia `json:"sources"`
+	OutputURL       string       `json:"outputUrl,omitempty"`
+	ErrorMessage    string       `json:"errorMessage,omitempty"`
+	CreatedAt       time.Time    `json:"createdAt"`
+	UpdatedAt       time.Time    `json:"updatedAt"`
 }
 
 type MergeAdapter interface {
@@ -83,11 +94,14 @@ func normalizeMergeOptions(options MergeOptions) (MergeOptions, error) {
 	if options.Speed < 0.5 || options.Speed > 4 {
 		return MergeOptions{}, fmt.Errorf("%w: merge speed must be between 0.5 and 4", ErrInvalid)
 	}
-	if options.TTSSpeed == 0 {
-		options.TTSSpeed = 1.7
-	}
-	if options.TTSSpeed < 0.5 || options.TTSSpeed > 4 {
-		return MergeOptions{}, fmt.Errorf("%w: tts speed must be between 0.5 and 4", ErrInvalid)
+	if options.TimingMode == "audio" {
+		if options.AudioDurationSeconds <= 0 {
+			return MergeOptions{}, fmt.Errorf("%w: actual audio duration is required when following audio", ErrInvalid)
+		}
+		// Follow-audio speed is computed from recorded output duration below.
+		// TTSSpeed is retained only as a compatibility input and must not be
+		// multiplied into this value.
+		options.TTSSpeed = 0
 	}
 	return options, nil
 }
@@ -113,6 +127,20 @@ func normalizeMergeState(value MergeState) MergeState {
 }
 
 func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, requestID string, options MergeOptions) (MergeJob, error) {
+	return s.submitMerge(ctx, owner, batchID, "", requestID, options)
+}
+
+// SubmitBookMerge produces one final video for exactly one novel. It shares the
+// same source-selection contract as batch merge but never mixes another book's
+// storyboard media into this book's deliverable.
+func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, bookID, requestID string, options MergeOptions) (MergeJob, error) {
+	if strings.TrimSpace(bookID) == "" {
+		return MergeJob{}, fmt.Errorf("%w: book id is required", ErrInvalid)
+	}
+	return s.submitMerge(ctx, owner, batchID, strings.TrimSpace(bookID), requestID, options)
+}
+
+func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBookID, requestID string, options MergeOptions) (MergeJob, error) {
 	if s == nil || !s.Enabled {
 		return MergeJob{}, fmt.Errorf("%w: merge is not enabled", ErrUnavailable)
 	}
@@ -135,7 +163,8 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	} else if !errors.Is(findErr, ErrNotFound) {
 		return MergeJob{}, findErr
 	}
-	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil {
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
 		return MergeJob{}, err
 	}
 	productionRepository, ok := s.Store.(ProductionRepository)
@@ -146,26 +175,38 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 	if err != nil {
 		return MergeJob{}, err
 	}
-	batch, err := s.Store.GetBatch(ctx, owner, batchID)
-	if err != nil {
-		return MergeJob{}, err
+	books := batch.Books
+	if onlyBookID != "" {
+		books = nil
+		for _, book := range batch.Books {
+			if book.ID == onlyBookID {
+				books = append(books, book)
+				break
+			}
+		}
+	}
+	if len(books) == 0 {
+		return MergeJob{}, fmt.Errorf("%w: book is not ready for merge", ErrConflict)
 	}
 	sources := []MergeMedia{}
-	if len(batch.Books) == 0 {
-		return MergeJob{}, fmt.Errorf("%w: batch has no books ready for merge", ErrConflict)
-	}
-	for _, book := range batch.Books {
-		// A batch merge is all-or-nothing. Do not silently omit a book and
-		// produce a partial final movie that the UI reports as complete.
+	for _, book := range books {
 		if book.DirectorRevision == nil || len(book.Videos) == 0 {
 			return MergeJob{}, fmt.Errorf("%w: book %s is not ready for merge", ErrConflict, book.ID)
 		}
 		tasks := productionTaskSelections(productionJobs, book.ID, book.DirectorRevision.ID)
 		mediaVideos := book.Videos
+		// Fixed opening keeps all Director cards for review, but merges VIDEO01 only.
 		if snapshot, snapshotErr := snapshotForBook(batch, book); snapshotErr != nil {
 			return MergeJob{}, snapshotErr
-		} else if snapshot.FixedSingleVideo && len(mediaVideos) > 1 {
-			mediaVideos = mediaVideos[:1]
+		} else {
+			if options.AspectRatio == "" {
+				options.AspectRatio = snapshot.AspectRatio
+			} else if options.AspectRatio != snapshot.AspectRatio {
+				return MergeJob{}, fmt.Errorf("%w: batch merge cannot combine books with different aspect ratios", ErrConflict)
+			}
+			if snapshot.FixedSingleVideo && len(mediaVideos) > 1 {
+				mediaVideos = mediaVideos[:1]
+			}
 		}
 		for _, video := range mediaVideos {
 			selection, found := selectedProductionTask(video, tasks[video.ID])
@@ -173,39 +214,37 @@ func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, req
 				return MergeJob{}, fmt.Errorf("%w: book %s has VIDEOs without completed media", ErrConflict, book.ID)
 			}
 			mediaURL := strings.TrimSpace(selection.Task.MediaURL)
-			sources = append(sources, MergeMedia{
-				ProductionJobID: selection.JobID,
-				VideoID:         video.ID,
-				MediaURL:        mediaURL,
-				URL:             mediaURL,
-				Order:           len(sources),
-			})
+			if options.TimingMode == "audio" && selection.Task.ActualDurationSeconds <= 0 {
+				return MergeJob{}, fmt.Errorf("%w: book %s VIDEO %s has no actual duration yet", ErrConflict, book.ID, video.ID)
+			}
+			sources = append(sources, MergeMedia{ProductionJobID: selection.JobID, VideoID: video.ID, MediaURL: mediaURL, URL: mediaURL, Order: len(sources), TargetDurationSeconds: selection.Task.TargetDurationSeconds, RequestedDurationSeconds: selection.Task.RequestedDurationSeconds, ActualDurationSeconds: selection.Task.ActualDurationSeconds})
 		}
 	}
-	if len(sources) == 0 {
-		return MergeJob{}, fmt.Errorf("%w: no completed production media", ErrConflict)
+	if options.TimingMode == "audio" {
+		actualTotal := 0.0
+		for _, source := range sources {
+			actualTotal += source.ActualDurationSeconds
+		}
+		if actualTotal <= 0 {
+			return MergeJob{}, fmt.Errorf("%w: actual VIDEO duration is required when following audio", ErrConflict)
+		}
+		options.Speed = actualTotal / options.AudioDurationSeconds
+		if options.Speed < 0.5 || options.Speed > 4 {
+			return MergeJob{}, fmt.Errorf("%w: follow-audio speed %.3f is outside 0.5-4", ErrInvalid, options.Speed)
+		}
 	}
-
-	// Preserve the complete provider payload before persistence. Existing V11
-	// merge-source storage predates ProductionJobID, so a MySQL readback may
-	// contain only video/order/media URL. The provider must receive the exact
-	// source identity selected from production, not a lossy persistence view.
 	providerSources := append([]MergeMedia(nil), sources...)
 	now := time.Now().UTC()
-	job := MergeJob{Owner: owner, BatchID: batchID, RequestID: requestID, Status: MergeQueued, Sources: sources, CreatedAt: now, UpdatedAt: now}
+	job := MergeJob{Owner: owner, BatchID: batchID, BookID: onlyBookID, RequestID: requestID, TimingMode: options.TimingMode, Speed: options.Speed, Status: MergeQueued, ProgressPhase: "queued", ProgressTotal: len(sources), Sources: sources, CreatedAt: now, UpdatedAt: now}
 	job, err = repository.CreateMergeJob(ctx, job)
 	if err != nil {
 		return MergeJob{}, err
 	}
 	result, submitErr := s.Adapter.Submit(ctx, batchID, providerSources, options)
 	updated := job
-	updated.Status = normalizeMergeState(result.Status)
-	updated.ProviderTaskID = strings.TrimSpace(result.ProviderTaskID)
-	updated.OutputURL = strings.TrimSpace(result.OutputURL)
-	updated.ErrorMessage = strings.TrimSpace(result.ErrorMessage)
+	applyMergeResult(&updated, result)
 	if submitErr != nil {
-		updated.Status = MergeFailed
-		updated.ErrorMessage = productionError(submitErr)
+		updated.Status, updated.ProgressPhase, updated.ErrorMessage = MergeFailed, "failed", productionError(submitErr)
 	}
 	updated, err = repository.UpdateMergeJob(ctx, owner, job.ID, updated)
 	if err != nil {
@@ -241,19 +280,61 @@ func (s *MergeService) GetBatchStatus(ctx context.Context, owner, batchID string
 		}
 		result, pollErr := s.Poller.Poll(ctx, batchID, job)
 		if pollErr != nil {
+			updated := job
+			updated.Status = MergeFailed
+			updated.ProgressPhase = "failed"
+			updated.ErrorMessage = productionError(pollErr)
+			updated.OutputURL = ""
+			if _, updateErr := repository.UpdateMergeJob(ctx, owner, job.ID, updated); updateErr != nil {
+				return nil, updateErr
+			}
+			jobs[index] = updated
 			continue
 		}
 		updated := job
-		updated.Status = normalizeMergeState(result.Status)
-		updated.ProviderTaskID = strings.TrimSpace(result.ProviderTaskID)
-		updated.OutputURL = strings.TrimSpace(result.OutputURL)
-		updated.ErrorMessage = strings.TrimSpace(result.ErrorMessage)
+		applyMergeResult(&updated, result)
 		if _, updateErr := repository.UpdateMergeJob(ctx, owner, job.ID, updated); updateErr != nil {
 			return nil, updateErr
 		}
 		jobs[index] = updated
 	}
 	return jobs, nil
+}
+
+func applyMergeResult(target *MergeJob, result MergeJob) {
+	if target == nil {
+		return
+	}
+	target.Status = normalizeMergeState(result.Status)
+	target.ProviderTaskID = strings.TrimSpace(result.ProviderTaskID)
+	target.OutputURL = strings.TrimSpace(result.OutputURL)
+	target.ErrorMessage = strings.TrimSpace(result.ErrorMessage)
+	if strings.TrimSpace(result.ProgressPhase) != "" {
+		target.ProgressPhase = strings.TrimSpace(result.ProgressPhase)
+	}
+	if result.ProgressTotal > 0 {
+		target.ProgressTotal = result.ProgressTotal
+	}
+	if result.ProgressCurrent > 0 || result.ProgressTotal > 0 {
+		target.ProgressCurrent = result.ProgressCurrent
+	}
+	switch target.Status {
+	case MergeSucceeded:
+		target.ProgressPhase = "completed"
+		if target.ProgressTotal > 0 {
+			target.ProgressCurrent = target.ProgressTotal
+		}
+	case MergeFailed:
+		target.ProgressPhase = "failed"
+	case MergeQueued:
+		if target.ProgressPhase == "" {
+			target.ProgressPhase = "queued"
+		}
+	case MergeRunning:
+		if target.ProgressPhase == "" || target.ProgressPhase == "queued" {
+			target.ProgressPhase = "running"
+		}
+	}
 }
 
 type productionTaskSelection struct {

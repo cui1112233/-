@@ -30,9 +30,27 @@ func TestV11MigrationsRegisterProductionAfterDirector(t *testing.T) {
 
 func TestV11BookStageRunsMigrationIsAdditiveAndDurable(t *testing.T) {
 	migrations := V11Migrations()
+	if len(migrations) < 16 || migrations[14].Version != 1100015 || migrations[14].CallbackChecksum != "batch-factory-v11-book-stage-runs-v1" {
+		t.Fatalf("stage migration=%+v", migrations)
+	}
 	last := migrations[len(migrations)-1]
-	if last.Version != 1100015 || last.CallbackChecksum != "batch-factory-v11-book-stage-runs-v1" {
-		t.Fatalf("stage migration=%+v", last)
+	if last.Version != 1100020 || last.CallbackChecksum != "batch-factory-v11-merge-progress-v1" {
+		t.Fatalf("merge progress migration=%+v", last)
+	}
+	if joined := strings.ToLower(strings.Join(V11ProductionDurationStatements(), "\n")); !strings.Contains(joined, "target_duration_seconds") || !strings.Contains(joined, "requested_duration_seconds") || !strings.Contains(joined, "actual_duration_seconds") {
+		t.Fatalf("duration migration=%s", joined)
+	}
+	if joined := strings.ToLower(strings.Join(V11BookMergeStatements(), "\n")); !strings.Contains(joined, "batch_factory_v11_merge_jobs") || !strings.Contains(joined, "book_id") {
+		t.Fatalf("book merge migration=%s", joined)
+	}
+	if joined := strings.ToLower(strings.Join(V11MergeSourceDurationStatements(), "\n")); !strings.Contains(joined, "actual_duration_seconds") {
+		t.Fatalf("merge source duration migration=%s", joined)
+	}
+	if joined := strings.ToLower(strings.Join(V11ProductionLibraryStatements(), "\n")); !strings.Contains(joined, "batch_factory_v11_hidden_production_tasks") || !strings.Contains(joined, "deleted_at") {
+		t.Fatalf("production library migration=%s", joined)
+	}
+	if joined := strings.ToLower(strings.Join(V11MergeProgressStatements(), "\n")); !strings.Contains(joined, "progress_phase") || !strings.Contains(joined, "speed") {
+		t.Fatalf("merge progress migration=%s", joined)
 	}
 	joined := strings.ToLower(strings.Join(V11BookStageRunsStatements(), "\n"))
 	for _, required := range []string{"batch_factory_v11_book_stage_runs", "book_id", "stage", "attempt", "error_message", "idx_bfv11_stage_owner_book_updated"} {

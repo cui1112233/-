@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
+	"qiantie/backend/internal/localartifact"
 )
 
 type productionHTTPAdapter struct{ calls int }
@@ -21,7 +22,9 @@ type mergeHTTPAdapter struct{ calls int }
 
 func (a *mergeHTTPAdapter) Submit(_ context.Context, _ string, sources []batchfactoryv11.MergeMedia, _ batchfactoryv11.MergeOptions) (batchfactoryv11.MergeJob, error) {
 	a.calls++
-	if len(sources) != 1 || sources[0].URL == "" { return batchfactoryv11.MergeJob{}, batchfactoryv11.ErrInvalid }
+	if len(sources) != 1 || sources[0].URL == "" {
+		return batchfactoryv11.MergeJob{}, batchfactoryv11.ErrInvalid
+	}
 	return batchfactoryv11.MergeJob{Status: batchfactoryv11.MergeSucceeded, OutputURL: "https://media.example/merged.mp4"}, nil
 }
 
@@ -68,11 +71,17 @@ func TestSliceFiveMergeRouteIsIdempotentAndOwnerScoped(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()
 	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "林晚推门进入客厅。"}}})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	director := &batchfactoryv11.DirectorService{Store: store, Provider: &directorHTTPProvider{output: directorHTTPJSON}}
-	if _, err := director.RunDirector(context.Background(), "alice", batch.ID, batch.Books[0].ID); err != nil { t.Fatal(err) }
+	if _, err := director.RunDirector(context.Background(), "alice", batch.ID, batch.Books[0].ID); err != nil {
+		t.Fatal(err)
+	}
 	production := &batchfactoryv11.ProductionService{Store: store, Compiler: &batchfactoryv11.PromptCompilerService{Store: store}, Adapter: &productionHTTPAdapter{}, Enabled: true, Model: batchfactoryv11.FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
-	if _, err := production.SubmitBookProduction(context.Background(), "alice", batch.ID, batch.Books[0].ID, "production-for-merge"); err != nil { t.Fatal(err) }
+	if _, err := production.SubmitBookProduction(context.Background(), "alice", batch.ID, batch.Books[0].ID, "production-for-merge"); err != nil {
+		t.Fatal(err)
+	}
 	mergeAdapter := &mergeHTTPAdapter{}
 	merge := &batchfactoryv11.MergeService{Store: store, Adapter: mergeAdapter, Enabled: true}
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 5, Store: store, Director: director, Compiler: &batchfactoryv11.PromptCompilerService{Store: store}, Production: production, Merge: merge})
@@ -82,8 +91,46 @@ func TestSliceFiveMergeRouteIsIdempotentAndOwnerScoped(t *testing.T) {
 	if first.Code != http.StatusCreated || second.Code != http.StatusCreated || !strings.Contains(first.Body.String(), "merged.mp4") || first.Body.String() != second.Body.String() || mergeAdapter.calls != 1 {
 		t.Fatalf("first=%d %s second=%d %s calls=%d", first.Code, first.Body.String(), second.Code, second.Body.String(), mergeAdapter.calls)
 	}
+	bookPath := "/api/batch-factory/v11/batches/" + batch.ID + "/books/" + batch.Books[0].ID + "/merge"
+	bookMerge := signedJSONRequest(t, api, now, "alice", http.MethodPost, bookPath, map[string]any{"requestId": "book-merge-http-1", "timingMode": "speed", "speed": 1})
+	if bookMerge.Code != http.StatusCreated || !strings.Contains(bookMerge.Body.String(), `"bookId":"`+batch.Books[0].ID+`"`) || mergeAdapter.calls != 2 {
+		t.Fatalf("book merge=%d %s calls=%d", bookMerge.Code, bookMerge.Body.String(), mergeAdapter.calls)
+	}
 	status := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
-	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "merged.mp4") { t.Fatalf("status=%d body=%s", status.Code, status.Body.String()) }
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "merged.mp4") {
+		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
+	}
 	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
-	if other.Code != http.StatusNotFound { t.Fatalf("cross-owner status=%d body=%s", other.Code, other.Body.String()) }
+	if other.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestSliceFiveServesOnlyTheOwnersLocalMergedArtifact(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := localartifact.NewStore(t.TempDir(), 1<<20)
+	artifactID := "merge_local_media_1"
+	if _, err := files.SaveMP4(artifactID, strings.NewReader("0000ftypisom-local-merged-video")); err != nil {
+		t.Fatal(err)
+	}
+	output := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-media/" + artifactID
+	if _, err := store.CreateMergeJob(context.Background(), batchfactoryv11.MergeJob{Owner: "alice", BatchID: batch.ID, RequestID: "local-media", Status: batchfactoryv11.MergeSucceeded, OutputURL: output, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	merge := &batchfactoryv11.MergeService{Store: store, Enabled: true}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 5, Store: store, Merge: merge, LocalArtifacts: files})
+	path := output
+	owner := signedJSONRequest(t, api, now, "alice", http.MethodGet, path, nil)
+	if owner.Code != http.StatusOK || !strings.Contains(owner.Body.String(), "ftyp") {
+		t.Fatalf("owner status=%d body=%q", owner.Code, owner.Body.String())
+	}
+	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, path, nil)
+	if other.Code != http.StatusNotFound {
+		t.Fatalf("other status=%d body=%s", other.Code, other.Body.String())
+	}
 }

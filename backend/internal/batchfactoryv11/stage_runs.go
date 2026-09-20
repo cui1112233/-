@@ -10,7 +10,9 @@ import (
 type BookStage string
 
 const (
+	BookStageAssets   BookStage = "assets"
 	BookStageDirector BookStage = "director"
+	BookStageVisual   BookStage = "visual"
 	BookStageImage    BookStage = "image"
 	BookStageVideo    BookStage = "video"
 )
@@ -45,7 +47,7 @@ type BookStageRunRepository interface {
 
 func validBookStage(value BookStage) bool {
 	switch value {
-	case BookStageDirector, BookStageImage, BookStageVideo:
+	case BookStageAssets, BookStageDirector, BookStageVisual, BookStageImage, BookStageVideo:
 		return true
 	default:
 		return false
@@ -78,8 +80,19 @@ type stageRunError string
 func (e stageRunError) Error() string { return string(e) }
 
 func LatestFailedBookStageRun(values []BookStageRun) *BookStageRun {
-	failed := make([]BookStageRun, 0, len(values))
+	// A failed attempt is no longer actionable once a later attempt for that
+	// same stage has succeeded. Retry must select an unresolved failure, not a
+	// historical one; otherwise a book can keep retrying an already recovered
+	// asset stage forever.
+	latestByStage := make(map[BookStage]BookStageRun, len(values))
 	for _, value := range values {
+		current, exists := latestByStage[value.Stage]
+		if !exists || value.UpdatedAt.After(current.UpdatedAt) || (value.UpdatedAt.Equal(current.UpdatedAt) && value.ID > current.ID) {
+			latestByStage[value.Stage] = value
+		}
+	}
+	failed := make([]BookStageRun, 0, len(latestByStage))
+	for _, value := range latestByStage {
 		if value.Status == ProductionFailed {
 			failed = append(failed, value)
 		}

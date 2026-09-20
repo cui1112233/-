@@ -93,6 +93,20 @@ func TestParseH3DirectorDocumentRejectsInvalidStructure(t *testing.T) {
 			want: "director_cards[0].character_slot_ids[0] unknown slot C999",
 		},
 		{
+			name: "missing canonical character name",
+			mutate: func(value map[string]any) {
+				value["character_roster"].([]any)[0].(map[string]any)["canonical_name"] = ""
+			},
+			want: "character_roster[0].canonical_name is required",
+		},
+		{
+			name: "missing character appearance analysis",
+			mutate: func(value map[string]any) {
+				value["character_roster"].([]any)[0].(map[string]any)["appearance"] = ""
+			},
+			want: "character_roster[0].appearance is required",
+		},
+		{
 			name: "missing micro shot character_slot_ids",
 			mutate: func(value map[string]any) {
 				delete(h3FixtureMicroShot(value, 0, 0), "character_slot_ids")
@@ -105,13 +119,6 @@ func TestParseH3DirectorDocumentRejectsInvalidStructure(t *testing.T) {
 				h3FixtureCard(value, 0)["duration_weight"] = 0
 			},
 			want: "director_cards[0].duration_weight must be greater than zero",
-		},
-		{
-			name: "wrong source text hash",
-			mutate: func(value map[string]any) {
-				h3FixtureCard(value, 0)["source_text_hash"] = "wrong"
-			},
-			want: "director_cards[0].source_text_hash does not match source_text",
 		},
 		{
 			name: "missing structured camera field",
@@ -159,6 +166,23 @@ func TestParseH3DirectorDocumentRejectsInvalidStructure(t *testing.T) {
 	}
 }
 
+func TestParseH3DirectorDocumentDerivesSourceTextHashFromFrozenLine(t *testing.T) {
+	value := decodeH3FixtureObject(t, "h3_v12_complete_director_trace.json")
+	h3FixtureCard(value, 0)["source_text_hash"] = "model-cannot-compute-sha256"
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := ParseH3DirectorDocument(raw, acceptanceH3VideoSource())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "456e286d68205dde197ac14ddfe941584d99b5b254f4d784ec7c9c1e7ae9edb9"
+	if document.DirectorCards[0].SourceTextHash != want {
+		t.Fatalf("source_text_hash = %q, want backend-derived %q", document.DirectorCards[0].SourceTextHash, want)
+	}
+}
+
 func TestParseH3DirectorDocumentPreservesCompleteDirectorData(t *testing.T) {
 	document, err := ParseH3DirectorDocument(
 		readH3Fixture(t, "h3_v12_complete_director_trace.json"),
@@ -173,6 +197,54 @@ func TestParseH3DirectorDocumentPreservesCompleteDirectorData(t *testing.T) {
 	}
 	if len(card.MicroShots) != 2 || card.MicroShots[0].Action == "" || card.MicroShots[0].Camera.Framing == "" || card.MicroShots[0].Movement.Transition == "" {
 		t.Fatalf("complete micro-shot data lost: %#v", card.MicroShots)
+	}
+}
+
+func TestParseH3DirectorDocumentPreservesStructuredVisualBaseline(t *testing.T) {
+	raw := strings.Replace(string(readH3Fixture(t, "h3_v12_complete_director_trace.json")), `"visual_baseline": "现代高质感实拍短剧，无暗角，自然对比度。"`, `"visual_baseline": {"medium":"现代实拍","color":"自然对比度","camera_language":["克制推轨"]}`, 1)
+	document, err := ParseH3DirectorDocument(json.RawMessage(raw), acceptanceH3VideoSource())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, ok := document.VisualBaseline.(map[string]any)
+	if !ok || baseline["medium"] != "现代实拍" {
+		t.Fatalf("structured visual baseline was not preserved: %#v", document.VisualBaseline)
+	}
+	rendered := h3VisualBaselineText(document.VisualBaseline)
+	for _, want := range []string{"现代实拍", "自然对比度", "克制推轨"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered baseline missing %q: %s", want, rendered)
+		}
+	}
+}
+
+func TestParseH3DirectorDocumentNormalizesNumericStringWeights(t *testing.T) {
+	value := decodeH3FixtureObject(t, "h3_v12_complete_director_trace.json")
+	card := h3FixtureCard(value, 0)
+	card["preferred_duration"] = "3"
+	card["duration_weight"] = "2.5"
+	h3FixtureMicroShot(value, 0, 0)["weight"] = "1.25"
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := ParseH3DirectorDocument(raw, acceptanceH3VideoSource())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.DirectorCards[0].PreferredDuration != 3 || document.DirectorCards[0].DurationWeight != 2.5 {
+		t.Fatalf("card numeric strings were not normalized: %#v", document.DirectorCards[0])
+	}
+	if document.DirectorCards[0].MicroShots[0].Weight != 1.25 {
+		t.Fatalf("micro-shot numeric string was not normalized: %#v", document.DirectorCards[0].MicroShots[0])
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"preferred_duration":"3"`) || strings.Contains(string(encoded), `"duration_weight":"2.5"`) || strings.Contains(string(encoded), `"weight":"1.25"`) {
+		t.Fatalf("normalized numeric values must persist as JSON numbers: %s", encoded)
 	}
 }
 

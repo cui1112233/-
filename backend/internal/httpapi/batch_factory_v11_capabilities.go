@@ -25,7 +25,7 @@ func capabilitiesForRuntime(slice int, productionAvailable bool, mergeAvailable 
 		"production.submit":   {Reason: "Production slice not released"},
 		"production.cancel":   {Reason: "Production slice not released"},
 		"merge.run":           {Reason: "Merge slice not released"},
-		"publish.121":         {Reason: "121 is not enabled"},
+		"publish.121":         {Reason: "121 视频发布未启用：尚未验证 MP4 提交接口、回执与回读"},
 		"publish.yadi":        {Reason: "Yadi is not enabled"},
 	}
 	if slice >= 1 {

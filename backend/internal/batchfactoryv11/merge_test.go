@@ -2,6 +2,7 @@ package batchfactoryv11
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -9,11 +10,43 @@ type recordingMergeAdapter struct {
 	calls   int
 	job     MergeJob
 	sources []MergeMedia
+	options MergeOptions
 }
 
-func (a *recordingMergeAdapter) Submit(_ context.Context, _ string, sources []MergeMedia, _ MergeOptions) (MergeJob, error) {
+type failingMergePoller struct{}
+
+func (failingMergePoller) Poll(context.Context, string, MergeJob) (MergeJob, error) {
+	return MergeJob{}, errors.New("merge provider timed out")
+}
+
+func TestMergePollingFailureEndsTheJobWithTheProviderError(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	job, err := store.CreateMergeJob(context.Background(), MergeJob{
+		Owner:          "alice",
+		BatchID:        batch.ID,
+		BookID:         book.ID,
+		RequestID:      "merge-poll-failure",
+		ProviderTaskID: "provider-merge-1",
+		Status:         MergeRunning,
+		Sources:        []MergeMedia{{VideoID: "video-1", MediaURL: "https://media.example/video.mp4", Order: 0}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := (&MergeService{Store: store, Adapter: &recordingMergeAdapter{}, Poller: failingMergePoller{}, Enabled: true}).GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != job.ID || jobs[0].Status != MergeFailed || jobs[0].ErrorMessage != "merge provider timed out" {
+		t.Fatalf("polling failure must finish the job: %+v", jobs)
+	}
+}
+
+func (a *recordingMergeAdapter) Submit(_ context.Context, _ string, sources []MergeMedia, options MergeOptions) (MergeJob, error) {
 	a.calls++
 	a.sources = append([]MergeMedia(nil), sources...)
+	a.options = options
 	return a.job, nil
 }
 
@@ -66,5 +99,21 @@ func TestMergeUsesUserSelectedPrimaryMediaVersion(t *testing.T) {
 	}
 	if len(adapter.sources) != 1 || adapter.sources[0].MediaURL != "https://media.example/old.mp4" || adapter.sources[0].ProductionJobID != oldJob.ID || oldJob.ID == newJob.ID {
 		t.Fatalf("merge must use selected primary: old=%+v new=%+v sources=%+v", oldJob, newJob, adapter.sources)
+	}
+}
+
+func TestBookMergeScopesFinalOutputToOneBookAndUsesItsSelectedVideos(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	production := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-book", State: ProductionSucceeded, MediaURL: "https://media.example/book.mp4", ActualDurationSeconds: 6}}, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	if _, err := production.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "production-for-book-merge"); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &recordingMergeAdapter{job: MergeJob{Status: MergeSucceeded, OutputURL: "https://media.example/book-merged.mp4"}}
+	job, err := (&MergeService{Store: store, Adapter: adapter, Enabled: true}).SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "book-merge-1", MergeOptions{TimingMode: "audio", AudioDurationSeconds: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.BookID != book.ID || len(job.Sources) != 1 || len(adapter.sources) != 1 || adapter.sources[0].ActualDurationSeconds != 6 || adapter.options.AspectRatio != "16:9" || job.OutputURL != "https://media.example/book-merged.mp4" {
+		t.Fatalf("job=%+v sources=%+v options=%+v", job, adapter.sources, adapter.options)
 	}
 }

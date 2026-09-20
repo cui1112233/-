@@ -2,6 +2,7 @@ package batchfactoryv11
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -20,9 +21,11 @@ type BookStageSummary struct {
 }
 
 type BookStageService struct {
-	Store      Store
-	Director   *DirectorService
-	Production *ProductionService
+	Store             Store
+	Director          *DirectorService
+	Production        *ProductionService
+	SmartUnifiedStyle string
+	H3Director        bool
 }
 
 func (s *BookStageService) repository() (BookStageRunRepository, error) {
@@ -38,7 +41,12 @@ func (s *BookStageService) repository() (BookStageRunRepository, error) {
 
 func (s *BookStageService) availability(stage BookStage) BookStageAvailability {
 	switch stage {
-	case BookStageDirector:
+	case BookStageAssets:
+		if s != nil && s.Director != nil && s.Director.Store != nil && s.Director.Provider != nil {
+			return BookStageAvailability{Stage: stage, Available: true}
+		}
+		return BookStageAvailability{Stage: stage, Reason: "文本模型未配置"}
+	case BookStageDirector, BookStageVisual:
 		if s != nil && s.Director != nil && s.Director.Store != nil && s.Director.Provider != nil {
 			return BookStageAvailability{Stage: stage, Available: true}
 		}
@@ -69,7 +77,7 @@ func (s *BookStageService) Summary(ctx context.Context, owner, batchID, bookID s
 	if err != nil {
 		return BookStageSummary{}, err
 	}
-	availability := []BookStageAvailability{s.availability(BookStageDirector), s.availability(BookStageImage), s.availability(BookStageVideo)}
+	availability := []BookStageAvailability{s.availability(BookStageAssets), s.availability(BookStageDirector), s.availability(BookStageVisual), s.availability(BookStageImage), s.availability(BookStageVideo)}
 	return BookStageSummary{BookID: bookID, Runs: runs, Availability: availability, LastFailed: LatestFailedBookStageRun(runs)}, nil
 }
 
@@ -109,9 +117,20 @@ func (s *BookStageService) finish(ctx context.Context, owner string, run BookSta
 	return err
 }
 
+func normalizeStageExecutionError(stage BookStage, err error) error {
+	if err == nil || (stage != BookStageAssets && stage != BookStageDirector && stage != BookStageVisual) {
+		return err
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrUnavailable) {
+		return err
+	}
+	return fmt.Errorf("%w: 文本模型请求失败：%v", ErrUnavailable, err)
+}
+
 // immediateVideoProviderFailure turns a provider-side rejection that was
-// persisted on a production task into a failed book stage. A queued/running
-// task remains a valid asynchronous submission.
+// persisted on a production task into a failed book stage.  A queued/running
+// task is a valid asynchronous submission, but a task already marked failed
+// must not leave the UI saying that the stage completed successfully.
 func immediateVideoProviderFailure(job ProductionJob) error {
 	for _, task := range job.Tasks {
 		if task.Status != ProductionFailed && task.Status != ProductionCancelled {
@@ -164,31 +183,45 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 		return summary, err
 	}
 	switch stage {
+	case BookStageAssets:
+		_, err = s.Director.RunAssetExtraction(ctx, owner, batchID, bookID)
+	case BookStageVisual:
+		_, err = s.Director.RunVisualPromptExtraction(ctx, owner, batchID, bookID)
 	case BookStageDirector:
 		if mode == StageModeMissing && book.DirectorRevision != nil {
-			err = fmt.Errorf("%w: 文案已存在；请使用重新生成文案", ErrConflict)
+			err = fmt.Errorf("%w: 导演分镜已存在；请使用重新生成导演分镜", ErrConflict)
 		} else {
 			var revision DirectorRevision
-			revision, err = s.Director.RunDirector(ctx, owner, batchID, bookID)
+			effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
+			if s.H3Director || usesH3VideoRenderer(aiReasoningPromptConfig(effective).Video) {
+				revision, err = s.Director.RunConfiguredH3Director(ctx, owner, batchID, bookID)
+			} else if strings.TrimSpace(s.SmartUnifiedStyle) != "" {
+				revision, err = s.Director.RunDirectorWithSmartUnifiedStyle(ctx, owner, batchID, bookID, s.SmartUnifiedStyle)
+			} else {
+				revision, err = s.Director.RunDirector(ctx, owner, batchID, bookID)
+			}
 			if err == nil {
 				run.InputRevision = revision.ID
 			}
 		}
 	case BookStageVideo:
+		effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
+		provider := VideoProviderForModel(rawString(effective, "videoModelId", ""), rawString(effective, "videoProvider", VideoProviderPersonalAPI))
 		if mode == StageModeMissing {
 			var job ProductionJob
-			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, rawString(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "videoProvider", VideoProviderPersonalAPI), ProductionOptions{VideoID: videoID, CompilationID: frozenCompilationID})
+			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{VideoID: videoID, CompilationID: frozenCompilationID})
 			if err == nil {
 				err = immediateVideoProviderFailure(job)
 			}
 		} else {
 			var job ProductionJob
-			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, rawString(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "videoProvider", VideoProviderPersonalAPI), ProductionOptions{Force: true, VideoID: videoID, CompilationID: frozenCompilationID})
+			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{Force: true, VideoID: videoID, CompilationID: frozenCompilationID})
 			if err == nil {
 				err = immediateVideoProviderFailure(job)
 			}
 		}
 	}
+	err = normalizeStageExecutionError(stage, err)
 	if finishErr := s.finish(ctx, owner, run, err); finishErr != nil {
 		return BookStageSummary{}, finishErr
 	}

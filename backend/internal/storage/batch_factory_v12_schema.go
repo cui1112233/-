@@ -109,5 +109,6 @@ func V12Migrations() []Migration {
 		{Version: 1200101, SQL: V12UpgradeAuditStatements(), CallbackChecksum: "batch-factory-v12-upgrade-audit-v1"},
 		{Version: 1200102, SQL: V12H3AggregateStatements(), CallbackChecksum: "batch-factory-v12-h3-aggregates-v1"},
 		{Version: 1200103, SQL: V12H3ProductionTraceStatements(), CallbackChecksum: "batch-factory-v12-h3-production-trace-v1"},
+		{Version: 1200104, SQL: []string{`ALTER TABLE batch_factory_v12_audio_measurements ADD COLUMN measurement_json JSON NULL`}, CallbackChecksum: "batch-factory-v12-line-audio-v1"},
 	}
 }

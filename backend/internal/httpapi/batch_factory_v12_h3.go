@@ -46,12 +46,28 @@ func registerV12H3Routes(mux *http.ServeMux, service *batchfactoryv11.H3KernelSe
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, (64<<20)*2)
 		var input struct {
-			AudioBase64 string `json:"audio_base64"`
+			AudioBase64        string                             `json:"audio_base64"`
+			DirectorRevisionID string                             `json:"director_revision_id"`
+			TTSFingerprint     string                             `json:"tts_fingerprint"`
+			Lines              []batchfactoryv11.H3LineAudioInput `json:"lines"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&input); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid H3 audio measurement request: " + err.Error()})
+			return
+		}
+		if input.Lines != nil {
+			if input.AudioBase64 != "" {
+				writeStoreError(w, batchfactoryv11.ErrInvalid)
+				return
+			}
+			measurement, err := service.MeasureLineAudio(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.DirectorRevisionID, input.TTSFingerprint, input.Lines)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusCreated, map[string]any{"audio_asset_id": measurement.Measurement.AssetID, "audio_measurement": measurement})
 			return
 		}
 		audio, err := base64.StdEncoding.DecodeString(input.AudioBase64)

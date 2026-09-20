@@ -1,0 +1,86 @@
+{
+  "source_index": 1,
+  "source_key": "line_0001",
+  "scene_description": "沈氏集团行政办公区，现代化开放式办公环境。沈念穿着基础款白衬衫，正低头在打印机旁整理一摞厚厚的文件。背景是忙碌但有序的职场精英，玻璃幕墙透入自然日光。",
+  "visual_context": "明亮且略显冷色调的办公室，沈念作为卑微实习生的状态与周围高大上的环境形成对比。",
+  "duration": 2.884,
+  "preferred_duration": 2.884,
+  "duration_weight": 1,
+  "character_slot_ids": ["CHAR_002"],
+  "temporary_character_ids": [],
+  "context_summary": {
+    "previous": "故事开始，设定身份差。",
+    "current": "展现沈念隐藏身份在自家公司做卑微行政助理的日常。",
+    "next_setup": "切至哥哥沈总入场。"
+  },
+  "micro_shots": [
+    {
+      "weight": 1,
+      "shot_task": "建立沈念的职场底层身份感，强调其素雅低调的装扮与忙碌状态。",
+      "shot_size": "中景",
+      "camera_angle": "平视",
+      "composition": "沈念位于画面中心，侧对镜头，双手正熟练地整理A4纸张。背景是模糊的职场人群走动，强调她的专注与独立。",
+      "camera_movement": "固定镜头，轻微的变焦推近以聚焦沈念清丽的侧脸。",
+      "participants": [
+        {
+          "slot_id": "CHAR_002",
+          "position": "画面中部，打印机旁",
+          "facing": "面向打印机（左侧）",
+          "gaze": "手中文件",
+          "action": "双手熟练地码齐纸张，将其抱在胸前。",
+          "reaction": "神情平和且认真，眼神中透着一股坚韧的职业感。",
+          "end_state": "抱紧文件准备转身。"
+        }
+      ],
+      "action_beats": {
+        "initial": "沈念站在打印机旁整理文件。",
+        "onset": "她将最后一叠纸放好。",
+        "development": "双手合拢用力磕了下纸堆边缘使之整齐。",
+        "reaction": "她露出一丝隐秘的、对自己独立工作的满意微笑。",
+        "result": "沈念稳稳抱住一摞文件。"
+      },
+      "prop_changes": "打印机出纸托盘变空，沈念怀中多了一叠文件。",
+      "lighting": "冷白色的办公顶灯与窗外自然光交汇，沈念的白衬衫质感细腻，边缘有轻微的高光溢出，肤色白皙通透。",
+      "end_state": "沈念侧身站立，文件在怀。",
+      "audio": {
+        "ambient": "办公室低沉的键盘敲击声与复印机运作声。",
+        "foley": "纸张碰撞整齐的沙沙声。"
+      },
+      "continuity_in": {
+        "scene_id": "SCENE_OFFICE_01",
+        "location": "沈氏集团行政办公区",
+        "time_weather": "日间，晴朗",
+        "axis": "0度",
+        "light_direction": "右侧侧光",
+        "positions": {"CHAR_002": "画面中心偏左"},
+        "facings": {"CHAR_002": "左侧"},
+        "gazes": {"CHAR_002": "下方"},
+        "held_props": {"CHAR_002": "一叠A4纸"},
+        "wardrobe_states": {"CHAR_002": "白衬衫整洁，马尾辫利落"},
+        "appearance_states": {"CHAR_002": "素颜淡妆，神态平静"},
+        "environment_states": {"environment": "现代简约办公风格"},
+        "emotion_states": {"CHAR_002": "平和坚定"},
+        "action_ends": {"CHAR_002": "抱紧文件"}
+      },
+      "continuity_out": {
+        "scene_id": "SCENE_OFFICE_01",
+        "location": "沈氏集团行政办公区",
+        "time_weather": "日间",
+        "axis": "0度",
+        "light_direction": "右侧侧光",
+        "positions": {"CHAR_002": "画面中心"},
+        "facings": {"CHAR_002": "左侧"},
+        "gazes": {"CHAR_002": "前方"},
+        "held_props": {"CHAR_002": "整齐的文件堆"},
+        "wardrobe_states": {"CHAR_002": "衬衫平整"},
+        "appearance_states": {"CHAR_002": "清丽脱俗"},
+        "environment_states": {"environment": "繁忙"},
+        "emotion_states": {"CHAR_002": "职业化表现"},
+        "action_ends": {"CHAR_002": "静止等待行走"}
+      }
+    }
+  ],
+  "audio": {"ambient": "职场白噪音", "foley": "纸张整理声"},
+  "continuity_in": {},
+  "continuity_out": {}
+}

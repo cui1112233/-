@@ -143,11 +143,20 @@ func (a *YadiVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 	if err != nil {
 		return ProviderTaskRef{}, err
 	}
+	if mediaURL := yadiResultMediaURL(reply); mediaURL != "" {
+		if _, err := a.validatedURL(mediaURL); err != nil {
+			return ProviderTaskRef{}, fmt.Errorf("personal video returned unsafe media URL: %w", err)
+		}
+		return ProviderTaskRef{State: ProductionSucceeded, MediaURL: mediaURL, RequestedDurationSeconds: float64(duration)}, nil
+	}
 	taskID := firstVideoValue(reply, "task_id", "taskId", "id", "providerTaskId", "provider_task_id")
 	if taskID == "" {
+		if reason := yadiProviderFailureReason(reply); reason != "" {
+			return ProviderTaskRef{}, fmt.Errorf("personal video provider did not create a task: %s", reason)
+		}
 		return ProviderTaskRef{}, fmt.Errorf("personal video response did not contain a task id")
 	}
-	return ProviderTaskRef{ProviderTaskID: taskID, State: ProductionQueued}, nil
+	return ProviderTaskRef{ProviderTaskID: taskID, State: ProductionQueued, RequestedDurationSeconds: float64(duration)}, nil
 }
 
 func (a *YadiVideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task ProviderTaskRef) (ProviderTaskRef, error) {
@@ -192,14 +201,64 @@ func (a *YadiVideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task Pr
 		if err != nil {
 			return ProviderTaskRef{}, err
 		}
-		mediaURL := firstVideoValue(resultReply, "url", "video_url", "videoUrl", "mediaUrl", "media_url")
+		mediaURL := yadiResultMediaURL(resultReply)
 		if _, err := a.validatedURL(mediaURL); err != nil {
 			return ProviderTaskRef{}, fmt.Errorf("personal video returned unsafe media URL: %w", err)
 		}
-		return ProviderTaskRef{ProviderTaskID: taskID, State: ProductionSucceeded, MediaURL: mediaURL}, nil
+		return ProviderTaskRef{ProviderTaskID: taskID, State: ProductionSucceeded, MediaURL: mediaURL, ActualDurationSeconds: firstVideoFloat(resultReply, "actualDurationSeconds", "actual_duration_seconds", "durationSeconds", "duration_seconds")}, nil
 	default:
 		return ProviderTaskRef{ProviderTaskID: taskID, State: ProductionRunning}, nil
 	}
+}
+
+// yadiProviderFailureReason keeps an HTTP-200 provider rejection visible to
+// the caller.  Many compatible APIs put quota, moderation, or parameter
+// errors in JSON instead of using an HTTP error status; hiding that message
+// turns a concrete failure into an apparently endless wait in the UI.
+func yadiProviderFailureReason(raw []byte) string {
+	reason := strings.TrimSpace(firstVideoValue(raw, "error_message", "errorMessage", "message", "msg", "detail"))
+	if reason == "" || strings.EqualFold(reason, "success") || strings.EqualFold(reason, "ok") {
+		return ""
+	}
+	if len(reason) > 240 {
+		return reason[:240]
+	}
+	return reason
+}
+
+// yadiResultMediaURL accepts both the original single-url response shape and
+// Yadi's completed-task shape: { data: { urls: ["https://..."] } }.
+func yadiResultMediaURL(raw []byte) string {
+	if value := firstVideoValue(raw, "url", "video_url", "videoUrl", "mediaUrl", "media_url"); value != "" {
+		return value
+	}
+	var payload any
+	if json.Unmarshal(raw, &payload) != nil {
+		return ""
+	}
+	for _, object := range videoObjects(payload) {
+		for _, key := range []string{"urls", "outputs"} {
+			values, ok := object[key].([]any)
+			if !ok {
+				continue
+			}
+			for _, value := range values {
+				switch typed := value.(type) {
+				case string:
+					if strings.TrimSpace(typed) != "" {
+						return strings.TrimSpace(typed)
+					}
+				case map[string]any:
+					for _, field := range []string{"url", "video_url", "videoUrl", "media_url", "mediaUrl"} {
+						if url, ok := typed[field].(string); ok && strings.TrimSpace(url) != "" {
+							return strings.TrimSpace(url)
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (a *YadiVideoAdapter) doJSON(req *http.Request) ([]byte, error) {

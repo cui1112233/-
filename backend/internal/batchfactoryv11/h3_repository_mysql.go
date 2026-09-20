@@ -31,7 +31,11 @@ func (s *MySQLStore) PersistH3AudioMeasurement(ctx context.Context, owner, batch
 		return H3AudioMeasurementRevision{}, err
 	}
 	now := time.Now().UTC()
-	_, err = s.db.ExecContext(ctx, `INSERT INTO batch_factory_v12_audio_measurements(id,owner_username,batch_id,book_id,audio_asset_id,audio_content_hash,audio_duration_ms,video_source_revision,video_source_hash,probe_key,probe_version,created_at) VALUES(?,?,?,?,?,?,?,?,?,'media-probe','v1',?)`, id, owner, batchID, bookID, measurement.AssetID, measurement.ContentHash, measurement.DurationMS, measurement.VideoSourceRevision, measurement.VideoSourceHash, now)
+	details, err := json.Marshal(measurement)
+	if err != nil {
+		return H3AudioMeasurementRevision{}, err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO batch_factory_v12_audio_measurements(id,owner_username,batch_id,book_id,audio_asset_id,audio_content_hash,audio_duration_ms,video_source_revision,video_source_hash,probe_key,probe_version,created_at,measurement_json) VALUES(?,?,?,?,?,?,?,?,?,'media-probe','v1',?,?)`, id, owner, batchID, bookID, measurement.AssetID, measurement.ContentHash, measurement.DurationMS, measurement.VideoSourceRevision, measurement.VideoSourceHash, now, string(details))
 	if err != nil {
 		if existing, findErr := loadH3AudioMeasurement(ctx, s.db, owner, batchID, bookID, measurement.AssetID, measurement.ContentHash); findErr == nil {
 			return existing, nil
@@ -48,7 +52,7 @@ func (s *MySQLStore) GetH3AudioMeasurement(ctx context.Context, owner, batchID, 
 func loadH3AudioMeasurement(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, owner, batchID, bookID, assetID, contentHash string) (H3AudioMeasurementRevision, error) {
-	query := `SELECT id,audio_content_hash,audio_duration_ms,video_source_revision,video_source_hash,created_at FROM batch_factory_v12_audio_measurements WHERE owner_username=? AND batch_id=? AND book_id=? AND audio_asset_id=?`
+	query := `SELECT id,audio_content_hash,audio_duration_ms,video_source_revision,video_source_hash,created_at,measurement_json FROM batch_factory_v12_audio_measurements WHERE owner_username=? AND batch_id=? AND book_id=? AND audio_asset_id=?`
 	args := []any{owner, batchID, bookID, assetID}
 	if strings.TrimSpace(contentHash) != "" {
 		query += ` AND audio_content_hash=?`
@@ -58,12 +62,20 @@ func loadH3AudioMeasurement(ctx context.Context, q interface {
 	var value H3AudioMeasurementRevision
 	value.Owner, value.BatchID, value.BookID = owner, batchID, bookID
 	value.Measurement.AssetID = assetID
-	err := q.QueryRowContext(ctx, query, args...).Scan(&value.ID, &value.Measurement.ContentHash, &value.Measurement.DurationMS, &value.Measurement.VideoSourceRevision, &value.Measurement.VideoSourceHash, &value.CreatedAt)
+	var details sql.NullString
+	err := q.QueryRowContext(ctx, query, args...).Scan(&value.ID, &value.Measurement.ContentHash, &value.Measurement.DurationMS, &value.Measurement.VideoSourceRevision, &value.Measurement.VideoSourceHash, &value.CreatedAt, &details)
 	if errors.Is(err, sql.ErrNoRows) {
 		return H3AudioMeasurementRevision{}, ErrNotFound
 	}
 	if err != nil {
 		return H3AudioMeasurementRevision{}, err
+	}
+	if details.Valid && details.String != "" {
+		var extra H3AudioMeasurement
+		if err := json.Unmarshal([]byte(details.String), &extra); err != nil {
+			return H3AudioMeasurementRevision{}, err
+		}
+		value.Measurement.Method, value.Measurement.TTSFingerprint, value.Measurement.Lines = extra.Method, extra.TTSFingerprint, extra.Lines
 	}
 	return value, nil
 }
@@ -212,6 +224,13 @@ func (s *MySQLStore) ApplyH3CompilationVideos(ctx context.Context, owner, batchI
 	if stored.BatchID != batchID || stored.BookID != bookID || len(stored.Compilation.Segments) == 0 {
 		return nil, ErrConflict
 	}
+	director, err := loadLatestDirectorRevision(ctx, s.db, owner, batchID, bookID)
+	if err != nil {
+		return nil, err
+	}
+	if director.ID != stored.Compilation.DirectorRevisionID || director.Output.H3Director == nil {
+		return nil, ErrConflict
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -240,6 +259,37 @@ func (s *MySQLStore) ApplyH3CompilationVideos(ctx context.Context, owner, batchI
 		return nil, err
 	}
 	rows.Close()
+	previousPatches := make(map[int]SettingsPatch, len(existing))
+	previousSelections := make(map[int]VideoAssetSelection, len(existing))
+	previousSelectionExists := make(map[int]bool, len(existing))
+	for _, value := range existing {
+		patch, loadErr := loadPatch(ctx, tx, owner, ScopeRef{Kind: ScopeVideo, BatchID: batchID, BookID: bookID, VideoID: value.id})
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		previousPatches[value.ordinal] = patch
+		if selection, ok := decodeVideoAssetSelection(patch); ok {
+			previousSelections[value.ordinal], previousSelectionExists[value.ordinal] = selection, true
+		}
+	}
+	assetRows, err := tx.QueryContext(ctx, `SELECT id,kind,name FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=?`, owner, batchID, bookID)
+	if err != nil {
+		return nil, err
+	}
+	assetIDs := map[string]string{}
+	for assetRows.Next() {
+		var id, kind, name string
+		if err := assetRows.Scan(&id, &kind, &name); err != nil {
+			assetRows.Close()
+			return nil, err
+		}
+		assetIDs[kind+"\x00"+name] = id
+	}
+	if err := assetRows.Err(); err != nil {
+		assetRows.Close()
+		return nil, err
+	}
+	assetRows.Close()
 	now := time.Now().UTC()
 	videos := make([]Video, len(stored.Compilation.Segments))
 	if len(existing) == len(stored.Compilation.Segments) {
@@ -271,6 +321,25 @@ func (s *MySQLStore) ApplyH3CompilationVideos(ctx context.Context, owner, batchI
 				return nil, err
 			}
 			videos[index] = Video{ID: videoID, BatchID: batchID, BookID: bookID, Label: label, VideoPrompt: segment.EditableCopy, DurationSeconds: float64(segment.CanonicalDurationMS) / 1000, CompatibilityState: "active", Revision: 1}
+		}
+	}
+	for index, video := range videos {
+		patch := previousPatches[index]
+		if patch == nil {
+			patch = SettingsPatch{}
+		}
+		selection := reconcileVideoAssetSelection(previousSelections[index], previousSelectionExists[index], automaticAssetIDsForH3Segment(*director.Output.H3Director, stored.Compilation.Segments[index].H3VideoSegment, assetIDs))
+		encodedSelection, err := json.Marshal(selection)
+		if err != nil {
+			return nil, err
+		}
+		patch[videoAssetSelectionKey] = encodedSelection
+		encodedPatch, err := json.Marshal(patch)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_settings_patches(scope_type,scope_id,owner_username,batch_id,book_id,video_id,patch_json,revision,updated_at) VALUES('video',?,?,?,?,?,?,1,?) ON DUPLICATE KEY UPDATE patch_json=VALUES(patch_json),revision=revision+1,updated_at=VALUES(updated_at)`, video.ID, owner, batchID, bookID, video.ID, encodedPatch, now); err != nil {
+			return nil, err
 		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=revision+1,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, now, bookID, batchID, owner)

@@ -101,9 +101,9 @@ func TestAllocateH3CanonicalTimelineMaintainsExactCoverageAcrossWeights(t *testi
 	for sample := int64(1); sample <= 75; sample++ {
 		document := mustH3DirectorFixture(t)
 		for cardIndex := range document.DirectorCards {
-			document.DirectorCards[cardIndex].DurationWeight = float64((sample+int64(cardIndex*3))%11 + 1)
+			document.DirectorCards[cardIndex].DurationWeight = H3SemanticNumber((sample+int64(cardIndex*3))%11 + 1)
 			for shotIndex := range document.DirectorCards[cardIndex].MicroShots {
-				document.DirectorCards[cardIndex].MicroShots[shotIndex].Weight = float64((sample+int64(cardIndex*5+shotIndex*7))%13 + 1)
+				document.DirectorCards[cardIndex].MicroShots[shotIndex].Weight = H3SemanticNumber((sample+int64(cardIndex*5+shotIndex*7))%13 + 1)
 			}
 		}
 		duration := int64(1000) + sample*997

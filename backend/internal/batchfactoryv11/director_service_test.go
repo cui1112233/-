@@ -3,6 +3,7 @@ package batchfactoryv11
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -39,14 +40,276 @@ func seedDirectorBook(t *testing.T, mode string, fixed bool) (*MemoryStore, Batc
 		t.Fatal(err)
 	}
 	patch := SettingsPatch{"productionMode": rawSetting(t, mode), "maxVideoDuration": rawSetting(t, 15), "fixedSingleVideo": rawSetting(t, fixed), "aspectRatio": rawSetting(t, "9:16")}
-	if fixed {
-		patch["fixedVideoDuration"] = rawSetting(t, 9)
-	}
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{Patch: patch, ExpectedRevision: batch.Revision}); err != nil {
 		t.Fatal(err)
 	}
 	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
 	return store, batch, batch.Books[0]
+}
+
+func TestDirectorDefaultsStoryboardDurationLimitToTenSeconds(t *testing.T) {
+	store := NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "B", Books: []CreateBookInput{{Title: "K", SourceText: "她转身离开。"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := snapshotForBook(batch, batch.Books[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.MaxVideoDuration != 10 {
+		t.Fatalf("default storyboard duration limit=%d, want 10", snapshot.MaxVideoDuration)
+	}
+}
+
+func TestBuildAssetExtractionContractIncludesSelectedCharacterAndSceneOutputRules(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅。"}
+	snapshot := DirectorSnapshot{Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+		"assets": map[string]any{
+			"enabled":   true,
+			"scope":     "all",
+			"character": map[string]any{"body": "CHARACTER OUTPUT RULE"},
+			"scene":     map[string]any{"body": "SCENE OUTPUT RULE"},
+		},
+	})}}
+	contract, err := BuildAssetExtractionContract(book, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"CHARACTER OUTPUT RULE", "SCENE OUTPUT RULE"} {
+		if !strings.Contains(contract.SystemPrompt, want) {
+			t.Fatalf("asset extraction contract missing %q: %s", want, contract.SystemPrompt)
+		}
+	}
+}
+
+func TestDirectorReadbackUsesShotTimelineUnlessTheUserEditedThatVideo(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
+	if _, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	video := latest.Books[0].Videos[0]
+	if !strings.Contains(video.VideoPrompt, "00:00-00:03 | 中景｜缓慢推轨 | 林晚进入客厅") || strings.Contains(video.VideoPrompt, "林晚进入客厅并握紧玻璃杯。") {
+		t.Fatalf("readback prompt must use the shot timeline: %q", video.VideoPrompt)
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"videoPrompt": rawSetting(t, "用户编辑后的当前分镜")}, ExpectedRevision: video.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err = store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := latest.Books[0].Videos[0].VideoPrompt; got != "用户编辑后的当前分镜" {
+		t.Fatalf("manual video override=%q", got)
+	}
+}
+
+func TestBuildDirectorContractComposesPublicScriptStoryboardRules(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进办公室，陆沉抬头看向她。"}
+	config := map[string]any{
+		"scriptComposition": map[string]any{
+			"segmented":         map[string]any{"body": "PUBLIC SEGMENTED {duration}"},
+			"shotlist":          map[string]any{"body": "PUBLIC SHOTLIST {duration}"},
+			"general":           map[string]any{"body": "PUBLIC GENERAL {duration}"},
+			"characterFocus":    map[string]any{"body": "PUBLIC FOCUS {focusCharacters} / {focusCount}"},
+			"audioMatch":        map[string]any{"body": "PUBLIC AUDIO {audioDurationSec} / {unitMaxSec}"},
+			"cardProtocol":      map[string]any{"body": "PUBLIC CARD {duration}"},
+			"constraintWrapper": map[string]any{"body": "PUBLIC CONSTRAINT {duration}"},
+		},
+		"constraints": map[string]any{
+			"enabled":    true,
+			"selections": []any{map[string]any{"constraintCategory": "quality", "body": "QUALITY RULE"}},
+		},
+	}
+	snapshot := DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 10, AudioTargetSeconds: 63, AudioDurationSeconds: 62.5, AspectRatio: "9:16",
+		Effective: SettingsPatch{
+			"aiPromptConfig":        rawSetting(t, config),
+			"starredCharacterNames": rawSetting(t, []string{"林晚", "陆沉"}),
+		},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"PUBLIC SEGMENTED 10s", "PUBLIC SHOTLIST 10s", "PUBLIC GENERAL 10s",
+		"PUBLIC FOCUS 林晚、陆沉 / 2", "PUBLIC AUDIO 62.5 / 10", "PUBLIC CARD 10s", "PUBLIC CONSTRAINT 10s", "QUALITY RULE",
+	} {
+		if !strings.Contains(contract.SystemPrompt, expected) {
+			t.Fatalf("public script composition is missing %q:\n%s", expected, contract.SystemPrompt)
+		}
+	}
+	if !strings.Contains(contract.SystemPrompt, "V11 JSON 存储适配") || !strings.Contains(contract.SystemPrompt, "不得输出任何 Markdown 标题") {
+		t.Fatalf("public card protocol must be adapted to the V11 JSON boundary:\n%s", contract.SystemPrompt)
+	}
+}
+
+func TestBuildDirectorContractDefersVisualPromptUntilVisualExtraction(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "正文"}
+	config := map[string]any{
+		"video":  map[string]any{"enabled": true, "scope": "all", "body": "VIDEO RULE"},
+		"visual": map[string]any{"enabled": true, "scope": "all", "body": "VISUAL META"},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(contract.SystemPrompt, "VISUAL META") || strings.Contains(contract.SystemPrompt, "visual_prompt") {
+		t.Fatalf("director must only generate storyboard video prompts, got:\n%s", contract.SystemPrompt)
+	}
+	if contract.Normalization.RequireVisualPrompt {
+		t.Fatal("director must not require visual_prompt before visual extraction")
+	}
+}
+
+func TestBuildDirectorContractKeepsSelectedVideoPromptWhenLegacySwitchWasOff(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "正文"}
+	config := map[string]any{
+		// Video prompts are now mandatory. Existing books may still carry the
+		// retired enabled=false flag, which must not silently remove a selected
+		// published video rule from the director contract.
+		"video": map[string]any{"enabled": false, "scope": "all", "body": "MANDATORY VIDEO RULE"},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(contract.SystemPrompt, "MANDATORY VIDEO RULE") {
+		t.Fatalf("selected video rule was incorrectly disabled by the retired switch:\n%s", contract.SystemPrompt)
+	}
+}
+
+func TestBuildDirectorContractRequiresH3CanonicalShotMetadata(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅。"}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"video": map[string]any{
+				"presetId":  "batch-video-h3-director",
+				"presetKey": "h3-video-normal",
+				"body":      "H3 VIDEO RULE",
+			},
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"scene_memory", "visual_context", "lighting", "rhythm", "audio", "H3 VIDEO RULE"} {
+		if !strings.Contains(contract.SystemPrompt, expected) {
+			t.Fatalf("H3 director contract missing %q:\n%s", expected, contract.SystemPrompt)
+		}
+	}
+}
+
+func TestBuildDirectorContractScalesOutputBudgetToPlanningScope(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅，陆沉转身看向她。"}
+	tests := []struct {
+		name     string
+		snapshot DirectorSnapshot
+		want     int
+	}{
+		{
+			name:     "fixed single video avoids the multi-video output budget",
+			snapshot: DirectorSnapshot{Mode: "original", MaxVideoDuration: 10, FixedSingleVideo: true, AspectRatio: "9:16"},
+			want:     14000,
+		},
+		{
+			name:     "ordinary storyboard keeps a complete but bounded output budget",
+			snapshot: DirectorSnapshot{Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16"},
+			want:     16000,
+		},
+		{
+			name:     "audio-following planning retains the long-form output budget",
+			snapshot: DirectorSnapshot{Mode: "original", MaxVideoDuration: 10, AudioTargetSeconds: 61, AspectRatio: "9:16"},
+			want:     18000,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contract, err := BuildDirectorContract(book, HookRevision{}, tt.snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contract.MaxTokens != tt.want {
+				t.Fatalf("director max tokens=%d, want %d", contract.MaxTokens, tt.want)
+			}
+		})
+	}
+}
+
+func TestDirectorDoesNotInjectDerivedOpeningPresetsIntoNormalStoryboard(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "正文"}
+	config := map[string]any{
+		"originalDirector": map[string]any{"enabled": true, "body": "LEGACY ORIGINAL DIRECTOR"},
+		"viralDirector":    map[string]any{"enabled": true, "body": "LEGACY VIRAL DIRECTOR"},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16", Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(contract.SystemPrompt, "LEGACY ORIGINAL DIRECTOR") || strings.Contains(contract.SystemPrompt, "LEGACY VIRAL DIRECTOR") {
+		t.Fatalf("derived-opening presets must be used only by the working-front candidate flow: %s", contract.SystemPrompt)
+	}
+}
+
+func TestDirectorRejectsAudioPlanningWithoutMeasuredDuration(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"audioPlanningEnabled": rawSetting(t, true)}, ExpectedRevision: book.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (&DirectorService{Store: store, Provider: &queuedDirectorProvider{values: []string{validDirectorJSON()}}}).RunDirector(context.Background(), "alice", batch.ID, book.ID)
+	if err == nil || !strings.Contains(err.Error(), "音频规划") {
+		t.Fatalf("missing measured audio must block director generation, err=%v", err)
+	}
+}
+
+func TestDirectorIgnoresLegacyMaximumUntilStoryboardDurationIsSelected(t *testing.T) {
+	_, batch, book := seedDirectorBook(t, "original", false)
+	batch.SettingsState.Patch = SettingsPatch{"maxVideoDuration": rawSetting(t, 15)}
+	snapshot, err := snapshotForBook(batch, book)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.MaxVideoDuration != 10 {
+		t.Fatalf("legacy max duration must not opt into 15s storyboard splitting: %d", snapshot.MaxVideoDuration)
+	}
+}
+
+func TestFixedSingleVideoUsesStoryboardDurationLimitInsteadOfLegacyExactDuration(t *testing.T) {
+	_, batch, book := seedDirectorBook(t, "original", true)
+	batch.SettingsState.Patch["storyboardDurationLimit"] = rawSetting(t, 10)
+	batch.SettingsState.Patch["fixedVideoDuration"] = rawSetting(t, 5)
+	snapshot, err := snapshotForBook(batch, book)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(contract.SystemPrompt, "1-10") || !strings.Contains(contract.SystemPrompt, "只生产 VIDEO01") || strings.Contains(contract.SystemPrompt, "严格等于") {
+		t.Fatalf("fixed single video must use only the storyboard limit: %s", contract.SystemPrompt)
+	}
 }
 
 func TestViralDirectorRequiresApprovedHookAndBehavioralEscalationContract(t *testing.T) {
@@ -87,6 +350,110 @@ func TestFixedSingleDirectorCreatesOneImmutableVideo(t *testing.T) {
 	}
 }
 
+func TestAssetExtractionDoesNotReplaceExistingDirectorVideos(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	provider := &queuedDirectorProvider{values: []string{`{"characters":[{"name":"林溪","prompt":"短发女主"}],"scenes":[{"name":"客厅","prompt":"现代客厅"}],"props":[{"name":"手机","prompt":"黑色手机"}]}`}}
+	service := &DirectorService{Store: store, Provider: provider}
+	assets, err := service.RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 3 {
+		t.Fatalf("assets=%+v", assets)
+	}
+	read, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Books[0].DirectorRevision != nil || len(read.Books[0].Videos) != len(book.Videos) {
+		t.Fatalf("asset extraction must preserve director/video state: %+v", read.Books[0])
+	}
+}
+
+func TestAssetExtractionWithH3CharacterPresetCompilesAllCharactersOnce(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"assets": map[string]any{
+				"enabled":   true,
+				"character": map[string]any{"presetId": "batch-character-h3", "presetKey": "h3-character-normal", "body": "H3 CHARACTER RULE"},
+			},
+		})}, ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{
+		`{"characters":[{"name":"林晚","prompt":"提取的人物设定"},{"name":"陆沉","prompt":"提取的人物设定"}],"scenes":[{"name":"客厅","prompt":"现代客厅"}],"props":[]}`,
+		`{"prompt":"H3 人物设定：林晚，二十五岁左右的都市女性，身形纤细挺拔，椭圆脸，眉眼清秀，鼻梁细直，唇色自然。黑色长发柔顺披至肩胛，发尾微弯。穿米白色真丝衬衫、浅灰高腰西装裤和米色细跟鞋，衣料光泽克制，配戴小颗珍珠耳钉。气质温和但克制，站姿保持肩背舒展，目光沉静。黑长发、珍珠耳钉与米白衬衫为跨镜头固定识别点。"}`,
+		`{"prompt":"H3 人物设定：陆沉，二十八岁左右的都市男性，身材高挑修长，肩线平直，轮廓分明的长方脸，眉骨清晰，鼻梁高挺，眼神沉稳疏离。短黑发整齐向后梳理，两鬓利落。穿深炭灰羊毛西装、白色棉质衬衫和黑色皮鞋，领口与袖口始终整洁，配戴银色窄表盘手表。动作简洁，不做夸张表情，微抿的唇线与冷静注视构成主要气质。深灰西装、银色手表和后梳短发为跨镜头固定识别点。"}`,
+	}}
+	rows := []map[string]string{}
+	for i, name := range []string{"林晚", "陆沉"} {
+		var row map[string]string
+		if err := json.Unmarshal([]byte(provider.values[i+1]), &row); err != nil {
+			t.Fatal(err)
+		}
+		row["character_id"] = []string{"C001", "C002"}[i]
+		row["name"] = name
+		rows = append(rows, row)
+	}
+	batchResponse, _ := json.Marshal(map[string]any{"characters": rows})
+	provider.values = []string{provider.values[0], string(batchResponse)}
+	assets, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.calls) != 2 {
+		t.Fatalf("H3 character flow calls=%d, want extraction plus one batch appearance call", len(provider.calls))
+	}
+	byName := map[string]string{}
+	for _, asset := range assets {
+		byName[asset.Name] = asset.Prompt
+	}
+	if got := byName["林晚"]; !strings.Contains(got, "黑长发、珍珠耳钉与米白衬衫为跨镜头固定识别点") {
+		t.Fatalf("林晚 prompt=%q", got)
+	}
+	if got := byName["陆沉"]; !strings.Contains(got, "深灰西装、银色手表和后梳短发为跨镜头固定识别点") {
+		t.Fatalf("陆沉 prompt=%q", got)
+	}
+}
+
+func TestAssetExtractionWithH3ScenePresetCompilesEachSceneIndividually(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"assets": map[string]any{
+				"enabled": true,
+				"scene":   map[string]any{"presetId": "batch-scene-h3", "presetKey": "h3-scene-normal", "body": "H3 SCENE RULE"},
+			},
+		})}, ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{
+		`{"characters":[{"name":"林晚","prompt":"短发女主"}],"scenes":[{"name":"客厅","prompt":"提取的客厅"},{"name":"医院走廊","prompt":"提取的走廊"}],"props":[]}`,
+		`{"prompt":"H3 场景设定：现代公寓客厅，傍晚暖光，人物活动空间清晰"}`,
+		`{"prompt":"H3 场景设定：医院走廊，夜间冷白顶灯，空间纵深清晰"}`,
+	}}
+	assets, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.calls) != 3 {
+		t.Fatalf("H3 scene flow calls=%d, want extraction plus one call per scene", len(provider.calls))
+	}
+	byName := map[string]string{}
+	for _, asset := range assets {
+		byName[asset.Name] = asset.Prompt
+	}
+	if got := byName["客厅"]; got != "H3 场景设定：现代公寓客厅，傍晚暖光，人物活动空间清晰" {
+		t.Fatalf("客厅 prompt=%q", got)
+	}
+	if got := byName["医院走廊"]; got != "H3 场景设定：医院走廊，夜间冷白顶灯，空间纵深清晰" {
+		t.Fatalf("医院走廊 prompt=%q", got)
+	}
+}
+
 func TestReDirectorPreservesOldVideoOverrideAsOrphaned(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	old := book.Videos[0]
@@ -103,6 +470,45 @@ func TestReDirectorPreservesOldVideoOverrideAsOrphaned(t *testing.T) {
 	}
 	if len(revision.Videos) != 1 || revision.Videos[0].ID == old.ID {
 		t.Fatalf("video identity was reused: %+v", revision.Videos)
+	}
+}
+
+func TestReDirectorPreservesManualAssetExclusionAndRefreshesAutomaticSuggestions(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	provider := &queuedDirectorProvider{values: []string{validDirectorJSON(), validDirectorJSON()}}
+	service := &DirectorService{Store: store, Provider: provider}
+	if _, err := service.RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book = first.Books[0]
+	video := book.Videos[0]
+	var characterID string
+	for _, asset := range book.AssetRecords {
+		if asset.Kind == "character" && asset.Name == "林晚" {
+			characterID = asset.ID
+			break
+		}
+	}
+	if characterID == "" {
+		t.Fatalf("assets=%+v", book.AssetRecords)
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{Patch: SettingsPatch{"assetSelection": rawSetting(t, map[string]any{"autoAssetIds": []string{characterID}, "addedAssetIds": []string{}, "excludedAssetIds": []string{characterID}})}, ExpectedRevision: video.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, ok := decodeVideoAssetSelection(latest.Books[0].Videos[0].SettingsState.Patch)
+	if !ok || !slices.Contains(selection.ExcludedAssetIDs, characterID) || selection.effectiveAssetIDSet()[characterID] {
+		t.Fatalf("manual asset exclusion was not carried to the new storyboard: %+v", selection)
 	}
 }
 
@@ -132,6 +538,30 @@ func TestDirectorUsesSavedWorkingFrontWithoutChangingCapturedSource(t *testing.T
 	}
 }
 
+func TestDirectorUsesConfiguredProductionLinesWithoutChangingCapturedSource(t *testing.T) {
+	store := NewMemoryStore()
+	source := "一\n\n二\n三\n四\n五\n六"
+	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: source, SourceMetadata: map[string]any{"contentRangeLines": 5}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	service := &DirectorService{Store: store, Provider: &queuedDirectorProvider{values: []string{validDirectorJSON()}}}
+	if _, err := service.RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	read, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Books[0].SourceText != source {
+		t.Fatalf("captured source mutated: %q", read.Books[0].SourceText)
+	}
+	if got := read.Books[0].DirectorRevision.SourceDigest; got != sourceDigest("一\n二\n三\n四\n五") {
+		t.Fatalf("director digest=%q", got)
+	}
+}
+
 func TestRewriteWorkingFrontPersistsCandidateWithoutChangingCapturedSource(t *testing.T) {
 	store := NewMemoryStore()
 	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: "captured source"}}})
@@ -144,7 +574,7 @@ func TestRewriteWorkingFrontPersistsCandidateWithoutChangingCapturedSource(t *te
 	}
 	provider := &queuedDirectorProvider{values: []string{"viral candidate"}}
 	service := &DirectorService{Store: store, Provider: provider}
-	candidate, err := service.RewriteWorkingFront(context.Background(), "alice", batch.ID, book.ID, "")
+	candidate, err := service.RewriteWorkingFront(context.Background(), "alice", batch.ID, book.ID, "", PresetSnapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +598,7 @@ func TestRewriteWorkingFrontPersistsCandidateWithoutChangingCapturedSource(t *te
 	}
 }
 
-func TestDirectorAppliesSavedAIPromptRulesAndKeepsVisualOutputOutOfVideoPrompt(t *testing.T) {
+func TestDirectorAppliesVideoRulesAndDefersVisualPromptToVisualExtraction(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	config := map[string]any{
 		"assets": map[string]any{
@@ -187,17 +617,21 @@ func TestDirectorAppliesSavedAIPromptRulesAndKeepsVisualOutputOutOfVideoPrompt(t
 	}
 	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
 	book = batch.Books[0]
-	output := strings.Replace(validDirectorJSON(), `"video_desc": "林晚进入客厅并握紧玻璃杯。"`, `"video_desc": "林晚进入客厅并握紧玻璃杯。", "visual_prompt": "冷色客厅中林晚紧握玻璃杯，人物清晰。"`, 1)
-	provider := &queuedDirectorProvider{values: []string{output}}
+	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
 	if _, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(provider.calls) != 1 {
 		t.Fatalf("director calls=%d", len(provider.calls))
 	}
-	for _, expected := range []string{"资产统一为国风写实", "镜头不得跳轴", "视频动作必须连续", "画面采用冷色电影光", "visual_prompt"} {
+	for _, expected := range []string{"资产统一为国风写实", "镜头不得跳轴", "视频动作必须连续"} {
 		if !strings.Contains(provider.calls[0].SystemPrompt, expected) {
 			t.Fatalf("director contract missing %q:\n%s", expected, provider.calls[0].SystemPrompt)
+		}
+	}
+	for _, forbidden := range []string{"画面采用冷色电影光", "visual_prompt"} {
+		if strings.Contains(provider.calls[0].SystemPrompt, forbidden) {
+			t.Fatalf("director contract must defer visual extraction, got %q:\n%s", forbidden, provider.calls[0].SystemPrompt)
 		}
 	}
 	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
@@ -205,19 +639,19 @@ func TestDirectorAppliesSavedAIPromptRulesAndKeepsVisualOutputOutOfVideoPrompt(t
 		t.Fatal(err)
 	}
 	video := latest.Books[0].Videos[0]
-	if video.VisualPrompt != "冷色客厅中林晚紧握玻璃杯，人物清晰。" {
+	if video.VisualPrompt != "" {
 		t.Fatalf("visual prompt=%q", video.VisualPrompt)
 	}
 	final, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", latest.ID, latest.Books[0].ID, video.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(final.CompiledPrompt, video.VisualPrompt) {
-		t.Fatalf("visual prompt leaked into final video prompt:\n%s", final.CompiledPrompt)
+	if strings.Contains(final.CompiledPrompt, "VISUAL") || strings.Contains(final.CompiledPrompt, "画面采用冷色电影光") {
+		t.Fatalf("visual meta prompt leaked into final video prompt:\n%s", final.CompiledPrompt)
 	}
 }
 
-func TestBuildDirectorContractUsesScriptExtractionAndTypedAssetRules(t *testing.T) {
+func TestBuildDirectorContractUsesUnifiedAssetRuleAndIgnoresArchivedTypedRules(t *testing.T) {
 	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
 	config := map[string]any{
 		"assets": map[string]any{
@@ -238,10 +672,38 @@ func TestBuildDirectorContractUsesScriptExtractionAndTypedAssetRules(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"SCRIPT EXTRACTION", "CHARACTER ONLY", "SCENE ONLY", "PROP ONLY", "CONSTRAINT ONLY", "VIDEO ONLY", "VISUAL ONLY"} {
+	for _, expected := range []string{"SCRIPT EXTRACTION", "CONSTRAINT ONLY", "VIDEO ONLY"} {
 		if !strings.Contains(contract.SystemPrompt, expected) {
 			t.Fatalf("director contract missing %q:\n%s", expected, contract.SystemPrompt)
 		}
+	}
+	for _, archived := range []string{"CHARACTER ONLY", "SCENE ONLY", "PROP ONLY"} {
+		if strings.Contains(contract.SystemPrompt, archived) {
+			t.Fatalf("archived typed asset rule leaked %q:\n%s", archived, contract.SystemPrompt)
+		}
+	}
+	if strings.Contains(contract.SystemPrompt, "VISUAL ONLY") {
+		t.Fatalf("visual meta must be deferred to visual extraction:\n%s", contract.SystemPrompt)
+	}
+}
+
+func TestBuildDirectorContractDescribesOneCombinedAssetPrompt(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
+	config := map[string]any{
+		"assets": map[string]any{
+			"enabled":    true,
+			"extraction": map[string]any{"body": "COMBINED ASSET RULE"},
+		},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 15, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(contract.SystemPrompt, "人物/场景/道具统一提取方案") || !strings.Contains(contract.SystemPrompt, "COMBINED ASSET RULE") {
+		t.Fatalf("combined asset rule is missing from director contract:\n%s", contract.SystemPrompt)
 	}
 }
 
@@ -249,7 +711,7 @@ func TestBuildDirectorContractAddsBaseSetupRuleForEveryStoryboard(t *testing.T) 
 	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
 	config := map[string]any{
 		"constraints": map[string]any{
-			"enabled": true,
+			"enabled":   true,
 			"baseSetup": map[string]any{"enabled": true},
 		},
 	}
@@ -262,5 +724,137 @@ func TestBuildDirectorContractAddsBaseSetupRuleForEveryStoryboard(t *testing.T) 
 	}
 	if !strings.Contains(contract.SystemPrompt, "基础设定：每个 storyboard 必须带入当前情节出现的人物与场景") {
 		t.Fatalf("base setup constraint is missing from director contract:\n%s", contract.SystemPrompt)
+	}
+}
+
+func TestV11ContractsUseFrozenHookAndDerivedOpeningPresetsOnlyInTheirOwnFlows(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
+	config := map[string]any{
+		"hook":             map[string]any{"enabled": true, "body": "HOOK PRESET"},
+		"originalDirector": map[string]any{"enabled": true, "body": "ORIGINAL DIRECTOR PRESET"},
+		"constraints":      map[string]any{"enabled": true, "wrapper": map[string]any{"body": "CONSTRAINT WRAPPER"}},
+	}
+	snapshot := DirectorSnapshot{Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16", Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}}
+	hook := BuildHookContract(book, snapshot)
+	if !strings.Contains(hook.SystemPrompt, "HOOK PRESET") {
+		t.Fatalf("hook preset missing from contract: %s", hook.SystemPrompt)
+	}
+	workingFront := BuildWorkingFrontRewriteContract(book, PresetSnapshot{Body: "HOOK PRESET"})
+	if !strings.Contains(workingFront.SystemPrompt, "HOOK PRESET") {
+		t.Fatalf("working-front rewrite preset missing from contract: %s", workingFront.SystemPrompt)
+	}
+	director, err := BuildDirectorContract(book, HookRevision{}, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(director.SystemPrompt, "ORIGINAL DIRECTOR PRESET") {
+		t.Fatalf("derived-opening presets must not enter the ordinary storyboard contract: %s", director.SystemPrompt)
+	}
+	if strings.Contains(director.SystemPrompt, "CONSTRAINT WRAPPER") {
+		t.Fatalf("retired constraint wrapper must not enter the director contract: %s", director.SystemPrompt)
+	}
+	if len(director.Normalization.AllowedPrefixKeys) != len(DirectorPrefixKeys) {
+		t.Fatalf("unexpected prefix keys: %#v", director.Normalization.AllowedPrefixKeys)
+	}
+}
+
+func TestBuildDirectorContractIgnoresRetiredVideoStylePrefix(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "原文"}
+	config := map[string]any{
+		"prefix": map[string]any{"enabled": true, "body": "RETIRED VIDEO STYLE PREFIX", "presetKey": "modern_conflict"},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{
+		Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16",
+		Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(contract.SystemPrompt, "RETIRED VIDEO STYLE PREFIX") {
+		t.Fatalf("retired video style prefix leaked into director contract: %s", contract.SystemPrompt)
+	}
+	if len(contract.Normalization.AllowedPrefixKeys) != len(DirectorPrefixKeys) {
+		t.Fatalf("retired prefix selection constrained director keys: %#v", contract.Normalization.AllowedPrefixKeys)
+	}
+}
+
+func TestDirectorPersistsSmartUnifiedAnalysisInsteadOfPrefixPresetBody(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	config := map[string]any{
+		"constraints": map[string]any{
+			"enabled": true,
+			"selections": []any{map[string]any{
+				"presetId":           "script-constraint-prefix-smart-unified",
+				"constraintCategory": "prefix",
+				"body":               "【智能统一画面前缀】这是元提示词正文，不能进入最终视频提示词。",
+			}},
+		},
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}, ExpectedRevision: batch.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
+	style := "影像媒介：真人数字电影短剧；整体氛围：克制悬疑。"
+	revision, err := (&DirectorService{Store: store, Provider: provider}).RunDirectorWithSmartUnifiedStyle(context.Background(), "alice", batch.ID, book.ID, style)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.Output.SmartUnifiedStyle != style {
+		t.Fatalf("smart style=%q", revision.Output.SmartUnifiedStyle)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, latest.Books[0].ID, latest.Books[0].Videos[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt.CompiledPrompt, style) || strings.Contains(prompt.CompiledPrompt, "这是元提示词正文") {
+		t.Fatalf("smart unified prefix must use analysis result, got:\n%s", prompt.CompiledPrompt)
+	}
+}
+
+func TestVisualPromptExtractionUpdatesOnlyExistingStoryboardVisualPrompts(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	config := map[string]any{
+		"visual": map[string]any{"enabled": true, "scope": "all", "body": "VISUAL PRESET: 只输出首帧画面"},
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}, ExpectedRevision: book.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book = batch.Books[0]
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: book.Videos[0].ID}, SettingsUpdate{Patch: SettingsPatch{"videoPrompt": rawSetting(t, "人物站在窗边，停顿后转身。")}, ExpectedRevision: book.Videos[0].Revision}); err != nil {
+		t.Fatal(err)
+	}
+	batch, err = store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book = batch.Books[0]
+	originalVideoPrompt := book.Videos[0].VideoPrompt
+	provider := &queuedDirectorProvider{values: []string{"冷色室内，人物站在窗边，电影级构图。"}}
+	if _, err := (&DirectorService{Store: store, Provider: provider}).RunVisualPromptExtraction(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	video := latest.Books[0].Videos[0]
+	if video.VisualPrompt != "冷色室内，人物站在窗边，电影级构图。" {
+		t.Fatalf("visual prompt=%q", video.VisualPrompt)
+	}
+	if video.VideoPrompt != originalVideoPrompt {
+		t.Fatalf("visual extraction must not rewrite video prompt: got %q want %q", video.VideoPrompt, originalVideoPrompt)
+	}
+	if len(provider.calls) != 1 || !strings.Contains(provider.calls[0].SystemPrompt, "VISUAL PRESET") {
+		t.Fatalf("visual extraction call=%+v", provider.calls)
 	}
 }

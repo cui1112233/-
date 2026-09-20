@@ -2,6 +2,7 @@ package batchfactoryv11
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -211,5 +212,74 @@ func TestProductionPersistsAndSubmitsFrozenAssetReferenceImages(t *testing.T) {
 	}
 	if len(adapter.prompts) != 1 || len(adapter.prompts[0].ReferenceImageURLs) != 1 || adapter.prompts[0].ReferenceImageURLs[0] != job.Tasks[0].ReferenceImageURLs[0] {
 		t.Fatalf("adapter=%+v task=%+v", adapter.prompts, job.Tasks[0])
+	}
+}
+
+func TestProductionPersistsTargetRequestedAndActualDurations(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{
+		State:                    ProductionSucceeded,
+		ProviderTaskID:           "duration-provider-task",
+		MediaURL:                 "https://media.example/duration.mp4",
+		RequestedDurationSeconds: 7,
+		ActualDurationSeconds:    6.72,
+	}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	job, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "duration-contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(job.Tasks) != 1 {
+		t.Fatalf("tasks=%+v", job.Tasks)
+	}
+	task := job.Tasks[0]
+	if task.VideoID != video.ID || task.TargetDurationSeconds <= 0 || task.RequestedDurationSeconds != 7 || task.ActualDurationSeconds != 6.72 {
+		t.Fatalf("duration task=%+v", task)
+	}
+	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := status.Jobs[0].Tasks[0]
+	if stored.TargetDurationSeconds != task.TargetDurationSeconds || stored.RequestedDurationSeconds != task.RequestedDurationSeconds || stored.ActualDurationSeconds != task.ActualDurationSeconds {
+		t.Fatalf("duration values were not durable: stored=%+v task=%+v", stored, task)
+	}
+}
+
+func TestRemoveBookProductionCandidateKeepsMainVersion(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	first, err := store.CreateProductionJob(context.Background(), ProductionJob{
+		Owner: "alice", BatchID: batch.ID, BookID: book.ID, RequestID: "candidate-first", DirectorRevisionID: book.DirectorRevision.ID,
+		Tasks: []ProductionTask{{VideoID: video.ID, Status: ProductionSucceeded, Attempt: 1, FinalPromptHash: "first", CompiledPrompt: "first", MediaURL: "https://media.example/first.mp4"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateProductionJob(context.Background(), ProductionJob{
+		Owner: "alice", BatchID: batch.ID, BookID: book.ID, RequestID: "candidate-second", DirectorRevisionID: book.DirectorRevision.ID,
+		Tasks: []ProductionTask{{VideoID: video.ID, Status: ProductionSucceeded, Attempt: 1, FinalPromptHash: "second", CompiledPrompt: "second", MediaURL: "https://media.example/second.mp4"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &ProductionService{Store: store}
+	if err := service.RemoveBookProductionCandidate(context.Background(), "alice", batch.ID, book.ID, video.ID, second.Tasks[0].ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("implicit latest main must be protected, got %v", err)
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{Patch: SettingsPatch{"primaryMediaTaskId": raw(first.Tasks[0].ID)}, ExpectedRevision: video.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RemoveBookProductionCandidate(context.Background(), "alice", batch.ID, book.ID, video.ID, first.Tasks[0].ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("selected main must be protected, got %v", err)
+	}
+	if err := service.RemoveBookProductionCandidate(context.Background(), "alice", batch.ID, book.ID, video.ID, second.Tasks[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Jobs) != 2 || len(status.Jobs[1].Tasks) != 0 || len(status.Jobs[0].Tasks) != 1 || status.Jobs[0].Tasks[0].ID != first.Tasks[0].ID {
+		t.Fatalf("removed candidate was still exposed: %+v", status.Jobs)
 	}
 }

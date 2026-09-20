@@ -168,6 +168,23 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		writeJSON(w, http.StatusOK, map[string]any{"batch": batch})
 	})
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/settings", settingsHandler(store, batchfactoryv11.ScopeBatch))
+	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/metadata", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input batchfactoryv11.UpdateBookMetadataInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		book, err := store.UpdateBookMetadata(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"book": book})
+	})
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/override", settingsHandler(store, batchfactoryv11.ScopeBook))
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/videos/{videoId}/override", settingsHandler(store, batchfactoryv11.ScopeVideo))
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/change-impact", func(w http.ResponseWriter, r *http.Request) {
@@ -348,7 +365,11 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, batchfactoryv11.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	case errors.Is(err, batchfactoryv11.ErrConflict):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "revision conflict"})
+		message := strings.TrimSpace(err.Error())
+		if message == "" || message == batchfactoryv11.ErrConflict.Error() {
+			message = "revision conflict"
+		}
+		writeJSON(w, http.StatusConflict, map[string]string{"error": message})
 	case errors.Is(err, batchfactoryv11.ErrInvalid):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid input"})
 	case errors.Is(err, batchfactoryv11.ErrUnavailable):

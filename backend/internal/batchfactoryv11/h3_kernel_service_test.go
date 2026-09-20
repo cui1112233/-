@@ -39,7 +39,7 @@ func TestH3KernelServiceBuildsTimelineCompilationAndEditableVideoCards(t *testin
 	if latestBook.Videos[0].VideoPrompt != segment.EditableCopy || latestBook.Videos[0].DurationSeconds != 7.42 {
 		t.Fatalf("VIDEO card does not display editable copy/canonical duration: %#v %#v", latestBook.Videos[0], segment)
 	}
-	if result.Compilation.Compilation.Analysis.VisualBaseline != document.VisualBaseline || len(result.Compilation.Compilation.Analysis.CharacterSettings) != len(document.CharacterRoster) || len(result.Compilation.Compilation.Analysis.SceneSettings) == 0 {
+	if result.Compilation.Compilation.Analysis.VisualBaseline != h3VisualBaselineText(document.VisualBaseline) || len(result.Compilation.Compilation.Analysis.CharacterSettings) != len(document.CharacterRoster) || len(result.Compilation.Compilation.Analysis.SceneSettings) == 0 {
 		t.Fatalf("background H3 analysis was not saved: %#v", result.Compilation.Compilation.Analysis)
 	}
 }

@@ -46,6 +46,32 @@ func TestSliceTwoDirectorRoutePersistsRevision(t *testing.T) {
 	}
 }
 
+func TestDirectorForRequestUsesBridgeScopedProviderWithoutChangingSharedService(t *testing.T) {
+	store := batchfactoryv11.NewMemoryStore()
+	shared := &batchfactoryv11.DirectorService{Store: store}
+	scoped, err := directorForRequest(shared, &textProviderInput{
+		Endpoint: "https://example.com/v1/chat/completions",
+		APIKey:   "test-key",
+		Model:    "test-model",
+	})
+	if err != nil {
+		t.Fatalf("unexpected scoped provider error: %v", err)
+	}
+	if scoped == shared {
+		t.Fatal("expected a request-scoped director copy")
+	}
+	if shared.Provider != nil {
+		t.Fatal("shared director must not retain an account credential")
+	}
+	provider, ok := scoped.Provider.(*batchfactoryv11.OpenAICompatibleProvider)
+	if !ok {
+		t.Fatalf("expected OpenAI-compatible provider, got %T", scoped.Provider)
+	}
+	if provider.Endpoint != "https://example.com/v1/chat/completions" || provider.Model != "test-model" {
+		t.Fatalf("unexpected scoped provider: %+v", provider)
+	}
+}
+
 func TestSliceTwoWorkingFrontViralRouteReturnsReviewableCandidate(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()

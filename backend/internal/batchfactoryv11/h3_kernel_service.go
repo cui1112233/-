@@ -2,17 +2,21 @@ package batchfactoryv11
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
 
 type H3KernelCompileRequest struct {
-	DirectorRevisionID    string                            `json:"director_revision_id"`
-	AudioAssetID          string                            `json:"audio_asset_id"`
-	Preset                H3VideoPreset                     `json:"preset"`
-	Switches              H3PromptSwitches                  `json:"switches"`
-	EditableCopyOverrides map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
+	ExpectedCompilationID     string                            `json:"expected_compilation_id,omitempty"`
+	AllowReplaceManualPrompts bool                              `json:"allow_replace_manual_prompts,omitempty"`
+	FinalPromptOverrides      map[string]H3EditableCopyRevision `json:"final_prompt_overrides,omitempty"`
+	DirectorRevisionID        string                            `json:"director_revision_id"`
+	AudioAssetID              string                            `json:"audio_asset_id"`
+	Preset                    H3VideoPreset                     `json:"preset"`
+	Switches                  H3PromptSwitches                  `json:"switches"`
+	EditableCopyOverrides     map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 }
 
 type H3KernelCompileResult struct {
@@ -57,6 +61,22 @@ func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID st
 		return H3KernelCompileResult{}, fmt.Errorf("%w: active Director revision is legacy-only and has no H3 document", ErrConflict)
 	}
 	document := *book.DirectorRevision.Output.H3Director
+	previous, previousErr := repository.LatestH3VideoCompilation(ctx, owner, batchID, bookID, book.DirectorRevision.ID)
+	if previousErr != nil && !errors.Is(previousErr, ErrNotFound) {
+		return H3KernelCompileResult{}, previousErr
+	}
+	if request.ExpectedCompilationID != "" && (previousErr != nil || previous.ID != request.ExpectedCompilationID) {
+		return H3KernelCompileResult{}, fmt.Errorf("%w: 分镜编译版本已变化，请刷新后编辑", ErrConflict)
+	}
+	if previousErr == nil && !request.AllowReplaceManualPrompts {
+		for _, segment := range previous.Compilation.Segments {
+			if segment.CompileTrace.EditableCopySource == "user_final_prompt" {
+				if _, supplied := request.FinalPromptOverrides[segment.SegmentKey]; !supplied {
+					return H3KernelCompileResult{}, fmt.Errorf("%w: 存在手动编辑的最终分镜提示词，重新编译前必须明确确认覆盖", ErrConflict)
+				}
+			}
+		}
+	}
 	audioRevision, err := repository.GetH3AudioMeasurement(ctx, owner, batchID, bookID, strings.TrimSpace(request.AudioAssetID))
 	if err != nil {
 		return H3KernelCompileResult{}, fmt.Errorf("%w: verified audio measurement is required", err)
@@ -69,14 +89,19 @@ func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID st
 	if err != nil {
 		return H3KernelCompileResult{}, err
 	}
+	analysis, err := h3AnalysisFromBook(document, book)
+	if err != nil {
+		return H3KernelCompileResult{}, err
+	}
 	compilation, err := CompileH3VideoSegments(H3VideoCompileInput{
 		TimelineID:            timelineRevision.ID,
 		Document:              document,
 		Timeline:              timelineRevision.Timeline,
 		Preset:                request.Preset,
-		Analysis:              h3AnalysisFromDirector(document),
+		Analysis:              analysis,
 		Switches:              request.Switches,
 		EditableCopyOverrides: request.EditableCopyOverrides,
+		FinalPromptOverrides:  request.FinalPromptOverrides,
 	})
 	if err != nil {
 		return H3KernelCompileResult{}, err
@@ -94,7 +119,7 @@ func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID st
 
 func h3AnalysisFromDirector(document H3DirectorDocument) H3AnalysisSnapshot {
 	analysis := H3AnalysisSnapshot{
-		VisualBaseline:    strings.TrimSpace(document.VisualBaseline),
+		VisualBaseline:    h3VisualBaselineText(document.VisualBaseline),
 		CharacterSettings: make(map[string]string, len(document.CharacterRoster)),
 		SceneSettings:     map[string]string{},
 	}

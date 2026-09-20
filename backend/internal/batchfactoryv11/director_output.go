@@ -12,11 +12,12 @@ import (
 
 type DirectorSettings struct {
 	MaxVideoDuration    int      `json:"maxVideoDuration"`
+	AudioTargetSeconds  int      `json:"audioTargetSeconds,omitempty"`
 	FixedSingleVideo    bool     `json:"fixedSingleVideo"`
-	ExactDuration       int      `json:"exactDuration"`
 	AspectRatio         string   `json:"aspectRatio"`
 	AllowedPrefixKeys   []string `json:"allowedPrefixKeys"`
 	RequireVisualPrompt bool     `json:"requireVisualPrompt"`
+	RequireH3Metadata   bool     `json:"requireH3Metadata"`
 }
 
 type NamedPrompt struct {
@@ -25,11 +26,15 @@ type NamedPrompt struct {
 }
 
 type DirectorShot struct {
-	StartSec    int    `json:"start_sec"`
-	EndSec      int    `json:"end_sec"`
-	ShotType    string `json:"shot_type"`
-	Camera      string `json:"camera"`
-	Description string `json:"description"`
+	StartSec      int    `json:"start_sec"`
+	EndSec        int    `json:"end_sec"`
+	ShotType      string `json:"shot_type"`
+	Camera        string `json:"camera"`
+	Rhythm        string `json:"rhythm,omitempty"`
+	Audio         string `json:"audio,omitempty"`
+	VisualContext string `json:"visual_context,omitempty"`
+	Lighting      string `json:"lighting,omitempty"`
+	Description   string `json:"description"`
 }
 
 type DirectorVideo struct {
@@ -39,6 +44,7 @@ type DirectorVideo struct {
 	Characters   []string       `json:"characters"`
 	Props        []string       `json:"props"`
 	Scene        string         `json:"scene"`
+	SceneMemory  string         `json:"scene_memory,omitempty"`
 	PrefixKey    string         `json:"prefix_key"`
 	Shots        []DirectorShot `json:"shots"`
 	VideoDesc    string         `json:"video_desc"`
@@ -52,12 +58,36 @@ type SourceCoverage struct {
 }
 
 type DirectorResult struct {
-	Characters     []NamedPrompt       `json:"characters"`
-	Scenes         []NamedPrompt       `json:"scenes"`
-	Props          []NamedPrompt       `json:"props"`
-	Storyboard     []DirectorVideo     `json:"storyboard"`
-	SourceCoverage SourceCoverage      `json:"source_coverage"`
-	H3Director     *H3DirectorDocument `json:"h3_director,omitempty"`
+	Characters        []NamedPrompt       `json:"characters"`
+	Scenes            []NamedPrompt       `json:"scenes"`
+	Props             []NamedPrompt       `json:"props"`
+	Storyboard        []DirectorVideo     `json:"storyboard"`
+	SourceCoverage    SourceCoverage      `json:"source_coverage"`
+	SmartUnifiedStyle string              `json:"smart_unified_style,omitempty"`
+	H3Director        *H3DirectorDocument `json:"h3_director,omitempty"`
+}
+
+// storyboardVideoPrompt is the durable card body for one VIDEO.  The provider
+// returns video_desc as a compact internal summary, but public screenplay
+// generation exposes the verified shot timeline as the actual video prompt.
+// Keep the summary for search/audit only; never let it replace a card's
+// camera, timing and visible-action instructions.
+func storyboardVideoPrompt(video DirectorVideo) string {
+	if len(video.Shots) == 0 {
+		return strings.TrimSpace(video.VideoDesc)
+	}
+	lines := []string{"镜头画面："}
+	for _, shot := range video.Shots {
+		lines = append(lines, fmt.Sprintf(
+			"%02d:%02d-%02d:%02d | %s｜%s | %s",
+			shot.StartSec/60, shot.StartSec%60,
+			shot.EndSec/60, shot.EndSec%60,
+			strings.TrimSpace(shot.ShotType),
+			strings.TrimSpace(shot.Camera),
+			strings.TrimSpace(shot.Description),
+		))
+	}
+	return strings.Join(lines, "\n")
 }
 
 var fencedDirectorJSON = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
@@ -226,7 +256,7 @@ func directorNameSet(values []NamedPrompt) map[string]struct{} {
 	return out
 }
 
-func normalizeDirectorShots(value any, durationSec, videoIndex int) ([]DirectorShot, error) {
+func normalizeDirectorShots(value any, durationSec, videoIndex int, requireH3Metadata bool) ([]DirectorShot, error) {
 	items := directorArray(value)
 	if len(items) == 0 {
 		return nil, fmt.Errorf("storyboard[%d] 至少需要一个镜头", videoIndex)
@@ -260,17 +290,42 @@ func normalizeDirectorShots(value any, durationSec, videoIndex int) ([]DirectorS
 		if endSec <= startSec {
 			return nil, fmt.Errorf("storyboard[%d].shots[%d] 结束时间必须大于开始时间", videoIndex, shotIndex)
 		}
-		description := firstDirectorText(entry, "description", "desc", "画面", "prompt")
+		// Providers commonly return an otherwise valid shot with a Chinese field
+		// name (or `shot_description`) for its visible action. Keep the persisted
+		// contract canonical as `description`, while accepting these equivalent
+		// representations at the boundary. We still reject an actually empty shot
+		// because a VIDEO cannot be planned from it.
+		description := firstDirectorText(entry, "description", "shot_description", "shotDescription", "visual_description", "visualDescription", "desc", "画面描述", "画面内容", "画面", "prompt")
 		if description == "" {
 			return nil, fmt.Errorf("storyboard[%d].shots[%d] 缺少画面描述", videoIndex, shotIndex)
 		}
+		rhythm := firstDirectorText(entry, "rhythm", "pace", "节奏")
+		audio := firstDirectorText(entry, "audio", "audio_raw", "audioRaw", "sound", "dialogue", "声音", "音频", "对白")
+		visualContext := firstDirectorText(entry, "visual_context", "visualContext", "scene_context", "sceneContext", "场景上下文", "场景")
+		lighting := firstDirectorText(entry, "lighting", "light", "light_description", "lightDescription", "光影", "光线")
+		if requireH3Metadata && rhythm == "" {
+			return nil, fmt.Errorf("H3 storyboard[%d].shots[%d] 缺少 rhythm", videoIndex, shotIndex)
+		}
+		if requireH3Metadata && audio == "" {
+			return nil, fmt.Errorf("H3 storyboard[%d].shots[%d] 缺少 audio（无声音时填写“无”）", videoIndex, shotIndex)
+		}
+		if requireH3Metadata && visualContext == "" {
+			return nil, fmt.Errorf("H3 storyboard[%d].shots[%d] 缺少 visual_context", videoIndex, shotIndex)
+		}
+		if requireH3Metadata && lighting == "" {
+			return nil, fmt.Errorf("H3 storyboard[%d].shots[%d] 缺少 lighting", videoIndex, shotIndex)
+		}
 		cursor = endSec
 		out = append(out, DirectorShot{
-			StartSec:    startSec,
-			EndSec:      endSec,
-			ShotType:    firstDirectorText(entry, "shot_type", "shotType", "景别"),
-			Camera:      firstDirectorText(entry, "camera", "运镜"),
-			Description: description,
+			StartSec:      startSec,
+			EndSec:        endSec,
+			ShotType:      firstDirectorText(entry, "shot_type", "shotType", "景别"),
+			Camera:        firstDirectorText(entry, "camera", "运镜"),
+			Rhythm:        rhythm,
+			Audio:         audio,
+			VisualContext: visualContext,
+			Lighting:      lighting,
+			Description:   description,
 		})
 	}
 	if out[len(out)-1].EndSec != durationSec {
@@ -283,8 +338,11 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 	if settings.MaxVideoDuration < 1 || settings.MaxVideoDuration > 60 {
 		return DirectorResult{}, fmt.Errorf("maxVideoDuration 超出允许范围")
 	}
-	if settings.FixedSingleVideo && (settings.ExactDuration < 1 || settings.ExactDuration > settings.MaxVideoDuration) {
-		return DirectorResult{}, fmt.Errorf("exactDuration 必须位于模型最大时长范围内")
+	if settings.AudioTargetSeconds < 0 {
+		return DirectorResult{}, fmt.Errorf("audioTargetSeconds 不能小于 0")
+	}
+	if settings.FixedSingleVideo && settings.AudioTargetSeconds > 0 {
+		return DirectorResult{}, fmt.Errorf("固定开头只生产 VIDEO01，不能同时执行配音分镜规划")
 	}
 	aspectRatio := strings.TrimSpace(settings.AspectRatio)
 	if aspectRatio == "" {
@@ -322,6 +380,12 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 	if len(sourceVideos) == 0 {
 		return DirectorResult{}, fmt.Errorf("storyboard 不能为空")
 	}
+	if settings.AudioTargetSeconds > 0 {
+		minimumVideos := audioMinimumVideoCount(settings.AudioTargetSeconds, settings.MaxVideoDuration)
+		if len(sourceVideos) < minimumVideos {
+			return DirectorResult{}, fmt.Errorf("配音规划需要至少 %d 个 VIDEO 才能覆盖 %d 秒（单段上限 %d 秒），当前只有 %d 个", minimumVideos, settings.AudioTargetSeconds, settings.MaxVideoDuration, len(sourceVideos))
+		}
+	}
 	storyboard := make([]DirectorVideo, 0, len(sourceVideos))
 	for videoIndex, item := range sourceVideos {
 		video, ok := directorMap(item)
@@ -339,13 +403,6 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		if durationSec < 1 || durationSec > settings.MaxVideoDuration {
 			return DirectorResult{}, fmt.Errorf("storyboard[%d] 时长必须在 1-%d 秒之间", videoIndex, settings.MaxVideoDuration)
 		}
-		// Fixed-single still preserves every storyboard prompt. Only VIDEO01 is
-		// constrained to the requested target duration; the media executor later
-		// selects that first VIDEO and leaves the rest available for review.
-		if settings.FixedSingleVideo && videoIndex == 0 && durationSec != settings.ExactDuration {
-			return DirectorResult{}, fmt.Errorf("固定单镜头模式必须严格输出 %d 秒", settings.ExactDuration)
-		}
-
 		characterRefs := normalizeDirectorRefs(video["characters"])
 		propRefs := normalizeDirectorRefs(video["props"])
 		scene := cleanDirectorText(video["scene"])
@@ -385,9 +442,13 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		if !settings.RequireVisualPrompt {
 			visualPrompt = ""
 		}
-		shots, err := normalizeDirectorShots(video["shots"], durationSec, videoIndex)
+		shots, err := normalizeDirectorShots(video["shots"], durationSec, videoIndex, settings.RequireH3Metadata)
 		if err != nil {
 			return DirectorResult{}, err
+		}
+		sceneMemory := firstDirectorText(video, "scene_memory", "sceneMemory", "continuity_state", "continuityState")
+		if settings.RequireH3Metadata && sceneMemory == "" {
+			return DirectorResult{}, fmt.Errorf("H3 storyboard[%d] 缺少 scene_memory", videoIndex)
 		}
 
 		id := video["id"]
@@ -408,11 +469,21 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 			Characters:   characterRefs,
 			Props:        propRefs,
 			Scene:        scene,
+			SceneMemory:  sceneMemory,
 			VisualPrompt: visualPrompt,
 			PrefixKey:    prefixKey,
 			Shots:        shots,
 			VideoDesc:    videoDesc,
 		})
+	}
+	if settings.AudioTargetSeconds > 0 {
+		total := 0
+		for _, video := range storyboard {
+			total += video.DurationSec
+		}
+		if total != settings.AudioTargetSeconds {
+			return DirectorResult{}, fmt.Errorf("所有分镜总时长必须严格等于配音规划时长 %d 秒，当前为 %d 秒", settings.AudioTargetSeconds, total)
+		}
 	}
 
 	coverage := SourceCoverage{SourceComplete: true, SourceEndMarker: "", HasRemainingSource: false}
@@ -423,7 +494,6 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 			HasRemainingSource: rawCoverage["has_remaining_source"] == true,
 		}
 	}
-
 	return DirectorResult{
 		Characters:     characters,
 		Scenes:         scenes,
@@ -431,4 +501,29 @@ func NormalizeDirectorOutput(raw json.RawMessage, settings DirectorSettings) (Di
 		Storyboard:     storyboard,
 		SourceCoverage: coverage,
 	}, nil
+}
+
+// NormalizeAssetExtractionOutput accepts the compact asset-only result used by
+// the per-book asset modal. It deliberately does not inspect storyboard data.
+func NormalizeAssetExtractionOutput(raw json.RawMessage) (DirectorAssets, error) {
+	root, err := decodeDirectorObject(raw)
+	if err != nil {
+		return DirectorAssets{}, err
+	}
+	characters, err := normalizeDirectorNamedPrompts(root["characters"], "characters")
+	if err != nil {
+		return DirectorAssets{}, err
+	}
+	scenes, err := normalizeDirectorNamedPrompts(root["scenes"], "scenes")
+	if err != nil {
+		return DirectorAssets{}, err
+	}
+	props, err := normalizeDirectorNamedPrompts(root["props"], "props")
+	if err != nil {
+		return DirectorAssets{}, err
+	}
+	if len(characters)+len(scenes)+len(props) == 0 {
+		return DirectorAssets{}, fmt.Errorf("人物、场景、道具至少应提取一项")
+	}
+	return DirectorAssets{Characters: characters, Scenes: scenes, Props: props}, nil
 }

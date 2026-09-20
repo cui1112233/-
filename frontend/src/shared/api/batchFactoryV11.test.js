@@ -19,6 +19,27 @@ test('unsupported scope fails instead of falling back to a legacy API', () => {
   assert.throws(() => bf11ScopePath({ scope: 'project', batchId: 'b1' }), /Unsupported V11 scope/);
 });
 
+test('batch factory direct fetch uses its native V12 endpoint', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  await batchFactoryV11.fetchDirectOriginals({ platform: '15', bookIds: ['2084012035524801698'], maxTxt: 4000 });
+  assert.equal(calls[0].path, '/api/batch-factory/v12/fetch-originals');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    platform: '15',
+    bookIds: ['2084012035524801698'],
+    maxTxt: 4000
+  });
+});
+
 test('protected local executor media is fetched as an authenticated blob', async t => {
   assert.equal(typeof batchFactoryV11.getProductionMediaBlob, 'function');
 
@@ -46,6 +67,24 @@ test('protected local executor media is fetched as an authenticated blob', async
   assert.equal(blob.type, 'video/mp4');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, '/api/shuihuo-production/local-executor-artifacts/lea_1');
+  assert.match(calls[0].headers.get('authorization') || '', /^Bearer\s+/);
+});
+
+test('protected local merge media is fetched as an authenticated blob', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem(key) { return key === 'auth_token' ? 'contract-test-token' : ''; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, headers: new Headers(options.headers || {}) });
+    return new Response(new Blob(['contract-video'], { type: 'video/mp4' }), { status: 200, headers: { 'content-type': 'video/mp4' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  const path = '/api/batch-factory/v11/batches/batch_1/merge-media/merge_local_1';
+  const blob = await batchFactoryV11.getProductionMediaBlob(path);
+  assert.equal(blob.type, 'video/mp4');
+  assert.equal(calls[0].path, path);
   assert.match(calls[0].headers.get('authorization') || '', /^Bearer\s+/);
 });
 
@@ -90,4 +129,7 @@ test('H3 audio measurement sends bytes without accepting a client duration', asy
   await batchFactoryV11.measureH3Audio('batch 1', 'book/1', 'YXVkaW8=');
   assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/books/book%2F1/h3/audio-measurement');
   assert.deepEqual(JSON.parse(calls[0].options.body), { audio_base64: 'YXVkaW8=' });
+  const lines = { director_revision_id:'d1', tts_fingerprint:'voice', lines:[{source_key:'line_0001',source_text:'正文',audio_base64:'YXVkaW8='}] };
+  await batchFactoryV11.measureH3Audio('b','k',lines);
+  assert.deepEqual(JSON.parse(calls[1].options.body), lines);
 });

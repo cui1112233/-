@@ -1,9 +1,10 @@
 import { apiRequest } from './client.js';
 
-// Keep the module name for import compatibility while the workbench uses the
-// V12 public contract. Legacy data is adapted behind that boundary.
+// The module name remains for import compatibility while the production
+// workbench has moved to the V12 public contract.
 const BASE = '/api/batch-factory/v12';
 const LOCAL_EXECUTOR_ARTIFACT_PREFIX = '/api/shuihuo-production/local-executor-artifacts/';
+const LOCAL_MERGE_MEDIA_PATTERN = /^\/api\/batch-factory\/v1[12]\/batches\/[^/]+\/merge-media\/[^/]+$/;
 
 function id(value) {
   return encodeURIComponent(String(value ?? ''));
@@ -29,8 +30,9 @@ function localExecutorArtifactRequestPath(value) {
   if (raw.startsWith('/')) {
     try {
       const parsed = new URL(raw, 'http://qiantie.local');
-      return parsed.pathname.startsWith(LOCAL_EXECUTOR_ARTIFACT_PREFIX)
-        ? `${parsed.pathname}${parsed.search}`
+      const path = parsed.pathname;
+      return path.startsWith(LOCAL_EXECUTOR_ARTIFACT_PREFIX) || LOCAL_MERGE_MEDIA_PATTERN.test(path)
+        ? `${path}${parsed.search}`
         : '';
     } catch (_) {
       return '';
@@ -39,7 +41,7 @@ function localExecutorArtifactRequestPath(value) {
   if (typeof window === 'undefined' || !window.location?.origin) return '';
   try {
     const parsed = new URL(raw, window.location.origin);
-    if (parsed.origin !== window.location.origin || !parsed.pathname.startsWith(LOCAL_EXECUTOR_ARTIFACT_PREFIX)) return '';
+    if (parsed.origin !== window.location.origin || (!parsed.pathname.startsWith(LOCAL_EXECUTOR_ARTIFACT_PREFIX) && !LOCAL_MERGE_MEDIA_PATTERN.test(parsed.pathname))) return '';
     return `${parsed.pathname}${parsed.search}`;
   } catch (_) {
     return '';
@@ -52,9 +54,7 @@ export function isProtectedProductionMediaURL(value) {
 
 export function getProductionMediaBlob(mediaUrl) {
   const path = localExecutorArtifactRequestPath(mediaUrl);
-  if (!path) {
-    return Promise.reject(new Error('Production media URL is not a local executor artifact'));
-  }
+  if (!path) return Promise.reject(new Error('Production media URL is not a local executor artifact or local merge artifact'));
   return apiRequest(path, { responseType: 'blob' });
 }
 
@@ -98,6 +98,10 @@ export function createBatch(payload) {
   return apiRequest(bf11Path('batches'), { method: 'POST', body: body(payload) });
 }
 
+export function fetchDirectOriginals(payload) {
+  return apiRequest(bf11Path('fetch-originals'), { method: 'POST', body: body(payload) });
+}
+
 export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
@@ -106,12 +110,20 @@ export function saveBatchSettings(batchId, input) {
   return apiRequest(bf11ScopePath({ scope: 'batch', batchId }), { method: 'PUT', body: body(input) });
 }
 
+export function updateBookMetadata(batchId, bookId, input) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/metadata`), { method: 'PUT', body: body(input) });
+}
+
 export function saveBookOverride(batchId, bookId, input) {
   return apiRequest(bf11ScopePath({ scope: 'book', batchId, bookId }), { method: 'PUT', body: body(input) });
 }
 
 export function saveVideoOverride(batchId, bookId, videoId, input) {
 	return apiRequest(bf11ScopePath({ scope: 'video', batchId, bookId, videoId }), { method: 'PUT', body: body(input) });
+}
+
+export function deleteProductionTask(batchId, bookId, videoId, taskId) {
+	return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/tasks/${id(taskId)}`), { method: 'DELETE' });
 }
 
 function bookAssetsPath(batchId, bookId, assetId = '') {
@@ -236,7 +248,7 @@ export function runH3Director(batchId, bookId, payload) {
 export function measureH3Audio(batchId, bookId, audioBase64) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/audio-measurement`), {
     method: 'POST',
-    body: body({ audio_base64: String(audioBase64 || '') })
+    body: body(audioBase64 && typeof audioBase64 === 'object' ? audioBase64 : { audio_base64: String(audioBase64 || '') })
   });
 }
 
@@ -268,8 +280,8 @@ export function getEffectiveSettings(batchId, bookId, videoId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/effective-settings`));
 }
 
-export function getFinalPrompt(batchId, bookId, videoId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`));
+export function getFinalPrompt(batchId, bookId, videoId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/final-prompt`), options);
 }
 
 export function submitBookProduction(batchId, bookId, requestId, provider = 'personal_api') {
@@ -318,8 +330,39 @@ export function getProductionStatus(batchId, options = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/status`), options);
 }
 
+export function getBatchAutomationStatus(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation`));
+}
+
+export function startBatchAutomation(batchId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/start`), { method: 'POST', body: body(payload) });
+}
+
+export function pauseBatchAutomation(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/pause`), { method: 'POST', body: body({}) });
+}
+
+export function resumeBatchAutomation(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/resume`), { method: 'POST', body: body({}) });
+}
+
+export function retryBatchAutomation(batchId, bookIds = []) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/retry`), { method: 'POST', body: body({ bookIds }) });
+}
+
+export function cancelBatchAutomation(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/cancel`), { method: 'POST', body: body({}) });
+}
+
 export function submitBatchMerge(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/merge`), {
+    method: 'POST',
+    body: body(payload)
+  });
+}
+
+export function submitBookMerge(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge`), {
     method: 'POST',
     body: body(payload)
   });
@@ -341,6 +384,26 @@ export function createPublishIntent(provider, payload) {
   return apiRequest(bf11Path(`publish/${id(provider)}/intents`), { method: 'POST', body: body(payload) });
 }
 
+// V11 书级发布走已验证的 121 PHP 会话：每次只提交这一书的
+// `{bookId}.txt + {bookId}.mp4`，服务端负责会话、媒体读取和回读。
+export function get121OrganizationOptions() {
+  return apiRequest(bf11Path('publish-121/organizations'));
+}
+
+export function classifyBookPublishMetadata(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/classify-publish-metadata`), {
+    method: 'POST',
+    body: body(payload)
+  });
+}
+
+export function submitBookTo121(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/publish-121`), {
+    method: 'POST',
+    body: body(payload)
+  });
+}
+
 export function confirmPublishIntent(provider, intentId) {
   return apiRequest(bf11Path(`publish/${id(provider)}/intents/${id(intentId)}/confirm`), { method: 'POST', body: body({}) });
 }
@@ -360,10 +423,12 @@ export default {
   createBatchFromIntake,
   listBatches,
   createBatch,
+  fetchDirectOriginals,
   getBatch,
   saveBatchSettings,
   saveBookOverride,
   saveVideoOverride,
+  deleteProductionTask,
   listBookAssets,
   createBookAsset,
   updateBookAsset,
@@ -395,13 +460,23 @@ export default {
   listLocalExecutors,
   createLocalExecutorPairing,
   getProductionStatus,
+  getBatchAutomationStatus,
+  startBatchAutomation,
+  pauseBatchAutomation,
+  resumeBatchAutomation,
+  retryBatchAutomation,
+  cancelBatchAutomation,
   getProductionMediaBlob,
   isProtectedProductionMediaURL,
   submitBatchMerge,
+  submitBookMerge,
   getMergeStatus,
   getPublishCredential,
   savePublishCredential,
   createPublishIntent,
+  submitBookTo121,
+  classifyBookPublishMetadata,
+  get121OrganizationOptions,
   confirmPublishIntent,
   submitPublishIntent,
   getPublishAudits

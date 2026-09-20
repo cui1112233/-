@@ -267,12 +267,18 @@ type DirectorRunInput struct {
 }
 
 type DirectorSnapshot struct {
-	Effective        SettingsPatch `json:"effective"`
-	Mode             string        `json:"mode"`
-	MaxVideoDuration int           `json:"maxVideoDuration"`
-	FixedSingleVideo bool          `json:"fixedSingleVideo"`
-	ExactDuration    int           `json:"exactDuration"`
-	AspectRatio      string        `json:"aspectRatio"`
+	Effective            SettingsPatch `json:"effective"`
+	Mode                 string        `json:"mode"`
+	MaxVideoDuration     int           `json:"maxVideoDuration"`
+	AudioDurationSeconds float64       `json:"audioDurationSeconds,omitempty"`
+	AudioTargetSeconds   int           `json:"audioTargetSeconds,omitempty"`
+	FixedSingleVideo     bool          `json:"fixedSingleVideo"`
+	AspectRatio          string        `json:"aspectRatio"`
+}
+
+type UpdateBookMetadataInput struct {
+	Metadata         map[string]any `json:"metadata"`
+	ExpectedRevision int64          `json:"expectedRevision"`
 }
 
 type Store interface {
@@ -282,6 +288,7 @@ type Store interface {
 	CreateBatch(context.Context, string, CreateBatchInput) (Batch, error)
 	ListBatches(context.Context, string) ([]Batch, error)
 	GetBatch(context.Context, string, string) (Batch, error)
+	UpdateBookMetadata(context.Context, string, string, string, UpdateBookMetadataInput) (Book, error)
 	SaveSettings(context.Context, string, ScopeRef, SettingsUpdate) (SettingsResult, error)
 	ConfigVersions(context.Context, string) ([]ConfigVersion, error)
 	CreateConfigVersion(context.Context, string, ConfigVersion) (ConfigVersion, error)
@@ -297,6 +304,7 @@ type Store interface {
 	ListBookAssetImages(context.Context, string, string, string, string) ([]BookAssetImage, error)
 	CreateBookAssetImage(context.Context, string, string, string, string, CreateBookAssetImageInput) (BookAssetImage, error)
 	SetPrimaryBookAssetImage(context.Context, string, string, string, string, string) (BookAssetImage, error)
+	PersistExtractedBookAssets(context.Context, string, Book, DirectorSnapshot, DirectorAssets) ([]BookAsset, error)
 	CreateHookRevision(context.Context, string, string, string, string, string) (HookRevision, error)
 	ApproveHookRevision(context.Context, string, string, string, string) (HookRevision, error)
 	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)

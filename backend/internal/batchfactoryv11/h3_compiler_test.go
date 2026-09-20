@@ -44,7 +44,7 @@ func TestCompileH3VideoSegmentsSeparatesEditableCopyFromSubmittedPrompt(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compilation.SchemaVersion != "h3-video-compilation/v1" || compilation.CompilerVersion != "h3-video-compiler/v1" {
+	if compilation.SchemaVersion != "h3-video-compilation/v1" || compilation.CompilerVersion != "h3-video-compiler/v3" {
 		t.Fatalf("unexpected compilation contract: %#v", compilation)
 	}
 	if len(compilation.Segments) != 1 {
@@ -58,7 +58,7 @@ func TestCompileH3VideoSegmentsSeparatesEditableCopyFromSubmittedPrompt(t *testi
 		t.Fatalf("request duration=%d, want deterministic ceil 8000", segment.RequestDurationMS)
 	}
 	for _, fact := range []string{
-		"C001", "我", "陆晚晚", "钱袋", "中全景", "缓慢推近", "别墅", "scene_id=S001", "voice_over", "五岁的我刚被认回豪门",
+		"我", "陆晚晚", "钱袋", "中全景", "缓慢推近", "豪宅玄关", "Soundscape", "五岁的我刚被认回豪门",
 	} {
 		if !strings.Contains(segment.CompiledPrompt, fact) {
 			t.Fatalf("compiled prompt lost storyboard fact %q:\n%s", fact, segment.CompiledPrompt)
@@ -77,6 +77,58 @@ func TestCompileH3VideoSegmentsSeparatesEditableCopyFromSubmittedPrompt(t *testi
 	}
 	if compilation.Analysis.VisualBaseline != input.Analysis.VisualBaseline || compilation.Analysis.CharacterSettings["C001"] == "" {
 		t.Fatalf("background analysis was not retained: %#v", compilation.Analysis)
+	}
+}
+
+func TestCompileH3VideoSegmentsUsesRealH3SubmissionGrammarInsteadOfTraceDump(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	timeline := mustH3Timeline(t, document, 7420)
+	input := completeH3CompileInput(document, timeline)
+	input.Switches = H3PromptSwitches{SmartUnified: true, BaseSetup: true}
+
+	compilation, err := CompileH3VideoSegments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := compilation.Segments[0].CompiledPrompt
+	for _, required := range []string{"detailed_description:", "subject_definitions:", "<Subject 1>", "【视听呈现】", "[Scene 1]", "Total duration:", "[Shot 1]", "Audio:", "[Scene 1][Shot 1] Soundscape:", "【H3画面约束】"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("real H3 prompt missing %q:\n%s", required, prompt)
+		}
+	}
+	for _, forbidden := range []string{"H3 FINAL VIDEO", "preset=", "【视频原文切片】", "hash=", "Scene Memory:", "VIDEO Timeline（segment-local）"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("trace/debug field leaked into submitted H3 prompt %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestCompileH3VideoSegmentsBuildsDefaultEditableCopyFromDirectorFacts(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	timeline := mustH3Timeline(t, document, 7420)
+	input := completeH3CompileInput(document, timeline)
+	input.EditableCopyOverrides = nil
+
+	compilation, err := CompileH3VideoSegments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	segment := compilation.Segments[0]
+	rawSource := strings.Join([]string{
+		document.DirectorCards[0].SourceText,
+		document.DirectorCards[1].SourceText,
+		document.DirectorCards[2].SourceText,
+	}, "\n")
+	if segment.EditableCopy == rawSource {
+		t.Fatalf("default editable copy must not fall back to raw source slices: %q", segment.EditableCopy)
+	}
+	for _, fact := range []string{"画面：", "动作：", "机位：", "运镜：", "[Shot", "我", "陆晚晚"} {
+		if !strings.Contains(segment.EditableCopy, fact) {
+			t.Fatalf("default editable copy lost director fact %q:\n%s", fact, segment.EditableCopy)
+		}
+	}
+	if segment.CompileTrace.EditableCopySource != "director_compilation" {
+		t.Fatalf("editable copy source=%q, want director_compilation", segment.CompileTrace.EditableCopySource)
 	}
 }
 
@@ -216,7 +268,7 @@ func TestCompileH3VideoSegmentsMatchesFrozenPromptGoldenHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "b90a7d160af27e70474e7de5a04a968e9a0517008e017849dba6c38fc8bfbe58"
+	const want = "ec0c0c65bc01eae6afd32ea811dcd9ced337343420e5b47c326fed1be819cdad"
 	if got := compilation.Segments[0].CompiledPromptHash; got != want {
 		t.Fatalf("compiled prompt golden hash=%s, want %s", got, want)
 	}

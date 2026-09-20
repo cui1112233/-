@@ -31,10 +31,10 @@ func findMergeJob(ctx context.Context, q productionQueryer, owner, batchID, requ
 func loadMergeJob(ctx context.Context, q productionQueryer, owner, id string) (MergeJob, error) {
 	var value MergeJob
 	var state string
-	var outputURL, errorMessage sql.NullString
+	var outputURL, errorMessage, timingMode, progressPhase sql.NullString
 	var providerTaskID sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT id,batch_id,request_id,provider_task_id,status,output_url,error_message,created_at,updated_at FROM batch_factory_v11_merge_jobs WHERE id=? AND owner_username=?`, id, owner).Scan(
-		&value.ID, &value.BatchID, &value.RequestID, &providerTaskID, &state, &outputURL, &errorMessage, &value.CreatedAt, &value.UpdatedAt,
+	err := q.QueryRowContext(ctx, `SELECT id,batch_id,book_id,request_id,timing_mode,speed,provider_task_id,status,progress_phase,progress_current,progress_total,output_url,error_message,created_at,updated_at FROM batch_factory_v11_merge_jobs WHERE id=? AND owner_username=?`, id, owner).Scan(
+		&value.ID, &value.BatchID, &value.BookID, &value.RequestID, &timingMode, &value.Speed, &providerTaskID, &state, &progressPhase, &value.ProgressCurrent, &value.ProgressTotal, &outputURL, &errorMessage, &value.CreatedAt, &value.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MergeJob{}, ErrNotFound
@@ -44,18 +44,20 @@ func loadMergeJob(ctx context.Context, q productionQueryer, owner, id string) (M
 	}
 	value.Owner = owner
 	value.Status = MergeState(state)
+	value.TimingMode = timingMode.String
+	value.ProgressPhase = progressPhase.String
 	value.ProviderTaskID = providerTaskID.String
 	value.OutputURL = outputURL.String
 	value.ErrorMessage = errorMessage.String
 	value.Sources = []MergeMedia{}
-	rows, err := q.QueryContext(ctx, `SELECT video_id,ordinal,media_url FROM batch_factory_v11_merge_sources WHERE job_id=? AND owner_username=? ORDER BY ordinal,video_id`, id, owner)
+	rows, err := q.QueryContext(ctx, `SELECT video_id,ordinal,media_url,target_duration_seconds,requested_duration_seconds,actual_duration_seconds FROM batch_factory_v11_merge_sources WHERE job_id=? AND owner_username=? ORDER BY ordinal,video_id`, id, owner)
 	if err != nil {
 		return MergeJob{}, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var source MergeMedia
-		if err := rows.Scan(&source.VideoID, &source.Order, &source.MediaURL); err != nil {
+		if err := rows.Scan(&source.VideoID, &source.Order, &source.MediaURL, &source.TargetDurationSeconds, &source.RequestedDurationSeconds, &source.ActualDurationSeconds); err != nil {
 			return MergeJob{}, err
 		}
 		source.URL = source.MediaURL
@@ -89,7 +91,7 @@ func (s *MySQLStore) CreateMergeJob(ctx context.Context, value MergeJob) (MergeJ
 	value.ID = jobID
 	value.Status = normalizeMergeState(value.Status)
 	value.CreatedAt, value.UpdatedAt = now, now
-	if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_jobs(id,owner_username,batch_id,request_id,provider_task_id,status,output_url,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, value.ID, value.Owner, value.BatchID, value.RequestID, nullableString(value.ProviderTaskID), value.Status, nullableString(value.OutputURL), nullableString(value.ErrorMessage), now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_jobs(id,owner_username,batch_id,book_id,request_id,timing_mode,speed,provider_task_id,status,progress_phase,progress_current,progress_total,output_url,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, value.ID, value.Owner, value.BatchID, nullableString(value.BookID), value.RequestID, nullableString(value.TimingMode), value.Speed, nullableString(value.ProviderTaskID), value.Status, nullableString(value.ProgressPhase), value.ProgressCurrent, value.ProgressTotal, nullableString(value.OutputURL), nullableString(value.ErrorMessage), now, now); err != nil {
 		var duplicate *mysql.MySQLError
 		if errors.As(err, &duplicate) && duplicate.Number == 1062 {
 			_ = tx.Rollback()
@@ -101,7 +103,7 @@ func (s *MySQLStore) CreateMergeJob(ctx context.Context, value MergeJob) (MergeJ
 		if strings.TrimSpace(source.VideoID) == "" || strings.TrimSpace(source.MediaURL) == "" || source.Order != ordinal {
 			return MergeJob{}, ErrInvalid
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_sources(job_id,owner_username,video_id,ordinal,media_url,created_at) VALUES(?,?,?,?,?,?)`, value.ID, value.Owner, source.VideoID, source.Order, source.MediaURL, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_sources(job_id,owner_username,video_id,ordinal,media_url,target_duration_seconds,requested_duration_seconds,actual_duration_seconds,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, value.ID, value.Owner, source.VideoID, source.Order, source.MediaURL, source.TargetDurationSeconds, source.RequestedDurationSeconds, source.ActualDurationSeconds, now); err != nil {
 			return MergeJob{}, err
 		}
 	}
@@ -116,7 +118,7 @@ func (s *MySQLStore) UpdateMergeJob(ctx context.Context, owner, jobID string, va
 		return MergeJob{}, ErrInvalid
 	}
 	value.Status = normalizeMergeState(value.Status)
-	result, err := s.db.ExecContext(ctx, `UPDATE batch_factory_v11_merge_jobs SET provider_task_id=?,status=?,output_url=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, nullableString(value.ProviderTaskID), value.Status, nullableString(value.OutputURL), nullableString(value.ErrorMessage), time.Now().UTC(), jobID, owner)
+	result, err := s.db.ExecContext(ctx, `UPDATE batch_factory_v11_merge_jobs SET timing_mode=?,speed=?,provider_task_id=?,status=?,progress_phase=?,progress_current=?,progress_total=?,output_url=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, nullableString(value.TimingMode), value.Speed, nullableString(value.ProviderTaskID), value.Status, nullableString(value.ProgressPhase), value.ProgressCurrent, value.ProgressTotal, nullableString(value.OutputURL), nullableString(value.ErrorMessage), time.Now().UTC(), jobID, owner)
 	if err != nil {
 		return MergeJob{}, err
 	}

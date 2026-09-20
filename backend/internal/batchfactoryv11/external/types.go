@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +26,7 @@ var (
 type Provider string
 
 const (
-	Provider121 Provider = "121"
+	Provider121  Provider = "121"
 	ProviderYadi Provider = "yadi"
 )
 
@@ -55,29 +56,29 @@ type CredentialRef struct {
 
 type encryptedCredential struct {
 	CredentialRef
-	Owner     string
-	KeyID     string
-	Nonce     []byte
+	Owner      string
+	KeyID      string
+	Nonce      []byte
 	Ciphertext []byte
 }
 
 type SubmissionIntent struct {
-	ID            string     `json:"id"`
-	Owner         string     `json:"-"`
-	Provider      Provider   `json:"provider"`
-	BatchID       string     `json:"batchId"`
-	BookID        string     `json:"bookId,omitempty"`
-	PayloadDigest string     `json:"payloadDigest"`
+	ID            string          `json:"id"`
+	Owner         string          `json:"-"`
+	Provider      Provider        `json:"provider"`
+	BatchID       string          `json:"batchId"`
+	BookID        string          `json:"bookId,omitempty"`
+	PayloadDigest string          `json:"payloadDigest"`
 	Payload       json.RawMessage `json:"-"`
-	ExpiresAt     time.Time  `json:"expiresAt"`
-	ConfirmedAt   *time.Time `json:"confirmedAt,omitempty"`
-	SubmittedAt   *time.Time `json:"submittedAt,omitempty"`
+	ExpiresAt     time.Time       `json:"expiresAt"`
+	ConfirmedAt   *time.Time      `json:"confirmedAt,omitempty"`
+	SubmittedAt   *time.Time      `json:"submittedAt,omitempty"`
 }
 
 type ProviderReference struct {
-	Provider   Provider `json:"provider"`
-	Reference  string   `json:"reference"`
-	Status     string   `json:"status"`
+	Provider  Provider `json:"provider"`
+	Reference string   `json:"reference"`
+	Status    string   `json:"status"`
 }
 
 type AuditRecord struct {
@@ -143,15 +144,23 @@ type Service struct {
 
 func (s *Service) CredentialStatus(ctx context.Context, owner, provider string) (CredentialRef, error) {
 	p, err := normalizeProvider(provider)
-	if err != nil { return CredentialRef{}, err }
-	if !s.enabled(p) || s.Credentials == nil { return CredentialRef{}, ErrUnavailable }
+	if err != nil {
+		return CredentialRef{}, err
+	}
+	if !s.enabled(p) || s.Credentials == nil {
+		return CredentialRef{}, ErrUnavailable
+	}
 	value, err := s.Credentials.GetCredential(ctx, owner, p)
-	if err != nil { return CredentialRef{}, err }
+	if err != nil {
+		return CredentialRef{}, err
+	}
 	return value.CredentialRef, nil
 }
 
 func (s *Service) now() time.Time {
-	if s.Now != nil { return s.Now().UTC() }
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
 	return time.Now().UTC()
 }
 
@@ -161,14 +170,28 @@ func (s *Service) enabled(provider Provider) bool {
 
 func (s *Service) SaveCredential(ctx context.Context, owner, provider string, input CredentialInput) (CredentialRef, error) {
 	p, err := normalizeProvider(provider)
-	if err != nil { return CredentialRef{}, err }
-	if !s.enabled(p) { return CredentialRef{}, ErrUnavailable }
-	if s.Credentials == nil || len(s.Key) != 32 { return CredentialRef{}, fmt.Errorf("%w: credential encryption key is required", ErrUnavailable) }
-	if strings.TrimSpace(owner) == "" || strings.TrimSpace(input.Name) == "" || input.Secret == "" { return CredentialRef{}, ErrInvalid }
+	if err != nil {
+		return CredentialRef{}, err
+	}
+	if !s.enabled(p) {
+		return CredentialRef{}, ErrUnavailable
+	}
+	if s.Credentials == nil || len(s.Key) != 32 {
+		return CredentialRef{}, fmt.Errorf("%w: credential encryption key is required", ErrUnavailable)
+	}
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(input.Name) == "" || input.Secret == "" {
+		return CredentialRef{}, ErrInvalid
+	}
 	plaintext := []byte(input.Secret)
-	defer func() { for i := range plaintext { plaintext[i] = 0 } }()
+	defer func() {
+		for i := range plaintext {
+			plaintext[i] = 0
+		}
+	}()
 	keyID, nonce, ciphertext, err := EncryptCredential(s.Key, plaintext)
-	if err != nil { return CredentialRef{}, err }
+	if err != nil {
+		return CredentialRef{}, err
+	}
 	// Keep the caller's plaintext only in this stack frame; the store receives ciphertext.
 	id := fmt.Sprintf("credential-%d", s.now().UnixNano())
 	return s.Credentials.SaveCredential(ctx, owner, p, encryptedCredential{CredentialRef: CredentialRef{ID: id, Provider: p, Name: input.Name}, Owner: owner, KeyID: keyID, Nonce: nonce, Ciphertext: ciphertext})
@@ -176,26 +199,43 @@ func (s *Service) SaveCredential(ctx context.Context, owner, provider string, in
 
 func (s *Service) CreateIntent(ctx context.Context, owner, provider, batchID, bookID string, payload json.RawMessage) (SubmissionIntent, error) {
 	p, err := normalizeProvider(provider)
-	if err != nil { return SubmissionIntent{}, err }
-	if !s.enabled(p) { return SubmissionIntent{}, ErrUnavailable }
-	if s.Intents == nil || strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" { return SubmissionIntent{}, ErrInvalid }
+	if err != nil {
+		return SubmissionIntent{}, err
+	}
+	if !s.enabled(p) {
+		return SubmissionIntent{}, ErrUnavailable
+	}
+	if s.Intents == nil || strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" {
+		return SubmissionIntent{}, ErrInvalid
+	}
 
 	var batch batchfactoryv11.Batch
 	if s.BatchReader != nil {
 		batch, err = s.BatchReader.GetBatch(ctx, owner, batchID)
-		if err != nil { return SubmissionIntent{}, err }
+		if err != nil {
+			return SubmissionIntent{}, err
+		}
 		if bookID != "" {
 			found := false
 			for _, book := range batch.Books {
-				if book.ID == strings.TrimSpace(bookID) { found = true; break }
+				if book.ID == strings.TrimSpace(bookID) {
+					found = true
+					break
+				}
 			}
-			if !found { return SubmissionIntent{}, ErrNotFound }
+			if !found {
+				return SubmissionIntent{}, ErrNotFound
+			}
 		}
 	}
-	if len(payload) == 0 { payload = json.RawMessage(`{}`) }
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
 	if s.BatchReader != nil && (s.ProductionReader != nil || s.MergeReader != nil) {
 		payload, err = s.normalizePublishPayload(ctx, owner, batchID, strings.TrimSpace(bookID), batch, payload)
-		if err != nil { return SubmissionIntent{}, err }
+		if err != nil {
+			return SubmissionIntent{}, err
+		}
 	}
 	digest := digestPayload(payload)
 	now := s.now()
@@ -207,6 +247,90 @@ func (s *Service) CreateIntent(ctx context.Context, owner, provider, batchID, bo
 // current owner's successful production/merge jobs.  This keeps the intent
 // confirmation digest bound to server-owned artifacts and prevents publishing
 // another user's URL or an empty placeholder.
+type publishMedia struct {
+	URL       string
+	TaskID    string
+	UpdatedAt time.Time
+}
+
+type primaryUploadSource struct {
+	Kind       string `json:"kind"`
+	VideoID    string `json:"videoId"`
+	TaskID     string `json:"taskId"`
+	MergeJobID string `json:"mergeJobId"`
+}
+
+func savedString(patch batchfactoryv11.SettingsPatch, key string) string {
+	raw := patch[key]
+	var value string
+	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func savedPrimaryUploadSource(book batchfactoryv11.Book) primaryUploadSource {
+	var source primaryUploadSource
+	raw := book.SettingsState.Patch["primaryUploadSource"]
+	if len(raw) == 0 || json.Unmarshal(raw, &source) != nil {
+		return primaryUploadSource{}
+	}
+	source.Kind = strings.ToLower(strings.TrimSpace(source.Kind))
+	source.VideoID = strings.TrimSpace(source.VideoID)
+	source.TaskID = strings.TrimSpace(source.TaskID)
+	source.MergeJobID = strings.TrimSpace(source.MergeJobID)
+	return source
+}
+
+func mergeSourceURL(source batchfactoryv11.MergeMedia) string {
+	if value := strings.TrimSpace(source.MediaURL); value != "" {
+		return value
+	}
+	return strings.TrimSpace(source.URL)
+}
+
+func mergeCoversBookMedia(job batchfactoryv11.MergeJob, mediaByVideo map[string]publishMedia) bool {
+	if len(job.Sources) != len(mediaByVideo) || len(mediaByVideo) == 0 {
+		return false
+	}
+	for _, source := range job.Sources {
+		media, exists := mediaByVideo[strings.TrimSpace(source.VideoID)]
+		if !exists || mergeSourceURL(source) != media.URL {
+			return false
+		}
+	}
+	return true
+}
+
+func selectBookMergedMedia(jobs []batchfactoryv11.MergeJob, bookID string, mediaByVideo map[string]publishMedia, requested primaryUploadSource) (batchfactoryv11.MergeJob, bool) {
+	var selected batchfactoryv11.MergeJob
+	var selectedIsDefaultSpeed bool
+	for _, job := range jobs {
+		if job.BookID != bookID || job.Status != batchfactoryv11.MergeSucceeded || strings.TrimSpace(job.OutputURL) == "" || !mergeCoversBookMedia(job, mediaByVideo) {
+			continue
+		}
+		if requested.MergeJobID != "" && job.ID != requested.MergeJobID {
+			continue
+		}
+		isDefaultSpeed := math.Abs(mergeSpeed(job)-1) < 0.001
+		if selected.ID == "" || (!selectedIsDefaultSpeed && isDefaultSpeed) || (selectedIsDefaultSpeed == isDefaultSpeed && (job.UpdatedAt.After(selected.UpdatedAt) || (job.UpdatedAt.Equal(selected.UpdatedAt) && job.CreatedAt.After(selected.CreatedAt)))) {
+			selected = job
+			selectedIsDefaultSpeed = isDefaultSpeed
+		}
+	}
+	return selected, selected.ID != ""
+}
+
+func mergeSpeed(job batchfactoryv11.MergeJob) float64 {
+	if job.Speed <= 0 {
+		return 1
+	}
+	return job.Speed
+}
+
+// normalizePublishPayload freezes one server-owned upload source per book. A
+// successful book-level merge is the default source; a persisted single-video
+// choice can override it. Browser URLs are never trusted.
 func (s *Service) normalizePublishPayload(ctx context.Context, owner, batchID, bookID string, batch batchfactoryv11.Batch, payload json.RawMessage) (json.RawMessage, error) {
 	var document map[string]any
 	if err := json.Unmarshal(payload, &document); err != nil || document == nil {
@@ -219,136 +343,218 @@ func (s *Service) normalizePublishPayload(ctx context.Context, owner, batchID, b
 
 	expected := map[string]batchfactoryv11.Book{}
 	for _, book := range batch.Books {
-		if bookID == "" || book.ID == bookID { expected[book.ID] = book }
+		if bookID == "" || book.ID == bookID {
+			expected[book.ID] = book
+		}
 	}
-	if len(expected) == 0 { return nil, ErrNotFound }
+	if len(expected) == 0 {
+		return nil, ErrNotFound
+	}
 
-	mediaByVideo := map[string]string{}
+	mediaByBook := map[string]map[string]publishMedia{}
 	if s.ProductionReader != nil {
 		status, err := s.ProductionReader.GetBatchStatus(ctx, owner, batchID)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		activeRevision := map[string]string{}
 		for id, book := range expected {
-			if book.DirectorRevision != nil { activeRevision[id] = book.DirectorRevision.ID }
+			if book.DirectorRevision != nil {
+				activeRevision[id] = book.DirectorRevision.ID
+			}
+			mediaByBook[id] = map[string]publishMedia{}
 		}
 		for _, job := range status.Jobs {
-			if _, wanted := expected[job.BookID]; !wanted || job.DirectorRevisionID != activeRevision[job.BookID] { continue }
+			book, wanted := expected[job.BookID]
+			if !wanted || job.DirectorRevisionID != activeRevision[job.BookID] {
+				continue
+			}
 			for _, task := range job.Tasks {
-				if task.Status == batchfactoryv11.ProductionSucceeded && strings.TrimSpace(task.MediaURL) != "" {
-					mediaByVideo[task.VideoID] = strings.TrimSpace(task.MediaURL)
+				if task.Status != batchfactoryv11.ProductionSucceeded || strings.TrimSpace(task.MediaURL) == "" {
+					continue
+				}
+				for _, video := range book.Videos {
+					if video.ID != task.VideoID {
+						continue
+					}
+					preferredTaskID := savedString(video.SettingsState.Patch, "primaryMediaTaskId")
+					if preferredTaskID != "" && preferredTaskID != task.ID {
+						continue
+					}
+					current := mediaByBook[book.ID][video.ID]
+					if current.TaskID == "" || task.UpdatedAt.After(current.UpdatedAt) {
+						mediaByBook[book.ID][video.ID] = publishMedia{URL: strings.TrimSpace(task.MediaURL), TaskID: task.ID, UpdatedAt: task.UpdatedAt}
+					}
 				}
 			}
 		}
 	}
 
+	booksByID := map[string]map[string]any{}
 	seenBooks := map[string]bool{}
 	for _, rawBook := range rawBooks {
 		bookMap, ok := rawBook.(map[string]any)
-		if !ok { return nil, fmt.Errorf("%w: invalid book in publish payload", ErrInvalid) }
+		if !ok {
+			return nil, fmt.Errorf("%w: invalid book in publish payload", ErrInvalid)
+		}
 		id, _ := bookMap["id"].(string)
 		id = strings.TrimSpace(id)
 		book, wanted := expected[id]
-		if !wanted || seenBooks[id] { return nil, fmt.Errorf("%w: publish payload contains an unexpected or duplicate book", ErrConflict) }
+		if !wanted || seenBooks[id] {
+			return nil, fmt.Errorf("%w: publish payload contains an unexpected or duplicate book", ErrConflict)
+		}
 		seenBooks[id] = true
+		booksByID[id] = bookMap
 		rawVideos, ok := bookMap["videos"].([]any)
-		if !ok || len(rawVideos) == 0 { return nil, fmt.Errorf("%w: book %s has no videos", ErrConflict, id) }
+		if !ok || len(rawVideos) == 0 {
+			return nil, fmt.Errorf("%w: book %s has no videos", ErrConflict, id)
+		}
 		videoByID := map[string]map[string]any{}
 		for _, rawVideo := range rawVideos {
 			videoMap, ok := rawVideo.(map[string]any)
-			if !ok { return nil, fmt.Errorf("%w: invalid video in publish payload", ErrInvalid) }
+			if !ok {
+				return nil, fmt.Errorf("%w: invalid video in publish payload", ErrInvalid)
+			}
 			videoID, _ := videoMap["id"].(string)
 			videoID = strings.TrimSpace(videoID)
-			if videoID == "" || videoByID[videoID] != nil { return nil, fmt.Errorf("%w: duplicate or empty video id", ErrConflict) }
+			if videoID == "" || videoByID[videoID] != nil {
+				return nil, fmt.Errorf("%w: duplicate or empty video id", ErrConflict)
+			}
 			videoByID[videoID] = videoMap
 		}
 		for _, video := range book.Videos {
 			videoMap := videoByID[video.ID]
-			if videoMap == nil { return nil, fmt.Errorf("%w: book %s is missing VIDEO %s", ErrConflict, id, video.ID) }
+			if videoMap == nil {
+				return nil, fmt.Errorf("%w: book %s is missing VIDEO %s", ErrConflict, id, video.ID)
+			}
 			if s.ProductionReader != nil {
-				mediaURL := mediaByVideo[video.ID]
-				if mediaURL == "" { return nil, fmt.Errorf("%w: VIDEO %s has no completed media", ErrConflict, video.ID) }
-				videoMap["url"] = mediaURL
+				media := mediaByBook[id][video.ID]
+				if media.URL != "" {
+					videoMap["url"] = media.URL
+				}
 			}
 		}
-		if len(videoByID) != len(book.Videos) { return nil, fmt.Errorf("%w: book %s contains an unknown VIDEO", ErrConflict, id) }
+		if len(videoByID) != len(book.Videos) {
+			return nil, fmt.Errorf("%w: book %s contains an unknown VIDEO", ErrConflict, id)
+		}
+	}
+	if len(seenBooks) != len(expected) {
+		return nil, fmt.Errorf("%w: publish payload is missing a batch book", ErrConflict)
 	}
 
-	if len(seenBooks) != len(expected) { return nil, fmt.Errorf("%w: publish payload is missing a batch book", ErrConflict) }
+	var mergeJobs []batchfactoryv11.MergeJob
 	if s.MergeReader != nil {
-		mergeJobs, err := s.MergeReader.GetBatchStatus(ctx, owner, batchID)
-		if err != nil { return nil, err }
-		mergedURL := ""
-		var latest time.Time
-		for _, job := range mergeJobs {
-			if job.Status != batchfactoryv11.MergeSucceeded || strings.TrimSpace(job.OutputURL) == "" { continue }
-			if s.ProductionReader != nil && !mergeCoversMedia(job, mediaByVideo) { continue }
-			stamp := job.UpdatedAt
-			if stamp.IsZero() { stamp = job.CreatedAt }
-			if mergedURL == "" || stamp.After(latest) { mergedURL, latest = strings.TrimSpace(job.OutputURL), stamp }
+		var err error
+		mergeJobs, err = s.MergeReader.GetBatchStatus(ctx, owner, batchID)
+		if err != nil {
+			return nil, err
 		}
-		if mergedURL == "" { return nil, fmt.Errorf("%w: batch has no completed merged media for the active VIDEO revision", ErrConflict) }
-		for _, rawBook := range rawBooks {
-			bookMap := rawBook.(map[string]any)
-			bookMap["mergedUrl"] = mergedURL
-		}
-	} else {
-		for _, rawBook := range rawBooks {
-			bookMap := rawBook.(map[string]any)
-			mergedURL, _ := bookMap["mergedUrl"].(string)
-			if strings.TrimSpace(mergedURL) == "" {
-				return nil, fmt.Errorf("%w: mergedUrl is required before publishing", ErrConflict)
+	}
+	for id, book := range expected {
+		bookMap := booksByID[id]
+		requested := savedPrimaryUploadSource(book)
+		mediaByVideo := mediaByBook[id]
+		if requested.Kind == "video" {
+			media := mediaByVideo[requested.VideoID]
+			if requested.VideoID == "" || media.URL == "" || (requested.TaskID != "" && requested.TaskID != media.TaskID) {
+				return nil, fmt.Errorf("%w: selected upload VIDEO is no longer available", ErrConflict)
 			}
+			bookMap["uploadVideoKind"] = "video"
+			bookMap["uploadVideoUrl"] = media.URL
+			bookMap["uploadVideoId"] = requested.VideoID
+			if len(book.Videos) > 0 && requested.VideoID == book.Videos[0].ID {
+				bookMap["coverVideoUrl"] = media.URL
+			}
+			continue
 		}
+		if requested.Kind != "" && requested.Kind != "merged" {
+			return nil, fmt.Errorf("%w: unsupported primary upload source", ErrInvalid)
+		}
+		if s.MergeReader == nil {
+			return nil, fmt.Errorf("%w: merged media reader is required before publishing", ErrConflict)
+		}
+		merged, found := selectBookMergedMedia(mergeJobs, id, mediaByVideo, requested)
+		if !found {
+			return nil, fmt.Errorf("%w: book %s has no completed merged media for the active VIDEO revision", ErrConflict, id)
+		}
+		bookMap["uploadVideoKind"] = "merged"
+		bookMap["uploadVideoUrl"] = strings.TrimSpace(merged.OutputURL)
+		bookMap["mergedUrl"] = strings.TrimSpace(merged.OutputURL)
+		bookMap["mergeJobId"] = merged.ID
 	}
 	return json.Marshal(document)
 }
 
-func mergeCoversMedia(job batchfactoryv11.MergeJob, mediaByVideo map[string]string) bool {
-	if len(job.Sources) != len(mediaByVideo) || len(mediaByVideo) == 0 { return false }
-	for _, source := range job.Sources {
-		if strings.TrimSpace(source.VideoID) == "" || strings.TrimSpace(source.URL) == "" || mediaByVideo[source.VideoID] != strings.TrimSpace(source.URL) {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Service) ConfirmIntent(ctx context.Context, owner, intentID string) (SubmissionIntent, error) {
-	if s.Intents == nil { return SubmissionIntent{}, ErrUnavailable }
+	if s.Intents == nil {
+		return SubmissionIntent{}, ErrUnavailable
+	}
 	intent, err := s.Intents.GetIntent(ctx, owner, intentID)
-	if err != nil { return SubmissionIntent{}, err }
-	if !s.enabled(intent.Provider) { return SubmissionIntent{}, ErrUnavailable }
-	if !intent.ExpiresAt.After(s.now()) { return SubmissionIntent{}, ErrIntentExpired }
+	if err != nil {
+		return SubmissionIntent{}, err
+	}
+	if !s.enabled(intent.Provider) {
+		return SubmissionIntent{}, ErrUnavailable
+	}
+	if !intent.ExpiresAt.After(s.now()) {
+		return SubmissionIntent{}, ErrIntentExpired
+	}
 	return s.Intents.ConfirmIntent(ctx, owner, intentID)
 }
 
 func (s *Service) Submit(ctx context.Context, owner, provider, intentID string) (ProviderReference, error) {
 	p, err := normalizeProvider(provider)
-	if err != nil { return ProviderReference{}, err }
+	if err != nil {
+		return ProviderReference{}, err
+	}
 	// Gate before intent, credential, or provider lookup: disabled routes never touch secrets or transport.
-	if !s.enabled(p) { return ProviderReference{}, ErrUnavailable }
-	if s.Intents == nil || s.Credentials == nil || s.Audits == nil { return ProviderReference{}, ErrUnavailable }
+	if !s.enabled(p) {
+		return ProviderReference{}, ErrUnavailable
+	}
+	if s.Intents == nil || s.Credentials == nil || s.Audits == nil {
+		return ProviderReference{}, ErrUnavailable
+	}
 	intent, err := s.Intents.GetIntent(ctx, owner, intentID)
-	if err != nil { return ProviderReference{}, err }
-	if intent.Provider != p { return ProviderReference{}, ErrConflict }
-	if intent.ConfirmedAt == nil { return ProviderReference{}, ErrNotConfirmed }
-	if intent.SubmittedAt != nil { return ProviderReference{}, ErrConflict }
-	if !intent.ExpiresAt.After(s.now()) { return ProviderReference{}, ErrIntentExpired }
+	if err != nil {
+		return ProviderReference{}, err
+	}
+	if intent.Provider != p {
+		return ProviderReference{}, ErrConflict
+	}
+	if intent.ConfirmedAt == nil {
+		return ProviderReference{}, ErrNotConfirmed
+	}
+	if intent.SubmittedAt != nil {
+		return ProviderReference{}, ErrConflict
+	}
+	if !intent.ExpiresAt.After(s.now()) {
+		return ProviderReference{}, ErrIntentExpired
+	}
 	stored, err := s.Credentials.GetCredential(ctx, owner, p)
-	if err != nil { return ProviderReference{}, err }
+	if err != nil {
+		return ProviderReference{}, err
+	}
 	secret, err := DecryptCredential(s.Key, stored.Nonce, stored.Ciphertext)
-	if err != nil { return ProviderReference{}, fmt.Errorf("credential decrypt failed") }
+	if err != nil {
+		return ProviderReference{}, fmt.Errorf("credential decrypt failed")
+	}
 	input := CredentialInput{Name: stored.Name, Secret: string(secret)}
-	for i := range secret { secret[i] = 0 }
+	for i := range secret {
+		secret[i] = 0
+	}
 	providerAdapter := s.Providers[p]
-	if providerAdapter == nil { return ProviderReference{}, ErrUnavailable }
+	if providerAdapter == nil {
+		return ProviderReference{}, ErrUnavailable
+	}
 	ref, submitErr := providerAdapter.Submit(ctx, input, intent)
 	input.Secret = ""
 	if submitErr != nil {
 		_, _ = s.Audits.AppendAudit(ctx, AuditRecord{ID: fmt.Sprintf("audit-%d", s.now().UnixNano()), Owner: owner, Provider: p, IntentID: intent.ID, Action: "submit", Outcome: "failed", Message: boundedMessage(submitErr.Error()), CreatedAt: s.now()})
 		return ProviderReference{}, submitErr
 	}
-	if _, err := s.Intents.MarkSubmitted(ctx, owner, intent.ID, s.now()); err != nil { return ProviderReference{}, err }
+	if _, err := s.Intents.MarkSubmitted(ctx, owner, intent.ID, s.now()); err != nil {
+		return ProviderReference{}, err
+	}
 	_, _ = s.Audits.AppendAudit(ctx, AuditRecord{ID: fmt.Sprintf("audit-%d", s.now().UnixNano()), Owner: owner, Provider: p, IntentID: intent.ID, Action: "submit", Outcome: "succeeded", Reference: boundedMessage(ref.Reference), CreatedAt: s.now()})
 	return ref, nil
 }
@@ -361,7 +567,9 @@ func digestPayload(payload []byte) string {
 
 func boundedMessage(value string) string {
 	value = strings.TrimSpace(value)
-	if len(value) > 255 { return value[:255] }
+	if len(value) > 255 {
+		return value[:255]
+	}
 	return value
 }
 
@@ -373,21 +581,101 @@ func sha256Hex(value []byte) string {
 // Memory stores make the contract testable without allowing a production app
 // to silently fall back to process memory; app wiring always uses MySQL.
 type MemoryStore struct {
-	mu sync.Mutex
+	mu          sync.Mutex
 	credentials map[string]encryptedCredential
-	intents map[string]SubmissionIntent
-	audits map[string][]AuditRecord
-	seq int64
+	intents     map[string]SubmissionIntent
+	audits      map[string][]AuditRecord
+	seq         int64
 }
 
-func NewMemoryStore() *MemoryStore { return &MemoryStore{credentials: map[string]encryptedCredential{}, intents: map[string]SubmissionIntent{}, audits: map[string][]AuditRecord{}} }
-func (m *MemoryStore) next(prefix string) string { m.seq++; return fmt.Sprintf("%s-%d", prefix, m.seq) }
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{credentials: map[string]encryptedCredential{}, intents: map[string]SubmissionIntent{}, audits: map[string][]AuditRecord{}}
+}
+func (m *MemoryStore) next(prefix string) string           { m.seq++; return fmt.Sprintf("%s-%d", prefix, m.seq) }
 func credentialKey(owner string, provider Provider) string { return owner + ":" + string(provider) }
-func (m *MemoryStore) SaveCredential(_ context.Context, owner string, provider Provider, value encryptedCredential) (CredentialRef, error) { m.mu.Lock(); defer m.mu.Unlock(); value.ID = m.next("credential"); value.Owner, value.Provider = owner, provider; value.CreatedAt, value.UpdatedAt = time.Now().UTC(), time.Now().UTC(); m.credentials[credentialKey(owner, provider)] = value; return value.CredentialRef, nil }
-func (m *MemoryStore) GetCredential(_ context.Context, owner string, provider Provider) (encryptedCredential, error) { m.mu.Lock(); defer m.mu.Unlock(); value, ok := m.credentials[credentialKey(owner, provider)]; if !ok { return encryptedCredential{}, ErrNotFound }; return value, nil }
-func (m *MemoryStore) CreateIntent(_ context.Context, value SubmissionIntent) (SubmissionIntent, error) { m.mu.Lock(); defer m.mu.Unlock(); if value.ID == "" { value.ID = m.next("intent") }; m.intents[value.ID] = value; return value, nil }
-func (m *MemoryStore) GetIntent(_ context.Context, owner, id string) (SubmissionIntent, error) { m.mu.Lock(); defer m.mu.Unlock(); value, ok := m.intents[id]; if !ok || value.Owner != owner { return SubmissionIntent{}, ErrNotFound }; value.Payload = append(json.RawMessage(nil), value.Payload...); return value, nil }
-func (m *MemoryStore) ConfirmIntent(_ context.Context, owner, id string) (SubmissionIntent, error) { m.mu.Lock(); defer m.mu.Unlock(); value, ok := m.intents[id]; if !ok || value.Owner != owner { return SubmissionIntent{}, ErrNotFound }; if value.ConfirmedAt != nil { return value, nil }; now := time.Now().UTC(); value.ConfirmedAt = &now; m.intents[id] = value; return value, nil }
-func (m *MemoryStore) MarkSubmitted(_ context.Context, owner, id string, at time.Time) (SubmissionIntent, error) { m.mu.Lock(); defer m.mu.Unlock(); value, ok := m.intents[id]; if !ok || value.Owner != owner { return SubmissionIntent{}, ErrNotFound }; if value.SubmittedAt != nil { return value, ErrConflict }; value.SubmittedAt = &at; m.intents[id] = value; return value, nil }
-func (m *MemoryStore) AppendAudit(_ context.Context, value AuditRecord) (AuditRecord, error) { m.mu.Lock(); defer m.mu.Unlock(); if value.ID == "" { value.ID = m.next("audit") }; m.audits[value.Owner] = append(m.audits[value.Owner], value); return value, nil }
-func (m *MemoryStore) ListAudits(_ context.Context, owner, intentID string) ([]AuditRecord, error) { m.mu.Lock(); defer m.mu.Unlock(); out := []AuditRecord{}; for _, value := range m.audits[owner] { if intentID == "" || value.IntentID == intentID { out = append(out, value) } }; return out, nil }
+func (m *MemoryStore) SaveCredential(_ context.Context, owner string, provider Provider, value encryptedCredential) (CredentialRef, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value.ID = m.next("credential")
+	value.Owner, value.Provider = owner, provider
+	value.CreatedAt, value.UpdatedAt = time.Now().UTC(), time.Now().UTC()
+	m.credentials[credentialKey(owner, provider)] = value
+	return value.CredentialRef, nil
+}
+func (m *MemoryStore) GetCredential(_ context.Context, owner string, provider Provider) (encryptedCredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value, ok := m.credentials[credentialKey(owner, provider)]
+	if !ok {
+		return encryptedCredential{}, ErrNotFound
+	}
+	return value, nil
+}
+func (m *MemoryStore) CreateIntent(_ context.Context, value SubmissionIntent) (SubmissionIntent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if value.ID == "" {
+		value.ID = m.next("intent")
+	}
+	m.intents[value.ID] = value
+	return value, nil
+}
+func (m *MemoryStore) GetIntent(_ context.Context, owner, id string) (SubmissionIntent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value, ok := m.intents[id]
+	if !ok || value.Owner != owner {
+		return SubmissionIntent{}, ErrNotFound
+	}
+	value.Payload = append(json.RawMessage(nil), value.Payload...)
+	return value, nil
+}
+func (m *MemoryStore) ConfirmIntent(_ context.Context, owner, id string) (SubmissionIntent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value, ok := m.intents[id]
+	if !ok || value.Owner != owner {
+		return SubmissionIntent{}, ErrNotFound
+	}
+	if value.ConfirmedAt != nil {
+		return value, nil
+	}
+	now := time.Now().UTC()
+	value.ConfirmedAt = &now
+	m.intents[id] = value
+	return value, nil
+}
+func (m *MemoryStore) MarkSubmitted(_ context.Context, owner, id string, at time.Time) (SubmissionIntent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	value, ok := m.intents[id]
+	if !ok || value.Owner != owner {
+		return SubmissionIntent{}, ErrNotFound
+	}
+	if value.SubmittedAt != nil {
+		return value, ErrConflict
+	}
+	value.SubmittedAt = &at
+	m.intents[id] = value
+	return value, nil
+}
+func (m *MemoryStore) AppendAudit(_ context.Context, value AuditRecord) (AuditRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if value.ID == "" {
+		value.ID = m.next("audit")
+	}
+	m.audits[value.Owner] = append(m.audits[value.Owner], value)
+	return value, nil
+}
+func (m *MemoryStore) ListAudits(_ context.Context, owner, intentID string) ([]AuditRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []AuditRecord{}
+	for _, value := range m.audits[owner] {
+		if intentID == "" || value.IntentID == intentID {
+			out = append(out, value)
+		}
+	}
+	return out, nil
+}

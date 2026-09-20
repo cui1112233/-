@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +15,19 @@ import (
 )
 
 type fixedHTTPH3AudioProbe struct{ durationMS int64 }
+
+func seedHTTPH3Assets(t *testing.T, store *batchfactoryv11.MemoryStore, batch batchfactoryv11.Batch, raw []byte) {
+	t.Helper()
+	var d batchfactoryv11.H3DirectorDocument
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range d.CharacterRoster {
+		if _, err := store.CreateBookAsset(context.Background(), "alice", batch.ID, batch.Books[0].ID, batchfactoryv11.CreateBookAssetInput{Kind: "character", Name: c.CanonicalName, Prompt: c.Appearance}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func (p fixedHTTPH3AudioProbe) DurationMS(context.Context, []byte) (int64, error) {
 	return p.durationMS, nil
@@ -27,6 +41,7 @@ func TestV12H3DirectorRouteWritesValidatedCompleteDocument(t *testing.T) {
 	}
 	store := batchfactoryv11.NewMemoryStore()
 	batch, _ := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "raw novel"}}})
+	seedHTTPH3Assets(t, store, batch, raw)
 	director := &batchfactoryv11.DirectorService{Store: store, Provider: &directorHTTPProvider{output: string(raw)}}
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 3, Store: store, Director: director})
 	path := "/api/batch-factory/v12/batches/" + batch.ID + "/books/" + batch.Books[0].ID + "/h3/director"
@@ -101,6 +116,7 @@ func TestV12H3AudioMeasurementRouteProbesBytesInsteadOfAcceptingDuration(t *test
 	}
 	store := batchfactoryv11.NewMemoryStore()
 	batch, _ := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "raw novel"}}})
+	seedHTTPH3Assets(t, store, batch, raw)
 	director := &batchfactoryv11.DirectorService{Store: store, Provider: &directorHTTPProvider{output: string(raw)}}
 	revision, err := director.RunH3Director(context.Background(), "alice", batch.ID, batch.Books[0].ID, batchfactoryv11.H3DirectorRunRequest{
 		VideoSource: batchfactoryv11.H3VideoSource{Revision: "video-source-acceptance001-r1", Text: "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。"},
@@ -117,5 +133,13 @@ func TestV12H3AudioMeasurementRouteProbesBytesInsteadOfAcceptingDuration(t *test
 	})
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"duration_ms":7420`) || !strings.Contains(rec.Body.String(), `"audio_asset_id":"h3-audio-`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	lines := []map[string]any{}
+	for _, card := range revision.Output.H3Director.DirectorCards {
+		lines = append(lines, map[string]any{"source_key": card.SourceKey, "source_text": card.SourceText, "audio_base64": base64.StdEncoding.EncodeToString([]byte("line-audio"))})
+	}
+	rec = signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{"director_revision_id": revision.ID, "tts_fingerprint": "voice-settings", "lines": lines})
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"duration_ms":22260`) || !strings.Contains(rec.Body.String(), `"method":"per_line_tts_probe"`) {
+		t.Fatalf("line measurements not persisted: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

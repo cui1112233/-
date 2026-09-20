@@ -70,6 +70,10 @@ func (s *ReadbackMySQLStore) hydrateSettingsState(ctx context.Context, owner str
 				return Batch{}, err
 			}
 			video.SettingsState = SettingsState{Patch: clonePatch(patch), Revision: video.Revision}
+			applyVideoPromptOverrides(video)
+			if _, overridden := optionalPromptValue(video.SettingsState.Patch, "videoPrompt"); !overridden && book.DirectorRevision != nil && videoIndex < len(book.DirectorRevision.Output.Storyboard) {
+				video.VideoPrompt = storyboardVideoPrompt(book.DirectorRevision.Output.Storyboard[videoIndex])
+			}
 		}
 	}
 	return batch, nil

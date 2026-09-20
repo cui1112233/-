@@ -71,6 +71,45 @@ func (s *MySQLStore) CreateBookAsset(ctx context.Context, owner, batchID, bookID
 	return asset, nil
 }
 
+// PersistExtractedBookAssets upserts only generated assets. Manual prompts are
+// preserved by persistDirectorBookAssets and no director/video record is read
+// or changed here.
+func (s *MySQLStore) PersistExtractedBookAssets(ctx context.Context, owner string, book Book, snapshot DirectorSnapshot, assets DirectorAssets) ([]BookAsset, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := ensureBookOwnership(ctx, tx, owner, book.BatchID, book.ID); err != nil {
+		return nil, err
+	}
+	output := DirectorResult{Characters: assets.Characters, Scenes: assets.Scenes, Props: assets.Props}
+	if err := persistDirectorBookAssets(ctx, tx, owner, book, snapshot, output, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,kind,name,prompt,source,COALESCE(extraction_preset_id,''),COALESCE(extraction_preset_version,0),revision,created_at,updated_at FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=? ORDER BY kind,name,id`, owner, book.BatchID, book.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []BookAsset{}
+	for rows.Next() {
+		var asset BookAsset
+		if err := rows.Scan(&asset.ID, &asset.Kind, &asset.Name, &asset.Prompt, &asset.Source, &asset.ExtractionPresetID, &asset.ExtractionPresetVersion, &asset.Revision, &asset.CreatedAt, &asset.UpdatedAt); err != nil {
+			return nil, err
+		}
+		asset.BatchID, asset.BookID = book.BatchID, book.ID
+		result = append(result, asset)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (s *MySQLStore) UpdateBookAsset(ctx context.Context, owner, batchID, bookID, assetID string, input UpdateBookAssetInput) (BookAsset, error) {
 	input.Name, input.Prompt = strings.TrimSpace(input.Name), strings.TrimSpace(input.Prompt)
 	if input.Name == "" || input.Prompt == "" || len(input.Name) > 255 {

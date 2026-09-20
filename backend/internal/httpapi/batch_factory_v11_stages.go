@@ -8,9 +8,12 @@ import (
 )
 
 type bookStageRunInput struct {
-	Mode      batchfactoryv11.StageMode `json:"mode"`
-	RequestID string                    `json:"requestId"`
-	VideoID   string                    `json:"videoId,omitempty"`
+	Mode              batchfactoryv11.StageMode `json:"mode"`
+	RequestID         string                    `json:"requestId"`
+	VideoID           string                    `json:"videoId,omitempty"`
+	TextProvider      *textProviderInput        `json:"textProvider"`
+	SmartUnifiedStyle string                    `json:"smartUnifiedStyle"`
+	H3                bool                      `json:"h3"`
 }
 
 func registerBookStageRoutes(mux *http.ServeMux, service *batchfactoryv11.BookStageService) {
@@ -37,7 +40,16 @@ func registerBookStageRoutes(mux *http.ServeMux, service *batchfactoryv11.BookSt
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		summary, err := service.Run(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), batchfactoryv11.BookStage(r.PathValue("stage")), input.Mode, input.RequestID, input.VideoID)
+		director, err := directorForRequest(service.Director, input.TextProvider)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		runner := *service
+		runner.Director = director
+		runner.SmartUnifiedStyle = input.SmartUnifiedStyle
+		runner.H3Director = input.H3
+		summary, err := runner.Run(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), batchfactoryv11.BookStage(r.PathValue("stage")), input.Mode, input.RequestID, input.VideoID)
 		if err != nil {
 			if errors.Is(err, batchfactoryv11.ErrUnavailable) {
 				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
@@ -58,8 +70,21 @@ func registerBookStageRoutes(mux *http.ServeMux, service *batchfactoryv11.BookSt
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		summary, err := service.RetryLastFailed(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, input.VideoID)
+		director, err := directorForRequest(service.Director, input.TextProvider)
 		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		runner := *service
+		runner.Director = director
+		runner.SmartUnifiedStyle = input.SmartUnifiedStyle
+		runner.H3Director = input.H3
+		summary, err := runner.RetryLastFailed(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, input.VideoID)
+		if err != nil {
+			if errors.Is(err, batchfactoryv11.ErrUnavailable) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+				return
+			}
 			writeStoreError(w, err)
 			return
 		}

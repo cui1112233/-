@@ -8,6 +8,7 @@ import (
 
 func TestRunH3DirectorPersistsOnlyValidatedV12DocumentForProcessedVideoSource(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
+	seedH3CharacterAssets(t, store, batch.ID, book.ID)
 	source := H3VideoSource{
 		Revision: "video-source-acceptance001-r1",
 		Hash:     "7fd4e403990989ac04b829ce336449287ff3cdb27ffdbe4a51f12dfe74ecb198",
@@ -28,13 +29,28 @@ func TestRunH3DirectorPersistsOnlyValidatedV12DocumentForProcessedVideoSource(t 
 	if revision.Output.H3Director == nil || len(revision.Output.H3Director.DirectorCards) != 3 {
 		t.Fatalf("H3 document not persisted: %#v", revision.Output)
 	}
-	if len(provider.calls) != 1 || !strings.Contains(provider.calls[0].SystemPrompt, "character_slot_ids") || !strings.Contains(provider.calls[0].SystemPrompt, "不得输出最终秒数") {
+	if len(provider.calls) != 1 || !strings.Contains(provider.calls[0].SystemPrompt, "character_slot_ids") || !strings.Contains(provider.calls[0].SystemPrompt, "不得输出最终秒数") || !strings.Contains(provider.calls[0].SystemPrompt, "必须使用 JSON 数字") || !strings.Contains(provider.calls[0].SystemPrompt, `camera={"shot_size"`) || !strings.Contains(provider.calls[0].SystemPrompt, `character_roster 每项={"slot_id"`) {
 		t.Fatalf("incomplete H3 director contract: %#v", provider.calls)
 	}
 	for _, line := range h3NonEmptyVideoSourceLines(source.Text) {
 		if !strings.Contains(provider.calls[0].UserPrompt, line) {
 			t.Fatalf("processed video source line missing from prompt: %q", line)
 		}
+	}
+}
+
+func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAliases(t *testing.T) {
+	source := H3VideoSource{Revision: "video-source-r1", Hash: sourceDigest("江小姐的老公来了。"), Text: "江小姐的老公来了。"}
+	assets := []NamedPrompt{
+		{Name: "江淮雪", Prompt: "年轻女性，医院病房中穿病号服。"},
+		{Name: "周临", Prompt: "成年男性，身材修长，气质冷峻。"},
+	}
+	contract := buildH3DirectorContract(source, H3DirectorPreset{Key: "h3-director-normal", Revision: 1}, assets)
+	if !strings.Contains(contract.SystemPrompt, "canonical_name 必须优先使用已有人物资产的精确 name") {
+		t.Fatalf("director contract does not enforce stable asset names: %s", contract.SystemPrompt)
+	}
+	if !strings.Contains(contract.UserPrompt, `"name":"江淮雪"`) || !strings.Contains(contract.UserPrompt, `"name":"周临"`) {
+		t.Fatalf("director contract lost existing character assets: %s", contract.UserPrompt)
 	}
 }
 

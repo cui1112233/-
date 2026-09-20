@@ -11,7 +11,7 @@ import (
 const (
 	h3VideoCompilationSchemaV1 = "h3-video-compilation/v1"
 	h3VideoCompilerKey         = "embedded-h3"
-	h3VideoCompilerVersionV1   = "h3-video-compiler/v1"
+	h3VideoCompilerVersion     = "h3-video-compiler/v3"
 )
 
 type H3VideoPreset struct {
@@ -40,6 +40,7 @@ type H3EditableCopyRevision struct {
 }
 
 type H3VideoCompileInput struct {
+	FinalPromptOverrides  map[string]H3EditableCopyRevision `json:"final_prompt_overrides,omitempty"`
 	TimelineID            string                            `json:"timeline_id"`
 	Document              H3DirectorDocument                `json:"document"`
 	Timeline              H3CanonicalTimeline               `json:"timeline"`
@@ -95,6 +96,20 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 	if err != nil {
 		return compilation, err
 	}
+	for key := range input.FinalPromptOverrides {
+		found := false
+		for _, segment := range segments {
+			if segment.SegmentKey == key {
+				found = true
+			}
+		}
+		if !found {
+			return compilation, fmt.Errorf("%w: final prompt references unknown segment %s", ErrInvalid, key)
+		}
+		if _, mixed := input.EditableCopyOverrides[key]; mixed {
+			return compilation, fmt.Errorf("%w: conflicting prompt override modes", ErrInvalid)
+		}
+	}
 	for key := range input.EditableCopyOverrides {
 		found := false
 		for _, segment := range segments {
@@ -116,8 +131,9 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		Analysis              H3AnalysisSnapshot                `json:"analysis"`
 		Switches              H3PromptSwitches                  `json:"switches"`
 		EditableCopyOverrides map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
+		FinalPromptOverrides  map[string]H3EditableCopyRevision `json:"final_prompt_overrides,omitempty"`
 		CompilerVersion       string                            `json:"compiler_version"`
-	}{input.TimelineID, input.Document, input.Timeline, input.Preset, input.Analysis, input.Switches, input.EditableCopyOverrides, h3VideoCompilerVersionV1})
+	}{input.TimelineID, input.Document, input.Timeline, input.Preset, input.Analysis, input.Switches, input.EditableCopyOverrides, input.FinalPromptOverrides, h3VideoCompilerVersion})
 	if err != nil {
 		return compilation, fmt.Errorf("hash H3 compilation input: %w", err)
 	}
@@ -127,7 +143,7 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		CanonicalTimelineID: strings.TrimSpace(input.TimelineID),
 		VideoPreset:         input.Preset,
 		CompilerKey:         h3VideoCompilerKey,
-		CompilerVersion:     h3VideoCompilerVersionV1,
+		CompilerVersion:     h3VideoCompilerVersion,
 		MaxSegmentMS:        input.Preset.MaxSegmentMS,
 		InputHash:           fmt.Sprintf("%x", sha256.Sum256(hashInput)),
 		Analysis:            cloneH3Analysis(input.Analysis),
@@ -140,15 +156,23 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		if !overridden {
 			editableCopy = h3DefaultEditableCopy(input.Document, segment)
 			copyRevision.Revision = 1
-			editableSource = "source_slice"
+			editableSource = "director_compilation"
 		} else if editableCopy == "" || copyRevision.Revision < 1 {
 			return H3VideoCompilation{}, fmt.Errorf("%w: %s editable copy text and positive revision are required", ErrInvalid, segment.SegmentKey)
 		}
 		prompt := compileH3CanonicalSegmentPrompt(input, segment, editableCopy, overridden)
+		if final, ok := input.FinalPromptOverrides[segment.SegmentKey]; ok {
+			if strings.TrimSpace(final.Text) == "" || final.Revision < 1 {
+				return H3VideoCompilation{}, fmt.Errorf("%w: final prompt text and revision required", ErrInvalid)
+			}
+			prompt, editableCopy, copyRevision, editableSource = final.Text, final.Text, final, "user_final_prompt"
+		} else if !overridden {
+			editableCopy = prompt
+		}
 		promptHash := fmt.Sprintf("%x", sha256.Sum256([]byte(prompt)))
 		trace := H3CompileTrace{
 			CompilerKey:          h3VideoCompilerKey,
-			CompilerVersion:      h3VideoCompilerVersionV1,
+			CompilerVersion:      h3VideoCompilerVersion,
 			VideoPresetKey:       input.Preset.Key,
 			VideoPresetRevision:  input.Preset.Revision,
 			Switches:             input.Switches,
@@ -173,6 +197,12 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 			trace.InjectedLayers = append(trace.InjectedLayers, "asset_settings")
 		} else {
 			trace.OmittedLayers = append(trace.OmittedLayers, "asset_settings")
+		}
+		if editableSource == "user_final_prompt" {
+			// The user replaced the entire output. The saved switch settings
+			// are context, not evidence that any automatic layer survived.
+			trace.InjectedLayers = []string{}
+			trace.OmittedLayers = []string{"storyboard_facts", "output_constraints", "editable_copy_override", "visual_baseline", "asset_settings"}
 		}
 		requestDuration, err := h3RequestDuration(segment.CanonicalDurationMS, input.Preset)
 		if err != nil {
@@ -251,26 +281,111 @@ func h3RequestDuration(canonicalMS int64, preset H3VideoPreset) (int64, error) {
 }
 
 func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoSegment, editableCopy string, overridden bool) string {
-	parts := []string{
-		"【H3 FINAL VIDEO】",
-		fmt.Sprintf("preset=%s@%d | format=%s | segment=%s | canonical=%s-%s | duration=%dms", input.Preset.Key, input.Preset.Revision, input.Preset.Format, segment.SegmentKey, h3MillisClock(segment.CanonicalStartMS), h3MillisClock(segment.CanonicalEndMS), segment.CanonicalDurationMS),
-		"【人物绑定】\n" + h3RosterText(input.Document.CharacterRoster),
-		"【视频原文切片】\n" + h3SourceSliceText(input.Document, segment),
-	}
+	parts := []string{}
 	if input.Switches.SmartUnified {
-		parts = append(parts, "【H3视觉基线】\n"+strings.TrimSpace(input.Analysis.VisualBaseline))
+		parts = append(parts, "detailed_description:\n"+strings.TrimSpace(input.Analysis.VisualBaseline))
 	}
 	if input.Switches.BaseSetup {
-		parts = append(parts, "【基础资产设定】\n"+h3AssetSettingsText(input.Document, input.Analysis, segment))
+		parts = append(parts, "subject_definitions:\n"+h3CanonicalSubjectDefinitions(input.Document, input.Analysis, segment))
 	}
 	if overridden {
-		parts = append(parts, "【用户文案约束】\n"+strings.TrimSpace(editableCopy))
+		parts = append(parts, "editable_story_direction:\n"+strings.TrimSpace(editableCopy))
 	}
-	parts = append(parts,
-		"【VIDEO Timeline（segment-local）】\n"+h3SegmentFactsText(input.Document, segment),
-		"【输出约束】\n"+strings.TrimSpace(input.Preset.OutputConstraints),
-	)
+	parts = append(parts, "【视听呈现】\n"+h3CanonicalPresentation(input.Document, segment))
+	parts = append(parts, h3VisualPolicy()+"\n"+strings.TrimSpace(input.Preset.OutputConstraints))
 	return strings.Join(parts, "\n\n")
+}
+
+func h3CanonicalSubjectDefinitions(document H3DirectorDocument, analysis H3AnalysisSnapshot, segment H3VideoSegment) string {
+	used := map[string]bool{}
+	for _, reference := range segment.MicroShots {
+		card, ok := h3DirectorCardBySourceKey(document, reference.SourceKey)
+		if !ok {
+			continue
+		}
+		shot, ok := h3MicroShotByKey(card, reference.MicroShotKey)
+		if !ok {
+			continue
+		}
+		for _, slotID := range shot.CharacterSlotIDs {
+			used[slotID] = true
+		}
+	}
+	lines := []string{}
+	index := 0
+	for _, character := range document.CharacterRoster {
+		if !used[character.SlotID] {
+			continue
+		}
+		index++
+		lines = append(lines, fmt.Sprintf("<Subject %d> %s：%s", index, character.CanonicalName, strings.TrimSpace(analysis.CharacterSettings[character.SlotID])))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func h3CanonicalPresentation(document H3DirectorDocument, segment H3VideoSegment) string {
+	visualLines := []string{}
+	audioLines := []string{}
+	sceneNumber := 0
+	for _, slice := range segment.SourceSlices {
+		card, ok := h3DirectorCardBySourceKey(document, slice.SourceKey)
+		if !ok {
+			continue
+		}
+		references := []H3SegmentMicroShot{}
+		for _, reference := range segment.MicroShots {
+			if reference.SourceKey == card.SourceKey {
+				references = append(references, reference)
+			}
+		}
+		if len(references) == 0 {
+			continue
+		}
+		sceneNumber++
+		duration := float64(references[len(references)-1].SegmentEndMS-references[0].SegmentStartMS) / 1000
+		visualLines = append(visualLines,
+			fmt.Sprintf("[Scene %d] %s", sceneNumber, strings.TrimSpace(card.Continuity.Location)),
+			fmt.Sprintf("Event: %s", strings.TrimSpace(card.Action)),
+			fmt.Sprintf("导演调度：%s，%s，%s；摄影机%s，主体%s，以%s衔接。", card.Camera.ShotSize, card.Camera.ShotAngle, card.Camera.Framing, card.Movement.CameraMovement, card.Movement.SubjectMovement, card.Movement.Transition),
+			fmt.Sprintf("Total duration: %.3f seconds.", duration),
+		)
+		for shotIndex, reference := range references {
+			shot, found := h3MicroShotByKey(card, reference.MicroShotKey)
+			if !found {
+				continue
+			}
+			visualLines = append(visualLines,
+				fmt.Sprintf("[Shot %d] %s-%s", shotIndex+1, h3MillisClock(reference.SegmentStartMS), h3MillisClock(reference.SegmentEndMS)),
+				fmt.Sprintf("%s。人物：%s。画面：%s。动作：%s。机位：%s，%s，%s。运镜：%s；主体运动：%s；转场：%s。节奏：%s。连续性：轴线%s，光线%s，镜头结束时%s。",
+					strings.TrimSpace(shot.ShotTask), h3SlotNames(document, shot.CharacterSlotIDs), strings.TrimSpace(shot.Visual), strings.TrimSpace(shot.Action),
+					shot.Camera.ShotSize, shot.Camera.ShotAngle, shot.Camera.Framing, shot.Movement.CameraMovement, shot.Movement.SubjectMovement, shot.Movement.Transition,
+					shot.Rhythm, card.Continuity.Axis, card.Continuity.LightDirection, h3ActionEndsSummary(card.Continuity.ActionEnds)),
+			)
+			if soundscape := h3AudioValue(h3AudioText(shot.Audio)); soundscape != "" {
+				audioLines = append(audioLines, fmt.Sprintf("[Scene %d][Shot %d] Soundscape: %s", sceneNumber, shotIndex+1, soundscape))
+			}
+		}
+	}
+	if len(audioLines) > 0 {
+		visualLines = append(visualLines, "", "Audio:")
+		visualLines = append(visualLines, audioLines...)
+	}
+	return strings.Join(visualLines, "\n")
+}
+
+func h3ActionEndsSummary(values map[string]string) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if value := strings.TrimSpace(values[key]); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, "、")
 }
 
 func h3RosterText(roster []H3Character) string {
@@ -406,13 +521,42 @@ func h3MicroShotByKey(card H3DirectorCard, key string) (H3MicroShot, bool) {
 }
 
 func h3DefaultEditableCopy(document H3DirectorDocument, segment H3VideoSegment) string {
-	lines := make([]string, 0, len(segment.SourceSlices))
+	sections := make([]string, 0, len(segment.SourceSlices))
 	for _, slice := range segment.SourceSlices {
-		if card, ok := h3DirectorCardBySourceKey(document, slice.SourceKey); ok {
-			lines = append(lines, card.SourceText)
+		card, ok := h3DirectorCardBySourceKey(document, slice.SourceKey)
+		if !ok {
+			continue
 		}
+		lines := []string{
+			fmt.Sprintf("原文：%s", card.SourceText),
+			fmt.Sprintf("画面：%s", card.VisualContext),
+			fmt.Sprintf("人物：%s", h3SlotNames(document, card.CharacterSlotIDs)),
+			fmt.Sprintf("动作：%s", card.Action),
+			fmt.Sprintf("机位：%s · %s · %s", card.Camera.ShotSize, card.Camera.ShotAngle, card.Camera.Framing),
+			fmt.Sprintf("运镜：%s · %s · %s", card.Movement.CameraMovement, card.Movement.SubjectMovement, card.Movement.Transition),
+			fmt.Sprintf("节奏：%s", card.Rhythm),
+		}
+		shotNumber := 0
+		for _, reference := range segment.MicroShots {
+			if reference.SourceKey != card.SourceKey {
+				continue
+			}
+			shot, found := h3MicroShotByKey(card, reference.MicroShotKey)
+			if !found {
+				continue
+			}
+			shotNumber++
+			lines = append(lines, fmt.Sprintf(
+				"微镜头%d（%s-%s）：%s；画面：%s；动作：%s；机位：%s · %s · %s；运镜：%s · %s · %s",
+				shotNumber, h3MillisClock(reference.SegmentStartMS), h3MillisClock(reference.SegmentEndMS),
+				shot.ShotTask, shot.Visual, shot.Action,
+				shot.Camera.ShotSize, shot.Camera.ShotAngle, shot.Camera.Framing,
+				shot.Movement.CameraMovement, shot.Movement.SubjectMovement, shot.Movement.Transition,
+			))
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(sections, "\n\n")
 }
 
 func h3MillisClock(milliseconds int64) string {

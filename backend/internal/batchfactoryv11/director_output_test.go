@@ -93,38 +93,100 @@ func TestDirectorNormalizeValidOutput(t *testing.T) {
 	}
 }
 
-func TestDirectorFixedSingleVideoRules(t *testing.T) {
-	_, err := NormalizeDirectorOutput(json.RawMessage(twoDirectorVideosJSON(t)), DirectorSettings{
+func TestDirectorRequiresAndPreservesH3CanonicalMetadata(t *testing.T) {
+	var root map[string]any
+	if err := json.Unmarshal([]byte(validDirectorJSON()), &root); err != nil {
+		t.Fatal(err)
+	}
+	storyboard := root["storyboard"].([]any)
+	video := storyboard[0].(map[string]any)
+	video["scene_memory"] = "林晚站在客厅门口，右手握着玻璃杯，门仍半开。"
+	shots := video["shots"].([]any)
+	shots[0].(map[string]any)["visual_context"] = "林家客厅，傍晚的窗边冷光照在茶几上。"
+	shots[0].(map[string]any)["lighting"] = "侧向冷光勾勒林晚面部，暗部保留木材纹理。"
+	shots[0].(map[string]any)["rhythm"] = "克制铺陈"
+	shots[0].(map[string]any)["audio"] = "门锁轻响，林晚（低声）：“我回来了。”"
+	shots[1].(map[string]any)["visual_context"] = "林家客厅，玻璃杯仍在茶几边缘。"
+	shots[1].(map[string]any)["lighting"] = "窗外冷光落在杯沿，反射短暂闪动。"
+	shots[1].(map[string]any)["rhythm"] = "骤然收紧"
+	shots[1].(map[string]any)["audio"] = "无"
+	raw, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NormalizeDirectorOutput(raw, DirectorSettings{
 		MaxVideoDuration:  15,
-		FixedSingleVideo:  true,
-		ExactDuration:     15,
+		AspectRatio:       "9:16",
+		AllowedPrefixKeys: []string{"modern_conflict"},
+		RequireH3Metadata: true,
+	})
+	if err != nil {
+		t.Fatalf("H3 metadata should normalize: %v", err)
+	}
+	videoResult := result.Storyboard[0]
+	if videoResult.SceneMemory == "" || videoResult.Shots[0].Rhythm != "克制铺陈" || videoResult.Shots[0].Audio == "" {
+		t.Fatalf("H3 metadata was not persisted: %#v", videoResult)
+	}
+
+	delete(video, "scene_memory")
+	missingMemory, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NormalizeDirectorOutput(missingMemory, DirectorSettings{MaxVideoDuration: 15, AspectRatio: "9:16", AllowedPrefixKeys: []string{"modern_conflict"}, RequireH3Metadata: true}); err == nil {
+		t.Fatal("H3 metadata validation must reject missing scene_memory")
+	}
+}
+
+func TestStoryboardVideoPromptUsesDirectorShotTimelineInsteadOfSummary(t *testing.T) {
+	result, err := NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), DirectorSettings{
+		MaxVideoDuration:  15,
 		AspectRatio:       "9:16",
 		AllowedPrefixKeys: []string{"modern_conflict"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "严格输出 15 秒") {
-		t.Fatalf("expected fixed-single first-video duration error, got %v", err)
+	if err != nil {
+		t.Fatal(err)
 	}
+	prompt := storyboardVideoPrompt(result.Storyboard[0])
+	for _, expected := range []string{
+		"镜头画面：",
+		"00:00-00:03 | 中景｜缓慢推轨 | 林晚进入客厅",
+		"00:03-00:09 | 特写｜固定 | 她握紧玻璃杯",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("storyboard prompt is missing %q:\n%s", expected, prompt)
+		}
+	}
+	if strings.Contains(prompt, result.Storyboard[0].VideoDesc) {
+		t.Fatalf("summary video_desc must not replace the storyboard prompt:\n%s", prompt)
+	}
+}
 
+func TestDirectorRequiresStoryboardTotalToMatchAudioPlan(t *testing.T) {
+	settings := DirectorSettings{
+		MaxVideoDuration:   10,
+		AudioTargetSeconds: 9,
+		AspectRatio:        "9:16",
+		AllowedPrefixKeys:  []string{"modern_conflict"},
+	}
+	if _, err := NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), settings); err != nil {
+		t.Fatalf("matching audio plan rejected: %v", err)
+	}
+	settings.AudioTargetSeconds = 10
+	if _, err := NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), settings); err == nil || !strings.Contains(err.Error(), "总时长必须严格等于配音规划时长") {
+		t.Fatalf("expected exact audio-total rejection, got %v", err)
+	}
+}
+
+func TestDirectorFixedSingleVideoRules(t *testing.T) {
 	value, err := NormalizeDirectorOutput(json.RawMessage(twoDirectorVideosJSON(t)), DirectorSettings{
 		MaxVideoDuration:  15,
 		FixedSingleVideo:  true,
-		ExactDuration:     9,
 		AspectRatio:       "9:16",
 		AllowedPrefixKeys: []string{"modern_conflict"},
 	})
 	if err != nil || len(value.Storyboard) != 2 {
-		t.Fatalf("fixed single must preserve all storyboard prompts: value=%+v err=%v", value, err)
-	}
-
-	_, err = NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), DirectorSettings{
-		MaxVideoDuration:  15,
-		FixedSingleVideo:  true,
-		ExactDuration:     15,
-		AspectRatio:       "9:16",
-		AllowedPrefixKeys: []string{"modern_conflict"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "严格输出 15 秒") {
-		t.Fatalf("expected exact duration error, got %v", err)
+		t.Fatalf("fixed opening must preserve the full storyboard for review: value=%+v err=%v", value, err)
 	}
 }
 
@@ -149,6 +211,25 @@ func TestDirectorRejectsDiscontinuousShots(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "必须连续") {
 		t.Fatalf("expected continuity error, got %v", err)
+	}
+}
+
+func TestDirectorNormalizesProviderShotDescriptionAliases(t *testing.T) {
+	for _, field := range []string{"shot_description", "画面描述"} {
+		t.Run(field, func(t *testing.T) {
+			output := strings.Replace(validDirectorJSON(), `"description":"林晚进入客厅"`, `"`+field+`":"林晚进入客厅"`, 1)
+			result, err := NormalizeDirectorOutput(json.RawMessage(output), DirectorSettings{
+				MaxVideoDuration:  15,
+				AspectRatio:       "9:16",
+				AllowedPrefixKeys: []string{"modern_conflict"},
+			})
+			if err != nil {
+				t.Fatalf("NormalizeDirectorOutput returned error: %v", err)
+			}
+			if got := result.Storyboard[0].Shots[0].Description; got != "林晚进入客厅" {
+				t.Fatalf("description=%q", got)
+			}
+		})
 	}
 }
 
@@ -180,7 +261,6 @@ func TestDirectorFixedSingleDefaultSourceCoverage(t *testing.T) {
 	result, err := NormalizeDirectorOutput(json.RawMessage(fixed), DirectorSettings{
 		MaxVideoDuration:  15,
 		FixedSingleVideo:  true,
-		ExactDuration:     15,
 		AspectRatio:       "9:16",
 		AllowedPrefixKeys: []string{"modern_conflict"},
 	})

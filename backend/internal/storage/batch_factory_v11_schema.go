@@ -280,6 +280,27 @@ func V11ProductionStatements() []string {
 // V11MergeStatements persists the merge request and its exact ordered inputs.
 // Keeping sources separate makes retries idempotent while retaining the media
 // list that was actually handed to the merge provider.
+// V11ProductionLibraryStatements records a user removing a generated candidate
+// from the clip library without breaking task events, merge sources or provider
+// audit history that reference the durable task row.
+func V11ProductionLibraryStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_hidden_production_tasks (
+  task_id VARCHAR(64) NOT NULL PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NOT NULL,
+  video_id VARCHAR(64) NOT NULL,
+  deleted_at DATETIME(6) NOT NULL,
+  KEY idx_bfv11_hidden_production_tasks_book (owner_username,batch_id,book_id,video_id),
+  CONSTRAINT fk_bfv11_hidden_production_task FOREIGN KEY (task_id) REFERENCES batch_factory_v11_production_tasks(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_hidden_production_batch FOREIGN KEY (batch_id) REFERENCES batch_factory_v11_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_hidden_production_book FOREIGN KEY (book_id) REFERENCES batch_factory_v11_books(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_bfv11_hidden_production_video FOREIGN KEY (video_id) REFERENCES batch_factory_v11_videos(id) ON DELETE RESTRICT
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11MergeStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS batch_factory_v11_merge_jobs (
@@ -459,6 +480,36 @@ func V11ProductionAssetInputStatements() []string {
 	}
 }
 
+func V11ProductionDurationStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN target_duration_seconds DECIMAL(10,3) NOT NULL DEFAULT 0 AFTER downgraded_asset_ids`,
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN requested_duration_seconds DECIMAL(10,3) NOT NULL DEFAULT 0 AFTER target_duration_seconds`,
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN actual_duration_seconds DECIMAL(10,3) NOT NULL DEFAULT 0 AFTER requested_duration_seconds`,
+	}
+}
+
+func V11MergeSourceDurationStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_merge_sources ADD COLUMN target_duration_seconds DECIMAL(10,3) NOT NULL DEFAULT 0 AFTER media_url`,
+		`ALTER TABLE batch_factory_v11_merge_sources ADD COLUMN requested_duration_seconds DECIMAL(10,3) NOT NULL DEFAULT 0 AFTER target_duration_seconds`,
+		`ALTER TABLE batch_factory_v11_merge_sources ADD COLUMN actual_duration_seconds DECIMAL(10,3) NOT NULL DEFAULT 0 AFTER requested_duration_seconds`,
+	}
+}
+
+// V11MergeProgressStatements keeps the selected timing option and durable
+// executor progress for each book-level final merge. Every statement runs
+// exactly once through the versioned migration marker; MySQL 8.4 does not
+// accept ADD COLUMN IF NOT EXISTS here.
+func V11MergeProgressStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN timing_mode VARCHAR(32) NULL AFTER request_id`,
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN speed DECIMAL(8,3) NOT NULL DEFAULT 1 AFTER timing_mode`,
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN progress_phase VARCHAR(32) NULL AFTER status`,
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN progress_current INT NOT NULL DEFAULT 0 AFTER progress_phase`,
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN progress_total INT NOT NULL DEFAULT 0 AFTER progress_current`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -476,6 +527,11 @@ func V11Migrations() []Migration {
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
 		{Version: 1100015, SQL: V11BookStageRunsStatements(), CallbackChecksum: "batch-factory-v11-book-stage-runs-v1"},
+		{Version: 1100016, SQL: V11BookMergeStatements(), CallbackChecksum: "batch-factory-v11-book-merge-v1"},
+		{Version: 1100017, SQL: V11ProductionDurationStatements(), CallbackChecksum: "batch-factory-v11-production-durations-v1"},
+		{Version: 1100018, SQL: V11MergeSourceDurationStatements(), CallbackChecksum: "batch-factory-v11-merge-source-durations-v1"},
+		{Version: 1100019, SQL: V11ProductionLibraryStatements(), CallbackChecksum: "batch-factory-v11-production-library-v1"},
+		{Version: 1100020, SQL: V11MergeProgressStatements(), CallbackChecksum: "batch-factory-v11-merge-progress-v1"},
 	}
 }
 
@@ -490,4 +546,8 @@ func V11SeparateVideoPromptStatements() []string {
 		`UPDATE batch_factory_v11_video_records SET video_prompt=visual_prompt WHERE (video_prompt IS NULL OR video_prompt='') AND visual_prompt IS NOT NULL AND visual_prompt<>''`,
 		`UPDATE batch_factory_v11_video_records SET visual_prompt=NULL WHERE video_prompt IS NOT NULL AND video_prompt<>''`,
 	}
+}
+
+func V11BookMergeStatements() []string {
+	return []string{`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN book_id VARCHAR(64) NULL AFTER batch_id`}
 }

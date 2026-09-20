@@ -155,28 +155,36 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 	}
 
 	orphaned := []OrphanedOverride{}
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM batch_factory_v11_videos WHERE batch_id=? AND book_id=? AND owner_username=? AND compatibility_state='active' ORDER BY ordinal,id`, book.BatchID, book.ID, owner)
+	rows, err := tx.QueryContext(ctx, `SELECT id,ordinal FROM batch_factory_v11_videos WHERE batch_id=? AND book_id=? AND owner_username=? AND compatibility_state='active' ORDER BY ordinal,id`, book.BatchID, book.ID, owner)
 	if err != nil {
 		return DirectorRevision{}, err
 	}
 	oldIDs := []string{}
+	oldOrdinals := map[string]int{}
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var ordinal int
+		if err := rows.Scan(&id, &ordinal); err != nil {
 			rows.Close()
 			return DirectorRevision{}, err
 		}
 		oldIDs = append(oldIDs, id)
+		oldOrdinals[id] = ordinal
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return DirectorRevision{}, err
 	}
 	rows.Close()
+	previousSelections := map[int]VideoAssetSelection{}
+	previousSelectionExists := map[int]bool{}
 	for _, videoID := range oldIDs {
 		patch, err := loadPatch(ctx, tx, owner, ScopeRef{Kind: ScopeVideo, BatchID: book.BatchID, BookID: book.ID, VideoID: videoID})
 		if err != nil {
 			return DirectorRevision{}, err
+		}
+		if selection, ok := decodeVideoAssetSelection(patch); ok {
+			previousSelections[oldOrdinals[videoID]], previousSelectionExists[oldOrdinals[videoID]] = selection, true
 		}
 		if len(patch) > 0 {
 			encoded, err := json.Marshal(patch)
@@ -207,16 +215,44 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 			return DirectorRevision{}, err
 		}
 		label := fmt.Sprintf("VIDEO %02d", ordinal+1)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_video_records(video_id,label,video_prompt,visual_prompt,duration_seconds) VALUES(?,?,?,?,?)`, videoID, label, draft.VideoDesc, nullableString(draft.VisualPrompt), draft.DurationSec); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_video_records(video_id,label,video_prompt,visual_prompt,duration_seconds) VALUES(?,?,?,?,?)`, videoID, label, storyboardVideoPrompt(draft), nullableString(draft.VisualPrompt), draft.DurationSec); err != nil {
 			return DirectorRevision{}, err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_director_video_links(director_revision_id,video_id,ordinal) VALUES(?,?,?)`, revisionID, videoID, ordinal); err != nil {
 			return DirectorRevision{}, err
 		}
-		videos = append(videos, Video{ID: videoID, BatchID: book.BatchID, BookID: book.ID, Label: label, VideoPrompt: draft.VideoDesc, VisualPrompt: draft.VisualPrompt, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1})
+		videos = append(videos, Video{ID: videoID, BatchID: book.BatchID, BookID: book.ID, Label: label, VideoPrompt: storyboardVideoPrompt(draft), VisualPrompt: draft.VisualPrompt, DurationSeconds: float64(draft.DurationSec), CompatibilityState: "active", Revision: 1})
 	}
 	if err := persistDirectorBookAssets(ctx, tx, owner, book, snapshot, output, now); err != nil {
 		return DirectorRevision{}, err
+	}
+	assetRows, err := tx.QueryContext(ctx, `SELECT id,kind,name FROM batch_factory_v11_book_assets WHERE batch_id=? AND book_id=? AND owner_username=?`, book.BatchID, book.ID, owner)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
+	assetIDs := map[string]string{}
+	for assetRows.Next() {
+		var id, kind, name string
+		if err := assetRows.Scan(&id, &kind, &name); err != nil {
+			assetRows.Close()
+			return DirectorRevision{}, err
+		}
+		assetIDs[kind+"\x00"+name] = id
+	}
+	if err := assetRows.Err(); err != nil {
+		assetRows.Close()
+		return DirectorRevision{}, err
+	}
+	assetRows.Close()
+	for ordinal, video := range videos {
+		selection := reconcileVideoAssetSelection(previousSelections[ordinal], previousSelectionExists[ordinal], automaticAssetIDsForDirectorVideo(output.Storyboard[ordinal], assetIDs))
+		encoded, err := json.Marshal(selection)
+		if err != nil {
+			return DirectorRevision{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_settings_patches(scope_type,scope_id,owner_username,batch_id,book_id,video_id,patch_json,revision,updated_at) VALUES('video',?,?,?,?,?,?,1,?)`, video.ID, owner, book.BatchID, book.ID, video.ID, encoded, now); err != nil {
+			return DirectorRevision{}, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=?,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, currentBookRevision+1, now, book.ID, book.BatchID, owner); err != nil {
 		return DirectorRevision{}, err

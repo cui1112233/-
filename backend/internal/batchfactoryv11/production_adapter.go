@@ -111,16 +111,17 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 	}
 	providerTaskID := firstVideoValue(response, "providerTaskId", "provider_task_id", "taskId", "task_id", "id")
 	mediaURL := firstVideoValue(response, "mediaUrl", "media_url", "videoUrl", "video_url", "url")
+	actualDuration := firstVideoFloat(response, "actualDurationSeconds", "actual_duration_seconds", "durationSeconds", "duration_seconds", "duration")
 	if mediaURL != "" {
 		if _, err := a.validatedURL(mediaURL); err != nil {
 			return ProviderTaskRef{}, fmt.Errorf("provider returned unsafe media URL: %w", err)
 		}
-		return ProviderTaskRef{ProviderTaskID: providerTaskID, State: ProductionSucceeded, MediaURL: mediaURL}, nil
+		return ProviderTaskRef{ProviderTaskID: providerTaskID, State: ProductionSucceeded, MediaURL: mediaURL, RequestedDurationSeconds: float64(duration), ActualDurationSeconds: actualDuration}, nil
 	}
 	if providerTaskID == "" {
 		return ProviderTaskRef{}, fmt.Errorf("video provider response did not contain a task id or media URL")
 	}
-	return ProviderTaskRef{ProviderTaskID: providerTaskID, State: ProductionQueued}, nil
+	return ProviderTaskRef{ProviderTaskID: providerTaskID, State: ProductionQueued, RequestedDurationSeconds: float64(duration)}, nil
 }
 
 func (a *HTTPVideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task ProviderTaskRef) (ProviderTaskRef, error) {
@@ -150,7 +151,7 @@ func (a *HTTPVideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task Pr
 	}
 	status := strings.ToLower(firstVideoValue(response, "status", "state"))
 	mediaURL := firstVideoValue(response, "mediaUrl", "media_url", "videoUrl", "video_url", "url")
-	result := ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, MediaURL: mediaURL}
+	result := ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, MediaURL: mediaURL, ActualDurationSeconds: firstVideoFloat(response, "actualDurationSeconds", "actual_duration_seconds", "durationSeconds", "duration_seconds", "duration")}
 	switch status {
 	case "succeeded", "success", "completed", "done":
 		if mediaURL == "" {
@@ -210,15 +211,49 @@ func firstVideoValue(raw []byte, keys ...string) string {
 	return ""
 }
 
-func videoObjects(value any) []map[string]any {
-	objects := []map[string]any{}
-	if object, ok := value.(map[string]any); ok {
-		objects = append(objects, object)
-		for _, key := range []string{"data", "result", "task", "video"} {
-			if nested, ok := object[key]; ok {
-				objects = append(objects, videoObjects(nested)...)
+func firstVideoFloat(raw []byte, keys ...string) float64 {
+	var payload any
+	if json.Unmarshal(raw, &payload) != nil {
+		return 0
+	}
+	for _, object := range videoObjects(payload) {
+		for _, key := range keys {
+			switch value := object[key].(type) {
+			case float64:
+				if value > 0 {
+					return value
+				}
+			case string:
+				var parsed float64
+				if _, err := fmt.Sscan(strings.TrimSpace(value), &parsed); err == nil && parsed > 0 {
+					return parsed
+				}
 			}
 		}
 	}
-	return objects
+	return 0
+}
+
+func videoObjects(value any) []map[string]any {
+	// Providers do not agree on the envelope around a task.  Some return a
+	// task directly in data, while others put it in items/outputs arrays.  Walk
+	// every JSON container and let callers choose only the explicit fields they
+	// understand; this keeps parsing tolerant without accepting arbitrary data
+	// as a task ID or media URL.
+	switch typed := value.(type) {
+	case map[string]any:
+		objects := []map[string]any{typed}
+		for _, nested := range typed {
+			objects = append(objects, videoObjects(nested)...)
+		}
+		return objects
+	case []any:
+		objects := []map[string]any{}
+		for _, nested := range typed {
+			objects = append(objects, videoObjects(nested)...)
+		}
+		return objects
+	default:
+		return nil
+	}
 }

@@ -147,5 +147,37 @@ func normalizeVideoProvider(provider string) string {
 	}
 }
 
+// VideoProviderForModel keeps the saved model selection and the runtime
+// provider coherent. Catalog IDs intentionally differ from a few provider
+// model IDs, so the model selection is the authoritative choice whenever it
+// is one of the built-in video models.
+func VideoProviderForModel(modelID, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(modelID)) {
+	case "minimax-h3-video":
+		return VideoProviderAutoDLH3
+	case "yd2-mini-video", "yd2.0-mini":
+		return VideoProviderPersonalAPI
+	case "local-doubao-executor-video", "doubao-seedance":
+		return VideoProviderDoubaoLocal
+	default:
+		return normalizeVideoProvider(fallback)
+	}
+}
+
+// VideoModelMatchesProviderModel accepts catalog/provider aliases for the
+// same capability while still rejecting a model selected for another provider.
+func VideoModelMatchesProviderModel(selectedModel, providerModel, provider string) bool {
+	selectedModel = strings.ToLower(strings.TrimSpace(selectedModel))
+	providerModel = strings.ToLower(strings.TrimSpace(providerModel))
+	if selectedModel == "" || providerModel == "" {
+		return true
+	}
+	if selectedModel == providerModel {
+		return true
+	}
+	return VideoProviderForModel(selectedModel, provider) == normalizeVideoProvider(provider) &&
+		VideoProviderForModel(providerModel, provider) == normalizeVideoProvider(provider)
+}
+
 // NormalizeVideoProviderForHTTP normalizes provider names accepted by HTTP clients.
 func NormalizeVideoProviderForHTTP(provider string) string { return normalizeVideoProvider(provider) }

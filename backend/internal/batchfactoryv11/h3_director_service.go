@@ -41,7 +41,15 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if err != nil {
 		return DirectorRevision{}, err
 	}
-	contract := buildH3DirectorContract(source, request.Preset)
+	knownCharacters := make([]NamedPrompt, 0, len(book.AssetRecords))
+	for _, asset := range book.AssetRecords {
+		if asset.Kind == "character" && strings.TrimSpace(asset.Name) != "" {
+			knownCharacters = append(knownCharacters, NamedPrompt{Name: asset.Name, Prompt: asset.Prompt})
+		}
+	}
+	contract := buildH3DirectorContract(source, request.Preset, knownCharacters)
+	assetContext, _ := json.Marshal(book.AssetRecords)
+	contract.UserPrompt += "\n\n权威单书资产（人物必须引用 asset_id）：\n" + string(assetContext)
 	completion, err := s.Provider.Complete(ctx, contract)
 	if err != nil {
 		return DirectorRevision{}, err
@@ -50,6 +58,10 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if err != nil {
 		return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	raw, err = bindH3DirectorAssets(raw, book.AssetRecords)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
 	document, err := ParseH3DirectorDocument(raw, source)
 	if err != nil {
 		return DirectorRevision{}, err
@@ -57,10 +69,55 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if document.DirectorPresetKey != request.Preset.Key || document.DirectorPresetRevision != request.Preset.Revision {
 		return DirectorRevision{}, fmt.Errorf("%w: H3 director output preset does not match frozen preset", ErrInvalid)
 	}
-	if strings.TrimSpace(document.VisualBaseline) == "" {
+	if h3VisualBaselineText(document.VisualBaseline) == "" {
 		return DirectorRevision{}, fmt.Errorf("%w: H3 visual_baseline is required", ErrInvalid)
 	}
 	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, source.Hash, "", DirectorResult{H3Director: &document})
+}
+
+// RunConfiguredH3Director is the stage-runner entrypoint for new V12 runs.
+// The processed production text is frozen as the H3 video source; the selected
+// H3 VIDEO preset opts into this path, while the director preset body remains
+// reusable independently of the final VIDEO renderer.
+func (s *DirectorService) RunConfiguredH3Director(ctx context.Context, owner, batchID, bookID string) (DirectorRevision, error) {
+	if err := s.validate(); err != nil {
+		return DirectorRevision{}, err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
+	book, err = s.productionBook(ctx, owner, batchID, book)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
+	effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
+	config := aiReasoningPromptConfig(effective)
+	lines := h3NonEmptyVideoSourceLines(book.SourceText)
+	if len(lines) == 0 {
+		return DirectorRevision{}, fmt.Errorf("%w: processed video source has no non-empty lines", ErrInvalid)
+	}
+	normalizedSource := strings.Join(lines, "\n")
+	hash := sourceDigest(normalizedSource)
+	directorPreset := config.OriginalDirector
+	if rawString(effective, "productionMode", rawString(effective, "mode", "original")) == "viral" {
+		directorPreset = config.ViralDirector
+	}
+	revision := int64(directorPreset.Version)
+	if revision <= 0 {
+		revision = int64(config.Video.Version)
+	}
+	if revision <= 0 {
+		revision = 1
+	}
+	return s.RunH3Director(ctx, owner, batchID, bookID, H3DirectorRunRequest{
+		VideoSource: H3VideoSource{Revision: "video-source-" + hash[:16] + "-r1", Hash: hash, Text: normalizedSource},
+		Preset:      H3DirectorPreset{Key: "h3-director-normal", Revision: revision, PromptBody: directorPreset.body()},
+	})
 }
 
 func normalizeH3VideoSource(source H3VideoSource) (H3VideoSource, error) {
@@ -93,12 +150,20 @@ func h3SnapshotForBook(batch Batch, book Book) (DirectorSnapshot, error) {
 	return DirectorSnapshot{Effective: effective, Mode: "h3", MaxVideoDuration: maxDuration, AspectRatio: aspect}, nil
 }
 
-func buildH3DirectorContract(source H3VideoSource, preset H3DirectorPreset) TextCompletionRequest {
+func buildH3DirectorContract(source H3VideoSource, preset H3DirectorPreset, knownCharacters []NamedPrompt) TextCompletionRequest {
 	schema := `你是 H3 结构化导演内核。只输出一个 JSON 对象，不要 Markdown。
 必须输出 schema_version="h3-director/v1"、writer="batch-factory-v12"、video_source_revision、video_source_hash、video_source_non_empty_line_count、director_preset_key、director_preset_revision、visual_baseline、character_roster[]、director_cards[]。
+character_roster 每项={"slot_id":"C001","slot_token":"S1","canonical_name":"人物资产姓名","asset_id":"输入的人物资产ID","aliases":[]}；不得独立生成外形，appearance 由后端从绑定资产填入。只引用已有资产；不存在或有歧义时不得编造资产ID。
+如果已有人物资产中存在同一人，canonical_name 必须优先使用已有人物资产的精确 name，将原文中的称呼、简称和关系称呼放入 aliases。不得把“江小姐”之类称呼另建为与真实姓名脱节的人物。
 每个非空视频原文行必须且只能对应一张 director_card，顺序一致；卡内保存 source_index/source_key/source_text/source_text_hash/visual_context/preferred_duration/duration_weight/character_slot_ids/action/camera/movement/rhythm/audio/continuity/micro_shots。
 character_slot_ids 必须显式输出数组，无人镜头使用 []；非空引用必须指向 character_roster.slot_id。continuity 必须是结构化对象，包含 scene_id/location/axis/light_direction/positions/facings/gazes/held_props/action_ends，禁止用 scene_memory 字符串替代。
 每张卡至少一个 micro_shot，微镜头必须包含 micro_shot_key/weight/shot_task/visual/action/character_slot_ids/camera/movement/rhythm/audio。
+director_card 和 micro_shot 的复合字段必须使用以下 JSON 对象形状，禁止写成字符串：
+camera={"shot_size":"...","shot_angle":"...","framing":"..."}
+movement={"camera_movement":"...","subject_movement":"...","transition":"..."}
+audio={"mode":"...","speaker_slot_id":"","dialogue":"","voice_over":"","sound_effects":[],"ambience":[]}
+continuity={"scene_id":"...","location":"...","axis":"...","light_direction":"...","positions":{},"facings":{},"gazes":{},"held_props":{},"action_ends":{}}
+preferred_duration、duration_weight 和 micro_shot.weight 必须使用 JSON 数字（例如 2.5），不得使用字符串、单位、空值或文字等级。
 AI 只给出 preferred_duration 和正数 duration_weight 表达语义节奏；不得输出最终秒数、最终分段或随机 VIDEO 时长。视觉基线、人物分析和场景连续性必须始终生成并保存。`
 	if body := strings.TrimSpace(preset.PromptBody); body != "" {
 		schema += "\n\n导演预设补充约束：\n" + body
@@ -108,6 +173,7 @@ AI 只给出 preferred_duration 和正数 duration_weight 表达语义节奏；�
 		"video_source_hash":        source.Hash,
 		"director_preset_key":      preset.Key,
 		"director_preset_revision": preset.Revision,
+		"known_character_assets":   knownCharacters,
 	})
 	return TextCompletionRequest{
 		SystemPrompt: schema,

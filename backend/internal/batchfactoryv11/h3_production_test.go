@@ -20,10 +20,11 @@ func TestH3ProductionSubmitsAndPersistsFrozenCompilationPromptAndTrace(t *testin
 	}
 	seedH3AudioMeasurement(t, store, batch, book, document)
 	compiled, err := (&H3KernelService{Store: store}).Compile(ctx, "alice", batch.ID, book.ID, H3KernelCompileRequest{
-		DirectorRevisionID: book.DirectorRevision.ID,
-		AudioAssetID:       "audio-1",
-		Preset:             completeH3CompileInput(document, H3CanonicalTimeline{}).Preset,
-		Switches:           H3PromptSwitches{SmartUnified: true, BaseSetup: true},
+		FinalPromptOverrides: map[string]H3EditableCopyRevision{"SEG001": {Text: "  完整人工分镜\n[Scene 1] 窗边\n", Revision: 2}},
+		DirectorRevisionID:   book.DirectorRevision.ID,
+		AudioAssetID:         "audio-1",
+		Preset:               completeH3CompileInput(document, H3CanonicalTimeline{}).Preset,
+		Switches:             H3PromptSwitches{SmartUnified: true, BaseSetup: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,6 +42,9 @@ func TestH3ProductionSubmitsAndPersistsFrozenCompilationPromptAndTrace(t *testin
 		t.Fatalf("job/prompts=%#v %#v", job, adapter.prompts)
 	}
 	segment := compiled.Compilation.Compilation.Segments[0]
+	if segment.CompiledPrompt != "  完整人工分镜\n[Scene 1] 窗边\n" {
+		t.Fatal("manual prompt changed before production")
+	}
 	task := job.Tasks[0]
 	if adapter.prompts[0].CompiledPrompt != segment.CompiledPrompt || task.CompiledPrompt != segment.CompiledPrompt {
 		t.Fatalf("submitted prompt differs from frozen compilation: prompt=%#v task=%#v", adapter.prompts[0], task)
