@@ -24,6 +24,7 @@ import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatche
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
+import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
@@ -122,6 +123,7 @@ export function ScriptPage() {
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
+  const [shotVideoTaskHistory, setShotVideoTaskHistory] = useState({});
   const [shotReferenceStates, setShotReferenceStates] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
   const [canGenerateVideo, setCanGenerateVideo] = useState(false);
@@ -131,6 +133,7 @@ export function ScriptPage() {
   const [scriptModelsLoaded, setScriptModelsLoaded] = useState(false);
   const [scriptModelSelection, setScriptModelSelection] = useState({ textModelId: '', imageModelId: '' });
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
+  const [previewVideoHistory, setPreviewVideoHistory] = useState({ open: false, shotIndex: 0, tasks: [] });
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -326,6 +329,7 @@ export function ScriptPage() {
       output,
       editingOutput,
       shotVideoTasks,
+      videoTaskHistory: shotVideoTaskHistory,
       shotReferenceStates,
       scriptModelSelection,
       generationStage: generationStage === 'extracting' || generationStage === 'generating' ? 'idle' : generationStage
@@ -424,9 +428,12 @@ export function ScriptPage() {
         imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
       const result = await createScriptVideo(videoPayload);
+      const previousTask = shotVideoTasks[index];
+      const nextVideoTaskHistory = appendShotVideoTaskHistory(shotVideoTaskHistory, index, previousTask);
       const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing', prompt } };
       setShotVideoTasks(nextVideoTasks);
-      if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
+      setShotVideoTaskHistory(nextVideoTaskHistory);
+      if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks, nextVideoTaskHistory).catch(() => {});
       watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
@@ -468,6 +475,7 @@ export function ScriptPage() {
       textModelId: scriptModelSelection.textModelId,
       imageModelId: scriptModelSelection.imageModelId,
       videoTasks: shotVideoTasks,
+      videoTaskHistory: shotVideoTaskHistory,
       shotReferenceStates
     });
     setCurrentHistoryId(historyId);
@@ -517,6 +525,7 @@ export function ScriptPage() {
     setDraftConstraints(restoredConstraints);
     setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
     setShotVideoTasks(entry.videoTasks || {});
+    setShotVideoTaskHistory(normalizeShotVideoTaskHistory(entry.videoTaskHistory));
     setShotReferenceStates(entry.shotReferenceStates || {});
     const restoredSelection = { textModelId: entry.textModelId || '', imageModelId: entry.imageModelId || '' };
     if (!scriptModelsLoaded) {
@@ -545,6 +554,7 @@ export function ScriptPage() {
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
       setShotVideoTasks(restoredDraft.shotVideoTasks || {});
+      setShotVideoTaskHistory(normalizeShotVideoTaskHistory(restoredDraft.videoTaskHistory));
       setShotReferenceStates(restoredDraft.shotReferenceStates || {});
       setScriptModelSelection(restoredDraft.scriptModelSelection || { textModelId: '', imageModelId: '' });
       Object.entries(restoredDraft.shotVideoTasks || {}).forEach(([index, task]) => {
@@ -571,11 +581,11 @@ export function ScriptPage() {
   useEffect(() => {
     if (!draftReadyRef.current) return;
     persistDraft();
-  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks, shotReferenceStates, scriptModelSelection]);
+  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks, shotVideoTaskHistory, shotReferenceStates, scriptModelSelection]);
 
   useEffect(() => {
-    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks).catch(() => {});
-  }, [currentHistoryId, shotVideoTasks]);
+    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks, shotVideoTaskHistory).catch(() => {});
+  }, [currentHistoryId, shotVideoTasks, shotVideoTaskHistory]);
 
   useEffect(() => {
     let active = true;
@@ -1395,6 +1405,7 @@ export function ScriptPage() {
               onGenerateVideo={canGenerateVideo ? generateVideoForShot : null}
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
+              videoTaskHistory={shotVideoTaskHistory}
               extractInfo={extractInfo}
               shotReferenceStates={shotReferenceStates}
               onToggleReference={(index, imageUrl) => {
@@ -1407,6 +1418,7 @@ export function ScriptPage() {
                 persistDraft(undefined, { shotReferenceStates: next });
               }}
               onOpenVideo={setPreviewVideoTask}
+              onOpenVideoHistory={(shotIndex, tasks) => setPreviewVideoHistory({ open: true, shotIndex, tasks })}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
@@ -1430,6 +1442,22 @@ export function ScriptPage() {
       </div>
       <Modal title="生成的视频" open={Boolean(previewVideoTask?.videoUrl)} footer={null} onCancel={() => setPreviewVideoTask(null)} width={520}>
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
+      </Modal>
+      <Modal
+        title={`第 ${previewVideoHistory.shotIndex + 1} 条分镜历史视频`}
+        open={previewVideoHistory.open}
+        footer={null}
+        onCancel={() => setPreviewVideoHistory(current => ({ ...current, open: false }))}
+        width={560}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          {previewVideoHistory.tasks.map((task, index) => (
+            <div key={task.taskId || index}>
+              <Typography.Text type="secondary">历史版本 {index + 1}{task.prompt ? ` · ${task.prompt.slice(0, 80)}` : ''}</Typography.Text>
+              {task.videoUrl ? <video controls preload="metadata" style={{ display: 'block', width: '100%', marginTop: 8 }} src={task.videoUrl} /> : <Typography.Paragraph type="secondary">该历史任务没有可播放地址</Typography.Paragraph>}
+            </div>
+          ))}
+        </Space>
       </Modal>
       <Modal
         title="匹配音频设置"
@@ -1462,7 +1490,10 @@ export function ScriptPage() {
         </Space>
       </Modal>
       <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
-        {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length} 个</Typography.Text></Button>) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}
+        {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => {
+          const archivedVideoCount = Object.values(entry.videoTaskHistory || {}).reduce((total, tasks) => total + (Array.isArray(tasks) ? tasks.length : 0), 0);
+          return <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length + archivedVideoCount} 个</Typography.Text></Button>;
+        }) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}
       </Modal>
       <Modal
         title="替换已选分镜文字"

@@ -1,6 +1,7 @@
 import { normalizeScriptConstraints } from './scriptConstraints.js';
 import { normalizeExtractInfo } from './scriptEntities.js';
 import { normalizeExtractionPresetId } from './scriptExtractionPresets.js';
+import { normalizeShotVideoTaskHistory } from './scriptShotVideoTasks.js';
 
 const storagePrefix = 'qiantie:script-draft:';
 const tabStorageKey = 'qiantie:script-draft-tab-id';
@@ -54,8 +55,9 @@ function normalizeDraft(draft) {
       const status = ['processing', 'succeeded', 'failed'].includes(task?.status) ? task.status : '';
       if (!/^\d+$/.test(index) || !taskId || !status) continue;
       const entry = { taskId, status };
+      if (typeof task.prompt === 'string' && task.prompt.trim()) entry.prompt = task.prompt.trim().slice(0, 20000);
       if (typeof task.error === 'string' && task.error.trim()) entry.error = task.error.trim();
-      if (typeof task.videoUrl === 'string' && /^https:\/\//i.test(task.videoUrl)) entry.videoUrl = task.videoUrl;
+      if (typeof task.videoUrl === 'string' && /^(?:https?:\/\/|\/api\/)/i.test(task.videoUrl.trim())) entry.videoUrl = task.videoUrl.trim();
       shotVideoTasks[index] = entry;
     }
   }
@@ -68,7 +70,8 @@ function normalizeDraft(draft) {
     },
     extractInfo: normalizeExtractInfo(draft.extractInfo),
     constraints,
-    shotVideoTasks
+    shotVideoTasks,
+    videoTaskHistory: normalizeShotVideoTaskHistory(draft.videoTaskHistory)
   };
 }
 

@@ -30,17 +30,44 @@ function historyFilePath(username, filename) {
   return path.join(getUserOutputsDir(username), path.basename(filename));
 }
 
+function isAllowedVideoUrl(value) {
+  return typeof value === 'string' && /^(?:https?:\/\/|\/api\/)/i.test(value.trim());
+}
+
+function normalizeVideoTask(task) {
+  const taskId = typeof task?.taskId === 'string' ? task.taskId.trim() : '';
+  const status = ['processing', 'succeeded', 'failed'].includes(task?.status) ? task.status : '';
+  if (!taskId || !status) return null;
+  const entry = { taskId, status };
+  if (typeof task.prompt === 'string' && task.prompt.trim()) entry.prompt = task.prompt.trim().slice(0, 20000);
+  if (typeof task.error === 'string' && task.error.trim()) entry.error = task.error.trim().slice(0, 1000);
+  if (isAllowedVideoUrl(task.videoUrl)) entry.videoUrl = task.videoUrl.trim();
+  return entry;
+}
+
 function normalizeVideoTasks(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const result = {};
   for (const [index, task] of Object.entries(value)) {
-    const taskId = typeof task?.taskId === 'string' ? task.taskId.trim() : '';
-    const status = ['processing', 'succeeded', 'failed'].includes(task?.status) ? task.status : '';
-    if (!/^\d+$/.test(index) || !taskId || !status) continue;
-    const entry = { taskId, status };
-    if (typeof task.error === 'string' && task.error.trim()) entry.error = task.error.trim().slice(0, 1000);
-    if (typeof task.videoUrl === 'string' && /^https:\/\//i.test(task.videoUrl)) entry.videoUrl = task.videoUrl;
-    result[index] = entry;
+    if (!/^\d+$/.test(index)) continue;
+    const entry = normalizeVideoTask(task);
+    if (entry) result[index] = entry;
+  }
+  return result;
+}
+
+function normalizeVideoTaskHistory(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const result = {};
+  for (const [index, tasks] of Object.entries(value)) {
+    if (!/^\d+$/.test(index) || !Array.isArray(tasks)) continue;
+    const seen = new Set();
+    const normalized = tasks.map(normalizeVideoTask).filter(task => {
+      if (!task || seen.has(task.taskId)) return false;
+      seen.add(task.taskId);
+      return true;
+    }).slice(-20);
+    if (normalized.length) result[index] = normalized;
   }
   return result;
 }
@@ -70,6 +97,7 @@ function historyAppend(username, record) {
     textModelId: typeof record.textModelId === 'string' ? record.textModelId.slice(0, 160) : '',
     imageModelId: typeof record.imageModelId === 'string' ? record.imageModelId.slice(0, 160) : '',
     videoTasks: normalizeVideoTasks(record.videoTasks),
+    videoTaskHistory: normalizeVideoTaskHistory(record.videoTaskHistory),
     restoredFrom: record.restoredFrom || 'local',
     createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString()
   };
@@ -126,6 +154,7 @@ router.post('/', (req, res) => {
       textModelId: typeof textModelId === 'string' ? textModelId.slice(0, 160) : '',
       imageModelId: typeof imageModelId === 'string' ? imageModelId.slice(0, 160) : '',
       videoTasks: normalizeVideoTasks(req.body?.videoTasks),
+      videoTaskHistory: normalizeVideoTaskHistory(req.body?.videoTaskHistory),
       createdAt: new Date().toISOString()
     });
 
@@ -160,6 +189,9 @@ router.patch('/:id', (req, res) => {
   const entry = data.entries.find(item => item.id === id);
   if (!entry) return res.status(404).json({ error: '记录不存在' });
   entry.videoTasks = normalizeVideoTasks(req.body?.videoTasks);
+  if (Object.hasOwn(req.body || {}, 'videoTaskHistory')) {
+    entry.videoTaskHistory = normalizeVideoTaskHistory(req.body.videoTaskHistory);
+  }
   writeHistoryIndex(req.username, data);
   res.json({ ok: true, entry });
 });
@@ -228,3 +260,5 @@ router.delete('/:id', (req, res) => {
 module.exports = router;
 module.exports.historyHasId = historyHasId;
 module.exports.historyAppend = historyAppend;
+module.exports.normalizeVideoTasks = normalizeVideoTasks;
+module.exports.normalizeVideoTaskHistory = normalizeVideoTaskHistory;

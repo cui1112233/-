@@ -1,12 +1,12 @@
 import { Button, Checkbox, Space } from 'antd';
-import { Copy, Download, Video } from 'lucide-react';
+import { Copy, Download, History as HistoryIcon, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { splitShotTextHighlight } from './shotTextHighlight';
 import { getShotMatchDisplayRange } from '../pages/scriptShotReplace';
 import { collectShotReferenceDescriptors } from '../pages/scriptVideoReferences';
 import { isShotVideoTaskCurrent } from '../pages/scriptShotVideoTasks';
 
-export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, onGenerateVideo, generatingIndexes = new Set(), videoTasks = {}, extractInfo, shotReferenceStates, onToggleReference, onOpenVideo, output, activeMatch, cardStarts }) {
+export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, onGenerateVideo, generatingIndexes = new Set(), videoTasks = {}, videoTaskHistory = {}, extractInfo, shotReferenceStates, onToggleReference, onOpenVideo, onOpenVideoHistory, output, activeMatch, cardStarts }) {
   const selectedCount = selectedIndexes.size;
   const allSelected = cards.length > 0 && selectedCount === cards.length;
   const activeMatchRef = useRef(null);
@@ -26,6 +26,7 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
       </div>
       {cards.map((card, index) => {
         const videoTask = videoTasks[index];
+        const historyTasks = Array.isArray(videoTaskHistory[index]) ? videoTaskHistory[index] : [];
         const videoTaskCurrent = isShotVideoTaskCurrent(videoTask, card);
         const cardDuration = card.match(/总时长[：:]\s*(\d+s)/)?.[1] || duration;
         const displayRange = getShotMatchDisplayRange(output, card, index, cardStarts[index], activeMatch);
@@ -43,7 +44,8 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
             </div> : null}
             <Space size={8}>
               <Button size="small" icon={<Copy size={15} aria-hidden="true" />} onClick={() => onCopy(card)}>复制本分镜</Button>
-              {videoTaskCurrent && videoTask?.status === 'succeeded' ? <><Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} onClick={() => onOpenVideo?.(videoTask)}>生成成功</Button><Button size="small" icon={<Download size={15} aria-hidden="true" />} href={videoTask.videoUrl} download target="_blank" rel="noreferrer">下载</Button></> : <Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} loading={generatingIndexes.has(index) || (videoTaskCurrent && videoTask?.status === 'processing')} disabled={!onGenerateVideo || generatingIndexes.has(index) || (videoTaskCurrent && videoTask?.status === 'processing')} title={!onGenerateVideo ? '暂无视频生成权限' : undefined} onClick={() => onGenerateVideo?.(card, index)}>{videoTaskCurrent && videoTask?.status === 'processing' ? '视频生成中' : videoTask ? '重新生成视频' : onGenerateVideo ? '生成视频' : '暂无视频权限'}</Button>}
+              {videoTaskCurrent && videoTask?.status === 'succeeded' ? <><Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} onClick={() => onOpenVideo?.(videoTask)}>生成成功</Button><Button size="small" icon={<Download size={15} aria-hidden="true" />} href={videoTask.videoUrl} download target="_blank" rel="noreferrer">下载</Button></> : <><Space size={8}>{videoTask?.status === 'succeeded' && videoTask.videoUrl ? <><Button size="small" icon={<Video size={15} aria-hidden="true" />} onClick={() => onOpenVideo?.(videoTask)}>查看上次视频</Button><Button size="small" icon={<Download size={15} aria-hidden="true" />} href={videoTask.videoUrl} download target="_blank" rel="noreferrer">下载上次</Button></> : null}<Button size="small" type="primary" icon={<Video size={15} aria-hidden="true" />} loading={generatingIndexes.has(index) || (videoTaskCurrent && videoTask?.status === 'processing')} disabled={!onGenerateVideo || generatingIndexes.has(index) || (videoTaskCurrent && videoTask?.status === 'processing')} title={!onGenerateVideo ? '暂无视频生成权限' : undefined} onClick={() => onGenerateVideo?.(card, index)}>{videoTaskCurrent && videoTask?.status === 'processing' ? '视频生成中' : videoTask ? '重新生成视频' : onGenerateVideo ? '生成视频' : '暂无视频权限'}</Button></Space></>}
+              {historyTasks.length ? <Button size="small" icon={<HistoryIcon size={15} aria-hidden="true" />} onClick={() => onOpenVideoHistory?.(index, historyTasks)}>历史视频（{historyTasks.length}）</Button> : null}
             </Space>
           </div>
           <pre className="shot-output-card-content">{highlight ? <>{highlight.before}<mark className="shot-output-card-match" ref={activeMatchRef}>{highlight.highlight}</mark>{highlight.after}</> : card}</pre>
