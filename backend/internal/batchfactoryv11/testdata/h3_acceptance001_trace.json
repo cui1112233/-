@@ -1,0 +1,89 @@
+{
+  "provenance": {
+    "artifact": "ACCEPTANCE001.zip",
+    "mode": "offline-deterministic",
+    "video_source_sha256": "7fd4e403990989ac04b829ce336449287ff3cdb27ffdbe4a51f12dfe74ecb198",
+    "canonical_timeline_sha256": "49b4f54e5af13fb398611169e2242ffad99b251102d7841770108f1ba174db66",
+    "final_prompts_sha256": "ca4d60619ffd5189a213a421d181dd8dd12a09645ff4a1dd6126c1f169d337e6"
+  },
+  "manifest": {
+    "actual_audio_seconds": 7.42,
+    "book_id": "ACCEPTANCE001",
+    "h3_segments": 3,
+    "mode": "offline-deterministic",
+    "reference_total_seconds": 8,
+    "source_hash": "7fd4e403990989ac04b829ce336449287ff3cdb27ffdbe4a51f12dfe74ecb198",
+    "target_visual_seconds": 8
+  },
+  "video_source_text": "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。",
+  "character_roster": [
+    {
+      "slot_token": "S1",
+      "slot_id": "C001",
+      "canonical_name": "我",
+      "gender": "女",
+      "stage_label": "儿童",
+      "aliases": ["女主"],
+      "is_protagonist": false,
+      "appearance": "五岁亚洲女孩，黑色短发，现代简洁童装。"
+    },
+    {
+      "slot_token": "S2",
+      "slot_id": "C002",
+      "canonical_name": "陆晚晚",
+      "gender": "女",
+      "stage_label": "儿童",
+      "aliases": ["晚晚"],
+      "is_protagonist": false,
+      "appearance": "五岁亚洲女孩，长发，精致童装。"
+    }
+  ],
+  "style": {
+    "content_type": "现代家庭短剧",
+    "visual_style": "现代高质感实拍短剧，无暗角"
+  },
+  "canonical_timeline": [
+    {
+      "source_index": 1,
+      "source_key": "L001",
+      "source_text": "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。",
+      "visual_context": "",
+      "duration": 3,
+      "duration_weight": 3,
+      "character_slot_ids": ["C001"],
+      "micro_shots": [
+        {"start": 0, "end": 1, "weight": 1, "shot_task": "身份建立", "visual": "女孩站在豪宅玄关"},
+        {"start": 1, "end": 3, "weight": 2, "shot_task": "事件落点", "visual": "父母放下生活费后离开"}
+      ],
+      "continuity": {}
+    },
+    {
+      "source_index": 2,
+      "source_key": "L002",
+      "source_text": "把我和陆晚晚扔在别墅里大眼瞪小眼。",
+      "visual_context": "",
+      "duration": 2,
+      "duration_weight": 2,
+      "character_slot_ids": ["C001", "C002"],
+      "micro_shots": [
+        {"start": 0, "end": 2, "weight": 1, "shot_task": "关系建立", "visual": "两个女孩在客厅对视"}
+      ],
+      "continuity": {}
+    },
+    {
+      "source_index": 3,
+      "source_key": "L003",
+      "source_text": "三个月后，爸妈提前回国，想给我们一个惊喜。",
+      "visual_context": "",
+      "duration": 3,
+      "duration_weight": 3,
+      "character_slot_ids": ["C001"],
+      "micro_shots": [
+        {"start": 0, "end": 1, "weight": 1, "shot_task": "时间推进", "visual": "三个月后的别墅外景"},
+        {"start": 1, "end": 3, "weight": 2, "shot_task": "动作推进", "visual": "父母拖着行李进入院门"}
+      ],
+      "continuity": {}
+    }
+  ],
+  "final_prompt_count": 3
+}

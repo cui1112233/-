@@ -52,11 +52,12 @@ type SourceCoverage struct {
 }
 
 type DirectorResult struct {
-	Characters     []NamedPrompt   `json:"characters"`
-	Scenes         []NamedPrompt   `json:"scenes"`
-	Props          []NamedPrompt   `json:"props"`
-	Storyboard     []DirectorVideo `json:"storyboard"`
-	SourceCoverage SourceCoverage  `json:"source_coverage"`
+	Characters     []NamedPrompt       `json:"characters"`
+	Scenes         []NamedPrompt       `json:"scenes"`
+	Props          []NamedPrompt       `json:"props"`
+	Storyboard     []DirectorVideo     `json:"storyboard"`
+	SourceCoverage SourceCoverage      `json:"source_coverage"`
+	H3Director     *H3DirectorDocument `json:"h3_director,omitempty"`
 }
 
 var fencedDirectorJSON = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")

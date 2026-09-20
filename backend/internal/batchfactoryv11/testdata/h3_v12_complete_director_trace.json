@@ -1,0 +1,142 @@
+{
+  "schema_version": "h3-director/v1",
+  "writer": "batch-factory-v12",
+  "video_source_revision": "video-source-acceptance001-r1",
+  "video_source_hash": "7fd4e403990989ac04b829ce336449287ff3cdb27ffdbe4a51f12dfe74ecb198",
+  "video_source_non_empty_line_count": 3,
+  "director_preset_key": "h3-director-normal",
+  "director_preset_revision": 1,
+  "visual_baseline": "现代高质感实拍短剧，无暗角，自然对比度。",
+  "character_roster": [
+    {
+      "slot_id": "C001",
+      "slot_token": "S1",
+      "canonical_name": "我",
+      "aliases": ["女主"],
+      "appearance": "五岁亚洲女孩，黑色短发，现代简洁童装。"
+    },
+    {
+      "slot_id": "C002",
+      "slot_token": "S2",
+      "canonical_name": "陆晚晚",
+      "aliases": ["晚晚"],
+      "appearance": "五岁亚洲女孩，长发，精致童装。"
+    }
+  ],
+  "director_cards": [
+    {
+      "source_index": 1,
+      "source_key": "L001",
+      "source_text": "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。",
+      "source_text_hash": "456e286d68205dde197ac14ddfe941584d99b5b254f4d784ec7c9c1e7ae9edb9",
+      "visual_context": "现代豪宅玄关，白天，门侧自然光。",
+      "preferred_duration": 3,
+      "duration_weight": 3,
+      "character_slot_ids": ["C001"],
+      "action": "女孩站在玄关，父母放下生活费后转身离开。",
+      "camera": {"shot_size": "中全景", "shot_angle": "平视", "framing": "女孩居画面中心，大门与钱袋同框"},
+      "movement": {"camera_movement": "缓慢推近", "subject_movement": "父母离画，女孩留在原地", "transition": "直切"},
+      "rhythm": "先建立身份，再落下被留下的事件。",
+      "audio": {"mode": "voice_over", "speaker_slot_id": "C001", "dialogue": "", "voice_over": "五岁的我刚被认回豪门。", "sound_effects": ["钱袋放下的闷响"], "ambience": ["玄关轻微室内环境声"]},
+      "continuity": {"scene_id": "S001", "location": "豪宅玄关", "axis": "正面主轴", "light_direction": "自然光从画面右侧入射", "positions": {"C001": "玄关中央"}, "facings": {"C001": "面向大门"}, "gazes": {"C001": "望向离开的父母"}, "held_props": {"C001": ""}, "action_ends": {"C001": "独自留在玄关"}},
+      "micro_shots": [
+        {
+          "micro_shot_key": "L001-M01",
+          "weight": 1,
+          "shot_task": "身份建立",
+          "visual": "女孩站在豪宅玄关。",
+          "action": "女孩仰头看向父母。",
+          "character_slot_ids": ["C001"],
+          "camera": {"shot_size": "中全景", "shot_angle": "平视", "framing": "女孩居中"},
+          "movement": {"camera_movement": "固定", "subject_movement": "轻微仰头", "transition": "直切"},
+          "rhythm": "稳定建立",
+          "audio": {"mode": "voice_over", "speaker_slot_id": "C001", "dialogue": "", "voice_over": "五岁的我刚被认回豪门。", "sound_effects": [], "ambience": ["室内环境声"]}
+        },
+        {
+          "micro_shot_key": "L001-M02",
+          "weight": 2,
+          "shot_task": "事件落点",
+          "visual": "父母放下生活费后离开。",
+          "action": "钱袋落在柜面，大门关上。",
+          "character_slot_ids": ["C001"],
+          "camera": {"shot_size": "特写", "shot_angle": "俯视", "framing": "钱袋与女孩手部"},
+          "movement": {"camera_movement": "向下摇", "subject_movement": "女孩手指收紧", "transition": "动作匹配"},
+          "rhythm": "事件收紧",
+          "audio": {"mode": "ambient", "speaker_slot_id": "", "dialogue": "", "voice_over": "", "sound_effects": ["钱袋闷响", "关门声"], "ambience": ["室内环境声"]}
+        }
+      ]
+    },
+    {
+      "source_index": 2,
+      "source_key": "L002",
+      "source_text": "把我和陆晚晚扔在别墅里大眼瞪小眼。",
+      "source_text_hash": "aafa128273bc51bf32579eb9b14f2b35dbd4526454a1144b97031c817c67c2c0",
+      "visual_context": "现代豪宅客厅，茶几分隔两个女孩。",
+      "preferred_duration": 2,
+      "duration_weight": 2,
+      "character_slot_ids": ["C001", "C002"],
+      "action": "两个女孩隔着茶几相互打量。",
+      "camera": {"shot_size": "双人中景", "shot_angle": "平视", "framing": "茶几居中分隔两人"},
+      "movement": {"camera_movement": "缓慢横移", "subject_movement": "两人同时歪头", "transition": "视线匹配"},
+      "rhythm": "短暂停顿形成喜剧张力。",
+      "audio": {"mode": "voice_over", "speaker_slot_id": "C001", "dialogue": "", "voice_over": "我们只能大眼瞪小眼。", "sound_effects": [], "ambience": ["客厅安静底噪"]},
+      "continuity": {"scene_id": "S002", "location": "豪宅客厅", "axis": "茶几两侧的视线轴", "light_direction": "窗光从画面左侧入射", "positions": {"C001": "茶几左侧", "C002": "茶几右侧"}, "facings": {"C001": "面向C002", "C002": "面向C001"}, "gazes": {"C001": "看向C002", "C002": "看向C001"}, "held_props": {"C001": "", "C002": ""}, "action_ends": {"C001": "保持对视", "C002": "保持对视"}},
+      "micro_shots": [
+        {
+          "micro_shot_key": "L002-M01",
+          "weight": 1,
+          "shot_task": "关系建立",
+          "visual": "两个女孩在客厅隔着茶几对视。",
+          "action": "两人同时歪头又停住。",
+          "character_slot_ids": ["C001", "C002"],
+          "camera": {"shot_size": "双人中景", "shot_angle": "平视", "framing": "对称构图"},
+          "movement": {"camera_movement": "缓慢横移", "subject_movement": "同步歪头", "transition": "视线匹配"},
+          "rhythm": "喜剧停顿",
+          "audio": {"mode": "voice_over", "speaker_slot_id": "C001", "dialogue": "", "voice_over": "我们只能大眼瞪小眼。", "sound_effects": [], "ambience": ["客厅安静底噪"]}
+        }
+      ]
+    },
+    {
+      "source_index": 3,
+      "source_key": "L003",
+      "source_text": "三个月后，爸妈提前回国，想给我们一个惊喜。",
+      "source_text_hash": "44c6cbe30ee27dcfb8fce23ec72b6d7e4ac05a212edf5bf67d0fb8b242e4a562",
+      "visual_context": "三个月后的别墅外景，白天，庭院安静。",
+      "preferred_duration": 3,
+      "duration_weight": 3,
+      "character_slot_ids": [],
+      "action": "别墅外景建立时间跳转，院门随后打开。",
+      "camera": {"shot_size": "远景", "shot_angle": "平视", "framing": "别墅与院门全景"},
+      "movement": {"camera_movement": "缓慢推近", "subject_movement": "无", "transition": "时间跳切"},
+      "rhythm": "稳定建立新时间点。",
+      "audio": {"mode": "ambient", "speaker_slot_id": "", "dialogue": "", "voice_over": "", "sound_effects": ["远处院门开启声"], "ambience": ["庭院风声", "远处鸟鸣"]},
+      "continuity": {"scene_id": "S003", "location": "别墅外", "axis": "别墅正面主轴", "light_direction": "日光从画面右侧入射", "positions": {}, "facings": {}, "gazes": {}, "held_props": {}, "action_ends": {}},
+      "micro_shots": [
+        {
+          "micro_shot_key": "L003-M01",
+          "weight": 1,
+          "shot_task": "时间推进",
+          "visual": "三个月后的别墅外景。",
+          "action": "庭院树影在地面缓慢摇动。",
+          "character_slot_ids": [],
+          "camera": {"shot_size": "远景", "shot_angle": "平视", "framing": "别墅居中"},
+          "movement": {"camera_movement": "固定", "subject_movement": "无", "transition": "时间跳切"},
+          "rhythm": "时间建立",
+          "audio": {"mode": "ambient", "speaker_slot_id": "", "dialogue": "", "voice_over": "", "sound_effects": [], "ambience": ["庭院风声", "鸟鸣"]}
+        },
+        {
+          "micro_shot_key": "L003-M02",
+          "weight": 2,
+          "shot_task": "事件铺垫",
+          "visual": "院门开启，行李箱轮子进入画面。",
+          "action": "行李箱轮子滚过院门门槛。",
+          "character_slot_ids": [],
+          "camera": {"shot_size": "低机位特写", "shot_angle": "俯拍", "framing": "轮子与门槛"},
+          "movement": {"camera_movement": "跟移", "subject_movement": "行李箱向内滚动", "transition": "动作匹配"},
+          "rhythm": "惊喜前的推进",
+          "audio": {"mode": "ambient", "speaker_slot_id": "", "dialogue": "", "voice_over": "", "sound_effects": ["院门开启", "行李箱轮滚动"], "ambience": ["庭院风声"]}
+        }
+      ]
+    }
+  ]
+}

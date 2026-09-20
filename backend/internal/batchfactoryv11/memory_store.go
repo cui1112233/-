@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -187,8 +188,27 @@ func (s *MemoryStore) ListProductionJobs(_ context.Context, owner, batchID strin
 			out = append(out, cloneProductionJob(owned.Value))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		left, leftOK := memoryIDSequence(out[i].ID)
+		right, rightOK := memoryIDSequence(out[j].ID)
+		if leftOK && rightOK && left != right {
+			return left < right
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
+}
+
+func memoryIDSequence(id string) (int64, bool) {
+	separator := strings.LastIndex(id, "-")
+	if separator < 0 || separator == len(id)-1 {
+		return 0, false
+	}
+	sequence, err := strconv.ParseInt(id[separator+1:], 10, 64)
+	return sequence, err == nil
 }
 
 func (s *MemoryStore) CreateBookStageRun(_ context.Context, value BookStageRun) (BookStageRun, error) {
