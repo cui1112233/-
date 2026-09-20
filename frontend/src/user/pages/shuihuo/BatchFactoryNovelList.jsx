@@ -35,6 +35,7 @@ import {
   listBookAssetImages,
   getConfigVersions,
   getFinalPrompt,
+  getH3Trace,
   getDraft,
   getMergeStatus,
   getProductionStatus,
@@ -369,6 +370,10 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
   const [saving, setSaving] = useState(false);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [visualPrompt, setVisualPrompt] = useState('');
+  const [h3TraceOpen, setH3TraceOpen] = useState(false);
+  const [h3TraceBusy, setH3TraceBusy] = useState(false);
+  const [h3Trace, setH3Trace] = useState(null);
+  const [h3TraceError, setH3TraceError] = useState('');
   const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
   const selectedVideo = videos[selectedIndex] || null;
   const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
@@ -397,6 +402,19 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
       message.success(promptKind === 'visual' ? '当前分镜画面提示词已保存。' : '当前分镜视频提示词已保存。');
     } catch (error) { message.error(error?.message || '保存分镜提示词失败'); } finally { setSaving(false); }
   }
+  async function openH3Trace() {
+    setH3TraceOpen(true);
+    setH3TraceBusy(true);
+    setH3TraceError('');
+    try {
+      setH3Trace(await getH3Trace(batchId, book.id));
+    } catch (error) {
+      setH3Trace(null);
+      setH3TraceError(error?.message || '读取 H3 Trace 失败');
+    } finally {
+      setH3TraceBusy(false);
+    }
+  }
   function move(direction) {
     const next = videos[selectedIndex + direction];
     if (next) setSelectedVideoId(next.id);
@@ -404,6 +422,8 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
   const activeLabel = promptKind === 'visual' ? '画面提示词' : '视频提示词';
   const activeValue = promptKind === 'visual' ? visualPrompt : videoPrompt;
   const activeReady = promptKind === 'visual' ? hasVisualPrompt : hasVideoPrompt;
+  const h3Segments = h3Trace?.compilation?.compilation?.segments || [];
+  const h3Segment = h3Segments[selectedIndex] || null;
   return <div className="batch-factory-prompt-modal-stack">
     <div className="batch-factory-prompt-modal-head">
       <Space>
@@ -424,10 +444,24 @@ function PromptPanel({ book, batchId, initialVideoId = '', onSaved, onRegenerate
         <Button onClick={() => setEditing(value => !value)}>{editing ? '完成编辑' : '编辑'}</Button>
         {promptKind === 'visual' ? <Button onClick={() => onGenerateVisual?.(selectedVideo?.id)}>生成图片</Button> : <Tooltip title={productionAvailable ? '为当前分镜生成视频候选版本。' : productionReason}><Button disabled={!productionAvailable || regenerating} loading={regenerating} onClick={() => onGenerateVideo?.(selectedVideo?.id)}>生成视频</Button></Tooltip>}
         <Button onClick={() => promptKind === 'visual' ? onViewVisualCandidates?.(selectedVideo?.id) : onViewVideoCandidates?.(selectedVideo?.id)}>查看候选版本</Button>
+        {promptKind === 'video' ? <Button onClick={openH3Trace}>查看 H3 Trace</Button> : null}
         <Button type="text" disabled={regenerating} onClick={() => onRetry?.(selectedVideo?.id)}>重试</Button>
       </div>
     </>}
     <p className="shuihuo-modal-note">{promptKind === 'visual' ? '画面版本从当前书的人物场景预设中管理和生成。' : '视频版本只在当前分镜内生成和切换，不会覆盖其他分镜。'}</p>
+    <Modal title="H3 编译与提交 Trace" open={h3TraceOpen} onCancel={() => setH3TraceOpen(false)} footer={null} width={980}>
+      {h3TraceBusy ? <Alert type="info" showIcon message="正在读取 H3 Trace…" /> : h3TraceError ? <Alert type="error" showIcon message="H3 Trace 读取失败" description={h3TraceError} /> : h3Trace?.legacy ? <Alert type="warning" showIcon message="旧数据只读" description={h3Trace?.notice || '旧版导演数据，无完整 H3 Trace'} /> : h3Segment ? <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Descriptions size="small" bordered column={2} items={[
+          { key: 'director', label: '导演修订', children: h3Trace?.director_revision_id || '—' },
+          { key: 'compilation', label: '编译修订', children: h3Trace?.compilation?.id || '—' },
+          { key: 'segment', label: '分段', children: h3Segment.segment_key || `VIDEO ${selectedIndex + 1}` },
+          { key: 'duration', label: '确定性时长', children: `${h3Segment.canonical_duration_ms || 0}ms → ${h3Segment.request_duration_ms || 0}ms` },
+          { key: 'hash', label: 'Prompt Hash', children: h3Segment.compiled_prompt_hash || '—', span: 2 }
+        ]} />
+        <label className="shuihuo-form-label">实际提交视频模型的 H3 最终 Prompt<Input.TextArea rows={16} readOnly value={h3Segment.compiled_prompt || ''} /></label>
+        <label className="shuihuo-form-label">Compile Trace<Input.TextArea rows={12} readOnly value={JSON.stringify(h3Segment.compile_trace || {}, null, 2)} /></label>
+      </Space> : <Alert type="info" showIcon message="当前分镜尚无 H3 编译记录" />}
+    </Modal>
   </div>;
 }
 function InlineMediaLibrary({ book, versionsByVideo, onManage }) {
