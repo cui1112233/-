@@ -30,6 +30,25 @@ test('completed batch keeps only its submitted task ids and input order', () => 
   assert.deepEqual(current.taskStates.map(task => task.bookId), submitted);
 });
 
+test('legacy empty batch adopts only the ids parsed for that run', () => {
+  const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novel-fetch-batches-empty-'));
+  const batches = createNovelFetchBatches({ usersDir, clock: () => new Date('2026-09-20T04:00:00.000Z') });
+  const batch = batches.create('tester', { taskIds: [] });
+
+  batches.complete('tester', batch.id, {
+    current_batch_ids: ['new-1', 'new-2'],
+    tasks: [
+      { bookId: 'new-1', status: 'done' },
+      { bookId: 'new-2', status: 'queued' },
+      { bookId: 'old-1', status: 'done' }
+    ]
+  });
+
+  const current = batches.current('tester');
+  assert.deepEqual(current.taskIds, ['new-1', 'new-2']);
+  assert.deepEqual(current.taskStates.map(task => task.bookId), ['new-1', 'new-2']);
+});
+
 test('queue payload carries the persisted batch creation time', () => {
   const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novel-fetch-batch-payload-'));
   const batches = createNovelFetchBatches({
