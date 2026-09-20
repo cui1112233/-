@@ -2,7 +2,7 @@
 
 日期：2026-09-20
 
-状态：已完成技术边界设计，待用户审阅后进入测试先行实施
+状态：已确认，进入测试先行实施
 
 代码基线：`v88` / `e45f47fa1aee971e21184e3735afc5b1f08b1e87`
 
@@ -22,7 +22,7 @@
 
 该包是 `offline-deterministic` 验收运行的真实产物，不是为 V12 临时编造的测试 JSON。其可验证事实为：
 
-- 原文有 3 个非空行，CanonicalTimeline 有 3 张原文卡，最终产出 3 段 H3 Prompt。
+- H3 已处理的“视频原文”有 3 个非空行，CanonicalTimeline 有 3 张原文卡，最终产出 3 段 H3 Prompt。
 - `actual_audio_seconds=7.42`，`reference_total_seconds=8`，该样本的确定性时间轴总长为 8 秒。
 - 每张原文卡含 `source_index`、`source_key`、`source_text`、`duration_weight`、`character_slot_ids`、`micro_shots`和 `continuity`。
 - 最终 H3 Prompt 含人物定义、视听时间轴、画面、连续性、Audio 和 H3 画面约束。
@@ -33,7 +33,7 @@
 
 已核对 H3 的导演 Prompt、`quality/models.go`、`timeline/allocator.go`、`timeline/merge.go` 和 H3 最终 Prompt 编译器。其稳定契约是：
 
-- 每个非空原文行必须对应一张、且只对应一张有序导演卡。
+- H3 已处理的“视频原文”中，每个非空行必须对应一张、且只对应一张有序导演卡。
 - AI 只决定语义结构和相对时长权重，不决定最终秒数。
 - `SceneMemory` 是结构化对象，包含场景、轴线、光线、人物位置、朝向、视线、手持道具和动作结束状态。
 - CanonicalTimeline 按真实配音参考时长分配，精度为 0.001 秒，浮点差额只修正最后一张卡和其最后一个微镜头。
@@ -54,13 +54,22 @@
 
 1. 不新建 H3 独立服务、数据库、队列、任务中心或前端页面。
 2. 保留现有单书工作台、卡片编辑、图片、视频、重试、合并、打包和 121 上传语义。
-3. V12 新运行的每个非空原文行必须产生一张可追溯导演卡，数量、顺序、文本和来源哈希必须可验证。
+3. V12 新运行以 H3 已处理的“视频原文”为唯一逐行权威；其每个非空行必须产生一张可追溯导演卡，数量、顺序、文本和来源哈希必须可验证。
 4. 新 V12 数据不接受字符串 `scene_memory`、缺少来源的镜头或 AI 给出的最终时长。
 5. 真实配音时长是 CanonicalTimeline 的时间权威。没有可验证的配音时长时，不得进入最终 VIDEO 编译与生产。
 6. 10/15 秒是后端确定性分段限制，不是提交给 AI 自由决定的建议。
 7. 用户可编辑的 VIDEO 文案与实际提交的编译 Prompt 分层保存，两者不得相互伪装。
 8. 更换 VIDEO 预设不改写已有导演卡，只创建新的编译修订和生产候选。
 9. V11 和旧 V12 修订只读兼容；仅新 V12 Director 运行可写入完整 H3 结构。
+
+### 3.1 “视频原文非空行”的统一定义
+
+“每个非空原文行”在本设计中统一指 H3 视频取文/预处理阶段已经产出并持久化的“视频原文”中的非空行，不是整本小说未经处理文本的自然换行。
+
+- 逐行分解的输入是冻结的 `video_source_text`、`video_source_revision`、`video_source_hash`。
+- 行规范化只用于识别空白行；导演卡的 `source_text` 保存该视频原文行的实际文本，不回到整书原文重新切分。
+- `source_index` 是视频原文非空行序号，从 1 开始连续递增；`source_key` 在同一视频原文修订中稳定。
+- 视频原文变更必须生成新 revision/hash，并使依赖旧修订的 Director、Timeline 和 compilation 失效，但不删除历史 Trace。
 
 ## 4. 嵌入式架构
 
@@ -95,8 +104,8 @@ H3DirectorDocument
   schema_version             = "h3-director/v1"
   writer                     = "batch-factory-v12"
   batch_id / book_id / director_revision_id
-  source_revision / source_hash
-  source_non_empty_line_count
+  video_source_revision / video_source_hash
+  video_source_non_empty_line_count
   director_preset_key
   director_preset_revision
   director_prompt_snapshot
@@ -113,13 +122,13 @@ H3DirectorDocument
 
 ### 5.2 H3DirectorCard
 
-每个非空原文行一张卡：
+每个视频原文非空行一张卡：
 
 ```text
 H3DirectorCard
-  source_index               // 原文非空行序号，1-based
+  source_index               // 视频原文非空行序号，1-based
   source_key                 // 稳定键，如 L001
-  source_text                // 当时修订中的原文行原文
+  source_text                // 当时视频原文修订中的该行文本
   source_text_hash
   visual_context
   preferred_duration         // AI 语义倾向，不是最终时长
@@ -160,7 +169,7 @@ micro_shot_key, weight, shot_task, visual,
 action, character_slot_ids[], camera{}, movement{}, rhythm, audio{}
 ```
 
-原文行确实没有出场人物时，`character_slot_ids` 可以是显式空数组；不得省略该字段，也不得用未绑定的自由文本人名冒充 slot 绑定。
+导演卡必须持久化 `character_slot_ids` 字段。视频原文行确实没有出场人物时，允许显式空数组 `[]`，不要求每张卡都有人物；任何非空引用都必须能在当前人物表中解析。不得省略该字段，也不得用未绑定的自由文本人名冒充 slot 绑定。
 
 新 V12 不提供将字符串自动包装成 `SceneMemory.summary` 的写入降级通道。字符串兼容只存在于旧数据读取适配层。
 
@@ -238,12 +247,12 @@ FinalVideoCompilation
 编译前必须同时满足：
 
 - Director document 是 `h3-director/v1` 且 writer 为 `batch-factory-v12`。
-- 导演卡数等于当时 source revision 的非空行数。
-- `source_index` 从 1 连续递增，`source_text` 与冻结原文逐行一致。
+- 导演卡数等于当时 `video_source_revision` 的非空行数，不与整本小说的自然换行数比较。
+- `source_index` 从 1 连续递增，`source_text` 与冻结视频原文逐行一致。
 - 每张卡的 `duration_weight > 0`，至少一个微镜头，微镜头权重之和大于 0。
-- 人物引用必须能在当前人物表中解析。
+- 每张卡必须显式携带 `character_slot_ids`；允许 `[]`，非空引用必须能在当前人物表中解析。
 - Scene Memory 是结构化对象，关键人物状态不得引用未绑定 slot。
-- 配音资产存在，内容哈希与当前 source revision 匹配，时长大于 0。
+- 配音资产存在，内容哈希与当前 `video_source_revision` 匹配，时长大于 0。
 
 任一条失败时，该书停在可重试的 Director 或 Timeline 阶段，不用默认秒数、平均镜头或旧 V11 数据悄悄继续。
 
@@ -287,6 +296,16 @@ H3 预设必须分为两个可版本化部分：
 - 编译输入 hash 一致时幂等返回原 compilation；预设或用户文案变化时创建新 compilation revision。
 - 已提交生产的 compilation 不就地改写。
 
+### 7.3 H3 视觉基线、智能统一与基础设定开关
+
+三层语义必须分离：
+
+1. **H3 视觉基线与人物/场景分析**：始终在后台获取、校验并持久化。任何显示或注入开关都不得跳过、删除或停止保存这些数据。
+2. **智能统一**：只控制已保存的 H3 视觉基线和统一视觉约束是否在界面中显示，以及是否注入实际提交给视频模型的最终 Prompt。关闭时只不注入这一层，不删除后台已保存数据。
+3. **基础设定**：只控制人物、场景等资产设定描述是否注入最终 Prompt。关闭时不注入资产设定长描述，但不得删除或改写分镜自身已经持久化的人物名字、人物 slot 绑定、动作、机位、运镜、场景和剧情事件。
+
+编译 Trace 必须保存两个开关的有效值，并列出实际注入/未注入的层。同一 Director document 在不同开关组合下只重编译，不重跑人物、场景或导演分析。
+
 ## 8. 编辑、Trace 与可观测性
 
 ### 8.1 VIDEO 卡编辑
@@ -301,9 +320,9 @@ VIDEO 卡保持用户可编辑，但编辑发生在 `editable_copy` 层：
 
 单书工作台提供读取型“H3 运行详情”，至少可查看：
 
-- source revision、非空行数和 source hash。
+- video source revision、非空行数和 video source hash。
 - Director 预设键/版本/快照和原始 AI artifact。
-- 逐行导演卡、人物绑定、Scene Memory 和微镜头。
+- 逐行导演卡、显式 `character_slot_ids`、Scene Memory 和微镜头。
 - 真实配音资产、时长、CanonicalTimeline 和 allocator 版本。
 - 最终分段、SourceSlice、canonical/request 时长。
 - VIDEO 预设键/版本/快照、compiler 版本。
@@ -338,7 +357,7 @@ V11 mutation 不得写入 H3 字段；V12 也不得把旧 V11 结构伪标记为
 阶段依赖固定为：
 
 ```text
-source
+video-source
   → director
   → tts-duration
   → canonical-timeline
@@ -349,7 +368,7 @@ source
   → 121-upload
 ```
 
-- 原文变更：新 Director revision，后续全部失效；历史修订保留。
+- 视频原文变更：新 Director revision，后续全部失效；历史修订保留。整书原文只有在导致新的视频原文修订时才触发此链路。
 - Director 预设变更：新 Director revision，后续失效。
 - 配音资产/时长变更：保留 Director，从 CanonicalTimeline 重算。
 - 10/15 秒或 VIDEO 预设变更：保留 Director 和符合条件的 Timeline，只重编译。
@@ -394,9 +413,9 @@ source
 
 首组失败测试必须证明当前代码无法：
 
-- 逐行解析完整导演卡。
+- 按冻结视频原文的非空行逐行解析完整导演卡，而不是按整书自然换行。
 - 拒绝字符串 Scene Memory。
-- 持久化微镜头、人物绑定、动作、机位、运镜、连续性和权重。
+- 持久化微镜头、`character_slot_ids`、动作、机位、运镜、连续性和权重，并接受无人出场卡的显式空数组。
 
 ### 阶段 1：结构化 Director
 
@@ -422,6 +441,8 @@ source
 - editable copy 与 compiled prompt 分层保存。
 - 实际生产提交与冻结 prompt/hash/trace 完全一致。
 - 更换 VIDEO 预设只重编译，Director 调用次数保持不变。
+- H3 视觉基线和人物/场景分析始终保存；“智能统一”只切换基线层的显示/注入，“基础设定”只切换资产设定注入。
+- 任意开关组合下，分镜自身的人物名字、slot 绑定、动作、机位、运镜、场景和事件仍保留在 compiled prompt。
 
 ### 阶段 5：工作台读取与回归
 
@@ -452,14 +473,15 @@ source
 
 ## 14. 验收标准
 
-1. 新 V12 对 N 个非空原文行持久化恰好 N 张导演卡，且每张卡能反查原文修订、行和 hash。
-2. 每张卡都有人物绑定、动作、机位、运镜、节奏、结构化连续性、时长权重和微镜头；缺少必填结构会阻断写入。
+1. 新 V12 对冻结视频原文的 N 个非空行持久化恰好 N 张导演卡，且每张卡能反查视频原文修订、行和 hash；整书未经处理自然换行不参与该数量校验。
+2. 每张卡都有显式 `character_slot_ids`、动作、机位、运镜、节奏、结构化连续性、时长权重和微镜头；无人出场时允许 `character_slot_ids=[]`，非空引用必须可解析，缺少必填结构会阻断写入。
 3. 给定相同 Director document、真实配音时长和 10/15 秒设置，多次运行产生字节级稳定的 CanonicalTimeline 与分段 Trace。
 4. CanonicalTimeline 总时长与真实配音时长严格一致，最终分段顺序完整覆盖 Timeline。
 5. 更换 VIDEO 预设只新建 compilation，不调用 Director provider，不修改 Director revision ID。
 6. VIDEO 卡可编辑文案和实际提交 Prompt 可同时查看，已提交生产任务的 Prompt/hash/Trace 可重启后读回。
 7. V11/旧 V12 数据仍可读取和操作原有媒体链，但不会被写成假 H3 结构。
 8. 单书操作、批量生产、阶段重试、合并、打包和 121 上传现有契约全部回归通过。
+9. 关闭“智能统一”或“基础设定”不会停止 H3 视觉基线、人物和场景分析的获取/保存，也不会从最终 Prompt 中删除分镜事实；Trace 能证明两个开关只控制各自注入层。
 
 ## 15. 明确不做
 
