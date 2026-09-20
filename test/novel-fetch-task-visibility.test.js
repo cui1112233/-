@@ -34,6 +34,20 @@ test('默认任务列表不会因当前批次优先而显示过期已完成任�
   assert.deepEqual(visible, []);
 });
 
+test('严格日期筛选使用批次进入日期而不是后来更新日期', () => {
+  const tasks = [{
+    bookId: 'book-yesterday',
+    batchCreatedAt: '2026-09-18T08:00:00.000Z',
+    createdAt: '2026-09-18T08:00:00.000Z',
+    updatedAt: '2026-09-19T08:00:00.000Z',
+    status: 'done'
+  }];
+
+  const visible = filterTaskList(tasks, { date: '2026-09-19' }, new Date('2026-09-19T12:00:00+08:00'));
+
+  assert.deepEqual(visible, []);
+});
+
 test('提交网络页在日期筛选不同于批次日期时仍显示当前批次任务', () => {
   const source = fs.readFileSync(path.join(__dirname, '../frontend/public/batch-rewrite/app.js'), 'utf8');
   const match = source.match(/function currentTaskList\(tasks\) \{[\s\S]*?\n\}/);

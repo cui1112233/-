@@ -400,10 +400,10 @@
       if (!task) continue;
       if (row.children.length === headers.length - 1) {
         const td = document.createElement('td');
-        td.textContent = localDateText(task.push_date || task.created_at || task.createdAt);
+        td.textContent = localDateText(task.push_date || task.batch_created_at || task.created_at || task.createdAt);
         row.insertBefore(td, row.children[pushIndex] || null);
       } else if (row.children[pushIndex]) {
-        row.children[pushIndex].textContent = localDateText(task.push_date || task.created_at || task.createdAt);
+        row.children[pushIndex].textContent = localDateText(task.push_date || task.batch_created_at || task.created_at || task.createdAt);
       }
       if (classifyIndex >= 0 && row.children[classifyIndex]) {
         row.children[classifyIndex].textContent = taskStatusLabel(task.classify_status ?? task.classifyStatus, task.classifier_model || task.classifierModel ? '已完成判断' : '待判断');
