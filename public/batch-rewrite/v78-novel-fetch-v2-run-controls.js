@@ -310,6 +310,9 @@
       const status = document.createElement('small');
       status.textContent = scheduleStatusLabel(item);
 
+      const upload = document.createElement('small');
+      upload.textContent = item.autoSubmit === false ? '上传：需人工提交' : '上传：自动上传';
+
       const actions = document.createElement('div');
       actions.className = 'v78-schedule-row-actions';
       if (item.enabled !== false && item.status === 'scheduled') {
@@ -325,7 +328,7 @@
       remove.addEventListener('click', () => void deleteSchedule(item.id));
       actions.appendChild(remove);
 
-      row.append(when, versions, status, actions);
+      row.append(when, versions, upload, status, actions);
       list.appendChild(row);
     }
   }
