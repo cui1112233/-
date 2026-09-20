@@ -21,6 +21,7 @@ type RouterOptions struct {
 	RegisterV11     func(*http.ServeMux)
 	Store           batchfactoryv11.Store
 	Director        *batchfactoryv11.DirectorService
+	H3AudioProbe    batchfactoryv11.H3AudioDurationProbe
 	Compiler        *batchfactoryv11.PromptCompilerService
 	Production      *batchfactoryv11.ProductionService
 	Merge           *batchfactoryv11.MergeService
@@ -58,7 +59,7 @@ func NewRouter(options RouterOptions) http.Handler {
 		options.RegisterV11(v11)
 	}
 	if options.Store != nil && options.Slice >= 3 {
-		registerV12H3Routes(v12, &batchfactoryv11.H3KernelService{Store: options.Store}, options.Director)
+		registerV12H3Routes(v12, &batchfactoryv11.H3KernelService{Store: options.Store, AudioProbe: options.H3AudioProbe}, options.Director)
 	}
 
 	root := http.NewServeMux()

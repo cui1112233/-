@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +12,12 @@ import (
 
 	"qiantie/backend/internal/batchfactoryv11"
 )
+
+type fixedHTTPH3AudioProbe struct{ durationMS int64 }
+
+func (p fixedHTTPH3AudioProbe) DurationMS(context.Context, []byte) (int64, error) {
+	return p.durationMS, nil
+}
 
 func TestV12H3DirectorRouteWritesValidatedCompleteDocument(t *testing.T) {
 	now := time.Unix(1700000000, 0)
@@ -82,6 +89,33 @@ func TestV12H3CompileRouteRejectsClientSuppliedCanonicalAudioDuration(t *testing
 		"audio":                map[string]any{"asset_id": "audio-1", "duration_ms": 7420},
 	})
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "audio") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestV12H3AudioMeasurementRouteProbesBytesInsteadOfAcceptingDuration(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	raw, err := os.ReadFile(filepath.Join("..", "batchfactoryv11", "testdata", "h3_v12_complete_director_trace.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := batchfactoryv11.NewMemoryStore()
+	batch, _ := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "raw novel"}}})
+	director := &batchfactoryv11.DirectorService{Store: store, Provider: &directorHTTPProvider{output: string(raw)}}
+	revision, err := director.RunH3Director(context.Background(), "alice", batch.ID, batch.Books[0].ID, batchfactoryv11.H3DirectorRunRequest{
+		VideoSource: batchfactoryv11.H3VideoSource{Revision: "video-source-acceptance001-r1", Text: "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。"},
+		Preset:      batchfactoryv11.H3DirectorPreset{Key: "h3-director-normal", Revision: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = revision
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 3, Store: store, Director: director, H3AudioProbe: fixedHTTPH3AudioProbe{durationMS: 7420}})
+	path := "/api/batch-factory/v12/batches/" + batch.ID + "/books/" + batch.Books[0].ID + "/h3/audio-measurement"
+	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{
+		"audio_base64": base64.StdEncoding.EncodeToString([]byte("real-audio")),
+	})
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"duration_ms":7420`) || !strings.Contains(rec.Body.String(), `"audio_asset_id":"h3-audio-`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

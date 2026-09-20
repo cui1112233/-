@@ -15,7 +15,7 @@ function rewriteV12PathForLegacyRead(value) {
 
 function isNativeV12H3Path(value) {
   const parsed = new URL(String(value || ''), 'http://qiantie.local');
-  return /^\/api\/batch-factory\/v12\/batches\/[^/]+\/books\/[^/]+\/h3\/(?:director|compile|trace)$/.test(parsed.pathname);
+  return /^\/api\/batch-factory\/v12\/batches\/[^/]+\/books\/[^/]+\/h3\/(?:director|audio-measurement|compile|trace)$/.test(parsed.pathname);
 }
 
 function routeV12UpstreamPath(value) {

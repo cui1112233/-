@@ -26,7 +26,8 @@ type H3CompilationVideoMaterializer interface {
 }
 
 type H3KernelService struct {
-	Store Store
+	Store      Store
+	AudioProbe H3AudioDurationProbe
 }
 
 func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID string, request H3KernelCompileRequest) (H3KernelCompileResult, error) {

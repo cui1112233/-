@@ -233,6 +233,13 @@ export function runH3Director(batchId, bookId, payload) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/director`), { method: 'POST', body: body(payload) });
 }
 
+export function measureH3Audio(batchId, bookId, audioBase64) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/audio-measurement`), {
+    method: 'POST',
+    body: body({ audio_base64: String(audioBase64 || '') })
+  });
+}
+
 export function compileH3Video(batchId, bookId, payload) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/compile`), { method: 'POST', body: body(payload) });
 }

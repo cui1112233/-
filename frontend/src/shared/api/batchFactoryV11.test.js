@@ -75,3 +75,19 @@ test('H3 trace reads the native V12 route and keeps the compilation identity', a
   assert.equal(result.compilation.id, 'compile-1');
   assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/books/book%2F1/h3/trace?compilationId=compile-1');
 });
+
+test('H3 audio measurement sends bytes without accepting a client duration', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ audio_asset_id: 'h3-audio-1' }), { status: 201, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  await batchFactoryV11.measureH3Audio('batch 1', 'book/1', 'YXVkaW8=');
+  assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/books/book%2F1/h3/audio-measurement');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { audio_base64: 'YXVkaW8=' });
+});

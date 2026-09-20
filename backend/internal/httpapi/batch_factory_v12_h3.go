@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 
@@ -36,6 +37,34 @@ func registerV12H3Routes(mux *http.ServeMux, service *batchfactoryv11.H3KernelSe
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"directorRevision": revision})
+	})
+	mux.HandleFunc("POST /api/batch-factory/v12/batches/{batchId}/books/{bookId}/h3/audio-measurement", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, (64<<20)*2)
+		var input struct {
+			AudioBase64 string `json:"audio_base64"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid H3 audio measurement request: " + err.Error()})
+			return
+		}
+		audio, err := base64.StdEncoding.DecodeString(input.AudioBase64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid H3 audio bytes"})
+			return
+		}
+		measurement, err := service.MeasureAudio(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), audio)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"audio_asset_id": measurement.Measurement.AssetID, "audio_measurement": measurement})
 	})
 	mux.HandleFunc("POST /api/batch-factory/v12/batches/{batchId}/books/{bookId}/h3/compile", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
