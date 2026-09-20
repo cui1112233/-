@@ -2326,7 +2326,7 @@ function aiStatusDisplay(task = {}, aiText = '') {
 }
 
 function taskDateKey(task) {
-  const value = task.updated_at || task.updatedAt || task.created_at || task.createdAt || "";
+  const value = task.batch_created_at || task.batchCreatedAt || task.created_at || task.createdAt || task.updated_at || task.updatedAt || "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

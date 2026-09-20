@@ -69,3 +69,16 @@ test('提交网络页在日期筛选不同于批次日期时仍显示当前批�
     ['book-1']
   );
 });
+
+test('legacy task date rendering uses the batch entry date', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../frontend/public/batch-rewrite/app.js'), 'utf8');
+  const match = source.match(/function taskDateKey\(task\) \{[\s\S]*?\n\}/);
+  assert.ok(match, '应能加载任务日期函数');
+  const context = {};
+  vm.runInNewContext(`${match[0]}; this.taskDateKey = taskDateKey;`, context);
+
+  assert.equal(context.taskDateKey({
+    batch_created_at: '2026-09-18T08:00:00.000Z',
+    updated_at: '2026-09-19T08:00:00.000Z'
+  }), '2026-09-18');
+});
