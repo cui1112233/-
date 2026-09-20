@@ -67,6 +67,31 @@ test('runner reports each completed fetch before the next book finishes', async 
   assert.deepEqual(events.filter(item => item[0] === 'report' && item[1] === 'fetch').map(item => item[2]), ['1001', '1002']);
 });
 
+test('runner reports a fetch exception for the affected book immediately', async () => {
+  const reports = [];
+  const tasks = {
+    async saveTasks() {},
+    async getTask(_owner, bookId) { return { meta: { bookId } }; },
+    async readOriginal() { return ''; },
+    async fetchOriginal() { throw new Error('上游超时'); },
+    async updateTaskMeta() {},
+    async listTasks() { return []; }
+  };
+  await runNovelFetchBatch({
+    username: 'alice',
+    payload: { input_text: '1003\t异常书' },
+    configStore: { getConfig: baseConfig, getStyles: () => [], getPlatforms: () => [{ id: '2', name: '知乎付费' }] },
+    tasks,
+    parseBooks: () => ({ tasks: [{ bookId: '1003' }], duplicateCount: 0, emptyIdCount: 0 }),
+    classifyMissingRows: async ({ tasks: rows }) => ({ tasks: rows }),
+    report: event => reports.push(event),
+    listTasks: async () => []
+  });
+
+  assert.equal(reports.find(event => event.type === 'fetch')?.status, 'failed');
+  assert.equal(reports.find(event => event.type === 'fetch')?.book_id, '1003');
+});
+
 test('queue exposes active item and latest progress event while running', async () => {
   let release;
   const gate = new Promise(resolve => { release = resolve; });
