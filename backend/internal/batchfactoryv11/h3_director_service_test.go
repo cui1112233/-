@@ -49,6 +49,9 @@ func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAlia
 	if !strings.Contains(contract.SystemPrompt, "canonical_name 必须优先使用已有人物资产的精确 name") {
 		t.Fatalf("director contract does not enforce stable asset names: %s", contract.SystemPrompt)
 	}
+	if !strings.Contains(contract.SystemPrompt, "不得使用 ?、??、unknown、未知人物作为 slot_id 或连续性对象的键") {
+		t.Fatalf("director contract does not forbid unresolved continuity placeholders: %s", contract.SystemPrompt)
+	}
 	if !strings.Contains(contract.UserPrompt, `"name":"江淮雪"`) || !strings.Contains(contract.UserPrompt, `"name":"周临"`) {
 		t.Fatalf("director contract lost existing character assets: %s", contract.UserPrompt)
 	}

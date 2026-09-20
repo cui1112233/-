@@ -156,7 +156,7 @@ func buildH3DirectorContract(source H3VideoSource, preset H3DirectorPreset, know
 character_roster 每项={"slot_id":"C001","slot_token":"S1","canonical_name":"人物资产姓名","asset_id":"输入的人物资产ID","aliases":[]}；不得独立生成外形，appearance 由后端从绑定资产填入。只引用已有资产；不存在或有歧义时不得编造资产ID。
 如果已有人物资产中存在同一人，canonical_name 必须优先使用已有人物资产的精确 name，将原文中的称呼、简称和关系称呼放入 aliases。不得把“江小姐”之类称呼另建为与真实姓名脱节的人物。
 每个非空视频原文行必须且只能对应一张 director_card，顺序一致；卡内保存 source_index/source_key/source_text/source_text_hash/visual_context/preferred_duration/duration_weight/character_slot_ids/action/camera/movement/rhythm/audio/continuity/micro_shots。
-character_slot_ids 必须显式输出数组，无人镜头使用 []；非空引用必须指向 character_roster.slot_id。continuity 必须是结构化对象，包含 scene_id/location/axis/light_direction/positions/facings/gazes/held_props/action_ends，禁止用 scene_memory 字符串替代。
+character_slot_ids 必须显式输出数组，无人镜头使用 []；非空引用必须指向 character_roster.slot_id。continuity 必须是结构化对象，包含 scene_id/location/axis/light_direction/positions/facings/gazes/held_props/action_ends，禁止用 scene_memory 字符串替代。不得使用 ?、??、unknown、未知人物作为 slot_id 或连续性对象的键；没有可解析人物时这些对象必须输出 {}。
 每张卡至少一个 micro_shot，微镜头必须包含 micro_shot_key/weight/shot_task/visual/action/character_slot_ids/camera/movement/rhythm/audio。
 director_card 和 micro_shot 的复合字段必须使用以下 JSON 对象形状，禁止写成字符串：
 camera={"shot_size":"...","shot_angle":"...","framing":"..."}
