@@ -64,6 +64,7 @@ test('runner reports each completed fetch before the next book finishes', async 
   const firstReport = events.findIndex(item => item[0] === 'report' && item[1] === 'fetch' && item[2] === '1001');
   const secondFetch = events.findIndex(item => item[0] === 'fetch' && item[1] === '1002');
   assert.ok(firstReport >= 0 && secondFetch >= 0 && firstReport < secondFetch);
+  assert.deepEqual(events.filter(item => item[0] === 'report' && item[1] === 'fetch').map(item => item[2]), ['1001', '1002']);
 });
 
 test('queue exposes active item and latest progress event while running', async () => {
