@@ -442,7 +442,7 @@
     byId('v78ViewAllTasks').onclick = () => { activateLegacyTab('tasks'); if (typeof loadTasks === 'function') void loadTasks(); };
   }
 
-  function renderCurrentBatch(batch) {
+  function renderCurrentBatch(batch, taskRows = []) {
     const meta = byId('v78CurrentBatchMeta');
     const summary = byId('v78CurrentBatchSummary');
     const books = byId('v78CurrentBatchBooks');
@@ -455,16 +455,22 @@
     meta.textContent = `${localDateText(batch.createdAt)} · ${taskStatusLabel(batch.status, '处理中')} · ${batch.id}`;
     summary.innerHTML = `<span>小说 ${asArray(batch.taskIds).length} 本</span><span>本次版本 ${targets.join('、') || '-'}</span><span>完成 ${batch.resultSummary?.fetched || 0}</span><span>AI文案 ${batch.resultSummary?.generated_ai_files || 0}</span>`;
     books.innerHTML = '';
-    for (const task of asArray(batch.taskStates).slice(0, 30)) {
+    const states = new Map(asArray(batch.taskStates).map(task => [String(task.bookId || ''), task]));
+    for (const task of asArray(taskRows)) states.set(String(task.id || task.book_id || task.bookId || ''), task);
+    for (const id of asArray(batch.taskOrder || batch.taskIds).slice(0, 30)) {
+      const task = states.get(String(id)) || { bookId: id, status: 'queued' };
       const row = document.createElement('div'); row.className = 'v78-batch-row';
-      row.innerHTML = `<span class="grow"><b>${task.bookId || ''}</b>${task.bookName ? ` · ${task.bookName}` : ''}</span><span>${taskStatusLabel(task.status, '处理中')}</span>`;
+      row.innerHTML = `<span class="grow"><b>${task.bookId || task.book_id || id}</b>${task.bookName || task.book_name ? ` · ${task.bookName || task.book_name}` : ''}</span><span>${taskStatusLabel(task.status, '排队中')}</span>`;
       books.appendChild(row);
     }
     if (!books.childNodes.length && asArray(batch.taskIds).length) books.textContent = `本批次共 ${batch.taskIds.length} 本，处理完成后会显示每本状态。`;
   }
 
   async function loadCurrentBatch() {
-    try { const data = await v2Api('/batches/current'); renderCurrentBatch(data.batch || null); }
+    try {
+      const [batchData, taskData] = await Promise.all([v2Api('/batches/current'), v2Api('/tasks')]);
+      renderCurrentBatch(batchData.batch || null, taskData.tasks || []);
+    }
     catch (error) { setText('v78CurrentBatchMeta', error.message); }
   }
 

@@ -133,8 +133,8 @@ test('重试阶段为 classify 时成功分类后不会遗留处理失败状态'
     classifyMissingRows: async ({ tasks: rows }) => ({ tasks: rows.map(task => ({ ...task, gender: '女频', style: '现代', classifyStatus: 'input_ready', classifyError: '' })), errors: [] }),
     listTasks: async () => [record.meta]
   });
-  assert.equal(statuses[0].classifyStatus, 'input_ready');
-  assert.equal(statuses[0].classifyError, '');
+  assert.equal(statuses.at(-1).classifyStatus, 'input_ready');
+  assert.equal(statuses.at(-1).classifyError, '');
 });
 
 test('网站提交阶段重试不受自动提交开关影响且只提交失败版本', async () => {
