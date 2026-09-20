@@ -154,6 +154,9 @@ func ParseH3DirectorDocument(raw json.RawMessage, source H3VideoSource) (H3Direc
 }
 
 func validateH3DirectorDocument(raw json.RawMessage, document H3DirectorDocument) error {
+	if err := validateH3DirectorIdentityUniqueness(document); err != nil {
+		return err
+	}
 	roster := make(map[string]struct{}, len(document.CharacterRoster))
 	for index, character := range document.CharacterRoster {
 		slotID := strings.TrimSpace(character.SlotID)
@@ -225,6 +228,34 @@ func validateH3DirectorDocument(raw json.RawMessage, document H3DirectorDocument
 			if err := h3ValidateMicroShot(shot, shotPath); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func validateH3DirectorIdentityUniqueness(document H3DirectorDocument) error {
+	sourceKeys := make(map[string]struct{}, len(document.DirectorCards))
+	for cardIndex, card := range document.DirectorCards {
+		cardPath := fmt.Sprintf("director_cards[%d]", cardIndex)
+		sourceKey := strings.TrimSpace(card.SourceKey)
+		if sourceKey == "" {
+			return fmt.Errorf("%w: %s.source_key is required", ErrInvalid, cardPath)
+		}
+		if _, exists := sourceKeys[sourceKey]; exists {
+			return fmt.Errorf("%w: %s.source_key duplicates %s", ErrInvalid, cardPath, sourceKey)
+		}
+		sourceKeys[sourceKey] = struct{}{}
+		microShotKeys := make(map[string]struct{}, len(card.MicroShots))
+		for shotIndex, shot := range card.MicroShots {
+			shotPath := fmt.Sprintf("%s.micro_shots[%d]", cardPath, shotIndex)
+			microShotKey := strings.TrimSpace(shot.MicroShotKey)
+			if microShotKey == "" {
+				return fmt.Errorf("%w: %s.micro_shot_key is required", ErrInvalid, shotPath)
+			}
+			if _, exists := microShotKeys[microShotKey]; exists {
+				return fmt.Errorf("%w: %s.micro_shot_key duplicates %s", ErrInvalid, shotPath, microShotKey)
+			}
+			microShotKeys[microShotKey] = struct{}{}
 		}
 	}
 	return nil

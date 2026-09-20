@@ -127,6 +127,20 @@ func TestParseH3DirectorDocumentRejectsInvalidStructure(t *testing.T) {
 			},
 			want: "director_cards[0].micro_shots[0].action is required",
 		},
+		{
+			name: "duplicate source key",
+			mutate: func(value map[string]any) {
+				h3FixtureCard(value, 1)["source_key"] = h3FixtureCard(value, 0)["source_key"]
+			},
+			want: "director_cards[1].source_key duplicates L001",
+		},
+		{
+			name: "duplicate micro shot key",
+			mutate: func(value map[string]any) {
+				h3FixtureMicroShot(value, 0, 1)["micro_shot_key"] = h3FixtureMicroShot(value, 0, 0)["micro_shot_key"]
+			},
+			want: "director_cards[0].micro_shots[1].micro_shot_key duplicates L001-M01",
+		},
 	}
 
 	for _, test := range tests {
