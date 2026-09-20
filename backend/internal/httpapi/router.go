@@ -32,6 +32,7 @@ type RouterOptions struct {
 
 func NewRouter(options RouterOptions) http.Handler {
 	v11 := http.NewServeMux()
+	v12 := http.NewServeMux()
 	v11.HandleFunc("GET /api/batch-factory/v11/capabilities", capabilityHandlerForRuntime(options.Slice, options.Production != nil && options.Production.Enabled, options.Merge != nil && options.Merge.Enabled, options.External != nil && options.External.Enabled[external.Provider121], options.External != nil && options.External.Enabled[external.ProviderYadi]))
 	if options.Store != nil && options.Slice >= 1 {
 		registerSliceOneRoutes(v11, options.Store)
@@ -56,6 +57,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	if options.RegisterV11 != nil {
 		options.RegisterV11(v11)
 	}
+	if options.Store != nil && options.Slice >= 3 {
+		registerV12H3Routes(v12, &batchfactoryv11.H3KernelService{Store: options.Store}, options.Director)
+	}
 
 	root := http.NewServeMux()
 	root.HandleFunc("GET /api/runtime-build-info", func(w http.ResponseWriter, req *http.Request) {
@@ -63,6 +67,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	})
 	auth := BridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}
 	root.Handle("/api/batch-factory/v11/", auth.Middleware(v11))
+	root.Handle("/api/batch-factory/v12/", auth.Middleware(v12))
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)

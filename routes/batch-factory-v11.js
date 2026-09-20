@@ -2,6 +2,7 @@ const express = require('express');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
+const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
@@ -16,6 +17,49 @@ const AI_PROMPT_MODULES = ['assets', 'constraints', 'video', 'visual'];
 
 function resolveV11GoBaseUrl(env = process.env) {
   return String(env.QIANTIE_BATCH_FACTORY_V11_BASE_URL || env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+}
+
+function textProviderError(message, status = 422, code = 'TEXT_MODEL_REQUIRED') {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function textCompletionEndpoint(baseUrl) {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!base) throw textProviderError('文本模型没有配置服务地址', 422, 'TEXT_MODEL_CONFIGURATION_REQUIRED');
+  if (/\/chat\/completions$/i.test(base)) return base;
+  try {
+    const parsed = new URL(base);
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+    if (!pathname) return `${base}/v1/chat/completions`;
+    if (pathname.endsWith('/v1')) return `${base}/chat/completions`;
+    return `${base}/chat/completions`;
+  } catch (_) {
+    throw textProviderError('文本模型服务地址无效', 422, 'TEXT_MODEL_CONFIGURATION_REQUIRED');
+  }
+}
+
+function directorTextModelPath(req, pathname) {
+  if (req.method !== 'POST') return false;
+  return /\/batches\/[^/]+\/books\/[^/]+\/h3\/director$/.test(pathname);
+}
+
+function requestTextProvider(req, options) {
+  const modelId = String(req.body?.textModelId || '').trim();
+  if (!modelId) throw textProviderError('请先在单书配置或引擎配置中选择已启用的文本模型');
+  const model = resolveRuntimeModel({
+    username: req.username,
+    kind: 'text',
+    modelId,
+    memberStore: options.memberStore,
+    configReader: options.configReader || readConfig
+  });
+  if (!model?.baseUrl || !model?.modelId || !model?.credential) {
+    throw textProviderError('请选择个人中心已启用的文本模型');
+  }
+  return { endpoint: textCompletionEndpoint(model.baseUrl), apiKey: model.credential, model: model.modelId, displayName: model.displayName || model.modelId || model.id };
 }
 
 function normalizedProvider(value) {
@@ -309,6 +353,9 @@ function createBatchFactoryV11Router(options = {}) {
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
+      if (directorTextModelPath(req, parsed.pathname)) {
+        req.body = { ...(req.body || {}), textProvider: requestTextProvider(req, upstreamOptions) };
+      }
       await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
       if (isPromptConfigPath(req, parsed.pathname)) {
         req.body = enrichBatchFactorySystemPresetConfig(req.body, upstreamOptions.presetStore);

@@ -35,6 +35,9 @@ type MemoryStore struct {
 	bookStageRuns      map[string]memoryOwned[BookStageRun]
 	mergeJobs          map[string]memoryOwned[MergeJob]
 	mergeRequests      map[string]string
+	h3AudioMeasurements map[string]memoryOwned[H3AudioMeasurementRevision]
+	h3Timelines         map[string]memoryOwned[H3CanonicalTimelineRevision]
+	h3Compilations      map[string]memoryOwned[H3VideoCompilationRevision]
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -55,6 +58,9 @@ func NewMemoryStore() *MemoryStore {
 		bookStageRuns:      map[string]memoryOwned[BookStageRun]{},
 		mergeJobs:          map[string]memoryOwned[MergeJob]{},
 		mergeRequests:      map[string]string{},
+		h3AudioMeasurements: map[string]memoryOwned[H3AudioMeasurementRevision]{},
+		h3Timelines:         map[string]memoryOwned[H3CanonicalTimelineRevision]{},
+		h3Compilations:      map[string]memoryOwned[H3VideoCompilationRevision]{},
 	}
 }
 
@@ -67,6 +73,7 @@ func cloneProductionJob(value ProductionJob) ProductionJob {
 	for index := range value.Tasks {
 		value.Tasks[index].ReferenceImageURLs = append([]string(nil), value.Tasks[index].ReferenceImageURLs...)
 		value.Tasks[index].DowngradedAssetIDs = append([]string(nil), value.Tasks[index].DowngradedAssetIDs...)
+		value.Tasks[index].CompileTrace = cloneH3CompileTrace(value.Tasks[index].CompileTrace)
 	}
 	return value
 }

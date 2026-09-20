@@ -42,12 +42,16 @@ type FinalPrompt struct {
 	VideoID            string            `json:"videoId"`
 	DirectorRevisionID string            `json:"directorRevisionId"`
 	SnapshotHash       string            `json:"snapshotHash"`
+	DisplayPrompt      string            `json:"displayPrompt"`
 	CompiledPrompt     string            `json:"compiledPrompt"`
 	Components         []PromptComponent `json:"components"`
 	EffectiveSettings  EffectiveSettings `json:"effectiveSettings"`
 	DurationSeconds    int               `json:"durationSeconds"`
 	ReferenceImageURLs []string          `json:"referenceImageUrls,omitempty"`
 	DowngradedAssetIDs []string          `json:"downgradedAssetIds,omitempty"`
+	CompilationID         string          `json:"compilationId,omitempty"`
+	CompilationSegmentKey string          `json:"compilationSegmentKey,omitempty"`
+	CompileTrace          *H3CompileTrace `json:"compileTrace,omitempty"`
 }
 
 type PromptCompilerService struct{ Store Store }

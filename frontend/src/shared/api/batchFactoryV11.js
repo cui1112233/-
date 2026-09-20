@@ -1,6 +1,8 @@
 import { apiRequest } from './client.js';
 
-const BASE = '/api/batch-factory/v11';
+// Keep the module name for import compatibility while the workbench uses the
+// V12 public contract. Legacy data is adapted behind that boundary.
+const BASE = '/api/batch-factory/v12';
 const LOCAL_EXECUTOR_ARTIFACT_PREFIX = '/api/shuihuo-production/local-executor-artifacts/';
 
 function id(value) {
@@ -225,6 +227,18 @@ export function approveHook(batchId, bookId, hookId) {
 
 export function runDirector(batchId, bookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/director`), { method: 'POST', body: body({}) });
+}
+
+export function runH3Director(batchId, bookId, payload) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/director`), { method: 'POST', body: body(payload) });
+}
+
+export function compileH3Video(batchId, bookId, payload) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/compile`), { method: 'POST', body: body(payload) });
+}
+
+export function getH3Trace(batchId, bookId, compilationId = '') {
+  return apiRequest(`${bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/h3/trace`)}${query({ compilationId })}`);
 }
 
 export function getBookStageSummary(batchId, bookId) {

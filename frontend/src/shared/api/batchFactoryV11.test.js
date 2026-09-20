@@ -4,15 +4,15 @@ import * as batchFactoryV11 from './batchFactoryV11.js';
 
 const { bf11Path, bf11ScopePath } = batchFactoryV11;
 
-test('all V11 paths stay under the V11 API namespace', () => {
-  assert.equal(bf11Path('/capabilities'), '/api/batch-factory/v11/capabilities');
-  assert.equal(bf11Path('batches'), '/api/batch-factory/v11/batches');
+test('Batch Factory UI requests the V12 API namespace', () => {
+	assert.equal(bf11Path('/capabilities'), '/api/batch-factory/v12/capabilities');
+	assert.equal(bf11Path('batches'), '/api/batch-factory/v12/batches');
 });
 
 test('scope paths address batch, book and VIDEO overrides without legacy routes', () => {
-  assert.equal(bf11ScopePath({ scope: 'batch', batchId: 'b 1' }), '/api/batch-factory/v11/batches/b%201/settings');
-  assert.equal(bf11ScopePath({ scope: 'book', batchId: 'b1', bookId: 'k/1' }), '/api/batch-factory/v11/batches/b1/books/k%2F1/override');
-  assert.equal(bf11ScopePath({ scope: 'video', batchId: 'b1', bookId: 'k1', videoId: 'v?1' }), '/api/batch-factory/v11/batches/b1/books/k1/videos/v%3F1/override');
+	assert.equal(bf11ScopePath({ scope: 'batch', batchId: 'b 1' }), '/api/batch-factory/v12/batches/b%201/settings');
+	assert.equal(bf11ScopePath({ scope: 'book', batchId: 'b1', bookId: 'k/1' }), '/api/batch-factory/v12/batches/b1/books/k%2F1/override');
+	assert.equal(bf11ScopePath({ scope: 'video', batchId: 'b1', bookId: 'k1', videoId: 'v?1' }), '/api/batch-factory/v12/batches/b1/books/k1/videos/v%3F1/override');
 });
 
 test('unsupported scope fails instead of falling back to a legacy API', () => {
@@ -55,4 +55,23 @@ test('production media blob helper refuses external URLs so the app bearer token
     () => batchFactoryV11.getProductionMediaBlob('https://media.example/video.mp4'),
     /local executor artifact/i
   );
+});
+
+test('H3 trace reads the native V12 route and keeps the compilation identity', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ legacy: false, compilation: { id: 'compile-1' } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  const result = await batchFactoryV11.getH3Trace('batch 1', 'book/1', 'compile-1');
+  assert.equal(result.compilation.id, 'compile-1');
+  assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/books/book%2F1/h3/trace?compilationId=compile-1');
 });

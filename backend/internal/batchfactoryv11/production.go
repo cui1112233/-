@@ -25,26 +25,34 @@ type FrozenVideoModel struct {
 }
 
 type ProviderTaskRef struct {
-	ProviderTaskID string          `json:"providerTaskId,omitempty"`
-	State          ProductionState `json:"state"`
-	MediaURL       string          `json:"mediaUrl,omitempty"`
+	ProviderTaskID           string          `json:"providerTaskId,omitempty"`
+	State                    ProductionState `json:"state"`
+	MediaURL                 string          `json:"mediaUrl,omitempty"`
+	RequestedDurationSeconds float64         `json:"requestedDurationSeconds,omitempty"`
+	ActualDurationSeconds    float64         `json:"actualDurationSeconds,omitempty"`
 }
 
 type ProductionTask struct {
-	ID                 string          `json:"id"`
-	VideoID            string          `json:"videoId"`
-	Provider           string          `json:"provider,omitempty"`
-	Status             ProductionState `json:"status"`
-	Attempt            int             `json:"attempt"`
-	FinalPromptHash    string          `json:"finalPromptHash"`
-	CompiledPrompt     string          `json:"-"`
-	ReferenceImageURLs []string        `json:"referenceImageUrls,omitempty"`
-	DowngradedAssetIDs []string        `json:"downgradedAssetIds,omitempty"`
-	ProviderTaskID     string          `json:"providerTaskId,omitempty"`
-	MediaURL           string          `json:"mediaUrl,omitempty"`
-	ErrorMessage       string          `json:"errorMessage,omitempty"`
-	CreatedAt          time.Time       `json:"createdAt"`
-	UpdatedAt          time.Time       `json:"updatedAt"`
+	ID                       string          `json:"id"`
+	VideoID                  string          `json:"videoId"`
+	Provider                 string          `json:"provider,omitempty"`
+	Status                   ProductionState `json:"status"`
+	Attempt                  int             `json:"attempt"`
+	FinalPromptHash          string          `json:"finalPromptHash"`
+	CompiledPrompt           string          `json:"-"`
+	CompilationID            string          `json:"compilationId,omitempty"`
+	CompilationSegmentKey    string          `json:"compilationSegmentKey,omitempty"`
+	CompileTrace             *H3CompileTrace `json:"compileTrace,omitempty"`
+	ReferenceImageURLs       []string        `json:"referenceImageUrls,omitempty"`
+	DowngradedAssetIDs       []string        `json:"downgradedAssetIds,omitempty"`
+	TargetDurationSeconds    float64         `json:"targetDurationSeconds,omitempty"`
+	RequestedDurationSeconds float64         `json:"requestedDurationSeconds,omitempty"`
+	ActualDurationSeconds    float64         `json:"actualDurationSeconds,omitempty"`
+	ProviderTaskID           string          `json:"providerTaskId,omitempty"`
+	MediaURL                 string          `json:"mediaUrl,omitempty"`
+	ErrorMessage             string          `json:"errorMessage,omitempty"`
+	CreatedAt                time.Time       `json:"createdAt"`
+	UpdatedAt                time.Time       `json:"updatedAt"`
 }
 
 type ProductionJob struct {
@@ -102,8 +110,13 @@ type ProductionRepository interface {
 }
 
 type ProductionOptions struct {
-	Force   bool
-	VideoID string
+	Force         bool
+	VideoID       string
+	CompilationID string
+}
+
+type h3CompilationPromptResolver interface {
+	CompileH3ForProduction(context.Context, string, string, string, string, string, int) (FinalPrompt, error)
 }
 
 type ProductionService struct {
@@ -278,6 +291,17 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 	if len(book.Videos) == 0 {
 		return ProductionJob{}, fmt.Errorf("%w: no active VIDEOs to produce", ErrConflict)
 	}
+	if book.DirectorRevision.Output.H3Director != nil && strings.TrimSpace(options.CompilationID) == "" {
+		repository, ok := s.Store.(H3Repository)
+		if !ok {
+			return ProductionJob{}, fmt.Errorf("%w: H3 compilation repository is unavailable", ErrUnavailable)
+		}
+		latest, latestErr := repository.LatestH3VideoCompilation(ctx, owner, batchID, bookID, book.DirectorRevision.ID)
+		if latestErr != nil {
+			return ProductionJob{}, fmt.Errorf("%w: active H3 compilation is required", ErrConflict)
+		}
+		options.CompilationID = latest.ID
+	}
 	priorJobs, err := repository.ListProductionJobs(ctx, owner, batchID)
 	if err != nil {
 		return ProductionJob{}, err
@@ -324,7 +348,13 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		}
 		var prompt FinalPrompt
 		var compileErr error
-		if compiler, ok := s.Compiler.(referenceImageLimitPromptResolver); ok {
+		if options.CompilationID != "" {
+			compiler, ok := s.Compiler.(h3CompilationPromptResolver)
+			if !ok {
+				return ProductionJob{}, fmt.Errorf("%w: H3 production compiler is unavailable", ErrUnavailable)
+			}
+			prompt, compileErr = compiler.CompileH3ForProduction(ctx, owner, batchID, bookID, video.ID, options.CompilationID, limit)
+		} else if compiler, ok := s.Compiler.(referenceImageLimitPromptResolver); ok {
 			prompt, compileErr = compiler.CompileWithReferenceImageLimit(ctx, owner, batchID, bookID, video.ID, limit)
 		} else {
 			prompt, compileErr = s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
@@ -337,7 +367,7 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
 		}
 		prompts[video.ID] = prompt
-		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...), DowngradedAssetIDs: append([]string(nil), prompt.DowngradedAssetIDs...), CreatedAt: now, UpdatedAt: now})
+		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, CompilationID: prompt.CompilationID, CompilationSegmentKey: prompt.CompilationSegmentKey, CompileTrace: cloneH3CompileTrace(prompt.CompileTrace), ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...), DowngradedAssetIDs: append([]string(nil), prompt.DowngradedAssetIDs...), TargetDurationSeconds: float64(prompt.DurationSeconds), RequestedDurationSeconds: float64(prompt.DurationSeconds), CreatedAt: now, UpdatedAt: now})
 	}
 	job, err = repository.CreateProductionJob(ctx, job)
 	if err != nil {
@@ -368,7 +398,10 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		if submitErr != nil {
 			task.Status, task.ErrorMessage = ProductionFailed, productionError(submitErr)
 		} else {
-			task.Status, task.ProviderTaskID, task.MediaURL = normalizeProductionState(ref.State), strings.TrimSpace(ref.ProviderTaskID), strings.TrimSpace(ref.MediaURL)
+			task.Status, task.ProviderTaskID, task.MediaURL, task.ActualDurationSeconds = normalizeProductionState(ref.State), strings.TrimSpace(ref.ProviderTaskID), strings.TrimSpace(ref.MediaURL), ref.ActualDurationSeconds
+			if ref.RequestedDurationSeconds > 0 {
+				task.RequestedDurationSeconds = ref.RequestedDurationSeconds
+			}
 		}
 		updated, updateErr := repository.UpdateProductionTask(ctx, owner, job.ID, task.ID, task)
 		if updateErr != nil {
@@ -535,16 +568,16 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 			} else if s.ProviderRegistry != nil {
 				adapter, model, resolveErr := s.resolveProvider(ctx, owner, provider)
 				if resolveErr != nil && s.Poller != nil {
-					ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+					ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL, RequestedDurationSeconds: task.RequestedDurationSeconds})
 				} else if resolveErr != nil {
 					pollErr = resolveErr
 				} else if poller, ok := adapter.(ProductionPoller); !ok {
 					pollErr = fmt.Errorf("%w: provider does not support polling", ErrUnavailable)
 				} else {
-					ref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+					ref, pollErr = poller.Poll(ctx, model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL, RequestedDurationSeconds: task.RequestedDurationSeconds})
 				}
 			} else if s.Poller != nil {
-				ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL})
+				ref, pollErr = s.Poller.Poll(ctx, s.Model, ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: task.Status, MediaURL: task.MediaURL, RequestedDurationSeconds: task.RequestedDurationSeconds})
 			} else {
 				continue
 			}
@@ -557,6 +590,9 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 				updated.Status = normalizeProductionState(ref.State)
 				updated.ProviderTaskID = strings.TrimSpace(ref.ProviderTaskID)
 				updated.MediaURL = strings.TrimSpace(ref.MediaURL)
+				if ref.ActualDurationSeconds > 0 {
+					updated.ActualDurationSeconds = ref.ActualDurationSeconds
+				}
 				if updated.Status == ProductionSucceeded {
 					updated.ErrorMessage = ""
 				}

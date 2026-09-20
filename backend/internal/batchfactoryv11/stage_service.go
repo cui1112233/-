@@ -109,7 +109,28 @@ func (s *BookStageService) finish(ctx context.Context, owner string, run BookSta
 	return err
 }
 
+// immediateVideoProviderFailure turns a provider-side rejection that was
+// persisted on a production task into a failed book stage. A queued/running
+// task remains a valid asynchronous submission.
+func immediateVideoProviderFailure(job ProductionJob) error {
+	for _, task := range job.Tasks {
+		if task.Status != ProductionFailed && task.Status != ProductionCancelled {
+			continue
+		}
+		message := strings.TrimSpace(task.ErrorMessage)
+		if message == "" {
+			message = "视频模型未返回可执行任务或成片地址"
+		}
+		return fmt.Errorf("%w: 视频模型提交失败（%s）：%s", ErrUnavailable, task.VideoID, message)
+	}
+	return nil
+}
+
 func (s *BookStageService) Run(ctx context.Context, owner, batchID, bookID string, stage BookStage, mode StageMode, requestID, videoID string) (BookStageSummary, error) {
+	return s.run(ctx, owner, batchID, bookID, stage, mode, requestID, videoID, "")
+}
+
+func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID string, stage BookStage, mode StageMode, requestID, videoID, frozenCompilationID string) (BookStageSummary, error) {
 	if !validBookStage(stage) {
 		return BookStageSummary{}, ErrInvalid
 	}
@@ -155,15 +176,27 @@ func (s *BookStageService) Run(ctx context.Context, owner, batchID, bookID strin
 		}
 	case BookStageVideo:
 		if mode == StageModeMissing {
-			_, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, rawString(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "videoProvider", VideoProviderPersonalAPI), ProductionOptions{VideoID: videoID})
+			var job ProductionJob
+			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, rawString(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "videoProvider", VideoProviderPersonalAPI), ProductionOptions{VideoID: videoID, CompilationID: frozenCompilationID})
+			if err == nil {
+				err = immediateVideoProviderFailure(job)
+			}
 		} else {
-			_, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, rawString(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "videoProvider", VideoProviderPersonalAPI), ProductionOptions{Force: true, VideoID: videoID})
+			var job ProductionJob
+			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, rawString(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "videoProvider", VideoProviderPersonalAPI), ProductionOptions{Force: true, VideoID: videoID, CompilationID: frozenCompilationID})
+			if err == nil {
+				err = immediateVideoProviderFailure(job)
+			}
 		}
 	}
 	if finishErr := s.finish(ctx, owner, run, err); finishErr != nil {
 		return BookStageSummary{}, finishErr
 	}
-	return s.Summary(ctx, owner, batchID, bookID)
+	summary, summaryErr := s.Summary(ctx, owner, batchID, bookID)
+	if summaryErr != nil {
+		return BookStageSummary{}, summaryErr
+	}
+	return summary, err
 }
 
 // RetryLastFailed reruns only the most recently failed stage recorded for this book.
@@ -178,5 +211,36 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 	if strings.TrimSpace(videoID) == "" && summary.LastFailed.Stage == BookStageVideo {
 		videoID = summary.LastFailed.InputRevision
 	}
-	return s.Run(ctx, owner, batchID, bookID, summary.LastFailed.Stage, StageModeForce, requestID, videoID)
+	frozenCompilationID := ""
+	if summary.LastFailed.Stage == BookStageVideo {
+		frozenCompilationID = s.latestFailedH3CompilationID(ctx, owner, batchID, bookID, videoID)
+	}
+	return s.run(ctx, owner, batchID, bookID, summary.LastFailed.Stage, StageModeForce, requestID, videoID, frozenCompilationID)
+}
+
+func (s *BookStageService) latestFailedH3CompilationID(ctx context.Context, owner, batchID, bookID, videoID string) string {
+	repository, ok := s.Store.(ProductionRepository)
+	if !ok {
+		return ""
+	}
+	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
+	if err != nil {
+		return ""
+	}
+	latestID := ""
+	var latestJob ProductionJob
+	for _, job := range jobs {
+		if job.BookID != bookID {
+			continue
+		}
+		for _, task := range job.Tasks {
+			if task.VideoID != videoID || task.Status != ProductionFailed || strings.TrimSpace(task.CompilationID) == "" {
+				continue
+			}
+			if latestID == "" || job.CreatedAt.After(latestJob.CreatedAt) || (job.CreatedAt.Equal(latestJob.CreatedAt) && job.ID > latestJob.ID) {
+				latestJob, latestID = job, task.CompilationID
+			}
+		}
+	}
+	return latestID
 }

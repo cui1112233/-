@@ -9,8 +9,9 @@ import (
 )
 
 type productionSubmitInput struct {
-	RequestID string `json:"requestId"`
-	Provider  string `json:"provider,omitempty"`
+	RequestID     string `json:"requestId"`
+	Provider      string `json:"provider,omitempty"`
+	CompilationID string `json:"compilationId,omitempty"`
 }
 
 type videoProviderConfigInput struct {
@@ -87,7 +88,7 @@ func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.Produ
 			writeStoreError(w, batchfactoryv11.ErrInvalid)
 			return
 		}
-		job, err := service.SubmitBookProductionWithProvider(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, input.Provider)
+		job, err := service.SubmitBookProductionWithOptions(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, input.Provider, batchfactoryv11.ProductionOptions{CompilationID: input.CompilationID})
 		if err != nil {
 			writeStoreError(w, err)
 			return
