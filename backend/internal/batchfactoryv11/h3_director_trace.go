@@ -56,6 +56,34 @@ type H3Audio struct {
 	Ambience      []string `json:"ambience"`
 }
 
+// H3HeldProps keeps the director's per-character prop bindings structured.
+// Text models may emit one prop as a string and multiple props as an array.
+// Keep the validated JSON shape intact so a persisted Trace does not rewrite
+// the director's original structured result.
+type H3HeldProps map[string]json.RawMessage
+
+func (props *H3HeldProps) UnmarshalJSON(raw []byte) error {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return err
+	}
+	decoded := make(H3HeldProps, len(values))
+	for slotID, value := range values {
+		var list []string
+		if err := json.Unmarshal(value, &list); err == nil {
+			decoded[slotID] = append(json.RawMessage(nil), value...)
+			continue
+		}
+		var single string
+		if err := json.Unmarshal(value, &single); err != nil {
+			return fmt.Errorf("held_props.%s must be a string or string array", slotID)
+		}
+		decoded[slotID] = append(json.RawMessage(nil), value...)
+	}
+	*props = decoded
+	return nil
+}
+
 type H3SceneMemory struct {
 	TimeWeather       string            `json:"time_weather,omitempty"`
 	WardrobeStates    map[string]string `json:"wardrobe_states,omitempty"`
@@ -69,7 +97,7 @@ type H3SceneMemory struct {
 	Positions         map[string]string `json:"positions"`
 	Facings           map[string]string `json:"facings"`
 	Gazes             map[string]string `json:"gazes"`
-	HeldProps         map[string]string `json:"held_props"`
+	HeldProps         H3HeldProps       `json:"held_props"`
 	ActionEnds        map[string]string `json:"action_ends"`
 }
 
@@ -385,7 +413,6 @@ func h3ValidateCardFields(card H3DirectorCard, roster map[string]struct{}, path 
 		"positions":   card.Continuity.Positions,
 		"facings":     card.Continuity.Facings,
 		"gazes":       card.Continuity.Gazes,
-		"held_props":  card.Continuity.HeldProps,
 		"action_ends": card.Continuity.ActionEnds,
 	} {
 		if values == nil {
@@ -395,6 +422,14 @@ func h3ValidateCardFields(card H3DirectorCard, roster map[string]struct{}, path 
 			if _, exists := roster[slotID]; !exists {
 				return fmt.Errorf("%w: %s.continuity.%s unknown slot %s", ErrInvalid, path, field, slotID)
 			}
+		}
+	}
+	if card.Continuity.HeldProps == nil {
+		return fmt.Errorf("%w: %s.continuity.held_props is required", ErrInvalid, path)
+	}
+	for slotID := range card.Continuity.HeldProps {
+		if _, exists := roster[slotID]; !exists {
+			return fmt.Errorf("%w: %s.continuity.held_props unknown slot %s", ErrInvalid, path, slotID)
 		}
 	}
 	if card.Audio.SoundEffects == nil || card.Audio.Ambience == nil {

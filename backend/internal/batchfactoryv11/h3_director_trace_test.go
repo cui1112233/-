@@ -72,6 +72,32 @@ func TestParseH3DirectorDocumentRejectsStringSceneMemory(t *testing.T) {
 	}
 }
 
+func TestParseH3DirectorDocumentPreservesMultipleHeldPropsPerCharacter(t *testing.T) {
+	var value map[string]any
+	if err := json.Unmarshal(readH3Fixture(t, "h3_v12_complete_director_trace.json"), &value); err != nil {
+		t.Fatal(err)
+	}
+	card := value["director_cards"].([]any)[0].(map[string]any)
+	continuity := card["continuity"].(map[string]any)
+	continuity["held_props"] = map[string]any{"C001": []any{"苹果", "病历夹"}}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := ParseH3DirectorDocument(raw, acceptanceH3VideoSource())
+	if err != nil {
+		t.Fatalf("multiple held props must remain a structured H3 continuity value: %v", err)
+	}
+	persisted, err := json.Marshal(document.DirectorCards[0].Continuity.HeldProps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(persisted), `{"C001":["苹果","病历夹"]}`; got != want {
+		t.Fatalf("held props = %s, want %s", got, want)
+	}
+}
+
 func TestParseH3DirectorDocumentRejectsInvalidStructure(t *testing.T) {
 	tests := []struct {
 		name   string

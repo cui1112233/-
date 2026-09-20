@@ -125,11 +125,25 @@ func automaticAssetIDsForH3Segment(document H3DirectorDocument, segment H3VideoS
 		if name := strings.TrimSpace(card.Continuity.Location); name != "" {
 			ids = append(ids, idsByKindAndName["scene\x00"+name])
 		}
-		for _, name := range card.Continuity.HeldProps {
-			if name = strings.TrimSpace(name); name != "" {
-				ids = append(ids, idsByKindAndName["prop\x00"+name])
+		for _, rawNames := range card.Continuity.HeldProps {
+			for _, name := range h3HeldPropNames(rawNames) {
+				if name = strings.TrimSpace(name); name != "" {
+					ids = append(ids, idsByKindAndName["prop\x00"+name])
+				}
 			}
 		}
 	}
 	return uniqueAssetIDs(ids)
+}
+
+func h3HeldPropNames(raw json.RawMessage) []string {
+	var values []string
+	if err := json.Unmarshal(raw, &values); err == nil {
+		return values
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return []string{value}
+	}
+	return nil
 }
