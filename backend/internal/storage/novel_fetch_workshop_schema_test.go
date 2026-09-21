@@ -28,4 +28,10 @@ func TestNovelFetchWorkshopSchemaIsOwnerScopedAndJSONBacked(t *testing.T) {
 			t.Fatalf("migration %d version = %d, want %d", index, migrations[index].Version, want)
 		}
 	}
+	joinedRuns := strings.Join(NovelFetchWorkshopRunAuditStatements(), "\n")
+	for _, expected := range []string{"novel_fetch_workshop_runs", "text_model_id", "model_id", "model_display_name", "idx_nfw_runs_owner_book_updated"} {
+		if !strings.Contains(joinedRuns, expected) {
+			t.Fatalf("run audit schema missing %q", expected)
+		}
+	}
 }
