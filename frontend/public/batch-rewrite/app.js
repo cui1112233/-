@@ -7,6 +7,7 @@ const state = {
   selectedId: "",
   selectedIds: new Set(),
   sensitiveProcessingIds: new Set(),
+  aiProcessingIds: new Set(),
   pendingRuleSuggestions: null,
   pendingOpeningItem: null,
   activeProcessJobId: "",
@@ -2425,6 +2426,7 @@ function renderTasks(tasks) {
   for (const task of state.tasks) {
     const id = String(task.id || "");
     const sensitiveRunning = state.sensitiveProcessingIds.has(id);
+    const aiBusy = state.aiProcessingIds.has(id);
     const sensitiveHits = Number(task.sensitive_hit_count || 0);
     const sensitiveFixed = Number(task.sensitive_fixed_count || 0);
     const sensitiveFailed = Number(task.sensitive_failed_count || 0);
@@ -2458,7 +2460,7 @@ function renderTasks(tasks) {
       <td class="task-actions">
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
-        <button data-action="ai" data-id="${escapeHtml(id)}">生成AI文案</button>
+        <button data-action="ai" data-id="${escapeHtml(id)}" ${aiBusy ? "disabled" : ""} aria-busy="${aiBusy ? "true" : "false"}">${aiBusy ? "生成中…" : "生成AI文案"}</button>
         <button data-action="sensitive" data-id="${escapeHtml(id)}" ${sensitiveRunning ? "disabled" : ""}>${sensitiveLabel}</button>
         <button data-action="siteLog" data-id="${escapeHtml(id)}">提交日志</button>
       </td>
@@ -3044,14 +3046,30 @@ async function restoreOriginal(id) {
 }
 
 async function generateAi(id) {
-  if (!id) return;
+  if (!id || state.aiProcessingIds.has(id)) return;
   const task = state.tasks.find(item => String(item.id || item.book_id || "") === String(id));
-  const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
-  await api(`/api/tasks/${id}/generate-ai`, {
-    method: "POST",
-    body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
-  });
-  await loadTasks();
+  if (!task) {
+    setBatchStatus("未找到要生成AI文案的任务，请刷新任务列表");
+    return;
+  }
+  const label = task.book_name || task.book_id || id;
+  state.aiProcessingIds.add(id);
+  renderTasks(state.allTasks);
+  setBatchStatus(`正在生成AI文案：${label}`);
+  try {
+    const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
+    await api(`/api/tasks/${id}/generate-ai`, {
+      method: "POST",
+      body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+    });
+    await loadTasks();
+    setBatchStatus(`AI文案生成已完成：${label}`);
+  } catch (error) {
+    setBatchStatus(`生成AI文案失败：${error.message || "请稍后重试"}`);
+  } finally {
+    state.aiProcessingIds.delete(id);
+    renderTasks(state.allTasks);
+  }
 }
 
 function selectedTaskIds() {
