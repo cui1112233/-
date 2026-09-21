@@ -23,6 +23,14 @@ test('keeps people and scene presets inside each book row instead of the global 
 	assert.match(source, /管理当前书资产/);
 });
 
+test('saves a named automation preset from the automatic-production schedule dialog', () => {
+  const scheduleDialog = source.match(/<Modal title="开始定时"[\s\S]*?<\/Modal>/)?.[0] || '';
+  assert.match(scheduleDialog, /<b>自动化预设<\/b>/);
+  assert.match(scheduleDialog, /<b>预设名称<\/b>/);
+  assert.match(scheduleDialog, /保存当前引擎配置和 AI 推理/);
+  assert.match(scheduleDialog, /saveCurrentAutomationPreset/);
+});
+
 test('lets a book review a viral candidate before replacing working content', () => {
   assert.match(source, /生成爆款候选/);
   assert.match(source, /替换为当前生产内容/);
