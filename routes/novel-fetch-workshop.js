@@ -92,7 +92,9 @@ function createNovelFetchWorkshopRouter({
       extra_body_json: config?.extra_json,
       timeout_seconds: config?.timeout_seconds,
       retry_times: config?.retry_times,
-      max_concurrency: config?.max_concurrency
+      max_concurrency: config?.max_concurrency,
+      textModelId: model.id,
+      modelDisplayName: model.displayName
     };
   }
 
