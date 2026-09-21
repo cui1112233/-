@@ -113,6 +113,14 @@ test('生成AI文案前端识别后端非完成状态', () => {
   assert.match(generateAi[0], /response\.status !== "done"/);
 });
 
+test('网关 HTML 错误转换为中文提示且生成失败不清空已有任务', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /function normalizeBatchErrorMessage\(/);
+  assert.match(app, /网关暂时不可用（502）/);
+  assert.match(app, /loadTasks\(\{ preserveOnEmpty: true \}\)/);
+  assert.match(app, /incomingTasks\.length === 0/);
+});
+
 test('任务列表不向用户显示英文原始状态和提交版本', () => {
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(app, /ai_processing:\s*"AI文案处理中"/);

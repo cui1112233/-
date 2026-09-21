@@ -109,11 +109,24 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     // 兼容本工作台接口使用的 { error } 结构，避免把可操作的原因吞成“HTTP 400”。
-    const error = new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
+    const error = new Error(normalizeBatchErrorMessage(data.error || data.detail || data.message || data.raw, response.status));
+    error.status = response.status;
     reportBatchIssue("response", path, error.message, response.status, options.method || "GET");
     throw error;
   }
   return data;
+}
+
+function normalizeBatchErrorMessage(value, status) {
+  const source = String(value || "");
+  const raw = source.replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]*>/g, " ").replace(/&lt;|&gt;|&amp;/g, " ").replace(/\s+/g, " ").trim();
+  const match = source.match(/\b(502|503|504)\b/);
+  const code = Number(status) || (match ? Number(match[1]) : 0);
+  if (code === 502) return "网关暂时不可用（502），任务已保留，请稍后重试";
+  if (code === 503) return "服务暂时不可用（503），任务已保留，请稍后重试";
+  if (code === 504) return "服务响应超时（504），任务已保留，请稍后重试";
+  if (!raw || /^(bad gateway|service unavailable|gateway timeout)$/i.test(raw)) return `请求失败${code ? `（${code}）` : ""}，任务已保留，请稍后重试`;
+  return raw.slice(0, 4000);
 }
 
 // External 121 checks must always settle so the UI cannot remain in a loading state.
@@ -2801,9 +2814,14 @@ async function ensureKnowledgeLoaded() {
   if (status) status.textContent = "";
 }
 
-async function loadTasks() {
+async function loadTasks(options = {}) {
   const data = await api("/api/tasks");
-  state.allTasks = data.tasks || [];
+  const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
+  if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
+    renderTasks(state.allTasks);
+    return data;
+  }
+  state.allTasks = incomingTasks;
   renderTasks(state.allTasks);
   $("summaryText").textContent = state.viewMode === "current"
     ? `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`
@@ -3140,15 +3158,15 @@ async function generateAi(id) {
     if (response?.status && response.status !== "done") {
       throw new Error(response.error || response.result?.error || `AI文案生成${response.status}`);
     }
-    await loadTasks();
+    await loadTasks({ preserveOnEmpty: true });
     tasksLoaded = true;
     await refreshTaskDetail(id);
     setBatchStatus(`AI文案生成已完成：${label}`);
   } catch (error) {
-    setBatchStatus(`生成AI文案失败：${error.message || "请稍后重试"}`);
+    setBatchStatus(`生成AI文案失败：${normalizeBatchErrorMessage(error?.message, error?.status)}`);
   } finally {
     if (!tasksLoaded) {
-      try { await loadTasks(); } catch (_) { /* keep the original generation error visible */ }
+      try { await loadTasks({ preserveOnEmpty: true }); } catch (_) { /* keep the original generation error visible */ }
     }
     await refreshTaskDetail(id);
     state.aiProcessingIds.delete(id);
