@@ -217,6 +217,48 @@ test('小说获取改文在中央模型不可用时保留等待状态和中文�
   assert.deepEqual(updates[0], { aiStatus: 'waiting_ai_config', aiCurrentVersion: '', aiError: '文本模型不可用、未配置或尚未启用' });
 });
 
+test('小说获取改文失败时记录本次实际模型和尝试次数', async () => {
+  const updates = [];
+  const logs = [];
+  const result = await rewrite.generateAiVersion({
+    configStore: {
+      getConfig: () => ({ rewrite: { process_line_count: 1, anchor_line_count: 1 } }),
+      getAiConfig: () => ({ text_model_id: 'gemini-3', ai: { retry_times: 0 } }),
+      resolveRuntimeModel: () => ({ baseUrl: 'https://api.example/v1', credential: 'secret', modelId: 'gemini-3' })
+    },
+    tasks: {
+      getTask: async () => ({ meta: { bookId: 'book-model-log', originalStatus: 'done', aiGeneratedCount: 0 } }),
+      readOriginal: async () => '第一行\n第二行',
+      updateTaskMeta: async (_username, _bookId, patch) => updates.push(patch),
+      appendLog: async (_username, _bookId, event, data) => logs.push({ event, data })
+    },
+    username: 'tester',
+    task: { bookId: 'book-model-log', originalStatus: 'done' },
+    aiIndex: 1,
+    count: 1,
+    ai: {
+      resolveAiSettings: ai.resolveAiSettings,
+      chatCompletion: async () => { throw new Error('insufficient balance'); }
+    }
+  });
+  assert.equal(result.status, 'failed');
+  assert.equal(updates.at(-1).rewriteModel, 'gemini-3');
+  assert.equal(updates.at(-1).aiLastAttemptCount, 1);
+  assert.equal(logs.at(-1).data.model, 'gemini-3');
+  assert.equal(logs.at(-1).data.attempts, 1);
+});
+
+test('原文刷新失败在接口和任务表中作为独立状态显示', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'batch-rewrite.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'public', 'batch-rewrite', 'app.js'), 'utf8');
+  assert.match(route, /original_refresh_error/);
+  assert.match(route, /result\.status === 'refresh_failed'/);
+  assert.match(source, /original_refresh_error/);
+  assert.match(source, /刷新失败/);
+  assert.match(source, /原文刷新失败原因/);
+  assert.match(source, /AI尝试次数/);
+});
+
 test('队列执行器兼容从旧配置的 app_config 节点读取中央文本模型', () => {
   const calls = [];
   const configStore = createConfigStoreSnapshot({}, {

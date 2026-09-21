@@ -69,3 +69,25 @@ test('MySQL workshop bridge stores original and AI text in Go body endpoints', a
   assert.equal(await store.readVersionText('writer', 'book-1', 'ai1'), 'AI 改写正文');
   assert.equal(bridge.writes.some(payload => Object.hasOwn(payload, 'original') || Object.hasOwn(payload, 'originalRaw')), false);
 });
+
+test('已保存原文的刷新抓取失败只记录刷新错误，不降级原文状态', async (t) => {
+  const bridge = await createBodyBridge();
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const store = createMySQLWorkshopStore({
+    targetBaseUrl: bridge.targetBaseUrl,
+    bridgeSecret: 'test',
+    account: { username: 'writer' },
+    fetchUpstream: async () => ({ code: 400, msg: '获取书籍章节内容失败' })
+  });
+  await store.saveTasks('writer', [{ bookId: 'book-refresh', bookName: '已有原文', platformId: '15', originalStatus: 'done', status: 'original_done' }]);
+  await store.saveOriginalText('writer', 'book-refresh', '此前已保存的正文');
+
+  const result = await store.fetchOriginal('writer', 'book-refresh', 4000);
+  const task = await store.getTask('writer', 'book-refresh');
+
+  assert.equal(result.status, 'refresh_failed');
+  assert.equal(await store.readOriginal('writer', 'book-refresh'), '此前已保存的正文');
+  assert.equal(task.meta.originalStatus, 'done');
+  assert.equal(task.meta.originalRefreshErrorMessage, '上游返回 400：获取书籍章节内容失败');
+  assert.equal(task.meta.originalErrorMessage, '');
+});

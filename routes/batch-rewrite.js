@@ -62,6 +62,10 @@ function snakeTask(task = {}) {
     original_error: task.originalErrorMessage || task.original_error || task.error || '',
     original_error_code: task.originalErrorCode || task.original_error_code || '',
     original_upstream_code: task.originalUpstreamCode ?? task.original_upstream_code ?? null,
+    original_refresh_error: task.originalRefreshErrorMessage || task.original_refresh_error || '',
+    original_refresh_error_code: task.originalRefreshErrorCode || task.original_refresh_error_code || '',
+    original_refresh_upstream_code: task.originalRefreshUpstreamCode ?? task.original_refresh_upstream_code ?? null,
+    original_refresh_at: task.originalRefreshAt || task.original_refresh_at || '',
     classify_error: task.classifyError || task.classify_error || '',
     ai_status: task.aiStatus || task.ai_status || '',
     ai_error: task.aiError || task.ai_error || '',
@@ -70,6 +74,9 @@ function snakeTask(task = {}) {
     ai_files: existingAiFiles.length ? existingAiFiles : Array.from({ length: aiGenerated }, (_, index) => `ai${index + 1}`),
     classify_status: task.classifyStatus || task.classify_status || '',
     classifier_model: task.classifierModel || task.classifier_model || '',
+    rewrite_model: task.rewriteModel || task.rewrite_model || '',
+    ai_last_attempt_count: Number(task.aiLastAttemptCount ?? task.ai_last_attempt_count) || 0,
+    ai_last_attempt_at: task.aiLastAttemptAt || task.ai_last_attempt_at || '',
     sensitive_hit_count: Number(task.sensitiveHitCount ?? task.sensitive_hit_count) || 0,
     sensitive_fixed_count: Number(task.sensitiveFixedCount ?? task.sensitive_fixed_count) || 0,
     sensitive_failed_count: Number(task.sensitiveFailedCount ?? task.sensitive_failed_count) || 0,
@@ -1268,7 +1275,7 @@ function createBatchRewriteRouter({
     res.json({ processed, restored, failed, tasks: await listTasks(req) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); const aiTexts = []; for (const version of versionSelection.generatedVersions(task.meta)) aiTexts.push({ name: version.toUpperCase(), version, text: await tasks.readVersionText(req.username, req.params.id, version) }); const sensitiveLog = await readSensitiveLog(tasks, req.username, req.params.id); res.json({ meta: legacyMeta(task.meta), original: await tasks.readOriginal(req.username, req.params.id), ai_texts: aiTexts, has_original_raw: task.hasOriginalRaw === true, ...sensitiveLog, logs: await tasks.readLogs(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); if (result.status !== 'done') { const current = await tasks.getTask(req.username, req.params.id); throw new Error(current?.meta?.originalErrorMessage || current?.meta?.error || '原文抓取失败'); } const config = withSensitiveAiEnabled(object(store.getConfig()), req.body?.sensitive_ai_enabled); await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, store); res.json({ ok: true }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/fetch', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task) throw new Error('任务不存在'); const result = await tasks.fetchOriginal(req.username, req.params.id, task.meta.maxTxt || 4000); const current = await tasks.getTask(req.username, req.params.id); if (result.status === 'refresh_failed') return res.json({ ok: false, status: 'refresh_failed', preserved: true, message: current?.meta?.originalRefreshErrorMessage || '本次刷新原文失败，已保留原文', task: current }); if (result.status !== 'done') throw new Error(current?.meta?.originalErrorMessage || current?.meta?.error || '原文抓取失败'); const config = withSensitiveAiEnabled(object(store.getConfig()), req.body?.sensitive_ai_enabled); await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, store); res.json({ ok: true, status: 'done', task: await tasks.getTask(req.username, req.params.id) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/tasks/:id/restore-original', async (req, res) => { try {
     const { tasks, configStore: store } = await resources(req);
     if (typeof tasks.restoreOriginal !== 'function') throw new Error('当前存储不支持恢复原文');

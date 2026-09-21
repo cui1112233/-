@@ -2339,7 +2339,8 @@ function originalStatusText(task) {
     const raw = Number(task.original_raw_chars ?? task.originalRawChars ?? 0);
     const maxTxt = Number(task.max_txt ?? task.maxTxt ?? 0);
     const processed = raw > 0 && maxTxt > 0 ? Math.min(maxTxt, raw) : Number(task.original_chars ?? task.originalChars ?? 0);
-    return raw > 0 ? `${processed}/${raw}` : `${processed}字`;
+    const text = raw > 0 ? `${processed}/${raw}` : `${processed}字`;
+    return task.original_refresh_error ? `${text}（刷新失败，已保留）` : text;
   }
   if (task.original_status === "process_failed") {
     return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
@@ -2593,6 +2594,9 @@ function renderDetail(data) {
       ${metaItem("原文失败原因", meta.original_error || "")}
       ${metaItem("原文错误码", meta.original_error_code || "")}
       ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
+      ${metaItem("原文刷新失败原因", meta.original_refresh_error || "")}
+      ${metaItem("原文刷新错误码", meta.original_refresh_error_code || "")}
+      ${metaItem("原文刷新时间", meta.original_refresh_at || "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
@@ -2600,6 +2604,8 @@ function renderDetail(data) {
       ${metaItem("AI失败原因", meta.ai_error || "")}
       ${metaItem("AI当前版本", meta.ai_current_version || "")}
       ${metaItem("AI已生成数量", meta.ai_generated_count || 0)}
+      ${metaItem("AI尝试次数", meta.ai_last_attempt_count || 0)}
+      ${metaItem("AI最后执行时间", meta.ai_last_attempt_at || "")}
       ${metaItem("分类失败原因", meta.classify_error || "")}
       ${metaItem("网站提交失败原因", meta.site_submit_error || "")}
       ${metaItem("任务错误", meta.error || "")}
@@ -3167,12 +3173,13 @@ async function showSiteSubmitLog(id) {
 
 async function refetchTask(id) {
   if (!id) return;
-  await api(`/api/tasks/${id}/fetch`, {
+  const result = await api(`/api/tasks/${id}/fetch`, {
     method: "POST",
     body: JSON.stringify({ sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
   });
   await loadTasks();
   await showTask(id);
+  if (result?.status === "refresh_failed") setBatchStatus(result.message || "本次刷新原文失败，已保留原文");
 }
 
 async function restoreOriginal(id) {
