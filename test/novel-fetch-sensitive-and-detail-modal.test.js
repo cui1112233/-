@@ -164,3 +164,25 @@ test('任务列表不向用户显示英文原始状态和提交版本', () => {
   assert.match(app, /done\.map\(displayVersionLabel\)/);
   assert.match(app, /version === "original" \? "原文"/);
 });
+
+test('V78 任务桥接不会覆盖独立 AI 文案状态，也不会在刷新空响应时移除任务行', () => {
+  const bridge = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(bridge, /const display = typeof aiCopyStatusText === 'function'/);
+  assert.match(bridge, /aiCell\.title = String\(task\.ai_error/);
+  assert.match(bridge, /options\.preserveOnEmpty && incomingTasks\.length === 0/);
+  assert.match(bridge, /mergeTasksKeepingIds\(incomingTasks, options\.preserveIds \|\| \[\]\)/);
+  assert.doesNotMatch(bridge, /if \(\/failed\|失败\/i\.test\(String\(task\.ai_status \|\| ''\)\)\) return `\$\{version\.toUpperCase\(\)\}失败`/);
+});
+
+test('V78 日期刷新桥接透传任务保留选项', () => {
+  const date = read('public/batch-rewrite/v78-novel-fetch-v2-date.js');
+  assert.match(date, /async function loadDateFilteredTasks\(options = \{\}\)/);
+  assert.match(date, /options\.preserveOnEmpty && incomingTasks\.length === 0/);
+  assert.match(date, /mergeTasksKeepingIds\(incomingTasks, options\.preserveIds \|\| \[\]\)/);
+});
+
+test('生产镜像将 V78 桥接脚本复制到前端静态目录', () => {
+  const dockerfile = read('Dockerfile');
+  assert.match(dockerfile, /COPY public\/batch-rewrite\/v78-novel-fetch-v2\.js \.\/frontend\/dist\/batch-rewrite\/v78-novel-fetch-v2\.js/);
+  assert.match(dockerfile, /COPY public\/batch-rewrite\/v78-novel-fetch-v2-date\.js \.\/frontend\/dist\/batch-rewrite\/v78-novel-fetch-v2-date\.js/);
+});

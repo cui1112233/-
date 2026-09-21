@@ -10,7 +10,7 @@
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
-  async function loadDateFilteredTasks() {
+  async function loadDateFilteredTasks(options = {}) {
     const params = new URLSearchParams();
     if (taskFilters.date) params.set('date', taskFilters.date);
     const query = params.toString() ? `?${params}` : '';
@@ -22,7 +22,16 @@
         if (!response.ok) throw new Error(result.error || `请求失败（${response.status}）`);
         return result;
       })();
-    renderTasks(data.tasks || []);
+    const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
+    if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
+      const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
+      renderTasks(fallbackTasks, { preserveVisible: true });
+    } else {
+      state.allTasks = typeof mergeTasksKeepingIds === 'function'
+        ? mergeTasksKeepingIds(incomingTasks, options.preserveIds || [])
+        : incomingTasks;
+      renderTasks(state.allTasks, options);
+    }
     const summary = byId('summaryText');
     if (summary) summary.textContent = `${taskFilters.date || '今天 + 历史未完成'} 显示 ${state.tasks.length} 个任务`;
     return data;

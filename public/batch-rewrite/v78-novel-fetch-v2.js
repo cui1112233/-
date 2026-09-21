@@ -366,9 +366,18 @@
       patchTaskTableForV78(state.tasks || []);
       return result;
     };
-    loadTasks = async function() {
+    loadTasks = async function(options = {}) {
       const data = await v2Api(`/tasks${buildTaskQuery(taskFilters)}`);
-      renderTasks(data.tasks || []);
+      const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
+      if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
+        const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
+        renderTasks(fallbackTasks, { preserveVisible: true });
+      } else {
+        state.allTasks = typeof mergeTasksKeepingIds === 'function'
+          ? mergeTasksKeepingIds(incomingTasks, options.preserveIds || [])
+          : incomingTasks;
+        renderTasks(state.allTasks, options);
+      }
       setText('summaryText', `${taskFilterLabel()} 显示 ${state.tasks.length} 个任务`);
       return data;
     };
@@ -416,11 +425,13 @@
       const generated = new Set(asArray(task.ai_generated_versions).concat(asArray(task.ai_files)).map(version => String(version).toLowerCase()));
       const aiCell = row.children[aiIndex];
       if (aiCell && selected.length) {
-        aiCell.textContent = selected.map(version => {
-          if (generated.has(version)) return `${version.toUpperCase()}已生成`;
-          if (/failed|失败/i.test(String(task.ai_status || ''))) return `${version.toUpperCase()}失败`;
-          return `${version.toUpperCase()}待生成`;
-        }).join('；');
+        const aiBusy = state.aiProcessingIds?.has(id);
+        const displayTask = aiBusy ? { ...task, ai_status: 'generating', ai_current_version: task.ai_current_version || selected[0] } : task;
+        const display = typeof aiCopyStatusText === 'function'
+          ? aiCopyStatusText(displayTask, selected, [...generated])
+          : selected.map(version => generated.has(version) ? `${version.toUpperCase()}已生成` : `${version.toUpperCase()}待生成`).join('；');
+        aiCell.textContent = display;
+        aiCell.title = String(task.ai_error || task.aiError || '');
       }
     }
   }
