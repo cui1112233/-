@@ -49,6 +49,8 @@ import {
   getMergeStatus,
   getProductionStatus,
   getBatchAutomationStatus,
+  listAutomationPresets,
+  saveBatchAutomationPreset,
   startBatchAutomation,
   pauseBatchAutomation,
   resumeBatchAutomation,
@@ -393,20 +395,19 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
   useEffect(() => {
     let active = true;
     setAssetPromptLoading(true);
-    Promise.all([listSystemPresetCatalog('script'), listSystemPresetCatalog('batch-factory')]).then(([script, batchFactory]) => {
-      if (active) setAssetPromptCatalog([
-        ...(Array.isArray(script?.catalog) ? script.catalog : []).filter(item => item?.slot === 'script.asset-extraction'),
-        ...(Array.isArray(batchFactory?.catalog) ? batchFactory.catalog : []).filter(item => item?.slot === 'batch.character-meta')
-      ]);
+    listSystemPresetCatalog('script').then(script => {
+      if (active) setAssetPromptCatalog(
+        (Array.isArray(script?.catalog) ? script.catalog : []).filter(item => item?.slot === 'script.asset-extraction')
+      );
     }).catch(error => { if (active) message.error(error?.message || '读取资产提示词失败'); }).finally(() => { if (active) setAssetPromptLoading(false); });
     return () => { active = false; };
   }, [book?.id]);
   const textModelId = String(engineSettings?.textModelId || '').trim();
   const imageModelId = String(engineSettings?.imageModelId || '').trim();
   const aspectRatio = String(engineSettings?.aspectRatio || '9:16');
-  const currentAssetPromptId = String(assetRules?.character?.presetId || assetRules?.extraction?.presetId || '').trim();
+  const currentAssetPromptId = String(assetRules?.extraction?.presetId || '').trim();
   const assetPromptOptions = (currentAssetPromptId && !assetPromptCatalog.some(item => item.id === currentAssetPromptId)
-    ? [{ id: currentAssetPromptId, name: assetRules?.character?.presetName || assetRules?.extraction?.presetName || '预设已失效', version: assetRules?.character?.presetVersion || assetRules?.extraction?.presetVersion || 1, disabled: true }, ...assetPromptCatalog]
+    ? [{ id: currentAssetPromptId, name: assetRules?.extraction?.presetName || '预设已失效', version: assetRules?.extraction?.presetVersion || 1, disabled: true }, ...assetPromptCatalog]
     : assetPromptCatalog).map(item => ({ value: item.id, label: `${item.name || item.id} · v${item.version || 1}`, disabled: item.disabled === true }));
   const visibleAssets = assets.filter(asset => asset.kind === kind).filter(asset => {
     const query = search.trim().toLowerCase();
@@ -441,10 +442,9 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
   }
   async function chooseAssetPrompt(presetId) {
     const preset = assetPromptCatalog.find(item => item.id === presetId);
-    const slot = preset?.slot === 'batch.character-meta' ? 'character' : 'extraction';
     try {
-      await onAssetPromptChange?.(slot, preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version, constraintCategory: preset.constraintCategory || '' } : { presetId: '' });
-      message.success(slot === 'character' ? 'H3 人物提示词已选中，点击“重新生成资产”应用到当前书。' : '资产提示词已保存。');
+      await onAssetPromptChange?.(preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version, constraintCategory: preset.constraintCategory || '' } : { presetId: '' });
+      message.success(preset?.id === 'batch-assets-h3' ? 'H3 人物场景道具方案已选中，点击“重新生成资产”应用到当前书。' : '资产提示词已保存。');
     } catch (error) { message.error(error?.message || '保存资产提示词失败'); }
   }
   function toggleAssetSelection(assetId, checked) {
@@ -908,8 +908,8 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
       </div>
     </>}
     <p className="shuihuo-modal-note">{promptKind === 'visual' ? '画面版本从当前书的人物场景预设中管理和生成。' : editing ? '编辑的是当前分镜的视频描述；保存后会按已启用资产与约束重新编译最终视频提示词。' : compilingPrompt ? '正在读取已启用资产与约束编译的最终视频提示词。' : '视频版本只在当前分镜内生成和切换，不会覆盖其他分镜。'}</p>
-    <Modal title="H3 编译与提交 Trace" open={h3TraceOpen} onCancel={() => setH3TraceOpen(false)} footer={null} width={980}>
-      {h3TraceBusy ? <Alert type="info" showIcon message="正在读取 H3 Trace…" /> : h3TraceError ? <Alert type="error" showIcon message="H3 Trace 读取失败" description={h3TraceError} /> : h3Trace?.legacy ? <Alert type="warning" showIcon message="旧数据只读" description={h3Trace?.notice || '旧版导演数据，无完整 H3 Trace'} /> : h3Segment ? <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Modal title="H3 分镜编译与提交 Trace" open={h3TraceOpen} onCancel={() => setH3TraceOpen(false)} footer={null} width={980}>
+      {h3TraceBusy ? <Alert type="info" showIcon message="正在读取编译 Trace…" /> : h3TraceError ? <Alert type="error" showIcon message="编译 Trace 读取失败" description={h3TraceError} /> : h3Trace?.legacy ? <Alert type="warning" showIcon message="旧数据只读" description={h3Trace?.notice || '旧版导演数据，无完整结构化 Trace'} /> : h3Segment ? <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Descriptions size="small" bordered column={2} items={[
           { key: 'director', label: '导演修订', children: h3Trace?.director_revision_id || '—' },
           { key: 'compilation', label: '编译修订', children: h3Trace?.compilation?.id || '—' },
@@ -919,7 +919,7 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
         ]} />
         <label className="shuihuo-form-label">实际提交视频模型的 H3 最终 Prompt<Input.TextArea rows={16} readOnly value={h3Segment.compiled_prompt || ''} /></label>
         <label className="shuihuo-form-label">Compile Trace<Input.TextArea rows={12} readOnly value={JSON.stringify(h3Segment.compile_trace || {}, null, 2)} /></label>
-      </Space> : <Alert type="info" showIcon message="当前分镜尚无 H3 编译记录" />}
+      </Space> : <Alert type="info" showIcon message="当前分镜尚无编译记录" />}
     </Modal>
   </div>;
 }
@@ -1732,7 +1732,8 @@ function BatchLogs({ automationStatus, productionStatus, mergeStatus, error }) {
   const merges = mergeStatus?.jobs || [];
   const automationBooks = Array.isArray(automationStatus?.books) ? automationStatus.books : [];
   const automationCounts = automationStatus?.counts || {};
-  return <><Alert type={error ? 'warning' : 'info'} showIcon message={error || '实时读取 V12 自动生产、视频与合并状态'} description="刷新只回读状态，不会额外提交新任务。自动生产默认停在待上传，不会自动提交 121。" />
+  const autoPublish = automationStatus?.autoPublish === true;
+  return <><Alert type={error ? 'warning' : 'info'} showIcon message={error || '实时读取 V12 自动生产、视频与合并状态'} description={autoPublish ? '自动生产完成合成后会提交视频管理系统，并等待视频管理系统回读确认；未确认前不会显示上传成功。' : '刷新只回读状态，不会额外提交新任务。自动生产默认停在待上传，不会自动提交视频管理系统。'} />
     {automationStatus?.state && automationStatus.state !== 'idle' ? <Alert type={automationStatus.state === 'needs_attention' ? 'warning' : automationStatus.state === 'completed' ? 'success' : 'info'} showIcon message={`自动生产 · ${automationStatus.state}`} description={`就绪 ${Number(automationCounts.ready || 0)} / ${Number(automationCounts.total || automationBooks.length)}；执行中 ${Number(automationCounts.running || 0)}；失败 ${Number(automationCounts.failed || 0)}；阻塞 ${Number(automationCounts.blocked || 0)}`} /> : null}
     <div className="batch-factory-log-list">{automationBooks.map(book => <section key={`automation-${book.bookId}`}><strong>自动生产 · {book.title || book.bookId}</strong><span>{book.stage || 'pending'} · {book.status || 'pending'} · {book.updatedAt || '—'}</span><p>{book.message || '等待自动生产'}{book.error ? ` · ${book.error}` : ''}</p></section>)}{jobs.map(job => <section key={job.id}><strong>生成任务 · {job.status}</strong><span>{job.bookId || '批量任务'} · {job.updatedAt || job.createdAt || '—'}</span>{(job.tasks || []).map(task => { const durations = [['目标', task.targetDurationSeconds], ['请求', task.requestedDurationSeconds], ['实际', task.actualDurationSeconds]].filter(([, value]) => Number(value) > 0).map(([label, value]) => `${label} ${Number(value).toFixed(2).replace(/\.00$/, '')}s`).join(' · '); return <p key={task.id}>{task.videoId} · {task.status}{durations ? ` · ${durations}` : ''}{task.errorMessage ? ` · ${task.errorMessage}` : ''}</p>; })}</section>)}{merges.map(job => <section key={job.id}><strong>合并任务 · {job.status}</strong><span>{job.updatedAt || job.createdAt || '—'}</span><p>{job.outputUrl || job.errorMessage || '等待合并结果'}</p></section>)}{!automationBooks.length && !jobs.length && !merges.length ? <p>当前没有自动生产、视频或合并任务。</p> : null}</div>
   </>;
@@ -1901,6 +1902,12 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [logsError, setLogsError] = useState('');
   const [automationStatus, setAutomationStatus] = useState({ state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } });
   const [automationBusy, setAutomationBusy] = useState('');
+  const [automationStartOpen, setAutomationStartOpen] = useState(false);
+  const [automationPresets, setAutomationPresets] = useState([]);
+  const [automationPresetID, setAutomationPresetID] = useState('');
+  const [automationPresetName, setAutomationPresetName] = useState('');
+  const [automationRunMode, setAutomationRunMode] = useState('video_no_submit');
+  const [automationScheduledAt, setAutomationScheduledAt] = useState('');
   const [productionStatus, setProductionStatus] = useState(null);
 	const [activeProductionRequestID, setActiveProductionRequestID] = useState('');
   const [mergeStatus, setMergeStatus] = useState(null);
@@ -1980,7 +1987,10 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			measure: payload => measureH3Audio(latestBatch.id, latestBook.id, payload) });
 		const promptConfig = settings?.aiPromptConfig || {};
 		const videoPreset = promptConfig.video || {};
+		const videoPresetBody = String(videoPreset.body || '');
+		const videoPromptTemplate = videoPresetBody.includes('{{storyboard}}') ? videoPresetBody : '';
 		const constraints = promptConfig.constraints || {};
+		const h3VisualRestriction = (constraints.selections || []).find(item => item?.constraintCategory === 'restriction' && item?.presetId === 'script-constraint-restriction-h3-visual-policy');
 		const maxSegmentSeconds = Number(settings.storyboardDurationLimit) === 15 ? 15 : 10;
 		await compileH3Video(latestBatch.id, latestBook.id, {
 			director_revision_id: director.id,
@@ -1991,11 +2001,14 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 				format: 'h3-structured-v1',
 				max_segment_ms: maxSegmentSeconds * 1000,
 				request_duration_mode: 'ceil-second',
-				output_constraints: String(videoPreset.body || '按 H3 结构化时间线输出当前 VIDEO，保持人物、动作、机位和场景连续性。')
+				prompt_template: videoPromptTemplate,
+				output_constraints: videoPromptTemplate ? '' : (videoPresetBody || '按结构化时间线输出当前 VIDEO，保持人物、动作、机位和场景连续性。')
 			},
+			visual_restriction_text: String(h3VisualRestriction?.body || ''),
 			switches: {
-				smart_unified: constraints.enabled === true,
-				base_setup: constraints.baseSetup?.enabled !== false
+				smart_unified: (constraints.selections || []).some(item => item?.constraintCategory === 'prefix' && item?.presetId === 'script-constraint-prefix-smart-unified'),
+				base_setup: constraints.baseSetup?.enabled === true,
+				visual_restriction: Boolean(h3VisualRestriction)
 			},
 			editable_copy_overrides: {},
 			expected_compilation_id: priorTrace?.compilation?.id || '',
@@ -2007,9 +2020,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			&& Boolean(configTarget?.book?.directorRevision?.output?.h3_director || configTarget?.book?.directorRevision?.output?.h3Director);
 		if (shouldRecompileH3) {
 			try {
-				message.info('设置已保存，正在复用现有 H3 导演数据重新编译最终 VIDEO Prompt…');
+				message.info('设置已保存，正在复用现有导演数据重新编译最终 VIDEO Prompt…');
 				await compileBookH3Videos(configTarget.book);
-				message.success('设置已生效，H3 最终 VIDEO Prompt 已重新编译。');
+				message.success('设置已生效，最终 VIDEO Prompt 已重新编译。');
 			} catch (error) {
 				message.error(error?.message ? `设置已保存，但 H3 重编译失败：${error.message}` : '设置已保存，但 H3 重编译失败');
 			}
@@ -2326,19 +2339,46 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			else message.info('当前没有运行中的视频任务。');
 		} catch (error) { message.error(error?.message || '取消视频任务失败'); } finally { setActionBusy(''); }
 	}
+  async function loadAutomationPresets() {
+    const result = await listAutomationPresets();
+    const values = resultData(result, 'presets') || [];
+    setAutomationPresets(values);
+    return values;
+  }
+  async function openAutomationStart() {
+    try {
+      const values = await loadAutomationPresets();
+      setAutomationPresetID(current => current || values[0]?.id || '');
+      setAutomationStartOpen(true);
+    } catch (error) { message.error(error?.message || '读取自动化预设失败'); }
+  }
+  async function saveCurrentAutomationPreset() {
+    const name = String(automationPresetName || '').trim();
+    if (!name) { message.warning('请先填写自动化预设名称'); return; }
+    setAutomationBusy('preset');
+    try {
+      const result = await saveBatchAutomationPreset(batch.id, name);
+      const preset = resultData(result, 'preset');
+      const values = await loadAutomationPresets();
+      setAutomationPresetID(preset?.id || values[0]?.id || '');
+      setAutomationPresetName('');
+      message.success('已保存自动化预设。');
+    } catch (error) { message.error(error?.message || '保存自动化预设失败'); }
+    finally { setAutomationBusy(''); }
+  }
   async function runAutomationAction(key) {
     if (!batch?.id || automationBusy) return;
     setAutomationBusy(key);
     try {
       let result;
-      if (key === 'start') result = await startBatchAutomation(batch.id, { concurrency: 2 });
+      if (key === 'start') result = await startBatchAutomation(batch.id, { concurrency: 2, presetId: automationPresetID, runMode: automationRunMode, scheduledAt: automationScheduledAt || undefined });
       else if (key === 'pause') result = await pauseBatchAutomation(batch.id);
       else if (key === 'resume') result = await resumeBatchAutomation(batch.id);
       else if (key === 'retry') result = await retryBatchAutomation(batch.id);
       else if (key === 'cancel') result = await cancelBatchAutomation(batch.id);
       const next = resultData(result, 'automation');
       setAutomationStatus(next || automationStatus);
-      if (key === 'start') message.success('已启动自动生产：逐书执行资产、分镜、画面提示词、VIDEO 和合成，完成后停在待上传。');
+      if (key === 'start') { setAutomationStartOpen(false); message.success(automationScheduledAt ? '已创建定时自动化任务。' : '已启动自动化任务。'); }
       else if (key === 'pause') message.info('已暂停自动化；已提交给模型或合并器的在途任务不会被强制删除。');
       else if (key === 'resume') message.success('已继续自动化。');
       else if (key === 'retry') message.success('已重置失败或阻塞小说，并从缺失阶段继续。');
@@ -2400,7 +2440,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   ];
   const automationStartBlocked = !books.length;
   const automationMenuItems = [
-    { key: 'start', label: '立即自动生产到待上传', disabled: automationActive || automationStartBlocked },
+    { key: 'start', label: '开始定时', disabled: automationActive || automationStartBlocked },
     { key: 'pause', label: '暂停自动化', disabled: !automationActive },
     { key: 'resume', label: '继续自动化', disabled: automationState !== 'paused' },
     { key: 'retry', label: `重试失败小说（${Number(automationCounts.failed || 0) + Number(automationCounts.blocked || 0)}）`, disabled: !(Number(automationCounts.failed || 0) + Number(automationCounts.blocked || 0)) },
@@ -2465,7 +2505,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         <Button type="text" icon={<BarsOutlined />} onClick={() => setNovelListOpen(true)}>小说列表</Button>
         <Button type="text" icon={<SettingOutlined />} onClick={() => setEngineOpen(true)}>引擎配置</Button>
         <Tooltip title={runCapability.available ? '配置并生成资产、画面和视频提示词' : '可先配置并保存提示词；执行生成前需要可用的文本模型。'}><Button type="text" icon={<FileTextOutlined />} onClick={() => setAiOpen(true)}>AI 推理</Button></Tooltip>
-        <Dropdown menu={{ items: automationMenuItems, onClick: ({ key }) => runAutomationAction(key) }}><Button type="text" loading={Boolean(automationBusy)} disabled={automationState === 'idle' && automationStartBlocked}>{automationLabel}</Button></Dropdown>
+        <Dropdown menu={{ items: automationMenuItems, onClick: ({ key }) => key === 'start' ? openAutomationStart() : runAutomationAction(key) }}><Button type="text" loading={Boolean(automationBusy)} disabled={automationState === 'idle' && automationStartBlocked}>{automationLabel}</Button></Dropdown>
         <Dropdown menu={{ items: batchMenuItems, onClick: ({ key }) => key === 'production' ? runProduction() : runMerge() }}><Button className="shuihuo-batch-button" type="text" icon={<PictureOutlined />} loading={actionBusy === 'production' || actionBusy === 'merge'}>批量操作</Button></Dropdown>
 		<Tooltip title={cancelCapability.available ? '取消可取消的本地执行器任务；其它供应商保持在途状态。' : cancelCapability.reason}><Button className="shuihuo-cancel-button" type="text" loading={actionBusy === 'cancel'} disabled={!cancelCapability.available || Boolean(actionBusy)} onClick={cancelProduction}>取消操作</Button></Tooltip>
       </div>
@@ -2490,7 +2530,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
           <div className="shuihuo-workbench-cell batch-factory-actions">
             <div className="batch-factory-action-group is-utility"><span>资料与流程</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => setViewingBook(book)}>查看资料</Button><Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新状态</Button></div></div>
             <div className="batch-factory-action-group is-production"><span>资产获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '提取当前书的人物、场景、道具提示词；手动资产保留。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'assets', 'force')} loading={actionBusy === stageActionKey('assets', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title="打开资产图选择与生成面板；选择资产和图片模型后生成。"><Button size="small" onClick={() => setAssetBook(book)} disabled={Boolean(actionBusy)}>生成图片</Button></Tooltip></div></div>
-            <div className="batch-factory-action-group is-production"><span>视频获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '生成本书分镜卡（视频提示词）。H3 始终获取导演视觉基线；只有在“约束设置 → 画面前缀”开启智能统一后，才显示并注入该基线。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'director', 'force')} loading={actionBusy === stageActionKey('director', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title={productionCapability.available ? '按当前书最终编译视频提示词、可用参考图和画幅创建 VIDEO 任务。' : productionCapability.reason}><Button size="small" className="batch-factory-action-video" onClick={() => runBookStageAction(book, 'video')} loading={actionBusy === stageActionKey('video', book.id)} disabled={!productionCapability.available || Boolean(actionBusy)}>生成视频</Button></Tooltip></div></div>
+            <div className="batch-factory-action-group is-production"><span>视频获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '生成本书结构化导演分镜。视觉基线始终后台保存；仅在“约束设置 → 画面前缀”开启智能统一时显示并注入最终 Prompt。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'director', 'force')} loading={actionBusy === stageActionKey('director', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title={productionCapability.available ? '按当前书最终编译视频提示词、可用参考图和画幅创建 VIDEO 任务。' : productionCapability.reason}><Button size="small" className="batch-factory-action-video" onClick={() => runBookStageAction(book, 'video')} loading={actionBusy === stageActionKey('video', book.id)} disabled={!productionCapability.available || Boolean(actionBusy)}>生成视频</Button></Tooltip></div></div>
             <div className="batch-factory-action-group is-production"><span>画面获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '根据已生成的分镜卡（视频提示词）和画面提示词预设，生成每张分镜的画面提示词。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'visual', 'force')} loading={actionBusy === stageActionKey('visual', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title="画面首帧图片生成服务尚未配置；可先在分镜提示词中查看或编辑画面提示词。"><Button size="small" disabled>生成图片</Button></Tooltip></div></div>
             <div className="batch-factory-action-group is-recovery"><span>异常处理</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新</Button><Button size="small" danger onClick={() => retryLastFailedStage(book)} loading={actionBusy === stageActionKey('retry', book.id)} disabled={Boolean(actionBusy) && actionBusy !== stageActionKey('retry', book.id)}>重试失败步骤</Button></div></div>
           </div>
@@ -2504,7 +2544,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={metadataBook ? `编辑列表信息 · ${metadataBook.title}` : '编辑列表信息'} open={Boolean(metadataBook)} onCancel={() => setMetadataBook(null)} onOk={saveBookMetadata} confirmLoading={metadataSaving} okText="保存" width={620}>{metadataBook ? <Space direction="vertical" size={12} style={{ width: '100%' }}><Alert type="info" showIcon message="此处保存风格、男女频、标签、推荐理由和评级" description="不会改动小说正文或书城来源。" />{[['style', '风格'], ['gender', '男女频'], ['tags', '标签'], ['reason', '推荐理由'], ['rating', '评级']].map(([key, label]) => <label key={key} className="batch-factory-engine-field"><span><b>{label}</b></span><Input value={metadataValue[key] || ''} onChange={event => setMetadataValue(current => ({ ...current, [key]: event.target.value }))} /></label>)}</Space> : null}</Modal>
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => { setEditingContentValue(event.target.value); setEditingContentMode('custom'); }} placeholder="输入当前小说的生产内容" /><label className="shuihuo-form-label"><span>衍生开篇</span><Select value={derivedOpeningPresetId || undefined} onChange={setDerivedOpeningPresetId} options={derivedOpeningOptions} loading={!derivedOpeningOptions.length} placeholder="选择已发布的衍生开篇提示词" style={{ width: 320 }} /></label>{!workingFrontCapability.available ? <Alert type="warning" showIcon message="当前不能生成爆款候选" description={workingFrontCapability.reason || '请先完成当前书的可执行配置。'} /> : null}<Space wrap><Tooltip title={workingFrontCapability.available ? '按选中的衍生开篇提示词生成候选；不会覆盖当前生产内容' : workingFrontCapability.reason}><Button type="primary" onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim() || !derivedOpeningPresetId}>生成爆款候选</Button></Tooltip><Tooltip title={workingFrontCapability.available ? '按当前选择的同一提示词重新生成候选；不会覆盖当前生产内容' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim() || !derivedOpeningPresetId}>重试生成爆款候选</Button></Tooltip></Space>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Space><Button type="primary" onClick={() => { setEditingContentValue(viralCandidate); setEditingContentMode('viral'); }}>替换为当前生产内容</Button><Button onClick={cancelViralCandidate}>取消候选</Button></Space></Space>} /> : null}</Space></Modal>
     <BatchFactoryBookSettingsModal open={Boolean(configTarget)} batch={batch} book={configTarget?.book} activeRegion={configTarget?.region} onClose={() => setConfigTarget(null)} onSaved={refreshAfterBookSettingsSaved} onOpenBookAssets={book => setAssetBook(book)} />
-    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} assetRules={effectiveBookAssetRules(batch, assetBook)} onAssetPromptChange={async (slot, selection) => { const bookPromptConfig = assetBook?.settingsState?.patch?.aiPromptConfig || {}; const assetRules = effectiveBookAssetRules(batch, assetBook); await saveBookOverrideWithRetry(batch.id, assetBook.id, assetBook.revision, { patch: { aiPromptConfig: { ...bookPromptConfig, assets: { ...assetRules, [slot]: selection, ...(slot === 'extraction' ? { character: { presetId: '' } } : {}), scope: 'custom', bookIds: [assetBook.id] } } } }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
+    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} assetRules={effectiveBookAssetRules(batch, assetBook)} onAssetPromptChange={async selection => { const bookPromptConfig = assetBook?.settingsState?.patch?.aiPromptConfig || {}; const assetRules = effectiveBookAssetRules(batch, assetBook); await saveBookOverrideWithRetry(batch.id, assetBook.id, assetBook.revision, { patch: { aiPromptConfig: { ...bookPromptConfig, assets: { ...assetRules, extraction: selection, scope: 'custom', bookIds: [assetBook.id] } } } }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
 	<Modal title={promptBook ? `分镜卡（视频提示词） · ${promptBook.title}` : '分镜卡（视频提示词）'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900} className="batch-factory-prompt-modal">{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} initialVideoId={promptVideoId} onSaved={refreshBatch} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRegenerateVisual={() => runBookStageAction(promptBook, 'visual', 'force')} onRetry={videoId => retryLastFailedStage(promptBook, videoId)} onGenerateVideo={videoId => runBookStageAction(promptBook, 'video', 'missing', videoId)} onViewVideoCandidates={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(promptBook); }} onGenerateVisual={() => setAssetBook(promptBook)} onViewVisualCandidates={() => setAssetBook(promptBook)} regenerating={actionBusy === stageActionKey('director', promptBook.id) || actionBusy === stageActionKey('video', promptBook.id) || actionBusy === stageActionKey('retry', promptBook.id)} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
 	<Modal
       title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'}
@@ -2544,6 +2584,14 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 
     <BatchFactoryAiReasoningModal open={aiOpen} batch={batch} books={books} presetVersions={configVersions} onClose={() => setAiOpen(false)} onSaved={refreshBatch} onPresetsChanged={async () => { const next = await getConfigVersions(); setConfigVersions(resultData(next, 'configVersions') || []); }} onRun={() => runAi('all')} running={actionBusy === 'director'} runAvailable={runCapability.available} runReason={runCapability.reason} />
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs automationStatus={automationStatus} productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
+    <Modal title="开始定时" open={automationStartOpen} onCancel={() => setAutomationStartOpen(false)} onOk={() => runAutomationAction('start')} confirmLoading={automationBusy === 'start'} okText={automationScheduledAt ? '保存定时任务' : '立即开始'} width={620} destroyOnClose>
+      <Space direction="vertical" size={14} style={{ width: '100%' }}>
+        <label className="batch-factory-engine-field"><span><b>自动化预设</b></span><Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} style={{ width: '100%' }} /></label>
+        <Space.Compact style={{ width: '100%' }}><Input value={automationPresetName} onChange={event => setAutomationPresetName(event.target.value)} placeholder="将当前引擎配置和 AI 推理保存为预设" /><Button loading={automationBusy === 'preset'} onClick={saveCurrentAutomationPreset}>保存预设</Button></Space.Compact>
+        <label className="batch-factory-engine-field"><span><b>执行模式</b></span><Select value={automationRunMode} onChange={setAutomationRunMode} style={{ width: '100%' }} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交' }]} /></label>
+        <label className="batch-factory-engine-field"><span><b>执行时间</b></span><Input type="datetime-local" value={automationScheduledAt} onChange={event => setAutomationScheduledAt(event.target.value)} placeholder="留空则立即执行" /></label>
+      </Space>
+    </Modal>
     <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} onOpenPublish={() => { setUploadMode(''); setEngineOpen(true); }} onRefresh={refreshBatch} />
     <BatchFactoryEngineSettingsDrawer open={engineOpen} batch={batch} onClose={() => setEngineOpen(false)} onSave={saveSettings} />
   </section>;

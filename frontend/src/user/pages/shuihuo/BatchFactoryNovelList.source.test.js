@@ -128,11 +128,12 @@ test('keeps the asset-prompt selector from overlapping the asset action toolbar'
   assert.doesNotMatch(stylesheet, /\.shuihuo-preset-toolbar \{ display: grid; grid-template-columns: 150px 160px 104px/);
 });
 
-test('offers the H3 character renderer in the asset prompt dropdown and saves its character slot', () => {
+test('offers only complete asset schemes in the asset prompt dropdown', () => {
   assert.match(source, /listSystemPresetCatalog\('batch-factory'\)/);
-  assert.match(source, /item\?\.slot === 'batch\.character-meta'/);
-  assert.match(source, /onAssetPromptChange=\{async \(slot, selection\) =>/);
-  assert.match(source, /\[slot\]: selection/);
+  assert.match(source, /item\?\.slot === 'script\.asset-extraction'/);
+  assert.doesNotMatch(source, /item\?\.slot === 'batch\.character-meta'/);
+  assert.match(source, /onAssetPromptChange=\{async selection =>/);
+  assert.match(source, /extraction: selection/);
 });
 
 test('opens the asset workspace directly from the book asset setting and uses the engine text model', () => {
@@ -196,6 +197,12 @@ test('uses upload success as the header completion rate and exposes every other 
   assert.match(source, /待上传/);
   assert.doesNotMatch(source, /aria-label=\{`原文就绪 \$\{progress\}%`\}/);
   assert.match(stylesheet, /batch-factory-completion-track/);
+});
+
+test('task logs distinguish scheduled auto-publish from automation that stops for manual upload', () => {
+  assert.match(source, /automationStatus\?\.autoPublish === true/);
+  assert.match(source, /视频管理系统回读确认/);
+  assert.match(source, /自动生产默认停在待上传/);
 });
 
 test('renders every novel row with Shuihuo preset, prompt and clip-library cells', () => {
@@ -626,6 +633,11 @@ test('validates the exact 121 tttadmin session before the publish mapping is usa
   assert.match(engineSource, /121 后台登录会话/);
 });
 
+test('accepts the shared 121 session-check name returned by the verification API', () => {
+  assert.match(engineSource, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话'\s*\]/);
+  assert.match(engineSource, /SESSION_CHECK_NAMES\.includes\(check\.name\)/);
+});
+
 test('shares the 121 account session while retaining upload mappings inside the current batch', () => {
   assert.match(engineSource, /getWebSubmitConfig/);
   assert.match(engineSource, /saveWebSubmitConfig/);
@@ -817,7 +829,7 @@ test('names the prompt workbench as storyboard cards carrying video prompts', ()
   assert.match(source, /title=\{promptBook \? `分镜卡（视频提示词） · \$\{promptBook\.title\}` : '分镜卡（视频提示词）'\}/);
 });
 
-test('lets an H3 VIDEO card inspect the actual submitted prompt and compile trace', () => {
+test('lets a VIDEO card inspect the actual submitted prompt and compile trace', () => {
   assert.match(source, /getH3Trace/);
   assert.match(source, /查看 H3 Trace/);
   assert.match(source, /实际提交视频模型的 H3 最终 Prompt/);
@@ -861,9 +873,9 @@ test('recompiles existing H3 director data after constraint or VIDEO preset sett
 	assert.match(source, /onSaved=\{refreshAfterBookSettingsSaved\}/);
 });
 
-test('maps the saved constraint switch to H3 smart-unified baseline injection', () => {
-	assert.match(source, /smart_unified: constraints\.enabled === true/);
-	assert.match(bookSettingsSource, /智能统一（H3 视觉基线）/);
+test('maps the selected smart-unified prefix to baseline injection', () => {
+	assert.match(source, /smart_unified: \(constraints\.selections \|\| \[\]\)\.some/);
+	assert.match(bookSettingsSource, /智能统一/);
 });
 
 
