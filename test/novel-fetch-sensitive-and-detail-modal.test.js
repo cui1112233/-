@@ -176,9 +176,19 @@ test('V78 任务桥接不会覆盖独立 AI 文案状态，也不会在刷新空
 
 test('V78 日期刷新桥接透传任务保留选项', () => {
   const date = read('public/batch-rewrite/v78-novel-fetch-v2-date.js');
-  assert.match(date, /async function loadDateFilteredTasks\(options = \{\}\)/);
-  assert.match(date, /options\.preserveOnEmpty && incomingTasks\.length === 0/);
-  assert.match(date, /mergeTasksKeepingIds\(incomingTasks, options\.preserveIds \|\| \[\]\)/);
+  assert.match(date, /async function loadDateFilteredTasks\(originalLoadTasks, options = \{\}\)/);
+  assert.match(date, /return originalLoadTasks\(options\)/);
+  assert.match(date, /const originalLoadTasks = loadTasks/);
+});
+
+test('V78 日期控件使用表格实际渲染日期，并支持前后一天', () => {
+  const date = read('public/batch-rewrite/v78-novel-fetch-v2-date.js');
+  assert.match(date, /state\.viewMode = 'date'/);
+  assert.match(date, /state\.taskDate = date/);
+  assert.match(date, /taskPrevDayBtn/);
+  assert.match(date, /taskNextDayBtn/);
+  assert.match(date, /shiftTaskDateKey\(state\.taskDate \|\| todayDateKey\(\), -1\)/);
+  assert.match(date, /shiftTaskDateKey\(state\.taskDate \|\| todayDateKey\(\), 1\)/);
 });
 
 test('生产镜像将 V78 桥接脚本复制到前端静态目录', () => {
