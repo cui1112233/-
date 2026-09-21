@@ -128,6 +128,13 @@ test('keeps the asset-prompt selector from overlapping the asset action toolbar'
   assert.doesNotMatch(stylesheet, /\.shuihuo-preset-toolbar \{ display: grid; grid-template-columns: 150px 160px 104px/);
 });
 
+test('offers the H3 character renderer in the asset prompt dropdown and saves its character slot', () => {
+  assert.match(source, /listSystemPresetCatalog\('batch-factory'\)/);
+  assert.match(source, /item\?\.slot === 'batch\.character-meta'/);
+  assert.match(source, /onAssetPromptChange=\{async \(slot, selection\) =>/);
+  assert.match(source, /\[slot\]: selection/);
+});
+
 test('opens the asset workspace directly from the book asset setting and uses the engine text model', () => {
   assert.match(source, /region\.key === 'assets' \? setAssetBook\(book\) : setConfigTarget\(\{ book, region: region\.key \}\)/);
   assert.match(source, /engineSettings\?\.textModelId/);
