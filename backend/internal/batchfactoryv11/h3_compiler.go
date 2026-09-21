@@ -20,12 +20,14 @@ type H3VideoPreset struct {
 	Format              string `json:"format"`
 	MaxSegmentMS        int64  `json:"max_segment_ms"`
 	RequestDurationMode string `json:"request_duration_mode"`
+	PromptTemplate      string `json:"prompt_template,omitempty"`
 	OutputConstraints   string `json:"output_constraints"`
 }
 
 type H3PromptSwitches struct {
-	SmartUnified bool `json:"smart_unified"`
-	BaseSetup    bool `json:"base_setup"`
+	SmartUnified      bool `json:"smart_unified"`
+	BaseSetup         bool `json:"base_setup"`
+	VisualRestriction bool `json:"visual_restriction"`
 }
 
 type H3AnalysisSnapshot struct {
@@ -46,6 +48,7 @@ type H3VideoCompileInput struct {
 	Timeline              H3CanonicalTimeline               `json:"timeline"`
 	Preset                H3VideoPreset                     `json:"preset"`
 	Analysis              H3AnalysisSnapshot                `json:"analysis"`
+	VisualRestrictionText string                            `json:"visual_restriction_text,omitempty"`
 	Switches              H3PromptSwitches                  `json:"switches"`
 	EditableCopyOverrides map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 }
@@ -129,11 +132,12 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		Timeline              H3CanonicalTimeline               `json:"timeline"`
 		Preset                H3VideoPreset                     `json:"preset"`
 		Analysis              H3AnalysisSnapshot                `json:"analysis"`
+		VisualRestrictionText string                            `json:"visual_restriction_text,omitempty"`
 		Switches              H3PromptSwitches                  `json:"switches"`
 		EditableCopyOverrides map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 		FinalPromptOverrides  map[string]H3EditableCopyRevision `json:"final_prompt_overrides,omitempty"`
 		CompilerVersion       string                            `json:"compiler_version"`
-	}{input.TimelineID, input.Document, input.Timeline, input.Preset, input.Analysis, input.Switches, input.EditableCopyOverrides, input.FinalPromptOverrides, h3VideoCompilerVersion})
+	}{input.TimelineID, input.Document, input.Timeline, input.Preset, input.Analysis, input.VisualRestrictionText, input.Switches, input.EditableCopyOverrides, input.FinalPromptOverrides, h3VideoCompilerVersion})
 	if err != nil {
 		return compilation, fmt.Errorf("hash H3 compilation input: %w", err)
 	}
@@ -198,11 +202,16 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		} else {
 			trace.OmittedLayers = append(trace.OmittedLayers, "asset_settings")
 		}
+		if input.Switches.VisualRestriction {
+			trace.InjectedLayers = append(trace.InjectedLayers, "visual_restriction")
+		} else {
+			trace.OmittedLayers = append(trace.OmittedLayers, "visual_restriction")
+		}
 		if editableSource == "user_final_prompt" {
 			// The user replaced the entire output. The saved switch settings
 			// are context, not evidence that any automatic layer survived.
 			trace.InjectedLayers = []string{}
-			trace.OmittedLayers = []string{"storyboard_facts", "output_constraints", "editable_copy_override", "visual_baseline", "asset_settings"}
+			trace.OmittedLayers = []string{"storyboard_facts", "output_constraints", "editable_copy_override", "visual_baseline", "asset_settings", "visual_restriction"}
 		}
 		requestDuration, err := h3RequestDuration(segment.CanonicalDurationMS, input.Preset)
 		if err != nil {
@@ -281,19 +290,60 @@ func h3RequestDuration(canonicalMS int64, preset H3VideoPreset) (int64, error) {
 }
 
 func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoSegment, editableCopy string, overridden bool) string {
-	parts := []string{}
+	visualBaseline := ""
 	if input.Switches.SmartUnified {
-		parts = append(parts, "detailed_description:\n"+strings.TrimSpace(input.Analysis.VisualBaseline))
+		visualBaseline = "detailed_description:\n" + strings.TrimSpace(input.Analysis.VisualBaseline)
 	}
+	assetDefinitions := ""
 	if input.Switches.BaseSetup {
-		parts = append(parts, "subject_definitions:\n"+h3CanonicalSubjectDefinitions(input.Document, input.Analysis, segment))
+		assetDefinitions = "subject_definitions:\n" + h3CanonicalSubjectDefinitions(input.Document, input.Analysis, segment)
+	}
+	storyboard := "【视听呈现】\n" + h3CanonicalPresentation(input.Document, segment)
+	visualRestriction := ""
+	if input.Switches.VisualRestriction {
+		visualRestriction = strings.TrimSpace(input.VisualRestrictionText)
+		if visualRestriction == "" {
+			// Read-only compatibility for compilations created before the H3
+			// visual-restriction preset existed. New callers freeze preset text.
+			visualRestriction = h3VisualPolicy()
+		}
+	}
+	if template := strings.TrimSpace(input.Preset.PromptTemplate); template != "" {
+		return renderH3PromptTemplate(template, map[string]string{
+			"visual_baseline":    visualBaseline,
+			"asset_definitions":  assetDefinitions,
+			"storyboard":         storyboard,
+			"visual_restriction": visualRestriction,
+			"output_constraints": strings.TrimSpace(input.Preset.OutputConstraints),
+		})
+	}
+	parts := []string{}
+	if visualBaseline != "" {
+		parts = append(parts, visualBaseline)
+	}
+	if assetDefinitions != "" {
+		parts = append(parts, assetDefinitions)
 	}
 	if overridden {
 		parts = append(parts, "editable_story_direction:\n"+strings.TrimSpace(editableCopy))
 	}
-	parts = append(parts, "【视听呈现】\n"+h3CanonicalPresentation(input.Document, segment))
-	parts = append(parts, h3VisualPolicy()+"\n"+strings.TrimSpace(input.Preset.OutputConstraints))
-	return strings.Join(parts, "\n\n")
+	parts = append(parts, storyboard)
+	if visualRestriction != "" {
+		parts = append(parts, visualRestriction)
+	}
+	parts = append(parts, strings.TrimSpace(input.Preset.OutputConstraints))
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func renderH3PromptTemplate(template string, values map[string]string) string {
+	result := strings.TrimSpace(template)
+	for key, value := range values {
+		result = strings.ReplaceAll(result, "{{"+key+"}}", strings.TrimSpace(value))
+	}
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(result)
 }
 
 func h3CanonicalSubjectDefinitions(document H3DirectorDocument, analysis H3AnalysisSnapshot, segment H3VideoSegment) string {

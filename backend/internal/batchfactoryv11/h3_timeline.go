@@ -165,6 +165,45 @@ func AllocateH3CanonicalTimeline(directorRevisionID string, document H3DirectorD
 	return timeline, nil
 }
 
+// AllocateH3SemanticTimeline is the deterministic no-TTS path. It deliberately
+// does not claim an audio asset: each card receives milliseconds derived only
+// from its persisted semantic duration weight, then the normal compiler uses
+// the same segmentation and prompt-template boundary as measured timelines.
+func AllocateH3SemanticTimeline(directorRevisionID string, document H3DirectorDocument) (H3CanonicalTimeline, error) {
+	var total int64
+	for index, card := range document.DirectorCards {
+		weight := int64(math.Ceil(float64(card.DurationWeight)))
+		if weight <= 0 || weight > math.MaxInt64/1000-total {
+			return H3CanonicalTimeline{}, fmt.Errorf("%w: director_cards[%d] has invalid duration_weight", ErrInvalid, index)
+		}
+		total += weight * 1000
+	}
+	if total <= 0 {
+		return H3CanonicalTimeline{}, fmt.Errorf("%w: director_cards must not be empty", ErrInvalid)
+	}
+	timeline, err := AllocateH3CanonicalTimeline(directorRevisionID, document, H3AudioMeasurement{
+		AssetID: "semantic-weight", ContentHash: "semantic-weight", DurationMS: total,
+		VideoSourceRevision: document.VideoSourceRevision, VideoSourceHash: document.VideoSourceHash,
+	})
+	if err != nil {
+		return H3CanonicalTimeline{}, err
+	}
+	timeline.AudioAssetID = ""
+	timeline.AudioContentHash = ""
+	timeline.AudioMeasurement = nil
+	timeline.AllocatorVersion = "h3-semantic-weight/v1"
+	input, err := json.Marshal(struct {
+		DirectorRevisionID string             `json:"director_revision_id"`
+		Document           H3DirectorDocument `json:"document"`
+		AllocatorVersion   string             `json:"allocator_version"`
+	}{directorRevisionID, document, timeline.AllocatorVersion})
+	if err != nil {
+		return H3CanonicalTimeline{}, fmt.Errorf("hash semantic H3 timeline input: %w", err)
+	}
+	timeline.InputHash = fmt.Sprintf("%x", sha256.Sum256(input))
+	return timeline, nil
+}
+
 func h3MeasuredCardDurations(document H3DirectorDocument, audio H3AudioMeasurement) ([]int64, error) {
 	if len(audio.Lines) != len(document.DirectorCards) {
 		return nil, fmt.Errorf("missing measured video-source lines")

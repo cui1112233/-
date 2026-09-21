@@ -44,6 +44,24 @@ func TestH3KernelServiceBuildsTimelineCompilationAndEditableVideoCards(t *testin
 	}
 }
 
+func TestH3KernelServiceCompilesSemanticTimelineWhenAudioPlanningIsDisabled(t *testing.T) {
+	ctx := context.Background()
+	store, batch, book := seedH3DirectorRevision(t)
+	document := *book.DirectorRevision.Output.H3Director
+	result, err := (&H3KernelService{Store: store}).Compile(ctx, "alice", batch.ID, book.ID, H3KernelCompileRequest{
+		DirectorRevisionID:    book.DirectorRevision.ID,
+		AllowSemanticTimeline: true,
+		Preset:                completeH3CompileInput(document, H3CanonicalTimeline{}).Preset,
+		Switches:              H3PromptSwitches{SmartUnified: false, BaseSetup: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Timeline.Timeline.AudioAssetID != "" || result.Timeline.Timeline.AllocatorVersion != "h3-semantic-weight/v1" {
+		t.Fatalf("expected no-TTS semantic timeline: %#v", result.Timeline)
+	}
+}
+
 func TestH3KernelServiceVideoPresetChangeReusesDirectorAndTimeline(t *testing.T) {
 	ctx := context.Background()
 	store, batch, book := seedH3DirectorRevision(t)

@@ -14,7 +14,9 @@ type H3KernelCompileRequest struct {
 	FinalPromptOverrides      map[string]H3EditableCopyRevision `json:"final_prompt_overrides,omitempty"`
 	DirectorRevisionID        string                            `json:"director_revision_id"`
 	AudioAssetID              string                            `json:"audio_asset_id"`
+	AllowSemanticTimeline     bool                              `json:"allow_semantic_timeline,omitempty"`
 	Preset                    H3VideoPreset                     `json:"preset"`
+	VisualRestrictionText     string                            `json:"visual_restriction_text,omitempty"`
 	Switches                  H3PromptSwitches                  `json:"switches"`
 	EditableCopyOverrides     map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 }
@@ -77,11 +79,16 @@ func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID st
 			}
 		}
 	}
-	audioRevision, err := repository.GetH3AudioMeasurement(ctx, owner, batchID, bookID, strings.TrimSpace(request.AudioAssetID))
-	if err != nil {
-		return H3KernelCompileResult{}, fmt.Errorf("%w: verified audio measurement is required", err)
+	var timeline H3CanonicalTimeline
+	if request.AllowSemanticTimeline {
+		timeline, err = AllocateH3SemanticTimeline(book.DirectorRevision.ID, document)
+	} else {
+		audioRevision, audioErr := repository.GetH3AudioMeasurement(ctx, owner, batchID, bookID, strings.TrimSpace(request.AudioAssetID))
+		if audioErr != nil {
+			return H3KernelCompileResult{}, fmt.Errorf("%w: verified audio measurement is required", audioErr)
+		}
+		timeline, err = AllocateH3CanonicalTimeline(book.DirectorRevision.ID, document, audioRevision.Measurement)
 	}
-	timeline, err := AllocateH3CanonicalTimeline(book.DirectorRevision.ID, document, audioRevision.Measurement)
 	if err != nil {
 		return H3KernelCompileResult{}, err
 	}
@@ -99,6 +106,7 @@ func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID st
 		Timeline:              timelineRevision.Timeline,
 		Preset:                request.Preset,
 		Analysis:              analysis,
+		VisualRestrictionText: request.VisualRestrictionText,
 		Switches:              request.Switches,
 		EditableCopyOverrides: request.EditableCopyOverrides,
 		FinalPromptOverrides:  request.FinalPromptOverrides,

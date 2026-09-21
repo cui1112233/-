@@ -84,7 +84,7 @@ func TestCompileH3VideoSegmentsUsesRealH3SubmissionGrammarInsteadOfTraceDump(t *
 	document := mustH3DirectorFixture(t)
 	timeline := mustH3Timeline(t, document, 7420)
 	input := completeH3CompileInput(document, timeline)
-	input.Switches = H3PromptSwitches{SmartUnified: true, BaseSetup: true}
+	input.Switches = H3PromptSwitches{SmartUnified: true, BaseSetup: true, VisualRestriction: true}
 
 	compilation, err := CompileH3VideoSegments(input)
 	if err != nil {
@@ -99,6 +99,28 @@ func TestCompileH3VideoSegmentsUsesRealH3SubmissionGrammarInsteadOfTraceDump(t *
 	for _, forbidden := range []string{"H3 FINAL VIDEO", "preset=", "【视频原文切片】", "hash=", "Scene Memory:", "VIDEO Timeline（segment-local）"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("trace/debug field leaked into submitted H3 prompt %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestCompileH3VideoSegmentsUsesSelectedVideoPresetTemplate(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	timeline := mustH3Timeline(t, document, 7420)
+	input := completeH3CompileInput(document, timeline)
+	input.Preset.PromptTemplate = "[FORMAT]\n{{visual_baseline}}\n{{asset_definitions}}\n{{storyboard}}\n{{visual_restriction}}\n[/FORMAT]"
+	input.Switches = H3PromptSwitches{SmartUnified: true, BaseSetup: false, VisualRestriction: false}
+
+	compilation, err := CompileH3VideoSegments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := compilation.Segments[0].CompiledPrompt
+	if !strings.HasPrefix(prompt, "[FORMAT]\ndetailed_description:\nVISUAL-BASELINE-CONTENT") || !strings.Contains(prompt, "【视听呈现】") {
+		t.Fatalf("selected video template did not control final prompt: %s", prompt)
+	}
+	for _, omitted := range []string{"CHARACTER-ASSET-C001", "人物身份、年龄、脸型、五官、发型、服装和饰品在连续镜头中保持稳定", "{{"} {
+		if strings.Contains(prompt, omitted) {
+			t.Fatalf("disabled or unresolved template layer %q in final prompt: %s", omitted, prompt)
 		}
 	}
 }
@@ -136,10 +158,10 @@ func TestCompileH3VideoSegmentsSwitchesOnlyControlTheirInjectionLayers(t *testin
 	document := mustH3DirectorFixture(t)
 	timeline := mustH3Timeline(t, document, 7420)
 	for _, switches := range []H3PromptSwitches{
-		{SmartUnified: false, BaseSetup: false},
-		{SmartUnified: true, BaseSetup: false},
-		{SmartUnified: false, BaseSetup: true},
-		{SmartUnified: true, BaseSetup: true},
+		{SmartUnified: false, BaseSetup: false, VisualRestriction: false},
+		{SmartUnified: true, BaseSetup: false, VisualRestriction: true},
+		{SmartUnified: false, BaseSetup: true, VisualRestriction: true},
+		{SmartUnified: true, BaseSetup: true, VisualRestriction: false},
 	} {
 		t.Run(switchName(switches), func(t *testing.T) {
 			input := completeH3CompileInput(document, timeline)
@@ -155,6 +177,9 @@ func TestCompileH3VideoSegmentsSwitchesOnlyControlTheirInjectionLayers(t *testin
 			if got := strings.Contains(prompt, "CHARACTER-ASSET-C001"); got != switches.BaseSetup {
 				t.Fatalf("base-setup injection=%v, want %v:\n%s", got, switches.BaseSetup, prompt)
 			}
+			if got := strings.Contains(prompt, "人物身份、年龄、脸型、五官、发型、服装和饰品在连续镜头中保持稳定"); got != switches.VisualRestriction {
+				t.Fatalf("visual-restriction injection=%v, want %v:\n%s", got, switches.VisualRestriction, prompt)
+			}
 			for _, always := range []string{"C001", "我", "女孩站在玄关", "中全景", "缓慢推近", "别墅", "voice_over"} {
 				if !strings.Contains(prompt, always) {
 					t.Fatalf("switches %#v removed storyboard fact %q:\n%s", switches, always, prompt)
@@ -164,7 +189,7 @@ func TestCompileH3VideoSegmentsSwitchesOnlyControlTheirInjectionLayers(t *testin
 			if trace.Switches != switches || trace.CompiledPromptHash != compilation.Segments[0].CompiledPromptHash {
 				t.Fatalf("trace does not freeze effective switches/hash: %#v", trace)
 			}
-			if !traceHasLayer(trace, "storyboard_facts", true) || !traceHasLayer(trace, "visual_baseline", switches.SmartUnified) || !traceHasLayer(trace, "asset_settings", switches.BaseSetup) {
+			if !traceHasLayer(trace, "storyboard_facts", true) || !traceHasLayer(trace, "visual_baseline", switches.SmartUnified) || !traceHasLayer(trace, "asset_settings", switches.BaseSetup) || !traceHasLayer(trace, "visual_restriction", switches.VisualRestriction) {
 				t.Fatalf("trace injection layers do not match switches: %#v", trace)
 			}
 		})
@@ -268,7 +293,7 @@ func TestCompileH3VideoSegmentsMatchesFrozenPromptGoldenHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "ec0c0c65bc01eae6afd32ea811dcd9ced337343420e5b47c326fed1be819cdad"
+	const want = "49db88a5d3c375656db0af1458923b33d6e347793b56b1b51c34c91cb52a4fb3"
 	if got := compilation.Segments[0].CompiledPromptHash; got != want {
 		t.Fatalf("compiled prompt golden hash=%s, want %s", got, want)
 	}
@@ -299,7 +324,8 @@ func completeH3CompileInput(document H3DirectorDocument, timeline H3CanonicalTim
 				"S003": "SCENE-ASSET-S003",
 			},
 		},
-		Switches: H3PromptSwitches{SmartUnified: true, BaseSetup: true},
+		VisualRestrictionText: h3VisualPolicy(),
+		Switches:              H3PromptSwitches{SmartUnified: true, BaseSetup: true, VisualRestriction: true},
 	}
 }
 

@@ -192,13 +192,16 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 			err = fmt.Errorf("%w: 导演分镜已存在；请使用重新生成导演分镜", ErrConflict)
 		} else {
 			var revision DirectorRevision
-			effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
-			if s.H3Director || usesH3VideoRenderer(aiReasoningPromptConfig(effective).Video) {
-				revision, err = s.Director.RunConfiguredH3Director(ctx, owner, batchID, bookID)
-			} else if strings.TrimSpace(s.SmartUnifiedStyle) != "" {
-				revision, err = s.Director.RunDirectorWithSmartUnifiedStyle(ctx, owner, batchID, bookID, s.SmartUnifiedStyle)
+			if s.usesUnifiedDirectorFlow(batch, book) {
+				// Every current video preset follows the same persisted director path.
+				// The selected preset changes the director rules and final template, not
+				// whether duration planning, compilation and Trace exist.
+				revision, err = s.Director.RunConfiguredH3Director(ctx, owner, batchID, bookID, s.SmartUnifiedStyle)
 			} else {
-				revision, err = s.Director.RunDirector(ctx, owner, batchID, bookID)
+				// A V11 record without any saved video-prompt selection remains readable
+				// and runnable through its historical director contract. New UI requests
+				// always set H3Director and therefore never create this legacy shape.
+				revision, err = s.Director.RunDirectorWithSmartUnifiedStyle(ctx, owner, batchID, bookID, s.SmartUnifiedStyle)
 			}
 			if err == nil {
 				run.InputRevision = revision.ID
@@ -230,6 +233,14 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 		return BookStageSummary{}, summaryErr
 	}
 	return summary, err
+}
+
+func (s *BookStageService) usesUnifiedDirectorFlow(batch Batch, book Book) bool {
+	if s != nil && s.H3Director {
+		return true
+	}
+	effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
+	return aiReasoningPromptConfig(effective).Video.videoAppliesTo(book)
 }
 
 // RetryLastFailed reruns only the most recently failed stage recorded for this book.

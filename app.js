@@ -39,6 +39,7 @@ const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createBatchFactoryV11Router } = require('./routes/batch-factory-v11');
+const { createBatchFactoryV12Router, rejectLegacyV11Mutations } = require('./routes/batch-factory-v12');
 const { createMySQLBatchFactoryStoreFactory } = require('./lib/batch-factory/mysql-store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
@@ -123,6 +124,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore
   });
+  // Batch Factory V11 resolves a concrete, account-authorized catalog model on
+  // its trusted Node hop. Its selected model must not be blocked by the older
+  // legacy default-text-model validation performed by teamConfigReader.
+  const resolvedConfigReader = configReader || readConfig;
   const teamVideoConfigReader = createTeamConfigReader({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
@@ -358,11 +363,25 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
   app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
-  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({ presetStore: resolvedPresetStore }));
+  app.use('/api/batch-factory/v11', apiAuth, rejectLegacyV11Mutations, createBatchFactoryV11Router({
+    presetStore: resolvedPresetStore,
+    memberStore: resolvedMemberStore,
+    configReader: resolvedConfigReader,
+    // V11's per-book 121 uploader uses the same account-scoped PHP session as
+    // the novel-fetch workshop.  Keep the session server-side; browser clients
+    // never receive or supply the target-site cookie.
+    novelFetchStore: resolvedNovelFetchStore
+  }));
+  app.use('/api/batch-factory/v12', apiAuth, createBatchFactoryV12Router({
+    presetStore: resolvedPresetStore,
+    memberStore: resolvedMemberStore,
+    configReader: resolvedConfigReader,
+    novelFetchStore: resolvedNovelFetchStore,
+    ...shuihuoGateway
+  }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
   app.use('/api/batch-factory', createBatchFactoryProductionRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway }));
-  const resolvedConfigReader = configReader || readConfig;
   const resolvedConfigWriter = configWriter || require('./lib/shared').writeConfig;
   const isModelReferenced = createModelReferenceResolver({
     configReader: resolvedConfigReader,

@@ -18,7 +18,7 @@ type FFmpegRunner struct {
 	Exec   CommandExecutor
 }
 
-func BuildFFmpegArgs(manifestPath, outputPath string, speed float64) ([]string, error) {
+func BuildFFmpegArgs(manifestPath, outputPath string, speed float64, aspectRatio ...string) ([]string, error) {
 	if strings.TrimSpace(manifestPath) == "" || strings.TrimSpace(outputPath) == "" {
 		return nil, fmt.Errorf("ffmpeg manifest and output are required")
 	}
@@ -28,21 +28,90 @@ func BuildFFmpegArgs(manifestPath, outputPath string, speed float64) ([]string, 
 	if speed < 0.5 || speed > 4 {
 		return nil, fmt.Errorf("speed must be between 0.5 and 4")
 	}
+	inputs, err := concatInputs(manifestPath)
+	if err != nil {
+		return nil, err
+	}
+	width, height, err := mergeCanvas(aspectRatio...)
+	if err != nil {
+		return nil, err
+	}
 	args := []string{
 		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "concat", "-safe", "0", "-i", manifestPath,
-		"-map", "0:v:0", "-map", "0:a:0?",
 	}
-	if speed != 1 {
-		args = append(args, "-filter:v", "setpts=PTS/"+strconv.FormatFloat(speed, 'f', -1, 64))
-		args = append(args, "-filter:a", "atempo="+atempoFilter(speed))
+	for _, input := range inputs {
+		args = append(args, "-i", input)
 	}
+	filters := make([]string, 0, len(inputs)*2+1)
+	concatInputs := make([]string, 0, len(inputs)*2)
+	speedValue := strconv.FormatFloat(speed, 'f', -1, 64)
+	for index := range inputs {
+		video := fmt.Sprintf("[%d:v:0]settb=AVTB,setpts=PTS-STARTPTS,fps=30,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1", index, width, height, width, height)
+		if speed != 1 {
+			video += ",setpts=PTS/" + speedValue
+		}
+		filters = append(filters, video+fmt.Sprintf("[v%d]", index))
+		audio := fmt.Sprintf("[%d:a:0]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS", index)
+		if speed != 1 {
+			audio += ",atempo=" + atempoFilter(speed)
+		}
+		filters = append(filters, audio+fmt.Sprintf("[a%d]", index))
+		concatInputs = append(concatInputs, fmt.Sprintf("[v%d][a%d]", index, index))
+	}
+	filters = append(filters, strings.Join(concatInputs, "")+fmt.Sprintf("concat=n=%d:v=1:a=1[v][a]", len(inputs)))
+	args = append(args, "-filter_complex", strings.Join(filters, ";"), "-map", "[v]", "-map", "[a]")
 	args = append(args,
 		"-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
 		"-c:a", "aac", "-b:a", "192k",
 		"-movflags", "+faststart", outputPath,
 	)
 	return args, nil
+}
+
+func concatInputs(manifestPath string) ([]string, error) {
+	file, err := os.Open(manifestPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	paths := []string{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "file '") || !strings.HasSuffix(line, "'") {
+			return nil, fmt.Errorf("invalid ffmpeg concat manifest entry")
+		}
+		path := strings.TrimSuffix(strings.TrimPrefix(line, "file '"), "'")
+		path = strings.ReplaceAll(path, "'\\\\''", "'")
+		if strings.TrimSpace(path) == "" {
+			return nil, fmt.Errorf("invalid ffmpeg concat manifest entry")
+		}
+		paths = append(paths, path)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("ffmpeg inputs are required")
+	}
+	return paths, nil
+}
+
+func mergeCanvas(aspectRatio ...string) (int, int, error) {
+	aspect := "9:16"
+	if len(aspectRatio) > 0 && strings.TrimSpace(aspectRatio[0]) != "" {
+		aspect = strings.TrimSpace(aspectRatio[0])
+	}
+	switch aspect {
+	case "9:16":
+		return 720, 1280, nil
+	case "16:9":
+		return 1280, 720, nil
+	case "1:1":
+		return 1080, 1080, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported merge aspect ratio %q", aspect)
+	}
 }
 
 func atempoFilter(speed float64) string {
@@ -60,6 +129,17 @@ func atempoFilter(speed float64) string {
 }
 
 func (r *FFmpegRunner) Merge(ctx context.Context, inputPaths []string, outputPath string, speed float64) error {
+	return r.merge(ctx, inputPaths, outputPath, speed, "")
+}
+
+// MergeWithAspect normalizes every source to the selected production canvas
+// before concatenation. Video providers may return different pixel dimensions
+// even when a book requested the same aspect ratio.
+func (r *FFmpegRunner) MergeWithAspect(ctx context.Context, inputPaths []string, outputPath string, speed float64, aspectRatio string) error {
+	return r.merge(ctx, inputPaths, outputPath, speed, aspectRatio)
+}
+
+func (r *FFmpegRunner) merge(ctx context.Context, inputPaths []string, outputPath string, speed float64, aspectRatio string) error {
 	if len(inputPaths) == 0 {
 		return fmt.Errorf("ffmpeg inputs are required")
 	}
@@ -91,7 +171,7 @@ func (r *FFmpegRunner) Merge(ctx context.Context, inputPaths []string, outputPat
 	if err := manifest.Close(); err != nil {
 		return err
 	}
-	args, err := BuildFFmpegArgs(manifestPath, outputPath, speed)
+	args, err := BuildFFmpegArgs(manifestPath, outputPath, speed, aspectRatio)
 	if err != nil {
 		return err
 	}

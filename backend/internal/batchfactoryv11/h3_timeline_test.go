@@ -131,6 +131,20 @@ func TestAllocateH3CanonicalTimelineMaintainsExactCoverageAcrossWeights(t *testi
 	}
 }
 
+func TestAllocateH3SemanticTimelineDoesNotRequireTTSAudio(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	timeline, err := AllocateH3SemanticTimeline("director-1", document)
+	if err != nil {
+		t.Fatalf("semantic timeline: %v", err)
+	}
+	if timeline.AudioAssetID != "" || timeline.AudioMeasurement != nil {
+		t.Fatalf("semantic timeline must not claim an audio measurement: %#v", timeline)
+	}
+	if timeline.AllocatorVersion != "h3-semantic-weight/v1" || timeline.AudioDurationMS <= 0 {
+		t.Fatalf("semantic timeline metadata = %#v", timeline)
+	}
+}
+
 func mustH3DirectorFixture(t *testing.T) H3DirectorDocument {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/h3_v12_complete_director_trace.json")

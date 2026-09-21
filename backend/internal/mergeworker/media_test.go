@@ -29,10 +29,10 @@ func TestDownloaderRejectsOversizedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 	d := &Downloader{
-		Client:       server.Client(),
-		MaxFileBytes: 4,
+		Client:        server.Client(),
+		MaxFileBytes:  4,
 		MaxTotalBytes: 8,
-		ValidateURL:  func(string) error { return nil },
+		ValidateURL:   func(string) error { return nil },
 	}
 	_, err := d.Download(context.Background(), []Source{{ProductionJobID: "p1", VideoID: "v1", MediaURL: server.URL + "/1.mp4", Order: 0}}, t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "size limit") {
@@ -68,15 +68,23 @@ func TestDownloaderPreservesSourceOrder(t *testing.T) {
 }
 
 func TestBuildFFmpegArgsUsesArgvAndFaststart(t *testing.T) {
-	args, err := BuildFFmpegArgs("/work/inputs.txt", "/work/out.mp4", 1)
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "inputs.txt")
+	if err := os.WriteFile(manifest, []byte("file '/work/one.mp4'\nfile '/work/two.mp4'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, err := BuildFFmpegArgs(manifest, "/work/out.mp4", 1.7)
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(args, " ")
-	for _, required := range []string{"-f concat", "-safe 0", "libx264", "aac", "+faststart", "/work/out.mp4"} {
+	for _, required := range []string{"-i /work/one.mp4", "-i /work/two.mp4", "-filter_complex", "aresample=48000", "fps=30", "scale=720:1280", "concat=n=2:v=1:a=1", "atempo=1.7", "libx264", "aac", "+faststart", "/work/out.mp4"} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("missing %q in %q", required, joined)
 		}
+	}
+	if strings.Contains(joined, "-f concat") {
+		t.Fatalf("raw concat demuxer would retain incompatible source audio tracks: %q", joined)
 	}
 	if strings.Contains(joined, "sh -c") || strings.Contains(joined, "bash -c") {
 		t.Fatalf("shell invocation leaked into args: %q", joined)

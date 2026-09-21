@@ -14,8 +14,9 @@ type H3DirectorPreset struct {
 }
 
 type H3DirectorRunRequest struct {
-	VideoSource H3VideoSource    `json:"video_source"`
-	Preset      H3DirectorPreset `json:"preset"`
+	VideoSource       H3VideoSource    `json:"video_source"`
+	Preset            H3DirectorPreset `json:"preset"`
+	SmartUnifiedStyle string           `json:"smart_unified_style,omitempty"`
 }
 
 func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, bookID string, request H3DirectorRunRequest) (DirectorRevision, error) {
@@ -48,6 +49,9 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 		}
 	}
 	contract := buildH3DirectorContract(source, request.Preset, knownCharacters)
+	if style := strings.TrimSpace(request.SmartUnifiedStyle); style != "" {
+		contract.UserPrompt += "\n\n已冻结的全片统一视觉风格（只用于导演一致性，不得改写剧情事实）：\n" + style
+	}
 	assetContext, _ := json.Marshal(book.AssetRecords)
 	contract.UserPrompt += "\n\n权威单书资产（人物必须引用 asset_id）：\n" + string(assetContext)
 	completion, err := s.Provider.Complete(ctx, contract)
@@ -72,14 +76,19 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if h3VisualBaselineText(document.VisualBaseline) == "" {
 		return DirectorRevision{}, fmt.Errorf("%w: H3 visual_baseline is required", ErrInvalid)
 	}
-	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, source.Hash, "", DirectorResult{H3Director: &document})
+	if style := strings.TrimSpace(request.SmartUnifiedStyle); style != "" {
+		// The style request is an independently frozen upstream result.  The
+		// director may consume it for consistency but may not replace it.
+		document.VisualBaseline = style
+	}
+	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, source.Hash, "", DirectorResult{H3Director: &document, SmartUnifiedStyle: strings.TrimSpace(request.SmartUnifiedStyle)})
 }
 
 // RunConfiguredH3Director is the stage-runner entrypoint for new V12 runs.
 // The processed production text is frozen as the H3 video source; the selected
 // H3 VIDEO preset opts into this path, while the director preset body remains
 // reusable independently of the final VIDEO renderer.
-func (s *DirectorService) RunConfiguredH3Director(ctx context.Context, owner, batchID, bookID string) (DirectorRevision, error) {
+func (s *DirectorService) RunConfiguredH3Director(ctx context.Context, owner, batchID, bookID, smartUnifiedStyle string) (DirectorRevision, error) {
 	if err := s.validate(); err != nil {
 		return DirectorRevision{}, err
 	}
@@ -103,21 +112,41 @@ func (s *DirectorService) RunConfiguredH3Director(ctx context.Context, owner, ba
 	}
 	normalizedSource := strings.Join(lines, "\n")
 	hash := sourceDigest(normalizedSource)
-	directorPreset := config.OriginalDirector
-	if rawString(effective, "productionMode", rawString(effective, "mode", "original")) == "viral" {
-		directorPreset = config.ViralDirector
+	// The selected VIDEO preset owns the director's output rules.  The common
+	// structured contract below is the shared Batch Factory pipeline boundary.
+	directorPreset := config.Video
+	if !directorPreset.videoAppliesTo(book) {
+		// Existing V12 records did not persist a video selection. Keep their
+		// frozen director preset readable rather than silently changing it.
+		directorPreset = config.OriginalDirector
 	}
 	revision := int64(directorPreset.Version)
 	if revision <= 0 {
-		revision = int64(config.Video.Version)
+		revision = int64(config.OriginalDirector.Version)
 	}
 	if revision <= 0 {
 		revision = 1
 	}
 	return s.RunH3Director(ctx, owner, batchID, bookID, H3DirectorRunRequest{
-		VideoSource: H3VideoSource{Revision: "video-source-" + hash[:16] + "-r1", Hash: hash, Text: normalizedSource},
-		Preset:      H3DirectorPreset{Key: "h3-director-normal", Revision: revision, PromptBody: directorPreset.body()},
+		VideoSource:       H3VideoSource{Revision: "video-source-" + hash[:16] + "-r1", Hash: hash, Text: normalizedSource},
+		Preset:            H3DirectorPreset{Key: configuredVideoPresetKey(directorPreset), Revision: revision, PromptBody: directorRulesFromVideoPreset(directorPreset.body())},
+		SmartUnifiedStyle: strings.TrimSpace(smartUnifiedStyle),
 	})
+}
+
+func directorRulesFromVideoPreset(body string) string {
+	parts := strings.SplitN(body, "## 最终 Prompt 模板", 2)
+	return strings.TrimSpace(parts[0])
+}
+
+func configuredVideoPresetKey(preset AIReasoningPromptModule) string {
+	if key := strings.TrimSpace(preset.Key); key != "" {
+		return key
+	}
+	if id := strings.TrimSpace(preset.ID); id != "" {
+		return id
+	}
+	return "h3-director-normal"
 }
 
 func normalizeH3VideoSource(source H3VideoSource) (H3VideoSource, error) {

@@ -5,7 +5,7 @@ const { apiAuth } = require('../middleware/auth');
 const router = express.Router();
 router.use(apiAuth);
 
-// POST /api/tts — 文本转语音代理（转发到 tts2.121w.com）
+// POST /api/tts — 文本转语音代理（转发到 tts3.121w.com）
 router.post('/', async (req, res) => {
   try {
     const { input, voice, speed, pitch, style } = req.body;
@@ -21,16 +21,16 @@ router.post('/', async (req, res) => {
       style: style || 'general'
     });
 
-    const ttsReq = http.request('http://tts2.121w.com/v1/audio/speech', {
+    const ttsReq = http.request('http://tts3.121w.com/v1/audio/speech', {
       method: 'POST',
       headers: {
-        'Host': 'tts2.121w.com',
+        'Host': 'tts3.121w.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Accept-Encoding': 'identity',
-        'Referer': 'http://tts2.121w.com/',
-        'Origin': 'http://tts2.121w.com',
+        'Referer': 'http://tts3.121w.com/',
+        'Origin': 'http://tts3.121w.com',
         'Connection': 'keep-alive',
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload)

@@ -144,7 +144,7 @@ func validateH3TimelineForSegmentation(document H3DirectorDocument, timeline H3C
 	if err := validateH3DirectorIdentityUniqueness(document); err != nil {
 		return err
 	}
-	if timeline.SchemaVersion != h3CanonicalTimelineSchemaV1 || (timeline.AllocatorVersion != h3TimelineAllocatorV1 && timeline.AllocatorVersion != "h3-per-line-tts/v1") {
+	if timeline.SchemaVersion != h3CanonicalTimelineSchemaV1 || (timeline.AllocatorVersion != h3TimelineAllocatorV1 && timeline.AllocatorVersion != "h3-per-line-tts/v1" && timeline.AllocatorVersion != "h3-semantic-weight/v1") {
 		return fmt.Errorf("%w: a supported H3 canonical timeline is required", ErrInvalid)
 	}
 	if strings.TrimSpace(timeline.DirectorRevisionID) == "" || timeline.AudioDurationMS <= 0 {

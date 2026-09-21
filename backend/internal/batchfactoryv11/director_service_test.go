@@ -3,6 +3,8 @@ package batchfactoryv11
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -427,6 +429,47 @@ func TestAssetExtractionWithH3FullPresetCompilesAllCharactersOnce(t *testing.T) 
 	}
 	if got := byName["陆沉"]; !strings.Contains(got, "深灰西装、银色手表和后梳短发为跨镜头固定识别点") {
 		t.Fatalf("陆沉 prompt=%q", got)
+	}
+}
+
+func TestH3FullAssetPresetCarriesReferenceAnalysisAndAppearanceAuthorities(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "prompts", "批量工厂-H3人物场景道具提示词.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"assets": map[string]any{
+				"enabled":    true,
+				"extraction": map[string]any{"presetId": "batch-assets-h3", "presetKey": "h3-assets-full", "body": string(body)},
+			},
+		})}, ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{
+		`{"characters":[{"name":"林晚","prompt":"现代都市女主，二十五岁，受原文与关系约束。"}],"scenes":[],"props":[]}`,
+		`{"characters":[{"character_id":"C001","name":"林晚","prompt":"亚洲二十五岁成年女性，现代都市女主，椭圆脸与清晰眉眼，乌黑长发，皮肤白皙自然，身形纤细挺拔，穿剪裁利落的浅色西装与真丝内搭，材质和主色稳定，珍珠耳钉是跨镜头识别点。"}]}`,
+	}}
+	if _, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.calls) != 2 {
+		t.Fatalf("H3 calls=%d, want exactly two", len(provider.calls))
+	}
+	for _, want := range []string{"题材、时代、世界观", "人物名单", "人物关系", "强证据", "不得只凭姓名"} {
+		if !strings.Contains(provider.calls[0].SystemPrompt, want) {
+			t.Fatalf("first H3 analysis request missing reference authority %q:\n%s", want, provider.calls[0].SystemPrompt)
+		}
+	}
+	for _, want := range []string{"slot_id", "有效性别", "年龄阶段", "不得擅自改名", "脸型骨相", "鞋履", "同批人物"} {
+		if !strings.Contains(provider.calls[1].SystemPrompt, want) {
+			t.Fatalf("second H3 appearance request missing reference authority %q:\n%s", want, provider.calls[1].SystemPrompt)
+		}
+	}
+	if strings.Contains(provider.calls[0].SystemPrompt, "slot_id、有效性别") {
+		t.Fatalf("appearance-only authority leaked into first H3 call:\n%s", provider.calls[0].SystemPrompt)
 	}
 }
 

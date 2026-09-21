@@ -28,11 +28,32 @@ func TestFromEnvRequiresDirectorProviderForSliceTwo(t *testing.T) {
 	t.Setenv("QIANTIE_BRIDGE_SECRET", "secret")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_SLICE", "2")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_ENDPOINT", "")
-	if _, err := FromEnv(); err == nil { t.Fatal("expected missing Director provider error") }
+	if _, err := FromEnv(); err == nil {
+		t.Fatal("expected missing Director provider error")
+	}
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_ENDPOINT", "https://example.com/v1/chat/completions")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY", "test-key")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL", "test-model")
-	if _, err := FromEnv(); err != nil { t.Fatalf("unexpected configured Slice 2 error: %v", err) }
+	if _, err := FromEnv(); err != nil {
+		t.Fatalf("unexpected configured Slice 2 error: %v", err)
+	}
+}
+
+func TestFromEnvAcceptsDynamicTextProviderForSliceTwo(t *testing.T) {
+	t.Setenv("QIANTIE_MYSQL_DSN", "mysql")
+	t.Setenv("QIANTIE_BRIDGE_SECRET", "bridge")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_SLICE", "2")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_ENDPOINT", "")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY", "")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL", "")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER", "1")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("unexpected dynamic Slice 2 error: %v", err)
+	}
+	if !cfg.DynamicTextProvider {
+		t.Fatal("expected dynamic text provider to be enabled")
+	}
 }
 
 func TestFromEnvAcceptsProductionSliceFourOnlyWithVideoProvider(t *testing.T) {
@@ -48,8 +69,12 @@ func TestFromEnvAcceptsProductionSliceFourOnlyWithVideoProvider(t *testing.T) {
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_VIDEO_MODEL", "video-model")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED", "1")
 	cfg, err := FromEnv()
-	if err != nil { t.Fatal(err) }
-	if cfg.Slice != 4 || !cfg.ProductionEnabled || cfg.VideoModel != "video-model" { t.Fatalf("cfg=%+v", cfg) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Slice != 4 || !cfg.ProductionEnabled || cfg.VideoModel != "video-model" {
+		t.Fatalf("cfg=%+v", cfg)
+	}
 }
 
 func TestFromEnvAcceptsMergeSliceFiveOnlyWithMergeProvider(t *testing.T) {
@@ -69,8 +94,28 @@ func TestFromEnvAcceptsMergeSliceFiveOnlyWithMergeProvider(t *testing.T) {
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_API_KEY", "merge-key")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_MERGE_ENABLED", "1")
 	cfg, err := FromEnv()
-	if err != nil { t.Fatal(err) }
-	if cfg.Slice != 5 || !cfg.MergeEnabled || cfg.MergeEndpoint == "" { t.Fatalf("cfg=%+v", cfg) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Slice != 5 || !cfg.MergeEnabled || cfg.MergeEndpoint == "" {
+		t.Fatalf("cfg=%+v", cfg)
+	}
+}
+
+func TestFromEnvAcceptsExplicitLocalMergeForSliceFiveWithoutRemoteProvider(t *testing.T) {
+	t.Setenv("QIANTIE_MYSQL_DSN", "user:pass@tcp(mysql:3306)/qiantie")
+	t.Setenv("QIANTIE_BRIDGE_SECRET", "secret")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_SLICE", "5")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER", "1")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED", "1")
+	t.Setenv("QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED", "1")
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.LocalMergeEnabled || !cfg.MergeEnabled || cfg.MergeEndpoint != "" {
+		t.Fatalf("cfg=%+v", cfg)
+	}
 }
 
 func TestFromEnvAcceptsSliceSixWithEncryptedExternalPublishConfig(t *testing.T) {
@@ -93,6 +138,10 @@ func TestFromEnvAcceptsSliceSixWithEncryptedExternalPublishConfig(t *testing.T) 
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_121_API_KEY", "121-key")
 	t.Setenv("QIANTIE_BATCH_FACTORY_V11_CREDENTIALS_KEY", "12345678901234567890123456789012")
 	cfg, err := FromEnv()
-	if err != nil { t.Fatal(err) }
-	if cfg.Slice != 6 || !cfg.External121Enabled || len(cfg.ExternalCredentialsKey) != 32 { t.Fatalf("cfg=%+v", cfg) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Slice != 6 || !cfg.External121Enabled || len(cfg.ExternalCredentialsKey) != 32 {
+		t.Fatalf("cfg=%+v", cfg)
+	}
 }
