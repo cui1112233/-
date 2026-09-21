@@ -99,21 +99,15 @@ git commit -m "feat: resolve novel fetch models from catalog"
 - Modify: `backend/internal/novelfetchworkshop/mysql_store.go`
 - Modify: `backend/internal/httpapi/novel_fetch_workshop.go`
 - Modify: `backend/internal/httpapi/novel_fetch_workshop_test.go`
-- Create: `backend/internal/novelfetchworkshop/migration_test.go`
 
 **Interfaces:**
 - Config contains only `textModelId` and non-secret Novel Fetch settings.
 - `RunRecord` stores owner, run ID, book ID, stage, status, attempts, `textModelId`, resolved model display name/model ID, timestamps, safe error and request ID.
 - Go bridge exposes signed `GET/PUT /api/novel-fetch-workshop/config` and `GET/POST /api/novel-fetch-workshop/runs` for Node internal use only.
 
-- [ ] **Step 1: Write failing Go tests for migration and audit**
+- [ ] **Step 1: Write failing Go tests for audit persistence**
 
 ```go
-func TestMigrateLegacyConfigPrefersExistingTextModelID(t *testing.T) {
-    got := MigrateConfig(map[string]any{"text_model_id": "gemini-3", "ai": map[string]any{"model": "Gemini-3.8-flash"}}, catalog)
-    if got.TextModelID != "gemini-3" { t.Fatalf("got %q", got.TextModelID) }
-}
-
 func TestRunAuditPersistsSelectedAndResolvedModelWithoutCredential(t *testing.T) {
     // write a run record, reload it, assert ids/names survive and serialized JSON lacks api_key/cookie.
 }
@@ -121,29 +115,25 @@ func TestRunAuditPersistsSelectedAndResolvedModelWithoutCredential(t *testing.T)
 
 - [ ] **Step 2: Run red Go tests**
 
-Run: `go test ./internal/novelfetchworkshop ./internal/httpapi -run 'TestMigrateLegacyConfig|TestRunAudit' -count=1`
+Run: `go test ./internal/novelfetchworkshop ./internal/httpapi -run TestRunAudit -count=1`
 
-Expected: FAIL because normalized config/run types and bridge routes do not exist.
+Expected: FAIL because run types and bridge routes do not exist.
 
 - [ ] **Step 3: Add schema migration and store methods**
 
 Add a new monotonic migration version. Create owner-scoped run/audit storage with indexes on owner/run/stage/time. Extend the store interface with put/list run methods. Preserve the existing JSON config row and documents; write normalized fields into settings JSON and migration metadata rather than deleting legacy data in-place.
 
-- [ ] **Step 4: Implement idempotent legacy config migration**
-
-Implement pure Go migration logic with injected catalog lookup result. Apply the four specified outcomes: valid ID retained; unique old raw model mapping selected; ambiguous/missing mapping becomes `model_binding_required`; no API keys/presets/assignments copied into the new execution configuration. Re-running must produce identical stored settings.
-
-- [ ] **Step 5: Implement signed internal run endpoints and run tests**
+- [ ] **Step 4: Implement signed internal run endpoints and run tests**
 
 Add bridge-authenticated endpoints only; validate owner from the signature, reject empty stage/model values, redact sensitive fields before storage, and test cross-owner isolation plus invalid signatures.
 
-- [ ] **Step 6: Run Go regression suite**
+- [ ] **Step 5: Run Go regression suite**
 
 Run: `go test ./internal/novelfetchworkshop ./internal/httpapi ./internal/storage -count=1`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add backend/internal/storage/novel_fetch_workshop_schema.go backend/internal/novelfetchworkshop backend/internal/httpapi/novel_fetch_workshop.go backend/internal/httpapi/novel_fetch_workshop_test.go
@@ -306,7 +296,7 @@ Expected: FAIL because the migration script does not exist.
 
 - [ ] **Step 3: Implement backup-gated migration and release checks**
 
-Require `--backup-manifest` for apply mode, validate the manifest describes the target MySQL configuration snapshot, and reject apply otherwise. Add release-contract tests for no iframe/legacy assets, one API prefix, and model audit fields. Update the execution memory with the formal route, migration command, exact Direct Stage/Cutover order and rollback data boundary.
+Require `--backup-manifest` for apply mode, validate the manifest describes the target MySQL configuration snapshot, and reject apply otherwise. The Node script reads each account model catalog, then applies the four specified outcomes: valid ID retained; unique old raw model mapping selected; ambiguous/missing mapping becomes `model_binding_required`; no API keys/presets/assignments copied into the new execution configuration. Node writes only normalized fields through the signed Go bridge; Go never receives a catalog credential or performs model lookup. Add release-contract tests for no iframe/legacy assets, one API prefix, and model audit fields. Update the execution memory with the formal route, migration command, exact Direct Stage/Cutover order and rollback data boundary.
 
 - [ ] **Step 4: Run full relevant verification**
 
