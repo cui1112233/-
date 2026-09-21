@@ -17,6 +17,7 @@ const sensitive = require('../lib/novel-fetch-workshop/sensitive');
 const target = require('../lib/target-upload');
 const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
 const { resolveCatalogAiSettings } = require('../lib/novel-fetch-workshop/model-settings');
+const { writeStageAudits } = require('../lib/novel-fetch-workshop/run-audit');
 
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
@@ -698,6 +699,11 @@ function createBatchRewriteRouter({
       const result = await classifier.classifyMissingRows({ configStore: store, tasks: prepared });
       classified = result.tasks || prepared;
       classifyErrors = result.errors || [];
+      await writeStageAudits(tasks, classified.filter(task => task.classifierModel), {
+        stage: 'classifier', settings: ai.resolveAiSettings(store, 'classifier'),
+        status: classifyErrors.length ? 'failed' : 'succeeded', attempts: 1,
+        errorMessage: classifyErrors.join('；')
+      });
     }
     await tasks.saveTasks(req.username, classified);
     report({ type: 'classify', status: classifyErrors.length ? 'warning' : 'done', message: classifyErrors.length ? classifyErrors.join('；') : '风格和男女频补齐完成。' });

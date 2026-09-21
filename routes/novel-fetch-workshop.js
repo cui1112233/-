@@ -10,6 +10,7 @@ const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge'
 const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 const { resolveCatalogAiSettings } = require('../lib/novel-fetch-workshop/model-settings');
+const { writeStageAudits } = require('../lib/novel-fetch-workshop/run-audit');
 
 function mergeConfig(current, patch) {
   const merged = { ...(current || {}) };
@@ -153,6 +154,11 @@ function createNovelFetchWorkshopRouter({
         const classifyResult = await classifier.classifyMissingRows({ configStore, tasks: tasksToProcess });
         classifyErrors = (classifyResult && classifyResult.errors) || [];
         tasksToProcess = (classifyResult && classifyResult.tasks) || tasksToProcess;
+        await writeStageAudits(tasks, tasksToProcess.filter(task => task.classifierModel), {
+          stage: 'classifier', settings: aiModule.resolveAiSettings(configStore, 'classifier'),
+          status: classifyErrors.length ? 'failed' : 'succeeded', attempts: 1,
+          errorMessage: classifyErrors.join('；')
+        });
       }
 
       // 4. 保存任务
