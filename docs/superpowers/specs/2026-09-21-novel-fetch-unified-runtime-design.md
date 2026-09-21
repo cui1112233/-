@@ -16,6 +16,12 @@
 
 ## 架构
 
+### 0. Node / Go 责任边界
+
+本次不是将小说获取整体重写为 Go。Node 保留账户模型目录解析、AI 请求编排、121 服务端会话和小说处理业务流程，因为模型凭证与可见性规则已经由 Node 账户模型目录管理；为此迁移到 Go 会新增不必要的凭证桥接和第二套模型解析规则。
+
+Go 继续作为账户级 MySQL 持久化边界。运行记录、阶段审计、迁移状态和相应 schema/migration 的新增或变更直接在 Go 实现。Node 通过已有签名桥接访问这些持久化能力。该分工是内部实现边界，不会形成 Node 版与 Go 版两条小说获取业务链：浏览器仍只调用一组正式 API，模型决策仍只有 Node 的目录解析器一处。
+
 ### 1. 统一模型绑定与解析
 
 配置只保存 `textModelId`，其值是后台模型目录的稳定 ID。服务端新增小说获取专用的 `resolveNovelFetchTextModel({ username, textModelId })`：它通过现有模型目录运行时解析器取得已启用文本模型的 `baseUrl`、凭证与实际 `modelId`。
@@ -69,4 +75,4 @@
 
 ## 发布与回滚
 
-按 V88 Direct Stage -> Cutover 发布。发布前备份受影响的账户配置和 MySQL 数据；Stage 运行迁移 dry-run、自动化测试和已登录验收。Cutover 后保留迁移前配置快照与上一稳定 Git SHA；若失败，回滚 Node SHA 和配置快照，不重建 MySQL/Redis/Worker 基础设施。
+按 V88 Direct Stage -> Cutover 发布。发布前备份受影响的账户配置和 MySQL 数据；Stage 运行迁移 dry-run、Node/Go 自动化测试和已登录验收。Cutover 后保留迁移前配置快照与上一稳定 Git SHA；若失败，回滚 Node SHA 和配置快照，不重建 MySQL/Redis/Worker 基础设施。
