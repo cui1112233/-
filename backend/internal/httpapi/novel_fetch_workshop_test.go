@@ -129,6 +129,37 @@ func TestNovelFetchWorkshopBridgeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunAuditPersistsSelectedAndResolvedModelWithoutCredential(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	secret := "test-secret"
+	handler := NewRouter(RouterOptions{BridgeSecret: secret, Now: func() time.Time { return now }, NovelFetchStore: novelfetchworkshop.NewMemoryStore()})
+
+	put := doNovelFetchRequest(t, handler, http.MethodPost, "/api/novel-fetch-workshop/runs", map[string]any{
+		"runId": "run-1", "bookId": "book-1", "stage": "rewrite", "status": "succeeded", "attempts": 1,
+		"textModelId": "gemini-3", "modelId": "gemini-3", "modelDisplayName": "Gemini 3", "api_key": "must-not-persist",
+	}, now, secret)
+	if put.Code != http.StatusOK {
+		t.Fatalf("put status=%d body=%s", put.Code, put.Body.String())
+	}
+
+	get := doNovelFetchRequest(t, handler, http.MethodGet, "/api/novel-fetch-workshop/runs?bookId=book-1", nil, now, secret)
+	if get.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", get.Code, get.Body.String())
+	}
+	if bytes.Contains(get.Body.Bytes(), []byte("must-not-persist")) || bytes.Contains(bytes.ToLower(get.Body.Bytes()), []byte("api_key")) {
+		t.Fatalf("audit leaked secret: %s", get.Body.String())
+	}
+	var response struct {
+		Runs []novelfetchworkshop.RunRecord `json:"runs"`
+	}
+	if err := json.Unmarshal(get.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Runs) != 1 || response.Runs[0].TextModelID != "gemini-3" || response.Runs[0].ModelID != "gemini-3" {
+		t.Fatalf("unexpected audit records: %#v", response.Runs)
+	}
+}
+
 func TestNovelFetchWorkshopRejectsUnsignedRequest(t *testing.T) {
 	store := novelfetchworkshop.NewMemoryStore()
 	handler := NewRouter(RouterOptions{BridgeSecret: "test-secret", NovelFetchStore: store})

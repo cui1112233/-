@@ -50,7 +50,7 @@ func NewRouter(options RouterOptions) http.Handler {
 		registerProductionRoutes(v11, options.Production)
 	}
 	if options.Merge != nil && options.Slice >= 5 {
-		registerMergeRoutes(v11, options.Merge)
+		registerMergeRoutes(v11, options.Merge, options.LocalArtifacts)
 	}
 	if options.External != nil && options.Slice >= 6 {
 		registerExternalRoutes(v11, options.External)
