@@ -76,7 +76,6 @@ import {
   classifyBookPublishMetadata,
   get121OrganizationOptions
 } from '../../../shared/api/batchFactoryV11';
-import { listAvailableModels } from '../../../shared/api/modelCatalog';
 import { getConfig } from '../../../shared/api/config';
 import { textToSpeech } from '../../../shared/api/tts';
 import { BatchFactoryEngineSettingsDrawer } from './BatchFactoryEngineSettingsDrawer';
@@ -206,6 +205,12 @@ function effectiveBookSettings(batch, book) {
   const batchPatch = batch?.settingsState?.patch || {};
   const bookPatch = book?.settingsState?.patch || {};
   return { ...batchPatch, ...bookPatch, publishSettings: { ...(batchPatch.publishSettings || {}), ...(bookPatch.publishSettings || {}) } };
+}
+function effectiveBookAssetRules(batch, book) {
+  return {
+    ...(batch?.settingsState?.patch?.aiPromptConfig?.assets || {}),
+    ...(book?.settingsState?.patch?.aiPromptConfig?.assets || {})
+  };
 }
 function selectedPublishProfile(settings = {}) {
   const wanted = String(settings.websiteProfileId || '').trim();
@@ -342,19 +347,15 @@ function readImageAsDataURL(file) {
   });
 }
 
-function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry, onTextModelChange, onImageModelChange, onAspectRatioChange, canGenerate, generateReason, generating, engineSettings }) {
+function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry, onAssetPromptChange, assetRules, canGenerate, generateReason, generating, engineSettings }) {
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState('');
   const [kind, setKind] = useState('character');
   const [libraryKind, setLibraryKind] = useState('character');
   const [search, setSearch] = useState('');
-  const [textModels, setTextModels] = useState([]);
-  const [imageModels, setImageModels] = useState([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [textModelId, setTextModelId] = useState('');
-  const [imageModelId, setImageModelId] = useState('');
-  const [aspectRatio, setAspectRatio] = useState('9:16');
+  const [assetPromptCatalog, setAssetPromptCatalog] = useState([]);
+  const [assetPromptLoading, setAssetPromptLoading] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
   const [imageGenerating, setImageGenerating] = useState(false);
   const [assetImages, setAssetImages] = useState({});
@@ -391,31 +392,19 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
 	useEffect(() => { setStarredCharacterNames(Array.isArray(book?.settingsState?.patch?.starredCharacterNames) ? book.settingsState.patch.starredCharacterNames : []); }, [book?.id, book?.revision, book?.settingsState?.revision]);
   useEffect(() => {
     let active = true;
-    setModelsLoading(true);
-    Promise.all([listAvailableModels('text'), listAvailableModels('image')]).then(([nextTextModels, nextImageModels]) => {
-      if (!active) return;
-      setTextModels(nextTextModels);
-      setImageModels(nextImageModels);
-      const configuredText = String(engineSettings?.textModelId || '').trim();
-      const configuredImage = String(engineSettings?.imageModelId || '').trim();
-      setTextModelId(current => current || configuredText || String(nextTextModels?.[0]?.id || ''));
-      setImageModelId(current => current || configuredImage || String(nextImageModels?.[0]?.id || ''));
-    }).catch(error => {
-      if (active) message.error(error?.message || '读取个人中心模型失败');
-    }).finally(() => { if (active) setModelsLoading(false); });
+    setAssetPromptLoading(true);
+    listSystemPresetCatalog('script').then(result => {
+      if (active) setAssetPromptCatalog((Array.isArray(result?.catalog) ? result.catalog : []).filter(item => item?.slot === 'script.asset-extraction'));
+    }).catch(error => { if (active) message.error(error?.message || '读取资产提示词失败'); }).finally(() => { if (active) setAssetPromptLoading(false); });
     return () => { active = false; };
   }, [book?.id]);
-  useEffect(() => {
-    const configured = String(engineSettings?.textModelId || '').trim();
-    if (configured) setTextModelId(configured);
-  }, [engineSettings?.textModelId]);
-  useEffect(() => {
-    const configured = String(engineSettings?.imageModelId || '').trim();
-    if (configured) setImageModelId(configured);
-  }, [engineSettings?.imageModelId]);
-  useEffect(() => {
-    setAspectRatio(String(engineSettings?.aspectRatio || '9:16'));
-  }, [engineSettings?.aspectRatio]);
+  const textModelId = String(engineSettings?.textModelId || '').trim();
+  const imageModelId = String(engineSettings?.imageModelId || '').trim();
+  const aspectRatio = String(engineSettings?.aspectRatio || '9:16');
+  const currentAssetPromptId = String(assetRules?.extraction?.presetId || '').trim();
+  const assetPromptOptions = (currentAssetPromptId && !assetPromptCatalog.some(item => item.id === currentAssetPromptId)
+    ? [{ id: currentAssetPromptId, name: assetRules?.extraction?.presetName || '预设已失效', version: assetRules?.extraction?.presetVersion || 1, disabled: true }, ...assetPromptCatalog]
+    : assetPromptCatalog).map(item => ({ value: item.id, label: `${item.name || item.id} · v${item.version || 1}`, disabled: item.disabled === true }));
   const visibleAssets = assets.filter(asset => asset.kind === kind).filter(asset => {
     const query = search.trim().toLowerCase();
     return !query || `${asset.name} ${asset.prompt}`.toLowerCase().includes(query);
@@ -447,35 +436,9 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
       await loadAssets({ quiet: true });
     } catch (_) { /* runAi already reports its business error */ }
   }
-  async function chooseImageModel(nextModelId) {
-    const previous = imageModelId;
-    setImageModelId(nextModelId);
-    try {
-      await onImageModelChange?.(nextModelId);
-    } catch (error) {
-      setImageModelId(previous);
-      message.error(error?.message || '保存当前书图片模型失败');
-    }
-  }
-  async function chooseTextModel(nextModelId) {
-    const previous = textModelId;
-    setTextModelId(nextModelId);
-    try {
-      await onTextModelChange?.(nextModelId);
-    } catch (error) {
-      setTextModelId(previous);
-      message.error(error?.message || '保存当前书文本模型失败');
-    }
-  }
-  async function chooseAspectRatio(nextAspectRatio) {
-    const previous = aspectRatio;
-    setAspectRatio(nextAspectRatio);
-    try {
-      await onAspectRatioChange?.(nextAspectRatio);
-    } catch (error) {
-      setAspectRatio(previous);
-      message.error(error?.message || '保存当前书画幅失败');
-    }
+  async function chooseAssetPrompt(presetId) {
+    const preset = assetPromptCatalog.find(item => item.id === presetId);
+    await onAssetPromptChange?.(preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version, constraintCategory: preset.constraintCategory || '' } : { presetId: '' });
   }
   function toggleAssetSelection(assetId, checked) {
     setSelectedAssetIds(current => checked ? [...new Set([...current, assetId])] : current.filter(id => id !== assetId));
@@ -495,7 +458,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
 	}
   async function generateImages(assetIds = selectedAssetIds) {
     if (!assetIds.length) { message.warning('请先选择要生成图片的资产。'); return false; }
-    if (!imageModelId) { message.warning('请先选择个人中心已启用的图片模型。'); return false; }
+    if (!imageModelId) { message.warning('请先在引擎配置选择图片模型。'); return false; }
     setImageGenerating(true);
     try {
       const result = await generateBookAssetImages(batchId, book.id, {
@@ -540,17 +503,15 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
   return <section className="batch-factory-preset-shell">
     <Alert type="info" showIcon message="当前小说的人物、场景与道具" description="每一项都归属当前小说并持久化保存。智能预设成功后会写入导演提取的资产；手动修改会保留为该书的人工资产。" />
     <div className="shuihuo-preset-toolbar batch-factory-preset-toolbar">
-      <Tooltip title="选择后立即保存到当前小说；智能预设、重新生成资产和 AI 推理都会使用此模型。"><Select value={textModelId || undefined} loading={modelsLoading} placeholder="选择文本模型" style={{ minWidth: 190 }} options={textModels.map(model => ({ value: model.id, label: model.displayName || model.modelId || model.id }))} onChange={chooseTextModel} /></Tooltip>
+      <Tooltip title="选择当前书的人物、场景与道具提取提示词；模型统一在引擎配置设置。"><Select value={currentAssetPromptId || undefined} loading={assetPromptLoading} placeholder="选择资产提示词" style={{ minWidth: 230 }} options={assetPromptOptions} onChange={chooseAssetPrompt} /></Tooltip>
       <Tooltip title={canGenerate ? '仅在当前书没有文案时提取人物、场景、道具；已有手动资产不会被覆盖。' : generateReason}><Button type="primary" loading={generating} disabled={!canGenerate || generating} onClick={runPreset}>智能预设</Button></Tooltip>
       <Tooltip title="基于当前书内容重新生成 AI 文案和自动资产；手动编辑的资产提示词保留。"><Button loading={generating} disabled={!canGenerate || generating || !textModelId} onClick={() => onRegenerate?.(textModelId)}>重新生成资产</Button></Tooltip>
       <Tooltip title="只重跑当前小说最后失败的阶段。"><Button disabled={!canGenerate || generating || !textModelId} onClick={() => onRetry?.(textModelId)}>重试资产</Button></Tooltip>
       <Button loading={loading} onClick={() => loadAssets()}>刷新资产</Button>
-      <Select value={imageModelId || undefined} loading={modelsLoading} placeholder="选择图片模型" style={{ minWidth: 180 }} options={imageModels.map(model => ({ value: model.id, label: model.displayName || model.modelId || model.id }))} onChange={chooseImageModel} />
-      <Select value={aspectRatio} aria-label="当前书画幅" options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }, { value: '1:1', label: '1:1' }]} onChange={chooseAspectRatio} />
-      <Tooltip title="使用个人中心中已启用的图片模型，为选中的当前书资产生成新版本；不会覆盖已有主图。"><Button type="primary" loading={imageGenerating} disabled={imageGenerating || !selectedAssetIds.length || !imageModelId} onClick={() => generateImages()}>AI生成（已选 {selectedAssetIds.length}）</Button></Tooltip>
+      <Tooltip title="使用引擎配置中的图片模型和画幅，为选中的当前书资产生成新版本；不会覆盖已有主图。"><Button type="primary" loading={imageGenerating} disabled={imageGenerating || !selectedAssetIds.length || !imageModelId} onClick={() => generateImages()}>AI生成（已选 {selectedAssetIds.length}）</Button></Tooltip>
       <Button onClick={() => setEditing({ kind, name: '', prompt: '' })}>手动添加</Button>
     </div>
-    {!modelsLoading && !imageModels.length ? <Alert type="warning" showIcon message="个人中心尚未启用图片模型" description={<Space wrap><span>图片模型生成只会使用个人中心已启用的模型，避免把水货历史默认配置误当成当前书可用凭据。</span><Button type="link" href="/api-config">前往个人中心配置图片模型</Button></Space>} /> : null}
+    {!imageModelId ? <Alert type="warning" showIcon message="尚未配置图片模型" description="请在该书的引擎配置中选择图片模型后再生成资产图片。" /> : null}
     <div className="shuihuo-preset-layout batch-factory-preset-layout">
       <aside className="shuihuo-preset-list">
         <div className="shuihuo-preset-list-head"><strong>资产列表 ({visibleAssets.length})</strong><Select size="small" value={kind} onChange={setKind} options={kindOptions} /><Input.Search value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索名称或提示词" allowClear /></div>
@@ -565,7 +526,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
         <div className="shuihuo-image-library-grid">{libraryImages.map(({ image, asset }) => <article className="shuihuo-image-card" key={image.id}><div className="shuihuo-image-card-visual"><img src={image.url} alt={`${assetName(asset)} 图片版本`} /></div><div className="shuihuo-image-card-title"><strong>{assetName(asset)}</strong><Tag>{image.isPrimary ? '主图' : `版本 ${image.revision || ''}`}</Tag></div><p>{assetPrompt(asset) || '生成时未保存提示词快照'}</p><div className="shuihuo-image-card-actions">{!image.isPrimary ? <Button type="text" size="small" loading={savingId === `primary-${image.id}`} onClick={() => makePrimary(asset, image)}>设主图</Button> : <span>当前主图</span>}<label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(asset, event)} disabled={savingId !== ''} />上传版本</label></div></article>)}{!libraryImages.length ? <div className="shuihuo-image-empty"><b>图片库</b><p>暂无已生成图片</p><span>在左侧勾选人物、场景或道具后，点击顶部“AI生成”。</span></div> : null}</div>
       </main>
     </div>
-    <Modal title={editing?.id ? `编辑资产 · ${assetName(editing)}` : `添加${categoryLabel(editing?.kind || kind)}`} open={Boolean(editing)} onCancel={() => setEditing(null)} footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button loading={savingId !== ''} onClick={saveAsset}>保存</Button><Tooltip title={imageModelId ? '先保存当前提示词，再为这个资产生成新的图片版本。' : '请先在资产预设顶部选择图片模型。'}><Button type="primary" loading={imageGenerating} disabled={Boolean(savingId) || imageGenerating || !imageModelId} onClick={generateEditedAssetImage}>生成图片</Button></Tooltip></Space>} width={760} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><label className="shuihuo-form-label">资产分类<Select value={editing?.kind} options={kindOptions} onChange={value => setEditing(current => ({ ...current, kind: value }))} /></label><label className="shuihuo-form-label">名称<Input value={editing?.name || ''} onChange={event => setEditing(current => ({ ...current, name: event.target.value }))} /></label><label className="shuihuo-form-label">外观描述 / AI 生图提示词<Input.TextArea rows={9} value={editing?.prompt || ''} onChange={event => setEditing(current => ({ ...current, prompt: event.target.value }))} placeholder="输入人物、场景或道具的可视化提示词" /></label></Space></Modal>
+    <Modal title={editing?.id ? `编辑资产 · ${assetName(editing)}` : `添加${categoryLabel(editing?.kind || kind)}`} open={Boolean(editing)} onCancel={() => setEditing(null)} footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button loading={savingId !== ''} onClick={saveAsset}>保存</Button><Tooltip title={imageModelId ? '先保存当前提示词，再按引擎配置为这个资产生成新的图片版本。' : '请先在引擎配置选择图片模型。'}><Button type="primary" loading={imageGenerating} disabled={Boolean(savingId) || imageGenerating || !imageModelId} onClick={generateEditedAssetImage}>生成图片</Button></Tooltip></Space>} width={760} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><label className="shuihuo-form-label">资产分类<Select value={editing?.kind} options={kindOptions} onChange={value => setEditing(current => ({ ...current, kind: value }))} /></label><label className="shuihuo-form-label">名称<Input value={editing?.name || ''} onChange={event => setEditing(current => ({ ...current, name: event.target.value }))} /></label><label className="shuihuo-form-label">外观描述 / AI 生图提示词<Input.TextArea rows={9} value={editing?.prompt || ''} onChange={event => setEditing(current => ({ ...current, prompt: event.target.value }))} placeholder="输入人物、场景或道具的可视化提示词" /></label></Space></Modal>
   </section>;
 }
 
@@ -2515,7 +2476,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><Checkbox checked={selectedBookIds.includes(book.id)} onChange={event => setSelectedBookIds(current => event.target.checked ? [...new Set([...current, book.id])] : current.filter(id => id !== book.id))} aria-label={`选择 ${book.title || `小说 ${index + 1}`}`} /><strong>{index + 1}</strong></div>
           <div className="shuihuo-workbench-cell batch-factory-book-content" role="button" tabIndex={0} title="点击编辑当前小说的生产内容" onClick={() => openContentEditor(book)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openContentEditor(book); } }}><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 生产前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p></div>
-          <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{batchFactoryWorkbenchConfigRegions(book).map(region => { const status = region.combinedStatus || bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
+          <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{batchFactoryWorkbenchConfigRegions(book).map(region => { const status = region.combinedStatus || bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => region.key === 'assets' ? setAssetBook(book) : setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
 		  <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><InlineStoryboardAssets book={book} batchId={batch?.id} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={() => setAssetBook(book)} onSaved={refreshBatch} /></div>
 		  <InlineBookPrompts book={book} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setPromptVideoId(videoId || ''); setPromptBook(book); }} />
 		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><InlineMediaLibrary book={book} versionsByVideo={mediaVersionsByVideo} productionStatus={productionStatus} mergeJob={latestBookMerge(mergeStatus, book.id)} aspectRatio={effectiveBookSettings(batch, book).aspectRatio} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(book); }} onOpenMerge={() => { setMediaVideoId(''); setMediaStartTab('merges'); setMediaBook(book); }} /></div>
@@ -2536,7 +2497,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={metadataBook ? `编辑列表信息 · ${metadataBook.title}` : '编辑列表信息'} open={Boolean(metadataBook)} onCancel={() => setMetadataBook(null)} onOk={saveBookMetadata} confirmLoading={metadataSaving} okText="保存" width={620}>{metadataBook ? <Space direction="vertical" size={12} style={{ width: '100%' }}><Alert type="info" showIcon message="此处保存风格、男女频、标签、推荐理由和评级" description="不会改动小说正文或书城来源。" />{[['style', '风格'], ['gender', '男女频'], ['tags', '标签'], ['reason', '推荐理由'], ['rating', '评级']].map(([key, label]) => <label key={key} className="batch-factory-engine-field"><span><b>{label}</b></span><Input value={metadataValue[key] || ''} onChange={event => setMetadataValue(current => ({ ...current, [key]: event.target.value }))} /></label>)}</Space> : null}</Modal>
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => { setEditingContentValue(event.target.value); setEditingContentMode('custom'); }} placeholder="输入当前小说的生产内容" /><label className="shuihuo-form-label"><span>衍生开篇</span><Select value={derivedOpeningPresetId || undefined} onChange={setDerivedOpeningPresetId} options={derivedOpeningOptions} loading={!derivedOpeningOptions.length} placeholder="选择已发布的衍生开篇提示词" style={{ width: 320 }} /></label>{!workingFrontCapability.available ? <Alert type="warning" showIcon message="当前不能生成爆款候选" description={workingFrontCapability.reason || '请先完成当前书的可执行配置。'} /> : null}<Space wrap><Tooltip title={workingFrontCapability.available ? '按选中的衍生开篇提示词生成候选；不会覆盖当前生产内容' : workingFrontCapability.reason}><Button type="primary" onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim() || !derivedOpeningPresetId}>生成爆款候选</Button></Tooltip><Tooltip title={workingFrontCapability.available ? '按当前选择的同一提示词重新生成候选；不会覆盖当前生产内容' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim() || !derivedOpeningPresetId}>重试生成爆款候选</Button></Tooltip></Space>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Space><Button type="primary" onClick={() => { setEditingContentValue(viralCandidate); setEditingContentMode('viral'); }}>替换为当前生产内容</Button><Button onClick={cancelViralCandidate}>取消候选</Button></Space></Space>} /> : null}</Space></Modal>
     <BatchFactoryBookSettingsModal open={Boolean(configTarget)} batch={batch} book={configTarget?.book} activeRegion={configTarget?.region} onClose={() => setConfigTarget(null)} onSaved={refreshAfterBookSettingsSaved} onOpenBookAssets={book => setAssetBook(book)} />
-    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} onTextModelChange={async textModelId => { await saveBookOverride(batch.id, assetBook.id, { patch: { textModelId }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} onImageModelChange={async imageModelId => { await saveBookOverride(batch.id, assetBook.id, { patch: { imageModelId }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} onAspectRatioChange={async aspectRatio => { await saveBookOverride(batch.id, assetBook.id, { patch: { aspectRatio }, expectedRevision: Number(assetBook.revision || 0) }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
+    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} assetRules={effectiveBookAssetRules(batch, assetBook)} onAssetPromptChange={async extraction => { const bookPromptConfig = assetBook?.settingsState?.patch?.aiPromptConfig || {}; const assetRules = effectiveBookAssetRules(batch, assetBook); await saveBookOverrideWithRetry(batch.id, assetBook.id, assetBook.revision, { patch: { aiPromptConfig: { ...bookPromptConfig, assets: { ...assetRules, extraction, scope: 'custom', bookIds: [assetBook.id] } } } }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
 	<Modal title={promptBook ? `分镜卡（视频提示词） · ${promptBook.title}` : '分镜卡（视频提示词）'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900} className="batch-factory-prompt-modal">{promptBook ? <PromptPanel book={promptBook} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} initialVideoId={promptVideoId} onSaved={refreshBatch} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRegenerateVisual={() => runBookStageAction(promptBook, 'visual', 'force')} onRetry={videoId => retryLastFailedStage(promptBook, videoId)} onGenerateVideo={videoId => runBookStageAction(promptBook, 'video', 'missing', videoId)} onViewVideoCandidates={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(promptBook); }} onGenerateVisual={() => setAssetBook(promptBook)} onViewVisualCandidates={() => setAssetBook(promptBook)} regenerating={actionBusy === stageActionKey('director', promptBook.id) || actionBusy === stageActionKey('video', promptBook.id) || actionBusy === stageActionKey('retry', promptBook.id)} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
 	<Modal
       title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'}

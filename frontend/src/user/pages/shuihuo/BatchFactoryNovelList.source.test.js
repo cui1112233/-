@@ -113,7 +113,7 @@ test('uses the Shuihuo preset modal layout with an account model backed image ge
   assert.match(source, /label: '场景'/);
   assert.match(source, /label: '道具'/);
   assert.doesNotMatch(source, /label: 'AI角色'/);
-  assert.match(source, /listAvailableModels\('image'\)/);
+  assert.match(source, /engineSettings\?\.imageModelId/);
   assert.match(source, /generateBookAssetImages/);
   assert.match(source, /AI生成（已选/);
   assert.match(source, /shuihuo-asset-tabs/);
@@ -122,12 +122,11 @@ test('uses the Shuihuo preset modal layout with an account model backed image ge
   assert.doesNotMatch(source, /AI 生成暂不可用/);
 });
 
-test('lets each book choose its real text and image models in the asset modal and uses the chosen text model for smart presets', () => {
-  assert.match(source, /listAvailableModels\('text'\)/);
-  assert.match(source, /onTextModelChange/);
-  assert.match(source, /patch: \{ textModelId \}/);
-  assert.match(source, /onGenerate=\{async textModelId => \{ await refreshAssetPresetSnapshot\(assetBook\); await runBookStageAction\(assetBook, 'assets', 'missing', '', textModelId\); \}\}/);
-  assert.doesNotMatch(source, /<Select disabled value=\{engineSettings\?\.textModelId/);
+test('opens the asset workspace directly from the book asset setting and uses the engine text model', () => {
+  assert.match(source, /region\.key === 'assets' \? setAssetBook\(book\) : setConfigTarget\(\{ book, region: region\.key \}\)/);
+  assert.match(source, /engineSettings\?\.textModelId/);
+  assert.match(source, /runBookStageAction\(assetBook, 'assets', 'missing'/);
+  assert.doesNotMatch(source, /onTextModelChange/);
 });
 
 test('regenerates assets through the asset-only stage instead of rebuilding storyboard and VIDEO output', () => {
@@ -135,10 +134,10 @@ test('regenerates assets through the asset-only stage instead of rebuilding stor
   assert.doesNotMatch(source, /onRegenerate=\{textModelId => runBookStageAction\(assetBook, 'director', 'force', '', textModelId\)\}/);
 });
 
-test('makes a missing asset image model actionable instead of presenting an empty fake selector', () => {
-  assert.match(source, /个人中心尚未启用图片模型/);
-  assert.match(source, /href="\/api-config"/);
-  assert.match(source, /图片模型生成只会使用个人中心已启用的模型/);
+test('uses the engine image model for asset images instead of rendering a second selector', () => {
+  assert.match(source, /engineSettings\?\.imageModelId/);
+  assert.match(source, /modelId: imageModelId/);
+  assert.doesNotMatch(source, /placeholder="选择图片模型"/);
 });
 
 test('refreshes the open book asset modal after an override save so consecutive model selections use the latest revision', () => {
@@ -146,11 +145,10 @@ test('refreshes the open book asset modal after an override save so consecutive 
   assert.match(source, /\[batch\?\.id, assetBook\?\.id, books\]/);
 });
 
-test('lets the book asset modal save its own usable image aspect ratio instead of displaying a disabled value', () => {
-  assert.match(source, /onAspectRatioChange/);
-  assert.match(source, /patch: \{ aspectRatio \}/);
+test('uses the engine aspect ratio for asset images instead of saving a second value', () => {
+  assert.match(source, /engineSettings\?\.aspectRatio/);
   assert.match(source, /aspectRatio: aspectRatio \|\| '9:16'/);
-  assert.doesNotMatch(source, /<Select value=\{engineSettings\?\.aspectRatio \|\| '9:16'\} disabled/);
+  assert.doesNotMatch(source, /aria-label="当前书画幅"/);
 });
 
 test('keeps AI reasoning constraints in the same per-book override model as other V11 modules', () => {
