@@ -28,16 +28,15 @@ import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scr
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
-import { listModels } from '../../shared/api/shuihuoProduction';
 import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
 
 function videoModelKey(model) {
-  return String(model?.key || model?.modelKey || '').trim();
+  return String(model?.key || model?.modelKey || model?.id || '').trim();
 }
 
 function videoModelLabel(model) {
   const key = videoModelKey(model);
-  const name = String(model?.name || key || '未命名视频模型').trim();
+  const name = String(model?.name || model?.displayName || key || '未命名视频模型').trim();
   return key === 'minimax-h3-video' && model?.configured === false
     ? `${name}（待配置 Token）`
     : name;
@@ -203,7 +202,7 @@ export function ScriptPage() {
   useEffect(() => {
     let active = true;
     setLoadingScriptVideoModels(true);
-    listModels()
+    listAvailableModels('video')
       .then(result => {
         if (!active) return;
         const models = (Array.isArray(result?.models) ? result.models : [])
