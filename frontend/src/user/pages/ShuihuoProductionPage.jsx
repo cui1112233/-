@@ -6,7 +6,7 @@ import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProje
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { createManualIntake, getBatch, getProductionStatus, listBatches, listBookAssetImages, listBookAssets } from '../../shared/api/batchFactoryV11';
+import { createManualIntake, getBatch, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
@@ -51,9 +51,49 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const refreshProjects = useCallback(async () => {
     setLoading(true);
     try {
-      const [water, batch] = await Promise.all([listProjects(), listBatches()]);
-      const batchProjects = batchFactoryProjectsFrom(batch.batches);
-      setProjects([...(water.projects || []), ...batchProjects]);
+      const [water, batch] = await Promise.allSettled([
+        listProjects({ silent: true }),
+        listBatches()
+      ]);
+
+      const waterProjects =
+        water.status === 'fulfilled'
+          ? (Array.isArray(water.value?.projects)
+              ? water.value.projects
+              : Array.isArray(water.value?.data?.projects)
+                ? water.value.data.projects
+                : [])
+          : [];
+
+      const batchPayload =
+        batch.status === 'fulfilled' ? batch.value : null;
+
+      const batches =
+        Array.isArray(batchPayload) ? batchPayload :
+        Array.isArray(batchPayload?.batches) ? batchPayload.batches :
+        Array.isArray(batchPayload?.items) ? batchPayload.items :
+        Array.isArray(batchPayload?.data?.batches) ? batchPayload.data.batches :
+        Array.isArray(batchPayload?.data?.items) ? batchPayload.data.items :
+        [];
+
+      const batchProjects = batchFactoryProjectsFrom(batches);
+
+      if (batch.status === 'rejected') {
+        console.error('[共享作品库] 批量工厂读取失败', batch.reason);
+        message.error(
+          `批量工厂工程读取失败：${batch.reason?.message || '接口请求失败'}`
+        );
+      }
+
+      if (water.status === 'rejected') {
+        console.error('[共享作品库] 漫剧作品读取失败', water.reason);
+      }
+
+      if (water.status === 'rejected' && batch.status === 'rejected') {
+        throw batch.reason || water.reason;
+      }
+
+      setProjects([...waterProjects, ...batchProjects]);
       const coveredProjects = await Promise.all(batchProjects.map(async project => {
         const firstBook = project.batch?.books?.[0];
         const [productionStatus, imageURL] = await Promise.all([
@@ -71,13 +111,13 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
         ]);
         return { ...project, coverMedia: batchFactoryCoverFrom(project.batch, productionStatus, imageURL) };
       }));
-      if (mountedRef.current) setProjects([...(water.projects || []), ...coveredProjects]);
+      if (mountedRef.current) setProjects([...waterProjects, ...coveredProjects]);
     } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
   }, []);
   useEffect(() => { refreshProjects(); }, [refreshProjects]);
   useEffect(() => {
     let active = true;
-    getProductionHealth().then(result => { if (active) { setHealth(result); setHealthError(''); } }).catch(error => { if (active) setHealthError(error.message || '无法读取运行依赖状态'); });
+    getProductionHealth({ silent: true }).then(result => { if (active) { setHealth(result); setHealthError(''); } }).catch(error => { if (active) setHealthError(error.message || '无法读取运行依赖状态'); });
     return () => { active = false; };
   }, []);
 
@@ -141,9 +181,25 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   }
   async function handleCreateBatch(input) {
     const created = await createManualIntake(input);
-    setActiveBatchProject(created.batch);
+    const batch = created.batch;
+    setActiveBatchProject(batch);
     setView('batch-novels');
     await refreshProjects();
+    if (input?.automationEnabled === true && batch?.id) {
+      try {
+        await startBatchAutomation(batch.id, {
+          scheduledAt: input.scheduledAt || '',
+          concurrency: Number(input.concurrency || 2),
+          presetId: input.presetId || '',
+          runMode: input.runMode || (input.autoPublishEnabled === true ? 'full_submit' : 'video_no_submit'),
+          autoPublish: input.autoPublishEnabled === true
+        });
+        message.success(input.scheduledAt ? `批量工程已创建，自动生产将在设定时间启动${input.autoPublishEnabled ? '，并自动上传视频管理系统' : ''}。` : `批量工程已创建并启动自动生产${input.autoPublishEnabled ? '，完成后将自动上传视频管理系统' : ''}。`);
+      } catch (error) {
+        message.warning(`批量工程已创建，但自动生产启动失败：${error?.message || '请进入工程后手动启动'}`);
+      }
+    }
+    return batch;
   }
   async function handleImported(readModel, segmentationMode) {
     try {
@@ -170,7 +226,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
 
   return <div className={`shuihuo-production ${view === 'studio' || view === 'batch-novels' ? 'is-workbench' : ''}`}>
     {view !== 'projects' && health ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><strong className="shuihuo-readiness-title">运行依赖</strong>{readinessItems(health).map(([name, dependency]) => <span className={dependency?.ready ? 'ready' : 'missing'} key={name} title={dependency?.reason || `${name}已配置`}>{name}：{dependency?.ready ? '已配置' : '未配置'}{dependency?.ready || !dependency?.reason ? '' : `（${dependency.reason}）`}</span>)}</div> : null}
-    {view !== 'projects' && healthError ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><span className="missing">状态读取失败：{healthError}</span></div> : null}
+    {view === 'studio' && healthError ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><span className="missing">状态读取失败：{healthError}</span></div> : null}
     {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
     {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} openCreateOnLoad={openBatchOnLoad} /> : null}
     {view === 'batch-novels' && activeBatchProject ? <BatchFactoryNovelList batch={activeBatchProject} onBack={() => { setActiveBatchProject(null); setView('projects'); refreshProjects(); }} onBatchChanged={async () => { const current = batchFactoryBatchFromResponse(await getBatch(activeBatchProject.id)); setActiveBatchProject(current); await refreshProjects(); }} /> : null}
