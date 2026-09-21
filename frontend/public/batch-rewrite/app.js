@@ -2209,14 +2209,21 @@ function siteSubmitText(task) {
   // 同一版本曾失败但后来已成功提交时，成功结果才是当前状态；
   // 失败记录仍保留在“记录”和“问题日志”中供追溯。
   const parts = [];
-  if (done.length) parts.push(`已提交：${done.join(",")}`);
-  if (uploading.length) parts.push(`上传中：${uploading.join(",")}`);
-  if (queued.length) parts.push(`排队中：${queued.join(",")}`);
-  if (accepted.length) parts.push(`待确认：${accepted.join(",")}`);
-  if (failed.length) parts.push(`失败：${failed.join(",")}`);
+  if (done.length) parts.push(`已提交：${done.map(displayVersionLabel).join(",")}`);
+  if (uploading.length) parts.push(`上传中：${uploading.map(displayVersionLabel).join(",")}`);
+  if (queued.length) parts.push(`排队中：${queued.map(displayVersionLabel).join(",")}`);
+  if (accepted.length) parts.push(`待确认：${accepted.map(displayVersionLabel).join(",")}`);
+  if (failed.length) parts.push(`失败：${failed.map(displayVersionLabel).join(",")}`);
   if (parts.length) return parts.join("；");
   if (task.site_submit_status) return task.site_submit_status;
   return "未提交";
+}
+
+function displayVersionLabel(version) {
+  const value = String(version || "").trim().toLowerCase();
+  if (value === "original") return "原文";
+  if (/^ai[1-5]$/.test(value)) return value.toUpperCase();
+  return String(version || "").trim();
 }
 
 function groupCardHtml(group) {
@@ -2334,7 +2341,8 @@ function taskStatusText(value, fallback = "") {
   const text = String(value || "").trim();
   const labels = {
     created: "待处理", queued: "排队中", running: "正在执行中…", processing: "正在执行中…", input_ready: "分类信息已就绪", classified: "已完成判断", classifying: "AI判断中…", classify_failed: "判断失败",
-    fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
+    original: "原文", fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_processing: "原文处理中", original_done: "原文已就绪", original_failed: "原文抓取失败",
+    ai_processing: "AI文案处理中",
     generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
     uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"

@@ -47,3 +47,12 @@ test('任务列表详情遮罩按内容卡片判定，生成AI文案按钮直接
   assert.match(generateAi[0], /\/generate-ai/);
   assert.doesNotMatch(generateAi[0], /showTask\(id\)/);
 });
+
+test('任务列表不向用户显示英文原始状态和提交版本', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /ai_processing:\s*"AI文案处理中"/);
+  assert.match(app, /original_processing:\s*"原文处理中"/);
+  assert.match(app, /function displayVersionLabel\(version\)/);
+  assert.match(app, /done\.map\(displayVersionLabel\)/);
+  assert.match(app, /version === "original" \? "原文"/);
+});
