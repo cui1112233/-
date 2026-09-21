@@ -122,6 +122,12 @@ test('uses the Shuihuo preset modal layout with an account model backed image ge
   assert.doesNotMatch(source, /AI 生成暂不可用/);
 });
 
+test('keeps the asset-prompt selector from overlapping the asset action toolbar', () => {
+  assert.match(stylesheet, /\.shuihuo-preset-toolbar \{ display:flex; flex-wrap:wrap;/);
+  assert.match(stylesheet, /\.batch-factory-preset-toolbar > \.ant-select \{ flex:0 1 260px; min-width:230px;/);
+  assert.doesNotMatch(stylesheet, /\.shuihuo-preset-toolbar \{ display: grid; grid-template-columns: 150px 160px 104px/);
+});
+
 test('opens the asset workspace directly from the book asset setting and uses the engine text model', () => {
   assert.match(source, /region\.key === 'assets' \? setAssetBook\(book\) : setConfigTarget\(\{ book, region: region\.key \}\)/);
   assert.match(source, /engineSettings\?\.textModelId/);
