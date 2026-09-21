@@ -19,7 +19,7 @@ test('所有任务详情浮层都有可见关闭按钮并支持点击遮罩关�
   assert.match(app, /function detailCloseControl\(/);
   assert.match(app, /renderSensitiveLog[\s\S]*detailCloseControl\(\)/);
   assert.match(app, /renderSiteSubmitLog[\s\S]*detailCloseControl\(\)/);
-  assert.match(app, /event\.target\.closest\("\.task-detail-section"\)/);
+  assert.match(app, /event\.target\.closest\("#detail"\)/);
 });
 
 test('小说获取全部弹框支持遮罩退出，并在提交中锁定关闭', () => {
@@ -36,4 +36,14 @@ test('小说获取全部弹框支持遮罩退出，并在提交中锁定关闭',
   assert.match(app, /setModalBusy\("versionConfigCard", true\)/);
   assert.match(app, /setModalBusy\("versionConfigCard", false\)/);
   assert.match(app, /if \(isModalBusy\("versionConfigCard"\)\) return;/);
+});
+
+test('任务列表详情遮罩按内容卡片判定，生成AI文案按钮直接执行', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /data-action="ai"[^>]*>生成AI文案<\/button>/);
+  assert.match(app, /if \(event\.target\.closest\("#detail"\)\) return;/);
+  const generateAi = app.match(/async function generateAi\(id\) \{[\s\S]*?\r?\n\}\r?\n\r?\nfunction selectedTaskIds/);
+  assert.ok(generateAi, 'generateAi implementation should remain present');
+  assert.match(generateAi[0], /\/generate-ai/);
+  assert.doesNotMatch(generateAi[0], /showTask\(id\)/);
 });

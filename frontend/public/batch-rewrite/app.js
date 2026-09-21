@@ -2450,7 +2450,7 @@ function renderTasks(tasks) {
       <td class="task-actions">
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
-        <button data-action="ai" data-id="${escapeHtml(id)}">生成AI</button>
+        <button data-action="ai" data-id="${escapeHtml(id)}">生成AI文案</button>
         <button data-action="sensitive" data-id="${escapeHtml(id)}" ${sensitiveRunning ? "disabled" : ""}>${sensitiveLabel}</button>
         <button data-action="siteLog" data-id="${escapeHtml(id)}">提交日志</button>
       </td>
@@ -3044,7 +3044,6 @@ async function generateAi(id) {
     body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
   });
   await loadTasks();
-  await showTask(id);
 }
 
 function selectedTaskIds() {
@@ -3669,7 +3668,7 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("pointerdown", event => {
   if (!document.body.classList.contains("detail-modal-open")) return;
-  if (event.target.closest(".task-detail-section")) return;
+  if (event.target.closest("#detail")) return;
   closeTaskDetail();
 }, true);
 
