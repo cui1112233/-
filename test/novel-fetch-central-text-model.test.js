@@ -5,7 +5,7 @@ const path = require('node:path');
 const ai = require('../lib/novel-fetch-workshop/ai');
 const classifier = require('../lib/novel-fetch-workshop/classifier');
 const rewrite = require('../lib/novel-fetch-workshop/rewrite');
-const { createConfigStoreSnapshot } = require('../lib/novel-fetch-workshop/v2-batch-executor');
+const { createConfigStoreSnapshot, createV78NovelFetchBatchExecutor } = require('../lib/novel-fetch-workshop/v2-batch-executor');
 const { createNovelFetchTaskOps, toV78Task } = require('../lib/novel-fetch-workshop/task-ops');
 
 test('小说获取改文统一解析当前用户选定的中央文本模型', () => {
@@ -24,6 +24,7 @@ test('小说获取改文统一解析当前用户选定的中央文本模型', ()
   };
   assert.deepEqual(ai.resolveAiSettings(configStore, 'rewrite'), {
     baseUrl: 'https://api.example/v1', apiKey: 'secret', model: 'gpt-5.4',
+    textModelId: 'custom-gpt-5-4', modelDisplayName: 'gpt-5.4',
     timeout_seconds: 90, max_tokens: 800
   });
 });
@@ -81,6 +82,32 @@ test('小说获取队列执行器把中央文本模型和运行时解析器传�
     modelId: 'gpt-5.4', baseUrl: 'https://api.example/v1', credential: 'secret'
   });
   assert.deepEqual(calls, ['custom-gpt-5-4']);
+});
+
+test('小说获取队列执行时固定使用提交任务时的文本模型快照', async () => {
+  let resolvedModelId = '';
+  let runtimeSettings = null;
+  const executeBatch = createV78NovelFetchBatchExecutor({
+    accountResolver: username => ({ username }),
+    createStore: () => ({
+      getConfig: async () => ({ text_model_id: 'stale-model', ai: {} })
+    }),
+    resolveRuntimeModel: (_username, kind, modelId) => {
+      assert.equal(kind, 'text');
+      resolvedModelId = modelId;
+      return { baseUrl: 'https://api.example/v1', credential: 'central-secret', modelId: 'gemini-3' };
+    },
+    runBatch: async ({ configStore }) => {
+      runtimeSettings = ai.resolveAiSettings(configStore, 'classifier');
+      return {};
+    },
+    runCleanup: async () => ({ deleted: 0 })
+  });
+
+  await executeBatch('alice', { text_model_id: 'selected-gemini-3' });
+
+  assert.equal(resolvedModelId, 'selected-gemini-3');
+  assert.equal(runtimeSettings.model, 'gemini-3');
 });
 
 test('中央文本模型未选择时拒绝回退到旧版文本模型配置', () => {
@@ -272,7 +299,8 @@ test('队列执行器兼容从旧配置的 app_config 节点读取中央文本�
 
   assert.equal(configStore.getAiConfig().text_model_id, 'custom-gpt-5-4');
   assert.deepEqual(ai.resolveAiSettings(configStore, 'classifier'), {
-    baseUrl: 'https://api.example/v1', apiKey: 'secret', model: 'gpt-5.4'
+    baseUrl: 'https://api.example/v1', apiKey: 'secret', model: 'gpt-5.4',
+    textModelId: 'custom-gpt-5-4', modelDisplayName: 'gpt-5.4'
   });
   assert.deepEqual(calls, ['custom-gpt-5-4']);
 });
