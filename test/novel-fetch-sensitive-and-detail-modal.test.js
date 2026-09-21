@@ -117,7 +117,7 @@ test('网关 HTML 错误转换为中文提示且生成失败不清空已有任�
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(app, /function normalizeBatchErrorMessage\(/);
   assert.match(app, /网关暂时不可用（502）/);
-  assert.match(app, /loadTasks\(\{ preserveOnEmpty: true \}\)/);
+  assert.match(app, /loadTasks\(\{ preserveOnEmpty: true/);
   assert.match(app, /incomingTasks\.length === 0/);
 });
 
@@ -128,6 +128,32 @@ test('生成成功提示前会回读任务确认 AI 版本确实生成', () => {
   assert.match(generateAi[0], /const verification = await api\(`\/api\/tasks\/\$\{encodeURIComponent\(id\)\}`\)/);
   assert.match(generateAi[0], /AI文案生成未完成，请查看任务详情和失败原因/);
   assert.match(generateAi[0], /generatedAi\.includes\(version\)/);
+});
+
+test('AI文案列独立展示生成阶段、完成数量和失败原因', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /function aiCopyStatusText\(/);
+  assert.match(app, /生成中/);
+  assert.match(app, /失败：/);
+  assert.match(app, /ai_error/);
+  assert.match(app, /aiCopyStatusText\(aiTask, selectedAi, generatedAi\)/);
+  assert.match(app, /function taskOverallStatusText\(/);
+});
+
+test('生成AI文案期间保留当前任务行并合并最新状态', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /function mergeTasksKeepingIds\(/);
+  assert.match(app, /merged\.splice\(/);
+  assert.match(app, /loadTasks\(\{ preserveOnEmpty: true, preserveIds: \[id\] \}\)/);
+  assert.match(app, /preserveIds/);
+});
+
+test('手动生成AI接口同步写回任务总状态', () => {
+  const route = read('routes/batch-rewrite.js');
+  assert.match(route, /status: 'ai_processing'/);
+  assert.match(route, /const status = result\.status === 'done'[\s\S]*'ai_done'/);
+  assert.match(route, /result\.status === 'partial'[\s\S]*'ai_partial'/);
+  assert.match(route, /status: 'ai_failed'/);
 });
 
 test('任务列表不向用户显示英文原始状态和提交版本', () => {

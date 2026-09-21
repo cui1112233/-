@@ -2359,7 +2359,7 @@ function taskStatusText(value, fallback = "") {
     created: "待处理", queued: "排队中", running: "正在执行中…", processing: "正在执行中…", input_ready: "分类信息已就绪", classified: "已完成判断", classifying: "AI判断中…", classify_failed: "判断失败",
     original: "原文", fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_processing: "原文处理中", original_done: "原文已就绪", original_failed: "原文抓取失败",
     ai_processing: "AI文案处理中",
-    generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
+    generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_partial: "AI文案部分完成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
     uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
   };
@@ -2381,9 +2381,38 @@ function classifyDetailText(meta = {}) {
 
 function aiStatusDisplay(task = {}, aiText = '') {
   const reason = String(task.ai_error || task.aiError || '').trim();
-  if (task.ai_status === 'generating') return `<span class="task-spinner" aria-hidden="true"></span>${escapeHtml(aiText)}`;
+  if (task.ai_status === 'generating' || task.ai_status === 'ai_processing') return `<span class="task-spinner" aria-hidden="true"></span>${escapeHtml(aiText)}`;
   if (!reason) return escapeHtml(aiText);
   return `<span class="task-status-main">${escapeHtml(aiText)}</span><small class="task-status-reason">AI错误：${escapeHtml(reason)}</small>`;
+}
+
+function aiCopyStatusText(task = {}, selectedAi = [], generatedAi = []) {
+  const status = String(task.ai_status || task.aiStatus || '').trim().toLowerCase();
+  const current = String(task.ai_current_version || task.aiCurrentVersion || '').trim().toUpperCase();
+  const selectedCount = selectedAi.length;
+  const generatedCount = generatedAi.length;
+  const count = selectedCount ? `${generatedCount}/${selectedCount}` : (generatedCount ? `${generatedCount}/${generatedCount}` : '');
+  const reason = String(task.ai_error || task.aiError || '').trim();
+  const reasonText = reason ? normalizeBatchErrorMessage(reason, task.ai_upstream_code || task.aiUpstreamCode) : '';
+  if (status === 'generating' || status === 'ai_processing') return `生成中${current ? `（${current}）` : ''}`;
+  if (status === 'waiting_original') return '等待原文';
+  if (status === 'waiting_ai_config') return '等待 AI 配置';
+  if (status === 'failed' || status === 'ai_failed') return `失败${current ? `（${current}）` : ''}${reasonText ? `：${reasonText.slice(0, 120)}` : ''}`;
+  if (status === 'partial' || status === 'ai_partial') return `部分完成${count ? `（${count}）` : ''}${reasonText ? `：${reasonText.slice(0, 120)}` : ''}`;
+  if (status === 'done' || status === 'ai_done') return `已生成${count ? `（${count}）` : ''}`;
+  if (generatedCount) return `已生成${count}`;
+  if (selectedCount) return `待生成（0/${selectedCount}）`;
+  return '未生成';
+}
+
+function taskOverallStatusText(task = {}) {
+  const aiStatus = String(task.ai_status || task.aiStatus || '').trim().toLowerCase();
+  if (aiStatus === 'failed' || aiStatus === 'ai_failed') return 'AI文案失败';
+  if (aiStatus === 'partial' || aiStatus === 'ai_partial') return 'AI文案部分完成';
+  if (aiStatus === 'done' || aiStatus === 'ai_done') return 'AI文案已完成';
+  if (aiStatus === 'waiting_original') return '等待原文';
+  if (aiStatus === 'waiting_ai_config') return '等待 AI 配置';
+  return taskStatusText(task.status, '待处理');
 }
 
 function taskDateKey(task) {
@@ -2424,6 +2453,27 @@ function currentTaskList(tasks) {
   return list.filter(task => taskDateKey(task) === selectedDate);
 }
 
+function taskIdentity(task) {
+  return String(task?.id || task?.book_id || task?.bookId || '').trim();
+}
+
+function mergeTasksKeepingIds(incomingTasks, preserveIds = []) {
+  const incoming = Array.isArray(incomingTasks) ? incomingTasks : [];
+  const wanted = new Set((Array.isArray(preserveIds) ? preserveIds : [preserveIds]).map(id => String(id || '').trim()).filter(Boolean));
+  if (!wanted.size || !Array.isArray(state.allTasks) || !state.allTasks.length) return incoming;
+  const incomingIds = new Set(incoming.map(taskIdentity));
+  const missing = state.allTasks.filter(task => {
+    const id = taskIdentity(task);
+    return wanted.has(id) && id && !incomingIds.has(id);
+  });
+  const merged = incoming.slice();
+  for (const task of missing) {
+    const originalIndex = state.allTasks.indexOf(task);
+    merged.splice(Math.min(Math.max(0, originalIndex), merged.length), 0, task);
+  }
+  return merged;
+}
+
 function renderTasks(tasks, options = {}) {
   const selectedDate = state.taskDate || todayDateKey();
   state.taskDate = selectedDate;
@@ -2455,11 +2505,8 @@ function renderTasks(tasks, options = {}) {
     const originalText = originalStatusText(task);
     const selectedAi = asArray(task.selected_versions).filter(version => /^ai[1-5]$/.test(version));
     const generatedAi = asArray(task.ai_files);
-    const aiText = task.ai_status === 'generating'
-      ? `${String(task.ai_current_version || 'ai1').toUpperCase()} 执行中…`
-      : selectedAi.length
-      ? `${generatedAi.map(version => version.toUpperCase()).join("、") || "待生成"}（${generatedAi.length}/${selectedAi.length}）`
-      : "本次未选择 AI 文案";
+    const aiTask = aiBusy ? { ...task, ai_status: 'generating', ai_current_version: task.ai_current_version || selectedAi[0] || 'ai1' } : task;
+    const aiText = aiCopyStatusText(aiTask, selectedAi, generatedAi);
     const siteText = siteSubmitText(task);
     tr.innerHTML = `
       <td><input class="task-check" type="checkbox" data-id="${escapeHtml(id)}" ${state.selectedIds.has(id) ? "checked" : ""} /></td>
@@ -2470,9 +2517,9 @@ function renderTasks(tasks, options = {}) {
       <td>${escapeHtml(task.gender || "")}</td>
       <td class="${statusClass(task.classify_status)}" title="${escapeHtml(task.classify_error || task.classifyError || "")}">${classifyStatusDisplay(task)}</td>
       <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}${task.original_error ? `<div class="task-error-detail" title="${escapeHtml(task.original_error)}">${escapeHtml(task.original_error)}</div>` : ""}</td>
-      <td class="${statusClass(task.ai_status)}" title="${escapeHtml(task.ai_error || task.aiError || '')}">${aiStatusDisplay(task, aiText)}</td>
+      <td class="${statusClass(aiTask.ai_status)}" title="${escapeHtml(task.ai_error || task.aiError || '')}">${aiStatusDisplay(aiTask, aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
-      <td class="${statusClass(task.status)}">${escapeHtml(taskStatusText(task.status, "待处理"))}</td>
+      <td class="${statusClass(taskOverallStatusText(task))}">${escapeHtml(taskOverallStatusText(task))}</td>
       <td class="task-actions">
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
@@ -2823,7 +2870,7 @@ async function loadTasks(options = {}) {
     renderTasks(fallbackTasks, { preserveVisible: true });
     return data;
   }
-  state.allTasks = incomingTasks;
+  state.allTasks = mergeTasksKeepingIds(incomingTasks, options.preserveIds || []);
   renderTasks(state.allTasks);
   $("summaryText").textContent = state.viewMode === "current"
     ? `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`
@@ -3169,7 +3216,7 @@ async function generateAi(id) {
     if (requestedAi.length && !requestedAi.every(version => generatedAi.includes(version))) {
       throw new Error("AI文案生成未完成，请查看任务详情和失败原因");
     }
-    await loadTasks({ preserveOnEmpty: true });
+    await loadTasks({ preserveOnEmpty: true, preserveIds: [id] });
     tasksLoaded = true;
     await refreshTaskDetail(id);
     setBatchStatus(`AI文案生成已完成：${label}`);
@@ -3177,7 +3224,7 @@ async function generateAi(id) {
     setBatchStatus(`生成AI文案失败：${normalizeBatchErrorMessage(error?.message, error?.status)}`);
   } finally {
     if (!tasksLoaded) {
-      try { await loadTasks({ preserveOnEmpty: true }); } catch (_) { /* keep the original generation error visible */ }
+      try { await loadTasks({ preserveOnEmpty: true, preserveIds: [id] }); } catch (_) { /* keep the original generation error visible */ }
     }
     await refreshTaskDetail(id);
     state.aiProcessingIds.delete(id);
