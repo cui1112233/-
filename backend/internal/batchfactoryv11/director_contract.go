@@ -304,26 +304,25 @@ func BuildAssetExtractionContract(book Book, snapshot DirectorSnapshot) (PromptC
 	if strings.TrimSpace(book.SourceText) == "" {
 		return PromptContract{}, fmt.Errorf("%w: source text is required", ErrInvalid)
 	}
-	system := strings.TrimSpace(`你是短剧制作资产提取器。只从小说原文提取实际出现的人物、场景与关键道具，并为每项写可追溯的中文资产事实与可见依据。
+	system := strings.TrimSpace(`你是短剧制作资产提取器。只从小说原文提取实际出现的人物、场景与关键道具，并为每项写可直接用于图片生成的中文视觉提示词。
 不要生成分镜、镜头、VIDEO、改写正文或解释。不要杜撰原文没有出现的重要资产。
 只输出一个合法 JSON 对象，格式严格为：
-{"characters":[{"name":"人物名","prompt":"身份关系、年龄性别线索、原文明确外形等事实依据"}],"scenes":[{"name":"场景名","prompt":"空间、时段、陈设、氛围等可见特征"}],"props":[{"name":"道具名","prompt":"材质、外观、状态等可见特征"}]}
+{"characters":[{"name":"人物名","prompt":"外形、服装、年龄感、气质等可见特征"}],"scenes":[{"name":"场景名","prompt":"空间、时段、陈设、氛围等可见特征"}],"props":[{"name":"道具名","prompt":"材质、外观、状态等可见特征"}]}
 每个数组可以为空；每个元素必须同时有非空 name 与 prompt。`)
 	config := aiReasoningPromptConfig(snapshot.Effective)
-	if config.Assets.appliesTo(book, config.Assets.Character) && usesH3CharacterRenderer(config.Assets.Character) {
-		system += `
-
-当前选中了 H3 人物提示词。人物处理严格分为两次模型调用：
-第一步（当前调用）只锁定每位人物的姓名、身份与关系、性别年龄线索、原文明确外貌、时代与场景依据。characters.prompt 必须是可追溯的事实摘要，不得写最终的完整人物外形提示词。
-第二步由 H3 人物提示词预设接收本次全部人物、场景和道具，只调用一次，为每位人物生成完整外形提示词。`
+	h3CharacterSelected := config.Assets.appliesTo(book, config.Assets.Character) && usesH3CharacterRenderer(config.Assets.Character)
+	if h3CharacterSelected {
+		if factsRule, _ := h3CharacterPromptPhases(config.Assets.Character.Body); factsRule != "" {
+			system = factsRule
+		}
 	}
-	if config.Assets.appliesTo(book, config.Assets.Extraction) {
+	if !h3CharacterSelected && config.Assets.appliesTo(book, config.Assets.Extraction) {
 		system += "\n\n当前人物场景道具提取规则：\n" + strings.TrimSpace(config.Assets.Extraction.Body)
 	}
-	if config.Assets.appliesTo(book, config.Assets.Character) && !usesH3CharacterRenderer(config.Assets.Character) {
+	if !h3CharacterSelected && config.Assets.appliesTo(book, config.Assets.Character) && !usesH3CharacterRenderer(config.Assets.Character) {
 		system += "\n\n当前人物提示词输出规则：\n" + strings.TrimSpace(config.Assets.Character.Body)
 	}
-	if config.Assets.appliesTo(book, config.Assets.Scene) && !usesH3SceneRenderer(config.Assets.Scene) {
+	if !h3CharacterSelected && config.Assets.appliesTo(book, config.Assets.Scene) && !usesH3SceneRenderer(config.Assets.Scene) {
 		system += "\n\n当前场景提示词输出规则：\n" + strings.TrimSpace(config.Assets.Scene.Body)
 	}
 	payload, err := json.MarshalIndent(map[string]any{"book_id": book.ID, "title": book.Title, "source_text": book.SourceText}, "", "  ")

@@ -376,7 +376,7 @@ func TestAssetExtractionWithH3CharacterPresetCompilesAllCharactersOnce(t *testin
 		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
 			"assets": map[string]any{
 				"enabled":   true,
-				"character": map[string]any{"presetId": "batch-character-h3", "presetKey": "h3-character-normal", "body": "H3 CHARACTER RULE"},
+				"character": map[string]any{"presetId": "batch-character-h3", "presetKey": "h3-character-normal", "body": "# H3 人物两段资产编排\n\n## 调用一：H3 人物事实提取\nH3 FACT RULE\n\n## 调用二：H3 全人物外形编译\nH3 APPEARANCE RULE"},
 			},
 		})}, ExpectedRevision: batch.Revision,
 	}); err != nil {
@@ -406,14 +406,17 @@ func TestAssetExtractionWithH3CharacterPresetCompilesAllCharactersOnce(t *testin
 	if len(provider.calls) != 2 {
 		t.Fatalf("H3 character flow calls=%d, want extraction plus one batch appearance call", len(provider.calls))
 	}
-	if !strings.Contains(provider.calls[0].SystemPrompt, "第一步（当前调用）") {
-		t.Fatalf("first H3 character call must request traceable facts only, got %q", provider.calls[0].SystemPrompt)
+	if !strings.Contains(provider.calls[0].SystemPrompt, "H3 FACT RULE") {
+		t.Fatalf("first H3 call must receive H3's first-phase rule, got %q", provider.calls[0].SystemPrompt)
 	}
-	if strings.Contains(provider.calls[0].SystemPrompt, "H3 CHARACTER RULE") {
-		t.Fatalf("first H3 character call must not receive the detailed appearance rule")
+	if strings.Contains(provider.calls[0].SystemPrompt, "H3 APPEARANCE RULE") {
+		t.Fatalf("first H3 call must not receive H3's appearance rule")
 	}
-	if !strings.Contains(provider.calls[1].SystemPrompt, "H3 CHARACTER RULE") {
-		t.Fatalf("second H3 character call must receive the detailed appearance rule")
+	if !strings.Contains(provider.calls[1].SystemPrompt, "H3 APPEARANCE RULE") {
+		t.Fatalf("second H3 character call must receive H3's appearance rule")
+	}
+	if strings.Contains(provider.calls[1].SystemPrompt, "H3 FACT RULE") {
+		t.Fatalf("second H3 call must not receive H3's first-phase rule")
 	}
 	byName := map[string]string{}
 	for _, asset := range assets {
