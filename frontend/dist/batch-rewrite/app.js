@@ -7,6 +7,7 @@ const state = {
   selectedId: "",
   selectedIds: new Set(),
   sensitiveProcessingIds: new Set(),
+  aiProcessingIds: new Set(),
   pendingRuleSuggestions: null,
   pendingOpeningItem: null,
   activeProcessJobId: "",
@@ -15,6 +16,9 @@ const state = {
   currentBatchDate: "",
   textModels: [],
   viewMode: "current",
+  modalBusy: new Set(),
+  detailRefreshTimer: null,
+  detailViewKind: "",
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -45,15 +49,15 @@ function pretty(value) {
   return JSON.stringify(value, null, 2);
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value || {}));
+}
+
 function mergeConfigResponse(nextConfig) {
   const knowledgeLoaded = state.config?.knowledge_loaded === true || nextConfig?.knowledge_loaded === true;
   state.config = { ...(nextConfig || {}), knowledge_loaded: knowledgeLoaded };
   if (knowledgeLoaded) renderKnowledgeSummary(state.config.knowledge_summary || {});
   return state.config;
-}
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value || {}));
 }
 
 function numberValue(id, fallback) {
@@ -354,6 +358,22 @@ function updateVersionConfigSummary() {
     : "未选择版本";
 }
 
+function setModalBusy(id, busy) {
+  const key = String(id || "").trim();
+  if (!key) return;
+  if (busy) state.modalBusy.add(key);
+  else state.modalBusy.delete(key);
+  const dialog = $(key);
+  if (dialog) {
+    dialog.dataset.modalBusy = busy ? "true" : "false";
+    dialog.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+}
+
+function isModalBusy(id) {
+  return state.modalBusy.has(String(id || "").trim());
+}
+
 function openVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
@@ -392,6 +412,7 @@ function syncVersionPromptConfigToForm() {
 function closeVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
+  if (isModalBusy("versionConfigCard")) return;
   if (typeof dialog.close === "function") dialog.close();
   else dialog.removeAttribute("open");
 }
@@ -1723,11 +1744,22 @@ async function openWebLoginDialog() {
     dialog.id = "webLoginDialog";
     dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
     document.body.appendChild(dialog);
+    dialog.addEventListener("pointerdown", event => {
+      if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
+    });
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
+    });
+    dialog.addEventListener("cancel", event => {
+      if (isModalBusy("webLoginDialog")) event.preventDefault();
+    });
     dialog.addEventListener("submit", async (event) => {
       if (event.submitter?.id !== "webLoginSubmit") return;
       event.preventDefault();
       const result = $("webLoginResult"); result.textContent = "验证中...";
-      $("webLoginSubmit").disabled = true;
+      const loginButtons = dialog.querySelectorAll("button");
+      loginButtons.forEach(button => { button.disabled = true; });
+      setModalBusy("webLoginDialog", true);
       try {
         const username = $("webLoginUsername").value.trim();
         const password = $("webLoginPassword").value;
@@ -1747,7 +1779,8 @@ async function openWebLoginDialog() {
       finally {
         const passwordInput = $("webLoginPassword");
         if (passwordInput) passwordInput.value = "";
-        $("webLoginSubmit").disabled = false;
+        loginButtons.forEach(button => { button.disabled = false; });
+        setModalBusy("webLoginDialog", false);
       }
     });
   }
@@ -1906,13 +1939,17 @@ async function confirmWebSubmitSelection() {
     return;
   }
   if (status) status.textContent = "正在保存版本配置...";
+  setModalBusy("versionConfigCard", true);
   try {
     await saveVersionConfigAuthority();
     if (status) status.textContent = `已保存：${versions.map(version => version === "original" ? "原文" : version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
     updateVersionConfigSummary();
+    setModalBusy("versionConfigCard", false);
     closeVersionConfigCard();
   } catch (error) {
     if (status) status.textContent = error.message;
+  } finally {
+    setModalBusy("versionConfigCard", false);
   }
 }
 
@@ -1940,6 +1977,7 @@ async function syncWebSubmit(kind) {
   const label = kind === "styles" ? "批量风格类型" : kind === "organizations" ? "组织归属" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
   setVersionConfigStatus(`正在同步${label}...`);
+  setModalBusy("versionConfigCard", true);
   try {
     await saveWebSubmitConfig(true);
     const operation = await api("/api/web-submit/operations", {
@@ -1962,6 +2000,8 @@ async function syncWebSubmit(kind) {
   } catch (error) {
     setSiteSubmitStatus(error.message);
     setVersionConfigStatus(error.message);
+  } finally {
+    setModalBusy("versionConfigCard", false);
   }
 }
 
@@ -2172,14 +2212,21 @@ function siteSubmitText(task) {
   // 同一版本曾失败但后来已成功提交时，成功结果才是当前状态；
   // 失败记录仍保留在“记录”和“问题日志”中供追溯。
   const parts = [];
-  if (done.length) parts.push(`已提交：${done.join(",")}`);
-  if (uploading.length) parts.push(`上传中：${uploading.join(",")}`);
-  if (queued.length) parts.push(`排队中：${queued.join(",")}`);
-  if (accepted.length) parts.push(`待确认：${accepted.join(",")}`);
-  if (failed.length) parts.push(`失败：${failed.join(",")}`);
+  if (done.length) parts.push(`已提交：${done.map(displayVersionLabel).join(",")}`);
+  if (uploading.length) parts.push(`上传中：${uploading.map(displayVersionLabel).join(",")}`);
+  if (queued.length) parts.push(`排队中：${queued.map(displayVersionLabel).join(",")}`);
+  if (accepted.length) parts.push(`待确认：${accepted.map(displayVersionLabel).join(",")}`);
+  if (failed.length) parts.push(`失败：${failed.map(displayVersionLabel).join(",")}`);
   if (parts.length) return parts.join("；");
   if (task.site_submit_status) return task.site_submit_status;
   return "未提交";
+}
+
+function displayVersionLabel(version) {
+  const value = String(version || "").trim().toLowerCase();
+  if (value === "original") return "原文";
+  if (/^ai[1-5]$/.test(value)) return value.toUpperCase();
+  return String(version || "").trim();
 }
 
 function groupCardHtml(group) {
@@ -2297,7 +2344,8 @@ function taskStatusText(value, fallback = "") {
   const text = String(value || "").trim();
   const labels = {
     created: "待处理", queued: "排队中", running: "正在执行中…", processing: "正在执行中…", input_ready: "分类信息已就绪", classified: "已完成判断", classifying: "AI判断中…", classify_failed: "判断失败",
-    fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
+    original: "原文", fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_processing: "原文处理中", original_done: "原文已就绪", original_failed: "原文抓取失败",
+    ai_processing: "AI文案处理中",
     generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
     uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
@@ -2326,7 +2374,7 @@ function aiStatusDisplay(task = {}, aiText = '') {
 }
 
 function taskDateKey(task) {
-  const value = task.updated_at || task.updatedAt || task.created_at || task.createdAt || "";
+  const value = task.batch_created_at || task.batchCreatedAt || task.created_at || task.createdAt || task.updated_at || task.updatedAt || "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -2380,6 +2428,7 @@ function renderTasks(tasks) {
   for (const task of state.tasks) {
     const id = String(task.id || "");
     const sensitiveRunning = state.sensitiveProcessingIds.has(id);
+    const aiBusy = state.aiProcessingIds.has(id);
     const sensitiveHits = Number(task.sensitive_hit_count || 0);
     const sensitiveFixed = Number(task.sensitive_fixed_count || 0);
     const sensitiveFailed = Number(task.sensitive_failed_count || 0);
@@ -2413,7 +2462,7 @@ function renderTasks(tasks) {
       <td class="task-actions">
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
-        <button data-action="ai" data-id="${escapeHtml(id)}">生成AI</button>
+        <button data-action="ai" data-id="${escapeHtml(id)}" ${aiBusy ? "disabled" : ""} aria-busy="${aiBusy ? "true" : "false"}">${aiBusy ? "生成中…" : "生成AI文案"}</button>
         <button data-action="sensitive" data-id="${escapeHtml(id)}" ${sensitiveRunning ? "disabled" : ""}>${sensitiveLabel}</button>
         <button data-action="siteLog" data-id="${escapeHtml(id)}">提交日志</button>
       </td>
@@ -2424,8 +2473,29 @@ function renderTasks(tasks) {
 }
 
 function renderDetail(data) {
-  const meta = data.meta || {};
-  $("detailTitle").textContent = meta.book_id || meta.id || "详情";
+  const rawMeta = data.meta || {};
+  const meta = {
+    ...rawMeta,
+    book_id: rawMeta.book_id || rawMeta.bookId || rawMeta.id || "",
+    book_name: rawMeta.book_name || rawMeta.bookName || "",
+    platform_name: rawMeta.platform_name || rawMeta.platformName || "",
+    platform_id: rawMeta.platform_id || rawMeta.platformId || "",
+    original_error: rawMeta.original_error || rawMeta.originalErrorMessage || rawMeta.error || "",
+    original_error_code: rawMeta.original_error_code || rawMeta.originalErrorCode || "",
+    original_upstream_code: rawMeta.original_upstream_code ?? rawMeta.originalUpstreamCode ?? "",
+    classify_error: rawMeta.classify_error || rawMeta.classifyError || "",
+    ai_status: rawMeta.ai_status || rawMeta.aiStatus || "",
+    ai_error: rawMeta.ai_error || rawMeta.aiError || "",
+    ai_current_version: rawMeta.ai_current_version || rawMeta.aiCurrentVersion || "",
+    ai_generated_count: rawMeta.ai_generated_count ?? rawMeta.aiGeneratedCount ?? 0,
+    site_submit_error: rawMeta.site_submit_error || rawMeta.siteSubmitError || "",
+    created_at: rawMeta.created_at || rawMeta.createdAt || "",
+    updated_at: rawMeta.updated_at || rawMeta.updatedAt || "",
+    error: rawMeta.error || "",
+  };
+  const detailId = meta.book_id || meta.id || "";
+  const detailAiBusy = state.aiProcessingIds.has(String(detailId)) || meta.ai_status === "generating" || meta.ai_status === "ai_processing";
+  $("detailTitle").textContent = detailId || "详情";
   const knowledgeHistory = meta.rewrite_knowledge_history || [];
   const sensitiveFixed = data.sensitive_fixed || {};
   const sensitiveItems = asArray(sensitiveFixed.items).filter((item) => item && item.status === "done");
@@ -2459,12 +2529,21 @@ function renderDetail(data) {
       ${metaItem("AI判断", classifyDetailText(meta))}
       ${metaItem("分类模型", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
-      ${metaItem("原文抓取错误", meta.original_error || "")}
+      ${metaItem("原文失败原因", meta.original_error || "")}
+      ${metaItem("原文错误码", meta.original_error_code || "")}
       ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
       ${metaItem("AI状态", taskStatusText(meta.ai_status))}
+      ${metaItem("AI失败原因", meta.ai_error || "")}
+      ${metaItem("AI当前版本", meta.ai_current_version || "")}
+      ${metaItem("AI已生成数量", meta.ai_generated_count || 0)}
+      ${metaItem("分类失败原因", meta.classify_error || "")}
+      ${metaItem("网站提交失败原因", meta.site_submit_error || "")}
+      ${metaItem("任务错误", meta.error || "")}
+      ${metaItem("创建时间", meta.created_at || "")}
+      ${metaItem("最后更新时间", meta.updated_at || "")}
       ${metaItem("改文模型", meta.rewrite_model)}
       ${metaItem("改文方案", knowledge.strategy_name || knowledge.strategy || "")}
       ${metaItem("改文模板", knowledge.rewrite_template_name || "")}
@@ -2477,8 +2556,9 @@ function renderDetail(data) {
       <button id="detailPrevBtn" ${adjacentTaskId(-1) ? "" : "disabled"}>上一条</button>
       <button id="detailNextBtn" ${adjacentTaskId(1) ? "" : "disabled"}>下一条</button>
       <button id="detailCloseBtn" type="button">关闭</button>
+      <button id="detailRefreshBtn" type="button">刷新详情</button>
       <button id="detailFetchBtn">重新抓原文</button>
-      <button id="detailAiBtn">生成AI文案</button>
+      <button id="detailAiBtn" ${detailAiBusy ? "disabled" : ""} aria-busy="${detailAiBusy ? "true" : "false"}">${detailAiBusy ? "生成中…" : "生成AI文案"}</button>
       <button id="detailTraceBtn">规则追踪</button>
       <button id="detailSensitiveBtn">重跑敏感词（当前文案）</button>
       ${data.has_original_raw ? `<button id="detailRestoreBtn">从备份恢复原文</button>` : ""}
@@ -2488,11 +2568,22 @@ function renderDetail(data) {
       <pre>${escapeHtml(data.original || "")}</pre>
     </div>
     ${aiBlocks}
+    <div class="text-block">
+      <h3>最近处理日志</h3>
+      <div class="logs-list">${asArray(data.logs).slice(-20).reverse().map(item => {
+        const event = item?.event || "事件";
+        const time = item?.time || "";
+        const payload = item?.data && typeof item.data === "object" ? item.data : {};
+        const reason = payload.error || payload.message || payload.reason || payload.status || "";
+        return `<div class="log-row"><b>${escapeHtml(time)}</b> ${escapeHtml(event)}${reason ? `：${escapeHtml(reason)}` : ""}</div>`;
+      }).join("") || `<div class="log-row">暂无处理日志</div>`}</div>
+    </div>
   `;
   bindDetailCloseControl();
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
+  $("detailRefreshBtn").onclick = () => { void refreshTaskDetail(meta.book_id || meta.id); };
   $("detailAiBtn").onclick = () => generateAi(meta.book_id || meta.id);
   $("detailTraceBtn").onclick = () => showRulesTrace(meta.book_id || meta.id);
   $("detailSensitiveBtn").onclick = () => reprocessSensitive([meta.book_id || meta.id], false);
@@ -2925,16 +3016,40 @@ async function processInput() {
   }
 }
 
+function stopTaskDetailRefresh() {
+  if (state.detailRefreshTimer) window.clearInterval(state.detailRefreshTimer);
+  state.detailRefreshTimer = null;
+}
+
+async function refreshTaskDetail(id) {
+  if (!id || state.detailViewKind !== "task" || String(state.selectedId) !== String(id)) return;
+  try {
+    const data = await api(`/api/tasks/${id}`);
+    if (state.detailViewKind === "task" && String(state.selectedId) === String(id)) renderDetail(data);
+  } catch (error) {
+    setBatchStatus(`详情刷新失败：${error.message || "请稍后重试"}`);
+  }
+}
+
+function startTaskDetailRefresh(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "task";
+  state.detailRefreshTimer = window.setInterval(() => { void refreshTaskDetail(id); }, 2500);
+}
+
 async function showTask(id) {
+  stopTaskDetailRefresh();
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}`);
+  state.detailViewKind = "task";
   renderDetail(data);
   activateTab("tasks");
   document.body.classList.add("detail-modal-open");
+  startTaskDetailRefresh(id);
   focusTaskDetail();
 }
 
-function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+function closeTaskDetail() { stopTaskDetailRefresh(); state.detailViewKind = ""; document.body.classList.remove("detail-modal-open"); }
 function detailCloseControl() { return '<button id="detailCloseBtn" type="button">关闭</button>'; }
 function bindDetailCloseControl() {
   $("detailCloseBtn")?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); });
@@ -2951,6 +3066,8 @@ function focusTaskDetail() {
 }
 
 async function showSensitiveLog(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "sensitive";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/sensitive-log`);
   renderSensitiveLog(data);
@@ -2960,6 +3077,8 @@ async function showSensitiveLog(id) {
 }
 
 async function showRulesTrace(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "rules";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/rules-trace`);
   renderRulesTrace(data);
@@ -2969,6 +3088,8 @@ async function showRulesTrace(id) {
 }
 
 async function showSiteSubmitLog(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "site-submit";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/site-submit-log`);
   renderSiteSubmitLog(data);
@@ -2999,15 +3120,37 @@ async function restoreOriginal(id) {
 }
 
 async function generateAi(id) {
-  if (!id) return;
+  if (!id || state.aiProcessingIds.has(id)) return;
   const task = state.tasks.find(item => String(item.id || item.book_id || "") === String(id));
-  const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
-  await api(`/api/tasks/${id}/generate-ai`, {
-    method: "POST",
-    body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
-  });
-  await loadTasks();
-  await showTask(id);
+  if (!task) {
+    setBatchStatus("未找到要生成AI文案的任务，请刷新任务列表");
+    return;
+  }
+  const label = task.book_name || task.book_id || id;
+  let tasksLoaded = false;
+  state.aiProcessingIds.add(id);
+  renderTasks(state.allTasks);
+  setBatchStatus(`正在生成AI文案：${label}`);
+  try {
+    const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
+    await api(`/api/tasks/${id}/generate-ai`, {
+      method: "POST",
+      body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+    });
+    await loadTasks();
+    tasksLoaded = true;
+    await refreshTaskDetail(id);
+    setBatchStatus(`AI文案生成已完成：${label}`);
+  } catch (error) {
+    setBatchStatus(`生成AI文案失败：${error.message || "请稍后重试"}`);
+  } finally {
+    if (!tasksLoaded) {
+      try { await loadTasks(); } catch (_) { /* keep the original generation error visible */ }
+    }
+    await refreshTaskDetail(id);
+    state.aiProcessingIds.delete(id);
+    renderTasks(state.allTasks);
+  }
 }
 
 function selectedTaskIds() {
@@ -3632,7 +3775,7 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("pointerdown", event => {
   if (!document.body.classList.contains("detail-modal-open")) return;
-  if (event.target.closest(".task-detail-section")) return;
+  if (event.target.closest("#detail")) return;
   closeTaskDetail();
 }, true);
 
@@ -3687,10 +3830,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("versionConfigCloseBtnBottom").onclick = closeVersionConfigCard;
   $("versionConfigCard").addEventListener("cancel", event => {
     event.preventDefault();
-    closeVersionConfigCard();
+    if (!isModalBusy("versionConfigCard")) closeVersionConfigCard();
+  });
+  $("versionConfigCard").addEventListener("pointerdown", event => {
+    if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("versionConfigCard").addEventListener("click", event => {
-    if (event.target === $("versionConfigCard")) closeVersionConfigCard();
+    if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;

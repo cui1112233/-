@@ -118,3 +118,18 @@ test('all video payloads carry selected references while capping at nine', () =>
     imageUrls: imageUrls.slice(0, 9)
   });
 });
+
+test('builds Seedance payload with selected duration and resolution', () => {
+  assert.deepEqual(buildScriptVideoPayload({
+    prompt: '夜晚的城市雨巷',
+    modelKey: 'seedance-2-0-official',
+    duration: 15,
+    resolution: '720p',
+    imageUrls: []
+  }), {
+    prompt: '夜晚的城市雨巷',
+    modelKey: 'seedance-2-0-official',
+    duration: 15,
+    resolution: '720p'
+  });
+});

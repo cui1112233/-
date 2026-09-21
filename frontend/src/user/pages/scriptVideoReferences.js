@@ -102,6 +102,14 @@ export function collectShotReferenceImages(options) {
 export function buildScriptVideoPayload({ prompt, modelKey, duration, resolution, imageUrls } = {}) {
   const payload = { prompt, modelKey };
   const references = Array.isArray(imageUrls) ? imageUrls.slice(0, MAX_H3_REFERENCE_IMAGES) : [];
+  if (modelKey === 'seedance-2-0-official') {
+    return {
+      ...payload,
+      duration,
+      resolution,
+      ...(references.length ? { imageUrls: references } : {})
+    };
+  }
   if (modelKey !== 'minimax-h3-video') {
     return references.length ? { ...payload, imageUrls: references } : payload;
   }

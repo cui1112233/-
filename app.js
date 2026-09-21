@@ -486,6 +486,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-video', createScriptVideoRouter({
     shuihuoGateway,
     memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
     configReader: teamVideoConfigReader
   }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);

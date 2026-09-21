@@ -1189,6 +1189,16 @@ dialog::backdrop { background: rgb(0 0 0 / 55%); }
   background: var(--panel);
 }
 .version-config-card-actions .form-hint { flex: 1 1 100%; }
+.task-error-detail {
+  margin-top: 4px;
+  max-width: 220px;
+  color: var(--danger, #d94c4c);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 @media (max-width: 640px) {
   .version-config-launcher { align-items: stretch; flex-direction: column; }
   .version-selection-grid { grid-template-columns: 1fr; }

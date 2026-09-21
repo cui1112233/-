@@ -424,7 +424,7 @@ export function ScriptPage() {
         prompt,
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
-        resolution: '480p竖',
+        resolution: scriptVideoModelKey === 'minimax-h3-video' ? '480p竖' : '720p',
         imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
       const result = await createScriptVideo(videoPayload);

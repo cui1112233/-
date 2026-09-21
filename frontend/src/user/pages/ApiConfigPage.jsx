@@ -17,6 +17,7 @@ const MODEL_KINDS = [
 const PLATFORM_PRESETS = [
   { id: 'yd2-mini-video', displayName: 'YD2.0 Mini（图生）', description: '平台已维护视频适配器；只需填写 API Key。', credentialMode: 'apiKey' },
   { id: 'minimax-h3-video', displayName: 'MiniMax H3 多图生视频', description: '支持剧本分镜参考图；只需填写 API Key。', credentialMode: 'apiKey' },
+  { id: 'seedance-2-0-official', displayName: 'Seedance 2.0 官方', description: 'YFAI 官方直连；支持文生视频和参考图；只需填写 API Key。', credentialMode: 'apiKey' },
   { id: 'local-doubao-executor-video', displayName: '本地豆包执行器', description: '无需 API Key，完成本地执行器配对后才能启用。', credentialMode: 'executorPairing' }
 ];
 
