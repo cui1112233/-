@@ -50,7 +50,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [automationPresets, setAutomationPresets] = useState([]);
   const [automationPresetID, setAutomationPresetID] = useState('');
   const [automationRunMode, setAutomationRunMode] = useState('video_no_submit');
-  const [automationConcurrency, setAutomationConcurrency] = useState(2);
   const [contentRangeLines, setContentRangeLines] = useState(5);
   const [contentCaptureCharacters, setContentCaptureCharacters] = useState(4000);
   const [sourceTextByBookId, setSourceTextByBookId] = useState({});
@@ -121,7 +120,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     setScheduledAt('');
     setAutomationPresetID('');
     setAutomationRunMode('video_no_submit');
-    setAutomationConcurrency(2);
     setContentRangeLines(5);
     setContentCaptureCharacters(4000);
     clearFetchedSources();
@@ -263,8 +261,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         automationEnabled: scheduledRun,
         autoPublishEnabled: scheduledRun && automationRunMode === 'full_submit',
         presetId: automationPresetID,
-        runMode: automationRunMode,
-        concurrency: Number(automationConcurrency || 2)
+        runMode: automationRunMode
       }));
       reset();
     } catch (error) {
@@ -357,8 +354,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} />
     <label className="shuihuo-form-label">执行模式</label>
     <Select value={automationRunMode} onChange={setAutomationRunMode} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交' }]} />
-    <label className="shuihuo-form-label">并发数</label>
-    <InputNumber min={1} max={8} value={automationConcurrency} onChange={value => setAutomationConcurrency(value || 2)} />
   </Modal>
   <Modal title="定时任务" open={scheduleTasksOpen} onCancel={() => setScheduleTasksOpen(false)} footer={<Button onClick={() => setScheduleTasksOpen(false)}>关闭</Button>}>
     <Button loading={scheduleTasksLoading} onClick={openScheduleTasks}>刷新</Button>

@@ -189,7 +189,6 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       try {
         await startBatchAutomation(batch.id, {
           scheduledAt: input.scheduledAt || '',
-          concurrency: Number(input.concurrency || 2),
           presetId: input.presetId || '',
           runMode: input.runMode || (input.autoPublishEnabled === true ? 'full_submit' : 'video_no_submit'),
           autoPublish: input.autoPublishEnabled === true

@@ -18,13 +18,14 @@ test('starts a scheduled batch with one frozen automation preset and run mode', 
   assert.match(source, /listAutomationPresets/);
   assert.match(source, /automationPresetID/);
   assert.match(source, /automationRunMode/);
-  assert.match(source, /automationConcurrency/);
   assert.match(source, /选择已保存预设/);
   assert.match(source, /只生成分镜/);
   assert.match(source, /生成视频不提交/);
   assert.match(source, /全自动生成并提交/);
   assert.match(source, /presetId: automationPresetID/);
   assert.match(source, /runMode: automationRunMode/);
+  assert.doesNotMatch(source, /automationConcurrency/);
+  assert.doesNotMatch(source, />并发数</);
   assert.match(source, /定时任务/);
   assert.doesNotMatch(source, /<strong>自动补抓正文<\/strong>/);
   assert.doesNotMatch(source, /<strong>自动生产<\/strong>/);
