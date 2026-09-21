@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createTosReferenceAssetStore } = require('../lib/novel-panel/tos-reference-assets');
+const { createTosReferenceAssetStore, normalizeTosSdkEndpoint } = require('../lib/novel-panel/tos-reference-assets');
 const { createNovelPanelPremiumStore } = require('../lib/novel-panel/premium-store');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -38,6 +38,10 @@ test('TOS reference asset store scopes keys and signs HTTPS GET URLs', async () 
   assert.equal(calls[0].key, result.key);
   assert.equal(calls[0].contentType, 'image/png');
   assert.equal(store.getSignedUrl(result.key).startsWith('https://'), true);
+});
+
+test('TOS SDK endpoint removes the URL scheme before bucket host composition', () => {
+  assert.equal(normalizeTosSdkEndpoint('https://tos-cn-beijing.volces.com/'), 'tos-cn-beijing.volces.com');
 });
 
 test('TOS reference asset store is disabled without complete ECS-only credentials', () => {
