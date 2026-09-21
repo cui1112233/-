@@ -15,6 +15,7 @@ const state = {
   currentBatchDate: "",
   textModels: [],
   viewMode: "current",
+  modalBusy: new Set(),
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -354,6 +355,22 @@ function updateVersionConfigSummary() {
     : "未选择版本";
 }
 
+function setModalBusy(id, busy) {
+  const key = String(id || "").trim();
+  if (!key) return;
+  if (busy) state.modalBusy.add(key);
+  else state.modalBusy.delete(key);
+  const dialog = $(key);
+  if (dialog) {
+    dialog.dataset.modalBusy = busy ? "true" : "false";
+    dialog.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+}
+
+function isModalBusy(id) {
+  return state.modalBusy.has(String(id || "").trim());
+}
+
 function openVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
@@ -392,6 +409,7 @@ function syncVersionPromptConfigToForm() {
 function closeVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
+  if (isModalBusy("versionConfigCard")) return;
   if (typeof dialog.close === "function") dialog.close();
   else dialog.removeAttribute("open");
 }
@@ -1723,11 +1741,19 @@ async function openWebLoginDialog() {
     dialog.id = "webLoginDialog";
     dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
     document.body.appendChild(dialog);
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
+    });
+    dialog.addEventListener("cancel", event => {
+      if (isModalBusy("webLoginDialog")) event.preventDefault();
+    });
     dialog.addEventListener("submit", async (event) => {
       if (event.submitter?.id !== "webLoginSubmit") return;
       event.preventDefault();
       const result = $("webLoginResult"); result.textContent = "验证中...";
-      $("webLoginSubmit").disabled = true;
+      const loginButtons = dialog.querySelectorAll("button");
+      loginButtons.forEach(button => { button.disabled = true; });
+      setModalBusy("webLoginDialog", true);
       try {
         const username = $("webLoginUsername").value.trim();
         const password = $("webLoginPassword").value;
@@ -1747,7 +1773,8 @@ async function openWebLoginDialog() {
       finally {
         const passwordInput = $("webLoginPassword");
         if (passwordInput) passwordInput.value = "";
-        $("webLoginSubmit").disabled = false;
+        loginButtons.forEach(button => { button.disabled = false; });
+        setModalBusy("webLoginDialog", false);
       }
     });
   }
@@ -1906,13 +1933,17 @@ async function confirmWebSubmitSelection() {
     return;
   }
   if (status) status.textContent = "正在保存版本配置...";
+  setModalBusy("versionConfigCard", true);
   try {
     await saveVersionConfigAuthority();
     if (status) status.textContent = `已保存：${versions.map(version => version === "original" ? "原文" : version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
     updateVersionConfigSummary();
+    setModalBusy("versionConfigCard", false);
     closeVersionConfigCard();
   } catch (error) {
     if (status) status.textContent = error.message;
+  } finally {
+    setModalBusy("versionConfigCard", false);
   }
 }
 
@@ -1940,6 +1971,7 @@ async function syncWebSubmit(kind) {
   const label = kind === "styles" ? "批量风格类型" : kind === "organizations" ? "组织归属" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
   setVersionConfigStatus(`正在同步${label}...`);
+  setModalBusy("versionConfigCard", true);
   try {
     await saveWebSubmitConfig(true);
     const operation = await api("/api/web-submit/operations", {
@@ -1962,6 +1994,8 @@ async function syncWebSubmit(kind) {
   } catch (error) {
     setSiteSubmitStatus(error.message);
     setVersionConfigStatus(error.message);
+  } finally {
+    setModalBusy("versionConfigCard", false);
   }
 }
 
@@ -3687,10 +3721,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("versionConfigCloseBtnBottom").onclick = closeVersionConfigCard;
   $("versionConfigCard").addEventListener("cancel", event => {
     event.preventDefault();
-    closeVersionConfigCard();
+    if (!isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("versionConfigCard").addEventListener("click", event => {
-    if (event.target === $("versionConfigCard")) closeVersionConfigCard();
+    if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
