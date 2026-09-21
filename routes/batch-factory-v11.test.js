@@ -253,6 +253,37 @@ test('H3 obtains the hidden visual baseline even when smart-unified display is o
   assert.equal(calls[1].init.method, 'POST');
 });
 
+test('H3 style.system uses the frozen smart-unified preset and returns a traceable analysis', async () => {
+  const calls = [];
+  const styleSystem = 'CUSTOM STYLE.SYSTEM RULE: return final_genre, trailer_style and story_era as JSON.';
+  const result = await analyzeBatchFactorySmartUnifiedStyle({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    presetStore: { getPublished: id => id === 'script-constraint-prefix-smart-unified' ? { id, name: '智能统一', version: 7, body: styleSystem } : null, listAll: () => [] },
+    fetchImpl: async (_url, init = {}) => {
+      calls.push(init);
+      if (init.method === 'GET') return new Response(JSON.stringify({
+        batch: { id: 'batch-1', settingsState: { patch: { aiPromptConfig: { video: { enabled: true, presetId: 'batch-video-h3-director' } } } }, books: [{ id: 'book-1', sourceText: '完整视频原文', settingsState: { patch: {} }, assetRecords: [] }] }
+      }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+        negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+      }) } }] }), { status: 200 });
+    }
+  });
+
+  assert.equal(JSON.parse(calls[1].body).messages[0].content, styleSystem);
+  assert.deepEqual(JSON.parse(result), {
+    schema_version: 'h3-style-system/v1',
+    prompt: '现代都市短剧；高级电影感；当代都市。',
+    fields: {
+      final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+      negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+    },
+    preset: { id: 'script-constraint-prefix-smart-unified', name: '智能统一', version: 7 }
+  });
+});
+
 test('returns a smart-unified provider credential failure instead of calling the Go service unavailable', () => {
   const error = Object.assign(new Error('智能统一视觉分析模型“gemini-3.5-flash-maxthinking”请求失败：当前无可用凭证'), {
     code: 'SMART_UNIFIED_PROVIDER_FAILED'

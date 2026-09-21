@@ -39,6 +39,29 @@ func TestRunH3DirectorPersistsOnlyValidatedV12DocumentForProcessedVideoSource(t 
 	}
 }
 
+func TestRunH3DirectorPersistsTheStructuredStyleSystemResult(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	seedH3CharacterAssets(t, store, batch.ID, book.ID)
+	provider := &queuedDirectorProvider{values: []string{string(readH3Fixture(t, "h3_v12_complete_director_trace.json"))}}
+	analysis := `{"schema_version":"h3-style-system/v1","prompt":"现代都市短剧；高级电影感；当代都市。","fields":{"final_genre":"现代都市短剧","genre":"现代都市短剧","trailer_style":"高级电影感","story_era":"当代都市","negative_prompt":"无畸形","picture_limit_prompt":"无字幕","quality_constraint_prompt":"画面稳定"},"preset":{"id":"script-constraint-prefix-smart-unified","name":"智能统一","version":7}}`
+
+	sourceText := "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。"
+	revision, err := (&DirectorService{Store: store, Provider: provider}).RunH3Director(context.Background(), "alice", batch.ID, book.ID, H3DirectorRunRequest{
+		VideoSource:       H3VideoSource{Revision: "video-source-acceptance001-r1", Hash: sourceDigest(sourceText), Text: sourceText},
+		Preset:            H3DirectorPreset{Key: "h3-director-normal", Revision: 1},
+		SmartUnifiedStyle: analysis,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.Output.SmartUnifiedAnalysis == nil || revision.Output.SmartUnifiedAnalysis.Fields["final_genre"] != "现代都市短剧" {
+		t.Fatalf("structured style.system analysis was not persisted: %#v", revision.Output)
+	}
+	if revision.Output.SmartUnifiedStyle != "现代都市短剧；高级电影感；当代都市。" {
+		t.Fatalf("compiled style display=%q", revision.Output.SmartUnifiedStyle)
+	}
+}
+
 func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAliases(t *testing.T) {
 	source := H3VideoSource{Revision: "video-source-r1", Hash: sourceDigest("江小姐的老公来了。"), Text: "江小姐的老公来了。"}
 	assets := []NamedPrompt{

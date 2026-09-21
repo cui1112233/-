@@ -48,9 +48,13 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 			knownCharacters = append(knownCharacters, NamedPrompt{Name: asset.Name, Prompt: asset.Prompt})
 		}
 	}
+	analysis, err := parseSmartUnifiedAnalysis(request.SmartUnifiedStyle)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
 	contract := buildH3DirectorContract(source, request.Preset, knownCharacters)
-	if style := strings.TrimSpace(request.SmartUnifiedStyle); style != "" {
-		contract.UserPrompt += "\n\n已冻结的全片统一视觉风格（只用于导演一致性，不得改写剧情事实）：\n" + style
+	if analysis != nil {
+		contract.UserPrompt += "\n\n已冻结的全片统一视觉风格（只用于导演一致性，不得改写剧情事实）：\n" + analysis.Prompt
 	}
 	assetContext, _ := json.Marshal(book.AssetRecords)
 	contract.UserPrompt += "\n\n权威单书资产（人物必须引用 asset_id）：\n" + string(assetContext)
@@ -76,12 +80,17 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if h3VisualBaselineText(document.VisualBaseline) == "" {
 		return DirectorRevision{}, fmt.Errorf("%w: H3 visual_baseline is required", ErrInvalid)
 	}
-	if style := strings.TrimSpace(request.SmartUnifiedStyle); style != "" {
+	if analysis != nil {
 		// The style request is an independently frozen upstream result.  The
 		// director may consume it for consistency but may not replace it.
-		document.VisualBaseline = style
+		document.VisualBaseline = analysis.Prompt
 	}
-	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, source.Hash, "", DirectorResult{H3Director: &document, SmartUnifiedStyle: strings.TrimSpace(request.SmartUnifiedStyle)})
+	result := DirectorResult{H3Director: &document}
+	if analysis != nil {
+		result.SmartUnifiedStyle = analysis.Prompt
+		result.SmartUnifiedAnalysis = analysis
+	}
+	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, source.Hash, "", result)
 }
 
 // RunConfiguredH3Director is the stage-runner entrypoint for new V12 runs.

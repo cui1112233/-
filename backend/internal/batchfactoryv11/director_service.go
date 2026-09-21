@@ -263,17 +263,21 @@ func (s *DirectorService) ApproveHook(ctx context.Context, owner, batchID, bookI
 }
 
 func (s *DirectorService) RunDirector(ctx context.Context, owner, batchID, bookID string) (DirectorRevision, error) {
-	return s.runDirector(ctx, owner, batchID, bookID, "")
+	return s.runDirector(ctx, owner, batchID, bookID, nil)
 }
 
 // RunDirectorWithSmartUnifiedStyle accepts only a bridge-derived, validated
 // full-book visual analysis. The user controls the selected preset; the model
 // result is kept with this director revision rather than mutable settings.
 func (s *DirectorService) RunDirectorWithSmartUnifiedStyle(ctx context.Context, owner, batchID, bookID, style string) (DirectorRevision, error) {
-	return s.runDirector(ctx, owner, batchID, bookID, strings.TrimSpace(style))
+	analysis, err := parseSmartUnifiedAnalysis(style)
+	if err != nil {
+		return DirectorRevision{}, err
+	}
+	return s.runDirector(ctx, owner, batchID, bookID, analysis)
 }
 
-func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookID, smartUnifiedStyle string) (DirectorRevision, error) {
+func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookID string, smartUnifiedAnalysis *SmartUnifiedAnalysis) (DirectorRevision, error) {
 	if err := s.validate(); err != nil {
 		return DirectorRevision{}, err
 	}
@@ -296,8 +300,8 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil {
 		return DirectorRevision{}, err
 	}
-	if smartUnifiedStyle != "" {
-		encoded, _ := json.Marshal(smartUnifiedStyle)
+	if smartUnifiedAnalysis != nil {
+		encoded, _ := json.Marshal(smartUnifiedAnalysis)
 		snapshot.Effective["smartUnifiedStyle"] = encoded
 	}
 	hook := HookRevision{}
@@ -326,7 +330,10 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil {
 		return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	result.SmartUnifiedStyle = smartUnifiedStyle
+	if smartUnifiedAnalysis != nil {
+		result.SmartUnifiedStyle = smartUnifiedAnalysis.Prompt
+		result.SmartUnifiedAnalysis = smartUnifiedAnalysis
+	}
 	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, sourceDigest(book.SourceText), hook.ID, result)
 }
 

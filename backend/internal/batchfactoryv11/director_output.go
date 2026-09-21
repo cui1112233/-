@@ -58,13 +58,14 @@ type SourceCoverage struct {
 }
 
 type DirectorResult struct {
-	Characters        []NamedPrompt       `json:"characters"`
-	Scenes            []NamedPrompt       `json:"scenes"`
-	Props             []NamedPrompt       `json:"props"`
-	Storyboard        []DirectorVideo     `json:"storyboard"`
-	SourceCoverage    SourceCoverage      `json:"source_coverage"`
-	SmartUnifiedStyle string              `json:"smart_unified_style,omitempty"`
-	H3Director        *H3DirectorDocument `json:"h3_director,omitempty"`
+	Characters           []NamedPrompt         `json:"characters"`
+	Scenes               []NamedPrompt         `json:"scenes"`
+	Props                []NamedPrompt         `json:"props"`
+	Storyboard           []DirectorVideo       `json:"storyboard"`
+	SourceCoverage       SourceCoverage        `json:"source_coverage"`
+	SmartUnifiedStyle    string                `json:"smart_unified_style,omitempty"`
+	SmartUnifiedAnalysis *SmartUnifiedAnalysis `json:"smart_unified_analysis,omitempty"`
+	H3Director           *H3DirectorDocument   `json:"h3_director,omitempty"`
 }
 
 // storyboardVideoPrompt is the durable card body for one VIDEO.  The provider
