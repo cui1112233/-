@@ -85,6 +85,31 @@ test('原文已完成且 AI1 已存在时，重试只生成缺失 AI 版本，�
   assert.deepEqual(calls.rewrite, ['1002']);
 });
 
+test('AI 文案全部失败时任务总状态回写为 ai_failed', async () => {
+  const record = { meta: { bookId: '1002-failed', originalStatus: 'done', aiCount: 1 }, document: {} };
+  const updates = [];
+  const tasks = {
+    async saveTasks() {},
+    async getTask() { return record; },
+    async readOriginal() { return '原文'; },
+    async updateTaskMeta(_owner, _id, patch) { updates.push(patch); record.meta = { ...record.meta, ...patch }; },
+    async listTasks() { return [record.meta]; }
+  };
+  await runNovelFetchBatch({
+    username: 'alice',
+    payload: { input_text: '书籍ID\t书名\t男女频\t风格\n1002-failed\t失败书\t女频\t现代', retry_stage: 'rewrite' },
+    configStore: { getConfig: () => ({ workflow: { auto_classify_missing: false, auto_fetch_original: false, auto_rewrite_after_fetch: true, auto_submit_after_rewrite: false }, rewrite: { default_ai_count: 1 } }), getStyles: () => [], getPlatforms: () => [{ id: '2', name: '知乎付费' }] },
+    tasks,
+    parseBooks: () => ({ tasks: [{ bookId: '1002-failed', bookName: '失败书', gender: '女频', style: '现代', aiCount: 1 }], duplicateCount: 0, emptyIdCount: 0 }),
+    generateAiVersions: async () => ({ status: 'failed', generated: [], error: 'AI接口拒绝了该提示词（内容安全策略）' }),
+    listTasks: async () => [record.meta]
+  });
+  assert.equal(record.meta.status, 'ai_failed');
+  assert.equal(record.meta.aiStatus, 'failed');
+  assert.equal(record.meta.aiError, 'AI接口拒绝了该提示词（内容安全策略）');
+  assert.equal(updates.some(patch => patch.status === 'ai_failed'), true);
+});
+
 test('提交重试只携带失败版本，已提交版本保持不变', async () => {
   const record = { meta: {
     bookId: '1003', bookName: '提交重试', gender: '女频', style: '现代', aiCount: 2,

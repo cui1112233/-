@@ -51,3 +51,34 @@ test('generateAiVersion reloads a fresh fetched original instead of trusting a s
   assert.equal(result.status, 'done');
   assert.equal(updates.some(patch => patch.aiStatus === 'generating'), true);
 });
+
+test('generateAiVersion rejects provider safety-policy text instead of saving it as AI copy', async () => {
+  const meta = { bookId: 'book-policy', originalStatus: 'done', selectedVersions: ['ai1'] };
+  const updates = [];
+  let saved = false;
+  const logs = [];
+  const tasks = {
+    async readOriginal() { return '原文第一行\n原文第二行'; },
+    async updateTaskMeta(_username, _bookId, patch) { updates.push(patch); Object.assign(meta, patch); },
+    async saveVersionText() { saved = true; },
+    async appendLog(_username, _bookId, event, data) { logs.push({ event, data }); },
+    async getTask() { return { meta }; }
+  };
+  const configStore = { getConfig: () => ({ rewrite: { process_line_count: 1, anchor_line_count: 1, method_sequence: ['instruction'], temperature: 0 } }) };
+  const ai = {
+    resolveAiSettings: () => ({ baseUrl: 'https://example.test', model: 'text-test', retry_times: 0 }),
+    async chatCompletion() {
+      return { text: "The prompt could not be submitted. The prompt contains sensitive words that violate Google's [Generative AI Prohibited Use policy]." };
+    }
+  };
+
+  const result = await generateAiVersion({ configStore, tasks, username: 'writer', task: meta, aiIndex: 1, ai });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error, 'AI接口拒绝了该提示词（内容安全策略）');
+  assert.equal(saved, false);
+  assert.equal(meta.aiStatus, 'failed');
+  assert.equal(meta.aiError, 'AI接口拒绝了该提示词（内容安全策略）');
+  assert.equal(logs.at(-1).event, 'ai_generate_failed');
+  assert.equal(logs.at(-1).data.responseMode, 'refusal');
+});
