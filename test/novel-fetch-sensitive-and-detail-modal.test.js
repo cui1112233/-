@@ -97,6 +97,22 @@ test('任务详情展示阶段错误并在打开时持续刷新', () => {
   assert.match(app, /function stopTaskDetailRefresh\(/);
 });
 
+test('AI生成接口不会把失败结果包装成成功响应', () => {
+  const route = read('routes/batch-rewrite.js');
+  assert.match(route, /const result = await rewrite\.generateAiVersions\(/);
+  assert.match(route, /const current = await tasks\.getTask\(req\.username, req\.params\.id\)/);
+  assert.match(route, /result\.status === 'failed' \|\| result\.status === 'partial'/);
+  assert.match(route, /res\.status\(422\)\.json\(/);
+});
+
+test('生成AI文案前端识别后端非完成状态', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  const generateAi = app.match(/async function generateAi\(id\) \{[\s\S]*?\r?\n\}\r?\n\r?\nfunction selectedTaskIds/);
+  assert.ok(generateAi, 'generateAi implementation should remain present');
+  assert.match(generateAi[0], /const response = await api\(/);
+  assert.match(generateAi[0], /response\.status !== "done"/);
+});
+
 test('任务列表不向用户显示英文原始状态和提交版本', () => {
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(app, /ai_processing:\s*"AI文案处理中"/);

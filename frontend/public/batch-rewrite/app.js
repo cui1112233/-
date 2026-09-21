@@ -3133,10 +3133,13 @@ async function generateAi(id) {
   setBatchStatus(`正在生成AI文案：${label}`);
   try {
     const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
-    await api(`/api/tasks/${id}/generate-ai`, {
+    const response = await api(`/api/tasks/${id}/generate-ai`, {
       method: "POST",
       body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
     });
+    if (response?.status && response.status !== "done") {
+      throw new Error(response.error || response.result?.error || `AI文案生成${response.status}`);
+    }
     await loadTasks();
     tasksLoaded = true;
     await refreshTaskDetail(id);

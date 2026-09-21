@@ -1277,7 +1277,26 @@ function createBatchRewriteRouter({
     await applySavedRulesToOriginal(tasks, req.username, req.params.id, config, store);
     res.json({ task: await tasks.getTask(req.username, req.params.id) });
   } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/tasks/:id/generate-ai', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) throw new Error('任务不存在'); const hasExplicitVersions = Array.isArray(req.body?.selected_versions); const versions = versionSelection.normalizeSelectedVersions(hasExplicitVersions ? req.body.selected_versions : task.meta.selectedVersions, hasExplicitVersions ? [] : undefined); if (!versions.length) throw new Error('请至少选择一个文案版本'); const slotMethods = versionSelection.normalizeAiSlotMethods(req.body?.ai_slot_methods || task.meta.aiSlotMethods); await tasks.updateTaskMeta(req.username, req.params.id, { selectedVersions: versions, aiSlotMethods: slotMethods }); const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: { ...task.meta, selectedVersions: versions, aiSlotMethods: slotMethods }, versions, slotMethods }); res.json({ task: result }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  router.post('/tasks/:id/generate-ai', async (req, res) => { try {
+    const { tasks, configStore: store } = await resources(req);
+    const task = await tasks.getTask(req.username, req.params.id);
+    if (!task?.meta) throw new Error('任务不存在');
+    const hasExplicitVersions = Array.isArray(req.body?.selected_versions);
+    const versions = versionSelection.normalizeSelectedVersions(hasExplicitVersions ? req.body.selected_versions : task.meta.selectedVersions, hasExplicitVersions ? [] : undefined);
+    if (!versions.length) throw new Error('请至少选择一个文案版本');
+    const slotMethods = versionSelection.normalizeAiSlotMethods(req.body?.ai_slot_methods || task.meta.aiSlotMethods);
+    await tasks.updateTaskMeta(req.username, req.params.id, { selectedVersions: versions, aiSlotMethods: slotMethods });
+    const result = await rewrite.generateAiVersions({ configStore: store, tasks, username: req.username, task: { ...task.meta, selectedVersions: versions, aiSlotMethods: slotMethods }, versions, slotMethods });
+    const current = await tasks.getTask(req.username, req.params.id);
+    const response = { ok: result.status === 'done', status: result.status, result, task: current };
+    if (result.status === 'failed' || result.status === 'partial') {
+      return res.status(422).json({ ...response, error: result.error || (result.status === 'partial' ? '部分 AI 文案生成失败' : 'AI 文案生成失败') });
+    }
+    if (result.status === 'waiting_original' || result.status === 'waiting_ai_config') {
+      return res.status(422).json({ ...response, error: result.error || (result.status === 'waiting_original' ? '原文尚未就绪' : 'AI 配置未完成') });
+    }
+    return res.json(response);
+  } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/sensitive-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); if (!task?.meta) return res.status(404).json({ error: '任务不存在' }); res.json({ meta: legacyMeta(task.meta), ...(await readSensitiveLog(tasks, req.username, req.params.id)) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/rules-trace', async (req, res) => { try { const { tasks, configStore: store } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const text = task ? await tasks.readOriginal(req.username, req.params.id) : ''; res.json({ meta: legacyMeta(task?.meta || {}), stages: rules.processConfiguredDocumentTrace(text, 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.get('/tasks/:id/site-submit-log', async (req, res) => { try { const { tasks } = await resources(req); const task = await tasks.getTask(req.username, req.params.id); const logs = typeof tasks.readSiteSubmitLog === 'function' ? await tasks.readSiteSubmitLog(req.username, req.params.id) : []; res.json({ meta: legacyMeta(task?.meta || {}), result: logs.at(-1) || {}, logs }); } catch (error) { res.status(400).json({ error: error.message }); } });
