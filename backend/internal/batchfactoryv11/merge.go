@@ -66,6 +66,13 @@ type MergePoller interface {
 	Poll(context.Context, string, MergeJob) (MergeJob, error)
 }
 
+// VideoDurationProbe reads the completed media artifact. Providers may return
+// a usable URL without a duration, but audio-following merge must use the
+// artifact's measured duration rather than the requested duration.
+type VideoDurationProbe interface {
+	DurationSeconds(context.Context, string) (float64, error)
+}
+
 type MergeRepository interface {
 	FindMergeJob(context.Context, string, string, string) (MergeJob, error)
 	CreateMergeJob(context.Context, MergeJob) (MergeJob, error)
@@ -74,10 +81,11 @@ type MergeRepository interface {
 }
 
 type MergeService struct {
-	Store   Store
-	Adapter MergeAdapter
-	Poller  MergePoller
-	Enabled bool
+	Store         Store
+	Adapter       MergeAdapter
+	Poller        MergePoller
+	DurationProbe VideoDurationProbe
+	Enabled       bool
 }
 
 func normalizeMergeOptions(options MergeOptions) (MergeOptions, error) {
@@ -215,7 +223,20 @@ func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBook
 			}
 			mediaURL := strings.TrimSpace(selection.Task.MediaURL)
 			if options.TimingMode == "audio" && selection.Task.ActualDurationSeconds <= 0 {
-				return MergeJob{}, fmt.Errorf("%w: book %s VIDEO %s has no actual duration yet", ErrConflict, book.ID, video.ID)
+				if s.DurationProbe == nil {
+					return MergeJob{}, fmt.Errorf("%w: book %s VIDEO %s has no actual duration yet", ErrConflict, book.ID, video.ID)
+				}
+				actualDuration, probeErr := s.DurationProbe.DurationSeconds(ctx, mediaURL)
+				if probeErr != nil || actualDuration <= 0 {
+					if probeErr == nil {
+						probeErr = errors.New("duration probe returned zero")
+					}
+					return MergeJob{}, fmt.Errorf("%w: book %s VIDEO %s media duration probe failed: %v", ErrConflict, book.ID, video.ID, probeErr)
+				}
+				selection.Task.ActualDurationSeconds = actualDuration
+				if _, updateErr := productionRepository.UpdateProductionTask(ctx, owner, selection.JobID, selection.Task.ID, selection.Task); updateErr != nil {
+					return MergeJob{}, updateErr
+				}
 			}
 			sources = append(sources, MergeMedia{ProductionJobID: selection.JobID, VideoID: video.ID, MediaURL: mediaURL, URL: mediaURL, Order: len(sources), TargetDurationSeconds: selection.Task.TargetDurationSeconds, RequestedDurationSeconds: selection.Task.RequestedDurationSeconds, ActualDurationSeconds: selection.Task.ActualDurationSeconds})
 		}

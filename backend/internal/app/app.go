@@ -70,13 +70,13 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	if cfg.Slice >= 5 {
 		if cfg.LocalMergeEnabled {
 			adapter := batchfactoryv11.NewLocalMergeAdapter(artifactStore)
-			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: true}
+			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, DurationProbe: batchfactoryv11.HTTPVideoDurationProbe{}, Enabled: true}
 		} else {
 			adapter := &batchfactoryv11.HTTPMergeAdapter{Endpoint: cfg.MergeEndpoint, PollEndpoint: cfg.MergePollEndpoint, APIKey: cfg.MergeAPIKey}
 			if err := adapter.Validate(); err != nil {
 				return nil, err
 			}
-			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: cfg.MergeEnabled}
+			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, DurationProbe: batchfactoryv11.HTTPVideoDurationProbe{}, Enabled: cfg.MergeEnabled}
 		}
 	}
 	var externalPublish *external.Service
