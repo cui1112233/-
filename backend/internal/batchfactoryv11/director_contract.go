@@ -310,19 +310,25 @@ func BuildAssetExtractionContract(book Book, snapshot DirectorSnapshot) (PromptC
 {"characters":[{"name":"人物名","prompt":"外形、服装、年龄感、气质等可见特征"}],"scenes":[{"name":"场景名","prompt":"空间、时段、陈设、氛围等可见特征"}],"props":[{"name":"道具名","prompt":"材质、外观、状态等可见特征"}]}
 每个数组可以为空；每个元素必须同时有非空 name 与 prompt。`)
 	config := aiReasoningPromptConfig(snapshot.Effective)
+	h3AssetSelected := config.Assets.appliesTo(book, config.Assets.Extraction) && usesH3AssetRenderer(config.Assets.Extraction)
 	h3CharacterSelected := config.Assets.appliesTo(book, config.Assets.Character) && usesH3CharacterRenderer(config.Assets.Character)
-	if h3CharacterSelected {
-		if factsRule, _ := h3CharacterPromptPhases(config.Assets.Character.Body); factsRule != "" {
+	h3Selected := h3AssetSelected || h3CharacterSelected
+	if h3Selected {
+		h3Preset := config.Assets.Character
+		if h3AssetSelected {
+			h3Preset = config.Assets.Extraction
+		}
+		if factsRule, _ := h3CharacterPromptPhases(h3Preset.Body); factsRule != "" {
 			system = factsRule
 		}
 	}
-	if !h3CharacterSelected && config.Assets.appliesTo(book, config.Assets.Extraction) {
+	if !h3Selected && config.Assets.appliesTo(book, config.Assets.Extraction) {
 		system += "\n\n当前人物场景道具提取规则：\n" + strings.TrimSpace(config.Assets.Extraction.Body)
 	}
-	if !h3CharacterSelected && config.Assets.appliesTo(book, config.Assets.Character) && !usesH3CharacterRenderer(config.Assets.Character) {
+	if !h3Selected && config.Assets.appliesTo(book, config.Assets.Character) && !usesH3CharacterRenderer(config.Assets.Character) {
 		system += "\n\n当前人物提示词输出规则：\n" + strings.TrimSpace(config.Assets.Character.Body)
 	}
-	if !h3CharacterSelected && config.Assets.appliesTo(book, config.Assets.Scene) && !usesH3SceneRenderer(config.Assets.Scene) {
+	if !h3Selected && config.Assets.appliesTo(book, config.Assets.Scene) && !usesH3SceneRenderer(config.Assets.Scene) {
 		system += "\n\n当前场景提示词输出规则：\n" + strings.TrimSpace(config.Assets.Scene.Body)
 	}
 	payload, err := json.MarshalIndent(map[string]any{"book_id": book.ID, "title": book.Title, "source_text": book.SourceText}, "", "  ")

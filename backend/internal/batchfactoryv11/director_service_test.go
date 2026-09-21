@@ -370,13 +370,13 @@ func TestAssetExtractionDoesNotReplaceExistingDirectorVideos(t *testing.T) {
 	}
 }
 
-func TestAssetExtractionWithH3CharacterPresetCompilesAllCharactersOnce(t *testing.T) {
+func TestAssetExtractionWithH3FullPresetCompilesAllCharactersOnce(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
 		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
 			"assets": map[string]any{
-				"enabled":   true,
-				"character": map[string]any{"presetId": "batch-character-h3", "presetKey": "h3-character-normal", "body": "# H3 人物两段资产编排\n\n## 调用一：H3 人物事实提取\nH3 FACT RULE\n\n## 调用二：H3 全人物外形编译\nH3 APPEARANCE RULE"},
+				"enabled":    true,
+				"extraction": map[string]any{"presetId": "batch-assets-h3", "presetKey": "h3-assets-full", "body": "# H3 人物场景道具提取\n\n## 调用一：H3 人物场景道具事实提取\nH3 FACT RULE\n\n## 调用二：H3 全人物外形编译\nH3 APPEARANCE RULE"},
 			},
 		})}, ExpectedRevision: batch.Revision,
 	}); err != nil {

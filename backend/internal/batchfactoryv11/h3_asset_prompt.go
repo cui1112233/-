@@ -11,6 +11,7 @@ import (
 const (
 	h3CharacterRendererKey = "h3-character-normal"
 	h3SceneRendererKey     = "h3-scene-normal"
+	h3AssetsRendererKey    = "h3-assets-full"
 )
 
 func usesH3CharacterRenderer(selection PresetSnapshot) bool {
@@ -21,10 +22,17 @@ func usesH3SceneRenderer(selection PresetSnapshot) bool {
 	return strings.EqualFold(strings.TrimSpace(selection.Key), h3SceneRendererKey)
 }
 
+func usesH3AssetRenderer(selection PresetSnapshot) bool {
+	return strings.EqualFold(strings.TrimSpace(selection.Key), h3AssetsRendererKey)
+}
+
 func h3AssetSelection(snapshot DirectorSnapshot, book Book, kind string) (PresetSnapshot, bool) {
 	assets := aiReasoningPromptConfig(snapshot.Effective).Assets
 	switch kind {
 	case "character":
+		if assets.appliesTo(book, assets.Extraction) && usesH3AssetRenderer(assets.Extraction) {
+			return assets.Extraction, true
+		}
 		return assets.Character, assets.appliesTo(book, assets.Character) && usesH3CharacterRenderer(assets.Character)
 	case "scene":
 		return assets.Scene, assets.appliesTo(book, assets.Scene) && usesH3SceneRenderer(assets.Scene)

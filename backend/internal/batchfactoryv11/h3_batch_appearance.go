@@ -9,6 +9,7 @@ import (
 
 const (
 	h3CharacterFactsHeading      = "## 调用一：H3 人物事实提取"
+	h3AssetFactsHeading          = "## 调用一：H3 人物场景道具事实提取"
 	h3CharacterAppearanceHeading = "## 调用二：H3 全人物外形编译"
 )
 
@@ -18,7 +19,10 @@ const (
 // legacy extraction contract for the first request.
 func h3CharacterPromptPhases(body string) (facts string, appearance string) {
 	trimmed := strings.TrimSpace(body)
-	factsAt := strings.Index(trimmed, h3CharacterFactsHeading)
+	factsAt := strings.Index(trimmed, h3AssetFactsHeading)
+	if factsAt < 0 {
+		factsAt = strings.Index(trimmed, h3CharacterFactsHeading)
+	}
 	appearanceAt := strings.Index(trimmed, h3CharacterAppearanceHeading)
 	if factsAt < 0 || appearanceAt < 0 || appearanceAt <= factsAt {
 		return "", trimmed
