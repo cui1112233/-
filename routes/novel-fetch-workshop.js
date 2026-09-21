@@ -9,6 +9,7 @@ const rulesModule = require('../lib/novel-fetch-workshop/rules');
 const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge');
 const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { resolveNovelFetchTextModel } = require('../lib/model-catalog-runtime');
 
 function mergeConfig(current, patch) {
   const merged = { ...(current || {}) };
@@ -58,6 +59,8 @@ function createNovelFetchWorkshopRouter({
   configStore: injectedConfigStore,
   targetBaseUrl,
   bridgeSecret,
+  memberStore,
+  configReader,
   classifier = require('../lib/novel-fetch-workshop/classifier'),
   rewrite = require('../lib/novel-fetch-workshop/rewrite'),
   parse = require('../lib/novel-fetch-workshop/parse'),
@@ -70,6 +73,29 @@ function createNovelFetchWorkshopRouter({
   const router = express.Router();
   router.use(auth);
 
+  function aiConfigFromCatalog(username, config) {
+    const textModelId = String(config?.text_model_id || config?.textModelId || '').trim();
+    const model = resolveNovelFetchTextModel({ username, textModelId, memberStore, configReader });
+    return {
+      base_url: model.baseUrl,
+      api_key: model.credential,
+      model: model.modelId,
+      temperature: config?.temperature,
+      top_p: config?.top_p,
+      max_tokens: config?.max_tokens,
+      presence_penalty: config?.presence,
+      frequency_penalty: config?.frequency,
+      stream: config?.stream,
+      json_mode: config?.json_mode,
+      enable_thinking: config?.enable_thinking,
+      disable_thinking: config?.disable_thinking,
+      extra_body_json: config?.extra_json,
+      timeout_seconds: config?.timeout_seconds,
+      retry_times: config?.retry_times,
+      max_concurrency: config?.max_concurrency
+    };
+  }
+
   async function resources(req) {
     const tasks = injectedTasks || createMySQLWorkshopStore({ targetBaseUrl, bridgeSecret, account: req.auth?.account });
     if (injectedTasks && injectedConfigStore) {
@@ -78,7 +104,7 @@ function createNovelFetchWorkshopRouter({
     const config = await tasks.getConfig();
     const configStore = injectedConfigStore || {
       getConfig: () => config,
-      getAiConfig: () => ({ ai: config.ai || {}, ai_presets: config.ai_presets || [], ai_assignments: config.ai_assignments || {} }),
+      getAiConfig: () => ({ ai: aiConfigFromCatalog(req.username, config), ai_presets: [], ai_assignments: {} }),
       getPlatforms: tasks.getPlatforms,
       getStyles: tasks.getStyles
     };

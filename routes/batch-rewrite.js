@@ -16,6 +16,7 @@ const rules = require('../lib/novel-fetch-workshop/rules');
 const sensitive = require('../lib/novel-fetch-workshop/sensitive');
 const target = require('../lib/target-upload');
 const { PLATFORMS, STYLE_NAMES } = require('./novel-fetch');
+const { resolveNovelFetchTextModel } = require('../lib/model-catalog-runtime');
 
 const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
@@ -296,12 +297,37 @@ function createBatchRewriteRouter({
   configStore,
   knowledgeStore,
   openingStore,
+  memberStore,
+  configReader,
   httpClient = target.requestHttp
 } = {}) {
   const router = express.Router();
   router.use(auth);
   const knowledge = knowledgeStore || getKnowledgeStore(systemDir);
   const opening = openingStore || createOpeningStore({ systemDir, styles: [] });
+
+  function aiConfigFromCatalog(username, config) {
+    const textModelId = String(config?.text_model_id || config?.textModelId || '').trim();
+    const model = resolveNovelFetchTextModel({ username, textModelId, memberStore, configReader });
+    return {
+      base_url: model.baseUrl,
+      api_key: model.credential,
+      model: model.modelId,
+      temperature: config?.temperature,
+      top_p: config?.top_p,
+      max_tokens: config?.max_tokens,
+      presence_penalty: config?.presence,
+      frequency_penalty: config?.frequency,
+      stream: config?.stream,
+      json_mode: config?.json_mode,
+      enable_thinking: config?.enable_thinking,
+      disable_thinking: config?.disable_thinking,
+      extra_body_json: config?.extra_json,
+      timeout_seconds: config?.timeout_seconds,
+      retry_times: config?.retry_times,
+      max_concurrency: config?.max_concurrency
+    };
+  }
 
   async function resources(req) {
     if (tasksFactory) return tasksFactory(req);
@@ -318,7 +344,7 @@ function createBatchRewriteRouter({
       config,
       configStore: configStore || {
         getConfig: () => config,
-        getAiConfig: () => ({ ai: config.ai || {}, ai_presets: config.ai_presets || [], ai_assignments: config.ai_assignments || {} }),
+        getAiConfig: () => ({ ai: aiConfigFromCatalog(req.username, config), ai_presets: [], ai_assignments: {} }),
         getPlatforms: () => config.platforms || PLATFORMS,
         getStyles: () => config.styles || STYLE_NAMES
       }
