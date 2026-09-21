@@ -2371,7 +2371,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     setAutomationBusy(key);
     try {
       let result;
-      if (key === 'start') result = await startBatchAutomation(batch.id, { concurrency: 2, presetId: automationPresetID, runMode: automationRunMode, scheduledAt: automationScheduledAt || undefined });
+      if (key === 'start') result = await startBatchAutomation(batch.id, { presetId: automationPresetID, runMode: automationRunMode, scheduledAt: automationScheduledAt || undefined });
       else if (key === 'pause') result = await pauseBatchAutomation(batch.id);
       else if (key === 'resume') result = await resumeBatchAutomation(batch.id);
       else if (key === 'retry') result = await retryBatchAutomation(batch.id);

@@ -16,6 +16,7 @@ const {
   batchFactory121PublishPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
+  automationPublishSettings,
   submitBatchFactoryBookTo121,
   classifyBatchFactoryBookFor121,
   parseBatchBookClassification,
@@ -43,6 +44,12 @@ test('normalizes only usable 121 organization options', () => {
     { id: '1', name: '博量', level: '1' },
     { id: '3', name: '璇奕组织', level: '层2' }
   ]);
+});
+
+test('automation publish settings keep an explicit frozen blank instead of falling back to live batch settings', () => {
+  const batch = { settingsState: { patch: { publishSettings: { organization: 'live-org', category: 'LIVE' } } } };
+  const book = { settingsState: { patch: {} } };
+  assert.deepEqual(automationPublishSettings(batch, book, { publishSettings: { organization: '', category: 'FROZEN' } }), { organization: '', category: 'FROZEN' });
 });
 
 test('blocks an already uploaded book until the caller explicitly requests a reupload', () => {

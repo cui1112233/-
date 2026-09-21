@@ -1078,6 +1078,13 @@ function automationEffectiveSettings(batch, book) {
   };
 }
 
+function automationPublishSettings(batch, book, frozenSettings) {
+  if (frozenSettings && typeof frozenSettings === 'object' && !Array.isArray(frozenSettings)) {
+    return object(frozenSettings.publishSettings);
+  }
+  return automationEffectiveSettings(batch, book).publishSettings || {};
+}
+
 function automationH3Document(book) {
   const output = object(book?.directorRevision?.output);
   return object(output.h3_director || output.h3Director);
@@ -1325,8 +1332,8 @@ function createBatchFactoryV11Router(options = {}) {
         payload, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
         fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
       }),
-      publishBook: async ({ owner: username, isOwner, batchId, bookId, batch, book }) => {
-        const settings = automationEffectiveSettings(batch, book).publishSettings || {};
+      publishBook: async ({ owner: username, isOwner, batchId, bookId, batch, book, settings: frozenSettings }) => {
+        const settings = automationPublishSettings(batch, book, frozenSettings);
         const request = {
           username,
           auth: { account: { isOwner } },
@@ -1404,7 +1411,7 @@ function createBatchFactoryV11Router(options = {}) {
       });
       const batch = current?.batch || current;
       const result = await automation.start({
-        ...automationContext(req), scheduledAt: req.body?.scheduledAt, concurrency: req.body?.concurrency,
+        ...automationContext(req), scheduledAt: req.body?.scheduledAt,
         runMode: req.body?.runMode, preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
         configSnapshot: preset?.config || object(batch?.settingsState?.patch)
       });
@@ -1542,6 +1549,7 @@ module.exports = {
   batchFactoryBookClassificationPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
+  automationPublishSettings,
   listBatchFactory121Organizations,
   fetchBatchFactory121Media,
   submitBatchFactoryBookTo121,

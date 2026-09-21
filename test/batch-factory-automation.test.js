@@ -102,6 +102,34 @@ test('automation with autoPublish uploads a confirmed merged book exactly once',
   assert.equal(publishCalls, 1);
 });
 
+test('full-submit upload receives the frozen publish settings instead of live batch settings', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  let publishSettings = null;
+  adapter.publishBook = async ({ settings }) => {
+    publishSettings = settings.publishSettings;
+    return { status: 'confirmed', receipt: { remoteRecord: { found: true, headVideo: true } } };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({
+    owner: 'user', batchId: 'batch-1', runMode: 'full_submit',
+    configSnapshot: { publishSettings: { organization: 'frozen-org', category: 'FROZEN' } }
+  });
+  batch.settingsState.patch.publishSettings = { organization: 'live-org', category: 'LIVE' };
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
+  assert.deepEqual(publishSettings, { organization: 'frozen-org', category: 'FROZEN' });
+});
+
+test('automation uses controller dispatcher capacity and does not persist caller concurrency on a job', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { adapter } = fixture();
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, dispatcherConcurrency: 1 });
+  const started = await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 4, runMode: 'storyboard_only' });
+  assert.equal(Object.hasOwn(started, 'concurrency'), false);
+  const persisted = JSON.parse(fs.readFileSync(controller.statePath, 'utf8'));
+  assert.equal(Object.hasOwn(Object.values(persisted.jobs)[0], 'concurrency'), false);
+});
+
 test('one blocked book does not erase another completed book', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
