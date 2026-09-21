@@ -62,7 +62,9 @@ function snakeTask(task = {}) {
     original_error: task.originalErrorMessage || task.original_error || task.error || '',
     original_error_code: task.originalErrorCode || task.original_error_code || '',
     original_upstream_code: task.originalUpstreamCode ?? task.original_upstream_code ?? null,
+    classify_error: task.classifyError || task.classify_error || '',
     ai_status: task.aiStatus || task.ai_status || '',
+    ai_error: task.aiError || task.ai_error || '',
     ai_current_version: task.aiCurrentVersion || task.ai_current_version || '',
     ai_count: aiCount,
     ai_files: existingAiFiles.length ? existingAiFiles : Array.from({ length: aiGenerated }, (_, index) => `ai${index + 1}`),
@@ -72,9 +74,13 @@ function snakeTask(task = {}) {
     sensitive_fixed_count: Number(task.sensitiveFixedCount ?? task.sensitive_fixed_count) || 0,
     sensitive_failed_count: Number(task.sensitiveFailedCount ?? task.sensitive_failed_count) || 0,
     site_submit_status: task.siteSubmitStatus || task.site_submit_status || '',
+    site_submit_error: task.siteSubmitError || task.site_submit_error || '',
     site_submit_done_versions: Array.isArray(task.siteSubmitDoneVersions) ? task.siteSubmitDoneVersions : (Array.isArray(task.site_submit_done_versions) ? task.site_submit_done_versions : []),
     site_submit_accepted_versions: Array.isArray(task.siteSubmitAcceptedVersions) ? task.siteSubmitAcceptedVersions : (Array.isArray(task.site_submit_accepted_versions) ? task.site_submit_accepted_versions : []),
-    site_submit_failed_versions: Array.isArray(task.siteSubmitFailedVersions) ? task.siteSubmitFailedVersions : (Array.isArray(task.site_submit_failed_versions) ? task.site_submit_failed_versions : [])
+    site_submit_failed_versions: Array.isArray(task.siteSubmitFailedVersions) ? task.siteSubmitFailedVersions : (Array.isArray(task.site_submit_failed_versions) ? task.site_submit_failed_versions : []),
+    created_at: task.createdAt || task.created_at || '',
+    updated_at: task.updatedAt || task.updated_at || '',
+    error: task.error || ''
   };
 }
 

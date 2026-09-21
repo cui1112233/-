@@ -17,6 +17,8 @@ const state = {
   textModels: [],
   viewMode: "current",
   modalBusy: new Set(),
+  detailRefreshTimer: null,
+  detailViewKind: "",
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -2471,8 +2473,29 @@ function renderTasks(tasks) {
 }
 
 function renderDetail(data) {
-  const meta = data.meta || {};
-  $("detailTitle").textContent = meta.book_id || meta.id || "详情";
+  const rawMeta = data.meta || {};
+  const meta = {
+    ...rawMeta,
+    book_id: rawMeta.book_id || rawMeta.bookId || rawMeta.id || "",
+    book_name: rawMeta.book_name || rawMeta.bookName || "",
+    platform_name: rawMeta.platform_name || rawMeta.platformName || "",
+    platform_id: rawMeta.platform_id || rawMeta.platformId || "",
+    original_error: rawMeta.original_error || rawMeta.originalErrorMessage || rawMeta.error || "",
+    original_error_code: rawMeta.original_error_code || rawMeta.originalErrorCode || "",
+    original_upstream_code: rawMeta.original_upstream_code ?? rawMeta.originalUpstreamCode ?? "",
+    classify_error: rawMeta.classify_error || rawMeta.classifyError || "",
+    ai_status: rawMeta.ai_status || rawMeta.aiStatus || "",
+    ai_error: rawMeta.ai_error || rawMeta.aiError || "",
+    ai_current_version: rawMeta.ai_current_version || rawMeta.aiCurrentVersion || "",
+    ai_generated_count: rawMeta.ai_generated_count ?? rawMeta.aiGeneratedCount ?? 0,
+    site_submit_error: rawMeta.site_submit_error || rawMeta.siteSubmitError || "",
+    created_at: rawMeta.created_at || rawMeta.createdAt || "",
+    updated_at: rawMeta.updated_at || rawMeta.updatedAt || "",
+    error: rawMeta.error || "",
+  };
+  const detailId = meta.book_id || meta.id || "";
+  const detailAiBusy = state.aiProcessingIds.has(String(detailId)) || meta.ai_status === "generating" || meta.ai_status === "ai_processing";
+  $("detailTitle").textContent = detailId || "详情";
   const knowledgeHistory = meta.rewrite_knowledge_history || [];
   const sensitiveFixed = data.sensitive_fixed || {};
   const sensitiveItems = asArray(sensitiveFixed.items).filter((item) => item && item.status === "done");
@@ -2506,12 +2529,21 @@ function renderDetail(data) {
       ${metaItem("AI判断", classifyDetailText(meta))}
       ${metaItem("分类模型", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
-      ${metaItem("原文抓取错误", meta.original_error || "")}
+      ${metaItem("原文失败原因", meta.original_error || "")}
+      ${metaItem("原文错误码", meta.original_error_code || "")}
       ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
       ${metaItem("AI状态", taskStatusText(meta.ai_status))}
+      ${metaItem("AI失败原因", meta.ai_error || "")}
+      ${metaItem("AI当前版本", meta.ai_current_version || "")}
+      ${metaItem("AI已生成数量", meta.ai_generated_count || 0)}
+      ${metaItem("分类失败原因", meta.classify_error || "")}
+      ${metaItem("网站提交失败原因", meta.site_submit_error || "")}
+      ${metaItem("任务错误", meta.error || "")}
+      ${metaItem("创建时间", meta.created_at || "")}
+      ${metaItem("最后更新时间", meta.updated_at || "")}
       ${metaItem("改文模型", meta.rewrite_model)}
       ${metaItem("改文方案", knowledge.strategy_name || knowledge.strategy || "")}
       ${metaItem("改文模板", knowledge.rewrite_template_name || "")}
@@ -2524,8 +2556,9 @@ function renderDetail(data) {
       <button id="detailPrevBtn" ${adjacentTaskId(-1) ? "" : "disabled"}>上一条</button>
       <button id="detailNextBtn" ${adjacentTaskId(1) ? "" : "disabled"}>下一条</button>
       <button id="detailCloseBtn" type="button">关闭</button>
+      <button id="detailRefreshBtn" type="button">刷新详情</button>
       <button id="detailFetchBtn">重新抓原文</button>
-      <button id="detailAiBtn">生成AI文案</button>
+      <button id="detailAiBtn" ${detailAiBusy ? "disabled" : ""} aria-busy="${detailAiBusy ? "true" : "false"}">${detailAiBusy ? "生成中…" : "生成AI文案"}</button>
       <button id="detailTraceBtn">规则追踪</button>
       <button id="detailSensitiveBtn">重跑敏感词（当前文案）</button>
       ${data.has_original_raw ? `<button id="detailRestoreBtn">从备份恢复原文</button>` : ""}
@@ -2535,11 +2568,22 @@ function renderDetail(data) {
       <pre>${escapeHtml(data.original || "")}</pre>
     </div>
     ${aiBlocks}
+    <div class="text-block">
+      <h3>最近处理日志</h3>
+      <div class="logs-list">${asArray(data.logs).slice(-20).reverse().map(item => {
+        const event = item?.event || "事件";
+        const time = item?.time || "";
+        const payload = item?.data && typeof item.data === "object" ? item.data : {};
+        const reason = payload.error || payload.message || payload.reason || payload.status || "";
+        return `<div class="log-row"><b>${escapeHtml(time)}</b> ${escapeHtml(event)}${reason ? `：${escapeHtml(reason)}` : ""}</div>`;
+      }).join("") || `<div class="log-row">暂无处理日志</div>`}</div>
+    </div>
   `;
   bindDetailCloseControl();
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
+  $("detailRefreshBtn").onclick = () => { void refreshTaskDetail(meta.book_id || meta.id); };
   $("detailAiBtn").onclick = () => generateAi(meta.book_id || meta.id);
   $("detailTraceBtn").onclick = () => showRulesTrace(meta.book_id || meta.id);
   $("detailSensitiveBtn").onclick = () => reprocessSensitive([meta.book_id || meta.id], false);
@@ -2972,16 +3016,40 @@ async function processInput() {
   }
 }
 
+function stopTaskDetailRefresh() {
+  if (state.detailRefreshTimer) window.clearInterval(state.detailRefreshTimer);
+  state.detailRefreshTimer = null;
+}
+
+async function refreshTaskDetail(id) {
+  if (!id || state.detailViewKind !== "task" || String(state.selectedId) !== String(id)) return;
+  try {
+    const data = await api(`/api/tasks/${id}`);
+    if (state.detailViewKind === "task" && String(state.selectedId) === String(id)) renderDetail(data);
+  } catch (error) {
+    setBatchStatus(`详情刷新失败：${error.message || "请稍后重试"}`);
+  }
+}
+
+function startTaskDetailRefresh(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "task";
+  state.detailRefreshTimer = window.setInterval(() => { void refreshTaskDetail(id); }, 2500);
+}
+
 async function showTask(id) {
+  stopTaskDetailRefresh();
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}`);
+  state.detailViewKind = "task";
   renderDetail(data);
   activateTab("tasks");
   document.body.classList.add("detail-modal-open");
+  startTaskDetailRefresh(id);
   focusTaskDetail();
 }
 
-function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+function closeTaskDetail() { stopTaskDetailRefresh(); state.detailViewKind = ""; document.body.classList.remove("detail-modal-open"); }
 function detailCloseControl() { return '<button id="detailCloseBtn" type="button">关闭</button>'; }
 function bindDetailCloseControl() {
   $("detailCloseBtn")?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); });
@@ -2998,6 +3066,8 @@ function focusTaskDetail() {
 }
 
 async function showSensitiveLog(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "sensitive";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/sensitive-log`);
   renderSensitiveLog(data);
@@ -3007,6 +3077,8 @@ async function showSensitiveLog(id) {
 }
 
 async function showRulesTrace(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "rules";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/rules-trace`);
   renderRulesTrace(data);
@@ -3016,6 +3088,8 @@ async function showRulesTrace(id) {
 }
 
 async function showSiteSubmitLog(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "site-submit";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/site-submit-log`);
   renderSiteSubmitLog(data);
@@ -3053,6 +3127,7 @@ async function generateAi(id) {
     return;
   }
   const label = task.book_name || task.book_id || id;
+  let tasksLoaded = false;
   state.aiProcessingIds.add(id);
   renderTasks(state.allTasks);
   setBatchStatus(`正在生成AI文案：${label}`);
@@ -3063,10 +3138,16 @@ async function generateAi(id) {
       body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
     });
     await loadTasks();
+    tasksLoaded = true;
+    await refreshTaskDetail(id);
     setBatchStatus(`AI文案生成已完成：${label}`);
   } catch (error) {
     setBatchStatus(`生成AI文案失败：${error.message || "请稍后重试"}`);
   } finally {
+    if (!tasksLoaded) {
+      try { await loadTasks(); } catch (_) { /* keep the original generation error visible */ }
+    }
+    await refreshTaskDetail(id);
     state.aiProcessingIds.delete(id);
     renderTasks(state.allTasks);
   }

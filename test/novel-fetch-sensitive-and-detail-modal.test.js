@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { toV78Task } = require('../lib/novel-fetch-workshop/task-ops');
 
 const root = path.join(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -59,6 +60,41 @@ test('生成AI文案点击后显示处理中并把失败原因反馈到任务区
   assert.match(generateAi[0], /catch \(error\)/);
   assert.match(generateAi[0], /生成AI文案失败/);
   assert.match(generateAi[0], /state\.aiProcessingIds\.delete\(id\)/);
+});
+
+test('任务详情规范化保留阶段错误、当前版本和更新时间', () => {
+  const normalized = toV78Task({
+    bookId: 'book-1',
+    originalErrorMessage: '上游返回 429：请求过于频繁',
+    originalErrorCode: 'UPSTREAM_FETCH_ERROR',
+    originalUpstreamCode: 429,
+    classifyError: '分类模型超时',
+    aiError: 'AI接口返回 403：额度不足',
+    aiCurrentVersion: 'ai2',
+    siteSubmitError: '121提交失败：会话已失效',
+    createdAt: '2026-09-21T00:00:00.000Z',
+    updatedAt: '2026-09-21T00:01:00.000Z'
+  });
+  assert.equal(normalized.original_error, '上游返回 429：请求过于频繁');
+  assert.equal(normalized.original_error_code, 'UPSTREAM_FETCH_ERROR');
+  assert.equal(normalized.original_upstream_code, 429);
+  assert.equal(normalized.classify_error, '分类模型超时');
+  assert.equal(normalized.ai_error, 'AI接口返回 403：额度不足');
+  assert.equal(normalized.ai_current_version, 'ai2');
+  assert.equal(normalized.site_submit_error, '121提交失败：会话已失效');
+  assert.equal(normalized.created_at, '2026-09-21T00:00:00.000Z');
+  assert.equal(normalized.updated_at, '2026-09-21T00:01:00.000Z');
+});
+
+test('任务详情展示阶段错误并在打开时持续刷新', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /metaItem\("AI失败原因", meta\.ai_error/);
+  assert.match(app, /metaItem\("原文失败原因", meta\.original_error/);
+  assert.match(app, /metaItem\("网站提交失败原因", meta\.site_submit_error/);
+  assert.match(app, /metaItem\("最后更新时间", meta\.updated_at/);
+  assert.match(app, /function startTaskDetailRefresh\(/);
+  assert.match(app, /setInterval\(\(\) => { void refreshTaskDetail/);
+  assert.match(app, /function stopTaskDetailRefresh\(/);
 });
 
 test('任务列表不向用户显示英文原始状态和提交版本', () => {
