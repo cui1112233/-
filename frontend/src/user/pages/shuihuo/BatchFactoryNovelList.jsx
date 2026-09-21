@@ -1010,7 +1010,7 @@ function PassiveMediaPreview({
   return <span className={`${className} has-media`} role="img" aria-label={label}>
     {posterUrl
       ? <img src={posterUrl} alt="" loading="lazy" />
-      : <video
+      : <ProductionMediaBoundary showDownload={false}><video
           src={mediaUrl}
           muted
           playsInline
@@ -1020,7 +1020,7 @@ function PassiveMediaPreview({
           aria-hidden="true"
           onLoadedMetadata={primeVideoFrame}
           onLoadedData={ensureDecodedFrame}
-        />}
+        /></ProductionMediaBoundary>}
   </span>;
 }
 
@@ -1668,7 +1668,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
         </header>
         <div className="batch-factory-media-pickstation-stage">
           <div className={`batch-factory-media-pickstation-frame is-${viewerInfo.orientation}`} style={{ '--bf-media-ratio': viewerInfo.ratio }}>
-            {viewerUrl ? <video
+            {viewerUrl ? <ProductionMediaBoundary showDownload={false}><video
               key={`${viewerKind}:${viewerMerge?.id || viewerVersion?.id || ''}`}
               src={viewerUrl}
               controls
@@ -1677,7 +1677,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
               autoPlay={playRequested}
               onLoadedMetadata={event => primeViewerFrame(viewerKind === 'merge' ? viewerInfo.key : String(viewerVersion?.id || ''), event)}
               onLoadedData={event => primeViewerFrame(viewerKind === 'merge' ? viewerInfo.key : String(viewerVersion?.id || ''), event)}
-            /> : <div className="batch-factory-media-primary-empty">
+            /></ProductionMediaBoundary> : <div className="batch-factory-media-primary-empty">
               {viewerVideo && videoState(viewerVideo).active ? <LoadingOutlined spin /> : <PictureOutlined />}
               <span>{viewerKind === 'merge' ? '当前没有可播放的合成成片' : '当前分镜暂无可播放视频'}</span>
             </div>}

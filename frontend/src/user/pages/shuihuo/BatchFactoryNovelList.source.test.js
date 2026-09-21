@@ -864,3 +864,8 @@ test('shows live provider task progress on the matching storyboard card and keep
   assert.match(source, /productionStatus=\{productionStatus\}/);
   assert.match(source, /hasActiveProduction/);
 });
+
+test('loads protected local merge files through the authenticated media boundary', () => {
+  assert.match(source, /import \{ ProductionMediaBoundary \} from '\.\.\/batch-factory-v11\/ProductionMediaBoundary';/);
+  assert.match(source, /<ProductionMediaBoundary showDownload=\{false\}>/);
+});

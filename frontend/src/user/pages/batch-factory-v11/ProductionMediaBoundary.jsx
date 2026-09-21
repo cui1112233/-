@@ -32,7 +32,7 @@ function downloadName(source) {
   return /\.mp4$/i.test(tail) ? tail : `${tail}.mp4`;
 }
 
-export function ProductionMediaBoundary({ children }) {
+export function ProductionMediaBoundary({ children, showDownload = true }) {
   const source = useMemo(() => firstVideoSource(children), [children]);
   const protectedArtifact = isProtectedProductionMediaURL(source);
   const [resolvedSource, setResolvedSource] = useState(protectedArtifact ? '' : source);
@@ -81,7 +81,7 @@ export function ProductionMediaBoundary({ children }) {
     {renderedChildren}
     {loading ? <small data-bf-media-state="loading">正在读取已认证的视频文件…</small> : null}
     {error ? <small data-bf-media-state="error">视频文件读取失败：{error}</small> : null}
-    {source && resolvedSource ? <a
+    {showDownload && source && resolvedSource ? <a
       data-bf-media-download="video"
       href={resolvedSource}
       download={downloadName(source)}
