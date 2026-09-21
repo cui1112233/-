@@ -121,6 +121,15 @@ test('网关 HTML 错误转换为中文提示且生成失败不清空已有任�
   assert.match(app, /incomingTasks\.length === 0/);
 });
 
+test('生成成功提示前会回读任务确认 AI 版本确实生成', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  const generateAi = app.match(/async function generateAi\(id\) \{[\s\S]*?\r?\n\}\r?\n\r?\nfunction selectedTaskIds/);
+  assert.ok(generateAi, 'generateAi implementation should remain present');
+  assert.match(generateAi[0], /const verification = await api\(`\/api\/tasks\/\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.match(generateAi[0], /AI文案生成未完成，请查看任务详情和失败原因/);
+  assert.match(generateAi[0], /generatedAi\.includes\(version\)/);
+});
+
 test('任务列表不向用户显示英文原始状态和提交版本', () => {
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(app, /ai_processing:\s*"AI文案处理中"/);

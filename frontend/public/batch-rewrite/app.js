@@ -2424,11 +2424,12 @@ function currentTaskList(tasks) {
   return list.filter(task => taskDateKey(task) === selectedDate);
 }
 
-function renderTasks(tasks) {
+function renderTasks(tasks, options = {}) {
   const selectedDate = state.taskDate || todayDateKey();
   state.taskDate = selectedDate;
   if ($("taskDateFilter")) $("taskDateFilter").value = selectedDate;
-  state.tasks = currentTaskList(tasks);
+  const list = Array.isArray(tasks) ? tasks : [];
+  state.tasks = options.preserveVisible ? list : currentTaskList(list);
   const visibleIds = new Set(state.tasks.map((task) => String(task.id || "")));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => visibleIds.has(id)));
   const body = $("tasksBody");
@@ -2818,7 +2819,8 @@ async function loadTasks(options = {}) {
   const data = await api("/api/tasks");
   const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
   if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
-    renderTasks(state.allTasks);
+    const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
+    renderTasks(fallbackTasks, { preserveVisible: true });
     return data;
   }
   state.allTasks = incomingTasks;
@@ -3157,6 +3159,15 @@ async function generateAi(id) {
     });
     if (response?.status && response.status !== "done") {
       throw new Error(response.error || response.result?.error || `AI文案生成${response.status}`);
+    }
+    const verification = await api(`/api/tasks/${encodeURIComponent(id)}`);
+    const verifiedMeta = verification?.meta || {};
+    const requestedAi = selectedVersions.filter(version => /^ai[1-5]$/.test(String(version || "").toLowerCase())).map(version => String(version).toLowerCase());
+    const generatedAi = asArray(verifiedMeta.ai_generated_versions || verifiedMeta.ai_files).map(version => String(version || "").toLowerCase());
+    const verificationError = verifiedMeta.ai_error || verifiedMeta.aiError || "";
+    if (verificationError) throw new Error(verificationError);
+    if (requestedAi.length && !requestedAi.every(version => generatedAi.includes(version))) {
+      throw new Error("AI文案生成未完成，请查看任务详情和失败原因");
     }
     await loadTasks({ preserveOnEmpty: true });
     tasksLoaded = true;
