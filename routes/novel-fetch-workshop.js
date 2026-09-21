@@ -9,7 +9,7 @@ const rulesModule = require('../lib/novel-fetch-workshop/rules');
 const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge');
 const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
-const { resolveNovelFetchTextModel } = require('../lib/model-catalog-runtime');
+const { resolveCatalogAiSettings } = require('../lib/novel-fetch-workshop/model-settings');
 
 function mergeConfig(current, patch) {
   const merged = { ...(current || {}) };
@@ -74,28 +74,7 @@ function createNovelFetchWorkshopRouter({
   router.use(auth);
 
   function aiConfigFromCatalog(username, config) {
-    const textModelId = String(config?.text_model_id || config?.textModelId || '').trim();
-    const model = resolveNovelFetchTextModel({ username, textModelId, memberStore, configReader });
-    return {
-      base_url: model.baseUrl,
-      api_key: model.credential,
-      model: model.modelId,
-      temperature: config?.temperature,
-      top_p: config?.top_p,
-      max_tokens: config?.max_tokens,
-      presence_penalty: config?.presence,
-      frequency_penalty: config?.frequency,
-      stream: config?.stream,
-      json_mode: config?.json_mode,
-      enable_thinking: config?.enable_thinking,
-      disable_thinking: config?.disable_thinking,
-      extra_body_json: config?.extra_json,
-      timeout_seconds: config?.timeout_seconds,
-      retry_times: config?.retry_times,
-      max_concurrency: config?.max_concurrency,
-      textModelId: model.id,
-      modelDisplayName: model.displayName
-    };
+    return resolveCatalogAiSettings({ username, config, memberStore, configReader });
   }
 
   async function resources(req) {
