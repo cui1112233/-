@@ -191,6 +191,11 @@ test('V78 日期控件使用表格实际渲染日期，并支持前后一天', (
   assert.match(date, /shiftTaskDateKey\(state\.taskDate \|\| todayDateKey\(\), 1\)/);
 });
 
+test('V78 日期修复使用新的脚本缓存键', () => {
+  const page = read('lib/novel-fetch-workshop/v2-page.js');
+  assert.match(page, /DATE_CLIENT_PATH\}\?v=20260922-rendered-date-r1/);
+});
+
 test('生产镜像将 V78 桥接脚本复制到前端静态目录', () => {
   const dockerfile = read('Dockerfile');
   assert.match(dockerfile, /COPY public\/batch-rewrite\/v78-novel-fetch-v2\.js \.\/frontend\/dist\/batch-rewrite\/v78-novel-fetch-v2\.js/);
