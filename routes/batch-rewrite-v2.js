@@ -2,10 +2,8 @@ const { registerNovelFetchV2Routes } = require('../lib/novel-fetch-workshop/v2-a
 const { createWebSubmitOperationStore } = require('../lib/novel-fetch-workshop/web-submit-operations');
 
 function errorStatus(error) {
-  if (error?.code === 'unauthorized' || error?.workerResponse?.error === 'unauthorized' || error?.workerResponse?.code === 'unauthorized') return 503;
-  if (error?.code === 'BROWSER_WORKER_UNAUTHORIZED') return 503;
   if (Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599) return error.status;
-  if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT'].includes(error?.code)) return 503;
+  if (error?.code === 'TARGET_HTTP_ERROR') return 502;
   return 400;
 }
 
@@ -16,8 +14,8 @@ function safeErrorMessage(error, fallback = '121 操作失败') {
 
 function safeErrorResponse(error) {
   const response = { ok: false, error: safeErrorMessage(error) };
-  if (error?.code === 'unauthorized' || error?.workerResponse?.error === 'unauthorized' || error?.workerResponse?.code === 'unauthorized') response.code = 'BROWSER_WORKER_UNAUTHORIZED';
-  else if (['BROWSER_WORKER_UNAVAILABLE', 'BROWSER_WORKER_TIMEOUT', 'BROWSER_WORKER_UNAUTHORIZED'].includes(error?.code)) response.code = error.code;
+  if (error?.code === 'SESSION_EXPIRED') response.code = 'SESSION_EXPIRED';
+  else if (error?.code === 'TARGET_HTTP_ERROR') response.code = 'TARGET_HTTP_ERROR';
   return response;
 }
 
@@ -68,8 +66,8 @@ function registerWebSubmitRoutes(router, webSubmit, { operations = createWebSubm
     if (!operation) return res.status(404).json({ ok: false, error: '后台操作不存在' });
     return res.json(operation);
   }));
-  router.post('/web-submit/sync-configs', run(async (req, res) => res.json(await webSubmit.syncConfigs(req.username))));
-  router.post('/web-submit/sync-styles', run(async (req, res) => res.json(await webSubmit.syncStyles(req.username))));
+  router.post('/web-submit/sync-configs', run(async (req, res) => res.json(await webSubmit.syncConfigs(req.username, { persist: req.body?.persist !== false }))));
+  router.post('/web-submit/sync-styles', run(async (req, res) => res.json(await webSubmit.syncStyles(req.username, { persist: req.body?.persist !== false }))));
   router.post('/web-submit/test-visible', run(async (req, res) => res.json(await webSubmit.testVisible(req.username))));
   router.post('/web-submit/preview', run(async (req, res) => res.json(await webSubmit.preview(req.username, req.body || {}))));
   router.post('/web-submit/submit', run(async (req, res) => res.json(await webSubmit.submit(req.username, req.body || {}))));
