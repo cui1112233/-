@@ -181,7 +181,7 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
   const response = await fetchImpl(base + CONFIG_PATH, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ provider: H3_PROVIDER, model: options.runtimeModel?.modelId || H3_MODEL, apiKey, createUrl: options.runtimeModel?.baseUrl || H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
+    body: JSON.stringify({ provider: H3_PROVIDER, model: options.runtimeModel?.workflowId || options.runtimeModel?.modelId || H3_MODEL, apiKey, createUrl: options.runtimeModel?.baseUrl || H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
     redirect: 'manual'
   });
   if (!response || response.status < 200 || response.status >= 300) {
@@ -219,7 +219,7 @@ async function prepareProviderRequest(req, options, pathname) {
       : runtimeModel.adapterKind === 'autodl_comfyui_video'
         ? H3_PROVIDER
         : PERSONAL_PROVIDER;
-    req.body = { ...req.body, provider: adapterProvider, model: runtimeModel.modelId || runtimeModel.id };
+    req.body = { ...req.body, provider: adapterProvider, model: runtimeModel.workflowId || runtimeModel.modelId || runtimeModel.id };
   }
   const provider = providerFromRequest(req);
   if (provider === LOCAL_PROVIDER) return;
@@ -237,7 +237,7 @@ async function prepareProviderRequest(req, options, pathname) {
       req.body = {
         ...(req.body || {}),
         provider: H3_PROVIDER,
-        model: req.body?.model || H3_MODEL,
+        model: req.body?.model || req.v11RuntimeModel?.workflowId || H3_MODEL,
         apiKey,
         createUrl: req.body?.createUrl || H3_CREATE_URL,
         tasksUrl: req.body?.tasksUrl || H3_TASKS_URL

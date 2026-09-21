@@ -4,6 +4,7 @@ const http = require('http');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
+const { normalizeModelCatalog } = require('../lib/model-catalog');
 const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { H3_MODEL_KEY } = require('../lib/video-model-catalog');
 const {
@@ -17,6 +18,7 @@ const {
 const { h3ReferenceUrl } = require('../lib/reference-asset-public-url');
 const {
   H3_API_BASE_URL,
+  H3_DEFAULT_WORKFLOW,
   buildH3Request,
   defaultH3Request,
   defaultH3Submit,
@@ -69,6 +71,12 @@ function h3ApiKeyFromEnvironment() {
 function h3ApiKeyForRequest(req, configReader, h3ApiKeyReader) {
   const personalKey = getVideoApiKey(configReader?.(req.username), 'h3');
   return personalKey || String(h3ApiKeyReader?.(req) || '').trim();
+}
+
+function h3WorkflowForRequest(req, configReader = readConfig) {
+  const config = configReader?.(req?.username) || {};
+  const catalog = normalizeModelCatalog(config.modelCatalog, config);
+  return catalog.find(model => model.id === H3_MODEL_KEY && model.kind === 'video')?.workflowId || H3_DEFAULT_WORKFLOW;
 }
 
 function h3TaskID(rawTaskID) {
@@ -257,7 +265,19 @@ function createScriptVideoRouter({
     }
     if (req.body?.modelKey === H3_MODEL_KEY) {
       const h3Prompt = prompt.slice(0, MAX_H3_PROMPT_LENGTH);
-      const apiKey = h3ApiKeyForRequest(req, configReader, h3ApiKeyReader);
+      let runtimeModel = null;
+      try {
+        runtimeModel = resolveRuntimeModel({
+          username: req.username,
+          kind: 'video',
+          modelId: H3_MODEL_KEY,
+          memberStore: resolvedMemberStore,
+          accountStore,
+          account: req.auth?.account,
+          configReader
+        });
+      } catch { /* retain legacy per-account/environment key fallback */ }
+      const apiKey = runtimeModel?.credential || h3ApiKeyForRequest(req, configReader, h3ApiKeyReader);
       if (!apiKey) return res.status(400).json({ error: 'MiniMax H3 尚未配置服务端 Token，请联系管理员配置' });
       let referenceImages;
       let duration;
@@ -277,7 +297,12 @@ function createScriptVideoRouter({
       } catch (error) {
         return res.status(400).json({ error: error.message || 'H3 参数不正确' });
       }
-      const h3 = buildH3Request({ prompt: h3Prompt, duration, resolution, referenceImages });
+      let h3;
+      try {
+        h3 = buildH3Request({ workflowId: runtimeModel?.workflowId || h3WorkflowForRequest(req, configReader), prompt: h3Prompt, duration, resolution, referenceImages });
+      } catch (error) {
+        return res.status(400).json({ error: error.message || 'H3 工作流配置不合法' });
+      }
       try {
         const upstream = await h3Submit({ apiKey, workflow: h3.workflow, payload: h3.body, baseUrl: process.env.QIANTIE_AUTODL_H3_BASE_URL || H3_API_BASE_URL });
         if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `MiniMax H3 请求失败（HTTP ${upstream.statusCode}）` });
@@ -429,6 +454,7 @@ module.exports = {
   h3ApiKeyFromEnvironment,
   h3Duration,
   h3Resolution,
+  h3WorkflowForRequest,
   publicH3TaskID,
   publicYfaiTaskID,
   yfaiTaskID,

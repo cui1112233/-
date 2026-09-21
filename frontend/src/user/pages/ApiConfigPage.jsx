@@ -14,9 +14,11 @@ const MODEL_KINDS = [
   { key: 'image', title: '图片模型', eyebrow: 'IMAGE MODELS' }
 ];
 
+const DEFAULT_H3_WORKFLOW_ID = 'minimax_h3_image_audio_to_video_v2';
+
 const PLATFORM_PRESETS = [
   { id: 'yd2-mini-video', displayName: 'YD2.0 Mini（图生）', description: '平台已维护视频适配器；只需填写 API Key。', credentialMode: 'apiKey' },
-  { id: 'minimax-h3-video', displayName: 'MiniMax H3 多图生视频', description: '支持剧本分镜参考图；只需填写 API Key。', credentialMode: 'apiKey' },
+  { id: 'minimax-h3-video', displayName: 'MiniMax H3 多图生视频', description: '支持切换 AutoDL 工作流；填写 API Key 和工作流 ID。', credentialMode: 'apiKey' },
   { id: 'seedance-2-0-official', displayName: 'Seedance 2.0 官方', description: 'YFAI 官方直连；支持文生视频和参考图；只需填写 API Key。', credentialMode: 'apiKey' },
   { id: 'local-doubao-executor-video', displayName: '本地豆包执行器', description: '无需 API Key，完成本地执行器配对后才能启用。', credentialMode: 'executorPairing' }
 ];
@@ -63,6 +65,7 @@ export default function ApiConfigPage() {
   const [verifiedTextModelKey, setVerifiedTextModelKey] = useState('');
   const [customForm] = Form.useForm();
   const [presetKeys, setPresetKeys] = useState({});
+  const [presetWorkflowIds, setPresetWorkflowIds] = useState({});
   const [doubaoPaired, setDoubaoPaired] = useState(false);
   const [quotas, setQuotas] = useState([]);
   const [quotaLoading, setQuotaLoading] = useState(false);
@@ -87,6 +90,8 @@ export default function ApiConfigPage() {
     }
     setDoubaoPaired(paired);
     setModels(nextModels);
+    const h3 = nextModels.find(model => model.id === 'minimax-h3-video');
+    if (h3) setPresetWorkflowIds(current => ({ ...current, 'minimax-h3-video': h3.workflowId || DEFAULT_H3_WORKFLOW_ID }));
     setQuotas(nextQuotas);
   }, [canManageApi]);
 
@@ -105,6 +110,8 @@ export default function ApiConfigPage() {
         }
         setDoubaoPaired(paired);
         setModels(nextModels);
+        const h3 = nextModels.find(model => model.id === 'minimax-h3-video');
+        if (h3) setPresetWorkflowIds(current => ({ ...current, 'minimax-h3-video': h3.workflowId || DEFAULT_H3_WORKFLOW_ID }));
         setQuotas(nextQuotas);
       }
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
@@ -202,6 +209,7 @@ export default function ApiConfigPage() {
   async function savePreset(preset, enabled) {
     const existing = modelById.get(preset.id);
     const key = String(presetKeys[preset.id] || '').trim();
+    const workflowId = String(presetWorkflowIds[preset.id] || '').trim();
     if (preset.credentialMode === 'apiKey' && enabled && !existing?.hasCredential && !key) return message.warning('请先填写 API Key，再启用该模型');
     if (preset.credentialMode === 'executorPairing' && enabled) {
       const pairing = await refreshLocalDoubaoPairingStatus();
@@ -211,6 +219,7 @@ export default function ApiConfigPage() {
     }
     const payload = { id: preset.id, kind: 'video', displayName: preset.displayName, enabled };
     if (key) payload.credential = key;
+    if (preset.id === 'minimax-h3-video') payload.workflowId = workflowId || DEFAULT_H3_WORKFLOW_ID;
     try {
       if (existing) await updateManagedModel(preset.id, payload);
       else await createManagedModel(payload);
@@ -235,8 +244,8 @@ export default function ApiConfigPage() {
           const model = modelById.get(preset.id);
           return <div className="ac-platform-preset-grid" key={preset.id}>
             <div className="ac-platform-preset-info"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>{preset.displayName}</strong><small>{preset.description}</small></div></div>
-            <div className="ac-platform-preset-credential">{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}<ModelQuotaStatus quota={quotaById.get(preset.id)} /></div>
-            <div className="ac-platform-preset-state"><Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} /><small>{model?.enabled ? '已启用' : '未启用'}</small></div>
+            <div className="ac-platform-preset-credential">{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Space direction="vertical" style={{ width: '100%' }} size={6}><Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />{preset.id === 'minimax-h3-video' ? <Input value={presetWorkflowIds[preset.id] || DEFAULT_H3_WORKFLOW_ID} onChange={event => setPresetWorkflowIds(current => ({ ...current, [preset.id]: event.target.value }))} addonBefore="AutoDL 工作流 ID" placeholder={DEFAULT_H3_WORKFLOW_ID} /> : null}</Space>}<ModelQuotaStatus quota={quotaById.get(preset.id)} /></div>
+            <div className="ac-platform-preset-state"><Space direction="vertical" size={4}><Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} /><small>{model?.enabled ? '已启用' : '未启用'}</small>{preset.id === 'minimax-h3-video' ? <Button size="small" onClick={() => savePreset(preset, model?.enabled === true)}>保存工作流</Button> : null}</Space></div>
           </div>;
         })}
       </Panel>
