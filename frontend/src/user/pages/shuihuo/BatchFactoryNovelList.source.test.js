@@ -23,12 +23,23 @@ test('keeps people and scene presets inside each book row instead of the global 
 	assert.match(source, /管理当前书资产/);
 });
 
-test('saves a named automation preset from the automatic-production schedule dialog', () => {
+test('starts scheduled automation from an existing preset without editing it in the dialog', () => {
   const scheduleDialog = source.match(/<Modal title="开始定时"[\s\S]*?<\/Modal>/)?.[0] || '';
   assert.match(scheduleDialog, /<b>自动化预设<\/b>/);
-  assert.match(scheduleDialog, /<b>预设名称<\/b>/);
-  assert.match(scheduleDialog, /保存当前引擎配置和 AI 推理/);
-  assert.match(scheduleDialog, /saveCurrentAutomationPreset/);
+  assert.match(scheduleDialog, /<b>执行模式<\/b>/);
+  assert.match(scheduleDialog, /<b>执行时间<\/b>/);
+  assert.doesNotMatch(scheduleDialog, /预设名称/);
+  assert.doesNotMatch(scheduleDialog, /saveCurrentAutomationPreset/);
+  assert.match(source, /请先选择自动化预设/);
+});
+
+test('uses one unified configuration entry without clearing single-book overrides', () => {
+  const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
+  assert.match(toolbar, />统一配置<\/Button>/);
+  assert.doesNotMatch(toolbar, />引擎配置<\/Button>/);
+  assert.doesNotMatch(toolbar, />AI 推理<\/Button>/);
+  assert.match(source, /BatchFactoryUnifiedSettingsModal/);
+  assert.doesNotMatch(source, /restoreKeys: UNIFIED_BOOK_SETTING_KEYS/);
 });
 
 test('lets a book review a viral candidate before replacing working content', () => {

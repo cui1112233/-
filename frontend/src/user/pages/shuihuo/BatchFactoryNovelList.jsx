@@ -50,7 +50,6 @@ import {
   getProductionStatus,
   getBatchAutomationStatus,
   listAutomationPresets,
-  saveBatchAutomationPreset,
   startBatchAutomation,
   pauseBatchAutomation,
   resumeBatchAutomation,
@@ -80,8 +79,7 @@ import {
 } from '../../../shared/api/batchFactoryV11';
 import { getConfig } from '../../../shared/api/config';
 import { textToSpeech } from '../../../shared/api/tts';
-import { BatchFactoryEngineSettingsDrawer } from './BatchFactoryEngineSettingsDrawer';
-import { BatchFactoryAiReasoningModal } from './BatchFactoryAiReasoningModal';
+import { BatchFactoryUnifiedSettingsModal } from './BatchFactoryUnifiedSettingsModal';
 import { BatchFactoryBookSettingsModal } from './BatchFactoryBookSettingsModal';
 import { batchFactoryBatchProgress, batchFactoryBookState, batchFactoryBookTimeline, batchFactoryNovelTableRow, batchFactoryVideoProgress } from './batchFactoryBookState';
 import { batchFactoryPreviewText, batchFactoryProductionText, contentRangeLinesForBook } from './batchFactoryContentRange';
@@ -1895,8 +1893,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 	const [mediaVideoId, setMediaVideoId] = useState('');
 	const [mediaStartTab, setMediaStartTab] = useState('clips');
 	const [rowStoryboardSelection, setRowStoryboardSelection] = useState({});
-  const [aiOpen, setAiOpen] = useState(false);
-  const [engineOpen, setEngineOpen] = useState(false);
+  const [unifiedSettingsOpen, setUnifiedSettingsOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState('');
@@ -1905,7 +1902,6 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [automationStartOpen, setAutomationStartOpen] = useState(false);
   const [automationPresets, setAutomationPresets] = useState([]);
   const [automationPresetID, setAutomationPresetID] = useState('');
-  const [automationPresetName, setAutomationPresetName] = useState('');
   const [automationRunMode, setAutomationRunMode] = useState('video_no_submit');
   const [automationScheduledAt, setAutomationScheduledAt] = useState('');
   const [productionStatus, setProductionStatus] = useState(null);
@@ -2352,22 +2348,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       setAutomationStartOpen(true);
     } catch (error) { message.error(error?.message || '读取自动化预设失败'); }
   }
-  async function saveCurrentAutomationPreset() {
-    const name = String(automationPresetName || '').trim();
-    if (!name) { message.warning('请先填写自动化预设名称'); return; }
-    setAutomationBusy('preset');
-    try {
-      const result = await saveBatchAutomationPreset(batch.id, name);
-      const preset = resultData(result, 'preset');
-      const values = await loadAutomationPresets();
-      setAutomationPresetID(preset?.id || values[0]?.id || '');
-      setAutomationPresetName('');
-      message.success('已保存自动化预设。');
-    } catch (error) { message.error(error?.message || '保存自动化预设失败'); }
-    finally { setAutomationBusy(''); }
-  }
   async function runAutomationAction(key) {
     if (!batch?.id || automationBusy) return;
+    if (key === 'start' && !automationPresetID) { message.warning('请先选择自动化预设'); return; }
     setAutomationBusy(key);
     try {
       let result;
@@ -2422,12 +2405,8 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     try {
       const normalized = { ...patch, audioDurationSeconds: 0, ...(patch.fixedSingleVideo === true ? { audioPlanningEnabled: false, audioMergeEnabled: false } : {}) };
       await saveBatchSettings(batch.id, { patch: normalized, expectedRevision: Number(batch?.settingsState?.revision || 0) });
-      for (let index = 0; index < books.length; index += 8) {
-        const group = books.slice(index, index + 8);
-        await Promise.all(group.map(book => saveBookOverrideWithRetry(batch.id, book.id, Number(book.revision || 0), { patch: {}, restoreKeys: UNIFIED_BOOK_SETTING_KEYS })));
-      }
       await refreshBatch();
-      message.success(`统一设置已应用到当前 ${books.length} 本小说。`);
+      message.success(`统一配置已应用到当前批量；已有单书覆盖保持不变。`);
       return true;
     } catch (error) { message.error(error?.message || '应用统一引擎配置失败'); return false; }
   }
@@ -2503,8 +2482,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       <div className="shuihuo-workbench-heading"><button className="shuihuo-back-link" type="button" title="返回个人作品" aria-label="返回个人作品" onClick={onBack}><ArrowLeftOutlined /></button><strong>批量工厂 V12 · {batch?.title || '未命名批量'}</strong><div className="shuihuo-workbench-progress" aria-label={`完成率 ${batchProgress.completionPercent}%`}><div className="shuihuo-workbench-progress-track batch-factory-completion-track">{progressSegments.map(segment => <i key={segment.key} className={`is-${segment.key}`} title={`${segment.label} ${segment.count} 本`} style={{ width: `${segment.percent}%` }} />)}</div><span>{batchProgress.completionPercent}%</span></div></div>
       <div className="shuihuo-workbench-toolbar" role="toolbar" aria-label="批量工厂工具栏">
         <Button type="text" icon={<BarsOutlined />} onClick={() => setNovelListOpen(true)}>小说列表</Button>
-        <Button type="text" icon={<SettingOutlined />} onClick={() => setEngineOpen(true)}>引擎配置</Button>
-        <Tooltip title={runCapability.available ? '配置并生成资产、画面和视频提示词' : '可先配置并保存提示词；执行生成前需要可用的文本模型。'}><Button type="text" icon={<FileTextOutlined />} onClick={() => setAiOpen(true)}>AI 推理</Button></Tooltip>
+        <Button type="text" icon={<SettingOutlined />} onClick={() => setUnifiedSettingsOpen(true)}>统一配置</Button>
         <Dropdown menu={{ items: automationMenuItems, onClick: ({ key }) => key === 'start' ? openAutomationStart() : runAutomationAction(key) }}><Button type="text" loading={Boolean(automationBusy)} disabled={automationState === 'idle' && automationStartBlocked}>{automationLabel}</Button></Dropdown>
         <Dropdown menu={{ items: batchMenuItems, onClick: ({ key }) => key === 'production' ? runProduction() : runMerge() }}><Button className="shuihuo-batch-button" type="text" icon={<PictureOutlined />} loading={actionBusy === 'production' || actionBusy === 'merge'}>批量操作</Button></Dropdown>
 		<Tooltip title={cancelCapability.available ? '取消可取消的本地执行器任务；其它供应商保持在途状态。' : cancelCapability.reason}><Button className="shuihuo-cancel-button" type="text" loading={actionBusy === 'cancel'} disabled={!cancelCapability.available || Boolean(actionBusy)} onClick={cancelProduction}>取消操作</Button></Tooltip>
@@ -2582,17 +2560,15 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       /> : null}
     </Modal>
 
-    <BatchFactoryAiReasoningModal open={aiOpen} batch={batch} books={books} presetVersions={configVersions} onClose={() => setAiOpen(false)} onSaved={refreshBatch} onPresetsChanged={async () => { const next = await getConfigVersions(); setConfigVersions(resultData(next, 'configVersions') || []); }} onRun={() => runAi('all')} running={actionBusy === 'director'} runAvailable={runCapability.available} runReason={runCapability.reason} />
+    <BatchFactoryUnifiedSettingsModal open={unifiedSettingsOpen} batch={batch} onClose={() => setUnifiedSettingsOpen(false)} onSaved={saveSettings} />
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs automationStatus={automationStatus} productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
     <Modal title="开始定时" open={automationStartOpen} onCancel={() => setAutomationStartOpen(false)} onOk={() => runAutomationAction('start')} confirmLoading={automationBusy === 'start'} okText={automationScheduledAt ? '保存定时任务' : '立即开始'} width={620} destroyOnClose>
       <Space direction="vertical" size={14} style={{ width: '100%' }}>
         <label className="batch-factory-engine-field"><span><b>自动化预设</b></span><Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} style={{ width: '100%' }} /></label>
-        <label className="batch-factory-engine-field"><span><b>预设名称</b></span><Space.Compact style={{ width: '100%' }}><Input value={automationPresetName} onChange={event => setAutomationPresetName(event.target.value)} placeholder="保存当前引擎配置和 AI 推理" /><Button loading={automationBusy === 'preset'} onClick={saveCurrentAutomationPreset}>保存预设</Button></Space.Compact></label>
         <label className="batch-factory-engine-field"><span><b>执行模式</b></span><Select value={automationRunMode} onChange={setAutomationRunMode} style={{ width: '100%' }} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交' }]} /></label>
         <label className="batch-factory-engine-field"><span><b>执行时间</b></span><Input type="datetime-local" value={automationScheduledAt} onChange={event => setAutomationScheduledAt(event.target.value)} placeholder="留空则立即执行" /></label>
       </Space>
     </Modal>
-    <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} onOpenPublish={() => { setUploadMode(''); setEngineOpen(true); }} onRefresh={refreshBatch} />
-    <BatchFactoryEngineSettingsDrawer open={engineOpen} batch={batch} onClose={() => setEngineOpen(false)} onSave={saveSettings} />
+    <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} onOpenPublish={() => { setUploadMode(''); setUnifiedSettingsOpen(true); }} onRefresh={refreshBatch} />
   </section>;
 }

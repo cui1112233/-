@@ -130,6 +130,23 @@ test('automation uses controller dispatcher capacity and does not persist caller
   assert.equal(Object.hasOwn(Object.values(persisted.jobs)[0], 'concurrency'), false);
 });
 
+test('automation freezes a deep copy of the selected unified preset at start', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { adapter } = fixture();
+  let currentTime = 0;
+  let appliedSnapshot = null;
+  adapter.applyExecutionSnapshot = async ({ configSnapshot: value }) => { appliedSnapshot = value; };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  const configSnapshot = { textModelId: 'frozen-text', publishSettings: { organization: 'frozen-org' }, aiPromptConfig: { constraints: { baseSetup: { enabled: false } } } };
+  await controller.start({ owner: 'user', batchId: 'batch-1', scheduledAt: '1970-01-01T00:00:01.000Z', runMode: 'storyboard_only', preset: { id: 'preset-1', name: '夜间 H3', version: 1 }, configSnapshot });
+  configSnapshot.publishSettings.organization = 'mutated-org';
+  configSnapshot.aiPromptConfig.constraints.baseSetup.enabled = true;
+  currentTime = 1_000;
+  for (let index = 0; index < 4; index += 1) { await controller.tick(); await wait(); }
+  assert.equal(appliedSnapshot.publishSettings.organization, 'frozen-org');
+  assert.equal(appliedSnapshot.aiPromptConfig.constraints.baseSetup.enabled, false);
+});
+
 test('one blocked book does not erase another completed book', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();

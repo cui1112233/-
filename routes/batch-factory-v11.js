@@ -1401,6 +1401,7 @@ function createBatchFactoryV11Router(options = {}) {
   router.post('/batches/:batchId/automation/start', async (req, res) => {
     try {
       const presetId = String(req.body?.presetId || '').trim();
+      if (!presetId) throw requestError('请先选择自动化预设', 400, 'AUTOMATION_PRESET_REQUIRED');
       const preset = presetId ? await automationPresets.get(req.username, presetId) : null;
       if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
       const current = await v11JSONRequest({
