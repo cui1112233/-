@@ -25,12 +25,14 @@ test('所有任务详情浮层都有可见关闭按钮并支持点击遮罩关�
 test('小说获取全部弹框支持遮罩退出，并在提交中锁定关闭', () => {
   const app = read('frontend/public/batch-rewrite/app.js');
   assert.match(app, /function setModalBusy\(/);
+  assert.match(app, /dialog\.addEventListener\("pointerdown", event => \{/);
   assert.match(app, /event\.target === dialog && !isModalBusy\("webLoginDialog"\)/);
   assert.match(app, /setModalBusy\("webLoginDialog", true\)/);
   assert.match(app, /setModalBusy\("webLoginDialog", false\)/);
   assert.match(app, /loginButtons\.forEach\(button => \{ button\.disabled = true; \}\)/);
   assert.match(app, /loginButtons\.forEach\(button => \{ button\.disabled = false; \}\)/);
   assert.match(app, /event\.target === \$\("versionConfigCard"\) && !isModalBusy\("versionConfigCard"\)/);
+  assert.match(app, /\$\("versionConfigCard"\)\.addEventListener\("pointerdown", event => \{/);
   assert.match(app, /setModalBusy\("versionConfigCard", true\)/);
   assert.match(app, /setModalBusy\("versionConfigCard", false\)/);
   assert.match(app, /if \(isModalBusy\("versionConfigCard"\)\) return;/);

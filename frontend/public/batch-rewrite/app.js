@@ -1741,6 +1741,9 @@ async function openWebLoginDialog() {
     dialog.id = "webLoginDialog";
     dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
     document.body.appendChild(dialog);
+    dialog.addEventListener("pointerdown", event => {
+      if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
+    });
     dialog.addEventListener("click", event => {
       if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
     });
@@ -3722,6 +3725,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("versionConfigCard").addEventListener("cancel", event => {
     event.preventDefault();
     if (!isModalBusy("versionConfigCard")) closeVersionConfigCard();
+  });
+  $("versionConfigCard").addEventListener("pointerdown", event => {
+    if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("versionConfigCard").addEventListener("click", event => {
     if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
