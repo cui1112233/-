@@ -2596,13 +2596,14 @@ function renderDetail(data) {
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
       ${metaItem("AI判断", classifyDetailText(meta))}
-      ${metaItem("分类模型", meta.classifier_model)}
+      ${metaItem("分类模型（历史分类）", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
       ${metaItem("原文失败原因", meta.original_error || "")}
       ${metaItem("原文错误码", meta.original_error_code || "")}
       ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
+      ${metaItem("敏感词模型（本次执行）", meta.sensitive_model)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
       ${metaItem("AI状态", taskStatusText(meta.ai_status))}
       ${metaItem("AI失败原因", meta.ai_error || "")}

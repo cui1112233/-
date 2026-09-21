@@ -196,6 +196,16 @@ test('V78 日期修复使用新的脚本缓存键', () => {
   assert.match(page, /DATE_CLIENT_PATH\}\?v=20260922-rendered-date-r1/);
 });
 
+test('任务详情区分历史分类模型和本次敏感词执行模型', () => {
+  const route = read('routes/batch-rewrite.js');
+  const app = read('frontend/dist/batch-rewrite/app.js');
+  assert.match(route, /sensitive_model: task\.sensitiveModel \|\| task\.sensitive_model \|\| ''/);
+  assert.match(route, /sensitive_status: task\.sensitiveStatus \|\| task\.sensitive_status \|\| ''/);
+  assert.match(app, /分类模型（历史分类）/);
+  assert.match(app, /敏感词模型（本次执行）/);
+  assert.match(app, /meta\.sensitive_model/);
+});
+
 test('生产镜像将 V78 桥接脚本复制到前端静态目录', () => {
   const dockerfile = read('Dockerfile');
   assert.match(dockerfile, /COPY public\/batch-rewrite\/v78-novel-fetch-v2\.js \.\/frontend\/dist\/batch-rewrite\/v78-novel-fetch-v2\.js/);
