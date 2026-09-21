@@ -5,7 +5,7 @@ import { HomeRoute } from './pages/HomeRoute';
 const ScriptPage = lazy(() => import('./pages/ScriptPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
-const AgentPage = lazy(() => import('./pages/AgentPageV2').then(module => ({ default: module.AgentPageV2 })));
+const AgentPage = lazy(() => import('./pages/host-agent/HostEntries').then(module => ({ default: module.HostAgentEntry })));
 const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
